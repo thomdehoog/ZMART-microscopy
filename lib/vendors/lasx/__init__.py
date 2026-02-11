@@ -12,6 +12,7 @@ Submodules
     parser               XML / LRP / RGN template parser
     api_enrichment       live API enrichment
     offline_enrichment   OME-TIFF file-based enrichment
+    autofocus            LAS X autofocus hardware control
     visualizer           tile layout matplotlib visualiser
     visualizer_extended  z-surface, image overlay, AF path visualiser
 """
