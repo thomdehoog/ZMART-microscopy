@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-microscope_connector.py â€” Manufacturer-agnostic microscope API connector.
+microscope_connector.py — Manufacturer-agnostic microscope API connector.
 
 Provides a generic interface for connecting to microscope software APIs.
 Manufacturer-specific implementations (Leica LAS X, Zeiss ZEN, Nikon NIS, etc.)
@@ -8,8 +8,8 @@ live in separate files and register themselves via the backend registry.
 
 Architecture
 ------------
-    MicroscopeConnector          Abstract base class â€” defines the contract.
-    initialize_api()             Factory function â€” creates the right backend.
+    MicroscopeConnector          Abstract base class — defines the contract.
+    initialize_api()             Factory function — creates the right backend.
     register_backend()           Registers a manufacturer-specific connector class.
 
 Usage
@@ -63,7 +63,7 @@ __all__ = [
 __version__ = "1.0.0"
 
 
-# â”€â”€â”€ Backend Registry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Backend Registry ────────────────────────────────────────────────────────
 
 _BACKEND_REGISTRY: Dict[str, Type[MicroscopeConnector]] = {}
 
@@ -98,7 +98,7 @@ def list_backends() -> List[str]:
     return sorted(_BACKEND_REGISTRY.keys())
 
 
-# â”€â”€â”€ Abstract Base Class â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Abstract Base Class ─────────────────────────────────────────────────────
 
 
 class MicroscopeConnector(ABC):
@@ -150,7 +150,7 @@ class MicroscopeConnector(ABC):
         self._connected: bool = False
         self._owns_connection: bool = True
 
-    # â”€â”€ Connection lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Connection lifecycle ──────────────────────────────────────────────
 
     @abstractmethod
     def connect(self) -> bool:
@@ -201,7 +201,7 @@ class MicroscopeConnector(ABC):
         """
         return "unknown"
 
-    # â”€â”€ Generic command execution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Generic command execution ─────────────────────────────────────────
 
     @abstractmethod
     def execute_command(
@@ -226,7 +226,7 @@ class MicroscopeConnector(ABC):
         """
         ...
 
-    # â”€â”€ Hardware & job queries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Hardware & job queries ────────────────────────────────────────────
 
     @abstractmethod
     def get_hardware_info(self) -> Optional[Dict[str, Any]]:
@@ -251,7 +251,7 @@ class MicroscopeConnector(ABC):
         -------
         list[dict] or None
             Each dict contains at least ``"Name"`` (str).
-            Additional keys (``"ID"``, ``"IsAutofocus"``, â€¦) are
+            Additional keys (``"ID"``, ``"IsAutofocus"``, …) are
             backend-specific.
         """
         ...
@@ -275,11 +275,11 @@ class MicroscopeConnector(ABC):
         Returns
         -------
         dict or None
-            Job-specific settings (pixel size, image size, zoom, â€¦).
+            Job-specific settings (pixel size, image size, zoom, …).
         """
         ...
 
-    # â”€â”€ Convenience â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Convenience ───────────────────────────────────────────────────────
 
     def get_all_job_settings(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -302,7 +302,7 @@ class MicroscopeConnector(ABC):
                     result[name] = settings
         return result
 
-    # â”€â”€ Wrapping an existing client â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Wrapping an existing client ───────────────────────────────────────
 
     @classmethod
     def from_existing_client(
@@ -337,7 +337,7 @@ class MicroscopeConnector(ABC):
         instance._owns_connection = False
         return instance
 
-    # â”€â”€ Context manager â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Context manager ───────────────────────────────────────────────────
 
     def __enter__(self) -> "MicroscopeConnector":
         if not self._connected:
@@ -348,7 +348,7 @@ class MicroscopeConnector(ABC):
         self.disconnect()
         return False
 
-    # â”€â”€ Representation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Representation ────────────────────────────────────────────────────
 
     def __repr__(self) -> str:
         status = "connected" if self._connected else "disconnected"
@@ -360,7 +360,7 @@ class MicroscopeConnector(ABC):
         )
 
 
-# â”€â”€â”€ Factory Function â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Factory Function ────────────────────────────────────────────────────────
 
 
 def initialize_api(
@@ -467,19 +467,19 @@ def _try_auto_import(backend_key: str) -> None:
         pass
 
 
-# â”€â”€â”€ CLI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── CLI ──────────────────────────────────────────────────────────────────────
 
 
 if __name__ == "__main__":
     print("Microscope Connector Framework")
     print("=" * 50)
     print(f"Version: {__version__}")
-    print(f"Registered backends: {list_backends() or '(none â€” import a backend first)'}")
+    print(f"Registered backends: {list_backends() or '(none — import a backend first)'}")
     print()
     print("Usage:")
     print("  from microscope_connector import initialize_api")
     print('  api = initialize_api("lasx", client_name="PythonClient")')
     print()
     print("Available backend modules (import to register):")
-    print("  lasx_connector   â€” Leica LAS X")
-    print("  (more to come)   â€” Zeiss ZEN, Nikon NIS-Elements, ...")
+    print("  lasx_connector   — Leica LAS X")
+    print("  (more to come)   — Zeiss ZEN, Nikon NIS-Elements, ...")

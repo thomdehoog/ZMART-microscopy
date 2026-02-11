@@ -12,17 +12,17 @@ or their companion XML files.
 Expected folder layout
 ======================
     experiment_root/
-    â”œâ”€â”€ metadata/                     â† template files live here
-    â”‚   â”œâ”€â”€ _ScanningTemplate.xml
-    â”‚   â”œâ”€â”€ _ScanningTemplate.lrp
-    â”‚   â””â”€â”€ _ScanningTemplate.rgn
-    â”œâ”€â”€ slide--S00/
-    â”‚   â””â”€â”€ chamber--U04--V03/
-    â”‚       â””â”€â”€ field--X00--Y00/
-    â”‚           â”œâ”€â”€ image--â€¦--J30--â€¦--C00.ome.tif
-    â”‚           â”œâ”€â”€ image--â€¦--J30--â€¦--C01.ome.tif
-    â”‚           â””â”€â”€ image--â€¦--T0000_ome.xml
-    â””â”€â”€ â€¦
+    ├── metadata/                     ← template files live here
+    │   ├── _ScanningTemplate.xml
+    │   ├── _ScanningTemplate.lrp
+    │   └── _ScanningTemplate.rgn
+    ├── slide--S00/
+    │   └── chamber--U04--V03/
+    │       └── field--X00--Y00/
+    │           ├── image--…--J30--…--C00.ome.tif
+    │           ├── image--…--J30--…--C01.ome.tif
+    │           └── image--…--T0000_ome.xml
+    └── …
 
 The module walks *up* from the template folder, then recursively scans
 sibling folders for ``*.ome.tif`` and ``*_ome.xml`` files.  Each file's
@@ -51,7 +51,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Constants ────────────────────────────────────────────────────────────────
 
 # Regex to pull J## from LAS X filenames
 _JOB_ID_RE = re.compile(r"--J(\d+)--")
@@ -64,7 +64,7 @@ _OME_TIFF_GLOBS = ["*.ome.tif", "*.ome.tiff"]
 _OME_XML_GLOBS = ["*_ome.xml"]
 
 
-# â”€â”€ OME Metadata Extraction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── OME Metadata Extraction ─────────────────────────────────────────────────
 
 def _detect_ome_namespace(root: ET.Element) -> str:
     """Return the OME namespace URI from the root element's tag."""
@@ -77,17 +77,17 @@ def _parse_ome_xml_string(xml_str: str) -> Optional[Dict[str, Any]]:
     Parse an OME-XML string and extract imaging metadata.
 
     Returns a dict with:
-        pixel_size_um   â€“ {"x": float, "y": float}
-        image_size_px   â€“ {"x": int,   "y": int}
-        image_size_um   â€“ {"x": float, "y": float}   (from DimensionDescription or computed)
-        objective_name  â€“ str
-        zoom            â€“ float
-        base_zoom       â€“ float
-        scan_mode       â€“ str
-        stage_position  â€“ {"x_m": float, "y_m": float, "z_m": float}
-        n_channels      â€“ int   (from SizeC or counted from channel filenames)
-        bit_depth       â€“ str   (e.g. "uint16")
-        image_name      â€“ str   (full path embedded by LAS X)
+        pixel_size_um   – {"x": float, "y": float}
+        image_size_px   – {"x": int,   "y": int}
+        image_size_um   – {"x": float, "y": float}   (from DimensionDescription or computed)
+        objective_name  – str
+        zoom            – float
+        base_zoom       – float
+        scan_mode       – str
+        stage_position  – {"x_m": float, "y_m": float, "z_m": float}
+        n_channels      – int   (from SizeC or counted from channel filenames)
+        bit_depth       – str   (e.g. "uint16")
+        image_name      – str   (full path embedded by LAS X)
     """
     if not xml_str or not xml_str.strip():
         return None
@@ -108,12 +108,12 @@ def _parse_ome_xml_string(xml_str: str) -> Optional[Dict[str, Any]]:
 
     result: Dict[str, Any] = {}
 
-    # â”€â”€ Image element â”€â”€
+    # ── Image element ──
     img_elem = _find("Image")
     if img_elem is not None:
         result["image_name"] = img_elem.get("Name", "")
 
-    # â”€â”€ Pixels element â”€â”€
+    # ── Pixels element ──
     pixels = _find("Pixels")
     if pixels is None:
         return None
@@ -138,7 +138,7 @@ def _parse_ome_xml_string(xml_str: str) -> Optional[Dict[str, Any]]:
     result["n_z_slices"] = size_z
     result["bit_depth"] = pa.get("PixelType", "uint16")
 
-    # â”€â”€ Image physical size from DimensionDescription (more accurate) â”€â”€
+    # ── Image physical size from DimensionDescription (more accurate) ──
     # LAS X stores DimensionDescription in OriginalMetadata with DimID 1 (X)
     # and DimID 2 (Y). The "Length" field is in metres.
     dim_lengths = {}  # DimID -> length_m
@@ -169,13 +169,13 @@ def _parse_ome_xml_string(xml_str: str) -> Optional[Dict[str, Any]]:
             "y": round(len_y_m * 1e6, 4),
         }
     elif phys_x is not None and phys_y is not None and size_x and size_y:
-        # Fallback: compute from pixel size Ã— number of pixels
+        # Fallback: compute from pixel size × number of pixels
         result["image_size_um"] = {
             "x": round(phys_x * size_x, 4),
             "y": round(phys_y * size_y, 4),
         }
 
-    # â”€â”€ Objective, Zoom, ScanMode from OriginalMetadata â”€â”€
+    # ── Objective, Zoom, ScanMode from OriginalMetadata ──
     for om in root.iter(f"{{{ca_ns}}}OriginalMetadata"):
         name = om.get("Name", "")
         value = om.get("Value", "")
@@ -191,7 +191,7 @@ def _parse_ome_xml_string(xml_str: str) -> Optional[Dict[str, Any]]:
         elif name.endswith("ScanMode"):
             result["scan_mode"] = value
 
-    # â”€â”€ Objective from OME Instrument â”€â”€
+    # ── Objective from OME Instrument ──
     obj = _find("Objective")
     if obj is not None:
         if "objective_name" not in result:
@@ -199,7 +199,7 @@ def _parse_ome_xml_string(xml_str: str) -> Optional[Dict[str, Any]]:
         result["objective_serial"] = obj.get("SerialNumber", "")
         result["objective_manufacturer"] = obj.get("Manufacturer", "")
 
-    # â”€â”€ Stage position â”€â”€
+    # ── Stage position ──
     stage = _find("StagePosition")
     if stage is not None:
         result["stage_position"] = {
@@ -229,7 +229,7 @@ def _safe_int(s: Optional[str]) -> Optional[int]:
         return None
 
 
-# â”€â”€ File Discovery â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── File Discovery ───────────────────────────────────────────────────────────
 
 def _extract_job_id_from_filename(filename: str) -> Optional[int]:
     """Extract the job ID (J##) from a LAS X image filename."""
@@ -308,9 +308,9 @@ def discover_ome_files(
     Recursively discover OME-TIFF and OME-XML files under *experiment_root*.
 
     Returns a list of dicts, each containing:
-        path      â€“ Path to the file
-        job_id    â€“ int extracted from J## in filename (or None)
-        source    â€“ "ome_tiff" or "ome_xml"
+        path      – Path to the file
+        job_id    – int extracted from J## in filename (or None)
+        source    – "ome_tiff" or "ome_xml"
     """
     found: List[Dict[str, Any]] = []
     seen_stems: set = set()
@@ -332,7 +332,7 @@ def discover_ome_files(
             job_id = _extract_job_id_from_filename(fn)
 
             if fn_lower.endswith(".ome.tif") or fn_lower.endswith(".ome.tiff"):
-                # Prefer one file per (job_id, field) â€“ use the stem without channel
+                # Prefer one file per (job_id, field) – use the stem without channel
                 stem_key = re.sub(r"--C\d+", "", fn)
                 if stem_key not in seen_stems:
                     seen_stems.add(stem_key)
@@ -366,7 +366,7 @@ def _resolve_experiment_root(
     raise ValueError("Provide either template_dir or experiment_root")
 
 
-# â”€â”€ Metadata Aggregation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Metadata Aggregation ────────────────────────────────────────────────────
 
 def extract_metadata_by_job(
     experiment_root: Path,
@@ -417,18 +417,18 @@ def extract_metadata_by_job(
                 px = meta.get("pixel_size_um", {})
                 im = meta.get("image_size_um", {})
                 print(
-                    f"    J{jid:02d}: pixel={px.get('x','?')}Ã—{px.get('y','?')} Âµm, "
-                    f"image={im.get('x','?')}Ã—{im.get('y','?')} Âµm  "
+                    f"    J{jid:02d}: pixel={px.get('x','?')}×{px.get('y','?')} µm, "
+                    f"image={im.get('x','?')}×{im.get('y','?')} µm  "
                     f"({entry['source']}: {fp.name})"
                 )
 
     return by_job
 
 
-# â”€â”€ Job ID â†’ Job Name Mapping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Job ID → Job Name Mapping ───────────────────────────────────────────────
 
 def _build_job_id_to_name(parsed: Dict[str, Any]) -> Dict[int, str]:
-    """Map job ``id`` (BlockID = J## in filenames) â†’ job name."""
+    """Map job ``id`` (BlockID = J## in filenames) → job name."""
     mapping: Dict[int, str] = {}
     for job_name, job_data in parsed.get("acquisition_jobs", {}).items():
         jid = job_data.get("id")
@@ -437,7 +437,7 @@ def _build_job_id_to_name(parsed: Dict[str, Any]) -> Dict[int, str]:
     return mapping
 
 
-# â”€â”€ Enrichment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Enrichment ───────────────────────────────────────────────────────────────
 
 def enrich_offline(
     parsed: Dict[str, Any],
@@ -452,14 +452,14 @@ def enrich_offline(
     ``lasx_api_enrichment.py``.  It fills in the same fields:
 
     Per job (in ``acquisition_jobs``):
-        - ``pixelSize_um``   â€“ {"x": â€¦, "y": â€¦}
-        - ``imageSize_um``   â€“ {"x": â€¦, "y": â€¦}
-        - ``tileSize_um``    â€“ float (average of x, y)
-        - ``format``         â€“ "1024 x 1024"
-        - ``pixelSize_raw``  â€“ human-readable string
+        - ``pixelSize_um``   – {"x": …, "y": …}
+        - ``imageSize_um``   – {"x": …, "y": …}
+        - ``tileSize_um``    – float (average of x, y)
+        - ``format``         – "1024 x 1024"
+        - ``pixelSize_raw``  – human-readable string
 
     Per position group (in ``acquisition_positions``):
-        - ``tile_size_um``   â€“ propagated from the job
+        - ``tile_size_um``   – propagated from the job
         - per-tile ``bounding_box``
 
     Parameters
@@ -483,17 +483,17 @@ def enrich_offline(
     root = _resolve_experiment_root(template_dir, experiment_root)
 
     if verbose:
-        print(f"  â®ž Offline enrichment from: {root}")
+        print(f"  ⮞ Offline enrichment from: {root}")
 
-    # 1. Discover & parse OME files â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # 1. Discover & parse OME files ────────────────────────────────────────
     meta_by_job_id = extract_metadata_by_job(root, verbose=verbose)
     if not meta_by_job_id:
         if verbose:
-            print("  âš  No OME metadata files found â€“ enrichment skipped")
+            print("  ⚠ No OME metadata files found – enrichment skipped")
         parsed["_offline_enrichment"] = {"success": False, "reason": "no_ome_files"}
         return parsed
 
-    # 2. Map job IDs â†’ job names â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # 2. Map job IDs → job names ───────────────────────────────────────────
     id_to_name = _build_job_id_to_name(parsed)
 
     enriched = _deep_copy_dict(parsed)
@@ -503,45 +503,45 @@ def enrich_offline(
         job_name = id_to_name.get(job_id)
         if job_name is None:
             if verbose:
-                print(f"    âš  J{job_id:02d} not matched to any parsed job â€“ skipped")
+                print(f"    ⚠ J{job_id:02d} not matched to any parsed job – skipped")
             continue
         if job_name not in enriched.get("acquisition_jobs", {}):
             continue
 
         job = enriched["acquisition_jobs"][job_name]
 
-        # â”€â”€ Pixel size â”€â”€
+        # ── Pixel size ──
         px = meta.get("pixel_size_um")
         if px:
             job["pixelSize_um"] = px
             job["pixelSize_raw"] = (
                 f"{px['x']*1000:.2f} nm x {px['y']*1000:.2f} nm"
                 if px["x"] < 1.0
-                else f"{px['x']:.4f} Âµm x {px['y']:.4f} Âµm"
+                else f"{px['x']:.4f} µm x {px['y']:.4f} µm"
             )
             job["pixelSize"] = job["pixelSize_raw"]  # compat with visualizer
 
-        # â”€â”€ Image / tile size â”€â”€
+        # ── Image / tile size ──
         im = meta.get("image_size_um")
         if im:
             job["imageSize_um"] = im
             tile = round((im["x"] + im["y"]) / 2.0, 4)
             job["tileSize_um"] = tile
-            job["imageSize_raw"] = f"{im['x']:.2f} Âµm x {im['y']:.2f} Âµm"
+            job["imageSize_raw"] = f"{im['x']:.2f} µm x {im['y']:.2f} µm"
             job["imageSize"] = job["imageSize_raw"]
 
-        # â”€â”€ Format (resolution) â”€â”€
+        # ── Format (resolution) ──
         sz = meta.get("image_size_px")
         if sz:
             job["format"] = f"{sz['x']} x {sz['y']}"
 
-        # â”€â”€ Objective (enrich if missing) â”€â”€
+        # ── Objective (enrich if missing) ──
         obj_name = meta.get("objective_name")
         if obj_name and "objective" in job:
             if not job["objective"].get("name"):
                 job["objective"]["name"] = obj_name
 
-        # â”€â”€ Zoom â”€â”€
+        # ── Zoom ──
         zoom_val = meta.get("zoom")
         if zoom_val is not None and "zoom" in job:
             job["zoom"]["current"] = zoom_val
@@ -550,12 +550,12 @@ def enrich_offline(
 
         if verbose:
             print(
-                f"    âœ” {job_name} (J{job_id:02d}): "
+                f"    ✔ {job_name} (J{job_id:02d}): "
                 f"pixel={job.get('pixelSize_raw', '?')}, "
-                f"tile={job.get('tileSize_um', '?')} Âµm"
+                f"tile={job.get('tileSize_um', '?')} µm"
             )
 
-    # 3. Update visualization_data tile sizes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # 3. Update visualization_data tile sizes ──────────────────────────────
     viz = enriched.get("visualization_data", {})
     job_tile_sizes = viz.get("job_tile_sizes", {})
     for jn in jobs_enriched:
@@ -564,7 +564,7 @@ def enrich_offline(
             job_tile_sizes[jn] = ts
     viz["job_tile_sizes"] = job_tile_sizes
 
-    # 4. Propagate tile sizes to position groups â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # 4. Propagate tile sizes to position groups ───────────────────────────
     positions = enriched.get("acquisition_positions", {})
     for gid, group in positions.items():
         jn = group.get("job_name")
@@ -581,7 +581,7 @@ def enrich_offline(
                         "y_max_um": round(pos["y_um"] + h, 4),
                     }
 
-    # 5. Metadata stamp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # 5. Metadata stamp ────────────────────────────────────────────────────
     enriched["_offline_enrichment"] = {
         "success": True,
         "jobs_enriched": jobs_enriched,
@@ -595,13 +595,13 @@ def enrich_offline(
             if jn not in jobs_enriched
         ]
         if not_enriched:
-            print(f"  âš  Jobs without offline metadata: {not_enriched}")
-        print("  âœ” Offline enrichment complete")
+            print(f"  ⚠ Jobs without offline metadata: {not_enriched}")
+        print("  ✔ Offline enrichment complete")
 
     return enriched
 
 
-# â”€â”€ Convenience helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Convenience helpers ──────────────────────────────────────────────────────
 
 def _deep_copy_dict(d: Dict) -> Dict:
     """Simple recursive dict copy (avoids importing copy for portability)."""
@@ -628,15 +628,15 @@ def get_ome_summary(
             sz = m.get("image_size_px", {})
             obj = m.get("objective_name", "?")
             print(
-                f"    J{jid:02d}: {sz.get('x','?')}Ã—{sz.get('y','?')} px, "
-                f"pixel {px.get('x','?')}Ã—{px.get('y','?')} Âµm, "
-                f"FOV {im.get('x','?')}Ã—{im.get('y','?')} Âµm, "
+                f"    J{jid:02d}: {sz.get('x','?')}×{sz.get('y','?')} px, "
+                f"pixel {px.get('x','?')}×{px.get('y','?')} µm, "
+                f"FOV {im.get('x','?')}×{im.get('y','?')} µm, "
                 f"obj={obj}"
             )
     return meta
 
 
-# â”€â”€ CLI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── CLI ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import sys
@@ -658,7 +658,7 @@ if __name__ == "__main__":
         rgn_path = sys.argv[4] if len(sys.argv) > 4 else None
 
         print(f"\n{'='*60}")
-        print("Parsing template + offline enrichmentâ€¦")
+        print("Parsing template + offline enrichment…")
         parsed = parse_template(xml_path, lrp_path, rgn_path)
         enriched = enrich_offline(parsed, experiment_root=exp_root)
 
@@ -666,4 +666,4 @@ if __name__ == "__main__":
         out = exp_root.rstrip("/\\") + "_offline_enriched.json"
         with open(out, "w") as f:
             json.dump(enriched, f, indent=2)
-        print(f"\nâœ” Saved to {out}")
+        print(f"\n✔ Saved to {out}")

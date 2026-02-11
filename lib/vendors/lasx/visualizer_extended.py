@@ -8,7 +8,7 @@ Extended visualization functions for autofocus workflow:
 - Autofocus path visualization with diagnostics
 - Consistent Y-axis inversion (microscope convention: high Y at top)
 
-Works with the original lasx_visualizer.py Ã¢â‚¬â€ can be used standalone or imported.
+Works with the original lasx_visualizer.py — can be used standalone or imported.
 
 Usage:
     from vendors.lasx.visualizer_extended import (
@@ -39,14 +39,14 @@ except ImportError:
     PIL_AVAILABLE = False
 
 
-# Ã¢â€ÂÃ¢â€ÂÃ¢â€Â Shared helpers Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â
+# ━━━ Shared helpers ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def _setup_axes(ax, *, clean: bool = True):
     """
     Consistent axis setup for all plots.
 
     - aspect equal
-    - Y-axis inverted (high values at top Ã¢â‚¬â€ standard microscope orientation)
+    - Y-axis inverted (high values at top — standard microscope orientation)
     - optionally remove tick labels / grid for a clean look
     """
     ax.set_aspect("equal")
@@ -158,7 +158,7 @@ def _draw_focus_crosshairs(
         all_y.append(fy)
 
 
-# Ã¢â€ÂÃ¢â€ÂÃ¢â€Â Z-Surface Heatmap Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â
+# ━━━ Z-Surface Heatmap ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def visualize_z_surface(
     data: Dict[str, Any],
@@ -260,11 +260,11 @@ def visualize_z_surface(
         sm = ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
         cbar = plt.colorbar(sm, cax=cax)
-        cbar.set_label("Z Position (Ã‚Âµm)", fontsize=10)
+        cbar.set_label("Z Position (µm)", fontsize=10)
 
     z_range = z_max - z_min if all_z else 0
     ax.set_title(
-        f"Z-Surface Map (Range: {z_range:.2f} Ã‚Âµm)",
+        f"Z-Surface Map (Range: {z_range:.2f} µm)",
         fontsize=13, fontweight="bold", color="#222222", pad=12,
     )
 
@@ -286,13 +286,13 @@ def visualize_z_surface(
     if output_path:
         plt.savefig(output_path, dpi=300, bbox_inches="tight",
                     facecolor=fig.get_facecolor())
-        print(f"Ã¢Å“â€œ Z-surface visualization saved to {output_path}")
+        print(f"✓ Z-surface visualization saved to {output_path}")
     if show:
         plt.show()
     return fig
 
 
-# Ã¢â€ÂÃ¢â€ÂÃ¢â€Â Image Overlay Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â
+# ━━━ Image Overlay ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def visualize_with_images(
     data: Dict[str, Any],
@@ -391,7 +391,7 @@ def visualize_with_images(
     if output_path:
         plt.savefig(output_path, dpi=300, bbox_inches="tight",
                     facecolor=fig.get_facecolor())
-        print(f"Ã¢Å“â€œ Image visualization saved to {output_path}")
+        print(f"✓ Image visualization saved to {output_path}")
     if show:
         plt.show()
     return fig
@@ -406,7 +406,7 @@ def _draw_placeholder(ax, cx, cy, h, ts):
     ax.add_patch(rect)
 
 
-# Ã¢â€ÂÃ¢â€ÂÃ¢â€Â Acquisition Path Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â
+# ━━━ Acquisition Path ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def visualize_acquisition_path(
     focus_points: List[Dict[str, Any]],
@@ -488,14 +488,14 @@ def visualize_acquisition_path(
     # Limits & axes
     _auto_limits(ax, all_x, all_y, padding_frac=0.1)
     _setup_axes(ax, clean=False)
-    ax.set_xlabel("X Position (Ã‚Âµm)", fontsize=10)
-    ax.set_ylabel("Y Position (Ã‚Âµm)", fontsize=10)
+    ax.set_xlabel("X Position (µm)", fontsize=10)
+    ax.set_ylabel("Y Position (µm)", fontsize=10)
 
     # Travel distance annotation
     total_dist = _total_dist(focus_points)
     default_title = (
         f"Acquisition Path ({len(focus_points)} points, "
-        f"total: {total_dist:.0f} Ã‚Âµm / {total_dist / 1000:.2f} mm)"
+        f"total: {total_dist:.0f} µm / {total_dist / 1000:.2f} mm)"
     )
     ax.set_title(
         title or default_title,
@@ -512,7 +512,7 @@ def visualize_acquisition_path(
     plt.tight_layout()
     if output_path:
         plt.savefig(output_path, dpi=300, bbox_inches="tight")
-        print(f"Ã¢Å“â€œ Path visualization saved to {output_path}")
+        print(f"✓ Path visualization saved to {output_path}")
     if show:
         plt.show()
     return fig
@@ -528,7 +528,7 @@ def _total_dist(pts: list[dict]) -> float:
     )
 
 
-# Ã¢â€ÂÃ¢â€ÂÃ¢â€Â Comparison View Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â
+# ━━━ Comparison View ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def visualize_comparison(
     data: Dict[str, Any],
@@ -546,7 +546,7 @@ def visualize_comparison(
     all_x: list[float] = []
     all_y: list[float] = []
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Left: layout + path Ã¢â€â‚¬Ã¢â€â‚¬
+    # ── Left: layout + path ──
     for gid, group in positions.items():
         ts = group.get("tile_size_um")
         if ts is None:
@@ -573,7 +573,7 @@ def visualize_comparison(
     _setup_axes(ax1, clean=True)
     ax1.set_title("Acquisition Layout & Path", fontsize=12, fontweight="bold")
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Right: Z heatmap Ã¢â€â‚¬Ã¢â€â‚¬
+    # ── Right: Z heatmap ──
     all_z = [z for gz in z_surface.values() for z in gz.values()]
     z_min, z_max = (min(all_z), max(all_z)) if all_z else (0, 1)
     cmap = plt.get_cmap("viridis")
@@ -608,25 +608,25 @@ def visualize_comparison(
     ax2.set_ylim(ax1.get_ylim())
     _setup_axes(ax2, clean=True)
     ax2.set_title(
-        f"Interpolated Z-Surface (Range: {z_max - z_min:.2f} Ã‚Âµm)",
+        f"Interpolated Z-Surface (Range: {z_max - z_min:.2f} µm)",
         fontsize=12, fontweight="bold",
     )
 
     sm = ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     cbar = plt.colorbar(sm, ax=ax2, fraction=0.046, pad=0.04)
-    cbar.set_label("Z (Ã‚Âµm)")
+    cbar.set_label("Z (µm)")
 
     plt.tight_layout()
     if output_path:
         plt.savefig(output_path, dpi=300, bbox_inches="tight")
-        print(f"Ã¢Å“â€œ Comparison visualization saved to {output_path}")
+        print(f"✓ Comparison visualization saved to {output_path}")
     if show:
         plt.show()
     return fig
 
 
-# Ã¢â€ÂÃ¢â€ÂÃ¢â€Â CLI Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â
+# ━━━ CLI ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 if __name__ == "__main__":
     print("lasx_visualizer_extended.py")

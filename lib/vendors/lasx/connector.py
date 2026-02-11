@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-lasx_connector.py â€” Leica LAS X microscope API connector.
+lasx_connector.py — Leica LAS X microscope API connector.
 
 Implements the :class:`MicroscopeConnector` interface for the Leica
 Application Suite X (LAS X) Python API.  All Leica-specific protocol
@@ -15,7 +15,7 @@ Architecture
         from microscope_connector import register_backend
         register_backend("lasx", LasXConnector)
 
-    Users never need to import this file directly â€” they call::
+    Users never need to import this file directly — they call::
 
         from microscope_connector import initialize_api
         api = initialize_api("lasx", client_name="PythonClient")
@@ -28,7 +28,7 @@ Architecture
 
 Dependencies
 ------------
-    - ``LasxApi`` (Leica Python API SDK, ships with LAS X â‰¥ 3.7)
+    - ``LasxApi`` (Leica Python API SDK, ships with LAS X ≥ 3.7)
     - ``microscope_connector`` (this project)
 
 Metadata
@@ -83,11 +83,11 @@ class LasXConnector(MicroscopeConnector):
             print(api.get_hardware_info())
     """
 
-    # â”€â”€ Class-level constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Class-level constants ─────────────────────────────────────────────
 
     _BACKEND_NAME: str = "lasx"
 
-    # â”€â”€ Initialisation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Initialisation ────────────────────────────────────────────────────
 
     def __init__(
         self,
@@ -97,14 +97,14 @@ class LasXConnector(MicroscopeConnector):
     ) -> None:
         super().__init__(client_name=client_name, timeout=timeout, **kwargs)
 
-    # â”€â”€ Properties â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Properties ────────────────────────────────────────────────────────
 
     @property
     def backend_name(self) -> str:
         """Identifier used by the backend registry."""
         return self._BACKEND_NAME
 
-    # â”€â”€ Connection lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Connection lifecycle ──────────────────────────────────────────────
 
     def connect(self) -> bool:
         """
@@ -155,7 +155,7 @@ class LasXConnector(MicroscopeConnector):
                 self._connected = False
                 return False
             except Exception as e:
-                print(f"  Warning: LAS X API connection failed â€” {e}")
+                print(f"  Warning: LAS X API connection failed — {e}")
                 self._connected = False
                 return False
 
@@ -209,10 +209,10 @@ class LasXConnector(MicroscopeConnector):
             print(f"  Warning: LAS X ping timed out after {self.timeout}s")
             return False
         except Exception as e:
-            print(f"  Warning: LAS X ping failed â€” {e}")
+            print(f"  Warning: LAS X ping failed — {e}")
             return False
 
-    # â”€â”€ Command execution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Command execution ─────────────────────────────────────────────────
 
     def execute_command(
         self,
@@ -246,16 +246,16 @@ class LasXConnector(MicroscopeConnector):
 
                 if self.client.PyApiCommandEcho.Model.HasError:
                     error = self.client.PyApiCommandEcho.Model.Error
-                    print(f"  Warning: Command '{command}' error â€” {error}")
+                    print(f"  Warning: Command '{command}' error — {error}")
                     return False
 
                 return confirmed
 
             except Exception as e:
-                print(f"  Warning: Command '{command}' failed â€” {e}")
+                print(f"  Warning: Command '{command}' failed — {e}")
                 return False
 
-    # â”€â”€ Hardware queries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Hardware queries ──────────────────────────────────────────────────
 
     def get_hardware_info(self) -> Optional[Dict[str, Any]]:
         """
@@ -277,7 +277,7 @@ class LasXConnector(MicroscopeConnector):
 
                 if self.client.PyApiCommandEcho.Model.HasError:
                     error = self.client.PyApiCommandEcho.Model.Error
-                    print(f"  Warning: GetConfocalHardwareInfo error â€” {error}")
+                    print(f"  Warning: GetConfocalHardwareInfo error — {error}")
                     return None
 
                 if not confirmed:
@@ -288,10 +288,10 @@ class LasXConnector(MicroscopeConnector):
                 return json.loads(hw_json)
 
             except Exception as e:
-                print(f"  Warning: Failed to get hardware info â€” {e}")
+                print(f"  Warning: Failed to get hardware info — {e}")
                 return None
 
-    # â”€â”€ Job queries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Job queries ───────────────────────────────────────────────────────
 
     def get_jobs_list(self) -> Optional[List[Dict[str, Any]]]:
         """
@@ -312,7 +312,7 @@ class LasXConnector(MicroscopeConnector):
 
                 if self.client.PyApiCommandEcho.Model.HasError:
                     error = self.client.PyApiCommandEcho.Model.Error
-                    print(f"  Warning: GetJobsInformation error â€” {error}")
+                    print(f"  Warning: GetJobsInformation error — {error}")
                     return None
 
                 if not confirmed:
@@ -323,7 +323,7 @@ class LasXConnector(MicroscopeConnector):
                 return json.loads(jobs_json)
 
             except Exception as e:
-                print(f"  Warning: Failed to get jobs list â€” {e}")
+                print(f"  Warning: Failed to get jobs list — {e}")
                 return None
 
     def get_job_settings(
@@ -362,7 +362,7 @@ class LasXConnector(MicroscopeConnector):
                 )
 
                 if verbose:
-                    print(f"      [DEBUG] Step 1 â€” Set JobName to '{job_name}': {confirmed}")
+                    print(f"      [DEBUG] Step 1 — Set JobName to '{job_name}': {confirmed}")
 
                 if not confirmed:
                     print(f"  Warning: GetJobSettingsByName('{job_name}') step 1 timed out")
@@ -373,11 +373,11 @@ class LasXConnector(MicroscopeConnector):
                 confirmed = self.client.PyApiCommand.UpdateSync(int(self.timeout))
 
                 if verbose:
-                    print(f"      [DEBUG] Step 2 â€” Execute command: {confirmed}")
+                    print(f"      [DEBUG] Step 2 — Execute command: {confirmed}")
 
                 if self.client.PyApiCommandEcho.Model.HasError:
                     error = self.client.PyApiCommandEcho.Model.Error
-                    print(f"  Warning: GetJobSettingsByName('{job_name}') error â€” {error}")
+                    print(f"  Warning: GetJobSettingsByName('{job_name}') error — {error}")
                     return None
 
                 if not confirmed:
@@ -408,16 +408,16 @@ class LasXConnector(MicroscopeConnector):
                 return settings
 
             except Exception as e:
-                print(f"  Warning: Failed to get job settings for '{job_name}' â€” {e}")
+                print(f"  Warning: Failed to get job settings for '{job_name}' — {e}")
                 return None
 
 
-# â”€â”€â”€ Auto-register with the microscope connector framework â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Auto-register with the microscope connector framework ───────────────────
 
 register_backend("lasx", LasXConnector)
 
 
-# â”€â”€â”€ Convenience â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Convenience ─────────────────────────────────────────────────────────────
 
 
 def try_connect(
@@ -438,7 +438,7 @@ def try_connect(
     return None
 
 
-# â”€â”€â”€ CLI Test â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── CLI Test ─────────────────────────────────────────────────────────────────
 
 
 if __name__ == "__main__":
@@ -448,7 +448,7 @@ if __name__ == "__main__":
     connector = LasXConnector()
 
     if connector.connect():
-        print(f"\nOK: Connected â€” {connector!r}")
+        print(f"\nOK: Connected — {connector!r}")
 
         print("\n--- Hardware Info ---")
         hw = connector.get_hardware_info()

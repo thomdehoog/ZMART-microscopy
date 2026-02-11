@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-# â”€â”€â”€ Import the generic connector framework â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Import the generic connector framework ──────────────────────────────────
 # Falls back gracefully if not available (e.g. no microscope SDK installed).
 
 try:
@@ -59,7 +59,7 @@ __all__ = [
 __version__ = "1.1.0"
 
 
-# â”€â”€â”€ Helper Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Helper Functions ────────────────────────────────────────────────────────
 
 
 def _parse_size_string(size_str: str) -> Optional[Dict[str, Any]]:
@@ -127,7 +127,7 @@ def _to_um(value: float, unit: str) -> float:
     return value  # already um
 
 
-# â”€â”€â”€ Hardware Enrichment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Hardware Enrichment ─────────────────────────────────────────────────────
 
 
 def _enrich_hardware_settings(
@@ -191,7 +191,7 @@ def _enrich_hardware_settings(
                     "isMotCorr": obj.get("isMotCorr", False),
                 })
 
-    # Optical components â€” prefer live state from API
+    # Optical components — prefer live state from API
     if "FilterWheels" in api_hw:
         enriched["FilterWheels"] = api_hw["FilterWheels"]
     if "LightSources" in api_hw:
@@ -203,7 +203,7 @@ def _enrich_hardware_settings(
     return enriched
 
 
-# â”€â”€â”€ Job Enrichment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Job Enrichment ──────────────────────────────────────────────────────────
 
 
 def _enrich_acquisition_job(
@@ -309,7 +309,7 @@ def _enrich_acquisition_job(
     return enriched
 
 
-# â”€â”€â”€ Connector Resolution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Connector Resolution ────────────────────────────────────────────────────
 
 
 def _resolve_connector(
@@ -378,7 +378,7 @@ def _resolve_connector(
         ) from e
 
 
-# â”€â”€â”€ Main Enrichment Function â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Main Enrichment Function ────────────────────────────────────────────────
 
 
 def enrich_with_api_data(
@@ -455,7 +455,7 @@ def enrich_with_api_data(
         hw_enriched = False
         jobs_enriched: List[str] = []
 
-        # â”€â”€ Hardware settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Hardware settings ─────────────────────────────────────────────
         api_hw = conn.get_hardware_info()
         if api_hw:
             if verbose:
@@ -466,7 +466,7 @@ def enrich_with_api_data(
             )
             hw_enriched = True
 
-        # â”€â”€ Acquisition jobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Acquisition jobs ──────────────────────────────────────────────
         api_jobs = conn.get_jobs_list()
         if api_jobs:
             if verbose:
@@ -500,7 +500,7 @@ def enrich_with_api_data(
                             tile = job_data.get("tileSize_um", "?")
                             print(f"    {job_name}: pixel={pixel}, tile={tile} um")
 
-        # â”€â”€ Propagate tile sizes to position groups â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Propagate tile sizes to position groups ───────────────────────
         positions = enriched.get("acquisition_positions", {})
         for gid, group in positions.items():
             jn = group.get("job_name")
@@ -517,7 +517,7 @@ def enrich_with_api_data(
                             "y_max_um": round(pos["y_um"] + h, 4),
                         }
 
-        # â”€â”€ Warn about missing critical values â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Warn about missing critical values ────────────────────────────
         if verbose:
             missing_pixel = [
                 jn for jn, jd in enriched.get("acquisition_jobs", {}).items()
@@ -532,7 +532,7 @@ def enrich_with_api_data(
             if missing_image:
                 print(f"  WARNING: imageSize not obtained from API for: {missing_image}")
 
-        # â”€â”€ Metadata â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Metadata ──────────────────────────────────────────────────────
         enriched["_api_enrichment"] = {
             "success": True,
             "backend": getattr(conn, "backend_name", "unknown"),
@@ -553,7 +553,7 @@ def enrich_with_api_data(
             conn.disconnect()
 
 
-# â”€â”€â”€ Convenience Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Convenience Functions ───────────────────────────────────────────────────
 
 
 def get_job_pixel_size(
@@ -669,7 +669,7 @@ def get_job_tile_size(
             conn.disconnect()
 
 
-# â”€â”€â”€ CLI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── CLI ─────────────────────────────────────────────────────────────────────
 
 
 if __name__ == "__main__":

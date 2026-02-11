@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 
 
-# â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def to_float(s: Optional[str]) -> Optional[float]:
     if s is None:
@@ -58,7 +58,7 @@ def beam_route_level(elem, level: int) -> Optional[str]:
     return None
 
 
-# â”€â”€â”€ Tile Size Derivation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Tile Size Derivation ─────────────────────────────────────────────────────
 
 def _get_raw_tiles(xml_root, skip_jobs=None):
     """Extract raw tile positions from XML."""
@@ -179,7 +179,7 @@ def derive_tile_sizes_from_positions(tiles_raw, dist_data, mosaic_overlap_pct):
     return job_tile_sizes
 
 
-# â”€â”€â”€ Hardware Settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Hardware Settings ────────────────────────────────────────────────────────
 
 def parse_hardware_settings(lrp_root: ET.Element) -> Dict[str, Any]:
     """Parse hardware settings from LRP."""
@@ -369,7 +369,7 @@ def parse_hardware_settings(lrp_root: ET.Element) -> Dict[str, Any]:
     }
 
 
-# â”€â”€â”€ Acquisition Jobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Acquisition Jobs ─────────────────────────────────────────────────────────
 
 def parse_acquisition_jobs(lrp_root: ET.Element) -> List[Dict[str, Any]]:
     """Parse acquisition jobs from LRP."""
@@ -498,18 +498,18 @@ def parse_acquisition_jobs(lrp_root: ET.Element) -> List[Dict[str, Any]]:
         z_um_str = f"{z_pos_m * 1e6:.2f}" if z_pos_m else "0.00"
         if z_use_mode == 1 or z_use_name == "z-galvo":
             z_position = {
-                "z-galvo": {"id": 1, "position": z_um_str, "unit": "Âµm"},
-                "z-wide": {"id": 2, "position": "8000.00", "unit": "Âµm"},
+                "z-galvo": {"id": 1, "position": z_um_str, "unit": "µm"},
+                "z-wide": {"id": 2, "position": "8000.00", "unit": "µm"},
             }
         elif z_use_mode == 2 or z_use_name == "z-wide":
             z_position = {
-                "z-galvo": {"id": 1, "position": "0.00", "unit": "Âµm"},
-                "z-wide": {"id": 2, "position": z_um_str, "unit": "Âµm"},
+                "z-galvo": {"id": 1, "position": "0.00", "unit": "µm"},
+                "z-wide": {"id": 2, "position": z_um_str, "unit": "µm"},
             }
         else:
             z_position = {
-                "z-galvo": {"id": 1, "position": z_um_str, "unit": "Âµm"},
-                "z-wide": {"id": 2, "position": "8000.00", "unit": "Âµm"},
+                "z-galvo": {"id": 1, "position": z_um_str, "unit": "µm"},
+                "z-wide": {"id": 2, "position": "8000.00", "unit": "µm"},
             }
 
         job_entry: Dict[str, Any] = {
@@ -531,7 +531,7 @@ def parse_acquisition_jobs(lrp_root: ET.Element) -> List[Dict[str, Any]]:
             "xyStage": {
                 "posX": f"{stage_x * 1e6:.2f}" if stage_x else "0.00",
                 "posY": f"{stage_y * 1e6:.2f}" if stage_y else "0.00",
-                "unit": "Âµm",
+                "unit": "µm",
             },
             "zPosition": z_position,
             "zoom": {"current": zoom, "max": 48.0, "min": zoom_min},
@@ -542,7 +542,7 @@ def parse_acquisition_jobs(lrp_root: ET.Element) -> List[Dict[str, Any]]:
     return jobs
 
 
-# â”€â”€â”€ Matrix Settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Matrix Settings ──────────────────────────────────────────────────────────
 
 def parse_matrix_settings(xml_root: ET.Element) -> Dict[str, Any]:
     """Parse MatrixData from XML."""
@@ -633,7 +633,7 @@ def parse_matrix_settings(xml_root: ET.Element) -> Dict[str, Any]:
     return result
 
 
-# â”€â”€â”€ Focus Points from RGN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Focus Points from RGN ────────────────────────────────────────────────────
 
 def parse_focus_points_from_rgn(rgn_path: Optional[str]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Parse focus points and autofocus points from RGN file."""
@@ -699,7 +699,7 @@ def parse_focus_points_from_rgn(rgn_path: Optional[str]) -> Tuple[List[Dict[str,
     return focus_points, autofocus_points
 
 
-# â”€â”€â”€ Geometries from RGN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Geometries from RGN ──────────────────────────────────────────────────────
 
 def parse_rgn_geometries(rgn_path: Optional[str]) -> Dict[str, Dict[str, Any]]:
     """Parse geometry information from RGN file with visualization properties."""
@@ -826,7 +826,7 @@ def parse_rgn_tile_colors(rgn_path: Optional[str]) -> Dict[str, Tuple[float, flo
     return job_colors
 
 
-# â”€â”€â”€ Pattern & Lightning Jobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Pattern & Lightning Jobs ─────────────────────────────────────────────────
 
 def parse_pattern_sequences(lrp_root: ET.Element) -> Dict[str, str]:
     """Parse pattern sequences from LRP."""
@@ -918,7 +918,7 @@ def _point_inside_geometry(x: float, y: float, geom: Dict[str, Any]) -> bool:
     return True
 
 
-# â”€â”€â”€ Acquisition Positions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Acquisition Positions ────────────────────────────────────────────────────
 
 def parse_acquisition_positions(xml_root, rgn_geometries, job_tile_sizes, skip_jobs=None):
     """Parse tile positions from XML and group them."""
@@ -989,7 +989,7 @@ def parse_acquisition_positions(xml_root, rgn_geometries, job_tile_sizes, skip_j
 from ...utils.acquisition_path_planning import assign_focus_points_to_groups  # noqa: F401
 
 
-# â”€â”€â”€ Main Parser Function â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Main Parser Function ─────────────────────────────────────────────────────
 
 def parse_template(xml_path, lrp_path, rgn_path=None):
     """
@@ -1092,7 +1092,7 @@ def parse_template(xml_path, lrp_path, rgn_path=None):
     }
 
 
-# â”€â”€â”€ CLI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── CLI ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import sys
@@ -1116,7 +1116,7 @@ if __name__ == "__main__":
     n_afps = len(result["autofocus_points"])
     n_geoms = len(result["geometries"])
     
-    print(f"âœ“ Parsed successfully:")
+    print(f"✓ Parsed successfully:")
     print(f"  {n_jobs} acquisition job(s): {', '.join(result['acquisition_jobs'].keys())}")
     print(f"  {n_groups} position group(s) with {n_tiles} total tiles")
     print(f"  {n_fps} focus point(s), {n_afps} autofocus point(s)")
@@ -1124,4 +1124,4 @@ if __name__ == "__main__":
     
     with open(output_path, "w") as f:
         json.dump(result, f, indent=2)
-    print(f"âœ“ JSON saved to {output_path}")
+    print(f"✓ JSON saved to {output_path}")

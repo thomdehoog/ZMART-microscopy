@@ -25,7 +25,7 @@ except ImportError:
     print("Warning: scipy not available. Using basic linear interpolation.")
 
 
-# â”€â”€â”€ Interpolation Methods â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Interpolation Methods ────────────────────────────────────────────────────
 
 def _plane_fit(points: List[Dict[str, Any]]) -> Tuple[float, float, float]:
     """
@@ -164,7 +164,7 @@ def _interpolate_scipy(
         return griddata(known_xy, known_z, target_xy, method='nearest')
 
 
-# â”€â”€â”€ Main Interpolation Function â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Main Interpolation Function ──────────────────────────────────────────────
 
 def interpolate_z_surface(
     measured_points: List[Dict[str, Any]],
@@ -302,7 +302,7 @@ def update_positions_with_z(
     return updated
 
 
-# â”€â”€â”€ Analysis Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Analysis Functions ───────────────────────────────────────────────────────
 
 def analyze_z_surface(
     z_surface: Dict[str, Dict[int, float]],
@@ -387,7 +387,7 @@ def compute_z_gradient(
     return gradients
 
 
-# â”€â”€â”€ Extrapolation Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Extrapolation Helpers ────────────────────────────────────────────────────
 
 def check_extrapolation_risk(
     measured_points: List[Dict[str, Any]],
@@ -460,7 +460,7 @@ def check_extrapolation_risk(
     }
 
 
-# â”€â”€â”€ CLI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── CLI ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     # Test interpolation
@@ -500,15 +500,15 @@ if __name__ == "__main__":
         print(f"  Group {gid}:")
         for i, z in group_z.items():
             tile = positions[gid]["tiles"][i]
-            print(f"    Tile {i} ({tile['x_um']}, {tile['y_um']}): Z = {z:.2f} Âµm")
+            print(f"    Tile {i} ({tile['x_um']}, {tile['y_um']}): Z = {z:.2f} µm")
     
     # Analyze
     print("\nZ Surface Analysis:")
     analysis = analyze_z_surface(z_surface, positions)
-    print(f"  Global range: {analysis['global']['global_range_z_um']:.2f} Âµm")
+    print(f"  Global range: {analysis['global']['global_range_z_um']:.2f} µm")
     
     # Gradient
     print("\nZ Gradient:")
     gradients = compute_z_gradient(z_surface, positions)
     for gid, grad in gradients.items():
-        print(f"  Group {gid}: tilt_x = {grad['tilt_x_degrees']:.3f}Â°, tilt_y = {grad['tilt_y_degrees']:.3f}Â°")
+        print(f"  Group {gid}: tilt_x = {grad['tilt_x_degrees']:.3f}°, tilt_y = {grad['tilt_y_degrees']:.3f}°")
