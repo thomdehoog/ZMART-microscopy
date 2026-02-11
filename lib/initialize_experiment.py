@@ -88,7 +88,7 @@ _BACKEND_REGISTRY: Dict[str, Type[ExperimentBackend]] = {}
 
 def register_backend(name: str, cls: Type[ExperimentBackend]) -> None:
     """
-    Register a manufacturer-specific inspection backend.
+    Register a manufacturer-specific experiment backend.
 
     Parameters
     ----------
@@ -112,7 +112,7 @@ def register_backend(name: str, cls: Type[ExperimentBackend]) -> None:
 
 
 def list_backends() -> List[str]:
-    """Return the names of all registered inspection backends."""
+    """Return the names of all registered experiment backends."""
     return sorted(_BACKEND_REGISTRY.keys())
 
 
@@ -121,7 +121,7 @@ def list_backends() -> List[str]:
 
 class ExperimentBackend(ABC):
     """
-    Abstract base class for microscopy template inspection backends.
+    Abstract base class for microscopy experiment backends.
 
     Defines the pipeline stages that every manufacturer-specific backend
     must implement.  The generic :func:`initialize_experiment` orchestrator
@@ -284,7 +284,7 @@ def initialize_experiment(
     verbose: int = 1,
 ) -> Optional[Dict[str, Any]]:
     """
-    Inspect a microscopy experiment template — single entry point.
+    Initialize a microscopy experiment — single entry point.
 
     Orchestrates the full pipeline (resolve -> parse -> enrich -> summarise
     -> visualise) by delegating each stage to the registered backend.
@@ -293,7 +293,7 @@ def initialize_experiment(
     Parameters
     ----------
     backend : str
-        Name of the inspection backend (e.g. ``"lasx"``).
+        Name of the experiment backend (e.g. ``"lasx"``).
     input : str, Path, or None
         Template location.
 
@@ -350,7 +350,7 @@ def initialize_experiment(
     if key not in _BACKEND_REGISTRY:
         available = ", ".join(list_backends()) or "(none)"
         raise ValueError(
-            f"Unknown inspection backend: {backend!r}. "
+            f"Unknown experiment backend: {backend!r}. "
             f"Registered: {available}. "
             f"Make sure the backend module is importable "
             f"(e.g. add it to your PYTHONPATH)."

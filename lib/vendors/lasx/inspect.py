@@ -89,9 +89,9 @@ _AUTO_TEMPLATE_BASE = "{ScanningTemplate}_PythonInspect"
 
 class LasXExperimentBackend(ExperimentBackend):
     """
-    Leica LAS X inspection backend.
+    Leica LAS X experiment backend.
 
-    Implements the full inspection pipeline for LAS X:
+    Implements the full experiment initialization pipeline for LAS X:
       1. resolve_input_auto — saves the current template via the LAS X API
       2. find_template_files — locates .xml, .lrp, .rgn files
       3. parse — delegates to ``.parser.parse_template``
