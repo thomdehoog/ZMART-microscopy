@@ -984,58 +984,9 @@ def parse_acquisition_positions(xml_root, rgn_geometries, job_tile_sizes, skip_j
     return groups_out
 
 
-# â”€â”€â”€ Focus Point Assignment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# â"€â"€â"€ Focus Point Assignment â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
-def assign_focus_points_to_groups(focus_points, groups):
-    """Assign focus points to their containing groups."""
-    assignments = defaultdict(list)
-    
-    for fp in focus_points:
-        fx, fy = fp["x_um"], fp["y_um"]
-        best_group, best_dist = None, float('inf')
-        
-        for gid, g in groups.items():
-            bb = g.get("group_bounding_box")
-            if bb:
-                inside = (bb["x_min_um"] <= fx <= bb["x_max_um"] and bb["y_min_um"] <= fy <= bb["y_max_um"])
-                if inside:
-                    cx = (bb["x_min_um"] + bb["x_max_um"]) / 2
-                    cy = (bb["y_min_um"] + bb["y_max_um"]) / 2
-                    d = math.hypot(fx - cx, fy - cy)
-                    if d < best_dist:
-                        best_group, best_dist = gid, d
-            else:
-                # Without bounding box, use centroid of tile positions
-                positions = g.get("positions", [])
-                if positions:
-                    cx = sum(p["x_um"] for p in positions) / len(positions)
-                    cy = sum(p["y_um"] for p in positions) / len(positions)
-                    d = math.hypot(fx - cx, fy - cy)
-                    if d < best_dist:
-                        best_group, best_dist = gid, d
-        
-        if best_group is None:
-            for gid, g in groups.items():
-                bb = g.get("group_bounding_box")
-                if bb:
-                    cx = (bb["x_min_um"] + bb["x_max_um"]) / 2
-                    cy = (bb["y_min_um"] + bb["y_max_um"]) / 2
-                else:
-                    positions = g.get("positions", [])
-                    if not positions:
-                        continue
-                    cx = sum(p["x_um"] for p in positions) / len(positions)
-                    cy = sum(p["y_um"] for p in positions) / len(positions)
-                d = math.hypot(fx - cx, fy - cy)
-                if d < best_dist:
-                    best_group, best_dist = gid, d
-        
-        if best_group is not None:
-            fp_copy = fp.copy()
-            fp_copy["assigned_group"] = best_group
-            assignments[best_group].append(fp_copy)
-    
-    return assignments
+from ...utils.autofocus import assign_focus_points_to_groups  # noqa: F401
 
 
 # â”€â”€â”€ Main Parser Function â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

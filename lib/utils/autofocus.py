@@ -579,22 +579,41 @@ def assign_focus_points_to_groups(
 
         # First try containing group
         for gid, group in positions.items():
-            bb = group["group_bounding_box"]
-            if (bb["x_min_um"] <= fx <= bb["x_max_um"]
-                    and bb["y_min_um"] <= fy <= bb["y_max_um"]):
-                cx = (bb["x_min_um"] + bb["x_max_um"]) / 2
-                cy = (bb["y_min_um"] + bb["y_max_um"]) / 2
-                dist = math.hypot(fx - cx, fy - cy)
-                if dist < best_dist:
-                    best_group = gid
-                    best_dist = dist
+            bb = group.get("group_bounding_box")
+            if bb:
+                inside = (bb["x_min_um"] <= fx <= bb["x_max_um"]
+                          and bb["y_min_um"] <= fy <= bb["y_max_um"])
+                if inside:
+                    cx = (bb["x_min_um"] + bb["x_max_um"]) / 2
+                    cy = (bb["y_min_um"] + bb["y_max_um"]) / 2
+                    dist = math.hypot(fx - cx, fy - cy)
+                    if dist < best_dist:
+                        best_group = gid
+                        best_dist = dist
+            else:
+                # Without bounding box, use centroid of tile positions
+                tiles = group.get("positions", group.get("tiles", []))
+                if tiles:
+                    cx = sum(p["x_um"] for p in tiles) / len(tiles)
+                    cy = sum(p["y_um"] for p in tiles) / len(tiles)
+                    dist = math.hypot(fx - cx, fy - cy)
+                    if dist < best_dist:
+                        best_group = gid
+                        best_dist = dist
 
-        # Fall back to nearest
+        # Fall back to nearest centroid
         if best_group is None:
             for gid, group in positions.items():
-                bb = group["group_bounding_box"]
-                cx = (bb["x_min_um"] + bb["x_max_um"]) / 2
-                cy = (bb["y_min_um"] + bb["y_max_um"]) / 2
+                bb = group.get("group_bounding_box")
+                if bb:
+                    cx = (bb["x_min_um"] + bb["x_max_um"]) / 2
+                    cy = (bb["y_min_um"] + bb["y_max_um"]) / 2
+                else:
+                    tiles = group.get("positions", group.get("tiles", []))
+                    if not tiles:
+                        continue
+                    cx = sum(p["x_um"] for p in tiles) / len(tiles)
+                    cy = sum(p["y_um"] for p in tiles) / len(tiles)
                 dist = math.hypot(fx - cx, fy - cy)
                 if dist < best_dist:
                     best_group = gid

@@ -2,23 +2,27 @@
 """
 vendors.lasx.autofocus — Leica LAS X autofocus hardware control.
 
-LAS X API client wrapper, stage movement, autofocus execution,
-and image acquisition — all specific to the Leica LAS X platform.
+Stage movement, autofocus execution, and image acquisition — all
+specific to the Leica LAS X platform.
 
+For API connection management, use ``vendors.lasx.connector.LasXConnector``.
 For vendor-agnostic ordering algorithms and workflow helpers,
 see ``utils.autofocus``.
 
 Usage::
 
+    from vendors.lasx.connector import LasXConnector
     from vendors.lasx.autofocus import (
-        LasXClient,
         LasXAutofocusRunner,
         run_autofocus_sequence,
         acquire_all_positions,
     )
+
+    connector = LasXConnector()
+    connector.connect()
+    runner = LasXAutofocusRunner(connector.client)
 """
 
-import threading
 import time
 from copy import deepcopy
 from typing import List, Dict, Any, Optional, Callable, Tuple
@@ -28,128 +32,6 @@ from ...utils.autofocus import (
     PositionReadback,
     order_tiles_in_group,
 )
-
-
-# ━━━ LAS X API Client Wrapper ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-class LasXClient:
-    """
-    Thread-safe LAS X API client with automatic reconnection.
-
-    Usage::
-
-        lasx = LasXClient("PythonClient", max_retries=3)
-        client = lasx.client          # raw API handle
-        result = lasx.execute_with_retry(some_function, arg1, arg2)
-    """
-
-    def __init__(self, client_name: str = "PythonClient", max_retries: int = 3):
-        self.client_name = client_name
-        self.max_retries = max_retries
-        self.client = None
-        self._lock = threading.Lock()
-        self.connect()
-
-    # —— Connection management ——————————————————————————————————————————————————
-    def connect(self):
-        """Connect (or reconnect) to LAS X, closing any existing connection."""
-        with self._lock:
-            if self.client is not None:
-                try:
-                    self.client.Disconnect()
-                except Exception:
-                    pass
-                time.sleep(0.5)
-
-            from LasxApi import PYLICamApiConnector as lasxApi
-
-            self.client = lasxApi.LasxApiClientPyModel
-            confirmed = self.client.Connect(self.client_name)
-            if not confirmed:
-                raise ConnectionError("Failed to connect to LAS X")
-
-            # Configure
-            self.client.PyApiClient.DelayInMilliseconds = 300
-            mode = self.client.PyApiSetApiInterfaceToUse.Model.ApiInterfaceToUse
-            self.client.PyApiSetApiInterfaceToUse.Model.ApiInterfaceToUse = (
-                type(mode).Only_the_CAM_interface_is_used
-            )
-            self.client.PyApiSetApiInterfaceToUse.UpdateSync(10)
-
-        # Verify the connection actually works
-        self.ping()
-
-        return self.client
-
-    def ping(self, timeout: float = 5.0) -> bool:
-        """
-        Verify the API connection is alive by reading the scan status.
-
-        Raises ConnectionError if unresponsive.
-        """
-        import concurrent.futures
-
-        def _read_status():
-            return str(self.client.PyApiStatusScan.Model.ScanStatus)
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(_read_status)
-            try:
-                status = future.result(timeout=timeout)
-                print(f"  \u2713 LAS X ping OK (scan status: {status})")
-                return True
-            except concurrent.futures.TimeoutError:
-                raise ConnectionError(
-                    f"LAS X connection ping timed out after {timeout}s \u2014 "
-                    "API is connected but not responding. "
-                    "Check that LAS X is running and not busy."
-                )
-
-    def disconnect(self):
-        """Gracefully disconnect."""
-        with self._lock:
-            if self.client is not None:
-                try:
-                    self.client.Disconnect()
-                except Exception:
-                    pass
-                self.client = None
-
-    # —— Retry wrapper ——————————————————————————————————————————————————————————
-    def execute_with_retry(self, func: Callable, *args, **kwargs):
-        """Execute *func* with serialised API access and auto-reconnect."""
-        last_error = None
-        for attempt in range(self.max_retries):
-            try:
-                with self._lock:
-                    return func(*args, **kwargs)
-            except Exception as e:
-                last_error = e
-                print(f"  \u26a0 Attempt {attempt + 1}/{self.max_retries} failed: {e}")
-                if attempt < self.max_retries - 1:
-                    print("  Reconnecting...")
-                    time.sleep(1.0)
-                    self.connect()
-        raise last_error  # type: ignore[misc]
-
-
-# Legacy helper — kept for backward compatibility
-def connect_to_lasx(client_name: str = "PythonClient"):
-    """Legacy connect function.  Prefer ``LasXClient`` instead."""
-    from LasxApi import PYLICamApiConnector as lasxApi
-
-    client = lasxApi.LasxApiClientPyModel
-    confirmed = client.Connect(client_name)
-    if not confirmed:
-        raise ConnectionError("Failed to connect to LAS X")
-
-    client.PyApiClient.DelayInMilliseconds = 300
-    mode = client.PyApiSetApiInterfaceToUse.Model.ApiInterfaceToUse
-    client.PyApiSetApiInterfaceToUse.Model.ApiInterfaceToUse = (
-        type(mode).Only_the_CAM_interface_is_used
-    )
-    client.PyApiSetApiInterfaceToUse.UpdateSync(10)
-    return client
 
 
 # ━━━ LAS X Hardware Runner ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
