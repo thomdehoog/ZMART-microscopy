@@ -3,12 +3,12 @@ vendors.lasx — Leica LAS X backend for the smart-microscopy framework.
 
 Importing this package registers the LAS X backends with the generic layer:
   - ``"lasx"`` connector   → ``microscope_connector`` registry
-  - ``"lasx"`` inspection  → ``microscope_inspect`` registry
+  - ``"lasx"`` experiment  → ``initialize_experiment`` registry
 
 Submodules
 ----------
     connector            LasXConnector (API connection)
-    inspect              LasXInspectionBackend (template inspection pipeline)
+    inspect              LasXExperimentBackend (experiment initialization pipeline)
     parser               XML / LRP / RGN template parser
     api_enrichment       live API enrichment
     offline_enrichment   OME-TIFF file-based enrichment
@@ -26,6 +26,6 @@ except ImportError:
     pass
 
 try:
-    from .inspect import LasXInspectionBackend     # noqa: F401
+    from .inspect import LasXExperimentBackend      # noqa: F401
 except ImportError:
     pass

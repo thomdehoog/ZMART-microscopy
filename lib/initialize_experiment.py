@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-microscope_inspect.py — Manufacturer-agnostic microscopy template inspection.
+initialize_experiment.py — Manufacturer-agnostic experiment initialization.
 
 Provides a generic interface for parsing, enriching, summarising, and
 visualising microscope experiment templates.  Manufacturer-specific backends
@@ -13,14 +13,14 @@ Why this file exists
 Different microscope vendors store experiment templates in completely
 different file formats (Leica: XML+LRP+RGN, Zeiss: CZI experiment files,
 Nikon: NIS protocol files).  This module defines the *pipeline stages* that
-every inspection must go through, and a factory function that orchestrates
-them without knowing any vendor-specific details.
+every experiment initialization must go through, and a factory function
+that orchestrates them without knowing any vendor-specific details.
 
 Architecture
 ------------
-    InspectionBackend            Abstract base class — defines pipeline stages.
+    ExperimentBackend            Abstract base class — defines pipeline stages.
     initialize_experiment()      Factory / orchestrator — runs the full pipeline.
-    register_inspect_backend()   Registers a manufacturer-specific backend class.
+    register_backend()           Registers a manufacturer-specific backend class.
 
 Pipeline stages (each delegated to the backend)
 -----------------------------------------------
@@ -32,9 +32,9 @@ Pipeline stages (each delegated to the backend)
 
 Usage
 -----
-    from microscope_inspect import initialize_experiment
+    from initialize_experiment import initialize_experiment
 
-    # Inspect a Leica LAS X template (backend in lasx_inspect.py)
+    # Initialize a Leica LAS X experiment
     data = initialize_experiment("lasx", input="auto", verbose=1)
 
     # Explicit folder, offline enrichment, detailed report
@@ -46,12 +46,12 @@ Usage
 
 Extending
 ---------
-    To add a new manufacturer, create a file (e.g. ``zen_inspect.py``) that:
-      1. Subclasses ``InspectionBackend``
+    To add a new manufacturer, create a file (e.g. ``zen_experiment.py``) that:
+      1. Subclasses ``ExperimentBackend``
       2. Implements all abstract methods
-      3. Calls ``register_inspect_backend("zen", ZenInspectionBackend)``
+      3. Calls ``register_backend("zen", ZenExperimentBackend)``
 
-    See ``lasx_inspect.py`` for a reference implementation.
+    See ``vendors/lasx/inspect.py`` for a reference implementation.
 
 Metadata
 --------
@@ -72,10 +72,10 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 
 __all__ = [
-    "InspectionBackend",
+    "ExperimentBackend",
     "initialize_experiment",
-    "register_inspect_backend",
-    "list_inspect_backends",
+    "register_backend",
+    "list_backends",
 ]
 
 __version__ = "1.0.0"
@@ -83,10 +83,10 @@ __version__ = "1.0.0"
 
 # ━━━ Backend Registry ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-_INSPECT_REGISTRY: Dict[str, Type[InspectionBackend]] = {}
+_BACKEND_REGISTRY: Dict[str, Type[ExperimentBackend]] = {}
 
 
-def register_inspect_backend(name: str, cls: Type[InspectionBackend]) -> None:
+def register_backend(name: str, cls: Type[ExperimentBackend]) -> None:
     """
     Register a manufacturer-specific inspection backend.
 
@@ -96,30 +96,30 @@ def register_inspect_backend(name: str, cls: Type[InspectionBackend]) -> None:
         Short identifier (e.g. ``"lasx"``, ``"zen"``).
         Stored lowercase for case-insensitive lookup.
     cls : type
-        A subclass of :class:`InspectionBackend`.
+        A subclass of :class:`ExperimentBackend`.
 
     Raises
     ------
     TypeError
-        If *cls* is not a subclass of :class:`InspectionBackend`.
+        If *cls* is not a subclass of :class:`ExperimentBackend`.
     """
-    if not (isinstance(cls, type) and issubclass(cls, InspectionBackend)):
+    if not (isinstance(cls, type) and issubclass(cls, ExperimentBackend)):
         raise TypeError(
-            f"Backend class must be a subclass of InspectionBackend, "
+            f"Backend class must be a subclass of ExperimentBackend, "
             f"got {cls!r}"
         )
-    _INSPECT_REGISTRY[name.lower()] = cls
+    _BACKEND_REGISTRY[name.lower()] = cls
 
 
-def list_inspect_backends() -> List[str]:
+def list_backends() -> List[str]:
     """Return the names of all registered inspection backends."""
-    return sorted(_INSPECT_REGISTRY.keys())
+    return sorted(_BACKEND_REGISTRY.keys())
 
 
 # ━━━ Abstract Base Class ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-class InspectionBackend(ABC):
+class ExperimentBackend(ABC):
     """
     Abstract base class for microscopy template inspection backends.
 
@@ -345,10 +345,10 @@ def initialize_experiment(
     """
     # ── Look up backend ───────────────────────────────────────────────────
     key = backend.lower()
-    if key not in _INSPECT_REGISTRY:
+    if key not in _BACKEND_REGISTRY:
         _try_auto_import(key)
-    if key not in _INSPECT_REGISTRY:
-        available = ", ".join(list_inspect_backends()) or "(none)"
+    if key not in _BACKEND_REGISTRY:
+        available = ", ".join(list_backends()) or "(none)"
         raise ValueError(
             f"Unknown inspection backend: {backend!r}. "
             f"Registered: {available}. "
@@ -356,7 +356,7 @@ def initialize_experiment(
             f"(e.g. add it to your PYTHONPATH)."
         )
 
-    be = _INSPECT_REGISTRY[key]()
+    be = _BACKEND_REGISTRY[key]()
 
     try:
         # ── Stage 1: Resolve input ────────────────────────────────────────
@@ -501,7 +501,7 @@ def _resolve_enrich_mode(
     folder: Optional[Path],
     client: Any,
     experiment_root: Union[str, Path, None],
-    be: InspectionBackend,
+    be: ExperimentBackend,
 ) -> str:
     """
     Resolve ``enrich="auto"`` to a concrete mode.
@@ -735,14 +735,14 @@ def _error(label: str, exc: Exception, hint: str) -> None:
 
 
 if __name__ == "__main__":
-    print("Microscopy Template Inspection Framework")
+    print("Experiment Initialization Framework")
     print("=" * 50)
     print(f"Version: {__version__}")
-    backends = list_inspect_backends() or "(none -- import a backend first)"
+    backends = list_backends() or "(none -- import a backend first)"
     print(f"Registered backends: {backends}")
     print()
     print("Usage:")
-    print("  from microscope_inspect import initialize_experiment")
+    print("  from initialize_experiment import initialize_experiment")
     print('  data = initialize_experiment("lasx", input="auto")')
     print()
     print("Available vendor packages (import to register):")

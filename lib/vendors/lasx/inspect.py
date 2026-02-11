@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-vendors/lasx/inspect.py — Leica LAS X inspection backend.
+vendors/lasx/inspect.py — Leica LAS X experiment backend.
 
-Implements the :class:`InspectionBackend` interface defined in
-``microscope_inspect.py`` for Leica LAS X microscopes.  All LAS X-specific
+Implements the :class:`ExperimentBackend` interface defined in
+``initialize_experiment.py`` for Leica LAS X microscopes.  All LAS X-specific
 knowledge (file formats, API quirks, folder conventions) lives in this
 package (``vendors/lasx/``).
 
@@ -16,7 +16,7 @@ LAS X stores experiment templates as a set of three files:
     * ``_ScanningTemplate.rgn`` — region geometries (optional)
 
 This module knows how to find, parse, and enrich those files.  The generic
-``microscope_inspect.py`` orchestrator calls into this backend without
+``initialize_experiment.py`` orchestrator calls into this backend without
 knowing any of these details.
 
 Dependencies (within this package)
@@ -28,17 +28,17 @@ Dependencies (within this package)
 
 Dependencies (generic layer)
 ----------------------------
-    microscope_inspect    — ABC + registry
+    initialize_experiment — ABC + registry
     microscope_connector  — API connector (used by resolve_input_auto)
 
 Usage
 -----
     # Preferred: via the generic entry point (auto-imports this package)
-    from microscope_inspect import initialize_experiment
+    from initialize_experiment import initialize_experiment
     data = initialize_experiment("lasx", input="auto")
 
     # Direct import also works
-    from vendors.lasx.inspect import LasXInspectionBackend
+    from vendors.lasx.inspect import LasXExperimentBackend
 
 Metadata
 --------
@@ -59,13 +59,13 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-from microscope_inspect import (
-    InspectionBackend,
-    register_inspect_backend,
+from initialize_experiment import (
+    ExperimentBackend,
+    register_backend,
 )
 
 
-__all__ = ["LasXInspectionBackend"]
+__all__ = ["LasXExperimentBackend"]
 
 __version__ = "1.0.0"
 
@@ -87,7 +87,7 @@ _AUTO_TEMPLATE_BASE = "{ScanningTemplate}_PythonInspect"
 # ━━━ Backend Implementation ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-class LasXInspectionBackend(InspectionBackend):
+class LasXExperimentBackend(ExperimentBackend):
     """
     Leica LAS X inspection backend.
 
@@ -383,4 +383,4 @@ class LasXInspectionBackend(InspectionBackend):
 
 # ━━━ Self-register ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-register_inspect_backend("lasx", LasXInspectionBackend)
+register_backend("lasx", LasXExperimentBackend)

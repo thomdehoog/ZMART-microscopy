@@ -11,7 +11,7 @@ generic layer and notebooks never change.
 Open a notebook in `notebooks/` and run:
 
 ```python
-from microscope_inspect import initialize_experiment
+from initialize_experiment import initialize_experiment
 
 data = initialize_experiment("lasx", input="auto", verbose=1)
 ```
@@ -24,7 +24,8 @@ smart-microscopy/
 │   ├── inspect_template.ipynb
 │   └── inspect_template_api.ipynb
 └── lib/                    all Python modules
-    ├── microscope_*.py     generic layer (ABCs + factories)
+    ├── initialize_experiment.py   experiment initialization (ABC + factory)
+    ├── microscope_connector.py    API connection (ABC + factory)
     ├── vendors/
     │   └── lasx/           Leica LAS X backend
     └── utils/              shared utilities
@@ -37,7 +38,7 @@ See `PROJECT_STRUCTURE.md` for the full architecture description.
 | System     | Generic entry point              | What it does                                      |
 |------------|----------------------------------|---------------------------------------------------|
 | Connector  | `initialize_api("lasx")`         | Connect to the microscope API                     |
-| Inspection | `initialize_experiment("lasx")`  | Parse, enrich, and visualise a scanning template  |
+| Experiment | `initialize_experiment("lasx")`  | Parse, enrich, and visualise a scanning template  |
 | Analysis   | `initialize_analysis("lasx")`    | *(future)* Analyse acquired experiment data       |
 
 ## Requirements
