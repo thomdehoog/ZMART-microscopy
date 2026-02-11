@@ -986,7 +986,7 @@ def parse_acquisition_positions(xml_root, rgn_geometries, job_tile_sizes, skip_j
 
 # â"€â"€â"€ Focus Point Assignment â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
-from ...utils.autofocus import assign_focus_points_to_groups  # noqa: F401
+from ...utils.acquisition_path_planning import assign_focus_points_to_groups  # noqa: F401
 
 
 # â”€â”€â”€ Main Parser Function â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

@@ -7,7 +7,7 @@ specific to the Leica LAS X platform.
 
 For API connection management, use ``vendors.lasx.connector.LasXConnector``.
 For vendor-agnostic ordering algorithms and workflow helpers,
-see ``utils.autofocus``.
+see ``utils.acquisition_path_planning``.
 
 Usage::
 
@@ -27,7 +27,7 @@ import time
 from copy import deepcopy
 from typing import List, Dict, Any, Optional, Callable, Tuple
 
-from ...utils.autofocus import (
+from ...utils.acquisition_path_planning import (
     OrderStrategy,
     PositionReadback,
     order_tiles_in_group,

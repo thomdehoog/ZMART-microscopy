@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-autofocus_utils.py
+acquisition_path_planning.py
 
-Vendor-agnostic utilities for autofocus acquisition workflows:
+Vendor-agnostic utilities for acquisition path planning:
 - Optimal path calculation (OR-Tools TSP solver)
 - Multiple ordering strategies (rowwise, meandering, shortest_path, etc.)
 - Workflow data structures and persistence
@@ -10,7 +10,7 @@ Vendor-agnostic utilities for autofocus acquisition workflows:
 For Leica LAS X hardware control, see ``vendors.lasx.autofocus``.
 
 Usage:
-    from utils.autofocus import (
+    from utils.acquisition_path_planning import (
         calculate_acquisition_order,
         order_points,
         order_groups,

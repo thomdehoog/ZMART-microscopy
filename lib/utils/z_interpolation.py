@@ -212,7 +212,7 @@ def interpolate_z_surface(
     
     else:  # 'per-group'
         # Assign focus points to groups and interpolate per-group
-        from .autofocus import assign_focus_points_to_groups
+        from .acquisition_path_planning import assign_focus_points_to_groups
         
         assignments = assign_focus_points_to_groups(measured, positions)
         
