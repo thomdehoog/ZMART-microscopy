@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/Users/thomdehoog/miniconda3/envs/lasx/bin/python -c \":*)",
+      "Bash(python -m pytest tests/test_unit.py -v)",
+      "Bash(python3 -m pytest tests/test_unit.py -v)",
+      "Bash(pip3 show pytest)",
+      "Bash(ls /Users/thomdehoog/Desktop/driver/test_*)",
+      "Bash(pip3 install pytest -q)",
+      "Bash(python3 test_unit.py)",
+      "Bash(python3 test_integration.py)",
+      "Bash(python3 test_hardware.py)",
+      "Bash(python3 test_stage_movement.py)",
+      "Bash(python3 -c \":*)"
+    ]
+  }
+}

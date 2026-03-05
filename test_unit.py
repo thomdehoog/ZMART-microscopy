@@ -1,0 +1,1359 @@
+"""
+Unit Tests for LASX Driver v6.0.0
+===================================
+Offline mock-based tests — no hardware required.
+
+Uses unittest.mock to simulate the LAS X API client and verify the
+driver's internal logic: error classification, fire/retry flow,
+confirmation polling, timing instrumentation, and set function wiring.
+
+Updated from v5.0 tests to match v6.0 backbone redesign:
+  - _fire_with_retry replaced by confirm_and_fire (two-layer backbone)
+  - _default_pre_check removed; check_idle in checks.py owns polling
+  - pre_check_fn returns {"success": bool, "logs": [...]} (not bool)
+  - confirm_fn returns {"success": bool, "logs": [...]} (not bool)
+  - _make_acquire_confirm/_make_select_job_confirm factories replaced by
+    confirm_acquire/confirm_select_job (own their polling loops)
+  - poll_interval/poll_timeout removed from backbone (confirm functions
+    own their polling internally)
+  - pre_check_timeout/pre_check_heartbeat removed from backbone (live
+    inside check_idle)
+  - timing dict includes confirm_attempts key
+  - result dict includes logs key
+
+Usage::
+
+    python test_unit.py            # run all
+    python test_unit.py -v         # verbose
+    python -m pytest test_unit.py  # via pytest
+"""
+
+import json
+import time
+import unittest
+from unittest.mock import MagicMock, PropertyMock, patch, call
+from functools import partial
+
+import driver as drv
+import lasx.core
+import lasx.errors
+import lasx.readers
+import lasx.confirm
+import lasx.commands
+import lasx.checks
+
+
+# =============================================================================
+# Helpers — mock factory
+# =============================================================================
+
+def make_echo(has_error=False, error="", result_code=1):
+    """Create a mock PyApiCommandEcho.Model with given state."""
+    echo = MagicMock()
+    echo.HasError = has_error
+    echo.Error = error
+    echo.Result = result_code
+    return echo
+
+
+def make_client(echo=None, scan_status="eScanIdle"):
+    """Create a mock LAS X client."""
+    client = MagicMock()
+    if echo is None:
+        echo = make_echo()
+    client.PyApiCommandEcho.Model = echo
+    status_obj = MagicMock()
+    status_obj.__str__ = MagicMock(return_value=scan_status)
+    client.PyApiStatus.Model.ScanStatus = status_obj
+    return client
+
+
+def make_api_obj():
+    """Create a mock API object."""
+    api_obj = MagicMock()
+    api_obj.Model = MagicMock()
+    api_obj.UpdateAsync = MagicMock()
+    api_obj.UpdateAwaitReceipt = MagicMock(return_value=True)
+    api_obj.UpdateSync = MagicMock(return_value=True)
+    return api_obj
+
+
+def _idle_pre_check():
+    """Trivial pre-check that always succeeds (scanner idle)."""
+    return {"success": True, "logs": []}
+
+
+def _make_v6_timing(**kw):
+    """Helper to build a v6.0 timing dict."""
+    d = {"pre_check_s": 0, "setup_s": 0, "fire_s": 0, "check_s": 0,
+         "confirm_s": 0, "total_s": 0, "attempts": 1,
+         "confirm_attempts": 0, "method": "async"}
+    d.update(kw)
+    return d
+
+
+def _make_v6_result(success=True, msg="OK", **extra):
+    """Helper to build a v6.0 result dict."""
+    r = {"success": success, "confirmed": True if success else None,
+         "message": msg, "timing": _make_v6_timing(), "logs": []}
+    r.update(extra)
+    return r
+
+
+# =============================================================================
+# 1. _check_api_error
+# =============================================================================
+
+class TestCheckApiError(unittest.TestCase):
+
+    def test_success_result_1(self):
+        client = make_client(make_echo(has_error=False, result_code=1))
+        self.assertIsNone(drv._check_api_error(client))
+
+    def test_not_defined_no_error(self):
+        client = make_client(make_echo(has_error=False, result_code=0))
+        self.assertIsNone(drv._check_api_error(client))
+
+    def test_warning_treated_as_success(self):
+        client = make_client(make_echo(
+            has_error=True, error="Warning on command: pinhole adjusted", result_code=1))
+        self.assertIsNone(drv._check_api_error(client))
+
+    def test_warning_case_insensitive(self):
+        client = make_client(make_echo(
+            has_error=True, error="WARNING: value clamped", result_code=2))
+        self.assertIsNone(drv._check_api_error(client))
+
+    def test_error_result_failure(self):
+        client = make_client(make_echo(
+            has_error=True, error="Zoom out of range", result_code=2))
+        err = drv._check_api_error(client)
+        self.assertIsNotNone(err)
+        self.assertEqual(err["error"], "Zoom out of range")
+        self.assertEqual(err["result"], "Failure")
+        self.assertEqual(err["result_code"], 2)
+
+    def test_not_implemented(self):
+        client = make_client(make_echo(has_error=False, error="", result_code=3))
+        err = drv._check_api_error(client)
+        self.assertIsNotNone(err)
+        self.assertEqual(err["result"], "NotImplemented")
+        self.assertIn("not implemented", err["error"].lower())
+
+    def test_not_implemented_with_message(self):
+        client = make_client(make_echo(
+            has_error=True, error="Custom not impl msg", result_code=3))
+        err = drv._check_api_error(client)
+        self.assertEqual(err["error"], "Custom not impl msg")
+
+    def test_has_error_no_warning(self):
+        client = make_client(make_echo(
+            has_error=True, error="Something broke", result_code=1))
+        err = drv._check_api_error(client)
+        self.assertIsNotNone(err)
+        self.assertEqual(err["error"], "Something broke")
+
+    def test_result_enum_exception(self):
+        echo = MagicMock()
+        echo.HasError = True
+        echo.Error = "Some error"
+        type(echo).Result = PropertyMock(side_effect=Exception("COM error"))
+        client = MagicMock()
+        client.PyApiCommandEcho.Model = echo
+        err = drv._check_api_error(client)
+        self.assertIsNotNone(err)
+        self.assertEqual(err["result"], "Unknown")
+
+
+# =============================================================================
+# 2. _default_error_check adapter
+# =============================================================================
+
+class TestDefaultErrorCheck(unittest.TestCase):
+
+    def test_success_shape(self):
+        client = make_client(make_echo(has_error=False, result_code=1))
+        result = drv._default_error_check(client)
+        self.assertTrue(result["success"])
+        self.assertIsNone(result["error"])
+        self.assertIsNone(result["transient"])
+        self.assertIsInstance(result["logs"], list)
+
+    def test_permanent_error_shape(self):
+        client = make_client(make_echo(
+            has_error=True, error="out of range", result_code=2))
+        result = drv._default_error_check(client)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "out of range")
+        self.assertFalse(result["transient"])
+        self.assertGreater(len(result["logs"]), 0)
+
+    def test_transient_error_shape(self):
+        client = make_client(make_echo(
+            has_error=True, error="block is being scanned", result_code=2))
+        result = drv._default_error_check(client)
+        self.assertFalse(result["success"])
+        self.assertTrue(result["transient"])
+
+
+# =============================================================================
+# 3. confirm_and_fire — core flow
+# =============================================================================
+
+class TestConfirmAndFire(unittest.TestCase):
+
+    def test_success(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        with patch.object(lasx.errors, '_check_api_error', return_value=None):
+            r = lasx.core.confirm_and_fire(
+                client, api_obj, "Test",
+                setup_fn=lambda m: setattr(m, 'X', 1), max_retries=0,
+                pre_check_fn=_idle_pre_check)
+        self.assertTrue(r["success"])
+        self.assertEqual(r["message"], "Test")
+        self.assertIn("logs", r)
+        api_obj.UpdateAwaitReceipt.assert_called_once()
+
+    def test_timing_dict_structure(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        with patch.object(lasx.errors, '_check_api_error', return_value=None):
+            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+                                           max_retries=0,
+                                           pre_check_fn=_idle_pre_check)
+        t = r["timing"]
+        for key in ("pre_check_s", "setup_s", "fire_s", "check_s",
+                     "confirm_s", "total_s", "attempts", "confirm_attempts",
+                     "method"):
+            self.assertIn(key, t, f"Missing timing key: {key}")
+        self.assertEqual(t["method"], "async")
+        self.assertEqual(t["attempts"], 1)
+        self.assertEqual(t["confirm_attempts"], 0)
+
+    def test_permanent_error_no_retry(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        perm_error = {"error": "out of range", "result": "Failure", "result_code": 2}
+        with patch.object(lasx.errors, '_check_api_error', return_value=perm_error):
+            r = lasx.core.confirm_and_fire(client, api_obj, "Zoom -> 999",
+                                           max_retries=5,
+                                           pre_check_fn=_idle_pre_check)
+        self.assertFalse(r["success"])
+        self.assertIn("out of range", r["message"])
+        self.assertEqual(r["timing"]["attempts"], 1)
+
+    def test_transient_error_retries(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        trans_error = {"error": "block is being scanned", "result": "Failure", "result_code": 2}
+        with patch.object(lasx.errors, '_check_api_error', return_value=trans_error):
+            r = lasx.core.confirm_and_fire(client, api_obj, "Zoom -> 5",
+                                           max_retries=2,
+                                           pre_check_fn=_idle_pre_check)
+        self.assertFalse(r["success"])
+        self.assertIn("being scanned", r["message"])
+        self.assertEqual(r["timing"]["attempts"], 3)
+
+    def test_transient_then_success(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        trans_error = {"error": "block is being scanned", "result": "Failure", "result_code": 2}
+        call_count = [0]
+        def mock_check(c):
+            call_count[0] += 1
+            return trans_error if call_count[0] == 1 else None
+        with patch.object(lasx.errors, '_check_api_error', side_effect=mock_check):
+            r = lasx.core.confirm_and_fire(client, api_obj, "Zoom -> 5",
+                                           max_retries=3,
+                                           pre_check_fn=_idle_pre_check)
+        self.assertTrue(r["success"])
+        self.assertEqual(r["timing"]["attempts"], 2)
+
+    def test_no_retry_on_zero(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        trans_error = {"error": "busy", "result": "Failure", "result_code": 2}
+        with patch.object(lasx.errors, '_check_api_error', return_value=trans_error):
+            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+                                           max_retries=0,
+                                           pre_check_fn=_idle_pre_check)
+        self.assertFalse(r["success"])
+        self.assertEqual(r["timing"]["attempts"], 1)
+
+    def test_setup_fn_called_every_attempt(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        setup_calls = []
+        def setup(m): setup_calls.append(1)
+        trans_error = {"error": "busy", "result": "Failure", "result_code": 2}
+        call_count = [0]
+        def mock_check(c):
+            call_count[0] += 1
+            return trans_error if call_count[0] <= 2 else None
+        with patch.object(lasx.errors, '_check_api_error', side_effect=mock_check):
+            lasx.core.confirm_and_fire(client, api_obj, "Test",
+                                       setup_fn=setup, max_retries=3,
+                                       pre_check_fn=_idle_pre_check)
+        self.assertEqual(len(setup_calls), 3)
+
+    def test_setup_fn_exception(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        def bad_setup(m): raise ValueError("bad value")
+        r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+                                       setup_fn=bad_setup, max_retries=0,
+                                       pre_check_fn=_idle_pre_check)
+        self.assertFalse(r["success"])
+        self.assertIn("Setup exception", r["message"])
+
+    def test_no_setup_fn(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        with patch.object(lasx.errors, '_check_api_error', return_value=None):
+            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+                                           setup_fn=None, max_retries=0,
+                                           pre_check_fn=_idle_pre_check)
+        self.assertTrue(r["success"])
+
+    def test_pre_check_failure_stops(self):
+        """A pre_check_fn that returns failure stops the pipeline."""
+        client = make_client()
+        api_obj = make_api_obj()
+        def failing_pre_check():
+            return {"success": False, "logs": []}
+        r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+                                       max_retries=0,
+                                       pre_check_fn=failing_pre_check)
+        self.assertFalse(r["success"])
+        self.assertIn("Pre-check failed", r["message"])
+
+    def test_confirmed_key_present(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        with patch.object(lasx.errors, '_check_api_error', return_value=None):
+            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+                                           max_retries=0,
+                                           pre_check_fn=_idle_pre_check)
+        self.assertIn("confirmed", r)
+        self.assertIsNone(r["confirmed"])
+
+
+# =============================================================================
+# 4. Confirmation via confirm_and_fire
+# =============================================================================
+
+class TestConfirmation(unittest.TestCase):
+
+    def test_confirm_fn_immediate(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        confirm_fn = MagicMock(return_value={"success": True, "logs": []})
+        with patch.object(lasx.errors, '_check_api_error', return_value=None):
+            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+                                           confirm_fn=confirm_fn,
+                                           max_retries=0,
+                                           pre_check_fn=_idle_pre_check)
+        self.assertTrue(r["success"])
+        self.assertTrue(r["confirmed"])
+        confirm_fn.assert_called()
+
+    def test_no_confirm_fn_skips(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        with patch.object(lasx.errors, '_check_api_error', return_value=None):
+            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+                                           confirm_fn=None, max_retries=0,
+                                           pre_check_fn=_idle_pre_check)
+        self.assertTrue(r["success"])
+        self.assertIsNone(r["confirmed"])
+        self.assertEqual(r["timing"]["confirm_s"], 0.0)
+
+    def test_confirm_always_fails(self):
+        """When confirm_fn always returns failure, result is unconfirmed."""
+        client = make_client()
+        api_obj = make_api_obj()
+        confirm_fn = MagicMock(return_value={"success": False, "logs": []})
+        with patch.object(lasx.errors, '_check_api_error', return_value=None):
+            r = lasx.core.confirm_and_fire(client, api_obj, "Zoom -> 5",
+                                           confirm_fn=confirm_fn,
+                                           max_retries=0,
+                                           max_confirm_attempts=1,
+                                           pre_check_fn=_idle_pre_check)
+        self.assertFalse(r["success"])
+        self.assertFalse(r["confirmed"])
+        self.assertIn("unconfirmed", r["message"])
+
+    def test_confirm_succeeds_on_retry(self):
+        """Confirm fails first, correction re-fires, then confirm succeeds."""
+        client = make_client()
+        api_obj = make_api_obj()
+        call_count = [0]
+        def delayed_confirm():
+            call_count[0] += 1
+            return {"success": call_count[0] >= 2, "logs": []}
+        with patch.object(lasx.errors, '_check_api_error', return_value=None):
+            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+                                           confirm_fn=delayed_confirm,
+                                           max_retries=0,
+                                           max_confirm_attempts=3,
+                                           pre_check_fn=_idle_pre_check)
+        self.assertTrue(r["success"])
+
+    def test_confirm_fn_exception_handled(self):
+        """Exceptions in confirm_fn are caught and treated as failure."""
+        client = make_client()
+        api_obj = make_api_obj()
+        call_count = [0]
+        def flaky_confirm():
+            call_count[0] += 1
+            if call_count[0] < 2: raise RuntimeError("COM error")
+            return {"success": True, "logs": []}
+        with patch.object(lasx.errors, '_check_api_error', return_value=None):
+            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+                                           confirm_fn=flaky_confirm,
+                                           max_retries=0,
+                                           max_confirm_attempts=3,
+                                           pre_check_fn=_idle_pre_check)
+        self.assertTrue(r["success"])
+
+
+# =============================================================================
+# 5. _api_set removed
+# =============================================================================
+
+class TestApiSetRemoved(unittest.TestCase):
+    def test_api_set_removed(self):
+        self.assertFalse(hasattr(drv, '_api_set'))
+    def test_api_set_removed_from_core(self):
+        self.assertFalse(hasattr(lasx.core, '_api_set'))
+
+
+# =============================================================================
+# 6. Error classification
+# =============================================================================
+
+class TestErrorClassification(unittest.TestCase):
+
+    def test_transient_patterns(self):
+        for msg in ["block is being scanned", "cannot be set while scanning",
+                     "Hardware busy", "Resource locked",
+                     "Connection timeout", "Request timed out"]:
+            with self.subTest(msg=msg):
+                self.assertTrue(drv._is_transient_error(msg))
+
+    def test_permanent_patterns(self):
+        for msg in ["parameter out of range", "value is invalid",
+                     "invalid block identifier", "detector not found",
+                     "Command not defined", "has been adjusted", "not implemented"]:
+            with self.subTest(msg=msg):
+                self.assertFalse(drv._is_transient_error(msg))
+
+    def test_permanent_wins_over_transient(self):
+        self.assertFalse(drv._is_transient_error("timeout not found"))
+        self.assertFalse(drv._is_transient_error("locked out of range"))
+
+    def test_unknown_is_permanent(self):
+        self.assertFalse(drv._is_transient_error("something unexpected"))
+
+    def test_empty_string(self):
+        self.assertFalse(drv._is_transient_error(""))
+
+    def test_case_insensitive(self):
+        self.assertTrue(drv._is_transient_error("BEING SCANNED"))
+        self.assertFalse(drv._is_transient_error("OUT OF RANGE"))
+
+
+# =============================================================================
+# 7. Confirm functions (lasx.confirm)
+# =============================================================================
+
+class TestConfirmFunctions(unittest.TestCase):
+
+    def _mock_readback(self, changeable_dict):
+        return patch.object(lasx.confirm, '_readback', return_value=changeable_dict)
+
+    def test_confirm_zoom_pass(self):
+        with self._mock_readback({"zoom": {"current": 5.0}}):
+            self.assertTrue(lasx.confirm._confirm_zoom(None, "J", 5.0)["success"])
+
+    def test_confirm_zoom_within_tolerance(self):
+        with self._mock_readback({"zoom": {"current": 5.05}}):
+            self.assertTrue(lasx.confirm._confirm_zoom(None, "J", 5.0)["success"])
+
+    def test_confirm_zoom_fail(self):
+        with self._mock_readback({"zoom": {"current": 3.0}}):
+            self.assertFalse(lasx.confirm._confirm_zoom(None, "J", 5.0)["success"])
+
+    def test_confirm_zoom_none_readback(self):
+        with self._mock_readback(None):
+            self.assertFalse(lasx.confirm._confirm_zoom(None, "J", 5.0)["success"])
+
+    def test_confirm_scan_speed(self):
+        with self._mock_readback({"scanSpeed": {"value": 600}}):
+            self.assertTrue(lasx.confirm._confirm_scan_speed(None, "J", 600)["success"])
+        with self._mock_readback({"scanSpeed": {"value": 400}}):
+            self.assertFalse(lasx.confirm._confirm_scan_speed(None, "J", 600)["success"])
+
+    def test_confirm_scan_resonant(self):
+        with self._mock_readback({"scanSpeed": {"isResonant": True}}):
+            self.assertTrue(lasx.confirm._confirm_scan_resonant(None, "J", True)["success"])
+            self.assertFalse(lasx.confirm._confirm_scan_resonant(None, "J", False)["success"])
+
+    def test_confirm_scan_mode(self):
+        with self._mock_readback({"scanMode": "xyz"}):
+            self.assertTrue(lasx.confirm._confirm_scan_mode(None, "J", "xyz")["success"])
+            self.assertFalse(lasx.confirm._confirm_scan_mode(None, "J", "xy")["success"])
+
+    def test_confirm_sequential_mode(self):
+        with self._mock_readback({"sequentialMode": "Frame"}):
+            self.assertTrue(lasx.confirm._confirm_sequential_mode(None, "J", "Frame")["success"])
+
+    def test_confirm_rotation(self):
+        with self._mock_readback({"scanFieldRotation": {"value": 45.3}}):
+            self.assertTrue(lasx.confirm._confirm_scan_field_rotation(None, "J", 45.0)["success"])
+        with self._mock_readback({"scanFieldRotation": {"value": 46.0}}):
+            self.assertFalse(lasx.confirm._confirm_scan_field_rotation(None, "J", 45.0)["success"])
+
+    def test_confirm_image_format(self):
+        with self._mock_readback({"format": "1024 x 1024"}):
+            self.assertTrue(lasx.confirm._confirm_image_format(None, "J", 1024, 1024)["success"])
+            self.assertFalse(lasx.confirm._confirm_image_format(None, "J", 512, 512)["success"])
+
+    def test_confirm_pinhole_airy(self):
+        with self._mock_readback({"activeSettings": [{"pinholeAiry": {"value": 1.02}}]}):
+            self.assertTrue(lasx.confirm._confirm_pinhole_airy(None, "J", 0, 1.0)["success"])
+        with self._mock_readback({"activeSettings": [{"pinholeAiry": {"value": 0.5}}]}):
+            self.assertFalse(lasx.confirm._confirm_pinhole_airy(None, "J", 0, 1.0)["success"])
+
+    def test_confirm_frame_accumulation(self):
+        with self._mock_readback({"activeSettings": [{"frameAccumulation": 4}]}):
+            self.assertTrue(lasx.confirm._confirm_frame_accumulation(None, "J", 0, 4)["success"])
+            self.assertFalse(lasx.confirm._confirm_frame_accumulation(None, "J", 0, 2)["success"])
+
+    def test_confirm_frame_average(self):
+        with self._mock_readback({"activeSettings": [{"frameAverage": 2}]}):
+            self.assertTrue(lasx.confirm._confirm_frame_average(None, "J", 0, 2)["success"])
+
+    def test_confirm_line_accumulation(self):
+        with self._mock_readback({"activeSettings": [{"lineAccumulation": 3}]}):
+            self.assertTrue(lasx.confirm._confirm_line_accumulation(None, "J", 0, 3)["success"])
+
+    def test_confirm_line_average(self):
+        with self._mock_readback({"activeSettings": [{"lineAverage": 8}]}):
+            self.assertTrue(lasx.confirm._confirm_line_average(None, "J", 0, 8)["success"])
+
+    def test_confirm_xy_position(self):
+        with patch.object(lasx.readers, 'get_xy', return_value={
+                "x_um": 50000, "y_um": 50000, "x_m": 0.05, "y_m": 0.05}):
+            self.assertTrue(lasx.confirm._confirm_xy_position(None, 50000, 50000)["success"])
+            self.assertFalse(lasx.confirm._confirm_xy_position(None, 50000, 99999)["success"])
+
+    def test_confirm_returns_dict_shape(self):
+        """All confirm functions return {"success": bool, "logs": [...]}."""
+        with self._mock_readback({"zoom": {"current": 5.0}}):
+            result = lasx.confirm._confirm_zoom(None, "J", 5.0)
+        self.assertIn("success", result)
+        self.assertIn("logs", result)
+        self.assertIsInstance(result["logs"], list)
+
+
+# =============================================================================
+# 8. Set function wiring
+# =============================================================================
+
+class TestSetFunctionWiring(unittest.TestCase):
+
+    def _run_set(self, set_fn, *args, **kwargs):
+        """Run a set function with confirm_and_fire mocked.
+
+        If the first positional arg is None, substitute make_client()
+        so that API object attribute lookups (client.PyApiXxx) succeed.
+        Returns (captured_info, result).  captured_info includes:
+          - description, kwargs, model  (as before)
+          - api_obj: the API object the set function resolved
+          - client:  the mock client used (for identity checks)
+        """
+        args = list(args)
+        if args and args[0] is None:
+            args[0] = make_client()
+        captured = {"client": args[0]}
+        def mock_fire(client, api_obj, description, **kw):
+            captured["description"] = description
+            captured["api_obj"] = api_obj
+            captured["kwargs"] = kw
+            model = MagicMock()
+            if kw.get("setup_fn"): kw["setup_fn"](model)
+            captured["model"] = model
+            return _make_v6_result(msg=description)
+        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+            r = set_fn(*args, **kwargs)
+        return captured, r
+
+    def test_set_zoom_model(self):
+        info, _ = self._run_set(drv.set_zoom, None, "HiRes", 5.0)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetZoomByJobName)
+        self.assertEqual(info["model"].JobName, "HiRes")
+        self.assertEqual(info["model"].ZoomValue, 5.0)
+
+    def test_set_scan_speed_model(self):
+        info, _ = self._run_set(drv.set_scan_speed, None, "HiRes", 600)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetScanSpeedByJobName)
+        self.assertEqual(info["model"].ScanSpeed, 600)
+
+    def test_set_scan_resonant_model(self):
+        info, _ = self._run_set(drv.set_scan_resonant, None, "HiRes", True)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetScannerToResonantByJobName)
+        self.assertEqual(info["model"].EnableResonant, True)
+
+    def test_set_scan_mode_model(self):
+        info, _ = self._run_set(drv.set_scan_mode, None, "HiRes", "xyz")
+        self.assertIs(info["api_obj"], info["client"].PyApiSetScanModeByJobName)
+        self.assertEqual(info["model"].ScanModeValue, "xyz")
+
+    def test_set_rotation_model(self):
+        info, _ = self._run_set(drv.set_scan_field_rotation, None, "HiRes", 45.0)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetScanFieldRotationByJobName)
+        self.assertEqual(info["model"].Rotation, 45.0)
+
+    def test_set_image_format_string(self):
+        info, _ = self._run_set(drv.set_image_format, None, "HiRes", "1024 x 1024")
+        self.assertIs(info["api_obj"], info["client"].PyApiSetImageSizeByJobName)
+        self.assertEqual(info["model"].ImageWidth, 1024)
+        self.assertEqual(info["model"].ImageHeight, 1024)
+
+    def test_set_image_format_tuple(self):
+        info, _ = self._run_set(drv.set_image_format, None, "HiRes", (512, 768))
+        self.assertIs(info["api_obj"], info["client"].PyApiSetImageSizeByJobName)
+        self.assertEqual(info["model"].ImageWidth, 512)
+        self.assertEqual(info["model"].ImageHeight, 768)
+
+    def test_set_frame_accumulation_model(self):
+        info, _ = self._run_set(drv.set_frame_accumulation, None, "HiRes", 0, 4)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetFrameAccumulationByJobName)
+        self.assertEqual(info["model"].SettingIndex, 0)
+        self.assertEqual(info["model"].FrameAccumulation, 4)
+
+    def test_set_frame_average_model(self):
+        info, _ = self._run_set(drv.set_frame_average, None, "HiRes", 0, 2)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetFrameAverageByJobName)
+        self.assertEqual(info["model"].FrameAverage, 2)
+
+    def test_set_pinhole_airy_model(self):
+        info, _ = self._run_set(drv.set_pinhole_airy, None, "HiRes", 0, 1.5)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetPinholeAUByJobName)
+        self.assertEqual(info["model"].PinholeAiry, 1.5)
+
+    def test_set_detector_gain_model(self):
+        info, _ = self._run_set(drv.set_detector_gain, None, "HiRes", 0, "BR1", 750)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetDetectorGainByJobName)
+        self.assertEqual(info["model"].BeamRoute, "BR1")
+        self.assertEqual(info["model"].GainValue, 750)
+
+    def test_set_laser_intensity_model(self):
+        info, _ = self._run_set(drv.set_laser_intensity, None, "HiRes", 0, "BR1", 0, 0.5)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetLaserIntensityByJobName)
+        self.assertEqual(info["model"].IntensityValue, 0.5)
+        self.assertEqual(info["model"].LaserLineIndex, 0)
+
+    def test_set_laser_shutter_model(self):
+        info, _ = self._run_set(drv.set_laser_shutter, None, "HiRes", 0, "BR1", True)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetLaserShutterByJobName)
+        self.assertEqual(info["model"].Activate, True)
+
+    def test_set_z_stack_step_size_model(self):
+        info, _ = self._run_set(drv.set_z_stack_step_size, None, "HiRes", 2.0)
+        self.assertIs(info["api_obj"], info["client"].PyApiCommandSetZStackStepSizeByJobName)
+        self.assertAlmostEqual(info["model"].StackStepSize, 2.0e-6, places=10)
+
+    def test_set_z_stack_size_model(self):
+        info, _ = self._run_set(drv.set_z_stack_size, None, "HiRes", 10.0)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetZStackSizeByJobName)
+        self.assertAlmostEqual(info["model"].StackSize, 10.0e-6, places=10)
+
+    def test_set_time_definition_model(self):
+        info, _ = self._run_set(drv.set_time_definition, None, "HiRes",
+                                interval=2.0, cycles=5, minimize=True)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetTimeDefinitionByJobName)
+        self.assertEqual(info["model"].DelayTime, 2.0)
+        self.assertEqual(info["model"].RepeatCount, 5)
+        self.assertEqual(info["model"].MinimizeMode, True)
+
+    def test_set_zoom_provides_confirm_and_pre_check(self):
+        info, _ = self._run_set(drv.set_zoom, None, "HiRes", 5.0)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetZoomByJobName)
+        self.assertIsNotNone(info["kwargs"].get("confirm_fn"))
+        self.assertIsNotNone(info["kwargs"].get("pre_check_fn"))
+
+    def test_time_definition_no_confirm_fn(self):
+        info, _ = self._run_set(drv.set_time_definition, None, "HiRes")
+        self.assertIs(info["api_obj"], info["client"].PyApiSetTimeDefinitionByJobName)
+        self.assertIsNone(info["kwargs"].get("confirm_fn"))
+
+    def test_detector_active_no_confirm_fn(self):
+        info, _ = self._run_set(drv.set_detector_active, None, "HiRes", 0, "BR1", True)
+        self.assertIs(info["api_obj"], info["client"].PyApiSetDetectorActiveByJobName)
+        self.assertIsNone(info["kwargs"].get("confirm_fn"))
+
+    def test_add_laser_line_no_confirm_fn(self):
+        info, _ = self._run_set(drv.add_or_remove_laser_line,
+                                None, "HiRes", 0, "BR1", 0, 488.0)
+        self.assertIs(info["api_obj"], info["client"].PyApiAddOrRemoveLaserLineByJobName)
+        self.assertIsNone(info["kwargs"].get("confirm_fn"))
+
+
+# =============================================================================
+# 9. Set function defaults
+# =============================================================================
+
+class TestSetFunctionDefaults(unittest.TestCase):
+
+    def _get_kwargs(self, fn):
+        captured = {}
+        def mock_fire(client, api_obj, desc, **kw):
+            captured.update(kw)
+            return _make_v6_result(msg=desc)
+        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+            fn(make_client(), "J")
+        return captured
+
+    def test_zoom_defaults(self):
+        d = self._get_kwargs(lambda c, j: drv.set_zoom(c, j, 5.0))
+        self.assertEqual(d["max_retries"], 3)
+        self.assertIsNotNone(d["confirm_fn"])
+
+    def test_scan_speed_defaults(self):
+        d = self._get_kwargs(lambda c, j: drv.set_scan_speed(c, j, 600))
+        self.assertEqual(d["max_retries"], 3)
+        self.assertIsNotNone(d["confirm_fn"])
+
+    def test_detector_active_no_confirm_fn(self):
+        d = self._get_kwargs(lambda c, j: drv.set_detector_active(c, j, 0, "BR1", True))
+        self.assertIsNone(d.get("confirm_fn"))
+
+    def test_add_laser_line_no_confirm_fn(self):
+        d = self._get_kwargs(lambda c, j: drv.add_or_remove_laser_line(c, j, 0, "BR1", 0, 488.0))
+        self.assertIsNone(d.get("confirm_fn"))
+
+    def test_time_definition_no_confirm_fn(self):
+        d = self._get_kwargs(lambda c, j: drv.set_time_definition(c, j))
+        self.assertIsNone(d.get("confirm_fn"))
+
+
+# =============================================================================
+# 10-14. Unchanged tests (make_changeable_copy, limits, format, etc.)
+# =============================================================================
+
+class TestMakeChangeableCopy(unittest.TestCase):
+    def _settings(self, **overrides):
+        s = {"zoom": {"current": 5.0}, "scanSpeed": {"value": 600, "isResonant": False},
+             "scanMode": "xyz", "sequentialMode": "Frame",
+             "scanFieldRotation": {"value": 0.0}, "format": "512 x 512",
+             "objective": {"name": "HC PL APO 63x", "magnification": 63},
+             "activeSettings": [{"index": 0, "name": "Setting 1",
+                 "frameAccumulation": 1, "frameAverage": 1,
+                 "lineAccumulation": 1, "lineAverage": 1,
+                 "pinholeAiry": {"value": 1.0},
+                 "activeDetectors": [{"beamRoute": "BR1", "name": "HyD S1", "gain": {"value": 100}}],
+                 "activeLaserLines": [{"beamRoute": "BR1", "lineIndex": 0, "wavelength": 488,
+                     "laser": {"name": "OPSL 488"}, "intensity": {"value": 0.1}, "shutterOpen": True}]}]}
+        s.update(overrides)
+        return s
+
+    def test_none_returns_none(self): self.assertIsNone(drv.make_changeable_copy(None))
+    def test_basic_fields(self):
+        ch = drv.make_changeable_copy(self._settings())
+        self.assertEqual(ch["zoom"]["current"], 5.0)
+        self.assertEqual(ch["scanSpeed"]["value"], 600)
+    def test_objective(self):
+        ch = drv.make_changeable_copy(self._settings())
+        self.assertEqual(ch["objective"]["name"], "HC PL APO 63x")
+    def test_active_settings(self):
+        ch = drv.make_changeable_copy(self._settings())
+        self.assertEqual(ch["activeSettings"][0]["activeDetectors"][0]["_beamRoute"], "BR1")
+    def test_laser_lines(self):
+        ch = drv.make_changeable_copy(self._settings())
+        self.assertEqual(ch["activeSettings"][0]["activeLaserLines"][0]["_beamRoute"], "BR1")
+    def test_stack_with_z(self):
+        ch = drv.make_changeable_copy(self._settings(stack={"begin": -5.0, "end": 5.0, "stepSize": 1.0}))
+        self.assertAlmostEqual(ch["stack"]["size"], 10.0)
+    def test_no_stack_no_z(self):
+        ch = drv.make_changeable_copy(self._settings(scanMode="xy"))
+        self.assertNotIn("stack", ch)
+    def test_multiple_settings(self):
+        settings = self._settings()
+        settings["activeSettings"].append({"index": 1, "name": "Setting 2",
+            "frameAccumulation": 2, "frameAverage": 4, "lineAccumulation": 1, "lineAverage": 1,
+            "pinholeAiry": {"value": 0.5}, "activeDetectors": [], "activeLaserLines": []})
+        ch = drv.make_changeable_copy(settings)
+        self.assertEqual(len(ch["activeSettings"]), 2)
+
+
+class TestStageLimits(unittest.TestCase):
+    def setUp(self):
+        drv.set_stage_limits(x_min=0, x_max=130000, y_min=0, y_max=100000,
+                             z_galvo_min=-200, z_galvo_max=200, z_wide_min=0, z_wide_max=25000)
+
+    def test_valid_xy(self): drv._check_xy_limits(50000, 50000)
+    def test_x_below_min(self):
+        with self.assertRaises(RuntimeError): drv._check_xy_limits(-1, 50000)
+    def test_x_above_max(self):
+        with self.assertRaises(RuntimeError): drv._check_xy_limits(130001, 50000)
+    def test_y_below_min(self):
+        with self.assertRaises(RuntimeError): drv._check_xy_limits(50000, -1)
+    def test_y_above_max(self):
+        with self.assertRaises(RuntimeError): drv._check_xy_limits(50000, 100001)
+    def test_z_galvo_valid(self): drv._check_z_limits(0, "galvo")
+    def test_z_galvo_below(self):
+        with self.assertRaises(RuntimeError): drv._check_z_limits(-201, "galvo")
+    def test_z_galvo_above(self):
+        with self.assertRaises(RuntimeError): drv._check_z_limits(201, "galvo")
+    def test_z_wide_above(self):
+        with self.assertRaises(RuntimeError): drv._check_z_limits(25001, "zwide")
+    def test_z_unknown_mode_raises(self):
+        with self.assertRaises(ValueError): drv._check_z_limits(100, "unknown")
+    def test_unconfigured_raises(self):
+        old = dict(drv._stage_limits)
+        drv._stage_limits["x_min"] = None
+        try:
+            with self.assertRaises(RuntimeError): drv._check_xy_limits(0, 0)
+        finally:
+            drv._stage_limits.update(old)
+
+
+class TestFormatParsing(unittest.TestCase):
+    def test_parse_standard(self): self.assertEqual(drv.parse_format("512 x 512"), (512, 512))
+    def test_parse_rectangular(self): self.assertEqual(drv.parse_format("1024 x 768"), (1024, 768))
+    def test_roundtrip(self): self.assertEqual(drv.parse_format(drv.format_to_str(2048, 2048)), (2048, 2048))
+    def test_format_to_str(self): self.assertEqual(drv.format_to_str(512, 512), "512 x 512")
+    def test_parse_bad_input(self):
+        with self.assertRaises(Exception): drv.parse_format("banana")
+
+
+class TestSafeFloat(unittest.TestCase):
+    def test_int(self): self.assertEqual(drv._safe_float(5), 5.0)
+    def test_string(self): self.assertEqual(drv._safe_float("3.14"), 3.14)
+    def test_none_default(self): self.assertEqual(drv._safe_float(None, -1), -1)
+    def test_bad_string_default(self): self.assertEqual(drv._safe_float("abc", 0), 0)
+    def test_none_no_default(self): self.assertIsNone(drv._safe_float(None))
+
+
+class TestSequentialModeGuard(unittest.TestCase):
+    def test_empty_string(self):
+        r = drv.set_sequential_mode(None, "J", "")
+        self.assertFalse(r["success"])
+    def test_whitespace(self):
+        self.assertFalse(drv.set_sequential_mode(None, "J", "   ")["success"])
+    def test_non_string(self):
+        self.assertFalse(drv.set_sequential_mode(None, "J", 123)["success"])
+    def test_none(self):
+        self.assertFalse(drv.set_sequential_mode(None, "J", None)["success"])
+
+
+class TestReadback(unittest.TestCase):
+    def test_success(self):
+        settings = {"zoom": {"current": 5.0}, "scanSpeed": {"value": 600, "isResonant": False},
+                     "scanMode": "xyz", "sequentialMode": "Frame", "scanFieldRotation": {"value": 0.0},
+                     "format": "512 x 512", "objective": {"name": "Obj", "magnification": 63},
+                     "activeSettings": []}
+        with patch.object(lasx.readers, 'get_job_settings', return_value=settings):
+            ch = drv._readback(None, "HiRes")
+        self.assertIsNotNone(ch)
+        self.assertEqual(ch["zoom"]["current"], 5.0)
+
+    def test_failure(self):
+        with patch.object(lasx.readers, 'get_job_settings', return_value=None):
+            self.assertIsNone(drv._readback(None, "HiRes"))
+
+
+# =============================================================================
+# 15. Module structure
+# =============================================================================
+
+class TestModuleStructure(unittest.TestCase):
+    def test_version(self): self.assertEqual(drv.__version__, "6.0.0")
+    def test_no_api_set(self): self.assertFalse(hasattr(drv, '_api_set'))
+    def test_readback_exists(self): self.assertTrue(callable(getattr(drv, '_readback', None)))
+    def test_confirm_and_fire_exists(self): self.assertTrue(callable(getattr(drv, 'confirm_and_fire', None)))
+    def test_check_idle_exists(self): self.assertTrue(callable(getattr(drv, 'check_idle', None)))
+
+    def test_confirm_functions_in_confirm_module(self):
+        for name in ["_confirm_zoom", "_confirm_scan_speed", "_confirm_scan_resonant",
+                      "_confirm_scan_mode", "_confirm_sequential_mode",
+                      "_confirm_scan_field_rotation", "_confirm_image_format",
+                      "_confirm_objective", "_confirm_z_stack_definition",
+                      "_confirm_z_stack_step_size", "_confirm_z_stack_size",
+                      "_confirm_frame_accumulation", "_confirm_frame_average",
+                      "_confirm_line_accumulation", "_confirm_line_average",
+                      "_confirm_pinhole_airy", "_confirm_detector_gain",
+                      "_confirm_laser_intensity", "_confirm_laser_shutter",
+                      "_confirm_filter_wheel_slot", "_confirm_filter_wheel_spectrum",
+                      "_confirm_xy_position"]:
+            with self.subTest(name=name):
+                self.assertTrue(callable(getattr(lasx.confirm, name, None)),
+                                f"{name} missing in lasx.confirm")
+
+    def test_confirm_functions_replaced_factories(self):
+        """confirm_acquire and confirm_select_job replaced closure factories."""
+        self.assertTrue(callable(getattr(lasx.confirm, 'confirm_acquire', None)))
+        self.assertTrue(callable(getattr(lasx.confirm, 'confirm_select_job', None)))
+
+    def test_all_set_functions_have_max_retries(self):
+        import inspect
+        for fname in ["set_zoom", "set_scan_speed", "set_scan_resonant", "set_scan_mode",
+                       "set_sequential_mode", "set_scan_field_rotation", "set_image_format",
+                       "set_z_stack_definition", "set_z_stack_step_size", "set_z_stack_size",
+                       "set_time_definition", "set_frame_accumulation", "set_frame_average",
+                       "set_line_accumulation", "set_line_average", "set_pinhole_airy",
+                       "set_detector_gain", "set_detector_active", "set_laser_intensity",
+                       "set_laser_shutter", "add_or_remove_laser_line",
+                       "set_filter_wheel_slot", "set_filter_wheel_spectrum"]:
+            with self.subTest(fn=fname):
+                params = list(inspect.signature(getattr(drv, fname)).parameters.keys())
+                self.assertIn("max_retries", params)
+
+
+# =============================================================================
+# 16. Protocol tests
+# =============================================================================
+
+PROTOCOL_POSITIONS = [
+    ("Tile A1", "Overview", 10000, 20000, 1.0, 800, None, None),
+    ("Tile A2", "Overview", 12000, 20000, 1.0, 800, None, None),
+    ("Tile B1", "Overview", 10000, 22000, 1.0, 800, None, None),
+    ("ROI-1", "HiRes", 10500, 20500, 5.0, 200, 1.0, 0.15),
+    ("ROI-2", "HiRes", 11200, 20800, 5.0, 200, 1.0, 0.15),
+    ("ROI-3", "HiRes", 11800, 21200, 8.0, 100, 0.8, 0.25),
+    ("Deep-1", "ZStack", 10500, 20500, 5.0, 200, 1.0, 0.20),
+    ("Deep-2", "ZStack", 11800, 21200, 5.0, 200, 1.0, 0.20),
+    ("TimeLapse", "Live", 10000, 20000, 2.0, 400, 1.5, 0.10),
+    ("Ref", "Overview", 65000, 50000, 1.0, 800, None, None),
+]
+
+def _mock_select(client, job_name, **kw):
+    return _make_v6_result(msg=f"Switched to '{job_name}'", elapsed=0.1)
+
+def _mock_move(client, x, y, **kw):
+    r = _make_v6_result(msg=f"Moved ({x},{y})")
+    r["position"] = {"x_m": x*1e-6, "y_m": y*1e-6}
+    return r
+
+def _mock_acq(client, job_name, **kw):
+    return _make_v6_result(msg="Acquisition complete", elapsed=1.0)
+
+def _mock_fire_ok(client, api_obj, description, **kw):
+    return _make_v6_result(msg=description)
+
+
+class TestAcquisitionProtocol(unittest.TestCase):
+    def setUp(self):
+        drv.set_stage_limits(x_min=0, x_max=130000, y_min=0, y_max=100000,
+                             z_galvo_min=-200, z_galvo_max=200, z_wide_min=0, z_wide_max=25000)
+        self.client = make_client()
+
+    def _run_protocol(self):
+        results = []
+        last_job = None
+        for name, job, x, y, zoom, speed, pinhole, laser in PROTOCOL_POSITIONS:
+            pos_result = {"name": name, "job": job, "steps": []}
+            if job != last_job:
+                r = drv.select_job(self.client, job)
+                pos_result["steps"].append(("select_job", r))
+                assert r["success"], f"select_job failed at {name}: {r}"
+                last_job = job
+            r = drv.move_xy(self.client, x, y, unit="um")
+            pos_result["steps"].append(("move_xy", r))
+            assert r["success"], f"move_xy failed at {name}: {r}"
+            r = drv.set_zoom(self.client, job, zoom)
+            pos_result["steps"].append(("set_zoom", r))
+            assert r["success"], f"set_zoom failed at {name}: {r}"
+            r = drv.set_scan_speed(self.client, job, speed)
+            pos_result["steps"].append(("set_scan_speed", r))
+            assert r["success"], f"set_scan_speed failed at {name}: {r}"
+            if pinhole is not None:
+                r = drv.set_pinhole_airy(self.client, job, 0, pinhole)
+                pos_result["steps"].append(("set_pinhole", r))
+                assert r["success"], f"set_pinhole failed at {name}: {r}"
+            if laser is not None:
+                r = drv.set_laser_intensity(self.client, job, 0, "BR1", 0, laser)
+                pos_result["steps"].append(("set_laser", r))
+                assert r["success"], f"set_laser failed at {name}: {r}"
+            r = drv.acquire(self.client, job)
+            pos_result["steps"].append(("acquire", r))
+            assert r["success"], f"acquire failed at {name}: {r}"
+            results.append(pos_result)
+        return results
+
+    def test_full_protocol_completes(self):
+        with patch.object(drv, 'select_job', side_effect=_mock_select), \
+             patch.object(drv, 'move_xy', side_effect=_mock_move), \
+             patch.object(drv, 'acquire', side_effect=_mock_acq), \
+             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+            results = self._run_protocol()
+        self.assertEqual(len(results), 10)
+
+    def test_job_switches_only_when_needed(self):
+        select_calls = []
+        def mock_sel(client, job_name, **kw):
+            select_calls.append(job_name)
+            return _mock_select(client, job_name)
+        with patch.object(drv, 'select_job', side_effect=mock_sel), \
+             patch.object(drv, 'move_xy', side_effect=_mock_move), \
+             patch.object(drv, 'acquire', side_effect=_mock_acq), \
+             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+            self._run_protocol()
+        self.assertEqual(select_calls, ["Overview", "HiRes", "ZStack", "Live", "Overview"])
+
+    def test_correct_xy_coordinates(self):
+        coords = []
+        def mock_mv(client, x, y, **kw):
+            coords.append((x, y))
+            return _mock_move(client, x, y)
+        with patch.object(drv, 'select_job', side_effect=_mock_select), \
+             patch.object(drv, 'move_xy', side_effect=mock_mv), \
+             patch.object(drv, 'acquire', side_effect=_mock_acq), \
+             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+            self._run_protocol()
+        self.assertEqual(coords, [(p[2], p[3]) for p in PROTOCOL_POSITIONS])
+
+    def test_correct_acquire_jobs(self):
+        acq_jobs = []
+        def mock_a(client, job_name, **kw):
+            acq_jobs.append(job_name)
+            return _mock_acq(client, job_name)
+        with patch.object(drv, 'select_job', side_effect=_mock_select), \
+             patch.object(drv, 'move_xy', side_effect=_mock_move), \
+             patch.object(drv, 'acquire', side_effect=mock_a), \
+             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+            self._run_protocol()
+        self.assertEqual(acq_jobs, [p[1] for p in PROTOCOL_POSITIONS])
+
+    def test_per_position_zoom_values(self):
+        zooms = []
+        def mock_fire(client, api_obj, desc, **kw):
+            model = MagicMock()
+            if kw.get("setup_fn"): kw["setup_fn"](model)
+            if "Zoom" in desc: zooms.append(model.ZoomValue)
+            return _make_v6_result(msg=desc)
+        with patch.object(drv, 'select_job', side_effect=_mock_select), \
+             patch.object(drv, 'move_xy', side_effect=_mock_move), \
+             patch.object(drv, 'acquire', side_effect=_mock_acq), \
+             patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+            self._run_protocol()
+        self.assertEqual(zooms, [p[4] for p in PROTOCOL_POSITIONS])
+
+    def test_per_position_speed_values(self):
+        speeds = []
+        def mock_fire(client, api_obj, desc, **kw):
+            model = MagicMock()
+            if kw.get("setup_fn"): kw["setup_fn"](model)
+            if "ScanSpeed" in desc: speeds.append(model.ScanSpeed)
+            return _make_v6_result(msg=desc)
+        with patch.object(drv, 'select_job', side_effect=_mock_select), \
+             patch.object(drv, 'move_xy', side_effect=_mock_move), \
+             patch.object(drv, 'acquire', side_effect=_mock_acq), \
+             patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+            self._run_protocol()
+        self.assertEqual(speeds, [p[5] for p in PROTOCOL_POSITIONS])
+
+    def test_pinhole_only_set_when_specified(self):
+        pinholes = []
+        def mock_fire(client, api_obj, desc, **kw):
+            model = MagicMock()
+            if kw.get("setup_fn"): kw["setup_fn"](model)
+            if "PinholeAiry" in desc: pinholes.append(model.PinholeAiry)
+            return _make_v6_result(msg=desc)
+        with patch.object(drv, 'select_job', side_effect=_mock_select), \
+             patch.object(drv, 'move_xy', side_effect=_mock_move), \
+             patch.object(drv, 'acquire', side_effect=_mock_acq), \
+             patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+            self._run_protocol()
+        self.assertEqual(pinholes, [p[6] for p in PROTOCOL_POSITIONS if p[6] is not None])
+        self.assertEqual(len(pinholes), 6)
+
+    def test_laser_only_set_when_specified(self):
+        lasers = []
+        def mock_fire(client, api_obj, desc, **kw):
+            model = MagicMock()
+            if kw.get("setup_fn"): kw["setup_fn"](model)
+            if "Laser" in desc and "line" not in desc.lower(): lasers.append(model.IntensityValue)
+            return _make_v6_result(msg=desc)
+        with patch.object(drv, 'select_job', side_effect=_mock_select), \
+             patch.object(drv, 'move_xy', side_effect=_mock_move), \
+             patch.object(drv, 'acquire', side_effect=_mock_acq), \
+             patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+            self._run_protocol()
+        self.assertEqual(lasers, [p[7] for p in PROTOCOL_POSITIONS if p[7] is not None])
+        self.assertEqual(len(lasers), 6)
+
+    def test_acquire_failure_at_position_5(self):
+        acq_count = [0]
+        def mock_a(client, job_name, **kw):
+            acq_count[0] += 1
+            if acq_count[0] == 5:
+                return _make_v6_result(False, "Scan did not start within 15s", elapsed=15.0)
+            return _mock_acq(client, job_name)
+        with patch.object(drv, 'select_job', side_effect=_mock_select), \
+             patch.object(drv, 'move_xy', side_effect=_mock_move), \
+             patch.object(drv, 'acquire', side_effect=mock_a), \
+             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+            with self.assertRaises(AssertionError) as ctx: self._run_protocol()
+            self.assertIn("acquire failed", str(ctx.exception))
+            self.assertIn("ROI-2", str(ctx.exception))
+
+    def test_move_failure_aborts(self):
+        mv_count = [0]
+        def mock_mv(client, x, y, **kw):
+            mv_count[0] += 1
+            if mv_count[0] == 7:
+                r = _make_v6_result(False, "X exceeds limit")
+                r["position"] = None
+                return r
+            return _mock_move(client, x, y)
+        with patch.object(drv, 'select_job', side_effect=_mock_select), \
+             patch.object(drv, 'move_xy', side_effect=mock_mv), \
+             patch.object(drv, 'acquire', side_effect=_mock_acq), \
+             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+            with self.assertRaises(AssertionError) as ctx: self._run_protocol()
+            self.assertIn("move_xy failed", str(ctx.exception))
+
+    def test_job_select_failure_aborts(self):
+        def mock_sel(client, job_name, **kw):
+            if job_name == "ZStack":
+                return _make_v6_result(False, "Timeout", elapsed=10.0)
+            return _mock_select(client, job_name)
+        with patch.object(drv, 'select_job', side_effect=mock_sel), \
+             patch.object(drv, 'move_xy', side_effect=_mock_move), \
+             patch.object(drv, 'acquire', side_effect=_mock_acq), \
+             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+            with self.assertRaises(AssertionError) as ctx: self._run_protocol()
+            self.assertIn("select_job failed", str(ctx.exception))
+            self.assertIn("Deep-1", str(ctx.exception))
+
+    def test_param_set_failure_aborts(self):
+        zoom_count = [0]
+        def mock_fire(client, api_obj, desc, **kw):
+            if "Zoom" in desc:
+                zoom_count[0] += 1
+                if zoom_count[0] == 6:
+                    return _make_v6_result(False, "Zoom 8.0 out of range")
+            return _make_v6_result(msg=desc)
+        with patch.object(drv, 'select_job', side_effect=_mock_select), \
+             patch.object(drv, 'move_xy', side_effect=_mock_move), \
+             patch.object(drv, 'acquire', side_effect=_mock_acq), \
+             patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+            with self.assertRaises(AssertionError) as ctx: self._run_protocol()
+            self.assertIn("set_zoom failed", str(ctx.exception))
+            self.assertIn("ROI-3", str(ctx.exception))
+
+    def test_total_api_call_counts(self):
+        counts = {"select_job": 0, "move_xy": 0, "acquire": 0,
+                  "set_zoom": 0, "set_speed": 0, "set_pinhole": 0, "set_laser": 0}
+        def mock_sel(client, jn, **kw):
+            counts["select_job"] += 1; return _mock_select(client, jn)
+        def mock_mv(client, x, y, **kw):
+            counts["move_xy"] += 1; return _mock_move(client, x, y)
+        def mock_a(client, jn, **kw):
+            counts["acquire"] += 1; return _mock_acq(client, jn)
+        def mock_fire(client, api_obj, desc, **kw):
+            if "Zoom" in desc: counts["set_zoom"] += 1
+            elif "ScanSpeed" in desc: counts["set_speed"] += 1
+            elif "PinholeAiry" in desc: counts["set_pinhole"] += 1
+            elif "Laser" in desc: counts["set_laser"] += 1
+            return _make_v6_result(msg=desc)
+        with patch.object(drv, 'select_job', side_effect=mock_sel), \
+             patch.object(drv, 'move_xy', side_effect=mock_mv), \
+             patch.object(drv, 'acquire', side_effect=mock_a), \
+             patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+            self._run_protocol()
+        self.assertEqual(counts, {"select_job": 5, "move_xy": 10, "acquire": 10,
+                                  "set_zoom": 10, "set_speed": 10, "set_pinhole": 6, "set_laser": 6})
+
+
+# =============================================================================
+# 17. check_idle (replaces pre_check_timeout tests)
+# =============================================================================
+
+class TestCheckIdle(unittest.TestCase):
+
+    def test_idle_returns_immediately(self):
+        with patch.object(lasx.readers, 'get_scan_status', return_value="eScanIdle"):
+            result = lasx.checks.check_idle(None, timeout=5.0)
+        self.assertTrue(result["success"])
+        self.assertIsInstance(result["logs"], list)
+
+    def test_timeout_returns_failure(self):
+        with patch.object(lasx.readers, 'get_scan_status', return_value="eScanRunning"), \
+             patch('time.sleep'):
+            result = lasx.checks.check_idle(None, timeout=0.01)
+        self.assertFalse(result["success"])
+        self.assertTrue(any("timeout" in e["msg"].lower() for e in result["logs"]))
+
+    def test_none_timeout_waits_until_idle(self):
+        call_count = [0]
+        def mock_status(client):
+            call_count[0] += 1
+            return "eScanIdle" if call_count[0] > 3 else "eScanRunning"
+        with patch.object(lasx.readers, 'get_scan_status', side_effect=mock_status), \
+             patch('time.sleep'):
+            result = lasx.checks.check_idle(None, timeout=None)
+        self.assertTrue(result["success"])
+
+
+# =============================================================================
+# 18. v6.0 improvements
+# =============================================================================
+
+class TestMoveXYConsistency(unittest.TestCase):
+    def test_move_xy_has_full_timing(self):
+        client = make_client()
+        drv.set_stage_limits(x_min=0, x_max=130000, y_min=0, y_max=100000,
+                             z_galvo_min=-200, z_galvo_max=200, z_wide_min=0, z_wide_max=25000)
+        with patch.object(lasx.readers, 'get_scan_status', return_value="eScanIdle"), \
+             patch.object(lasx.errors, '_check_api_error', return_value=None), \
+             patch.object(lasx.readers, 'get_xy', return_value={
+                 "x_um": 50000, "y_um": 50000, "x_m": 0.05, "y_m": 0.05}), \
+             patch.object(lasx.confirm, '_confirm_xy_position',
+                          return_value={"success": True, "logs": []}):
+            r = drv.move_xy(client, 50000, 50000, unit="um")
+        self.assertTrue(r["success"])
+        for key in ("pre_check_s", "setup_s", "fire_s", "check_s",
+                     "confirm_s", "total_s", "attempts", "confirm_attempts",
+                     "method"):
+            self.assertIn(key, r["timing"])
+        self.assertIn("position", r)
+
+    def test_move_xy_no_confirm_bool(self):
+        import inspect
+        params = list(inspect.signature(drv.move_xy).parameters.keys())
+        self.assertNotIn("confirm", params)
+        self.assertIn("max_retries", params)
+        self.assertIn("tolerance", params)
+
+
+class TestGetStageLimits(unittest.TestCase):
+    def test_returns_copy(self):
+        drv.set_stage_limits(x_min=1, x_max=2, y_min=3, y_max=4,
+                             z_galvo_min=5, z_galvo_max=6, z_wide_min=7, z_wide_max=8)
+        limits = drv.get_stage_limits()
+        self.assertEqual(limits["x_min"], 1)
+        limits["x_min"] = 9999
+        self.assertEqual(drv.get_stage_limits()["x_min"], 1)
+
+
+class TestPing(unittest.TestCase):
+    def test_ping_success(self):
+        self.assertTrue(drv.ping(make_client()))
+    def test_ping_failure(self):
+        client = MagicMock()
+        client.PyApiPing.UpdateAwaitReceipt.side_effect = Exception("COM error")
+        type(client.PyApiStatus.Model).ScanStatus = PropertyMock(side_effect=Exception("COM error"))
+        self.assertFalse(drv.ping(client))
+
+
+class TestSchemaValidation(unittest.TestCase):
+    def test_missing_zoom_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            drv.make_changeable_copy({"scanSpeed": {"value": 600, "isResonant": False}, "activeSettings": []})
+        self.assertIn("zoom", str(ctx.exception))
+
+    def test_missing_active_settings_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            drv.make_changeable_copy({"zoom": {"current": 5.0}, "scanSpeed": {"value": 600}})
+        self.assertIn("activeSettings", str(ctx.exception))
+
+    def test_valid_settings_pass(self):
+        self.assertIsNotNone(drv.make_changeable_copy({
+            "zoom": {"current": 5.0}, "scanSpeed": {"value": 600, "isResonant": False}, "activeSettings": []}))
+
+
+class TestUnclassifiedErrorLogging(unittest.TestCase):
+    def test_unknown_error_logs_warning(self):
+        with self.assertLogs(drv.log, level="WARNING") as cm:
+            result = drv._is_transient_error("totally unexpected error xyz")
+        self.assertFalse(result)
+        self.assertTrue(any("Unclassified" in msg for msg in cm.output))
+
+    def test_known_patterns_no_warning(self):
+        self.assertTrue(drv._is_transient_error("block is being scanned"))
+        self.assertFalse(drv._is_transient_error("out of range"))
+
+
+class TestReadbackCacheRemoved(unittest.TestCase):
+    def test_cache_not_exported(self):
+        self.assertFalse(hasattr(drv, '_ReadbackCache'))
+
+
+# =============================================================================
+# 19. confirm_acquire and confirm_select_job
+# =============================================================================
+
+class TestConfirmAcquire(unittest.TestCase):
+
+    def test_idle_after_settle(self):
+        """Idle after settle_time has elapsed → success."""
+        with patch.object(lasx.readers, 'get_scan_status', return_value="eScanIdle"), \
+             patch('time.sleep'):
+            result = lasx.confirm.confirm_acquire(
+                None, settle_time=0.0, timeout=1.0, poll_interval=0.001)
+        self.assertTrue(result["success"])
+
+    def test_idle_before_settle_no_scanning(self):
+        """Idle before settle_time, never saw scanning → failure (timeout)."""
+        with patch.object(lasx.readers, 'get_scan_status', return_value="eScanIdle"), \
+             patch('time.sleep'):
+            result = lasx.confirm.confirm_acquire(
+                None, settle_time=999, timeout=0.01, poll_interval=0.001)
+        self.assertFalse(result["success"])
+
+    def test_scanning_then_idle(self):
+        """Non-idle then idle → success (saw scanning)."""
+        call_count = [0]
+        def mock_status(client):
+            call_count[0] += 1
+            return "eScanStarted" if call_count[0] <= 2 else "eScanIdle"
+        with patch.object(lasx.readers, 'get_scan_status', side_effect=mock_status), \
+             patch('time.sleep'):
+            result = lasx.confirm.confirm_acquire(
+                None, settle_time=999, timeout=5.0, poll_interval=0.001)
+        self.assertTrue(result["success"])
+
+
+class TestConfirmSelectJob(unittest.TestCase):
+
+    def test_selected_after_settle(self):
+        """Job is selected after settle_time → success."""
+        jobs = [{"Name": "HiRes", "IsSelected": True}]
+        with patch.object(lasx.readers, 'get_jobs', return_value=jobs), \
+             patch('time.sleep'):
+            result = lasx.confirm.confirm_select_job(
+                None, job_name="HiRes", settle_time=0.0, timeout=1.0,
+                poll_interval=0.001)
+        self.assertTrue(result["success"])
+
+    def test_timeout_returns_failure(self):
+        """Job never becomes selected → failure."""
+        jobs = [{"Name": "Other", "IsSelected": True}]
+        with patch.object(lasx.readers, 'get_jobs', return_value=jobs), \
+             patch('time.sleep'):
+            result = lasx.confirm.confirm_select_job(
+                None, job_name="HiRes", settle_time=0.0, timeout=0.01,
+                poll_interval=0.001)
+        self.assertFalse(result["success"])
+
+
+# =============================================================================
+# 20. _make_log_entry
+# =============================================================================
+
+class TestMakeLogEntry(unittest.TestCase):
+    def test_shape(self):
+        entry = drv._make_log_entry("info", "test message")
+        self.assertIn("ts", entry)
+        self.assertEqual(entry["level"], "info")
+        self.assertEqual(entry["msg"], "test message")
+        self.assertIsInstance(entry["ts"], float)
+
+
+if __name__ == "__main__":
+    unittest.main()
