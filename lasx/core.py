@@ -28,7 +28,9 @@ It does not poll or sleep. It calls zero-arg callables and acts on
 their result dicts.
 
 ``_fire_with_receipt`` is the transport helper for UpdateAwaitReceipt
-delivery. Unchanged from the previous design.
+delivery. ``_await_echo_result`` polls the echo model after transport
+delivery, waiting for LAS X to finish processing before the error
+check reads the echo fields.
 
 Import restrictions: only ``errors``, ``util``, and stdlib. Nothing from
 ``commands``, ``profiles``, ``checks``, or ``confirm``.
@@ -70,6 +72,53 @@ def _fire_with_receipt(api_obj, receipt_timeout=2, max_attempts=3,
         if attempt < max_attempts - 1:
             time.sleep(retry_delay)
     return False
+
+
+# =============================================================================
+# Echo settlement poll
+# =============================================================================
+
+def _await_echo_result(client, timeout=0.5, poll_interval=0.01):
+    """Poll echo model until LAS X finishes processing.
+
+    After UpdateAwaitReceipt confirms transport delivery, LAS X still
+    needs time to process the command and populate the echo fields
+    (HasError, Error, Result). This function polls until the echo
+    indicates processing is complete, or timeout.
+
+    Settlement condition: ``Result != 0 (NotDefined)`` OR
+    ``HasError is True``. Both are checked because LAS X may set
+    HasError without changing Result from NotDefined.
+
+    Args:
+        client: LAS X API client.
+        timeout: Max seconds to wait for echo settlement.
+        poll_interval: Seconds between polls.
+
+    Returns:
+        True if the echo settled (ready for error check),
+        False if timeout expired (echo still in cleared state).
+    """
+    deadline = time.perf_counter() + timeout
+
+    while True:
+        try:
+            result_code = int(client.PyApiCommandEcho.Model.Result)
+        except Exception:
+            result_code = 0  # Unreadable → treat as not settled
+
+        try:
+            has_error = bool(client.PyApiCommandEcho.Model.HasError)
+        except Exception:
+            has_error = False  # Unreadable → treat as not settled
+
+        if result_code != 0 or has_error:
+            return True
+
+        if time.perf_counter() >= deadline:
+            return False
+
+        time.sleep(poll_interval)
 
 
 # =============================================================================
@@ -163,12 +212,18 @@ def _fire_block(client, api_obj, description, *,
             }
         t_setup += time.perf_counter() - t0
 
-        # --- Step 3: Fire ---
+        # --- Step 3: Fire + await echo ---
         t0 = time.perf_counter()
         try:
             client.PyApiCommandEcho.Model.HasError = False
             client.PyApiCommandEcho.Model.Error = ""
+            try:
+                client.PyApiCommandEcho.Model.Result = 0  # NotDefined
+            except Exception:
+                pass  # Some API versions may not allow Result assignment
             delivered = _fire_with_receipt(api_obj)
+            if delivered:
+                _await_echo_result(client)
         except Exception as e:
             t_fire += time.perf_counter() - t0
             msg = f"{description} | Fire exception: {e}"

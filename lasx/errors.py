@@ -83,28 +83,50 @@ def _is_transient_error(msg):
 _RESULT_MAP = {0: "NotDefined", 1: "Success", 2: "Failure", 3: "NotImplemented"}
 
 
+def _read_echo_details(echo):
+    """Read additional diagnostic attributes from the echo model.
+
+    LAS X may populate these with context about silent rejections or
+    parameter adjustments. Returns a dict of non-empty attribute values.
+    """
+    details = {}
+    for attr in ("Description", "ErrorDescription", "Message",
+                 "ErrorMessage", "Warning", "Info", "Details"):
+        try:
+            val = getattr(echo, attr, None)
+            if val is not None and val != "":
+                details[attr] = str(val)
+        except Exception:
+            pass
+    return details
+
+
 def _check_api_error(client):
     """Check PyApiCommandEcho for errors after a fire.
 
     Reads the echo model and interprets the Result enum and HasError flag.
     Warnings (HasError with "warning" in the message) are treated as
     success — LAS X uses these for non-fatal parameter adjustments.
+    Additional echo attributes are captured for diagnostics.
 
     Args:
         client: The connected LAS X API client.
 
     Returns:
-        None on success, or {"error": str, "result": str, "result_code": int}
-        on failure.
+        None on success, or {"error": str, "result": str, "result_code": int,
+        "details": dict} on failure.
     """
     echo = client.PyApiCommandEcho.Model
+    details = _read_echo_details(echo)
 
     try:
         result_code = int(echo.Result)
     except Exception:
         # Can't read Result enum
         if echo.HasError:
-            return {"error": echo.Error, "result": "Unknown", "result_code": -1}
+            error_msg = echo.Error if echo.Error else "(no message)"
+            return {"error": error_msg, "result": "Unknown",
+                    "result_code": -1, "details": details}
         return None
 
     result_str = _RESULT_MAP.get(result_code, "Unknown")
@@ -114,22 +136,31 @@ def _check_api_error(client):
     if result_code == 3:
         if not error_msg:
             error_msg = "Command not implemented on this hardware"
-        return {"error": error_msg, "result": result_str, "result_code": result_code}
+        return {"error": error_msg, "result": result_str,
+                "result_code": result_code, "details": details}
 
     # HasError with "warning" → success (non-fatal adjustment)
     if echo.HasError and "warning" in error_msg.lower():
+        if details:
+            log.debug("Warning accepted with details: %s", details)
         return None
 
     # HasError without warning → error
     if echo.HasError:
-        return {"error": error_msg, "result": result_str, "result_code": result_code}
+        if not error_msg:
+            error_msg = "(HasError set, no message)"
+        return {"error": error_msg, "result": result_str,
+                "result_code": result_code, "details": details}
 
     # Failure result code without HasError
     if result_code == 2:
         return {"error": error_msg or "Unknown failure",
-                "result": result_str, "result_code": result_code}
+                "result": result_str, "result_code": result_code,
+                "details": details}
 
     # Success or NotDefined with no error
+    if details:
+        log.debug("Echo details on success: %s", details)
     return None
 
 
@@ -176,9 +207,14 @@ def _default_error_check(client):
         return {"success": True, "error": None, "transient": None, "logs": logs}
 
     error_msg = err.get("error", "")
+    details = err.get("details", {})
     transient = _is_transient_error(error_msg)
     level = "warning" if transient else "error"
-    logs.append(_make_log_entry(level, f"API error: {error_msg}"))
+
+    log_msg = f"API error: {error_msg}"
+    if details:
+        log_msg += f" | details: {details}"
+    logs.append(_make_log_entry(level, log_msg))
 
     return {
         "success": False,
