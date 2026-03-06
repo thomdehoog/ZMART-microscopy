@@ -739,10 +739,10 @@ class TestConfirmFunctions(unittest.TestCase):
                 "x_um": 50000, "y_um": 50000, "x_m": 0.05, "y_m": 0.05}):
             self.assertTrue(lasx.confirm.confirm_move_xy(
                 None, target_x_um=50000, target_y_um=50000,
-                settle_time=0, timeout=1)["success"])
+                timeout=1)["success"])
             self.assertFalse(lasx.confirm.confirm_move_xy(
                 None, target_x_um=50000, target_y_um=99999,
-                settle_time=0, timeout=0.2)["success"])
+                timeout=0.2)["success"])
 
     def test_confirm_returns_dict_shape(self):
         """All confirm functions return {"success": bool, "logs": [...]}."""
@@ -1486,7 +1486,7 @@ class TestConfirmSelectJob(unittest.TestCase):
         with patch.object(lasx.readers, 'get_jobs', return_value=jobs), \
              patch('time.sleep'):
             result = lasx.confirm.confirm_select_job(
-                None, job_name="HiRes", settle_time=0.0, timeout=1.0,
+                None, job_name="HiRes", timeout=1.0,
                 poll_interval=0.001)
         self.assertTrue(result["success"])
 
@@ -1496,7 +1496,7 @@ class TestConfirmSelectJob(unittest.TestCase):
         with patch.object(lasx.readers, 'get_jobs', return_value=jobs), \
              patch('time.sleep'):
             result = lasx.confirm.confirm_select_job(
-                None, job_name="HiRes", settle_time=0.0, timeout=0.01,
+                None, job_name="HiRes", timeout=0.01,
                 poll_interval=0.001)
         self.assertFalse(result["success"])
 

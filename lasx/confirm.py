@@ -65,7 +65,7 @@ ZMODE_KEY = {"galvo": "z-galvo", "zwide": "z-wide"}
 
 
 def confirm_move_z(client, *, job_name, z_mode, target_um, tolerance=1.0,
-                   settle_time=0.1, timeout=30.0, poll_interval=0.1):
+                   timeout=30.0, poll_interval=0.1):
     """Poll until Z drive position is within tolerance, or until timeout.
 
     Owns its polling loop — the backbone calls this once with
@@ -77,7 +77,6 @@ def confirm_move_z(client, *, job_name, z_mode, target_um, tolerance=1.0,
         z_mode: Drive type — "galvo" or "zwide".
         target_um: Expected Z position in micrometers.
         tolerance: Acceptable deviation in micrometers.
-        settle_time: Seconds to wait before first poll.
         timeout: Hard ceiling in seconds.
         poll_interval: Seconds between position polls.
 
@@ -85,28 +84,21 @@ def confirm_move_z(client, *, job_name, z_mode, target_um, tolerance=1.0,
         {"success": bool, "logs": [...]}
     """
     logs = []
+    key = ZMODE_KEY[z_mode]
     t_start = time.perf_counter()
     deadline = t_start + timeout
-    key = ZMODE_KEY[z_mode]
 
     while time.perf_counter() < deadline:
-        if time.perf_counter() - t_start < settle_time:
-            time.sleep(poll_interval)
-            continue
-
         ch = _readback(client, job_name)
-        if ch is None:
-            time.sleep(poll_interval)
-            continue
-
-        try:
-            actual = ch["zPosition"][key]
-            log.debug("MoveZ confirm: target=%.2f actual=%.2f delta=%.3f um",
-                      target_um, actual, abs(actual - target_um))
-            if abs(actual - target_um) < tolerance:
-                return {"success": True, "logs": logs}
-        except (KeyError, TypeError):
-            pass
+        if ch is not None:
+            try:
+                actual = ch["zPosition"][key]
+                log.debug("MoveZ confirm: target=%.2f actual=%.2f delta=%.3f um",
+                          target_um, actual, abs(actual - target_um))
+                if abs(actual - target_um) < tolerance:
+                    return {"success": True, "logs": logs}
+            except (KeyError, TypeError):
+                pass
 
         time.sleep(poll_interval)
 
@@ -133,7 +125,10 @@ def _confirm_zoom(client, job_name, target, tolerance=0.1):
     if ch is None:
         return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
     try:
-        ok = abs(ch["zoom"]["current"] - target) < tolerance
+        actual = ch["zoom"]["current"]
+        ok = abs(actual - target) < tolerance
+        if not ok:
+            log.debug("Zoom confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError):
         return {"success": False, "logs": [_make_log_entry("debug", "Zoom key missing from readback")]}
@@ -155,7 +150,10 @@ def _confirm_scan_field_rotation(client, job_name, target, tolerance=0.5):
     if ch is None:
         return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
     try:
-        ok = abs(ch["scanFieldRotation"]["value"] - target) < tolerance
+        actual = ch["scanFieldRotation"]["value"]
+        ok = abs(actual - target) < tolerance
+        if not ok:
+            log.debug("ScanFieldRotation confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError):
         return {"success": False, "logs": [_make_log_entry("debug", "ScanFieldRotation key missing from readback")]}
@@ -333,7 +331,10 @@ def _confirm_pinhole_airy(client, job_name, si, target, tolerance=0.05):
     if ch is None:
         return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
     try:
-        ok = abs(ch["activeSettings"][si]["pinholeAiry"]["value"] - target) < tolerance
+        actual = ch["activeSettings"][si]["pinholeAiry"]["value"]
+        ok = abs(actual - target) < tolerance
+        if not ok:
+            log.debug("PinholeAiry confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError, IndexError):
         return {"success": False, "logs": [_make_log_entry("debug", "PinholeAiry key missing from readback")]}
@@ -360,7 +361,10 @@ def _confirm_detector_gain(client, job_name, si, beam_route, target,
     try:
         det = next(d for d in ch["activeSettings"][si]["activeDetectors"]
                    if d["_beamRoute"] == beam_route)
-        ok = abs(det["gain"]["value"] - target) < tolerance
+        actual = det["gain"]["value"]
+        ok = abs(actual - target) < tolerance
+        if not ok:
+            log.debug("DetectorGain confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError, IndexError, StopIteration):
         return {"success": False, "logs": [_make_log_entry("debug", "DetectorGain key missing from readback")]}
@@ -388,7 +392,10 @@ def _confirm_laser_intensity(client, job_name, si, beam_route, line_index,
     try:
         las = next(l for l in ch["activeSettings"][si]["activeLaserLines"]
                    if l["_beamRoute"] == beam_route and l["_lineIndex"] == line_index)
-        ok = abs(las["intensity"]["value"] - target) < tolerance
+        actual = las["intensity"]["value"]
+        ok = abs(actual - target) < tolerance
+        if not ok:
+            log.debug("LaserIntensity confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError, IndexError, StopIteration):
         return {"success": False, "logs": [_make_log_entry("debug", "LaserIntensity key missing from readback")]}
@@ -416,7 +423,10 @@ def _confirm_filter_wheel_spectrum(client, job_name, si, beam_route, fw_type,
     try:
         fw = next(f for f in ch["activeSettings"][si]["filterWheels"]
                   if f["_beamRoute"] == beam_route and f.get("type") == fw_type)
-        ok = abs(fw["spectrumPosition"] - target) < tolerance
+        actual = fw["spectrumPosition"]
+        ok = abs(actual - target) < tolerance
+        if not ok:
+            log.debug("FilterWheelSpectrum confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError, IndexError, StopIteration):
         return {"success": False, "logs": [_make_log_entry("debug", "FilterWheelSpectrum key missing from readback")]}
@@ -441,7 +451,10 @@ def _confirm_scan_speed(client, job_name, target):
     if ch is None:
         return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
     try:
-        ok = ch["scanSpeed"]["value"] == target
+        actual = ch["scanSpeed"]["value"]
+        ok = actual == target
+        if not ok:
+            log.debug("ScanSpeed confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError):
         return {"success": False, "logs": [_make_log_entry("debug", "ScanSpeed key missing from readback")]}
@@ -462,7 +475,10 @@ def _confirm_scan_resonant(client, job_name, target):
     if ch is None:
         return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
     try:
-        ok = ch["scanSpeed"]["isResonant"] == target
+        actual = ch["scanSpeed"]["isResonant"]
+        ok = actual == target
+        if not ok:
+            log.debug("ScanResonant confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError):
         return {"success": False, "logs": [_make_log_entry("debug", "ScanResonant key missing from readback")]}
@@ -483,7 +499,10 @@ def _confirm_scan_mode(client, job_name, target):
     if ch is None:
         return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
     try:
-        ok = ch["scanMode"] == target
+        actual = ch["scanMode"]
+        ok = actual == target
+        if not ok:
+            log.debug("ScanMode confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError):
         return {"success": False, "logs": [_make_log_entry("debug", "ScanMode key missing from readback")]}
@@ -504,7 +523,10 @@ def _confirm_sequential_mode(client, job_name, target):
     if ch is None:
         return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
     try:
-        ok = ch["sequentialMode"] == target
+        actual = ch["sequentialMode"]
+        ok = actual == target
+        if not ok:
+            log.debug("SequentialMode confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError):
         return {"success": False, "logs": [_make_log_entry("debug", "SequentialMode key missing from readback")]}
@@ -526,14 +548,17 @@ def _confirm_image_format(client, job_name, w, h):
     if ch is None:
         return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
     try:
-        ok = ch["format"] == f"{w} x {h}"
+        actual = ch["format"]
+        ok = actual == f"{w} x {h}"
+        if not ok:
+            log.debug("ImageFormat confirm: target='%s x %s' actual='%s'", w, h, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError):
         return {"success": False, "logs": [_make_log_entry("debug", "ImageFormat key missing from readback")]}
 
 
 def confirm_objective(client, *, job_name, target_name,
-                      settle_time=0.5, timeout=30.0, poll_interval=0.3):
+                      timeout=30.0, poll_interval=0.3):
     """Poll until objective matches target, or until timeout.
 
     Owns its polling loop — the backbone calls this once with
@@ -544,7 +569,6 @@ def confirm_objective(client, *, job_name, target_name,
         client: The connected LAS X API client.
         job_name: Target job name.
         target_name: Expected objective name string.
-        settle_time: Seconds to wait before first poll (turret begins moving).
         timeout: Hard ceiling in seconds.
         poll_interval: Seconds between readback polls.
 
@@ -556,23 +580,16 @@ def confirm_objective(client, *, job_name, target_name,
     deadline = t_start + timeout
 
     while time.perf_counter() < deadline:
-        if time.perf_counter() - t_start < settle_time:
-            time.sleep(poll_interval)
-            continue
-
         ch = _readback(client, job_name)
-        if ch is None:
-            time.sleep(poll_interval)
-            continue
-
-        try:
-            actual = ch["objective"]["name"].strip()
-            log.debug("Objective confirm: target='%s' actual='%s'",
-                      target_name.strip(), actual)
-            if actual == target_name.strip():
-                return {"success": True, "logs": logs}
-        except (KeyError, TypeError, AttributeError):
-            pass
+        if ch is not None:
+            try:
+                actual = ch["objective"]["name"].strip()
+                log.debug("Objective confirm: target='%s' actual='%s'",
+                          target_name.strip(), actual)
+                if actual == target_name.strip():
+                    return {"success": True, "logs": logs}
+            except (KeyError, TypeError, AttributeError):
+                pass
 
         time.sleep(poll_interval)
 
@@ -599,7 +616,10 @@ def _confirm_frame_accumulation(client, job_name, si, target):
     if ch is None:
         return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
     try:
-        ok = ch["activeSettings"][si]["frameAccumulation"] == target
+        actual = ch["activeSettings"][si]["frameAccumulation"]
+        ok = actual == target
+        if not ok:
+            log.debug("FrameAccumulation confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError, IndexError):
         return {"success": False, "logs": [_make_log_entry("debug", "FrameAccumulation key missing from readback")]}
@@ -621,7 +641,10 @@ def _confirm_frame_average(client, job_name, si, target):
     if ch is None:
         return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
     try:
-        ok = ch["activeSettings"][si]["frameAverage"] == target
+        actual = ch["activeSettings"][si]["frameAverage"]
+        ok = actual == target
+        if not ok:
+            log.debug("FrameAverage confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError, IndexError):
         return {"success": False, "logs": [_make_log_entry("debug", "FrameAverage key missing from readback")]}
@@ -643,7 +666,10 @@ def _confirm_line_accumulation(client, job_name, si, target):
     if ch is None:
         return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
     try:
-        ok = ch["activeSettings"][si]["lineAccumulation"] == target
+        actual = ch["activeSettings"][si]["lineAccumulation"]
+        ok = actual == target
+        if not ok:
+            log.debug("LineAccumulation confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError, IndexError):
         return {"success": False, "logs": [_make_log_entry("debug", "LineAccumulation key missing from readback")]}
@@ -665,7 +691,10 @@ def _confirm_line_average(client, job_name, si, target):
     if ch is None:
         return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
     try:
-        ok = ch["activeSettings"][si]["lineAverage"] == target
+        actual = ch["activeSettings"][si]["lineAverage"]
+        ok = actual == target
+        if not ok:
+            log.debug("LineAverage confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError, IndexError):
         return {"success": False, "logs": [_make_log_entry("debug", "LineAverage key missing from readback")]}
@@ -690,7 +719,10 @@ def _confirm_laser_shutter(client, job_name, si, beam_route, target):
     try:
         las = next(l for l in ch["activeSettings"][si]["activeLaserLines"]
                    if l["_beamRoute"] == beam_route)
-        ok = las["shutterOpen"] == target
+        actual = las["shutterOpen"]
+        ok = actual == target
+        if not ok:
+            log.debug("LaserShutter confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError, IndexError, StopIteration):
         return {"success": False, "logs": [_make_log_entry("debug", "LaserShutter key missing from readback")]}
@@ -717,7 +749,10 @@ def _confirm_filter_wheel_slot(client, job_name, si, beam_route, fw_type,
     try:
         fw = next(f for f in ch["activeSettings"][si]["filterWheels"]
                   if f["_beamRoute"] == beam_route and f.get("type") == fw_type)
-        ok = fw["filterIndex"] == target
+        actual = fw["filterIndex"]
+        ok = actual == target
+        if not ok:
+            log.debug("FilterWheelSlot confirm: target=%s actual=%s", target, actual)
         return {"success": ok, "logs": []}
     except (KeyError, TypeError, IndexError, StopIteration):
         return {"success": False, "logs": [_make_log_entry("debug", "FilterWheelSlot key missing from readback")]}
@@ -728,7 +763,7 @@ def _confirm_filter_wheel_slot(client, job_name, si, beam_route, fw_type,
 # =============================================================================
 
 def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
-                    settle_time=0.2, timeout=30.0, poll_interval=0.1):
+                    timeout=30.0, poll_interval=0.1):
     """Poll until XY stage position is within tolerance, or until timeout.
 
     Owns its polling loop — the backbone calls this once with
@@ -739,7 +774,6 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
         target_x_um: Expected X position in micrometers.
         target_y_um: Expected Y position in micrometers.
         tolerance: Acceptable deviation in micrometers per axis.
-        settle_time: Seconds to wait before first poll (let stage begin moving).
         timeout: Hard ceiling in seconds.
         poll_interval: Seconds between position polls.
 
@@ -751,23 +785,16 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
     deadline = t_start + timeout
 
     while time.perf_counter() < deadline:
-        if time.perf_counter() - t_start < settle_time:
-            time.sleep(poll_interval)
-            continue
-
         pos = _readers.get_xy(client, timeout=5)
-        if pos is None:
-            time.sleep(poll_interval)
-            continue
+        if pos is not None:
+            dx = abs(pos["x_um"] - target_x_um)
+            dy = abs(pos["y_um"] - target_y_um)
+            log.debug("MoveXY confirm: target=(%.1f, %.1f) actual=(%.1f, %.1f) "
+                      "delta=(%.2f, %.2f) um", target_x_um, target_y_um,
+                      pos["x_um"], pos["y_um"], dx, dy)
 
-        dx = abs(pos["x_um"] - target_x_um)
-        dy = abs(pos["y_um"] - target_y_um)
-        log.debug("MoveXY confirm: target=(%.1f, %.1f) actual=(%.1f, %.1f) "
-                  "delta=(%.2f, %.2f) um", target_x_um, target_y_um,
-                  pos["x_um"], pos["y_um"], dx, dy)
-
-        if dx < tolerance and dy < tolerance:
-            return {"success": True, "logs": logs}
+            if dx < tolerance and dy < tolerance:
+                return {"success": True, "logs": logs}
 
         time.sleep(poll_interval)
 
@@ -862,19 +889,13 @@ def confirm_acquire(client, *, settle_time=0.5, start_timeout=15.0,
     return {"success": False, "logs": logs}
 
 
-def confirm_select_job(client, *, job_name, settle_time=0.1, timeout=30.0,
+def confirm_select_job(client, *, job_name, timeout=30.0,
                        poll_interval=0.3):
     """Poll until the specified job is selected, or until timeout.
-
-    Absorbs the post-fire settle time before polling. Returns False
-    without polling until settle_time has elapsed, giving LAS X time
-    to begin the job switch before we start polling GetJobsInformation.
 
     Args:
         client: The connected LAS X API client.
         job_name: Name of the job expected to become selected.
-        settle_time: Seconds to wait after entry before polling
-            (gives LAS X time to begin the switch).
         timeout: Hard ceiling in seconds for the entire operation.
         poll_interval: Seconds between get_jobs polls. 0.3s balances
             responsiveness vs. spin (job switches are inherently slow).
@@ -887,11 +908,6 @@ def confirm_select_job(client, *, job_name, settle_time=0.1, timeout=30.0,
     deadline = t_start + timeout
 
     while time.perf_counter() < deadline:
-        # Settle period — don't poll yet
-        if time.perf_counter() - t_start < settle_time:
-            time.sleep(poll_interval)
-            continue
-
         jobs = _readers.get_jobs(client)
         if jobs:
             for j in jobs:
@@ -900,7 +916,6 @@ def confirm_select_job(client, *, job_name, settle_time=0.1, timeout=30.0,
 
         time.sleep(poll_interval)
 
-    # Timeout exceeded
     msg = f"Job selection timeout after {timeout:.1f}s for '{job_name}'"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))

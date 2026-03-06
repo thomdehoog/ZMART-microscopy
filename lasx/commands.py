@@ -914,8 +914,7 @@ def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
 # Job selection
 # =============================================================================
 
-def select_job(client, job_name, poll_timeout=30.0, poll_interval=0.3,
-               settle_time=0.1):
+def select_job(client, job_name, poll_timeout=30.0, poll_interval=0.3):
     """Select a job by name.
 
     Routes through the backbone. No pre_check_fn (job switching doesn't
@@ -927,7 +926,6 @@ def select_job(client, job_name, poll_timeout=30.0, poll_interval=0.3,
         job_name: Name of job to select.
         poll_timeout: Max seconds to wait for job switch confirmation.
         poll_interval: Seconds between get_jobs polls.
-        settle_time: Seconds to wait after firing before polling.
     """
     t0 = time.perf_counter()
 
@@ -958,7 +956,7 @@ def select_job(client, job_name, poll_timeout=30.0, poll_interval=0.3,
         client, api_obj, f"SelectJob '{job_name}'", SELECT_JOB,
         setup_fn=setup,
         confirm_fn=partial(confirm_select_job, job_name=job_name,
-                           settle_time=settle_time, timeout=poll_timeout,
+                           timeout=poll_timeout,
                            poll_interval=poll_interval),
     )
 
