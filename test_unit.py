@@ -1090,7 +1090,7 @@ PROTOCOL_POSITIONS = [
 ]
 
 def _mock_select(client, job_name, **kw):
-    return _make_v6_result(msg=f"Switched to '{job_name}'", elapsed=0.1)
+    return _make_v6_result(msg=f"Switched to '{job_name}'")
 
 def _mock_move(client, x, y, **kw):
     r = _make_v6_result(msg=f"Moved ({x},{y})")
@@ -1098,7 +1098,7 @@ def _mock_move(client, x, y, **kw):
     return r
 
 def _mock_acq(client, job_name, **kw):
-    return _make_v6_result(msg="Acquisition complete", elapsed=1.0)
+    return _make_v6_result(msg="Acquisition complete")
 
 def _mock_fire_ok(client, api_obj, description, **kw):
     return _make_v6_result(msg=description)
@@ -1250,7 +1250,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         def mock_a(client, job_name, **kw):
             acq_count[0] += 1
             if acq_count[0] == 5:
-                return _make_v6_result(False, "Scan did not start within 15s", elapsed=15.0)
+                return _make_v6_result(False, "Scan did not start within 15s")
             return _mock_acq(client, job_name)
         with patch.object(drv, 'select_job', side_effect=_mock_select), \
              patch.object(drv, 'move_xy', side_effect=_mock_move), \
@@ -1279,7 +1279,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
     def test_job_select_failure_aborts(self):
         def mock_sel(client, job_name, **kw):
             if job_name == "ZStack":
-                return _make_v6_result(False, "Timeout", elapsed=10.0)
+                return _make_v6_result(False, "Timeout")
             return _mock_select(client, job_name)
         with patch.object(drv, 'select_job', side_effect=mock_sel), \
              patch.object(drv, 'move_xy', side_effect=_mock_move), \

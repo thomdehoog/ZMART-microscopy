@@ -54,7 +54,7 @@ from .confirm import (
 from .errors import _default_error_check
 
 
-@dataclass
+@dataclass(frozen=True)
 class CommandProfile:
     """Complete recipe for a single command's backbone behaviour.
 
@@ -69,7 +69,8 @@ class CommandProfile:
         error_check_fn: Post-fire error check. ``callable(client) → result``.
             Defaults to ``_default_error_check``.
         confirm_fn: Readback confirmation. ``callable(client) → result``.
-            None to skip confirmation.
+            None to skip confirmation. Declarative only — commands always
+            override this with a target-bound partial at call time.
         correct_fn: Custom correction strategy. ``callable(client) → result``.
             None uses built-in idle correction. Stubbed for future use.
         max_retries: Transient error retries inside the fire block.

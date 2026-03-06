@@ -329,13 +329,13 @@ print("=" * 70)
 
 r = test("select_job", lambda: drv.select_job(client, JOB, poll_timeout=TIMEOUT))
 if r:
-    detail(f"Elapsed: {r.get('elapsed', 0):.2f}s")
+    detail(f"Elapsed: {r.get('timing', {}).get('total_s', 0):.2f}s")
 
 # Select again (should be near-instant — already selected)
 r = test("select_job (already selected)",
          lambda: drv.select_job(client, JOB, poll_timeout=TIMEOUT))
 if r:
-    detail(f"Elapsed: {r.get('elapsed', 0):.2f}s (should be ~0)")
+    detail(f"Elapsed: {r.get('timing', {}).get('total_s', 0):.2f}s (should be ~0)")
 
 # Cycle through all jobs 5 times (tests rapid switching and restore)
 if jobs and len(names) > 1:
@@ -346,12 +346,12 @@ if jobs and len(names) > 1:
                      lambda _j=other_job: drv.select_job(client, _j,
                                                           poll_timeout=TIMEOUT))
             if r:
-                detail(f"Elapsed: {r.get('elapsed', 0):.2f}s")
+                detail(f"Elapsed: {r.get('timing', {}).get('total_s', 0):.2f}s")
         r2 = drv.select_job(client, JOB, poll_timeout=TIMEOUT)
         test(f"select_job cycle {cycle}: restore '{JOB}'",
              lambda: r2)
         if r2:
-            detail(f"Elapsed: {r2.get('elapsed', 0):.2f}s")
+            detail(f"Elapsed: {r2.get('timing', {}).get('total_s', 0):.2f}s")
 
 
 # Abort early if no settings or skipping writes
@@ -945,7 +945,7 @@ else:
              lambda: drv.acquire(client, JOB, poll_interval=0.1,
                                  settle_time=0.5, start_timeout=15.0))
     if r:
-        detail(f"Elapsed: {r.get('elapsed', 0):.1f}s")
+        detail(f"Elapsed: {r.get('timing', {}).get('total_s', 0):.1f}s")
 
 
 # #########################################################################

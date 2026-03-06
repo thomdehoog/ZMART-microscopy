@@ -66,7 +66,8 @@ log = logging.getLogger(__name__)
 
 def _dispatch(client, api_obj, description, profile, *,
               setup_fn, confirm_fn=None,
-              max_retries=None, pre_check_timeout=None):
+              max_retries=None, retry_backoff=None, retry_escalate=None,
+              pre_check_timeout=None):
     """Call confirm_and_fire with a profile's settings.
 
     This is the single internal helper that all command wrappers call.
@@ -87,6 +88,10 @@ def _dispatch(client, api_obj, description, profile, *,
             meaning no confirmation).
         max_retries: Override for the profile's max_retries. None uses
             the profile default.
+        retry_backoff: Override for the profile's retry_backoff. None
+            uses the profile default.
+        retry_escalate: Override for the profile's retry_escalate. None
+            uses the profile default.
         pre_check_timeout: Override idle-wait timeout (seconds). None
             uses the profile's pre_check_fn as-is. When provided,
             replaces the profile's pre_check_fn with a fresh
@@ -117,8 +122,8 @@ def _dispatch(client, api_obj, description, profile, *,
                     if profile.correct_fn else None,
         max_retries=max_retries if max_retries is not None else profile.max_retries,
         max_confirm_attempts=profile.max_confirm_attempts,
-        retry_backoff=profile.retry_backoff,
-        retry_escalate=profile.retry_escalate,
+        retry_backoff=retry_backoff if retry_backoff is not None else profile.retry_backoff,
+        retry_escalate=retry_escalate if retry_escalate is not None else profile.retry_escalate,
     )
 
 
@@ -127,7 +132,7 @@ def _dispatch(client, api_obj, description, profile, *,
 # =============================================================================
 
 def set_zoom(client, job_name, value, *,
-             max_retries=3, pre_check_timeout=None, tolerance=0.1):
+             max_retries=None, pre_check_timeout=None, tolerance=0.1):
     """Set zoom level for the specified job.
 
     Args:
@@ -154,7 +159,7 @@ def set_zoom(client, job_name, value, *,
 
 
 def set_scan_speed(client, job_name, value, *,
-                   max_retries=3, pre_check_timeout=None):
+                   max_retries=None, pre_check_timeout=None):
     """Set scan speed for the specified job."""
     api_obj = client.PyApiSetScanSpeedByJobName
 
@@ -172,7 +177,7 @@ def set_scan_speed(client, job_name, value, *,
 
 
 def set_scan_resonant(client, job_name, enable, *,
-                      max_retries=3, pre_check_timeout=None):
+                      max_retries=None, pre_check_timeout=None):
     """Enable or disable resonant scanning for the specified job."""
     api_obj = client.PyApiSetScannerToResonantByJobName
 
@@ -190,7 +195,7 @@ def set_scan_resonant(client, job_name, enable, *,
 
 
 def set_scan_mode(client, job_name, mode, *,
-                  max_retries=3, pre_check_timeout=None):
+                  max_retries=None, pre_check_timeout=None):
     """Set scan mode (e.g. 'xyz', 'xyzt') for the specified job."""
     api_obj = client.PyApiSetScanModeByJobName
 
@@ -208,7 +213,7 @@ def set_scan_mode(client, job_name, mode, *,
 
 
 def set_sequential_mode(client, job_name, mode, *,
-                        max_retries=3, pre_check_timeout=None):
+                        max_retries=None, pre_check_timeout=None):
     """Set sequential mode ('Line', 'Frame', or 'Stack') for the specified job."""
     # Phase A: input validation and enum resolution
     if not isinstance(mode, str) or not mode.strip():
@@ -252,7 +257,7 @@ def set_sequential_mode(client, job_name, mode, *,
 
 
 def set_scan_field_rotation(client, job_name, angle, *,
-                            max_retries=3, pre_check_timeout=None,
+                            max_retries=None, pre_check_timeout=None,
                             tolerance=0.5):
     """Set scan field rotation angle (degrees) for the specified job."""
     api_obj = client.PyApiSetScanFieldRotationByJobName
@@ -271,7 +276,7 @@ def set_scan_field_rotation(client, job_name, angle, *,
 
 
 def set_image_format(client, job_name, format_str, *,
-                     max_retries=3, pre_check_timeout=None):
+                     max_retries=None, pre_check_timeout=None):
     """Set image dimensions for the specified job.
 
     Args:
@@ -300,7 +305,7 @@ def set_image_format(client, job_name, format_str, *,
 
 
 def set_objective(client, job_name, hw_info, name=None, magnification=None, *,
-                  max_retries=3, pre_check_timeout=None):
+                  max_retries=None, pre_check_timeout=None):
     """Set objective by name or magnification.
 
     Looks up the objective in hw_info to find the correct slot index,
@@ -358,7 +363,7 @@ def set_objective(client, job_name, hw_info, name=None, magnification=None, *,
 
 def set_z_stack_definition(client, job_name, begin_um=None, end_um=None,
                            old_begin_um=None, old_end_um=None, *,
-                           max_retries=3, pre_check_timeout=None,
+                           max_retries=None, pre_check_timeout=None,
                            tolerance=1.0):
     """Set z-stack begin/end positions (micrometers).
 
@@ -405,7 +410,7 @@ def set_z_stack_definition(client, job_name, begin_um=None, end_um=None,
 
 
 def set_z_stack_step_size(client, job_name, step_size_um, *,
-                          max_retries=3, pre_check_timeout=None,
+                          max_retries=None, pre_check_timeout=None,
                           tolerance=0.5):
     """Set z-stack step size (micrometers)."""
     api_obj = client.PyApiCommandSetZStackStepSizeByJobName
@@ -425,7 +430,7 @@ def set_z_stack_step_size(client, job_name, step_size_um, *,
 
 
 def set_z_stack_size(client, job_name, size_um, *,
-                     max_retries=3, pre_check_timeout=None,
+                     max_retries=None, pre_check_timeout=None,
                      tolerance=1.5):
     """Set z-stack total size (micrometers).
 
@@ -453,7 +458,7 @@ def set_z_stack_size(client, job_name, size_um, *,
 # =============================================================================
 
 def set_frame_accumulation(client, job_name, setting_index, value, *,
-                           max_retries=3, pre_check_timeout=None):
+                           max_retries=None, pre_check_timeout=None):
     """Set frame accumulation count for a specific setting index."""
     api_obj = client.PyApiSetFrameAccumulationByJobName
 
@@ -474,7 +479,7 @@ def set_frame_accumulation(client, job_name, setting_index, value, *,
 
 
 def set_frame_average(client, job_name, setting_index, value, *,
-                      max_retries=3, pre_check_timeout=None):
+                      max_retries=None, pre_check_timeout=None):
     """Set frame average count for a specific setting index."""
     api_obj = client.PyApiSetFrameAverageByJobName
 
@@ -495,7 +500,7 @@ def set_frame_average(client, job_name, setting_index, value, *,
 
 
 def set_line_accumulation(client, job_name, setting_index, value, *,
-                          max_retries=3, pre_check_timeout=None):
+                          max_retries=None, pre_check_timeout=None):
     """Set line accumulation count for a specific setting index."""
     api_obj = client.PyApiSetLineAccumulationByJobName
 
@@ -516,7 +521,7 @@ def set_line_accumulation(client, job_name, setting_index, value, *,
 
 
 def set_line_average(client, job_name, setting_index, value, *,
-                     max_retries=3, pre_check_timeout=None):
+                     max_retries=None, pre_check_timeout=None):
     """Set line average count for a specific setting index."""
     api_obj = client.PyApiSetLineAverageByJobName
 
@@ -537,7 +542,7 @@ def set_line_average(client, job_name, setting_index, value, *,
 
 
 def set_pinhole_airy(client, job_name, setting_index, value, *,
-                     max_retries=3, pre_check_timeout=None,
+                     max_retries=None, pre_check_timeout=None,
                      tolerance=0.05):
     """Set pinhole size in Airy units for a specific setting index."""
     api_obj = client.PyApiSetPinholeAUByJobName
@@ -564,7 +569,7 @@ def set_pinhole_airy(client, job_name, setting_index, value, *,
 # =============================================================================
 
 def set_detector_gain(client, job_name, setting_index, beam_route, value, *,
-                      max_retries=3, pre_check_timeout=None,
+                      max_retries=None, pre_check_timeout=None,
                       tolerance=1.0):
     """Set detector gain for a specific detector identified by beam route."""
     api_obj = client.PyApiSetDetectorGainByJobName
@@ -594,7 +599,7 @@ def set_detector_gain(client, job_name, setting_index, beam_route, value, *,
 
 def set_laser_intensity(client, job_name, setting_index, beam_route,
                         line_index, value, *,
-                        max_retries=3, pre_check_timeout=None,
+                        max_retries=None, pre_check_timeout=None,
                         tolerance=0.005):
     """Set laser intensity (0.0-1.0) for a specific laser line."""
     api_obj = client.PyApiSetLaserIntensityByJobName
@@ -621,7 +626,7 @@ def set_laser_intensity(client, job_name, setting_index, beam_route,
 
 
 def set_laser_shutter(client, job_name, setting_index, beam_route, activate,
-                      *, max_retries=3, pre_check_timeout=None):
+                      *, max_retries=None, pre_check_timeout=None):
     """Open or close laser shutter for a specific beam route."""
     api_obj = client.PyApiSetLaserShutterByJobName
 
@@ -651,7 +656,7 @@ def set_laser_shutter(client, job_name, setting_index, beam_route, activate,
 
 def set_filter_wheel_slot(client, job_name, setting_index, beam_route,
                           filter_wheel_type, slot_index, *,
-                          max_retries=3, pre_check_timeout=None):
+                          max_retries=None, pre_check_timeout=None):
     """Set filter wheel to a specific slot."""
     api_obj = client.PyApiSetFilterWheelSlotByJobName
 
@@ -681,7 +686,7 @@ def set_filter_wheel_slot(client, job_name, setting_index, beam_route,
 
 def set_filter_wheel_spectrum(client, job_name, setting_index, beam_route,
                               filter_wheel_type, position, *,
-                              max_retries=3, pre_check_timeout=None,
+                              max_retries=None, pre_check_timeout=None,
                               tolerance=1):
     """Set filter wheel spectrum position (nm)."""
     api_obj = client.PyApiSetFilterWheelSpectrumPositionByJobName
@@ -716,7 +721,7 @@ def set_filter_wheel_spectrum(client, job_name, setting_index, beam_route,
 # =============================================================================
 
 def move_xy(client, x, y, unit="um", *,
-            max_retries=3, pre_check_timeout=None,
+            max_retries=None, pre_check_timeout=None,
             tolerance=20.0):
     """Move XY stage to absolute position.
 
@@ -787,7 +792,7 @@ def move_xy(client, x, y, unit="um", *,
 
 
 def move_z(client, job_name, z, unit="um", z_mode="galvo", *,
-           max_retries=3, pre_check_timeout=None,
+           max_retries=None, pre_check_timeout=None,
            tolerance=1.0):
     """Move Z drive to an absolute position (galvo or zwide).
 
@@ -885,15 +890,14 @@ def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
             a warning.
 
     Returns:
-        Result dict. The 'elapsed' key is preserved for backwards
-        compatibility (same as timing['total_s']).
+        Result dict with timing in timing['total_s'].
     """
     api_obj = client.PyApiAcquireJob
 
     def setup(m):
         m.JobName = job_name
 
-    r = _dispatch(
+    return _dispatch(
         client, api_obj, f"Acquire '{job_name}'", ACQUIRE,
         setup_fn=setup,
         confirm_fn=partial(confirm_acquire,
@@ -904,10 +908,6 @@ def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
                            poll_interval=poll_interval),
         pre_check_timeout=pre_check_timeout,
     )
-
-    # Phase C: preserve 'elapsed' key for backwards compatibility
-    r["elapsed"] = r["timing"]["total_s"]
-    return r
 
 
 # =============================================================================
@@ -939,7 +939,6 @@ def select_job(client, job_name, poll_timeout=30.0, poll_interval=0.3):
                     return {
                         "success": True, "confirmed": True,
                         "message": f"'{job_name}' already selected",
-                        "elapsed": elapsed,
                         "timing": _make_timing(total_s=elapsed, attempts=0),
                         "logs": [],
                     }
@@ -952,14 +951,10 @@ def select_job(client, job_name, poll_timeout=30.0, poll_interval=0.3):
     def setup(m):
         m.JobName = job_name
 
-    r = _dispatch(
+    return _dispatch(
         client, api_obj, f"SelectJob '{job_name}'", SELECT_JOB,
         setup_fn=setup,
         confirm_fn=partial(confirm_select_job, job_name=job_name,
                            timeout=poll_timeout,
                            poll_interval=poll_interval),
     )
-
-    # Phase C: preserve 'elapsed' key
-    r["elapsed"] = r["timing"]["total_s"]
-    return r

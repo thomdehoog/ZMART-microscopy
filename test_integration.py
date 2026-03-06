@@ -291,7 +291,7 @@ class TestMockIntegration(unittest.TestCase):
         r = drv.acquire(self.client, "HiRes", poll_interval=0.01,
                         settle_time=0.05, start_timeout=2.0)
         self.assertTrue(r["success"])
-        self.assertGreater(r["elapsed"], 0)
+        self.assertGreater(r["timing"]["total_s"], 0)
 
     # ── Rapid-fire ──
 
