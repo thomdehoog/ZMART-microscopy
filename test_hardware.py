@@ -67,7 +67,7 @@ def test(name, fn, skip=False):
     """Run a single test. Returns the result or None on failure."""
     global passed, failed, skipped
     if skip:
-        print(f"  [SKIP] {name}")
+        print(f"  \033[33m[SKIP]\033[0m {name}")
         skipped += 1
         results_log.append(("SKIP", name, ""))
         return None
@@ -75,27 +75,27 @@ def test(name, fn, skip=False):
         result = fn()
         if isinstance(result, dict) and "success" in result:
             if result["success"]:
-                print(f"  [PASS] {name}")
+                print(f"  \033[32m[PASS]\033[0m {name}")
                 passed += 1
                 results_log.append(("PASS", name, ""))
             else:
                 msg = result.get("message", "unknown error")
-                print(f"  [FAIL] {name}: {msg}")
+                print(f"  \033[31m[FAIL]\033[0m {name}: {msg}")
                 failed += 1
                 results_log.append(("FAIL", name, msg))
             return result
         elif result is not None:
-            print(f"  [PASS] {name}")
+            print(f"  \033[32m[PASS]\033[0m {name}")
             passed += 1
             results_log.append(("PASS", name, ""))
             return result
         else:
-            print(f"  [FAIL] {name}: returned None")
+            print(f"  \033[31m[FAIL]\033[0m {name}: returned None")
             failed += 1
             results_log.append(("FAIL", name, "returned None"))
             return None
     except Exception as e:
-        print(f"  [FAIL] {name}: {e}")
+        print(f"  \033[31m[FAIL]\033[0m {name}: {e}")
         failed += 1
         results_log.append(("FAIL", name, str(e)))
         return None
@@ -1031,14 +1031,14 @@ if ch and not args.skip_write:
 # #########################################################################
 
 print("\n" + "=" * 70)
-print(f"  SUMMARY: {passed} passed, {failed} failed, {skipped} skipped")
+print(f"  SUMMARY: {passed} passed, \033[31m{failed} failed\033[0m, \033[33m{skipped} skipped\033[0m")
 print("=" * 70)
 
 if failed > 0:
-    print("\n  Failed tests:")
+    print("\n  \033[31mFailed tests:\033[0m")
     for status, name, msg in results_log:
         if status == "FAIL":
-            print(f"    - {name}: {msg}")
+            print(f"    \033[31m- {name}: {msg}\033[0m")
     print()
 
 sys.exit(1 if failed > 0 else 0)
