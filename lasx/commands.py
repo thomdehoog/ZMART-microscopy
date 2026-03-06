@@ -914,7 +914,7 @@ def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
 # Job selection
 # =============================================================================
 
-def select_job(client, job_name, poll_timeout=10.0, poll_interval=0.1):
+def select_job(client, job_name, poll_timeout=10.0, poll_interval=0.01):
     """Select a job by name.
 
     Routes through the backbone. No pre_check_fn (job switching doesn't
