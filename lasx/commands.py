@@ -50,7 +50,7 @@ from .confirm import (
     _confirm_pinhole_airy, _confirm_detector_gain,
     _confirm_laser_intensity, _confirm_laser_shutter,
     _confirm_filter_wheel_slot, _confirm_filter_wheel_spectrum,
-    _confirm_xy_position, _confirm_z_position,
+    confirm_move_xy, _confirm_z_position,
     confirm_acquire, confirm_select_job,
 )
 from .limits import _check_xy_limits, _check_z_limits
@@ -847,7 +847,7 @@ def move_xy(client, x, y, unit="um", *,
     r = _dispatch(
         client, api_obj, f"MoveXY -> ({x}, {y}) {unit}", MOVE_XY,
         setup_fn=setup,
-        confirm_fn=partial(_confirm_xy_position, target_x_um=x_um,
+        confirm_fn=partial(confirm_move_xy, target_x_um=x_um,
                            target_y_um=y_um, tolerance=tolerance),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )

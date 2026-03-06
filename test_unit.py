@@ -543,11 +543,15 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._mock_readback({"activeSettings": [{"lineAverage": 8}]}):
             self.assertTrue(lasx.confirm._confirm_line_average(None, "J", 0, 8)["success"])
 
-    def test_confirm_xy_position(self):
+    def test_confirm_move_xy(self):
         with patch.object(lasx.readers, 'get_xy', return_value={
                 "x_um": 50000, "y_um": 50000, "x_m": 0.05, "y_m": 0.05}):
-            self.assertTrue(lasx.confirm._confirm_xy_position(None, 50000, 50000)["success"])
-            self.assertFalse(lasx.confirm._confirm_xy_position(None, 50000, 99999)["success"])
+            self.assertTrue(lasx.confirm.confirm_move_xy(
+                None, target_x_um=50000, target_y_um=50000,
+                settle_time=0, timeout=1)["success"])
+            self.assertFalse(lasx.confirm.confirm_move_xy(
+                None, target_x_um=50000, target_y_um=99999,
+                settle_time=0, timeout=0.2)["success"])
 
     def test_confirm_returns_dict_shape(self):
         """All confirm functions return {"success": bool, "logs": [...]}."""
@@ -888,7 +892,7 @@ class TestModuleStructure(unittest.TestCase):
                       "_confirm_pinhole_airy", "_confirm_detector_gain",
                       "_confirm_laser_intensity", "_confirm_laser_shutter",
                       "_confirm_filter_wheel_slot", "_confirm_filter_wheel_spectrum",
-                      "_confirm_xy_position"]:
+                      "confirm_move_xy"]:
             with self.subTest(name=name):
                 self.assertTrue(callable(getattr(lasx.confirm, name, None)),
                                 f"{name} missing in lasx.confirm")
@@ -1213,7 +1217,7 @@ class TestMoveXYConsistency(unittest.TestCase):
              patch.object(lasx.errors, '_check_api_error', return_value=None), \
              patch.object(lasx.readers, 'get_xy', return_value={
                  "x_um": 50000, "y_um": 50000, "x_m": 0.05, "y_m": 0.05}), \
-             patch.object(lasx.confirm, '_confirm_xy_position',
+             patch.object(lasx.confirm, 'confirm_move_xy',
                           return_value={"success": True, "logs": []}):
             r = drv.move_xy(client, 50000, 50000, unit="um")
         self.assertTrue(r["success"])

@@ -668,31 +668,55 @@ def _confirm_filter_wheel_slot(client, job_name, si, beam_route, fw_type,
 # XY position confirmation
 # =============================================================================
 
-def _confirm_xy_position(client, target_x_um, target_y_um, tolerance=20.0):
-    """Confirm XY stage position is within tolerance of target (micrometers).
+def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
+                    settle_time=0.2, timeout=30.0, poll_interval=0.1):
+    """Poll until XY stage position is within tolerance, or until timeout.
 
-    Default 20 um tolerance reflects mechanical precision and encoder
-    resolution of typical motorized stages.
+    Owns its polling loop — the backbone calls this once with
+    ``max_confirm_attempts=1``.
 
     Args:
         client: The connected LAS X API client.
         target_x_um: Expected X position in micrometers.
         target_y_um: Expected Y position in micrometers.
         tolerance: Acceptable deviation in micrometers per axis.
+        settle_time: Seconds to wait before first poll (let stage begin moving).
+        timeout: Hard ceiling in seconds.
+        poll_interval: Seconds between position polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
-    pos = _readers.get_xy(client, timeout=5)
-    if pos is None:
-        return {"success": False, "logs": [_make_log_entry("warning", "XY readback returned None")]}
-    dx = abs(pos["x_um"] - target_x_um)
-    dy = abs(pos["y_um"] - target_y_um)
-    log.debug("MoveXY confirm: target=(%.1f, %.1f) actual=(%.1f, %.1f) "
-              "delta=(%.2f, %.2f) um", target_x_um, target_y_um,
-              pos["x_um"], pos["y_um"], dx, dy)
-    ok = dx < tolerance and dy < tolerance
-    return {"success": ok, "logs": []}
+    logs = []
+    t_start = time.perf_counter()
+    deadline = t_start + timeout
+
+    while time.perf_counter() < deadline:
+        if time.perf_counter() - t_start < settle_time:
+            time.sleep(poll_interval)
+            continue
+
+        pos = _readers.get_xy(client, timeout=5)
+        if pos is None:
+            time.sleep(poll_interval)
+            continue
+
+        dx = abs(pos["x_um"] - target_x_um)
+        dy = abs(pos["y_um"] - target_y_um)
+        log.debug("MoveXY confirm: target=(%.1f, %.1f) actual=(%.1f, %.1f) "
+                  "delta=(%.2f, %.2f) um", target_x_um, target_y_um,
+                  pos["x_um"], pos["y_um"], dx, dy)
+
+        if dx < tolerance and dy < tolerance:
+            return {"success": True, "logs": logs}
+
+        time.sleep(poll_interval)
+
+    msg = (f"MoveXY timeout after {time.perf_counter() - t_start:.1f}s — "
+           f"target=({target_x_um:.1f}, {target_y_um:.1f})")
+    log.warning(msg)
+    logs.append(_make_log_entry("warning", msg))
+    return {"success": False, "logs": logs}
 
 
 # =============================================================================

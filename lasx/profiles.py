@@ -46,7 +46,7 @@ from .confirm import (
     _confirm_laser_shutter,
     _confirm_filter_wheel_slot,
     _confirm_filter_wheel_spectrum,
-    _confirm_xy_position,
+    confirm_move_xy,
     _confirm_z_position,
     confirm_acquire,
     confirm_select_job,
@@ -251,7 +251,8 @@ FILTER_WHEEL_SPECTRUM = CommandProfile(
 
 MOVE_XY = CommandProfile(
     pre_check_fn=_idle_standard,
-    confirm_fn=_confirm_xy_position,
+    confirm_fn=confirm_move_xy,
+    max_confirm_attempts=1,
 )
 
 MOVE_Z = CommandProfile(
