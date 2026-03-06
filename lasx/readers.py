@@ -76,7 +76,7 @@ def ping(client):
 # Read functions
 # =============================================================================
 
-def get_job_settings(client, job_name, timeout=10, poll_interval=0.1,
+def get_job_settings(client, job_name, timeout=10, poll_interval=0.01,
                      max_retries=3):
     """Read full job settings JSON from LAS X.
 
@@ -144,7 +144,7 @@ def get_job_settings(client, job_name, timeout=10, poll_interval=0.1,
     return None
 
 
-def get_hardware_info(client, timeout=10, poll_interval=0.1, max_retries=3):
+def get_hardware_info(client, timeout=10, poll_interval=0.01, max_retries=3):
     """Read confocal hardware info from LAS X.
 
     Uses command dispatch through PyApiCommand, then polls
@@ -185,7 +185,7 @@ def get_hardware_info(client, timeout=10, poll_interval=0.1, max_retries=3):
     return None
 
 
-def get_xy(client, timeout=10, poll_interval=0.1, max_retries=3):
+def get_xy(client, timeout=10, poll_interval=0.01, max_retries=3):
     """Read current XY stage position.
 
     Uses command dispatch: fires "GetXY" via PyApiCommand, then reads
@@ -255,7 +255,7 @@ def get_xy(client, timeout=10, poll_interval=0.1, max_retries=3):
     return None
 
 
-def get_jobs(client, timeout=10, poll_interval=0.1, max_retries=3):
+def get_jobs(client, timeout=10, poll_interval=0.01, max_retries=3):
     """List all available jobs and their selection status.
 
     Uses command dispatch through PyApiCommand, then polls
