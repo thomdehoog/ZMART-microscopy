@@ -98,8 +98,11 @@ class CommandProfile:
 # heartbeat vary by command type. These partials pre-bind those values;
 # the command function binds `client` via lambda at call time.
 
+# timeout == heartbeat → no heartbeat logs emitted before timeout
 _idle_standard = partial(check_idle, timeout=30.0, heartbeat=30.0)
+_idle_post_action = partial(check_idle, timeout=10.0, heartbeat=10.0)
 _idle_long = partial(check_idle, timeout=60.0, heartbeat=30.0)
+_idle_no_timeout = partial(check_idle, timeout=None, heartbeat=30.0)
 
 
 # =============================================================================
@@ -119,8 +122,6 @@ SCAN_SPEED = CommandProfile(
 SCAN_RESONANT = CommandProfile(
     pre_check_fn=_idle_standard,
     confirm_fn=_confirm_scan_resonant,
-    retry_backoff=1.0,       # Mechanical: physical state change ~1s
-    retry_escalate=True,
 )
 
 SCAN_MODE = CommandProfile(
@@ -144,11 +145,9 @@ IMAGE_FORMAT = CommandProfile(
 )
 
 OBJECTIVE = CommandProfile(
-    pre_check_fn=_idle_standard,
+    pre_check_fn=_idle_post_action,
     confirm_fn=confirm_objective,
     max_confirm_attempts=1,
-    retry_backoff=1.0,       # Mechanical: turret rotation takes seconds
-    retry_escalate=True,
 )
 
 
@@ -249,15 +248,11 @@ LASER_LINE_ADD_REMOVE = CommandProfile(
 FILTER_WHEEL_SLOT = CommandProfile(
     pre_check_fn=_idle_standard,
     confirm_fn=_confirm_filter_wheel_slot,
-    retry_backoff=1.0,       # Mechanical: wheel rotation takes seconds
-    retry_escalate=True,
 )
 
 FILTER_WHEEL_SPECTRUM = CommandProfile(
     pre_check_fn=_idle_standard,
     confirm_fn=_confirm_filter_wheel_spectrum,
-    retry_backoff=1.0,       # Mechanical: wheel rotation takes seconds
-    retry_escalate=True,
 )
 
 
@@ -266,19 +261,15 @@ FILTER_WHEEL_SPECTRUM = CommandProfile(
 # =============================================================================
 
 MOVE_XY = CommandProfile(
-    pre_check_fn=_idle_standard,
+    pre_check_fn=_idle_post_action,
     confirm_fn=confirm_move_xy,
     max_confirm_attempts=1,
-    retry_backoff=1.0,       # Mechanical: stage motion takes time
-    retry_escalate=True,
 )
 
 MOVE_Z = CommandProfile(
-    pre_check_fn=_idle_standard,
+    pre_check_fn=_idle_post_action,
     confirm_fn=confirm_move_z,
     max_confirm_attempts=1,
-    retry_backoff=1.0,       # Mechanical: Z drive motion
-    retry_escalate=True,
 )
 
 
@@ -287,17 +278,13 @@ MOVE_Z = CommandProfile(
 # =============================================================================
 
 ACQUIRE = CommandProfile(
-    pre_check_fn=_idle_long,
+    pre_check_fn=_idle_no_timeout,
     confirm_fn=confirm_acquire,
     max_confirm_attempts=1,  # Acquisition confirms once (owns its polling)
-    max_retries=1,           # Heavy: if pre-check passed and fire fails, hammering won't help
-    retry_backoff=2.0,
 )
 
 SELECT_JOB = CommandProfile(
     pre_check_fn=None,  # Job switching doesn't need scanner idle
     confirm_fn=confirm_select_job,
     max_confirm_attempts=1,  # Job selection confirms once (owns its polling)
-    max_retries=1,           # Heavy: LAS X reconfiguration takes seconds
-    retry_backoff=2.0,
 )
