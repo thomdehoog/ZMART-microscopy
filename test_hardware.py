@@ -635,9 +635,6 @@ if ch and not args.skip_write:
                        _readback_gain,
                        tolerance=1.0)
 
-        # NOTE: set_detector_active deliberately NOT tested.
-        # Deactivating a detector on real hardware can disrupt the session.
-
         # ── 5g. Laser intensity ──────────────────────────────────────
         for las in si_data.get("activeLaserLines", []):
             br = las.get("_beamRoute", "")
@@ -680,27 +677,7 @@ if ch and not args.skip_write:
                      lambda: r2)
             break  # only test first laser's shutter per setting
 
-        # ── 5i. Add/remove laser line ────────────────────────────────
-        # Remove a line then re-add it (safe round-trip)
-        if si_data.get("activeLaserLines"):
-            las = si_data["activeLaserLines"][0]
-            br = las.get("_beamRoute", "")
-            li = las.get("_lineIndex", 0)
-            wl = las.get("wavelength", 0)
-            if wl:
-                r = test(f"  add_or_remove_laser_line[{si}:{br}:{li}]: remove",
-                         lambda _br=br, _li=li, _wl=wl:
-                             drv.add_or_remove_laser_line(
-                                 client, JOB, si, _br, _li, _wl,
-                                 add=False, pre_check_timeout=TIMEOUT))
-                if r and r.get("success"):
-                    r2 = drv.add_or_remove_laser_line(
-                        client, JOB, si, br, li, wl,
-                        add=True, pre_check_timeout=TIMEOUT)
-                    test(f"  add_or_remove_laser_line[{si}:{br}:{li}]: re-add",
-                         lambda: r2)
-
-        # ── 5j. Filter wheels (if present) ───────────────────────────
+        # ── 5i. Filter wheels (if present) ───────────────────────────
         for fw in si_data.get("filterWheels", []):
             br = fw.get("_beamRoute", "")
             fw_type = fw.get("type")
@@ -878,21 +855,6 @@ if ch and not args.skip_write:
 
     else:
         test("z-stack tests: skipped (--skip-dangerous)",
-             lambda: None, skip=True)
-
-    # ── 6d. set_time_definition (only valid for time modes: *t*) ────
-    cur_mode = ch.get("scanMode", "")
-    if "t" in cur_mode.lower():
-        r = test("set_time_definition: set interval=2s, cycles=1",
-                 lambda: drv.set_time_definition(client, JOB, interval=2.0,
-                                                  cycles=1, minimize=False,
-                                                  pre_check_timeout=TIMEOUT))
-        if r and r.get("success"):
-            r2 = drv.set_time_definition(client, JOB, interval=1.0, cycles=1,
-                                         minimize=False, pre_check_timeout=TIMEOUT)
-            test("set_time_definition: restore defaults", lambda: r2)
-    else:
-        test(f"set_time_definition: skipped (mode '{cur_mode}' has no time axis)",
              lambda: None, skip=True)
 
 

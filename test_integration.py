@@ -196,13 +196,6 @@ class TestMockIntegration(unittest.TestCase):
         r = drv.set_z_stack_size(self.client, "HiRes", 10.0)
         self.assertTrue(r["success"])
 
-    # ── Time definition ──
-
-    def test_set_time_definition(self):
-        r = drv.set_time_definition(self.client, "HiRes",
-                                    interval=2, cycles=5)
-        self.assertTrue(r["success"])
-
     # ── Sequential mode ──
 
     def test_set_sequential_mode_valid(self):

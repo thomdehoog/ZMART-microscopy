@@ -170,10 +170,6 @@ Z_STACK_SIZE = CommandProfile(
     confirm_fn=_confirm_z_stack_size,
 )
 
-TIME_DEFINITION = CommandProfile(
-    pre_check_fn=_idle_standard,
-    confirm_fn=None,  # Time params not easily readable
-)
 
 
 # =============================================================================
@@ -210,10 +206,6 @@ DETECTOR_GAIN = CommandProfile(
     confirm_fn=_confirm_detector_gain,
 )
 
-DETECTOR_ACTIVE = CommandProfile(
-    pre_check_fn=_idle_standard,
-    confirm_fn=None,  # Active state not reliably readable
-)
 
 PINHOLE_AIRY = CommandProfile(
     pre_check_fn=_idle_standard,
@@ -235,10 +227,6 @@ LASER_SHUTTER = CommandProfile(
     confirm_fn=_confirm_laser_shutter,
 )
 
-LASER_LINE_ADD_REMOVE = CommandProfile(
-    pre_check_fn=_idle_standard,
-    confirm_fn=None,  # List modifications don't map cleanly to readback
-)
 
 
 # =============================================================================

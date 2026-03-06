@@ -32,10 +32,10 @@ from .core import confirm_and_fire
 from .profiles import (
     ZOOM, SCAN_SPEED, SCAN_RESONANT, SCAN_MODE, SEQUENTIAL_MODE,
     SCAN_FIELD_ROTATION, IMAGE_FORMAT, OBJECTIVE,
-    Z_STACK_DEFINITION, Z_STACK_STEP_SIZE, Z_STACK_SIZE, TIME_DEFINITION,
+    Z_STACK_DEFINITION, Z_STACK_STEP_SIZE, Z_STACK_SIZE,
     FRAME_ACCUMULATION, FRAME_AVERAGE, LINE_ACCUMULATION, LINE_AVERAGE,
-    PINHOLE_AIRY, DETECTOR_GAIN, DETECTOR_ACTIVE,
-    LASER_INTENSITY, LASER_SHUTTER, LASER_LINE_ADD_REMOVE,
+    PINHOLE_AIRY, DETECTOR_GAIN,
+    LASER_INTENSITY, LASER_SHUTTER,
     FILTER_WHEEL_SLOT, FILTER_WHEEL_SPECTRUM,
     MOVE_XY, MOVE_Z, ACQUIRE, SELECT_JOB,
 )
@@ -447,30 +447,6 @@ def set_z_stack_size(client, job_name, size_um, *,
     )
 
 
-def set_time_definition(client, job_name, interval=1, cycles=1,
-                        minimize=False, *,
-                        max_retries=3, pre_check_timeout=None):
-    """Set time series parameters.
-
-    No confirm_fn: there's no straightforward way to read back time
-    series parameters through the job settings API.
-    """
-    api_obj = client.PyApiSetTimeDefinitionByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.DelayTime = interval
-        m.RepeatCount = cycles
-        m.MinimizeMode = minimize
-
-    return _dispatch(
-        client, api_obj,
-        f"Time: interval={interval}, cycles={cycles}",
-        TIME_DEFINITION,
-        setup_fn=setup,
-        max_retries=max_retries, pre_check_timeout=pre_check_timeout,
-    )
-
 
 # =============================================================================
 # Set functions — Per-setting
@@ -611,30 +587,6 @@ def set_detector_gain(client, job_name, setting_index, beam_route, value, *,
     )
 
 
-def set_detector_active(client, job_name, setting_index, beam_route, activate,
-                        *, max_retries=3, pre_check_timeout=None):
-    """Toggle detector active state.
-
-    No confirm_fn: detector active state isn't reliably readable through
-    job settings.
-    """
-    api_obj = client.PyApiSetDetectorActiveByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.SettingIndex = setting_index
-        m.BeamRoute = beam_route
-        m.Activate = activate
-
-    label = "Active" if activate else "Inactive"
-    return _dispatch(
-        client, api_obj,
-        f"Setting[{setting_index}].Detector[{beam_route}] -> {label}",
-        DETECTOR_ACTIVE,
-        setup_fn=setup,
-        max_retries=max_retries, pre_check_timeout=pre_check_timeout,
-    )
-
 
 # =============================================================================
 # Set functions — Laser
@@ -691,33 +643,6 @@ def set_laser_shutter(client, job_name, setting_index, beam_route, activate,
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
-
-def add_or_remove_laser_line(client, job_name, setting_index, beam_route,
-                             line_index, wavelength, add=True, *,
-                             max_retries=3, pre_check_timeout=None):
-    """Add or remove a laser line.
-
-    No confirm_fn: modifies the laser line list in ways that don't map
-    cleanly to a single readback comparison.
-    """
-    api_obj = client.PyApiAddOrRemoveLaserLineByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.SettingIndex = setting_index
-        m.BeamRoute = beam_route
-        m.LaserLineIndex = line_index
-        m.Wavelength = wavelength
-        m.AddLine = add
-
-    action = "Add" if add else "Remove"
-    return _dispatch(
-        client, api_obj,
-        f"{action} laser line {wavelength}nm [{beam_route}][{line_index}]",
-        LASER_LINE_ADD_REMOVE,
-        setup_fn=setup,
-        max_retries=max_retries, pre_check_timeout=pre_check_timeout,
-    )
 
 
 # =============================================================================

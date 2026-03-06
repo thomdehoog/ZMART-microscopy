@@ -866,35 +866,11 @@ class TestSetFunctionWiring(unittest.TestCase):
         self.assertIs(info["api_obj"], info["client"].PyApiSetZStackSizeByJobName)
         self.assertAlmostEqual(info["model"].StackSize, 10.0e-6, places=10)
 
-    def test_set_time_definition_model(self):
-        info, _ = self._run_set(drv.set_time_definition, None, "HiRes",
-                                interval=2.0, cycles=5, minimize=True)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetTimeDefinitionByJobName)
-        self.assertEqual(info["model"].DelayTime, 2.0)
-        self.assertEqual(info["model"].RepeatCount, 5)
-        self.assertEqual(info["model"].MinimizeMode, True)
-
     def test_set_zoom_provides_confirm_and_pre_check(self):
         info, _ = self._run_set(drv.set_zoom, None, "HiRes", 5.0)
         self.assertIs(info["api_obj"], info["client"].PyApiSetZoomByJobName)
         self.assertIsNotNone(info["kwargs"].get("confirm_fn"))
         self.assertIsNotNone(info["kwargs"].get("pre_check_fn"))
-
-    def test_time_definition_no_confirm_fn(self):
-        info, _ = self._run_set(drv.set_time_definition, None, "HiRes")
-        self.assertIs(info["api_obj"], info["client"].PyApiSetTimeDefinitionByJobName)
-        self.assertIsNone(info["kwargs"].get("confirm_fn"))
-
-    def test_detector_active_no_confirm_fn(self):
-        info, _ = self._run_set(drv.set_detector_active, None, "HiRes", 0, "BR1", True)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetDetectorActiveByJobName)
-        self.assertIsNone(info["kwargs"].get("confirm_fn"))
-
-    def test_add_laser_line_no_confirm_fn(self):
-        info, _ = self._run_set(drv.add_or_remove_laser_line,
-                                None, "HiRes", 0, "BR1", 0, 488.0)
-        self.assertIs(info["api_obj"], info["client"].PyApiAddOrRemoveLaserLineByJobName)
-        self.assertIsNone(info["kwargs"].get("confirm_fn"))
 
 
 # =============================================================================
@@ -921,18 +897,6 @@ class TestSetFunctionDefaults(unittest.TestCase):
         d = self._get_kwargs(lambda c, j: drv.set_scan_speed(c, j, 600))
         self.assertEqual(d["max_retries"], 3)
         self.assertIsNotNone(d["confirm_fn"])
-
-    def test_detector_active_no_confirm_fn(self):
-        d = self._get_kwargs(lambda c, j: drv.set_detector_active(c, j, 0, "BR1", True))
-        self.assertIsNone(d.get("confirm_fn"))
-
-    def test_add_laser_line_no_confirm_fn(self):
-        d = self._get_kwargs(lambda c, j: drv.add_or_remove_laser_line(c, j, 0, "BR1", 0, 488.0))
-        self.assertIsNone(d.get("confirm_fn"))
-
-    def test_time_definition_no_confirm_fn(self):
-        d = self._get_kwargs(lambda c, j: drv.set_time_definition(c, j))
-        self.assertIsNone(d.get("confirm_fn"))
 
 
 # =============================================================================
@@ -1098,10 +1062,10 @@ class TestModuleStructure(unittest.TestCase):
         for fname in ["set_zoom", "set_scan_speed", "set_scan_resonant", "set_scan_mode",
                        "set_sequential_mode", "set_scan_field_rotation", "set_image_format",
                        "set_z_stack_definition", "set_z_stack_step_size", "set_z_stack_size",
-                       "set_time_definition", "set_frame_accumulation", "set_frame_average",
+                       "set_frame_accumulation", "set_frame_average",
                        "set_line_accumulation", "set_line_average", "set_pinhole_airy",
-                       "set_detector_gain", "set_detector_active", "set_laser_intensity",
-                       "set_laser_shutter", "add_or_remove_laser_line",
+                       "set_detector_gain", "set_laser_intensity",
+                       "set_laser_shutter",
                        "set_filter_wheel_slot", "set_filter_wheel_spectrum"]:
             with self.subTest(fn=fname):
                 params = list(inspect.signature(getattr(drv, fname)).parameters.keys())
