@@ -19,8 +19,8 @@ The binding pattern is identical across all commands — no exceptions::
     confirm_fn    = lambda: profile.confirm_fn(client, ...)
 
 Import restrictions: only ``core``, ``profiles``, ``errors``, ``limits``,
-``readers``, ``confirm``, and ``util``. Nothing from ``checks`` directly
-(that flows through profiles).
+``readers``, ``confirm``, ``checks``, and ``util``. The ``checks`` import
+is used in ``_dispatch`` for the ``pre_check_timeout`` override.
 """
 
 import logging
@@ -67,7 +67,7 @@ log = logging.getLogger(__name__)
 def _dispatch(client, api_obj, description, profile, *,
               setup_fn, confirm_fn=None,
               max_retries=None, retry_backoff=None, retry_escalate=None,
-              pre_check_timeout=None):
+              max_confirm_attempts=None, pre_check_timeout=None):
     """Call confirm_and_fire with a profile's settings.
 
     This is the single internal helper that all command wrappers call.
@@ -92,6 +92,8 @@ def _dispatch(client, api_obj, description, profile, *,
             uses the profile default.
         retry_escalate: Override for the profile's retry_escalate. None
             uses the profile default.
+        max_confirm_attempts: Override for the profile's max_confirm_attempts.
+            None uses the profile default.
         pre_check_timeout: Override idle-wait timeout (seconds). None
             uses the profile's pre_check_fn as-is. When provided,
             replaces the profile's pre_check_fn with a fresh
@@ -105,7 +107,8 @@ def _dispatch(client, api_obj, description, profile, *,
 
     # Resolve pre_check_fn: timeout override > profile default > None
     if pre_check_timeout is not None and profile.pre_check_fn is not None:
-        pre_check_fn = lambda: check_idle(client, timeout=pre_check_timeout)
+        heartbeat = getattr(profile.pre_check_fn, 'keywords', {}).get('heartbeat', 30.0)
+        pre_check_fn = lambda: check_idle(client, timeout=pre_check_timeout, heartbeat=heartbeat)
     elif profile.pre_check_fn is not None:
         pre_check_fn = lambda: profile.pre_check_fn(client)
     else:
@@ -121,7 +124,7 @@ def _dispatch(client, api_obj, description, profile, *,
         correct_fn=(lambda: profile.correct_fn(client))
                     if profile.correct_fn else None,
         max_retries=max_retries if max_retries is not None else profile.max_retries,
-        max_confirm_attempts=profile.max_confirm_attempts,
+        max_confirm_attempts=max_confirm_attempts if max_confirm_attempts is not None else profile.max_confirm_attempts,
         retry_backoff=retry_backoff if retry_backoff is not None else profile.retry_backoff,
         retry_escalate=retry_escalate if retry_escalate is not None else profile.retry_escalate,
     )
@@ -221,7 +224,7 @@ def set_sequential_mode(client, job_name, mode, *,
             "success": False, "confirmed": None,
             "message": f"SequentialMode -> {repr(mode)} | Invalid: mode must be a "
                        f"non-empty string. Valid: ['Line', 'Frame', 'Stack']",
-            "timing": _make_timing(total_s=0.0, attempts=0, method="async"),
+            "timing": _make_timing(total_s=0.0, attempts=0),
             "logs": [],
         }
 
@@ -233,7 +236,7 @@ def set_sequential_mode(client, job_name, mode, *,
             "success": False, "confirmed": None,
             "message": f"Could not map {repr(mode)} to SequentialMode enum. "
                        f"Valid: {list(_enum_map.keys())}",
-            "timing": _make_timing(total_s=0.0, attempts=0, method="async"),
+            "timing": _make_timing(total_s=0.0, attempts=0),
             "logs": [],
         }
 
@@ -914,7 +917,7 @@ def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
 # Job selection
 # =============================================================================
 
-def select_job(client, job_name, poll_timeout=30.0, poll_interval=0.3):
+def select_job(client, job_name, poll_timeout=10.0, poll_interval=0.1):
     """Select a job by name.
 
     Routes through the backbone. No pre_check_fn (job switching doesn't

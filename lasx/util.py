@@ -72,25 +72,34 @@ def parse_tile_geometry(settings):
     Raises:
         ValueError: If ``imageSize`` is missing or unparseable.
     """
+    def _parse_dim_um(raw):
+        """Parse 'W unit x H unit' → (w_um, h_um). Supports mm, µm, nm."""
+        if "mm" in raw:
+            scale = 1000.0
+        elif "nm" in raw:
+            scale = 0.001
+        else:  # µm (default)
+            scale = 1.0
+        cleaned = re.sub(r"[nmu\u00b5\u03bc]?m", "", raw)
+        parts = cleaned.split("x")
+        if len(parts) != 2:
+            return None, None
+        try:
+            return float(parts[0].strip()) * scale, float(parts[1].strip()) * scale
+        except ValueError:
+            return None, None
+
     # ── tile size (µm) ──
     raw_size = settings.get("imageSize", "")
-    cleaned = re.sub(r"[\u00b5\u03bc]?m", "", raw_size)
-    parts = cleaned.split("x")
-    if len(parts) != 2:
+    tile_w, tile_h = _parse_dim_um(raw_size)
+    if tile_w is None:
         raise ValueError(f"Cannot parse imageSize: '{raw_size}'")
-    tile_w = float(parts[0].strip())
-    tile_h = float(parts[1].strip())
 
-    # ── pixel size (nm) ──
+    # ── pixel size (µm, converted to nm for output) ──
     raw_px = settings.get("pixelSize", "")
-    cleaned_px = re.sub(r"n[\u00b5\u03bc]?m", "", raw_px).replace("nm", "")
-    px_parts = cleaned_px.split("x")
-    if len(px_parts) == 2:
-        pixel_w_nm = float(px_parts[0].strip())
-        pixel_h_nm = float(px_parts[1].strip())
-    else:
-        pixel_w_nm = None
-        pixel_h_nm = None
+    pixel_w_um, pixel_h_um = _parse_dim_um(raw_px)
+    pixel_w_nm = pixel_w_um * 1000 if pixel_w_um is not None else None
+    pixel_h_nm = pixel_h_um * 1000 if pixel_h_um is not None else None
 
     # ── format (pixel count) ──
     raw_fmt = settings.get("format", "")
@@ -118,8 +127,8 @@ def parse_tile_geometry(settings):
         "tile_h_um": tile_h,
         "pixel_w_nm": pixel_w_nm,
         "pixel_h_nm": pixel_h_nm,
-        "pixel_w_um": pixel_w_nm / 1000 if pixel_w_nm else None,
-        "pixel_h_um": pixel_h_nm / 1000 if pixel_h_nm else None,
+        "pixel_w_um": pixel_w_um,
+        "pixel_h_um": pixel_h_um,
         "pixels_x": pixels_x,
         "pixels_y": pixels_y,
         "bbox": bbox,
@@ -153,7 +162,7 @@ def _make_log_entry(level, msg):
 
 def _make_timing(pre_check_s=0.0, setup_s=0.0, fire_s=0.0, check_s=0.0,
                  confirm_s=0.0, total_s=0.0, attempts=1,
-                 confirm_attempts=0, method="sync"):
+                 confirm_attempts=0, method="async"):
     """Build a timing dict for command result envelopes.
 
     Args:

@@ -65,7 +65,7 @@ ZMODE_KEY = {"galvo": "z-galvo", "zwide": "z-wide"}
 
 
 def confirm_move_z(client, *, job_name, z_mode, target_um, tolerance=1.0,
-                   timeout=30.0, poll_interval=0.1):
+                   timeout=10.0, poll_interval=0.1):
     """Poll until Z drive position is within tolerance, or until timeout.
 
     Owns its polling loop — the backbone calls this once with
@@ -558,7 +558,7 @@ def _confirm_image_format(client, job_name, w, h):
 
 
 def confirm_objective(client, *, job_name, target_name,
-                      timeout=30.0, poll_interval=0.3):
+                      timeout=10.0, poll_interval=0.1):
     """Poll until objective matches target, or until timeout.
 
     Owns its polling loop — the backbone calls this once with
@@ -763,7 +763,7 @@ def _confirm_filter_wheel_slot(client, job_name, si, beam_route, fw_type,
 # =============================================================================
 
 def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
-                    timeout=30.0, poll_interval=0.1):
+                    timeout=10.0, poll_interval=0.1):
     """Poll until XY stage position is within tolerance, or until timeout.
 
     Owns its polling loop — the backbone calls this once with
@@ -889,16 +889,15 @@ def confirm_acquire(client, *, settle_time=0.5, start_timeout=15.0,
     return {"success": False, "logs": logs}
 
 
-def confirm_select_job(client, *, job_name, timeout=30.0,
-                       poll_interval=0.3):
+def confirm_select_job(client, *, job_name, timeout=10.0,
+                       poll_interval=0.1):
     """Poll until the specified job is selected, or until timeout.
 
     Args:
         client: The connected LAS X API client.
         job_name: Name of the job expected to become selected.
         timeout: Hard ceiling in seconds for the entire operation.
-        poll_interval: Seconds between get_jobs polls. 0.3s balances
-            responsiveness vs. spin (job switches are inherently slow).
+        poll_interval: Seconds between get_jobs polls.
 
     Returns:
         {"success": bool, "logs": [...]}

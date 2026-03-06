@@ -102,7 +102,6 @@ class CommandProfile:
 # timeout == heartbeat → no heartbeat logs emitted before timeout
 _idle_standard = partial(check_idle, timeout=30.0, heartbeat=30.0)
 _idle_post_action = partial(check_idle, timeout=10.0, heartbeat=10.0)
-_idle_long = partial(check_idle, timeout=60.0, heartbeat=30.0)
 _idle_no_timeout = partial(check_idle, timeout=None, heartbeat=30.0)
 
 

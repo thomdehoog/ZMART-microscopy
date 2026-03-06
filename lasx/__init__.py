@@ -56,6 +56,7 @@ __all__ = [
     # readers
     "get_scan_status", "ping", "get_job_settings", "get_hardware_info",
     "get_xy", "get_jobs", "get_job_by_name", "get_selected_job",
+    "get_lasx_settings",
     # settings
     "make_changeable_copy",
     # checks
@@ -116,6 +117,7 @@ from .readers import (
     get_jobs,
     get_job_by_name,
     get_selected_job,
+    get_lasx_settings,
 )
 
 # ── Settings parsing ────────────────────────────────────────────────

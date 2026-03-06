@@ -80,7 +80,7 @@ def _fire_with_receipt(api_obj, receipt_timeout=2, max_attempts=3,
 # Echo settlement poll
 # =============================================================================
 
-def _await_echo_result(client, timeout=0.5, poll_interval=0.01):
+def _await_echo_result(client, timeout=1.0, poll_interval=0.1):
     """Poll echo model until LAS X finishes processing.
 
     After UpdateAwaitReceipt confirms transport delivery, LAS X still
