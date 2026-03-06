@@ -64,8 +64,12 @@ def _readback(client, job_name):
 ZMODE_KEY = {"galvo": "z-galvo", "zwide": "z-wide"}
 
 
-def _confirm_z_position(client, job_name, z_mode, target_um, tolerance=1.0):
-    """Confirm Z drive position matches target within tolerance (um).
+def confirm_move_z(client, *, job_name, z_mode, target_um, tolerance=1.0,
+                   settle_time=0.1, timeout=30.0, poll_interval=0.1):
+    """Poll until Z drive position is within tolerance, or until timeout.
+
+    Owns its polling loop — the backbone calls this once with
+    ``max_confirm_attempts=1``.
 
     Args:
         client: The connected LAS X API client.
@@ -73,19 +77,44 @@ def _confirm_z_position(client, job_name, z_mode, target_um, tolerance=1.0):
         z_mode: Drive type — "galvo" or "zwide".
         target_um: Expected Z position in micrometers.
         tolerance: Acceptable deviation in micrometers.
+        settle_time: Seconds to wait before first poll.
+        timeout: Hard ceiling in seconds.
+        poll_interval: Seconds between position polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
-    ch = _readback(client, job_name)
-    if ch is None:
-        return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
-    try:
-        key = ZMODE_KEY[z_mode]
-        ok = abs(ch["zPosition"][key] - target_um) < tolerance
-        return {"success": ok, "logs": []}
-    except (KeyError, TypeError):
-        return {"success": False, "logs": [_make_log_entry("warning", "Z position key missing from readback")]}
+    logs = []
+    t_start = time.perf_counter()
+    deadline = t_start + timeout
+    key = ZMODE_KEY[z_mode]
+
+    while time.perf_counter() < deadline:
+        if time.perf_counter() - t_start < settle_time:
+            time.sleep(poll_interval)
+            continue
+
+        ch = _readback(client, job_name)
+        if ch is None:
+            time.sleep(poll_interval)
+            continue
+
+        try:
+            actual = ch["zPosition"][key]
+            log.debug("MoveZ confirm: target=%.2f actual=%.2f delta=%.3f um",
+                      target_um, actual, abs(actual - target_um))
+            if abs(actual - target_um) < tolerance:
+                return {"success": True, "logs": logs}
+        except (KeyError, TypeError):
+            pass
+
+        time.sleep(poll_interval)
+
+    msg = (f"MoveZ timeout after {time.perf_counter() - t_start:.1f}s — "
+           f"target={target_um:.1f} um ({z_mode})")
+    log.warning(msg)
+    logs.append(_make_log_entry("warning", msg))
+    return {"success": False, "logs": logs}
 
 
 def _confirm_zoom(client, job_name, target, tolerance=0.1):
@@ -503,25 +532,55 @@ def _confirm_image_format(client, job_name, w, h):
         return {"success": False, "logs": [_make_log_entry("debug", "ImageFormat key missing from readback")]}
 
 
-def _confirm_objective(client, job_name, target_name):
-    """Confirm objective matches exactly (string name comparison).
+def confirm_objective(client, *, job_name, target_name,
+                      settle_time=0.5, timeout=30.0, poll_interval=0.3):
+    """Poll until objective matches target, or until timeout.
+
+    Owns its polling loop — the backbone calls this once with
+    ``max_confirm_attempts=1``. Objective turret rotation is mechanical
+    and can take several seconds.
 
     Args:
         client: The connected LAS X API client.
         job_name: Target job name.
         target_name: Expected objective name string.
+        settle_time: Seconds to wait before first poll (turret begins moving).
+        timeout: Hard ceiling in seconds.
+        poll_interval: Seconds between readback polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
-    ch = _readback(client, job_name)
-    if ch is None:
-        return {"success": False, "logs": [_make_log_entry("warning", "Readback returned None")]}
-    try:
-        ok = ch["objective"]["name"].strip() == target_name.strip()
-        return {"success": ok, "logs": []}
-    except (KeyError, TypeError, AttributeError):
-        return {"success": False, "logs": [_make_log_entry("debug", "Objective key missing from readback")]}
+    logs = []
+    t_start = time.perf_counter()
+    deadline = t_start + timeout
+
+    while time.perf_counter() < deadline:
+        if time.perf_counter() - t_start < settle_time:
+            time.sleep(poll_interval)
+            continue
+
+        ch = _readback(client, job_name)
+        if ch is None:
+            time.sleep(poll_interval)
+            continue
+
+        try:
+            actual = ch["objective"]["name"].strip()
+            log.debug("Objective confirm: target='%s' actual='%s'",
+                      target_name.strip(), actual)
+            if actual == target_name.strip():
+                return {"success": True, "logs": logs}
+        except (KeyError, TypeError, AttributeError):
+            pass
+
+        time.sleep(poll_interval)
+
+    msg = (f"Objective timeout after {time.perf_counter() - t_start:.1f}s — "
+           f"target='{target_name.strip()}'")
+    log.warning(msg)
+    logs.append(_make_log_entry("warning", msg))
+    return {"success": False, "logs": logs}
 
 
 def _confirm_frame_accumulation(client, job_name, si, target):

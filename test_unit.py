@@ -885,14 +885,14 @@ class TestModuleStructure(unittest.TestCase):
         for name in ["_confirm_zoom", "_confirm_scan_speed", "_confirm_scan_resonant",
                       "_confirm_scan_mode", "_confirm_sequential_mode",
                       "_confirm_scan_field_rotation", "_confirm_image_format",
-                      "_confirm_objective", "_confirm_z_stack_definition",
+                      "confirm_objective", "_confirm_z_stack_definition",
                       "_confirm_z_stack_step_size", "_confirm_z_stack_size",
                       "_confirm_frame_accumulation", "_confirm_frame_average",
                       "_confirm_line_accumulation", "_confirm_line_average",
                       "_confirm_pinhole_airy", "_confirm_detector_gain",
                       "_confirm_laser_intensity", "_confirm_laser_shutter",
                       "_confirm_filter_wheel_slot", "_confirm_filter_wheel_spectrum",
-                      "confirm_move_xy"]:
+                      "confirm_move_xy", "confirm_move_z"]:
             with self.subTest(name=name):
                 self.assertTrue(callable(getattr(lasx.confirm, name, None)),
                                 f"{name} missing in lasx.confirm")

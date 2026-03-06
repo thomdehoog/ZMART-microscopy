@@ -32,7 +32,7 @@ from .confirm import (
     _confirm_sequential_mode,
     _confirm_scan_field_rotation,
     _confirm_image_format,
-    _confirm_objective,
+    confirm_objective,
     _confirm_z_stack_definition,
     _confirm_z_stack_step_size,
     _confirm_z_stack_size,
@@ -47,7 +47,7 @@ from .confirm import (
     _confirm_filter_wheel_slot,
     _confirm_filter_wheel_spectrum,
     confirm_move_xy,
-    _confirm_z_position,
+    confirm_move_z,
     confirm_acquire,
     confirm_select_job,
 )
@@ -136,7 +136,8 @@ IMAGE_FORMAT = CommandProfile(
 
 OBJECTIVE = CommandProfile(
     pre_check_fn=_idle_standard,
-    confirm_fn=_confirm_objective,
+    confirm_fn=confirm_objective,
+    max_confirm_attempts=1,
 )
 
 
@@ -257,7 +258,8 @@ MOVE_XY = CommandProfile(
 
 MOVE_Z = CommandProfile(
     pre_check_fn=_idle_standard,
-    confirm_fn=_confirm_z_position,
+    confirm_fn=confirm_move_z,
+    max_confirm_attempts=1,
 )
 
 
