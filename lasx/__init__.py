@@ -9,7 +9,7 @@ Package layout::
     lasx/
     ├── __init__.py    ← you are here (public API)
     ├── util.py        ← helpers: _make_log_entry, _make_timing,
-    │                     parse_format, etc.
+    │                     parse_format, parse_tile_geometry, etc.
     ├── errors.py      ← error classification + _check_api_error +
     │                     _default_error_check adapter
     ├── limits.py      ← stage safety limits
@@ -46,7 +46,7 @@ __all__ = [
     "__version__", "log",
     # util
     "_safe_float", "_hw_get", "parse_format", "format_to_str",
-    "_make_timing", "_make_log_entry",
+    "_make_timing", "_make_log_entry", "parse_tile_geometry",
     # errors
     "_is_transient_error", "_check_api_error", "_default_error_check",
     "_PERMANENT_PATTERNS", "_TRANSIENT_PATTERNS",
@@ -85,6 +85,7 @@ from .util import (
     format_to_str,
     _make_timing,
     _make_log_entry,
+    parse_tile_geometry,
 )
 
 # ── Error classification ─────────────────────────────────────────────
