@@ -1,11 +1,33 @@
 """
 Read functions.
 ===============
-Read-only queries to LAS X: scan status, connection health, job settings,
-hardware info, XY position, and job list.
+Read-only queries against the LAS X Python API: scan status, connection
+health, job settings, hardware info, XY stage position, job list, and
+LAS X application settings (parsed from the on-disk XML file).
 
-These use the command dispatch pattern through PyApiCommand and poll for
-data arrival. They do NOT modify microscope state.
+Most queries follow a **command-dispatch-then-poll** pattern:
+
+    1. Write the command name to ``PyApiCommand.Model.Command``.
+    2. Call ``PyApiCommand.UpdateAwaitReceipt(2)`` for transport ACK.
+    3. Poll the dedicated data-object model (e.g.
+       ``PyApiGetJobSettingsByName.Model.Settings``) until it is
+       populated or timeout.
+
+This pattern is necessary because the LAS X Python API returns
+receipt confirmation for command *acceptance*, not data *delivery*.
+All functions include retry logic for robustness.
+
+``get_lasx_settings`` is the exception — it reads the Navigator Expert
+XML configuration file directly from disk (no API round-trip).
+
+These functions do NOT modify microscope state.
+
+Dependency direction:
+    - Imports: stdlib only (json, logging, os, time, xml).
+    - Imported by: ``checks`` (scan status polling), ``confirm``
+      (readback via ``get_job_settings`` and ``get_xy``),
+      ``commands`` (early-exit checks, post-processing readbacks),
+      ``__init__`` (re-export).
 """
 
 import json
@@ -33,7 +55,7 @@ def get_scan_status(client):
 # Connection health
 # =============================================================================
 
-def ping(client, timeout=5):
+def ping(client):
     """Lightweight connection check. Returns True if LAS X responds."""
     try:
         receipt = client.PyApiPing.UpdateAwaitReceipt(2)

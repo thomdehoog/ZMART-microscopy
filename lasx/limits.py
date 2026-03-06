@@ -2,7 +2,21 @@
 Stage safety limits.
 ====================
 Hard safety limits for XY and Z stage movement (micrometers).
-Must be configured via set_stage_limits() before any move commands.
+
+This module guards against out-of-range stage moves by maintaining a
+module-level dict (``_stage_limits``) that must be configured via
+``set_stage_limits()`` before any ``move_xy`` or ``move_z`` command.
+The validation functions ``_check_xy_limits`` and ``_check_z_limits``
+raise ``RuntimeError`` (or ``ValueError``) immediately — they are
+called in Phase A of the command wrappers, before the backbone fires.
+
+The mutable module-level state is intentional: limits are set once at
+session start and shared across all command calls.
+
+Dependency direction:
+    - Imports: stdlib only (no driver imports).
+    - Imported by: ``commands`` (for Phase A limit checks),
+      ``__init__`` (re-export).
 """
 
 # =============================================================================

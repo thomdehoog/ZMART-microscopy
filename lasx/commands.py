@@ -455,7 +455,6 @@ def set_z_stack_size(client, job_name, size_um, *,
     )
 
 
-
 # =============================================================================
 # Set functions — Per-setting
 # =============================================================================
@@ -595,7 +594,6 @@ def set_detector_gain(client, job_name, setting_index, beam_route, value, *,
     )
 
 
-
 # =============================================================================
 # Set functions — Laser
 # =============================================================================
@@ -650,7 +648,6 @@ def set_laser_shutter(client, job_name, setting_index, beam_route, activate,
                            target=activate),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
-
 
 
 # =============================================================================

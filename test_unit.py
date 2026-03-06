@@ -28,10 +28,9 @@ Usage::
     python -m pytest test_unit.py  # via pytest
 """
 
-import json
 import time
 import unittest
-from unittest.mock import MagicMock, PropertyMock, patch, call
+from unittest.mock import MagicMock, PropertyMock, patch
 from functools import partial
 
 import driver as drv

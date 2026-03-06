@@ -1,8 +1,26 @@
 """
 Settings parsing.
 =================
-Transforms raw job settings JSON from LAS X into a flat, navigable dict
-with normalized field names (_beamRoute, _lineIndex, etc.).
+Transforms the raw job settings JSON returned by ``readers.get_job_settings``
+into a flat, navigable dict with normalized field names.
+
+``make_changeable_copy`` is the only public function. It:
+
+    1. Validates that required top-level keys exist (schema guard).
+    2. Copies and normalises each ``activeSettings`` entry, adding
+       private keys like ``_beamRoute``, ``_lineIndex``, and ``_index``
+       so that confirm functions can locate detectors, lasers, and
+       filter wheels by route/index without re-parsing the raw JSON.
+    3. Conditionally includes ``stack``, ``zPosition``, and ``time``
+       sections when present.
+
+The output dict is what every ``_confirm_*`` function in ``confirm.py``
+reads via ``_readback()``.
+
+Dependency direction:
+    - Imports: ``util`` (``_safe_float``).
+    - Imported by: ``confirm`` (``_readback`` calls ``make_changeable_copy``),
+      ``__init__`` (re-export).
 """
 
 from .util import _safe_float

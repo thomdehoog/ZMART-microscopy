@@ -17,7 +17,6 @@ import sys
 import time
 import json
 import logging
-import traceback
 
 # Enable debug logging for z-stack confirm diagnostics
 logging.basicConfig(

@@ -1,16 +1,25 @@
 """
 Integration tests: driver.py + MockLasxClient
 ===============================================
-Tests the driver against the mock API (no hardware, no unittest.mock patches).
-This validates that the mock API + driver work together end-to-end.
+End-to-end tests that exercise the full driver stack against
+``MockLasxClient`` — a stateful in-process fake of the LAS X Python
+API. Unlike ``test_unit.py`` (which patches individual functions with
+``unittest.mock``), these tests let the real backbone, confirm
+functions, and readers run unpatched. The mock client simulates
+command dispatch, settings readback, stage movement, and scan status
+transitions, so every layer of the driver is exercised.
+
+Requires ``mock_lasx_api.py`` alongside this file.
+
+Usage::
+
+    python test_integration.py            # run all
+    python test_integration.py -v         # verbose
+    python -m pytest test_integration.py  # via pytest
 """
 
-import sys
-import time
-import json
 import unittest
 
-sys.path.insert(0, "/home/claude")
 import driver as drv
 from mock_lasx_api import MockLasxClient
 
