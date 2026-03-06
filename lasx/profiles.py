@@ -74,6 +74,11 @@ class CommandProfile:
             None uses built-in idle correction. Stubbed for future use.
         max_retries: Transient error retries inside the fire block.
         max_confirm_attempts: Confirm wrapper re-attempt ceiling.
+        retry_backoff: Base delay in seconds between transient error retries.
+            None for immediate retry (no delay).
+        retry_escalate: If True, double the delay after each retry
+            (exponential backoff: 0s, base, 2×base, 4×base, ...).
+            If False, use a fixed delay. Ignored when retry_backoff is None.
     """
     pre_check_fn: callable = None
     error_check_fn: callable = _default_error_check
@@ -81,6 +86,8 @@ class CommandProfile:
     correct_fn: callable = None
     max_retries: int = 3
     max_confirm_attempts: int = 3
+    retry_backoff: float = None
+    retry_escalate: bool = False
 
 
 # =============================================================================
@@ -112,6 +119,8 @@ SCAN_SPEED = CommandProfile(
 SCAN_RESONANT = CommandProfile(
     pre_check_fn=_idle_standard,
     confirm_fn=_confirm_scan_resonant,
+    retry_backoff=1.0,       # Mechanical: physical state change ~1s
+    retry_escalate=True,
 )
 
 SCAN_MODE = CommandProfile(
@@ -138,6 +147,8 @@ OBJECTIVE = CommandProfile(
     pre_check_fn=_idle_standard,
     confirm_fn=confirm_objective,
     max_confirm_attempts=1,
+    retry_backoff=1.0,       # Mechanical: turret rotation takes seconds
+    retry_escalate=True,
 )
 
 
@@ -238,11 +249,15 @@ LASER_LINE_ADD_REMOVE = CommandProfile(
 FILTER_WHEEL_SLOT = CommandProfile(
     pre_check_fn=_idle_standard,
     confirm_fn=_confirm_filter_wheel_slot,
+    retry_backoff=1.0,       # Mechanical: wheel rotation takes seconds
+    retry_escalate=True,
 )
 
 FILTER_WHEEL_SPECTRUM = CommandProfile(
     pre_check_fn=_idle_standard,
     confirm_fn=_confirm_filter_wheel_spectrum,
+    retry_backoff=1.0,       # Mechanical: wheel rotation takes seconds
+    retry_escalate=True,
 )
 
 
@@ -254,12 +269,16 @@ MOVE_XY = CommandProfile(
     pre_check_fn=_idle_standard,
     confirm_fn=confirm_move_xy,
     max_confirm_attempts=1,
+    retry_backoff=1.0,       # Mechanical: stage motion takes time
+    retry_escalate=True,
 )
 
 MOVE_Z = CommandProfile(
     pre_check_fn=_idle_standard,
     confirm_fn=confirm_move_z,
     max_confirm_attempts=1,
+    retry_backoff=1.0,       # Mechanical: Z drive motion
+    retry_escalate=True,
 )
 
 
@@ -271,10 +290,14 @@ ACQUIRE = CommandProfile(
     pre_check_fn=_idle_long,
     confirm_fn=confirm_acquire,
     max_confirm_attempts=1,  # Acquisition confirms once (owns its polling)
+    max_retries=1,           # Heavy: if pre-check passed and fire fails, hammering won't help
+    retry_backoff=2.0,
 )
 
 SELECT_JOB = CommandProfile(
     pre_check_fn=None,  # Job switching doesn't need scanner idle
     confirm_fn=confirm_select_job,
     max_confirm_attempts=1,  # Job selection confirms once (owns its polling)
+    max_retries=1,           # Heavy: LAS X reconfiguration takes seconds
+    retry_backoff=2.0,
 )

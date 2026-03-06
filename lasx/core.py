@@ -24,8 +24,10 @@ Two ceilings, both explicit:
 
 The backbone is dumb — it owns pipeline order, retry ceilings, and
 timing. It does not know about zoom, objectives, stages, or Z-drives.
-It does not poll or sleep. It calls zero-arg callables and acts on
-their result dicts.
+It does not poll for hardware state. It calls zero-arg callables and
+acts on their result dicts. The only sleeping it does is backoff delay
+between transient error retries (configurable via ``retry_backoff``
+and ``retry_escalate``).
 
 ``_fire_with_receipt`` is the transport helper for UpdateAwaitReceipt
 delivery. ``_await_echo_result`` polls the echo model after transport
@@ -129,7 +131,9 @@ def _fire_block(client, api_obj, description, *,
                 setup_fn=None,
                 pre_check_fn=None,
                 error_check_fn=None,
-                max_retries=3):
+                max_retries=3,
+                retry_backoff=None,
+                retry_escalate=False):
     """Execute the four-step fire pipeline with transient retry.
 
     Steps:
@@ -139,8 +143,8 @@ def _fire_block(client, api_obj, description, *,
         4. Error check — call ``error_check_fn()`` (zero-arg, returns result dict).
 
     Steps 1-4 repeat on transient API errors, up to ``max_retries`` + 1
-    total attempts. The fire block never sleeps (pre-check function owns
-    its own polling internally). It never knows what it is checking.
+    total attempts. Pre-check functions own their own polling internally.
+    The fire block never knows what it is checking.
 
     Args:
         client: LAS X API client.
@@ -155,6 +159,12 @@ def _fire_block(client, api_obj, description, *,
             ``_default_error_check``.
         max_retries: Max retries after the first attempt. Total attempts =
             max_retries + 1.
+        retry_backoff: Base delay in seconds between transient error retries.
+            None for immediate retry. First retry is always immediate;
+            subsequent retries use the backoff delay.
+        retry_escalate: If True, double the delay after each retry
+            (exponential backoff: 0s, base, 2×base, 4×base, ...).
+            If False, use a fixed delay. Ignored when retry_backoff is None.
 
     Returns:
         {
@@ -270,8 +280,18 @@ def _fire_block(client, api_obj, description, *,
         transient = err_result.get("transient", False)
 
         if transient and attempt < max_retries:
-            log.warning("%s | Transient error (attempt %d/%d): %s",
-                        description, attempts, max_retries + 1, error_msg)
+            # Backoff: first retry is immediate, then base × 2^(attempt-1)
+            if retry_backoff is not None and attempt > 0:
+                delay = retry_backoff * (2 ** (attempt - 1)) if retry_escalate else retry_backoff
+                log.warning("%s | Transient error (attempt %d/%d), "
+                            "retrying in %.1fs: %s",
+                            description, attempts, max_retries + 1,
+                            delay, error_msg)
+                time.sleep(delay)
+            else:
+                log.warning("%s | Transient error (attempt %d/%d): %s",
+                            description, attempts, max_retries + 1,
+                            error_msg)
             continue
 
         # Permanent error, or transient but out of retries
@@ -312,7 +332,9 @@ def confirm_and_fire(client, api_obj, description, *,
                      confirm_fn=None,
                      correct_fn=None,
                      max_retries=3,
-                     max_confirm_attempts=3):
+                     max_confirm_attempts=3,
+                     retry_backoff=None,
+                     retry_escalate=False):
     """Fire a command and optionally confirm the result, with correction.
 
     This is the single entry point through which all commands are
@@ -342,6 +364,10 @@ def confirm_and_fire(client, api_obj, description, *,
         max_retries: Transient error retries inside the fire block.
         max_confirm_attempts: How many times the confirm wrapper can
             re-run the fire-then-confirm cycle.
+        retry_backoff: Base delay in seconds between transient error
+            retries. None for immediate retry. Passed to ``_fire_block``.
+        retry_escalate: If True, use exponential backoff (delay doubles
+            each retry). Passed to ``_fire_block``.
 
     Returns:
         {
@@ -369,6 +395,8 @@ def confirm_and_fire(client, api_obj, description, *,
         pre_check_fn=pre_check_fn,
         error_check_fn=error_check_fn,
         max_retries=max_retries,
+        retry_backoff=retry_backoff,
+        retry_escalate=retry_escalate,
     )
     all_logs.extend(fb["logs"])
     total_attempts += fb["attempts"]
@@ -492,6 +520,8 @@ def confirm_and_fire(client, api_obj, description, *,
                 pre_check_fn=None,  # Already waited for idle above
                 error_check_fn=error_check_fn,
                 max_retries=max_retries,
+                retry_backoff=retry_backoff,
+                retry_escalate=retry_escalate,
             )
             all_logs.extend(fb["logs"])
             total_attempts += fb["attempts"]

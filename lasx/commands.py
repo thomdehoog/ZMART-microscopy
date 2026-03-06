@@ -117,6 +117,8 @@ def _dispatch(client, api_obj, description, profile, *,
                     if profile.correct_fn else None,
         max_retries=max_retries if max_retries is not None else profile.max_retries,
         max_confirm_attempts=profile.max_confirm_attempts,
+        retry_backoff=profile.retry_backoff,
+        retry_escalate=profile.retry_escalate,
     )
 
 
