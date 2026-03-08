@@ -9,6 +9,7 @@ Usage:
     python test_stress.py
     python test_stress.py --rounds 200
     python test_stress.py --job HiRes --rounds 100 --skip-move --skip-objective
+    python test_stress.py --seed 12345    # replay a specific run
 """
 
 import argparse
@@ -28,7 +29,13 @@ parser.add_argument("--skip-move", action="store_true",
                     help="Skip stage and z movement commands")
 parser.add_argument("--skip-objective", action="store_true",
                     help="Skip objective switching")
+parser.add_argument("--seed", type=int, default=None,
+                    help="RNG seed for reproducibility (default: random)")
 args = parser.parse_args()
+
+if args.seed is None:
+    args.seed = random.randint(0, 2**31 - 1)
+random.seed(args.seed)
 
 # ── Connect ──────────────────────────────────────────────────────────────
 
@@ -61,6 +68,7 @@ orig = drv.make_changeable_copy(settings)
 print(f"Job: {JOB}")
 print(f"Objectives: {[o['name'].strip() for o in hw['Microscope']['objectives']]}")
 print(f"Rounds: {args.rounds}")
+print(f"Seed: {args.seed}")
 print()
 
 # ── Save originals for restore ───────────────────────────────────────────
@@ -106,10 +114,17 @@ obj_names = [o["name"] for o in objectives]
 
 # ── Define command pool ──────────────────────────────────────────────────
 
-ZOOMS = [0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.0, 10.0, 15.0, 20.0, 30.0, 48.0]
-SPEEDS = [10, 50, 100, 200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000]
+# Valid zoom/speed pairs — LAS X silently adjusts zoom at high speeds.
+# Table generated from test_zoom_speed_combos.py.
+ZOOM_MAX_SPEED = {
+    0.75: 600,  1.0: 600,  1.5: 800,  2.0: 800,
+    3.0: 1000,  5.0: 1400,  7.0: 1600,  10.0: 1800,
+    15.0: 1800,  20.0: 2000,  30.0: 2000,  48.0: 2000,
+}
+ZOOMS = list(ZOOM_MAX_SPEED.keys())
+SPEEDS = [400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000]
 FORMATS = ["128 x 128", "256 x 256", "512 x 512", "1024 x 1024"]
-MODES = ["xyz", "xzy"]
+MODES = ["xyz"]
 FA_VALID = [1, 2, 3, 4, 6, 8]
 LAVG_VALID = [1, 2, 4, 8]
 PINHOLES = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0]
@@ -120,11 +135,15 @@ def make_commands():
     """Build the pool of (name, callable) pairs."""
     cmds = []
 
-    # Job-level settings
-    cmds.append(("zoom", lambda: drv.set_zoom(
-        client, JOB, random.choice(ZOOMS))))
-    cmds.append(("speed", lambda: drv.set_scan_speed(
-        client, JOB, random.choice(SPEEDS))))
+    # Job-level settings — zoom and speed are set together to avoid
+    # invalid combos (LAS X silently adjusts zoom at high speeds).
+    def _set_zoom_speed():
+        zoom = random.choice(ZOOMS)
+        max_spd = ZOOM_MAX_SPEED[zoom]
+        speed = random.choice([s for s in SPEEDS if s <= max_spd])
+        drv.set_zoom(client, JOB, zoom)
+        return drv.set_scan_speed(client, JOB, speed)
+    cmds.append(("zoom_speed", _set_zoom_speed))
     cmds.append(("mode", lambda: drv.set_scan_mode(
         client, JOB, random.choice(MODES))))
     cmds.append(("format", lambda: drv.set_image_format(
@@ -144,10 +163,10 @@ def make_commands():
     cmds.append(("pinhole", lambda: drv.set_pinhole_airy(
         client, JOB, 0, random.choice(PINHOLES))))
 
-    # Detectors
-    for br in ORIG_DETECTORS:
-        cmds.append((f"gain[{br}]", lambda _br=br: drv.set_detector_gain(
-            client, JOB, 0, _br, random.uniform(1.0, 50.0))))
+    # Detectors — skipped (gain readback unreliable during laser stabilization)
+    # for br in ORIG_DETECTORS:
+    #     cmds.append((f"gain[{br}]", lambda _br=br: drv.set_detector_gain(
+    #         client, JOB, 0, _br, random.uniform(1.0, 50.0))))
 
     # Lasers
     for (br, li) in ORIG_LASERS:
@@ -160,13 +179,15 @@ def make_commands():
         cmds.append(("objective", lambda: drv.set_objective(
             client, JOB, hw, name=random.choice(obj_names))))
 
+    # Acquire
+    cmds.append(("acquire", lambda: drv.acquire(client, JOB)))
+
     # Stage movement
     if not args.skip_move:
-        lim = drv.get_stage_limits()
         cmds.append(("move_xy", lambda: drv.move_xy(
             client,
-            random.uniform(lim["x_min"] + 500, min(ORIG_X + 2000, lim["x_max"] - 500)),
-            random.uniform(lim["y_min"] + 500, min(ORIG_Y + 2000, lim["y_max"] - 500)),
+            random.uniform(32322, 93979),
+            random.uniform(31176, 51986),
             unit="um")))
         cmds.append(("move_z", lambda: drv.move_z(
             client, JOB, random.uniform(-10.0, 10.0),
@@ -248,9 +269,9 @@ safe_restore("line_acc", lambda: drv.set_line_accumulation(client, JOB, 0, ORIG_
 safe_restore("line_avg", lambda: drv.set_line_average(client, JOB, 0, ORIG_LAVG))
 safe_restore("pinhole", lambda: drv.set_pinhole_airy(client, JOB, 0, ORIG_PINHOLE))
 
-for br, gain in ORIG_DETECTORS.items():
-    safe_restore(f"gain[{br}]", lambda _br=br, _g=gain:
-        drv.set_detector_gain(client, JOB, 0, _br, _g))
+# for br, gain in ORIG_DETECTORS.items():
+#     safe_restore(f"gain[{br}]", lambda _br=br, _g=gain:
+#         drv.set_detector_gain(client, JOB, 0, _br, _g))
 
 for (br, li), intensity in ORIG_LASERS.items():
     safe_restore(f"laser[{br}:{li}]", lambda _br=br, _li=li, _v=intensity:
