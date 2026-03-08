@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from functools import partial
 
 from .prechecks import check_idle
-from .utils import RECEIPT_TIMEOUT  # noqa: F401 — re-exported
+from .utils import RECEIPT_TIMEOUT, CONFIRM_TIMEOUT  # noqa: F401 — re-exported
 from .confirmations import (
     _confirm_zoom,
     _confirm_scan_speed,

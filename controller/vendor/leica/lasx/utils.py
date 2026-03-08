@@ -13,10 +13,12 @@ import time
 import re
 
 # ---------------------------------------------------------------------------
-# Transport timeout (seconds) for UpdateAwaitReceipt calls.
-# Used by readers and core as the default receipt ACK deadline.
+# Configurable timeouts (seconds).
+# Import and override these to tune for your hardware.
 # ---------------------------------------------------------------------------
-RECEIPT_TIMEOUT = 15
+RECEIPT_TIMEOUT = 15   # UpdateAwaitReceipt transport ACK deadline
+CONFIRM_TIMEOUT = 15   # Polling confirmation deadline (move_xy, move_z,
+                        # objective, select_job)
 
 
 def _safe_float(val, default=None):

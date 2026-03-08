@@ -35,7 +35,7 @@ import time
 
 from . import readers as _readers
 from .settings import make_changeable_copy
-from .utils import _make_log_entry
+from .utils import _make_log_entry, CONFIRM_TIMEOUT
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def _readback(client, job_name):
         client.PyApiGetJobSettingsByName.Model.Settings = None
     except Exception:
         log.debug("Could not clear cached settings before readback")
-    raw = _readers.get_job_settings(client, job_name, timeout=5)
+    raw = _readers.get_job_settings(client, job_name, timeout=CONFIRM_TIMEOUT)
     if raw is None:
         return None
     return make_changeable_copy(raw)
@@ -65,7 +65,7 @@ ZMODE_KEY = {"galvo": "z-galvo", "zwide": "z-wide"}
 
 
 def confirm_move_z(client, *, job_name, z_mode, target_um, tolerance=1.0,
-                   timeout=10.0, poll_interval=0.01):
+                   timeout=None, poll_interval=0.01):
     """Poll until Z drive position is within tolerance, or until timeout.
 
     Owns its polling loop — the backbone calls this once with
@@ -77,12 +77,14 @@ def confirm_move_z(client, *, job_name, z_mode, target_um, tolerance=1.0,
         z_mode: Drive type — "galvo" or "zwide".
         target_um: Expected Z position in micrometers.
         tolerance: Acceptable deviation in micrometers.
-        timeout: Hard ceiling in seconds.
+        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
         poll_interval: Seconds between position polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
+    if timeout is None:
+        timeout = CONFIRM_TIMEOUT
     logs = []
     key = ZMODE_KEY[z_mode]
     t_start = time.perf_counter()
@@ -558,7 +560,7 @@ def _confirm_image_format(client, job_name, w, h):
 
 
 def confirm_objective(client, *, job_name, target_name,
-                      timeout=10.0, poll_interval=0.01):
+                      timeout=None, poll_interval=0.01):
     """Poll until objective matches target, or until timeout.
 
     Owns its polling loop — the backbone calls this once with
@@ -569,12 +571,14 @@ def confirm_objective(client, *, job_name, target_name,
         client: The connected LAS X API client.
         job_name: Target job name.
         target_name: Expected objective name string.
-        timeout: Hard ceiling in seconds.
+        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
         poll_interval: Seconds between readback polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
+    if timeout is None:
+        timeout = CONFIRM_TIMEOUT
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + timeout
@@ -763,7 +767,7 @@ def _confirm_filter_wheel_slot(client, job_name, si, beam_route, fw_type,
 # =============================================================================
 
 def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
-                    timeout=10.0, poll_interval=0.01):
+                    timeout=None, poll_interval=0.01):
     """Poll until XY stage position is within tolerance, or until timeout.
 
     Owns its polling loop — the backbone calls this once with
@@ -774,18 +778,20 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
         target_x_um: Expected X position in micrometers.
         target_y_um: Expected Y position in micrometers.
         tolerance: Acceptable deviation in micrometers per axis.
-        timeout: Hard ceiling in seconds.
+        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
         poll_interval: Seconds between position polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
+    if timeout is None:
+        timeout = CONFIRM_TIMEOUT
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + timeout
 
     while time.perf_counter() < deadline:
-        pos = _readers.get_xy(client, timeout=5)
+        pos = _readers.get_xy(client, timeout=CONFIRM_TIMEOUT)
         if pos is not None:
             dx = abs(pos["x_um"] - target_x_um)
             dy = abs(pos["y_um"] - target_y_um)
@@ -889,19 +895,21 @@ def confirm_acquire(client, *, settle_time=0.5, start_timeout=15.0,
     return {"success": False, "logs": logs}
 
 
-def confirm_select_job(client, *, job_name, timeout=10.0,
+def confirm_select_job(client, *, job_name, timeout=None,
                        poll_interval=0.01):
     """Poll until the specified job is selected, or until timeout.
 
     Args:
         client: The connected LAS X API client.
         job_name: Name of the job expected to become selected.
-        timeout: Hard ceiling in seconds for the entire operation.
+        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
         poll_interval: Seconds between get_jobs polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
+    if timeout is None:
+        timeout = CONFIRM_TIMEOUT
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + timeout
