@@ -105,6 +105,12 @@ def _dispatch(client, api_obj, description, profile, *,
     # Resolve confirm_fn: explicit override > profile default > None
     effective_confirm = confirm_fn if confirm_fn is not None else profile.confirm_fn
 
+    # Inject confirm_timeout from profile into confirm_fn (if set)
+    if effective_confirm is not None and profile.confirm_timeout is not None:
+        _inner = effective_confirm
+        _timeout = profile.confirm_timeout
+        effective_confirm = lambda c, _f=_inner, _t=_timeout: _f(c, timeout=_t)
+
     # Resolve pre_check_fn: timeout override > profile default > None
     if pre_check_timeout is not None and profile.pre_check_fn is not None:
         heartbeat = getattr(profile.pre_check_fn, 'keywords', {}).get('heartbeat', 30.0)
@@ -319,9 +325,8 @@ def set_objective(client, job_name, hw_info, name=None, magnification=None, *,
     objectives = _hw_get(
         _hw_get(hw_info, "Microscope", {}), "objectives", [])
 
-    # Filter out empty turret slots — sending these to LAS X can trigger
-    # modal error dialogs that block the whole application.
-    # TODO: filter by slot index (populated vs empty) rather than objectiveNumber
+    # Filter out empty turret slots (objectiveNumber 0) — sending these to
+    # LAS X can trigger modal error dialogs that block the whole application.
     real_objectives = [o for o in objectives if _hw_get(o, "objectiveNumber", 0) != 0]
 
     slot = None

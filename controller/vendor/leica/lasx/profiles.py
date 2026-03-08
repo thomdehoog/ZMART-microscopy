@@ -21,9 +21,7 @@ stdlib. Nothing from ``core``, ``commands``, or ``utils``.
 """
 
 from dataclasses import dataclass
-from functools import partial
 
-from .prechecks import check_idle
 from .utils import RECEIPT_TIMEOUT, CONFIRM_TIMEOUT  # noqa: F401 — re-exported
 from .confirmations import (
     _confirm_zoom,
@@ -66,7 +64,7 @@ class CommandProfile:
 
     Attributes:
         pre_check_fn: Pre-flight check. ``callable(client) → result``.
-            None to skip. Most commands use ``check_idle``.
+            None to skip.
         error_check_fn: Post-fire error check. ``callable(client) → result``.
             Defaults to ``_default_error_check``.
         confirm_fn: Readback confirmation. ``callable(client) → result``.
@@ -88,19 +86,9 @@ class CommandProfile:
     correct_fn: callable = None
     max_retries: int = 3
     max_confirm_attempts: int = 3
+    confirm_timeout: float = None  # Per-attempt confirm timeout (seconds). None uses CONFIRM_TIMEOUT.
     retry_backoff: float = None
     retry_escalate: bool = False
-
-
-# =============================================================================
-# Standard pre-check: wait for scanner idle
-# =============================================================================
-#
-# Most commands need the scanner idle before firing. These partials
-# pre-bind timeout/heartbeat; the command function binds `client` via
-# lambda at call time.
-
-_idle = partial(check_idle, timeout=None, heartbeat=30.0)
 
 
 # =============================================================================
@@ -108,42 +96,34 @@ _idle = partial(check_idle, timeout=None, heartbeat=30.0)
 # =============================================================================
 
 ZOOM = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_zoom,
 )
 
 SCAN_SPEED = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_scan_speed,
 )
 
 SCAN_RESONANT = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_scan_resonant,
 )
 
 SCAN_MODE = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_scan_mode,
 )
 
 SEQUENTIAL_MODE = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_sequential_mode,
 )
 
 SCAN_FIELD_ROTATION = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_scan_field_rotation,
 )
 
 IMAGE_FORMAT = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_image_format,
 )
 
 OBJECTIVE = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=confirm_objective,
     max_confirm_attempts=1,
 )
@@ -154,17 +134,14 @@ OBJECTIVE = CommandProfile(
 # =============================================================================
 
 Z_STACK_DEFINITION = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_z_stack_definition,
 )
 
 Z_STACK_STEP_SIZE = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_z_stack_step_size,
 )
 
 Z_STACK_SIZE = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_z_stack_size,
 )
 
@@ -174,22 +151,18 @@ Z_STACK_SIZE = CommandProfile(
 # =============================================================================
 
 FRAME_ACCUMULATION = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_frame_accumulation,
 )
 
 FRAME_AVERAGE = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_frame_average,
 )
 
 LINE_ACCUMULATION = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_line_accumulation,
 )
 
 LINE_AVERAGE = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_line_average,
 )
 
@@ -199,13 +172,10 @@ LINE_AVERAGE = CommandProfile(
 # =============================================================================
 
 DETECTOR_GAIN = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_detector_gain,
 )
 
-
 PINHOLE_AIRY = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_pinhole_airy,
 )
 
@@ -215,12 +185,10 @@ PINHOLE_AIRY = CommandProfile(
 # =============================================================================
 
 LASER_INTENSITY = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_laser_intensity,
 )
 
 LASER_SHUTTER = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_laser_shutter,
 )
 
@@ -230,12 +198,10 @@ LASER_SHUTTER = CommandProfile(
 # =============================================================================
 
 FILTER_WHEEL_SLOT = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_filter_wheel_slot,
 )
 
 FILTER_WHEEL_SPECTRUM = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=_confirm_filter_wheel_spectrum,
 )
 
@@ -245,13 +211,12 @@ FILTER_WHEEL_SPECTRUM = CommandProfile(
 # =============================================================================
 
 MOVE_XY = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=confirm_move_xy,
-    max_confirm_attempts=1,
+    max_confirm_attempts=3,
+    confirm_timeout=5.0,
 )
 
 MOVE_Z = CommandProfile(
-    pre_check_fn=_idle,
     confirm_fn=confirm_move_z,
     max_confirm_attempts=1,
 )
@@ -262,13 +227,11 @@ MOVE_Z = CommandProfile(
 # =============================================================================
 
 ACQUIRE = CommandProfile(
-    pre_check_fn=_idle,  # Wait indefinitely for scanner idle
     confirm_fn=confirm_acquire,
-    max_confirm_attempts=1,  # Acquisition confirms once (owns its polling)
+    max_confirm_attempts=1,
 )
 
 SELECT_JOB = CommandProfile(
-    pre_check_fn=None,  # Job switching doesn't need scanner idle
     confirm_fn=confirm_select_job,
-    max_confirm_attempts=1,  # Job selection confirms once (owns its polling)
+    max_confirm_attempts=1,
 )
