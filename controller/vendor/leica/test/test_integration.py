@@ -1,5 +1,5 @@
 """
-Integration tests: driver.py + MockLasxClient
+Integration tests: lasx + MockLasxClient
 ===============================================
 End-to-end tests that exercise the full driver stack against
 ``MockLasxClient`` — a stateful in-process fake of the LAS X Python
@@ -18,9 +18,14 @@ Usage::
     python -m pytest test_integration.py  # via pytest
 """
 
+import sys
 import unittest
+from pathlib import Path
 
-import driver as drv
+# Add the leica directory to sys.path so `import lasx` works unchanged.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import lasx as drv
 from mock_lasx_api import MockLasxClient
 
 

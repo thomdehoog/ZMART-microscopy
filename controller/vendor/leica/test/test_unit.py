@@ -28,12 +28,17 @@ Usage::
     python -m pytest test_unit.py  # via pytest
 """
 
+import sys
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
 from functools import partial
 
-import driver as drv
+# Add the leica directory to sys.path so `import lasx` works unchanged.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import lasx as drv
 import lasx.core
 import lasx.errors
 import lasx.readers

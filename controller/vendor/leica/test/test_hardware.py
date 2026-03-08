@@ -187,8 +187,12 @@ print("\n" + "=" * 70)
 print("  Phase 1: CONNECTION")
 print("=" * 70)
 
+from pathlib import Path
+# Add the leica directory to sys.path so `import lasx` works unchanged.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from LasxApi import PYLICamApiConnector as lasx_api
-import driver as drv
+import lasx as drv
 
 print(f"  Driver version: {drv.__version__}")
 

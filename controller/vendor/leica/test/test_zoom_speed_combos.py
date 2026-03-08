@@ -27,7 +27,11 @@ parser.add_argument("--job", default=None)
 parser.add_argument("--timeout", type=float, default=10.0)
 args = parser.parse_args()
 
-import driver as drv
+from pathlib import Path
+# Add the leica directory to sys.path so `import lasx` works unchanged.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import lasx as drv
 
 if args.mock:
     from mock_lasx_api import MockLasxClient

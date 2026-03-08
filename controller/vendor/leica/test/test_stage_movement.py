@@ -37,8 +37,12 @@ PAUSE = args.pause
 
 # ── Connect ──────────────────────────────────────────────────────────────
 
+from pathlib import Path
+# Add the leica directory to sys.path so `import lasx` works unchanged.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from LasxApi import PYLICamApiConnector as lasx_api
-import driver as drv
+import lasx as drv
 
 print(f"\n  Driver version: {drv.__version__}")
 print(f"  Step size: {STEP:.0f} um")

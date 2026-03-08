@@ -44,13 +44,7 @@ from lasx import set_zoom, get_job_settings, acquire
 # Namespace import
 import lasx
 lasx.set_zoom(client, "MyJob", 2.0)
-
-# Legacy shim (backwards compatible)
-import driver as drv
-drv.set_zoom(client, "MyJob", 2.0)
 ```
-
-The `driver.py` file at the project root is a thin shim (`from lasx import *`) for existing code.
 
 ---
 
@@ -612,12 +606,15 @@ All tolerances can be overridden per call via the `tolerance` keyword argument.
 
 ---
 
-## Backwards Compatibility
+## Import Style
 
-The `driver.py` file at the project root re-exports everything from the `lasx` package:
+All public functions are exported from the `lasx` package. Use either selective or namespace imports:
 
 ```python
-from lasx import *
-```
+# Selective
+from lasx import set_zoom, acquire
 
-Existing code using `import driver as drv` continues to work. New code should import from `lasx` directly.
+# Namespace
+import lasx
+lasx.set_zoom(client, "MyJob", 2.0)
+```

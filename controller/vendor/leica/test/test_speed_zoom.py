@@ -1,7 +1,12 @@
 """Try all combinations of speed and zoom, report errors with API details."""
 import sys
+from pathlib import Path
+
+# Add the leica directory to sys.path so `import lasx` works unchanged.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from LasxApi import PYLICamApiConnector as lasx_api
-import driver as drv
+import lasx as drv
 
 client = lasx_api.LasxApiClientPyModel
 if not client.Connect("PythonClient"):
