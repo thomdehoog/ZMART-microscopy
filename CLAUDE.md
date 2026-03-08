@@ -1,18 +1,21 @@
-# LASX Driver v6
+# SMART
 
-Python driver for the Leica STELLARIS confocal microscope.
+Microscope automation framework.
 
-- **Package**: `lasx/` (or `import driver as drv`)
-- **README.md** has the full API reference
+## Structure
+
+- `controller/vendor/leica/lasx/` — Leica STELLARIS confocal driver
+- `controller/vendor/leica/test/` — Driver tests
+- `analysis/post_acquisition/` — Post-acquisition analysis
+- `analysis/realtime/` — Real-time analysis during acquisition
+
+## Leica LASX Driver
+
+- **Package**: `controller/vendor/leica/lasx/`
+- **API reference**: `controller/vendor/leica/README.md`
 - **All commands return** a result dict with `success`, `confirmed`, `message`, `timing`, `logs`
 
 ## Environment
 
 - **Git**: `C:/ProgramData/MinicondaZMB/Library/cmd/git.exe`
 - **Conda env**: `C:/ProgramData/MinicondaZMB/envs/lasxapi_extended`
-
-## Loadable Prompts
-
-Context-specific instructions live in `prompts/`. Ask me to load one when needed:
-
-- `prompts/microscope-control.md` — Microscope control mode: connection boilerplate, stage limits, script patterns, tile geometry. Load this when working at the microscope.
