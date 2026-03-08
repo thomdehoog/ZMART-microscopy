@@ -66,6 +66,9 @@ print("-" * 80)
 errors = []
 
 for zoom in zooms:
+    # Reset speed before each zoom to avoid speed/zoom coupling
+    drv.set_scan_speed(client, job, orig_speed)
+
     # Set zoom
     try:
         rz = drv.set_zoom(client, job, zoom)
