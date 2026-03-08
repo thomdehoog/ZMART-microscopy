@@ -22,7 +22,8 @@ Package layout::
     ├── core.py        ← _fire_with_receipt, _fire_block,
     │                     confirm_and_fire
     ├── profiles.py    ← CommandProfile dataclass + per-command profiles
-    └── commands.py    ← set_*, move_*, acquire, select_job
+    ├── commands.py    ← set_*, move_*, acquire, select_job
+    └── ome_tiff.py    ← OME-XML validation and patching
 
 Dependency flow (strict DAG — no cycles)::
 
@@ -30,6 +31,7 @@ Dependency flow (strict DAG — no cycles)::
     errors                        ← utils
     limits                        ← stdlib only
     readers                       ← stdlib only
+    ome_tiff                      ← stdlib only
     settings                      ← utils
     prechecks                     ← readers, utils
     confirmations                 ← readers, settings, utils
@@ -57,6 +59,11 @@ __all__ = [
     "get_scan_status", "ping", "get_job_settings", "get_hardware_info",
     "get_xy", "get_jobs", "get_job_by_name", "get_selected_job",
     "get_lasx_settings",
+    # ome_tiff
+    "extract_wavelength_from_id",
+    "check_ome_xml_bytes", "check_ome_tiff", "check_ome_xml_file",
+    "fix_ome_xml_bytes", "fix_ome_tiff", "fix_ome_xml_file",
+    "update_ome_tiff_filename", "update_ome_xml_filename",
     # settings
     "make_changeable_copy",
     # prechecks
@@ -118,6 +125,19 @@ from .readers import (
     get_job_by_name,
     get_selected_job,
     get_lasx_settings,
+)
+
+# ── OME-TIFF / OME-XML validation and patching ────────────────────
+from .ome_tiff import (
+    extract_wavelength_from_id,
+    check_ome_xml_bytes,
+    check_ome_tiff,
+    check_ome_xml_file,
+    fix_ome_xml_bytes,
+    fix_ome_tiff,
+    fix_ome_xml_file,
+    update_ome_tiff_filename,
+    update_ome_xml_filename,
 )
 
 # ── Settings parsing ────────────────────────────────────────────────
