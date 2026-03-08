@@ -356,8 +356,12 @@ def fix_ome_tiff(input_path, output_path=None):
         # Fits in place — pad with nulls
         padded = fixed_with_null + b'\x00' * (desc_count - new_len)
         data[desc_offset:desc_offset + desc_count] = padded
+    elif desc_offset + desc_count >= len(data):
+        # XML is at end of file — extend in place (no relocation)
+        data[desc_offset:] = fixed_with_null
+        struct.pack_into(endian_or_err + 'I', data, desc_entry_pos + 4, new_len)
     else:
-        # Zero out old location, append at end, update IFD entry
+        # XML is in the middle — relocate to end of file
         data[desc_offset:desc_offset + desc_count] = b'\x00' * desc_count
         new_offset = len(data)
         data.extend(fixed_with_null)
@@ -421,19 +425,19 @@ def fix_ome_xml_file(input_path, output_path=None):
 def _replace_filename_in_path(old_path, new_filename):
     """Replace the filename portion of a path, keeping the directory.
 
-    Handles both Windows backslash and Unix forward-slash paths.
+    Finds the *last* single ``\\`` or ``/`` separator and replaces
+    everything after it.  Handles Windows paths with mixed single
+    and double backslashes correctly.
+
     If *old_path* has no directory component, just returns *new_filename*.
-
-    Examples::
-
-        ("Z:\\\\data\\\\old.tif", "new.tif")  ->  "Z:\\\\data\\\\new.tif"
-        ("old.tif", "new.tif")                 ->  "new.tif"
     """
-    # Try Windows backslash first, then forward-slash
-    for sep in ('\\\\', '\\', '/'):
-        idx = old_path.rfind(sep)
-        if idx >= 0:
-            return old_path[:idx + len(sep)] + new_filename
+    # Find the last single \ or / — this is always the filename boundary,
+    # even when the path contains \\ elsewhere.
+    idx_bs = old_path.rfind('\\')
+    idx_fs = old_path.rfind('/')
+    idx = max(idx_bs, idx_fs)
+    if idx >= 0:
+        return old_path[:idx + 1] + new_filename
     return new_filename
 
 
@@ -465,6 +469,9 @@ def _update_filenames_in_xml(xml_bytes, new_filename):
 
     def _replace_desc(m):
         old_path = m.group(2)
+        # Only replace if the content looks like a file path
+        if '\\' not in old_path and '/' not in old_path:
+            return m.group(0)
         new_path = _replace_filename_in_path(old_path, new_filename)
         if old_path == new_path:
             return m.group(0)
@@ -526,7 +533,12 @@ def update_ome_tiff_filename(path):
     if new_len <= desc_count:
         padded = updated_with_null + b'\x00' * (desc_count - new_len)
         data[desc_offset:desc_offset + desc_count] = padded
+    elif desc_offset + desc_count >= len(data):
+        # XML is at end of file — extend in place (no relocation)
+        data[desc_offset:] = updated_with_null
+        struct.pack_into(endian_or_err + 'I', data, desc_entry_pos + 4, new_len)
     else:
+        # XML is in the middle — relocate to end of file
         data[desc_offset:desc_offset + desc_count] = b'\x00' * desc_count
         new_offset = len(data)
         data.extend(updated_with_null)
