@@ -12,6 +12,12 @@ modules, no knowledge of LAS X, microscopes, or API objects.
 import time
 import re
 
+# ---------------------------------------------------------------------------
+# Transport timeout (seconds) for UpdateAwaitReceipt calls.
+# Used by readers and core as the default receipt ACK deadline.
+# ---------------------------------------------------------------------------
+RECEIPT_TIMEOUT = 15
+
 
 def _safe_float(val, default=None):
     """Convert val to float. Returns default on failure or None input."""

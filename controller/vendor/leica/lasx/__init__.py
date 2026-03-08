@@ -46,6 +46,8 @@ __version__ = "6.0.0"
 __all__ = [
     # version
     "__version__", "log",
+    # config
+    "RECEIPT_TIMEOUT",
     # utils
     "_safe_float", "_hw_get", "parse_format", "format_to_str",
     "_make_timing", "_make_log_entry", "parse_tile_geometry",
@@ -150,6 +152,8 @@ from .prechecks import check_idle
 from .confirmations import _readback
 
 # ── Core dispatch ───────────────────────────────────────────────────
+from .utils import RECEIPT_TIMEOUT  # noqa: F401
+
 from .core import (
     _fire_with_receipt,
     confirm_and_fire,

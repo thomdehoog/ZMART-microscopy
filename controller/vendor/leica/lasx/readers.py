@@ -8,7 +8,7 @@ LAS X application settings (parsed from the on-disk XML file).
 Most queries follow a **command-dispatch-then-poll** pattern:
 
     1. Write the command name to ``PyApiCommand.Model.Command``.
-    2. Call ``PyApiCommand.UpdateAwaitReceipt(2)`` for transport ACK.
+    2. Call ``PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT)`` for transport ACK.
     3. Poll the dedicated data-object model (e.g.
        ``PyApiGetJobSettingsByName.Model.Settings``) until it is
        populated or timeout.
@@ -36,6 +36,8 @@ import os
 import time
 import xml.etree.ElementTree as ET
 
+from .utils import RECEIPT_TIMEOUT
+
 log = logging.getLogger(__name__)
 
 
@@ -58,7 +60,7 @@ def get_scan_status(client):
 def ping(client):
     """Lightweight connection check. Returns True if LAS X responds."""
     try:
-        receipt = client.PyApiPing.UpdateAwaitReceipt(2)
+        receipt = client.PyApiPing.UpdateAwaitReceipt(RECEIPT_TIMEOUT)
         if receipt:
             return True
         # Transport failure — try fallback
@@ -108,7 +110,7 @@ def get_job_settings(client, job_name, timeout=10, poll_interval=0.01,
             # False — proceed to command dispatch regardless.
             client.PyApiGetJobSettingsByName.Model.JobName = job_name
             try:
-                client.PyApiGetJobSettingsByName.UpdateAwaitReceipt(2)
+                client.PyApiGetJobSettingsByName.UpdateAwaitReceipt(RECEIPT_TIMEOUT)
             except Exception:
                 pass  # Best-effort; command channel is the real transport
 
@@ -118,7 +120,7 @@ def get_job_settings(client, job_name, timeout=10, poll_interval=0.01,
             # Reset Command to "" first to force property-change event
             client.PyApiCommand.Model.Command = ""
             client.PyApiCommand.Model.Command = "GetJobSettingsByName"
-            if not client.PyApiCommand.UpdateAwaitReceipt(2):
+            if not client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
                 log.warning("get_job_settings: command dispatch receipt failed "
                             "(attempt %d)", attempt + 1)
                 continue
@@ -160,7 +162,7 @@ def get_hardware_info(client, timeout=10, poll_interval=0.01, max_retries=3):
 
             client.PyApiCommand.Model.Command = ""
             client.PyApiCommand.Model.Command = "GetConfocalHardwareInfo"
-            if not client.PyApiCommand.UpdateAwaitReceipt(2):
+            if not client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
                 log.warning("get_hardware_info: receipt failed (attempt %d)",
                             attempt + 1)
                 continue
@@ -206,7 +208,7 @@ def get_xy(client, timeout=10, poll_interval=0.01, max_retries=3):
             # Command dispatch — same pattern as get_jobs, get_hardware_info
             client.PyApiCommand.Model.Command = ""
             client.PyApiCommand.Model.Command = "GetXY"
-            if not client.PyApiCommand.UpdateAwaitReceipt(2):
+            if not client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
                 log.warning("get_xy: receipt failed (attempt %d)",
                             attempt + 1)
                 if attempt < max_retries - 1:
@@ -237,7 +239,7 @@ def get_xy(client, timeout=10, poll_interval=0.01, max_retries=3):
                 # Re-fire command
                 client.PyApiCommand.Model.Command = ""
                 client.PyApiCommand.Model.Command = "GetXY"
-                client.PyApiCommand.UpdateAwaitReceipt(2)
+                client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT)
                 time.sleep(0.05)
                 x = client.PyApiGetXY.Model.XPosition
                 y = client.PyApiGetXY.Model.YPosition
@@ -271,7 +273,7 @@ def get_jobs(client, timeout=10, poll_interval=0.01, max_retries=3):
 
             client.PyApiCommand.Model.Command = ""
             client.PyApiCommand.Model.Command = "GetJobsInformation"
-            if not client.PyApiCommand.UpdateAwaitReceipt(2):
+            if not client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
                 log.warning("get_jobs: receipt failed (attempt %d)",
                             attempt + 1)
                 continue

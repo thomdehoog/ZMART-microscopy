@@ -42,7 +42,7 @@ import logging
 import time
 
 from .errors import _default_error_check
-from .utils import _make_timing, _make_log_entry
+from .utils import _make_timing, _make_log_entry, RECEIPT_TIMEOUT
 
 log = logging.getLogger(__name__)
 
@@ -51,20 +51,22 @@ log = logging.getLogger(__name__)
 # Transport helper
 # =============================================================================
 
-def _fire_with_receipt(api_obj, receipt_timeout=2, max_attempts=3,
+def _fire_with_receipt(api_obj, receipt_timeout=None, max_attempts=3,
                        retry_delay=0.5):
     """Dispatch command via UpdateAwaitReceipt with transport retry.
 
     Args:
         api_obj: API object (e.g. client.PyApiSetZoomByJobName).
-        receipt_timeout: Seconds for UpdateAwaitReceipt (transport ACK
-            takes ~10-20ms; 2s catches dead connections without blocking).
+        receipt_timeout: Seconds for UpdateAwaitReceipt. None uses
+            the module-level RECEIPT_TIMEOUT default.
         max_attempts: Total transport delivery attempts.
         retry_delay: Seconds between transport retries.
 
     Returns:
         True if delivered, False if transport failed after all attempts.
     """
+    if receipt_timeout is None:
+        receipt_timeout = RECEIPT_TIMEOUT
     for attempt in range(max_attempts):
         receipt = api_obj.UpdateAwaitReceipt(receipt_timeout)
         if receipt:
