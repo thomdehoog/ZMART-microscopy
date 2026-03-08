@@ -130,11 +130,13 @@ def _confirm_zoom(client, job_name, target, tolerance=0.1,
     t_start = time.perf_counter()
     deadline = t_start + timeout
 
+    last_actual = None
     while time.perf_counter() < deadline:
         ch = _readback(client, job_name)
         if ch is not None:
             try:
                 actual = ch["zoom"]["current"]
+                last_actual = actual
                 if abs(actual - target) < tolerance:
                     return {"success": True, "logs": logs}
                 log.debug("Zoom confirm: target=%s actual=%s", target, actual)
@@ -142,7 +144,8 @@ def _confirm_zoom(client, job_name, target, tolerance=0.1,
                 pass
         time.sleep(poll_interval)
 
-    msg = f"Zoom timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
+    msg = (f"Zoom timeout after {time.perf_counter() - t_start:.1f}s "
+           f"— target={target}, last_actual={last_actual}")
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -1129,6 +1132,8 @@ def confirm_acquire(client, *, settle_time=0.5, start_timeout=15.0,
     last_heartbeat = t_start
     saw_scanning = False
     start_warning_logged = False
+    consecutive_idle = 0
+    idle_streak_required = 3  # Require N consecutive idle reads to confirm
 
     # Use a very large deadline if timeout is None (effectively infinite)
     deadline = t_start + (timeout if timeout is not None else 1e9)
@@ -1139,6 +1144,9 @@ def confirm_acquire(client, *, settle_time=0.5, start_timeout=15.0,
 
         if "Idle" not in status:
             saw_scanning = True
+            consecutive_idle = 0
+        else:
+            consecutive_idle += 1
 
         # Heartbeat for long scans
         now = time.perf_counter()
@@ -1156,8 +1164,8 @@ def confirm_acquire(client, *, settle_time=0.5, start_timeout=15.0,
             logs.append(_make_log_entry("warning", msg))
             start_warning_logged = True
 
-        # Completion: idle AND (saw scanning OR settle time elapsed)
-        if "Idle" in status:
+        # Completion: consecutive idle reads AND (saw scanning OR settle time elapsed)
+        if consecutive_idle >= idle_streak_required:
             if saw_scanning or elapsed > settle_time:
                 return {"success": True, "logs": logs}
 

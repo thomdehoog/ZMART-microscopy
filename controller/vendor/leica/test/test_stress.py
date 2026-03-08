@@ -29,6 +29,8 @@ parser.add_argument("--skip-move", action="store_true",
                     help="Skip stage and z movement commands")
 parser.add_argument("--skip-objective", action="store_true",
                     help="Skip objective switching")
+parser.add_argument("--skip-acquire", action="store_true",
+                    help="Skip acquisition commands")
 parser.add_argument("--seed", type=int, default=None,
                     help="RNG seed for reproducibility (default: random)")
 args = parser.parse_args()
@@ -110,15 +112,14 @@ pos = drv.get_xy(client)
 ORIG_X, ORIG_Y = pos["x_um"], pos["y_um"]
 
 objectives = hw.get("Microscope", {}).get("objectives", [])
-obj_names = [o["name"] for o in objectives]
+obj_names = [o["name"] for o in objectives if o.get("objectiveNumber", 0) != 0]
 
 # ── Define command pool ──────────────────────────────────────────────────
 
 # Valid zoom/speed pairs — LAS X silently adjusts zoom at high speeds.
 # Table generated from test_zoom_speed_combos.py.
 ZOOM_MAX_SPEED = {
-    0.75: 600,  1.0: 600,  1.5: 800,  2.0: 800,
-    3.0: 1000,  5.0: 1400,  7.0: 1600,  10.0: 1800,
+    5.0: 1400,  7.0: 1600,  10.0: 1800,
     15.0: 1800,  20.0: 2000,  30.0: 2000,  48.0: 2000,
 }
 ZOOMS = list(ZOOM_MAX_SPEED.keys())
@@ -141,7 +142,13 @@ def make_commands():
         zoom = random.choice(ZOOMS)
         max_spd = ZOOM_MAX_SPEED[zoom]
         speed = random.choice([s for s in SPEEDS if s <= max_spd])
-        drv.set_zoom(client, JOB, zoom)
+        # Drop speed to minimum first so LAS X accepts any zoom change
+        rs = drv.set_scan_speed(client, JOB, min(SPEEDS))
+        if not rs.get("success"):
+            return rs
+        rz = drv.set_zoom(client, JOB, zoom)
+        if not rz.get("success"):
+            return rz
         return drv.set_scan_speed(client, JOB, speed)
     cmds.append(("zoom_speed", _set_zoom_speed))
     cmds.append(("mode", lambda: drv.set_scan_mode(
@@ -180,7 +187,8 @@ def make_commands():
             client, JOB, hw, name=random.choice(obj_names))))
 
     # Acquire
-    cmds.append(("acquire", lambda: drv.acquire(client, JOB)))
+    if not args.skip_acquire:
+        cmds.append(("acquire", lambda: drv.acquire(client, JOB)))
 
     # Stage movement
     if not args.skip_move:
@@ -225,8 +233,19 @@ for i in range(1, args.rounds + 1):
     conf_tag = ""
     if confirmed is False:
         conf_tag = " \033[33m[UNCONFIRMED]\033[0m"
+    # Show timing breakdown for slow commands (>3s)
+    timing_tag = ""
+    if isinstance(r, dict) and elapsed > 3.0:
+        t = r.get("timing", {})
+        parts = []
+        for k in ("pre_check_s", "setup_s", "fire_s", "check_s", "confirm_s"):
+            v = t.get(k)
+            if v is not None and v > 0.01:
+                parts.append(f"{k.replace('_s','')}={v:.1f}s")
+        if parts:
+            timing_tag = f"  [{', '.join(parts)}]"
     print(f"  [{i:4d}/{args.rounds}] {status} {name:20s} {elapsed:.3f}s{conf_tag}"
-          f"{'  ' + msg if msg else ''}")
+          f"{timing_tag}{'  ' + msg if msg else ''}")
 
     results.append((i, name, ok, elapsed, msg, confirmed))
 

@@ -319,18 +319,23 @@ def set_objective(client, job_name, hw_info, name=None, magnification=None, *,
     objectives = _hw_get(
         _hw_get(hw_info, "Microscope", {}), "objectives", [])
 
+    # Filter out empty turret slots — sending these to LAS X can trigger
+    # modal error dialogs that block the whole application.
+    # TODO: filter by slot index (populated vs empty) rather than objectiveNumber
+    real_objectives = [o for o in objectives if _hw_get(o, "objectiveNumber", 0) != 0]
+
     slot = None
     target_name = None
 
     if name is not None:
-        for obj in objectives:
+        for obj in real_objectives:
             obj_name = _hw_get(obj, "name", "").strip()
             if obj_name == name.strip():
                 slot = _hw_get(obj, "slotIndex")
                 target_name = obj_name
                 break
     elif magnification is not None:
-        for obj in objectives:
+        for obj in real_objectives:
             if _hw_get(obj, "magnification") == magnification:
                 slot = _hw_get(obj, "slotIndex")
                 target_name = _hw_get(obj, "name", "").strip()
@@ -340,7 +345,7 @@ def set_objective(client, job_name, hw_info, name=None, magnification=None, *,
         return {
             "success": False, "confirmed": None,
             "message": f"Could not find objective: name={name}, mag={magnification}. "
-                       f"Available: {[_hw_get(o, 'name', '').strip() for o in objectives]}",
+                       f"Available: {[_hw_get(o, 'name', '').strip() for o in real_objectives]}",
             "timing": _make_timing(total_s=0.0, attempts=0),
             "logs": [],
         }
