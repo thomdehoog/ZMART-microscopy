@@ -11,15 +11,15 @@ settled) follow the same contract: ``callable(client) → result dict``.
 Extra parameters are pre-bound with ``partial`` at profile definition
 time; the command function binds ``client`` via lambda.
 
-Import restrictions: only ``util``, ``readers``, and stdlib. Nothing
-from ``core``, ``commands``, ``profiles``, or ``confirm``.
+Import restrictions: only ``utils``, ``readers``, and stdlib. Nothing
+from ``core``, ``commands``, ``profiles``, or ``confirmations``.
 """
 
 import logging
 import time
 
 from . import readers as _readers
-from .util import _make_log_entry
+from .utils import _make_log_entry
 
 log = logging.getLogger(__name__)
 

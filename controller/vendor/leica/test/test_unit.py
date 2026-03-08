@@ -9,7 +9,7 @@ confirmation polling, timing instrumentation, and set function wiring.
 
 Updated from v5.0 tests to match v6.0 backbone redesign:
   - _fire_with_retry replaced by confirm_and_fire (two-layer backbone)
-  - _default_pre_check removed; check_idle in checks.py owns polling
+  - _default_pre_check removed; check_idle in prechecks.py owns polling
   - pre_check_fn returns {"success": bool, "logs": [...]} (not bool)
   - confirm_fn returns {"success": bool, "logs": [...]} (not bool)
   - _make_acquire_confirm/_make_select_job_confirm factories replaced by
@@ -37,9 +37,9 @@ import driver as drv
 import lasx.core
 import lasx.errors
 import lasx.readers
-import lasx.confirm
+import lasx.confirmations
 import lasx.commands
-import lasx.checks
+import lasx.prechecks
 
 
 # =============================================================================
@@ -655,98 +655,98 @@ class TestErrorClassification(unittest.TestCase):
 
 
 # =============================================================================
-# 7. Confirm functions (lasx.confirm)
+# 7. Confirm functions (lasx.confirmations)
 # =============================================================================
 
 class TestConfirmFunctions(unittest.TestCase):
 
     def _mock_readback(self, changeable_dict):
-        return patch.object(lasx.confirm, '_readback', return_value=changeable_dict)
+        return patch.object(lasx.confirmations, '_readback', return_value=changeable_dict)
 
     def test_confirm_zoom_pass(self):
         with self._mock_readback({"zoom": {"current": 5.0}}):
-            self.assertTrue(lasx.confirm._confirm_zoom(None, "J", 5.0)["success"])
+            self.assertTrue(lasx.confirmations._confirm_zoom(None, "J", 5.0)["success"])
 
     def test_confirm_zoom_within_tolerance(self):
         with self._mock_readback({"zoom": {"current": 5.05}}):
-            self.assertTrue(lasx.confirm._confirm_zoom(None, "J", 5.0)["success"])
+            self.assertTrue(lasx.confirmations._confirm_zoom(None, "J", 5.0)["success"])
 
     def test_confirm_zoom_fail(self):
         with self._mock_readback({"zoom": {"current": 3.0}}):
-            self.assertFalse(lasx.confirm._confirm_zoom(None, "J", 5.0)["success"])
+            self.assertFalse(lasx.confirmations._confirm_zoom(None, "J", 5.0)["success"])
 
     def test_confirm_zoom_none_readback(self):
         with self._mock_readback(None):
-            self.assertFalse(lasx.confirm._confirm_zoom(None, "J", 5.0)["success"])
+            self.assertFalse(lasx.confirmations._confirm_zoom(None, "J", 5.0)["success"])
 
     def test_confirm_scan_speed(self):
         with self._mock_readback({"scanSpeed": {"value": 600}}):
-            self.assertTrue(lasx.confirm._confirm_scan_speed(None, "J", 600)["success"])
+            self.assertTrue(lasx.confirmations._confirm_scan_speed(None, "J", 600)["success"])
         with self._mock_readback({"scanSpeed": {"value": 400}}):
-            self.assertFalse(lasx.confirm._confirm_scan_speed(None, "J", 600)["success"])
+            self.assertFalse(lasx.confirmations._confirm_scan_speed(None, "J", 600)["success"])
 
     def test_confirm_scan_resonant(self):
         with self._mock_readback({"scanSpeed": {"isResonant": True}}):
-            self.assertTrue(lasx.confirm._confirm_scan_resonant(None, "J", True)["success"])
-            self.assertFalse(lasx.confirm._confirm_scan_resonant(None, "J", False)["success"])
+            self.assertTrue(lasx.confirmations._confirm_scan_resonant(None, "J", True)["success"])
+            self.assertFalse(lasx.confirmations._confirm_scan_resonant(None, "J", False)["success"])
 
     def test_confirm_scan_mode(self):
         with self._mock_readback({"scanMode": "xyz"}):
-            self.assertTrue(lasx.confirm._confirm_scan_mode(None, "J", "xyz")["success"])
-            self.assertFalse(lasx.confirm._confirm_scan_mode(None, "J", "xy")["success"])
+            self.assertTrue(lasx.confirmations._confirm_scan_mode(None, "J", "xyz")["success"])
+            self.assertFalse(lasx.confirmations._confirm_scan_mode(None, "J", "xy")["success"])
 
     def test_confirm_sequential_mode(self):
         with self._mock_readback({"sequentialMode": "Frame"}):
-            self.assertTrue(lasx.confirm._confirm_sequential_mode(None, "J", "Frame")["success"])
+            self.assertTrue(lasx.confirmations._confirm_sequential_mode(None, "J", "Frame")["success"])
 
     def test_confirm_rotation(self):
         with self._mock_readback({"scanFieldRotation": {"value": 45.3}}):
-            self.assertTrue(lasx.confirm._confirm_scan_field_rotation(None, "J", 45.0)["success"])
+            self.assertTrue(lasx.confirmations._confirm_scan_field_rotation(None, "J", 45.0)["success"])
         with self._mock_readback({"scanFieldRotation": {"value": 46.0}}):
-            self.assertFalse(lasx.confirm._confirm_scan_field_rotation(None, "J", 45.0)["success"])
+            self.assertFalse(lasx.confirmations._confirm_scan_field_rotation(None, "J", 45.0)["success"])
 
     def test_confirm_image_format(self):
         with self._mock_readback({"format": "1024 x 1024"}):
-            self.assertTrue(lasx.confirm._confirm_image_format(None, "J", 1024, 1024)["success"])
-            self.assertFalse(lasx.confirm._confirm_image_format(None, "J", 512, 512)["success"])
+            self.assertTrue(lasx.confirmations._confirm_image_format(None, "J", 1024, 1024)["success"])
+            self.assertFalse(lasx.confirmations._confirm_image_format(None, "J", 512, 512)["success"])
 
     def test_confirm_pinhole_airy(self):
         with self._mock_readback({"activeSettings": [{"pinholeAiry": {"value": 1.02}}]}):
-            self.assertTrue(lasx.confirm._confirm_pinhole_airy(None, "J", 0, 1.0)["success"])
+            self.assertTrue(lasx.confirmations._confirm_pinhole_airy(None, "J", 0, 1.0)["success"])
         with self._mock_readback({"activeSettings": [{"pinholeAiry": {"value": 0.5}}]}):
-            self.assertFalse(lasx.confirm._confirm_pinhole_airy(None, "J", 0, 1.0)["success"])
+            self.assertFalse(lasx.confirmations._confirm_pinhole_airy(None, "J", 0, 1.0)["success"])
 
     def test_confirm_frame_accumulation(self):
         with self._mock_readback({"activeSettings": [{"frameAccumulation": 4}]}):
-            self.assertTrue(lasx.confirm._confirm_frame_accumulation(None, "J", 0, 4)["success"])
-            self.assertFalse(lasx.confirm._confirm_frame_accumulation(None, "J", 0, 2)["success"])
+            self.assertTrue(lasx.confirmations._confirm_frame_accumulation(None, "J", 0, 4)["success"])
+            self.assertFalse(lasx.confirmations._confirm_frame_accumulation(None, "J", 0, 2)["success"])
 
     def test_confirm_frame_average(self):
         with self._mock_readback({"activeSettings": [{"frameAverage": 2}]}):
-            self.assertTrue(lasx.confirm._confirm_frame_average(None, "J", 0, 2)["success"])
+            self.assertTrue(lasx.confirmations._confirm_frame_average(None, "J", 0, 2)["success"])
 
     def test_confirm_line_accumulation(self):
         with self._mock_readback({"activeSettings": [{"lineAccumulation": 3}]}):
-            self.assertTrue(lasx.confirm._confirm_line_accumulation(None, "J", 0, 3)["success"])
+            self.assertTrue(lasx.confirmations._confirm_line_accumulation(None, "J", 0, 3)["success"])
 
     def test_confirm_line_average(self):
         with self._mock_readback({"activeSettings": [{"lineAverage": 8}]}):
-            self.assertTrue(lasx.confirm._confirm_line_average(None, "J", 0, 8)["success"])
+            self.assertTrue(lasx.confirmations._confirm_line_average(None, "J", 0, 8)["success"])
 
     def test_confirm_move_xy(self):
         with patch.object(lasx.readers, 'get_xy', return_value={
                 "x_um": 50000, "y_um": 50000, "x_m": 0.05, "y_m": 0.05}):
-            self.assertTrue(lasx.confirm.confirm_move_xy(
+            self.assertTrue(lasx.confirmations.confirm_move_xy(
                 None, target_x_um=50000, target_y_um=50000,
                 timeout=1)["success"])
-            self.assertFalse(lasx.confirm.confirm_move_xy(
+            self.assertFalse(lasx.confirmations.confirm_move_xy(
                 None, target_x_um=50000, target_y_um=99999,
                 timeout=0.2)["success"])
 
     def test_confirm_returns_dict_shape(self):
         """All confirm functions return {"success": bool, "logs": [...]}."""
         with self._mock_readback({"zoom": {"current": 5.0}}):
-            result = lasx.confirm._confirm_zoom(None, "J", 5.0)
+            result = lasx.confirmations._confirm_zoom(None, "J", 5.0)
         self.assertIn("success", result)
         self.assertIn("logs", result)
         self.assertIsInstance(result["logs"], list)
@@ -1048,13 +1048,13 @@ class TestModuleStructure(unittest.TestCase):
                       "_confirm_filter_wheel_slot", "_confirm_filter_wheel_spectrum",
                       "confirm_move_xy", "confirm_move_z"]:
             with self.subTest(name=name):
-                self.assertTrue(callable(getattr(lasx.confirm, name, None)),
-                                f"{name} missing in lasx.confirm")
+                self.assertTrue(callable(getattr(lasx.confirmations, name, None)),
+                                f"{name} missing in lasx.confirmations")
 
     def test_confirm_functions_replaced_factories(self):
         """confirm_acquire and confirm_select_job replaced closure factories."""
-        self.assertTrue(callable(getattr(lasx.confirm, 'confirm_acquire', None)))
-        self.assertTrue(callable(getattr(lasx.confirm, 'confirm_select_job', None)))
+        self.assertTrue(callable(getattr(lasx.confirmations, 'confirm_acquire', None)))
+        self.assertTrue(callable(getattr(lasx.confirmations, 'confirm_select_job', None)))
 
     def test_all_set_functions_have_max_retries(self):
         import inspect
@@ -1336,14 +1336,14 @@ class TestCheckIdle(unittest.TestCase):
 
     def test_idle_returns_immediately(self):
         with patch.object(lasx.readers, 'get_scan_status', return_value="eScanIdle"):
-            result = lasx.checks.check_idle(None, timeout=5.0)
+            result = lasx.prechecks.check_idle(None, timeout=5.0)
         self.assertTrue(result["success"])
         self.assertIsInstance(result["logs"], list)
 
     def test_timeout_returns_failure(self):
         with patch.object(lasx.readers, 'get_scan_status', return_value="eScanRunning"), \
              patch('time.sleep'):
-            result = lasx.checks.check_idle(None, timeout=0.01)
+            result = lasx.prechecks.check_idle(None, timeout=0.01)
         self.assertFalse(result["success"])
         self.assertTrue(any("timeout" in e["msg"].lower() for e in result["logs"]))
 
@@ -1354,7 +1354,7 @@ class TestCheckIdle(unittest.TestCase):
             return "eScanIdle" if call_count[0] > 3 else "eScanRunning"
         with patch.object(lasx.readers, 'get_scan_status', side_effect=mock_status), \
              patch('time.sleep'):
-            result = lasx.checks.check_idle(None, timeout=None)
+            result = lasx.prechecks.check_idle(None, timeout=None)
         self.assertTrue(result["success"])
 
 
@@ -1371,7 +1371,7 @@ class TestMoveXYConsistency(unittest.TestCase):
              patch.object(lasx.errors, '_check_api_error', return_value=None), \
              patch.object(lasx.readers, 'get_xy', return_value={
                  "x_um": 50000, "y_um": 50000, "x_m": 0.05, "y_m": 0.05}), \
-             patch.object(lasx.confirm, 'confirm_move_xy',
+             patch.object(lasx.confirmations, 'confirm_move_xy',
                           return_value={"success": True, "logs": []}):
             r = drv.move_xy(client, 50000, 50000, unit="um")
         self.assertTrue(r["success"])
@@ -1452,7 +1452,7 @@ class TestConfirmAcquire(unittest.TestCase):
         """Idle after settle_time has elapsed → success."""
         with patch.object(lasx.readers, 'get_scan_status', return_value="eScanIdle"), \
              patch('time.sleep'):
-            result = lasx.confirm.confirm_acquire(
+            result = lasx.confirmations.confirm_acquire(
                 None, settle_time=0.0, timeout=1.0, poll_interval=0.001)
         self.assertTrue(result["success"])
 
@@ -1460,7 +1460,7 @@ class TestConfirmAcquire(unittest.TestCase):
         """Idle before settle_time, never saw scanning → failure (timeout)."""
         with patch.object(lasx.readers, 'get_scan_status', return_value="eScanIdle"), \
              patch('time.sleep'):
-            result = lasx.confirm.confirm_acquire(
+            result = lasx.confirmations.confirm_acquire(
                 None, settle_time=999, timeout=0.01, poll_interval=0.001)
         self.assertFalse(result["success"])
 
@@ -1472,7 +1472,7 @@ class TestConfirmAcquire(unittest.TestCase):
             return "eScanStarted" if call_count[0] <= 2 else "eScanIdle"
         with patch.object(lasx.readers, 'get_scan_status', side_effect=mock_status), \
              patch('time.sleep'):
-            result = lasx.confirm.confirm_acquire(
+            result = lasx.confirmations.confirm_acquire(
                 None, settle_time=999, timeout=5.0, poll_interval=0.001)
         self.assertTrue(result["success"])
 
@@ -1484,7 +1484,7 @@ class TestConfirmSelectJob(unittest.TestCase):
         jobs = [{"Name": "HiRes", "IsSelected": True}]
         with patch.object(lasx.readers, 'get_jobs', return_value=jobs), \
              patch('time.sleep'):
-            result = lasx.confirm.confirm_select_job(
+            result = lasx.confirmations.confirm_select_job(
                 None, job_name="HiRes", timeout=1.0,
                 poll_interval=0.001)
         self.assertTrue(result["success"])
@@ -1494,7 +1494,7 @@ class TestConfirmSelectJob(unittest.TestCase):
         jobs = [{"Name": "Other", "IsSelected": True}]
         with patch.object(lasx.readers, 'get_jobs', return_value=jobs), \
              patch('time.sleep'):
-            result = lasx.confirm.confirm_select_job(
+            result = lasx.confirmations.confirm_select_job(
                 None, job_name="HiRes", timeout=0.01,
                 poll_interval=0.001)
         self.assertFalse(result["success"])

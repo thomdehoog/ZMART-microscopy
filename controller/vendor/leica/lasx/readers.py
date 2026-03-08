@@ -24,7 +24,7 @@ These functions do NOT modify microscope state.
 
 Dependency direction:
     - Imports: stdlib only (json, logging, os, time, xml).
-    - Imported by: ``checks`` (scan status polling), ``confirm``
+    - Imported by: ``prechecks`` (scan status polling), ``confirmations``
       (readback via ``get_job_settings`` and ``get_xy``),
       ``commands`` (early-exit checks, post-processing readbacks),
       ``__init__`` (re-export).

@@ -13,13 +13,13 @@ Two responsibilities, both related to post-fire error handling:
    ``_default_error_check`` wraps this into the structured result dict
    that the fire block expects from any ``error_check_fn``.
 
-Import restrictions: only ``util`` and stdlib. Nothing from ``core``,
-``commands``, ``profiles``, ``checks``, or ``confirm``.
+Import restrictions: only ``utils`` and stdlib. Nothing from ``core``,
+``commands``, ``profiles``, ``prechecks``, or ``confirmations``.
 """
 
 import logging
 
-from .util import _make_log_entry
+from .utils import _make_log_entry
 
 log = logging.getLogger(__name__)
 

@@ -24,8 +24,8 @@ own their polling loop internally and return only when done or timed out.
 ``_make_select_job_confirm`` factories are eliminated. Confirm functions
 that need polling own their loop; all state is local.
 
-Import restrictions: only ``readers``, ``settings``, ``checks``,
-``util``, and stdlib. Nothing from ``core``, ``commands``, or
+Import restrictions: only ``readers``, ``settings``, ``prechecks``,
+``utils``, and stdlib. Nothing from ``core``, ``commands``, or
 ``profiles``.
 """
 
@@ -35,7 +35,7 @@ import time
 
 from . import readers as _readers
 from .settings import make_changeable_copy
-from .util import _make_log_entry
+from .utils import _make_log_entry
 
 log = logging.getLogger(__name__)
 

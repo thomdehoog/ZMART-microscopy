@@ -19,7 +19,7 @@ The binding pattern is identical across all commands — no exceptions::
     confirm_fn    = lambda: profile.confirm_fn(client, ...)
 
 Import restrictions: only ``core``, ``profiles``, ``errors``, ``limits``,
-``readers``, ``confirm``, ``checks``, and ``util``. The ``checks`` import
+``readers``, ``confirmations``, ``prechecks``, and ``utils``. The ``prechecks`` import
 is used in ``_dispatch`` for the ``pre_check_timeout`` override.
 """
 
@@ -27,7 +27,7 @@ import logging
 import time
 from functools import partial
 
-from .checks import check_idle
+from .prechecks import check_idle
 from .core import confirm_and_fire
 from .profiles import (
     ZOOM, SCAN_SPEED, SCAN_RESONANT, SCAN_MODE, SEQUENTIAL_MODE,
@@ -39,7 +39,7 @@ from .profiles import (
     FILTER_WHEEL_SLOT, FILTER_WHEEL_SPECTRUM,
     MOVE_XY, MOVE_Z, ACQUIRE, SELECT_JOB,
 )
-from .confirm import (
+from .confirmations import (
     _confirm_zoom, _confirm_scan_speed, _confirm_scan_resonant,
     _confirm_scan_mode, _confirm_sequential_mode,
     _confirm_scan_field_rotation, _confirm_image_format,
@@ -55,7 +55,7 @@ from .confirm import (
 )
 from .limits import _check_xy_limits, _check_z_limits
 from . import readers as _readers
-from .util import _hw_get, parse_format, _make_timing
+from .utils import _hw_get, parse_format, _make_timing
 
 log = logging.getLogger(__name__)
 

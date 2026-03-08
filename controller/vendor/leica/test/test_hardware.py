@@ -23,7 +23,7 @@ logging.basicConfig(
     level=logging.WARNING,
     format="%(name)s: %(message)s",
 )
-logging.getLogger("lasx.confirm").setLevel(logging.WARNING)
+logging.getLogger("lasx.confirmations").setLevel(logging.WARNING)
 logging.getLogger("lasx.readers").setLevel(logging.WARNING)
 
 # ── CLI ──────────────────────────────────────────────────────────────────

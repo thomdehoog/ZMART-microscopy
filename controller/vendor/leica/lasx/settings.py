@@ -14,16 +14,16 @@ into a flat, navigable dict with normalized field names.
     3. Conditionally includes ``stack``, ``zPosition``, and ``time``
        sections when present.
 
-The output dict is what every ``_confirm_*`` function in ``confirm.py``
+The output dict is what every ``_confirm_*`` function in ``confirmations.py``
 reads via ``_readback()``.
 
 Dependency direction:
-    - Imports: ``util`` (``_safe_float``).
-    - Imported by: ``confirm`` (``_readback`` calls ``make_changeable_copy``),
+    - Imports: ``utils`` (``_safe_float``).
+    - Imported by: ``confirmations`` (``_readback`` calls ``make_changeable_copy``),
       ``__init__`` (re-export).
 """
 
-from .util import _safe_float
+from .utils import _safe_float
 
 # =============================================================================
 # make_changeable_copy

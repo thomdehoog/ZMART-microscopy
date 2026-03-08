@@ -8,7 +8,7 @@ Package layout::
 
     lasx/
     ├── __init__.py    ← you are here (public API)
-    ├── util.py        ← helpers: _make_log_entry, _make_timing,
+    ├── utils.py       ← helpers: _make_log_entry, _make_timing,
     │                     parse_format, parse_tile_geometry, etc.
     ├── errors.py      ← error classification + _check_api_error +
     │                     _default_error_check adapter
@@ -16,8 +16,8 @@ Package layout::
     ├── readers.py     ← get_scan_status, ping, get_jobs,
     │                     get_job_settings, get_hardware_info, get_xy
     ├── settings.py    ← make_changeable_copy
-    ├── checks.py      ← pre-flight check functions (check_idle)
-    ├── confirm.py     ← readback confirmation functions,
+    ├── prechecks.py   ← pre-flight check functions (check_idle)
+    ├── confirmations.py ← readback confirmation functions,
     │                     confirm_acquire, confirm_select_job
     ├── core.py        ← _fire_with_receipt, _fire_block,
     │                     confirm_and_fire
@@ -26,17 +26,17 @@ Package layout::
 
 Dependency flow (strict DAG — no cycles)::
 
-    util                          ← stdlib only
-    errors                        ← util
+    utils                         ← stdlib only
+    errors                        ← utils
     limits                        ← stdlib only
     readers                       ← stdlib only
-    settings                      ← util
-    checks                        ← readers, util
-    confirm                       ← readers, settings, util
-    core                          ← errors, util
-    profiles                      ← checks, confirm, errors
-    commands                      ← core, profiles, confirm, errors,
-                                     limits, readers, util
+    settings                      ← utils
+    prechecks                     ← readers, utils
+    confirmations                 ← readers, settings, utils
+    core                          ← errors, utils
+    profiles                      ← prechecks, confirmations, errors
+    commands                      ← core, profiles, confirmations, errors,
+                                     limits, readers, utils
 """
 
 __version__ = "6.0.0"
@@ -44,7 +44,7 @@ __version__ = "6.0.0"
 __all__ = [
     # version
     "__version__", "log",
-    # util
+    # utils
     "_safe_float", "_hw_get", "parse_format", "format_to_str",
     "_make_timing", "_make_log_entry", "parse_tile_geometry",
     # errors
@@ -59,9 +59,9 @@ __all__ = [
     "get_lasx_settings",
     # settings
     "make_changeable_copy",
-    # checks
+    # prechecks
     "check_idle",
-    # confirm (public readback helper only; _confirm_* are private)
+    # confirmations (public readback helper only; _confirm_* are private)
     "_readback",
     # core
     "confirm_and_fire", "_fire_with_receipt",
@@ -79,7 +79,7 @@ __all__ = [
 ]
 
 # ── Utilities ────────────────────────────────────────────────────────
-from .util import (
+from .utils import (
     _safe_float,
     _hw_get,
     parse_format,
@@ -124,10 +124,10 @@ from .readers import (
 from .settings import make_changeable_copy
 
 # ── Pre-flight checks ───────────────────────────────────────────────
-from .checks import check_idle
+from .prechecks import check_idle
 
 # ── Confirm (public readback helper only) ────────────────────────────
-from .confirm import _readback
+from .confirmations import _readback
 
 # ── Core dispatch ───────────────────────────────────────────────────
 from .core import (
