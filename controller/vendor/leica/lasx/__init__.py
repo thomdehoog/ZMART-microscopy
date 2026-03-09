@@ -90,6 +90,7 @@ __all__ = [
     "move_xy", "move_z", "acquire", "select_job",
     # template_operations
     "find_scanning_templates_dir", "save_experiment", "load_experiment",
+    "strip_template", "restore_template",
 ]
 
 # ── Utilities ────────────────────────────────────────────────────────
@@ -198,6 +199,8 @@ from .template_operations import (
     find_scanning_templates_dir,
     save_experiment,
     load_experiment,
+    strip_template,
+    restore_template,
 )
 
 # ── Logging ─────────────────────────────────────────────────────────
