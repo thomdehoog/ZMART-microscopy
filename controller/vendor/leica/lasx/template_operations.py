@@ -123,8 +123,6 @@ def save_experiment(client, name, templates_dir, *, timeout=10,
                     if (xml_path.is_file()
                             and xml_path.stat().st_size > 0
                             and xml_path.stat().st_mtime > old_mtime):
-                        # Settle for RGN companion file
-                        time.sleep(0.3)
                         confirmed = True
                         break
                 except OSError:

@@ -1,16 +1,13 @@
 """
 Template parser.
 ================
-Parse tile positions, focus points, and autofocus points from
-LAS X scanning template files (.xml, .rgn).
+Parse and modify LAS X scanning template files (.xml, .rgn, .lrp).
 
-Read-only companion to ``template_operations`` which handles
-save/load/strip/restore via the API.  This module works entirely
-on files — except for the optional ``client`` parameter which
-queries tile sizes from the LAS X API.
+Parsing closely follows the reference ``lasx_parser.py`` (Jürgen
+meeting lib), trimmed to positions and focus data only.
 
-Closely follows the parsing logic in the reference ``lasx_parser.py``
-(Jürgen meeting lib), trimmed to positions and focus data only.
+Modification functions work on raw file text (string replacement)
+to preserve the original single-line XML format exactly.
 
 Dependency direction:
     - Imports: stdlib only (+ optional ``readers`` for tile sizes).
@@ -513,3 +510,135 @@ def parse_template_positions(templates_dir, template_base, *,
         "focus_points": focus_points,
         "autofocus_points": autofocus_points,
     }
+
+
+# ---------------------------------------------------------------------------
+#  LRP modification: system-optimized Z-stack step size
+# ---------------------------------------------------------------------------
+
+_STACK_MODE_ON = ('StackCalculationMode="2"',
+                  'StackCalculationModeName="System optimized step size"')
+_STACK_MODE_OFF = ('StackCalculationMode="0"',
+                   'StackCalculationModeName="Constant steps"')
+
+
+def set_system_optimized_step_size(lrp_path, enabled):
+    """Toggle the system-optimized Z-stack step size in an LRP file.
+
+    Replaces ``StackCalculationMode`` and ``StackCalculationModeName``
+    on all ``ATLConfocalSettingDefinition`` elements.
+
+    Args:
+        lrp_path: Path to the ``.lrp`` file.
+        enabled: ``True`` for system-optimized, ``False`` for constant
+            steps.
+
+    Returns:
+        Number of replacements made.
+    """
+    lrp_path = Path(lrp_path)
+    text = lrp_path.read_text(encoding="utf-8")
+
+    if enabled:
+        old_mode, new_mode = _STACK_MODE_OFF[0], _STACK_MODE_ON[0]
+        old_name, new_name = _STACK_MODE_OFF[1], _STACK_MODE_ON[1]
+    else:
+        old_mode, new_mode = _STACK_MODE_ON[0], _STACK_MODE_OFF[0]
+        old_name, new_name = _STACK_MODE_ON[1], _STACK_MODE_OFF[1]
+
+    count = text.count(old_mode)
+    text = text.replace(old_mode, new_mode)
+    text = text.replace(old_name, new_name)
+
+    lrp_path.write_text(text, encoding="utf-8")
+    log.info("set_system_optimized_step_size: enabled=%s, %d replacements",
+             enabled, count)
+    return count
+
+
+def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
+                     verify_fn=None, max_attempts=5, **kwargs):
+    """Apply an LRP edit with load + save + readback verification.
+
+    1. Edit the LRP file on disk.
+    2. Load the template so LAS X picks up the change.
+    3. Save to flush LAS X state back to disk.
+    4. Read back the saved LRP and verify the change persisted.
+    5. If verification fails, re-edit and retry (LAS X may have
+       overwritten with old state if the load wasn't done yet).
+
+    Args:
+        client: Live LAS X CAM client.
+        xml_name: Template XML filename (e.g. ``TEMPLATE_XML`` or
+            ``STRIPPED_XML``).
+        lrp_edit_fn: Callable that modifies the LRP file.
+            Called as ``lrp_edit_fn(lrp_path, *args, **kwargs)``.
+        *args: Forwarded to *lrp_edit_fn*.
+        verify_fn: Optional callable ``verify_fn(lrp_path) -> bool``
+            that checks the saved file. If None, no readback check.
+        max_attempts: Max edit+load+save+verify cycles.
+        **kwargs: Forwarded to *lrp_edit_fn*.
+
+    Returns:
+        dict with success, edit_result, attempts, or None on failure.
+    """
+    from .template_operations import (
+        find_scanning_templates_dir, load_experiment, save_experiment,
+    )
+
+    templates_dir = find_scanning_templates_dir()
+    if templates_dir is None:
+        log.error("apply_lrp_change: cannot find ScanningTemplates dir")
+        return None
+
+    lrp_path = Path(templates_dir) / xml_name.replace(".xml", ".lrp")
+
+    for attempt in range(1, max_attempts + 1):
+        # Step 1: Edit
+        edit_result = lrp_edit_fn(lrp_path, *args, **kwargs)
+
+        # Step 2: Load
+        r = load_experiment(client, xml_name)
+        if r is None:
+            log.warning("apply_lrp_change: load failed (attempt %d)",
+                        attempt)
+            continue
+
+        # Step 3: Save (flushes LAS X state to disk)
+        r = save_experiment(client, xml_name, templates_dir)
+        if r is None:
+            log.warning("apply_lrp_change: save failed (attempt %d)",
+                        attempt)
+            continue
+
+        # Step 4: Verify
+        if verify_fn is None or verify_fn(lrp_path):
+            log.info("apply_lrp_change: verified after %d attempt(s)",
+                     attempt)
+            return {
+                "success": True,
+                "edit_result": edit_result,
+                "attempts": attempt,
+            }
+
+        log.warning("apply_lrp_change: readback verification failed "
+                    "(attempt %d), retrying", attempt)
+
+    log.error("apply_lrp_change: failed after %d attempts", max_attempts)
+    return None
+
+
+def verify_system_optimized_step_size(lrp_path, enabled):
+    """Verify that the system-optimized setting matches expected state.
+
+    Args:
+        lrp_path: Path to the ``.lrp`` file.
+        enabled: Expected state.
+
+    Returns:
+        True if the first ``StackCalculationMode`` matches.
+    """
+    lrp_path = Path(lrp_path)
+    text = lrp_path.read_text(encoding="utf-8")
+    expected = _STACK_MODE_ON[0] if enabled else _STACK_MODE_OFF[0]
+    return expected in text
