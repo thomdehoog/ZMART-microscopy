@@ -23,6 +23,8 @@ Package layout::
     │                     confirm_and_fire
     ├── profiles.py    ← CommandProfile dataclass + per-command profiles
     ├── commands.py    ← set_*, move_*, acquire, select_job
+    ├── template_operations.py ← save_experiment, load_experiment,
+    │                     find_scanning_templates_dir
     └── ome_tiff.py    ← OME-XML validation and patching
 
 Dependency flow (strict DAG — no cycles)::
@@ -39,6 +41,7 @@ Dependency flow (strict DAG — no cycles)::
     profiles                      ← prechecks, confirmations, errors
     commands                      ← core, profiles, confirmations, errors,
                                      limits, readers, utils
+    template_operations           ← utils
 """
 
 __version__ = "6.0.0"
@@ -85,6 +88,8 @@ __all__ = [
     "set_laser_intensity", "set_laser_shutter",
     "set_filter_wheel_slot", "set_filter_wheel_spectrum",
     "move_xy", "move_z", "acquire", "select_job",
+    # template_operations
+    "find_scanning_templates_dir", "save_experiment", "load_experiment",
 ]
 
 # ── Utilities ────────────────────────────────────────────────────────
@@ -186,6 +191,13 @@ from .commands import (
     move_z,
     acquire,
     select_job,
+)
+
+# ── Template operations ─────────────────────────────────────────────
+from .template_operations import (
+    find_scanning_templates_dir,
+    save_experiment,
+    load_experiment,
 )
 
 # ── Logging ─────────────────────────────────────────────────────────
