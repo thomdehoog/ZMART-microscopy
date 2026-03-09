@@ -88,7 +88,7 @@ def parse_tile_geometry(settings):
             scale = 0.001
         else:  # µm (default)
             scale = 1.0
-        cleaned = re.sub(r"[nmu\u00b5\u03bc]?m", "", raw)
+        cleaned = re.sub(r"[\u00c2nmu\u00b5\u03bc]*m", "", raw)
         parts = cleaned.split("x")
         if len(parts) != 2:
             return None, None
