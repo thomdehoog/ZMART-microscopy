@@ -392,16 +392,17 @@ def restore_template(client, *, max_attempts=10):
 
     t0 = time.perf_counter()
 
-    # Step 1: Copy modified LRP back to original
+    # Step 1: Back up modified LRP (edits made while stripped)
+    bak_lrp = templates_dir / (TEMPLATE_BASE + ".lrp.bak")
     if stripped_lrp.is_file():
-        shutil.copy2(stripped_lrp, lrp_path)
-        log.info("restore_template: copied LRP back to original")
+        shutil.copy2(stripped_lrp, bak_lrp)
+        log.info("restore_template: backed up modified LRP")
 
     # Get expected object counts from original
     orig_fields, orig_items, orig_focus = _count_objects(xml_path, rgn_path)
 
-    # Back up originals — the confirm save may overwrite them with
-    # stripped data if LAS X hasn't fully loaded the objects yet.
+    # Back up original XML/RGN — the confirm save may overwrite them
+    # with stripped data if LAS X hasn't fully loaded the objects yet.
     bak_xml = templates_dir / (TEMPLATE_BASE + ".xml.bak")
     bak_rgn = templates_dir / (TEMPLATE_BASE + ".rgn.bak")
     shutil.copy2(xml_path, bak_xml)
@@ -435,14 +436,21 @@ def restore_template(client, *, max_attempts=10):
         # Clean up backups even on failure
         bak_xml.unlink(missing_ok=True)
         bak_rgn.unlink(missing_ok=True)
+        bak_lrp.unlink(missing_ok=True)
         log.error("restore_template: objects not restored after %d attempts "
                   "(%.1fs)", max_attempts, total_t)
         return None
 
+    # Step 3: Copy modified LRP back (save_experiment overwrote it)
+    if bak_lrp.is_file():
+        shutil.copy2(bak_lrp, lrp_path)
+        log.info("restore_template: restored modified LRP")
+
     total_t = time.perf_counter() - t0
 
-    # Step 3: Clean up stripped files and backups
-    for f in (stripped_xml, stripped_rgn, stripped_lrp, bak_xml, bak_rgn):
+    # Step 4: Clean up stripped files and backups
+    for f in (stripped_xml, stripped_rgn, stripped_lrp,
+              bak_xml, bak_rgn, bak_lrp):
         if f.is_file():
             f.unlink()
 
