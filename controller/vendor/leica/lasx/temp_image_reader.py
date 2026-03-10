@@ -160,6 +160,127 @@ To find the most recently acquired image:
 The ``CurrentDCImageID`` in the LAS X log (``LAS X.log``) indicates which
 DataContainer object ID is currently being displayed/acquired.
 
+Embedded acquisition metadata (HardwareSetting)
+-------------------------------------------------
+Each acquired image's OBJ file contains an ``<Attachment Name="HardwareSetting">``
+block with the **full hardware state at the time of acquisition**. This is an
+XML subtree inside the OBJ XML, nested under
+``<ATLConfocalSettingDefinition ...>``. It records every setting of the
+microscope at capture time — not just a snapshot, but the *actual* values
+used for that specific frame.
+
+**Stage position** (meters, convert to mm by multiplying by 1000):
+
+=========================  ===========================  =========================
+Attribute                  Example value                Description
+=========================  ===========================  =========================
+``StagePosX``              ``0.066080000000``           Stage X in meters (66.08 mm)
+``StagePosY``              ``0.040920000000``           Stage Y in meters (40.92 mm)
+``ZPosition``              ``-0.000000000238``          Z focus position in meters
+``StageRangeX``            ``0.127``                    Full X travel range (127 mm)
+``StageRangeY``            ``0.083``                    Full Y travel range (83 mm)
+=========================  ===========================  =========================
+
+**Objective and optics**:
+
+=========================  ===========================  =========================
+Attribute                  Example value                Description
+=========================  ===========================  =========================
+``ObjectiveName``          ``HC PL APO CS 10x/0.40 DRY``  Full objective description
+``Magnification``          ``10``                       Magnification factor
+``NumericalAperture``      ``0.40``                     NA
+``Immersion``              ``DRY``                      DRY, Water, Oil, etc.
+``Zoom``                   ``1``                        Scan zoom factor
+``Pinhole``                ``0.0003980125``             Pinhole diameter in meters
+``PinholeAiry``            ``0.9999``                   Pinhole size in Airy units
+``RotatorAngle``           ``0``                        Scan field rotation (degrees)
+=========================  ===========================  =========================
+
+**Scan settings**:
+
+============================  ========================  =========================
+Attribute                     Example value             Description
+============================  ========================  =========================
+``ScanMode``                  ``xyz``                   Scan mode (xy, xyz, xzy...)
+``ScanSpeed``                 ``600``                   Scan speed (Hz)
+``PixelDwellTime``            ``9.608e-07``             Pixel dwell time in seconds
+``InDimension``               ``512``                   Pixels per line
+``OutDimension``              ``512``                   Lines per frame
+``BitSize``                   ``16``                    Bit depth
+``ScanDirectionXName``        ``Bidirectional``         Uni- or bidirectional
+``FrameAverage``              ``1``                     Frame averaging count
+``LineAverage``               ``1``                     Line averaging count
+``FrameAccumulation``         ``1``                     Frame accumulation count
+============================  ========================  =========================
+
+**Physical dimensions** (from ``<DimensionDescription>`` elements):
+
+Each dimension has ``Origin`` (physical start position in meters) and
+``Length`` (physical extent in meters). From these you can calculate:
+
+- **Pixel size** = Length / NumberOfElements
+- **Field of view** = Length
+
+Example for a 512x512 image at 10x zoom=1::
+
+    DimID=1 (X): 512 elements, Length=1.1625e-03 m -> pixel=2.27 µm, FOV=1162.5 µm
+    DimID=2 (Y): 512 elements, Length=1.1625e-03 m -> pixel=2.27 µm, FOV=1162.5 µm
+
+For tile/mosaic stitching, each tile's ``StagePosX``/``StagePosY`` combined
+with its ``Origin`` and ``Length`` gives the exact world-coordinate bounding
+box of that tile.
+
+**Carrier/plate information** (when a sample carrier is configured):
+
+Some images include a ``<Carrier>`` element inside an
+``<Attachment Name="CarrierInfo">`` block:
+
+=========================  ============  =============================================
+Attribute                  Example       Description
+=========================  ============  =============================================
+``Round``                  ``true``      true = round dish, false = rectangular plate
+``CarrierWidth``           ``0.075``     Carrier width in meters (75 mm)
+``CarrierHeight``          ``0.025``     Carrier height in meters (25 mm)
+``CarrierCenterX``         ``0.0635``    Center X in stage coordinates (meters)
+``CarrierCenterY``         ``0.0435``    Center Y in stage coordinates (meters)
+``Rows``                   ``1``         Number of well rows
+``Columns``                ``1``         Number of well columns
+``SectorWidth``            ``0.015``     Well/sector width in meters
+``SectorHeight``           ``0.015``     Well/sector height in meters
+``FirstSectorX``           ``0``         Offset to first well X (meters)
+``FirstSectorY``           ``0.002``     Offset to first well Y (meters)
+``SectorDistanceX``        ``0``         Distance between wells X (meters)
+``SectorDistanceY``        ``0``         Distance between wells Y (meters)
+=========================  ============  =============================================
+
+Non-image DataContainer objects
+-------------------------------
+Besides image objects, the DataContainer stores several other object types
+in the temp directory. These are identified by their XML root element:
+
+1. **FrameProperties** (``<SimpleListInMemory>``) — Per-frame intensity
+   statistics with columns: ``MinIntensity``, ``MaxIntensity``,
+   ``SumIntensity``. Useful for quick quality checks without reading pixels.
+
+2. **ROISets** (``<ROISet>``) — Regions of interest and bleach point
+   definitions. Each image typically has paired ROISet objects: one for
+   the DC ROI set and one for the bleach point ROI set (visible in the
+   trailing metadata as ``DCROISet`` and ``BleachPointROISet``).
+
+3. **Experiment** (``<Experiment>``) — Reference to the experiment
+   definition file path (e.g., ``C:\...\LAS X\BIN\Hidden``) with a
+   ``<TimeStamp>`` recording when the experiment was created.
+
+4. **IOManager/GenericFolderInfo** (``<Generic>``) — Folder structure
+   metadata used by the LAS X project manager. Contains folder type,
+   name (e.g., ``"parsing..."`` during acquisition), and experiment
+   references.
+
+5. **DyeDatabase** (``<Subject><NiceDyeDisplayNameList>``) — The
+   complete list of all fluorophore names known to LAS X (hundreds of
+   entries: ALEXA, ATTO, BODIPY, Cy, DAPI, FITC, GFP, etc.). This is
+   a system-level object, not per-image.
+
 Storage considerations
 ----------------------
 Temp files accumulate over sessions and are NOT automatically cleaned up.
