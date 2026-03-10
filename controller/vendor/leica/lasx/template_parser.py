@@ -17,6 +17,7 @@ Dependency direction:
 import json
 import logging
 import re
+import time
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
@@ -516,56 +517,71 @@ def parse_template_positions(templates_dir, template_base, *,
 #  LRP modification: system-optimized Z-stack step size
 # ---------------------------------------------------------------------------
 
-_STACK_MODE_ON = ('StackCalculationMode="2"',
-                  'StackCalculationModeName="System optimized step size"')
-_STACK_MODE_OFF = ('StackCalculationMode="0"',
-                   'StackCalculationModeName="Constant steps"')
+_STACK_MODE_ON = {"StackCalculationMode": "2",
+                  "StackCalculationModeName": "System optimized step size"}
+_STACK_MODE_OFF = {"StackCalculationMode": "0",
+                   "StackCalculationModeName": "Constant steps"}
 
 
-def set_system_optimized_step_size(lrp_path, enabled):
-    """Toggle the system-optimized Z-stack step size in an LRP file.
+def set_system_optimized_step_size(lrp_path, enabled, job_name):
+    """Toggle the system-optimized Z-stack step size for a specific job.
 
-    Replaces ``StackCalculationMode`` and ``StackCalculationModeName``
-    on all ``ATLConfocalSettingDefinition`` elements.
+    Finds the ``LDM_Block_Sequence_Block`` whose
+    ``LDM_Block_Sequential[@BlockName]`` matches *job_name* and updates
+    ``StackCalculationMode`` / ``StackCalculationModeName`` on all
+    ``ATLConfocalSettingDefinition`` elements within that block.
 
     Args:
         lrp_path: Path to the ``.lrp`` file.
         enabled: ``True`` for system-optimized, ``False`` for constant
             steps.
+        job_name: Name of the job to modify (e.g. ``"HiRes"``).
 
     Returns:
-        Number of replacements made.
+        Number of elements modified.
     """
     lrp_path = Path(lrp_path)
-    text = lrp_path.read_text(encoding="utf-8")
+    new_attrs = _STACK_MODE_ON if enabled else _STACK_MODE_OFF
 
-    if enabled:
-        old_mode, new_mode = _STACK_MODE_OFF[0], _STACK_MODE_ON[0]
-        old_name, new_name = _STACK_MODE_OFF[1], _STACK_MODE_ON[1]
-    else:
-        old_mode, new_mode = _STACK_MODE_ON[0], _STACK_MODE_OFF[0]
-        old_name, new_name = _STACK_MODE_ON[1], _STACK_MODE_OFF[1]
+    tree = ET.parse(lrp_path)
+    root = tree.getroot()
 
-    count = text.count(old_mode)
-    text = text.replace(old_mode, new_mode)
-    text = text.replace(old_name, new_name)
+    # Find the block for this job
+    block = None
+    for b in root.findall(".//LDM_Block_Sequence_Block"):
+        seq = b.find(".//LDM_Block_Sequential")
+        if seq is not None and seq.get("BlockName") == job_name:
+            block = b
+            break
 
-    lrp_path.write_text(text, encoding="utf-8")
-    log.info("set_system_optimized_step_size: enabled=%s, %d replacements",
-             enabled, count)
+    if block is None:
+        log.error("set_system_optimized_step_size: job '%s' not found",
+                  job_name)
+        return 0
+
+    count = 0
+    for el in block.findall(".//ATLConfocalSettingDefinition"):
+        for attr, value in new_attrs.items():
+            if el.get(attr) != value:
+                el.set(attr, value)
+                count += 1
+
+    tree.write(lrp_path, encoding="utf-8", xml_declaration=True)
+    log.info("set_system_optimized_step_size: job='%s', enabled=%s, "
+             "%d attributes changed", job_name, enabled, count)
     return count
 
 
 def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
-                     verify_fn=None, max_attempts=5, **kwargs):
-    """Apply an LRP edit with load + save + readback verification.
+                     verify_fn=None,
+                     confirm_delays=(0.5, 1, 2, 4, 8), **kwargs):
+    """Apply an LRP edit with save + edit + load + save-verify loop.
 
-    1. Edit the LRP file on disk.
-    2. Load the template so LAS X picks up the change.
-    3. Save to flush LAS X state back to disk.
-    4. Read back the saved LRP and verify the change persisted.
-    5. If verification fails, re-edit and retry (LAS X may have
-       overwritten with old state if the load wasn't done yet).
+    1. Save to flush LAS X state to disk (ensures file is current).
+    2. Edit the LRP file on disk.
+    3. Load the template so LAS X picks up the change.
+    4. Confirm loop: save + verify with exponential backoff
+       (default 0.5, 1, 2, 4, 8 s) until the change is confirmed.
 
     Args:
         client: Live LAS X CAM client.
@@ -576,7 +592,8 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
         *args: Forwarded to *lrp_edit_fn*.
         verify_fn: Optional callable ``verify_fn(lrp_path) -> bool``
             that checks the saved file. If None, no readback check.
-        max_attempts: Max edit+load+save+verify cycles.
+        confirm_delays: Sequence of delays (seconds) between confirm
+            attempts. Length determines number of attempts.
         **kwargs: Forwarded to *lrp_edit_fn*.
 
     Returns:
@@ -593,27 +610,32 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
 
     lrp_path = Path(templates_dir) / xml_name.replace(".xml", ".lrp")
 
-    for attempt in range(1, max_attempts + 1):
-        # Step 1: Edit
-        edit_result = lrp_edit_fn(lrp_path, *args, **kwargs)
+    # Step 1: Save (flush current LAS X state to disk)
+    r = save_experiment(client, xml_name, templates_dir)
+    if r is None:
+        log.error("apply_lrp_change: initial save failed")
+        return None
 
-        # Step 2: Load
-        r = load_experiment(client, xml_name)
+    # Step 2: Edit
+    edit_result = lrp_edit_fn(lrp_path, *args, **kwargs)
+
+    # Step 3: Load
+    r = load_experiment(client, xml_name)
+    if r is None:
+        log.error("apply_lrp_change: load failed")
+        return None
+
+    # Step 4: Confirm loop — save with escalating timeout + verify
+    for attempt, save_timeout in enumerate(confirm_delays, 1):
+        r = save_experiment(client, xml_name, templates_dir,
+                            timeout=save_timeout)
         if r is None:
-            log.warning("apply_lrp_change: load failed (attempt %d)",
-                        attempt)
+            log.warning("apply_lrp_change: confirm save timed out "
+                        "(attempt %d, timeout=%.1fs)", attempt, save_timeout)
             continue
 
-        # Step 3: Save (flushes LAS X state to disk)
-        r = save_experiment(client, xml_name, templates_dir)
-        if r is None:
-            log.warning("apply_lrp_change: save failed (attempt %d)",
-                        attempt)
-            continue
-
-        # Step 4: Verify
         if verify_fn is None or verify_fn(lrp_path):
-            log.info("apply_lrp_change: verified after %d attempt(s)",
+            log.info("apply_lrp_change: verified after %d confirm attempt(s)",
                      attempt)
             return {
                 "success": True,
@@ -621,24 +643,37 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
                 "attempts": attempt,
             }
 
-        log.warning("apply_lrp_change: readback verification failed "
-                    "(attempt %d), retrying", attempt)
+        log.warning("apply_lrp_change: verification failed (attempt %d)",
+                    attempt)
 
-    log.error("apply_lrp_change: failed after %d attempts", max_attempts)
+    log.error("apply_lrp_change: failed after %d attempts",
+              len(confirm_delays))
     return None
 
 
-def verify_system_optimized_step_size(lrp_path, enabled):
+def verify_system_optimized_step_size(lrp_path, enabled, job_name):
     """Verify that the system-optimized setting matches expected state.
 
     Args:
         lrp_path: Path to the ``.lrp`` file.
         enabled: Expected state.
+        job_name: Name of the job to verify.
 
     Returns:
-        True if the first ``StackCalculationMode`` matches.
+        True if all ``ATLConfocalSettingDefinition`` elements in the
+        job have the expected ``StackCalculationMode``.
     """
     lrp_path = Path(lrp_path)
-    text = lrp_path.read_text(encoding="utf-8")
-    expected = _STACK_MODE_ON[0] if enabled else _STACK_MODE_OFF[0]
-    return expected in text
+    expected_mode = _STACK_MODE_ON["StackCalculationMode"] if enabled \
+        else _STACK_MODE_OFF["StackCalculationMode"]
+
+    root = ET.parse(lrp_path).getroot()
+    for b in root.findall(".//LDM_Block_Sequence_Block"):
+        seq = b.find(".//LDM_Block_Sequential")
+        if seq is not None and seq.get("BlockName") == job_name:
+            settings = b.findall(".//ATLConfocalSettingDefinition")
+            if not settings:
+                return False
+            return all(s.get("StackCalculationMode") == expected_mode
+                       for s in settings)
+    return False
