@@ -7,25 +7,31 @@ Python API.
 Package layout::
 
     lasx/
-    ├── __init__.py    ← you are here (public API)
-    ├── utils.py       ← helpers: _make_log_entry, _make_timing,
-    │                     parse_format, parse_tile_geometry, etc.
-    ├── errors.py      ← error classification + _check_api_error +
-    │                     _default_error_check adapter
-    ├── limits.py      ← stage safety limits
-    ├── readers.py     ← get_scan_status, ping, get_jobs,
-    │                     get_job_settings, get_hardware_info, get_xy
-    ├── settings.py    ← make_changeable_copy
-    ├── prechecks.py   ← pre-flight check functions (check_idle)
-    ├── confirmations.py ← readback confirmation functions,
-    │                     confirm_acquire, confirm_select_job
-    ├── core.py        ← _fire_with_receipt, _fire_block,
-    │                     confirm_and_fire
-    ├── profiles.py    ← CommandProfile dataclass + per-command profiles
-    ├── commands.py    ← set_*, move_*, acquire, select_job
-    ├── template_operations.py ← save_experiment, load_experiment,
-    │                     find_scanning_templates_dir
-    └── ome_tiff.py    ← OME-XML validation and patching
+    ├── __init__.py               ← you are here (public API)
+    ├── utils.py                  ← helpers: _make_log_entry, _make_timing,
+    │                                parse_format, parse_tile_geometry, etc.
+    ├── errors.py                 ← error classification + _check_api_error +
+    │                                _default_error_check adapter
+    ├── limits.py                 ← stage safety limits
+    ├── readers.py                ← get_scan_status, ping, get_jobs,
+    │                                get_job_settings, get_hardware_info, get_xy
+    ├── settings.py               ← make_changeable_copy
+    ├── prechecks.py              ← pre-flight check functions (check_idle)
+    ├── confirmations.py          ← readback confirmation functions,
+    │                                confirm_acquire, confirm_select_job
+    ├── core.py                   ← _fire_with_receipt, _fire_block,
+    │                                confirm_and_fire
+    ├── profiles.py               ← CommandProfile dataclass + per-command profiles
+    ├── commands.py               ← set_*, move_*, acquire, select_job
+    ├── scanning_templates.py     ← save_experiment, load_experiment,
+    │                                strip_template, restore_template,
+    │                                apply_lrp_change, reorder_jobs
+    ├── scanning_template_parsers.py ← parse_lrp, diff_lrp,
+    │                                parse_template_positions,
+    │                                parse_acquisition_positions
+    ├── scanning_template_editors.py ← set_stack_calculation_mode,
+    │                                verify_stack_calculation_mode
+    └── ome_tiff.py               ← OME-XML validation and patching
 
 Dependency flow (strict DAG — no cycles)::
 
@@ -41,7 +47,9 @@ Dependency flow (strict DAG — no cycles)::
     profiles                      ← prechecks, confirmations, errors
     commands                      ← core, profiles, confirmations, errors,
                                      limits, readers, utils
-    template_operations           ← utils
+    scanning_templates            ← utils
+    scanning_template_parsers     ← stdlib (+ optional readers)
+    scanning_template_editors     ← stdlib only
 """
 
 __version__ = "6.0.0"
@@ -88,9 +96,15 @@ __all__ = [
     "set_laser_intensity", "set_laser_shutter",
     "set_filter_wheel_slot", "set_filter_wheel_spectrum",
     "move_xy", "move_z", "acquire", "select_job",
-    # template_operations
+    # scanning_templates
     "find_scanning_templates_dir", "save_experiment", "load_experiment",
     "strip_template", "restore_template", "get_template_state",
+    "apply_lrp_change", "reorder_jobs",
+    # scanning_template_parsers
+    "parse_lrp", "diff_lrp", "parse_template_positions",
+    "parse_acquisition_positions", "parse_base_grid", "parse_focus_points",
+    # scanning_template_editors
+    "STACK_MODES", "set_stack_calculation_mode", "verify_stack_calculation_mode",
 ]
 
 # ── Utilities ────────────────────────────────────────────────────────
@@ -194,14 +208,33 @@ from .commands import (
     select_job,
 )
 
-# ── Template operations ─────────────────────────────────────────────
-from .template_operations import (
+# ── Scanning templates ─────────────────────────────────────────────
+from .scanning_templates import (
     find_scanning_templates_dir,
     save_experiment,
     load_experiment,
     strip_template,
     restore_template,
     get_template_state,
+    apply_lrp_change,
+    reorder_jobs,
+)
+
+# ── Scanning template parsers ─────────────────────────────────────
+from .scanning_template_parsers import (
+    parse_lrp,
+    diff_lrp,
+    parse_template_positions,
+    parse_acquisition_positions,
+    parse_base_grid,
+    parse_focus_points,
+)
+
+# ── Scanning template editors ─────────────────────────────────────
+from .scanning_template_editors import (
+    STACK_MODES,
+    set_stack_calculation_mode,
+    verify_stack_calculation_mode,
 )
 
 # ── Logging ─────────────────────────────────────────────────────────

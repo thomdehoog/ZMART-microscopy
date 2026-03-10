@@ -1,14 +1,15 @@
 """
-Template operations — save, load, strip, and restore LAS X scanning templates.
+Scanning template backbone.
+============================
+Save, load, strip, restore, and edit LAS X scanning templates.
 
-These functions operate on **direct API objects**
-(``PyApiSaveExperiment``, ``PyApiLoadExperiment``), not the
-``PyApiCommand`` dispatch channel used by most readers and commands.
-
-The receipt from ``UpdateAwaitReceipt`` confirms command *acceptance*,
-not action *completion*.  Save confirmation is file-based: poll a
-target file (XML, RGN, or LRP) for mtime change + size stability.
-Load has no reliable on-disk confirmation — use a follow-up save.
+This module provides the infrastructure for all template file
+operations.  ``save_experiment`` and ``load_experiment`` handle
+the API-level save/load commands.  ``strip_template`` and
+``restore_template`` manage the strip/restore cycle that makes LRP
+editing safe while LAS X is running.  ``apply_lrp_change`` is the
+generic backbone for any LRP modification: save → edit → load →
+save → verify.
 
 High-level workflow::
 
@@ -19,6 +20,10 @@ High-level workflow::
 Stripping removes scan-field objects and regions so LAS X stays
 responsive during LRP editing.  ``restore_template`` reloads the
 original template (with all objects) and copies the modified LRP back.
+
+Dependency direction:
+    - Imports: ``utils`` and stdlib.
+    - Imported by: ``__init__`` (re-export).
 """
 
 import logging
@@ -33,9 +38,9 @@ from .utils import RECEIPT_TIMEOUT, _make_timing, _make_log_entry
 log = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-#  File stability helpers
-# ---------------------------------------------------------------------------
+# =============================================================================
+# File stability helpers
+# =============================================================================
 
 def _is_file_locked(path):
     """Return True if *path* is locked by another process (Windows).
@@ -57,8 +62,7 @@ def _wait_file_stable(path, timeout, poll_interval=0.5, stable_readings=3):
 
     Requires *stable_readings* consecutive checks where the file
     exists, has non-zero size, the size hasn't changed, and the file
-    is not locked.  Used before any ``shutil.copy`` to prevent
-    ``PermissionError`` on files LAS X is still writing.
+    is not locked.
 
     Returns True if stable, False on timeout.
     """
@@ -93,9 +97,9 @@ def _wait_file_stable(path, timeout, poll_interval=0.5, stable_readings=3):
     return False
 
 
-# ---------------------------------------------------------------------------
-#  ScanningTemplates directory discovery
-# ---------------------------------------------------------------------------
+# =============================================================================
+# ScanningTemplates directory discovery
+# =============================================================================
 
 def find_scanning_templates_dir():
     """Locate the LAS X ScanningTemplates folder via ``%APPDATA%``.
@@ -119,9 +123,54 @@ def find_scanning_templates_dir():
     return templates if templates.is_dir() else None
 
 
-# ---------------------------------------------------------------------------
-#  Save / load experiment
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Template file name constants
+# =============================================================================
+
+TEMPLATE_BASE = "{ScanningTemplate}_PythonInspect"
+TEMPLATE_XML = TEMPLATE_BASE + ".xml"
+TEMPLATE_RGN = TEMPLATE_BASE + ".rgn"
+TEMPLATE_LRP = TEMPLATE_BASE + ".lrp"
+
+STRIPPED_BASE = TEMPLATE_BASE + "_stripped"
+STRIPPED_XML = STRIPPED_BASE + ".xml"
+STRIPPED_RGN = STRIPPED_BASE + ".rgn"
+STRIPPED_LRP = STRIPPED_BASE + ".lrp"
+
+
+# =============================================================================
+# Template state detection
+# =============================================================================
+
+def get_template_state(templates_dir=None):
+    """Determine the current template state from files on disk.
+
+    Returns:
+        ``"fresh"`` — no ``_PythonInspect`` files exist yet.
+        ``"unstripped"`` — original files exist and are current.
+        ``"stripped"`` — stripped files exist and are newer than original.
+    """
+    if templates_dir is None:
+        templates_dir = find_scanning_templates_dir()
+    if templates_dir is None:
+        return "fresh"
+
+    templates_dir = Path(templates_dir)
+    xml_path = templates_dir / TEMPLATE_XML
+    stripped_xml = templates_dir / STRIPPED_XML
+
+    if not xml_path.is_file():
+        return "fresh"
+    if not stripped_xml.is_file():
+        return "unstripped"
+    if stripped_xml.stat().st_mtime > xml_path.stat().st_mtime:
+        return "stripped"
+    return "unstripped"
+
+
+# =============================================================================
+# Save / load experiment
+# =============================================================================
 
 def save_experiment(client, name, templates_dir, *, timeout=30,
                     poll_interval=0.1, confirm_path=None):
@@ -138,8 +187,6 @@ def save_experiment(client, name, templates_dir, *, timeout=30,
         timeout: Max seconds to wait for the file to stabilise.
         poll_interval: Seconds between ``stat()`` checks.
         confirm_path: File to poll.  Defaults to ``templates_dir/name``.
-            Pass an RGN path for strip/restore, or an LRP path for
-            settings changes.
 
     Returns:
         Result dict on success, None on timeout or receipt failure.
@@ -151,7 +198,6 @@ def save_experiment(client, name, templates_dir, *, timeout=30,
     try:
         old_mtime = watch_path.stat().st_mtime if watch_path.is_file() else 0
 
-        # Fire save (retry receipt once on transient failure)
         client.PyApiSaveExperiment.Model.ExperimentName = name
         if not client.PyApiSaveExperiment.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
             log.warning("Save receipt failed for '%s', retrying once", name)
@@ -162,7 +208,6 @@ def save_experiment(client, name, templates_dir, *, timeout=30,
 
         fire_t = time.perf_counter() - t0
 
-        # Poll until mtime changes, then wait for 3 stable size readings
         poll_t0 = time.perf_counter()
         confirmed = False
         while (time.perf_counter() - poll_t0) < timeout:
@@ -247,61 +292,15 @@ def load_experiment(client, name):
         return None
 
 
-# ---------------------------------------------------------------------------
-#  Template file names
-# ---------------------------------------------------------------------------
-
-TEMPLATE_BASE = "{ScanningTemplate}_PythonInspect"
-TEMPLATE_XML = TEMPLATE_BASE + ".xml"
-TEMPLATE_RGN = TEMPLATE_BASE + ".rgn"
-TEMPLATE_LRP = TEMPLATE_BASE + ".lrp"
-
-STRIPPED_BASE = TEMPLATE_BASE + "_stripped"
-STRIPPED_XML = STRIPPED_BASE + ".xml"
-STRIPPED_RGN = STRIPPED_BASE + ".rgn"
-STRIPPED_LRP = STRIPPED_BASE + ".lrp"
-
-
-# ---------------------------------------------------------------------------
-#  Template state detection
-# ---------------------------------------------------------------------------
-
-def get_template_state(templates_dir=None):
-    """Determine the current template state from files on disk.
-
-    Returns:
-        ``"fresh"`` — no ``_PythonInspect`` files exist yet.
-        ``"unstripped"`` — original files exist and are current.
-        ``"stripped"`` — stripped files exist and are newer than the original.
-    """
-    if templates_dir is None:
-        templates_dir = find_scanning_templates_dir()
-    if templates_dir is None:
-        return "fresh"
-
-    templates_dir = Path(templates_dir)
-    xml_path = templates_dir / TEMPLATE_XML
-    stripped_xml = templates_dir / STRIPPED_XML
-
-    if not xml_path.is_file():
-        return "fresh"
-    if not stripped_xml.is_file():
-        return "unstripped"
-    if stripped_xml.stat().st_mtime > xml_path.stat().st_mtime:
-        return "stripped"
-    return "unstripped"
-
-
-# ---------------------------------------------------------------------------
-#  File-level strip helpers
-# ---------------------------------------------------------------------------
+# =============================================================================
+# XML / RGN strip helpers
+# =============================================================================
 
 def _strip_xml(src, dst):
     """Remove all ``<ScanFields>`` content from *src*, write to *dst*.
 
     Replaces the ``<ScanFields ...>...</ScanFields>`` block with a
-    self-closing ``<ScanFields />``.  Uses string slicing (not regex)
-    for speed on large files.
+    self-closing ``<ScanFields />``.
     """
     text = src.read_text(encoding="utf-8")
     start = text.find("<ScanFields")
@@ -367,9 +366,9 @@ def _count_objects(xml_path, rgn_path):
         return 0, 0, 0
 
 
-# ---------------------------------------------------------------------------
-#  Strip template
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Strip template
+# =============================================================================
 
 def strip_template(client, *, save_timeout=120):
     """Save the active experiment, create a stripped copy, and load it.
@@ -403,7 +402,6 @@ def strip_template(client, *, save_timeout=120):
 
     t0 = time.perf_counter()
 
-    # 1. Save current state, confirm on RGN (last file LAS X writes)
     log.info("Saving current experiment...")
     r = save_experiment(client, TEMPLATE_XML, templates_dir,
                         timeout=save_timeout, confirm_path=rgn_path)
@@ -412,9 +410,9 @@ def strip_template(client, *, save_timeout=120):
         return None
 
     fields, items, focus = _count_objects(xml_path, rgn_path)
-    log.info("Saved: %d fields, %d items, %d focus points", fields, items, focus)
+    log.info("Saved: %d fields, %d items, %d focus points",
+             fields, items, focus)
 
-    # 2. Create stripped copies on disk
     log.info("Creating stripped template files...")
     _strip_xml(xml_path, stripped_xml)
     _strip_rgn(rgn_path, stripped_rgn)
@@ -425,14 +423,12 @@ def strip_template(client, *, save_timeout=120):
         log.warning("Strip incomplete — stripped XML still contains "
                     "ScanFieldData elements")
 
-    # 3. Load stripped template
     log.info("Loading stripped template...")
     r = load_experiment(client, STRIPPED_XML)
     if r is None:
         log.error("Failed to load stripped template")
         return None
 
-    # 4. Confirm-save the stripped template (confirm on stripped RGN)
     log.info("Confirming strip via save...")
     r = save_experiment(client, STRIPPED_XML, templates_dir,
                         confirm_path=stripped_rgn)
@@ -458,9 +454,9 @@ def strip_template(client, *, save_timeout=120):
     }
 
 
-# ---------------------------------------------------------------------------
-#  Restore template
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Restore template
+# =============================================================================
 
 _RESTORE_SAVE_TIMEOUTS = (120, 120, 180, 240)
 
@@ -478,8 +474,7 @@ def restore_template(client):
         5. Delete stripped files and backups.
 
     Before any file copy, ``_wait_file_stable`` ensures LAS X has
-    released its file locks — preventing the ``PermissionError`` that
-    occurs with large templates.
+    released its file locks.
 
     Args:
         client: Live LAS X CAM client.
@@ -502,7 +497,6 @@ def restore_template(client):
 
     t0 = time.perf_counter()
 
-    # 1. Back up files before we start modifying anything
     bak_lrp = templates_dir / (TEMPLATE_BASE + ".lrp.bak")
     if stripped_lrp.is_file():
         shutil.copy2(stripped_lrp, bak_lrp)
@@ -517,7 +511,6 @@ def restore_template(client):
     shutil.copy2(xml_path, bak_xml)
     shutil.copy2(rgn_path, bak_rgn)
 
-    # 2. Load → save (confirm on RGN) → verify object counts
     for attempt, save_timeout in enumerate(_RESTORE_SAVE_TIMEOUTS, 1):
         log.info("Restore attempt %d/%d: loading original template...",
                  attempt, len(_RESTORE_SAVE_TIMEOUTS))
@@ -560,14 +553,12 @@ def restore_template(client):
                   len(_RESTORE_SAVE_TIMEOUTS), total_t)
         return None
 
-    # 3. Copy modified LRP back (save_experiment overwrote it)
     if bak_lrp.is_file():
         shutil.copy2(bak_lrp, lrp_path)
         log.debug("Restored modified LRP after confirm-save")
 
     total_t = time.perf_counter() - t0
 
-    # 4. Clean up stripped files and backups
     for f in (stripped_xml, stripped_rgn, stripped_lrp,
               bak_xml, bak_rgn, bak_lrp):
         if f.is_file():
@@ -586,3 +577,170 @@ def restore_template(client):
         "attempts": attempt,
         "total_s": total_t,
     }
+
+
+# =============================================================================
+# Job reordering
+# =============================================================================
+
+def reorder_jobs(lrp_path, first_job):
+    """Move a job to first position in the LRP.
+
+    LAS X selects the first job after loading a template, so this
+    controls which job is active in the GUI after a reload.
+
+    Reorders both the ``LDM_Block_Sequence_Element_List`` and the
+    ``LDM_Block_Sequence_Block_List``.
+
+    Args:
+        lrp_path: Path to the ``.lrp`` file.
+        first_job: Name of the job to move to first position.
+
+    Returns:
+        True if the job was moved (or was already first), False on error.
+    """
+    lrp_path = Path(lrp_path)
+    root = ET.parse(lrp_path).getroot()
+
+    el_list = root.find(".//LDM_Block_Sequence_Element_List")
+    block_list = root.find(".//LDM_Block_Sequence_Block_List")
+    if el_list is None or block_list is None:
+        log.error("reorder_jobs: missing element/block list")
+        return False
+
+    block_to_job = {}
+    for b in block_list:
+        seq = b.find(".//LDM_Block_Sequential")
+        if seq is not None:
+            block_to_job[b.get("BlockID")] = seq.get("BlockName")
+
+    el_by_job = {}
+    for e in el_list:
+        job = block_to_job.get(e.get("BlockID"))
+        if job:
+            el_by_job[job] = e
+
+    block_by_job = {}
+    for b in block_list:
+        seq = b.find(".//LDM_Block_Sequential")
+        if seq is not None:
+            block_by_job[seq.get("BlockName")] = b
+
+    if first_job not in block_by_job:
+        log.error("reorder_jobs: job '%s' not found", first_job)
+        return False
+
+    current_order = [block_to_job[e.get("BlockID")] for e in el_list
+                     if e.get("BlockID") in block_to_job]
+
+    if current_order and current_order[0] == first_job:
+        log.debug("reorder_jobs: '%s' already first", first_job)
+        return True
+
+    new_order = [first_job] + [j for j in current_order if j != first_job]
+
+    for e in list(el_list):
+        el_list.remove(e)
+    for b in list(block_list):
+        block_list.remove(b)
+
+    for job_name in new_order:
+        el_list.append(el_by_job[job_name])
+        block_list.append(block_by_job[job_name])
+
+    ET.ElementTree(root).write(str(lrp_path), encoding="unicode",
+                               xml_declaration=False)
+    log.info("reorder_jobs: moved '%s' to first position", first_job)
+    return True
+
+
+# =============================================================================
+# LRP edit backbone
+# =============================================================================
+
+def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
+                     verify_fn=None, active_job=None,
+                     confirm_delays=(0.5, 1, 2, 4, 8), **kwargs):
+    """Apply an LRP edit with save → edit → load → save → verify.
+
+    This is the generic backbone through which all LRP modifications
+    are dispatched.  Individual edit functions (in
+    ``scanning_template_editors``) provide the *lrp_edit_fn* and
+    *verify_fn* callables; this function owns the surrounding
+    save/load/verify cycle.
+
+    Workflow:
+        1. Save to flush LAS X state to disk.
+        2. Edit the LRP file on disk via *lrp_edit_fn*.
+        3. Optionally reorder jobs so *active_job* is first.
+        4. Load the template so LAS X picks up the change.
+        5. Save again so LAS X writes its state back to disk.
+        6. Verify the target attribute(s) in the saved file.
+
+    The ``verify_fn`` should only check the specific attributes that
+    were edited — LAS X regenerates many internal IDs on every save.
+
+    Args:
+        client: Live LAS X CAM client.
+        xml_name: Template XML filename (e.g. ``TEMPLATE_XML`` or
+            ``STRIPPED_XML``).
+        lrp_edit_fn: Callable that modifies the LRP file.
+            Called as ``lrp_edit_fn(lrp_path, *args, **kwargs)``.
+        *args: Forwarded to *lrp_edit_fn*.
+        verify_fn: Optional callable ``verify_fn(lrp_path) -> bool``
+            that checks the saved file.  If None, success is assumed
+            after save.
+        active_job: Optional job name to move to first position so
+            LAS X selects it after reload.
+        confirm_delays: Sequence of delays (seconds) for confirm save
+            attempts.  Length determines number of attempts.
+        **kwargs: Forwarded to *lrp_edit_fn*.
+
+    Returns:
+        dict with success, edit_result, attempts, or None on failure.
+    """
+    templates_dir = find_scanning_templates_dir()
+    if templates_dir is None:
+        log.error("apply_lrp_change: cannot find ScanningTemplates dir")
+        return None
+
+    lrp_path = Path(templates_dir) / xml_name.replace(".xml", ".lrp")
+
+    r = save_experiment(client, xml_name, templates_dir)
+    if r is None:
+        log.error("apply_lrp_change: initial save failed")
+        return None
+
+    edit_result = lrp_edit_fn(lrp_path, *args, **kwargs)
+
+    if active_job is not None:
+        reorder_jobs(lrp_path, active_job)
+
+    r = load_experiment(client, xml_name)
+    if r is None:
+        log.error("apply_lrp_change: load failed")
+        return None
+
+    for attempt, save_timeout in enumerate(confirm_delays, 1):
+        r = save_experiment(client, xml_name, templates_dir,
+                            timeout=save_timeout)
+        if r is None:
+            log.warning("apply_lrp_change: confirm save timed out "
+                        "(attempt %d, timeout=%.1fs)", attempt, save_timeout)
+            continue
+
+        if verify_fn is None or verify_fn(lrp_path):
+            log.info("apply_lrp_change: verified after %d attempt(s)",
+                     attempt)
+            return {
+                "success": True,
+                "edit_result": edit_result,
+                "attempts": attempt,
+            }
+
+        log.warning("apply_lrp_change: verification failed (attempt %d)",
+                    attempt)
+
+    log.error("apply_lrp_change: failed after %d attempts",
+              len(confirm_delays))
+    return None

@@ -36,11 +36,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
 import lasx as drv
-from lasx.template_operations import (
+from lasx.scanning_templates import (
     TEMPLATE_XML, STRIPPED_XML, get_template_state,
     find_scanning_templates_dir, load_experiment, save_experiment,
+    apply_lrp_change,
 )
-from lasx.template_parser import apply_lrp_change
 
 print(f"  Driver version: {drv.__version__}")
 

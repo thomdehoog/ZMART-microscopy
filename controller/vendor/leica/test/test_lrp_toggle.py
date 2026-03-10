@@ -40,10 +40,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
 import lasx as drv
-from lasx.template_operations import TEMPLATE_XML
-from lasx.template_parser import (
+from lasx.scanning_templates import TEMPLATE_XML, apply_lrp_change
+from lasx.scanning_template_editors import (
     STACK_MODES,
-    apply_lrp_change, set_stack_calculation_mode,
+    set_stack_calculation_mode,
     verify_stack_calculation_mode,
 )
 

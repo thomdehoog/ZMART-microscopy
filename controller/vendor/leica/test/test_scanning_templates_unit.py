@@ -1,7 +1,7 @@
 """
-Unit tests for template_operations (no LAS X connection needed).
+Unit tests for scanning_templates (no LAS X connection needed).
 ================================================================
-Run with: python -m pytest test_template_ops_unit.py -v
+Run with: python -m pytest test_scanning_templates_unit.py -v
 """
 
 import sys
@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lasx.template_operations import (
+from lasx.scanning_templates import (
     _strip_xml, _strip_rgn, _count_objects,
     _is_file_locked, _wait_file_stable,
     get_template_state,

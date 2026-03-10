@@ -1,9 +1,32 @@
 """
-Template parser.
-================
-Parse and modify LAS X scanning template files (.xml, .rgn, .lrp).
+Scanning template parsers.
+===========================
+Parse LAS X scanning template files (.xml, .rgn, .lrp) into
+structured Python dicts.
 
-Parsing closely follows the reference ``lasx_parser.py`` (Jürgen
+Three file types, three parser groups:
+
+    **XML** — ``parse_acquisition_positions`` extracts tile positions
+    from ``<ScanFieldData>`` elements, grouped by region.
+
+    **RGN** — ``parse_base_grid`` extracts base grid positions
+    (``AM=1`` entries).  ``parse_focus_points`` extracts focus and
+    autofocus points from both ``ShapeList`` items and ``FocusMap``
+    elements.
+
+    **LRP** — ``parse_lrp`` parses the full job settings tree
+    (detectors, lasers, AOTFs, shutters, spectral windows, filter
+    wheels, light sources, LUTs, autofocus config, z-positions, ROIs).
+    ``diff_lrp`` compares two parsed LRP structures.
+
+``parse_template_positions`` is the main entry point that combines
+all three parsers into a single result dict.
+
+All functions are pure (no side effects, no API calls except the
+optional ``client`` parameter in ``parse_template_positions`` for
+tile size resolution).
+
+Parsing closely follows the reference ``lasx_parser.py`` (Juergen
 meeting lib), trimmed to positions and focus data only.
 
 Modification functions work on raw file text (string replacement)
@@ -16,8 +39,6 @@ Dependency direction:
 
 import json
 import logging
-import re
-import time
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
@@ -26,14 +47,15 @@ from typing import Any, Dict, List, Optional, Tuple
 log = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-#  Helpers
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Type conversion helpers
+# =============================================================================
 
 UNASSIGNED_JOB = "(unassigned)"
 
 
 def _to_float(s: Optional[str]) -> Optional[float]:
+    """Convert string to float, returning None on failure."""
     if s is None:
         return None
     try:
@@ -43,6 +65,7 @@ def _to_float(s: Optional[str]) -> Optional[float]:
 
 
 def _to_int(s: Optional[str]) -> Optional[int]:
+    """Convert string to int (via float), returning None on failure."""
     if s is None:
         return None
     try:
@@ -51,12 +74,18 @@ def _to_int(s: Optional[str]) -> Optional[int]:
         return None
 
 
-# ---------------------------------------------------------------------------
-#  Tile size helpers
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Tile size helpers
+# =============================================================================
 
 def _parse_size_string(size_str):
-    """Parse size strings like '290.63 µm x 290.63 µm' or '1.16 mm x 1.16 mm'."""
+    """Parse size strings like ``'290.63 um x 290.63 um'``.
+
+    Handles micron (um), millimetre (mm), and nanometre (nm) units.
+
+    Returns:
+        Dict ``{x, y, unit}`` or None on failure.
+    """
     if not size_str:
         return None
     try:
@@ -64,8 +93,10 @@ def _parse_size_string(size_str):
         parts = size_str.lower().split("x")
         if len(parts) != 2:
             return None
-        x_val = float("".join(c for c in parts[0].strip() if c.isdigit() or c == "."))
-        y_val = float("".join(c for c in parts[1].strip() if c.isdigit() or c == "."))
+        x_val = float("".join(c for c in parts[0].strip()
+                              if c.isdigit() or c == "."))
+        y_val = float("".join(c for c in parts[1].strip()
+                              if c.isdigit() or c == "."))
         lowered = size_str.lower()
         if "nm" in lowered:
             unit = "nm"
@@ -79,7 +110,7 @@ def _parse_size_string(size_str):
 
 
 def _tile_size_from_image_size_str(image_size_str):
-    """Extract tile size in µm from an imageSize string returned by the API."""
+    """Extract tile size in um from an imageSize string returned by the API."""
     info = _parse_size_string(image_size_str)
     if info is None:
         return None
@@ -97,8 +128,7 @@ def _get_tile_sizes_from_api(client, job_names):
         job_names: Iterable of job names to query.
 
     Returns:
-        dict ``{job_name: tile_size_um}`` — only jobs where the query
-        succeeded.
+        Dict ``{job_name: tile_size_um}``.
     """
     from .readers import get_job_settings
 
@@ -113,9 +143,9 @@ def _get_tile_sizes_from_api(client, job_names):
     return sizes
 
 
-# ---------------------------------------------------------------------------
-#  Job names from LRP  (BlockType=1 acquisition blocks)
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Job names from LRP
+# =============================================================================
 
 def _get_job_names(lrp_path):
     """Extract acquisition job names from an LRP file.
@@ -135,15 +165,15 @@ def _get_job_names(lrp_path):
     return names
 
 
-# ---------------------------------------------------------------------------
-#  Tile positions from XML
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Tile positions from XML
+# =============================================================================
 
 def _get_raw_tiles(xml_root, skip_jobs=None):
     """Extract raw tile positions from an XML root element.
 
-    Tiles whose MainJobData has JobName='?' or JobId in (None, '-1')
-    are kept but labelled with the sentinel UNASSIGNED_JOB.
+    Tiles whose MainJobData has ``JobName='?'`` or ``JobId`` in
+    ``(None, '-1')`` are kept but labelled with ``UNASSIGNED_JOB``.
     """
     if skip_jobs is None:
         skip_jobs = set()
@@ -285,9 +315,9 @@ def parse_acquisition_positions(xml_root, job_tile_sizes, skip_jobs=None):
     return regions_out
 
 
-# ---------------------------------------------------------------------------
-#  Base grid positions from RGN  (AM=1 entries)
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Base grid positions from RGN
+# =============================================================================
 
 def parse_base_grid(rgn_path):
     """Parse base grid tile positions from an RGN file.
@@ -335,9 +365,9 @@ def parse_base_grid(rgn_path):
     return grid
 
 
-# ---------------------------------------------------------------------------
-#  Focus points and autofocus points from RGN
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Focus points from RGN
+# =============================================================================
 
 def parse_focus_points(rgn_path):
     """Parse focus points and autofocus points from an RGN file.
@@ -363,7 +393,6 @@ def parse_focus_points(rgn_path):
     autofocus_points = []
     seen_ids = set()
 
-    # ShapeList entries
     for item in root.findall(".//ShapeList/Items/*"):
         type_elem = item.find("Type")
         if type_elem is None:
@@ -405,7 +434,6 @@ def parse_focus_points(rgn_path):
         else:
             focus_points.append(point)
 
-    # FocusMap entries
     for fp_elem in root.findall(".//FocusMap/FocusPoint"):
         ident = fp_elem.get("Identifier")
         if not ident or ident in seen_ids:
@@ -432,9 +460,9 @@ def parse_focus_points(rgn_path):
     return focus_points, autofocus_points
 
 
-# ---------------------------------------------------------------------------
-#  Main entry point
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Combined template position parser
+# =============================================================================
 
 def parse_template_positions(templates_dir, template_base, *,
                              client=None, tile_size_um=None):
@@ -454,28 +482,25 @@ def parse_template_positions(templates_dir, template_base, *,
         template_base: Base name without extension
             (e.g. ``"{ScanningTemplate}_PythonInspect"``).
         client: Optional live LAS X CAM client for tile size queries.
-        tile_size_um: Optional manual tile size in µm.
+        tile_size_um: Optional manual tile size in um.
 
     Returns:
         Dict with::
 
-            acquisition_positions — dict of regions (from parse_acquisition_positions)
-            base_grid             — list from parse_base_grid
-            focus_points          — list from parse_focus_points
-            autofocus_points      — list from parse_focus_points
+            acquisition_positions — dict of regions
+            base_grid             — list of grid positions
+            focus_points          — list of focus points
+            autofocus_points      — list of autofocus points
     """
     d = Path(templates_dir)
     xml_path = d / (template_base + ".xml")
     lrp_path = d / (template_base + ".lrp")
     rgn_path = d / (template_base + ".rgn")
 
-    # --- Parse XML
     xml_root = ET.parse(xml_path).getroot() if xml_path.is_file() else None
 
-    # --- Get job names from LRP
     job_names = _get_job_names(lrp_path) if lrp_path.is_file() else []
 
-    # --- Resolve tile sizes  (API > manual > None)
     job_tile_sizes = {}
 
     if client is not None:
@@ -483,24 +508,20 @@ def parse_template_positions(templates_dir, template_base, *,
         job_tile_sizes.update(api_sizes)
 
     if tile_size_um is not None:
-        # Manual fallback for jobs not resolved by API
         for jn in job_names:
             if jn not in job_tile_sizes:
                 job_tile_sizes[jn] = tile_size_um
         if UNASSIGNED_JOB not in job_tile_sizes:
             job_tile_sizes[UNASSIGNED_JOB] = tile_size_um
 
-    # Fallback for unassigned: use first available tile size
     if UNASSIGNED_JOB not in job_tile_sizes and job_tile_sizes:
         job_tile_sizes[UNASSIGNED_JOB] = next(iter(job_tile_sizes.values()))
 
-    # --- Parse positions
     acquisition_positions = {}
     if xml_root is not None:
         acquisition_positions = parse_acquisition_positions(
             xml_root, job_tile_sizes)
 
-    # --- Parse RGN data
     base_grid = parse_base_grid(rgn_path) if rgn_path.is_file() else []
     focus_points, autofocus_points = (
         parse_focus_points(rgn_path) if rgn_path.is_file() else ([], []))
@@ -513,9 +534,9 @@ def parse_template_positions(templates_dir, template_base, *,
     }
 
 
-# ---------------------------------------------------------------------------
-#  LRP parser: full job settings extraction
-# ---------------------------------------------------------------------------
+# =============================================================================
+# LRP parser — ATLConfocalSettingDefinition children
+# =============================================================================
 
 def _parse_beam_route(el):
     """Extract BeamRoute positions from an element.
@@ -653,7 +674,6 @@ def _parse_setting(setting_el):
     """
     result = {"attrs": dict(setting_el.attrib)}
 
-    # Detectors
     det_list = setting_el.find("DetectorList")
     if det_list is not None:
         result["_DetectorList_attrs"] = dict(det_list.attrib)
@@ -663,7 +683,6 @@ def _parse_setting(setting_el):
         if detectors:
             result["_Detectors"] = detectors
 
-    # Lasers
     la = setting_el.find("LaserArray")
     if la is not None:
         lasers = []
@@ -672,7 +691,6 @@ def _parse_setting(setting_el):
         if lasers:
             result["_Lasers"] = lasers
 
-    # AOTFs
     al = setting_el.find("AotfList")
     if al is not None:
         aotfs = []
@@ -681,7 +699,6 @@ def _parse_setting(setting_el):
         if aotfs:
             result["_Aotfs"] = aotfs
 
-    # Shutters
     sl = setting_el.find("ShutterList")
     if sl is not None:
         shutters = []
@@ -690,7 +707,6 @@ def _parse_setting(setting_el):
         if shutters:
             result["_Shutters"] = shutters
 
-    # Spectral windows (MultiBand)
     spectro = setting_el.find("Spectro")
     if spectro is not None:
         multibands = []
@@ -699,12 +715,10 @@ def _parse_setting(setting_el):
         if multibands:
             result["_MultiBands"] = multibands
 
-    # Filter wheel
     fw = setting_el.find("FilterWheel")
     if fw is not None:
         result["_FilterWheel"] = _parse_filter_wheel(fw)
 
-    # Light sources
     lsl = setting_el.find("LightSourceList")
     if lsl is not None:
         sources = []
@@ -713,7 +727,6 @@ def _parse_setting(setting_el):
         if sources:
             result["_LightSources"] = sources
 
-    # LUT list
     lut_list = setting_el.find("LUT_List")
     if lut_list is not None:
         luts = []
@@ -722,12 +735,10 @@ def _parse_setting(setting_el):
         if luts:
             result["_LUTs"] = luts
 
-    # Autofocus config
     af = setting_el.find("Autofocus-config")
     if af is not None:
         result["_AutofocusConfig"] = dict(af.attrib)
 
-    # Additional Z positions
     azpl = setting_el.find("AdditionalZPositionList")
     if azpl is not None:
         zpositions = []
@@ -736,7 +747,6 @@ def _parse_setting(setting_el):
         if zpositions:
             result["_AdditionalZPositions"] = zpositions
 
-    # ROI
     roi = setting_el.find("ROI")
     if roi is not None:
         roi_singles = []
@@ -745,12 +755,10 @@ def _parse_setting(setting_el):
         if roi_singles:
             result["_ROIs"] = roi_singles
 
-    # Online dye separation
     ods = setting_el.find("OnlineDyeSeparation")
     if ods is not None:
         result["_OnlineDyeSeparation"] = dict(ods.attrib)
 
-    # STED depletion line
     sted = setting_el.find("STED_DepletionLine")
     if sted is not None:
         d = dict(sted.attrib)
@@ -759,17 +767,14 @@ def _parse_setting(setting_el):
             d["_BeamRoute"] = beam
         result["_STED"] = d
 
-    # Galvo switch
     gsp = setting_el.find("GalvoSwitchParameter")
     if gsp is not None:
         result["_GalvoSwitch"] = dict(gsp.attrib)
 
-    # SPIM CA compensation
     spim = setting_el.find("SpimCACompensationParameter")
     if spim is not None:
         result["_SpimCA"] = dict(spim.attrib)
 
-    # Variable beam expander
     vbe = setting_el.find("VariableBeamExpanderFactors")
     if vbe is not None:
         result["_BeamExpander"] = dict(vbe.attrib)
@@ -782,14 +787,18 @@ def _parse_sequence_element(el):
     return dict(el.attrib)
 
 
+# =============================================================================
+# LRP full parser
+# =============================================================================
+
 def parse_lrp(lrp_path):
     """Parse an LRP file into a structured dict organized by job.
 
     Returns::
 
         {
-            "sequence_name": str,          # top-level BlockName
-            "sequence_elements": [...],    # execution order entries
+            "sequence_name": str,
+            "sequence_elements": [...],
             "jobs": {
                 "AF Job": {
                     "block_attrs": {...},
@@ -808,13 +817,11 @@ def parse_lrp(lrp_path):
     lrp_path = Path(lrp_path)
     root = ET.parse(lrp_path).getroot()
 
-    # Top-level sequence metadata
     seq_root = root if root.tag == "LDM_Block_Sequence" else \
         root.find(".//LDM_Block_Sequence")
     sequence_name = seq_root.get("BlockName", "") if seq_root is not None \
         else ""
 
-    # Execution order elements
     seq_elements = []
     el_list = root.find(".//LDM_Block_Sequence_Element_List")
     if el_list is not None:
@@ -838,19 +845,16 @@ def parse_lrp(lrp_path):
             "sequential_attrs": dict(seq.attrib),
         }
 
-        # Master
         master = b.find(".//LDM_Block_Sequential_Master/"
                         "ATLConfocalSettingDefinition")
         if master is not None:
             job["Master"] = _parse_setting(master)
 
-        # Sequential (the active setting)
         sequential = b.find(".//LDM_Block_Sequential_List/"
                             "ATLConfocalSettingDefinition")
         if sequential is not None:
             job["Sequential"] = _parse_setting(sequential)
 
-        # AutoFocus
         af_setting = b.find(".//Block_Sequential_AutoFocus//"
                             "ATLConfocalSettingDefinition")
         if af_setting is not None:
@@ -860,6 +864,10 @@ def parse_lrp(lrp_path):
 
     return result
 
+
+# =============================================================================
+# LRP diff
+# =============================================================================
 
 def diff_lrp(parsed_a, parsed_b, ignore_keys=None):
     """Compare two parsed LRP structures and return differences.
@@ -903,290 +911,3 @@ def diff_lrp(parsed_a, parsed_b, ignore_keys=None):
 
     _compare(parsed_a, parsed_b)
     return diffs
-
-
-# ---------------------------------------------------------------------------
-#  LRP modification: job ordering
-# ---------------------------------------------------------------------------
-
-def reorder_jobs(lrp_path, first_job):
-    """Move a job to first position in the LRP.
-
-    LAS X selects the first job after loading a template, so this
-    controls which job is active in the GUI after a reload.
-
-    Reorders both the ``LDM_Block_Sequence_Element_List`` and the
-    ``LDM_Block_Sequence_Block_List``.
-
-    Args:
-        lrp_path: Path to the ``.lrp`` file.
-        first_job: Name of the job to move to first position.
-
-    Returns:
-        True if the job was moved (or was already first), False on error.
-    """
-    lrp_path = Path(lrp_path)
-    root = ET.parse(lrp_path).getroot()
-
-    el_list = root.find(".//LDM_Block_Sequence_Element_List")
-    block_list = root.find(".//LDM_Block_Sequence_Block_List")
-    if el_list is None or block_list is None:
-        log.error("reorder_jobs: missing element/block list")
-        return False
-
-    # Map BlockID -> job name
-    block_to_job = {}
-    for b in block_list:
-        seq = b.find(".//LDM_Block_Sequential")
-        if seq is not None:
-            block_to_job[b.get("BlockID")] = seq.get("BlockName")
-
-    # Index elements and blocks by job name
-    el_by_job = {}
-    for e in el_list:
-        job = block_to_job.get(e.get("BlockID"))
-        if job:
-            el_by_job[job] = e
-
-    block_by_job = {}
-    for b in block_list:
-        seq = b.find(".//LDM_Block_Sequential")
-        if seq is not None:
-            block_by_job[seq.get("BlockName")] = b
-
-    if first_job not in block_by_job:
-        log.error("reorder_jobs: job '%s' not found", first_job)
-        return False
-
-    # Build new order: first_job first, rest unchanged
-    current_order = [block_to_job[e.get("BlockID")] for e in el_list
-                     if e.get("BlockID") in block_to_job]
-
-    if current_order and current_order[0] == first_job:
-        log.debug("reorder_jobs: '%s' already first", first_job)
-        return True
-
-    new_order = [first_job] + [j for j in current_order if j != first_job]
-
-    # Clear and re-add in new order
-    for e in list(el_list):
-        el_list.remove(e)
-    for b in list(block_list):
-        block_list.remove(b)
-
-    for job_name in new_order:
-        el_list.append(el_by_job[job_name])
-        block_list.append(block_by_job[job_name])
-
-    ET.ElementTree(root).write(str(lrp_path), encoding="unicode",
-                               xml_declaration=False)
-    log.info("reorder_jobs: moved '%s' to first position", first_job)
-    return True
-
-
-# ---------------------------------------------------------------------------
-#  LRP modification: Z-stack calculation mode
-# ---------------------------------------------------------------------------
-
-STACK_MODES = {
-    0: "Constant steps",
-    1: "Constant step size",
-    2: "System optimized step size",
-}
-
-
-def set_stack_calculation_mode(lrp_path, mode, job_name):
-    """Set the Z-stack calculation mode for a specific job.
-
-    Uses string replacement on the ``ATLConfocalSettingDefinition``
-    inside ``LDM_Block_Sequential_Master`` (the authoritative element).
-
-    Args:
-        lrp_path: Path to the ``.lrp`` file.
-        mode: Target mode — ``0`` (Constant steps),
-            ``1`` (Constant step size), or
-            ``2`` (System optimized step size).
-        job_name: Name of the job to modify (e.g. ``"AF Job"``).
-
-    Returns:
-        Number of attributes changed (0, 1, or 2).
-    """
-    if mode not in STACK_MODES:
-        log.error("set_stack_calculation_mode: invalid mode %r "
-                  "(expected 0, 1, or 2)", mode)
-        return 0
-
-    lrp_path = Path(lrp_path)
-    text = lrp_path.read_text(encoding="utf-8")
-
-    # Find the job block by locating BlockName="<job_name>"
-    marker = f'BlockName="{job_name}"'
-    job_pos = text.find(marker)
-    if job_pos == -1:
-        log.error("set_stack_calculation_mode: job '%s' not found", job_name)
-        return 0
-
-    # Find the LDM_Block_Sequential_Master after the job marker
-    master_tag = "LDM_Block_Sequential_Master"
-    master_pos = text.find(master_tag, job_pos)
-    if master_pos == -1:
-        log.error("set_stack_calculation_mode: no Sequential_Master "
-                  "found for job '%s'", job_name)
-        return 0
-
-    # Find the ATLConfocalSettingDefinition within the master
-    setting_tag = "ATLConfocalSettingDefinition"
-    setting_pos = text.find(setting_tag, master_pos)
-    if setting_pos == -1:
-        log.error("set_stack_calculation_mode: no setting found in "
-                  "Sequential_Master for job '%s'", job_name)
-        return 0
-
-    # Find the end of this element (next ">")
-    end_pos = text.find(">", setting_pos)
-    if end_pos == -1:
-        return 0
-
-    # Extract just this element's text and replace both attributes
-    element_text = text[setting_pos:end_pos + 1]
-    new_element = element_text
-    count = 0
-
-    # Replace StackCalculationMode value
-    m = re.search(r'StackCalculationMode="(\d+)"', new_element)
-    if m and m.group(1) != str(mode):
-        new_element = new_element.replace(
-            m.group(0), f'StackCalculationMode="{mode}"')
-        count += 1
-
-    # Replace StackCalculationModeName value
-    target_name = STACK_MODES[mode]
-    m = re.search(r'StackCalculationModeName="([^"]*)"', new_element)
-    if m and m.group(1) != target_name:
-        new_element = new_element.replace(
-            m.group(0), f'StackCalculationModeName="{target_name}"')
-        count += 1
-
-    if count > 0:
-        text = text[:setting_pos] + new_element + text[end_pos + 1:]
-        lrp_path.write_text(text, encoding="utf-8")
-
-    log.info("set_stack_calculation_mode: job='%s', mode=%d (%s), "
-             "%d attributes changed", job_name, mode, STACK_MODES[mode],
-             count)
-    return count
-
-
-def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
-                     verify_fn=None, active_job=None,
-                     confirm_delays=(0.5, 1, 2, 4, 8), **kwargs):
-    """Apply an LRP edit with save + edit + load + save + verify.
-
-    1. Save to flush LAS X state to disk (ensures file is current).
-    2. Edit the LRP file on disk.
-    3. Optionally reorder jobs so ``active_job`` is first (and thus
-       selected in LAS X after reload).
-    4. Load the template so LAS X picks up the change.
-    5. Save again so LAS X writes its state back to disk.
-    6. Verify the target attribute(s) in the saved file.
-
-    The ``verify_fn`` should only check the specific attributes that
-    were edited — LAS X regenerates many internal IDs on every save.
-
-    Args:
-        client: Live LAS X CAM client.
-        xml_name: Template XML filename (e.g. ``TEMPLATE_XML`` or
-            ``STRIPPED_XML``).
-        lrp_edit_fn: Callable that modifies the LRP file.
-            Called as ``lrp_edit_fn(lrp_path, *args, **kwargs)``.
-        *args: Forwarded to *lrp_edit_fn*.
-        verify_fn: Optional callable ``verify_fn(lrp_path) -> bool``
-            that checks the saved file. Should only verify the target
-            attributes. If None, success is assumed after save.
-        active_job: Optional job name to move to first position so
-            LAS X selects it after reload.
-        confirm_delays: Sequence of delays (seconds) for confirm save
-            attempts. Length determines number of attempts.
-        **kwargs: Forwarded to *lrp_edit_fn*.
-
-    Returns:
-        dict with success, edit_result, attempts, or None on failure.
-    """
-    from .template_operations import (
-        find_scanning_templates_dir, load_experiment, save_experiment,
-    )
-
-    templates_dir = find_scanning_templates_dir()
-    if templates_dir is None:
-        log.error("apply_lrp_change: cannot find ScanningTemplates dir")
-        return None
-
-    lrp_path = Path(templates_dir) / xml_name.replace(".xml", ".lrp")
-
-    # Step 1: Save (flush current LAS X state to disk)
-    r = save_experiment(client, xml_name, templates_dir)
-    if r is None:
-        log.error("apply_lrp_change: initial save failed")
-        return None
-
-    # Step 2: Edit
-    edit_result = lrp_edit_fn(lrp_path, *args, **kwargs)
-
-    # Step 3: Reorder jobs (if requested)
-    if active_job is not None:
-        reorder_jobs(lrp_path, active_job)
-
-    # Step 4: Load
-    r = load_experiment(client, xml_name)
-    if r is None:
-        log.error("apply_lrp_change: load failed")
-        return None
-
-    # Step 5: Save + verify loop
-    for attempt, save_timeout in enumerate(confirm_delays, 1):
-        r = save_experiment(client, xml_name, templates_dir,
-                            timeout=save_timeout)
-        if r is None:
-            log.warning("apply_lrp_change: confirm save timed out "
-                        "(attempt %d, timeout=%.1fs)", attempt, save_timeout)
-            continue
-
-        if verify_fn is None or verify_fn(lrp_path):
-            log.info("apply_lrp_change: verified after %d attempt(s)",
-                     attempt)
-            return {
-                "success": True,
-                "edit_result": edit_result,
-                "attempts": attempt,
-            }
-
-        log.warning("apply_lrp_change: verification failed (attempt %d)",
-                    attempt)
-
-    log.error("apply_lrp_change: failed after %d attempts",
-              len(confirm_delays))
-    return None
-
-
-def verify_stack_calculation_mode(lrp_path, mode, job_name):
-    """Verify the Z-stack calculation mode on the Master element.
-
-    Args:
-        lrp_path: Path to the ``.lrp`` file.
-        mode: Expected mode (0, 1, or 2).
-        job_name: Name of the job to verify.
-
-    Returns:
-        True if ``StackCalculationMode`` matches the expected value.
-    """
-    lrp_path = Path(lrp_path)
-    root = ET.parse(lrp_path).getroot()
-    for b in root.findall(".//LDM_Block_Sequence_Block"):
-        seq = b.find(".//LDM_Block_Sequential")
-        if seq is not None and seq.get("BlockName") == job_name:
-            el = b.find(".//LDM_Block_Sequential_Master/"
-                        "ATLConfocalSettingDefinition")
-            if el is None:
-                return False
-            return el.get("StackCalculationMode") == str(mode)
-    return False
