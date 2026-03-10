@@ -88,7 +88,6 @@ for cycle in range(1, args.cycles + 1):
             client, TEMPLATE_XML,
             set_stack_calculation_mode, mode, args.job,
             verify_fn=lambda p, m=mode, j=args.job: verify_stack_calculation_mode(p, m, j),
-            active_job=args.job,
         )
         elapsed = time.perf_counter() - t0
 

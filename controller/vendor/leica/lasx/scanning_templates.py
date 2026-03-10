@@ -22,7 +22,7 @@ responsive during LRP editing.  ``restore_template`` reloads the
 original template (with all objects) and copies the modified LRP back.
 
 Dependency direction:
-    - Imports: ``utils`` and stdlib.
+    - Imports: ``utils``, ``readers`` (``get_selected_job``), and stdlib.
     - Imported by: ``__init__`` (re-export).
 """
 
@@ -33,6 +33,7 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from .readers import get_selected_job
 from .utils import RECEIPT_TIMEOUT, _make_timing, _make_log_entry
 
 log = logging.getLogger(__name__)
@@ -659,9 +660,9 @@ def reorder_jobs(lrp_path, first_job):
 # =============================================================================
 
 def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
-                     verify_fn=None, active_job=None,
+                     verify_fn=None,
                      confirm_delays=(0.5, 1, 2, 4, 8), **kwargs):
-    """Apply an LRP edit with save → edit → load → save → verify.
+    """Apply an LRP edit with save → edit → reorder → load → save → verify.
 
     This is the generic backbone through which all LRP modifications
     are dispatched.  Individual edit functions (in
@@ -671,11 +672,13 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
 
     Workflow:
         1. Save to flush LAS X state to disk.
-        2. Edit the LRP file on disk via *lrp_edit_fn*.
-        3. Optionally reorder jobs so *active_job* is first.
-        4. Load the template so LAS X picks up the change.
-        5. Save again so LAS X writes its state back to disk.
-        6. Verify the target attribute(s) in the saved file.
+        2. Query the currently selected job in LAS X.
+        3. Edit the LRP file on disk via *lrp_edit_fn*.
+        4. Reorder jobs so the previously active job stays first
+           (LAS X selects the first job after reload).
+        5. Load the template so LAS X picks up the change.
+        6. Save again so LAS X writes its state back to disk.
+        7. Verify the target attribute(s) in the saved file.
 
     The ``verify_fn`` should only check the specific attributes that
     were edited — LAS X regenerates many internal IDs on every save.
@@ -690,8 +693,6 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
         verify_fn: Optional callable ``verify_fn(lrp_path) -> bool``
             that checks the saved file.  If None, success is assumed
             after save.
-        active_job: Optional job name to move to first position so
-            LAS X selects it after reload.
         confirm_delays: Sequence of delays (seconds) for confirm save
             attempts.  Length determines number of attempts.
         **kwargs: Forwarded to *lrp_edit_fn*.
@@ -711,10 +712,18 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
         log.error("apply_lrp_change: initial save failed")
         return None
 
+    current_job = get_selected_job(client)
+    current_job_name = current_job.get("Name") if current_job else None
+    if current_job_name:
+        log.debug("apply_lrp_change: preserving active job '%s'",
+                  current_job_name)
+    else:
+        log.warning("apply_lrp_change: could not determine active job")
+
     edit_result = lrp_edit_fn(lrp_path, *args, **kwargs)
 
-    if active_job is not None:
-        reorder_jobs(lrp_path, active_job)
+    if current_job_name:
+        reorder_jobs(lrp_path, current_job_name)
 
     r = load_experiment(client, xml_name)
     if r is None:
