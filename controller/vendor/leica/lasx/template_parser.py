@@ -514,6 +514,398 @@ def parse_template_positions(templates_dir, template_base, *,
 
 
 # ---------------------------------------------------------------------------
+#  LRP parser: full job settings extraction
+# ---------------------------------------------------------------------------
+
+def _parse_beam_route(el):
+    """Extract BeamRoute positions from an element.
+
+    Returns list of ``{BeamPositionLevel, BeamPosition}`` dicts,
+    or None if no BeamRoute child exists.
+    """
+    br = el.find("BeamRoute")
+    if br is None:
+        return None
+    positions = []
+    for bp in br.findall("BeamPosition"):
+        positions.append(dict(bp.attrib))
+    return positions or None
+
+
+def _parse_detector(det_el):
+    """Parse a Detector element with all children."""
+    d = dict(det_el.attrib)
+    beam = _parse_beam_route(det_el)
+    if beam is not None:
+        d["_BeamRoute"] = beam
+    ica = det_el.find("ImageChannelArray")
+    if ica is not None:
+        channels = []
+        for ic in ica:
+            channels.append(dict(ic.attrib))
+        if channels:
+            d["_ImageChannels"] = channels
+    tau = det_el.find("TauScanDef")
+    if tau is not None:
+        d["_TauScanDef"] = dict(tau.attrib)
+    drl = det_el.find("DetectionReferenceLine")
+    if drl is not None:
+        d["_DetectionReferenceLine"] = dict(drl.attrib)
+    lut = det_el.find("LutInfo")
+    if lut is not None:
+        d["_LutInfo"] = dict(lut.attrib)
+    return d
+
+
+def _parse_laser(laser_el):
+    """Parse a Laser element with BeamRoute."""
+    d = dict(laser_el.attrib)
+    beam = _parse_beam_route(laser_el)
+    if beam is not None:
+        d["_BeamRoute"] = beam
+    return d
+
+
+def _parse_aotf(aotf_el):
+    """Parse an Aotf element with BeamRoute and LaserLineSettings."""
+    d = dict(aotf_el.attrib)
+    beam = _parse_beam_route(aotf_el)
+    if beam is not None:
+        d["_BeamRoute"] = beam
+    lines = []
+    for lls in aotf_el.findall("LaserLineSetting"):
+        ld = dict(lls.attrib)
+        lbeam = _parse_beam_route(lls)
+        if lbeam is not None:
+            ld["_BeamRoute"] = lbeam
+        lines.append(ld)
+    if lines:
+        d["_LaserLines"] = lines
+    return d
+
+
+def _parse_shutter(shutter_el):
+    """Parse a Shutter element with BeamRoute."""
+    d = dict(shutter_el.attrib)
+    beam = _parse_beam_route(shutter_el)
+    if beam is not None:
+        d["_BeamRoute"] = beam
+    return d
+
+
+def _parse_multiband(mb_el):
+    """Parse a MultiBand (spectral window) element with BeamRoute."""
+    d = dict(mb_el.attrib)
+    beam = _parse_beam_route(mb_el)
+    if beam is not None:
+        d["_BeamRoute"] = beam
+    return d
+
+
+def _parse_filter_wheel(fw_el):
+    """Parse FilterWheel with Wheel children, BeamRoutes, and WheelNames."""
+    d = dict(fw_el.attrib)
+    wheels = []
+    for w in fw_el.findall("Wheel"):
+        wd = dict(w.attrib)
+        beam = _parse_beam_route(w)
+        if beam is not None:
+            wd["_BeamRoute"] = beam
+        names = [wn.get("FilterName", "") for wn in w.findall("WheelName")]
+        if names:
+            wd["_WheelNames"] = names
+        wheels.append(wd)
+    if wheels:
+        d["_Wheels"] = wheels
+    return d
+
+
+def _parse_light_source(ls_el):
+    """Parse a LightSourceSetting element with children."""
+    d = dict(ls_el.attrib)
+    beam = _parse_beam_route(ls_el)
+    if beam is not None:
+        d["_BeamRoute"] = beam
+    lbd = ls_el.find("LinesBlockedForDyeAssistant")
+    if lbd is not None:
+        blocked = []
+        for lb in lbd.findall("LineBlocked"):
+            blocked.append(dict(lb.attrib))
+        if blocked:
+            d["_LinesBlocked"] = blocked
+    return d
+
+
+def _parse_lut(lut_el):
+    """Parse a LUT element with BeamRoute."""
+    d = dict(lut_el.attrib)
+    beam = _parse_beam_route(lut_el)
+    if beam is not None:
+        d["_BeamRoute"] = beam
+    return d
+
+
+def _parse_setting(setting_el):
+    """Parse an ATLConfocalSettingDefinition and all children.
+
+    Child dicts that represent parsed sub-elements are prefixed with
+    ``_`` to distinguish them from XML attributes.
+    """
+    result = {"attrs": dict(setting_el.attrib)}
+
+    # Detectors
+    det_list = setting_el.find("DetectorList")
+    if det_list is not None:
+        result["_DetectorList_attrs"] = dict(det_list.attrib)
+        detectors = []
+        for det in det_list.findall("Detector"):
+            detectors.append(_parse_detector(det))
+        if detectors:
+            result["_Detectors"] = detectors
+
+    # Lasers
+    la = setting_el.find("LaserArray")
+    if la is not None:
+        lasers = []
+        for laser in la.findall("Laser"):
+            lasers.append(_parse_laser(laser))
+        if lasers:
+            result["_Lasers"] = lasers
+
+    # AOTFs
+    al = setting_el.find("AotfList")
+    if al is not None:
+        aotfs = []
+        for aotf in al.findall("Aotf"):
+            aotfs.append(_parse_aotf(aotf))
+        if aotfs:
+            result["_Aotfs"] = aotfs
+
+    # Shutters
+    sl = setting_el.find("ShutterList")
+    if sl is not None:
+        shutters = []
+        for sh in sl.findall("Shutter"):
+            shutters.append(_parse_shutter(sh))
+        if shutters:
+            result["_Shutters"] = shutters
+
+    # Spectral windows (MultiBand)
+    spectro = setting_el.find("Spectro")
+    if spectro is not None:
+        multibands = []
+        for mb in spectro.findall("MultiBand"):
+            multibands.append(_parse_multiband(mb))
+        if multibands:
+            result["_MultiBands"] = multibands
+
+    # Filter wheel
+    fw = setting_el.find("FilterWheel")
+    if fw is not None:
+        result["_FilterWheel"] = _parse_filter_wheel(fw)
+
+    # Light sources
+    lsl = setting_el.find("LightSourceList")
+    if lsl is not None:
+        sources = []
+        for ls in lsl.findall("LightSourceSetting"):
+            sources.append(_parse_light_source(ls))
+        if sources:
+            result["_LightSources"] = sources
+
+    # LUT list
+    lut_list = setting_el.find("LUT_List")
+    if lut_list is not None:
+        luts = []
+        for lut in lut_list.findall("LUT"):
+            luts.append(_parse_lut(lut))
+        if luts:
+            result["_LUTs"] = luts
+
+    # Autofocus config
+    af = setting_el.find("Autofocus-config")
+    if af is not None:
+        result["_AutofocusConfig"] = dict(af.attrib)
+
+    # Additional Z positions
+    azpl = setting_el.find("AdditionalZPositionList")
+    if azpl is not None:
+        zpositions = []
+        for azp in azpl.findall("AdditionalZPosition"):
+            zpositions.append(dict(azp.attrib))
+        if zpositions:
+            result["_AdditionalZPositions"] = zpositions
+
+    # ROI
+    roi = setting_el.find("ROI")
+    if roi is not None:
+        roi_singles = []
+        for rs in roi.findall(".//ROISingle"):
+            roi_singles.append(dict(rs.attrib))
+        if roi_singles:
+            result["_ROIs"] = roi_singles
+
+    # Online dye separation
+    ods = setting_el.find("OnlineDyeSeparation")
+    if ods is not None:
+        result["_OnlineDyeSeparation"] = dict(ods.attrib)
+
+    # STED depletion line
+    sted = setting_el.find("STED_DepletionLine")
+    if sted is not None:
+        d = dict(sted.attrib)
+        beam = _parse_beam_route(sted)
+        if beam is not None:
+            d["_BeamRoute"] = beam
+        result["_STED"] = d
+
+    # Galvo switch
+    gsp = setting_el.find("GalvoSwitchParameter")
+    if gsp is not None:
+        result["_GalvoSwitch"] = dict(gsp.attrib)
+
+    # SPIM CA compensation
+    spim = setting_el.find("SpimCACompensationParameter")
+    if spim is not None:
+        result["_SpimCA"] = dict(spim.attrib)
+
+    # Variable beam expander
+    vbe = setting_el.find("VariableBeamExpanderFactors")
+    if vbe is not None:
+        result["_BeamExpander"] = dict(vbe.attrib)
+
+    return result
+
+
+def _parse_sequence_element(el):
+    """Parse an LDM_Block_Sequence_Element (execution order entry)."""
+    return dict(el.attrib)
+
+
+def parse_lrp(lrp_path):
+    """Parse an LRP file into a structured dict organized by job.
+
+    Returns::
+
+        {
+            "sequence_name": str,          # top-level BlockName
+            "sequence_elements": [...],    # execution order entries
+            "jobs": {
+                "AF Job": {
+                    "block_attrs": {...},
+                    "sequential_attrs": {...},
+                    "Master":     { "attrs": {...}, "_Detectors": [...], ... },
+                    "Sequential": { "attrs": {...}, "_Detectors": [...], ... },
+                    "AutoFocus":  { "attrs": {...}, "_Detectors": [...], ... },
+                },
+                ...
+            }
+        }
+
+    Parsed sub-element keys are prefixed with ``_`` (e.g. ``_Detectors``,
+    ``_Lasers``) to distinguish them from raw XML attribute dicts.
+    """
+    lrp_path = Path(lrp_path)
+    root = ET.parse(lrp_path).getroot()
+
+    # Top-level sequence metadata
+    seq_root = root if root.tag == "LDM_Block_Sequence" else \
+        root.find(".//LDM_Block_Sequence")
+    sequence_name = seq_root.get("BlockName", "") if seq_root is not None \
+        else ""
+
+    # Execution order elements
+    seq_elements = []
+    el_list = root.find(".//LDM_Block_Sequence_Element_List")
+    if el_list is not None:
+        for el in el_list:
+            seq_elements.append(_parse_sequence_element(el))
+
+    result = {
+        "sequence_name": sequence_name,
+        "sequence_elements": seq_elements,
+        "jobs": {},
+    }
+
+    for b in root.findall(".//LDM_Block_Sequence_Block"):
+        seq = b.find(".//LDM_Block_Sequential")
+        if seq is None:
+            continue
+        job_name = seq.get("BlockName", "?")
+
+        job = {
+            "block_attrs": dict(b.attrib),
+            "sequential_attrs": dict(seq.attrib),
+        }
+
+        # Master
+        master = b.find(".//LDM_Block_Sequential_Master/"
+                        "ATLConfocalSettingDefinition")
+        if master is not None:
+            job["Master"] = _parse_setting(master)
+
+        # Sequential (the active setting)
+        sequential = b.find(".//LDM_Block_Sequential_List/"
+                            "ATLConfocalSettingDefinition")
+        if sequential is not None:
+            job["Sequential"] = _parse_setting(sequential)
+
+        # AutoFocus
+        af_setting = b.find(".//Block_Sequential_AutoFocus//"
+                            "ATLConfocalSettingDefinition")
+        if af_setting is not None:
+            job["AutoFocus"] = _parse_setting(af_setting)
+
+        result["jobs"][job_name] = job
+
+    return result
+
+
+def diff_lrp(parsed_a, parsed_b, ignore_keys=None):
+    """Compare two parsed LRP structures and return differences.
+
+    Args:
+        parsed_a: First parsed LRP (from ``parse_lrp``).
+        parsed_b: Second parsed LRP (from ``parse_lrp``).
+        ignore_keys: Set of attribute names to ignore (e.g.
+            ``{"UserSettingName", "BlockID"}``).
+
+    Returns:
+        List of diff dicts, each with::
+
+            path  — dotted path (e.g. "AF Job.Sequential.attrs.LineAverage")
+            a     — value in parsed_a (None if missing)
+            b     — value in parsed_b (None if missing)
+    """
+    if ignore_keys is None:
+        ignore_keys = {"UserSettingName", "BlockID", "MemoryBlockID",
+                       "UniqueID", "ID"}
+
+    diffs = []
+
+    def _compare(obj_a, obj_b, path=""):
+        if isinstance(obj_a, dict) and isinstance(obj_b, dict):
+            all_keys = sorted(set(obj_a.keys()) | set(obj_b.keys()))
+            for k in all_keys:
+                if k in ignore_keys:
+                    continue
+                va = obj_a.get(k)
+                vb = obj_b.get(k)
+                _compare(va, vb, f"{path}.{k}" if path else k)
+        elif isinstance(obj_a, list) and isinstance(obj_b, list):
+            for i in range(max(len(obj_a), len(obj_b))):
+                va = obj_a[i] if i < len(obj_a) else None
+                vb = obj_b[i] if i < len(obj_b) else None
+                _compare(va, vb, f"{path}[{i}]")
+        else:
+            if obj_a != obj_b:
+                diffs.append({"path": path, "a": obj_a, "b": obj_b})
+
+    _compare(parsed_a, parsed_b)
+    return diffs
+
+
+# ---------------------------------------------------------------------------
 #  LRP modification: system-optimized Z-stack step size
 # ---------------------------------------------------------------------------
 
@@ -526,10 +918,10 @@ _STACK_MODE_OFF = {"StackCalculationMode": "0",
 def set_system_optimized_step_size(lrp_path, enabled, job_name):
     """Toggle the system-optimized Z-stack step size for a specific job.
 
-    Finds the ``LDM_Block_Sequence_Block`` whose
-    ``LDM_Block_Sequential[@BlockName]`` matches *job_name* and updates
-    ``StackCalculationMode`` / ``StackCalculationModeName`` on all
-    ``ATLConfocalSettingDefinition`` elements within that block.
+    Uses string replacement to preserve the original XML formatting
+    exactly. Only modifies the ``ATLConfocalSettingDefinition`` inside
+    the ``LDM_Block_Sequential_Master`` of the target job block (this
+    is where LAS X stores the authoritative StackCalculationMode).
 
     Args:
         lrp_path: Path to the ``.lrp`` file.
@@ -538,35 +930,58 @@ def set_system_optimized_step_size(lrp_path, enabled, job_name):
         job_name: Name of the job to modify (e.g. ``"HiRes"``).
 
     Returns:
-        Number of elements modified.
+        Number of attributes changed.
     """
     lrp_path = Path(lrp_path)
+    text = lrp_path.read_text(encoding="utf-8")
+
+    old_attrs = _STACK_MODE_OFF if enabled else _STACK_MODE_ON
     new_attrs = _STACK_MODE_ON if enabled else _STACK_MODE_OFF
 
-    tree = ET.parse(lrp_path)
-    root = tree.getroot()
-
-    # Find the block for this job
-    block = None
-    for b in root.findall(".//LDM_Block_Sequence_Block"):
-        seq = b.find(".//LDM_Block_Sequential")
-        if seq is not None and seq.get("BlockName") == job_name:
-            block = b
-            break
-
-    if block is None:
+    # Find the job block by locating BlockName="<job_name>"
+    marker = f'BlockName="{job_name}"'
+    job_pos = text.find(marker)
+    if job_pos == -1:
         log.error("set_system_optimized_step_size: job '%s' not found",
                   job_name)
         return 0
 
-    count = 0
-    for el in block.findall(".//ATLConfocalSettingDefinition"):
-        for attr, value in new_attrs.items():
-            if el.get(attr) != value:
-                el.set(attr, value)
-                count += 1
+    # Find the LDM_Block_Sequential_Master after the job marker
+    master_tag = "LDM_Block_Sequential_Master"
+    master_pos = text.find(master_tag, job_pos)
+    if master_pos == -1:
+        log.error("set_system_optimized_step_size: no Sequential_Master "
+                  "found for job '%s'", job_name)
+        return 0
 
-    tree.write(lrp_path, encoding="utf-8", xml_declaration=True)
+    # Find the ATLConfocalSettingDefinition within the master
+    setting_tag = "ATLConfocalSettingDefinition"
+    setting_pos = text.find(setting_tag, master_pos)
+    if setting_pos == -1:
+        log.error("set_system_optimized_step_size: no setting found in "
+                  "Sequential_Master for job '%s'", job_name)
+        return 0
+
+    # Find the end of this element (next ">")
+    end_pos = text.find(">", setting_pos)
+    if end_pos == -1:
+        return 0
+
+    # Extract just this element's text and do replacements
+    element_text = text[setting_pos:end_pos + 1]
+    new_element = element_text
+    count = 0
+    for attr in old_attrs:
+        old_val = f'{attr}="{old_attrs[attr]}"'
+        new_val = f'{attr}="{new_attrs[attr]}"'
+        if old_val in new_element:
+            new_element = new_element.replace(old_val, new_val)
+            count += 1
+
+    if count > 0:
+        text = text[:setting_pos] + new_element + text[end_pos + 1:]
+        lrp_path.write_text(text, encoding="utf-8")
+
     log.info("set_system_optimized_step_size: job='%s', enabled=%s, "
              "%d attributes changed", job_name, enabled, count)
     return count
@@ -575,13 +990,16 @@ def set_system_optimized_step_size(lrp_path, enabled, job_name):
 def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
                      verify_fn=None,
                      confirm_delays=(0.5, 1, 2, 4, 8), **kwargs):
-    """Apply an LRP edit with save + edit + load + save-verify loop.
+    """Apply an LRP edit with save + edit + load + save + verify.
 
     1. Save to flush LAS X state to disk (ensures file is current).
     2. Edit the LRP file on disk.
     3. Load the template so LAS X picks up the change.
-    4. Confirm loop: save + verify with exponential backoff
-       (default 0.5, 1, 2, 4, 8 s) until the change is confirmed.
+    4. Save again so LAS X writes its state back to disk.
+    5. Verify the target attribute(s) in the saved file.
+
+    The ``verify_fn`` should only check the specific attributes that
+    were edited — LAS X regenerates many internal IDs on every save.
 
     Args:
         client: Live LAS X CAM client.
@@ -591,8 +1009,9 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
             Called as ``lrp_edit_fn(lrp_path, *args, **kwargs)``.
         *args: Forwarded to *lrp_edit_fn*.
         verify_fn: Optional callable ``verify_fn(lrp_path) -> bool``
-            that checks the saved file. If None, no readback check.
-        confirm_delays: Sequence of delays (seconds) between confirm
+            that checks the saved file. Should only verify the target
+            attributes. If None, success is assumed after save.
+        confirm_delays: Sequence of delays (seconds) for confirm save
             attempts. Length determines number of attempts.
         **kwargs: Forwarded to *lrp_edit_fn*.
 
@@ -625,7 +1044,7 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
         log.error("apply_lrp_change: load failed")
         return None
 
-    # Step 4: Confirm loop — save with escalating timeout + verify
+    # Step 4: Save + verify loop
     for attempt, save_timeout in enumerate(confirm_delays, 1):
         r = save_experiment(client, xml_name, templates_dir,
                             timeout=save_timeout)
@@ -635,7 +1054,7 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
             continue
 
         if verify_fn is None or verify_fn(lrp_path):
-            log.info("apply_lrp_change: verified after %d confirm attempt(s)",
+            log.info("apply_lrp_change: verified after %d attempt(s)",
                      attempt)
             return {
                 "success": True,
@@ -654,14 +1073,16 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
 def verify_system_optimized_step_size(lrp_path, enabled, job_name):
     """Verify that the system-optimized setting matches expected state.
 
+    Checks the ``LDM_Block_Sequential_Master`` element (this is where
+    LAS X stores the authoritative StackCalculationMode).
+
     Args:
         lrp_path: Path to the ``.lrp`` file.
         enabled: Expected state.
         job_name: Name of the job to verify.
 
     Returns:
-        True if all ``ATLConfocalSettingDefinition`` elements in the
-        job have the expected ``StackCalculationMode``.
+        True if the ``StackCalculationMode`` matches the expected value.
     """
     lrp_path = Path(lrp_path)
     expected_mode = _STACK_MODE_ON["StackCalculationMode"] if enabled \
@@ -671,9 +1092,9 @@ def verify_system_optimized_step_size(lrp_path, enabled, job_name):
     for b in root.findall(".//LDM_Block_Sequence_Block"):
         seq = b.find(".//LDM_Block_Sequential")
         if seq is not None and seq.get("BlockName") == job_name:
-            settings = b.findall(".//ATLConfocalSettingDefinition")
-            if not settings:
+            el = b.find(".//LDM_Block_Sequential_Master/"
+                        "ATLConfocalSettingDefinition")
+            if el is None:
                 return False
-            return all(s.get("StackCalculationMode") == expected_mode
-                       for s in settings)
+            return el.get("StackCalculationMode") == expected_mode
     return False

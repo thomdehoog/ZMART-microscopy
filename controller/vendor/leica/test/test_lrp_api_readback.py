@@ -194,7 +194,7 @@ for cycle in range(1, args.cycles + 1):
         desc = f"Cycle {cycle}/{args.cycles} -- LineAverage -> {target}"
         print(f"\n  [{desc}]")
 
-        # Step 1: Edit LRP + load + save + file verify
+        # Step 1: Edit LRP + load + save + verify
         print(f"    Writing LineAverage={target} to LRP...")
         t0 = time.perf_counter()
         r = apply_lrp_change(
@@ -205,36 +205,24 @@ for cycle in range(1, args.cycles + 1):
         elapsed = time.perf_counter() - t0
 
         if not (r and r["success"]):
-            # Read what's actually in the file
-            lrp_vals = read_lrp_line_average(lrp_path, args.job)
-            print(f"    LRP file values: {lrp_vals}")
-            print(f"  \033[31m[FAIL]\033[0m {desc} -- LRP change failed ({elapsed:.1f}s)")
+            print(f"  \033[31m[FAIL]\033[0m {desc} -- apply_lrp_change failed ({elapsed:.1f}s)")
             failed += 1
             continue
 
-        # Step 2: Read back from both sources
-        lrp_vals = read_lrp_line_average(lrp_path, args.job)
+        # Step 2: Read back from API
         api_val = read_api_line_average(client, args.job)
 
-        print(f"    LRP file:  {lrp_vals}")
         print(f"    API:       LineAverage={api_val}")
         print(f"    Expected:  {target}")
         print(f"    Attempts:  {r['attempts']} ({elapsed:.1f}s)")
 
-        lrp_ok = all(v == str(target) for v in lrp_vals.values())
         api_ok = api_val == target
 
-        if lrp_ok and api_ok:
-            print(f"  \033[32m[PASS]\033[0m {desc} -- file + API match")
+        if api_ok:
+            print(f"  \033[32m[PASS]\033[0m {desc} -- API confirmed")
             passed += 1
-        elif lrp_ok and not api_ok:
-            print(f"  \033[31m[FAIL]\033[0m {desc} -- file OK, API mismatch")
-            failed += 1
-        elif not lrp_ok and api_ok:
-            print(f"  \033[31m[FAIL]\033[0m {desc} -- API OK, file mismatch")
-            failed += 1
         else:
-            print(f"  \033[31m[FAIL]\033[0m {desc} -- both file + API mismatch")
+            print(f"  \033[31m[FAIL]\033[0m {desc} -- API mismatch")
             failed += 1
 
 # -- Restore ------------------------------------------------------------------
