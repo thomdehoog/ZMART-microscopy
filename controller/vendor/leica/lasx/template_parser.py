@@ -906,51 +906,131 @@ def diff_lrp(parsed_a, parsed_b, ignore_keys=None):
 
 
 # ---------------------------------------------------------------------------
-#  LRP modification: system-optimized Z-stack step size
+#  LRP modification: job ordering
 # ---------------------------------------------------------------------------
 
-_STACK_MODE_ON = {"StackCalculationMode": "2",
-                  "StackCalculationModeName": "System optimized step size"}
-_STACK_MODE_OFF = {"StackCalculationMode": "0",
-                   "StackCalculationModeName": "Constant steps"}
+def reorder_jobs(lrp_path, first_job):
+    """Move a job to first position in the LRP.
 
+    LAS X selects the first job after loading a template, so this
+    controls which job is active in the GUI after a reload.
 
-def set_system_optimized_step_size(lrp_path, enabled, job_name):
-    """Toggle the system-optimized Z-stack step size for a specific job.
-
-    Uses string replacement to preserve the original XML formatting
-    exactly. Only modifies the ``ATLConfocalSettingDefinition`` inside
-    the ``LDM_Block_Sequential_Master`` of the target job block (this
-    is where LAS X stores the authoritative StackCalculationMode).
+    Reorders both the ``LDM_Block_Sequence_Element_List`` and the
+    ``LDM_Block_Sequence_Block_List``.
 
     Args:
         lrp_path: Path to the ``.lrp`` file.
-        enabled: ``True`` for system-optimized, ``False`` for constant
-            steps.
-        job_name: Name of the job to modify (e.g. ``"HiRes"``).
+        first_job: Name of the job to move to first position.
 
     Returns:
-        Number of attributes changed.
+        True if the job was moved (or was already first), False on error.
     """
     lrp_path = Path(lrp_path)
-    text = lrp_path.read_text(encoding="utf-8")
+    root = ET.parse(lrp_path).getroot()
 
-    old_attrs = _STACK_MODE_OFF if enabled else _STACK_MODE_ON
-    new_attrs = _STACK_MODE_ON if enabled else _STACK_MODE_OFF
+    el_list = root.find(".//LDM_Block_Sequence_Element_List")
+    block_list = root.find(".//LDM_Block_Sequence_Block_List")
+    if el_list is None or block_list is None:
+        log.error("reorder_jobs: missing element/block list")
+        return False
+
+    # Map BlockID -> job name
+    block_to_job = {}
+    for b in block_list:
+        seq = b.find(".//LDM_Block_Sequential")
+        if seq is not None:
+            block_to_job[b.get("BlockID")] = seq.get("BlockName")
+
+    # Index elements and blocks by job name
+    el_by_job = {}
+    for e in el_list:
+        job = block_to_job.get(e.get("BlockID"))
+        if job:
+            el_by_job[job] = e
+
+    block_by_job = {}
+    for b in block_list:
+        seq = b.find(".//LDM_Block_Sequential")
+        if seq is not None:
+            block_by_job[seq.get("BlockName")] = b
+
+    if first_job not in block_by_job:
+        log.error("reorder_jobs: job '%s' not found", first_job)
+        return False
+
+    # Build new order: first_job first, rest unchanged
+    current_order = [block_to_job[e.get("BlockID")] for e in el_list
+                     if e.get("BlockID") in block_to_job]
+
+    if current_order and current_order[0] == first_job:
+        log.debug("reorder_jobs: '%s' already first", first_job)
+        return True
+
+    new_order = [first_job] + [j for j in current_order if j != first_job]
+
+    # Clear and re-add in new order
+    for e in list(el_list):
+        el_list.remove(e)
+    for b in list(block_list):
+        block_list.remove(b)
+
+    for job_name in new_order:
+        el_list.append(el_by_job[job_name])
+        block_list.append(block_by_job[job_name])
+
+    ET.ElementTree(root).write(str(lrp_path), encoding="unicode",
+                               xml_declaration=False)
+    log.info("reorder_jobs: moved '%s' to first position", first_job)
+    return True
+
+
+# ---------------------------------------------------------------------------
+#  LRP modification: Z-stack calculation mode
+# ---------------------------------------------------------------------------
+
+STACK_MODES = {
+    0: "Constant steps",
+    1: "Constant step size",
+    2: "System optimized step size",
+}
+
+
+def set_stack_calculation_mode(lrp_path, mode, job_name):
+    """Set the Z-stack calculation mode for a specific job.
+
+    Uses string replacement on the ``ATLConfocalSettingDefinition``
+    inside ``LDM_Block_Sequential_Master`` (the authoritative element).
+
+    Args:
+        lrp_path: Path to the ``.lrp`` file.
+        mode: Target mode — ``0`` (Constant steps),
+            ``1`` (Constant step size), or
+            ``2`` (System optimized step size).
+        job_name: Name of the job to modify (e.g. ``"AF Job"``).
+
+    Returns:
+        Number of attributes changed (0, 1, or 2).
+    """
+    if mode not in STACK_MODES:
+        log.error("set_stack_calculation_mode: invalid mode %r "
+                  "(expected 0, 1, or 2)", mode)
+        return 0
+
+    lrp_path = Path(lrp_path)
+    text = lrp_path.read_text(encoding="utf-8")
 
     # Find the job block by locating BlockName="<job_name>"
     marker = f'BlockName="{job_name}"'
     job_pos = text.find(marker)
     if job_pos == -1:
-        log.error("set_system_optimized_step_size: job '%s' not found",
-                  job_name)
+        log.error("set_stack_calculation_mode: job '%s' not found", job_name)
         return 0
 
     # Find the LDM_Block_Sequential_Master after the job marker
     master_tag = "LDM_Block_Sequential_Master"
     master_pos = text.find(master_tag, job_pos)
     if master_pos == -1:
-        log.error("set_system_optimized_step_size: no Sequential_Master "
+        log.error("set_stack_calculation_mode: no Sequential_Master "
                   "found for job '%s'", job_name)
         return 0
 
@@ -958,7 +1038,7 @@ def set_system_optimized_step_size(lrp_path, enabled, job_name):
     setting_tag = "ATLConfocalSettingDefinition"
     setting_pos = text.find(setting_tag, master_pos)
     if setting_pos == -1:
-        log.error("set_system_optimized_step_size: no setting found in "
+        log.error("set_stack_calculation_mode: no setting found in "
                   "Sequential_Master for job '%s'", job_name)
         return 0
 
@@ -967,36 +1047,48 @@ def set_system_optimized_step_size(lrp_path, enabled, job_name):
     if end_pos == -1:
         return 0
 
-    # Extract just this element's text and do replacements
+    # Extract just this element's text and replace both attributes
     element_text = text[setting_pos:end_pos + 1]
     new_element = element_text
     count = 0
-    for attr in old_attrs:
-        old_val = f'{attr}="{old_attrs[attr]}"'
-        new_val = f'{attr}="{new_attrs[attr]}"'
-        if old_val in new_element:
-            new_element = new_element.replace(old_val, new_val)
-            count += 1
+
+    # Replace StackCalculationMode value
+    m = re.search(r'StackCalculationMode="(\d+)"', new_element)
+    if m and m.group(1) != str(mode):
+        new_element = new_element.replace(
+            m.group(0), f'StackCalculationMode="{mode}"')
+        count += 1
+
+    # Replace StackCalculationModeName value
+    target_name = STACK_MODES[mode]
+    m = re.search(r'StackCalculationModeName="([^"]*)"', new_element)
+    if m and m.group(1) != target_name:
+        new_element = new_element.replace(
+            m.group(0), f'StackCalculationModeName="{target_name}"')
+        count += 1
 
     if count > 0:
         text = text[:setting_pos] + new_element + text[end_pos + 1:]
         lrp_path.write_text(text, encoding="utf-8")
 
-    log.info("set_system_optimized_step_size: job='%s', enabled=%s, "
-             "%d attributes changed", job_name, enabled, count)
+    log.info("set_stack_calculation_mode: job='%s', mode=%d (%s), "
+             "%d attributes changed", job_name, mode, STACK_MODES[mode],
+             count)
     return count
 
 
 def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
-                     verify_fn=None,
+                     verify_fn=None, active_job=None,
                      confirm_delays=(0.5, 1, 2, 4, 8), **kwargs):
     """Apply an LRP edit with save + edit + load + save + verify.
 
     1. Save to flush LAS X state to disk (ensures file is current).
     2. Edit the LRP file on disk.
-    3. Load the template so LAS X picks up the change.
-    4. Save again so LAS X writes its state back to disk.
-    5. Verify the target attribute(s) in the saved file.
+    3. Optionally reorder jobs so ``active_job`` is first (and thus
+       selected in LAS X after reload).
+    4. Load the template so LAS X picks up the change.
+    5. Save again so LAS X writes its state back to disk.
+    6. Verify the target attribute(s) in the saved file.
 
     The ``verify_fn`` should only check the specific attributes that
     were edited — LAS X regenerates many internal IDs on every save.
@@ -1011,6 +1103,8 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
         verify_fn: Optional callable ``verify_fn(lrp_path) -> bool``
             that checks the saved file. Should only verify the target
             attributes. If None, success is assumed after save.
+        active_job: Optional job name to move to first position so
+            LAS X selects it after reload.
         confirm_delays: Sequence of delays (seconds) for confirm save
             attempts. Length determines number of attempts.
         **kwargs: Forwarded to *lrp_edit_fn*.
@@ -1038,13 +1132,17 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
     # Step 2: Edit
     edit_result = lrp_edit_fn(lrp_path, *args, **kwargs)
 
-    # Step 3: Load
+    # Step 3: Reorder jobs (if requested)
+    if active_job is not None:
+        reorder_jobs(lrp_path, active_job)
+
+    # Step 4: Load
     r = load_experiment(client, xml_name)
     if r is None:
         log.error("apply_lrp_change: load failed")
         return None
 
-    # Step 4: Save + verify loop
+    # Step 5: Save + verify loop
     for attempt, save_timeout in enumerate(confirm_delays, 1):
         r = save_experiment(client, xml_name, templates_dir,
                             timeout=save_timeout)
@@ -1070,24 +1168,18 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
     return None
 
 
-def verify_system_optimized_step_size(lrp_path, enabled, job_name):
-    """Verify that the system-optimized setting matches expected state.
-
-    Checks the ``LDM_Block_Sequential_Master`` element (this is where
-    LAS X stores the authoritative StackCalculationMode).
+def verify_stack_calculation_mode(lrp_path, mode, job_name):
+    """Verify the Z-stack calculation mode on the Master element.
 
     Args:
         lrp_path: Path to the ``.lrp`` file.
-        enabled: Expected state.
+        mode: Expected mode (0, 1, or 2).
         job_name: Name of the job to verify.
 
     Returns:
-        True if the ``StackCalculationMode`` matches the expected value.
+        True if ``StackCalculationMode`` matches the expected value.
     """
     lrp_path = Path(lrp_path)
-    expected_mode = _STACK_MODE_ON["StackCalculationMode"] if enabled \
-        else _STACK_MODE_OFF["StackCalculationMode"]
-
     root = ET.parse(lrp_path).getroot()
     for b in root.findall(".//LDM_Block_Sequence_Block"):
         seq = b.find(".//LDM_Block_Sequential")
@@ -1096,5 +1188,5 @@ def verify_system_optimized_step_size(lrp_path, enabled, job_name):
                         "ATLConfocalSettingDefinition")
             if el is None:
                 return False
-            return el.get("StackCalculationMode") == expected_mode
+            return el.get("StackCalculationMode") == str(mode)
     return False

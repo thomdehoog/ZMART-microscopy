@@ -1,13 +1,17 @@
 """
-LRP System-Optimized Toggle Test
-=================================
-Toggle the system-optimized Z-stack step size on and off via the
+LRP Stack Calculation Mode Toggle Test
+========================================
+Cycle through Z-stack calculation modes via the
 save -> edit LRP -> load workflow on the _PythonInspect template.
+
+Modes: 0 = Constant steps, 1 = Constant step size,
+       2 = System optimized step size
 
 Usage:
     python test_lrp_toggle.py
     python test_lrp_toggle.py --cycles 3
     python test_lrp_toggle.py --job "AF Job"
+    python test_lrp_toggle.py --modes 0 2
 """
 
 import argparse
@@ -20,11 +24,13 @@ logging.basicConfig(
     format="%(name)s: %(message)s",
 )
 
-parser = argparse.ArgumentParser(description="LRP System-Optimized Toggle Test")
+parser = argparse.ArgumentParser(description="LRP Stack Calculation Mode Toggle Test")
 parser.add_argument("--cycles", type=int, default=2,
-                    help="Number of on/off toggle cycles (default: 2)")
+                    help="Number of toggle cycles (default: 2)")
 parser.add_argument("--job", default="AF Job",
                     help="Job name to toggle (default: AF Job)")
+parser.add_argument("--modes", type=int, nargs="+", default=[0, 1, 2],
+                    help="Modes to cycle through (default: 0 1 2)")
 args = parser.parse_args()
 
 # ── Import ──────────────────────────────────────────────────────────────
@@ -36,8 +42,9 @@ from LasxApi import PYLICamApiConnector as lasx_api
 import lasx as drv
 from lasx.template_operations import TEMPLATE_XML
 from lasx.template_parser import (
-    apply_lrp_change, set_system_optimized_step_size,
-    verify_system_optimized_step_size,
+    STACK_MODES,
+    apply_lrp_change, set_stack_calculation_mode,
+    verify_stack_calculation_mode,
 )
 
 print(f"  Driver version: {drv.__version__}")
@@ -57,8 +64,14 @@ if not drv.ping(client):
 
 # ── Toggle cycles ──────────────────────────────────────────────────────
 
+for m in args.modes:
+    if m not in STACK_MODES:
+        print(f"  ABORT: invalid mode {m} (expected 0, 1, or 2)")
+        sys.exit(1)
+
 print(f"\n{'=' * 60}")
-print(f"  Running {args.cycles} toggle cycle(s) on job '{args.job}'")
+print(f"  Running {args.cycles} cycle(s) on job '{args.job}'")
+print(f"  Modes: {' -> '.join(STACK_MODES[m] for m in args.modes)}")
 print(f"  Using {TEMPLATE_XML}")
 print(f"{'=' * 60}")
 
@@ -66,16 +79,16 @@ passed = 0
 failed = 0
 
 for cycle in range(1, args.cycles + 1):
-    for enabled in (True, False):
-        label = "ON" if enabled else "OFF"
-        desc = f"Cycle {cycle}/{args.cycles} -- System Optimized -> {label}"
+    for mode in args.modes:
+        desc = f"Cycle {cycle}/{args.cycles} -- mode {mode} ({STACK_MODES[mode]})"
         print(f"\n  [{desc}]")
 
         t0 = time.perf_counter()
         r = apply_lrp_change(
             client, TEMPLATE_XML,
-            set_system_optimized_step_size, enabled, args.job,
-            verify_fn=lambda p, e=enabled, j=args.job: verify_system_optimized_step_size(p, e, j),
+            set_stack_calculation_mode, mode, args.job,
+            verify_fn=lambda p, m=mode, j=args.job: verify_stack_calculation_mode(p, m, j),
+            active_job=args.job,
         )
         elapsed = time.perf_counter() - t0
 
