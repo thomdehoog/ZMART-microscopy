@@ -164,7 +164,7 @@ def get_hardware_info(client, timeout=1.0, poll_interval=0.01,
     return None
 
 
-def get_xy(client, timeout=1.0, poll_interval=0.01, max_retries=3):
+def get_xy(client, timeout=1.0, poll_interval=0.1, max_retries=3):
     """Read current XY stage position.
 
     Flushes the model to NaN, fires GetXY via UpdateAsync, then polls
@@ -196,7 +196,8 @@ def get_xy(client, timeout=1.0, poll_interval=0.01, max_retries=3):
                     }
                 time.sleep(poll_interval)
 
-            log.warning("get_xy: attempt %d/%d timed out", attempt, max_retries)
+            log.warning("get_xy: attempt %d/%d timed out",
+                        attempt, max_retries)
         except Exception as e:
             log.error("get_xy attempt %d/%d failed: %s",
                       attempt, max_retries, e)

@@ -798,10 +798,9 @@ def move_xy(client, x, y, unit="um", *,
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
-    # Phase C: attach position readback
-    pos = _readers.get_xy(client)
-    r["position"] = pos if pos else {"x": x_um * 1e-6, "y": y_um * 1e-6,
-                                      "x_um": x_um, "y_um": y_um}
+    # Position is already confirmed by confirm_move_xy
+    r["position"] = {"x": x_um * 1e-6, "y": y_um * 1e-6,
+                      "x_um": x_um, "y_um": y_um}
     return r
 
 

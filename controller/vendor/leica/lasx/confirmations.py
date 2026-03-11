@@ -1041,11 +1041,11 @@ def _confirm_filter_wheel_slot(client, job_name, si, beam_route, fw_type,
 # =============================================================================
 
 def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
-                    timeout=None, poll_interval=0.01):
+                    timeout=None, poll_interval=0.1):
     """Poll until XY stage position is within tolerance, or until timeout.
 
-    Owns its polling loop — the backbone calls this once with
-    ``max_confirm_attempts=1``.
+    Calls ``get_xy`` reader with 0.1s between calls to avoid
+    overwhelming the API.
 
     Args:
         client: The connected LAS X API client.
@@ -1053,7 +1053,7 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
         target_y_um: Expected Y position in micrometers.
         tolerance: Acceptable deviation in micrometers per axis.
         timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between position polls.
+        poll_interval: Seconds between get_xy calls.
 
     Returns:
         {"success": bool, "logs": [...]}
@@ -1065,7 +1065,7 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
     deadline = t_start + timeout
 
     while time.perf_counter() < deadline:
-        pos = _readers.get_xy(client, timeout=timeout)
+        pos = _readers.get_xy(client)
         if pos is not None:
             dx = abs(pos["x_um"] - target_x_um)
             dy = abs(pos["y_um"] - target_y_um)
@@ -1091,7 +1091,7 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
 
 def confirm_acquire(client, *, api_obj=None, start_timeout=10.0,
                     max_start_retries=3, heartbeat_interval=30.0,
-                    timeout=None, poll_interval=0.1):
+                    timeout=None, poll_interval=0.01):
     """Poll until acquisition completes, or until timeout is exceeded.
 
     Owns its polling loop internally — the backbone calls this once and

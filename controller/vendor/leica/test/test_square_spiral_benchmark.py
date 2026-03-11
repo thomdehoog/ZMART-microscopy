@@ -11,9 +11,12 @@ Usage:
 """
 
 import argparse
+import logging
 import sys
 import time
 from pathlib import Path
+
+logging.basicConfig(level=logging.WARNING, format="%(name)s: %(message)s")
 
 parser = argparse.ArgumentParser(description="Square Spiral Benchmark")
 parser.add_argument("--size", type=int, default=3,
