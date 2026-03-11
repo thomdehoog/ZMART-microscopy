@@ -87,21 +87,6 @@ def get_job_settings(client, job_name, timeout=1.0, poll_interval=0.01,
     then polls until data arrives. Retries the full flush→fire→poll cycle
     up to *max_retries* times.
     """
-    # Early exit: if the requested job is already active and Settings
-    # is populated, return it directly. Avoids the clear-then-poll cycle
-    # which times out when LAS X doesn't re-send settings for the
-    # already-active job.
-    try:
-        selected = get_selected_job(client)
-        if selected and selected.get("Name") == job_name:
-            raw = client.PyApiGetJobSettingsByName.Model.Settings
-            if raw is not None:
-                log.debug("get_job_settings: '%s' already active, returning "
-                          "existing settings", job_name)
-                return json.loads(raw) if isinstance(raw, str) else raw
-    except Exception:
-        pass  # Fall through to normal dispatch
-
     for attempt in range(1, max_retries + 1):
         try:
             client.PyApiGetJobSettingsByName.Model.JobName = job_name
