@@ -32,6 +32,7 @@ import math
 import time
 
 from . import readers as _readers
+from .errors import _check_api_error, _is_transient_error
 from .settings import make_changeable_copy
 from .utils import _make_log_entry, CONFIRM_TIMEOUT
 
@@ -1088,28 +1089,32 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
 # Long-running confirm functions (own their polling loop)
 # =============================================================================
 
-def confirm_acquire(client, *, start_timeout=15.0,
-                    heartbeat_interval=30.0, timeout=None,
-                    poll_interval=0.1):
+def confirm_acquire(client, *, api_obj=None, start_timeout=10.0,
+                    max_start_retries=3, heartbeat_interval=30.0,
+                    timeout=None, poll_interval=0.1):
     """Poll until acquisition completes, or until timeout is exceeded.
 
     Owns its polling loop internally — the backbone calls this once and
     gets back a result dict. All state (saw_scanning, timing) is local
     to this function call.
 
-    Logic:
-        - We MUST observe a non-idle status (saw_scanning) before
-          accepting idle as completion. This prevents mistaking
-          "not yet started" for "scan finished."
-        - If the scan never starts within start_timeout, return failure
-          so the backbone can retry.
-        - Heartbeat logs are emitted at heartbeat_interval during long
-          scans so operators know the system is not hung.
+    Two phases:
+
+    **Phase 1 — wait for scan start.** Poll scan status and error echo
+    concurrently. If an error is detected, fail immediately. If the scan
+    never starts within *start_timeout*, re-fire via ``api_obj.UpdateAsync()``
+    and retry (up to *max_start_retries* times).
+
+    **Phase 2 — wait for completion.** Once non-idle is observed, poll
+    until consecutive idle reads confirm the scan finished. No retries
+    in this phase — the scan is running.
 
     Args:
         client: The connected LAS X API client.
-        start_timeout: Seconds to wait for scan to start. If the scan
-            never leaves idle within this window, return failure.
+        api_obj: The API object to re-fire on start timeout (e.g.
+            ``client.PyApiAcquireJob``). If None, no re-fire is attempted.
+        start_timeout: Seconds to wait for scan to start per attempt.
+        max_start_retries: How many times to re-fire if scan doesn't start.
         heartbeat_interval: Seconds between heartbeat log messages
             during long scans.
         timeout: Hard ceiling in seconds. None means wait indefinitely.
@@ -1123,10 +1128,11 @@ def confirm_acquire(client, *, start_timeout=15.0,
     last_heartbeat = t_start
     saw_scanning = False
     consecutive_idle = 0
-    idle_streak_required = 2  # Require N consecutive idle reads to confirm
+    idle_streak_required = 2
+    fire_attempt = 1
 
-    # Use a very large deadline if timeout is None (effectively infinite)
     deadline = t_start + (timeout if timeout is not None else 1e9)
+    start_deadline = t_start + start_timeout
 
     while time.perf_counter() < deadline:
         status = _readers.get_scan_status(client)
@@ -1138,6 +1144,36 @@ def confirm_acquire(client, *, start_timeout=15.0,
         else:
             consecutive_idle += 1
 
+        # Phase 1: check for errors while waiting for scan to start
+        if not saw_scanning:
+            err = _check_api_error(client)
+            if err is not None:
+                error_msg = err.get("error", "?")
+                if _is_transient_error(error_msg):
+                    log.debug("Transient error during acquire start: %s", error_msg)
+                else:
+                    msg = f"Acquire error (permanent): {error_msg}"
+                    log.error(msg)
+                    logs.append(_make_log_entry("error", msg))
+                    return {"success": False, "logs": logs}
+
+            # Start timeout — re-fire if we can
+            if time.perf_counter() > start_deadline:
+                if api_obj is not None and fire_attempt < max_start_retries:
+                    fire_attempt += 1
+                    msg = (f"Scan not started after {start_timeout:.0f}s, "
+                           f"re-firing (attempt {fire_attempt}/{max_start_retries})")
+                    log.warning(msg)
+                    logs.append(_make_log_entry("warning", msg))
+                    api_obj.UpdateAsync()
+                    start_deadline = time.perf_counter() + start_timeout
+                else:
+                    msg = (f"Scan never started after {fire_attempt} "
+                           f"attempt(s), {elapsed:.0f}s total")
+                    log.warning(msg)
+                    logs.append(_make_log_entry("warning", msg))
+                    return {"success": False, "logs": logs}
+
         # Heartbeat for long scans
         now = time.perf_counter()
         if now - last_heartbeat > heartbeat_interval:
@@ -1146,20 +1182,12 @@ def confirm_acquire(client, *, start_timeout=15.0,
             logs.append(_make_log_entry("info", msg))
             last_heartbeat = now
 
-        # Scan never started — return failure so backbone can retry
-        if not saw_scanning and elapsed > start_timeout:
-            msg = f"Scan never started after {elapsed:.0f}s"
-            log.warning(msg)
-            logs.append(_make_log_entry("warning", msg))
-            return {"success": False, "logs": logs}
-
-        # Completion: consecutive idle reads AND saw scanning
+        # Phase 2: completion — consecutive idle reads after saw scanning
         if consecutive_idle >= idle_streak_required and saw_scanning:
             return {"success": True, "logs": logs}
 
         time.sleep(poll_interval)
 
-    # Timeout exceeded
     msg = f"Acquisition timeout after {time.perf_counter() - t_start:.1f}s"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
