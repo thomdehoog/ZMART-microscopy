@@ -95,7 +95,7 @@ __all__ = [
     "set_pinhole_airy", "set_detector_gain",
     "set_laser_intensity", "set_laser_shutter",
     "set_filter_wheel_slot", "set_filter_wheel_spectrum",
-    "move_xy", "move_z", "acquire", "select_job",
+    "move_xy", "move_z", "acquire", "acquire_single_image", "select_job",
     # scanning_templates
     "find_scanning_templates_dir", "save_experiment", "load_experiment",
     "strip_template", "restore_template", "get_template_state",
@@ -205,6 +205,7 @@ from .commands import (
     move_xy,
     move_z,
     acquire,
+    acquire_single_image,
     select_job,
 )
 
