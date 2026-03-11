@@ -79,6 +79,16 @@ class CommandProfile:
         retry_escalate: If True, double the delay after each retry
             (exponential backoff: 0s, base, 2×base, 4×base, ...).
             If False, use a fixed delay. Ignored when retry_backoff is None.
+        skip_echo: If True, skip echo settlement polling after fire.
+            Use for commands where a dedicated confirm_fn (e.g. scan
+            status polling) is the authoritative completion signal and
+            echo waiting is redundant overhead.
+        receipt_timeout: Seconds for UpdateAwaitReceipt transport ACK.
+            None uses the module-level RECEIPT_TIMEOUT default.
+            Ignored when fire_async is True.
+        fire_async: If True, use UpdateAsync instead of UpdateAwaitReceipt.
+            Use for hardware commands (e.g. stage moves, acquisitions)
+            where confirm_fn is the authoritative completion signal.
     """
     pre_check_fn: callable = None
     error_check_fn: callable = _default_error_check
@@ -89,6 +99,9 @@ class CommandProfile:
     confirm_timeout: float = None  # Per-attempt confirm timeout (seconds). None uses CONFIRM_TIMEOUT.
     retry_backoff: float = None
     retry_escalate: bool = False
+    skip_echo: bool = False
+    receipt_timeout: float = None  # Per-profile UpdateAwaitReceipt deadline. None uses RECEIPT_TIMEOUT.
+    fire_async: bool = False
 
 
 # =============================================================================
@@ -212,8 +225,10 @@ FILTER_WHEEL_SPECTRUM = CommandProfile(
 
 MOVE_XY = CommandProfile(
     confirm_fn=confirm_move_xy,
+    error_check_fn=None,
     max_confirm_attempts=3,
     confirm_timeout=5.0,
+    fire_async=True,
 )
 
 MOVE_Z = CommandProfile(
@@ -228,12 +243,18 @@ MOVE_Z = CommandProfile(
 
 ACQUIRE = CommandProfile(
     confirm_fn=confirm_acquire,
+    error_check_fn=None,
     max_confirm_attempts=1,
+    skip_echo=True,
+    fire_async=True,
 )
 
 ACQUIRE_SINGLE_IMAGE = CommandProfile(
     confirm_fn=confirm_acquire,
+    error_check_fn=None,
     max_confirm_attempts=1,
+    skip_echo=True,
+    fire_async=True,
 )
 
 SELECT_JOB = CommandProfile(

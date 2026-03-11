@@ -44,11 +44,6 @@ log = logging.getLogger(__name__)
 
 def _readback(client, job_name):
     """Read job settings and return changeable copy, or None on failure."""
-    # Clear cached settings to force fresh dispatch from LAS X
-    try:
-        client.PyApiGetJobSettingsByName.Model.Settings = None
-    except Exception:
-        log.debug("Could not clear cached settings before readback")
     raw = _readers.get_job_settings(client, job_name, timeout=CONFIRM_TIMEOUT)
     if raw is None:
         return None
@@ -1069,7 +1064,7 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
     deadline = t_start + timeout
 
     while time.perf_counter() < deadline:
-        pos = _readers.get_xy(client, timeout=CONFIRM_TIMEOUT)
+        pos = _readers.get_xy(client, timeout=timeout)
         if pos is not None:
             dx = abs(pos["x_um"] - target_x_um)
             dy = abs(pos["y_um"] - target_y_um)
@@ -1093,7 +1088,7 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
 # Long-running confirm functions (own their polling loop)
 # =============================================================================
 
-def confirm_acquire(client, *, settle_time=0.5, start_timeout=15.0,
+def confirm_acquire(client, *, start_timeout=15.0,
                     heartbeat_interval=30.0, timeout=None,
                     poll_interval=0.1):
     """Poll until acquisition completes, or until timeout is exceeded.
@@ -1103,22 +1098,18 @@ def confirm_acquire(client, *, settle_time=0.5, start_timeout=15.0,
     to this function call.
 
     Logic:
-        - Idle is only accepted as "scan complete" if we either observed
-          a non-idle status at least once (saw_scanning) or settle_time
-          has elapsed. This prevents mistaking "was already idle" for
-          "scan finished instantly."
-        - If the scan never starts within start_timeout, a warning is
-          logged once. The timeout parameter is the hard ceiling.
+        - We MUST observe a non-idle status (saw_scanning) before
+          accepting idle as completion. This prevents mistaking
+          "not yet started" for "scan finished."
+        - If the scan never starts within start_timeout, return failure
+          so the backbone can retry.
         - Heartbeat logs are emitted at heartbeat_interval during long
           scans so operators know the system is not hung.
 
     Args:
         client: The connected LAS X API client.
-        settle_time: Minimum seconds after entry before accepting idle
-            as completion. Prevents race when scan finishes faster than
-            the first poll.
-        start_timeout: Seconds to wait for scan to start before logging
-            a diagnostic warning. Not a hard ceiling.
+        start_timeout: Seconds to wait for scan to start. If the scan
+            never leaves idle within this window, return failure.
         heartbeat_interval: Seconds between heartbeat log messages
             during long scans.
         timeout: Hard ceiling in seconds. None means wait indefinitely.
@@ -1131,9 +1122,8 @@ def confirm_acquire(client, *, settle_time=0.5, start_timeout=15.0,
     t_start = time.perf_counter()
     last_heartbeat = t_start
     saw_scanning = False
-    start_warning_logged = False
     consecutive_idle = 0
-    idle_streak_required = 3  # Require N consecutive idle reads to confirm
+    idle_streak_required = 2  # Require N consecutive idle reads to confirm
 
     # Use a very large deadline if timeout is None (effectively infinite)
     deadline = t_start + (timeout if timeout is not None else 1e9)
@@ -1156,18 +1146,16 @@ def confirm_acquire(client, *, settle_time=0.5, start_timeout=15.0,
             logs.append(_make_log_entry("info", msg))
             last_heartbeat = now
 
-        # Start-timeout warning: log when the scan never starts
-        if (not saw_scanning and elapsed > start_timeout
-                and not start_warning_logged):
-            msg = f"Scan never started after {elapsed:.0f}s — still waiting"
+        # Scan never started — return failure so backbone can retry
+        if not saw_scanning and elapsed > start_timeout:
+            msg = f"Scan never started after {elapsed:.0f}s"
             log.warning(msg)
             logs.append(_make_log_entry("warning", msg))
-            start_warning_logged = True
+            return {"success": False, "logs": logs}
 
-        # Completion: consecutive idle reads AND (saw scanning OR settle time elapsed)
-        if consecutive_idle >= idle_streak_required:
-            if saw_scanning or elapsed > settle_time:
-                return {"success": True, "logs": logs}
+        # Completion: consecutive idle reads AND saw scanning
+        if consecutive_idle >= idle_streak_required and saw_scanning:
+            return {"success": True, "logs": logs}
 
         time.sleep(poll_interval)
 

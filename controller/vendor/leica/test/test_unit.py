@@ -1453,20 +1453,12 @@ class TestReadbackCacheRemoved(unittest.TestCase):
 
 class TestConfirmAcquire(unittest.TestCase):
 
-    def test_idle_after_settle(self):
-        """Idle after settle_time has elapsed → success."""
+    def test_idle_without_scanning_returns_failure(self):
+        """Always idle, never saw scanning → failure (start_timeout)."""
         with patch.object(lasx.readers, 'get_scan_status', return_value="eScanIdle"), \
              patch('time.sleep'):
             result = lasx.confirmations.confirm_acquire(
-                None, settle_time=0.0, timeout=1.0, poll_interval=0.001)
-        self.assertTrue(result["success"])
-
-    def test_idle_before_settle_no_scanning(self):
-        """Idle before settle_time, never saw scanning → failure (timeout)."""
-        with patch.object(lasx.readers, 'get_scan_status', return_value="eScanIdle"), \
-             patch('time.sleep'):
-            result = lasx.confirmations.confirm_acquire(
-                None, settle_time=999, timeout=0.01, poll_interval=0.001)
+                None, start_timeout=0.0, timeout=1.0, poll_interval=0.001)
         self.assertFalse(result["success"])
 
     def test_scanning_then_idle(self):
@@ -1478,14 +1470,14 @@ class TestConfirmAcquire(unittest.TestCase):
         with patch.object(lasx.readers, 'get_scan_status', side_effect=mock_status), \
              patch('time.sleep'):
             result = lasx.confirmations.confirm_acquire(
-                None, settle_time=999, timeout=5.0, poll_interval=0.001)
+                None, timeout=5.0, poll_interval=0.001)
         self.assertTrue(result["success"])
 
 
 class TestConfirmSelectJob(unittest.TestCase):
 
     def test_selected_after_settle(self):
-        """Job is selected after settle_time → success."""
+        """Job is selected on first poll → success."""
         jobs = [{"Name": "HiRes", "IsSelected": True}]
         with patch.object(lasx.readers, 'get_jobs', return_value=jobs), \
              patch('time.sleep'):

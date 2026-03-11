@@ -946,7 +946,7 @@ else:
 
     r = test("acquire",
              lambda: drv.acquire(client, JOB, poll_interval=0.1,
-                                 settle_time=0.5, start_timeout=15.0))
+                                 start_timeout=15.0))
     if r:
         detail(f"Elapsed: {r.get('timing', {}).get('total_s', 0):.1f}s")
 

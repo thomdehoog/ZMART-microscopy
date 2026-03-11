@@ -80,19 +80,23 @@ SETTLE = 0.5
 def wait_scan(timeout=10.0):
     """Wait for scan to start (not idle), then wait for it to finish (idle).
 
+    Requires observing a non-idle status before accepting idle as
+    completion — prevents mistaking 'not yet started' for 'finished'.
+
     Returns (start_time, total_time) in seconds.
     """
     t0 = time.perf_counter()
+    saw_scanning = False
     while time.perf_counter() - t0 < timeout:
-        if "Idle" not in str(client.PyApiStatus.Model.ScanStatus):
-            break
-        time.sleep(0.01)
-    start_t = time.perf_counter() - t0
-    while time.perf_counter() - t0 < timeout:
-        if "Idle" in str(client.PyApiStatus.Model.ScanStatus):
+        status = str(client.PyApiStatus.Model.ScanStatus)
+        if "Idle" not in status:
+            if not saw_scanning:
+                start_t = time.perf_counter() - t0
+            saw_scanning = True
+        elif saw_scanning:
             return start_t, time.perf_counter() - t0
         time.sleep(0.01)
-    return start_t, time.perf_counter() - t0
+    return time.perf_counter() - t0, time.perf_counter() - t0
 
 # ── Run spiral ───────────────────────────────────────────────────────────
 
@@ -121,7 +125,7 @@ for i, (gx, gy) in enumerate(grid):
     time.sleep(SETTLE)
     move_t = time.perf_counter() - t0
 
-    acq_api.UpdateAsync()
+    acq_api.UpdateAwaitReceipt(2)
     scan_start_t, scan_t = wait_scan()
 
     t1 = time.perf_counter()

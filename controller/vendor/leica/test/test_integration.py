@@ -303,7 +303,7 @@ class TestMockIntegration(unittest.TestCase):
     def test_acquire(self):
         """Acquire triggers scan and waits for completion."""
         r = drv.acquire(self.client, "HiRes", poll_interval=0.01,
-                        settle_time=0.05, start_timeout=2.0)
+                        start_timeout=2.0)
         self.assertTrue(r["success"])
         self.assertGreater(r["timing"]["total_s"], 0)
 

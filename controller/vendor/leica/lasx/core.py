@@ -135,7 +135,10 @@ def _fire_block(client, api_obj, description, *,
                 error_check_fn=None,
                 max_retries=3,
                 retry_backoff=None,
-                retry_escalate=False):
+                retry_escalate=False,
+                skip_echo=False,
+                receipt_timeout=None,
+                fire_async=False):
     """Execute the four-step fire pipeline with transient retry.
 
     Steps:
@@ -233,8 +236,12 @@ def _fire_block(client, api_obj, description, *,
                 client.PyApiCommandEcho.Model.Result = 0  # NotDefined
             except Exception:
                 pass  # Some API versions may not allow Result assignment
-            delivered = _fire_with_receipt(api_obj)
-            if delivered:
+            if fire_async:
+                api_obj.UpdateAsync()
+                delivered = True
+            else:
+                delivered = _fire_with_receipt(api_obj, receipt_timeout=receipt_timeout)
+            if delivered and not skip_echo and not fire_async:
                 _await_echo_result(client)
         except Exception as e:
             t_fire += time.perf_counter() - t0
@@ -270,7 +277,7 @@ def _fire_block(client, api_obj, description, *,
         if error_check_fn is not None:
             err_result = error_check_fn()
         else:
-            err_result = _default_error_check(client)
+            err_result = {"success": True, "logs": []}
         t_check += time.perf_counter() - t0
         all_logs.extend(err_result.get("logs", []))
 
@@ -336,7 +343,10 @@ def confirm_and_fire(client, api_obj, description, *,
                      max_retries=3,
                      max_confirm_attempts=3,
                      retry_backoff=None,
-                     retry_escalate=False):
+                     retry_escalate=False,
+                     skip_echo=False,
+                     receipt_timeout=None,
+                     fire_async=False):
     """Fire a command and optionally confirm the result, with correction.
 
     This is the single entry point through which all commands are
@@ -399,6 +409,9 @@ def confirm_and_fire(client, api_obj, description, *,
         max_retries=max_retries,
         retry_backoff=retry_backoff,
         retry_escalate=retry_escalate,
+        skip_echo=skip_echo,
+        receipt_timeout=receipt_timeout,
+        fire_async=fire_async,
     )
     all_logs.extend(fb["logs"])
     total_attempts += fb["attempts"]
@@ -524,6 +537,9 @@ def confirm_and_fire(client, api_obj, description, *,
                 max_retries=max_retries,
                 retry_backoff=retry_backoff,
                 retry_escalate=retry_escalate,
+                skip_echo=skip_echo,
+                receipt_timeout=receipt_timeout,
+                fire_async=fire_async,
             )
             all_logs.extend(fb["logs"])
             total_attempts += fb["attempts"]

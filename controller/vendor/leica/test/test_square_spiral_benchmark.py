@@ -38,11 +38,14 @@ if not client.Connect("PythonClient"):
 print("Connected to LAS X")
 
 drv.set_stage_limits(
-    x_min=0, x_max=130000,
-    y_min=0, y_max=100000,
+    x_min=29126, x_max=130000,
+    y_min=31370, y_max=100000,
     z_galvo_min=-200, z_galvo_max=200,
     z_wide_min=0, z_wide_max=25000,
 )
+
+drv.select_job(client, "HiRes")
+print("Selected job: HiRes")
 
 pos = drv.get_xy(client)
 home_x = pos["x_um"]
@@ -99,19 +102,18 @@ def run_raw():
     unit_val = type(move_api.Model.Units).eMicrons
     mode_val = type(move_api.Model.MoveXyMode).eMoveXY
     acq_api = client.PyApiAcquireSingleImage
-    SETTLE = 0.5
-
     def wait_scan(timeout=10.0):
+        """Poll scan status — require saw_scanning before accepting idle."""
         t0 = time.perf_counter()
+        saw_scanning = False
         while time.perf_counter() - t0 < timeout:
-            if "Idle" not in str(client.PyApiStatus.Model.ScanStatus):
-                break
+            status = str(client.PyApiStatus.Model.ScanStatus)
+            if "Idle" not in status:
+                saw_scanning = True
+            elif saw_scanning:
+                return time.perf_counter() - t0
             time.sleep(0.01)
-        start_t = time.perf_counter() - t0
-        while time.perf_counter() - t0 < timeout:
-            if "Idle" in str(client.PyApiStatus.Model.ScanStatus):
-                return start_t, time.perf_counter() - t0
-        return start_t, time.perf_counter() - t0
+        return time.perf_counter() - t0
 
     move_times = []
     acq_times = []
@@ -128,11 +130,10 @@ def run_raw():
         m.MoveXyMode = mode_val
         m.Units = unit_val
         move_api.UpdateAsync()
-        time.sleep(SETTLE)
         move_t = time.perf_counter() - t0
 
-        acq_api.UpdateAsync()
-        _, scan_t = wait_scan()
+        acq_api.UpdateAwaitReceipt(2)
+        scan_t = wait_scan()
 
         t1 = time.perf_counter()
         move_times.append(move_t)
@@ -142,11 +143,8 @@ def run_raw():
 
     elapsed = time.perf_counter() - total_start
 
-    # Return home
-    m = move_api.Model
-    m.XPosition = home_x
-    m.YPosition = home_y
-    move_api.UpdateAsync()
+    # Return home (use driver to ensure move completes before next benchmark)
+    drv.move_xy(client, home_x, home_y)
 
     return {
         "elapsed": elapsed,
@@ -230,15 +228,23 @@ def run_single_image():
 
 # ── Run benchmarks ───────────────────────────────────────────────────────
 
+def wait_idle(timeout=5.0):
+    """Wait for scanner to be idle before starting next benchmark."""
+    t0 = time.perf_counter()
+    while time.perf_counter() - t0 < timeout:
+        if "Idle" in str(client.PyApiStatus.Model.ScanStatus):
+            return
+        time.sleep(0.05)
+
 print(f"\n  Running RAW API...")
 raw = run_raw()
 
-time.sleep(1)
+wait_idle()
 
 print(f"  Running DRIVER (acquire)...")
 driver = run_driver()
 
-time.sleep(1)
+wait_idle()
 
 print(f"  Running DRIVER (acquire_single_image)...")
 single = run_single_image()

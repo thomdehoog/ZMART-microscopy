@@ -124,7 +124,8 @@ def _dispatch(client, api_obj, description, profile, *,
         client, api_obj, description,
         setup_fn=setup_fn,
         pre_check_fn=pre_check_fn,
-        error_check_fn=lambda: profile.error_check_fn(client),
+        error_check_fn=(lambda: profile.error_check_fn(client))
+                        if profile.error_check_fn else None,
         confirm_fn=(lambda: effective_confirm(client))
                     if effective_confirm else None,
         correct_fn=(lambda: profile.correct_fn(client))
@@ -133,6 +134,9 @@ def _dispatch(client, api_obj, description, profile, *,
         max_confirm_attempts=max_confirm_attempts if max_confirm_attempts is not None else profile.max_confirm_attempts,
         retry_backoff=retry_backoff if retry_backoff is not None else profile.retry_backoff,
         retry_escalate=retry_escalate if retry_escalate is not None else profile.retry_escalate,
+        skip_echo=profile.skip_echo,
+        receipt_timeout=profile.receipt_timeout,
+        fire_async=profile.fire_async,
     )
 
 
@@ -879,13 +883,13 @@ def move_z(client, job_name, z, unit="um", z_mode="galvo", *,
 # =============================================================================
 
 def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
-            heartbeat_interval=30.0, settle_time=0.5, start_timeout=15.0,
+            heartbeat_interval=30.0, start_timeout=15.0,
             pre_check_timeout=None):
     """Trigger acquisition and block until scan completes.
 
     Routes through the backbone for consistent idle-wait, retry, and
-    timing instrumentation. The completion logic (settle_time,
-    saw_scanning, start_timeout) lives in ``confirm_acquire``.
+    timing instrumentation. The completion logic (saw_scanning,
+    start_timeout) lives in ``confirm_acquire``.
 
     Args:
         client: LAS X API client.
@@ -894,10 +898,8 @@ def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
         poll_timeout: Hard ceiling for scan completion (seconds). None
             for no timeout (wait indefinitely).
         heartbeat_interval: Log interval during long scans (seconds).
-        settle_time: Minimum seconds after fire before accepting idle
-            as completion.
-        start_timeout: Seconds to wait for scan to start before logging
-            a warning.
+        start_timeout: Seconds to wait for scan to start before
+            returning failure.
 
     Returns:
         Result dict with timing in timing['total_s'].
@@ -911,7 +913,6 @@ def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
         client, api_obj, f"Acquire '{job_name}'", ACQUIRE,
         setup_fn=setup,
         confirm_fn=partial(confirm_acquire,
-                           settle_time=settle_time,
                            start_timeout=start_timeout,
                            heartbeat_interval=heartbeat_interval,
                            timeout=poll_timeout,
@@ -921,8 +922,8 @@ def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
 
 
 def acquire_single_image(client, poll_interval=0.1, poll_timeout=None,
-                         heartbeat_interval=30.0, settle_time=0.5,
-                         start_timeout=15.0, pre_check_timeout=None):
+                         heartbeat_interval=30.0, start_timeout=15.0,
+                         pre_check_timeout=None):
     """Acquire a single image using the currently selected job settings.
 
     Unlike ``acquire``, this does not take a job name — it fires
@@ -939,10 +940,8 @@ def acquire_single_image(client, poll_interval=0.1, poll_timeout=None,
         poll_timeout: Hard ceiling for scan completion (seconds). None
             for no timeout (wait indefinitely).
         heartbeat_interval: Log interval during long scans (seconds).
-        settle_time: Minimum seconds after fire before accepting idle
-            as completion.
-        start_timeout: Seconds to wait for scan to start before logging
-            a warning.
+        start_timeout: Seconds to wait for scan to start before
+            returning failure.
 
     Returns:
         Result dict with timing in timing['total_s'].
@@ -953,7 +952,6 @@ def acquire_single_image(client, poll_interval=0.1, poll_timeout=None,
         client, api_obj, "AcquireSingleImage", ACQUIRE_SINGLE_IMAGE,
         setup_fn=None,
         confirm_fn=partial(confirm_acquire,
-                           settle_time=settle_time,
                            start_timeout=start_timeout,
                            heartbeat_interval=heartbeat_interval,
                            timeout=poll_timeout,
