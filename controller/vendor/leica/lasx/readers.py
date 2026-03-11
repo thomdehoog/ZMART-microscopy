@@ -79,11 +79,13 @@ def ping(client):
 # Read functions
 # =============================================================================
 
-def get_job_settings(client, job_name, timeout=10, poll_interval=0.01):
+def get_job_settings(client, job_name, timeout=1.0, poll_interval=0.01,
+                     max_retries=3):
     """Read full job settings JSON from LAS X.
 
     Flushes Settings to None, fires GetJobSettingsByName via UpdateAsync,
-    then polls until data arrives or timeout.
+    then polls until data arrives. Retries the full flush→fire→poll cycle
+    up to *max_retries* times.
     """
     # Early exit: if the requested job is already active and Settings
     # is populated, return it directly. Avoids the clear-then-poll cycle
@@ -100,134 +102,141 @@ def get_job_settings(client, job_name, timeout=10, poll_interval=0.01):
     except Exception:
         pass  # Fall through to normal dispatch
 
-    try:
-        # Set job name and clear cached settings before dispatch
-        client.PyApiGetJobSettingsByName.Model.JobName = job_name
-        client.PyApiGetJobSettingsByName.Model.Settings = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            client.PyApiGetJobSettingsByName.Model.JobName = job_name
+            client.PyApiGetJobSettingsByName.Model.Settings = None
 
-        # Fire async — polling handles data arrival
-        client.PyApiCommand.Model.Command = ""
-        client.PyApiCommand.Model.Command = "GetJobSettingsByName"
-        client.PyApiCommand.UpdateAsync()
+            client.PyApiCommand.Model.Command = ""
+            client.PyApiCommand.Model.Command = "GetJobSettingsByName"
+            client.PyApiCommand.UpdateAsync()
 
-        deadline = time.perf_counter() + timeout
-        while time.perf_counter() < deadline:
-            raw = client.PyApiGetJobSettingsByName.Model.Settings
-            if raw is not None:
-                return json.loads(raw) if isinstance(raw, str) else raw
-            time.sleep(poll_interval)
+            deadline = time.perf_counter() + timeout
+            while time.perf_counter() < deadline:
+                raw = client.PyApiGetJobSettingsByName.Model.Settings
+                if raw is not None:
+                    return json.loads(raw) if isinstance(raw, str) else raw
+                time.sleep(poll_interval)
 
-        log.warning("get_job_settings: timeout after %.1fs for '%s'",
-                    timeout, job_name)
-        return None
-    except Exception as e:
-        log.error("get_job_settings failed: %s", e)
-        return None
+            log.warning("get_job_settings: attempt %d/%d timed out for '%s'",
+                        attempt, max_retries, job_name)
+        except Exception as e:
+            log.error("get_job_settings attempt %d/%d failed: %s",
+                      attempt, max_retries, e)
+
+    log.error("get_job_settings: all %d attempts failed for '%s'",
+              max_retries, job_name)
+    return None
 
 
-def get_hardware_info(client, timeout=10, poll_interval=0.01):
+def get_hardware_info(client, timeout=1.0, poll_interval=0.01,
+                      max_retries=3):
     """Read confocal hardware info from LAS X.
 
     Flushes HWInfo to None, fires GetConfocalHardwareInfo via UpdateAsync,
-    then polls until data arrives or timeout.
+    then polls until data arrives. Retries up to *max_retries* times.
     """
-    try:
-        # Clear cached HWInfo before dispatch
+    for attempt in range(1, max_retries + 1):
         try:
-            client.PyApiGetConfocalHardwareInfo.Model.HWInfo = None
-        except Exception:
-            pass
+            try:
+                client.PyApiGetConfocalHardwareInfo.Model.HWInfo = None
+            except Exception:
+                pass
 
-        client.PyApiCommand.Model.Command = ""
-        client.PyApiCommand.Model.Command = "GetConfocalHardwareInfo"
-        client.PyApiCommand.UpdateAsync()
+            client.PyApiCommand.Model.Command = ""
+            client.PyApiCommand.Model.Command = "GetConfocalHardwareInfo"
+            client.PyApiCommand.UpdateAsync()
 
-        deadline = time.perf_counter() + timeout
-        while time.perf_counter() < deadline:
-            raw = client.PyApiGetConfocalHardwareInfo.Model.HWInfo
-            if raw is not None:
-                return json.loads(raw) if isinstance(raw, str) else raw
-            time.sleep(poll_interval)
+            deadline = time.perf_counter() + timeout
+            while time.perf_counter() < deadline:
+                raw = client.PyApiGetConfocalHardwareInfo.Model.HWInfo
+                if raw is not None:
+                    return json.loads(raw) if isinstance(raw, str) else raw
+                time.sleep(poll_interval)
 
-        log.warning("get_hardware_info: timeout after %.1fs", timeout)
-        return None
-    except Exception as e:
-        log.error("get_hardware_info failed: %s", e)
-        return None
+            log.warning("get_hardware_info: attempt %d/%d timed out",
+                        attempt, max_retries)
+        except Exception as e:
+            log.error("get_hardware_info attempt %d/%d failed: %s",
+                      attempt, max_retries, e)
+
+    log.error("get_hardware_info: all %d attempts failed", max_retries)
+    return None
 
 
-def get_xy(client, timeout=5, poll_interval=0.005):
+def get_xy(client, timeout=1.0, poll_interval=0.01, max_retries=3):
     """Read current XY stage position.
 
-    Uses NaN-flush + async fire: flushes the model to NaN, fires the
-    GetXY command via UpdateAsync, then polls until fresh (non-NaN)
-    data arrives. This avoids UpdateAwaitReceipt round-trips and
-    eliminates the stale (0, 0) problem on first call after connect.
+    Flushes the model to NaN, fires GetXY via UpdateAsync, then polls
+    until fresh (non-NaN) data arrives. Retries up to *max_retries* times.
 
     Returns:
         dict with x/y in meters and microns, or None on failure.
     """
-    try:
-        # Flush model to NaN to detect fresh data
-        client.PyApiGetXY.Model.XPosition = float('nan')
-        client.PyApiGetXY.Model.YPosition = float('nan')
+    for attempt in range(1, max_retries + 1):
+        try:
+            client.PyApiGetXY.Model.XPosition = float('nan')
+            client.PyApiGetXY.Model.YPosition = float('nan')
 
-        # Fire GetXY async
-        client.PyApiCommand.Model.Command = ""
-        client.PyApiCommand.Model.Command = "GetXY"
-        client.PyApiCommand.UpdateAsync()
+            client.PyApiCommand.Model.Command = ""
+            client.PyApiCommand.Model.Command = "GetXY"
+            client.PyApiCommand.UpdateAsync()
 
-        # Poll until fresh data arrives
-        deadline = time.perf_counter() + timeout
-        while time.perf_counter() < deadline:
-            x = client.PyApiGetXY.Model.XPosition
-            y = client.PyApiGetXY.Model.YPosition
+            deadline = time.perf_counter() + timeout
+            while time.perf_counter() < deadline:
+                x = client.PyApiGetXY.Model.XPosition
+                y = client.PyApiGetXY.Model.YPosition
 
-            if not (math.isnan(x) or math.isnan(y)):
-                return {
-                    "x": x,
-                    "y": y,
-                    "x_um": x * 1e6,
-                    "y_um": y * 1e6,
-                }
-            time.sleep(poll_interval)
+                if not (math.isnan(x) or math.isnan(y)):
+                    return {
+                        "x": x,
+                        "y": y,
+                        "x_um": x * 1e6,
+                        "y_um": y * 1e6,
+                    }
+                time.sleep(poll_interval)
 
-        log.warning("get_xy: timeout after %.1fs waiting for fresh data", timeout)
-        return None
-    except Exception as e:
-        log.error("get_xy failed: %s", e)
-        return None
+            log.warning("get_xy: attempt %d/%d timed out", attempt, max_retries)
+        except Exception as e:
+            log.error("get_xy attempt %d/%d failed: %s",
+                      attempt, max_retries, e)
+
+    log.error("get_xy: all %d attempts failed", max_retries)
+    return None
 
 
-def get_jobs(client, timeout=10, poll_interval=0.01):
+def get_jobs(client, timeout=1.0, poll_interval=0.01, max_retries=3):
     """List all available jobs and their selection status.
 
     Flushes Jobs to None, fires GetJobsInformation via UpdateAsync,
-    then polls until data arrives or timeout.
+    then polls until data arrives. Retries up to *max_retries* times.
     """
-    try:
-        # Clear cached jobs before dispatch
+    for attempt in range(1, max_retries + 1):
         try:
-            client.PyApiGetJobsInformation.Model.Jobs = None
-        except Exception:
-            pass
+            try:
+                client.PyApiGetJobsInformation.Model.Jobs = None
+            except Exception:
+                pass
 
-        client.PyApiCommand.Model.Command = ""
-        client.PyApiCommand.Model.Command = "GetJobsInformation"
-        client.PyApiCommand.UpdateAsync()
+            client.PyApiCommand.Model.Command = ""
+            client.PyApiCommand.Model.Command = "GetJobsInformation"
+            client.PyApiCommand.UpdateAsync()
 
-        deadline = time.perf_counter() + timeout
-        while time.perf_counter() < deadline:
-            raw = client.PyApiGetJobsInformation.Model.Jobs
-            if raw is not None:
-                return json.loads(raw) if isinstance(raw, str) else raw
-            time.sleep(poll_interval)
+            deadline = time.perf_counter() + timeout
+            while time.perf_counter() < deadline:
+                raw = client.PyApiGetJobsInformation.Model.Jobs
+                if raw is not None:
+                    return json.loads(raw) if isinstance(raw, str) else raw
+                time.sleep(poll_interval)
 
-        log.warning("get_jobs: timeout after %.1fs", timeout)
-        return None
-    except Exception as e:
-        log.error("get_jobs failed: %s", e)
-        return None
+            log.warning("get_jobs: attempt %d/%d timed out",
+                        attempt, max_retries)
+        except Exception as e:
+            log.error("get_jobs attempt %d/%d failed: %s",
+                      attempt, max_retries, e)
+
+    log.error("get_jobs: all %d attempts failed", max_retries)
+    return None
 
 
 def get_job_by_name(client, job_name, **kwargs):
