@@ -105,6 +105,11 @@ __all__ = [
     "parse_acquisition_positions", "parse_base_grid", "parse_focus_points",
     # scanning_template_editors
     "STACK_MODES", "set_stack_calculation_mode", "verify_stack_calculation_mode",
+    # file_confirmation
+    "read_relative_path", "parse_lasx_filename", "predict_manifest",
+    "next_position_index",
+    "detect_new_files", "wait_all_stable", "validate_files",
+    "rename_and_move", "confirm_arrival", "confirm_acquisition",
 ]
 
 # ── Utilities ────────────────────────────────────────────────────────
@@ -236,6 +241,20 @@ from .scanning_template_editors import (
     STACK_MODES,
     set_stack_calculation_mode,
     verify_stack_calculation_mode,
+)
+
+# ── File confirmation ─────────────────────────────────────────────
+from .file_confirmation import (
+    read_relative_path,
+    parse_lasx_filename,
+    predict_manifest,
+    next_position_index,
+    detect_new_files,
+    wait_all_stable,
+    validate_files,
+    rename_and_move,
+    confirm_arrival,
+    confirm_acquisition,
 )
 
 # ── Logging ─────────────────────────────────────────────────────────
