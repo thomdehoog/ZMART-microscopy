@@ -71,7 +71,7 @@ __all__ = [
     # readers
     "get_scan_status", "ping", "get_job_settings", "get_hardware_info",
     "get_xy", "get_jobs", "get_job_by_name", "get_selected_job",
-    "get_lasx_settings",
+    "get_fov", "refresh_display", "get_lasx_settings",
     # ome_tiff
     "extract_wavelength_from_id",
     "check_ome_xml_bytes", "check_ome_tiff", "check_ome_xml_file",
@@ -103,8 +103,44 @@ __all__ = [
     # scanning_template_parsers
     "parse_lrp", "diff_lrp", "parse_template_positions",
     "parse_acquisition_positions", "parse_base_grid", "parse_focus_points",
-    # scanning_template_editors
+    # scanning_template_editors (core)
+    "set_line_average", "verify_line_average",
+    "set_line_accumulation", "verify_line_accumulation",
+    "set_frame_average", "verify_frame_average",
+    "set_frame_accumulation", "verify_frame_accumulation",
+    "set_scan_mode", "verify_scan_mode",
+    "SEQUENTIAL_MODES", "set_sequential_mode", "verify_sequential_mode",
+    # scanning_template_editors_focus
     "STACK_MODES", "set_stack_calculation_mode", "verify_stack_calculation_mode",
+    "set_pinhole_airy", "verify_pinhole_airy",
+    "set_autofocus_active", "verify_autofocus_active",
+    # scanning_template_editors_scan
+    "set_zoom", "verify_zoom",
+    "set_scan_speed", "verify_scan_speed",
+    "set_image_format", "verify_image_format",
+    "SCAN_DIRECTIONS", "set_scan_direction", "verify_scan_direction",
+    "set_phase_x", "verify_phase_x",
+    "set_resonant_scanner", "verify_resonant_scanner",
+    "set_bit_depth", "verify_bit_depth",
+    "set_scan_field_rotation", "verify_scan_field_rotation",
+    "set_pan", "verify_pan",
+    # scanning_template_editors_roi
+    "um",
+    "ROI_POLYGON", "ROI_RECTANGLE", "ROI_ELLIPSE", "ROI_LINE",
+    "argb_color", "COLOR_RED", "COLOR_GREEN", "COLOR_BLUE", "COLOR_YELLOW",
+    "enable_roi_scan", "verify_roi_scan",
+    "clear_rois", "add_roi",
+    "verify_roi_count", "verify_roi",
+    "make_rectangle", "make_ellipse", "make_polygon", "make_star", "make_line",
+    "find_aotf_template",
+    # scanning_template_editors_z
+    "Z_STACK_DIRECTIONS", "set_z_stack_direction", "verify_z_stack_direction",
+    "set_sections", "verify_sections",
+    "set_z_stack_active", "verify_z_stack_active",
+    "Z_USE_MODES", "set_z_use_mode", "verify_z_use_mode",
+    "set_z_position", "verify_z_position",
+    "set_z_stack_range", "verify_z_stack_range",
+    "set_z_stack_size", "verify_z_stack_size",
     # file_confirmation
     "read_relative_path", "parse_lasx_filename", "predict_manifest",
     "next_position_index",
@@ -151,6 +187,8 @@ from .readers import (
     get_jobs,
     get_job_by_name,
     get_selected_job,
+    get_fov,
+    refresh_display,
     get_lasx_settings,
 )
 
@@ -236,11 +274,94 @@ from .scanning_template_parsers import (
     parse_focus_points,
 )
 
-# ── Scanning template editors ─────────────────────────────────────
+# ── Scanning template editors (core + averaging + mode) ──────────
 from .scanning_template_editors import (
+    set_line_average,
+    verify_line_average,
+    set_line_accumulation,
+    verify_line_accumulation,
+    set_frame_average,
+    verify_frame_average,
+    set_frame_accumulation,
+    verify_frame_accumulation,
+    set_scan_mode,
+    verify_scan_mode,
+    SEQUENTIAL_MODES,
+    set_sequential_mode,
+    verify_sequential_mode,
+)
+
+# ── Focus editors (autofocus, pinhole, stack calc mode) ──────────
+from .scanning_template_editors_focus import (
     STACK_MODES,
     set_stack_calculation_mode,
     verify_stack_calculation_mode,
+    set_pinhole_airy,
+    verify_pinhole_airy,
+    set_autofocus_active,
+    verify_autofocus_active,
+)
+
+# ── Scan-field editors (zoom, speed, format, direction, etc.) ────
+from .scanning_template_editors_scan import (
+    set_zoom,
+    verify_zoom,
+    set_scan_speed,
+    verify_scan_speed,
+    set_image_format,
+    verify_image_format,
+    SCAN_DIRECTIONS,
+    set_scan_direction,
+    verify_scan_direction,
+    set_phase_x,
+    verify_phase_x,
+    set_resonant_scanner,
+    verify_resonant_scanner,
+    set_bit_depth,
+    verify_bit_depth,
+    set_scan_field_rotation,
+    verify_scan_field_rotation,
+    set_pan,
+    verify_pan,
+)
+
+# ── ROI scanning template editors ────────────────────────────────
+from .scanning_template_editors_roi import (
+    um,
+    ROI_POLYGON, ROI_RECTANGLE, ROI_ELLIPSE, ROI_LINE,
+    argb_color, COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_YELLOW,
+    enable_roi_scan,
+    verify_roi_scan,
+    clear_rois,
+    add_roi,
+    verify_roi_count,
+    verify_roi,
+    make_rectangle,
+    make_ellipse,
+    make_polygon,
+    make_star,
+    make_line,
+    find_aotf_template,
+)
+
+# ── Z-stack scanning template editors ────────────────────────────
+from .scanning_template_editors_z import (
+    Z_STACK_DIRECTIONS,
+    set_z_stack_direction,
+    verify_z_stack_direction,
+    set_sections,
+    verify_sections,
+    set_z_stack_active,
+    verify_z_stack_active,
+    Z_USE_MODES,
+    set_z_use_mode,
+    verify_z_use_mode,
+    set_z_position,
+    verify_z_position,
+    set_z_stack_range,
+    verify_z_stack_range,
+    set_z_stack_size,
+    verify_z_stack_size,
 )
 
 # ── File confirmation ─────────────────────────────────────────────

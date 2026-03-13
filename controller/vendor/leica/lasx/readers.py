@@ -25,7 +25,7 @@ XML configuration file directly from disk (no API round-trip).
 These functions do NOT modify microscope state.
 
 Dependency direction:
-    - Imports: stdlib only (json, logging, os, time, xml).
+    - Imports: utils (parse_tile_geometry), stdlib (json, logging, os, time, xml).
     - Imported by: ``prechecks`` (scan status polling), ``confirmations``
       (readback via ``get_job_settings`` and ``get_xy``),
       ``commands`` (early-exit checks, post-processing readbacks),
@@ -39,7 +39,7 @@ import os
 import time
 import xml.etree.ElementTree as ET
 
-from .utils import RECEIPT_TIMEOUT
+from .utils import RECEIPT_TIMEOUT, parse_tile_geometry
 
 log = logging.getLogger(__name__)
 
@@ -275,6 +275,110 @@ def get_selected_job(client, **kwargs):
             if j.get("IsSelected"):
                 return j
     return None
+
+
+def get_fov(client, job_name, **kwargs):
+    """Return the scan field size for a job in metres.
+
+    Queries ``get_job_settings`` and parses ``imageSize``.
+
+    Args:
+        client: Live LAS X CAM client.
+        job_name: Job name to query.
+        **kwargs: Forwarded to ``get_job_settings``.
+
+    Returns:
+        ``(width_m, height_m)`` tuple, or ``None`` on failure.
+    """
+    settings = get_job_settings(client, job_name, **kwargs)
+    if not settings:
+        log.error("get_fov: no settings for job '%s'", job_name)
+        return None
+    try:
+        geo = parse_tile_geometry(settings)
+        return (geo["tile_w_um"] * 1e-6, geo["tile_h_um"] * 1e-6)
+    except (ValueError, KeyError) as e:
+        log.error("get_fov: cannot parse FOV for '%s': %s", job_name, e)
+        return None
+
+
+def refresh_display(client, job_name=None):
+    """Force a GUI refresh by triggering and immediately stopping a scan.
+
+    LAS X only re-renders the ROI overlay when a scan starts.  This
+    temporarily closes all laser shutters (cross-product of every
+    setting index × every beam route), fires ``AcquireSingleImage``,
+    stops immediately, then reopens the shutters — so no light reaches
+    the sample.
+
+    Args:
+        client: Live LAS X CAM client.
+        job_name: Job whose lasers to zero (default: currently selected).
+    """
+    # Resolve job name
+    if job_name is None:
+        selected = get_selected_job(client)
+        if selected:
+            job_name = selected.get("Name")
+    if not job_name:
+        log.warning("refresh_display: no job name, skipping laser safety")
+        return
+
+    # Discover all beam routes and setting indices.
+    # get_job_settings may deduplicate shared lasers across sequential
+    # settings, so we take the cross-product: close every beam route in
+    # every setting to guarantee nothing fires.
+    settings = get_job_settings(client, job_name)
+    beam_routes = set()
+    setting_indices = set()
+    if settings:
+        for setting in settings.get("activeSettings", []):
+            setting_indices.add(setting.get("index", 0))
+            for ll in setting.get("activeLaserLines", []):
+                beam_routes.add(ll["beamRoute"])
+    if not setting_indices:
+        setting_indices = {0}
+
+    shutters = [(si, br) for si in sorted(setting_indices)
+                for br in sorted(beam_routes)]
+
+    shutter_api = client.PyApiSetLaserShutterByJobName
+
+    # Close all shutters
+    for si, br in shutters:
+        try:
+            shutter_api.Model.JobName = job_name
+            shutter_api.Model.SettingIndex = si
+            shutter_api.Model.BeamRoute = br
+            shutter_api.Model.Activate = False
+            shutter_api.UpdateAwaitReceipt(RECEIPT_TIMEOUT)
+        except Exception as e:
+            log.warning("refresh_display: close shutter [%d][%s] failed: %s",
+                        si, br, e)
+
+    # Quick scan + stop
+    try:
+        client.PyApiAcquireSingleImage.Model.NotifyClient = 1
+        client.PyApiAcquireSingleImage.UpdateAsync()
+        client.PyApiStopScan.Model.NotifyClient = 1
+        client.PyApiStopScan.UpdateAsync()
+    except Exception as e:
+        log.warning("refresh_display: scan trigger failed: %s", e)
+
+    # Reopen all shutters (async — fire and forget)
+    for si, br in shutters:
+        try:
+            shutter_api.Model.JobName = job_name
+            shutter_api.Model.SettingIndex = si
+            shutter_api.Model.BeamRoute = br
+            shutter_api.Model.Activate = True
+            shutter_api.UpdateAsync()
+        except Exception as e:
+            log.warning("refresh_display: open shutter [%d][%s] failed: %s",
+                        si, br, e)
+
+    log.info("refresh_display: done (%d shutters closed/reopened)",
+             len(shutters))
 
 
 # =============================================================================

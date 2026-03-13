@@ -751,7 +751,35 @@ def _parse_setting(setting_el):
     if roi is not None:
         roi_singles = []
         for rs in roi.findall(".//ROISingle"):
-            roi_singles.append(dict(rs.attrib))
+            rd = dict(rs.attrib)
+            vertices = []
+            verts_el = rs.find("Vertices")
+            if verts_el is not None:
+                # LAS X uses <P> elements; accept <Item> for compat
+                for v in verts_el:
+                    vd = {}
+                    vx = _to_float(v.get("X"))
+                    vy = _to_float(v.get("Y"))
+                    if vx is not None:
+                        vd["X"] = vx
+                    if vy is not None:
+                        vd["Y"] = vy
+                    if vd:
+                        vertices.append(vd)
+            if vertices:
+                rd["_Vertices"] = vertices
+            transform = rs.find("Transformation")
+            if transform is not None:
+                td = dict(transform.attrib)
+                scaling = transform.find("Scaling")
+                if scaling is not None:
+                    td.update(dict(scaling.attrib))
+                translation = transform.find("Translation")
+                if translation is not None:
+                    td["TranslationX"] = translation.get("X", "0")
+                    td["TranslationY"] = translation.get("Y", "0")
+                rd["_Transformation"] = td
+            roi_singles.append(rd)
         if roi_singles:
             result["_ROIs"] = roi_singles
 

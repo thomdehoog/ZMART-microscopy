@@ -1,30 +1,21 @@
 """
-Scanning template editors.
-===========================
-Functions that modify specific attributes in LAS X scanning template
-LRP files.  Each editor operates on raw file text (string replacement)
-to preserve the original single-line XML format exactly.
+Scanning template editors — core helpers and basic settings.
+==============================================================
+Shared helpers (``_set_job_attr``, ``_verify_job_attr``, etc.) used by
+all editor modules, plus editors for line/frame averaging, scan mode,
+and sequential mode.
 
-Editors are designed to plug into ``scanning_templates.apply_lrp_change``
-as the ``lrp_edit_fn`` argument.  Each editor has a corresponding
-``verify_*`` function for the ``verify_fn`` argument.
-
-Pattern::
-
-    from lasx.scanning_templates import apply_lrp_change, TEMPLATE_XML
-    from lasx.scanning_template_editors import (
-        set_stack_calculation_mode, verify_stack_calculation_mode,
-    )
-
-    apply_lrp_change(
-        client, TEMPLATE_XML,
-        set_stack_calculation_mode, mode, job_name,
-        verify_fn=lambda p: verify_stack_calculation_mode(p, mode, job_name),
-    )
+Sub-modules:
+    - ``scanning_template_editors_focus`` — autofocus, pinhole,
+      stack calculation mode.
+    - ``scanning_template_editors_scan`` — zoom, scan speed, image
+      format, scan direction, phase, resonant, bit depth, rotation.
+    - ``scanning_template_editors_z`` — z-stack direction, sections,
+      z-stack active, z-use mode, z-position, z-stack range/size.
 
 Dependency direction:
     - Imports: stdlib only.
-    - Imported by: ``__init__`` (re-export).
+    - Imported by: sub-modules above, ``__init__`` (re-export).
 """
 
 import logging
@@ -36,110 +27,324 @@ log = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Z-stack calculation mode
+# Generic job-block attribute helpers
 # =============================================================================
 
-STACK_MODES = {
-    0: "Constant steps",
-    1: "Constant step size",
-    2: "System optimized step size",
-}
-
-
-def set_stack_calculation_mode(lrp_path, mode, job_name):
-    """Set the Z-stack calculation mode for a specific job.
-
-    Uses string replacement on the ``ATLConfocalSettingDefinition``
-    inside ``LDM_Block_Sequential_Master`` (the authoritative element).
+def _set_job_attr(lrp_path, attr_name, value_str, job_name, caller):
+    """Replace *attr_name* on every ATLConfocalSettingDefinition in a job.
 
     Args:
         lrp_path: Path to the ``.lrp`` file.
-        mode: Target mode — ``0`` (Constant steps),
-            ``1`` (Constant step size), or
-            ``2`` (System optimized step size).
-        job_name: Name of the job to modify (e.g. ``"AF Job"``).
+        attr_name: XML attribute name (e.g. ``"LineAverage"``).
+        value_str: Target value as string.
+        job_name: Name of the job to modify.
+        caller: Caller name for log messages.
 
     Returns:
-        Number of attributes changed (0, 1, or 2).
+        Number of attributes changed.
     """
-    if mode not in STACK_MODES:
-        log.error("set_stack_calculation_mode: invalid mode %r "
-                  "(expected 0, 1, or 2)", mode)
-        return 0
-
     lrp_path = Path(lrp_path)
     text = lrp_path.read_text(encoding="utf-8")
 
     marker = f'BlockName="{job_name}"'
     job_pos = text.find(marker)
     if job_pos == -1:
-        log.error("set_stack_calculation_mode: job '%s' not found", job_name)
+        log.error("%s: job '%s' not found", caller, job_name)
         return 0
 
-    master_tag = "LDM_Block_Sequential_Master"
-    master_pos = text.find(master_tag, job_pos)
-    if master_pos == -1:
-        log.error("set_stack_calculation_mode: no Sequential_Master "
-                  "found for job '%s'", job_name)
-        return 0
+    next_block = text.find("<LDM_Block_Sequence_Block", job_pos + 1)
+    block_end = next_block if next_block != -1 else len(text)
 
-    setting_tag = "ATLConfocalSettingDefinition"
-    setting_pos = text.find(setting_tag, master_pos)
-    if setting_pos == -1:
-        log.error("set_stack_calculation_mode: no setting found in "
-                  "Sequential_Master for job '%s'", job_name)
-        return 0
-
-    end_pos = text.find(">", setting_pos)
-    if end_pos == -1:
-        return 0
-
-    element_text = text[setting_pos:end_pos + 1]
-    new_element = element_text
     count = 0
+    setting_tag = "ATLConfocalSettingDefinition"
+    pattern = re.compile(rf'{attr_name}="([^"]*)"')
+    search_pos = job_pos
 
-    m = re.search(r'StackCalculationMode="(\d+)"', new_element)
-    if m and m.group(1) != str(mode):
-        new_element = new_element.replace(
-            m.group(0), f'StackCalculationMode="{mode}"')
-        count += 1
+    while search_pos < block_end:
+        setting_pos = text.find(setting_tag, search_pos)
+        if setting_pos == -1 or setting_pos >= block_end:
+            break
 
-    target_name = STACK_MODES[mode]
-    m = re.search(r'StackCalculationModeName="([^"]*)"', new_element)
-    if m and m.group(1) != target_name:
-        new_element = new_element.replace(
-            m.group(0), f'StackCalculationModeName="{target_name}"')
-        count += 1
+        end_pos = text.find(">", setting_pos)
+        if end_pos == -1:
+            break
+
+        element_text = text[setting_pos:end_pos + 1]
+        m = pattern.search(element_text)
+        if m and m.group(1) != value_str:
+            new_element = element_text.replace(
+                m.group(0), f'{attr_name}="{value_str}"')
+            text = text[:setting_pos] + new_element + text[end_pos + 1:]
+            block_end += len(new_element) - len(element_text)
+            end_pos += len(new_element) - len(element_text)
+            count += 1
+
+        search_pos = end_pos + 1
 
     if count > 0:
-        text = text[:setting_pos] + new_element + text[end_pos + 1:]
         lrp_path.write_text(text, encoding="utf-8")
 
-    log.info("set_stack_calculation_mode: job='%s', mode=%d (%s), "
-             "%d attributes changed", job_name, mode, STACK_MODES[mode],
-             count)
+    log.info("%s: job='%s', value=%s, %d attributes changed",
+             caller, job_name, value_str, count)
     return count
 
 
-def verify_stack_calculation_mode(lrp_path, mode, job_name):
-    """Verify the Z-stack calculation mode on the Master element.
+def _verify_job_attr(lrp_path, attr_name, value_str, job_name):
+    """Verify *attr_name* on all settings in a job (exact match).
 
-    Args:
-        lrp_path: Path to the ``.lrp`` file.
-        mode: Expected mode (0, 1, or 2).
-        job_name: Name of the job to verify.
-
-    Returns:
-        True if ``StackCalculationMode`` matches the expected value.
+    Returns True if every ``ATLConfocalSettingDefinition`` that has
+    the attribute matches *value_str*.
     """
     lrp_path = Path(lrp_path)
     root = ET.parse(lrp_path).getroot()
     for b in root.findall(".//LDM_Block_Sequence_Block"):
         seq = b.find(".//LDM_Block_Sequential")
         if seq is not None and seq.get("BlockName") == job_name:
-            el = b.find(".//LDM_Block_Sequential_Master/"
-                        "ATLConfocalSettingDefinition")
-            if el is None:
-                return False
-            return el.get("StackCalculationMode") == str(mode)
+            for el in b.findall(".//ATLConfocalSettingDefinition"):
+                raw = el.get(attr_name)
+                if raw is None:
+                    continue
+                if raw != value_str:
+                    return False
+            return True
+    return False
+
+
+def _verify_job_attr_float(lrp_path, attr_name, value, job_name, tolerance):
+    """Like ``_verify_job_attr`` but with float tolerance."""
+    lrp_path = Path(lrp_path)
+    root = ET.parse(lrp_path).getroot()
+    for b in root.findall(".//LDM_Block_Sequence_Block"):
+        seq = b.find(".//LDM_Block_Sequential")
+        if seq is not None and seq.get("BlockName") == job_name:
+            for el in b.findall(".//ATLConfocalSettingDefinition"):
+                raw = el.get(attr_name)
+                if raw is None:
+                    continue
+                try:
+                    if abs(float(raw) - value) > tolerance:
+                        return False
+                except (ValueError, TypeError):
+                    return False
+            return True
+    return False
+
+
+# =============================================================================
+# Line average / Line accumulation / Frame average / Frame accumulation
+# =============================================================================
+
+def set_line_average(lrp_path, value, job_name):
+    """Set LineAverage on all settings in a job.
+
+    Timing attributes are left unchanged — LAS X recalculates on load.
+
+    Args:
+        lrp_path: Path to the ``.lrp`` file.
+        value: Target line average count (int, >= 1).
+        job_name: Name of the job to modify.
+
+    Returns:
+        Number of attributes changed.
+    """
+    return _set_job_attr(lrp_path, "LineAverage", str(int(value)), job_name,
+                         "set_line_average")
+
+
+def verify_line_average(lrp_path, value, job_name):
+    """Verify LineAverage for a job (exact match)."""
+    return _verify_job_attr(lrp_path, "LineAverage", str(int(value)),
+                            job_name)
+
+
+def set_line_accumulation(lrp_path, value, job_name):
+    """Set Line_Accumulation on all settings in a job.
+
+    Note: LAS X uses ``Line_Accumulation`` (with underscore) in the
+    LRP, unlike the other averaging attributes.
+
+    Args:
+        lrp_path: Path to the ``.lrp`` file.
+        value: Target line accumulation count (int, >= 1).
+        job_name: Name of the job to modify.
+
+    Returns:
+        Number of attributes changed.
+    """
+    return _set_job_attr(lrp_path, "Line_Accumulation", str(int(value)),
+                         job_name, "set_line_accumulation")
+
+
+def verify_line_accumulation(lrp_path, value, job_name):
+    """Verify Line_Accumulation for a job (exact match)."""
+    return _verify_job_attr(lrp_path, "Line_Accumulation", str(int(value)),
+                            job_name)
+
+
+def set_frame_average(lrp_path, value, job_name):
+    """Set FrameAverage on all settings in a job.
+
+    Args:
+        lrp_path: Path to the ``.lrp`` file.
+        value: Target frame average count (int, >= 1).
+        job_name: Name of the job to modify.
+
+    Returns:
+        Number of attributes changed.
+    """
+    return _set_job_attr(lrp_path, "FrameAverage", str(int(value)), job_name,
+                         "set_frame_average")
+
+
+def verify_frame_average(lrp_path, value, job_name):
+    """Verify FrameAverage for a job (exact match)."""
+    return _verify_job_attr(lrp_path, "FrameAverage", str(int(value)),
+                            job_name)
+
+
+def set_frame_accumulation(lrp_path, value, job_name):
+    """Set FrameAccumulation on all settings in a job.
+
+    Args:
+        lrp_path: Path to the ``.lrp`` file.
+        value: Target frame accumulation count (int, >= 1).
+        job_name: Name of the job to modify.
+
+    Returns:
+        Number of attributes changed.
+    """
+    return _set_job_attr(lrp_path, "FrameAccumulation", str(int(value)),
+                         job_name, "set_frame_accumulation")
+
+
+def verify_frame_accumulation(lrp_path, value, job_name):
+    """Verify FrameAccumulation for a job (exact match)."""
+    return _verify_job_attr(lrp_path, "FrameAccumulation", str(int(value)),
+                            job_name)
+
+
+# =============================================================================
+# Scan mode (xyz, xzy, xyzt, ...)
+# =============================================================================
+
+def set_scan_mode(lrp_path, mode, job_name):
+    """Set ScanMode on all settings in a job.
+
+    Args:
+        lrp_path: Path to the ``.lrp`` file.
+        mode: Target scan mode string (e.g. ``"xyz"``, ``"xzy"``,
+            ``"xyzt"``).
+        job_name: Name of the job to modify.
+
+    Returns:
+        Number of attributes changed.
+    """
+    return _set_job_attr(lrp_path, "ScanMode", str(mode), job_name,
+                         "set_scan_mode")
+
+
+def verify_scan_mode(lrp_path, mode, job_name):
+    """Verify ScanMode for a job (exact match)."""
+    return _verify_job_attr(lrp_path, "ScanMode", str(mode), job_name)
+
+
+# =============================================================================
+# Sequential mode (on LDM_Block_Sequential, not ATLConfocalSettingDefinition)
+# =============================================================================
+
+SEQUENTIAL_MODES = {
+    0: "Line",
+    1: "Frame",
+    2: "Stack",
+}
+
+
+def _set_sequential_attr(lrp_path, attr_name, value_str, job_name, caller):
+    """Replace *attr_name* on the ``LDM_Block_Sequential`` element for a job.
+
+    Unlike ``_set_job_attr`` (which targets ``ATLConfocalSettingDefinition``),
+    this targets the ``LDM_Block_Sequential`` element itself.
+    """
+    lrp_path = Path(lrp_path)
+    text = lrp_path.read_text(encoding="utf-8")
+
+    marker = f'BlockName="{job_name}"'
+    job_pos = text.find(marker)
+    if job_pos == -1:
+        log.error("%s: job '%s' not found", caller, job_name)
+        return 0
+
+    # Find the LDM_Block_Sequential element that contains this BlockName.
+    # Walk backwards from job_pos to find the opening tag.
+    seq_tag = "LDM_Block_Sequential"
+    # Search backwards for the tag start
+    search_start = text.rfind(seq_tag, 0, job_pos)
+    if search_start == -1:
+        log.error("%s: no LDM_Block_Sequential found for job '%s'",
+                  caller, job_name)
+        return 0
+
+    end_pos = text.find(">", search_start)
+    if end_pos == -1:
+        return 0
+
+    element_text = text[search_start:end_pos + 1]
+    pattern = re.compile(rf'{attr_name}="([^"]*)"')
+    m = pattern.search(element_text)
+    if not m or m.group(1) == value_str:
+        log.info("%s: job='%s', no change needed", caller, job_name)
+        return 0
+
+    new_element = element_text.replace(
+        m.group(0), f'{attr_name}="{value_str}"')
+    text = text[:search_start] + new_element + text[end_pos + 1:]
+    lrp_path.write_text(text, encoding="utf-8")
+
+    log.info("%s: job='%s', %s -> %s", caller, job_name, attr_name, value_str)
+    return 1
+
+
+def set_sequential_mode(lrp_path, mode, job_name):
+    """Set SequentialMode on the LDM_Block_Sequential element for a job.
+
+    Args:
+        lrp_path: Path to the ``.lrp`` file.
+        mode: Target mode — ``0`` (Line), ``1`` (Frame), or ``2`` (Stack).
+            Also accepts string names: ``"Line"``, ``"Frame"``, ``"Stack"``.
+        job_name: Name of the job to modify.
+
+    Returns:
+        Number of attributes changed (0 or 1).
+    """
+    if isinstance(mode, str):
+        reverse = {v: k for k, v in SEQUENTIAL_MODES.items()}
+        mode = reverse.get(mode)
+        if mode is None:
+            log.error("set_sequential_mode: invalid mode string "
+                      "(expected 'Line', 'Frame', or 'Stack')")
+            return 0
+    mode = int(mode)
+    if mode not in SEQUENTIAL_MODES:
+        log.error("set_sequential_mode: invalid mode %r "
+                  "(expected 0, 1, or 2)", mode)
+        return 0
+    return _set_sequential_attr(lrp_path, "SequentialMode", str(mode),
+                                job_name, "set_sequential_mode")
+
+
+def verify_sequential_mode(lrp_path, mode, job_name):
+    """Verify SequentialMode for a job (exact match).
+
+    Reads the ``LDM_Block_Sequential`` element's ``SequentialMode``
+    attribute.
+    """
+    if isinstance(mode, str):
+        reverse = {v: k for k, v in SEQUENTIAL_MODES.items()}
+        mode = reverse.get(mode, mode)
+    lrp_path = Path(lrp_path)
+    root = ET.parse(lrp_path).getroot()
+    for b in root.findall(".//LDM_Block_Sequence_Block"):
+        seq = b.find(".//LDM_Block_Sequential")
+        if seq is not None and seq.get("BlockName") == job_name:
+            return seq.get("SequentialMode") == str(int(mode))
     return False

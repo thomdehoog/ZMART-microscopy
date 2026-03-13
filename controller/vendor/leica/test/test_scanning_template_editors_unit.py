@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lasx.scanning_template_editors import (
+from lasx.scanning_template_editors_focus import (
     STACK_MODES,
     set_stack_calculation_mode,
     verify_stack_calculation_mode,
