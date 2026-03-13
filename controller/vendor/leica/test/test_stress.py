@@ -6,10 +6,10 @@ values. Designed to surface race conditions, state corruption, and
 timing issues under rapid unstructured load.
 
 Usage:
-    python test_stress.py
-    python test_stress.py --rounds 200
-    python test_stress.py --job HiRes --rounds 100 --skip-move --skip-objective
-    python test_stress.py --seed 12345    # replay a specific run
+    python test_stress.py                          # default: 50 rounds x 3 cycles
+    python test_stress.py --rounds 100 --cycles 5
+    python test_stress.py --job HiRes --skip-move --skip-objective
+    python test_stress.py --seed 12345             # replay a specific run
 """
 
 import argparse
@@ -23,8 +23,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 parser = argparse.ArgumentParser(description="Stress Test — Random Setting Barrage")
 parser.add_argument("--job", default=None)
-parser.add_argument("--rounds", type=int, default=150,
-                    help="Number of random commands to fire (default: 150)")
+parser.add_argument("--rounds", type=int, default=50,
+                    help="Number of random commands to fire per cycle (default: 50)")
+parser.add_argument("--cycles", type=int, default=3,
+                    help="Number of cycles to run (default: 3)")
 parser.add_argument("--skip-move", action="store_true",
                     help="Skip stage and z movement commands")
 parser.add_argument("--skip-objective", action="store_true",
@@ -69,7 +71,7 @@ orig = drv.make_changeable_copy(settings)
 
 print(f"Job: {JOB}")
 print(f"Objectives: {[o['name'].strip() for o in hw['Microscope']['objectives']]}")
-print(f"Rounds: {args.rounds}")
+print(f"Rounds: {args.rounds} x {args.cycles} cycles = {args.rounds * args.cycles}")
 print(f"Seed: {args.seed}")
 print()
 
@@ -88,8 +90,6 @@ ORIG_FA = si["frameAccumulation"]
 ORIG_FAVG = si["frameAverage"]
 ORIG_LA = si["lineAccumulation"]
 ORIG_LAVG = si["lineAverage"]
-ORIG_PINHOLE = si.get("pinholeAiry", {}).get("value", 1.0)
-
 ORIG_DETECTORS = {}
 for d in si.get("activeDetectors", []):
     br = d.get("_beamRoute", "")
@@ -128,7 +128,6 @@ FORMATS = ["128 x 128", "256 x 256", "512 x 512", "1024 x 1024"]
 MODES = ["xyz"]
 FA_VALID = [1, 2, 3, 4, 6, 8]
 LAVG_VALID = [1, 2, 4, 8]
-PINHOLES = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0]
 ROTATIONS = [0.0, 5.0, 10.0, 15.0, 30.0, 45.0, 90.0]
 
 
@@ -167,9 +166,7 @@ def make_commands():
         client, JOB, 0, random.randint(1, 4))))
     cmds.append(("line_avg", lambda: drv.set_line_average(
         client, JOB, 0, random.choice(LAVG_VALID))))
-    cmds.append(("pinhole", lambda: drv.set_pinhole_airy(
-        client, JOB, 0, random.choice(PINHOLES))))
-
+    # Pinhole — removed: valid AU range is objective-dependent
     # Detectors — skipped (gain readback unreliable during laser stabilization)
     # for br in ORIG_DETECTORS:
     #     cmds.append((f"gain[{br}]", lambda _br=br: drv.set_detector_gain(
@@ -194,8 +191,8 @@ def make_commands():
     if not args.skip_move:
         cmds.append(("move_xy", lambda: drv.move_xy(
             client,
-            random.uniform(32322, 93979),
-            random.uniform(31176, 51986),
+            random.randint(32322, 93979),
+            random.randint(31176, 51986),
             unit="um")))
         cmds.append(("move_z", lambda: drv.move_z(
             client, JOB, random.uniform(-10.0, 10.0),
@@ -213,41 +210,47 @@ print()
 
 results = []  # (round, name, success, elapsed, message)
 t_start = time.perf_counter()
+total_rounds = args.rounds * args.cycles
+round_num = 0
 
-for i in range(1, args.rounds + 1):
-    name, fn = random.choice(commands)
-    t0 = time.perf_counter()
-    try:
-        r = fn()
-        elapsed = time.perf_counter() - t0
-        ok = r.get("success", False) if isinstance(r, dict) else bool(r)
-        msg = "" if ok else r.get("message", "unknown")[:80] if isinstance(r, dict) else ""
-        confirmed = r.get("confirmed", None) if isinstance(r, dict) else None
-    except Exception as e:
-        elapsed = time.perf_counter() - t0
-        ok = False
-        msg = f"EXCEPTION: {e}"
-        confirmed = None
+for cycle in range(1, args.cycles + 1):
+    if args.cycles > 1:
+        print(f"  -- Cycle {cycle}/{args.cycles} --")
+    for i in range(1, args.rounds + 1):
+        round_num += 1
+        name, fn = random.choice(commands)
+        t0 = time.perf_counter()
+        try:
+            r = fn()
+            elapsed = time.perf_counter() - t0
+            ok = r.get("success", False) if isinstance(r, dict) else bool(r)
+            msg = "" if ok else r.get("message", "unknown")[:80] if isinstance(r, dict) else ""
+            confirmed = r.get("confirmed", None) if isinstance(r, dict) else None
+        except Exception as e:
+            elapsed = time.perf_counter() - t0
+            ok = False
+            msg = f"EXCEPTION: {e}"
+            confirmed = None
 
-    status = "\033[32mOK\033[0m" if ok else "\033[31mFAIL\033[0m"
-    conf_tag = ""
-    if confirmed is False:
-        conf_tag = " \033[33m[UNCONFIRMED]\033[0m"
-    # Show timing breakdown for slow commands (>3s)
-    timing_tag = ""
-    if isinstance(r, dict) and elapsed > 3.0:
-        t = r.get("timing", {})
-        parts = []
-        for k in ("pre_check_s", "setup_s", "fire_s", "check_s", "confirm_s"):
-            v = t.get(k)
-            if v is not None and v > 0.01:
-                parts.append(f"{k.replace('_s','')}={v:.1f}s")
-        if parts:
-            timing_tag = f"  [{', '.join(parts)}]"
-    print(f"  [{i:4d}/{args.rounds}] {status} {name:20s} {elapsed:.3f}s{conf_tag}"
-          f"{timing_tag}{'  ' + msg if msg else ''}")
+        status = "\033[32mOK\033[0m" if ok else "\033[31mFAIL\033[0m"
+        conf_tag = ""
+        if confirmed is False:
+            conf_tag = " \033[33m[UNCONFIRMED]\033[0m"
+        # Show timing breakdown for slow commands (>3s)
+        timing_tag = ""
+        if isinstance(r, dict) and elapsed > 3.0:
+            t = r.get("timing", {})
+            parts = []
+            for k in ("pre_check_s", "setup_s", "fire_s", "check_s", "confirm_s"):
+                v = t.get(k)
+                if v is not None and v > 0.01:
+                    parts.append(f"{k.replace('_s','')}={v:.1f}s")
+            if parts:
+                timing_tag = f"  [{', '.join(parts)}]"
+        print(f"  [{round_num:4d}/{total_rounds}] {status} {name:20s} {elapsed:.3f}s{conf_tag}"
+              f"{timing_tag}{'  ' + msg if msg else ''}")
 
-    results.append((i, name, ok, elapsed, msg, confirmed))
+        results.append((round_num, name, ok, elapsed, msg, confirmed))
 
 t_total = time.perf_counter() - t_start
 
@@ -286,8 +289,6 @@ safe_restore("frame_acc", lambda: drv.set_frame_accumulation(client, JOB, 0, ORI
 safe_restore("frame_avg", lambda: drv.set_frame_average(client, JOB, 0, ORIG_FAVG))
 safe_restore("line_acc", lambda: drv.set_line_accumulation(client, JOB, 0, ORIG_LA))
 safe_restore("line_avg", lambda: drv.set_line_average(client, JOB, 0, ORIG_LAVG))
-safe_restore("pinhole", lambda: drv.set_pinhole_airy(client, JOB, 0, ORIG_PINHOLE))
-
 # for br, gain in ORIG_DETECTORS.items():
 #     safe_restore(f"gain[{br}]", lambda _br=br, _g=gain:
 #         drv.set_detector_gain(client, JOB, 0, _br, _g))
@@ -310,7 +311,7 @@ times = [e for _, _, ok, e, _, _ in results if ok]
 print(f"\n{'='*60}")
 print(f"  STRESS TEST SUMMARY")
 print(f"{'='*60}")
-print(f"  Rounds:       {args.rounds}")
+print(f"  Rounds:       {total_rounds} ({args.rounds} x {args.cycles})")
 print(f"  Passed:       \033[32m{passed}\033[0m")
 print(f"  Failed:       \033[31m{failed}\033[0m")
 print(f"  Unconfirmed:  \033[33m{unconfirmed}\033[0m")
