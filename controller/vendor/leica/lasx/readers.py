@@ -10,12 +10,14 @@ Most queries follow a **flush-fire-poll** pattern:
     1. Flush the data model to a sentinel (None or NaN) so fresh data
        can be detected.
     2. Write the command name to ``PyApiCommand.Model.Command``.
-    3. Fire via ``PyApiCommand.UpdateAsync()`` (no receipt wait).
+    3. Fire via ``PyApiCommand.UpdateAwaitReceipt()`` to ensure the
+       command is accepted before polling.
     4. Poll the dedicated data-object model until it transitions from
        the sentinel to a real value, or timeout.
 
-This avoids the slow ``UpdateAwaitReceipt`` round-trip. The polling
-loop is the authoritative signal for data arrival.
+Using ``UpdateAwaitReceipt`` on ``PyApiCommand`` is cheap (1-4 ms) and
+prevents commands from being silently dropped when dispatched in rapid
+succession (e.g. during ``confirm_move_xy``).
 
 ``get_lasx_settings`` is the exception — it reads the Navigator Expert
 XML configuration file directly from disk (no API round-trip).
@@ -83,9 +85,9 @@ def get_job_settings(client, job_name, timeout=1.0, poll_interval=0.01,
                      max_retries=3):
     """Read full job settings JSON from LAS X.
 
-    Flushes Settings to None, fires GetJobSettingsByName via UpdateAsync,
-    then polls until data arrives. Retries the full flush→fire→poll cycle
-    up to *max_retries* times.
+    Flushes Settings to None, fires GetJobSettingsByName via
+    UpdateAwaitReceipt, then polls until data arrives. Retries the full
+    flush→fire→poll cycle up to *max_retries* times.
     """
     for attempt in range(1, max_retries + 1):
         try:
@@ -94,7 +96,10 @@ def get_job_settings(client, job_name, timeout=1.0, poll_interval=0.01,
 
             client.PyApiCommand.Model.Command = ""
             client.PyApiCommand.Model.Command = "GetJobSettingsByName"
-            client.PyApiCommand.UpdateAsync()
+            if not client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
+                log.warning("get_job_settings: attempt %d/%d receipt failed "
+                            "for '%s'", attempt, max_retries, job_name)
+                continue
 
             deadline = time.perf_counter() + timeout
             while time.perf_counter() < deadline:
@@ -118,8 +123,9 @@ def get_hardware_info(client, timeout=1.0, poll_interval=0.01,
                       max_retries=3):
     """Read confocal hardware info from LAS X.
 
-    Flushes HWInfo to None, fires GetConfocalHardwareInfo via UpdateAsync,
-    then polls until data arrives. Retries up to *max_retries* times.
+    Flushes HWInfo to None, fires GetConfocalHardwareInfo via
+    UpdateAwaitReceipt, then polls until data arrives. Retries up to
+    *max_retries* times.
     """
     for attempt in range(1, max_retries + 1):
         try:
@@ -130,7 +136,10 @@ def get_hardware_info(client, timeout=1.0, poll_interval=0.01,
 
             client.PyApiCommand.Model.Command = ""
             client.PyApiCommand.Model.Command = "GetConfocalHardwareInfo"
-            client.PyApiCommand.UpdateAsync()
+            if not client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
+                log.warning("get_hardware_info: attempt %d/%d receipt failed",
+                            attempt, max_retries)
+                continue
 
             deadline = time.perf_counter() + timeout
             while time.perf_counter() < deadline:
@@ -149,11 +158,12 @@ def get_hardware_info(client, timeout=1.0, poll_interval=0.01,
     return None
 
 
-def get_xy(client, timeout=1.0, poll_interval=0.1, max_retries=3):
+def get_xy(client, timeout=1.0, poll_interval=0.01, max_retries=3):
     """Read current XY stage position.
 
-    Flushes the model to NaN, fires GetXY via UpdateAsync, then polls
-    until fresh (non-NaN) data arrives. Retries up to *max_retries* times.
+    Flushes the model to NaN, fires GetXY via UpdateAwaitReceipt, then
+    polls until fresh (non-NaN) data arrives. Retries up to
+    *max_retries* times.
 
     Returns:
         dict with x/y in meters and microns, or None on failure.
@@ -165,7 +175,10 @@ def get_xy(client, timeout=1.0, poll_interval=0.1, max_retries=3):
 
             client.PyApiCommand.Model.Command = ""
             client.PyApiCommand.Model.Command = "GetXY"
-            client.PyApiCommand.UpdateAsync()
+            if not client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
+                log.warning("get_xy: attempt %d/%d receipt failed",
+                            attempt, max_retries)
+                continue
 
             deadline = time.perf_counter() + timeout
             while time.perf_counter() < deadline:
@@ -194,8 +207,9 @@ def get_xy(client, timeout=1.0, poll_interval=0.1, max_retries=3):
 def get_jobs(client, timeout=1.0, poll_interval=0.01, max_retries=3):
     """List all available jobs and their selection status.
 
-    Flushes Jobs to None, fires GetJobsInformation via UpdateAsync,
-    then polls until data arrives. Retries up to *max_retries* times.
+    Flushes Jobs to None, fires GetJobsInformation via
+    UpdateAwaitReceipt, then polls until data arrives. Retries up to
+    *max_retries* times.
     """
     for attempt in range(1, max_retries + 1):
         try:
@@ -206,7 +220,10 @@ def get_jobs(client, timeout=1.0, poll_interval=0.01, max_retries=3):
 
             client.PyApiCommand.Model.Command = ""
             client.PyApiCommand.Model.Command = "GetJobsInformation"
-            client.PyApiCommand.UpdateAsync()
+            if not client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
+                log.warning("get_jobs: attempt %d/%d receipt failed",
+                            attempt, max_retries)
+                continue
 
             deadline = time.perf_counter() + timeout
             while time.perf_counter() < deadline:
