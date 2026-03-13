@@ -883,12 +883,14 @@ def move_z(client, job_name, z, unit="um", z_mode="galvo", *,
 
 def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
             heartbeat_interval=30.0, start_timeout=15.0,
-            pre_check_timeout=None):
+            max_start_retries=3, pre_check_timeout=None):
     """Trigger acquisition and block until scan completes.
 
     Routes through the backbone for consistent idle-wait, retry, and
-    timing instrumentation. The completion logic (saw_scanning,
-    start_timeout) lives in ``confirm_acquire``.
+    timing instrumentation. ``confirm_acquire`` is a pure status-polling
+    function; if the scan doesn't start within *start_timeout*, it
+    returns failure and the backbone re-fires (up to *max_start_retries*
+    times via ``max_confirm_attempts``).
 
     Args:
         client: LAS X API client.
@@ -898,7 +900,9 @@ def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
             for no timeout (wait indefinitely).
         heartbeat_interval: Log interval during long scans (seconds).
         start_timeout: Seconds to wait for scan to start before
-            returning failure.
+            the backbone re-fires.
+        max_start_retries: How many times the backbone may re-fire
+            if the scan doesn't start. Maps to ``max_confirm_attempts``.
 
     Returns:
         Result dict with timing in timing['total_s'].
@@ -912,18 +916,18 @@ def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
         client, api_obj, f"Acquire '{job_name}'", ACQUIRE,
         setup_fn=setup,
         confirm_fn=partial(confirm_acquire,
-                           api_obj=api_obj,
                            start_timeout=start_timeout,
                            heartbeat_interval=heartbeat_interval,
                            timeout=poll_timeout,
                            poll_interval=poll_interval),
+        max_confirm_attempts=max_start_retries,
         pre_check_timeout=pre_check_timeout,
     )
 
 
 def acquire_single_image(client, poll_interval=0.1, poll_timeout=None,
                          heartbeat_interval=30.0, start_timeout=15.0,
-                         pre_check_timeout=None):
+                         max_start_retries=3, pre_check_timeout=None):
     """Acquire a single image using the currently selected job settings.
 
     Unlike ``acquire``, this does not take a job name — it fires
@@ -931,8 +935,8 @@ def acquire_single_image(client, poll_interval=0.1, poll_timeout=None,
     are currently active in LAS X.
 
     Routes through the backbone for consistent idle-wait, retry, and
-    timing instrumentation. The completion logic lives in
-    ``confirm_acquire``.
+    timing instrumentation. ``confirm_acquire`` is a pure status-polling
+    function; the backbone owns re-firing via ``max_confirm_attempts``.
 
     Args:
         client: LAS X API client.
@@ -941,7 +945,9 @@ def acquire_single_image(client, poll_interval=0.1, poll_timeout=None,
             for no timeout (wait indefinitely).
         heartbeat_interval: Log interval during long scans (seconds).
         start_timeout: Seconds to wait for scan to start before
-            returning failure.
+            the backbone re-fires.
+        max_start_retries: How many times the backbone may re-fire
+            if the scan doesn't start. Maps to ``max_confirm_attempts``.
 
     Returns:
         Result dict with timing in timing['total_s'].
@@ -952,11 +958,11 @@ def acquire_single_image(client, poll_interval=0.1, poll_timeout=None,
         client, api_obj, "AcquireSingleImage", ACQUIRE_SINGLE_IMAGE,
         setup_fn=None,
         confirm_fn=partial(confirm_acquire,
-                           api_obj=api_obj,
                            start_timeout=start_timeout,
                            heartbeat_interval=heartbeat_interval,
                            timeout=poll_timeout,
                            poll_interval=poll_interval),
+        max_confirm_attempts=max_start_retries,
         pre_check_timeout=pre_check_timeout,
     )
 

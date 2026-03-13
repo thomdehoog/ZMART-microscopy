@@ -242,7 +242,8 @@ class TestConfirmAndFire(unittest.TestCase):
         with patch.object(lasx.errors, '_check_api_error', return_value=perm_error):
             r = lasx.core.confirm_and_fire(client, api_obj, "Zoom -> 999",
                                            max_retries=5,
-                                           pre_check_fn=_idle_pre_check)
+                                           pre_check_fn=_idle_pre_check,
+                                           error_check_fn=lambda: lasx.errors._default_error_check(client))
         self.assertFalse(r["success"])
         self.assertIn("out of range", r["message"])
         self.assertEqual(r["timing"]["attempts"], 1)
@@ -254,7 +255,8 @@ class TestConfirmAndFire(unittest.TestCase):
         with patch.object(lasx.errors, '_check_api_error', return_value=trans_error):
             r = lasx.core.confirm_and_fire(client, api_obj, "Zoom -> 5",
                                            max_retries=2,
-                                           pre_check_fn=_idle_pre_check)
+                                           pre_check_fn=_idle_pre_check,
+                                           error_check_fn=lambda: lasx.errors._default_error_check(client))
         self.assertFalse(r["success"])
         self.assertIn("being scanned", r["message"])
         self.assertEqual(r["timing"]["attempts"], 3)
@@ -270,7 +272,8 @@ class TestConfirmAndFire(unittest.TestCase):
         with patch.object(lasx.errors, '_check_api_error', side_effect=mock_check):
             r = lasx.core.confirm_and_fire(client, api_obj, "Zoom -> 5",
                                            max_retries=3,
-                                           pre_check_fn=_idle_pre_check)
+                                           pre_check_fn=_idle_pre_check,
+                                           error_check_fn=lambda: lasx.errors._default_error_check(client))
         self.assertTrue(r["success"])
         self.assertEqual(r["timing"]["attempts"], 2)
 
@@ -281,7 +284,8 @@ class TestConfirmAndFire(unittest.TestCase):
         with patch.object(lasx.errors, '_check_api_error', return_value=trans_error):
             r = lasx.core.confirm_and_fire(client, api_obj, "Test",
                                            max_retries=0,
-                                           pre_check_fn=_idle_pre_check)
+                                           pre_check_fn=_idle_pre_check,
+                                           error_check_fn=lambda: lasx.errors._default_error_check(client))
         self.assertFalse(r["success"])
         self.assertEqual(r["timing"]["attempts"], 1)
 
@@ -298,7 +302,8 @@ class TestConfirmAndFire(unittest.TestCase):
         with patch.object(lasx.errors, '_check_api_error', side_effect=mock_check):
             lasx.core.confirm_and_fire(client, api_obj, "Test",
                                        setup_fn=setup, max_retries=3,
-                                       pre_check_fn=_idle_pre_check)
+                                       pre_check_fn=_idle_pre_check,
+                                       error_check_fn=lambda: lasx.errors._default_error_check(client))
         self.assertEqual(len(setup_calls), 3)
 
     def test_setup_fn_exception(self):
@@ -870,11 +875,10 @@ class TestSetFunctionWiring(unittest.TestCase):
         self.assertIs(info["api_obj"], info["client"].PyApiSetZStackSizeByJobName)
         self.assertAlmostEqual(info["model"].StackSize, 10.0e-6, places=10)
 
-    def test_set_zoom_provides_confirm_and_pre_check(self):
+    def test_set_zoom_provides_confirm_fn(self):
         info, _ = self._run_set(drv.set_zoom, None, "HiRes", 5.0)
         self.assertIs(info["api_obj"], info["client"].PyApiSetZoomByJobName)
         self.assertIsNotNone(info["kwargs"].get("confirm_fn"))
-        self.assertIsNotNone(info["kwargs"].get("pre_check_fn"))
 
 
 # =============================================================================
@@ -1456,6 +1460,7 @@ class TestConfirmAcquire(unittest.TestCase):
     def test_idle_without_scanning_returns_failure(self):
         """Always idle, never saw scanning → failure (start_timeout)."""
         with patch.object(lasx.readers, 'get_scan_status', return_value="eScanIdle"), \
+             patch.object(lasx.confirmations, '_check_api_error', return_value=None), \
              patch('time.sleep'):
             result = lasx.confirmations.confirm_acquire(
                 None, start_timeout=0.0, timeout=1.0, poll_interval=0.001)

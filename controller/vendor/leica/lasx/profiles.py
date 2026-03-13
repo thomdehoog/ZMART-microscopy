@@ -244,7 +244,7 @@ MOVE_Z = CommandProfile(
 ACQUIRE = CommandProfile(
     confirm_fn=confirm_acquire,
     error_check_fn=None,
-    max_confirm_attempts=1,
+    max_confirm_attempts=3,
     skip_echo=True,
     fire_async=True,
 )
@@ -252,7 +252,7 @@ ACQUIRE = CommandProfile(
 ACQUIRE_SINGLE_IMAGE = CommandProfile(
     confirm_fn=confirm_acquire,
     error_check_fn=None,
-    max_confirm_attempts=1,
+    max_confirm_attempts=3,
     skip_echo=True,
     fire_async=True,
 )
