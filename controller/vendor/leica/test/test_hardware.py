@@ -283,7 +283,8 @@ if pos:
     detail(f"Stage: X={pos['x_um']:.1f} Y={pos['y_um']:.1f} um")
 
 # get_job_settings + make_changeable_copy
-settings = test("get_job_settings", lambda: drv.get_job_settings(client, JOB))
+settings = test("get_job_settings",
+                lambda: drv.get_job_settings(client, JOB, timeout=TIMEOUT))
 ch = None
 if settings:
     ch = drv.make_changeable_copy(settings)
@@ -393,7 +394,8 @@ if ch and not args.skip_write:
             client.PyApiGetJobSettingsByName.Model.Settings = None
         except Exception:
             pass
-        return drv.make_changeable_copy(drv.get_job_settings(client, JOB))
+        return drv.make_changeable_copy(
+            drv.get_job_settings(client, JOB, timeout=TIMEOUT))
 
     # ── 4a. Zoom ─────────────────────────────────────────────────────
     cur_zoom = ch["zoom"]["current"]

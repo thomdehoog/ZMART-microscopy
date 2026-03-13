@@ -85,13 +85,20 @@ def get_job_settings(client, job_name, timeout=1.0, poll_interval=0.01,
                      max_retries=3):
     """Read full job settings JSON from LAS X.
 
-    Flushes Settings to None, fires GetJobSettingsByName via
-    UpdateAwaitReceipt, then polls until data arrives. Retries the full
-    flush→fire→poll cycle up to *max_retries* times.
+    Uses the dual-dispatch pattern: commits the JobName parameter on
+    the dedicated API object, then fires GetJobSettingsByName via the
+    command channel and polls until data arrives.  Retries the full
+    commit→flush→fire→poll cycle up to *max_retries* times.
     """
     for attempt in range(1, max_retries + 1):
         try:
             client.PyApiGetJobSettingsByName.Model.JobName = job_name
+            try:
+                client.PyApiGetJobSettingsByName.UpdateAwaitReceipt(
+                    RECEIPT_TIMEOUT)
+            except Exception:
+                pass  # best-effort; command channel is the real transport
+
             client.PyApiGetJobSettingsByName.Model.Settings = None
 
             client.PyApiCommand.Model.Command = ""
