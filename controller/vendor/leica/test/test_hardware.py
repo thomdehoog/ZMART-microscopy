@@ -153,14 +153,24 @@ def write_test(name, set_fn, current_val, new_val, readback_fn,
     r = test(f"{name}: write current ({current_val})",
              lambda: set_fn(current_val))
     if not r or not r.get("success"):
+        detail(f"ABORT {name}: safe write of current value failed — "
+               f"result={r}")
         return
 
     # 2) Write new value
     r = test(f"{name}: change to {new_val}",
              lambda: set_fn(new_val))
     if not r or not r.get("success"):
+        detail(f"ABORT {name}: write of new value failed — "
+               f"result={r}")
+        # Still attempt restore so hardware isn't left in unknown state
+        r_restore = set_fn(current_val)
+        test(f"{name}: restore after failed write",
+             lambda: r_restore)
         return
     detail(f"Timing: {timing_str(r)}")
+    if r.get("confirmed") is not True:
+        detail(f"WARNING: confirmed={r.get('confirmed')} (expected True)")
 
     # 3) Readback verify
     time.sleep(0.1)
@@ -177,6 +187,9 @@ def write_test(name, set_fn, current_val, new_val, readback_fn,
     r_restore = set_fn(current_val)
     test(f"{name}: restore to {current_val}",
          lambda: r_restore)
+    if not r_restore or not r_restore.get("success"):
+        detail(f"WARNING: restore failed — hardware may be in changed "
+               f"state! result={r_restore}")
 
 
 # #########################################################################

@@ -753,6 +753,152 @@ class TestConfirmFunctions(unittest.TestCase):
                 None, target_x_um=50000, target_y_um=99999,
                 timeout=0.2)["success"])
 
+    # ── confirm_move_z ─────────────────────────────────────────────────
+
+    def test_confirm_move_z_galvo_pass(self):
+        with self._mock_readback({"zPosition": {"z-galvo": 50.0}}):
+            self.assertTrue(lasx.confirmations.confirm_move_z(
+                None, job_name="J", z_mode="galvo",
+                target_um=50.0, timeout=1)["success"])
+
+    def test_confirm_move_z_galvo_fail(self):
+        with self._mock_readback({"zPosition": {"z-galvo": 10.0}}):
+            self.assertFalse(lasx.confirmations.confirm_move_z(
+                None, job_name="J", z_mode="galvo",
+                target_um=50.0, timeout=0.1)["success"])
+
+    def test_confirm_move_z_zwide_pass(self):
+        with self._mock_readback({"zPosition": {"z-wide": 100.0}}):
+            self.assertTrue(lasx.confirmations.confirm_move_z(
+                None, job_name="J", z_mode="zwide",
+                target_um=100.0, timeout=1)["success"])
+
+    def test_confirm_move_z_within_tolerance(self):
+        with self._mock_readback({"zPosition": {"z-galvo": 50.5}}):
+            self.assertTrue(lasx.confirmations.confirm_move_z(
+                None, job_name="J", z_mode="galvo",
+                target_um=50.0, tolerance=1.0, timeout=1)["success"])
+
+    def test_confirm_move_z_none_readback(self):
+        with self._mock_readback(None):
+            self.assertFalse(lasx.confirmations.confirm_move_z(
+                None, job_name="J", z_mode="galvo",
+                target_um=50.0, timeout=0.1)["success"])
+
+    # ── z-stack confirm functions ──────────────────────────────────────
+
+    def test_confirm_z_stack_step_size_pass(self):
+        with self._mock_readback({"stack": {"stepSize": 2.0}}):
+            self.assertTrue(lasx.confirmations._confirm_z_stack_step_size(
+                None, "J", target_um=2.0, timeout=1)["success"])
+
+    def test_confirm_z_stack_step_size_fail(self):
+        with self._mock_readback({"stack": {"stepSize": 5.0}}):
+            self.assertFalse(lasx.confirmations._confirm_z_stack_step_size(
+                None, "J", target_um=2.0, timeout=0.1)["success"])
+
+    def test_confirm_z_stack_step_size_within_tolerance(self):
+        with self._mock_readback({"stack": {"stepSize": 2.3}}):
+            self.assertTrue(lasx.confirmations._confirm_z_stack_step_size(
+                None, "J", target_um=2.0, tolerance=0.5, timeout=1)["success"])
+
+    def test_confirm_z_stack_size_pass(self):
+        with self._mock_readback({"stack": {"size": 10.0, "stepSize": 2.0}}):
+            self.assertTrue(lasx.confirmations._confirm_z_stack_size(
+                None, "J", target_um=10.0, timeout=1)["success"])
+
+    def test_confirm_z_stack_size_fail(self):
+        with self._mock_readback({"stack": {"size": 20.0, "stepSize": 2.0}}):
+            self.assertFalse(lasx.confirmations._confirm_z_stack_size(
+                None, "J", target_um=10.0, timeout=0.1)["success"])
+
+    def test_confirm_z_stack_size_quantised_match(self):
+        """Target 9.5 with step 2.0: quantised candidates are 8.0 (n=4) and
+        10.0 (n=5). Actual=10.0 should match via quantised path."""
+        with self._mock_readback({"stack": {"size": 10.0, "stepSize": 2.0}}):
+            self.assertTrue(lasx.confirmations._confirm_z_stack_size(
+                None, "J", target_um=9.5, timeout=1)["success"])
+
+    def test_confirm_z_stack_definition_pass(self):
+        with self._mock_readback({"stack": {"begin": -5.0, "end": 5.0,
+                                             "stepSize": 1.0}}):
+            self.assertTrue(lasx.confirmations._confirm_z_stack_definition(
+                None, "J", begin_um=-5.0, end_um=5.0, timeout=1)["success"])
+
+    def test_confirm_z_stack_definition_fail(self):
+        with self._mock_readback({"stack": {"begin": -5.0, "end": 5.0,
+                                             "stepSize": 1.0}}):
+            self.assertFalse(lasx.confirmations._confirm_z_stack_definition(
+                None, "J", begin_um=-10.0, end_um=10.0,
+                timeout=0.1)["success"])
+
+    def test_confirm_z_stack_definition_begin_only(self):
+        with self._mock_readback({"stack": {"begin": -5.0, "end": 5.0,
+                                             "stepSize": 1.0}}):
+            self.assertTrue(lasx.confirmations._confirm_z_stack_definition(
+                None, "J", begin_um=-5.0, end_um=None, timeout=1)["success"])
+
+    def test_confirm_z_stack_definition_quantised(self):
+        """begin=-5, end=5, step=3 → raw size=10, centre=0.
+        Quantised: n=3→size=9, n=4→size=12.
+        Candidates: (-4.5, 4.5) and (-6, 6).
+        Actual (-4.5, 4.5) should match."""
+        with self._mock_readback({"stack": {"begin": -4.5, "end": 4.5,
+                                             "stepSize": 3.0}}):
+            self.assertTrue(lasx.confirmations._confirm_z_stack_definition(
+                None, "J", begin_um=-5.0, end_um=5.0, timeout=1)["success"])
+
+    # ── filter wheel confirm functions ────────────────────────────────
+
+    def _fw_readback(self, fw_type="emission", beam_route="BR1",
+                     filter_index=0, spectrum_position=525):
+        return self._mock_readback({
+            "activeSettings": [{
+                "filterWheels": [{
+                    "_beamRoute": beam_route,
+                    "type": fw_type,
+                    "filterIndex": filter_index,
+                    "spectrumPosition": spectrum_position,
+                }],
+            }],
+        })
+
+    def test_confirm_filter_wheel_slot_pass(self):
+        with self._fw_readback(filter_index=2):
+            self.assertTrue(lasx.confirmations._confirm_filter_wheel_slot(
+                None, "J", si=0, beam_route="BR1", fw_type="emission",
+                target=2, timeout=1)["success"])
+
+    def test_confirm_filter_wheel_slot_fail(self):
+        with self._fw_readback(filter_index=0):
+            self.assertFalse(lasx.confirmations._confirm_filter_wheel_slot(
+                None, "J", si=0, beam_route="BR1", fw_type="emission",
+                target=2, timeout=0.1)["success"])
+
+    def test_confirm_filter_wheel_slot_wrong_beam_route(self):
+        with self._fw_readback(beam_route="BR2", filter_index=2):
+            self.assertFalse(lasx.confirmations._confirm_filter_wheel_slot(
+                None, "J", si=0, beam_route="BR1", fw_type="emission",
+                target=2, timeout=0.1)["success"])
+
+    def test_confirm_filter_wheel_spectrum_pass(self):
+        with self._fw_readback(spectrum_position=525):
+            self.assertTrue(lasx.confirmations._confirm_filter_wheel_spectrum(
+                None, "J", si=0, beam_route="BR1", fw_type="emission",
+                target=525, timeout=1)["success"])
+
+    def test_confirm_filter_wheel_spectrum_fail(self):
+        with self._fw_readback(spectrum_position=600):
+            self.assertFalse(lasx.confirmations._confirm_filter_wheel_spectrum(
+                None, "J", si=0, beam_route="BR1", fw_type="emission",
+                target=525, timeout=0.1)["success"])
+
+    def test_confirm_filter_wheel_spectrum_within_tolerance(self):
+        with self._fw_readback(spectrum_position=525.5):
+            self.assertTrue(lasx.confirmations._confirm_filter_wheel_spectrum(
+                None, "J", si=0, beam_route="BR1", fw_type="emission",
+                target=525, tolerance=1, timeout=1)["success"])
+
     def test_confirm_returns_dict_shape(self):
         """All confirm functions return {"success": bool, "logs": [...]}."""
         with self._mock_readback({"zoom": {"current": 5.0}}):
@@ -878,6 +1024,127 @@ class TestSetFunctionWiring(unittest.TestCase):
     def test_set_zoom_provides_confirm_fn(self):
         info, _ = self._run_set(drv.set_zoom, None, "HiRes", 5.0)
         self.assertIs(info["api_obj"], info["client"].PyApiSetZoomByJobName)
+        self.assertIsNotNone(info["kwargs"].get("confirm_fn"))
+
+    # ── move_z wiring ──────────────────────────────────────────────────
+
+    def _run_move_z(self, *args, **kwargs):
+        """Like _run_set but also mocks _check_z_limits."""
+        with patch.object(lasx.commands, '_check_z_limits'):
+            return self._run_set(drv.move_z, *args, **kwargs)
+
+    def test_move_z_galvo_model(self):
+        info, _ = self._run_move_z(None, "J", 50.0,
+                                   unit="um", z_mode="galvo")
+        self.assertIs(info["api_obj"], info["client"].PyApiMoveZByJobName)
+        self.assertEqual(info["model"].JobName, "J")
+        self.assertEqual(info["model"].ZPosition, 50.0)
+        self.assertFalse(info["model"].RelativePosition)
+
+    def test_move_z_unit_mm(self):
+        info, _ = self._run_move_z(None, "J", 0.05,
+                                   unit="mm", z_mode="galvo")
+        self.assertIs(info["api_obj"], info["client"].PyApiMoveZByJobName)
+        # ZPosition is stored in the user-supplied unit (not converted)
+        self.assertEqual(info["model"].ZPosition, 0.05)
+
+    def test_move_z_unit_m(self):
+        info, _ = self._run_move_z(None, "J", 50.0e-6,
+                                   unit="m", z_mode="galvo")
+        self.assertIs(info["api_obj"], info["client"].PyApiMoveZByJobName)
+        self.assertEqual(info["model"].ZPosition, 50.0e-6)
+
+    def test_move_z_zwide_mode(self):
+        info, _ = self._run_move_z(None, "J", 100.0,
+                                   unit="um", z_mode="zwide")
+        self.assertIs(info["api_obj"], info["client"].PyApiMoveZByJobName)
+
+    def test_move_z_invalid_mode(self):
+        r = drv.move_z(make_client(), "J", 50.0, z_mode="invalid")
+        self.assertFalse(r["success"])
+        self.assertIn("Unknown z_mode", r["message"])
+
+    def test_move_z_provides_confirm_fn(self):
+        info, _ = self._run_move_z(None, "J", 50.0)
+        self.assertIsNotNone(info["kwargs"].get("confirm_fn"))
+
+    def test_move_z_limit_check_failure(self):
+        """When _check_z_limits raises, move_z returns failure without dispatch."""
+        r = drv.move_z(make_client(), "J", 99999.0, z_mode="galvo")
+        self.assertFalse(r["success"])
+
+    # ── set_z_stack_definition wiring ──────────────────────────────────
+
+    def test_set_z_stack_definition_begin_end(self):
+        info, _ = self._run_set(drv.set_z_stack_definition, None, "J",
+                                begin_um=-5.0, end_um=5.0)
+        self.assertIs(info["api_obj"],
+                      info["client"].PyApiSetZStackDefinitionByJobName)
+        self.assertEqual(info["model"].JobName, "J")
+        self.assertEqual(info["model"].SetBegin, 1)
+        self.assertEqual(info["model"].SetEnd, 1)
+        self.assertAlmostEqual(info["model"].BeginValue, -5.0e-6, places=12)
+        self.assertAlmostEqual(info["model"].EndValue, 5.0e-6, places=12)
+
+    def test_set_z_stack_definition_begin_only(self):
+        info, _ = self._run_set(drv.set_z_stack_definition, None, "J",
+                                begin_um=10.0)
+        self.assertEqual(info["model"].SetBegin, 1)
+        self.assertEqual(info["model"].SetEnd, 2)  # ignore
+
+    def test_set_z_stack_definition_end_only(self):
+        info, _ = self._run_set(drv.set_z_stack_definition, None, "J",
+                                end_um=10.0)
+        self.assertEqual(info["model"].SetBegin, 2)  # ignore
+        self.assertEqual(info["model"].SetEnd, 1)
+
+    def test_set_z_stack_definition_reset_begin(self):
+        info, _ = self._run_set(drv.set_z_stack_definition, None, "J",
+                                old_begin_um=-3.0)
+        self.assertEqual(info["model"].SetBegin, 0)  # reset
+
+    def test_set_z_stack_definition_zero_begin(self):
+        """begin_um=0.0 is a valid z-position — must not be treated as None."""
+        info, _ = self._run_set(drv.set_z_stack_definition, None, "J",
+                                begin_um=0.0, end_um=10.0)
+        self.assertEqual(info["model"].SetBegin, 1)
+        self.assertAlmostEqual(info["model"].BeginValue, 0.0, places=12)
+
+    def test_set_z_stack_definition_provides_confirm_fn(self):
+        info, _ = self._run_set(drv.set_z_stack_definition, None, "J",
+                                begin_um=-5.0, end_um=5.0)
+        self.assertIsNotNone(info["kwargs"].get("confirm_fn"))
+
+    # ── filter wheel wiring ────────────────────────────────────────────
+
+    def test_set_filter_wheel_slot_model(self):
+        info, _ = self._run_set(drv.set_filter_wheel_slot, None, "J",
+                                0, "BR1", "emission", 2)
+        self.assertIs(info["api_obj"],
+                      info["client"].PyApiSetFilterWheelSlotByJobName)
+        self.assertEqual(info["model"].JobName, "J")
+        self.assertEqual(info["model"].SettingIndex, 0)
+        self.assertEqual(info["model"].BeamRoute, "BR1")
+        self.assertEqual(info["model"].SlotIndex, 2)
+
+    def test_set_filter_wheel_slot_provides_confirm_fn(self):
+        info, _ = self._run_set(drv.set_filter_wheel_slot, None, "J",
+                                0, "BR1", "emission", 2)
+        self.assertIsNotNone(info["kwargs"].get("confirm_fn"))
+
+    def test_set_filter_wheel_spectrum_model(self):
+        info, _ = self._run_set(drv.set_filter_wheel_spectrum, None, "J",
+                                0, "BR1", "emission", 525)
+        self.assertIs(info["api_obj"],
+                      info["client"].PyApiSetFilterWheelSpectrumPositionByJobName)
+        self.assertEqual(info["model"].JobName, "J")
+        self.assertEqual(info["model"].SettingIndex, 0)
+        self.assertEqual(info["model"].BeamRoute, "BR1")
+        self.assertEqual(info["model"].FilterSpectrumPosition, 525)
+
+    def test_set_filter_wheel_spectrum_provides_confirm_fn(self):
+        info, _ = self._run_set(drv.set_filter_wheel_spectrum, None, "J",
+                                0, "BR1", "emission", 525)
         self.assertIsNotNone(info["kwargs"].get("confirm_fn"))
 
 
@@ -1513,6 +1780,81 @@ class TestMakeLogEntry(unittest.TestCase):
         self.assertEqual(entry["level"], "info")
         self.assertEqual(entry["msg"], "test message")
         self.assertIsInstance(entry["ts"], float)
+
+
+# =============================================================================
+# 21. acquire_single_image wiring
+# =============================================================================
+
+class TestAcquireSingleImage(unittest.TestCase):
+
+    def test_uses_correct_api_object(self):
+        """acquire_single_image fires PyApiAcquireSingleImage, not PyApiAcquireJob."""
+        captured = {}
+        def mock_fire(client, api_obj, description, **kw):
+            captured["api_obj"] = api_obj
+            captured["description"] = description
+            captured["kwargs"] = kw
+            return _make_v6_result(msg=description)
+        client = make_client()
+        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+            r = drv.acquire_single_image(client)
+        self.assertIs(captured["api_obj"], client.PyApiAcquireSingleImage)
+
+    def test_no_setup_fn(self):
+        """acquire_single_image passes setup_fn=None (no job name to set)."""
+        captured = {}
+        def mock_fire(client, api_obj, description, **kw):
+            captured["kwargs"] = kw
+            return _make_v6_result(msg=description)
+        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+            drv.acquire_single_image(make_client())
+        self.assertIsNone(captured["kwargs"].get("setup_fn"))
+
+    def test_provides_confirm_fn(self):
+        captured = {}
+        def mock_fire(client, api_obj, description, **kw):
+            captured["kwargs"] = kw
+            return _make_v6_result(msg=description)
+        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+            drv.acquire_single_image(make_client())
+        self.assertIsNotNone(captured["kwargs"].get("confirm_fn"))
+
+    def test_description_contains_single_image(self):
+        captured = {}
+        def mock_fire(client, api_obj, description, **kw):
+            captured["description"] = description
+            return _make_v6_result(msg=description)
+        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+            drv.acquire_single_image(make_client())
+        self.assertIn("SingleImage", captured["description"])
+
+    def test_max_start_retries_maps_to_confirm_attempts(self):
+        captured = {}
+        def mock_fire(client, api_obj, description, **kw):
+            captured["kwargs"] = kw
+            return _make_v6_result(msg=description)
+        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+            drv.acquire_single_image(make_client(), max_start_retries=5)
+        self.assertEqual(captured["kwargs"].get("max_confirm_attempts"), 5)
+
+    def test_differs_from_acquire(self):
+        """acquire_single_image uses a different API object than acquire."""
+        captured_single = {}
+        captured_acquire = {}
+        def mock_fire_single(client, api_obj, description, **kw):
+            captured_single["api_obj"] = api_obj
+            return _make_v6_result(msg=description)
+        def mock_fire_acquire(client, api_obj, description, **kw):
+            captured_acquire["api_obj"] = api_obj
+            return _make_v6_result(msg=description)
+        client = make_client()
+        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire_single):
+            drv.acquire_single_image(client)
+        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire_acquire):
+            drv.acquire(client, "J")
+        self.assertIsNot(captured_single["api_obj"],
+                         captured_acquire["api_obj"])
 
 
 if __name__ == "__main__":
