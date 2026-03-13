@@ -226,8 +226,8 @@ FILTER_WHEEL_SPECTRUM = CommandProfile(
 MOVE_XY = CommandProfile(
     confirm_fn=confirm_move_xy,
     error_check_fn=None,
-    max_confirm_attempts=3,
-    confirm_timeout=5.0,
+    max_confirm_attempts=1,
+    confirm_timeout=15.0,
     fire_async=True,
 )
 
