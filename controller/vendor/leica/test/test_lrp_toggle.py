@@ -41,10 +41,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from LasxApi import PYLICamApiConnector as lasx_api
 import lasx as drv
 from lasx.scanning_templates import TEMPLATE_XML, apply_lrp_change
-from lasx.scanning_template_editors import (
+from lasx.scanning_template_editors_focus import (
     STACK_MODES,
-    set_stack_calculation_mode,
-    verify_stack_calculation_mode,
+    lrp_lrp_set_stack_calculation_mode,
+    lrp_verify_stack_calculation_mode,
 )
 
 print(f"  Driver version: {drv.__version__}")
@@ -86,8 +86,8 @@ for cycle in range(1, args.cycles + 1):
         t0 = time.perf_counter()
         r = apply_lrp_change(
             client, TEMPLATE_XML,
-            set_stack_calculation_mode, mode, args.job,
-            verify_fn=lambda p, m=mode, j=args.job: verify_stack_calculation_mode(p, m, j),
+            lrp_set_stack_calculation_mode, mode, args.job,
+            verify_fn=lambda p, m=mode, j=args.job: lrp_verify_stack_calculation_mode(p, m, j),
         )
         elapsed = time.perf_counter() - t0
 

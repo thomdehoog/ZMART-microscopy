@@ -17,9 +17,9 @@ from lasx.scanning_template_editors_roi import (
     um,
     ROI_POLYGON, ROI_RECTANGLE, ROI_ELLIPSE, ROI_LINE,
     argb_color, COLOR_RED, COLOR_BLUE,
-    enable_roi_scan, verify_roi_scan,
-    clear_rois, add_roi,
-    verify_roi_count, verify_roi,
+    lrp_enable_roi_scan, lrp_verify_roi_scan,
+    lrp_clear_rois, lrp_add_roi,
+    lrp_verify_roi_count, lrp_verify_roi,
     make_rectangle, make_ellipse, make_polygon, make_star, make_line,
 )
 from lasx.scanning_template_parsers import parse_lrp
@@ -149,11 +149,11 @@ class TestConstants:
         assert COLOR_BLUE == "4278190335"
 
 
-# ── enable_roi_scan / verify_roi_scan ────────────────────────────────
+# ── lrp_enable_roi_scan / lrp_verify_roi_scan ────────────────────────────────
 
 class TestEnableRoiScan:
     def test_enable(self, lrp_file):
-        count = enable_roi_scan(lrp_file, True, "HiRes")
+        count = lrp_enable_roi_scan(lrp_file, True, "HiRes")
         assert count == 2  # Master + Sequential
 
         root = ET.parse(lrp_file).getroot()
@@ -161,7 +161,7 @@ class TestEnableRoiScan:
             assert el.get("IsRoiScanEnable") == "1"
 
     def test_disable(self, lrp_with_roi):
-        count = enable_roi_scan(lrp_with_roi, False, "HiRes")
+        count = lrp_enable_roi_scan(lrp_with_roi, False, "HiRes")
         assert count == 2
 
         root = ET.parse(lrp_with_roi).getroot()
@@ -169,38 +169,38 @@ class TestEnableRoiScan:
             assert el.get("IsRoiScanEnable") == "0"
 
     def test_already_disabled(self, lrp_file):
-        count = enable_roi_scan(lrp_file, False, "HiRes")
+        count = lrp_enable_roi_scan(lrp_file, False, "HiRes")
         assert count == 0
 
     def test_missing_job(self, lrp_file):
-        count = enable_roi_scan(lrp_file, True, "NoSuchJob")
+        count = lrp_enable_roi_scan(lrp_file, True, "NoSuchJob")
         assert count == 0
 
     def test_roundtrip(self, lrp_file):
         for enable in (True, False, True):
-            enable_roi_scan(lrp_file, enable, "HiRes")
-            assert verify_roi_scan(lrp_file, enable, "HiRes")
+            lrp_enable_roi_scan(lrp_file, enable, "HiRes")
+            assert lrp_verify_roi_scan(lrp_file, enable, "HiRes")
 
 
 class TestVerifyRoiScan:
     def test_correct_disabled(self, lrp_file):
-        assert verify_roi_scan(lrp_file, False, "HiRes") is True
+        assert lrp_verify_roi_scan(lrp_file, False, "HiRes") is True
 
     def test_correct_enabled(self, lrp_with_roi):
-        assert verify_roi_scan(lrp_with_roi, True, "HiRes") is True
+        assert lrp_verify_roi_scan(lrp_with_roi, True, "HiRes") is True
 
     def test_wrong_value(self, lrp_file):
-        assert verify_roi_scan(lrp_file, True, "HiRes") is False
+        assert lrp_verify_roi_scan(lrp_file, True, "HiRes") is False
 
     def test_missing_job(self, lrp_file):
-        assert verify_roi_scan(lrp_file, False, "NoSuchJob") is False
+        assert lrp_verify_roi_scan(lrp_file, False, "NoSuchJob") is False
 
 
-# ── clear_rois ───────────────────────────────────────────────────────
+# ── lrp_clear_rois ───────────────────────────────────────────────────────
 
 class TestClearRois:
     def test_removes_existing(self, lrp_with_roi):
-        count = clear_rois(lrp_with_roi, "HiRes")
+        count = lrp_clear_rois(lrp_with_roi, "HiRes")
         assert count == 1
 
         # DCROISet/Children should now be empty
@@ -210,20 +210,20 @@ class TestClearRois:
         assert len(list(dc)) == 0
 
     def test_noop_on_empty(self, lrp_file):
-        count = clear_rois(lrp_file, "HiRes")
+        count = lrp_clear_rois(lrp_file, "HiRes")
         assert count == 0
 
     def test_missing_job(self, lrp_file):
-        count = clear_rois(lrp_file, "NoSuchJob")
+        count = lrp_clear_rois(lrp_file, "NoSuchJob")
         assert count == 0
 
 
-# ── add_roi ──────────────────────────────────────────────────────────
+# ── lrp_add_roi ──────────────────────────────────────────────────────────
 
 class TestAddRoi:
     def test_add_polygon(self, lrp_file):
         verts = make_rectangle(um(100), um(100))
-        result = add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
+        result = lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
         assert result is True
 
         # Verify via parse_lrp
@@ -237,39 +237,39 @@ class TestAddRoi:
     def test_add_multiple(self, lrp_file):
         for _ in range(3):
             verts = make_rectangle(um(50), um(50))
-            add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
+            lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
 
-        assert verify_roi_count(lrp_file, 3, "HiRes")
+        assert lrp_verify_roi_count(lrp_file, 3, "HiRes")
 
     def test_add_ellipse(self, lrp_file):
         verts = make_ellipse(um(80), um(40), n_points=12)
-        result = add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
+        result = lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
         assert result is True
-        assert verify_roi(lrp_file, "HiRes", 0, roi_type=ROI_POLYGON,
-                          n_vertices=12)
+        assert lrp_verify_roi(lrp_file, "HiRes", 0, roi_type=ROI_POLYGON,
+                          n_vertices=13)  # 12 + closing vertex
 
     def test_add_line(self, lrp_file):
         verts = make_line(um(-100), 0, um(100), 0)
-        result = add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
+        result = lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
         assert result is True
-        assert verify_roi(lrp_file, "HiRes", 0, n_vertices=2)
+        assert lrp_verify_roi(lrp_file, "HiRes", 0, n_vertices=2)
 
     def test_missing_job(self, lrp_file):
-        result = add_roi(lrp_file, "NoSuchJob", ROI_POLYGON,
+        result = lrp_add_roi(lrp_file, "NoSuchJob", ROI_POLYGON,
                          [(0.0, 0.0), (um(100), um(100))])
         assert result is False
 
     def test_clear_then_add(self, lrp_with_roi):
-        clear_rois(lrp_with_roi, "HiRes")
-        assert verify_roi_count(lrp_with_roi, 0, "HiRes")
+        lrp_clear_rois(lrp_with_roi, "HiRes")
+        assert lrp_verify_roi_count(lrp_with_roi, 0, "HiRes")
 
         verts = make_rectangle(um(80), um(80))
-        add_roi(lrp_with_roi, "HiRes", ROI_POLYGON, verts)
-        assert verify_roi_count(lrp_with_roi, 1, "HiRes")
+        lrp_add_roi(lrp_with_roi, "HiRes", ROI_POLYGON, verts)
+        assert lrp_verify_roi_count(lrp_with_roi, 1, "HiRes")
 
     def test_custom_color(self, lrp_file):
         verts = make_rectangle(um(100), um(100))
-        result = add_roi(lrp_file, "HiRes", ROI_POLYGON, verts,
+        result = lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts,
                          color=COLOR_BLUE)
         assert result is True
 
@@ -279,7 +279,7 @@ class TestAddRoi:
 
     def test_transformation_parsed(self, lrp_file):
         verts = make_rectangle(um(100), um(100))
-        result = add_roi(lrp_file, "HiRes", ROI_POLYGON, verts,
+        result = lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts,
                          rotation=45.0,
                          translation=(um(10), um(-20)),
                          scale=(2.0, 3.0))
@@ -295,8 +295,8 @@ class TestAddRoi:
 
     def test_auto_naming(self, lrp_file):
         verts = make_rectangle(um(50), um(50))
-        add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
-        add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
+        lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
+        lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
 
         root = ET.parse(lrp_file).getroot()
         dc = root.find(".//Element[@Name='DCROISet']/Children")
@@ -305,7 +305,7 @@ class TestAddRoi:
 
     def test_element_has_uuid(self, lrp_file):
         verts = make_rectangle(um(50), um(50))
-        add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
+        lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
 
         root = ET.parse(lrp_file).getroot()
         dc = root.find(".//Element[@Name='DCROISet']/Children")
@@ -317,8 +317,8 @@ class TestAddRoi:
 
     def test_memory_block_unique(self, lrp_file):
         verts = make_rectangle(um(50), um(50))
-        add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
-        add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
+        lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
+        lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
 
         root = ET.parse(lrp_file).getroot()
         dc = root.find(".//Element[@Name='DCROISet']/Children")
@@ -327,7 +327,7 @@ class TestAddRoi:
 
     def test_vertices_use_p_tag(self, lrp_file):
         verts = make_rectangle(um(100), um(100))
-        add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
+        lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
 
         root = ET.parse(lrp_file).getroot()
         rs = root.find(".//ROISingle")
@@ -337,7 +337,7 @@ class TestAddRoi:
 
     def test_transformation_nested(self, lrp_file):
         verts = make_rectangle(um(100), um(100))
-        add_roi(lrp_file, "HiRes", ROI_POLYGON, verts,
+        lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts,
                 translation=(um(5), um(10)), scale=(2.0, 3.0))
 
         root = ET.parse(lrp_file).getroot()
@@ -372,19 +372,19 @@ class TestMakeShapes:
 
     def test_ellipse(self):
         verts = make_ellipse(80, 40, n_points=36)
-        assert len(verts) == 36
+        assert len(verts) == 37  # 36 + closing vertex
         # First point should be at (cx + rx, cy) = (80, 0)
         assert verts[0][0] == pytest.approx(80)
         assert verts[0][1] == pytest.approx(0)
 
     def test_ellipse_default_100_points(self):
         verts = make_ellipse(50, 50)
-        assert len(verts) == 100
+        assert len(verts) == 101  # 100 + closing vertex
 
     def test_ellipse_n_points(self):
         for n in (4, 12, 72):
             verts = make_ellipse(10, 10, n_points=n)
-            assert len(verts) == n
+            assert len(verts) == n + 1  # + closing vertex
 
     def test_polygon_passthrough(self):
         pts = [(0.0, 0.0), (100.0, 0.0), (50.0, 100.0)]
@@ -392,7 +392,7 @@ class TestMakeShapes:
 
     def test_star_default(self):
         verts = make_star()
-        assert len(verts) == 10  # 5-pointed -> 10 vertices
+        assert len(verts) == 11  # 5-pointed -> 10 + closing vertex
         # First vertex is top (12 o'clock): (0, -um(5))
         assert verts[0][0] == pytest.approx(0.0, abs=1e-12)
         assert verts[0][1] == pytest.approx(-um(5))
@@ -408,13 +408,13 @@ class TestMakeShapes:
 
     def test_star_custom(self):
         verts = make_star(n_points=6, outer_radius=100, inner_radius=50)
-        assert len(verts) == 12
+        assert len(verts) == 13  # 12 + closing vertex
 
-    def test_star_add_roi(self, lrp_file):
+    def test_star_lrp_add_roi(self, lrp_file):
         verts = make_star()
-        result = add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
+        result = lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts)
         assert result is True
-        assert verify_roi(lrp_file, "HiRes", 0, n_vertices=10)
+        assert lrp_verify_roi(lrp_file, "HiRes", 0, n_vertices=11)
 
     def test_line(self):
         verts = make_line(-100, 0, 100, 0)
@@ -445,16 +445,16 @@ class TestParserRoundtrip:
         assert t["TranslationY"] == "0"
 
     def test_writer_reader_roundtrip(self, lrp_file):
-        """Verify that what add_roi writes, parse_lrp reads back."""
+        """Verify that what lrp_add_roi writes, parse_lrp reads back."""
         verts = make_star()
-        add_roi(lrp_file, "HiRes", ROI_POLYGON, verts,
+        lrp_add_roi(lrp_file, "HiRes", ROI_POLYGON, verts,
                 rotation=15.0, translation=(5.0, -10.0),
                 scale=(1.5, 2.0))
 
         parsed = parse_lrp(lrp_file)
         roi = parsed["jobs"]["HiRes"]["Master"]["_ROIs"][0]
         assert roi["RoiType"] == "8"
-        assert len(roi["_Vertices"]) == 10
+        assert len(roi["_Vertices"]) == 11  # 10 + closing vertex
         t = roi["_Transformation"]
         assert t["Rotation"] == "15.0"
         assert t["XScale"] == "1.5"
@@ -463,51 +463,51 @@ class TestParserRoundtrip:
         assert t["TranslationY"] == "-10.0"
 
 
-# ── verify_roi_count ─────────────────────────────────────────────────
+# ── lrp_verify_roi_count ─────────────────────────────────────────────────
 
 class TestVerifyRoiCount:
     def test_empty(self, lrp_file):
-        assert verify_roi_count(lrp_file, 0, "HiRes") is True
+        assert lrp_verify_roi_count(lrp_file, 0, "HiRes") is True
 
     def test_empty_wrong(self, lrp_file):
-        assert verify_roi_count(lrp_file, 1, "HiRes") is False
+        assert lrp_verify_roi_count(lrp_file, 1, "HiRes") is False
 
     def test_one_roi(self, lrp_with_roi):
-        assert verify_roi_count(lrp_with_roi, 1, "HiRes") is True
+        assert lrp_verify_roi_count(lrp_with_roi, 1, "HiRes") is True
 
     def test_one_roi_wrong(self, lrp_with_roi):
-        assert verify_roi_count(lrp_with_roi, 0, "HiRes") is False
+        assert lrp_verify_roi_count(lrp_with_roi, 0, "HiRes") is False
 
     def test_missing_job(self, lrp_file):
-        assert verify_roi_count(lrp_file, 0, "NoSuchJob") is True
+        assert lrp_verify_roi_count(lrp_file, 0, "NoSuchJob") is True
 
 
-# ── verify_roi ───────────────────────────────────────────────────────
+# ── lrp_verify_roi ───────────────────────────────────────────────────────
 
 class TestVerifyRoi:
     def test_correct(self, lrp_with_roi):
-        assert verify_roi(lrp_with_roi, "HiRes", 0,
+        assert lrp_verify_roi(lrp_with_roi, "HiRes", 0,
                           roi_type="8", n_vertices=4) is True
 
     def test_wrong_type(self, lrp_with_roi):
-        assert verify_roi(lrp_with_roi, "HiRes", 0,
+        assert lrp_verify_roi(lrp_with_roi, "HiRes", 0,
                           roi_type="99") is False
 
     def test_wrong_vertex_count(self, lrp_with_roi):
-        assert verify_roi(lrp_with_roi, "HiRes", 0,
+        assert lrp_verify_roi(lrp_with_roi, "HiRes", 0,
                           n_vertices=3) is False
 
     def test_index_out_of_range(self, lrp_with_roi):
-        assert verify_roi(lrp_with_roi, "HiRes", 5) is False
+        assert lrp_verify_roi(lrp_with_roi, "HiRes", 5) is False
 
     def test_missing_job(self, lrp_with_roi):
-        assert verify_roi(lrp_with_roi, "NoSuchJob", 0) is False
+        assert lrp_verify_roi(lrp_with_roi, "NoSuchJob", 0) is False
 
     def test_partial_check(self, lrp_with_roi):
         # Check only type
-        assert verify_roi(lrp_with_roi, "HiRes", 0, roi_type="8") is True
+        assert lrp_verify_roi(lrp_with_roi, "HiRes", 0, roi_type="8") is True
         # Check only vertices
-        assert verify_roi(lrp_with_roi, "HiRes", 0,
+        assert lrp_verify_roi(lrp_with_roi, "HiRes", 0,
                           n_vertices=4) is True
         # Check neither (just index existence)
-        assert verify_roi(lrp_with_roi, "HiRes", 0) is True
+        assert lrp_verify_roi(lrp_with_roi, "HiRes", 0) is True

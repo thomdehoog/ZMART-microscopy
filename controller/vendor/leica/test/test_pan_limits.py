@@ -30,7 +30,7 @@ from lasx.scanning_templates import (
     TEMPLATE_XML, apply_lrp_change, find_scanning_templates_dir,
     save_experiment,
 )
-from lasx.scanning_template_editors_scan import set_pan, set_zoom
+from lasx.scanning_template_editors_scan import lrp_set_pan, lrp_set_zoom
 import xml.etree.ElementTree as ET
 
 parser = argparse.ArgumentParser(description="Pan Limit Discovery")
@@ -97,8 +97,8 @@ results = []
 
 for z in args.zooms:
     def edit_fn(p, _z=z, _pv=args.pan):
-        set_zoom(p, _z, job)
-        set_pan(p, _pv, _pv, job)
+        lrp_set_zoom(p, _z, job)
+        lrp_set_pan(p, _pv, _pv, job)
 
     r = apply_lrp_change(client, TEMPLATE_XML, edit_fn,
                          confirm_delays=(1, 2, 4))
@@ -149,8 +149,8 @@ if results:
 # ── Reset ────────────────────────────────────────────────────────────────
 
 def reset(p):
-    set_zoom(p, 10, job)
-    set_pan(p, 0, 0, job)
+    lrp_set_zoom(p, 10, job)
+    lrp_set_pan(p, 0, 0, job)
 
 apply_lrp_change(client, TEMPLATE_XML, reset, confirm_delays=(1, 2, 4))
 

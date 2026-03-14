@@ -37,7 +37,7 @@ Z_STACK_DIRECTIONS = {
 }
 
 
-def set_z_stack_direction(lrp_path, mode, job_name):
+def lrp_set_z_stack_direction(lrp_path, mode, job_name):
     """Set Z-stack direction mode for a job.
 
     Args:
@@ -50,19 +50,19 @@ def set_z_stack_direction(lrp_path, mode, job_name):
     """
     mode = int(mode)
     if mode not in Z_STACK_DIRECTIONS:
-        log.error("set_z_stack_direction: invalid mode %r "
+        log.error("lrp_set_z_stack_direction: invalid mode %r "
                   "(expected 0 or 1)", mode)
         return 0
     name = Z_STACK_DIRECTIONS[mode]
     count = 0
     count += _set_job_attr(lrp_path, "ZStackDirectionMode", str(mode),
-                           job_name, "set_z_stack_direction")
+                           job_name, "lrp_set_z_stack_direction")
     count += _set_job_attr(lrp_path, "ZStackDirectionModeName", name,
-                           job_name, "set_z_stack_direction")
+                           job_name, "lrp_set_z_stack_direction")
     return count
 
 
-def verify_z_stack_direction(lrp_path, mode, job_name):
+def lrp_verify_z_stack_direction(lrp_path, mode, job_name):
     """Verify ZStackDirectionMode for a job (exact match)."""
     return _verify_job_attr(lrp_path, "ZStackDirectionMode", str(int(mode)),
                             job_name)
@@ -72,7 +72,7 @@ def verify_z_stack_direction(lrp_path, mode, job_name):
 # Z-stack sections
 # =============================================================================
 
-def set_sections(lrp_path, value, job_name):
+def lrp_set_sections(lrp_path, value, job_name):
     """Set the number of Z-stack sections for a job.
 
     Args:
@@ -85,13 +85,13 @@ def set_sections(lrp_path, value, job_name):
     """
     value = int(value)
     if value < 1:
-        log.error("set_sections: invalid value %r (must be >= 1)", value)
+        log.error("lrp_set_sections: invalid value %r (must be >= 1)", value)
         return 0
     return _set_job_attr(lrp_path, "Sections", str(value), job_name,
-                         "set_sections")
+                         "lrp_set_sections")
 
 
-def verify_sections(lrp_path, value, job_name):
+def lrp_verify_sections(lrp_path, value, job_name):
     """Verify Sections for a job (exact match)."""
     return _verify_job_attr(lrp_path, "Sections", str(int(value)), job_name)
 
@@ -100,7 +100,7 @@ def verify_sections(lrp_path, value, job_name):
 # Z-stack active (enable / disable)
 # =============================================================================
 
-def set_z_stack_active(lrp_path, enable, job_name):
+def lrp_set_z_stack_active(lrp_path, enable, job_name):
     """Enable or disable the Z-stack for a job.
 
     Sets ``ValidBeginStack`` and ``ValidEndStack``.  When disabling,
@@ -117,16 +117,16 @@ def set_z_stack_active(lrp_path, enable, job_name):
     val = "1" if enable else "0"
     count = 0
     count += _set_job_attr(lrp_path, "ValidBeginStack", val, job_name,
-                           "set_z_stack_active")
+                           "lrp_set_z_stack_active")
     count += _set_job_attr(lrp_path, "ValidEndStack", val, job_name,
-                           "set_z_stack_active")
+                           "lrp_set_z_stack_active")
     if not enable:
         count += _set_job_attr(lrp_path, "Sections", "1", job_name,
-                               "set_z_stack_active")
+                               "lrp_set_z_stack_active")
     return count
 
 
-def verify_z_stack_active(lrp_path, enable, job_name):
+def lrp_verify_z_stack_active(lrp_path, enable, job_name):
     """Verify ValidBeginStack and ValidEndStack for a job."""
     val = "1" if enable else "0"
     return (_verify_job_attr(lrp_path, "ValidBeginStack", val, job_name) and
@@ -143,7 +143,7 @@ Z_USE_MODES = {
 }
 
 
-def set_z_use_mode(lrp_path, mode, job_name):
+def lrp_set_z_use_mode(lrp_path, mode, job_name):
     """Set the Z use mode (z-galvo or z-wide) for a job.
 
     Args:
@@ -159,24 +159,24 @@ def set_z_use_mode(lrp_path, mode, job_name):
         reverse = {v: k for k, v in Z_USE_MODES.items()}
         mode = reverse.get(mode)
         if mode is None:
-            log.error("set_z_use_mode: invalid mode string "
+            log.error("lrp_set_z_use_mode: invalid mode string "
                       "(expected 'z-wide' or 'z-galvo')")
             return 0
     mode = int(mode)
     if mode not in Z_USE_MODES:
-        log.error("set_z_use_mode: invalid mode %r "
+        log.error("lrp_set_z_use_mode: invalid mode %r "
                   "(expected 0 or 1)", mode)
         return 0
     name = Z_USE_MODES[mode]
     count = 0
     count += _set_job_attr(lrp_path, "ZUseMode", str(mode), job_name,
-                           "set_z_use_mode")
+                           "lrp_set_z_use_mode")
     count += _set_job_attr(lrp_path, "ZUseModeName", name, job_name,
-                           "set_z_use_mode")
+                           "lrp_set_z_use_mode")
     return count
 
 
-def verify_z_use_mode(lrp_path, mode, job_name):
+def lrp_verify_z_use_mode(lrp_path, mode, job_name):
     """Verify ZUseMode for a job (exact match)."""
     if isinstance(mode, str):
         reverse = {v: k for k, v in Z_USE_MODES.items()}
@@ -188,7 +188,7 @@ def verify_z_use_mode(lrp_path, mode, job_name):
 # Z-position
 # =============================================================================
 
-def set_z_position(lrp_path, z_um, job_name):
+def lrp_set_z_position(lrp_path, z_um, job_name):
     """Set the Z-position for a job.
 
     Args:
@@ -201,10 +201,10 @@ def set_z_position(lrp_path, z_um, job_name):
     """
     z_m = float(z_um) * 1e-6
     return _set_job_attr(lrp_path, "ZPosition", str(z_m), job_name,
-                         "set_z_position")
+                         "lrp_set_z_position")
 
 
-def verify_z_position(lrp_path, z_um, job_name, tolerance_um=0.5):
+def lrp_verify_z_position(lrp_path, z_um, job_name, tolerance_um=0.5):
     """Verify ZPosition for a job (with tolerance, in um)."""
     return _verify_job_attr_float(lrp_path, "ZPosition",
                                   float(z_um) * 1e-6, job_name,
@@ -215,7 +215,7 @@ def verify_z_position(lrp_path, z_um, job_name, tolerance_um=0.5):
 # Z-stack range (begin / end) and size
 # =============================================================================
 
-def set_z_stack_range(lrp_path, begin_um, end_um, job_name):
+def lrp_set_z_stack_range(lrp_path, begin_um, end_um, job_name):
     """Set the Z-stack begin and end positions for a job.
 
     Also enables the z-stack by setting ``ValidBeginStack`` and
@@ -234,18 +234,18 @@ def set_z_stack_range(lrp_path, begin_um, end_um, job_name):
     end_m = float(end_um) * 1e-6
     count = 0
     count += _set_job_attr(lrp_path, "Begin", str(begin_m), job_name,
-                           "set_z_stack_range")
+                           "lrp_set_z_stack_range")
     count += _set_job_attr(lrp_path, "End", str(end_m), job_name,
-                           "set_z_stack_range")
+                           "lrp_set_z_stack_range")
     count += _set_job_attr(lrp_path, "ValidBeginStack", "1", job_name,
-                           "set_z_stack_range")
+                           "lrp_set_z_stack_range")
     count += _set_job_attr(lrp_path, "ValidEndStack", "1", job_name,
-                           "set_z_stack_range")
+                           "lrp_set_z_stack_range")
     return count
 
 
-def verify_z_stack_range(lrp_path, begin_um, end_um, job_name,
-                         tolerance_um=1.0):
+def lrp_verify_z_stack_range(lrp_path, begin_um, end_um, job_name,
+                              tolerance_um=1.0):
     """Verify Begin and End for a job (with tolerance, in um)."""
     return (
         _verify_job_attr_float(lrp_path, "Begin",
@@ -256,7 +256,7 @@ def verify_z_stack_range(lrp_path, begin_um, end_um, job_name,
                                tolerance_um * 1e-6))
 
 
-def set_z_stack_size(lrp_path, size_um, job_name):
+def lrp_set_z_stack_size(lrp_path, size_um, job_name):
     """Set the Z-stack total size, centered on the current Z-position.
 
     Reads the current ``ZPosition`` from the Master element, then
@@ -289,21 +289,21 @@ def set_z_stack_size(lrp_path, size_um, job_name):
             break
 
     if z_m is None:
-        log.error("set_z_stack_size: job '%s' not found", job_name)
+        log.error("lrp_set_z_stack_size: job '%s' not found", job_name)
         return 0
 
     half_m = (float(size_um) * 1e-6) / 2.0
     begin_um = (z_m - half_m) * 1e6
     end_um = (z_m + half_m) * 1e6
 
-    log.info("set_z_stack_size: job='%s', z=%.1f um, size=%.1f um, "
+    log.info("lrp_set_z_stack_size: job='%s', z=%.1f um, size=%.1f um, "
              "begin=%.1f um, end=%.1f um",
              job_name, z_m * 1e6, size_um, begin_um, end_um)
 
-    return set_z_stack_range(lrp_path, begin_um, end_um, job_name)
+    return lrp_set_z_stack_range(lrp_path, begin_um, end_um, job_name)
 
 
-def verify_z_stack_size(lrp_path, size_um, job_name, tolerance_um=1.0):
+def lrp_verify_z_stack_size(lrp_path, size_um, job_name, tolerance_um=1.0):
     """Verify the Z-stack total size (End - Begin) in um."""
     lrp_path = Path(lrp_path)
     root = ET.parse(lrp_path).getroot()

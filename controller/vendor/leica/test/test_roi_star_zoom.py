@@ -42,11 +42,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from LasxApi import PYLICamApiConnector as lasx_api
 import lasx as drv
 from lasx.scanning_templates import TEMPLATE_XML, apply_lrp_change
-from lasx.scanning_template_editors_scan import set_zoom, verify_zoom
+from lasx.scanning_template_editors_scan import lrp_set_zoom, lrp_verify_zoom
 from lasx.scanning_template_editors_roi import (
-    enable_roi_scan, verify_roi_scan,
-    clear_rois, add_roi,
-    verify_roi_count,
+    lrp_enable_roi_scan, lrp_verify_roi_scan,
+    lrp_clear_rois, lrp_add_roi,
+    lrp_verify_roi_count,
     make_star, um,
 )
 
@@ -113,11 +113,11 @@ print(f"{'=' * 60}")
 
 # Clear existing ROIs and enable ROI scan
 def _setup(p):
-    clear_rois(p, job)
-    enable_roi_scan(p, True, job)
+    lrp_clear_rois(p, job)
+    lrp_enable_roi_scan(p, True, job)
 
 run_test("Clear ROIs + enable ROI scan", _setup,
-         lambda p: verify_roi_scan(p, True, job))
+         lambda p: lrp_verify_roi_scan(p, True, job))
 
 # ── Test 2: At each zoom level, add a star sized to FOV ─────────────────
 
@@ -125,8 +125,8 @@ for z in args.zooms:
     # Set zoom
     run_test(
         f"Set zoom to {z}",
-        lambda p, _z=z: set_zoom(p, _z, job),
-        lambda p, _z=z: verify_zoom(p, _z, job),
+        lambda p, _z=z: lrp_set_zoom(p, _z, job),
+        lambda p, _z=z: lrp_verify_zoom(p, _z, job),
     )
 
     # Query FOV at this zoom
@@ -143,14 +143,14 @@ for z in args.zooms:
     inner_r = outer_r * 0.4
 
     def _add_star(p, _or=outer_r, _ir=inner_r):
-        clear_rois(p, job)
+        lrp_clear_rois(p, job)
         verts = make_star(outer_radius=_or, inner_radius=_ir)
-        add_roi(p, job, "4", verts)
+        lrp_add_roi(p, job, "8", verts)
 
     run_test(
         f"Add star (30% FOV = {outer_r*1e6:.1f} um outer) at zoom {z}",
         _add_star,
-        lambda p: verify_roi_count(p, 1, job),
+        lambda p: lrp_verify_roi_count(p, 1, job),
     )
 
     refresh()
@@ -165,12 +165,12 @@ print(f"{'=' * 60}")
 
 # Add a fixed-size star
 def _add_fixed_star(p):
-    clear_rois(p, job)
+    lrp_clear_rois(p, job)
     verts = make_star(outer_radius=um(5), inner_radius=um(2))
-    add_roi(p, job, "4", verts)
+    lrp_add_roi(p, job, "8", verts)
 
 run_test("Add fixed star (5 um outer, 2 um inner)", _add_fixed_star,
-         lambda p: verify_roi_count(p, 1, job))
+         lambda p: lrp_verify_roi_count(p, 1, job))
 refresh()
 time.sleep(args.pause)
 
@@ -179,8 +179,8 @@ zoom_sweep = sorted(args.zooms) + sorted(args.zooms, reverse=True)
 for z in zoom_sweep:
     run_test(
         f"Zoom to {z} (fixed star)",
-        lambda p, _z=z: set_zoom(p, _z, job),
-        lambda p, _z=z: verify_zoom(p, _z, job),
+        lambda p, _z=z: lrp_set_zoom(p, _z, job),
+        lambda p, _z=z: lrp_verify_zoom(p, _z, job),
     )
     refresh()
     print(f"  -- Pausing {args.pause}s --")
@@ -193,14 +193,14 @@ print(f"  Cleanup")
 print(f"{'=' * 60}")
 
 def _cleanup(p):
-    enable_roi_scan(p, False, job)
-    clear_rois(p, job)
-    set_zoom(p, 10, job)
+    lrp_enable_roi_scan(p, False, job)
+    lrp_clear_rois(p, job)
+    lrp_set_zoom(p, 10, job)
 
 run_test("Disable ROI scan + clear + reset zoom",
          _cleanup,
-         lambda p: (verify_roi_scan(p, False, job) and
-                    verify_roi_count(p, 0, job)))
+         lambda p: (lrp_verify_roi_scan(p, False, job) and
+                    lrp_verify_roi_count(p, 0, job)))
 refresh()
 
 # ── Summary ──────────────────────────────────────────────────────────────

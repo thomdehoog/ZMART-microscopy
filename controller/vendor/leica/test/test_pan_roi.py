@@ -33,12 +33,12 @@ from LasxApi import PYLICamApiConnector as lasx_api
 import lasx as drv
 from lasx.scanning_templates import TEMPLATE_XML, apply_lrp_change
 from lasx.scanning_template_editors_scan import (
-    set_pan, verify_pan,
+    lrp_set_pan, lrp_verify_pan,
 )
 from lasx.scanning_template_editors_roi import (
-    enable_roi_scan, verify_roi_scan,
-    clear_rois, add_roi,
-    verify_roi_count,
+    lrp_enable_roi_scan, lrp_verify_roi_scan,
+    lrp_clear_rois, lrp_add_roi,
+    lrp_verify_roi_count,
     make_rectangle,
 )
 
@@ -93,15 +93,15 @@ print(f"{'=' * 60}")
 # Set pan to (0.25, -0.1)
 run_test(
     "Set pan to (0.25, -0.1)",
-    lambda p: set_pan(p, 0.25, -0.1, args.job),
-    lambda p: verify_pan(p, 0.25, -0.1, args.job),
+    lambda p: lrp_set_pan(p, 0.25, -0.1, args.job),
+    lambda p: lrp_verify_pan(p, 0.25, -0.1, args.job),
 )
 
 # Reset pan to (0, 0)
 run_test(
     "Reset pan to (0, 0)",
-    lambda p: set_pan(p, 0, 0, args.job),
-    lambda p: verify_pan(p, 0, 0, args.job),
+    lambda p: lrp_set_pan(p, 0, 0, args.job),
+    lambda p: lrp_verify_pan(p, 0, 0, args.job),
 )
 
 # ── ROI tests ───────────────────────────────────────────────────────────
@@ -113,36 +113,36 @@ print(f"{'=' * 60}")
 # Clear ROIs
 run_test(
     "Clear all ROIs",
-    lambda p: clear_rois(p, args.job),
-    lambda p: verify_roi_count(p, 0, args.job),
+    lambda p: lrp_clear_rois(p, args.job),
+    lambda p: lrp_verify_roi_count(p, 0, args.job),
 )
 
 # Add a rectangle ROI
 def _add_rect_roi(p):
     verts = make_rectangle(0.5, 0.5)
-    add_roi(p, args.job, "4", verts)
+    lrp_add_roi(p, args.job, "8", verts)
 
 run_test(
     "Add rectangle ROI",
     _add_rect_roi,
-    lambda p: verify_roi_count(p, 1, args.job),
+    lambda p: lrp_verify_roi_count(p, 1, args.job),
 )
 
 # Enable ROI scan
 run_test(
     "Enable ROI scan",
-    lambda p: enable_roi_scan(p, True, args.job),
-    lambda p: verify_roi_scan(p, True, args.job),
+    lambda p: lrp_enable_roi_scan(p, True, args.job),
+    lambda p: lrp_verify_roi_scan(p, True, args.job),
 )
 
 # Disable ROI scan + clear
 def _disable_and_clear(p):
-    enable_roi_scan(p, False, args.job)
-    clear_rois(p, args.job)
+    lrp_enable_roi_scan(p, False, args.job)
+    lrp_clear_rois(p, args.job)
 
 def _verify_disabled_and_clear(p):
-    return (verify_roi_scan(p, False, args.job) and
-            verify_roi_count(p, 0, args.job))
+    return (lrp_verify_roi_scan(p, False, args.job) and
+            lrp_verify_roi_count(p, 0, args.job))
 
 run_test(
     "Disable ROI scan + clear ROIs",

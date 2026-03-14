@@ -33,7 +33,7 @@ STACK_MODES = {
 }
 
 
-def set_stack_calculation_mode(lrp_path, mode, job_name):
+def lrp_set_stack_calculation_mode(lrp_path, mode, job_name):
     """Set the Z-stack calculation mode for a specific job.
 
     Uses string replacement on the ``ATLConfocalSettingDefinition``
@@ -50,7 +50,7 @@ def set_stack_calculation_mode(lrp_path, mode, job_name):
         Number of attributes changed (0, 1, or 2).
     """
     if mode not in STACK_MODES:
-        log.error("set_stack_calculation_mode: invalid mode %r "
+        log.error("lrp_set_stack_calculation_mode: invalid mode %r "
                   "(expected 0, 1, or 2)", mode)
         return 0
 
@@ -60,20 +60,20 @@ def set_stack_calculation_mode(lrp_path, mode, job_name):
     marker = f'BlockName="{job_name}"'
     job_pos = text.find(marker)
     if job_pos == -1:
-        log.error("set_stack_calculation_mode: job '%s' not found", job_name)
+        log.error("lrp_set_stack_calculation_mode: job '%s' not found", job_name)
         return 0
 
     master_tag = "LDM_Block_Sequential_Master"
     master_pos = text.find(master_tag, job_pos)
     if master_pos == -1:
-        log.error("set_stack_calculation_mode: no Sequential_Master "
+        log.error("lrp_set_stack_calculation_mode: no Sequential_Master "
                   "found for job '%s'", job_name)
         return 0
 
     setting_tag = "ATLConfocalSettingDefinition"
     setting_pos = text.find(setting_tag, master_pos)
     if setting_pos == -1:
-        log.error("set_stack_calculation_mode: no setting found in "
+        log.error("lrp_set_stack_calculation_mode: no setting found in "
                   "Sequential_Master for job '%s'", job_name)
         return 0
 
@@ -102,13 +102,13 @@ def set_stack_calculation_mode(lrp_path, mode, job_name):
         text = text[:setting_pos] + new_element + text[end_pos + 1:]
         lrp_path.write_text(text, encoding="utf-8")
 
-    log.info("set_stack_calculation_mode: job='%s', mode=%d (%s), "
+    log.info("lrp_set_stack_calculation_mode: job='%s', mode=%d (%s), "
              "%d attributes changed", job_name, mode, STACK_MODES[mode],
              count)
     return count
 
 
-def verify_stack_calculation_mode(lrp_path, mode, job_name):
+def lrp_verify_stack_calculation_mode(lrp_path, mode, job_name):
     """Verify the Z-stack calculation mode on the Master element.
 
     Args:
@@ -136,7 +136,7 @@ def verify_stack_calculation_mode(lrp_path, mode, job_name):
 # Pinhole (Airy units)
 # =============================================================================
 
-def set_pinhole_airy(lrp_path, value, job_name):
+def lrp_set_pinhole_airy(lrp_path, value, job_name):
     """Set PinholeAiry on all settings in a job.
 
     Args:
@@ -148,10 +148,10 @@ def set_pinhole_airy(lrp_path, value, job_name):
         Number of attributes changed.
     """
     return _set_job_attr(lrp_path, "PinholeAiry", str(value), job_name,
-                         "set_pinhole_airy")
+                         "lrp_set_pinhole_airy")
 
 
-def verify_pinhole_airy(lrp_path, value, job_name, tolerance=0.1):
+def lrp_verify_pinhole_airy(lrp_path, value, job_name, tolerance=0.1):
     """Verify PinholeAiry for a job (with tolerance).
 
     LAS X adjusts PinholeAiry when saving (e.g. ``1.0`` becomes
@@ -175,7 +175,7 @@ def verify_pinhole_airy(lrp_path, value, job_name, tolerance=0.1):
 # Autofocus active
 # =============================================================================
 
-def set_autofocus_active(lrp_path, enable, job_name):
+def lrp_set_autofocus_active(lrp_path, enable, job_name):
     """Enable or disable autofocus for a job.
 
     Args:
@@ -188,10 +188,10 @@ def set_autofocus_active(lrp_path, enable, job_name):
     """
     val = "1" if enable else "0"
     return _set_job_attr(lrp_path, "IsAutofocusActive", val, job_name,
-                         "set_autofocus_active")
+                         "lrp_set_autofocus_active")
 
 
-def verify_autofocus_active(lrp_path, enable, job_name):
+def lrp_verify_autofocus_active(lrp_path, enable, job_name):
     """Verify IsAutofocusActive for a job (exact match)."""
     val = "1" if enable else "0"
     return _verify_job_attr(lrp_path, "IsAutofocusActive", val, job_name)

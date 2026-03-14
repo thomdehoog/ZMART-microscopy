@@ -20,12 +20,12 @@ Use ``get_fov()`` from ``readers`` to query the FOV in metres,
 then size shapes as a fraction of it::
 
     from lasx.readers import get_fov
-    from lasx.scanning_template_editors_roi import make_star, add_roi, um
+    from lasx.scanning_template_editors_roi import make_star, lrp_add_roi, um
 
     fov_w, fov_h = get_fov(client, "HiRes")   # e.g. (2.9e-5, 2.9e-5)
     verts = make_star(outer_radius=fov_w * 0.4,
                       inner_radius=fov_w * 0.16)
-    add_roi(lrp_path, "HiRes", ROI_POLYGON, verts)
+    lrp_add_roi(lrp_path, "HiRes", ROI_POLYGON, verts)
 
 RoiType values: ``8`` = polygon, ``16`` = rectangle, ``32`` = ellipse,
 ``64`` = line.
@@ -90,7 +90,7 @@ COLOR_YELLOW = argb_color(255, 255, 0)   # "4294967040"
 # Enable / disable ROI scanning
 # =============================================================================
 
-def enable_roi_scan(lrp_path, enable, job_name):
+def lrp_enable_roi_scan(lrp_path, enable, job_name):
     """Enable or disable ROI scanning for a job.
 
     Sets ``IsRoiScanEnable`` on all ``ATLConfocalSettingDefinition``
@@ -106,10 +106,10 @@ def enable_roi_scan(lrp_path, enable, job_name):
     """
     val = "1" if enable else "0"
     return _set_job_attr(lrp_path, "IsRoiScanEnable", val, job_name,
-                         "enable_roi_scan")
+                         "lrp_enable_roi_scan")
 
 
-def verify_roi_scan(lrp_path, enable, job_name):
+def lrp_verify_roi_scan(lrp_path, enable, job_name):
     """Verify IsRoiScanEnable for a job (exact match)."""
     val = "1" if enable else "0"
     return _verify_job_attr(lrp_path, "IsRoiScanEnable", val, job_name)
@@ -155,7 +155,7 @@ def _find_dcroiset_children(setting_el):
     return None
 
 
-def find_aotf_template(root):
+def lrp_find_aotf_template(root):
     """Find an existing AOTF Attachment element to copy into new ROIs.
 
     Searches all existing ROISingle elements for an ``<Attachment>``
@@ -173,7 +173,7 @@ def find_aotf_template(root):
 # Clear ROIs
 # =============================================================================
 
-def clear_rois(lrp_path, job_name):
+def lrp_clear_rois(lrp_path, job_name):
     """Remove all ROI Elements from DCROISet/Children in Master.
 
     Args:
@@ -189,17 +189,17 @@ def clear_rois(lrp_path, job_name):
 
     block = _find_job_block(root, job_name)
     if block is None:
-        log.error("clear_rois: job '%s' not found", job_name)
+        log.error("lrp_clear_rois: job '%s' not found", job_name)
         return 0
 
     setting = _find_master_setting(block)
     if setting is None:
-        log.error("clear_rois: no Master setting for job '%s'", job_name)
+        log.error("lrp_clear_rois: no Master setting for job '%s'", job_name)
         return 0
 
     children = _find_dcroiset_children(setting)
     if children is None:
-        log.warning("clear_rois: no DCROISet/Children for job '%s'", job_name)
+        log.warning("lrp_clear_rois: no DCROISet/Children for job '%s'", job_name)
         return 0
 
     elements = list(children)
@@ -210,7 +210,7 @@ def clear_rois(lrp_path, job_name):
     if count > 0:
         tree.write(lrp_path, encoding="utf-8", xml_declaration=True)
 
-    log.info("clear_rois: job='%s', removed %d ROI element(s)",
+    log.info("lrp_clear_rois: job='%s', removed %d ROI element(s)",
              job_name, count)
     return count
 
@@ -268,6 +268,8 @@ def make_ellipse(radius_x, radius_y, center_x=0.0, center_y=0.0,
         angle = 2.0 * math.pi * i / n_points
         verts.append((center_x + radius_x * math.cos(angle),
                       center_y + radius_y * math.sin(angle)))
+    # Close the polygon by repeating the first vertex
+    verts.append(verts[0])
     return verts
 
 
@@ -310,7 +312,8 @@ def make_star(n_points=5, outer_radius=None, inner_radius=None,
         center_y: Centre Y in metres (default 0).
 
     Returns:
-        List of ``(x, y)`` tuples (``2 * n_points`` vertices).
+        List of ``(x, y)`` tuples (``2 * n_points + 1`` vertices,
+        last repeats first to close the polygon).
     """
     if outer_radius is None:
         outer_radius = um(5)
@@ -324,6 +327,8 @@ def make_star(n_points=5, outer_radius=None, inner_radius=None,
         r = outer_radius if i % 2 == 0 else inner_radius
         verts.append((center_x + r * math.cos(angle),
                       center_y + r * math.sin(angle)))
+    # Close the polygon by repeating the first vertex
+    verts.append(verts[0])
     return verts
 
 
@@ -346,9 +351,9 @@ def make_line(x1, y1, x2, y2):
 # Add ROI
 # =============================================================================
 
-def add_roi(lrp_path, job_name, roi_type, vertices, *,
-            name=None, color=None, rotation=0.0,
-            translation=(0.0, 0.0), scale=(1.0, 1.0)):
+def lrp_add_roi(lrp_path, job_name, roi_type, vertices, *,
+                name=None, color=None, rotation=0.0,
+                translation=(0.0, 0.0), scale=(1.0, 1.0)):
     """Append an ROI Element to DCROISet/Children in Master.
 
     Coordinates are in **metres relative to the scan field centre**
@@ -379,17 +384,17 @@ def add_roi(lrp_path, job_name, roi_type, vertices, *,
 
     block = _find_job_block(root, job_name)
     if block is None:
-        log.error("add_roi: job '%s' not found", job_name)
+        log.error("lrp_add_roi: job '%s' not found", job_name)
         return False
 
     setting = _find_master_setting(block)
     if setting is None:
-        log.error("add_roi: no Master setting for job '%s'", job_name)
+        log.error("lrp_add_roi: no Master setting for job '%s'", job_name)
         return False
 
     children = _find_dcroiset_children(setting)
     if children is None:
-        log.error("add_roi: no DCROISet/Children for job '%s'", job_name)
+        log.error("lrp_add_roi: no DCROISet/Children for job '%s'", job_name)
         return False
 
     # Auto-number: "ROI 1", "ROI 2", ...
@@ -424,7 +429,7 @@ def add_roi(lrp_path, job_name, roi_type, vertices, *,
     )
 
     # AOTF attachment — inside ROISingle, before Vertices (issue 5)
-    aotf = find_aotf_template(root)
+    aotf = lrp_find_aotf_template(root)
     if aotf is not None:
         roi_single.append(aotf)
 
@@ -451,7 +456,7 @@ def add_roi(lrp_path, job_name, roi_type, vertices, *,
     ET.SubElement(roi_el, "Children")
 
     tree.write(lrp_path, encoding="utf-8", xml_declaration=True)
-    log.info("add_roi: job='%s', type=%s, %d vertices",
+    log.info("lrp_add_roi: job='%s', type=%s, %d vertices",
              job_name, roi_type, len(vertices))
     return True
 
@@ -460,7 +465,7 @@ def add_roi(lrp_path, job_name, roi_type, vertices, *,
 # Verify helpers
 # =============================================================================
 
-def verify_roi_count(lrp_path, expected_count, job_name):
+def lrp_verify_roi_count(lrp_path, expected_count, job_name):
     """Verify the number of ROIs for a job via ``parse_lrp``.
 
     Args:
@@ -474,19 +479,19 @@ def verify_roi_count(lrp_path, expected_count, job_name):
     parsed = parse_lrp(lrp_path)
     job = parsed["jobs"].get(job_name)
     if job is None:
-        log.error("verify_roi_count: job '%s' not found", job_name)
+        log.error("lrp_verify_roi_count: job '%s' not found", job_name)
         return expected_count == 0
     master = job.get("Master", {})
     rois = master.get("_ROIs", [])
     actual = len(rois)
     if actual != expected_count:
-        log.warning("verify_roi_count: job='%s', expected %d, got %d",
+        log.warning("lrp_verify_roi_count: job='%s', expected %d, got %d",
                     job_name, expected_count, actual)
         return False
     return True
 
 
-def verify_roi(lrp_path, job_name, index, roi_type=None, n_vertices=None):
+def lrp_verify_roi(lrp_path, job_name, index, roi_type=None, n_vertices=None):
     """Verify attributes of a specific ROI by index.
 
     Args:
@@ -502,12 +507,12 @@ def verify_roi(lrp_path, job_name, index, roi_type=None, n_vertices=None):
     parsed = parse_lrp(lrp_path)
     job = parsed["jobs"].get(job_name)
     if job is None:
-        log.error("verify_roi: job '%s' not found", job_name)
+        log.error("lrp_verify_roi: job '%s' not found", job_name)
         return False
     master = job.get("Master", {})
     rois = master.get("_ROIs", [])
     if index >= len(rois):
-        log.error("verify_roi: index %d out of range (have %d ROIs)",
+        log.error("lrp_verify_roi: index %d out of range (have %d ROIs)",
                   index, len(rois))
         return False
 
@@ -516,13 +521,13 @@ def verify_roi(lrp_path, job_name, index, roi_type=None, n_vertices=None):
         # LAS X uses "RoiType"; accept either casing for robustness
         actual_type = roi.get("RoiType") or roi.get("ROIType")
         if actual_type != str(roi_type):
-            log.warning("verify_roi: RoiType mismatch: expected %s, got %s",
+            log.warning("lrp_verify_roi: RoiType mismatch: expected %s, got %s",
                         roi_type, actual_type)
             return False
     if n_vertices is not None:
         actual = len(roi.get("_Vertices", []))
         if actual != n_vertices:
-            log.warning("verify_roi: vertex count mismatch: "
+            log.warning("lrp_verify_roi: vertex count mismatch: "
                         "expected %d, got %d", n_vertices, actual)
             return False
     return True

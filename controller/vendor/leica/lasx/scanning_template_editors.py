@@ -134,7 +134,7 @@ def _verify_job_attr_float(lrp_path, attr_name, value, job_name, tolerance):
 # Line average / Line accumulation / Frame average / Frame accumulation
 # =============================================================================
 
-def set_line_average(lrp_path, value, job_name):
+def lrp_set_line_average(lrp_path, value, job_name):
     """Set LineAverage on all settings in a job.
 
     Timing attributes are left unchanged — LAS X recalculates on load.
@@ -148,16 +148,16 @@ def set_line_average(lrp_path, value, job_name):
         Number of attributes changed.
     """
     return _set_job_attr(lrp_path, "LineAverage", str(int(value)), job_name,
-                         "set_line_average")
+                         "lrp_set_line_average")
 
 
-def verify_line_average(lrp_path, value, job_name):
+def lrp_verify_line_average(lrp_path, value, job_name):
     """Verify LineAverage for a job (exact match)."""
     return _verify_job_attr(lrp_path, "LineAverage", str(int(value)),
                             job_name)
 
 
-def set_line_accumulation(lrp_path, value, job_name):
+def lrp_set_line_accumulation(lrp_path, value, job_name):
     """Set Line_Accumulation on all settings in a job.
 
     Note: LAS X uses ``Line_Accumulation`` (with underscore) in the
@@ -172,16 +172,16 @@ def set_line_accumulation(lrp_path, value, job_name):
         Number of attributes changed.
     """
     return _set_job_attr(lrp_path, "Line_Accumulation", str(int(value)),
-                         job_name, "set_line_accumulation")
+                         job_name, "lrp_set_line_accumulation")
 
 
-def verify_line_accumulation(lrp_path, value, job_name):
+def lrp_verify_line_accumulation(lrp_path, value, job_name):
     """Verify Line_Accumulation for a job (exact match)."""
     return _verify_job_attr(lrp_path, "Line_Accumulation", str(int(value)),
                             job_name)
 
 
-def set_frame_average(lrp_path, value, job_name):
+def lrp_set_frame_average(lrp_path, value, job_name):
     """Set FrameAverage on all settings in a job.
 
     Args:
@@ -193,16 +193,16 @@ def set_frame_average(lrp_path, value, job_name):
         Number of attributes changed.
     """
     return _set_job_attr(lrp_path, "FrameAverage", str(int(value)), job_name,
-                         "set_frame_average")
+                         "lrp_set_frame_average")
 
 
-def verify_frame_average(lrp_path, value, job_name):
+def lrp_verify_frame_average(lrp_path, value, job_name):
     """Verify FrameAverage for a job (exact match)."""
     return _verify_job_attr(lrp_path, "FrameAverage", str(int(value)),
                             job_name)
 
 
-def set_frame_accumulation(lrp_path, value, job_name):
+def lrp_set_frame_accumulation(lrp_path, value, job_name):
     """Set FrameAccumulation on all settings in a job.
 
     Args:
@@ -214,10 +214,10 @@ def set_frame_accumulation(lrp_path, value, job_name):
         Number of attributes changed.
     """
     return _set_job_attr(lrp_path, "FrameAccumulation", str(int(value)),
-                         job_name, "set_frame_accumulation")
+                         job_name, "lrp_set_frame_accumulation")
 
 
-def verify_frame_accumulation(lrp_path, value, job_name):
+def lrp_verify_frame_accumulation(lrp_path, value, job_name):
     """Verify FrameAccumulation for a job (exact match)."""
     return _verify_job_attr(lrp_path, "FrameAccumulation", str(int(value)),
                             job_name)
@@ -227,7 +227,7 @@ def verify_frame_accumulation(lrp_path, value, job_name):
 # Scan mode (xyz, xzy, xyzt, ...)
 # =============================================================================
 
-def set_scan_mode(lrp_path, mode, job_name):
+def lrp_set_scan_mode(lrp_path, mode, job_name):
     """Set ScanMode on all settings in a job.
 
     Args:
@@ -240,10 +240,10 @@ def set_scan_mode(lrp_path, mode, job_name):
         Number of attributes changed.
     """
     return _set_job_attr(lrp_path, "ScanMode", str(mode), job_name,
-                         "set_scan_mode")
+                         "lrp_set_scan_mode")
 
 
-def verify_scan_mode(lrp_path, mode, job_name):
+def lrp_verify_scan_mode(lrp_path, mode, job_name):
     """Verify ScanMode for a job (exact match)."""
     return _verify_job_attr(lrp_path, "ScanMode", str(mode), job_name)
 
@@ -304,7 +304,7 @@ def _set_sequential_attr(lrp_path, attr_name, value_str, job_name, caller):
     return 1
 
 
-def set_sequential_mode(lrp_path, mode, job_name):
+def lrp_set_sequential_mode(lrp_path, mode, job_name):
     """Set SequentialMode on the LDM_Block_Sequential element for a job.
 
     Args:
@@ -320,19 +320,19 @@ def set_sequential_mode(lrp_path, mode, job_name):
         reverse = {v: k for k, v in SEQUENTIAL_MODES.items()}
         mode = reverse.get(mode)
         if mode is None:
-            log.error("set_sequential_mode: invalid mode string "
+            log.error("lrp_set_sequential_mode: invalid mode string "
                       "(expected 'Line', 'Frame', or 'Stack')")
             return 0
     mode = int(mode)
     if mode not in SEQUENTIAL_MODES:
-        log.error("set_sequential_mode: invalid mode %r "
+        log.error("lrp_set_sequential_mode: invalid mode %r "
                   "(expected 0, 1, or 2)", mode)
         return 0
     return _set_sequential_attr(lrp_path, "SequentialMode", str(mode),
-                                job_name, "set_sequential_mode")
+                                job_name, "lrp_set_sequential_mode")
 
 
-def verify_sequential_mode(lrp_path, mode, job_name):
+def lrp_verify_sequential_mode(lrp_path, mode, job_name):
     """Verify SequentialMode for a job (exact match).
 
     Reads the ``LDM_Block_Sequential`` element's ``SequentialMode``
