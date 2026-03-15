@@ -22,8 +22,8 @@ logging.basicConfig(
 )
 
 parser = argparse.ArgumentParser(description="Galvo Navigation Integration Test")
-parser.add_argument("--job", default="AF Job",
-                    help="Job name to test (default: AF Job)")
+parser.add_argument("--job", default=None,
+                    help="Job name (default: currently selected job)")
 args = parser.parse_args()
 
 # ── Import ──────────────────────────────────────────────────────────────
@@ -64,7 +64,16 @@ if not drv.ping(client):
     print("  ABORT: ping failed")
     sys.exit(1)
 
-job = args.job
+# Resolve job: --job flag > currently selected job > fallback
+if args.job:
+    job = args.job
+else:
+    selected = drv.get_selected_job(client)
+    job = selected.get("Name") if selected else None
+    if not job:
+        job = "AF Job"
+    print(f"  Auto-detected job: '{job}'")
+
 tdir = find_scanning_templates_dir()
 lrp_path = os.path.join(tdir, TEMPLATE_XML.replace(".xml", ".lrp"))
 
@@ -139,7 +148,34 @@ check("pan persisted in LRP",
       abs(actual_pan[0] - r["pan"][0]) < 1e-6,
       f"expected {r['pan'][0]}, got {actual_pan[0]}")
 
-# ── Test 2: move_xy_galvo out of range ──────────────────────────────────
+# Verify stage did NOT move
+stage_after = drv.get_xy(client)
+check("stage X unchanged after galvo move",
+      abs(stage_after["x_um"] - stage["x_um"]) < 1,
+      f"before={stage['x_um']:.1f}, after={stage_after['x_um']:.1f}")
+check("stage Y unchanged after galvo move",
+      abs(stage_after["y_um"] - stage["y_um"]) < 1,
+      f"before={stage['y_um']:.1f}, after={stage_after['y_um']:.1f}")
+
+# ── Test 2: move_xy_galvo negative offset ──────────────────────────────
+
+print(f"\n  --- move_xy_galvo negative offset ---")
+
+r_neg = drv.move_xy_galvo(client, stage["x_um"] - 40, stage["y_um"] + 30,
+                           job_name=job)
+check("negative offset succeeds", r_neg["success"])
+check("pan_x is negative (left offset)", r_neg["pan"][0] < 0,
+      f"pan_x={r_neg['pan'][0]}")
+check("pan_y is positive (down offset)", r_neg["pan"][1] > 0,
+      f"pan_y={r_neg['pan'][1]}")
+check("offset_x is -40", abs(r_neg["offset_um"][0] - (-40)) < 0.1,
+      f"offset_x={r_neg['offset_um'][0]}")
+check("offset_y is +30", abs(r_neg["offset_um"][1] - 30) < 0.1,
+      f"offset_y={r_neg['offset_um'][1]}")
+
+# ── Test 3: move_xy_galvo out of range ──────────────────────────────────
+
+print(f"\n  --- move_xy_galvo out of range ---")
 
 r_ool = drv.move_xy_galvo(client, stage["x_um"] + 1000, stage["y_um"],
                            job_name=job)
@@ -147,7 +183,14 @@ check("out-of-range correctly rejected", not r_ool["success"])
 check("error message mentions range", "range" in r_ool["message"].lower(),
       f"msg={r_ool['message']}")
 
-# ── Test 3: move_xy_galvo back to center ────────────────────────────────
+# Negative out of range
+r_ool2 = drv.move_xy_galvo(client, stage["x_um"], stage["y_um"] - 1000,
+                            job_name=job)
+check("negative out-of-range rejected", not r_ool2["success"])
+
+# ── Test 4: move_xy_galvo back to center ────────────────────────────────
+
+print(f"\n  --- move_xy_galvo back to center ---")
 
 r_center = drv.move_xy_galvo(client, stage["x_um"], stage["y_um"],
                               job_name=job)
@@ -155,7 +198,25 @@ check("move back to center succeeds", r_center["success"])
 check("pan is ~zero after centering",
       abs(r_center["pan"][0]) < 1e-6 and abs(r_center["pan"][1]) < 1e-6)
 
-# ── Test 4: ROI translation round-trip ──────────────────────────────────
+# ── Test 5: move_xy_galvo exact stage position gives zero pan ──────────
+
+print(f"\n  --- move_xy_galvo at stage center ---")
+
+r_exact = drv.move_xy_galvo(client, stage["x_um"], stage["y_um"],
+                             job_name=job)
+check("exact stage pos -> success", r_exact["success"])
+check("exact stage pos -> pan_x == 0",
+      abs(r_exact["pan"][0]) < 1e-9,
+      f"pan_x={r_exact['pan'][0]}")
+check("exact stage pos -> pan_y == 0",
+      abs(r_exact["pan"][1]) < 1e-9,
+      f"pan_y={r_exact['pan'][1]}")
+check("exact stage pos -> offset_x == 0",
+      abs(r_exact["offset_um"][0]) < 0.01)
+check("exact stage pos -> offset_y == 0",
+      abs(r_exact["offset_um"][1]) < 0.01)
+
+# ── Test 6: ROI translation round-trip ──────────────────────────────────
 
 print(f"\n  --- ROI Translation round-trip ---")
 
@@ -205,7 +266,7 @@ if rois:
           abs(pan_y - expected_pan_y) < 1e-6,
           f"expected {expected_pan_y}, got {pan_y}")
 
-# ── Test 5: Pan to ROI using translation ────────────────────────────────
+# ── Test 7: Pan to ROI using translation ────────────────────────────────
 
 print(f"\n  --- Pan to ROI from translation ---")
 
@@ -231,7 +292,7 @@ if rois:
           abs(actual_pan[1] - pan_y) < 1e-6,
           f"expected {pan_y:.6f}, got {actual_pan[1]:.6f}")
 
-# ── Test 6: bbox_to_zoom ────────────────────────────────────────────────
+# ── Test 8: bbox_to_zoom ────────────────────────────────────────────────
 
 print(f"\n  --- bbox_to_zoom ---")
 
@@ -244,8 +305,14 @@ check("bbox 5x5 -> zoom=48 (clamped)",
       bbox_to_zoom(5, 5) == 48)
 check("bbox 0x0 -> zoom=48",
       bbox_to_zoom(0, 0) == 48)
+# Asymmetric bbox: zoom should fit the larger dimension
+z_wide = bbox_to_zoom(500, 100)
+z_tall = bbox_to_zoom(100, 500)
+check("wide bbox -> lower zoom than tall (FOV is wider)",
+      z_wide <= z_tall,
+      f"wide={z_wide}, tall={z_tall}")
 
-# ── Test 7: pixel_to_absolute_um consistency ────────────────────────────
+# ── Test 9: pixel_to_absolute_um consistency ────────────────────────────
 
 print(f"\n  --- pixel_to_absolute_um ---")
 
@@ -266,7 +333,28 @@ check("pixel 0 and 512 equidistant from center",
       abs(offset0 - offset512) < 0.1,
       f"offset0={offset0:.1f}, offset512={offset512:.1f}")
 
-# ── Test 8: mask_contour_to_roi ─────────────────────────────────────────
+# At higher zoom, pixel range should shrink proportionally
+cx_z8, cy_z8 = pixel_to_absolute_um(256, 256, stage["x_um"], stage["y_um"],
+                                      0, 0, zoom=8)
+check("center pixel unchanged at zoom=8",
+      abs(cx_z8 - stage["x_um"]) < 0.1 and abs(cy_z8 - stage["y_um"]) < 0.1)
+
+x0_z8, _ = pixel_to_absolute_um(0, 256, stage["x_um"], stage["y_um"],
+                                  0, 0, zoom=8)
+offset0_z8 = abs(x0_z8 - stage["x_um"])
+check("zoom=8 shrinks pixel range ~8x",
+      abs(offset0_z8 - offset0 / 8) < 1,
+      f"z1={offset0:.1f}, z8={offset0_z8:.1f}, ratio={offset0/offset0_z8:.1f}")
+
+# With pan offset, center pixel should shift
+pan_offset = 0.0005  # 50 um
+cx_pan, _ = pixel_to_absolute_um(256, 256, stage["x_um"], stage["y_um"],
+                                   pan_offset, 0, zoom=1)
+check("pan shifts center pixel",
+      abs(cx_pan - (stage["x_um"] + 50)) < 1,
+      f"expected ~{stage['x_um'] + 50:.1f}, got {cx_pan:.1f}")
+
+# ── Test 10: mask_contour_to_roi ───────────────────────────────────────
 
 print(f"\n  --- mask_contour_to_roi ---")
 
@@ -301,7 +389,24 @@ if rois:
     roi_verts = rois[0].get("_Vertices", [])
     check("mask ROI has 4 vertices", len(roi_verts) == 4)
 
-# ── Test 9: Full workflow — place star, read ROI, zoom+pan to it ────────
+# ── Test 11: set_zoom API + verify via LRP ─────────────────────────────
+
+print(f"\n  --- set_zoom API + LRP verify ---")
+
+r_zoom = drv.set_zoom(client, job, 4)
+check("set_zoom API succeeds", r_zoom["success"],
+      f"msg={r_zoom.get('message', '')}")
+
+parsed = save_and_parse()
+actual_zoom = float(parsed["jobs"][job]["Master"]["attrs"].get("Zoom", 0))
+check("zoom=4 persisted in LRP",
+      abs(actual_zoom - 4) < 1,
+      f"got {actual_zoom:.1f}")
+
+# Reset zoom
+drv.set_zoom(client, job, 1)
+
+# ── Test 12: Full workflow — place star, read ROI, zoom+pan to it ──────
 
 print(f"\n  --- Full workflow: place -> read -> zoom+pan ---")
 
@@ -342,11 +447,13 @@ if rois:
     h = (max(v["Y"] for v in vs) - min(v["Y"] for v in vs)) * 1e6
     zoom = bbox_to_zoom(w, h)
 
-    def zoom_to_roi(p):
-        lrp_set_zoom(p, zoom, job)
+    # Use API for zoom, LRP for pan
+    r_zoom = drv.set_zoom(client, job, zoom)
+
+    def pan_to_star(p):
         lrp_set_pan(p, pan_x, pan_y, job)
 
-    apply_lrp_change(client, TEMPLATE_XML, zoom_to_roi,
+    apply_lrp_change(client, TEMPLATE_XML, pan_to_star,
                      confirm_delays=(2, 4, 6))
 
     parsed = save_and_parse()
@@ -367,6 +474,7 @@ if rois:
 
 print(f"\n  Cleanup: reset")
 apply_lrp_change(client, TEMPLATE_XML, reset, confirm_delays=(2, 4, 6))
+drv.set_zoom(client, job, 1)
 
 # ── Summary ─────────────────────────────────────────────────────────────
 
