@@ -21,6 +21,9 @@ from lasx.scanning_template_editors_roi import (
     lrp_clear_rois, lrp_add_roi,
     lrp_verify_roi_count, lrp_verify_roi,
     make_rectangle, make_ellipse, make_polygon, make_star, make_line,
+    roi_translation_to_pan, roi_to_absolute_um,
+    absolute_um_to_roi_translation,
+    pixel_to_absolute_um, bbox_to_zoom, mask_contour_to_roi,
 )
 from lasx.scanning_template_parsers import parse_lrp
 
@@ -511,3 +514,228 @@ class TestVerifyRoi:
                           n_vertices=4) is True
         # Check neither (just index existence)
         assert lrp_verify_roi(lrp_with_roi, "HiRes", 0) is True
+
+
+# =============================================================================
+# ROI Translation coordinate helpers
+# =============================================================================
+
+class TestRoiTranslationToPan:
+    """Test roi_translation_to_pan."""
+
+    def test_zero(self):
+        pan_x, pan_y = roi_translation_to_pan(0.0, 0.0)
+        assert pan_x == 0.0
+        assert pan_y == 0.0
+
+    def test_positive_translation(self):
+        # tx = +100 um (0.0001 m) → pan_x = -100/100000 = -0.001
+        # ty = +200 um (0.0002 m) → pan_y = +200/100000 = +0.002
+        pan_x, pan_y = roi_translation_to_pan(0.0001, 0.0002)
+        assert pan_x == pytest.approx(-0.001)
+        assert pan_y == pytest.approx(0.002)
+
+    def test_negative_translation(self):
+        # tx = -123 um → pan_x = +0.00123
+        pan_x, pan_y = roi_translation_to_pan(-123e-6, 35e-6)
+        assert pan_x == pytest.approx(0.00123)
+        assert pan_y == pytest.approx(0.00035)
+
+    def test_x_negated(self):
+        """X axis is negated between translation and pan."""
+        pan_x, _ = roi_translation_to_pan(50e-6, 0)
+        assert pan_x < 0
+        pan_x, _ = roi_translation_to_pan(-50e-6, 0)
+        assert pan_x > 0
+
+    def test_y_direct(self):
+        """Y axis is direct between translation and pan."""
+        _, pan_y = roi_translation_to_pan(0, 50e-6)
+        assert pan_y > 0
+        _, pan_y = roi_translation_to_pan(0, -50e-6)
+        assert pan_y < 0
+
+
+class TestRoiToAbsoluteUm:
+    """Test roi_to_absolute_um."""
+
+    def test_zero_translation(self):
+        x, y = roi_to_absolute_um(0, 0, 50000, 50000)
+        assert x == 50000
+        assert y == 50000
+
+    def test_known_values(self):
+        # tx = -123 um → abs_x = stage_x - (-123) = stage_x + 123
+        # ty = +35 um → abs_y = stage_y + 35
+        x, y = roi_to_absolute_um(-123e-6, 35e-6, 22313, 19216)
+        assert x == pytest.approx(22436, abs=1)
+        assert y == pytest.approx(19251, abs=1)
+
+    def test_roundtrip(self):
+        """roi_to_absolute_um → absolute_um_to_roi_translation round-trip."""
+        tx_m, ty_m = -82e-6, -348e-6
+        stage_x, stage_y = 22313, 19216
+        abs_x, abs_y = roi_to_absolute_um(tx_m, ty_m, stage_x, stage_y)
+        tx_back, ty_back = absolute_um_to_roi_translation(
+            abs_x, abs_y, stage_x, stage_y)
+        assert tx_back == pytest.approx(tx_m, abs=1e-12)
+        assert ty_back == pytest.approx(ty_m, abs=1e-12)
+
+
+class TestAbsoluteUmToRoiTranslation:
+    """Test absolute_um_to_roi_translation."""
+
+    def test_at_stage_center(self):
+        tx, ty = absolute_um_to_roi_translation(50000, 50000, 50000, 50000)
+        assert tx == 0.0
+        assert ty == 0.0
+
+    def test_offset_right(self):
+        # Target 100 um right of stage → tx = stage - target = -100 um
+        tx, ty = absolute_um_to_roi_translation(50100, 50000, 50000, 50000)
+        assert tx == pytest.approx(-100e-6)
+        assert ty == pytest.approx(0)
+
+    def test_offset_up(self):
+        # Target 50 um above stage → ty = target - stage = +50 um
+        tx, ty = absolute_um_to_roi_translation(50000, 50050, 50000, 50000)
+        assert tx == pytest.approx(0)
+        assert ty == pytest.approx(50e-6)
+
+
+# =============================================================================
+# Image coordinate helpers
+# =============================================================================
+
+class TestPixelToAbsoluteUm:
+    """Test pixel_to_absolute_um."""
+
+    def test_center_pixel_at_zero_pan(self):
+        """Center pixel maps to stage position when pan is zero."""
+        x, y = pixel_to_absolute_um(256, 256, 50000, 50000, 0, 0, zoom=1)
+        assert x == pytest.approx(50000)
+        assert y == pytest.approx(50000)
+
+    def test_center_pixel_with_pan(self):
+        """Center pixel maps to stage + pan offset."""
+        x, y = pixel_to_absolute_um(256, 256, 50000, 50000,
+                                     0.001, -0.002, zoom=1)
+        assert x == pytest.approx(50100)
+        assert y == pytest.approx(49800)
+
+    def test_x_inverted(self):
+        """Pixel left of center → positive X offset (X inverted)."""
+        x_left, _ = pixel_to_absolute_um(100, 256, 50000, 50000, 0, 0, zoom=1)
+        x_right, _ = pixel_to_absolute_um(400, 256, 50000, 50000, 0, 0, zoom=1)
+        assert x_left > 50000  # left pixel → right physical
+        assert x_right < 50000  # right pixel → left physical
+
+    def test_y_direct(self):
+        """Pixel below center → positive Y offset (Y direct)."""
+        _, y_top = pixel_to_absolute_um(256, 100, 50000, 50000, 0, 0, zoom=1)
+        _, y_bot = pixel_to_absolute_um(256, 400, 50000, 50000, 0, 0, zoom=1)
+        assert y_top < 50000  # top pixel → negative Y offset
+        assert y_bot > 50000  # bottom pixel → positive Y offset
+
+    def test_zoom_scales_offset(self):
+        """Higher zoom → smaller physical offset per pixel."""
+        x1, _ = pixel_to_absolute_um(0, 256, 50000, 50000, 0, 0, zoom=1)
+        x10, _ = pixel_to_absolute_um(0, 256, 50000, 50000, 0, 0, zoom=10)
+        offset1 = abs(x1 - 50000)
+        offset10 = abs(x10 - 50000)
+        assert offset1 == pytest.approx(offset10 * 10, rel=0.01)
+
+    def test_custom_image_size(self):
+        x, y = pixel_to_absolute_um(512, 512, 50000, 50000, 0, 0,
+                                     zoom=1, image_size=1024)
+        assert x == pytest.approx(50000)
+        assert y == pytest.approx(50000)
+
+
+class TestBboxToZoom:
+    """Test bbox_to_zoom."""
+
+    def test_large_bbox(self):
+        assert bbox_to_zoom(1000, 500) == 1
+
+    def test_small_bbox(self):
+        z = bbox_to_zoom(20, 10)
+        assert z >= 40
+
+    def test_square_bbox(self):
+        z = bbox_to_zoom(100, 100)
+        fov = 1160 / z
+        assert fov >= 100  # must fit the bbox
+
+    def test_margin(self):
+        z_tight = bbox_to_zoom(100, 100, margin=1.0)
+        z_loose = bbox_to_zoom(100, 100, margin=1.5)
+        assert z_tight >= z_loose
+
+    def test_clamp_max(self):
+        assert bbox_to_zoom(1, 1) == 48
+
+    def test_clamp_min(self):
+        assert bbox_to_zoom(5000, 5000) == 1
+
+    def test_zero_size(self):
+        assert bbox_to_zoom(0, 0) == 48
+
+
+class TestMaskContourToRoi:
+    """Test mask_contour_to_roi."""
+
+    def test_basic_contour(self):
+        contour = [(100, 200), (150, 200), (150, 250), (100, 250)]
+        verts, trans = mask_contour_to_roi(
+            contour, 50000, 50000, 0, 0, zoom=10)
+        assert len(verts) == 4
+        assert len(trans) == 2
+
+    def test_vertices_centred(self):
+        """Vertices should be centred around (0, 0)."""
+        contour = [(100, 200), (200, 200), (200, 300), (100, 300)]
+        verts, _ = mask_contour_to_roi(
+            contour, 50000, 50000, 0, 0, zoom=10)
+        xs = [v[0] for v in verts]
+        ys = [v[1] for v in verts]
+        assert sum(xs) == pytest.approx(0, abs=1e-12)
+        assert sum(ys) == pytest.approx(0, abs=1e-12)
+
+    def test_vertices_in_metres(self):
+        """Vertices should be in metres (small values)."""
+        contour = [(200, 200), (300, 200), (300, 300), (200, 300)]
+        verts, _ = mask_contour_to_roi(
+            contour, 50000, 50000, 0, 0, zoom=10)
+        for x, y in verts:
+            assert abs(x) < 0.001  # less than 1 mm
+            assert abs(y) < 0.001
+
+    def test_translation_is_metres(self):
+        """Translation should be in metres."""
+        contour = [(200, 200), (300, 300)]
+        _, trans = mask_contour_to_roi(
+            contour, 50000, 50000, 0, 0, zoom=10)
+        tx, ty = trans
+        assert abs(tx) < 1  # reasonable metre-scale values
+        assert abs(ty) < 1
+
+    def test_roundtrip_position(self):
+        """Centroid of contour should match roi_to_absolute_um of translation."""
+        contour = [(100, 200), (200, 200), (200, 300), (100, 300)]
+        stage_x, stage_y = 50000, 50000
+        verts, (tx, ty) = mask_contour_to_roi(
+            contour, stage_x, stage_y, 0, 0, zoom=10)
+
+        # Recover absolute position from translation
+        abs_x, abs_y = roi_to_absolute_um(tx, ty, stage_x, stage_y)
+
+        # Compute expected centroid from pixel conversion
+        abs_points = [pixel_to_absolute_um(px, py, stage_x, stage_y,
+                                           0, 0, zoom=10)
+                      for px, py in contour]
+        expected_x = sum(p[0] for p in abs_points) / len(abs_points)
+        expected_y = sum(p[1] for p in abs_points) / len(abs_points)
+
+        assert abs_x == pytest.approx(expected_x, abs=0.01)
+        assert abs_y == pytest.approx(expected_y, abs=0.01)

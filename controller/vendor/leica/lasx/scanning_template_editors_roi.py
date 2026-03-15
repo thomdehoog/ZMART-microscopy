@@ -15,6 +15,18 @@ Coordinate system: all vertex coordinates are in **metres relative
 to the scan field centre** (origin at (0, 0)), matching the LAS X
 internal format.  Use ``um(x)`` to convert from micrometres.
 
+ROI Translation coordinate system (solved 2026-03-15):
+    Translation is the ROI position as an offset from the **stage
+    centre** (not the scan field centre), with the X axis negated::
+
+        roi_abs_x = stage_x_um - translation_x_um
+        roi_abs_y = stage_y_um + translation_y_um
+        pan_x     = -translation_x_um / 100_000
+        pan_y     = +translation_y_um / 100_000
+
+    Use ``roi_translation_to_pan()`` and ``roi_to_absolute_um()``
+    for conversions.
+
 **Important:** ROI sizes must match the current scan field (FOV).
 Use ``get_fov()`` from ``readers`` to query the FOV in metres,
 then size shapes as a fraction of it::
@@ -369,7 +381,11 @@ def lrp_add_roi(lrp_path, job_name, roi_type, vertices, *,
         name: Element name (default auto-numbered ``"ROI 1"`` etc.).
         color: Colour as uint32 string (default ``COLOR_RED``).
         rotation: Rotation in **degrees** (default ``0.0``).
-        translation: ``(tx, ty)`` tuple in um (default ``(0.0, 0.0)``).
+        translation: ``(tx, ty)`` tuple in **metres** — offset from
+            stage centre with X negated (default ``(0.0, 0.0)``
+            places the ROI at the stage centre).  Use
+            ``absolute_um_to_roi_translation()`` to convert from
+            absolute stage coordinates.
         scale: ``(sx, sy)`` tuple (default ``(1.0, 1.0)``).
 
     Returns:
@@ -531,3 +547,172 @@ def lrp_verify_roi(lrp_path, job_name, index, roi_type=None, n_vertices=None):
                         "expected %d, got %d", n_vertices, actual)
             return False
     return True
+
+
+# =============================================================================
+# ROI Translation coordinate helpers
+# =============================================================================
+
+_PAN_SCALE = 100_000.0   # 1 pan unit = 100,000 um
+
+
+def roi_translation_to_pan(translation_x_m, translation_y_m):
+    """Convert ROI Translation (metres) to galvo pan values.
+
+    ROI Translation is the offset from stage centre with X negated.
+
+    Args:
+        translation_x_m: Translation X from the ROI ``_Transformation``
+            dict (in metres).
+        translation_y_m: Translation Y (in metres).
+
+    Returns:
+        ``(pan_x, pan_y)`` tuple suitable for ``lrp_set_pan``.
+    """
+    tx_um = float(translation_x_m) * 1e6
+    ty_um = float(translation_y_m) * 1e6
+    return (-tx_um / _PAN_SCALE, ty_um / _PAN_SCALE)
+
+
+def roi_to_absolute_um(translation_x_m, translation_y_m, stage_x_um, stage_y_um):
+    """Convert ROI Translation to absolute stage coordinates in um.
+
+    Args:
+        translation_x_m: Translation X (metres).
+        translation_y_m: Translation Y (metres).
+        stage_x_um: Current stage X position in um (from ``get_xy``).
+        stage_y_um: Current stage Y position in um.
+
+    Returns:
+        ``(x_um, y_um)`` — absolute position of the ROI centre.
+    """
+    tx_um = float(translation_x_m) * 1e6
+    ty_um = float(translation_y_m) * 1e6
+    return (stage_x_um - tx_um, stage_y_um + ty_um)
+
+
+def absolute_um_to_roi_translation(x_um, y_um, stage_x_um, stage_y_um):
+    """Convert absolute stage coordinates to ROI Translation (metres).
+
+    Inverse of ``roi_to_absolute_um``.
+
+    Args:
+        x_um: Target X position in um.
+        y_um: Target Y position in um.
+        stage_x_um: Current stage X position in um.
+        stage_y_um: Current stage Y position in um.
+
+    Returns:
+        ``(tx_m, ty_m)`` — Translation values in metres, suitable for
+        the ``translation`` parameter of ``lrp_add_roi``.
+    """
+    tx_um = stage_x_um - x_um
+    ty_um = y_um - stage_y_um
+    return (tx_um * 1e-6, ty_um * 1e-6)
+
+
+# =============================================================================
+# Image coordinate helpers
+# =============================================================================
+
+_FOV_AT_ZOOM1 = 1160.0   # um, for 10x/0.40 DRY objective
+
+
+def pixel_to_absolute_um(px, py, stage_x_um, stage_y_um,
+                         pan_x, pan_y, zoom, image_size=512):
+    """Convert image pixel coordinates to absolute stage coordinates.
+
+    Pixel (0, 0) is the top-left of the image.  The conversion accounts
+    for the current pan, zoom, and the X-axis inversion between image
+    space and physical space.
+
+    Args:
+        px, py: Pixel coordinates (can be float).
+        stage_x_um, stage_y_um: Stage position in um (from ``get_xy``).
+        pan_x, pan_y: Current pan values.
+        zoom: Current zoom factor.
+        image_size: Image dimension in pixels (default 512).
+
+    Returns:
+        ``(x_um, y_um)`` — absolute position in um.
+    """
+    fov = _FOV_AT_ZOOM1 / zoom
+    pixel_size = fov / image_size
+    center = image_size / 2.0
+
+    # Image center in absolute coords
+    cx = stage_x_um + pan_x * _PAN_SCALE
+    cy = stage_y_um + pan_y * _PAN_SCALE
+
+    # X inverted, Y direct
+    x_um = cx + (center - px) * pixel_size
+    y_um = cy + (py - center) * pixel_size
+    return (x_um, y_um)
+
+
+def bbox_to_zoom(width_um, height_um, margin=1.15):
+    """Calculate the optimal zoom to frame a bounding box.
+
+    Args:
+        width_um: Bounding box width in um.
+        height_um: Bounding box height in um.
+        margin: Extra margin factor (default 1.15 = 15%).
+
+    Returns:
+        Integer zoom level, clamped to [1, 48].
+    """
+    max_dim = max(width_um, height_um)
+    if max_dim <= 0:
+        return 48
+    optimal = _FOV_AT_ZOOM1 / (max_dim * margin)
+    return min(48, max(1, round(optimal)))
+
+
+def mask_contour_to_roi(contour_pixels, stage_x_um, stage_y_um,
+                        pan_x, pan_y, zoom, image_size=512):
+    """Convert a segmentation mask contour to ROI vertices + translation.
+
+    Takes a list of pixel coordinates from a segmentation mask contour
+    and converts them into the format needed by ``lrp_add_roi``:
+    vertices in metres relative to the shape centroid, plus a
+    translation that positions the shape at the correct absolute
+    location.
+
+    Args:
+        contour_pixels: List of ``(px, py)`` pixel coordinates tracing
+            the mask boundary.
+        stage_x_um, stage_y_um: Stage position in um.
+        pan_x, pan_y: Pan values when the image was taken.
+        zoom: Zoom when the image was taken.
+        image_size: Image dimension in pixels (default 512).
+
+    Returns:
+        ``(vertices_m, translation_m)`` tuple:
+            - ``vertices_m``: list of ``(x_m, y_m)`` in metres,
+              centred on ``(0, 0)``.
+            - ``translation_m``: ``(tx_m, ty_m)`` for ``lrp_add_roi``.
+    """
+    # Convert all contour pixels to absolute um
+    abs_points = [
+        pixel_to_absolute_um(px, py, stage_x_um, stage_y_um,
+                             pan_x, pan_y, zoom, image_size)
+        for px, py in contour_pixels
+    ]
+
+    # Centroid
+    n = len(abs_points)
+    centroid_x = sum(p[0] for p in abs_points) / n
+    centroid_y = sum(p[1] for p in abs_points) / n
+
+    # Vertices relative to centroid, in metres
+    vertices_m = [
+        ((p[0] - centroid_x) * 1e-6, (p[1] - centroid_y) * 1e-6)
+        for p in abs_points
+    ]
+
+    # Translation from centroid absolute position
+    translation_m = absolute_um_to_roi_translation(
+        centroid_x, centroid_y, stage_x_um, stage_y_um
+    )
+
+    return (vertices_m, translation_m)

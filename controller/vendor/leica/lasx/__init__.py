@@ -95,7 +95,8 @@ __all__ = [
     "set_pinhole_airy", "set_detector_gain",
     "set_laser_intensity", "set_laser_shutter",
     "set_filter_wheel_slot", "set_filter_wheel_spectrum",
-    "move_xy", "move_z", "acquire", "acquire_single_image", "select_job",
+    "move_xy", "move_xy_stage", "move_xy_galvo",
+    "move_z", "acquire", "acquire_single_image", "select_job",
     # scanning_templates
     "find_scanning_templates_dir", "save_experiment", "load_experiment",
     "strip_template", "restore_template", "get_template_state",
@@ -133,6 +134,9 @@ __all__ = [
     "lrp_verify_roi_count", "lrp_verify_roi",
     "make_rectangle", "make_ellipse", "make_polygon", "make_star", "make_line",
     "lrp_find_aotf_template",
+    "roi_translation_to_pan", "roi_to_absolute_um",
+    "absolute_um_to_roi_translation",
+    "pixel_to_absolute_um", "bbox_to_zoom", "mask_contour_to_roi",
     # scanning_template_editors_z
     "Z_STACK_DIRECTIONS", "lrp_set_z_stack_direction", "lrp_verify_z_stack_direction",
     "lrp_set_sections", "lrp_verify_sections",
@@ -246,6 +250,8 @@ from .commands import (
     set_filter_wheel_slot,
     set_filter_wheel_spectrum,
     move_xy,
+    move_xy_stage,
+    move_xy_galvo,
     move_z,
     acquire,
     acquire_single_image,
@@ -342,6 +348,12 @@ from .scanning_template_editors_roi import (
     make_star,
     make_line,
     lrp_find_aotf_template,
+    roi_translation_to_pan,
+    roi_to_absolute_um,
+    absolute_um_to_roi_translation,
+    pixel_to_absolute_um,
+    bbox_to_zoom,
+    mask_contour_to_roi,
 )
 
 # ── Z-stack scanning template editors ────────────────────────────

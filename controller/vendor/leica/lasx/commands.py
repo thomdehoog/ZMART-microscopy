@@ -734,9 +734,9 @@ def set_filter_wheel_spectrum(client, job_name, setting_index, beam_route,
 # Stage movement
 # =============================================================================
 
-def move_xy(client, x, y, unit="um", *,
-            max_retries=None, pre_check_timeout=None,
-            tolerance=20.0):
+def move_xy_stage(client, x, y, unit="um", *,
+                  max_retries=None, pre_check_timeout=None,
+                  tolerance=20.0):
     """Move XY stage to absolute position.
 
     Args:
@@ -802,6 +802,99 @@ def move_xy(client, x, y, unit="um", *,
     r["position"] = {"x": x_um * 1e-6, "y": y_um * 1e-6,
                       "x_um": x_um, "y_um": y_um}
     return r
+
+
+# Backward-compatible alias
+move_xy = move_xy_stage
+
+
+# ── Galvo pan limits ────────────────────────────────────────────────
+_PAN_LIMIT = 0.00775          # max pan value in either axis
+_PAN_SCALE = 100_000.0        # 1 pan unit = 100,000 um
+
+
+def move_xy_galvo(client, x, y, unit="um", *, job_name=None):
+    """Move the galvo (pan) to point at an absolute XY position.
+
+    Computes the pan offset from the current stage position and applies
+    it via ``apply_lrp_change``.  The stage does **not** move.
+
+    Both ``move_xy_stage`` and ``move_xy_galvo`` accept the same
+    coordinate system (absolute um), so targets from ``get_xy`` or
+    ``pixel_to_stage_um`` work with either function.
+
+    Args:
+        client: LAS X API client.
+        x, y: Target coordinates in the specified unit.
+        unit: ``'um'`` (default), ``'mm'``, or ``'m'``.
+        job_name: Job whose pan to modify (default: selected job).
+
+    Returns:
+        dict with ``success``, ``pan``, ``offset_um``, ``message``.
+    """
+    from .readers import get_xy, get_selected_job
+    from .scanning_templates import TEMPLATE_XML, apply_lrp_change
+    from .scanning_template_editors_scan import lrp_set_pan
+
+    # Convert to um
+    if unit == "mm":
+        x_um, y_um = x * 1000, y * 1000
+    elif unit == "m":
+        x_um, y_um = x * 1e6, y * 1e6
+    else:
+        x_um, y_um = float(x), float(y)
+
+    # Resolve job name
+    if job_name is None:
+        selected = get_selected_job(client)
+        if selected:
+            job_name = selected.get("Name")
+    if not job_name:
+        return {"success": False, "pan": None, "offset_um": None,
+                "message": "No job name provided and no job selected"}
+
+    # Read current stage position
+    stage = get_xy(client)
+    if stage is None:
+        return {"success": False, "pan": None, "offset_um": None,
+                "message": "Failed to read stage position"}
+
+    # Compute offset from stage center
+    offset_x_um = x_um - stage["x_um"]
+    offset_y_um = y_um - stage["y_um"]
+
+    # Convert to pan values
+    pan_x = offset_x_um / _PAN_SCALE
+    pan_y = offset_y_um / _PAN_SCALE
+
+    # Range check
+    if abs(pan_x) > _PAN_LIMIT or abs(pan_y) > _PAN_LIMIT:
+        return {
+            "success": False, "pan": (pan_x, pan_y),
+            "offset_um": (offset_x_um, offset_y_um),
+            "message": (
+                f"Target is {max(abs(offset_x_um), abs(offset_y_um)):.1f} um "
+                f"from stage center, exceeds galvo range "
+                f"({_PAN_LIMIT * _PAN_SCALE:.0f} um). Move stage first."
+            ),
+        }
+
+    # Apply pan
+    _job = job_name
+
+    def _edit(p):
+        lrp_set_pan(p, pan_x, pan_y, _job)
+
+    r = apply_lrp_change(client, TEMPLATE_XML, _edit,
+                         confirm_delays=(2, 4, 6))
+
+    success = r is not None and r.get("success", False)
+    return {
+        "success": success,
+        "pan": (pan_x, pan_y),
+        "offset_um": (offset_x_um, offset_y_um),
+        "message": "OK" if success else "apply_lrp_change failed",
+    }
 
 
 def move_z(client, job_name, z, unit="um", z_mode="galvo", *,
