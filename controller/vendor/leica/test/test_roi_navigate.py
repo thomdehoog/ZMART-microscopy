@@ -163,9 +163,28 @@ ok = (abs(actual_zoom - zoom) < 1 and
       abs(actual_pan[0] - pan_x) < 1e-5 and
       abs(actual_pan[1] - pan_y) < 1e-5)
 
-print(f"\n{'=' * 60}")
 if ok:
-    print("  PASS: Navigated to ROI region.")
+    print("  Navigation OK.")
+else:
+    print("  WARNING: Navigation did not match targets.")
+
+# ── Step 3: Acquire single image ─────────────────────────────────────────
+
+print("\n  Step 3: Acquiring single image...")
+t0 = time.perf_counter()
+r = drv.acquire_single_image(client)
+elapsed = time.perf_counter() - t0
+
+if r and r["success"]:
+    print(f"  Acquired in {elapsed:.1f}s")
+else:
+    print(f"  Acquire failed: {r}")
+
+print(f"\n{'=' * 60}")
+if ok and r and r["success"]:
+    print("  PASS: Navigated and acquired.")
+elif ok:
+    print("  PARTIAL: Navigation OK, acquire failed.")
 else:
     print("  FAIL: Navigation did not match targets.")
 print(f"{'=' * 60}")
