@@ -612,42 +612,49 @@ class TestPixelToAbsoluteUm:
 
     def test_center_pixel_at_zero_pan(self):
         """Center pixel maps to stage position when pan is zero."""
-        x, y = pixel_to_absolute_um(256, 256, 50000, 50000, 0, 0, zoom=1)
+        x, y = pixel_to_absolute_um(256, 256, 50000, 50000, 0, 0,
+                                     pixel_size_um=2.0)
         assert x == pytest.approx(50000)
         assert y == pytest.approx(50000)
 
     def test_center_pixel_with_pan(self):
         """Center pixel maps to stage + pan offset."""
         x, y = pixel_to_absolute_um(256, 256, 50000, 50000,
-                                     0.001, -0.002, zoom=1)
+                                     0.001, -0.002, pixel_size_um=2.0)
         assert x == pytest.approx(50100)
         assert y == pytest.approx(49800)
 
     def test_x_inverted(self):
-        """Pixel left of center → positive X offset (X inverted)."""
-        x_left, _ = pixel_to_absolute_um(100, 256, 50000, 50000, 0, 0, zoom=1)
-        x_right, _ = pixel_to_absolute_um(400, 256, 50000, 50000, 0, 0, zoom=1)
-        assert x_left > 50000  # left pixel → right physical
-        assert x_right < 50000  # right pixel → left physical
+        """Pixel left of center → higher stage X (X inverted)."""
+        x_left, _ = pixel_to_absolute_um(100, 256, 50000, 50000, 0, 0,
+                                          pixel_size_um=2.0)
+        x_right, _ = pixel_to_absolute_um(400, 256, 50000, 50000, 0, 0,
+                                           pixel_size_um=2.0)
+        assert x_left > 50000
+        assert x_right < 50000
 
-    def test_y_direct(self):
-        """Pixel below center → positive Y offset (Y direct)."""
-        _, y_top = pixel_to_absolute_um(256, 100, 50000, 50000, 0, 0, zoom=1)
-        _, y_bot = pixel_to_absolute_um(256, 400, 50000, 50000, 0, 0, zoom=1)
-        assert y_top < 50000  # top pixel → negative Y offset
-        assert y_bot > 50000  # bottom pixel → positive Y offset
+    def test_y_cartesian(self):
+        """Cartesian Y: top pixel → higher Y, bottom pixel → lower Y."""
+        _, y_top = pixel_to_absolute_um(256, 100, 50000, 50000, 0, 0,
+                                         pixel_size_um=2.0)
+        _, y_bot = pixel_to_absolute_um(256, 400, 50000, 50000, 0, 0,
+                                         pixel_size_um=2.0)
+        assert y_top > 50000  # top pixel → positive Y (Cartesian up)
+        assert y_bot < 50000  # bottom pixel → negative Y (Cartesian down)
 
-    def test_zoom_scales_offset(self):
-        """Higher zoom → smaller physical offset per pixel."""
-        x1, _ = pixel_to_absolute_um(0, 256, 50000, 50000, 0, 0, zoom=1)
-        x10, _ = pixel_to_absolute_um(0, 256, 50000, 50000, 0, 0, zoom=10)
-        offset1 = abs(x1 - 50000)
-        offset10 = abs(x10 - 50000)
-        assert offset1 == pytest.approx(offset10 * 10, rel=0.01)
+    def test_pixel_size_scales_offset(self):
+        """Larger pixel size → larger physical offset per pixel."""
+        x_big, _ = pixel_to_absolute_um(0, 256, 50000, 50000, 0, 0,
+                                         pixel_size_um=2.0)
+        x_small, _ = pixel_to_absolute_um(0, 256, 50000, 50000, 0, 0,
+                                           pixel_size_um=0.2)
+        offset_big = abs(x_big - 50000)
+        offset_small = abs(x_small - 50000)
+        assert offset_big == pytest.approx(offset_small * 10, rel=0.01)
 
     def test_custom_image_size(self):
         x, y = pixel_to_absolute_um(512, 512, 50000, 50000, 0, 0,
-                                     zoom=1, image_size=1024)
+                                     pixel_size_um=1.0, image_size=1024)
         assert x == pytest.approx(50000)
         assert y == pytest.approx(50000)
 
@@ -655,40 +662,45 @@ class TestPixelToAbsoluteUm:
 class TestBboxToZoom:
     """Test bbox_to_zoom."""
 
+    # Use 1000 um as a round FOV at zoom 1 for easy test math
+    FOV1 = 1000.0
+
     def test_large_bbox(self):
-        assert bbox_to_zoom(1000, 500) == 1
+        assert bbox_to_zoom(1000, 500, self.FOV1) == 1
 
     def test_small_bbox(self):
-        z = bbox_to_zoom(20, 10)
+        z = bbox_to_zoom(20, 10, self.FOV1)
         assert z >= 40
 
     def test_square_bbox(self):
-        z = bbox_to_zoom(100, 100)
-        fov = 1160 / z
+        z = bbox_to_zoom(100, 100, self.FOV1)
+        fov = self.FOV1 / z
         assert fov >= 100  # must fit the bbox
 
     def test_margin(self):
-        z_tight = bbox_to_zoom(100, 100, margin=1.0)
-        z_loose = bbox_to_zoom(100, 100, margin=1.5)
+        z_tight = bbox_to_zoom(100, 100, self.FOV1, margin=1.0)
+        z_loose = bbox_to_zoom(100, 100, self.FOV1, margin=1.5)
         assert z_tight >= z_loose
 
     def test_clamp_max(self):
-        assert bbox_to_zoom(1, 1) == 48
+        assert bbox_to_zoom(1, 1, self.FOV1) == 48
 
     def test_clamp_min(self):
-        assert bbox_to_zoom(5000, 5000) == 1
+        assert bbox_to_zoom(5000, 5000, self.FOV1) == 1
 
     def test_zero_size(self):
-        assert bbox_to_zoom(0, 0) == 48
+        assert bbox_to_zoom(0, 0, self.FOV1) == 48
 
 
 class TestMaskContourToRoi:
     """Test mask_contour_to_roi."""
 
+    PS = 0.2  # arbitrary pixel size in um
+
     def test_basic_contour(self):
         contour = [(100, 200), (150, 200), (150, 250), (100, 250)]
         verts, trans = mask_contour_to_roi(
-            contour, 50000, 50000, 0, 0, zoom=10)
+            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS)
         assert len(verts) == 4
         assert len(trans) == 2
 
@@ -696,7 +708,7 @@ class TestMaskContourToRoi:
         """Vertices should be centred around (0, 0)."""
         contour = [(100, 200), (200, 200), (200, 300), (100, 300)]
         verts, _ = mask_contour_to_roi(
-            contour, 50000, 50000, 0, 0, zoom=10)
+            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS)
         xs = [v[0] for v in verts]
         ys = [v[1] for v in verts]
         assert sum(xs) == pytest.approx(0, abs=1e-12)
@@ -706,7 +718,7 @@ class TestMaskContourToRoi:
         """Vertices should be in metres (small values)."""
         contour = [(200, 200), (300, 200), (300, 300), (200, 300)]
         verts, _ = mask_contour_to_roi(
-            contour, 50000, 50000, 0, 0, zoom=10)
+            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS)
         for x, y in verts:
             assert abs(x) < 0.001  # less than 1 mm
             assert abs(y) < 0.001
@@ -715,7 +727,7 @@ class TestMaskContourToRoi:
         """Translation should be in metres."""
         contour = [(200, 200), (300, 300)]
         _, trans = mask_contour_to_roi(
-            contour, 50000, 50000, 0, 0, zoom=10)
+            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS)
         tx, ty = trans
         assert abs(tx) < 1  # reasonable metre-scale values
         assert abs(ty) < 1
@@ -725,14 +737,14 @@ class TestMaskContourToRoi:
         contour = [(100, 200), (200, 200), (200, 300), (100, 300)]
         stage_x, stage_y = 50000, 50000
         verts, (tx, ty) = mask_contour_to_roi(
-            contour, stage_x, stage_y, 0, 0, zoom=10)
+            contour, stage_x, stage_y, 0, 0, pixel_size_um=self.PS)
 
         # Recover absolute position from translation
         abs_x, abs_y = roi_to_absolute_um(tx, ty, stage_x, stage_y)
 
         # Compute expected centroid from pixel conversion
         abs_points = [pixel_to_absolute_um(px, py, stage_x, stage_y,
-                                           0, 0, zoom=10)
+                                           0, 0, pixel_size_um=self.PS)
                       for px, py in contour]
         expected_x = sum(p[0] for p in abs_points) / len(abs_points)
         expected_y = sum(p[1] for p in abs_points) / len(abs_points)

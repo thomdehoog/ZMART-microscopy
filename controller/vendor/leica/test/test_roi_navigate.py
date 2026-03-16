@@ -1,14 +1,14 @@
 """
-ROI Zoom & Acquire Test
-========================
-Reads an existing ROI from LAS X, zooms+pans to that region,
-acquires an image, then restores the ROI.
+ROI Navigate Test
+==================
+Reads an existing ROI, computes pan+zoom, removes the ROI,
+and navigates there. No acquisition.
 
 Draw an ROI in LAS X **before** running this script.
 
 Usage:
-    python test_roi_zoom_acquire.py
-    python test_roi_zoom_acquire.py --job "Overview"
+    python test_roi_navigate.py
+    python test_roi_navigate.py --job "Overview"
 """
 
 import argparse
@@ -22,7 +22,7 @@ logging.basicConfig(
     format="%(name)s: %(message)s",
 )
 
-parser = argparse.ArgumentParser(description="ROI Zoom & Acquire Test")
+parser = argparse.ArgumentParser(description="ROI Navigate Test")
 parser.add_argument("--job", default=None,
                     help="Job name (default: currently selected job)")
 args = parser.parse_args()
@@ -40,15 +40,13 @@ from lasx.scanning_templates import (
 )
 from lasx.scanning_template_editors_scan import lrp_set_pan, lrp_set_zoom
 from lasx.scanning_template_editors_roi import (
-    lrp_enable_roi_scan, lrp_clear_rois, lrp_add_roi,
+    lrp_enable_roi_scan, lrp_clear_rois,
     roi_translation_to_pan, bbox_to_zoom,
     ROI_POLYGON,
 )
 from lasx.scanning_template_parsers import parse_lrp
 from lasx.readers import get_job_settings
 from lasx.utils import parse_tile_geometry
-
-print(f"  Driver version: {drv.__version__}")
 
 # ── Connect ─────────────────────────────────────────────────────────────
 
@@ -63,7 +61,6 @@ if not drv.ping(client):
     print("  ABORT: ping failed")
     sys.exit(1)
 
-# Resolve job: --job flag > currently selected job > fallback
 if args.job:
     job = args.job
 else:
@@ -82,10 +79,10 @@ def save_and_parse():
     return parse_lrp(lrp_path)
 
 
-# ── Step 1: Read existing ROI ──────────────────────────────────────────
+# ── Step 1: Read ROI ────────────────────────────────────────────────────
 
 print(f"\n{'=' * 60}")
-print(f"  ROI Zoom & Acquire -- job '{job}'")
+print(f"  ROI Navigate -- job '{job}'")
 print(f"{'=' * 60}")
 
 print("\n  Step 1: Reading ROI...")
@@ -97,17 +94,11 @@ if not rois:
     print("  ABORT: No ROIs found. Draw an ROI in LAS X first.")
     sys.exit(1)
 
-# Take the first ROI
 roi = rois[0]
-roi_type = roi.get("RoiType", ROI_POLYGON)
 roi_verts = [(v["X"], v["Y"]) for v in roi.get("_Vertices", [])]
 t = roi.get("_Transformation", {})
 roi_tx = float(t.get("TranslationX", 0))
 roi_ty = float(t.get("TranslationY", 0))
-roi_color = roi.get("Color", "4294901760")
-roi_rotation = float(t.get("Rotation", 0))
-roi_scale_x = float(t.get("XScale", 1))
-roi_scale_y = float(t.get("YScale", 1))
 
 # Vertex centroid in local coords (metres)
 xs = [v[0] for v in roi_verts]
@@ -126,13 +117,13 @@ eff_ty = roi_ty + cy_m
 # Read FOV from API (objective-aware)
 settings = get_job_settings(client, job)
 geo = parse_tile_geometry(settings)
-fov_at_zoom1_um = geo["tile_w_um"]  # assumes zoom=1 at this point
+fov_at_zoom1_um = geo["tile_w_um"]
 
-# Pan + zoom from effective centroid translation
+# Pan + zoom
 pan_x, pan_y = roi_translation_to_pan(eff_tx, eff_ty)
 zoom = bbox_to_zoom(w_um, h_um, fov_at_zoom1_um)
 
-print(f"  ROI: type={roi_type}, {len(roi_verts)} vertices")
+print(f"  ROI: {len(roi_verts)} vertices")
 print(f"  Vertex centroid (local): ({cx_m * 1e6:.1f}, {cy_m * 1e6:.1f}) um")
 print(f"  Translation: ({roi_tx * 1e6:.1f}, {roi_ty * 1e6:.1f}) um")
 print(f"  Effective center: ({eff_tx * 1e6:.1f}, {eff_ty * 1e6:.1f}) um")
@@ -141,84 +132,40 @@ print(f"  FOV at zoom 1: {fov_at_zoom1_um:.1f} um")
 print(f"  Target zoom: {zoom} (FOV={fov_at_zoom1_um / zoom:.1f} um)")
 print(f"  Target pan: ({pan_x:.6f}, {pan_y:.6f})")
 
-# ── Step 2: Clear ROI, zoom+pan to region ──────────────────────────────
+# ── Step 2: Clear ROI, pan+zoom ─────────────────────────────────────────
 
-print("\n  Step 2: Removing ROI, zooming+panning to region...")
+print("\n  Step 2: Clearing ROI, setting pan+zoom...")
 
-# Disable ROI scan and clear ROIs first (must disable before pan/zoom,
-# otherwise only the ROI area is illuminated)
-def clear_and_pan(p):
+
+def clear_and_navigate(p):
     lrp_enable_roi_scan(p, False, job)
     lrp_clear_rois(p, job)
     lrp_set_pan(p, pan_x, pan_y, job)
+    lrp_set_zoom(p, zoom, job)
 
-apply_lrp_change(client, TEMPLATE_XML, clear_and_pan,
+
+apply_lrp_change(client, TEMPLATE_XML, clear_and_navigate,
                  confirm_delays=(2, 4, 6))
 
-# Set zoom via API (more reliable than LRP-only)
-print(f"  Setting zoom={zoom} via API...")
-r_zoom = drv.set_zoom(client, job, zoom)
-if r_zoom["success"]:
-    print(f"  Zoom set via API: confirmed={r_zoom.get('confirmed')}")
-else:
-    print(f"  API zoom failed: {r_zoom['message']}, trying LRP fallback...")
-    def set_zoom_fallback(p):
-        lrp_set_zoom(p, zoom, job)
-    apply_lrp_change(client, TEMPLATE_XML, set_zoom_fallback,
-                     confirm_delays=(2, 4, 6))
-
-# Verify zoom persisted
+# Verify
 parsed = save_and_parse()
 actual_zoom = float(parsed["jobs"][job]["Master"]["attrs"].get("Zoom", 0))
-if abs(actual_zoom - zoom) > 1:
-    print(f"  WARNING: zoom drifted: expected {zoom}, got {actual_zoom:.1f}")
-    print(f"  Retrying via LRP...")
-    def set_zoom_retry(p):
-        lrp_set_zoom(p, zoom, job)
-    apply_lrp_change(client, TEMPLATE_XML, set_zoom_retry,
-                     confirm_delays=(3, 5, 8))
-else:
-    print(f"  Zoom verified: {actual_zoom:.1f}")
+a = parsed["jobs"][job]["Master"]["attrs"]
+actual_pan = (float(a.get("PanFirstDim", 0)),
+              float(a.get("PanSecondDim", 0)))
 
-print("  Done. View should now be zoomed into the ROI region.")
+print(f"\n  Result:")
+print(f"    Zoom: {actual_zoom:.1f} (target: {zoom})")
+print(f"    Pan X: {actual_pan[0]:.6f} (target: {pan_x:.6f})")
+print(f"    Pan Y: {actual_pan[1]:.6f} (target: {pan_y:.6f})")
 
-# ── Step 3: Acquire ────────────────────────────────────────────────────
+ok = (abs(actual_zoom - zoom) < 1 and
+      abs(actual_pan[0] - pan_x) < 1e-5 and
+      abs(actual_pan[1] - pan_y) < 1e-5)
 
-print("\n  Step 3: Acquiring...")
-t0 = time.perf_counter()
-r = drv.acquire(client, job)
-elapsed = time.perf_counter() - t0
-
-if r and r["success"]:
-    print(f"  Acquired in {elapsed:.1f}s")
-else:
-    print(f"  Acquire failed: {r}")
-
-# ── Step 4: Restore ROI ───────────────────────────────────────────────
-
-print("\n  Step 4: Restoring ROI...")
-
-
-# Add ROI back without enabling ROI scan (ROI scan causes auto-zoom on reload)
-def restore(p):
-    lrp_add_roi(p, job, roi_type, roi_verts,
-                name="ROI 1", color=roi_color,
-                rotation=roi_rotation,
-                translation=(roi_tx, roi_ty),
-                scale=(roi_scale_x, roi_scale_y))
-
-
-apply_lrp_change(client, TEMPLATE_XML, restore, confirm_delays=(3, 5, 8))
-
-print("  ROI restored.")
-
-# ── Summary ─────────────────────────────────────────────────────────────
-
-success = r and r["success"]
 print(f"\n{'=' * 60}")
-if success:
-    print("  PASS: ROI read, zoomed+panned, acquired, ROI restored.")
+if ok:
+    print("  PASS: Navigated to ROI region.")
 else:
-    print("  FAIL: Acquisition failed.")
+    print("  FAIL: Navigation did not match targets.")
 print(f"{'=' * 60}")
-sys.exit(0 if success else 1)

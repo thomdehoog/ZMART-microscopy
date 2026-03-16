@@ -48,6 +48,8 @@ from lasx.scanning_template_editors_roi import (
     pixel_to_absolute_um, bbox_to_zoom, mask_contour_to_roi,
 )
 from lasx.scanning_template_parsers import parse_lrp
+from lasx.readers import get_job_settings
+from lasx.utils import parse_tile_geometry
 
 print(f"  Driver version: {drv.__version__}")
 
@@ -124,6 +126,13 @@ time.sleep(0.5)
 
 stage = drv.get_xy(client)
 print(f"  Stage: ({stage['x_um']:.1f}, {stage['y_um']:.1f})")
+
+# Read pixel size and FOV from API (objective+zoom-aware)
+settings = get_job_settings(client, job)
+geo = parse_tile_geometry(settings)
+pixel_size_um = geo["pixel_w_um"]
+fov_at_zoom1_um = geo["tile_w_um"]  # at current zoom=1 after reset
+print(f"  Pixel size: {pixel_size_um:.4f} um, FOV at zoom 1: {fov_at_zoom1_um:.1f} um")
 
 # ── Test 1: move_xy_galvo basic ─────────────────────────────────────────
 
@@ -297,17 +306,17 @@ if rois:
 print(f"\n  --- bbox_to_zoom ---")
 
 check("bbox 30x20 -> zoom fits",
-      1160 / bbox_to_zoom(30, 20) >= 30,
-      f"zoom={bbox_to_zoom(30, 20)}")
+      fov_at_zoom1_um / bbox_to_zoom(30, 20, fov_at_zoom1_um) >= 30,
+      f"zoom={bbox_to_zoom(30, 20, fov_at_zoom1_um)}")
 check("bbox 1000x1000 -> zoom=1",
-      bbox_to_zoom(1000, 1000) == 1)
+      bbox_to_zoom(1000, 1000, fov_at_zoom1_um) == 1)
 check("bbox 5x5 -> zoom=48 (clamped)",
-      bbox_to_zoom(5, 5) == 48)
+      bbox_to_zoom(5, 5, fov_at_zoom1_um) == 48)
 check("bbox 0x0 -> zoom=48",
-      bbox_to_zoom(0, 0) == 48)
+      bbox_to_zoom(0, 0, fov_at_zoom1_um) == 48)
 # Asymmetric bbox: zoom should fit the larger dimension
-z_wide = bbox_to_zoom(500, 100)
-z_tall = bbox_to_zoom(100, 500)
+z_wide = bbox_to_zoom(500, 100, fov_at_zoom1_um)
+z_tall = bbox_to_zoom(100, 500, fov_at_zoom1_um)
 check("wide bbox -> lower zoom than tall (FOV is wider)",
       z_wide <= z_tall,
       f"wide={z_wide}, tall={z_tall}")
@@ -318,38 +327,39 @@ print(f"\n  --- pixel_to_absolute_um ---")
 
 # Center pixel at zero pan should equal stage position
 cx, cy = pixel_to_absolute_um(256, 256, stage["x_um"], stage["y_um"],
-                               0, 0, zoom=1)
+                               0, 0, pixel_size_um)
 check("center pixel = stage position",
       abs(cx - stage["x_um"]) < 0.1 and abs(cy - stage["y_um"]) < 0.1)
 
 # Symmetric: pixel 0 and 512 should be equidistant from center
 x0, _ = pixel_to_absolute_um(0, 256, stage["x_um"], stage["y_um"],
-                              0, 0, zoom=1)
+                              0, 0, pixel_size_um)
 x512, _ = pixel_to_absolute_um(512, 256, stage["x_um"], stage["y_um"],
-                                0, 0, zoom=1)
+                                0, 0, pixel_size_um)
 offset0 = abs(x0 - stage["x_um"])
 offset512 = abs(x512 - stage["x_um"])
 check("pixel 0 and 512 equidistant from center",
       abs(offset0 - offset512) < 0.1,
       f"offset0={offset0:.1f}, offset512={offset512:.1f}")
 
-# At higher zoom, pixel range should shrink proportionally
-cx_z8, cy_z8 = pixel_to_absolute_um(256, 256, stage["x_um"], stage["y_um"],
-                                      0, 0, zoom=8)
-check("center pixel unchanged at zoom=8",
-      abs(cx_z8 - stage["x_um"]) < 0.1 and abs(cy_z8 - stage["y_um"]) < 0.1)
+# Smaller pixel size → smaller physical offset per pixel
+ps_small = pixel_size_um / 8
+cx_small, cy_small = pixel_to_absolute_um(256, 256, stage["x_um"], stage["y_um"],
+                                           0, 0, ps_small)
+check("center pixel unchanged at smaller pixel size",
+      abs(cx_small - stage["x_um"]) < 0.1 and abs(cy_small - stage["y_um"]) < 0.1)
 
-x0_z8, _ = pixel_to_absolute_um(0, 256, stage["x_um"], stage["y_um"],
-                                  0, 0, zoom=8)
-offset0_z8 = abs(x0_z8 - stage["x_um"])
-check("zoom=8 shrinks pixel range ~8x",
-      abs(offset0_z8 - offset0 / 8) < 1,
-      f"z1={offset0:.1f}, z8={offset0_z8:.1f}, ratio={offset0/offset0_z8:.1f}")
+x0_small, _ = pixel_to_absolute_um(0, 256, stage["x_um"], stage["y_um"],
+                                    0, 0, ps_small)
+offset0_small = abs(x0_small - stage["x_um"])
+check("8x smaller pixel → 8x smaller range",
+      abs(offset0_small - offset0 / 8) < 1,
+      f"full={offset0:.1f}, small={offset0_small:.1f}, ratio={offset0/offset0_small:.1f}")
 
 # With pan offset, center pixel should shift
 pan_offset = 0.0005  # 50 um
 cx_pan, _ = pixel_to_absolute_um(256, 256, stage["x_um"], stage["y_um"],
-                                   pan_offset, 0, zoom=1)
+                                   pan_offset, 0, pixel_size_um)
 check("pan shifts center pixel",
       abs(cx_pan - (stage["x_um"] + 50)) < 1,
       f"expected ~{stage['x_um'] + 50:.1f}, got {cx_pan:.1f}")
@@ -361,7 +371,7 @@ print(f"\n  --- mask_contour_to_roi ---")
 # Create a square contour in pixel space
 contour = [(200, 200), (300, 200), (300, 300), (200, 300)]
 verts_m, (tx_m, ty_m) = mask_contour_to_roi(
-    contour, stage["x_um"], stage["y_um"], 0, 0, zoom=8)
+    contour, stage["x_um"], stage["y_um"], 0, 0, pixel_size_um=pixel_size_um)
 
 check("4 vertices returned", len(verts_m) == 4)
 
@@ -445,7 +455,7 @@ if rois:
     vs = roi.get("_Vertices", [])
     w = (max(v["X"] for v in vs) - min(v["X"] for v in vs)) * 1e6
     h = (max(v["Y"] for v in vs) - min(v["Y"] for v in vs)) * 1e6
-    zoom = bbox_to_zoom(w, h)
+    zoom = bbox_to_zoom(w, h, fov_at_zoom1_um)
 
     # Use API for zoom, LRP for pan
     r_zoom = drv.set_zoom(client, job, zoom)

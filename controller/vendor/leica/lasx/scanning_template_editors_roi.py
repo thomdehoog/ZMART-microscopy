@@ -615,47 +615,45 @@ def absolute_um_to_roi_translation(x_um, y_um, stage_x_um, stage_y_um):
 # Image coordinate helpers
 # =============================================================================
 
-_FOV_AT_ZOOM1 = 1160.0   # um, for 10x/0.40 DRY objective
-
-
 def pixel_to_absolute_um(px, py, stage_x_um, stage_y_um,
-                         pan_x, pan_y, zoom, image_size=512):
+                         pan_x, pan_y, pixel_size_um, image_size=512):
     """Convert image pixel coordinates to absolute stage coordinates.
 
-    Pixel (0, 0) is the top-left of the image.  The conversion accounts
-    for the current pan, zoom, and the X-axis inversion between image
-    space and physical space.
+    Uses a Cartesian coordinate system (right = +X, up = +Y).
+    Pixel (0, 0) is the top-left of the image.
 
     Args:
         px, py: Pixel coordinates (can be float).
         stage_x_um, stage_y_um: Stage position in um (from ``get_xy``).
         pan_x, pan_y: Current pan values.
-        zoom: Current zoom factor.
+        pixel_size_um: Size of one pixel in um (from
+            ``parse_tile_geometry`` → ``pixel_w_um``).
         image_size: Image dimension in pixels (default 512).
 
     Returns:
-        ``(x_um, y_um)`` — absolute position in um.
+        ``(x_um, y_um)`` — absolute position in um (Cartesian).
     """
-    fov = _FOV_AT_ZOOM1 / zoom
-    pixel_size = fov / image_size
     center = image_size / 2.0
 
-    # Image center in absolute coords
+    # Image center in absolute coords (Cartesian)
     cx = stage_x_um + pan_x * _PAN_SCALE
     cy = stage_y_um + pan_y * _PAN_SCALE
 
-    # X inverted, Y direct
-    x_um = cx + (center - px) * pixel_size
-    y_um = cy + (py - center) * pixel_size
+    # Image X is inverted vs Cartesian X (left pixel = higher stage X)
+    # Image Y is inverted vs Cartesian Y (top pixel = higher stage Y)
+    x_um = cx + (center - px) * pixel_size_um
+    y_um = cy + (center - py) * pixel_size_um
     return (x_um, y_um)
 
 
-def bbox_to_zoom(width_um, height_um, margin=1.15):
+def bbox_to_zoom(width_um, height_um, fov_at_zoom1_um, margin=1.15):
     """Calculate the optimal zoom to frame a bounding box.
 
     Args:
         width_um: Bounding box width in um.
         height_um: Bounding box height in um.
+        fov_at_zoom1_um: FOV at zoom 1 in um for the current objective
+            (e.g. ``get_fov`` at zoom 1, or ``pixel_w_um * pixels_x``).
         margin: Extra margin factor (default 1.15 = 15%).
 
     Returns:
@@ -664,12 +662,12 @@ def bbox_to_zoom(width_um, height_um, margin=1.15):
     max_dim = max(width_um, height_um)
     if max_dim <= 0:
         return 48
-    optimal = _FOV_AT_ZOOM1 / (max_dim * margin)
+    optimal = fov_at_zoom1_um / (max_dim * margin)
     return min(48, max(1, round(optimal)))
 
 
 def mask_contour_to_roi(contour_pixels, stage_x_um, stage_y_um,
-                        pan_x, pan_y, zoom, image_size=512):
+                        pan_x, pan_y, pixel_size_um, image_size=512):
     """Convert a segmentation mask contour to ROI vertices + translation.
 
     Takes a list of pixel coordinates from a segmentation mask contour
@@ -683,7 +681,7 @@ def mask_contour_to_roi(contour_pixels, stage_x_um, stage_y_um,
             the mask boundary.
         stage_x_um, stage_y_um: Stage position in um.
         pan_x, pan_y: Pan values when the image was taken.
-        zoom: Zoom when the image was taken.
+        pixel_size_um: Size of one pixel in um.
         image_size: Image dimension in pixels (default 512).
 
     Returns:
@@ -695,7 +693,7 @@ def mask_contour_to_roi(contour_pixels, stage_x_um, stage_y_um,
     # Convert all contour pixels to absolute um
     abs_points = [
         pixel_to_absolute_um(px, py, stage_x_um, stage_y_um,
-                             pan_x, pan_y, zoom, image_size)
+                             pan_x, pan_y, pixel_size_um, image_size)
         for px, py in contour_pixels
     ]
 
