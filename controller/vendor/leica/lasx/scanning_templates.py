@@ -661,7 +661,7 @@ def reorder_jobs(lrp_path, first_job):
 
 def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
                      verify_fn=None,
-                     confirm_delays=(0.5, 1, 2, 4, 8), **kwargs):
+                     confirm_delays=(0.5, 1, 2, 4, 8, 16), **kwargs):
     """Apply an LRP edit with save → edit → reorder → load → save → verify.
 
     This is the generic backbone through which all LRP modifications

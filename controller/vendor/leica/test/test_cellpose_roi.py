@@ -123,8 +123,7 @@ def reset_fn(p):
 
 apply_lrp_change(client, TEMPLATE_XML, reset_fn,
                  verify_fn=lambda p: (lrp_verify_roi_scan(p, False, job) and
-                                      lrp_verify_roi_count(p, 0, job)),
-                 confirm_delays=(0.5, 1, 2, 4, 8, 16))
+                                      lrp_verify_roi_count(p, 0, job)))
 drv.refresh_display(client, job)
 print("  ROI scan disabled, ROIs cleared.")
 
