@@ -12,7 +12,6 @@ Usage:
     python test_cellpose_roi.py --image path.tif      # segment existing image
     python test_cellpose_roi.py --max-rois 5          # limit ROI count
     python test_cellpose_roi.py --diameter 30         # cellpose cell diameter
-    python test_cellpose_roi.py --job "Overview"      # specify job
 """
 
 import argparse
@@ -26,8 +25,6 @@ logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
 parser = argparse.ArgumentParser(
     description="Cellpose Segmentation → Polygon ROI Loading Test")
-parser.add_argument("--job", default=None,
-                    help="Job name (default: currently selected)")
 parser.add_argument("--image", default=None,
                     help="Path to existing image (skip acquisition)")
 parser.add_argument("--max-rois", type=int, default=0,
@@ -102,17 +99,13 @@ if not drv.ping(client):
     print("  ABORT: ping failed")
     sys.exit(1)
 
-# Resolve job
-if args.job:
-    job = args.job
-else:
-    selected = drv.get_selected_job(client)
-    job = selected.get("Name") if selected else None
-    if not job:
-        print("  ABORT: no job selected in LAS X. "
-              "Select a job or use --job.")
-        sys.exit(1)
-    print(f"  Auto-detected job: '{job}'")
+# Resolve job — always use currently selected job
+selected = drv.get_selected_job(client)
+job = selected.get("Name") if selected else None
+if not job:
+    print("  ABORT: no job selected in LAS X. Select a job first.")
+    sys.exit(1)
+print(f"  Using job: '{job}'")
 
 # ── Step 1: Read microscope state ──────────────────────────────────────
 
