@@ -11,11 +11,42 @@ simple attribute replacement).  ``apply_lrp_change`` does
 save → edit → load → save, so LAS X rewrites the file anyway — the
 verify step checks the LAS X-saved version.
 
-Coordinate system: all vertex coordinates are in **metres relative
-to the scan field centre** (origin at (0, 0)), matching the LAS X
-internal format.  Use ``um(x)`` to convert from micrometres.
+Coordinate systems
+------------------
 
-ROI Translation coordinate system (solved 2026-03-15):
+**Vertex coordinates** are in **metres relative to the scan field
+centre** (origin at (0, 0)), matching the LAS X internal format.
+Use ``um(x)`` to convert from micrometres.
+
+In the display frame:
+
+- **Positive X = right** on screen.
+- **Positive Y = down** on screen.
+
+**Pixel → vertex mapping** (for segmentation contours etc.)::
+
+    vx = (col - image_center) * pixel_size_m
+    vy = (row - image_center) * pixel_size_m
+
+This mapping requires **ImageTransformation = TOPLEFT** (or
+``EnableImageTransformation = false``) in the LAS X MatrixScreener
+settings (Advanced Settings > Calibration Of Orientation).  With
+any other orientation (e.g. RIGHTTOP) the saved TIFF is rotated
+relative to the display and the mapping breaks.
+
+``RotatorAngle``, ``FlipX``, and ``FlipY`` from the LRP describe the
+*physical* scan direction on the sample but do **not** affect the
+pixel ↔ ROI vertex relationship — both live in the same display frame.
+
+Check the setting at runtime via::
+
+    s = get_lasx_settings()  # from lasx.readers
+    orient = s["image_orientation"]
+    # orient["enable_transform"]  → bool
+    # orient["transformation"]    → "TOPLEFT", "RIGHTTOP", etc.
+
+**ROI Translation** coordinate system (solved 2026-03-15):
+
     Translation is the ROI position as an offset from the **stage
     centre** (not the scan field centre), with the X axis negated::
 
@@ -621,6 +652,18 @@ def pixel_to_absolute_um(px, py, stage_x_um, stage_y_um,
 
     Uses a Cartesian coordinate system (right = +X, up = +Y).
     Pixel (0, 0) is the top-left of the image.
+
+    .. note::
+
+       This converts to **absolute stage coordinates** (Cartesian),
+       which is a different coordinate system from ROI vertex
+       coordinates (display frame, +X = right, +Y = down).
+       For pixel → ROI vertex mapping, use the simpler formula::
+
+           vx = (col - center) * pixel_size_m
+           vy = (row - center) * pixel_size_m
+
+       See module docstring for details.
 
     Args:
         px, py: Pixel coordinates (can be float).
