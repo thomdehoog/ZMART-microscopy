@@ -391,6 +391,76 @@ def make_line(x1, y1, x2, y2):
 
 
 # =============================================================================
+# Vertex centring
+# =============================================================================
+
+def center_vertices(vertices):
+    """Re-centre vertices around their centroid.
+
+    LAS X requires the ROI position to be stored in the Translation
+    field, with vertices relative to the centroid.  Without this,
+    ROI scan only illuminates one ROI instead of all.
+
+    Args:
+        vertices: List of ``(x, y)`` tuples in metres.
+
+    Returns:
+        ``(centered_vertices, (cx, cy))`` — vertices shifted so
+        their centroid is ``(0, 0)``, and the centroid as a tuple
+        suitable for the ``translation`` parameter of ``lrp_add_roi``.
+    """
+    n = len(vertices)
+    cx = sum(v[0] for v in vertices) / n
+    cy = sum(v[1] for v in vertices) / n
+    centered = [(v[0] - cx, v[1] - cy) for v in vertices]
+    return centered, (cx, cy)
+
+
+def pixels_to_roi(contour, image_center, pixel_size_m, close=True):
+    """Convert pixel contour to centred ROI vertices + translation.
+
+    Converts a contour from pixel coordinates (e.g. from
+    ``skimage.measure.find_contours``) to the format needed by
+    ``lrp_add_roi``: vertices in metres centred on the shape
+    centroid, plus a translation that positions the shape in the
+    scan field.
+
+    Requires **ImageTransformation = TOPLEFT** (or
+    ``EnableImageTransformation = false``) in LAS X settings.
+
+    Args:
+        contour: Array-like of ``(row, col)`` pixel coordinates
+            (the format returned by ``find_contours``).
+        image_center: Image centre in pixels (typically ``width / 2``).
+        pixel_size_m: Pixel size in metres.
+        close: If ``True`` (default), append the first vertex to
+            close the polygon when the gap exceeds half a pixel.
+
+    Returns:
+        ``(vertices_m, translation_m)`` — centred vertices in metres
+        and ``(tx, ty)`` translation for ``lrp_add_roi``.
+    """
+    # Pixel → scan field coordinates
+    abs_verts = [
+        ((c[1] - image_center) * pixel_size_m,
+         (c[0] - image_center) * pixel_size_m)
+        for c in contour
+    ]
+
+    # Centre and extract translation
+    vertices_m, translation_m = center_vertices(abs_verts)
+
+    # Close polygon if needed
+    if close and len(vertices_m) >= 3:
+        d = ((vertices_m[0][0] - vertices_m[-1][0]) ** 2 +
+             (vertices_m[0][1] - vertices_m[-1][1]) ** 2) ** 0.5
+        if d > pixel_size_m * 0.5:
+            vertices_m.append(vertices_m[0])
+
+    return vertices_m, translation_m
+
+
+# =============================================================================
 # Add ROI
 # =============================================================================
 

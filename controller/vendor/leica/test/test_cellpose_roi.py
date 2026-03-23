@@ -30,12 +30,12 @@ parser.add_argument("--job", default=None,
                     help="Job name (default: currently selected)")
 parser.add_argument("--image", default=None,
                     help="Path to existing image (skip acquisition)")
-parser.add_argument("--max-rois", type=int, default=10,
-                    help="Max number of ROIs to load (default: 10)")
+parser.add_argument("--max-rois", type=int, default=0,
+                    help="Max number of ROIs to load (default: 0 = all)")
 parser.add_argument("--diameter", type=float, default=None,
                     help="Cellpose cell diameter in pixels (default: auto)")
-parser.add_argument("--gpu", action="store_true",
-                    help="Use GPU for Cellpose")
+parser.add_argument("--no-gpu", action="store_true",
+                    help="Disable GPU for Cellpose (GPU used by default)")
 parser.add_argument("--channel", type=int, default=0,
                     help="Channel index for multi-file acquisitions (default: 0)")
 parser.add_argument("--tolerance", type=float, default=2.0,
@@ -67,6 +67,7 @@ from lasx.scanning_template_editors_roi import (
     lrp_enable_roi_scan, lrp_verify_roi_scan,
     lrp_clear_rois, lrp_add_roi,
     lrp_verify_roi_count,
+    pixels_to_roi,
     argb_color,
     ROI_POLYGON,
 )
@@ -226,7 +227,7 @@ if actual_w != actual_h:
 print("\n  Step 3: Segmenting with Cellpose...")
 
 t0 = time.perf_counter()
-model = models.CellposeModel(gpu=args.gpu)
+model = models.CellposeModel(gpu=not args.no_gpu)
 masks, flows, styles = model.eval(img, diameter=args.diameter)
 elapsed = time.perf_counter() - t0
 
@@ -246,7 +247,7 @@ props_sorted = sorted(props, key=lambda p: p.area, reverse=True)
 props_filtered = [p for p in props_sorted if p.area >= args.min_area]
 print(f"  Cells after area filter (>={args.min_area} px): {len(props_filtered)}")
 
-cells_to_process = props_filtered[:args.max_rois]
+cells_to_process = props_filtered[:args.max_rois] if args.max_rois > 0 else props_filtered
 print(f"  Processing top {len(cells_to_process)} cell(s)")
 
 roi_data = []
@@ -269,28 +270,12 @@ for prop in cells_to_process:
               f"after simplification, skipping")
         continue
 
-    # ── Pixel → ROI vertex coordinate conversion ──
-    #
-    # ROI vertices are in metres, origin at scan field centre.
-    # Positive X = right in display, positive Y = down in display.
-    # Requires EnableImageTransformation = false in LAS X settings.
-
-    vertices_m = []
-    for c in contour_simple:
-        col, row = c[1], c[0]
-        vx = (col - image_center) * pixel_size_m
-        vy = (row - image_center) * pixel_size_m
-        vertices_m.append((vx, vy))
-
-    # Ensure closed polygon
-    d = ((vertices_m[0][0] - vertices_m[-1][0]) ** 2 +
-         (vertices_m[0][1] - vertices_m[-1][1]) ** 2) ** 0.5
-    if d > pixel_size_m * 0.5:
-        vertices_m.append(vertices_m[0])
+    vertices_m, translation_m = pixels_to_roi(
+        contour_simple, image_center, pixel_size_m)
 
     roi_data.append({
         "vertices_m": vertices_m,
-        "translation_m": (0.0, 0.0),
+        "translation_m": translation_m,
         "n_orig": n_orig,
         "n_simple": len(vertices_m),
         "area": prop.area,
