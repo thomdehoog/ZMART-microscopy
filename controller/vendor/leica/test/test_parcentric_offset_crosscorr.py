@@ -74,10 +74,10 @@ print(f"  Job: {job}")
 
 target_zooms = {}
 for tmag in args.target_mag:
-    tz = max(1, round(args.ref_zoom * args.ref_mag / tmag))
+    tz = args.ref_zoom * args.ref_mag / tmag
     target_zooms[tmag] = tz
     print(f"  Zoom pair: {args.ref_mag:.0f}x @ {args.ref_zoom} "
-          f"-> {tmag:.0f}x @ {tz}")
+          f"-> {tmag:.0f}x @ {tz:.2f}")
 
 # ── Helper: prepare and acquire ──────────────────────────────────────
 
@@ -147,7 +147,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy.ndimage import shift as ndi_shift
 
-out_dir = args.output or os.path.join(os.path.expanduser("~"), "Desktop")
+from datetime import datetime
+_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+_default_out = os.path.join(
+    str(Path(__file__).resolve().parent.parent), "config", "alignment", _timestamp)
+out_dir = args.output or _default_out
+os.makedirs(out_dir, exist_ok=True)
 targets_str = ", ".join(f"{m:.0f}x" for m in args.target_mag)
 
 print(f"\n{'=' * 60}")
