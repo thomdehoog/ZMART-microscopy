@@ -47,7 +47,7 @@ from lasx.scanning_template_editors_roi import (
     absolute_um_to_roi_translation,
     pixel_to_absolute_um, bbox_to_zoom, mask_contour_to_roi,
 )
-from lasx.scanning_template_parsers import parse_lrp
+from lasx.scanning_template_parsers import parse_lrp, get_master_attrs, get_rois
 from lasx.readers import get_job_settings
 from lasx.utils import parse_tile_geometry
 
@@ -101,7 +101,7 @@ def save_and_parse():
 
 
 def read_pan(parsed):
-    a = parsed["jobs"][job]["Master"]["attrs"]
+    a = get_master_attrs(parsed, job)
     return float(a.get("PanFirstDim", 0)), float(a.get("PanSecondDim", 0))
 
 
@@ -246,7 +246,7 @@ apply_lrp_change(client, TEMPLATE_XML, add_star, confirm_delays=(2, 4, 6))
 
 # Read it back
 parsed = save_and_parse()
-rois = parsed["jobs"][job]["Master"].get("_ROIs", [])
+rois = get_rois(parsed, job)
 check("star ROI saved", len(rois) == 1, f"count={len(rois)}")
 
 if rois:
@@ -392,7 +392,7 @@ apply_lrp_change(client, TEMPLATE_XML, add_mask_roi,
                  confirm_delays=(2, 4, 6))
 
 parsed = save_and_parse()
-rois = parsed["jobs"][job]["Master"].get("_ROIs", [])
+rois = get_rois(parsed, job)
 check("mask ROI saved", len(rois) == 1)
 
 if rois:
@@ -408,7 +408,7 @@ check("set_zoom API succeeds", r_zoom["success"],
       f"msg={r_zoom.get('message', '')}")
 
 parsed = save_and_parse()
-actual_zoom = float(parsed["jobs"][job]["Master"]["attrs"].get("Zoom", 0))
+actual_zoom = float(get_master_attrs(parsed, job).get("Zoom", 0))
 check("zoom=4 persisted in LRP",
       abs(actual_zoom - 4) < 1,
       f"got {actual_zoom:.1f}")
@@ -441,7 +441,7 @@ apply_lrp_change(client, TEMPLATE_XML, place_star, confirm_delays=(2, 4, 6))
 
 # Read ROI back
 parsed = save_and_parse()
-rois = parsed["jobs"][job]["Master"].get("_ROIs", [])
+rois = get_rois(parsed, job)
 check("workflow star saved", len(rois) == 1)
 
 if rois:
@@ -468,7 +468,7 @@ if rois:
 
     parsed = save_and_parse()
     actual_pan = read_pan(parsed)
-    actual_zoom = float(parsed["jobs"][job]["Master"]["attrs"].get("Zoom", 0))
+    actual_zoom = float(get_master_attrs(parsed, job).get("Zoom", 0))
 
     check("workflow zoom applied",
           abs(actual_zoom - zoom) < 1,

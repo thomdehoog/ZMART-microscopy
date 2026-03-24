@@ -779,6 +779,75 @@ def bbox_to_zoom(width_um, height_um, fov_at_zoom1_um, margin=1.15):
     return min(48, max(1, round(optimal)))
 
 
+def roi_geometry(roi):
+    """Extract centroid, bounding box, and effective translation from a parsed ROI.
+
+    Args:
+        roi: A single ROI dict from ``parse_lrp``
+            (i.e. ``parsed["jobs"][job]["Master"]["_ROIs"][i]``).
+
+    Returns:
+        dict with keys::
+
+            vertices        — list of (X, Y) tuples in metres (local coords)
+            centroid_m      — (cx, cy) vertex centroid in metres (local)
+            bbox_um         — (width, height) bounding box in µm
+            translation_m   — (tx, ty) raw ROI translation in metres
+            effective_translation_m — (tx + cx, ty + cy) in metres
+                (accounts for vertex centroid offset)
+            type            — ROI type string (e.g. "8" for polygon)
+            color           — LAS X ARGB color string
+            rotation        — rotation angle (radians)
+            scale           — (x_scale, y_scale)
+    """
+    verts = [(v["X"], v["Y"]) for v in roi.get("_Vertices", [])]
+    xs = [v[0] for v in verts]
+    ys = [v[1] for v in verts]
+
+    cx = sum(xs) / len(xs) if xs else 0.0
+    cy = sum(ys) / len(ys) if ys else 0.0
+
+    t = roi.get("_Transformation", {})
+    tx = float(t.get("TranslationX", 0))
+    ty = float(t.get("TranslationY", 0))
+
+    return {
+        "vertices": verts,
+        "centroid_m": (cx, cy),
+        "bbox_um": ((max(xs) - min(xs)) * 1e6 if xs else 0.0,
+                    (max(ys) - min(ys)) * 1e6 if ys else 0.0),
+        "translation_m": (tx, ty),
+        "effective_translation_m": (tx + cx, ty + cy),
+        "type": roi.get("RoiType", "8"),
+        "color": roi.get("Color", "4294901760"),
+        "rotation": float(t.get("Rotation", 0)),
+        "scale": (float(t.get("XScale", 1)), float(t.get("YScale", 1))),
+    }
+
+
+def roi_to_pan_zoom(roi, fov_at_zoom1_um, margin=1.15):
+    """Compute pan and zoom values to frame an ROI.
+
+    Combines :func:`roi_geometry`, :func:`roi_translation_to_pan`, and
+    :func:`bbox_to_zoom` into a single call.
+
+    Args:
+        roi: A single ROI dict from ``parse_lrp``.
+        fov_at_zoom1_um: Objective FOV at zoom 1 in µm
+            (from ``get_base_fov``).
+        margin: Extra margin factor passed to ``bbox_to_zoom``.
+
+    Returns:
+        ``(pan_x, pan_y, zoom)`` tuple.
+    """
+    geo = roi_geometry(roi)
+    eff_tx, eff_ty = geo["effective_translation_m"]
+    pan_x, pan_y = roi_translation_to_pan(eff_tx, eff_ty)
+    w_um, h_um = geo["bbox_um"]
+    zoom = bbox_to_zoom(w_um, h_um, fov_at_zoom1_um, margin=margin)
+    return (pan_x, pan_y, zoom)
+
+
 def mask_contour_to_roi(contour_pixels, stage_x_um, stage_y_um,
                         pan_x, pan_y, pixel_size_um, image_size=512):
     """Convert a segmentation mask contour to ROI vertices + translation.

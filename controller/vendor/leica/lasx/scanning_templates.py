@@ -34,6 +34,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .readers import get_selected_job
+from .scanning_template_parsers import parse_lrp
 from .utils import RECEIPT_TIMEOUT, _make_timing, _make_log_entry
 
 log = logging.getLogger(__name__)
@@ -137,6 +138,40 @@ STRIPPED_BASE = TEMPLATE_BASE + "_stripped"
 STRIPPED_XML = STRIPPED_BASE + ".xml"
 STRIPPED_RGN = STRIPPED_BASE + ".rgn"
 STRIPPED_LRP = STRIPPED_BASE + ".lrp"
+
+
+# =============================================================================
+# Save + parse convenience
+# =============================================================================
+
+def save_and_read_lrp(client, *, timeout=5.0):
+    """Save the current experiment and return parsed LRP data.
+
+    Combines :func:`save_experiment` and :func:`parse_lrp` into a
+    single call, handling template directory and file path resolution
+    internally.
+
+    Args:
+        client: Live LAS X CAM client.
+        timeout: Save confirmation timeout in seconds.
+
+    Returns:
+        Parsed LRP dict (same structure as :func:`parse_lrp`),
+        or ``None`` if the save or parse fails.
+    """
+    tdir = find_scanning_templates_dir()
+    if tdir is None:
+        log.error("save_and_read_lrp: cannot locate ScanningTemplates dir")
+        return None
+    lrp_path = os.path.join(tdir, TEMPLATE_LRP)
+    result = save_experiment(client, TEMPLATE_XML, tdir, timeout=timeout)
+    if not result:
+        log.warning("save_and_read_lrp: save_experiment returned no result")
+    try:
+        return parse_lrp(lrp_path)
+    except Exception as e:
+        log.error("save_and_read_lrp: parse failed: %s", e)
+        return None
 
 
 # =============================================================================

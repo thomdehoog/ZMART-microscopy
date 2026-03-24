@@ -12,7 +12,6 @@ Usage:
 """
 
 import argparse
-import os
 import sys
 import time
 import logging
@@ -35,18 +34,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from LasxApi import PYLICamApiConnector as lasx_api
 import lasx as drv
 from lasx.scanning_templates import (
-    TEMPLATE_XML, apply_lrp_change, find_scanning_templates_dir,
-    save_experiment,
+    TEMPLATE_XML, apply_lrp_change, save_and_read_lrp,
 )
 from lasx.scanning_template_editors_scan import lrp_set_pan, lrp_set_zoom
 from lasx.scanning_template_editors_roi import (
     lrp_enable_roi_scan, lrp_clear_rois, lrp_add_roi,
-    roi_translation_to_pan, bbox_to_zoom,
-    ROI_POLYGON,
+    roi_geometry, roi_to_pan_zoom,
 )
-from lasx.scanning_template_parsers import parse_lrp
-from lasx.readers import get_job_settings
-from lasx.utils import parse_tile_geometry
+from lasx.scanning_template_parsers import get_rois, get_master_attrs
+from lasx.readers import get_base_fov
 
 print(f"  Driver version: {drv.__version__}")
 
@@ -73,13 +69,8 @@ else:
         job = "AF Job"
     print(f"  Auto-detected job: '{job}'")
 
-tdir = find_scanning_templates_dir()
-lrp_path = os.path.join(tdir, TEMPLATE_XML.replace(".xml", ".lrp"))
-
-
 def save_and_parse():
-    save_experiment(client, TEMPLATE_XML, tdir, timeout=5.0)
-    return parse_lrp(lrp_path)
+    return save_and_read_lrp(client)
 
 
 # ── Step 1: Read existing ROI ──────────────────────────────────────────
@@ -91,7 +82,7 @@ print(f"{'=' * 60}")
 print("\n  Step 1: Reading ROI...")
 
 parsed = save_and_parse()
-rois = parsed["jobs"][job]["Master"].get("_ROIs", [])
+rois = get_rois(parsed, job)
 
 if not rois:
     print("  ABORT: No ROIs found. Draw an ROI in LAS X first.")
@@ -99,42 +90,21 @@ if not rois:
 
 # Take the first ROI
 roi = rois[0]
-roi_type = roi.get("RoiType", ROI_POLYGON)
-roi_verts = [(v["X"], v["Y"]) for v in roi.get("_Vertices", [])]
-t = roi.get("_Transformation", {})
-roi_tx = float(t.get("TranslationX", 0))
-roi_ty = float(t.get("TranslationY", 0))
-roi_color = roi.get("Color", "4294901760")
-roi_rotation = float(t.get("Rotation", 0))
-roi_scale_x = float(t.get("XScale", 1))
-roi_scale_y = float(t.get("YScale", 1))
+geo = roi_geometry(roi)
 
-# Vertex centroid in local coords (metres)
-xs = [v[0] for v in roi_verts]
-ys = [v[1] for v in roi_verts]
-cx_m = sum(xs) / len(xs)
-cy_m = sum(ys) / len(ys)
+# Base FOV (at zoom 1) from the driver
+base_fov = get_base_fov(client, job)
+if not base_fov:
+    print("  ABORT: cannot read base FOV")
+    sys.exit(1)
+fov_at_zoom1_um = base_fov[0] * 1e6
 
-# Bounding box (um)
-w_um = (max(xs) - min(xs)) * 1e6
-h_um = (max(ys) - min(ys)) * 1e6
+# Pan + zoom to frame the ROI
+pan_x, pan_y, zoom = roi_to_pan_zoom(roi, fov_at_zoom1_um)
 
-# Effective translation = ROI translation + vertex centroid offset
-eff_tx = roi_tx + cx_m
-eff_ty = roi_ty + cy_m
-
-# Read FOV from API (objective-aware)
-settings = get_job_settings(client, job)
-geo = parse_tile_geometry(settings)
-fov_at_zoom1_um = geo["tile_w_um"]  # assumes zoom=1 at this point
-
-# Pan + zoom from effective centroid translation
-pan_x, pan_y = roi_translation_to_pan(eff_tx, eff_ty)
-zoom = bbox_to_zoom(w_um, h_um, fov_at_zoom1_um)
-
-print(f"  ROI: type={roi_type}, {len(roi_verts)} vertices")
-print(f"  Vertex centroid (local): ({cx_m * 1e6:.1f}, {cy_m * 1e6:.1f}) um")
-print(f"  Translation: ({roi_tx * 1e6:.1f}, {roi_ty * 1e6:.1f}) um")
+w_um, h_um = geo["bbox_um"]
+eff_tx, eff_ty = geo["effective_translation_m"]
+print(f"  ROI: type={geo['type']}, {len(geo['vertices'])} vertices")
 print(f"  Effective center: ({eff_tx * 1e6:.1f}, {eff_ty * 1e6:.1f}) um")
 print(f"  Bbox: {w_um:.1f} x {h_um:.1f} um")
 print(f"  FOV at zoom 1: {fov_at_zoom1_um:.1f} um")
@@ -145,8 +115,7 @@ print(f"  Target pan: ({pan_x:.6f}, {pan_y:.6f})")
 
 print("\n  Step 2: Removing ROI, zooming+panning to region...")
 
-# Disable ROI scan and clear ROIs first (must disable before pan/zoom,
-# otherwise only the ROI area is illuminated)
+# Step 2a: Clear ROIs and set pan via LRP
 def clear_and_pan(p):
     lrp_enable_roi_scan(p, False, job)
     lrp_clear_rois(p, job)
@@ -155,32 +124,20 @@ def clear_and_pan(p):
 apply_lrp_change(client, TEMPLATE_XML, clear_and_pan,
                  confirm_delays=(2, 4, 6))
 
-# Set zoom via API (more reliable than LRP-only)
+# Step 2b: Set zoom via API (triggers hardware refresh that applies the pan)
 print(f"  Setting zoom={zoom} via API...")
 r_zoom = drv.set_zoom(client, job, zoom)
-if r_zoom["success"]:
-    print(f"  Zoom set via API: confirmed={r_zoom.get('confirmed')}")
-else:
-    print(f"  API zoom failed: {r_zoom['message']}, trying LRP fallback...")
-    def set_zoom_fallback(p):
-        lrp_set_zoom(p, zoom, job)
-    apply_lrp_change(client, TEMPLATE_XML, set_zoom_fallback,
-                     confirm_delays=(2, 4, 6))
+print(f"  Zoom API: success={r_zoom['success']}, confirmed={r_zoom.get('confirmed')}")
 
-# Verify zoom persisted
+# Verify
 parsed = save_and_parse()
-actual_zoom = float(parsed["jobs"][job]["Master"]["attrs"].get("Zoom", 0))
-if abs(actual_zoom - zoom) > 1:
-    print(f"  WARNING: zoom drifted: expected {zoom}, got {actual_zoom:.1f}")
-    print(f"  Retrying via LRP...")
-    def set_zoom_retry(p):
-        lrp_set_zoom(p, zoom, job)
-    apply_lrp_change(client, TEMPLATE_XML, set_zoom_retry,
-                     confirm_delays=(3, 5, 8))
-else:
-    print(f"  Zoom verified: {actual_zoom:.1f}")
-
-print("  Done. View should now be zoomed into the ROI region.")
+attrs = get_master_attrs(parsed, job)
+actual_zoom = float(attrs.get("Zoom", 0))
+actual_pan = (float(attrs.get("PanFirstDim", 0)),
+              float(attrs.get("PanSecondDim", 0)))
+print(f"  Zoom: {actual_zoom:.1f} (target: {zoom})")
+print(f"  Pan: ({actual_pan[0]:.6f}, {actual_pan[1]:.6f}) "
+      f"(target: {pan_x:.6f}, {pan_y:.6f})")
 
 # ── Step 3: Acquire ────────────────────────────────────────────────────
 
@@ -201,11 +158,11 @@ print("\n  Step 4: Restoring ROI...")
 
 # Add ROI back without enabling ROI scan (ROI scan causes auto-zoom on reload)
 def restore(p):
-    lrp_add_roi(p, job, roi_type, roi_verts,
-                name="ROI 1", color=roi_color,
-                rotation=roi_rotation,
-                translation=(roi_tx, roi_ty),
-                scale=(roi_scale_x, roi_scale_y))
+    lrp_add_roi(p, job, geo["type"], geo["vertices"],
+                name="ROI 1", color=geo["color"],
+                rotation=geo["rotation"],
+                translation=geo["translation_m"],
+                scale=geo["scale"])
 
 
 apply_lrp_change(client, TEMPLATE_XML, restore, confirm_delays=(3, 5, 8))

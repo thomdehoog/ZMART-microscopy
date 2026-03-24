@@ -68,7 +68,7 @@ from lasx.scanning_template_editors_roi import (
     argb_color,
     ROI_POLYGON,
 )
-from lasx.scanning_template_parsers import parse_lrp
+from lasx.scanning_template_parsers import parse_lrp, get_master_attrs, get_rois
 from lasx.readers import get_job_settings
 from lasx.utils import parse_tile_geometry
 
@@ -145,7 +145,7 @@ tdir = find_scanning_templates_dir()
 lrp_path = os.path.join(tdir, TEMPLATE_XML.replace(".xml", ".lrp"))
 save_experiment(client, TEMPLATE_XML, tdir, timeout=5.0)
 parsed = parse_lrp(lrp_path)
-master_attrs = parsed["jobs"][job]["Master"]["attrs"]
+master_attrs = get_master_attrs(parsed, job)
 
 flip_x = master_attrs.get("FlipX", "0") == "1"
 flip_y = master_attrs.get("FlipY", "0") == "1"
@@ -343,7 +343,7 @@ print(f"\n  Step 6: Verifying...")
 
 save_experiment(client, TEMPLATE_XML, tdir, timeout=5.0)
 parsed = parse_lrp(lrp_path)
-rois = parsed["jobs"][job]["Master"].get("_ROIs", [])
+rois = get_rois(parsed, job)
 
 print(f"  ROIs in LRP: {len(rois)}")
 for i, roi in enumerate(rois):

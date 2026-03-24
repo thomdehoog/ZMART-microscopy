@@ -303,6 +303,39 @@ def get_fov(client, job_name, **kwargs):
 
 
 
+def get_base_fov(client, job_name, **kwargs):
+    """Return the objective's full field of view (at zoom 1) in metres.
+
+    Reads the current FOV and zoom from the API, then scales back to
+    zoom 1.  This is a fundamental property of the objective and scan
+    configuration — it does not change with zoom.
+
+    Args:
+        client: Live LAS X CAM client.
+        job_name: Job name to query.
+        **kwargs: Forwarded to ``get_job_settings``.
+
+    Returns:
+        ``(width_m, height_m)`` tuple at zoom 1, or ``None`` on failure.
+    """
+    settings = get_job_settings(client, job_name, **kwargs)
+    if not settings:
+        log.error("get_base_fov: no settings for job '%s'", job_name)
+        return None
+    try:
+        geo = parse_tile_geometry(settings)
+        zoom_info = settings.get("zoom", {})
+        current_zoom = float(zoom_info.get("current", 1))
+        if current_zoom < 1:
+            current_zoom = 1
+        w_m = geo["tile_w_um"] * 1e-6 * current_zoom
+        h_m = geo["tile_h_um"] * 1e-6 * current_zoom
+        return (w_m, h_m)
+    except (ValueError, KeyError) as e:
+        log.error("get_base_fov: cannot parse FOV for '%s': %s", job_name, e)
+        return None
+
+
 # =============================================================================
 # LAS X application settings (from XML on disk)
 # =============================================================================

@@ -939,3 +939,43 @@ def diff_lrp(parsed_a, parsed_b, ignore_keys=None):
 
     _compare(parsed_a, parsed_b)
     return diffs
+
+
+# =============================================================================
+# Parsed LRP accessors
+# =============================================================================
+
+def get_master_attrs(parsed, job_name):
+    """Return the Master setting attributes dict for a job.
+
+    Provides clean access to the ``ATLConfocalSettingDefinition``
+    attributes (zoom, pan, flip, rotation, scan speed, etc.) without
+    exposing the internal LRP dict structure.
+
+    Args:
+        parsed: Output of :func:`parse_lrp`.
+        job_name: Job name (e.g. ``"Overview"``).
+
+    Returns:
+        Attribute dict, or empty dict if the job or Master is missing.
+    """
+    try:
+        return parsed["jobs"][job_name]["Master"]["attrs"]
+    except (KeyError, TypeError):
+        return {}
+
+
+def get_rois(parsed, job_name):
+    """Return the list of ROIs for a job.
+
+    Args:
+        parsed: Output of :func:`parse_lrp`.
+        job_name: Job name (e.g. ``"Overview"``).
+
+    Returns:
+        List of ROI dicts (may be empty).
+    """
+    try:
+        return parsed["jobs"][job_name]["Master"].get("_ROIs", [])
+    except (KeyError, TypeError):
+        return []

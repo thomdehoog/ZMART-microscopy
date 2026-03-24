@@ -71,7 +71,7 @@ __all__ = [
     # readers
     "get_scan_status", "ping", "get_job_settings", "get_hardware_info",
     "get_xy", "get_jobs", "get_job_by_name", "get_selected_job",
-    "get_fov", "get_lasx_settings",
+    "get_fov", "get_base_fov", "get_lasx_settings",
     # ome_tiff
     "extract_wavelength_from_id",
     "check_ome_xml_bytes", "check_ome_tiff", "check_ome_xml_file",
@@ -100,9 +100,10 @@ __all__ = [
     # scanning_templates
     "find_scanning_templates_dir", "save_experiment", "load_experiment",
     "strip_template", "restore_template", "get_template_state",
-    "apply_lrp_change", "reorder_jobs",
+    "apply_lrp_change", "reorder_jobs", "save_and_read_lrp",
     # scanning_template_parsers
     "parse_lrp", "diff_lrp", "parse_template_positions",
+    "get_master_attrs", "get_rois",
     "parse_acquisition_positions", "parse_base_grid", "parse_focus_points",
     # scanning_template_editors (core)
     "lrp_set_line_average", "lrp_verify_line_average",
@@ -136,7 +137,8 @@ __all__ = [
     "lrp_find_aotf_template",
     "roi_translation_to_pan", "roi_to_absolute_um",
     "absolute_um_to_roi_translation",
-    "pixel_to_absolute_um", "bbox_to_zoom", "mask_contour_to_roi",
+    "pixel_to_absolute_um", "bbox_to_zoom", "roi_geometry", "roi_to_pan_zoom",
+    "mask_contour_to_roi",
     # scanning_template_editors_z
     "Z_STACK_DIRECTIONS", "lrp_set_z_stack_direction", "lrp_verify_z_stack_direction",
     "lrp_set_sections", "lrp_verify_sections",
@@ -192,6 +194,7 @@ from .readers import (
     get_job_by_name,
     get_selected_job,
     get_fov,
+    get_base_fov,
     get_lasx_settings,
 )
 
@@ -267,6 +270,7 @@ from .scanning_templates import (
     get_template_state,
     apply_lrp_change,
     reorder_jobs,
+    save_and_read_lrp,
 )
 
 # ── Scanning template parsers ─────────────────────────────────────
@@ -277,6 +281,8 @@ from .scanning_template_parsers import (
     parse_acquisition_positions,
     parse_base_grid,
     parse_focus_points,
+    get_master_attrs,
+    get_rois,
 )
 
 # ── Scanning template editors (core + averaging + mode) ──────────
@@ -352,6 +358,8 @@ from .scanning_template_editors_roi import (
     absolute_um_to_roi_translation,
     pixel_to_absolute_um,
     bbox_to_zoom,
+    roi_geometry,
+    roi_to_pan_zoom,
     mask_contour_to_roi,
 )
 

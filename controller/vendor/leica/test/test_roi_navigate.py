@@ -12,7 +12,6 @@ Usage:
 """
 
 import argparse
-import os
 import sys
 import time
 import logging
@@ -35,18 +34,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from LasxApi import PYLICamApiConnector as lasx_api
 import lasx as drv
 from lasx.scanning_templates import (
-    TEMPLATE_XML, apply_lrp_change, find_scanning_templates_dir,
-    save_experiment,
+    TEMPLATE_XML, apply_lrp_change, save_and_read_lrp,
 )
 from lasx.scanning_template_editors_scan import lrp_set_pan, lrp_set_zoom
 from lasx.scanning_template_editors_roi import (
     lrp_enable_roi_scan, lrp_clear_rois,
-    roi_translation_to_pan, bbox_to_zoom,
-    ROI_POLYGON,
+    roi_geometry, roi_to_pan_zoom,
 )
-from lasx.scanning_template_parsers import parse_lrp
-from lasx.readers import get_job_settings
-from lasx.utils import parse_tile_geometry
+from lasx.scanning_template_parsers import get_rois, get_master_attrs
+from lasx.readers import get_base_fov
 
 # ── Connect ─────────────────────────────────────────────────────────────
 
@@ -70,13 +66,8 @@ else:
         job = "AF Job"
     print(f"  Auto-detected job: '{job}'")
 
-tdir = find_scanning_templates_dir()
-lrp_path = os.path.join(tdir, TEMPLATE_XML.replace(".xml", ".lrp"))
-
-
 def save_and_parse():
-    save_experiment(client, TEMPLATE_XML, tdir, timeout=5.0)
-    return parse_lrp(lrp_path)
+    return save_and_read_lrp(client)
 
 
 # ── Step 1: Read ROI ────────────────────────────────────────────────────
@@ -88,44 +79,28 @@ print(f"{'=' * 60}")
 print("\n  Step 1: Reading ROI...")
 
 parsed = save_and_parse()
-rois = parsed["jobs"][job]["Master"].get("_ROIs", [])
+rois = get_rois(parsed, job)
 
 if not rois:
     print("  ABORT: No ROIs found. Draw an ROI in LAS X first.")
     sys.exit(1)
 
 roi = rois[0]
-roi_verts = [(v["X"], v["Y"]) for v in roi.get("_Vertices", [])]
-t = roi.get("_Transformation", {})
-roi_tx = float(t.get("TranslationX", 0))
-roi_ty = float(t.get("TranslationY", 0))
+geo = roi_geometry(roi)
 
-# Vertex centroid in local coords (metres)
-xs = [v[0] for v in roi_verts]
-ys = [v[1] for v in roi_verts]
-cx_m = sum(xs) / len(xs)
-cy_m = sum(ys) / len(ys)
+# Base FOV (at zoom 1) from the driver
+base_fov = get_base_fov(client, job)
+if not base_fov:
+    print("  ABORT: cannot read base FOV")
+    sys.exit(1)
+fov_at_zoom1_um = base_fov[0] * 1e6
 
-# Bounding box (um)
-w_um = (max(xs) - min(xs)) * 1e6
-h_um = (max(ys) - min(ys)) * 1e6
+# Pan + zoom to frame the ROI
+pan_x, pan_y, zoom = roi_to_pan_zoom(roi, fov_at_zoom1_um)
 
-# Effective translation = ROI translation + vertex centroid offset
-eff_tx = roi_tx + cx_m
-eff_ty = roi_ty + cy_m
-
-# Read FOV from API (objective-aware)
-settings = get_job_settings(client, job)
-geo = parse_tile_geometry(settings)
-fov_at_zoom1_um = geo["tile_w_um"]
-
-# Pan + zoom
-pan_x, pan_y = roi_translation_to_pan(eff_tx, eff_ty)
-zoom = bbox_to_zoom(w_um, h_um, fov_at_zoom1_um)
-
-print(f"  ROI: {len(roi_verts)} vertices")
-print(f"  Vertex centroid (local): ({cx_m * 1e6:.1f}, {cy_m * 1e6:.1f}) um")
-print(f"  Translation: ({roi_tx * 1e6:.1f}, {roi_ty * 1e6:.1f}) um")
+w_um, h_um = geo["bbox_um"]
+eff_tx, eff_ty = geo["effective_translation_m"]
+print(f"  ROI: {len(geo['vertices'])} vertices")
 print(f"  Effective center: ({eff_tx * 1e6:.1f}, {eff_ty * 1e6:.1f}) um")
 print(f"  Bbox: {w_um:.1f} x {h_um:.1f} um")
 print(f"  FOV at zoom 1: {fov_at_zoom1_um:.1f} um")
@@ -149,8 +124,8 @@ apply_lrp_change(client, TEMPLATE_XML, clear_and_navigate,
 
 # Verify
 parsed = save_and_parse()
-actual_zoom = float(parsed["jobs"][job]["Master"]["attrs"].get("Zoom", 0))
-a = parsed["jobs"][job]["Master"]["attrs"]
+a = get_master_attrs(parsed, job)
+actual_zoom = float(a.get("Zoom", 0))
 actual_pan = (float(a.get("PanFirstDim", 0)),
               float(a.get("PanSecondDim", 0)))
 
