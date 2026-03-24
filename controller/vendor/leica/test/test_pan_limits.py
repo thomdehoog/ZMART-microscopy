@@ -3,23 +3,17 @@ Pan Limit Discovery
 ====================
 Automated script to discover the maximum pan range at different zoom levels.
 
-Two modes:
-  --no-refresh  (default) Set pan to a test value, save/load, read back.
-                LAS X may or may not clip depending on zoom.
-  --refresh     Same but also triggers refresh_display (AcquireSingleImage
-                + StopScan with shutters closed) after loading. This forces
-                the hardware to clip the pan value on every zoom level.
+Sets pan to a test value, save/load, reads back. LAS X may or may not
+clip depending on zoom.
 
 Usage:
     python test_pan_limits.py
-    python test_pan_limits.py --refresh
     python test_pan_limits.py --job "AF Job" --pan 0.01
 """
 
 import argparse
 import sys
 import os
-import time
 
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -38,8 +32,6 @@ parser.add_argument("--job", default="HiRes",
                     help="Job name (default: HiRes)")
 parser.add_argument("--pan", type=float, default=0.01,
                     help="Pan value to test (default: 0.01)")
-parser.add_argument("--refresh", action="store_true",
-                    help="Trigger refresh_display to force hardware clipping")
 parser.add_argument("--zooms", type=float, nargs="+",
                     default=[1, 2, 4, 8, 10, 15, 20, 30, 40, 48],
                     help="Zoom levels to test")
@@ -84,9 +76,8 @@ def read_pan_zoom(lrp, job_name):
 
 # ── Run ──────────────────────────────────────────────────────────────────
 
-mode = "WITH refresh_display" if args.refresh else "WITHOUT refresh_display"
 print(f"\n{'=' * 65}")
-print(f"  Pan Limit Discovery — job '{job}' — {mode}")
+print(f"  Pan Limit Discovery — job '{job}'")
 print(f"  Test pan value: {args.pan}")
 print(f"{'=' * 65}")
 print(f"  {'Zoom':>6}  {'Set':>8}  {'Pan X after':>14}  {'Pan Y after':>14}  "
@@ -105,16 +96,6 @@ for z in args.zooms:
     if not r or not r["success"]:
         print(f"  {z:>6}  {args.pan:>8}  {'FAILED':>14}")
         continue
-
-    if args.refresh:
-        drv.refresh_display(client, job)
-        time.sleep(0.3)
-        # Save again to capture clipped values
-        for _ in range(3):
-            sr = save_experiment(client, TEMPLATE_XML, tdir, timeout=3.0)
-            if sr:
-                break
-            time.sleep(0.3)
 
     vals = read_pan_zoom(lrp_path, job)
     if vals:

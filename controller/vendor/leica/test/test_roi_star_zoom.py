@@ -1,14 +1,13 @@
 """
-ROI Star + Zoom + Refresh Integration Test
-=============================================
-Add stars at different sizes relative to the FOV, change zoom levels,
-and refresh the display to verify the ROI overlay updates correctly.
+ROI Star + Zoom Integration Test
+===================================
+Add stars at different sizes relative to the FOV and change zoom levels
+to verify the ROI overlay updates correctly.
 
 Usage:
     python test_roi_star_zoom.py
     python test_roi_star_zoom.py --job "AF Job"
     python test_roi_star_zoom.py --zooms 4 10 20 40
-    python test_roi_star_zoom.py --no-refresh
 """
 
 import argparse
@@ -22,7 +21,7 @@ logging.basicConfig(
 )
 
 parser = argparse.ArgumentParser(
-    description="ROI Star + Zoom + Refresh Integration Test")
+    description="ROI Star + Zoom Integration Test")
 parser.add_argument("--job", default="HiRes",
                     help="Job name to test (default: HiRes)")
 parser.add_argument("--zooms", type=float, nargs="+",
@@ -30,8 +29,6 @@ parser.add_argument("--zooms", type=float, nargs="+",
                     help="Zoom levels to cycle through")
 parser.add_argument("--pause", type=float, default=2.0,
                     help="Seconds to pause between steps (default: 2.0)")
-parser.add_argument("--no-refresh", action="store_true",
-                    help="Skip refresh_display calls")
 args = parser.parse_args()
 
 # ── Import ───────────────────────────────────────────────────────────────
@@ -66,7 +63,6 @@ if not drv.ping(client):
     sys.exit(1)
 
 job = args.job
-do_refresh = not args.no_refresh
 
 # ── Test helpers ─────────────────────────────────────────────────────────
 
@@ -94,20 +90,10 @@ def run_test(desc, edit_fn, verify_fn=None):
         failed += 1
 
 
-def refresh():
-    """Refresh display if enabled."""
-    if do_refresh:
-        t0 = time.perf_counter()
-        drv.refresh_display(client, job)
-        ms = (time.perf_counter() - t0) * 1000
-        print(f"  refresh_display: {ms:.0f} ms")
-
-
 # ── Test 1: Add FOV-relative star at current zoom ───────────────────────
 
 print(f"\n{'=' * 60}")
 print(f"  ROI Star + Zoom Test — job '{job}'")
-print(f"  Refresh: {'ON' if do_refresh else 'OFF'}")
 print(f"  Zooms: {args.zooms}")
 print(f"{'=' * 60}")
 
@@ -153,7 +139,6 @@ for z in args.zooms:
         lambda p: lrp_verify_roi_count(p, 1, job),
     )
 
-    refresh()
     print(f"  -- Pausing {args.pause}s (check LAS X) --")
     time.sleep(args.pause)
 
@@ -171,7 +156,6 @@ def _add_fixed_star(p):
 
 run_test("Add fixed star (5 um outer, 2 um inner)", _add_fixed_star,
          lambda p: lrp_verify_roi_count(p, 1, job))
-refresh()
 time.sleep(args.pause)
 
 # Zoom up and down
@@ -182,7 +166,6 @@ for z in zoom_sweep:
         lambda p, _z=z: lrp_set_zoom(p, _z, job),
         lambda p, _z=z: lrp_verify_zoom(p, _z, job),
     )
-    refresh()
     print(f"  -- Pausing {args.pause}s --")
     time.sleep(args.pause)
 
@@ -201,7 +184,6 @@ run_test("Disable ROI scan + clear + reset zoom",
          _cleanup,
          lambda p: (lrp_verify_roi_scan(p, False, job) and
                     lrp_verify_roi_count(p, 0, job)))
-refresh()
 
 # ── Summary ──────────────────────────────────────────────────────────────
 

@@ -124,7 +124,6 @@ def reset_fn(p):
 apply_lrp_change(client, TEMPLATE_XML, reset_fn,
                  verify_fn=lambda p: (lrp_verify_roi_scan(p, False, job) and
                                       lrp_verify_roi_count(p, 0, job)))
-drv.refresh_display(client, job)
 print("  ROI scan disabled, ROIs cleared.")
 
 print("\n  Step 1: Reading microscope state...")
@@ -338,9 +337,6 @@ else:
     print(f"  Result: {result}")
     sys.exit(1)
 
-drv.refresh_display(client, job)
-print(f"  Display refreshed")
-
 # ── Step 6: Verify ──────────────────────────────────────────────────────
 
 print(f"\n  Step 6: Verifying...")
@@ -395,7 +391,6 @@ if choice == "y":
         verify_fn=lambda p: (lrp_verify_roi_scan(p, False, job) and
                              lrp_verify_roi_count(p, 0, job)),
     )
-    drv.refresh_display(client, job)
     print("  Cleaned up.")
 else:
     print("  ROIs left in place.")

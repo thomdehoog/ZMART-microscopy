@@ -129,8 +129,6 @@ def verify_fn(p):
 
 result = apply_lrp_change(client, TEMPLATE_XML, edit_fn,
                            verify_fn=verify_fn)
-drv.refresh_display(client, job)
-
 if result and result["success"]:
     print(f"\n  Markers placed ({result['attempts']} attempt(s))")
 else:

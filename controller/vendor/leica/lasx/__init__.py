@@ -71,7 +71,7 @@ __all__ = [
     # readers
     "get_scan_status", "ping", "get_job_settings", "get_hardware_info",
     "get_xy", "get_jobs", "get_job_by_name", "get_selected_job",
-    "get_fov", "refresh_display", "get_lasx_settings",
+    "get_fov", "get_lasx_settings",
     # ome_tiff
     "extract_wavelength_from_id",
     "check_ome_xml_bytes", "check_ome_tiff", "check_ome_xml_file",
@@ -192,7 +192,6 @@ from .readers import (
     get_job_by_name,
     get_selected_job,
     get_fov,
-    refresh_display,
     get_lasx_settings,
 )
 
