@@ -58,7 +58,7 @@ __all__ = [
     # version
     "__version__", "log",
     # config
-    "RECEIPT_TIMEOUT", "CONFIRM_TIMEOUT",
+    "RECEIPT_TIMEOUT", "CONFIRM_TIMEOUT", "PAN_SCALE",
     # utils
     "_safe_float", "_hw_get", "parse_format", "format_to_str",
     "_make_timing", "_make_log_entry", "parse_tile_geometry",
@@ -152,6 +152,8 @@ __all__ = [
     "next_position_index",
     "detect_new_files", "wait_all_stable", "validate_files",
     "rename_and_move", "confirm_arrival", "confirm_acquisition",
+    # alignment
+    "load_alignment", "translate_xy", "translate_pan", "translate_z", "translate_xyz",
 ]
 
 # ── Utilities ────────────────────────────────────────────────────────
@@ -221,7 +223,7 @@ from .prechecks import check_idle
 from .confirmations import _readback
 
 # ── Core dispatch ───────────────────────────────────────────────────
-from .utils import RECEIPT_TIMEOUT, CONFIRM_TIMEOUT  # noqa: F401
+from .utils import RECEIPT_TIMEOUT, CONFIRM_TIMEOUT, PAN_SCALE  # noqa: F401
 
 from .core import (
     _fire_with_receipt,
@@ -395,6 +397,15 @@ from .file_confirmation import (
     rename_and_move,
     confirm_arrival,
     confirm_acquisition,
+)
+
+# ── Alignment / coordinate translation ────────────────────────────
+from .alignment import (
+    load_alignment,
+    translate_xy,
+    translate_pan,
+    translate_z,
+    translate_xyz,
 )
 
 # ── Logging ─────────────────────────────────────────────────────────

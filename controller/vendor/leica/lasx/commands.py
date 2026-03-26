@@ -317,44 +317,54 @@ def set_image_format(client, job_name, format_str, *,
     )
 
 
-def set_objective(client, job_name, hw_info, name=None, magnification=None, *,
-                  max_retries=None, pre_check_timeout=None):
-    """Set objective by name or magnification.
+def _resolve_objective(hw_info, slot_index=None, name=None, magnification=None):
+    """Resolve an objective to (slot, display_name) from hardware info.
 
-    Looks up the objective in hw_info to find the correct slot index,
-    then fires the command. Exactly one of name or magnification must
-    be provided.
+    Any one of *slot_index*, *name*, or *magnification* identifies the
+    objective.  Returns ``(None, None)`` if not found.
     """
-    # Phase A: resolve objective from hardware info
     objectives = _hw_get(
         _hw_get(hw_info, "Microscope", {}), "objectives", [])
-
     # Filter out empty turret slots (objectiveNumber 0) — sending these to
     # LAS X can trigger modal error dialogs that block the whole application.
-    real_objectives = [o for o in objectives if _hw_get(o, "objectiveNumber", 0) != 0]
+    real = [o for o in objectives if _hw_get(o, "objectiveNumber", 0) != 0]
 
-    slot = None
-    target_name = None
+    for obj in real:
+        s = _hw_get(obj, "slotIndex")
+        n = _hw_get(obj, "name", "").strip()
+        m = _hw_get(obj, "magnification")
 
-    if name is not None:
-        for obj in real_objectives:
-            obj_name = _hw_get(obj, "name", "").strip()
-            if obj_name == name.strip():
-                slot = _hw_get(obj, "slotIndex")
-                target_name = obj_name
-                break
-    elif magnification is not None:
-        for obj in real_objectives:
-            if _hw_get(obj, "magnification") == magnification:
-                slot = _hw_get(obj, "slotIndex")
-                target_name = _hw_get(obj, "name", "").strip()
-                break
+        if slot_index is not None and s == slot_index:
+            return s, n
+        if name is not None and n == name.strip():
+            return s, n
+        if magnification is not None and m == magnification:
+            return s, n
+
+    return None, None
+
+
+def set_objective(client, job_name, hw_info, slot_index=None, name=None,
+                  magnification=None, *, max_retries=None, pre_check_timeout=None):
+    """Set objective by slot index, name, or magnification.
+
+    Resolves the input to a slot index, then fires the command.
+    Exactly one of slot_index, name, or magnification must be provided.
+    """
+    slot, target_name = _resolve_objective(
+        hw_info, slot_index=slot_index, name=name, magnification=magnification)
 
     if slot is None:
+        objectives = _hw_get(
+            _hw_get(hw_info, "Microscope", {}), "objectives", [])
+        real = [o for o in objectives if _hw_get(o, "objectiveNumber", 0) != 0]
+        available = [(_hw_get(o, "slotIndex"), _hw_get(o, "name", "").strip())
+                     for o in real]
         return {
             "success": False, "confirmed": None,
-            "message": f"Could not find objective: name={name}, mag={magnification}. "
-                       f"Available: {[_hw_get(o, 'name', '').strip() for o in real_objectives]}",
+            "message": f"Could not find objective: slot_index={slot_index}, "
+                       f"name={name}, mag={magnification}. "
+                       f"Available: {available}",
             "timing": _make_timing(total_s=0.0, attempts=0),
             "logs": [],
         }
@@ -369,7 +379,7 @@ def set_objective(client, job_name, hw_info, name=None, magnification=None, *,
         client, api_obj, f"Objective -> {target_name} (slot {slot})", OBJECTIVE,
         setup_fn=setup,
         confirm_fn=partial(confirm_objective, job_name=job_name,
-                           target_name=target_name),
+                           target_slot=slot, target_name=target_name),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 

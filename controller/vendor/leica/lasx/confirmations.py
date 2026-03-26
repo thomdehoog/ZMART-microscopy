@@ -750,9 +750,9 @@ def _confirm_image_format(client, job_name, w, h,
     return {"success": False, "logs": logs}
 
 
-def confirm_objective(client, *, job_name, target_name,
+def confirm_objective(client, *, job_name, target_slot, target_name=None,
                       timeout=None, poll_interval=0.01):
-    """Poll until objective matches target, or until timeout.
+    """Poll until the active objective's slot matches *target_slot*.
 
     Owns its polling loop — the backbone calls this once with
     ``max_confirm_attempts=1``. Objective turret rotation is mechanical
@@ -761,7 +761,8 @@ def confirm_objective(client, *, job_name, target_name,
     Args:
         client: The connected LAS X API client.
         job_name: Target job name.
-        target_name: Expected objective name string.
+        target_slot: Expected objective slot index.
+        target_name: Objective name (for log messages only).
         timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
         poll_interval: Seconds between readback polls.
 
@@ -773,15 +774,16 @@ def confirm_objective(client, *, job_name, target_name,
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + timeout
+    label = target_name or f"slot {target_slot}"
 
     while time.perf_counter() < deadline:
         ch = _readback(client, job_name)
         if ch is not None:
             try:
-                actual = ch["objective"]["name"].strip()
-                log.debug("Objective confirm: target='%s' actual='%s'",
-                          target_name.strip(), actual)
-                if actual == target_name.strip():
+                actual_slot = ch["objective"]["slotIndex"]
+                log.debug("Objective confirm: target_slot=%s actual_slot=%s",
+                          target_slot, actual_slot)
+                if actual_slot == target_slot:
                     return {"success": True, "logs": logs}
             except (KeyError, TypeError, AttributeError):
                 pass
@@ -789,7 +791,7 @@ def confirm_objective(client, *, job_name, target_name,
         time.sleep(poll_interval)
 
     msg = (f"Objective timeout after {time.perf_counter() - t_start:.1f}s — "
-           f"target='{target_name.strip()}'")
+           f"target={label} (slot {target_slot})")
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}

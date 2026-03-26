@@ -19,6 +19,7 @@ import re
 RECEIPT_TIMEOUT = 2    # UpdateAwaitReceipt transport ACK deadline
 CONFIRM_TIMEOUT = 15   # Polling confirmation deadline (move_xy, move_z,
                         # objective, select_job)
+PAN_SCALE = 100_000.0  # 1 pan unit = 100,000 um (fixed hardware constant)
 
 
 def _safe_float(val, default=None):

@@ -91,6 +91,7 @@ from .scanning_template_editors import (
     _verify_job_attr,
 )
 from .scanning_template_parsers import parse_lrp
+from .utils import PAN_SCALE
 
 log = logging.getLogger(__name__)
 
@@ -654,8 +655,6 @@ def lrp_verify_roi(lrp_path, job_name, index, roi_type=None, n_vertices=None):
 # ROI Translation coordinate helpers
 # =============================================================================
 
-_PAN_SCALE = 100_000.0   # 1 pan unit = 100,000 um
-
 
 def roi_translation_to_pan(translation_x_m, translation_y_m):
     """Convert ROI Translation (metres) to galvo pan values.
@@ -672,7 +671,7 @@ def roi_translation_to_pan(translation_x_m, translation_y_m):
     """
     tx_um = float(translation_x_m) * 1e6
     ty_um = float(translation_y_m) * 1e6
-    return (-tx_um / _PAN_SCALE, ty_um / _PAN_SCALE)
+    return (-tx_um / PAN_SCALE, ty_um / PAN_SCALE)
 
 
 def roi_to_absolute_um(translation_x_m, translation_y_m, stage_x_um, stage_y_um):
@@ -749,8 +748,8 @@ def pixel_to_absolute_um(px, py, stage_x_um, stage_y_um,
     center = image_size / 2.0
 
     # Image center in absolute coords (Cartesian)
-    cx = stage_x_um + pan_x * _PAN_SCALE
-    cy = stage_y_um + pan_y * _PAN_SCALE
+    cx = stage_x_um + pan_x * PAN_SCALE
+    cy = stage_y_um + pan_y * PAN_SCALE
 
     # Image X is inverted vs Cartesian X (left pixel = higher stage X)
     # Image Y is inverted vs Cartesian Y (top pixel = higher stage Y)
