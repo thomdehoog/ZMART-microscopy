@@ -105,6 +105,9 @@ __all__ = [
     "parse_lrp", "diff_lrp", "parse_template_positions",
     "get_master_attrs", "get_rois",
     "parse_acquisition_positions", "parse_base_grid", "parse_focus_points",
+    "parse_rgn_geometries", "parse_rgn_tile_colors", "parse_matrix_settings",
+    # scanning_template_synthesis
+    "synthesize_tiles", "assign_focus_points_to_regions",
     # scanning_template_editors (core)
     "lrp_set_line_average", "lrp_verify_line_average",
     "lrp_set_line_accumulation", "lrp_verify_line_accumulation",
@@ -283,8 +286,17 @@ from .scanning_template_parsers import (
     parse_acquisition_positions,
     parse_base_grid,
     parse_focus_points,
+    parse_rgn_geometries,
+    parse_rgn_tile_colors,
+    parse_matrix_settings,
     get_master_attrs,
     get_rois,
+)
+
+# ── Scanning template synthesis ──────────────────────────────────
+from .scanning_template_synthesis import (
+    synthesize_tiles,
+    assign_focus_points_to_regions,
 )
 
 # ── Scanning template editors (core + averaging + mode) ──────────

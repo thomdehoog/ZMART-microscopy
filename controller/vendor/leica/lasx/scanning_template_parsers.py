@@ -8,11 +8,17 @@ Three file types, three parser groups:
 
     **XML** — ``parse_acquisition_positions`` extracts tile positions
     from ``<ScanFieldData>`` elements, grouped by region.
+    ``parse_matrix_settings`` extracts grid, carrier, and time-lapse
+    configuration from ``<MatrixData>``.
 
     **RGN** — ``parse_base_grid`` extracts base grid positions
-    (``AM=1`` entries).  ``parse_focus_points`` extracts focus and
-    autofocus points from both ``ShapeList`` items and ``FocusMap``
-    elements.
+    (``AM=1`` entries).  ``parse_focus_points`` extracts focus,
+    autofocus, and point markers from ``ShapeList`` items and
+    ``FocusMap`` elements.  ``parse_rgn_geometries`` extracts all
+    user-drawn shapes (Rectangle, Ellipse, CircleDiameter, Polygon,
+    AreaLine, MagicWand, Point) with computed visualization
+    properties (centers, bounding boxes, radii, semi-axes).
+    ``parse_rgn_tile_colors`` extracts per-job RGBA color mappings.
 
     **LRP** — ``parse_lrp`` parses the full job settings tree
     (detectors, lasers, AOTFs, shutters, spectral windows, filter
@@ -20,17 +26,11 @@ Three file types, three parser groups:
     ``diff_lrp`` compares two parsed LRP structures.
 
 ``parse_template_positions`` is the main entry point that combines
-all three parsers into a single result dict.
+all parsers into a single result dict.
 
 All functions are pure (no side effects, no API calls except the
 optional ``client`` parameter in ``parse_template_positions`` for
 tile size resolution).
-
-Parsing closely follows the reference ``lasx_parser.py`` (Juergen
-meeting lib), trimmed to positions and focus data only.
-
-Modification functions work on raw file text (string replacement)
-to preserve the original single-line XML format exactly.
 
 Dependency direction:
     - Imports: stdlib only (+ optional ``readers`` for tile sizes).
@@ -39,6 +39,7 @@ Dependency direction:
 
 import json
 import logging
+import math
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
@@ -461,6 +462,318 @@ def parse_focus_points(rgn_path):
 
 
 # =============================================================================
+# Geometries from RGN
+# =============================================================================
+
+def parse_rgn_geometries(rgn_path):
+    """Parse user-drawn geometry shapes from an RGN file.
+
+    Extracts all ``AM=0`` shapes from ``ShapeList/Items`` (these are
+    the user-drawn regions in Navigator Expert).  ``AM=1`` entries
+    (base grid) and ``FocusPoint``/``AutoFocusPoint`` items are
+    excluded — those are handled by ``parse_base_grid`` and
+    ``parse_focus_points`` respectively.
+
+    Each geometry includes raw vertices (in um) plus shape-specific
+    derived properties for visualization:
+
+    - **Ellipse**: ``center_um``, ``semi_axis_a_um``, ``semi_axis_b_um``
+    - **CircleDiameter**: ``center_um``, ``radius_um``
+    - **Rectangle**: ``center_um``, ``bounding_box_um``
+    - **Polygon / AreaLine / MagicWand**: ``centroid_um``, ``bounding_box_um``
+    - **Point**: ``center_um``
+
+    Args:
+        rgn_path: Path to the ``.rgn`` file.
+
+    Returns:
+        Dict keyed by shape identifier, each value a geometry dict.
+    """
+    rgn_path = Path(rgn_path)
+    if not rgn_path.is_file():
+        return {}
+
+    root = ET.parse(rgn_path).getroot()
+    geometries = {}
+
+    for item in root.findall(".//ShapeList/Items/*"):
+        type_elem = item.find("Type")
+        if type_elem is None:
+            continue
+        stype = type_elem.text
+        if stype in ("FocusPoint", "AutoFocusPoint"):
+            continue
+
+        # Only AM=0 entries are actual geometries.
+        # AM=1 entries are base grid (ScanFieldArray) tile positions.
+        name_text = item.findtext("Name") or item.findtext("n") or ""
+        if name_text.startswith("{"):
+            try:
+                meta = json.loads(name_text)
+                if meta.get("AM") != 0:
+                    continue
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        ident = (item.findtext("Identifier") or "").strip()
+        if not ident:
+            continue
+
+        vertices = []
+        vert_items = item.find(".//Verticies/Items")
+        if vert_items is not None:
+            for vi in vert_items:
+                x = _to_float(vi.findtext("X"))
+                y = _to_float(vi.findtext("Y"))
+                if x is not None and y is not None:
+                    vertices.append({
+                        "x_um": round(x * 1e6, 4),
+                        "y_um": round(y * 1e6, 4),
+                    })
+
+        geom = {
+            "type": stype,
+            "vertices_um": vertices,
+            "label": item.findtext("LabelText"),
+            "tag": item.findtext("Tag"),
+            "tile_color_raw": item.findtext("TileColor"),
+        }
+
+        if stype == "Ellipse" and len(vertices) >= 4:
+            x0, y0 = vertices[0]["x_um"], vertices[0]["y_um"]
+            x1, y1 = vertices[1]["x_um"], vertices[1]["y_um"]
+            x2, y2 = vertices[2]["x_um"], vertices[2]["y_um"]
+            x3, y3 = vertices[3]["x_um"], vertices[3]["y_um"]
+            geom["center_um"] = {
+                "x_um": round((x0 + x1) / 2, 4),
+                "y_um": round((y0 + y1) / 2, 4),
+            }
+            geom["semi_axis_a_um"] = round(
+                math.hypot(x1 - x0, y1 - y0) / 2, 4)
+            geom["semi_axis_b_um"] = round(
+                math.hypot(x2 - x3, y2 - y3) / 2, 4)
+
+        elif stype == "CircleDiameter" and len(vertices) >= 2:
+            x0, y0 = vertices[0]["x_um"], vertices[0]["y_um"]
+            x1, y1 = vertices[1]["x_um"], vertices[1]["y_um"]
+            geom["center_um"] = {
+                "x_um": round((x0 + x1) / 2, 4),
+                "y_um": round((y0 + y1) / 2, 4),
+            }
+            geom["radius_um"] = round(
+                math.hypot(x1 - x0, y1 - y0) / 2, 4)
+
+        elif stype == "Rectangle" and len(vertices) >= 4:
+            xs = [v["x_um"] for v in vertices[:4]]
+            ys = [v["y_um"] for v in vertices[:4]]
+            geom["bounding_box_um"] = {
+                "x_min_um": round(min(xs), 4),
+                "y_min_um": round(min(ys), 4),
+                "x_max_um": round(max(xs), 4),
+                "y_max_um": round(max(ys), 4),
+                "width_um": round(max(xs) - min(xs), 4),
+                "height_um": round(max(ys) - min(ys), 4),
+            }
+            geom["center_um"] = {
+                "x_um": round((min(xs) + max(xs)) / 2, 4),
+                "y_um": round((min(ys) + max(ys)) / 2, 4),
+            }
+
+        elif stype in ("AreaLine", "Polygon", "MagicWand") \
+                and len(vertices) >= 3:
+            xs = [v["x_um"] for v in vertices]
+            ys = [v["y_um"] for v in vertices]
+            geom["bounding_box_um"] = {
+                "x_min_um": round(min(xs), 4),
+                "y_min_um": round(min(ys), 4),
+                "x_max_um": round(max(xs), 4),
+                "y_max_um": round(max(ys), 4),
+            }
+            geom["centroid_um"] = {
+                "x_um": round(sum(xs) / len(xs), 4),
+                "y_um": round(sum(ys) / len(ys), 4),
+            }
+
+        elif stype == "Point" and len(vertices) >= 1:
+            geom["center_um"] = {
+                "x_um": vertices[0]["x_um"],
+                "y_um": vertices[0]["y_um"],
+            }
+
+        geometries[ident] = geom
+
+    return geometries
+
+
+# =============================================================================
+# Tile colors from RGN
+# =============================================================================
+
+def parse_rgn_tile_colors(rgn_path):
+    """Extract per-job tile colors from an RGN file.
+
+    Parses the ``TileColor`` field (``R:255,G:128,B:64,A:100``
+    format) and associates it with the job name from the JSON
+    ``Name`` metadata (``JN`` key) or the ``LabelText`` fallback.
+
+    Args:
+        rgn_path: Path to the ``.rgn`` file.
+
+    Returns:
+        Dict ``{job_name: (r, g, b, a)}`` with values normalised
+        to 0.0–1.0.
+    """
+    rgn_path = Path(rgn_path)
+    if not rgn_path.is_file():
+        return {}
+
+    root = ET.parse(rgn_path).getroot()
+    job_colors = {}
+
+    for item in root.findall(".//ShapeList/Items/*"):
+        name_text = item.findtext("n") or ""
+        tile_color = item.findtext("TileColor") or ""
+        label_text = item.findtext("LabelText") or ""
+
+        jn = None
+        if name_text.startswith("{"):
+            try:
+                nd = json.loads(name_text)
+                jn = nd.get("JN", "")
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        if not jn and label_text:
+            jn = label_text
+
+        if jn and tile_color and jn not in job_colors:
+            try:
+                parts = {}
+                for part in tile_color.split(","):
+                    part = part.strip()
+                    if ":" in part:
+                        k, v = part.split(":", 1)
+                        parts[k.strip()] = int(v.strip())
+                r = parts.get("R", 128)
+                g = parts.get("G", 128)
+                b = parts.get("B", 128)
+                a = parts.get("A", 100)
+                job_colors[jn] = (r / 255.0, g / 255.0, b / 255.0,
+                                  a / 100.0)
+            except (ValueError, TypeError):
+                pass
+
+    return job_colors
+
+
+# =============================================================================
+# Matrix settings from XML
+# =============================================================================
+
+def parse_matrix_settings(xml_root):
+    """Parse matrix configuration from the XML ``<MatrixData>`` element.
+
+    Extracts grid counts, distance/spacing data, carrier type,
+    time-lapse settings, autofocus mode, and field rotation.
+
+    Args:
+        xml_root: Parsed XML root element.
+
+    Returns:
+        Dict with optional keys: ``count``, ``distances``,
+        ``carrier``, ``timeLapse``, ``autofocus``, ``fieldRotation``.
+        Empty dict if no ``<MatrixData>`` element exists.
+    """
+    md = xml_root.find(".//MatrixData") if xml_root is not None else None
+    if md is None:
+        return {}
+
+    result = {}
+
+    cod = md.find("CountOfData")
+    if cod is not None and cod.get("IsEnabled") == "true":
+        result["count"] = {
+            "sectionsX": _to_int(cod.get("SectionsX")),
+            "sectionsY": _to_int(cod.get("SectionsY")),
+            "scanFieldsX": _to_int(cod.get("ScanFieldsX")),
+            "scanFieldsY": _to_int(cod.get("ScanFieldsY")),
+            "regionsX": _to_int(cod.get("RegionsX")),
+            "regionsY": _to_int(cod.get("RegionsY")),
+            "samplesX": _to_int(cod.get("SamplesX")),
+            "samplesY": _to_int(cod.get("SamplesY")),
+        }
+
+    dd = md.find("DistanceData")
+    if dd is not None and dd.get("IsEnabled") == "true":
+        dist = {}
+        origin = dd.find("Origin")
+        if origin is not None and origin.get("IsEnabled") == "true":
+            dist["origin"] = {
+                "x_um": _to_float(origin.get("OriginX")),
+                "y_um": _to_float(origin.get("OriginY")),
+                "z_um": _to_float(origin.get("OriginZ")),
+                "unit": origin.get("Units", "Microns"),
+            }
+        for name in ("Section", "Field", "Region", "Sample"):
+            elem = dd.find(name)
+            if elem is not None and elem.get("IsEnabled") == "true":
+                dist[name.lower()] = {
+                    "distanceX_um": _to_float(elem.get("DistanceX")),
+                    "distanceY_um": _to_float(elem.get("DistanceY")),
+                    "distanceZ_um": _to_float(elem.get("DistanceZ")),
+                    "unit": elem.get("Units", "Microns"),
+                }
+        result["distances"] = dist
+
+    cd = md.find("CarrierData")
+    if cd is not None and cd.get("IsEnabled") == "true":
+        carrier = {
+            "description1": cd.get("Description1", ""),
+            "description2": cd.get("Description2", ""),
+            "rotationAngle": _to_float(cd.get("RotationAngle")),
+        }
+        carrier_types = {
+            "WellPlateTypeSelected": ("WellPlate", "SelectedWellplateTypeIndex"),
+            "SlideTypeSelected": ("Slide", "SelectedGlassTypeIndex"),
+            "DishTypeSelected": ("Dish", "SelectedDishTypeIndex"),
+            "ChamberSlideTypeSelected": ("ChamberSlide", "SelectedChamberSlideTypeIndex"),
+            "SingleGridCartridgeTypeSelected": ("SingleGridCartridge", "SelectedGridTypeIndex"),
+            "AutoGridCartridgeTypeSelected": ("AutoGridCartridge", "SelectedGridTypeIndex"),
+        }
+        for attr, (ctype, idx_attr) in carrier_types.items():
+            if cd.get(attr) == "true":
+                carrier["type"] = ctype
+                carrier["selectedIndex"] = _to_int(cd.get(idx_attr))
+                break
+        result["carrier"] = carrier
+
+    tld = md.find("TimeLapseData")
+    if tld is not None and tld.get("IsEnabled") == "true":
+        result["timeLapse"] = {
+            "repeatLoops": _to_int(tld.get("RepeatLoops")),
+            "repeatTimeDays": _to_int(tld.get("RepeatTimeDays")),
+            "repeatTimeHours": _to_int(tld.get("RepeatTimeHours")),
+            "repeatTimeMinutes": _to_int(tld.get("RepeatTimeMinutes")),
+            "runTime": tld.get("RunTime", ""),
+        }
+
+    afd = md.find("AutofocusData")
+    if afd is not None:
+        result["autofocus"] = {
+            "zUseMode": afd.get("ZUseMode", ""),
+            "forecastMode": _to_int(afd.get("AFForecastMode")),
+        }
+
+    cfd = md.find("ConfocalData")
+    if cfd is not None:
+        rot = _to_float(cfd.get("FieldRotation"))
+        if rot is not None:
+            result["fieldRotation"] = rot
+
+    return result
+
+
+# =============================================================================
 # Combined template position parser
 # =============================================================================
 
@@ -489,8 +802,11 @@ def parse_template_positions(templates_dir, template_base, *,
 
             acquisition_positions — dict of regions
             base_grid             — list of grid positions
-            focus_points          — list of focus points
+            focus_points          — list of focus/point markers
             autofocus_points      — list of autofocus points
+            geometries            — dict of user-drawn shapes
+            matrix_settings       — grid/carrier/time-lapse config
+            visualization_data    — tile colors, job tile sizes
     """
     d = Path(templates_dir)
     xml_path = d / (template_base + ".xml")
@@ -525,12 +841,24 @@ def parse_template_positions(templates_dir, template_base, *,
     base_grid = parse_base_grid(rgn_path) if rgn_path.is_file() else []
     focus_points, autofocus_points = (
         parse_focus_points(rgn_path) if rgn_path.is_file() else ([], []))
+    geometries = (
+        parse_rgn_geometries(rgn_path) if rgn_path.is_file() else {})
+    tile_colors = (
+        parse_rgn_tile_colors(rgn_path) if rgn_path.is_file() else {})
+    matrix_settings = (
+        parse_matrix_settings(xml_root) if xml_root is not None else {})
 
     return {
         "acquisition_positions": acquisition_positions,
         "base_grid": base_grid,
         "focus_points": focus_points,
         "autofocus_points": autofocus_points,
+        "geometries": geometries,
+        "matrix_settings": matrix_settings,
+        "visualization_data": {
+            "tile_colors": tile_colors,
+            "job_tile_sizes": job_tile_sizes,
+        },
     }
 
 
