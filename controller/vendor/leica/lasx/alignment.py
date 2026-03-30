@@ -16,10 +16,11 @@ The total offset between two objectives has two components:
 
     total = motor_delta + image_shift
 
-Stage coordinates (``move_xy`` / ``get_xy``) are affected by the
-**total** offset.  Galvo pan coordinates are only affected by the
-**image** offset — the optical center misalignment that remains after
-the firmware moves the stage.
+The microscope firmware already applies the **motor_delta** when
+switching objectives, so ``move_xy`` / ``get_xy`` only need the
+**image** offset correction — the residual optical misalignment
+measured by cross-correlation.  Galvo pan coordinates also use the
+**image** offset.
 
 This module loads a calibration file (``alignment_results.json``) and
 provides functions to translate stage positions, pan values, and z
@@ -133,8 +134,10 @@ def _translate(val_x, val_y, from_slot, to_slot, alignment, key):
 def translate_xy(x_um, y_um, from_slot, to_slot, alignment):
     """Translate motor stage (x, y) from one objective's space to another.
 
-    Uses the **total** offset (motor + image).  The parcentric
-    correction is applied by moving the XY motor stage.
+    Uses only the **image** offset (cross-correlation residual).  The
+    motor_delta component is already applied by the microscope firmware
+    when switching objectives, so only the optical misalignment needs
+    correcting.
 
     Use this with ``move_xy`` / ``get_xy`` positions.  For galvo pan
     coordinates, use :func:`translate_pan` instead.
@@ -148,7 +151,7 @@ def translate_xy(x_um, y_um, from_slot, to_slot, alignment):
     Returns:
         (x_um, y_um) in *to_slot*'s coordinate system.
     """
-    return _translate(x_um, y_um, from_slot, to_slot, alignment, "total_xy_um")
+    return _translate(x_um, y_um, from_slot, to_slot, alignment, "image_xy_um")
 
 
 def translate_pan(pan_x, pan_y, from_slot, to_slot, alignment):

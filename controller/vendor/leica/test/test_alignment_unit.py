@@ -149,16 +149,16 @@ class TestTranslateXY(unittest.TestCase):
         self.assertEqual((x, y), (100.0, 200.0))
 
     def test_ref_to_target(self):
-        # 10x (slot 1) -> 40x (slot 0): add total offset
+        # 10x (slot 1) -> 40x (slot 0): add image offset only
         x, y = translate_xy(1000.0, 2000.0, 1, 0, self.al)
-        self.assertAlmostEqual(x, 1000.0 - 0.0 + (-22.0))
-        self.assertAlmostEqual(y, 2000.0 - 0.0 + 42.0)
+        self.assertAlmostEqual(x, 1000.0 - 0.0 + 4.0)
+        self.assertAlmostEqual(y, 2000.0 - 0.0 + 3.0)
 
     def test_target_to_ref(self):
         # 40x -> 10x
-        x, y = translate_xy(978.0, 2042.0, 0, 1, self.al)
-        self.assertAlmostEqual(x, 978.0 - (-22.0) + 0.0)
-        self.assertAlmostEqual(y, 2042.0 - 42.0 + 0.0)
+        x, y = translate_xy(1004.0, 2003.0, 0, 1, self.al)
+        self.assertAlmostEqual(x, 1004.0 - 4.0 + 0.0)
+        self.assertAlmostEqual(y, 2003.0 - 3.0 + 0.0)
 
     def test_round_trip(self):
         x0, y0 = 1000.0, 2000.0

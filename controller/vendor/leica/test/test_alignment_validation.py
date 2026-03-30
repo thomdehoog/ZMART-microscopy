@@ -1,20 +1,15 @@
 """
-Parcentric Offset via Phase Cross-Correlation
-================================================
-Acquires the same field on two objectives and measures the parcentric
-offset using phase cross-correlation (sub-pixel accurate).
-
-1. Acquire on the reference objective
-2. Switch to target objective, match pixel size via zoom, acquire
-3. Cross-correlate the two images -> pixel shift -> um
-
-Objectives are selected by slot number to avoid ambiguity (e.g. two
-20x objectives).
+Alignment Calibration Validation (2D)
+======================================
+Validates the parcentric calibration by acquiring on the reference
+objective, switching to the target with calibration-corrected stage
+position, acquiring again, and cross-correlating. If calibration is
+correct, the residual shift should be near zero.
 
 Usage:
-    python test_parcentric_offset_crosscorr.py --ref-slot 1 --target-slot 2 0
-    python test_parcentric_offset_crosscorr.py --ref-slot 1 --target-slot 2 --settle '{"0": 20}'
-    python test_parcentric_offset_crosscorr.py --ref-slot 1 --target-slot 0 --ref-zoom 10
+    python test_alignment_validation.py --ref-slot 1 --target-slot 2
+    python test_alignment_validation.py --ref-slot 1 --target-slot 2 0 --settle '{"0": 20}'
+    python test_alignment_validation.py --ref-slot 1 --target-slot 2 --calibration path/to/alignment_results.json
 """
 
 import argparse
@@ -23,19 +18,22 @@ import os
 import sys
 import time
 import logging
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
 parser = argparse.ArgumentParser(
-    description="Parcentric Offset via Phase Cross-Correlation")
+    description="Validate alignment calibration via 2D cross-correlation")
 parser.add_argument("--ref-slot", type=int, required=True,
                     help="Reference objective slot number (e.g. 1 for 10x)")
 parser.add_argument("--target-slot", type=int, nargs="+", required=True,
                     help="Target objective slot number(s) (e.g. 2 0)")
-parser.add_argument("--ref-zoom", type=float, default=10,
-                    help="Reference zoom level (default: 10)")
+parser.add_argument("--ref-zoom", type=float, required=True,
+                    help="Reference zoom level (e.g. 5)")
 parser.add_argument("--settle", type=json.loads, default="{}",
                     help='Extra settle time per slot, e.g. \'{"0": 20}\'')
+parser.add_argument("--calibration", default=None,
+                    help="Path to alignment_results.json (default: latest in config/alignment/)")
 parser.add_argument("--output", default=None,
                     help="Output directory (default: config/alignment/<timestamp>)")
 args = parser.parse_args()
@@ -54,8 +52,14 @@ import lasx as drv
 from lasx.scanning_templates import TEMPLATE_XML, apply_lrp_change
 from lasx.scanning_template_editors_scan import lrp_set_pan
 from lasx.scanning_template_editors_roi import lrp_enable_roi_scan
-from lasx.readers import get_base_fov, get_job_settings, get_lasx_settings
+from lasx.readers import get_job_settings, get_lasx_settings
 from lasx.utils import parse_tile_geometry
+from lasx.alignment import load_alignment, translate_xy, translate_z, _get_offset
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from scipy.ndimage import shift as ndi_shift
 
 # ── Connect ─────────────────────────────────────────────────────────────
 
@@ -76,6 +80,14 @@ if not hw:
     sys.exit(1)
 print(f"  Job: {job}")
 
+# Set stage limits (required for move_xy)
+drv.set_stage_limits(
+    x_min=1000, x_max=130000,
+    y_min=1000, y_max=100000,
+    z_galvo_min=-200, z_galvo_max=200,
+    z_wide_min=0, z_wide_max=25000,
+)
+
 # ── Build objective lookup by slot ───────────────────────────────────
 
 objs_by_slot = {}
@@ -84,7 +96,6 @@ for o in hw.get("Microscope", {}).get("objectives", []):
         objs_by_slot[o["slotIndex"]] = o
 
 def obj_info(slot):
-    """Return (label, full_name, magnification) for a slot."""
     o = objs_by_slot.get(slot)
     if not o:
         print(f"  ABORT: no objective in slot {slot}")
@@ -97,7 +108,28 @@ def obj_info(slot):
     name = o.get("name", "").strip()
     return label, name, mag
 
-# Validate slots
+# ── Load calibration ────────────────────────────────────────────────
+
+if args.calibration:
+    cal_path = args.calibration
+else:
+    cal_dir = Path(__file__).resolve().parent.parent / "config" / "alignment"
+    cal_dirs = sorted(cal_dir.iterdir(), reverse=True)
+    cal_path = None
+    for d in cal_dirs:
+        candidate = d / "alignment_results.json"
+        if candidate.exists():
+            cal_path = str(candidate)
+            break
+    if not cal_path:
+        print("  ABORT: no calibration file found in config/alignment/")
+        sys.exit(1)
+
+cal = load_alignment(cal_path)
+print(f"  Calibration: {cal_path}")
+
+# ── Validate slots ──────────────────────────────────────────────────
+
 ref_label, ref_name, ref_mag = obj_info(args.ref_slot)
 target_infos = {}
 for ts in args.target_slot:
@@ -108,56 +140,27 @@ print(f"  Reference: {ref_name} ({ref_label})")
 for ts, ti in target_infos.items():
     print(f"  Target:    {ti['name']} ({ti['label']})")
 
-# Compute target zooms (fractional, for exact pixel size matching)
-target_zooms = {}
-for ts, ti in target_infos.items():
-    tz = args.ref_zoom * ref_mag / ti["mag"]
-    target_zooms[ts] = tz
-    print(f"  Zoom: {ref_label} @ {args.ref_zoom} -> {ti['label']} @ {tz:.2f}")
+# ── Output directory ────────────────────────────────────────────────
 
-# ── Helper: prepare and acquire ──────────────────────────────────────
+_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+_default_out = os.path.join(
+    str(Path(__file__).resolve().parent.parent), "config", "alignment",
+    f"validation_{_timestamp}")
+out_dir = args.output or _default_out
+os.makedirs(out_dir, exist_ok=True)
+print(f"  Output: {out_dir}")
 
-def switch_and_acquire(slot, zoom, extra_settle=0):
-    """Switch objective by slot, set zoom, acquire, return (image, stage, pixel_size)."""
-    label, name, mag = obj_info(slot)
-    print(f"  Switching to {name} (slot {slot})...")
-    r_obj = drv.set_objective(client, job, hw, name=name)
-    if not r_obj or not r_obj.get("success"):
-        print(f"  ABORT: objective switch failed: {r_obj}")
-        return None, None, None
-    time.sleep(3)
+# ── Helper: acquire single image ────────────────────────────────────
 
-    if extra_settle > 0:
-        print(f"  Waiting {extra_settle}s for settle...")
-        time.sleep(extra_settle)
-
-    # Select job to refresh block identifier after objective change
-    drv.select_job(client, job)
-    time.sleep(2)
-
-    # Reset pan to (0,0)
-    def reset_pan(p):
-        lrp_set_pan(p, 0, 0, job)
-        lrp_enable_roi_scan(p, False, job)
-    apply_lrp_change(client, TEMPLATE_XML, reset_pan, confirm_delays=(2, 4, 6))
-
-    # Set zoom via API
-    drv.set_zoom(client, job, zoom)
-    time.sleep(1)
-
-    # Re-select job after zoom (prevents "invalid block identifier")
-    drv.select_job(client, job)
-    time.sleep(1)
-
-    # Read actual settings
+def acquire_image():
+    """Acquire a single 2D image, return (image, stage, pixel_size_um)."""
     settings = get_job_settings(client, job)
     geo = parse_tile_geometry(settings)
     stage = drv.get_xy(client)
 
     print(f"  FOV: {geo['tile_w_um']:.2f} um, pixel: {geo['pixel_w_um']:.4f} um, "
-          f"zoom: {zoom}, image: {geo['pixels_x']}x{geo['pixels_y']}")
+          f"image: {geo['pixels_x']}x{geo['pixels_y']}")
 
-    # Acquire
     print(f"  Acquiring...")
     baseline = drv.read_relative_path(client)
     t0 = time.time()
@@ -182,27 +185,23 @@ def switch_and_acquire(slot, zoom, extra_settle=0):
 
     return img, stage, geo["pixel_w_um"]
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from scipy.ndimage import shift as ndi_shift
+# ── Main ────────────────────────────────────────────────────────────
 
-from datetime import datetime
-_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-_default_out = os.path.join(
-    str(Path(__file__).resolve().parent.parent), "config", "alignment", _timestamp)
-out_dir = args.output or _default_out
-os.makedirs(out_dir, exist_ok=True)
-targets_str = ", ".join(ti["label"] for ti in target_infos.values())
+ref_zoom = args.ref_zoom
+
+# Set zoom explicitly to avoid stale state
+drv.set_zoom(client, job, ref_zoom)
+time.sleep(1)
 
 print(f"\n{'=' * 60}")
-print(f"  Parcentric Offset: {ref_label} -> {targets_str}")
+print(f"  Alignment Validation (2D)")
+print(f"  {ref_label} @ zoom {ref_zoom}")
 print(f"{'=' * 60}")
 
-# ── Acquire reference ────────────────────────────────────────────────
+# ── Acquire reference ───────────────────────────────────────────────
 
-print(f"\n  Reference: {ref_name} @ zoom {args.ref_zoom}")
-img_ref, ref_stage, ref_pixel_um = switch_and_acquire(args.ref_slot, args.ref_zoom)
+print(f"\n  Reference: {ref_name} @ zoom {ref_zoom}")
+img_ref, ref_stage, ref_pixel_um = acquire_image()
 if img_ref is None:
     sys.exit(1)
 
@@ -212,58 +211,102 @@ image_size = img_ref.shape[1]
 ref_fov_um = ref_pixel_um * image_size
 all_results = {}
 
-# ── Loop over targets ────────────────────────────────────────────────
+# ── Loop over targets ───────────────────────────────────────────────
 
 for ts in args.target_slot:
     ti = target_infos[ts]
-    tz = target_zooms[ts]
-    settle = args.settle.get(str(ts), 0)
     tgt_label = ti["label"]
     tgt_name = ti["name"]
+    tgt_mag = ti["mag"]
+    settle = args.settle.get(str(ts), 0)
 
-    print(f"\n  Target: {tgt_name} @ zoom {tz:.2f}")
-    img_target, target_stage, target_pixel_um = switch_and_acquire(
-        ts, tz, extra_settle=settle)
+    # Compute matched zoom
+    tgt_zoom = ref_zoom * ref_mag / tgt_mag
+
+    # Get image offset for this target
+    tgt_offset = _get_offset(ts, cal)
+    image_sx, image_sy = tgt_offset["image_xy_um"]
+    image_sz = tgt_offset["image_z_um"]
+
+    print(f"\n  Target: {tgt_name} @ zoom {tgt_zoom:.2f}")
+    print(f"  Image offset: XY=({image_sx:+.1f}, {image_sy:+.1f}) um, "
+          f"Z={image_sz:+.1f} um")
+
+    # Switch objective
+    print(f"  Switching to {tgt_name} (slot {ts})...")
+    r_obj = drv.set_objective(client, job, hw, name=tgt_name)
+    if not r_obj or not r_obj.get("success"):
+        print(f"  SKIP: objective switch failed: {r_obj}")
+        continue
+    time.sleep(3)
+
+    if settle > 0:
+        print(f"  Waiting {settle}s for settle...")
+        time.sleep(settle)
+
+    # Reset pan, disable ROI scan
+    def reset_pan(p):
+        lrp_set_pan(p, 0, 0, job)
+        lrp_enable_roi_scan(p, False, job)
+    apply_lrp_change(client, TEMPLATE_XML, reset_pan, confirm_delays=(2, 4, 6))
+
+    # Set matched zoom — don't block on confirmation
+    drv.set_zoom(client, job, tgt_zoom)
+    time.sleep(3)
+
+    # Read position AFTER switch (motor_delta already applied by firmware)
+    post_switch = drv.get_xy(client)
+    # Apply correction: negate Y due to image/stage axis flip
+    corrected_x = post_switch["x_um"] + image_sx
+    corrected_y = post_switch["y_um"] + image_sy
+    print(f"  Post-switch: ({post_switch['x_um']:.1f}, {post_switch['y_um']:.1f}) um")
+    print(f"  Corrected:   ({corrected_x:.1f}, {corrected_y:.1f}) um")
+
+    # Apply XY correction
+    print(f"  Moving to corrected position...")
+    drv.move_xy(client, corrected_x, corrected_y)
+    time.sleep(1)
+
+    # Acquire
+    img_target, target_stage, target_pixel_um = acquire_image()
     if img_target is None:
         print(f"  SKIP: {tgt_name} acquire failed")
         continue
 
-    # Cross-correlate
+    # Cross-correlate to measure residual shift
     target_norm = img_target.astype(np.float64)
     tgt_n = target_norm / (target_norm.max() or 1)
 
     pixel_mismatch = abs(target_pixel_um - ref_pixel_um) / ref_pixel_um * 100
-    shift, error, diffphase = phase_cross_correlation(
+    shift, error, _ = phase_cross_correlation(
         ref_norm, target_norm, upsample_factor=100)
 
     shift_y_px, shift_x_px = shift
     shift_x_um = shift_x_px * ref_pixel_um
     shift_y_um = shift_y_px * ref_pixel_um
     dist_um = (shift_x_um**2 + shift_y_um**2)**0.5
-    target_fov_um = target_pixel_um * image_size
 
-    motor_dx = target_stage["x_um"] - ref_stage["x_um"]
-    motor_dy = target_stage["y_um"] - ref_stage["y_um"]
-
-    print(f"  Shift: ({shift_x_um:+.1f}, {shift_y_um:+.1f}) um = {dist_um:.1f} um")
-    print(f"  Motor: ({motor_dx:+.1f}, {motor_dy:+.1f}) um")
-    print(f"  Pixel mismatch: {pixel_mismatch:.1f}%")
+    print(f"  Residual shift: ({shift_x_um:+.2f}, {shift_y_um:+.2f}) um = {dist_um:.2f} um")
+    if dist_um < 5:
+        print(f"  PASS: residual < 5 um")
+    else:
+        print(f"  WARN: residual >= 5 um")
 
     all_results[tgt_label] = {
         "full_name": tgt_name,
         "slot": ts,
-        "shift_px": [float(shift_x_px), float(shift_y_px)],
-        "shift_um": [float(shift_x_um), float(shift_y_um)],
-        "distance_um": float(dist_um),
+        "residual_shift_px": [float(shift_x_px), float(shift_y_px)],
+        "residual_shift_um": [float(shift_x_um), float(shift_y_um)],
+        "residual_distance_um": float(dist_um),
         "correlation_error": float(error),
-        "motor_delta_um": [float(motor_dx), float(motor_dy)],
-        "target_fov_um": float(target_fov_um),
+        "corrected_stage_um": [float(post_switch["x_um"]), float(post_switch["y_um"])],
+        "actual_stage_um": [float(target_stage["x_um"]), float(target_stage["y_um"])],
         "target_pixel_um": float(target_pixel_um),
         "pixel_mismatch_pct": float(pixel_mismatch),
-        "target_zoom": float(tz),
+        "target_zoom": float(tgt_zoom),
     }
 
-    # ── Per-target visual report ─────────────────────────────────────
+    # ── Visual report ───────────────────────────────────────────────
 
     img_target_shifted = ndi_shift(target_norm, shift)
     tgt_s = img_target_shifted / (img_target_shifted.max() or 1)
@@ -275,12 +318,12 @@ for ts in args.target_slot:
     # Row 1: ref, target, raw overlay, checkerboard
     ax = fig.add_subplot(gs[0, 0])
     ax.imshow(img_ref, cmap="gray")
-    ax.set_title(f"{ref_label} ref (zoom {args.ref_zoom})", fontsize=11)
+    ax.set_title(f"{ref_label} (zoom {ref_zoom})", fontsize=11)
     ax.plot(image_size/2, image_size/2, "c+", markersize=12, markeredgewidth=2)
 
     ax = fig.add_subplot(gs[0, 1])
     ax.imshow(img_target, cmap="gray")
-    ax.set_title(f"{tgt_label} target (zoom {tz:.2f})", fontsize=11)
+    ax.set_title(f"{tgt_label} (zoom {tgt_zoom:.2f})", fontsize=11)
     ax.plot(image_size/2, image_size/2, "c+", markersize=12, markeredgewidth=2)
 
     ax = fig.add_subplot(gs[0, 2])
@@ -289,7 +332,7 @@ for ts in args.target_slot:
     overlay[..., 0] = tgt_n
     overlay[..., 2] = tgt_n
     ax.imshow(np.clip(overlay, 0, 1))
-    ax.set_title("Raw overlay (green=ref, magenta=tgt)", fontsize=11)
+    ax.set_title("Corrected overlay (green=ref, magenta=tgt)", fontsize=11)
 
     ax = fig.add_subplot(gs[0, 3])
     checker = np.zeros_like(img_ref, dtype=np.float64)
@@ -298,7 +341,7 @@ for ts in args.target_slot:
             src = ref_n if ((r // tile) + (c // tile)) % 2 == 0 else tgt_n
             checker[r:r+tile, c:c+tile] = src[r:r+tile, c:c+tile]
     ax.imshow(checker, cmap="gray")
-    ax.set_title("Checkerboard (raw)", fontsize=11)
+    ax.set_title("Checkerboard (corrected)", fontsize=11)
 
     # Row 2: registered overlay, registered checker, vector, text
     ax = fig.add_subplot(gs[1, 0])
@@ -325,85 +368,88 @@ for ts in args.target_slot:
     ax.set_aspect("equal")
     ax.axhline(0, color="gray", lw=0.5)
     ax.axvline(0, color="gray", lw=0.5)
-    ax.plot(0, 0, "go", ms=12, label=ref_label)
-    ax.plot(shift_x_px, shift_y_px, "m^", ms=12, label=tgt_label)
+    ax.plot(0, 0, "go", ms=12, label="expected")
+    ax.plot(shift_x_px, shift_y_px, "m^", ms=12, label="actual")
     ax.annotate("", xy=(shift_x_px, shift_y_px), xytext=(0, 0),
                 arrowprops=dict(arrowstyle="->", color="red", lw=2.5))
     ax.set_xlabel("X (px)")
     ax.set_ylabel("Y (px)")
-    ax.set_title(f"({shift_x_px:+.1f}, {shift_y_px:+.1f}) px\n"
-                 f"({shift_x_um:+.1f}, {shift_y_um:+.1f}) um", fontsize=11)
+    ax.set_title(f"Residual: ({shift_x_um:+.1f}, {shift_y_um:+.1f}) um\n"
+                 f"= {dist_um:.1f} um", fontsize=11)
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
 
     ax = fig.add_subplot(gs[1, 3])
     ax.axis("off")
     txt = (
-        f"Parcentric Offset\n"
+        f"Alignment Validation\n"
         f"{ref_label}\n-> {tgt_label}\n"
         f"{'-' * 35}\n"
-        f"Image shift: ({shift_x_um:+.2f}, {shift_y_um:+.2f}) um\n"
-        f"Distance:    {dist_um:.2f} um\n"
-        f"Corr error:  {error:.4f}\n"
+        f"Residual: ({shift_x_um:+.2f}, {shift_y_um:+.2f}) um\n"
+        f"Distance: {dist_um:.2f} um\n"
+        f"Corr err: {error:.4f}\n"
         f"{'-' * 35}\n"
-        f"Motor delta: ({motor_dx:+.2f}, {motor_dy:+.2f}) um\n"
+        f"{'PASS' if dist_um < 5 else 'WARN'}: "
+        f"{'< 5 um' if dist_um < 5 else '>= 5 um'}\n"
         f"{'-' * 35}\n"
         f"Pixel: {ref_pixel_um:.4f} / {target_pixel_um:.4f} um\n"
         f"Mismatch: {pixel_mismatch:.2f}%\n"
-        f"FOV: {ref_fov_um:.1f} / {target_fov_um:.1f} um\n"
-        f"Zoom: {args.ref_zoom} / {tz:.2f}"
+        f"FOV: {ref_fov_um:.1f} um\n"
+        f"Zoom: {ref_zoom} / {tgt_zoom:.2f}"
     )
     ax.text(0.05, 0.95, txt, transform=ax.transAxes, fontsize=11,
             va="top", fontfamily="monospace",
             bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5))
 
+    status = "PASS" if dist_um < 5 else "WARN"
     fig.suptitle(
-        f"Parcentric Offset: {ref_label} (z{args.ref_zoom}) -> "
-        f"{tgt_label} (z{tz:.2f})  |  "
-        f"Shift = ({shift_x_um:+.1f}, {shift_y_um:+.1f}) um  |  "
+        f"Alignment Validation [{status}]: {ref_label} (z{ref_zoom}) -> "
+        f"{tgt_label} (z{tgt_zoom:.2f})  |  "
+        f"Residual = ({shift_x_um:+.1f}, {shift_y_um:+.1f}) um  |  "
         f"Dist = {dist_um:.1f} um",
         fontsize=14, fontweight="bold")
     fig.tight_layout()
 
     path = os.path.join(out_dir,
-        f"parcentric_crosscorr_{ref_label}_vs_{tgt_label}.png")
+        f"validation_{ref_label}_vs_{tgt_label}.png")
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  Report: {path}")
 
-# ── Summary ──────────────────────────────────────────────────────────
+# ── Summary ─────────────────────────────────────────────────────────
 
 print(f"\n{'=' * 70}")
-print(f"  Summary: {ref_name} (slot {args.ref_slot}) reference")
+print(f"  Validation Summary: {ref_name} (slot {args.ref_slot}) reference")
 print(f"{'=' * 70}")
-print(f"  {'Target':<30}  {'Shift X':>10}  {'Shift Y':>10}  {'Dist':>8}  {'Motor dX':>10}  {'Motor dY':>10}")
-print(f"  {'-'*30}  {'-'*10}  {'-'*10}  {'-'*8}  {'-'*10}  {'-'*10}")
+print(f"  {'Target':<30}  {'Residual X':>10}  {'Residual Y':>10}  {'Dist':>8}  {'Status':>8}")
+print(f"  {'-'*30}  {'-'*10}  {'-'*10}  {'-'*8}  {'-'*8}")
 for name, r in all_results.items():
-    sx, sy = r["shift_um"]
-    mx, my = r["motor_delta_um"]
-    print(f"  {name:<30}  {sx:>+10.2f}  {sy:>+10.2f}  {r['distance_um']:>8.2f}  {mx:>+10.2f}  {my:>+10.2f}")
+    sx, sy = r["residual_shift_um"]
+    d = r["residual_distance_um"]
+    status = "PASS" if d < 5 else "WARN"
+    print(f"  {name:<30}  {sx:>+10.2f}  {sy:>+10.2f}  {d:>8.2f}  {status:>8}")
 
-# Save combined JSON
+# Save JSON
 combined = {
     "timestamp": _timestamp,
+    "calibration": cal_path,
     "ref_objective": ref_name,
     "ref_label": ref_label,
     "ref_slot": args.ref_slot,
-    "ref_zoom": args.ref_zoom,
+    "ref_zoom": ref_zoom,
     "ref_fov_um": float(ref_fov_um),
     "ref_pixel_um": float(ref_pixel_um),
     "targets": all_results,
 }
-json_path = os.path.join(out_dir, "alignment_results.json")
+json_path = os.path.join(out_dir, "validation_results.json")
 with open(json_path, "w") as f:
     json.dump(combined, f, indent=2)
 print(f"\n  JSON: {json_path}")
 
-# ── Switch back to reference ─────────────────────────────────────────
+# ── Switch back to reference ────────────────────────────────────────
 
 print(f"\n  Switching back to {ref_name}...")
 drv.set_objective(client, job, hw, name=ref_name)
 time.sleep(3)
-drv.select_job(client, job)
-drv.set_zoom(client, job, args.ref_zoom)
+drv.set_zoom(client, job, ref_zoom)
 print("  Done.")
