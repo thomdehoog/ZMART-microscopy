@@ -48,8 +48,8 @@ parser.add_argument("--target-slot", type=int, nargs="+", required=True,
                     help="Target objective slot(s) (e.g. 2 or 2 0)")
 parser.add_argument("--ref-zoom", type=float, default=10,
                     help="Reference zoom level (default: 10)")
-parser.add_argument("--z-range", type=float, default=15,
-                    help="Z-stack half-range in um (default: 15 = +/-15)")
+parser.add_argument("--z-range", type=float, default=40,
+                    help="Z-stack half-range in um (default: 40 = +/-40)")
 parser.add_argument("--z-step", type=float, default=1.0,
                     help="Z-stack step size in um (default: 1.0)")
 parser.add_argument("--settle", type=float, default=0,
@@ -59,7 +59,7 @@ parser.add_argument("--job", default="Overview",
 parser.add_argument("--output", default=None)
 args = parser.parse_args()
 
-# ── Imports ──────────────────────────────────────────────────────────────
+# -- Imports --------------------------------------------------------------
 
 import numpy as np
 import tifffile
@@ -87,7 +87,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-# ── Connect ──────────────────────────────────────────────────────────────
+# -- Connect --------------------------------------------------------------
 
 client = lasx_api.LasxApiClientPyModel
 confirmed = client.Connect("PythonClient")
@@ -120,7 +120,7 @@ drv.set_stage_limits(
 
 sections = int(2 * args.z_range / args.z_step) + 1
 
-# ── Objective lookup ─────────────────────────────────────────────────────
+# -- Objective lookup -----------------------------------------------------
 
 objs_by_slot = {}
 for o in hw.get("Microscope", {}).get("objectives", []):
@@ -154,7 +154,7 @@ for ts, ti in targets.items():
     print(f"  Target:    {ti['name']} ({ti['label']}) @ zoom {ti['zoom']:.2f}")
 print(f"  Z-stack: +/-{args.z_range} um, {args.z_step} um step, {sections} sections")
 
-# ── Output ───────────────────────────────────────────────────────────────
+# -- Output ---------------------------------------------------------------
 
 _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 _default_out = os.path.join(
@@ -164,7 +164,7 @@ out_dir = args.output or _default_out
 os.makedirs(out_dir, exist_ok=True)
 print(f"  Output: {out_dir}")
 
-# ── Save original Z settings ─────────────────────────────────────────
+# -- Save original Z settings -----------------------------------------
 
 parsed_orig = save_and_read_lrp(client)
 orig_attrs = get_master_attrs(parsed_orig, job)
@@ -172,7 +172,7 @@ orig_z = {k: orig_attrs.get(k) for k in
            ("ZUseMode", "Sections", "Begin", "End",
             "StackCalculationMode", "ZStackActive")}
 
-# ── Helpers ──────────────────────────────────────────────────────────────
+# -- Helpers --------------------------------------------------------------
 
 
 def reset_pan_roi(p):
@@ -225,11 +225,12 @@ def configure_z_stack(begin_um=None, end_um=None):
 
 
 def disable_z_stack():
-    """Disable Z-stack for single-slice acquisition."""
+    """Disable Z-stack for single-slice acquisition at z-galvo=0."""
     def _disable(p):
         lrp_set_z_stack_active(p, False, job)
         lrp_set_sections(p, 1, job)
     apply_lrp_change(client, TEMPLATE_XML, _disable, confirm_delays=(2, 4, 6))
+    drv.set_z_stack_definition(client, job, begin_um=0, end_um=0)
 
 
 def acquire_stack():
@@ -286,7 +287,7 @@ def acquire_single():
     return img
 
 
-# ── Registration ─────────────────────────────────────────────────────────
+# -- Registration ---------------------------------------------------------
 
 
 def to_uint8(img):
@@ -373,15 +374,17 @@ ref_stack = acquire_stack()
 if ref_stack is None:
     sys.exit(1)
 ref_brenner = measure_brenner(ref_stack, args.z_step)
-print(f"  Ref focus: Z={ref_brenner['peak_slice']} ({ref_brenner['peak_sub']:.1f})")
+ref_focus_galvo = args.z_range - ref_brenner["peak_sub"] * args.z_step
+print(f"  Ref focus: slice={ref_brenner['peak_slice']} ({ref_brenner['peak_sub']:.1f}), "
+      f"z-galvo={ref_focus_galvo:+.1f} um")
 
 all_results = {}
 
 for ts in args.target_slot:
     ti = targets[ts]
-    print(f"\n{'─' * 60}")
+    print(f"\n{'-' * 60}")
     print(f"  Target: {ti['name']} (slot {ts})")
-    print(f"{'─' * 60}")
+    print(f"{'-' * 60}")
 
     # 1b. Target Z-stack
     setup_objective(ts, ti["zoom"])
@@ -399,8 +402,10 @@ for ts in args.target_slot:
         print(f"  SKIP: acquire failed")
         continue
     tgt_brenner = measure_brenner(tgt_stack, args.z_step)
+    tgt_focus_galvo = args.z_range - tgt_brenner["peak_sub"] * args.z_step
     dz_um = (tgt_brenner["peak_sub"] - ref_brenner["peak_sub"]) * args.z_step
-    print(f"  Tgt focus: Z={tgt_brenner['peak_slice']} ({tgt_brenner['peak_sub']:.1f})")
+    print(f"  Tgt focus: slice={tgt_brenner['peak_slice']} ({tgt_brenner['peak_sub']:.1f}), "
+          f"z-galvo={tgt_focus_galvo:+.1f} um")
     print(f"  Parfocal dZ: {dz_um:+.2f} um")
 
     # Coarse XY from MIP
@@ -440,24 +445,22 @@ for ts in args.target_slot:
     drv.move_xy(client, home["x_um"], home["y_um"])
     time.sleep(1)
     disable_z_stack()
-    print(f"  Acquiring ref focus slice (8x accum)...")
+    # Acquire at the Brenner-determined z-galvo focus position
+    drv.set_z_stack_definition(client, job,
+                               begin_um=ref_focus_galvo, end_um=ref_focus_galvo)
+    print(f"  Acquiring ref focus slice at z-galvo={ref_focus_galvo:+.1f} um (8x accum)...")
     img_ref = acquire_single()
     if img_ref is None:
         print(f"  ABORT: ref focus acquire failed")
         continue
 
-    # 2b. Target focus slice (switch to target, at corrected Z)
+    # 2b. Target focus slice (switch to target, at Brenner focus Z)
     setup_objective(ts, ti["zoom"])
     time.sleep(1)
     disable_z_stack()
-    # Set z-galvo to the corrected focus position
-    # The focus offset in z-galvo coordinates: target was dz_um deeper
-    # We want to acquire at the plane that matches the ref focus
-    # z-galvo 0 = center. Target focus was at dz_um relative to ref.
-    # To image the ref focal plane on target, shift z-galvo by -dz_um
     drv.set_z_stack_definition(client, job,
-                               begin_um=-dz_um, end_um=-dz_um)
-    print(f"  Acquiring target focus slice at z-galvo={-dz_um:+.1f} um (8x accum)...")
+                               begin_um=tgt_focus_galvo, end_um=tgt_focus_galvo)
+    print(f"  Acquiring target focus slice at z-galvo={tgt_focus_galvo:+.1f} um (8x accum)...")
     img_tgt = acquire_single()
     if img_tgt is None:
         print(f"  ABORT: target focus acquire failed")
@@ -549,7 +552,7 @@ for ts in args.target_slot:
 # ═════════════════════════════════════════════════════════════════════════
 
 print(f"\n{'=' * 90}")
-print(f"  Calibration Results — {ref_name} (slot {args.ref_slot})")
+print(f"  Calibration Results -- {ref_name} (slot {args.ref_slot})")
 print(f"{'=' * 90}")
 
 for ts, r in all_results.items():
@@ -570,7 +573,7 @@ for ts, r in all_results.items():
         if sr["failed"]:
             print(f"      {sr['label']}: FAILED")
         else:
-            star = " ★" if best and sr["label"] == best["label"] else ""
+            star = " *" if best and sr["label"] == best["label"] else ""
             print(f"      {sr['label']}: {sr['residual_dist_um']:6.2f} um  q={sr['ncc_quality']:.3f}{star}")
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -586,7 +589,7 @@ for ts, r in all_results.items():
     gs = fig.add_gridspec(4, 6, hspace=0.35, wspace=0.30,
                           left=0.04, right=0.96, top=0.92, bottom=0.03)
 
-    # ── Row 1: Phase 1 — Z measurement ──────────────────────────────
+    # -- Row 1: Phase 1 — Z measurement ------------------------------
     ax = fig.add_subplot(gs[0, 0:2])
     ax.imshow(make_overlay(r["ref_mip"], r["tgt_mip"])); hide_ticks(ax)
     ax.set_title(f"Coarse XY (MIP)\n({r['mip_shift']['dx_um']:+.1f}, {r['mip_shift']['dy_um']:+.1f}) um "
@@ -616,7 +619,7 @@ for ts, r in all_results.items():
                  f"Ref Z={r['ref_brenner']['peak_slice']}, "
                  f"Tgt Z={r['tgt_brenner']['peak_slice']}", fontsize=11)
 
-    # ── Row 2: Phase 2 — High-quality focus slices ───────────────────
+    # -- Row 2: Phase 2 — High-quality focus slices -------------------
     ax = fig.add_subplot(gs[1, 0:2])
     ax.imshow(r["img_ref"], cmap="gray"); hide_ticks(ax)
     ax.set_title(f"Reference focus slice (8x accum)\n{ref_label}", fontsize=11)
@@ -644,7 +647,7 @@ for ts, r in all_results.items():
     ax.text(0.05, 0.95, phase2_txt, transform=ax.transAxes, fontsize=11, va="top",
             fontfamily="monospace", bbox=dict(boxstyle="round", facecolor="#F0F0FF", alpha=0.9))
 
-    # ── Row 3: Phase 3 — Sign convention test ────────────────────────
+    # -- Row 3: Phase 3 — Sign convention test ------------------------
     for i, sr in enumerate(r["sign_results"]):
         if sr["failed"] or i >= 4:
             continue
@@ -674,7 +677,7 @@ for ts, r in all_results.items():
     ax.set_title("Sign convention test", fontsize=12, fontweight="bold")
     ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
 
-    # ── Row 4: Summary ───────────────────────────────────────────────
+    # -- Row 4: Summary -----------------------------------------------
     ax = fig.add_subplot(gs[3, 0:3])
     ax.axis("off")
     summary = (

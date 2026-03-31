@@ -377,7 +377,8 @@ def detect_new_files(client, baseline, media_path, *,
 
     if new_path and new_path != baseline:
         log.info("RelativePathName changed: %r -> %r", baseline, new_path)
-        full_path = Path(media_path) / new_path
+        full_path = Path(media_path) / new_path.lstrip("\\/")
+
 
         if not full_path.is_file():
             log.warning("RelativePathName file not found: %s", full_path)
@@ -429,16 +430,22 @@ def detect_new_files(client, baseline, media_path, *,
 
 
 def _collect_files(source_dir, ref_parsed, *, method="api"):
-    """Collect image and XML files matching *ref_parsed*'s repeat suffix."""
+    """Collect image and XML files matching *ref_parsed*'s repeat suffix and job index."""
     target_repeat = ref_parsed.get("repeat")
+    target_j = ref_parsed.get("J")
 
     image_files = []
     for p in sorted(source_dir.iterdir()):
         if not p.is_file() or not p.name.endswith(".ome.tif"):
             continue
         parsed = parse_lasx_filename(p.name)
-        if parsed is not None and parsed.get("repeat") == target_repeat:
-            image_files.append(p)
+        if parsed is None:
+            continue
+        if parsed.get("repeat") != target_repeat:
+            continue
+        if target_j is not None and parsed.get("J") != target_j:
+            continue
+        image_files.append(p)
 
     meta_dir = source_dir / "metadata"
     xml_files = []
@@ -447,8 +454,13 @@ def _collect_files(source_dir, ref_parsed, *, method="api"):
             if not p.is_file() or not p.name.endswith(".ome.xml"):
                 continue
             parsed = parse_lasx_filename(p.name)
-            if parsed is not None and parsed.get("repeat") == target_repeat:
-                xml_files.append(p)
+            if parsed is None:
+                continue
+            if parsed.get("repeat") != target_repeat:
+                continue
+            if target_j is not None and parsed.get("J") != target_j:
+                continue
+            xml_files.append(p)
 
     repeat_str = f"--{target_repeat:03d}" if target_repeat is not None else ""
 
