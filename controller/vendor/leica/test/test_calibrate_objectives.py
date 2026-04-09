@@ -97,13 +97,6 @@ if not confirmed:
 assert drv.ping(client), "ping failed"
 
 job = args.job
-drv.select_job(client, job)
-time.sleep(1)
-
-current_job = drv.get_selected_job(client).get("Name", "")
-if current_job != job:
-    print(f"  ABORT: Expected '{job}', got '{current_job}'.")
-    sys.exit(1)
 
 hw = drv.get_hardware_info(client)
 if not hw:
@@ -139,15 +132,34 @@ def obj_info(slot):
     imm = o.get("immersion", "").strip()
     name = o.get("name", "").strip()
     label = f"slot{slot}_{mag:.0f}x_{na}NA_{imm}"
-    return label, name, mag
+    return label, name, mag, imm
 
 
-ref_label, ref_name, ref_mag = obj_info(args.ref_slot)
+ref_label, ref_name, ref_mag, ref_imm = obj_info(args.ref_slot)
 targets = {}
 for ts in args.target_slot:
-    tl, tn, tm = obj_info(ts)
+    tl, tn, tm, tim = obj_info(ts)
     tz = args.ref_zoom * ref_mag / tm
-    targets[ts] = {"label": tl, "name": tn, "mag": tm, "zoom": tz}
+    targets[ts] = {"label": tl, "name": tn, "mag": tm, "zoom": tz, "imm": tim}
+
+# Safety: immersion targets (water/oil/etc.) are terminal — once switched
+# to, the script cannot safely switch back. Enforce: any non-dry target
+# must be the LAST entry in --target-slot.
+def _is_immersion(imm):
+    return imm.strip().upper() not in ("", "DRY")
+
+for idx, ts in enumerate(args.target_slot[:-1]):
+    if _is_immersion(targets[ts]["imm"]):
+        print(f"  ABORT: target slot {ts} ({targets[ts]['label']}) is an "
+              f"immersion objective but is not the last in the target list.")
+        print(f"  Reorder so any immersion objective comes last "
+              f"(e.g. --target-slot {' '.join(str(s) for s in args.target_slot if not _is_immersion(targets[s]['imm']))} "
+              f"{' '.join(str(s) for s in args.target_slot if _is_immersion(targets[s]['imm']))}).")
+        sys.exit(1)
+if _is_immersion(ref_imm):
+    print(f"  ABORT: reference objective (slot {args.ref_slot}) is immersion "
+          f"({ref_imm}); reference must be dry so we can switch back for fresh slices.")
+    sys.exit(1)
 
 print(f"  Reference: {ref_name} ({ref_label}) @ zoom {args.ref_zoom}")
 for ts, ti in targets.items():
@@ -181,31 +193,16 @@ def reset_pan_roi(p):
 
 
 def setup_objective(slot, zoom):
-    label, name, mag = obj_info(slot)
+    label, name, mag, _imm = obj_info(slot)
     print(f"  Switching to {name} (slot {slot})...")
     r = drv.set_objective(client, job, hw, name=name)
     if not r or not r.get("success"):
         print(f"  ABORT: objective switch failed: {r}")
         sys.exit(1)
     time.sleep(5)
-    for attempt in range(3):
-        drv.select_job(client, job)
-        time.sleep(2)
-        current = drv.get_selected_job(client).get("Name", "")
-        if current == job:
-            break
-        print(f"  Job is '{current}', retrying... ({attempt+1}/3)")
-        time.sleep(3)
-    else:
-        cur = drv.get_selected_job(client).get("Name", "")
-        if cur != job:
-            print(f"  ABORT: Cannot select '{job}' (stuck on '{cur}')")
-            sys.exit(1)
     apply_lrp_change(client, TEMPLATE_XML, reset_pan_roi,
                      confirm_delays=(2, 4, 6))
     drv.set_zoom(client, job, zoom)
-    time.sleep(1)
-    drv.select_job(client, job)
     time.sleep(1)
 
 
@@ -238,8 +235,6 @@ def acquire_stack():
     idle = check_idle(client, timeout=30)
     if not idle["success"]:
         print("  WARNING: scanner not idle")
-    drv.select_job(client, job)
-    time.sleep(1)
     baseline = drv.read_relative_path(client)
     t0 = time.time()
     r = drv.acquire(client, job)
@@ -378,13 +373,47 @@ ref_focus_galvo = args.z_range - ref_brenner["peak_sub"] * args.z_step
 print(f"  Ref focus: slice={ref_brenner['peak_slice']} ({ref_brenner['peak_sub']:.1f}), "
       f"z-galvo={ref_focus_galvo:+.1f} um")
 
+# Pre-acquire reference focus slice now — so we never need to switch
+# back to the reference objective later (important for water immersion
+# targets where returning to a dry objective would be destructive).
+print(f"  Acquiring reference focus slice at z-galvo={ref_focus_galvo:+.1f} um (8x accum)...")
+disable_z_stack()
+drv.set_z_stack_definition(client, job,
+                           begin_um=ref_focus_galvo, end_um=ref_focus_galvo)
+img_ref = acquire_single()
+if img_ref is None:
+    print(f"  ABORT: reference focus slice acquire failed")
+    sys.exit(1)
+
+# Save the one-time reference Z-stack to the calibration folder so the
+# data is archived alongside the results.
+tifffile.imwrite(os.path.join(out_dir, "ref_stack.tif"), ref_stack)
+
 all_results = {}
 
-for ts in args.target_slot:
+for tgt_idx, ts in enumerate(args.target_slot):
     ti = targets[ts]
     print(f"\n{'-' * 60}")
     print(f"  Target: {ti['name']} (slot {ts})")
     print(f"{'-' * 60}")
+
+    # Re-acquire a fresh reference focus slice before every target except
+    # the first (for which img_ref was acquired right after the ref z-stack).
+    # This gives each target a recent reference to correlate against, which
+    # matters more the longer the calibration run gets. Safe because the
+    # safety check above guarantees no immersion target precedes this one.
+    if tgt_idx > 0:
+        print(f"  Re-acquiring fresh reference focus slice on ref objective...")
+        setup_objective(args.ref_slot, args.ref_zoom)
+        drv.move_xy(client, home["x_um"], home["y_um"])
+        time.sleep(1)
+        disable_z_stack()
+        drv.set_z_stack_definition(client, job,
+                                   begin_um=ref_focus_galvo, end_um=ref_focus_galvo)
+        img_ref = acquire_single()
+        if img_ref is None:
+            print(f"  ABORT: fresh reference focus slice acquire failed")
+            sys.exit(1)
 
     # 1b. Target Z-stack
     setup_objective(ts, ti["zoom"])
@@ -440,21 +469,7 @@ for ts in args.target_slot:
     # Disable Z-stack for single-slice acquisition
     disable_z_stack()
 
-    # 2a. Reference focus slice (switch back to ref objective)
-    setup_objective(args.ref_slot, args.ref_zoom)
-    drv.move_xy(client, home["x_um"], home["y_um"])
-    time.sleep(1)
-    disable_z_stack()
-    # Acquire at the Brenner-determined z-galvo focus position
-    drv.set_z_stack_definition(client, job,
-                               begin_um=ref_focus_galvo, end_um=ref_focus_galvo)
-    print(f"  Acquiring ref focus slice at z-galvo={ref_focus_galvo:+.1f} um (8x accum)...")
-    img_ref = acquire_single()
-    if img_ref is None:
-        print(f"  ABORT: ref focus acquire failed")
-        continue
-
-    # 2b. Target focus slice (switch to target, at Brenner focus Z)
+    # 2. Target focus slice (reference slice was pre-acquired before the loop)
     setup_objective(ts, ti["zoom"])
     time.sleep(1)
     disable_z_stack()
@@ -546,6 +561,19 @@ for ts in args.target_slot:
         # Phase 3
         "sign_results": sign_results, "sign_images": sign_images, "best": best,
     }
+
+    # Archive per-target acquired data (stacks + slices + sign-sweep images)
+    # so the calibration folder is a self-contained record.
+    tgt_dir = os.path.join(out_dir, ti["label"])
+    os.makedirs(tgt_dir, exist_ok=True)
+    tifffile.imwrite(os.path.join(tgt_dir, "img_ref.tif"), img_ref)
+    tifffile.imwrite(os.path.join(tgt_dir, "tgt_stack.tif"), tgt_stack)
+    if ver_z_stack is not None:
+        tifffile.imwrite(os.path.join(tgt_dir, "ver_stack.tif"), ver_z_stack)
+    tifffile.imwrite(os.path.join(tgt_dir, "img_tgt.tif"), img_tgt)
+    for sign_label, sign_img in sign_images.items():
+        safe = sign_label.replace(" ", "").replace("+", "p").replace("-", "m")
+        tifffile.imwrite(os.path.join(tgt_dir, f"sign_{safe}.tif"), sign_img)
 
 # ═════════════════════════════════════════════════════════════════════════
 #  Summary
@@ -809,8 +837,7 @@ print(f"\n  Calibration: {json_path}")
 #  Restore
 # ═════════════════════════════════════════════════════════════════════════
 
-print(f"\n  Restoring...")
-setup_objective(args.ref_slot, args.ref_zoom)
+print(f"\n  Restoring Z settings (leaving objective as-is)...")
 
 orig_z_mode = int(orig_z.get("ZUseMode", 2))
 orig_sections = int(orig_z.get("Sections", 1))
@@ -823,7 +850,4 @@ def restore_z(p):
     lrp_set_sections(p, orig_sections, job)
     lrp_set_z_stack_active(p, str(orig_active) == "1", job)
 apply_lrp_change(client, TEMPLATE_XML, restore_z, confirm_delays=(2, 4, 6))
-
-drv.move_xy(client, home["x_um"], home["y_um"])
-time.sleep(1)
 print("  Done.")
