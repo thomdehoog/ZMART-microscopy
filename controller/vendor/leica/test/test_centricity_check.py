@@ -10,8 +10,8 @@ Steps:
   [break] 3 — Apply +X −Y correction, acquire, register, report residual
 
 Sign convention (validated 2026-04-13):
-    stage_corr_x = +image_shift_x
-    stage_corr_y = -image_shift_y
+    stage_corr_x = -image_shift_x
+    stage_corr_y = +image_shift_y
 
 Test mode (--test):
     Skips all pauses and moves the stage by --test-move um before step 2
@@ -188,7 +188,7 @@ dx, dy = shift["dx_um"], shift["dy_um"]
 print(f"Shift:       ({dx:+.2f}, {dy:+.2f}) um  =  {shift['dist_um']:.2f} um")
 print(f"NCC quality: {shift['ncc_quality']:.3f}  |  agreement: {shift['agreement_um']:.2f} um"
       f"  {'OK' if shift['reliable'] else '  WARNING: low confidence'}")
-print(f"Correction (+X -Y): ({+dx:+.2f}, {-dy:+.2f}) um")
+print(f"Correction (-X +Y): ({-dx:+.2f}, {+dy:+.2f}) um")
 
 # ── Step 3: Apply correction + verify ────────────────────────────────────
 
@@ -196,8 +196,8 @@ if args.test:
     pause(f"Restoring stage to origin ({origin_x:.1f}, {origin_y:.1f}) um and verifying.")
     corr_x, corr_y = -dx, +dy
 else:
-    pause(f"Press Enter to apply correction ({+dx:+.2f}, {-dy:+.2f}) um and verify.")
-    corr_x, corr_y = +dx, -dy
+    pause(f"Press Enter to apply correction ({-dx:+.2f}, {+dy:+.2f}) um (-X +Y) and verify.")
+    corr_x, corr_y = -dx, +dy
 
 drv.move_xy(client, pos["x_um"] + corr_x, pos["y_um"] + corr_y)
 time.sleep(1)
@@ -248,7 +248,7 @@ json.dump({
     "timestamp": _ts,
     "job": args.job,
     "pixel_um": float(pixel_um),
-    "sign_convention": "+X -Y",
+    "sign_convention": "-X +Y",
     "shift_xy_um": [float(dx), float(dy)],
     "shift_dist_um": float(shift["dist_um"]),
     "ncc_quality": float(shift["ncc_quality"]),
