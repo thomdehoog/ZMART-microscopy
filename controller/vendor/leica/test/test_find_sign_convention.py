@@ -31,9 +31,9 @@ logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 parser = argparse.ArgumentParser(description="Sign convention finder")
 parser.add_argument("--job", default="Overview", help="LAS X job name (default: Overview)")
 parser.add_argument("--test", action="store_true",
-                    help="Self-test: skip pause, move stage randomly ~20 um instead of switching objective")
-parser.add_argument("--test-move", type=float, default=20.0,
-                    help="Stage displacement magnitude for self-test (default: 20)")
+                    help="Self-test: skip pause, move stage randomly ~5 um instead of switching objective")
+parser.add_argument("--test-move", type=float, default=5.0,
+                    help="Stage displacement magnitude for self-test (default: 5)")
 args = parser.parse_args()
 
 import numpy as np
