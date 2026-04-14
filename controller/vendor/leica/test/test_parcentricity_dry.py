@@ -126,7 +126,11 @@ def _to_u8(a):
 
 
 def est_pcc(ref, tgt, pixel_um, mask_pct=30):
-    """Masked phase cross-correlation (sub-pixel)."""
+    """Masked phase cross-correlation.
+    NOTE: skimage ignores upsample_factor when masks are supplied — precision is
+    integer-pixel only (~±0.5 px).  At fine zoom (≤0.06 µm/px) this is <0.03 µm;
+    at coarse zoom (0.57 µm/px) it is ±0.28 µm, which dominates the scale-factor
+    error at low magnification."""
     ref_mask = ref > np.percentile(ref, mask_pct)
     tgt_mask = tgt > np.percentile(tgt, mask_pct)
     sub, _, _ = phase_cross_correlation(
@@ -137,13 +141,20 @@ def est_pcc(ref, tgt, pixel_um, mask_pct=30):
 
 
 def est_ncc(ref, tgt, pixel_um):
-    """OpenCV NCC on center 50% crop of tgt (integer pixel)."""
+    """OpenCV NCC on center 50% crop of tgt (integer pixel).
+    Max detectable shift is ±W/4 px.  Returns invalid if the best match lands
+    at or near the boundary of the result space (shift is out of range)."""
     r8, t8 = _to_u8(ref), _to_u8(tgt)
     H, W = t8.shape
     m = H // 4
     tmpl = t8[m:H-m, m:W-m]
     res = cv2.matchTemplate(r8, tmpl, cv2.TM_CCOEFF_NORMED)
     _, q, _, loc = cv2.minMaxLoc(res)
+    rH, rW = res.shape
+    margin = 2
+    if loc[0] < margin or loc[0] >= rW - margin or loc[1] < margin or loc[1] >= rH - margin:
+        return {"name": "NCC", "dx_um": None, "dy_um": None,
+                "quality": float(q), "note": "shift at search boundary — out of NCC range"}
     dx = (loc[0] + tmpl.shape[1] / 2 - W / 2) * pixel_um
     dy = (loc[1] + tmpl.shape[0] / 2 - H / 2) * pixel_um
     return {"name": "NCC", "dx_um": dx, "dy_um": dy, "quality": float(q)}
@@ -225,18 +236,23 @@ def vote(estimates, threshold_um=VOTE_THRESHOLD_UM):
         if len(cluster) > len(best_cluster):
             best_cluster = cluster
 
+    n = len(best_cluster)
+    total = len(valid)
+
+    # When multiple estimators are available but none agree, don't silently
+    # return one arbitrarily — the tie-break would always favour PCC because
+    # it appears first in the input list.
+    if n == 1 and total >= 2:
+        return {"dx_um": float("nan"), "dy_um": float("nan"),
+                "voters": [], "confidence": "none",
+                "n_voters": 0, "n_total": total,
+                "note": "no consensus — all estimators disagree beyond threshold"}
+
     dx = float(np.mean([e["dx_um"] for e in best_cluster]))
     dy = float(np.mean([e["dy_um"] for e in best_cluster]))
     voters = [e["name"] for e in best_cluster]
 
-    n = len(best_cluster)
-    total = len(valid)
-    if n >= 3:
-        conf = "high"
-    elif n == 2:
-        conf = "medium"
-    else:
-        conf = "low"
+    conf = "high" if n >= 3 else ("medium" if n == 2 else "low")
     if total < 2:
         conf = "low"
 
