@@ -195,9 +195,9 @@ print(f"Correction (-X +Y): ({-dx:+.2f}, {+dy:+.2f}) um")
 if args.test:
     pause(f"Applying correction and verifying (pass 1).")
 else:
-    pause(f"Press Enter to apply correction ({-dx:+.2f}, {+dy:+.2f}) um (-X +Y).")
+    pause(f"Press Enter to apply correction ({+dx:+.2f}, {-dy:+.2f}) um (+X -Y).")
 
-corr_x, corr_y = -dx, +dy
+corr_x, corr_y = +dx, -dy
 drv.move_xy(client, pos["x_um"] + corr_x, pos["y_um"] + corr_y)
 time.sleep(1)
 
@@ -211,7 +211,7 @@ resid1 = register(img_ref, img_corr1, pixel_um)
 rdx, rdy = resid1["dx_um"], resid1["dy_um"]
 
 print(f"Residual:    ({rdx:+.2f}, {rdy:+.2f}) um  =  {resid1['dist_um']:.2f} um")
-print(f"Correction 2 (-X +Y): ({-rdx:+.2f}, {+rdy:+.2f}) um")
+print(f"Correction 2 (+X -Y): ({+rdx:+.2f}, {-rdy:+.2f}) um")
 
 # ── Step 3b: Apply residual correction + final verify ────────────────────
 
@@ -220,9 +220,9 @@ pos2 = drv.get_xy(client)
 if args.test:
     pause(f"Applying residual correction (pass 2).")
 else:
-    pause(f"Press Enter to apply residual correction ({-rdx:+.2f}, {+rdy:+.2f}) um.")
+    pause(f"Press Enter to apply residual correction ({+rdx:+.2f}, {-rdy:+.2f}) um.")
 
-corr2_x, corr2_y = -rdx, +rdy
+corr2_x, corr2_y = +rdx, -rdy
 drv.move_xy(client, pos2["x_um"] + corr2_x, pos2["y_um"] + corr2_y)
 time.sleep(1)
 
