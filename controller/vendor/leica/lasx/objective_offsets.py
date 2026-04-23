@@ -321,12 +321,19 @@ def load_objective_offsets(path=None):
 def pixel_to_stage_xy_um(px, py, stage_xy_um, pixel_size_um, image_size, config):
     """Convert image pixel coordinates to absolute stage XY (um).
 
-    Uses the scope-specific image→stage 2×2 linear transform stored in
-    ``config["sign_convention"]["image_to_stage_um_per_um"]``. This
-    transform is measured empirically by the calibration script (by moving
-    the stage in X and Y and registering the images), so it captures any
-    reflection, 90° rotation, or small skew between the camera and stage
-    axes — no hardcoded sign assumptions.
+    Uses the scope-specific image→stage 2×2 Jacobian stored in
+    ``config["sign_convention"]["image_to_stage_um_per_um"]``. That matrix
+    is the linear map "image-feature shift per unit stage move" measured
+    empirically by the calibration script. It captures reflection, 90°
+    rotation, or small skew between the camera and stage axes — no
+    hardcoded sign assumptions.
+
+    The physics: a feature at current image offset ``I`` reaches the image
+    centre when the stage moves by ``Δ`` such that
+    ``I + stage_to_image @ Δ = 0``, i.e. ``Δ = -image_to_stage @ I``. The
+    feature's stage position is therefore ``stage - image_to_stage @ I``
+    — the negation is why this function subtracts rather than adds the
+    matrix product.
 
     Args:
         px, py: Pixel coordinates (column, row), float OK.
@@ -351,9 +358,10 @@ def pixel_to_stage_xy_um(px, py, stage_xy_um, pixel_size_um, image_size, config)
     dx_image_um = (px - centre) * pixel_size_um
     dy_image_um = (py - centre) * pixel_size_um
 
-    # Apply image→stage transform.
-    stage_dx = m[0][0] * dx_image_um + m[0][1] * dy_image_um
-    stage_dy = m[1][0] * dx_image_um + m[1][1] * dy_image_um
+    # Apply -image_to_stage to the image offset to get the feature's stage
+    # offset from the current stage position.
+    stage_dx = -(m[0][0] * dx_image_um + m[0][1] * dy_image_um)
+    stage_dy = -(m[1][0] * dx_image_um + m[1][1] * dy_image_um)
 
     return stage_xy_um[0] + stage_dx, stage_xy_um[1] + stage_dy
 

@@ -94,33 +94,46 @@ class TestPixelToStageXyUm(unittest.TestCase):
         )
         self.assertEqual((x, y), (100.0, 200.0))
 
-    def test_identity_offset_from_centre(self):
+    # These tests check pixel_to_stage_xy_um for a feature-at-pixel → feature's
+    # stage position. The stored matrix is the image→stage Jacobian (image
+    # shift per unit stage move); the function applies its *negation*, because
+    # to centre a feature in the image the stage must move to that feature's
+    # position — the opposite of where the image shift was heading.
+
+    def test_identity_jacobian_offset_from_centre(self):
+        # Jacobian I means stage +X shifts features +X in image. A feature
+        # *already* at pixel +10 X would only get there if the stage had
+        # come from -10 X, so the feature sits at stage - 10 X.
         cfg = self._config_with_sign([[1, 0], [0, 1]])
-        # Pixel 10 to the right of centre → stage +10 um in X
         x, y = offsets.pixel_to_stage_xy_um(
             266, 256, (100.0, 200.0), 1.0, 512, cfg,
         )
-        self.assertAlmostEqual(x, 110.0)
+        self.assertAlmostEqual(x, 90.0)
         self.assertAlmostEqual(y, 200.0)
 
-    def test_minus_x_plus_y_matrix(self):
-        # Scope: image +X = stage -X, image +Y = stage +Y
-        cfg = self._config_with_sign([[-1, 0], [0, 1]])
+    def test_minus_identity_jacobian_normal_optics(self):
+        # -I Jacobian describes "normal" optics: stage +X shifts features -X
+        # in image. Feature at pixel +10 X is at stage + 10 X.
+        cfg = self._config_with_sign([[-1, 0], [0, -1]])
         x, y = offsets.pixel_to_stage_xy_um(
             266, 266, (100.0, 200.0), 1.0, 512, cfg,
         )
-        self.assertAlmostEqual(x, 90.0)    # -10 um
-        self.assertAlmostEqual(y, 210.0)   # +10 um
-
-    def test_axis_swap_matrix(self):
-        # Scope with 90° rotation: image +X = stage +Y, image +Y = stage +X
-        cfg = self._config_with_sign([[0, 1], [1, 0]])
-        x, y = offsets.pixel_to_stage_xy_um(
-            266, 256, (100.0, 200.0), 1.0, 512, cfg,
-        )
-        # Image offset = (+10, 0) um → stage offset = (0, +10) um
-        self.assertAlmostEqual(x, 100.0)
+        self.assertAlmostEqual(x, 110.0)
         self.assertAlmostEqual(y, 210.0)
+
+    def test_plus_y_minus_x_jacobian_our_scope(self):
+        # Jacobian measured on the ZMB STELLARIS: [[0, 1], [-1, 0]]
+        # (stage +X → image +Y, stage +Y → image -X).
+        # Feature at image (+4.54, +43.13) um from centre is at stage
+        # (current + (-image_to_stage @ offset)) = current + (-43.13, +4.54).
+        cfg = self._config_with_sign([[0, 1], [-1, 0]])
+        x, y = offsets.pixel_to_stage_xy_um(
+            258, 275, (100.0, 200.0), 2.27, 512, cfg,
+        )
+        # image offset = ((258-256)*2.27, (275-256)*2.27) = (4.54, 43.13)
+        # stage offset = -(0*4.54 + 1*43.13, -1*4.54 + 0*43.13) = (-43.13, 4.54)
+        self.assertAlmostEqual(x, 100.0 - 43.13, places=2)
+        self.assertAlmostEqual(y, 200.0 + 4.54, places=2)
 
     def test_raises_when_sign_convention_missing(self):
         cfg = {"schema_version": offsets.SCHEMA_VERSION,
@@ -131,12 +144,13 @@ class TestPixelToStageXyUm(unittest.TestCase):
             )
 
     def test_pixel_size_scales_linearly(self):
+        # Identity Jacobian, 10 pixels offset at 0.5 um/px = 5 um image offset.
+        # Stage offset is -5 um (see test_identity_jacobian_offset_from_centre).
         cfg = self._config_with_sign([[1, 0], [0, 1]])
-        # 10 pixels at 0.5 um/px → 5 um offset
         x, y = offsets.pixel_to_stage_xy_um(
             266, 256, (0.0, 0.0), 0.5, 512, cfg,
         )
-        self.assertAlmostEqual(x, 5.0)
+        self.assertAlmostEqual(x, -5.0)
         self.assertAlmostEqual(y, 0.0)
 
 
