@@ -124,11 +124,14 @@ def parse_args():
                         "to the calibrated target XY and the script goes "
                         "straight to the final-zoom acquire (equivalent to "
                         "the non-iterative sibling example).")
-    p.add_argument("--converge-um", type=float, default=2.0,
-                   help="Converge when |stage correction| < this (default: 2.0). "
-                        "This is the practical floor for stage-only targeting on "
-                        "this class of motorised stage; asking for sub-um will "
-                        "oscillate on stage-repeatability noise.")
+    p.add_argument("--converge-um", type=float, default=1.0,
+                   help="Stop when |stage correction| < this (default: 1.0). "
+                        "Sub-um landing, declared converged.")
+    p.add_argument("--min-improvement-um", type=float, default=0.5,
+                   help="Stop when an iteration improves the correction "
+                        "magnitude by less than this (default: 0.5). Catches "
+                        "the noise-floor case where more iterations just "
+                        "oscillate instead of converging.")
 
     p.add_argument("--ncc-peak-min", type=float, default=0.4,
                    help="Reject NCC match below this correlation peak "
@@ -143,6 +146,11 @@ def parse_args():
 
     p.add_argument("--diameter", type=float, default=None,
                    help="Cellpose nucleus diameter in pixels (default: auto).")
+    p.add_argument("--pick-pixel", type=int, nargs=2, default=None,
+                   metavar=("ROW", "COL"),
+                   help="Source-image pixel (row col) near which to pick "
+                        "the target cell. Default: picks the cell closest "
+                        "to the image centre.")
     p.add_argument("--no-gpu", action="store_true",
                    help="Disable GPU for Cellpose.")
     p.add_argument("--settle", type=float, default=3.0,
@@ -203,14 +211,22 @@ def _acquire_one(client, job_name):
     return img, path
 
 
-def _pick_central_cell(masks, image_shape):
+def _pick_nearest_cell(masks, image_shape, target_pixel=None):
+    """Pick the nucleus whose centroid is nearest to *target_pixel* (row, col).
+
+    If *target_pixel* is None, picks the cell nearest the image centre.
+    """
     props = regionprops(masks)
     if not props:
         return None
     h, w = image_shape[:2]
-    cy, cx = h / 2.0, w / 2.0
+    if target_pixel is None:
+        target_row, target_col = h / 2.0, w / 2.0
+    else:
+        target_row, target_col = float(target_pixel[0]), float(target_pixel[1])
     return min(props,
-               key=lambda p: (p.centroid[0] - cy) ** 2 + (p.centroid[1] - cx) ** 2)
+               key=lambda p: (p.centroid[0] - target_row) ** 2
+                              + (p.centroid[1] - target_col) ** 2)
 
 
 # ── Template extraction and resampling ────────────────────────────
@@ -441,7 +457,8 @@ def _save_overlay(png_path, source_img, source_prop,
 
 def _refine(client, job_name, template_src, template_centre_xy,
             src_pixel_size_um, intermediate_pixel_size_um,
-            *, max_iterations, converge_um, peak_min, ratio_min,
+            *, max_iterations, converge_um, min_improvement_um,
+            peak_min, ratio_min,
             search_radius_um, output_dir, cfg):
     """Run the NCC-gated refinement loop. Returns (final_target_img, log).
 
@@ -455,6 +472,7 @@ def _refine(client, job_name, template_src, template_centre_xy,
     """
     iter_log = []
     last_img = None
+    prev_mag = None
 
     for i in range(1, max_iterations + 1):
         log.info("refine iter %d/%d: acquiring", i, max_iterations)
@@ -519,6 +537,16 @@ def _refine(client, job_name, template_src, template_centre_xy,
             log.info("  converged: |correction| %.3f < %.2f um", mag, converge_um)
             break
 
+        if prev_mag is not None:
+            improvement = prev_mag - mag
+            if improvement < min_improvement_um:
+                log.info(
+                    "  stopping at noise floor: correction went "
+                    "%.3f -> %.3f um (improvement %.3f < %.2f)",
+                    prev_mag, mag, improvement, min_improvement_um,
+                )
+                break
+
         # Tight tolerance — default 20 um would let the stage settle
         # anywhere within ±20 um of target, so small corrections would
         # never actually complete and the loop would oscillate.
@@ -536,6 +564,7 @@ def _refine(client, job_name, template_src, template_centre_xy,
             )
             break
         time.sleep(0.5)
+        prev_mag = mag
 
     return last_img, iter_log
 
@@ -618,7 +647,7 @@ def main():
     log.info("Cellpose found %d cells in %.1fs",
              int(masks.max()), time.perf_counter() - t0)
 
-    prop = _pick_central_cell(masks, src_img.shape)
+    prop = _pick_nearest_cell(masks, src_img.shape, target_pixel=args.pick_pixel)
     if prop is None:
         _abort("no cells found in source frame; move to a denser region "
                "or adjust --diameter")
@@ -695,6 +724,7 @@ def main():
             src_pixel_size_um, intermediate_pixel_size_um,
             max_iterations=args.max_iterations,
             converge_um=args.converge_um,
+            min_improvement_um=args.min_improvement_um,
             peak_min=args.ncc_peak_min,
             ratio_min=args.ncc_ratio_min,
             search_radius_um=args.search_radius_um,
