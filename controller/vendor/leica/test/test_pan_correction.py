@@ -25,7 +25,10 @@ from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
-PAN_SCALE = 100_000  # 1 pan unit = 100,000 um
+# PAN_SCALE is objective-dependent; resolved at runtime from base FOV.
+# See lasx/utils.py for the physics and lasx.pan_scale_um_from_base_fov
+# for the helper. Assigned after `client` and `job` are established below.
+PAN_SCALE = None
 
 parser = argparse.ArgumentParser(description="Pan correction test")
 parser.add_argument("--ref-slot", type=int, required=True)
@@ -72,6 +75,15 @@ if not hw:
     print("  ABORT: cannot read hardware info")
     sys.exit(1)
 print(f"  Job: {job}")
+
+# Resolve pan scale from the current objective's base FOV.
+_base_fov_m = drv.get_base_fov(client, job)
+if not _base_fov_m:
+    print("  ABORT: cannot read base FOV")
+    sys.exit(1)
+PAN_SCALE = drv.pan_scale_um_from_base_fov(_base_fov_m[0] * 1e6)
+print(f"  Base FOV: {_base_fov_m[0] * 1e6:.1f} um  "
+      f"pan_scale: {PAN_SCALE:.1f} um/unit")
 
 drv.set_stage_limits(
     x_min=1000, x_max=130000,

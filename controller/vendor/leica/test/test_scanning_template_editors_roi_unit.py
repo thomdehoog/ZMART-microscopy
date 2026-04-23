@@ -28,6 +28,16 @@ from lasx.scanning_template_editors_roi import (
 from lasx.scanning_template_parsers import parse_lrp
 
 
+# Unit-test fixture for pan_scale_um derived from the real helper with
+# a fictitious base FOV (600 um, midway between 20x and 10x). Result is
+# pan_scale_um = 600 * 0.667 / 0.00775 ≈ 51 639 um/unit — NOT 100 000,
+# so any test that accidentally relied on the old hardcoded legacy
+# default would fail visibly. Real callers call
+# pan_scale_um_from_base_fov with the current objective's base FOV.
+from lasx.utils import pan_scale_um_from_base_fov as _pan_scale_helper
+_TEST_PAN_SCALE_UM = _pan_scale_helper(600.0)
+
+
 # ── Sample LRP with full ROI structure ──────────────────────────────────
 
 SAMPLE_LRP = """\
@@ -524,35 +534,43 @@ class TestRoiTranslationToPan:
     """Test roi_translation_to_pan."""
 
     def test_zero(self):
-        pan_x, pan_y = roi_translation_to_pan(0.0, 0.0)
+        pan_x, pan_y = roi_translation_to_pan(
+            0.0, 0.0, pan_scale_um=_TEST_PAN_SCALE_UM)
         assert pan_x == 0.0
         assert pan_y == 0.0
 
     def test_positive_translation(self):
-        # tx = +100 um (0.0001 m) → pan_x = -100/100000 = -0.001
-        # ty = +200 um (0.0002 m) → pan_y = +200/100000 = +0.002
-        pan_x, pan_y = roi_translation_to_pan(0.0001, 0.0002)
-        assert pan_x == pytest.approx(-0.001)
-        assert pan_y == pytest.approx(0.002)
+        # tx = +100 um → pan_x = -100/_TEST_PAN_SCALE_UM (X negated)
+        # ty = +200 um → pan_y = +200/_TEST_PAN_SCALE_UM
+        tx_m, ty_m = 0.0001, 0.0002
+        pan_x, pan_y = roi_translation_to_pan(
+            tx_m, ty_m, pan_scale_um=_TEST_PAN_SCALE_UM)
+        assert pan_x == pytest.approx(-tx_m * 1e6 / _TEST_PAN_SCALE_UM)
+        assert pan_y == pytest.approx(ty_m * 1e6 / _TEST_PAN_SCALE_UM)
 
     def test_negative_translation(self):
-        # tx = -123 um → pan_x = +0.00123
-        pan_x, pan_y = roi_translation_to_pan(-123e-6, 35e-6)
-        assert pan_x == pytest.approx(0.00123)
-        assert pan_y == pytest.approx(0.00035)
+        tx_m, ty_m = -123e-6, 35e-6
+        pan_x, pan_y = roi_translation_to_pan(
+            tx_m, ty_m, pan_scale_um=_TEST_PAN_SCALE_UM)
+        assert pan_x == pytest.approx(-tx_m * 1e6 / _TEST_PAN_SCALE_UM)
+        assert pan_y == pytest.approx(ty_m * 1e6 / _TEST_PAN_SCALE_UM)
 
     def test_x_negated(self):
         """X axis is negated between translation and pan."""
-        pan_x, _ = roi_translation_to_pan(50e-6, 0)
+        pan_x, _ = roi_translation_to_pan(
+            50e-6, 0, pan_scale_um=_TEST_PAN_SCALE_UM)
         assert pan_x < 0
-        pan_x, _ = roi_translation_to_pan(-50e-6, 0)
+        pan_x, _ = roi_translation_to_pan(
+            -50e-6, 0, pan_scale_um=_TEST_PAN_SCALE_UM)
         assert pan_x > 0
 
     def test_y_direct(self):
         """Y axis is direct between translation and pan."""
-        _, pan_y = roi_translation_to_pan(0, 50e-6)
+        _, pan_y = roi_translation_to_pan(
+            0, 50e-6, pan_scale_um=_TEST_PAN_SCALE_UM)
         assert pan_y > 0
-        _, pan_y = roi_translation_to_pan(0, -50e-6)
+        _, pan_y = roi_translation_to_pan(
+            0, -50e-6, pan_scale_um=_TEST_PAN_SCALE_UM)
         assert pan_y < 0
 
 
@@ -613,48 +631,59 @@ class TestPixelToAbsoluteUm:
     def test_center_pixel_at_zero_pan(self):
         """Center pixel maps to stage position when pan is zero."""
         x, y = pixel_to_absolute_um(256, 256, 50000, 50000, 0, 0,
-                                     pixel_size_um=2.0)
+                                     pixel_size_um=2.0,
+                                     pan_scale_um=_TEST_PAN_SCALE_UM)
         assert x == pytest.approx(50000)
         assert y == pytest.approx(50000)
 
     def test_center_pixel_with_pan(self):
-        """Center pixel maps to stage + pan offset."""
-        x, y = pixel_to_absolute_um(256, 256, 50000, 50000,
-                                     0.001, -0.002, pixel_size_um=2.0)
-        assert x == pytest.approx(50100)
-        assert y == pytest.approx(49800)
+        """Center pixel maps to stage + pan * pan_scale_um."""
+        stage_x, stage_y = 50000, 50000
+        pan_x, pan_y = 0.001, -0.002
+        x, y = pixel_to_absolute_um(256, 256, stage_x, stage_y,
+                                     pan_x, pan_y, pixel_size_um=2.0,
+                                     pan_scale_um=_TEST_PAN_SCALE_UM)
+        assert x == pytest.approx(stage_x + pan_x * _TEST_PAN_SCALE_UM)
+        assert y == pytest.approx(stage_y + pan_y * _TEST_PAN_SCALE_UM)
 
     def test_x_inverted(self):
         """Pixel left of center → higher stage X (X inverted)."""
         x_left, _ = pixel_to_absolute_um(100, 256, 50000, 50000, 0, 0,
-                                          pixel_size_um=2.0)
+                                          pixel_size_um=2.0,
+                                          pan_scale_um=_TEST_PAN_SCALE_UM)
         x_right, _ = pixel_to_absolute_um(400, 256, 50000, 50000, 0, 0,
-                                           pixel_size_um=2.0)
+                                           pixel_size_um=2.0,
+                                           pan_scale_um=_TEST_PAN_SCALE_UM)
         assert x_left > 50000
         assert x_right < 50000
 
     def test_y_cartesian(self):
         """Cartesian Y: top pixel → higher Y, bottom pixel → lower Y."""
         _, y_top = pixel_to_absolute_um(256, 100, 50000, 50000, 0, 0,
-                                         pixel_size_um=2.0)
+                                         pixel_size_um=2.0,
+                                         pan_scale_um=_TEST_PAN_SCALE_UM)
         _, y_bot = pixel_to_absolute_um(256, 400, 50000, 50000, 0, 0,
-                                         pixel_size_um=2.0)
+                                         pixel_size_um=2.0,
+                                         pan_scale_um=_TEST_PAN_SCALE_UM)
         assert y_top > 50000  # top pixel → positive Y (Cartesian up)
         assert y_bot < 50000  # bottom pixel → negative Y (Cartesian down)
 
     def test_pixel_size_scales_offset(self):
         """Larger pixel size → larger physical offset per pixel."""
         x_big, _ = pixel_to_absolute_um(0, 256, 50000, 50000, 0, 0,
-                                         pixel_size_um=2.0)
+                                         pixel_size_um=2.0,
+                                         pan_scale_um=_TEST_PAN_SCALE_UM)
         x_small, _ = pixel_to_absolute_um(0, 256, 50000, 50000, 0, 0,
-                                           pixel_size_um=0.2)
+                                           pixel_size_um=0.2,
+                                           pan_scale_um=_TEST_PAN_SCALE_UM)
         offset_big = abs(x_big - 50000)
         offset_small = abs(x_small - 50000)
         assert offset_big == pytest.approx(offset_small * 10, rel=0.01)
 
     def test_custom_image_size(self):
         x, y = pixel_to_absolute_um(512, 512, 50000, 50000, 0, 0,
-                                     pixel_size_um=1.0, image_size=1024)
+                                     pixel_size_um=1.0, image_size=1024,
+                                     pan_scale_um=_TEST_PAN_SCALE_UM)
         assert x == pytest.approx(50000)
         assert y == pytest.approx(50000)
 
@@ -700,7 +729,8 @@ class TestMaskContourToRoi:
     def test_basic_contour(self):
         contour = [(100, 200), (150, 200), (150, 250), (100, 250)]
         verts, trans = mask_contour_to_roi(
-            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS)
+            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS,
+            pan_scale_um=_TEST_PAN_SCALE_UM)
         assert len(verts) == 4
         assert len(trans) == 2
 
@@ -708,7 +738,8 @@ class TestMaskContourToRoi:
         """Vertices should be centred around (0, 0)."""
         contour = [(100, 200), (200, 200), (200, 300), (100, 300)]
         verts, _ = mask_contour_to_roi(
-            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS)
+            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS,
+            pan_scale_um=_TEST_PAN_SCALE_UM)
         xs = [v[0] for v in verts]
         ys = [v[1] for v in verts]
         assert sum(xs) == pytest.approx(0, abs=1e-12)
@@ -718,7 +749,8 @@ class TestMaskContourToRoi:
         """Vertices should be in metres (small values)."""
         contour = [(200, 200), (300, 200), (300, 300), (200, 300)]
         verts, _ = mask_contour_to_roi(
-            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS)
+            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS,
+            pan_scale_um=_TEST_PAN_SCALE_UM)
         for x, y in verts:
             assert abs(x) < 0.001  # less than 1 mm
             assert abs(y) < 0.001
@@ -727,7 +759,8 @@ class TestMaskContourToRoi:
         """Translation should be in metres."""
         contour = [(200, 200), (300, 300)]
         _, trans = mask_contour_to_roi(
-            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS)
+            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS,
+            pan_scale_um=_TEST_PAN_SCALE_UM)
         tx, ty = trans
         assert abs(tx) < 1  # reasonable metre-scale values
         assert abs(ty) < 1
@@ -737,14 +770,16 @@ class TestMaskContourToRoi:
         contour = [(100, 200), (200, 200), (200, 300), (100, 300)]
         stage_x, stage_y = 50000, 50000
         verts, (tx, ty) = mask_contour_to_roi(
-            contour, stage_x, stage_y, 0, 0, pixel_size_um=self.PS)
+            contour, stage_x, stage_y, 0, 0, pixel_size_um=self.PS,
+            pan_scale_um=_TEST_PAN_SCALE_UM)
 
         # Recover absolute position from translation
         abs_x, abs_y = roi_to_absolute_um(tx, ty, stage_x, stage_y)
 
         # Compute expected centroid from pixel conversion
         abs_points = [pixel_to_absolute_um(px, py, stage_x, stage_y,
-                                           0, 0, pixel_size_um=self.PS)
+                                           0, 0, pixel_size_um=self.PS,
+                                           pan_scale_um=_TEST_PAN_SCALE_UM)
                       for px, py in contour]
         expected_x = sum(p[0] for p in abs_points) / len(abs_points)
         expected_y = sum(p[1] for p in abs_points) / len(abs_points)

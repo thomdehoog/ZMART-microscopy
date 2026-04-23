@@ -26,7 +26,14 @@ from lasx.alignment import (
     load_alignment, translate_xy, translate_pan, translate_z, translate_xyz,
     _get_offset,
 )
-from lasx.utils import PAN_SCALE
+# Unit-test fixture for pan_scale_um derived from the real helper with
+# a fictitious base FOV (600 um, midway between 20x and 10x). The tests
+# below assert mathematical relationships (round-trip, cross-translate,
+# identity) so any positive value would do — using the helper keeps the
+# number honest. Real callers resolve pan_scale_um from the current
+# objective's base FOV via lasx.pan_scale_um_from_base_fov.
+from lasx.utils import pan_scale_um_from_base_fov as _pan_scale_helper
+_TEST_PAN_SCALE_UM = _pan_scale_helper(600.0)
 
 
 # ── Test fixture: minimal calibration data ─────────────────────────────
@@ -189,33 +196,49 @@ class TestTranslatePan(unittest.TestCase):
         os.unlink(self.path)
 
     def test_identity(self):
-        px, py = translate_pan(0.1, 0.2, 0, 0, self.al)
+        px, py = translate_pan(0.1, 0.2, 0, 0, self.al,
+                               from_pan_scale_um=_TEST_PAN_SCALE_UM,
+                               to_pan_scale_um=_TEST_PAN_SCALE_UM)
         self.assertEqual((px, py), (0.1, 0.2))
 
     def test_ref_to_target_uses_image_only(self):
         # 10x -> 40x: image offset is (4.0, 3.0) um
-        px, py = translate_pan(0.0, 0.0, 1, 0, self.al)
-        self.assertAlmostEqual(px, 4.0 / PAN_SCALE)
-        self.assertAlmostEqual(py, 3.0 / PAN_SCALE)
+        px, py = translate_pan(0.0, 0.0, 1, 0, self.al,
+                               from_pan_scale_um=_TEST_PAN_SCALE_UM,
+                               to_pan_scale_um=_TEST_PAN_SCALE_UM)
+        self.assertAlmostEqual(px, 4.0 / _TEST_PAN_SCALE_UM)
+        self.assertAlmostEqual(py, 3.0 / _TEST_PAN_SCALE_UM)
 
     def test_does_not_use_motor_delta(self):
         # The motor delta for 40x is (-26, 39) um.
         # Pan should NOT include that — only image (4, 3) um.
-        px, py = translate_pan(0.0, 0.0, 1, 0, self.al)
-        self.assertAlmostEqual(px * PAN_SCALE, 4.0, places=5)
-        self.assertAlmostEqual(py * PAN_SCALE, 3.0, places=5)
+        px, py = translate_pan(0.0, 0.0, 1, 0, self.al,
+                               from_pan_scale_um=_TEST_PAN_SCALE_UM,
+                               to_pan_scale_um=_TEST_PAN_SCALE_UM)
+        self.assertAlmostEqual(px * _TEST_PAN_SCALE_UM, 4.0, places=5)
+        self.assertAlmostEqual(py * _TEST_PAN_SCALE_UM, 3.0, places=5)
 
     def test_round_trip(self):
         px0, py0 = 0.001, -0.002
-        px1, py1 = translate_pan(px0, py0, 1, 0, self.al)
-        px2, py2 = translate_pan(px1, py1, 0, 1, self.al)
+        px1, py1 = translate_pan(px0, py0, 1, 0, self.al,
+                                 from_pan_scale_um=_TEST_PAN_SCALE_UM,
+                                 to_pan_scale_um=_TEST_PAN_SCALE_UM)
+        px2, py2 = translate_pan(px1, py1, 0, 1, self.al,
+                                 from_pan_scale_um=_TEST_PAN_SCALE_UM,
+                                 to_pan_scale_um=_TEST_PAN_SCALE_UM)
         self.assertAlmostEqual(px2, px0, places=12)
         self.assertAlmostEqual(py2, py0, places=12)
 
     def test_cross_translate(self):
-        px_20, py_20 = translate_pan(0.0, 0.0, 1, 2, self.al)
-        px_40_chain, py_40_chain = translate_pan(px_20, py_20, 2, 0, self.al)
-        px_40_direct, py_40_direct = translate_pan(0.0, 0.0, 1, 0, self.al)
+        px_20, py_20 = translate_pan(0.0, 0.0, 1, 2, self.al,
+                                     from_pan_scale_um=_TEST_PAN_SCALE_UM,
+                                     to_pan_scale_um=_TEST_PAN_SCALE_UM)
+        px_40_chain, py_40_chain = translate_pan(px_20, py_20, 2, 0, self.al,
+                                                 from_pan_scale_um=_TEST_PAN_SCALE_UM,
+                                                 to_pan_scale_um=_TEST_PAN_SCALE_UM)
+        px_40_direct, py_40_direct = translate_pan(0.0, 0.0, 1, 0, self.al,
+                                                   from_pan_scale_um=_TEST_PAN_SCALE_UM,
+                                                   to_pan_scale_um=_TEST_PAN_SCALE_UM)
         self.assertAlmostEqual(px_40_chain, px_40_direct, places=12)
         self.assertAlmostEqual(py_40_chain, py_40_direct, places=12)
 
@@ -305,10 +328,12 @@ class TestWithRealCalibration(unittest.TestCase):
 
     def test_pan_uses_image_not_total(self):
         off = self.al["offsets"][0]
-        px, py = translate_pan(0.0, 0.0, 1, 0, self.al)
+        px, py = translate_pan(0.0, 0.0, 1, 0, self.al,
+                               from_pan_scale_um=_TEST_PAN_SCALE_UM,
+                               to_pan_scale_um=_TEST_PAN_SCALE_UM)
         # Pan offset should match image component, not total
-        self.assertAlmostEqual(px * PAN_SCALE, off["image_xy_um"][0], places=5)
-        self.assertAlmostEqual(py * PAN_SCALE, off["image_xy_um"][1], places=5)
+        self.assertAlmostEqual(px * _TEST_PAN_SCALE_UM, off["image_xy_um"][0], places=5)
+        self.assertAlmostEqual(py * _TEST_PAN_SCALE_UM, off["image_xy_um"][1], places=5)
 
 
 if __name__ == "__main__":

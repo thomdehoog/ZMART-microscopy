@@ -52,11 +52,15 @@ Check the setting at runtime via::
 
         roi_abs_x = stage_x_um - translation_x_um
         roi_abs_y = stage_y_um + translation_y_um
-        pan_x     = -translation_x_um / 100_000
-        pan_y     = +translation_y_um / 100_000
+        pan_x     = -translation_x_um / pan_scale_um
+        pan_y     = +translation_y_um / pan_scale_um
+
+    where ``pan_scale_um`` is objective-dependent (see ``utils.py``:
+    ``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``).
 
     Use ``roi_translation_to_pan()`` and ``roi_to_absolute_um()``
-    for conversions.
+    for conversions — the former takes ``pan_scale_um`` as a required
+    kwarg.
 
 **Important:** ROI sizes must match the current scan field (FOV).
 Use ``get_fov()`` from ``readers`` to query the FOV in metres,
@@ -91,7 +95,6 @@ from .scanning_template_editors import (
     _verify_job_attr,
 )
 from .scanning_template_parsers import parse_lrp
-from .utils import PAN_SCALE
 
 log = logging.getLogger(__name__)
 
@@ -656,22 +659,32 @@ def lrp_verify_roi(lrp_path, job_name, index, roi_type=None, n_vertices=None):
 # =============================================================================
 
 
-def roi_translation_to_pan(translation_x_m, translation_y_m):
+def roi_translation_to_pan(translation_x_m, translation_y_m, *,
+                           pan_scale_um):
     """Convert ROI Translation (metres) to galvo pan values.
 
     ROI Translation is the offset from stage centre with X negated.
+
+    **PAN_SCALE is objective-dependent**: um-per-pan-unit scales with
+    the objective's base FOV via
+    ``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``
+    (see ``lasx/utils.py`` and :func:`pan_scale_um_from_base_fov`).
+    ``pan_scale_um`` is required — the caller must resolve it from the
+    current objective's base FOV.
 
     Args:
         translation_x_m: Translation X from the ROI ``_Transformation``
             dict (in metres).
         translation_y_m: Translation Y (in metres).
+        pan_scale_um: um displacement per unit of pan for the current
+            objective. Required.
 
     Returns:
         ``(pan_x, pan_y)`` tuple suitable for ``lrp_set_pan``.
     """
     tx_um = float(translation_x_m) * 1e6
     ty_um = float(translation_y_m) * 1e6
-    return (-tx_um / PAN_SCALE, ty_um / PAN_SCALE)
+    return (-tx_um / pan_scale_um, ty_um / pan_scale_um)
 
 
 def roi_to_absolute_um(translation_x_m, translation_y_m, stage_x_um, stage_y_um):
@@ -716,11 +729,21 @@ def absolute_um_to_roi_translation(x_um, y_um, stage_x_um, stage_y_um):
 # =============================================================================
 
 def pixel_to_absolute_um(px, py, stage_x_um, stage_y_um,
-                         pan_x, pan_y, pixel_size_um, image_size=512):
+                         pan_x, pan_y, pixel_size_um, image_size=512, *,
+                         pan_scale_um):
     """Convert image pixel coordinates to absolute stage coordinates.
 
     Uses a Cartesian coordinate system (right = +X, up = +Y).
     Pixel (0, 0) is the top-left of the image.
+
+    **PAN_SCALE is objective-dependent** when pan_x/pan_y are non-zero:
+    the contribution of pan to image centre scales with the objective's
+    base FOV via
+    ``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``
+    (see :func:`pan_scale_um_from_base_fov`). ``pan_scale_um`` is
+    required. For pan=(0, 0) the value is multiplied by zero and so
+    has no effect; you can pass any positive number in that case (but
+    the resolved value is the principled choice).
 
     .. note::
 
@@ -741,6 +764,7 @@ def pixel_to_absolute_um(px, py, stage_x_um, stage_y_um,
         pixel_size_um: Size of one pixel in um (from
             ``parse_tile_geometry`` → ``pixel_w_um``).
         image_size: Image dimension in pixels (default 512).
+        pan_scale_um: um per unit pan for the current objective. Required.
 
     Returns:
         ``(x_um, y_um)`` — absolute position in um (Cartesian).
@@ -748,8 +772,8 @@ def pixel_to_absolute_um(px, py, stage_x_um, stage_y_um,
     center = image_size / 2.0
 
     # Image center in absolute coords (Cartesian)
-    cx = stage_x_um + pan_x * PAN_SCALE
-    cy = stage_y_um + pan_y * PAN_SCALE
+    cx = stage_x_um + pan_x * pan_scale_um
+    cy = stage_y_um + pan_y * pan_scale_um
 
     # Image X is inverted vs Cartesian X (left pixel = higher stage X)
     # Image Y is inverted vs Cartesian Y (top pixel = higher stage Y)
@@ -830,6 +854,13 @@ def roi_to_pan_zoom(roi, fov_at_zoom1_um, margin=1.15):
     Combines :func:`roi_geometry`, :func:`roi_translation_to_pan`, and
     :func:`bbox_to_zoom` into a single call.
 
+    Internally resolves the objective-dependent ``pan_scale_um`` from
+    ``fov_at_zoom1_um`` via :func:`pan_scale_um_from_base_fov`
+    (``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``,
+    see ``lasx/utils.py``). Callers that already pass the correct base
+    FOV (e.g. from :func:`get_base_fov`) get correct pan values on any
+    objective — no caller changes needed after the PAN_SCALE refactor.
+
     Args:
         roi: A single ROI dict from ``parse_lrp``.
         fov_at_zoom1_um: Objective FOV at zoom 1 in µm
@@ -839,16 +870,20 @@ def roi_to_pan_zoom(roi, fov_at_zoom1_um, margin=1.15):
     Returns:
         ``(pan_x, pan_y, zoom)`` tuple.
     """
+    from .utils import pan_scale_um_from_base_fov
+    pan_scale_um = pan_scale_um_from_base_fov(fov_at_zoom1_um)
     geo = roi_geometry(roi)
     eff_tx, eff_ty = geo["effective_translation_m"]
-    pan_x, pan_y = roi_translation_to_pan(eff_tx, eff_ty)
+    pan_x, pan_y = roi_translation_to_pan(eff_tx, eff_ty,
+                                          pan_scale_um=pan_scale_um)
     w_um, h_um = geo["bbox_um"]
     zoom = bbox_to_zoom(w_um, h_um, fov_at_zoom1_um, margin=margin)
     return (pan_x, pan_y, zoom)
 
 
 def mask_contour_to_roi(contour_pixels, stage_x_um, stage_y_um,
-                        pan_x, pan_y, pixel_size_um, image_size=512):
+                        pan_x, pan_y, pixel_size_um, image_size=512, *,
+                        pan_scale_um):
     """Convert a segmentation mask contour to ROI vertices + translation.
 
     Takes a list of pixel coordinates from a segmentation mask contour
@@ -857,6 +892,10 @@ def mask_contour_to_roi(contour_pixels, stage_x_um, stage_y_um,
     translation that positions the shape at the correct absolute
     location.
 
+    **PAN_SCALE is objective-dependent** when pan_x/pan_y are non-zero.
+    Pass ``pan_scale_um`` resolved from the current objective's base FOV
+    via :func:`pan_scale_um_from_base_fov`. Required.
+
     Args:
         contour_pixels: List of ``(px, py)`` pixel coordinates tracing
             the mask boundary.
@@ -864,6 +903,7 @@ def mask_contour_to_roi(contour_pixels, stage_x_um, stage_y_um,
         pan_x, pan_y: Pan values when the image was taken.
         pixel_size_um: Size of one pixel in um.
         image_size: Image dimension in pixels (default 512).
+        pan_scale_um: um per unit pan for the current objective. Required.
 
     Returns:
         ``(vertices_m, translation_m)`` tuple:
@@ -874,7 +914,8 @@ def mask_contour_to_roi(contour_pixels, stage_x_um, stage_y_um,
     # Convert all contour pixels to absolute um
     abs_points = [
         pixel_to_absolute_um(px, py, stage_x_um, stage_y_um,
-                             pan_x, pan_y, pixel_size_um, image_size)
+                             pan_x, pan_y, pixel_size_um, image_size,
+                             pan_scale_um=pan_scale_um)
         for px, py in contour_pixels
     ]
 

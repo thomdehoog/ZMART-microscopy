@@ -819,19 +819,30 @@ move_xy = move_xy_stage
 
 
 # ── Galvo pan limits ────────────────────────────────────────────────
-_PAN_LIMIT = 0.00775          # max pan value in either axis
-_PAN_SCALE = 100_000.0        # 1 pan unit = 100,000 um
+_PAN_LIMIT = 0.00775          # max pan value in either axis (objective-
+                              # independent: fraction of galvo deflection)
 
 
 def move_xy_galvo(client, x, y, unit="um", *, job_name=None):
     """Move the galvo (pan) to point at an absolute XY position.
 
     Computes the pan offset from the current stage position and applies
-    it via ``apply_lrp_change``.  The stage does **not** move.
+    it via ``apply_lrp_change``. The stage does **not** move.
 
     Both ``move_xy_stage`` and ``move_xy_galvo`` accept the same
     coordinate system (absolute um), so targets from ``get_xy`` or
-    ``pixel_to_stage_um`` work with either function.
+    ``pixel_to_absolute_um`` work with either function.
+
+    **PAN_SCALE is objective-dependent**: sample displacement per unit of
+    pan = ``base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``. The angular
+    galvo range (``PAN_LIMIT = 0.00775``) and the max-pan-to-FOV fraction
+    (``GALVO_FIELD_FRACTION = 0.667``) are scope-level constants (see
+    ``lasx/utils.py``). Only the objective's base FOV changes — so this
+    function resolves ``pan_scale_um`` at call time via
+    :func:`pan_scale_um_from_base_fov`, yielding ~100 000 on 10x, ~50 000
+    on 20x, ~25 000 on 40x. The reachable um range at max pan therefore
+    scales with base FOV too: ~775 um on 10x, ~388 um on 20x, ~194 um on
+    40x.
 
     Args:
         client: LAS X API client.
@@ -840,11 +851,13 @@ def move_xy_galvo(client, x, y, unit="um", *, job_name=None):
         job_name: Job whose pan to modify (default: selected job).
 
     Returns:
-        dict with ``success``, ``pan``, ``offset_um``, ``message``.
+        dict with ``success``, ``pan``, ``offset_um``, ``pan_scale_um``,
+        ``message``.
     """
-    from .readers import get_xy, get_selected_job
+    from .readers import get_xy, get_selected_job, get_base_fov
     from .scanning_templates import TEMPLATE_XML, apply_lrp_change
     from .scanning_template_editors_scan import lrp_set_pan
+    from .utils import pan_scale_um_from_base_fov
 
     # Convert to um
     if unit == "mm":
@@ -861,31 +874,44 @@ def move_xy_galvo(client, x, y, unit="um", *, job_name=None):
             job_name = selected.get("Name")
     if not job_name:
         return {"success": False, "pan": None, "offset_um": None,
+                "pan_scale_um": None,
                 "message": "No job name provided and no job selected"}
+
+    # Resolve pan_scale from the current objective's base FOV
+    base_fov_m = get_base_fov(client, job_name)
+    if not base_fov_m:
+        return {"success": False, "pan": None, "offset_um": None,
+                "pan_scale_um": None,
+                "message": "Could not read base FOV to resolve pan scale"}
+    base_fov_um = base_fov_m[0] * 1e6
+    pan_scale_um = pan_scale_um_from_base_fov(base_fov_um)
 
     # Read current stage position
     stage = get_xy(client)
     if stage is None:
         return {"success": False, "pan": None, "offset_um": None,
+                "pan_scale_um": pan_scale_um,
                 "message": "Failed to read stage position"}
 
     # Compute offset from stage center
     offset_x_um = x_um - stage["x_um"]
     offset_y_um = y_um - stage["y_um"]
 
-    # Convert to pan values
-    pan_x = offset_x_um / _PAN_SCALE
-    pan_y = offset_y_um / _PAN_SCALE
+    # Convert to pan values using the resolved, objective-specific scale
+    pan_x = offset_x_um / pan_scale_um
+    pan_y = offset_y_um / pan_scale_um
 
-    # Range check
+    # Range check (in pan units — the angular limit is objective-independent)
     if abs(pan_x) > _PAN_LIMIT or abs(pan_y) > _PAN_LIMIT:
         return {
             "success": False, "pan": (pan_x, pan_y),
             "offset_um": (offset_x_um, offset_y_um),
+            "pan_scale_um": pan_scale_um,
             "message": (
                 f"Target is {max(abs(offset_x_um), abs(offset_y_um)):.1f} um "
                 f"from stage center, exceeds galvo range "
-                f"({_PAN_LIMIT * _PAN_SCALE:.0f} um). Move stage first."
+                f"({_PAN_LIMIT * pan_scale_um:.0f} um on this objective). "
+                f"Move stage first."
             ),
         }
 
@@ -903,6 +929,7 @@ def move_xy_galvo(client, x, y, unit="um", *, job_name=None):
         "success": success,
         "pan": (pan_x, pan_y),
         "offset_um": (offset_x_um, offset_y_um),
+        "pan_scale_um": pan_scale_um,
         "message": "OK" if success else "apply_lrp_change failed",
     }
 

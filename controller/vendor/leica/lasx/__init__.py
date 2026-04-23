@@ -58,7 +58,8 @@ __all__ = [
     # version
     "__version__", "log",
     # config
-    "RECEIPT_TIMEOUT", "CONFIRM_TIMEOUT", "PAN_SCALE",
+    "RECEIPT_TIMEOUT", "CONFIRM_TIMEOUT",
+    "PAN_LIMIT", "GALVO_FIELD_FRACTION", "pan_scale_um_from_base_fov",
     # utils
     "_safe_float", "_hw_get", "parse_format", "format_to_str",
     "_make_timing", "_make_log_entry", "parse_tile_geometry",
@@ -234,7 +235,10 @@ from .prechecks import check_idle
 from .confirmations import _readback
 
 # ── Core dispatch ───────────────────────────────────────────────────
-from .utils import RECEIPT_TIMEOUT, CONFIRM_TIMEOUT, PAN_SCALE  # noqa: F401
+from .utils import (  # noqa: F401
+    RECEIPT_TIMEOUT, CONFIRM_TIMEOUT,
+    PAN_LIMIT, GALVO_FIELD_FRACTION, pan_scale_um_from_base_fov,
+)
 
 from .core import (
     _fire_with_receipt,

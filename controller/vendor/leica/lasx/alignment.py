@@ -45,7 +45,6 @@ Usage::
 import json
 import logging
 
-from .utils import PAN_SCALE
 
 log = logging.getLogger(__name__)
 
@@ -154,17 +153,23 @@ def translate_xy(x_um, y_um, from_slot, to_slot, alignment):
     return _translate(x_um, y_um, from_slot, to_slot, alignment, "image_xy_um")
 
 
-def translate_pan(pan_x, pan_y, from_slot, to_slot, alignment):
+def translate_pan(pan_x, pan_y, from_slot, to_slot, alignment, *,
+                  from_pan_scale_um, to_pan_scale_um):
     """Translate galvo pan from one objective's space to another.
 
     Uses only the **image** offset — the optical center misalignment
-    measured by cross-correlation.  Pan coordinates are in pan units
-    (1 unit = 100,000 um).
+    measured by cross-correlation. Pan is a dimensionless angular
+    fraction; the um-displacement-per-unit-pan is objective-dependent
+    via ``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``
+    (see ``lasx/utils.py`` and :func:`pan_scale_um_from_base_fov`), so
+    cross-objective pan translation must divide the ``from`` offset by
+    ``from_pan_scale_um`` and the ``to`` offset by ``to_pan_scale_um``.
+    Both are required.
 
     .. note::
 
        Whether galvo pan requires parcentric correction is still an
-       open question.  The image offset is measured, but it is not yet
+       open question. The image offset is measured, but it is not yet
        confirmed that applying it as a pan correction produces the
        expected result on the microscope.
 
@@ -173,6 +178,10 @@ def translate_pan(pan_x, pan_y, from_slot, to_slot, alignment):
         from_slot: Objective slot the pan was recorded under.
         to_slot: Objective slot to translate to.
         alignment: Alignment dict from :func:`load_alignment`.
+        from_pan_scale_um: um per unit pan for *from_slot*'s objective.
+            Required.
+        to_pan_scale_um: um per unit pan for *to_slot*'s objective.
+            Required.
 
     Returns:
         (pan_x, pan_y) in *to_slot*'s pan space.
@@ -183,8 +192,8 @@ def translate_pan(pan_x, pan_y, from_slot, to_slot, alignment):
     t = _get_offset(to_slot, alignment)
     fx, fy = f["image_xy_um"]
     tx, ty = t["image_xy_um"]
-    return (pan_x - fx / PAN_SCALE + tx / PAN_SCALE,
-            pan_y - fy / PAN_SCALE + ty / PAN_SCALE)
+    return (pan_x - fx / from_pan_scale_um + tx / to_pan_scale_um,
+            pan_y - fy / from_pan_scale_um + ty / to_pan_scale_um)
 
 
 def translate_z(z_um, from_slot, to_slot, alignment):

@@ -132,7 +132,9 @@ settings = get_job_settings(client, job)
 geo = parse_tile_geometry(settings)
 pixel_size_um = geo["pixel_w_um"]
 fov_at_zoom1_um = geo["tile_w_um"]  # at current zoom=1 after reset
-print(f"  Pixel size: {pixel_size_um:.4f} um, FOV at zoom 1: {fov_at_zoom1_um:.1f} um")
+pan_scale_um = drv.pan_scale_um_from_base_fov(fov_at_zoom1_um)
+print(f"  Pixel size: {pixel_size_um:.4f} um, FOV at zoom 1: {fov_at_zoom1_um:.1f} um, "
+      f"pan_scale: {pan_scale_um:.1f} um/unit")
 
 # ── Test 1: move_xy_galvo basic ─────────────────────────────────────────
 
@@ -265,9 +267,10 @@ if rois:
           f"expected {star_y:.1f}, got {abs_y:.1f}")
 
     # Verify pan from translation
-    pan_x, pan_y = roi_translation_to_pan(read_tx, read_ty)
-    expected_pan_x = 30 / 100_000
-    expected_pan_y = -20 / 100_000
+    pan_x, pan_y = roi_translation_to_pan(read_tx, read_ty,
+                                          pan_scale_um=pan_scale_um)
+    expected_pan_x = 30 / pan_scale_um
+    expected_pan_y = -20 / pan_scale_um
     check("roi_translation_to_pan X",
           abs(pan_x - expected_pan_x) < 1e-6,
           f"expected {expected_pan_x}, got {pan_x}")
@@ -284,6 +287,7 @@ if rois:
     pan_x, pan_y = roi_translation_to_pan(
         float(t.get("TranslationX", 0)),
         float(t.get("TranslationY", 0)),
+        pan_scale_um=pan_scale_um,
     )
 
     def pan_to_roi(p):
@@ -327,15 +331,18 @@ print(f"\n  --- pixel_to_absolute_um ---")
 
 # Center pixel at zero pan should equal stage position
 cx, cy = pixel_to_absolute_um(256, 256, stage["x_um"], stage["y_um"],
-                               0, 0, pixel_size_um)
+                               0, 0, pixel_size_um,
+                               pan_scale_um=pan_scale_um)
 check("center pixel = stage position",
       abs(cx - stage["x_um"]) < 0.1 and abs(cy - stage["y_um"]) < 0.1)
 
 # Symmetric: pixel 0 and 512 should be equidistant from center
 x0, _ = pixel_to_absolute_um(0, 256, stage["x_um"], stage["y_um"],
-                              0, 0, pixel_size_um)
+                              0, 0, pixel_size_um,
+                              pan_scale_um=pan_scale_um)
 x512, _ = pixel_to_absolute_um(512, 256, stage["x_um"], stage["y_um"],
-                                0, 0, pixel_size_um)
+                                0, 0, pixel_size_um,
+                                pan_scale_um=pan_scale_um)
 offset0 = abs(x0 - stage["x_um"])
 offset512 = abs(x512 - stage["x_um"])
 check("pixel 0 and 512 equidistant from center",
@@ -345,24 +352,28 @@ check("pixel 0 and 512 equidistant from center",
 # Smaller pixel size → smaller physical offset per pixel
 ps_small = pixel_size_um / 8
 cx_small, cy_small = pixel_to_absolute_um(256, 256, stage["x_um"], stage["y_um"],
-                                           0, 0, ps_small)
+                                           0, 0, ps_small,
+                                           pan_scale_um=pan_scale_um)
 check("center pixel unchanged at smaller pixel size",
       abs(cx_small - stage["x_um"]) < 0.1 and abs(cy_small - stage["y_um"]) < 0.1)
 
 x0_small, _ = pixel_to_absolute_um(0, 256, stage["x_um"], stage["y_um"],
-                                    0, 0, ps_small)
+                                    0, 0, ps_small,
+                                    pan_scale_um=pan_scale_um)
 offset0_small = abs(x0_small - stage["x_um"])
 check("8x smaller pixel → 8x smaller range",
       abs(offset0_small - offset0 / 8) < 1,
       f"full={offset0:.1f}, small={offset0_small:.1f}, ratio={offset0/offset0_small:.1f}")
 
-# With pan offset, center pixel should shift
-pan_offset = 0.0005  # 50 um
+# With pan offset, center pixel should shift by pan * pan_scale_um
+pan_offset = 0.0005
+expected_shift_um = pan_offset * pan_scale_um
 cx_pan, _ = pixel_to_absolute_um(256, 256, stage["x_um"], stage["y_um"],
-                                   pan_offset, 0, pixel_size_um)
-check("pan shifts center pixel",
-      abs(cx_pan - (stage["x_um"] + 50)) < 1,
-      f"expected ~{stage['x_um'] + 50:.1f}, got {cx_pan:.1f}")
+                                   pan_offset, 0, pixel_size_um,
+                                   pan_scale_um=pan_scale_um)
+check("pan shifts center pixel by pan*pan_scale",
+      abs(cx_pan - (stage["x_um"] + expected_shift_um)) < 1,
+      f"expected ~{stage['x_um'] + expected_shift_um:.1f}, got {cx_pan:.1f}")
 
 # ── Test 10: mask_contour_to_roi ───────────────────────────────────────
 
@@ -371,7 +382,8 @@ print(f"\n  --- mask_contour_to_roi ---")
 # Create a square contour in pixel space
 contour = [(200, 200), (300, 200), (300, 300), (200, 300)]
 verts_m, (tx_m, ty_m) = mask_contour_to_roi(
-    contour, stage["x_um"], stage["y_um"], 0, 0, pixel_size_um=pixel_size_um)
+    contour, stage["x_um"], stage["y_um"], 0, 0,
+    pixel_size_um=pixel_size_um, pan_scale_um=pan_scale_um)
 
 check("4 vertices returned", len(verts_m) == 4)
 
@@ -451,7 +463,8 @@ if rois:
     rty = float(t.get("TranslationY", 0))
 
     # Compute pan + zoom from ROI
-    pan_x, pan_y = roi_translation_to_pan(rtx, rty)
+    pan_x, pan_y = roi_translation_to_pan(rtx, rty,
+                                          pan_scale_um=pan_scale_um)
     vs = roi.get("_Vertices", [])
     w = (max(v["X"] for v in vs) - min(v["X"] for v in vs)) * 1e6
     h = (max(v["Y"] for v in vs) - min(v["Y"] for v in vs)) * 1e6
