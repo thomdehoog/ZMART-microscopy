@@ -62,6 +62,15 @@ Check the setting at runtime via::
     for conversions — the former takes ``pan_scale_um`` as a required
     kwarg.
 
+**Critical ordering rule** (solved 2026-04-23): when applying pan via
+``apply_lrp_change`` + ``lrp_set_pan``, call ``set_zoom(target_zoom)``
+FIRST and write the pan AFTER. If zoom is changed after the pan write,
+LAS X silently re-clamps pan during the zoom transition (observed on
+40× DRY: target pan_y = 0.00431 trimmed to 0.00194). The manual GUI
+arrow buttons take a different path and do not clamp — so this is an
+API-path issue, not a hardware limit. No error is raised; only the
+readback reveals the clamp. See ``feedback_pan_then_zoom_clamps.md``.
+
 **Important:** ROI sizes must match the current scan field (FOV).
 Use ``get_fov()`` from ``readers`` to query the FOV in metres,
 then size shapes as a fraction of it::
