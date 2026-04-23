@@ -157,6 +157,13 @@ __all__ = [
     "rename_and_move", "confirm_arrival", "confirm_acquisition",
     # alignment
     "load_alignment", "translate_xy", "translate_pan", "translate_z", "translate_xyz",
+    # objective_offsets
+    "measure_objective_switch_offsets",
+    "save_objective_offsets", "load_objective_offsets",
+    "reference_to_objective_command_xy",
+    "objective_by_slot", "objective_summary", "validate_slots",
+    "default_archive_dir", "default_current_path",
+    "SCHEMA_VERSION", "COORDINATE_POLICY", "MIN_SETTLE_S",
 ]
 
 # ── Utilities ────────────────────────────────────────────────────────
@@ -418,6 +425,22 @@ from .alignment import (
     translate_pan,
     translate_z,
     translate_xyz,
+)
+
+# ── Objective switch motor-offset measurement ───────────────────
+from .objective_offsets import (
+    SCHEMA_VERSION,
+    COORDINATE_POLICY,
+    MIN_SETTLE_S,
+    measure_objective_switch_offsets,
+    save_objective_offsets,
+    load_objective_offsets,
+    reference_to_objective_command_xy,
+    objective_by_slot,
+    objective_summary,
+    validate_slots,
+    default_archive_dir,
+    default_current_path,
 )
 
 # ── Logging ─────────────────────────────────────────────────────────
