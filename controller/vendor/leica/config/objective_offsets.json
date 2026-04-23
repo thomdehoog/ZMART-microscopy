@@ -5,12 +5,12 @@
   "offsets": {
     "2": {
       "motor_delta_um": [
-        -7.021484374996362,
+        -7.021484375,
         21.07421875
       ],
       "reference_xy_um": [
-        31200.019531249996,
-        29000.019531249996
+        21660.8447265625,
+        18527.9638671875
       ],
       "target_objective": {
         "immersion": "DRY",
@@ -22,8 +22,8 @@
       },
       "target_slot": 2,
       "target_xy_um": [
-        31192.998046875,
-        29021.093749999996
+        21653.8232421875,
+        18549.0380859375
       ]
     }
   },
@@ -36,19 +36,32 @@
     "slot": 1
   },
   "reference_slot": 1,
-  "residual_xy_correction": {
-    "enabled": false,
-    "reason": "optical parcentric residual intentionally not measured"
-  },
-  "schema_version": 1,
+  "schema_version": 2,
   "settle_s": 3.0,
-  "start_objective": {
-    "immersion": "DRY",
-    "magnification": 10.0,
-    "name": "HC PL APO CS2    10x/0.40 DRY",
-    "numerical_aperture": 0.4,
-    "objective_number": 11506424,
-    "slot": 1
+  "sign_convention": {
+    "fitted_matrix": [
+      [
+        0.03182014068532735,
+        1.0210521614027097
+      ],
+      [
+        -1.209165346042439,
+        0.07019148680586915
+      ]
+    ],
+    "image_to_stage_um_per_um": [
+      [
+        0.0,
+        1.0
+      ],
+      [
+        -1.0,
+        0.0
+      ]
+    ],
+    "label": "+Y -X",
+    "move_um": 30.0,
+    "residual_from_d4": 0.22390333105613125
   },
-  "timestamp": "20260423_115559"
+  "timestamp": "20260423_134432"
 }

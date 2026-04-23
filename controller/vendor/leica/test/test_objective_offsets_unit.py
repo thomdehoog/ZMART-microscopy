@@ -78,35 +78,148 @@ class TestSlotValidation(unittest.TestCase):
             offsets.validate_slots(HW_INFO, 1, [])
 
 
-class TestReferenceToObjectiveCommandXy(unittest.TestCase):
+class TestPixelToStageXyUm(unittest.TestCase):
 
-    def _config(self, deltas):
+    def _config_with_sign(self, matrix):
         return {
             "schema_version": offsets.SCHEMA_VERSION,
-            "reference_slot": 1,
+            "sign_convention": {"image_to_stage_um_per_um": matrix},
+        }
+
+    def test_identity_matrix(self):
+        cfg = self._config_with_sign([[1, 0], [0, 1]])
+        # Pixel at image centre → stage XY unchanged
+        x, y = offsets.pixel_to_stage_xy_um(
+            256, 256, (100.0, 200.0), 1.0, 512, cfg,
+        )
+        self.assertEqual((x, y), (100.0, 200.0))
+
+    def test_identity_offset_from_centre(self):
+        cfg = self._config_with_sign([[1, 0], [0, 1]])
+        # Pixel 10 to the right of centre → stage +10 um in X
+        x, y = offsets.pixel_to_stage_xy_um(
+            266, 256, (100.0, 200.0), 1.0, 512, cfg,
+        )
+        self.assertAlmostEqual(x, 110.0)
+        self.assertAlmostEqual(y, 200.0)
+
+    def test_minus_x_plus_y_matrix(self):
+        # Scope: image +X = stage -X, image +Y = stage +Y
+        cfg = self._config_with_sign([[-1, 0], [0, 1]])
+        x, y = offsets.pixel_to_stage_xy_um(
+            266, 266, (100.0, 200.0), 1.0, 512, cfg,
+        )
+        self.assertAlmostEqual(x, 90.0)    # -10 um
+        self.assertAlmostEqual(y, 210.0)   # +10 um
+
+    def test_axis_swap_matrix(self):
+        # Scope with 90° rotation: image +X = stage +Y, image +Y = stage +X
+        cfg = self._config_with_sign([[0, 1], [1, 0]])
+        x, y = offsets.pixel_to_stage_xy_um(
+            266, 256, (100.0, 200.0), 1.0, 512, cfg,
+        )
+        # Image offset = (+10, 0) um → stage offset = (0, +10) um
+        self.assertAlmostEqual(x, 100.0)
+        self.assertAlmostEqual(y, 210.0)
+
+    def test_raises_when_sign_convention_missing(self):
+        cfg = {"schema_version": offsets.SCHEMA_VERSION,
+               "sign_convention": None}
+        with self.assertRaisesRegex(ValueError, "sign_convention"):
+            offsets.pixel_to_stage_xy_um(
+                0, 0, (0.0, 0.0), 1.0, 512, cfg,
+            )
+
+    def test_pixel_size_scales_linearly(self):
+        cfg = self._config_with_sign([[1, 0], [0, 1]])
+        # 10 pixels at 0.5 um/px → 5 um offset
+        x, y = offsets.pixel_to_stage_xy_um(
+            266, 256, (0.0, 0.0), 0.5, 512, cfg,
+        )
+        self.assertAlmostEqual(x, 5.0)
+        self.assertAlmostEqual(y, 0.0)
+
+
+class TestCoordinateConversion(unittest.TestCase):
+
+    def _config(self, deltas, reference_slot=1):
+        return {
+            "schema_version": offsets.SCHEMA_VERSION,
+            "reference_slot": reference_slot,
             "offsets": {
                 str(slot): {"motor_delta_um": list(d)}
                 for slot, d in deltas.items()
             },
         }
 
-    def test_adds_motor_delta(self):
+    # reference_to_objective_command_xy (common case: source == reference)
+
+    def test_reference_wrapper_adds_motor_delta(self):
         config = self._config({2: (-7.0, 21.0)})
         x, y = offsets.reference_to_objective_command_xy(100.0, 200.0, config, 2)
         self.assertEqual((x, y), (93.0, 221.0))
 
-    def test_accepts_string_slot(self):
+    def test_reference_wrapper_accepts_string_slot(self):
         config = self._config({2: (-7.0, 21.0)})
         x, y = offsets.reference_to_objective_command_xy(0.0, 0.0, config, "2")
         self.assertEqual((x, y), (-7.0, 21.0))
 
-    def test_raises_value_error_on_missing_slot(self):
+    def test_reference_wrapper_raises_on_missing_slot(self):
         config = self._config({2: (-7.0, 21.0)})
         with self.assertRaises(ValueError) as cm:
             offsets.reference_to_objective_command_xy(0.0, 0.0, config, 3)
-        msg = str(cm.exception)
-        self.assertIn("slot 3", msg)
-        self.assertIn("Available", msg)
+        self.assertIn("slot 3", str(cm.exception))
+
+    # translate_stage_xy_between_objectives (general case, both directions)
+
+    def test_forward_from_reference(self):
+        config = self._config({2: (-7.0, 21.0)})
+        x, y = offsets.translate_stage_xy_between_objectives(
+            100.0, 200.0, config, from_slot=1, to_slot=2
+        )
+        self.assertEqual((x, y), (93.0, 221.0))
+
+    def test_reverse_to_reference(self):
+        config = self._config({2: (-7.0, 21.0)})
+        x, y = offsets.translate_stage_xy_between_objectives(
+            93.0, 221.0, config, from_slot=2, to_slot=1
+        )
+        self.assertEqual((x, y), (100.0, 200.0))
+
+    def test_forward_and_reverse_are_inverse(self):
+        config = self._config({2: (-7.0, 21.0)})
+        x1, y1 = offsets.translate_stage_xy_between_objectives(
+            100.0, 200.0, config, from_slot=1, to_slot=2
+        )
+        x2, y2 = offsets.translate_stage_xy_between_objectives(
+            x1, y1, config, from_slot=2, to_slot=1
+        )
+        self.assertAlmostEqual(x2, 100.0)
+        self.assertAlmostEqual(y2, 200.0)
+
+    def test_identity_when_from_equals_to(self):
+        config = self._config({2: (-7.0, 21.0)})
+        x, y = offsets.translate_stage_xy_between_objectives(
+            100.0, 200.0, config, from_slot=2, to_slot=2
+        )
+        self.assertEqual((x, y), (100.0, 200.0))
+
+    def test_three_slots_non_reference_pair(self):
+        # Neither from_slot nor to_slot is the reference slot.
+        config = self._config({2: (-7.0, 21.0), 3: (-20.0, 40.0)})
+        x, y = offsets.translate_stage_xy_between_objectives(
+            100.0, 200.0, config, from_slot=2, to_slot=3
+        )
+        # cmd = xy + delta(3) - delta(2) = (100, 200) + (-20, 40) - (-7, 21)
+        self.assertEqual((x, y), (87.0, 219.0))
+
+    def test_raises_on_unknown_slot(self):
+        config = self._config({2: (-7.0, 21.0)})
+        with self.assertRaises(ValueError) as cm:
+            offsets.translate_stage_xy_between_objectives(
+                0.0, 0.0, config, from_slot=1, to_slot=99
+            )
+        self.assertIn("slot 99", str(cm.exception))
 
 
 class TestSaveAndLoad(unittest.TestCase):
@@ -171,23 +284,17 @@ class TestMeasureObjectiveSwitchOffsets(unittest.TestCase):
 
     def _patch(self, calls, xy_values, idle_ok=True):
         """Monkey-patch the hardware-facing dependencies of the measurement."""
-        def fake_switch(client, job_name, hw_info, slot, *, settle_s,
-                        pre_check_timeout):
+        def fake_switch(client, job_name, hw_info, slot, *, settle_s):
             calls.append(slot)
-            return {"success": True}
 
         originals = {
             "_switch_slot": offsets._switch_slot,
             "get_xy": offsets.get_xy,
-            "get_job_settings": offsets.get_job_settings,
             "check_idle": offsets.check_idle,
         }
         offsets._switch_slot = fake_switch
         offsets.get_xy = lambda client: next(xy_values)
-        offsets.get_job_settings = lambda client, job_name: {
-            "objective": {"slotIndex": 1}
-        }
-        offsets.check_idle = lambda client, timeout=5.0: {"success": idle_ok}
+        offsets.check_idle = lambda client, timeout: {"success": idle_ok}
 
         def restore():
             for name, fn in originals.items():
@@ -221,7 +328,8 @@ class TestMeasureObjectiveSwitchOffsets(unittest.TestCase):
 
         self.assertEqual(config["reference_slot"], 1)
         self.assertEqual(config["reference_objective"]["slot"], 1)
-        self.assertFalse(config["residual_xy_correction"]["enabled"])
+        self.assertNotIn("start_objective", config)
+        self.assertNotIn("residual_xy_correction", config)
 
     def test_multiple_targets(self):
         calls = []
@@ -269,6 +377,31 @@ class TestMeasureObjectiveSwitchOffsets(unittest.TestCase):
                 job_name="Overview", hw_info=HW_INFO,
                 settle_s=0.0,
             )
+
+    def test_sign_convention_passes_through(self):
+        calls = []
+        xy = iter([
+            {"x_um": 0.0, "y_um": 0.0},
+            {"x_um": 1.0, "y_um": 2.0},
+        ])
+        restore = self._patch(calls, xy)
+        sign = {
+            "image_to_stage_um_per_um": [[-1, 0], [0, 1]],
+            "label": "-X +Y",
+            "move_um": 5.0,
+            "residual_from_d4": 0.0,
+        }
+        try:
+            config = offsets.measure_objective_switch_offsets(
+                object(), 1, [2],
+                job_name="Overview", hw_info=HW_INFO,
+                settle_s=1.0, restore_reference=False,
+                sign_convention=sign,
+            )
+        finally:
+            restore()
+        self.assertEqual(config["sign_convention"], sign)
+        self.assertEqual(config["schema_version"], 2)
 
     def test_aborts_when_lasx_not_idle(self):
         calls = []

@@ -1,21 +1,70 @@
 """
-Objective switch motor-offset measurement.
-==========================================
+Objective-switch calibration: library layer.
+============================================
 
-Measures the change in reported stage XY when LAS X switches from a reference
-objective slot to one or more target objective slots. The LAS X XY readback
-is deterministic for a given objective plus commanded stage position, so a
-single switch per target captures the full information — no repeats.
+Pure-Python building blocks for the two-phase objective-switch calibration.
+No image-processing dependencies live here — registration and Cellpose are
+confined to the hardware scripts in ``test/`` and ``examples/``.
 
-This module does not do image registration and does not estimate optical
-parcentric residuals.
+What this module provides
+    - :func:`measure_objective_switch_offsets` — measures the stage XY
+      readback delta caused by switching objectives (one switch per target).
+    - :func:`save_objective_offsets`, :func:`load_objective_offsets` —
+      atomic read/write of the calibration config.
+    - :func:`pixel_to_stage_xy_um` — pixel → stage µm conversion that
+      applies the scope-specific image→stage 2×2 transform stored in the
+      config's ``sign_convention`` block.
+    - :func:`translate_stage_xy_between_objectives` — convert a stage XY
+      between objective coordinate frames, in either direction.
 
-Coordinate policy:
-    - Store detected targets in the reference objective coordinate frame.
-    - If you move to a target under the reference objective and then switch
-      objectives, do not apply the measured motor delta again.
-    - Use the measured motor delta only when issuing direct XY commands while
-      already operating under a non-reference objective coordinate frame.
+Config schema (v2)::
+
+    {
+      "schema_version": 2,
+      "timestamp": "YYYYMMDD_HHMMSS",
+      "method": "objective_switch_stage_xy_readback",
+      "coordinate_policy": "...",
+      "job": "<LAS X job name>",
+      "reference_slot": <int>,
+      "reference_objective": {slot, name, magnification, ...},
+      "sign_convention": {
+          "image_to_stage_um_per_um": [[a, b], [c, d]],   # D4-snapped 2x2
+          "label": "+Y -X",                               # human label
+          "move_um": 30.0,                                # test-move size
+          "fitted_matrix": [[...], [...]],                # pre-snap fit
+          "residual_from_d4": <float>                     # fit quality
+      },
+      "settle_s": 3.0,
+      "offsets": {
+          "<target_slot>": {
+              "target_slot": <int>,
+              "target_objective": {...},
+              "reference_xy_um": [x, y],
+              "target_xy_um":    [x, y],
+              "motor_delta_um":  [dx, dy]
+          },
+          ...
+      }
+    }
+
+Coordinate policy
+    - Detected targets are stored in the reference objective coordinate frame.
+    - If the protocol moves to a target under the reference objective and
+      then switches objectives, the motor delta must NOT be applied again —
+      the objective switch already accounts for it.
+    - The motor delta is applied only when issuing direct XY commands while
+      already operating under a non-reference objective.
+
+Validated on hardware (ZMB STELLARIS 8, 10x → 20x, 2026-04-23)
+    - motor delta reproducible to bit-exact across repeats (LAS X readback
+      is deterministic; repeats add no information).
+    - sign convention: measured image→stage matrix snaps cleanly to
+      ``[[0, 1], [-1, 0]]`` (label "+Y -X") — image and stage are rotated
+      90° relative to each other on this scope.
+    - end-to-end stage-only targeting: ~9 µm landing error, consistent with
+      the motorized stage's settle accuracy. For sub-µm targeting the
+      protocol needs galvo pan or image-based refinement (out of scope
+      here).
 """
 
 import json
@@ -27,15 +76,16 @@ from time import sleep
 
 from .commands import set_objective
 from .prechecks import check_idle
-from .readers import get_hardware_info, get_job_settings, get_selected_job, get_xy
+from .readers import get_hardware_info, get_xy
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 COORDINATE_POLICY = (
     "targets_in_reference_frame; switch_at_target; motor_delta_is_readback_only"
 )
 MIN_SETTLE_S = 0.5
+IDLE_TIMEOUT_S = 5.0
 
 
 # ── Objective metadata ─────────────────────────────────────────────
@@ -108,15 +158,11 @@ def _xy_um(xy):
         raise RuntimeError(f"Invalid XY readback: {xy!r}") from exc
 
 
-def _switch_slot(client, job_name, hw_info, slot, *, settle_s, pre_check_timeout):
-    result = set_objective(
-        client, job_name, hw_info,
-        slot_index=slot, pre_check_timeout=pre_check_timeout,
-    )
+def _switch_slot(client, job_name, hw_info, slot, *, settle_s):
+    result = set_objective(client, job_name, hw_info, slot_index=slot)
     if not result or not result.get("success"):
         raise RuntimeError(f"Objective switch to slot {slot} failed: {result}")
     sleep(settle_s)
-    return result
 
 
 def measure_objective_switch_offsets(
@@ -128,8 +174,7 @@ def measure_objective_switch_offsets(
     hw_info=None,
     settle_s=3.0,
     restore_reference=True,
-    pre_check_timeout=None,
-    idle_timeout=5.0,
+    sign_convention=None,
 ):
     """Measure the stage XY readback delta from one objective switch per target.
 
@@ -150,9 +195,9 @@ def measure_objective_switch_offsets(
             because confirm_objective returns before LAS X applies the new
             coordinate offset.
         restore_reference: Switch back to the reference slot at the end.
-        pre_check_timeout: Idle-wait timeout passed to each set_objective.
-        idle_timeout: Seconds to wait for LAS X idle before starting. A
-            pre-existing modal dialog or running scan will fail this check.
+        sign_convention: Optional image→stage transform dict, typically
+            produced by the measurement script's Phase 1 before this call.
+            Included in the returned config for `pixel_to_stage_xy_um`.
 
     Returns:
         JSON-serializable dict with objective metadata, per-target motor
@@ -171,19 +216,12 @@ def measure_objective_switch_offsets(
 
     by_slot = validate_slots(hw_info, reference_slot, target_slots)
 
-    idle = check_idle(client, timeout=idle_timeout)
+    idle = check_idle(client, timeout=IDLE_TIMEOUT_S)
     if not idle or not idle.get("success"):
         raise RuntimeError(
             f"LAS X not idle — dismiss any modal dialog and stop any "
             f"running scan, then retry. check_idle returned: {idle}"
         )
-
-    start_settings = get_job_settings(client, job_name) or {}
-    start_slot = start_settings.get("objective", {}).get("slotIndex")
-    start_objective = (
-        objective_summary(by_slot.get(int(start_slot)))
-        if start_slot is not None else None
-    )
 
     config = {
         "schema_version": SCHEMA_VERSION,
@@ -193,39 +231,26 @@ def measure_objective_switch_offsets(
         "job": job_name,
         "reference_slot": reference_slot,
         "reference_objective": objective_summary(by_slot[reference_slot]),
-        "start_objective": start_objective,
+        "sign_convention": sign_convention,
         "settle_s": settle_s,
-        "residual_xy_correction": {
-            "enabled": False,
-            "reason": "optical parcentric residual intentionally not measured",
-        },
         "offsets": {},
     }
 
     # Read the reference XY once — it is deterministic, so reuse it for every
     # target. Switching to the reference slot first guarantees a known state.
-    _switch_slot(
-        client, job_name, hw_info, reference_slot,
-        settle_s=settle_s, pre_check_timeout=pre_check_timeout,
-    )
+    _switch_slot(client, job_name, hw_info, reference_slot, settle_s=settle_s)
     ref_xy = _xy_um(get_xy(client))
-    log.info(
-        "reference slot=%d XY_um=(%.3f, %.3f)",
-        reference_slot, ref_xy[0], ref_xy[1],
-    )
+    log.info("reference slot=%d XY_um=(%.3f, %.3f)",
+             reference_slot, ref_xy[0], ref_xy[1])
 
     for idx, target_slot in enumerate(target_slots):
-        _switch_slot(
-            client, job_name, hw_info, target_slot,
-            settle_s=settle_s, pre_check_timeout=pre_check_timeout,
-        )
+        _switch_slot(client, job_name, hw_info, target_slot, settle_s=settle_s)
         target_xy = _xy_um(get_xy(client))
         motor_delta = [target_xy[0] - ref_xy[0], target_xy[1] - ref_xy[1]]
 
         log.info(
             "target slot=%d XY_um=(%.3f, %.3f)  motor_delta_um=(%+.3f, %+.3f)",
-            target_slot, target_xy[0], target_xy[1],
-            motor_delta[0], motor_delta[1],
+            target_slot, target_xy[0], target_xy[1], *motor_delta,
         )
 
         config["offsets"][str(target_slot)] = {
@@ -239,16 +264,12 @@ def measure_objective_switch_offsets(
         # Between targets, return to reference so the next measurement starts
         # from the same known state. The final restore is handled below.
         if idx != len(target_slots) - 1:
-            _switch_slot(
-                client, job_name, hw_info, reference_slot,
-                settle_s=settle_s, pre_check_timeout=pre_check_timeout,
-            )
+            _switch_slot(client, job_name, hw_info, reference_slot,
+                         settle_s=settle_s)
 
     if restore_reference:
-        _switch_slot(
-            client, job_name, hw_info, reference_slot,
-            settle_s=settle_s, pre_check_timeout=pre_check_timeout,
-        )
+        _switch_slot(client, job_name, hw_info, reference_slot,
+                     settle_s=settle_s)
 
     return config
 
@@ -297,23 +318,102 @@ def load_objective_offsets(path=None):
 
 # ── Coordinate conversion ─────────────────────────────────────────
 
-def reference_to_objective_command_xy(x_ref_um, y_ref_um, config, target_slot):
-    """Convert a reference-frame XY to an XY command under *target_slot*.
+def pixel_to_stage_xy_um(px, py, stage_xy_um, pixel_size_um, image_size, config):
+    """Convert image pixel coordinates to absolute stage XY (um).
 
-    Returns the value to pass to a direct XY move command while the target
-    objective is already active. Do NOT apply this to a target you just
-    reached via the switch-at-target workflow — the objective switch itself
-    already accounts for the delta, and adding it again would double-apply.
+    Uses the scope-specific image→stage 2×2 linear transform stored in
+    ``config["sign_convention"]["image_to_stage_um_per_um"]``. This
+    transform is measured empirically by the calibration script (by moving
+    the stage in X and Y and registering the images), so it captures any
+    reflection, 90° rotation, or small skew between the camera and stage
+    axes — no hardcoded sign assumptions.
+
+    Args:
+        px, py: Pixel coordinates (column, row), float OK.
+        stage_xy_um: ``(x_um, y_um)`` of the image centre in stage coords.
+        pixel_size_um: Pixel size in um.
+        image_size: Image dimension in pixels (assumed square).
+        config: Calibration config from :func:`load_objective_offsets`.
+
+    Returns:
+        ``(x_um, y_um)`` — absolute stage coordinate of the given pixel.
     """
-    slot_key = str(int(target_slot))
-    offsets = config.get("offsets") or {}
-    if slot_key not in offsets:
+    sign = (config or {}).get("sign_convention")
+    if not sign or "image_to_stage_um_per_um" not in sign:
         raise ValueError(
-            f"No offset measured for target slot {target_slot}. "
-            f"Available target slots in config: {sorted(int(k) for k in offsets)}"
+            "config is missing sign_convention; re-run the calibration "
+            "script (measure_objective_offsets.py) to include Phase 1."
         )
-    dx, dy = offsets[slot_key]["motor_delta_um"]
-    return float(x_ref_um) + float(dx), float(y_ref_um) + float(dy)
+    m = sign["image_to_stage_um_per_um"]
+
+    # Image-frame offset from centre, in um.
+    centre = image_size / 2.0
+    dx_image_um = (px - centre) * pixel_size_um
+    dy_image_um = (py - centre) * pixel_size_um
+
+    # Apply image→stage transform.
+    stage_dx = m[0][0] * dx_image_um + m[0][1] * dy_image_um
+    stage_dy = m[1][0] * dx_image_um + m[1][1] * dy_image_um
+
+    return stage_xy_um[0] + stage_dx, stage_xy_um[1] + stage_dy
+
+
+def translate_stage_xy_between_objectives(x_um, y_um, config, *, from_slot, to_slot):
+    """Translate a motorized-stage XY from *from_slot*'s readback frame to a
+    stage command under *to_slot*.
+
+    Works in either direction (reference → non-reference or vice versa) and
+    for any pair of slots the config covers. The caller does not need to
+    know which slot is the reference.
+
+    Do NOT apply this to a target you just reached via the switch-at-target
+    workflow — the objective switch itself already accounts for the delta,
+    and adding it again would double-apply.
+
+    This function handles only the motorized-stage delta. Galvo/pan and ROI
+    coordinates are not affected by objective switching in the same way and
+    are handled elsewhere.
+
+    Example:
+        cell_source = drv.pixel_to_absolute_um(...)            # (x, y) in slot 1 frame
+        cell_target = drv.translate_stage_xy_between_objectives(
+            *cell_source, offsets, from_slot=1, to_slot=2,
+        )                                                      # (x, y) as slot-2 stage command
+        drv.move_xy_stage(client, *cell_target, unit="um")
+    """
+    reference_slot = int(config["reference_slot"])
+    offsets = config.get("offsets") or {}
+
+    def _delta(slot):
+        slot = int(slot)
+        if slot == reference_slot:
+            return 0.0, 0.0
+        key = str(slot)
+        if key not in offsets:
+            raise ValueError(
+                f"No offset measured for slot {slot}. Available: "
+                f"reference={reference_slot}, "
+                f"offsets={sorted(int(k) for k in offsets)}"
+            )
+        dx, dy = offsets[key]["motor_delta_um"]
+        return float(dx), float(dy)
+
+    dxs, dys = _delta(from_slot)
+    dxt, dyt = _delta(to_slot)
+    return float(x_um) + (dxt - dxs), float(y_um) + (dyt - dys)
+
+
+def reference_to_objective_command_xy(x_ref_um, y_ref_um, config, target_slot):
+    """Translate a reference-frame XY to an XY command under *target_slot*.
+
+    Thin wrapper around :func:`translate_stage_xy_between_objectives` for
+    the common case where the source frame is the reference slot.
+    """
+    return translate_stage_xy_between_objectives(
+        x_ref_um, y_ref_um, config,
+        from_slot=config["reference_slot"],
+        to_slot=target_slot,
+    )
 
 
 # ── Internal helpers ──────────────────────────────────────────────
