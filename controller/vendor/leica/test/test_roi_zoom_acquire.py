@@ -112,22 +112,35 @@ print(f"  Target zoom: {zoom} (FOV={fov_at_zoom1_um / zoom:.1f} um)")
 print(f"  Target pan: ({pan_x:.6f}, {pan_y:.6f})")
 
 # ── Step 2: Clear ROI, zoom+pan to region ──────────────────────────────
+#
+# ORDER MATTERS: set zoom FIRST, then pan.
+# If pan is written and set_zoom is called AFTER to change zoom, LAS X
+# re-evaluates pan during the zoom change and silently clamps it to an
+# internal limit (observed on 40x objective: pan_y target 0.00431
+# trimmed to 0.00194). Setting zoom first, then writing pan in the
+# context of the final zoom, keeps the pan value intact. Verified on
+# ZMB STELLARIS 8 (2026-04-23).
 
 print("\n  Step 2: Removing ROI, zooming+panning to region...")
 
-# Step 2a: Clear ROIs and set pan via LRP
-def clear_and_pan(p):
+# Step 2a: Clear ROIs at the original zoom (no pan yet).
+def clear_rois(p):
     lrp_enable_roi_scan(p, False, job)
     lrp_clear_rois(p, job)
-    lrp_set_pan(p, pan_x, pan_y, job)
 
-apply_lrp_change(client, TEMPLATE_XML, clear_and_pan,
-                 confirm_delays=(2, 4, 6))
+apply_lrp_change(client, TEMPLATE_XML, clear_rois, confirm_delays=(2, 4, 6))
 
-# Step 2b: Set zoom via API (triggers hardware refresh that applies the pan)
+# Step 2b: Set zoom FIRST so the subsequent pan is applied at the final
+# zoom context and not re-clamped by a later zoom change.
 print(f"  Setting zoom={zoom} via API...")
 r_zoom = drv.set_zoom(client, job, zoom)
 print(f"  Zoom API: success={r_zoom['success']}, confirmed={r_zoom.get('confirmed')}")
+
+# Step 2c: Now write the pan (at the final zoom).
+def set_pan_only(p):
+    lrp_set_pan(p, pan_x, pan_y, job)
+
+apply_lrp_change(client, TEMPLATE_XML, set_pan_only, confirm_delays=(2, 4, 6))
 
 # Verify
 parsed = save_and_parse()

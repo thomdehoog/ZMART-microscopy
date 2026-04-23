@@ -241,9 +241,15 @@ if mag > 775:
           f"exceeds galvo pan range (775 um).")
     sys.exit(1)
 
-# ── Step 4: Galvo-pan + zoom to cell ────────────────────────────────────
+# ── Step 4: Zoom FIRST, then galvo-pan ─────────────────────────────────
+# Zoom must be set before pan — changing zoom after a pan write causes
+# LAS X to silently re-clamp pan (see move_xy_galvo docstring).
 
-print("\n  Step 3: move_xy_galvo + set_zoom(%.1f)..." % args.test_zoom)
+print("\n  Step 3: set_zoom(%.1f) then move_xy_galvo..." % args.test_zoom)
+r_zoom = drv.set_zoom(client, job, args.test_zoom)
+log.info("set_zoom: success=%s confirmed=%s",
+         r_zoom.get("success"), r_zoom.get("confirmed"))
+
 r_pan = drv.move_xy_galvo(client, cell_x_um, cell_y_um, unit="um",
                           job_name=job)
 log.info("move_xy_galvo: success=%s pan=%s offset_um=%s",
@@ -251,10 +257,6 @@ log.info("move_xy_galvo: success=%s pan=%s offset_um=%s",
 if not r_pan.get("success"):
     print(f"  ABORT: move_xy_galvo failed: {r_pan.get('message')}")
     sys.exit(1)
-
-r_zoom = drv.set_zoom(client, job, args.test_zoom)
-log.info("set_zoom: success=%s confirmed=%s",
-         r_zoom.get("success"), r_zoom.get("confirmed"))
 
 idle = drv.check_idle(client, timeout=10.0)
 if not idle or not idle.get("success"):

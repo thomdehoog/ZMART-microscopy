@@ -844,6 +844,14 @@ def move_xy_galvo(client, x, y, unit="um", *, job_name=None):
     scales with base FOV too: ~775 um on 10x, ~388 um on 20x, ~194 um on
     40x.
 
+    **Zoom-change ordering gotcha** (observed on STELLARIS 8, 2026-04-23):
+    if you call ``set_zoom`` AFTER this function and that call CHANGES
+    zoom (old != new), LAS X silently re-clamps pan during the zoom
+    change — even for pan values that were accepted by the LRP write.
+    On 40x this trimmed pan_y 0.00431 -> 0.00194. Workaround: call
+    ``set_zoom`` FIRST, then :func:`move_xy_galvo` (pan written at the
+    final zoom stays intact). No clamping if zoom does not change.
+
     Args:
         client: LAS X API client.
         x, y: Target coordinates in the specified unit.
