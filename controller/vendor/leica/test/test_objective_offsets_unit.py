@@ -83,7 +83,7 @@ class TestPixelToStageXyUm(unittest.TestCase):
     def _config_with_sign(self, matrix):
         return {
             "schema_version": offsets.SCHEMA_VERSION,
-            "sign_convention": {"image_to_stage_um_per_um": matrix},
+            "sign_convention": {"image_to_stage_um": matrix},
         }
 
     def test_identity_matrix(self):
@@ -94,44 +94,39 @@ class TestPixelToStageXyUm(unittest.TestCase):
         )
         self.assertEqual((x, y), (100.0, 200.0))
 
-    # These tests check pixel_to_stage_xy_um for a feature-at-pixel → feature's
-    # stage position. The stored matrix is the image→stage Jacobian (image
-    # shift per unit stage move); the function applies its *negation*, because
-    # to centre a feature in the image the stage must move to that feature's
-    # position — the opposite of where the image shift was heading.
+    # The stored matrix is the pixel→stage transform: it maps a feature's
+    # image offset (from image centre, in um) directly to the feature's
+    # stage offset from the current stage position. No sign flips in the
+    # consumer — the calibration computes this matrix in the right
+    # direction.
 
-    def test_identity_jacobian_offset_from_centre(self):
-        # Jacobian I means stage +X shifts features +X in image. A feature
-        # *already* at pixel +10 X would only get there if the stage had
-        # come from -10 X, so the feature sits at stage - 10 X.
+    def test_identity_matrix(self):
+        # Identity image-to-stage: image +10 X um -> stage +10 X um.
         cfg = self._config_with_sign([[1, 0], [0, 1]])
         x, y = offsets.pixel_to_stage_xy_um(
             266, 256, (100.0, 200.0), 1.0, 512, cfg,
         )
-        self.assertAlmostEqual(x, 90.0)
+        self.assertAlmostEqual(x, 110.0)
         self.assertAlmostEqual(y, 200.0)
 
-    def test_minus_identity_jacobian_normal_optics(self):
-        # -I Jacobian describes "normal" optics: stage +X shifts features -X
-        # in image. Feature at pixel +10 X is at stage + 10 X.
+    def test_reflection_both_axes(self):
+        # Both axes flipped: pixel +10 X -> stage -10 X; pixel +10 Y -> -10 Y.
         cfg = self._config_with_sign([[-1, 0], [0, -1]])
         x, y = offsets.pixel_to_stage_xy_um(
             266, 266, (100.0, 200.0), 1.0, 512, cfg,
         )
-        self.assertAlmostEqual(x, 110.0)
-        self.assertAlmostEqual(y, 210.0)
+        self.assertAlmostEqual(x, 90.0)
+        self.assertAlmostEqual(y, 190.0)
 
-    def test_plus_y_minus_x_jacobian_our_scope(self):
-        # Jacobian measured on the ZMB STELLARIS: [[0, 1], [-1, 0]]
-        # (stage +X → image +Y, stage +Y → image -X).
-        # Feature at image (+4.54, +43.13) um from centre is at stage
-        # (current + (-image_to_stage @ offset)) = current + (-43.13, +4.54).
-        cfg = self._config_with_sign([[0, 1], [-1, 0]])
+    def test_our_scope_minus_y_plus_x(self):
+        # Measured on ZMB STELLARIS: image_to_stage_um = [[0, -1], [1, 0]]
+        # (90-degree rotation: image X -> stage +Y, image Y -> stage -X).
+        # Feature at image (+4.54, +43.13) um from centre sits at stage
+        # offset matrix @ (4.54, 43.13) = (-43.13, +4.54) from current.
+        cfg = self._config_with_sign([[0, -1], [1, 0]])
         x, y = offsets.pixel_to_stage_xy_um(
             258, 275, (100.0, 200.0), 2.27, 512, cfg,
         )
-        # image offset = ((258-256)*2.27, (275-256)*2.27) = (4.54, 43.13)
-        # stage offset = -(0*4.54 + 1*43.13, -1*4.54 + 0*43.13) = (-43.13, 4.54)
         self.assertAlmostEqual(x, 100.0 - 43.13, places=2)
         self.assertAlmostEqual(y, 200.0 + 4.54, places=2)
 
@@ -144,13 +139,13 @@ class TestPixelToStageXyUm(unittest.TestCase):
             )
 
     def test_pixel_size_scales_linearly(self):
-        # Identity Jacobian, 10 pixels offset at 0.5 um/px = 5 um image offset.
-        # Stage offset is -5 um (see test_identity_jacobian_offset_from_centre).
+        # Identity image-to-stage. 10 pixels at 0.5 um/px = 5 um image offset
+        # -> 5 um stage offset.
         cfg = self._config_with_sign([[1, 0], [0, 1]])
         x, y = offsets.pixel_to_stage_xy_um(
             266, 256, (0.0, 0.0), 0.5, 512, cfg,
         )
-        self.assertAlmostEqual(x, -5.0)
+        self.assertAlmostEqual(x, 5.0)
         self.assertAlmostEqual(y, 0.0)
 
 
@@ -400,7 +395,7 @@ class TestMeasureObjectiveSwitchOffsets(unittest.TestCase):
         ])
         restore = self._patch(calls, xy)
         sign = {
-            "image_to_stage_um_per_um": [[-1, 0], [0, 1]],
+            "image_to_stage_um": [[-1, 0], [0, 1]],
             "label": "-X +Y",
             "move_um": 5.0,
             "residual_from_d4": 0.0,
@@ -415,7 +410,7 @@ class TestMeasureObjectiveSwitchOffsets(unittest.TestCase):
         finally:
             restore()
         self.assertEqual(config["sign_convention"], sign)
-        self.assertEqual(config["schema_version"], 2)
+        self.assertEqual(config["schema_version"], 3)
 
     def test_aborts_when_lasx_not_idle(self):
         calls = []

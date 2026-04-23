@@ -28,8 +28,8 @@ Config schema (v2)::
       "reference_slot": <int>,
       "reference_objective": {slot, name, magnification, ...},
       "sign_convention": {
-          "image_to_stage_um_per_um": [[a, b], [c, d]],   # D4-snapped 2x2
-          "label": "+Y -X",                               # human label
+          "image_to_stage_um": [[a, b], [c, d]],          # D4-snapped 2x2
+          "label": "-Y +X",                               # human label
           "move_um": 30.0,                                # test-move size
           "fitted_matrix": [[...], [...]],                # pre-snap fit
           "residual_from_d4": <float>                     # fit quality
@@ -58,8 +58,8 @@ Coordinate policy
 Validated on hardware (ZMB STELLARIS 8, 10x → 20x, 2026-04-23)
     - motor delta reproducible to bit-exact across repeats (LAS X readback
       is deterministic; repeats add no information).
-    - sign convention: measured image→stage matrix snaps cleanly to
-      ``[[0, 1], [-1, 0]]`` (label "+Y -X") — image and stage are rotated
+    - sign convention: pixel→stage matrix snaps cleanly to
+      ``[[0, -1], [1, 0]]`` (label "-Y +X") — image and stage are rotated
       90° relative to each other on this scope.
     - end-to-end stage-only targeting: ~9 µm landing error, consistent with
       the motorized stage's settle accuracy. For sub-µm targeting the
@@ -80,7 +80,7 @@ from .readers import get_hardware_info, get_xy
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 COORDINATE_POLICY = (
     "targets_in_reference_frame; switch_at_target; motor_delta_is_readback_only"
 )
@@ -321,19 +321,13 @@ def load_objective_offsets(path=None):
 def pixel_to_stage_xy_um(px, py, stage_xy_um, pixel_size_um, image_size, config):
     """Convert image pixel coordinates to absolute stage XY (um).
 
-    Uses the scope-specific image→stage 2×2 Jacobian stored in
-    ``config["sign_convention"]["image_to_stage_um_per_um"]``. That matrix
-    is the linear map "image-feature shift per unit stage move" measured
-    empirically by the calibration script. It captures reflection, 90°
+    Uses the scope-specific pixel→stage 2×2 transform stored in
+    ``config["sign_convention"]["image_to_stage_um"]``. The matrix is
+    measured empirically by the calibration script: it maps a feature's
+    image offset (from image centre, in um) to that feature's stage
+    offset from the current stage position. It captures reflection, 90°
     rotation, or small skew between the camera and stage axes — no
-    hardcoded sign assumptions.
-
-    The physics: a feature at current image offset ``I`` reaches the image
-    centre when the stage moves by ``Δ`` such that
-    ``I + stage_to_image @ Δ = 0``, i.e. ``Δ = -image_to_stage @ I``. The
-    feature's stage position is therefore ``stage - image_to_stage @ I``
-    — the negation is why this function subtracts rather than adds the
-    matrix product.
+    hardcoded sign assumptions and no sign corrections in this function.
 
     Args:
         px, py: Pixel coordinates (column, row), float OK.
@@ -346,22 +340,22 @@ def pixel_to_stage_xy_um(px, py, stage_xy_um, pixel_size_um, image_size, config)
         ``(x_um, y_um)`` — absolute stage coordinate of the given pixel.
     """
     sign = (config or {}).get("sign_convention")
-    if not sign or "image_to_stage_um_per_um" not in sign:
+    if not sign or "image_to_stage_um" not in sign:
         raise ValueError(
-            "config is missing sign_convention; re-run the calibration "
-            "script (measure_objective_offsets.py) to include Phase 1."
+            "config is missing sign_convention.image_to_stage_um; re-run "
+            "the calibration script (measure_objective_offsets.py) to "
+            "regenerate a schema-v3 config."
         )
-    m = sign["image_to_stage_um_per_um"]
+    m = sign["image_to_stage_um"]
 
-    # Image-frame offset from centre, in um.
+    # Feature's image offset from centre, in um.
     centre = image_size / 2.0
     dx_image_um = (px - centre) * pixel_size_um
     dy_image_um = (py - centre) * pixel_size_um
 
-    # Apply -image_to_stage to the image offset to get the feature's stage
-    # offset from the current stage position.
-    stage_dx = -(m[0][0] * dx_image_um + m[0][1] * dy_image_um)
-    stage_dy = -(m[1][0] * dx_image_um + m[1][1] * dy_image_um)
+    # m maps image offset directly to stage offset from current stage.
+    stage_dx = m[0][0] * dx_image_um + m[0][1] * dy_image_um
+    stage_dy = m[1][0] * dx_image_um + m[1][1] * dy_image_um
 
     return stage_xy_um[0] + stage_dx, stage_xy_um[1] + stage_dy
 

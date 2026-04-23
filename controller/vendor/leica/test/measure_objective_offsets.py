@@ -206,16 +206,24 @@ def measure_sign_convention(client, job_name, pixel_size_um, *,
 
     _move_and_verify(client, x0, y0, settle_s=settle_s)
 
-    # Stage-to-image Jacobian: image shift per unit stage move.
+    # stage-to-image Jacobian: ΔI_image = stage_to_image @ ΔS_stage.
     stage_to_image = np.array([
         [dx_from_x / move_um, dx_from_y / move_um],
         [dy_from_x / move_um, dy_from_y / move_um],
     ])
-    image_to_stage_fitted = np.linalg.inv(stage_to_image)
+
+    # image-to-stage (um/um): maps a feature's image-frame offset from
+    # centre to the feature's stage-frame offset from the current stage.
+    # Derivation: when we move the stage by ΔS, a feature that was at the
+    # image centre before is now at image offset ΔI = stage_to_image @ ΔS.
+    # That feature is at stage offset -ΔS from the new stage position
+    # (it hasn't physically moved). So image_to_stage @ ΔI = -ΔS, giving
+    # image_to_stage = -inv(stage_to_image).
+    image_to_stage_fitted = -np.linalg.inv(stage_to_image)
 
     label, canonical, residual = _classify_d4(image_to_stage_fitted)
     log.info(
-        "sign convention: fitted image→stage = [[%+.3f, %+.3f], [%+.3f, %+.3f]]  "
+        "sign convention: fitted image-to-stage = [[%+.3f, %+.3f], [%+.3f, %+.3f]]  "
         "nearest D4 = %s  residual = %.3f",
         image_to_stage_fitted[0, 0], image_to_stage_fitted[0, 1],
         image_to_stage_fitted[1, 0], image_to_stage_fitted[1, 1],
@@ -235,7 +243,7 @@ def measure_sign_convention(client, job_name, pixel_size_um, *,
     # permutation matrix, free of measurement noise. The fitted matrix and
     # residual are kept for diagnostics.
     return {
-        "image_to_stage_um_per_um": canonical.tolist(),
+        "image_to_stage_um": canonical.tolist(),
         "label": label,
         "move_um": move_um,
         "fitted_matrix": image_to_stage_fitted.tolist(),
@@ -341,7 +349,7 @@ def main():
         return 1
 
     print("\nSign convention:")
-    print(f"  matrix = {sign_convention['image_to_stage_um_per_um']}")
+    print(f"  matrix = {sign_convention['image_to_stage_um']}")
     print(f"  label  = {sign_convention['label']}  "
           f"(residual from D4 = {sign_convention['residual_from_d4']:.3f})")
 
