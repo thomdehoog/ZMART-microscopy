@@ -124,8 +124,11 @@ def parse_args():
                         "to the calibrated target XY and the script goes "
                         "straight to the final-zoom acquire (equivalent to "
                         "the non-iterative sibling example).")
-    p.add_argument("--converge-um", type=float, default=0.5,
-                   help="Converge when |stage correction| < this (default: 0.5).")
+    p.add_argument("--converge-um", type=float, default=2.0,
+                   help="Converge when |stage correction| < this (default: 2.0). "
+                        "This is the practical floor for stage-only targeting on "
+                        "this class of motorised stage; asking for sub-um will "
+                        "oscillate on stage-repeatability noise.")
 
     p.add_argument("--ncc-peak-min", type=float, default=0.4,
                    help="Reject NCC match below this correlation peak "
@@ -215,19 +218,28 @@ def _pick_central_cell(masks, image_shape):
 def _extract_template(image, centroid, bbox, pad_factor):
     """Crop a square template around a cell, padded by pad_factor × bbox.
 
-    Returns (template, (top, left)) — the template and its top-left pixel
-    in the source image, so callers can know where the template centre
-    sits relative to the cell centroid.
+    Returns (template, top_left_px, centroid_in_template_xy_px). The third
+    element is the cell centroid's sub-pixel position within the template,
+    as (col, row). Callers use it — rather than the template's geometric
+    centre (kw/2, kh/2) — when mapping NCC match positions back to the
+    cell's physical location, so the sub-pixel rounding done at crop time
+    does not bias downstream stage corrections.
     """
     cy, cx = centroid
     min_r, min_c, max_r, max_c = bbox
     half = int(round(pad_factor * max(max_r - min_r, max_c - min_c) / 2))
     h, w = image.shape[:2]
-    top = max(0, int(round(cy)) - half)
-    left = max(0, int(round(cx)) - half)
-    bottom = min(h, int(round(cy)) + half)
-    right = min(w, int(round(cx)) + half)
-    return image[top:bottom, left:right].copy(), (top, left)
+    cy_int = int(round(cy))
+    cx_int = int(round(cx))
+    top = max(0, cy_int - half)
+    left = max(0, cx_int - half)
+    bottom = min(h, cy_int + half)
+    right = min(w, cx_int + half)
+    template = image[top:bottom, left:right].copy()
+    # Sub-pixel position of the cell centroid inside the template.
+    centre_col = cx - left
+    centre_row = cy - top
+    return template, (top, left), (centre_col, centre_row)
 
 
 def _resample_to_pixel_size(template, src_pixel_um, tgt_pixel_um):
@@ -252,16 +264,21 @@ def _to_u8(a):
 
 
 def _ncc_match(target_img, template, *,
+               template_centre_xy_px,
                search_center_xy_px, search_radius_px,
                peak_min, ratio_min):
     """NCC template match with a triple gate.
 
     Args:
         target_img, template: 2-D arrays (any dtype, converted to u8).
-        search_center_xy_px: (col, row) centre of the allowed match region
-            (corresponds to the expected template-top-left position +
-            template_size/2 → but we take the template CENTRE as the
-            natural search anchor).
+        template_centre_xy_px: (col, row) sub-pixel position of the point
+            of interest (e.g. the cell centroid) within the template.
+            Using this — rather than the template's geometric centre
+            (kw/2, kh/2) — avoids a systematic sub-pixel bias when the
+            template was cropped with the centroid rounded to an integer.
+        search_center_xy_px: (col, row) where we expect the point of
+            interest to appear in the target image (typically the image
+            centre after the refinement has aimed there).
         search_radius_px: match must fall within this radius of the search
             centre (in pixels).
         peak_min: minimum acceptable correlation value.
@@ -269,7 +286,7 @@ def _ncc_match(target_img, template, *,
 
     Returns:
         dict with keys:
-            ``match_xy_px`` — (col, row) of the template centre in the target
+            ``match_xy_px`` — (col, row) of the POI in the target
             ``peak_val``    — correlation at peak
             ``ratio``       — peak / second-peak
             ``ok``          — True iff all three gates pass
@@ -287,11 +304,13 @@ def _ncc_match(target_img, template, *,
     rh, rw = result.shape
 
     # Restrict the allowed peak region to a window around search_center.
-    # search_center is the expected *template-centre* location; the
-    # result-map coordinate of that centre is (cx - kw/2, cy - kh/2).
+    # search_center is the expected POI location; the result-map coordinate
+    # of that POI is (cx - tcx, cy - tcy), where (tcx, tcy) is the POI's
+    # sub-pixel position inside the template.
+    tcx, tcy = template_centre_xy_px
     cx_px, cy_px = search_center_xy_px
-    exp_col = cx_px - kw / 2.0
-    exp_row = cy_px - kh / 2.0
+    exp_col = cx_px - tcx
+    exp_row = cy_px - tcy
 
     mask = np.zeros_like(result, dtype=bool)
     col_lo = max(0, int(round(exp_col - search_radius_px)))
@@ -308,6 +327,31 @@ def _ncc_match(target_img, template, *,
     peak_row, peak_col = np.unravel_index(peak_flat, result.shape)
     peak_val = float(result[peak_row, peak_col])
 
+    # Sub-pixel peak refinement: parabolic fit of the correlation map in
+    # each axis. Without this, the integer peak combined with a fractional
+    # template centre quantises matches to the template's sub-pixel lattice
+    # and the refinement loop oscillates on half-pixel corrections.
+    sub_dcol, sub_drow = 0.0, 0.0
+    if 0 < peak_col < rw - 1:
+        vL = float(result[peak_row, peak_col - 1])
+        v0 = peak_val
+        vR = float(result[peak_row, peak_col + 1])
+        denom = 2 * v0 - vL - vR
+        if abs(denom) > 1e-10:
+            sub_dcol = float((vL - vR) / (2 * denom))
+    if 0 < peak_row < rh - 1:
+        vU = float(result[peak_row - 1, peak_col])
+        v0 = peak_val
+        vD = float(result[peak_row + 1, peak_col])
+        denom = 2 * v0 - vU - vD
+        if abs(denom) > 1e-10:
+            sub_drow = float((vU - vD) / (2 * denom))
+    # Clamp the sub-pixel shift to ±1 to reject pathological fits.
+    sub_dcol = max(-1.0, min(1.0, sub_dcol))
+    sub_drow = max(-1.0, min(1.0, sub_drow))
+    peak_col_f = peak_col + sub_dcol
+    peak_row_f = peak_row + sub_drow
+
     # Second peak: same window, exclude a neighbourhood around the peak.
     exclude_r = max(3, int(round(min(kh, kw) * 0.5)))
     second = masked.copy()
@@ -319,8 +363,10 @@ def _ncc_match(target_img, template, *,
     second_val = float(np.max(second))
     ratio = (peak_val / second_val) if second_val > 1e-6 else float("inf")
 
-    match_cx = peak_col + kw / 2.0
-    match_cy = peak_row + kh / 2.0
+    # POI (cell centroid) location in the target, in target pixels — using
+    # the sub-pixel-refined peak location and the sub-pixel template centre.
+    match_cx = peak_col_f + tcx
+    match_cy = peak_row_f + tcy
 
     # Gates
     if peak_val < peak_min:
@@ -393,8 +439,8 @@ def _save_overlay(png_path, source_img, source_prop,
 
 # ── Refinement loop ───────────────────────────────────────────────
 
-def _refine(client, job_name, template_src, src_pixel_size_um,
-            intermediate_pixel_size_um,
+def _refine(client, job_name, template_src, template_centre_xy,
+            src_pixel_size_um, intermediate_pixel_size_um,
             *, max_iterations, converge_um, peak_min, ratio_min,
             search_radius_um, output_dir, cfg):
     """Run the NCC-gated refinement loop. Returns (final_target_img, log).
@@ -403,6 +449,9 @@ def _refine(client, job_name, template_src, src_pixel_size_um,
     resolution than source) and then downsampled to source pixel size
     for registration. That keeps the template sharp and averages noise
     on the target side — better than upsampling the template.
+    *template_centre_xy* is the cell centroid's sub-pixel position within
+    the source template, used to map NCC matches back to the actual cell
+    location without the half-pixel rounding of the template crop.
     """
     iter_log = []
     last_img = None
@@ -423,6 +472,7 @@ def _refine(client, job_name, template_src, src_pixel_size_um,
 
         match = _ncc_match(
             img_for_match, template_src,
+            template_centre_xy_px=template_centre_xy,
             search_center_xy_px=(mw / 2.0, mh / 2.0),
             search_radius_px=search_radius_px,
             peak_min=peak_min, ratio_min=ratio_min,
@@ -469,8 +519,22 @@ def _refine(client, job_name, template_src, src_pixel_size_um,
             log.info("  converged: |correction| %.3f < %.2f um", mag, converge_um)
             break
 
+        # Tight tolerance — default 20 um would let the stage settle
+        # anywhere within ±20 um of target, so small corrections would
+        # never actually complete and the loop would oscillate.
         log.info("  moving stage by (%+.3f, %+.3f)", *correction)
-        drv.move_xy_stage(client, cell_stage[0], cell_stage[1], unit="um")
+        move_tol = max(0.5, converge_um / 2.0)
+        move_result = drv.move_xy_stage(
+            client, cell_stage[0], cell_stage[1],
+            unit="um", tolerance=move_tol,
+        )
+        if not move_result or not move_result.get("success"):
+            log.warning(
+                "  stage did not settle within %.2f um after iter %d — "
+                "hardware repeatability limit; stopping refinement",
+                move_tol, i,
+            )
+            break
         time.sleep(0.5)
 
     return last_img, iter_log
@@ -566,11 +630,12 @@ def main():
     log.info("picked cell: centroid=(%.1f, %.1f) px  bbox=(%.1f x %.1f) um",
              cy_px, cx_px, bbox_w_um, bbox_h_um)
 
-    template_src, template_origin = _extract_template(
+    template_src, template_origin, template_centre_xy = _extract_template(
         src_img, prop.centroid, prop.bbox, args.template_pad,
     )
-    log.info("template cropped from source: %s px (pad=%.1f x bbox)",
-             template_src.shape, args.template_pad)
+    log.info("template cropped from source: %s px (pad=%.1f x bbox)  "
+             "cell centroid in template = (%.2f, %.2f) px",
+             template_src.shape, args.template_pad, *template_centre_xy)
 
     cell_source_xy_um = drv.pixel_to_stage_xy_um(
         cx_px, cy_px,
@@ -626,8 +691,8 @@ def main():
         time.sleep(0.5)
 
         _, iter_log = _refine(
-            client, args.job, template_src, src_pixel_size_um,
-            intermediate_pixel_size_um,
+            client, args.job, template_src, template_centre_xy,
+            src_pixel_size_um, intermediate_pixel_size_um,
             max_iterations=args.max_iterations,
             converge_um=args.converge_um,
             peak_min=args.ncc_peak_min,
