@@ -3,14 +3,37 @@
   "job": "Overview",
   "method": "objective_switch_stage_xy_readback",
   "offsets": {
+    "0": {
+      "motor_delta_um": [
+        -20.966796875,
+        32.509765625
+      ],
+      "reference_xy_um": [
+        22461.40625,
+        26757.6953125
+      ],
+      "target_objective": {
+        "immersion": "WATER",
+        "magnification": 40.0,
+        "name": "HC PL APO CS2    40x/1.10 WATER",
+        "numerical_aperture": 1.1,
+        "objective_number": 11506425,
+        "slot": 0
+      },
+      "target_slot": 0,
+      "target_xy_um": [
+        22440.439453125,
+        26790.205078125
+      ]
+    },
     "2": {
       "motor_delta_um": [
-        -7.021484375003638,
+        -7.021484375,
         21.07421875
       ],
       "reference_xy_um": [
-        21739.53125,
-        18530.8349609375
+        22461.40625,
+        26757.6953125
       ],
       "target_objective": {
         "immersion": "DRY",
@@ -22,8 +45,8 @@
       },
       "target_slot": 2,
       "target_xy_um": [
-        21732.509765624996,
-        18551.9091796875
+        22454.384765625,
+        26778.76953125
       ]
     }
   },
@@ -41,12 +64,12 @@
   "sign_convention": {
     "fitted_matrix": [
       [
-        -0.06763906104223255,
-        -1.0063595433445682
+        -0.012595366303286051,
+        -1.0157263254578537
       ],
       [
-        1.1964801473551678,
-        -0.05758460602244123
+        1.1704693971839393,
+        -0.008996690216632892
       ]
     ],
     "image_to_stage_um": [
@@ -61,7 +84,7 @@
     ],
     "label": "-Y +X",
     "move_um": 30.0,
-    "residual_from_d4": 0.21572186149228026
+    "residual_from_d4": 0.17189158320240697
   },
-  "timestamp": "20260423_151250"
+  "timestamp": "20260427_211657"
 }
