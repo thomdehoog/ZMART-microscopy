@@ -776,12 +776,6 @@ def main():
                               job_name=args.job)
     if not r_pan or not r_pan.get("success"):
         _abort(f"intermediate galvo pan failed: {r_pan}")
-    # LAS X sometimes refuses to start the next scan for several seconds
-    # after an LRP pan write. Wait for idle rather than guess a sleep.
-    time.sleep(0.5)
-    idle_post_pan = drv.check_idle(client, timeout=10.0)
-    if not idle_post_pan or not idle_post_pan.get("success"):
-        log.warning("LAS X not idle after intermediate pan: %s", idle_post_pan)
 
     log.info("acquiring intermediate frame")
     int_img, int_path = _acquire_one(client, args.job)
@@ -916,10 +910,6 @@ def main():
                                     unit="um", job_name=args.job)
     if not r_pan_final or not r_pan_final.get("success"):
         _abort(f"final galvo pan failed: {r_pan_final}")
-    time.sleep(0.5)
-    idle_post_final_pan = drv.check_idle(client, timeout=10.0)
-    if not idle_post_final_pan or not idle_post_final_pan.get("success"):
-        log.warning("LAS X not idle after final pan: %s", idle_post_final_pan)
 
     final_stage_xy = _current_stage_xy(client)
     final_image_center_xy = _image_center_from_pan(final_stage_xy, r_pan_final)
