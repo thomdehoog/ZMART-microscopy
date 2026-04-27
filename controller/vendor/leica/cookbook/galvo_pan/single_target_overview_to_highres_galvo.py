@@ -783,6 +783,48 @@ def main():
     if not match["ok"]:
         _save_overlay(out_dir / "diagnostic.png", template,
                       registration_for_match, match, template_centre_xy)
+        failure_summary = {
+            "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
+            "method": "single_target_overview_to_highres_galvo",
+            "status": "ncc_failed",
+            "failure_reason": match["reason"],
+            "target_id": target_id,
+            "job": args.job,
+            "source_slot": args.source_slot,
+            "target_slot": args.target_slot,
+            "source_xy_um": list(source_xy_um),
+            "predicted_target_xy_um": list(predicted_xy_um),
+            "template": {
+                "source": template_source,
+                "shape_px": list(template.shape),
+                "centroid_xy_px": list(template_centre_xy),
+                "origin_px": template_origin,
+                "pixel_size_um": template_pixel_size_um,
+            },
+            "registration": {
+                "zoom": match_zoom,
+                "fov_um": target_base_fov_um / match_zoom,
+                "stage_xy_um": list(registration_stage_xy),
+                "image_center_xy_um": list(registration_center_xy),
+                "pixel_size_um": registration_pixel_size_um,
+                "matched_image_size_px": mw,
+                "ncc_peak": match["peak_val"],
+                "ncc_ratio": match["ratio"],
+                "match_xy_px": (list(match["match_xy_px"])
+                                if match.get("match_xy_px") is not None
+                                else None),
+                "registration_lasx_tif": str(registration_path),
+            },
+            "outputs": {
+                "registration_tif": str(out_dir / "registration.tif"),
+                "registration_matched_tif": str(
+                    out_dir / "registration_matched_pixel.tif"
+                ),
+                "diagnostic_png": str(out_dir / "diagnostic.png"),
+                "summary_json": str(out_dir / "summary.json"),
+            },
+        }
+        _write_json(out_dir / "summary.json", failure_summary)
         _abort(f"NCC gate failed: {match['reason']}")
 
     match_px = match["match_xy_px"]
