@@ -188,9 +188,8 @@ def _pick_nearest_cell(masks, image_shape, target_pixel=None):
     )
 
 
-def _segment_pick(img, args):
-    log.info("Cellpose pick (gpu=%s)", not args.no_gpu)
-    model = models.CellposeModel(gpu=not args.no_gpu)
+def _segment_pick(img, model, args):
+    log.info("Cellpose pick")
     masks, _, _ = model.eval(img, diameter=args.diameter)
     prop = _pick_nearest_cell(masks, img.shape, args.pick_pixel)
     if prop is None:
@@ -198,8 +197,7 @@ def _segment_pick(img, args):
     return masks, prop
 
 
-def _measure_target_error_um(img, pixel_size_um, args):
-    model = models.CellposeModel(gpu=not args.no_gpu)
+def _measure_target_error_um(img, pixel_size_um, model, args):
     masks, _, _ = model.eval(img, diameter=args.diameter)
     prop = _pick_nearest_cell(masks, img.shape)
     if prop is None:
@@ -309,10 +307,13 @@ def main():
     source_pixel_size_um = float(source_geo["pixel_w_um"])
     source_image_size_px = int(source_geo["pixels_x"])
 
+    log.info("loading Cellpose (gpu=%s)", not args.no_gpu)
+    cp_model = models.CellposeModel(gpu=not args.no_gpu)
+
     source_img, source_path = _acquire_one(client, args.job)
     tifffile.imwrite(str(out_dir / "source.tif"), source_img)
 
-    _, source_prop = _segment_pick(source_img, args)
+    _, source_prop = _segment_pick(source_img, cp_model, args)
     cy_px, cx_px = source_prop.centroid
     min_r, min_c, max_r, max_c = source_prop.bbox
     bbox_w_um = (max_c - min_c) * source_pixel_size_um
@@ -365,7 +366,7 @@ def main():
     )
     target_pixel_size_um = float(target_geo["pixel_w_um"])
     target_error = _measure_target_error_um(
-        target_img, target_pixel_size_um, args,
+        target_img, target_pixel_size_um, cp_model, args,
     )
     _save_overlay(out_dir / "overlay.png", source_img, source_prop,
                   target_img, target_error)
