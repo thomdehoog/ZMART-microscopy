@@ -116,6 +116,9 @@ SIGN_SETTLE_S_DEFAULT = 1.0
 Z_RANGE_UM_DEFAULT = 15.0
 Z_STEP_UM_DEFAULT = 1.0
 JOB_SELECT_RETRIES = 3
+SCAN_FORMAT_DEFAULT = "1024 x 1024"  # higher pixel density helps NCC on thin texture
+SCAN_SPEED_DEFAULT = 600
+ZOOM_MIN = 0.75  # Leica hardware floor; below this LAS X silently clamps
 
 
 # ── CLI ───────────────────────────────────────────────────────────
@@ -156,6 +159,11 @@ def parse_args():
                    help=f"Z-stack half-range in um (default: {Z_RANGE_UM_DEFAULT}).")
     p.add_argument("--z-step-um", type=float, default=Z_STEP_UM_DEFAULT,
                    help=f"Z-stack step size in um (default: {Z_STEP_UM_DEFAULT}).")
+    p.add_argument("--scan-format", default=SCAN_FORMAT_DEFAULT,
+                   help=f"Image dimensions, e.g. '1024 x 1024' "
+                        f"(default: {SCAN_FORMAT_DEFAULT!r}).")
+    p.add_argument("--scan-speed", type=int, default=SCAN_SPEED_DEFAULT,
+                   help=f"Scan speed in Hz (default: {SCAN_SPEED_DEFAULT}).")
     return p.parse_args()
 
 
@@ -288,7 +296,20 @@ def reselect_job(client, job):
     )
 
 
-def setup_reference_state(client, job, hw, *, ref_slot, ref_zoom, settle_s):
+def apply_scan_format_and_speed(client, job, scan_format, scan_speed):
+    """Pin image format + scan speed so calibration is reproducible.
+
+    Re-applied after every objective switch because LAS X may reset job
+    settings on switch.
+    """
+    if scan_format:
+        drv.set_image_format(client, job, scan_format)
+    if scan_speed:
+        drv.set_scan_speed(client, job, scan_speed)
+
+
+def setup_reference_state(client, job, hw, *, ref_slot, ref_zoom, settle_s,
+                          scan_format=None, scan_speed=None):
     """Switch to the reference slot and put the scope in canonical state."""
     log.info("reference state: slot=%d, zoom=%.2f", ref_slot, ref_zoom)
     r = drv.set_objective(client, job, hw, slot_index=ref_slot)
@@ -298,6 +319,7 @@ def setup_reference_state(client, job, hw, *, ref_slot, ref_zoom, settle_s):
     reselect_job(client, job)
     reset_pan_roi_zstack(client, job)
     drv.set_zoom(client, job, ref_zoom)
+    apply_scan_format_and_speed(client, job, scan_format, scan_speed)
     time.sleep(1.0)
     drv.select_job(client, job)
     time.sleep(1.0)
@@ -306,7 +328,8 @@ def setup_reference_state(client, job, hw, *, ref_slot, ref_zoom, settle_s):
         raise RuntimeError(f"LAS X not idle after reference setup: {idle}")
 
 
-def switch_to_target(client, job, hw, slot, *, settle_s, zoom):
+def switch_to_target(client, job, hw, slot, *, settle_s, zoom,
+                     scan_format=None, scan_speed=None):
     """Switch to a target objective and re-establish job + zoom."""
     log.info("switching to target slot=%d (zoom=%.2f)", slot, zoom)
     r = drv.set_objective(client, job, hw, slot_index=slot)
@@ -316,6 +339,7 @@ def switch_to_target(client, job, hw, slot, *, settle_s, zoom):
     reselect_job(client, job)
     reset_pan_roi_zstack(client, job)
     drv.set_zoom(client, job, zoom)
+    apply_scan_format_and_speed(client, job, scan_format, scan_speed)
     time.sleep(1.0)
     drv.select_job(client, job)
     time.sleep(1.0)
@@ -496,7 +520,9 @@ def main():
 
     setup_reference_state(client, args.job, hw,
                           ref_slot=args.ref_slot, ref_zoom=args.ref_zoom,
-                          settle_s=args.settle)
+                          settle_s=args.settle,
+                          scan_format=args.scan_format,
+                          scan_speed=args.scan_speed)
 
     geo = drv.parse_tile_geometry(drv.get_job_settings(client, args.job) or {})
     pixel_size_um = float(geo["pixel_w_um"])
@@ -575,10 +601,21 @@ def main():
         log.info("=== target slot %d ===", ts)
         ts_summary = targets_summary[ts]
         # Match the reference FOV: target_zoom = ref_zoom * ref_mag / tgt_mag
-        ts_zoom = args.ref_zoom * ref_summary["magnification"] / ts_summary["magnification"]
+        ts_zoom_ideal = args.ref_zoom * ref_summary["magnification"] / ts_summary["magnification"]
+        ts_zoom = max(ZOOM_MIN, ts_zoom_ideal)
+        if ts_zoom > ts_zoom_ideal:
+            min_ref_zoom = ZOOM_MIN * ts_summary["magnification"] / ref_summary["magnification"]
+            log.warning(
+                "target zoom %.3f below hardware min %.2f; clamping to %.2f. "
+                "FOV will not match ref — phase 4 NCC quality may degrade. "
+                "To match FOV, rerun with --ref-zoom %.2f or higher.",
+                ts_zoom_ideal, ZOOM_MIN, ZOOM_MIN, min_ref_zoom,
+            )
 
         switch_to_target(client, args.job, hw, ts,
-                         settle_s=args.settle, zoom=ts_zoom)
+                         settle_s=args.settle, zoom=ts_zoom,
+                         scan_format=args.scan_format,
+                         scan_speed=args.scan_speed)
 
         # Phase 2: motor delta XY (always)
         target_xy = drv.get_xy(client)
@@ -703,13 +740,17 @@ def main():
             setup_reference_state(client, args.job, hw,
                                   ref_slot=args.ref_slot,
                                   ref_zoom=args.ref_zoom,
-                                  settle_s=args.settle)
+                                  settle_s=args.settle,
+                                  scan_format=args.scan_format,
+                                  scan_speed=args.scan_speed)
 
     # ── Restore + persist ──────────────────────────────────────
     log.info("restoring reference state")
     setup_reference_state(client, args.job, hw,
                           ref_slot=args.ref_slot, ref_zoom=args.ref_zoom,
-                          settle_s=args.settle)
+                          settle_s=args.settle,
+                          scan_format=args.scan_format,
+                          scan_speed=args.scan_speed)
     drv.move_xy_stage(client, home_xy[0], home_xy[1], unit="um", tolerance=20.0)
 
     run_dir = make_run_dir(report["timestamp"])
