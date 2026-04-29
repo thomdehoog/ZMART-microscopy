@@ -1,4 +1,4 @@
-# LASX Driver v6.0.0
+# Navigator Expert Driver v6.0.0
 
 Python driver for the Leica STELLARIS confocal microscope via the LAS X Python API. Every command routes through a two-layer dispatch backbone that handles idle-wait, automatic retry on transient errors, readback confirmation, and structured timing and logging.
 
@@ -7,7 +7,7 @@ Python driver for the Leica STELLARIS confocal microscope via the LAS X Python A
 ## Quick Start
 
 ```python
-from lasx import (
+from navigator_expert.driver import (
     set_stage_limits, ping, select_job,
     set_zoom, set_scan_speed, move_xy, acquire,
 )
@@ -39,10 +39,10 @@ print(f"Acquired in {result['elapsed']:.1f}s")
 
 ```python
 # Selective imports (recommended)
-from lasx import set_zoom, get_job_settings, acquire
+from navigator_expert.driver import set_zoom, get_job_settings, acquire
 
 # Namespace import
-import lasx
+import navigator_expert.driver as lasx
 lasx.set_zoom(client, "MyJob", 2.0)
 ```
 
@@ -55,7 +55,7 @@ lasx.set_zoom(client, "MyJob", 2.0)
 Movement commands (`move_xy`, `move_z`) require safety limits to be configured first. All values are in micrometers.
 
 ```python
-from lasx import set_stage_limits, get_stage_limits
+from navigator_expert.driver import set_stage_limits, get_stage_limits
 
 set_stage_limits(
     x_min=0, x_max=130_000,
@@ -71,11 +71,11 @@ If limits are not configured, `move_xy` and `move_z` return an immediate failure
 
 ### Logging
 
-The driver uses Python's standard `logging` module under the logger name `"lasx"`.
+The driver uses Python's standard `logging` module under the logger name `"navigator_expert.driver"`.
 
 ```python
 import logging
-logging.getLogger("lasx").setLevel(logging.DEBUG)
+logging.getLogger("navigator_expert.driver").setLevel(logging.DEBUG)
 ```
 
 ---
@@ -83,7 +83,7 @@ logging.getLogger("lasx").setLevel(logging.DEBUG)
 ## Basic Workflow
 
 ```python
-from lasx import (
+from navigator_expert.driver import (
     ping, get_hardware_info, get_job_settings, make_changeable_copy,
     select_job, set_zoom, set_scan_speed, set_image_format,
     set_objective, set_pinhole_airy, set_detector_gain,
@@ -405,18 +405,25 @@ The backbone has two retry ceilings:
 ### Package Layout
 
 ```
-lasx/
-├── __init__.py    ← public API exports
-├── util.py        ← helpers: _make_log_entry, _make_timing, parse_format
-├── errors.py      ← error classification + _default_error_check
-├── limits.py      ← stage safety limits
-├── readers.py     ← get_scan_status, ping, get_jobs, get_job_settings, ...
-├── settings.py    ← make_changeable_copy
-├── checks.py      ← check_idle
-├── confirm.py     ← readback confirmation functions
-├── core.py        ← _fire_with_receipt, _fire_block, confirm_and_fire
-├── profiles.py    ← CommandProfile dataclass + per-command profiles
-└── commands.py    ← set_*, move_*, acquire, select_job
+navigator_expert/
+├── __init__.py
+└── driver/
+    ├── __init__.py                  ← public API exports
+    ├── utils.py                     ← helpers: _make_log_entry, _make_timing, parse_format
+    ├── errors.py                    ← error classification + _default_error_check
+    ├── limits.py                    ← stage safety limits
+    ├── readers.py                   ← get_scan_status, ping, get_jobs, get_job_settings, ...
+    ├── settings.py                  ← make_changeable_copy
+    ├── prechecks.py                 ← check_idle
+    ├── confirmations.py             ← readback confirmation functions
+    ├── core.py                      ← _fire_with_receipt, _fire_block, confirm_and_fire
+    ├── profiles.py                  ← CommandProfile dataclass + per-command profiles
+    ├── commands.py                  ← set_*, move_*, acquire, select_job
+    ├── stage_motion.py              ← correct_backlash takeup helper
+    ├── machine_config.py            ← load/save calibration config (config.json + stage.json)
+    ├── alignment.py, registration.py, objective_offsets.py
+    ├── ome_tiff.py, file_confirmation.py, scanning_template_*.py
+    └── datacontainer/
 ```
 
 ### Dependency DAG
@@ -608,13 +615,13 @@ All tolerances can be overridden per call via the `tolerance` keyword argument.
 
 ## Import Style
 
-All public functions are exported from the `lasx` package. Use either selective or namespace imports:
+All public functions are exported from the `navigator_expert.driver` package. Use either selective or namespace imports:
 
 ```python
 # Selective
-from lasx import set_zoom, acquire
+from navigator_expert.driver import set_zoom, acquire
 
 # Namespace
-import lasx
+import navigator_expert.driver as lasx
 lasx.set_zoom(client, "MyJob", 2.0)
 ```

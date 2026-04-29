@@ -62,7 +62,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import numpy as np
 import tifffile
@@ -74,7 +74,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
+import navigator_expert.driver as drv
 
 
 log = logging.getLogger("objective_switch_stage_targeting")
@@ -119,7 +119,7 @@ def _abort(msg, code=1):
 
 def _default_output_dir():
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return (Path(__file__).resolve().parent.parent
+    return (Path(__file__).resolve().parents[3]
             / "config" / "objective_targeting" / "stage" / ts)
 
 

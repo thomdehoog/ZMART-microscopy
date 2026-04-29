@@ -1,20 +1,25 @@
-"""Machine + stage configuration.
+"""Calibration configuration: stage + scope state.
 
-Two files describe the scope:
+Two files describe the scope, both under
+``calibration/config/``:
 
-``config/stage.json`` — physical stage properties (limits + backlash).
+``stage.json`` — physical stage properties (limits + backlash).
 Hand-edited; rarely changes.
 
-``config/machine.json`` — calibrated optical state. Sign convention,
+``config.json`` — calibrated optical state. Sign convention,
 reference objective anchor, and per-objective parcentric (motor +
 residual) and parfocal (motor + residual) offsets. Written by
-``calibrate_objectives.py``. Read by protocols at acquisition time.
+``calibrate_objectives.py``. Read by acquisition scripts at runtime.
+
+Each calibration run also drops a snapshot ``config.json`` plus a
+``report.json`` into ``calibration/runs/<timestamp>/`` so every run
+is fully reproducible from disk.
 
 Updates are incremental: a calibration run that re-measures only one
 target's parfocal field leaves every other field of every other
 objective alone, and bumps only that objective's ``calibrated_at``.
 
-Schema (machine.json, v5)::
+Schema (config.json, v5)::
 
     {
       "schema_version": 5,
@@ -54,20 +59,31 @@ MACHINE_SCHEMA_VERSION = 5
 STAGE_SCHEMA_VERSION = 1
 
 
+def _calibration_dir():
+    return Path(__file__).resolve().parent.parent / "calibration"
+
+
 def _config_dir():
-    return Path(__file__).resolve().parent.parent / "config"
+    return _calibration_dir() / "config"
 
 
 def default_machine_path():
-    return _config_dir() / "machine.json"
+    return _config_dir() / "config.json"
 
 
 def default_stage_path():
     return _config_dir() / "stage.json"
 
 
-def default_report_dir():
-    return _config_dir() / "calibration_reports"
+def default_runs_dir():
+    return _calibration_dir() / "runs"
+
+
+def make_run_dir(ts):
+    """Create ``calibration/runs/<ts>/`` and return its Path."""
+    path = default_runs_dir() / ts
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def now_timestamp():
@@ -118,28 +134,34 @@ def new_machine_config():
 
 
 def load_machine_config(path=None, *, create_if_missing=False):
-    """Load machine.json. If absent and ``create_if_missing``, return a fresh dict."""
+    """Load config.json. If absent and ``create_if_missing``, return a fresh dict."""
     path = Path(path) if path is not None else default_machine_path()
     if not path.exists():
         if create_if_missing:
             return new_machine_config()
-        raise FileNotFoundError(f"machine config not found: {path}")
+        raise FileNotFoundError(f"calibration config not found: {path}")
     with open(path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
     if cfg.get("schema_version") != MACHINE_SCHEMA_VERSION:
         raise ValueError(
-            f"unsupported machine.json schema_version: "
+            f"unsupported config.json schema_version: "
             f"{cfg.get('schema_version')!r} in {path}"
         )
     return cfg
 
 
-def save_machine_config(cfg, path=None):
-    """Write machine.json atomically; bump ``last_updated``."""
+def save_machine_config(cfg, run_dir=None, *, path=None):
+    """Write the live config.json atomically; bump ``last_updated``.
+
+    If ``run_dir`` is provided, also drops a snapshot copy in that dir
+    so each run keeps the exact config it produced.
+    """
     cfg["last_updated"] = now_timestamp()
-    path = Path(path) if path is not None else default_machine_path()
-    _atomic_write_json(path, cfg)
-    return path
+    live = Path(path) if path is not None else default_machine_path()
+    _atomic_write_json(live, cfg)
+    if run_dir is not None:
+        _atomic_write_json(Path(run_dir) / "config.json", cfg)
+    return live
 
 
 def _objective_identity(summary):
@@ -218,8 +240,8 @@ def update_target(cfg, slot, *,
 
 # ── Calibration report ────────────────────────────────────────────
 
-def save_calibration_report(report, *, ts, dir_=None):
-    dir_ = Path(dir_) if dir_ is not None else default_report_dir()
-    path = dir_ / f"calibration_report_{ts}.json"
+def save_calibration_report(report, run_dir):
+    """Write the run's report.json into ``run_dir``."""
+    path = Path(run_dir) / "report.json"
     _atomic_write_json(path, report)
     return path

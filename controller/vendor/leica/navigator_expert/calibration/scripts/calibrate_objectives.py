@@ -66,11 +66,11 @@ import numpy as np
 import tifffile
 from skimage.registration import phase_cross_correlation
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.machine_config import (
+import navigator_expert.driver as drv
+from navigator_expert.driver.machine_config import (
     load_machine_config,
     save_machine_config,
     load_stage_config,
@@ -78,19 +78,20 @@ from lasx.machine_config import (
     set_sign_convention,
     update_target,
     save_calibration_report,
+    make_run_dir,
     now_timestamp,
     MACHINE_SCHEMA_VERSION,
 )
-from lasx.scanning_template_editors_focus import lrp_set_stack_calculation_mode
-from lasx.scanning_template_editors_roi import lrp_enable_roi_scan
-from lasx.scanning_template_editors_scan import lrp_set_pan
-from lasx.scanning_template_editors_z import (
+from navigator_expert.driver.scanning_template_editors_focus import lrp_set_stack_calculation_mode
+from navigator_expert.driver.scanning_template_editors_roi import lrp_enable_roi_scan
+from navigator_expert.driver.scanning_template_editors_scan import lrp_set_pan
+from navigator_expert.driver.scanning_template_editors_z import (
     lrp_set_sections,
     lrp_set_z_stack_active,
     lrp_set_z_use_mode,
 )
-from lasx.scanning_templates import TEMPLATE_XML, apply_lrp_change
-from lasx.stage_motion import correct_backlash
+from navigator_expert.driver.scanning_templates import TEMPLATE_XML, apply_lrp_change
+from navigator_expert.driver.stage_motion import correct_backlash
 
 log = logging.getLogger("calibrate_objectives")
 
@@ -711,11 +712,14 @@ def main():
                           settle_s=args.settle)
     drv.move_xy_stage(client, home_xy[0], home_xy[1], unit="um", tolerance=20.0)
 
-    machine_path = save_machine_config(machine_cfg)
-    report_path = save_calibration_report(report, ts=report["timestamp"])
+    run_dir = make_run_dir(report["timestamp"])
+    live_path = save_machine_config(machine_cfg, run_dir)
+    report_path = save_calibration_report(report, run_dir)
 
-    print(f"\nMachine config: {machine_path}")
-    print(f"Report:         {report_path}")
+    print(f"\nLive config: {live_path}")
+    print(f"Run folder:  {run_dir}")
+    print(f"  config:    {run_dir / 'config.json'}")
+    print(f"  report:    {report_path}")
     return 0
 
 

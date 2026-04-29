@@ -78,7 +78,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import cv2
 import matplotlib
@@ -95,7 +95,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
+import navigator_expert.driver as drv
 
 
 log = logging.getLogger("single_target_galvo_one_shot")
@@ -161,7 +161,7 @@ def _abort(msg, code=1):
 
 def _default_output_dir():
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return (Path(__file__).resolve().parents[2]
+    return (Path(__file__).resolve().parents[3]
             / "config" / "cookbook" / "galvo_pan_oneshot" / ts)
 
 

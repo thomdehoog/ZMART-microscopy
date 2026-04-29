@@ -1,27 +1,52 @@
 """
-Single-target objective switch with iterative NCC refinement, with stage
-backlash correction applied before every acquisition.
-=======================================================================
+Single-target objective switch with iterative NCC refinement.
+=============================================================
 
-Identical recipe to ``single_target_stage_iterative.py``, with one extra
-step: just before each acquisition (source, every refinement iteration,
-and the final framed image), the stage performs a takeup move that
-drives it to ``(x - overshoot, y - overshoot)`` and back to ``(x, y)``.
-This pins the slack-state of both leadscrews to the +X+Y side, so all
-NCC measurements are made from a consistent mechanical state.
+Cookbook variant of ``single_target_stage_one_shot.py`` that adds an
+NCC-gated refinement loop at an intermediate zoom. The motorized stage
+has ~10 um settle repeatability, so a single calibrated move lands
+within that radius. This script closes the residual with classical
+template matching and small stage corrections.
 
-Yesterday's iterative cookbook hit a 1-2 um noise floor because each
-refinement step reversed direction on at least one axis, eating
-backlash on the way back. With takeup before every acquire, all NCC
-measurements share the same slack-state and the loop should converge
-below 1 um.
+Recipe
+------
+1. Switch to source objective; force zoom 1.0; acquire one image.
+2. Cellpose picks a target cell near the image center, or near
+   ``--pick-pixel``. Cellpose is used ONLY here.
+3. Crop a padded template around the picked cell.
+4. Convert source pixel -> absolute source-objective XY using the
+   measured sign matrix; translate across the objective boundary into
+   a target-objective stage command.
+5. Switch to target objective; set the intermediate zoom (chosen so the
+   target pixel size is close to source pixel size); coarse stage move
+   to the predicted XY.
+6. Refinement loop (up to ``--max-iterations``):
+     a. Acquire at intermediate zoom.
+     b. Downsample to source pixel size, run NCC vs source template.
+     c. Triple gate (peak, ratio, radius). Failure aborts; we never
+        move the stage on a bad match.
+     d. Convert NCC peak to a stage correction and either declare
+        convergence (|correction| < ``--converge-um``) or move and
+        loop. A separate ``--min-improvement-um`` gate stops when
+        successive corrections plateau at the noise floor.
+7. Set final zoom (margin x bbox); acquire final framed image;
+   re-segment to measure the residual landing error.
+8. Restore source objective unless ``--no-restore``.
 
-See ``vendor/leica/docs/session_notes_20260428_backlash_correction.md``
-for the full reasoning.
+``--max-iterations 0`` skips the loop entirely and behaves like the
+one-shot script.
+
+Operator preconditions
+----------------------
+- ``--job`` is currently selected in the LAS X UI.
+- ImageTransformation is TOPLEFT.
+- AFC/autofocus is off, no LAS X modal dialogs.
+- Stage focused at the source objective before running.
+- ``config/objective_offsets.json`` exists.
 
 Usage
 -----
-    python single_target_stage_iterative_backlash_correction.py --job HiRes \\
+    python single_target_stage_iterative.py --job HiRes \\
         --source-slot 1 --target-slot 2
 """
 
@@ -34,7 +59,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import cv2
 import matplotlib
@@ -48,10 +73,10 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
+import navigator_expert.driver as drv
 
 
-log = logging.getLogger("single_target_stage_iterative_backlash_correction")
+log = logging.getLogger("single_target_stage_iterative")
 
 
 # ---------------------------------------------------------------------------
@@ -62,8 +87,7 @@ def parse_args():
     p = argparse.ArgumentParser(
         description=(
             "Single-target objective switch on the motorized stage with "
-            "iterative NCC refinement and backlash correction before "
-            "every acquisition."
+            "iterative NCC refinement."
         )
     )
     p.add_argument("--job", required=True,
@@ -110,17 +134,9 @@ def parse_args():
                         "move (default: 20 um). Refinement moves use a "
                         "tighter tolerance derived from --converge-um.")
 
-    p.add_argument("--backlash-overshoot-um", type=float, default=50.0,
-                   help="Takeup overshoot distance in -X-Y before the final "
-                        "+X+Y leg (default: 50 um).")
-    p.add_argument("--backlash-settle-ms", type=int, default=100,
-                   help="Pause between overshoot and final leg in ms "
-                        "(default: 100).")
-
     p.add_argument("--output-dir", type=Path, default=None,
                    help="Output directory (default: "
-                        "config/cookbook/motorized_stage_iterative/<ts>"
-                        "_backlash_correction).")
+                        "config/cookbook/motorized_stage_iterative/<ts>).")
     p.add_argument("--no-restore", action="store_true",
                    help="Do not switch back to source objective at the end.")
     return p.parse_args()
@@ -137,9 +153,8 @@ def _abort(msg, code=1):
 
 def _default_output_dir():
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return (Path(__file__).resolve().parents[2]
-            / "config" / "cookbook" / "motorized_stage_iterative"
-            / f"{ts}_backlash_correction")
+    return (Path(__file__).resolve().parents[3]
+            / "config" / "cookbook" / "motorized_stage_iterative" / ts)
 
 
 def _write_json(path, obj):
@@ -159,28 +174,6 @@ def _check_image_orientation():
             orient.get("transformation", "TOPLEFT") != "TOPLEFT":
         _abort(f"ImageTransformation is '{orient.get('transformation')}'; "
                f"set it to TOPLEFT in LAS X Advanced Settings.", 2)
-
-
-def correct_backlash(client, overshoot_um=50.0, settle_ms=100,
-                     tolerance_um=20.0):
-    """Pin the stage to the +X+Y slack-state with no net displacement.
-
-    Reads current XY, drives to ``(x - overshoot, y - overshoot)``, pauses,
-    then drives back to ``(x, y)``. The final +X +Y leg engages both
-    leadscrews against the same flank, removing backlash variance.
-    """
-    pos = drv.get_xy(client)
-    x, y = pos["x_um"], pos["y_um"]
-    log.info("backlash takeup at (%.2f, %.2f) um, overshoot %.1f um",
-             x, y, overshoot_um)
-    r = drv.move_xy_stage(client, x - overshoot_um, y - overshoot_um,
-                          unit="um", tolerance=tolerance_um)
-    if not r or not r.get("success"):
-        raise RuntimeError(f"backlash overshoot move failed: {r}")
-    time.sleep(settle_ms / 1000.0)
-    r = drv.move_xy_stage(client, x, y, unit="um", tolerance=tolerance_um)
-    if not r or not r.get("success"):
-        raise RuntimeError(f"backlash return move failed: {r}")
 
 
 def _acquire_one(client, job_name):
@@ -380,18 +373,13 @@ def _ncc_match(target_img, template, *,
 def _refine(client, job_name, template_src, template_centre_xy,
             src_pixel_size_um, intermediate_pixel_size_um,
             *, max_iterations, converge_um, min_improvement_um,
-            peak_min, ratio_min, search_radius_um, output_dir, cfg,
-            backlash_overshoot_um, backlash_settle_ms, backlash_tolerance_um):
+            peak_min, ratio_min, search_radius_um, output_dir, cfg):
     iter_log = []
     last_img = None
     prev_mag = None
 
     for i in range(1, max_iterations + 1):
         log.info("refine iter %d/%d: acquiring", i, max_iterations)
-        correct_backlash(client,
-                         overshoot_um=backlash_overshoot_um,
-                         settle_ms=backlash_settle_ms,
-                         tolerance_um=backlash_tolerance_um)
         img, _ = _acquire_one(client, job_name)
         last_img = img
         tifffile.imwrite(str(output_dir / f"target_iter{i:02d}.tif"), img)
@@ -557,14 +545,12 @@ def main():
 
     drv.validate_slots(hw, args.source_slot, [args.target_slot])
 
-    print(f"Job:                {args.job}")
-    print(f"Source slot:        {args.source_slot}")
-    print(f"Target slot:        {args.target_slot}")
-    print("Actuator:           motorized XY stage + NCC refinement")
-    print(f"Iterations:         {args.max_iterations}  converge<{args.converge_um} um")
-    print(f"Backlash overshoot: {args.backlash_overshoot_um:.1f} um")
-    print(f"Backlash settle:    {args.backlash_settle_ms} ms")
-    print(f"Output dir:         {out_dir}\n")
+    print(f"Job:           {args.job}")
+    print(f"Source slot:   {args.source_slot}")
+    print(f"Target slot:   {args.target_slot}")
+    print("Actuator:      motorized XY stage + NCC refinement")
+    print(f"Iterations:    {args.max_iterations}  converge<{args.converge_um} um")
+    print(f"Output dir:    {out_dir}\n")
 
     log.info("switching to source objective")
     drv.set_objective(client, args.job, hw, slot_index=args.source_slot)
@@ -583,10 +569,6 @@ def main():
     log.info("loading Cellpose (gpu=%s)", not args.no_gpu)
     cp_model = models.CellposeModel(gpu=not args.no_gpu)
 
-    correct_backlash(client,
-                     overshoot_um=args.backlash_overshoot_um,
-                     settle_ms=args.backlash_settle_ms,
-                     tolerance_um=args.stage_tolerance_um)
     src_img, src_path = _acquire_one(client, args.job)
     tifffile.imwrite(str(out_dir / "source.tif"), src_img)
 
@@ -665,9 +647,6 @@ def main():
             search_radius_um=args.search_radius_um,
             output_dir=out_dir,
             cfg=cfg,
-            backlash_overshoot_um=args.backlash_overshoot_um,
-            backlash_settle_ms=args.backlash_settle_ms,
-            backlash_tolerance_um=args.stage_tolerance_um,
         )
 
         intermediate_info = {
@@ -701,10 +680,6 @@ def main():
     drv.set_zoom(client, args.job, final_zoom)
     time.sleep(0.5)
 
-    correct_backlash(client,
-                     overshoot_um=args.backlash_overshoot_um,
-                     settle_ms=args.backlash_settle_ms,
-                     tolerance_um=args.stage_tolerance_um)
     final_img, final_path = _acquire_one(client, args.job)
     tifffile.imwrite(str(out_dir / "target_final.tif"), final_img)
 
@@ -720,7 +695,7 @@ def main():
 
     summary = {
         "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
-        "method": "single_target_stage_iterative_backlash_correction",
+        "method": "single_target_stage_iterative",
         "actuator": "motorized_stage_iterative",
         "job": args.job,
         "source_slot": args.source_slot,
@@ -741,8 +716,6 @@ def main():
         "intermediate": intermediate_info,
         "iterations": iter_log,
         "converged": converged,
-        "backlash_overshoot_um": args.backlash_overshoot_um,
-        "backlash_settle_ms": args.backlash_settle_ms,
         "final": {
             "zoom": final_zoom,
             "fov_um": target_base_fov_um / final_zoom,

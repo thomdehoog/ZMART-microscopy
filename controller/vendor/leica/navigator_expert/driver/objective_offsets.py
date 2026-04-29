@@ -277,13 +277,21 @@ def measure_objective_switch_offsets(
 # ── Persistence ────────────────────────────────────────────────────
 
 def default_archive_dir():
-    """Directory for timestamped archive files (gitignored)."""
-    return Path(__file__).resolve().parent.parent / "config" / "objective_offsets"
+    """Directory for timestamped archive files (gitignored).
+
+    Legacy location at the vendor root, kept until cookbook scripts
+    migrate to ``calibration/config/config.json``.
+    """
+    return Path(__file__).resolve().parents[2] / "config" / "objective_offsets"
 
 
 def default_current_path():
-    """Fixed path for the active offsets config that protocols load."""
-    return Path(__file__).resolve().parent.parent / "config" / "objective_offsets.json"
+    """Fixed path for the active offsets config the cookbook scripts load.
+
+    Legacy location at the vendor root, kept until cookbook scripts
+    migrate to ``calibration/config/config.json``.
+    """
+    return Path(__file__).resolve().parents[2] / "config" / "objective_offsets.json"
 
 
 def save_objective_offsets(config, archive_dir=None, current_path=None):

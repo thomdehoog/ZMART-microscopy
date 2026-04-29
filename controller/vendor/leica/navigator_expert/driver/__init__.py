@@ -1,12 +1,13 @@
 """
-LASX Driver v6.0.0
-===================
+Navigator Expert Driver v6.0.0
+==============================
 Python driver for the Leica STELLARIS confocal microscope via the LAS X
-Python API.
+Python API. Lives at ``navigator_expert/driver/`` — sibling to
+``calibration/``, ``examples/``, ``docs/``, ``test/``.
 
 Package layout::
 
-    lasx/
+    navigator_expert/driver/
     ├── __init__.py               ← you are here (public API)
     ├── utils.py                  ← helpers: _make_log_entry, _make_timing,
     │                                parse_format, parse_tile_geometry, etc.
@@ -453,7 +454,7 @@ from .objective_offsets import (
 # ── Stage motion (backlash takeup) ──────────────────────────────
 from .stage_motion import correct_backlash
 
-# ── Machine + stage config (machine.json / stage.json) ──────────
+# ── Calibration config (config.json / stage.json + per-run snapshots) ──
 from .machine_config import (
     MACHINE_SCHEMA_VERSION,
     STAGE_SCHEMA_VERSION,
@@ -464,9 +465,10 @@ from .machine_config import (
     set_sign_convention,
     update_target,
     save_calibration_report,
+    make_run_dir,
     default_machine_path,
     default_stage_path,
-    default_report_dir,
+    default_runs_dir,
 )
 
 # ── Logging ─────────────────────────────────────────────────────────
