@@ -194,11 +194,17 @@ def register_phase(ref, tgt, pixel_um):
     return dx_px * pixel_um, dy_px * pixel_um
 
 
+# All four registration methods return (dx_um, dy_um, quality) in the
+# SAME sign convention as ``register_phase``: positive shift = ref features
+# at +x/+y relative to tgt features (i.e. PCC shift NEGATED). The
+# ``image_to_stage`` matrix from the sign-convention phase was fitted
+# against this convention; mismatching it here applies the residual with
+# the wrong sign.
 def _method_phase(ref, tgt, pixel_um, _mask_pct):
     shift, error, _ = phase_cross_correlation(
         ref.astype(np.float64), tgt.astype(np.float64), upsample_factor=100,
     )
-    dy_px, dx_px = shift
+    dy_px, dx_px = -shift[0], -shift[1]
     return dx_px * pixel_um, dy_px * pixel_um, 1.0 - float(error)
 
 
@@ -209,7 +215,7 @@ def _method_masked(ref, tgt, pixel_um, mask_pct):
         ref.astype(np.float64), tgt.astype(np.float64), upsample_factor=100,
         reference_mask=ref_mask, moving_mask=tgt_mask,
     )
-    dy_px, dx_px = shift
+    dy_px, dx_px = -shift[0], -shift[1]
     return dx_px * pixel_um, dy_px * pixel_um, 1.0 - float(error)
 
 
@@ -223,7 +229,7 @@ def _method_cv2_ncc(ref, tgt, pixel_um, _mask_pct):
     _, max_val, _, max_loc = cv2.minMaxLoc(result)
     dx_px = max_loc[0] + template.shape[1] / 2.0 - w / 2.0
     dy_px = max_loc[1] + template.shape[0] / 2.0 - h / 2.0
-    return dx_px * pixel_um, dy_px * pixel_um, float(max_val)
+    return -dx_px * pixel_um, -dy_px * pixel_um, float(max_val)
 
 
 def _method_orb(ref, tgt, pixel_um, _mask_pct):
@@ -252,7 +258,7 @@ def _method_orb(ref, tgt, pixel_um, _mask_pct):
         return float("nan"), float("nan"), 0.0
     dy_px = model.translation[0]
     dx_px = model.translation[1]
-    return dx_px * pixel_um, dy_px * pixel_um, float(inliers.sum() / len(matches))
+    return -dx_px * pixel_um, -dy_px * pixel_um, float(inliers.sum() / len(matches))
 
 
 _VOTING_METHODS = [
