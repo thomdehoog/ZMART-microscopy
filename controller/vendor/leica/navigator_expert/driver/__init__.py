@@ -162,11 +162,15 @@ __all__ = [
     # objective_offsets
     "measure_objective_switch_offsets",
     "save_objective_offsets", "load_objective_offsets",
-    "translate_stage_xy_between_objectives", "reference_to_objective_command_xy",
-    "pixel_to_stage_xy_um",
     "objective_by_slot", "objective_summary", "validate_slots",
     "default_archive_dir", "default_current_path",
     "SCHEMA_VERSION", "COORDINATE_POLICY", "MIN_SETTLE_S",
+    # calibration
+    "load_calibration", "get_reference_slot", "get_image_to_stage",
+    "get_parcentric_shift_um", "get_parcentric_offset_um",
+    "get_parfocal_shift_um",
+    "translate_stage_xy_between_objectives", "reference_to_objective_command_xy",
+    "pixel_to_stage_xy_um",
 ]
 
 # ── Utilities ────────────────────────────────────────────────────────
@@ -441,14 +445,23 @@ from .objective_offsets import (
     measure_objective_switch_offsets,
     save_objective_offsets,
     load_objective_offsets,
-    translate_stage_xy_between_objectives,
-    reference_to_objective_command_xy,
-    pixel_to_stage_xy_um,
     objective_by_slot,
     objective_summary,
     validate_slots,
     default_archive_dir,
     default_current_path,
+)
+
+from .calibration import (
+    load_calibration,
+    get_reference_slot,
+    get_image_to_stage,
+    get_parcentric_shift_um,
+    get_parcentric_offset_um,
+    get_parfocal_shift_um,
+    translate_stage_xy_between_objectives,
+    reference_to_objective_command_xy,
+    pixel_to_stage_xy_um,
 )
 
 # ── Stage motion (backlash takeup) ──────────────────────────────

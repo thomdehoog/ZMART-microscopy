@@ -14,7 +14,7 @@ Recipe
 4. Convert that source-image pixel to absolute source-objective XY using
    the measured image-to-stage sign convention.
 5. Translate the source-objective XY into a target-objective stage command
-   using ``objective_offsets.json``.
+   using the canonical calibration config.
 6. Switch to the target objective.
 7. Move the motorized XY stage to the translated target coordinate.
 8. Acquire a final image and, if possible, measure the landing error by
@@ -36,8 +36,8 @@ Operator preconditions
 - ImageTransformation is TOPLEFT.
 - AFC/autofocus is off.
 - No LAS X modal dialogs are open.
-- ``config/objective_offsets.json`` exists and covers the source/target
-  objective slots.
+- ``navigator_expert/calibration/config/config.json`` exists and covers
+  the source/target objective slots.
 
 Usage
 -----
@@ -260,7 +260,7 @@ def main():
     out_dir = args.output_dir or _default_output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    cfg = drv.load_objective_offsets()
+    cfg = drv.load_calibration()
 
     client = lasx_api.LasxApiClientPyModel
     if not client.Connect("PythonClient"):
@@ -423,4 +423,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nInterrupted.")
         sys.exit(130)
-

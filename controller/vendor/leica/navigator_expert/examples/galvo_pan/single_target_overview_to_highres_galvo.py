@@ -9,7 +9,7 @@ Recipe
 ------
 1. Load one target from an overview manifest.
 2. Convert the target into source-objective absolute XY.
-3. Translate that XY through ``objective_offsets.json`` into the target
+3. Translate that XY through the canonical calibration config into the target
    objective frame.
 4. Switch to the target objective.
 5. Move the motorized stage coarsely to the predicted target position.
@@ -654,7 +654,7 @@ def main():
 
     manifest_path = args.manifest.resolve()
     manifest = _load_json(manifest_path)
-    cfg = drv.load_objective_offsets()
+    cfg = drv.load_calibration()
     target_index, target = _select_target(
         manifest, args.target_id, args.target_index,
     )
@@ -950,4 +950,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nInterrupted.")
         sys.exit(130)
-

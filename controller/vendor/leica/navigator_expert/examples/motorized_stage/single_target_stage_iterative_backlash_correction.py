@@ -530,7 +530,7 @@ def main():
     out_dir = args.output_dir or _default_output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    cfg = drv.load_objective_offsets()
+    cfg = drv.load_calibration()
 
     client = lasx_api.LasxApiClientPyModel
     if not client.Connect("PythonClient"):

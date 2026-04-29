@@ -7,9 +7,9 @@ Two files describe the scope, both under
 Hand-edited; rarely changes.
 
 ``config.json`` — calibrated optical state. Sign convention,
-reference objective anchor, and per-objective parcentric (motor +
-residual) and parfocal (motor + residual) offsets. Written by
-``calibrate_objectives.py``. Read by acquisition scripts at runtime.
+reference objective anchor, and per-objective shift / offset
+values. Written by ``calibrate_objectives.py``. Read by acquisition
+scripts at runtime.
 
 Each calibration run also drops a snapshot ``config.json`` plus a
 ``report.json`` into ``calibration/runs/<timestamp>/`` so every run
@@ -19,10 +19,10 @@ Updates are incremental: a calibration run that re-measures only one
 target's parfocal field leaves every other field of every other
 objective alone, and bumps only that objective's ``calibrated_at``.
 
-Schema (config.json, v5)::
+Schema (config.json, v6)::
 
     {
-      "schema_version": 5,
+      "schema_version": 6,
       "last_updated": "<ts>",
       "reference_objective_slot": <int>,
       "image_to_stage": [[a, b], [c, d]],     // D4-snapped 2x2
@@ -33,21 +33,32 @@ Schema (config.json, v5)::
           "is_reference": true,                // reference only
           "anchor_xy_um": [x, y],              // reference only
           "parcentric_xy": {                   // targets only
-            "motor_um":    [dx, dy],
-            "residual_um": [rx, ry] | null
+            "shift_um":  [dx, dy] | null,      // c1 - c2 from registration
+                                               // — what consumers use
+            "offset_um": [dx, dy] | null       // get_xy delta on switch
+                                               // — diagnostic only
           },
           "parfocal_z": {                      // targets only
-            "motor_um":    dz   | null,
-            "residual_um": rdz  | null
+            "shift_um":  dz | null,            // focus diff from Brenner
+                                               // — what consumers use
+            "offset_um": dz | null             // get_z delta if firmware
+                                               // moves Z on switch
+                                               // — diagnostic only
           },
           "calibrated_at": "<ts>"
         }
       }
     }
 
-A field is ``null`` when its phase has not been run yet. Loaders apply
-``parcentric.motor + (parcentric.residual or 0)`` and
-``parfocal.motor or 0`` as the corrections.
+A field is ``null`` when its phase has not been run yet. Consumers
+read ``shift_um`` directly. ``offset_um`` is recorded so operators
+can track firmware behaviour over time, but is not part of the
+correction the cookbook applies.
+
+Schema v5 (the old motor + residual form) is gone. There is no
+migration path — the v5 ``residual_um`` was a derived value that
+folded the firmware shift back in, and reading it without the
+matching ``motor_um`` produced wrong corrections. Recalibrate.
 """
 
 import json
@@ -55,7 +66,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-MACHINE_SCHEMA_VERSION = 5
+MACHINE_SCHEMA_VERSION = 6
 STAGE_SCHEMA_VERSION = 1
 
 
@@ -197,12 +208,19 @@ def set_sign_convention(cfg, image_to_stage_matrix):
 
 def update_target(cfg, slot, *,
                   summary=None,
-                  parcentric_motor_um=None, parcentric_residual_um=None,
-                  parfocal_motor_um=None, parfocal_residual_um=None):
+                  parcentric_shift_um=None, parcentric_offset_um=None,
+                  parfocal_shift_um=None, parfocal_offset_um=None):
     """Incrementally update a target objective entry.
 
     Only fields explicitly passed (non-None) are written. The objective's
     ``calibrated_at`` is bumped if any field was actually written.
+
+    ``shift_um`` is the value consumers use to correct between
+    objectives — the optical-center difference measured by registration
+    with the stage parked at the same XY both times.
+
+    ``offset_um`` is the firmware-induced stage motion on objective
+    switch (``get_xy`` delta), recorded for diagnostics only.
     """
     slot = int(slot)
     entry = cfg["objectives"].setdefault(str(slot), {})
@@ -212,26 +230,26 @@ def update_target(cfg, slot, *,
         entry.update(_objective_identity(summary))
         touched = True
 
-    if parcentric_motor_um is not None or parcentric_residual_um is not None:
+    if parcentric_shift_um is not None or parcentric_offset_um is not None:
         parc = entry.setdefault("parcentric_xy",
-                                {"motor_um": None, "residual_um": None})
-        if parcentric_motor_um is not None:
-            parc["motor_um"] = [float(parcentric_motor_um[0]),
-                                float(parcentric_motor_um[1])]
+                                {"shift_um": None, "offset_um": None})
+        if parcentric_shift_um is not None:
+            parc["shift_um"] = [float(parcentric_shift_um[0]),
+                                float(parcentric_shift_um[1])]
             touched = True
-        if parcentric_residual_um is not None:
-            parc["residual_um"] = [float(parcentric_residual_um[0]),
-                                   float(parcentric_residual_um[1])]
+        if parcentric_offset_um is not None:
+            parc["offset_um"] = [float(parcentric_offset_um[0]),
+                                 float(parcentric_offset_um[1])]
             touched = True
 
-    if parfocal_motor_um is not None or parfocal_residual_um is not None:
+    if parfocal_shift_um is not None or parfocal_offset_um is not None:
         parf = entry.setdefault("parfocal_z",
-                                {"motor_um": None, "residual_um": None})
-        if parfocal_motor_um is not None:
-            parf["motor_um"] = float(parfocal_motor_um)
+                                {"shift_um": None, "offset_um": None})
+        if parfocal_shift_um is not None:
+            parf["shift_um"] = float(parfocal_shift_um)
             touched = True
-        if parfocal_residual_um is not None:
-            parf["residual_um"] = float(parfocal_residual_um)
+        if parfocal_offset_um is not None:
+            parf["offset_um"] = float(parfocal_offset_um)
             touched = True
 
     if touched:
