@@ -30,7 +30,7 @@ Recipe
 1. Switch to source objective; force zoom 1.0; acquire one source image.
 2. Cellpose picks a target cell (centre, or near ``--pick-pixel``).
 3. Convert source pixel -> absolute source-objective XY; translate to
-   target-objective stage frame via ``objective_offsets.json``.
+   target-objective stage frame via the canonical calibration config.
 4. Switch to target objective; set the intermediate zoom (target pixel
    size near source pixel size).
 5. ZOOM FIRST, then galvo-pan to the calibration-predicted target XY.
@@ -60,7 +60,7 @@ Operator preconditions
 - ImageTransformation is TOPLEFT.
 - AFC/autofocus is off, no LAS X modal dialogs.
 - Stage focused at the source objective before running.
-- ``config/objective_offsets.json`` exists.
+- ``navigator_expert/calibration/config/config.json`` exists.
 - No ROI scan currently enabled.
 
 Usage
@@ -659,7 +659,7 @@ def main():
     out_dir = args.output_dir or _default_output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    cfg = drv.load_objective_offsets()
+    cfg = drv.load_calibration()
 
     client = lasx_api.LasxApiClientPyModel
     if not client.Connect("PythonClient"):

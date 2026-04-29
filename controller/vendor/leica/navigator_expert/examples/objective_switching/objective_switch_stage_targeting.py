@@ -37,8 +37,8 @@ Operator preconditions
     - AFC / autofocus OFF, no modal dialogs.
     - Stage positioned over a region with cells visible at the source
       objective's current zoom.
-    - ``config/objective_offsets.json`` exists (generate it with
-      ``measure_objective_offsets.py``).
+    - ``navigator_expert/calibration/config/config.json`` exists (generate it with
+      ``calibrate_objectives.py``).
 
 Usage
     python objective_switch_stage_targeting.py --job Overview \\
@@ -246,7 +246,7 @@ def main():
     out_dir = args.output_dir or _default_output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    cfg = drv.load_objective_offsets()
+    cfg = drv.load_calibration()
     if args.source_slot == args.target_slot:
         _abort("source-slot and target-slot must differ.")
 

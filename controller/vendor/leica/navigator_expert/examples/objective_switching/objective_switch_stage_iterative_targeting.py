@@ -57,8 +57,8 @@ Operator preconditions
     - ``ImageTransformation = TOPLEFT`` in LAS X Advanced Settings.
     - AFC / autofocus OFF, no modal dialogs.
     - Stage over a sample region with cells visible at source zoom.
-    - ``config/objective_offsets.json`` present (run
-      ``measure_objective_offsets.py`` first).
+    - ``navigator_expert/calibration/config/config.json`` present (run
+      ``calibrate_objectives.py`` first).
 
 Usage
     python objective_switch_stage_iterative_targeting.py --job Overview \\
@@ -581,7 +581,7 @@ def main():
     if args.source_slot == args.target_slot:
         _abort("source-slot and target-slot must differ.")
 
-    cfg = drv.load_objective_offsets()
+    cfg = drv.load_calibration()
 
     client = lasx_api.LasxApiClientPyModel
     if not client.Connect("PythonClient"):
