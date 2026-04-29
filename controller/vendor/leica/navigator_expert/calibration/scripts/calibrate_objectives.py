@@ -716,11 +716,92 @@ def main():
     live_path = save_machine_config(machine_cfg, run_dir)
     report_path = save_calibration_report(report, run_dir)
 
-    print(f"\nLive config: {live_path}")
-    print(f"Run folder:  {run_dir}")
-    print(f"  config:    {run_dir / 'config.json'}")
-    print(f"  report:    {report_path}")
+    legacy_paths = _write_legacy_compat(machine_cfg, job=args.job)
+
+    print(f"\nLive config:        {live_path}")
+    print(f"Run folder:         {run_dir}")
+    print(f"  config:           {run_dir / 'config.json'}")
+    print(f"  report:           {report_path}")
+    print(f"Legacy compat (for cookbook scripts):")
+    print(f"  {legacy_paths['current']}")
     return 0
+
+
+def _write_legacy_compat(machine_cfg, *, job):
+    """Write a v3-schema objective_offsets.json at the legacy location.
+
+    Transitional shim so existing cookbook scripts (which call
+    ``drv.load_objective_offsets``) pick up the latest calibration
+    without code changes. The legacy schema has one ``motor_delta_um``
+    field per target; we bake ``parcentric.motor + parcentric.residual``
+    into that single number so the cookbook's frame translation
+    automatically applies the image-based residual when switching
+    objectives — which means the residual is in effect before the
+    backlash takeup and the final acquire.
+
+    The legacy schema has no Z field; parfocal_z data is not migrated
+    here. Cookbooks that need parfocal correction will have to read
+    ``config.json`` directly.
+
+    Remove this function once cookbooks are migrated.
+    """
+    from navigator_expert.driver.objective_offsets import (
+        SCHEMA_VERSION as _LEGACY_VER,
+        COORDINATE_POLICY as _LEGACY_POLICY,
+        save_objective_offsets,
+    )
+
+    objs = machine_cfg.get("objectives") or {}
+    ref_slot = machine_cfg["reference_objective_slot"]
+    ref_entry = objs[str(ref_slot)]
+    anchor_xy_um = ref_entry["anchor_xy_um"]
+
+    def _summary(slot, entry):
+        return {
+            "slot": slot,
+            "name": entry.get("name"),
+            "magnification": entry.get("magnification"),
+            "numerical_aperture": entry.get("numerical_aperture"),
+            "immersion": entry.get("immersion"),
+            "objective_number": entry.get("objective_number"),
+        }
+
+    legacy_offsets = {}
+    for slot_str, entry in objs.items():
+        slot = int(slot_str)
+        if slot == ref_slot:
+            continue
+        parc = entry.get("parcentric_xy") or {}
+        motor = parc.get("motor_um") or [0.0, 0.0]
+        residual = parc.get("residual_um") or [0.0, 0.0]
+        combined = [float(motor[0]) + float(residual[0]),
+                    float(motor[1]) + float(residual[1])]
+        target_xy = [float(anchor_xy_um[0]) + combined[0],
+                     float(anchor_xy_um[1]) + combined[1]]
+        legacy_offsets[slot_str] = {
+            "target_slot": slot,
+            "target_objective": _summary(slot, entry),
+            "reference_xy_um": list(anchor_xy_um),
+            "target_xy_um": target_xy,
+            "motor_delta_um": combined,
+        }
+
+    legacy_cfg = {
+        "schema_version": _LEGACY_VER,
+        "timestamp": now_timestamp(),
+        "method": "calibrate_objectives_compat",
+        "coordinate_policy": _LEGACY_POLICY,
+        "job": job,
+        "reference_slot": ref_slot,
+        "reference_objective": _summary(ref_slot, ref_entry),
+        "sign_convention": (
+            {"image_to_stage_um": machine_cfg["image_to_stage"]}
+            if machine_cfg.get("image_to_stage") is not None else None
+        ),
+        "settle_s": 3.0,
+        "offsets": legacy_offsets,
+    }
+    return save_objective_offsets(legacy_cfg)
 
 
 if __name__ == "__main__":
