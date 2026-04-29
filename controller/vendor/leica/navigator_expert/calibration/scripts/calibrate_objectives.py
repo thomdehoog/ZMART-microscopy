@@ -64,7 +64,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 import tifffile
+from skimage.feature import ORB, match_descriptors
+from skimage.measure import ransac
 from skimage.registration import phase_cross_correlation
+from skimage.transform import EuclideanTransform
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
@@ -119,6 +122,9 @@ JOB_SELECT_RETRIES = 3
 SCAN_FORMAT_DEFAULT = "1024 x 1024"  # higher pixel density helps NCC on thin texture
 SCAN_SPEED_DEFAULT = 600
 ZOOM_MIN = 0.75  # Leica hardware floor; below this LAS X silently clamps
+VOTING_TOLERANCE_UM = 3.0  # methods within this distance are considered to agree
+VOTING_MIN_AGREE = 2  # min methods that must agree before we trust the result
+MASK_PCT_DEFAULT = 30  # percentile threshold for masked PCC
 
 
 # ── CLI ───────────────────────────────────────────────────────────
@@ -174,8 +180,40 @@ def to_uint8(img):
     return (f / (f.max() or 1) * 255).astype(np.uint8)
 
 
-def register_ncc(ref, tgt, pixel_um):
-    """OpenCV NCC: returns (dx_um, dy_um, ncc_quality)."""
+def register_phase(ref, tgt, pixel_um):
+    """Phase cross-correlation. Returns (dx_um, dy_um) of tgt relative to ref.
+
+    Used by the sign-convention phase only — the D4 fit relies on this
+    specific sign convention. XY residual and verification use
+    ``register_voting`` instead.
+    """
+    shift, _, _ = phase_cross_correlation(
+        ref.astype(np.float64), tgt.astype(np.float64), upsample_factor=100,
+    )
+    dy_px, dx_px = -shift[0], -shift[1]
+    return dx_px * pixel_um, dy_px * pixel_um
+
+
+def _method_phase(ref, tgt, pixel_um, _mask_pct):
+    shift, error, _ = phase_cross_correlation(
+        ref.astype(np.float64), tgt.astype(np.float64), upsample_factor=100,
+    )
+    dy_px, dx_px = shift
+    return dx_px * pixel_um, dy_px * pixel_um, 1.0 - float(error)
+
+
+def _method_masked(ref, tgt, pixel_um, mask_pct):
+    ref_mask = ref > np.percentile(ref, mask_pct)
+    tgt_mask = tgt > np.percentile(tgt, mask_pct)
+    shift, error, _ = phase_cross_correlation(
+        ref.astype(np.float64), tgt.astype(np.float64), upsample_factor=100,
+        reference_mask=ref_mask, moving_mask=tgt_mask,
+    )
+    dy_px, dx_px = shift
+    return dx_px * pixel_um, dy_px * pixel_um, 1.0 - float(error)
+
+
+def _method_cv2_ncc(ref, tgt, pixel_um, _mask_pct):
     ref8 = to_uint8(ref)
     tgt8 = to_uint8(tgt)
     h, w = tgt8.shape
@@ -188,13 +226,98 @@ def register_ncc(ref, tgt, pixel_um):
     return dx_px * pixel_um, dy_px * pixel_um, float(max_val)
 
 
-def register_phase(ref, tgt, pixel_um):
-    """Phase cross-correlation. Returns (dx_um, dy_um) of tgt relative to ref."""
-    shift, _, _ = phase_cross_correlation(
-        ref.astype(np.float64), tgt.astype(np.float64), upsample_factor=100,
+def _method_orb(ref, tgt, pixel_um, _mask_pct):
+    ref_n = to_uint8(ref)
+    tgt_n = to_uint8(tgt)
+    orb = ORB(n_keypoints=500, fast_threshold=0.05)
+    try:
+        orb.detect_and_extract(ref_n)
+        kp_ref, desc_ref = orb.keypoints, orb.descriptors
+        orb.detect_and_extract(tgt_n)
+        kp_tgt, desc_tgt = orb.keypoints, orb.descriptors
+    except Exception:
+        return float("nan"), float("nan"), 0.0
+    if desc_ref is None or desc_tgt is None or len(desc_ref) < 3 or len(desc_tgt) < 3:
+        return float("nan"), float("nan"), 0.0
+    matches = match_descriptors(desc_ref, desc_tgt, cross_check=True)
+    if len(matches) < 3:
+        return float("nan"), float("nan"), 0.0
+    src = kp_tgt[matches[:, 1]]
+    dst = kp_ref[matches[:, 0]]
+    model, inliers = ransac(
+        (src, dst), EuclideanTransform, min_samples=3,
+        residual_threshold=5, max_trials=1000,
     )
-    dy_px, dx_px = -shift[0], -shift[1]
-    return dx_px * pixel_um, dy_px * pixel_um
+    if model is None or inliers is None:
+        return float("nan"), float("nan"), 0.0
+    dy_px = model.translation[0]
+    dx_px = model.translation[1]
+    return dx_px * pixel_um, dy_px * pixel_um, float(inliers.sum() / len(matches))
+
+
+_VOTING_METHODS = [
+    ("phase", _method_phase),
+    ("masked", _method_masked),
+    ("ncc", _method_cv2_ncc),
+    ("orb", _method_orb),
+]
+
+
+def register_voting(ref, tgt, pixel_um, *, mask_pct=MASK_PCT_DEFAULT,
+                    tolerance_um=VOTING_TOLERANCE_UM,
+                    min_agree=VOTING_MIN_AGREE):
+    """Multi-method voting registration.
+
+    Runs four methods (PCC, masked PCC, OpenCV NCC, ORB+RANSAC), finds
+    the largest cluster of methods whose (dx, dy) agree within
+    ``tolerance_um``, and returns the median of that cluster.
+
+    Returns dict: ``dx_um``, ``dy_um``, ``confidence`` (count of agreeing
+    methods), ``trusted`` (True iff confidence >= min_agree), and
+    ``per_method`` for diagnostics.
+    """
+    per_method = {}
+    valid = []
+    for name, fn in _VOTING_METHODS:
+        try:
+            dx, dy, q = fn(ref, tgt, pixel_um, mask_pct)
+        except Exception as exc:
+            per_method[name] = {"error": str(exc)}
+            continue
+        per_method[name] = {"dx_um": float(dx), "dy_um": float(dy), "quality": float(q)}
+        if not (np.isnan(dx) or np.isnan(dy)):
+            valid.append((name, float(dx), float(dy), float(q)))
+
+    best_cluster = []
+    for i, (_, dxi, dyi, _) in enumerate(valid):
+        cluster = [
+            v for v in valid
+            if (v[1] - dxi) ** 2 + (v[2] - dyi) ** 2 <= tolerance_um ** 2
+        ]
+        if len(cluster) > len(best_cluster):
+            best_cluster = cluster
+
+    if best_cluster:
+        dxs = [c[1] for c in best_cluster]
+        dys = [c[2] for c in best_cluster]
+        qs = [c[3] for c in best_cluster]
+        dx_um = float(np.median(dxs))
+        dy_um = float(np.median(dys))
+        quality = float(np.median(qs))
+    else:
+        dx_um = dy_um = float("nan")
+        quality = 0.0
+
+    confidence = len(best_cluster)
+    return {
+        "dx_um": dx_um,
+        "dy_um": dy_um,
+        "quality": quality,
+        "confidence": confidence,
+        "trusted": confidence >= min_agree,
+        "agreeing": [c[0] for c in best_cluster],
+        "per_method": per_method,
+    }
 
 
 def brenner(img):
@@ -681,25 +804,49 @@ def main():
                 drv.get_job_settings(client, args.job) or {})
             tgt_pixel_um = float(tgt_geo["pixel_w_um"])
 
-            raw_dx, raw_dy, ncc_q = register_ncc(img_ref_focus, img_tgt_focus,
-                                                  tgt_pixel_um)
-            stage_dx = image_to_stage[0][0] * raw_dx + image_to_stage[0][1] * raw_dy
-            stage_dy = image_to_stage[1][0] * raw_dx + image_to_stage[1][1] * raw_dy
-            residual_xy = [float(stage_dx), float(stage_dy)]
-            log.info("image XY residual: stage=(%+.3f, %+.3f) um, NCC=%.3f",
-                     stage_dx, stage_dy, ncc_q)
+            vote = register_voting(img_ref_focus, img_tgt_focus, tgt_pixel_um)
+            raw_dx, raw_dy = vote["dx_um"], vote["dy_um"]
+            log.info("image XY residual vote: agreeing=%s confidence=%d/%d trusted=%s",
+                     vote["agreeing"], vote["confidence"], len(_VOTING_METHODS),
+                     vote["trusted"])
+            log.info("  per-method: %s",
+                     ", ".join(f"{n}=({m['dx_um']:+.2f},{m['dy_um']:+.2f})"
+                               for n, m in vote["per_method"].items()
+                               if "dx_um" in m and not (np.isnan(m["dx_um"])
+                                                       or np.isnan(m["dy_um"]))))
 
-            target_report["image_xy"] = {
-                "raw_dx_um": float(raw_dx),
-                "raw_dy_um": float(raw_dy),
-                "stage_dx_um": float(stage_dx),
-                "stage_dy_um": float(stage_dy),
-                "ncc_quality": ncc_q,
-                "method": "focus_slice",
-                "acquisition_zoom": ts_zoom,
-                "acquisition_z_galvo_um": tgt_z_galvo_um,
-            }
-            target_update["parcentric_residual_um"] = residual_xy
+            if not vote["trusted"]:
+                log.warning("voting confidence too low (%d < %d agreeing methods); "
+                            "skipping XY residual — using motor delta only.",
+                            vote["confidence"], VOTING_MIN_AGREE)
+                residual_xy = None
+                target_report["image_xy"] = {
+                    "skipped": True,
+                    "reason": "voting_low_confidence",
+                    "confidence": vote["confidence"],
+                    "per_method": vote["per_method"],
+                }
+            else:
+                stage_dx = image_to_stage[0][0] * raw_dx + image_to_stage[0][1] * raw_dy
+                stage_dy = image_to_stage[1][0] * raw_dx + image_to_stage[1][1] * raw_dy
+                residual_xy = [float(stage_dx), float(stage_dy)]
+                log.info("image XY residual: stage=(%+.3f, %+.3f) um, quality=%.3f",
+                         stage_dx, stage_dy, vote["quality"])
+
+                target_report["image_xy"] = {
+                    "raw_dx_um": float(raw_dx),
+                    "raw_dy_um": float(raw_dy),
+                    "stage_dx_um": float(stage_dx),
+                    "stage_dy_um": float(stage_dy),
+                    "quality": vote["quality"],
+                    "confidence": vote["confidence"],
+                    "agreeing": vote["agreeing"],
+                    "per_method": vote["per_method"],
+                    "method": "voting",
+                    "acquisition_zoom": ts_zoom,
+                    "acquisition_z_galvo_um": tgt_z_galvo_um,
+                }
+                target_update["parcentric_residual_um"] = residual_xy
 
         # Phase 5: verification
         if args.verify:
@@ -724,14 +871,20 @@ def main():
                 tgt_geo = drv.parse_tile_geometry(
                     drv.get_job_settings(client, args.job) or {})
                 tgt_pixel_um = float(tgt_geo["pixel_w_um"])
-                ver_dx, ver_dy, ver_q = register_ncc(img_ref_focus, img_ver,
-                                                      tgt_pixel_um)
+                ver_vote = register_voting(img_ref_focus, img_ver, tgt_pixel_um)
+                ver_dx, ver_dy = ver_vote["dx_um"], ver_vote["dy_um"]
                 target_report["verification"] = {
                     "residual_image_um": [float(ver_dx), float(ver_dy)],
-                    "ncc_quality": ver_q,
+                    "quality": ver_vote["quality"],
+                    "confidence": ver_vote["confidence"],
+                    "agreeing": ver_vote["agreeing"],
+                    "trusted": ver_vote["trusted"],
+                    "per_method": ver_vote["per_method"],
                 }
-                log.info("verification: image residual=(%+.3f, %+.3f) um NCC=%.3f",
-                         ver_dx, ver_dy, ver_q)
+                log.info("verification: image residual=(%+.3f, %+.3f) um "
+                         "agreeing=%s confidence=%d trusted=%s",
+                         ver_dx, ver_dy, ver_vote["agreeing"],
+                         ver_vote["confidence"], ver_vote["trusted"])
 
         update_target(machine_cfg, ts, **target_update)
         report["per_target"][str(ts)] = target_report
