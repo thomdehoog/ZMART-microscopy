@@ -450,6 +450,25 @@ from .objective_offsets import (
     default_current_path,
 )
 
+# ── Stage motion (backlash takeup) ──────────────────────────────
+from .stage_motion import correct_backlash
+
+# ── Machine + stage config (machine.json / stage.json) ──────────
+from .machine_config import (
+    MACHINE_SCHEMA_VERSION,
+    STAGE_SCHEMA_VERSION,
+    load_machine_config,
+    save_machine_config,
+    load_stage_config,
+    set_reference,
+    set_sign_convention,
+    update_target,
+    save_calibration_report,
+    default_machine_path,
+    default_stage_path,
+    default_report_dir,
+)
+
 # ── Logging ─────────────────────────────────────────────────────────
 import logging
 log = logging.getLogger(__name__)

@@ -1,0 +1,63 @@
+"""Stage motion helpers.
+
+Backlash discipline: when the stage reverses direction, leadscrew slack
+introduces a position offset that depends on which side the nut last
+came from. By always finishing every move with the same +X+Y leg, the
+slack-state is pinned and the offset becomes invisible.
+
+Use ``correct_backlash`` immediately before any acquisition where stage
+position must be repeatable. Parameters live in ``config/stage.json``;
+load them with ``machine_config.load_stage_config`` so all consumers
+share one source of truth.
+
+See ``docs/session_notes_20260428_backlash_correction.md`` for the
+analysis behind the recipe.
+"""
+
+import logging
+import time
+
+from . import commands as _commands
+from . import readers as _readers
+
+log = logging.getLogger(__name__)
+
+
+def correct_backlash(client, *, overshoot_um=50.0, settle_ms=100,
+                     tolerance_um=20.0):
+    """Pin the stage to the +X+Y slack-state with no net displacement.
+
+    Reads current XY, drives to ``(x - overshoot, y - overshoot)``,
+    pauses ``settle_ms`` (so controllers that blend consecutive moves
+    treat the next command as distinct), then drives back to ``(x, y)``.
+    The final +X +Y leg engages both leadscrews against the same flank.
+
+    Parameters
+    ----------
+    client
+        LAS X API client.
+    overshoot_um
+        Distance to retreat in -X -Y. Must exceed the stage's backlash;
+        50 um is 10x margin on the ZMB STELLARIS (3-5 um backlash).
+    settle_ms
+        Pause between overshoot and return. 100 ms keeps the moves
+        distinct without polling.
+    tolerance_um
+        Pass-through to ``move_xy_stage``. Loose by default; the takeup
+        does not need precision.
+    """
+    pos = _readers.get_xy(client)
+    if pos is None:
+        raise RuntimeError("backlash takeup: could not read XY")
+    x, y = float(pos["x_um"]), float(pos["y_um"])
+    log.debug("backlash takeup at (%.2f, %.2f) um, overshoot %.1f um",
+              x, y, overshoot_um)
+    r = _commands.move_xy_stage(client, x - overshoot_um, y - overshoot_um,
+                                unit="um", tolerance=tolerance_um)
+    if not r or not r.get("success"):
+        raise RuntimeError(f"backlash overshoot move failed: {r}")
+    time.sleep(settle_ms / 1000.0)
+    r = _commands.move_xy_stage(client, x, y,
+                                unit="um", tolerance=tolerance_um)
+    if not r or not r.get("success"):
+        raise RuntimeError(f"backlash return move failed: {r}")
