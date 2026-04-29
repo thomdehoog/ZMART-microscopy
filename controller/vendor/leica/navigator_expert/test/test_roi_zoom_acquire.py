@@ -32,17 +32,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.scanning_templates import (
+import navigator_expert.driver as drv
+from navigator_expert.driver.scanning_templates import (
     TEMPLATE_XML, apply_lrp_change, save_and_read_lrp,
 )
-from lasx.scanning_template_editors_scan import lrp_set_pan, lrp_set_zoom
-from lasx.scanning_template_editors_roi import (
+from navigator_expert.driver.scanning_template_editors_scan import lrp_set_pan, lrp_set_zoom
+from navigator_expert.driver.scanning_template_editors_roi import (
     lrp_enable_roi_scan, lrp_clear_rois, lrp_add_roi,
     roi_geometry, roi_to_pan_zoom,
 )
-from lasx.scanning_template_parsers import get_rois, get_master_attrs
-from lasx.readers import get_base_fov
+from navigator_expert.driver.scanning_template_parsers import get_rois, get_master_attrs
+from navigator_expert.driver.readers import get_base_fov
 
 print(f"  Driver version: {drv.__version__}")
 

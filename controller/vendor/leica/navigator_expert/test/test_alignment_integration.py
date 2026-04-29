@@ -35,9 +35,9 @@ args = parser.parse_args()
 # ── Import ──────────────────────────────────────────────────────────────
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.alignment import load_alignment, translate_xy, translate_z
-from lasx.prechecks import check_idle
+import navigator_expert.driver as drv
+from navigator_expert.driver.alignment import load_alignment, translate_xy, translate_z
+from navigator_expert.driver.prechecks import check_idle
 
 # ── Connect ─────────────────────────────────────────────────────────────
 

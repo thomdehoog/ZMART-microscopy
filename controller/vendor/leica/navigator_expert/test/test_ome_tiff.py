@@ -20,7 +20,7 @@ import struct
 import tempfile
 import unittest
 
-from lasx.ome_tiff import (
+from navigator_expert.driver.ome_tiff import (
     extract_wavelength_from_id,
     check_ome_xml_bytes,
     check_ome_tiff,

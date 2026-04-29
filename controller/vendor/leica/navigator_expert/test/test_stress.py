@@ -44,7 +44,7 @@ random.seed(args.seed)
 # ── Connect ──────────────────────────────────────────────────────────────
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
+import navigator_expert.driver as drv
 
 client = lasx_api.LasxApiClientPyModel
 assert client.Connect("PythonClient"), "Cannot connect to LAS X"

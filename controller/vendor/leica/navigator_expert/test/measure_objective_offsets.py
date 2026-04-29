@@ -73,7 +73,7 @@ import tifffile
 from skimage.registration import phase_cross_correlation
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
+import navigator_expert.driver as drv
 
 
 log = logging.getLogger("measure_objective_offsets")

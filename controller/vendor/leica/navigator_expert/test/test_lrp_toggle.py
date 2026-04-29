@@ -39,9 +39,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.scanning_templates import TEMPLATE_XML, apply_lrp_change
-from lasx.scanning_template_editors_focus import (
+import navigator_expert.driver as drv
+from navigator_expert.driver.scanning_templates import TEMPLATE_XML, apply_lrp_change
+from navigator_expert.driver.scanning_template_editors_focus import (
     STACK_MODES,
     lrp_lrp_set_stack_calculation_mode,
     lrp_verify_stack_calculation_mode,

@@ -38,7 +38,7 @@ from functools import partial
 # Add the leica directory to sys.path so `import lasx` works unchanged.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import lasx as drv
+import navigator_expert.driver as drv
 import lasx.core
 import lasx.errors
 import lasx.readers

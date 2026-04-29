@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lasx.scanning_template_synthesis import (
+from navigator_expert.driver.scanning_template_synthesis import (
     synthesize_tiles,
     assign_focus_points_to_regions,
     _grid_count,

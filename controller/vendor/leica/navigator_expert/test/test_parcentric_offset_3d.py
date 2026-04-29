@@ -62,19 +62,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.scanning_templates import TEMPLATE_XML, apply_lrp_change, save_and_read_lrp
-from lasx.scanning_template_editors_scan import lrp_set_pan
-from lasx.scanning_template_editors_roi import lrp_enable_roi_scan
-from lasx.scanning_template_editors_z import (
+import navigator_expert.driver as drv
+from navigator_expert.driver.scanning_templates import TEMPLATE_XML, apply_lrp_change, save_and_read_lrp
+from navigator_expert.driver.scanning_template_editors_scan import lrp_set_pan
+from navigator_expert.driver.scanning_template_editors_roi import lrp_enable_roi_scan
+from navigator_expert.driver.scanning_template_editors_z import (
     lrp_set_z_stack_active, lrp_set_z_use_mode, lrp_set_sections,
 )
-from lasx.scanning_template_editors_focus import lrp_set_stack_calculation_mode
-from lasx.readers import get_job_settings, get_lasx_settings
-from lasx.scanning_template_parsers import get_master_attrs
-from lasx.utils import parse_tile_geometry
-from lasx.ome_tiff import fix_ome_tiff, update_ome_tiff_filename
-from lasx.prechecks import check_idle
+from navigator_expert.driver.scanning_template_editors_focus import lrp_set_stack_calculation_mode
+from navigator_expert.driver.readers import get_job_settings, get_lasx_settings
+from navigator_expert.driver.scanning_template_parsers import get_master_attrs
+from navigator_expert.driver.utils import parse_tile_geometry
+from navigator_expert.driver.ome_tiff import fix_ome_tiff, update_ome_tiff_filename
+from navigator_expert.driver.prechecks import check_idle
 
 import matplotlib
 matplotlib.use("Agg")

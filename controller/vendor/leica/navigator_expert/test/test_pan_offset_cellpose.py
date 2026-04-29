@@ -77,13 +77,13 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.scanning_templates import TEMPLATE_XML, apply_lrp_change
-from lasx.scanning_template_editors_scan import lrp_set_pan
-from lasx.scanning_template_editors_roi import (
+import navigator_expert.driver as drv
+from navigator_expert.driver.scanning_templates import TEMPLATE_XML, apply_lrp_change
+from navigator_expert.driver.scanning_template_editors_scan import lrp_set_pan
+from navigator_expert.driver.scanning_template_editors_roi import (
     lrp_enable_roi_scan, pixel_to_absolute_um,
 )
-from lasx.utils import parse_tile_geometry
+from navigator_expert.driver.utils import parse_tile_geometry
 
 # ── Output dir ──────────────────────────────────────────────────────────
 

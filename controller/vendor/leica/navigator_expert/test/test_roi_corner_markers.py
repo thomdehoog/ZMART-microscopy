@@ -28,17 +28,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.scanning_templates import (
+import navigator_expert.driver as drv
+from navigator_expert.driver.scanning_templates import (
     TEMPLATE_XML, apply_lrp_change, find_scanning_templates_dir,
 )
-from lasx.scanning_template_editors_roi import (
+from navigator_expert.driver.scanning_template_editors_roi import (
     lrp_enable_roi_scan, lrp_clear_rois, lrp_add_roi,
     lrp_verify_roi_count, lrp_verify_roi_scan,
     make_rectangle, argb_color, ROI_POLYGON,
 )
-from lasx.readers import get_job_settings
-from lasx.utils import parse_tile_geometry
+from navigator_expert.driver.readers import get_job_settings
+from navigator_expert.driver.utils import parse_tile_geometry
 
 # ── Connect ─────────────────────────────────────────────────────────────
 

@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lasx.scanning_templates import (
+from navigator_expert.driver.scanning_templates import (
     _strip_xml, _strip_rgn, _count_objects,
     _is_file_locked, _wait_file_stable,
     get_template_state,

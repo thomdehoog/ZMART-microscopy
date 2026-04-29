@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lasx.scanning_template_editors_roi import (
+from navigator_expert.driver.scanning_template_editors_roi import (
     um,
     ROI_POLYGON, ROI_RECTANGLE, ROI_ELLIPSE, ROI_LINE,
     argb_color, COLOR_RED, COLOR_BLUE,
@@ -25,7 +25,7 @@ from lasx.scanning_template_editors_roi import (
     absolute_um_to_roi_translation,
     pixel_to_absolute_um, bbox_to_zoom, mask_contour_to_roi,
 )
-from lasx.scanning_template_parsers import parse_lrp
+from navigator_expert.driver.scanning_template_parsers import parse_lrp
 
 
 # Unit-test fixture for pan_scale_um derived from the real helper with
@@ -34,7 +34,7 @@ from lasx.scanning_template_parsers import parse_lrp
 # so any test that accidentally relied on the old hardcoded legacy
 # default would fail visibly. Real callers call
 # pan_scale_um_from_base_fov with the current objective's base FOV.
-from lasx.utils import pan_scale_um_from_base_fov as _pan_scale_helper
+from navigator_expert.driver.utils import pan_scale_um_from_base_fov as _pan_scale_helper
 _TEST_PAN_SCALE_UM = _pan_scale_helper(600.0)
 
 

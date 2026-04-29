@@ -19,12 +19,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.scanning_templates import (
+import navigator_expert.driver as drv
+from navigator_expert.driver.scanning_templates import (
     TEMPLATE_XML, apply_lrp_change, find_scanning_templates_dir,
     save_experiment,
 )
-from lasx.scanning_template_editors_scan import lrp_set_pan, lrp_set_zoom
+from navigator_expert.driver.scanning_template_editors_scan import lrp_set_pan, lrp_set_zoom
 import xml.etree.ElementTree as ET
 
 parser = argparse.ArgumentParser(description="Pan Limit Discovery")

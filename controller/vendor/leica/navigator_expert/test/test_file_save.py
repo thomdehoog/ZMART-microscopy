@@ -33,10 +33,10 @@ args = parser.parse_args()
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.readers import get_lasx_settings
-from lasx.prechecks import check_idle
-from lasx.file_confirmation import (
+import navigator_expert.driver as drv
+from navigator_expert.driver.readers import get_lasx_settings
+from navigator_expert.driver.prechecks import check_idle
+from navigator_expert.driver.file_confirmation import (
     read_relative_path, detect_new_files, wait_all_stable,
 )
 

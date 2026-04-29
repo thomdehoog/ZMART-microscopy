@@ -32,13 +32,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.scanning_templates import (
+import navigator_expert.driver as drv
+from navigator_expert.driver.scanning_templates import (
     TEMPLATE_XML, apply_lrp_change, find_scanning_templates_dir,
     save_experiment,
 )
-from lasx.scanning_template_editors_scan import lrp_set_pan, lrp_set_zoom
-from lasx.scanning_template_editors_roi import (
+from navigator_expert.driver.scanning_template_editors_scan import lrp_set_pan, lrp_set_zoom
+from navigator_expert.driver.scanning_template_editors_roi import (
     lrp_enable_roi_scan, lrp_clear_rois, lrp_add_roi,
     lrp_verify_roi_count,
     make_star, make_rectangle, um,
@@ -47,9 +47,9 @@ from lasx.scanning_template_editors_roi import (
     absolute_um_to_roi_translation,
     pixel_to_absolute_um, bbox_to_zoom, mask_contour_to_roi,
 )
-from lasx.scanning_template_parsers import parse_lrp, get_master_attrs, get_rois
-from lasx.readers import get_job_settings
-from lasx.utils import parse_tile_geometry
+from navigator_expert.driver.scanning_template_parsers import parse_lrp, get_master_attrs, get_rois
+from navigator_expert.driver.readers import get_job_settings
+from navigator_expert.driver.utils import parse_tile_geometry
 
 print(f"  Driver version: {drv.__version__}")
 

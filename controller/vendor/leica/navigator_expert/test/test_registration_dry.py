@@ -56,10 +56,10 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.prechecks import check_idle
-from lasx.readers import get_job_settings, get_lasx_settings
-from lasx.utils import parse_tile_geometry
+import navigator_expert.driver as drv
+from navigator_expert.driver.prechecks import check_idle
+from navigator_expert.driver.readers import get_job_settings, get_lasx_settings
+from navigator_expert.driver.utils import parse_tile_geometry
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

@@ -25,8 +25,8 @@ N = args.size
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.scanning_template_parsers import _get_tile_sizes_from_api
+import navigator_expert.driver as drv
+from navigator_expert.driver.scanning_template_parsers import _get_tile_sizes_from_api
 
 # ── Connect ──────────────────────────────────────────────────────────────
 

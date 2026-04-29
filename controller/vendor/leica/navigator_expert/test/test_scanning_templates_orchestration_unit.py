@@ -19,7 +19,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lasx.scanning_templates import (
+from navigator_expert.driver.scanning_templates import (
     reorder_jobs,
     save_experiment,
     load_experiment,

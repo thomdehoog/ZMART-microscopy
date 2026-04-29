@@ -48,11 +48,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.scanning_templates import TEMPLATE_XML, apply_lrp_change
-from lasx.scanning_template_editors_scan import lrp_set_pan
-from lasx.scanning_template_editors_roi import lrp_enable_roi_scan
-from lasx.utils import parse_tile_geometry
+import navigator_expert.driver as drv
+from navigator_expert.driver.scanning_templates import TEMPLATE_XML, apply_lrp_change
+from navigator_expert.driver.scanning_template_editors_scan import lrp_set_pan
+from navigator_expert.driver.scanning_template_editors_roi import lrp_enable_roi_scan
+from navigator_expert.driver.utils import parse_tile_geometry
 
 out_dir = args.output_dir or (
     Path(__file__).resolve().parent.parent

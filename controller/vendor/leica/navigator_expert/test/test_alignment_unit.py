@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lasx.alignment import (
+from navigator_expert.driver.alignment import (
     load_alignment, translate_xy, translate_pan, translate_z, translate_xyz,
     _get_offset,
 )
@@ -32,7 +32,7 @@ from lasx.alignment import (
 # identity) so any positive value would do — using the helper keeps the
 # number honest. Real callers resolve pan_scale_um from the current
 # objective's base FOV via lasx.pan_scale_um_from_base_fov.
-from lasx.utils import pan_scale_um_from_base_fov as _pan_scale_helper
+from navigator_expert.driver.utils import pan_scale_um_from_base_fov as _pan_scale_helper
 _TEST_PAN_SCALE_UM = _pan_scale_helper(600.0)
 
 

@@ -205,7 +205,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
+import navigator_expert.driver as drv
 
 print(f"  Driver version: {drv.__version__}")
 

@@ -30,12 +30,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.scanning_templates import TEMPLATE_XML, apply_lrp_change
-from lasx.scanning_template_editors_scan import (
+import navigator_expert.driver as drv
+from navigator_expert.driver.scanning_templates import TEMPLATE_XML, apply_lrp_change
+from navigator_expert.driver.scanning_template_editors_scan import (
     lrp_set_pan, lrp_verify_pan,
 )
-from lasx.scanning_template_editors_roi import (
+from navigator_expert.driver.scanning_template_editors_roi import (
     lrp_enable_roi_scan, lrp_verify_roi_scan,
     lrp_clear_rois, lrp_add_roi,
     lrp_verify_roi_count,

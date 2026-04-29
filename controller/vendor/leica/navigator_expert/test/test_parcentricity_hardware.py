@@ -64,10 +64,10 @@ args = parser.parse_args()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from LasxApi import PYLICamApiConnector as lasx_api
-import lasx as drv
-from lasx.readers import get_job_settings, get_lasx_settings
-from lasx.utils import parse_tile_geometry
-from lasx.prechecks import check_idle
+import navigator_expert.driver as drv
+from navigator_expert.driver.readers import get_job_settings, get_lasx_settings
+from navigator_expert.driver.utils import parse_tile_geometry
+from navigator_expert.driver.prechecks import check_idle
 
 import logging
 logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")

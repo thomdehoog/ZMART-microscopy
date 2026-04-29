@@ -25,7 +25,7 @@ from pathlib import Path
 # Add the leica directory to sys.path so `import lasx` works unchanged.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import lasx as drv
+import navigator_expert.driver as drv
 from mock_lasx_api import MockLasxClient
 
 

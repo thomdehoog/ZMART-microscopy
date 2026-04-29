@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lasx.scanning_template_parsers import (
+from navigator_expert.driver.scanning_template_parsers import (
     _to_float, _to_int,
     _parse_size_string, _tile_size_from_image_size_str,
     _get_job_names,
