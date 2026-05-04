@@ -319,8 +319,11 @@ def main():
         target_update["parcentric_offset_um"] = offset_um
 
         # Phase 3: parfocal Z shift (optional).
+        # parfocal_offset_um is not measured: there's no GetZ API, so
+        # we can't observe the firmware's Z motion on switch. The
+        # Brenner peak diff IS the shift the cookbook needs.
         if args.measure_parfocal:
-            dz_um, dz_residual_um, parfocal_report = phases.measure_parfocal(
+            dz_um, parfocal_report = phases.measure_parfocal(
                 client, args.job,
                 acquire_stack=acquire_stack,
                 ref_focus=ref_focus,
@@ -329,9 +332,6 @@ def main():
             )
             target_report["parfocal"] = parfocal_report
             target_update["parfocal_shift_um"] = dz_um
-            # parfocal_offset_um is not currently measured (no Z get/set
-            # readback delta). We could capture it via drv.get_z if the
-            # firmware moves Z on objective switch.
 
         # Phase 4: parcentric XY shift via registration with stage parked
         # at home_xy. This is THE value the cookbook applies. (optional)
