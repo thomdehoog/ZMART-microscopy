@@ -7,32 +7,31 @@ stays in one place.
 
 Z model (entire calibration runs with z-galvo at 0):
     - The firmware applies the bulk parfocal correction by moving
-      z-wide on objective switch. The orchestrator records that as
-      ``offset_z_um`` (post-switch zwide minus pre-switch zwide).
+      z-wide on objective switch. The orchestrator records the
+      cumulative ref→target z-wide motion as ``offset_z_um``.
     - ``measure_brenner`` is the single Brenner-stack primitive. Run
-      once on the reference (peak gives the operator's focus error)
-      and once per target (peak gives the firmware's parfocal
-      residual, plus a focused slice for shift_xy registration).
-      Each call restores z-wide to its pre-stack position so the
-      measurement is reversible.
-    - ``compute_shift_z`` is pure math on two Brenner results:
-      ``shift = target_residual - ref_residual``. Both anchors are
-      Brenner peaks, so the operator's focus accuracy at the
-      reference does not bias the cookbook value.
+      once on the reference and once per target; each call returns
+      the optical-focus z-wide (the Brenner peak) and the focused
+      image. Each call restores z-wide to its pre-stack position so
+      the measurement is reversible.
+    - ``compute_shift_z`` is pure math on two Brenner peaks:
+      ``shift_um = (peak_target - peak_ref) - offset_z_um``.
+      Both anchors are optical peaks, so the operator's focus
+      accuracy at the reference does not enter the cookbook value.
 
 Phase boundaries:
 
     measure_sign_convention   -- under reference objective only
     measure_brenner           -- one stack on z-wide; used both for
-                                 the reference anchor (Phase 0, run
-                                 once) and the per-target anchor
-                                 (Phase 3 input). Restores z-wide.
+                                 the reference anchor (run once) and
+                                 the per-target anchor. Restores
+                                 z-wide.
     measure_xy_firmware_delta -- per target, always runs (firmware
                                  ``get_xy`` delta on switch; diagnostic)
     compute_shift_z           -- per target (when shift_z is
-                                 requested); pure math from the
-                                 target's BrennerResult + the ref
-                                 residual.
+                                 requested); pure math on the two
+                                 Brenner peaks plus the firmware
+                                 offset.
     measure_shift_xy          -- per target (when shift_xy is
                                  requested); voting registration with
                                  both anchors at their Brenner peaks.
@@ -128,15 +127,18 @@ def measure_sign_convention(client, acquire_single, *,
 # ── Phase 2: firmware XY delta on objective switch ───────────────────
 
 def measure_xy_firmware_delta(client, home_xy):
-    """Phase 2: ``get_xy`` delta induced by the firmware on objective switch.
+    """Phase 2: stage XY motion applied by the firmware on objective switch.
 
-    Caller must have already switched to the target objective. The stage
-    will read back at ``home_xy + delta``.
+    Caller must have already switched to the target objective.
+    ``home_xy`` is the run anchor — the stage XY captured at the
+    reference, before any switch — so the returned delta is
+    cumulative ref→target.
 
-    Recorded for diagnostics (firmware behaviour over time); it is
-    **not** part of the correction the cookbook applies — the
-    cookbook commands an absolute XY after the switch, overwriting
-    whatever the firmware did.
+    Persisted as ``offset_xy_um`` for the slot; informational at
+    runtime because the cookbook commands an absolute XY (overwriting
+    the firmware's motion), but useful for callers that want to
+    reason about where the firmware would land if XY were not
+    commanded.
 
     Returns ``(delta_um, report_fragment)``.
     """
@@ -159,11 +161,11 @@ class BrennerResult:
     its consumers (orchestrator, :func:`compute_shift_z`,
     :func:`measure_shift_xy`).
 
-    ``residual_um`` is the focus error of ``centre_zwide_um`` — the
-    z-wide position where the stack was centred — relative to the
-    Brenner peak. For the reference stack this is the operator's
-    focus error; for a target stack centred at ``zwide_post_switch``
-    it is the firmware's parfocal-compensation residual.
+    ``centre_zwide_um`` is the z-wide position where the stack was
+    centred (== where z-wide was before the call); ``peak_zwide_um``
+    is where the Brenner peak landed. The orchestrator computes
+    shift_z directly from two ``peak_zwide_um`` values plus the
+    firmware offset.
     """
     centre_zwide_um: float
     peak_zwide_um: float
@@ -171,15 +173,10 @@ class BrennerResult:
     peak_image_um: float         # peak_sub * z_step (relative to stack origin)
     scores: list[float]          # per-slice Brenner scores
 
-    @property
-    def residual_um(self) -> float:
-        return self.peak_zwide_um - self.centre_zwide_um
-
     def report(self) -> dict:
         return {
             "centre_zwide_um": float(self.centre_zwide_um),
             "peak_zwide_um": float(self.peak_zwide_um),
-            "residual_um": float(self.residual_um),
             "peak_image_um": float(self.peak_image_um),
             "scores": list(self.scores),
         }
@@ -230,8 +227,8 @@ def measure_brenner(client, job, *, acquire_stack,
         log.warning("z-wide restore unconfirmed (%s) — proceeding",
                     r.get("message"))
 
-    log.info("brenner peak = %.2f um  residual = %+.2f um",
-             peak_zwide_um, peak_zwide_um - centre_zwide_um)
+    log.info("brenner peak = %.2f um  (centre = %.2f um, peak − centre = %+.2f um)",
+             peak_zwide_um, centre_zwide_um, peak_zwide_um - centre_zwide_um)
 
     return BrennerResult(
         centre_zwide_um=float(centre_zwide_um),
@@ -242,40 +239,39 @@ def measure_brenner(client, job, *, acquire_stack,
     )
 
 
-# ── Phase 3: shift_z — pure math from a target Brenner result ───────
+# ── Phase 3: shift_z — pure math from two Brenner peaks ─────────────
 
-def compute_shift_z(target_brenner: BrennerResult, *,
-                    zwide_post_switch_um: float,
-                    ref_residual_um: float):
-    """Phase 3: objective shift_z from a target Brenner result.
+def compute_shift_z(*, ref_brenner: BrennerResult,
+                    target_brenner: BrennerResult,
+                    offset_z_um: float):
+    """Phase 3: shift_z from the two Brenner peaks and the firmware offset.
 
-    Both anchors are Brenner peaks, so the operator's focus accuracy
-    at the reference does not enter the calibration:
+    The cookbook applies shift_z on z-wide AFTER the firmware has
+    shifted z-wide for the objective switch. With both anchors at
+    their Brenner peaks the calibration is independent of where the
+    operator initially set z-wide:
 
-        shift_um = (peak_target - zwide_post)
-                 - (peak_ref - zwide_at_ref)
-                 = target.residual_um - ref_residual_um
+        shift_um = (peak_target − peak_ref) − offset_z
 
-    The cookbook applies ``shift_um`` on z-wide AFTER the firmware
-    has shifted z-wide for the objective switch.
+    where ``offset_z`` is the cumulative ref→target z-wide motion
+    applied by the firmware.
 
     Pure math + report fragment — no LAS X interaction; the
     measurement was done by :func:`measure_brenner`.
     """
-    raw_um = float(target_brenner.peak_zwide_um - zwide_post_switch_um)
-    shift_um = float(raw_um - ref_residual_um)
+    peak_diff_um = float(target_brenner.peak_zwide_um - ref_brenner.peak_zwide_um)
+    shift_um = float(peak_diff_um - offset_z_um)
     log.info(
-        "shift_z: raw residual = %+.2f um  ref residual = %+.2f um  "
-        "objective = %+.2f um",
-        raw_um, ref_residual_um, shift_um,
+        "shift_z: peak_target − peak_ref = %+.2f um  offset = %+.2f um  "
+        "shift = %+.2f um",
+        peak_diff_um, offset_z_um, shift_um,
     )
     return shift_um, {
-        "zwide_post_switch_um": float(zwide_post_switch_um),
-        "zwide_peak_um": float(target_brenner.peak_zwide_um),
-        "shift_raw_um": raw_um,
+        "peak_ref_zwide_um": float(ref_brenner.peak_zwide_um),
+        "peak_target_zwide_um": float(target_brenner.peak_zwide_um),
+        "peak_diff_um": peak_diff_um,
+        "offset_z_um": float(offset_z_um),
         "shift_um": shift_um,
-        "ref_residual_um": float(ref_residual_um),
-        "peak_image_um": float(target_brenner.peak_image_um),
     }
 
 

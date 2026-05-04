@@ -19,9 +19,10 @@ Schema (v9)::
       "objectives": {
         "<slot>": {
           "name":            "...",
-          "shift_xy_um":     [dx, dy],   // optical-axis diff vs ref
-          "offset_z_um":     dz_off,     // firmware z-wide diff on switch
-          "shift_z_um":      dz_shift    // Brenner residual on z-wide
+          "offset_xy_um":    [dx, dy],   // firmware xy diff on switch (cumulative ref→slot)
+          "shift_xy_um":     [dx, dy],   // optical-axis xy diff vs ref
+          "offset_z_um":     dz_off,     // firmware z-wide diff on switch (cumulative ref→slot)
+          "shift_z_um":      dz_shift    // Brenner-derived z-wide correction
         }
       }
     }
@@ -30,11 +31,10 @@ Frames and translation
     Each objective defines an "imaging frame": the (x, y, z) at which
     a given physical point is on the optical axis and in focus.
     Frames differ between objectives by:
-        - XY: optical-axis offset (``shift_xy_um``).
-        - Z:  firmware-applied parfocal motion on switch
-              (``offset_z_um``) plus the Brenner-measured residual
-              (``shift_z_um``). Both contribute to the per-objective
-              focal-plane offset.
+        - XY: firmware motion on switch (``offset_xy_um``) plus the
+              optical-axis correction (``shift_xy_um``).
+        - Z:  firmware parfocal motion on switch (``offset_z_um``)
+              plus the Brenner-derived correction (``shift_z_um``).
     ``translate_xyz_between_objectives`` maps a position from one
     objective's frame to another by adding the appropriate deltas.
 
@@ -49,9 +49,11 @@ The reference slot is a regular entry with all corrections at 0 —
 pointer-vs-data is cleanly separated: ``reference_objective_slot`` is
 the only thing that distinguishes ref.
 
-Diagnostic firmware ``get_xy`` deltas on objective switch are recorded
-in the per-run ``report.json`` only — they're not part of the
-correction the cookbook applies (XY is commanded absolute).
+``offset_xy_um`` is the firmware-applied stage XY motion observed on
+the switch (cumulative ref→target). The cookbook commands an absolute
+XY after the switch, so the firmware delta is not algebraically part
+of the correction at runtime — but it is persisted so callers can
+reason about where the firmware would land if XY were not commanded.
 """
 
 import json
@@ -159,6 +161,7 @@ def set_image_to_stage(config, matrix):
 
 def update_objective(config, slot, *,
                      name=None,
+                     offset_xy_um=None,
                      shift_xy_um=None,
                      offset_z_um=None,
                      shift_z_um=None):
@@ -169,6 +172,9 @@ def update_objective(config, slot, *,
     entry = config["objectives"].setdefault(str(int(slot)), {})
     if name is not None:
         entry["name"] = name
+    if offset_xy_um is not None:
+        entry["offset_xy_um"] = [float(offset_xy_um[0]),
+                                 float(offset_xy_um[1])]
     if shift_xy_um is not None:
         entry["shift_xy_um"] = [float(shift_xy_um[0]),
                                 float(shift_xy_um[1])]
@@ -210,6 +216,25 @@ def _entry(config, slot):
     return entry
 
 
+def get_offset_xy_um(config, slot):
+    """Firmware-applied stage XY delta between *slot* and the reference, in um.
+
+    Read directly from the API on the firmware-driven objective
+    switch. Cumulative from the reference. Reference slot returns
+    ``(0.0, 0.0)``. Diagnostic / informational — the cookbook
+    commands an absolute XY at runtime, so this is not algebraically
+    part of the correction.
+    """
+    entry = _entry(config, slot)
+    value = entry.get("offset_xy_um")
+    if value is None:
+        raise ValueError(
+            f"Slot {slot} has no offset_xy_um. "
+            f"Re-run calibrate_objectives.py."
+        )
+    return float(value[0]), float(value[1])
+
+
 def get_shift_xy_um(config, slot):
     """Optical-axis XY shift between *slot* and the reference, in um.
 
@@ -221,7 +246,7 @@ def get_shift_xy_um(config, slot):
     if value is None:
         raise ValueError(
             f"Slot {slot} has no shift_xy_um. "
-            f"Re-run calibrate_objectives.py with --measure-xy."
+            f"Re-run calibrate_objectives.py with --measure-shift-xy."
         )
     return float(value[0]), float(value[1])
 
@@ -230,32 +255,33 @@ def get_offset_z_um(config, slot):
     """Firmware-applied z-wide delta between *slot* and the reference, in um.
 
     Read directly from the API around the firmware-driven objective
-    switch. Combines with ``shift_z_um`` to give the slot's full
-    focal-plane offset relative to the reference.
+    switch. Cumulative from the reference. Combines with
+    ``shift_z_um`` to give the slot's full focal-plane offset.
     """
     entry = _entry(config, slot)
     value = entry.get("offset_z_um")
     if value is None:
         raise ValueError(
             f"Slot {slot} has no offset_z_um. "
-            f"Re-run calibrate_objectives.py with --measure-parfocal."
+            f"Re-run calibrate_objectives.py with --measure-shift-z."
         )
     return float(value)
 
 
 def get_shift_z_um(config, slot):
-    """Brenner-measured z-wide focus residual for *slot*, in um.
+    """Brenner-derived z-wide correction for *slot*, in um.
 
-    The residual the firmware leaves behind after its z-wide motion.
-    Combines with ``offset_z_um`` to give the slot's full focal-plane
-    offset relative to the reference. Reference slot returns 0.0.
+    The cookbook applies this on z-wide after the firmware has done
+    its parfocal compensation. Combines with ``offset_z_um`` to give
+    the slot's full focal-plane offset relative to the reference.
+    Reference slot returns 0.0.
     """
     entry = _entry(config, slot)
     value = entry.get("shift_z_um")
     if value is None:
         raise ValueError(
             f"Slot {slot} has no shift_z_um. "
-            f"Re-run calibrate_objectives.py with --measure-parfocal."
+            f"Re-run calibrate_objectives.py with --measure-shift-z."
         )
     return float(value)
 

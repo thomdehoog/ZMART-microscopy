@@ -24,11 +24,13 @@ The full coordinate model lives in
 The short version:
 
     For each non-reference objective ``slot``, calibration stores
+        - ``offset_xy_um`` — stage XY delta the firmware applies on
+                             objective switch (cumulative ref→slot).
         - ``shift_xy_um``  — optical-axis offset vs reference (XY).
         - ``offset_z_um``  — z-wide delta the firmware applies on
-                             objective switch (read from the API).
-        - ``shift_z_um``   — z-wide focus residual after firmware,
-                             measured by Brenner stack on z-wide.
+                             objective switch (cumulative ref→slot).
+        - ``shift_z_um``   — Brenner-derived z-wide correction
+                             (peak_target − peak_ref − offset_z).
 
     To map a stage XY + z-wide from one objective's frame to another:
         x', y', z' = drv.translate_xyz_between_objectives(x, y, z, cfg,
