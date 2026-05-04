@@ -23,7 +23,7 @@ from navigator_expert.driver.scanning_template_editors_roi import (
     make_rectangle, make_ellipse, make_polygon, make_star, make_line,
     roi_translation_to_pan, roi_to_absolute_um,
     absolute_um_to_roi_translation,
-    pixel_to_absolute_um, bbox_to_zoom, mask_contour_to_roi,
+    galvo_pan_for_pixel, bbox_to_zoom, mask_contour_to_roi,
 )
 from navigator_expert.driver.scanning_template_parsers import parse_lrp
 
@@ -622,70 +622,78 @@ class TestAbsoluteUmToRoiTranslation:
 
 
 # =============================================================================
-# Image coordinate helpers
+# galvo_pan_for_pixel — pure composition of LAS X-documented invariants
 # =============================================================================
 
-class TestPixelToAbsoluteUm:
-    """Test pixel_to_absolute_um."""
+class TestGalvoPanForPixel:
+    """Numeric assertions on the pixel→pan derivation. No LAS X needed."""
 
-    def test_center_pixel_at_zero_pan(self):
-        """Center pixel maps to stage position when pan is zero."""
-        x, y = pixel_to_absolute_um(256, 256, 50000, 50000, 0, 0,
-                                     pixel_size_um=2.0,
-                                     pan_scale_um=_TEST_PAN_SCALE_UM)
-        assert x == pytest.approx(50000)
-        assert y == pytest.approx(50000)
+    def test_center_pixel_yields_zero_pan(self):
+        """Pixel at FOV centre needs no pan to be at FOV centre."""
+        dx, dy = galvo_pan_for_pixel(
+            256, 256, pixel_size_um=2.0, image_size=512,
+            pan_scale_um=_TEST_PAN_SCALE_UM,
+        )
+        assert dx == pytest.approx(0)
+        assert dy == pytest.approx(0)
 
-    def test_center_pixel_with_pan(self):
-        """Center pixel maps to stage + pan * pan_scale_um."""
-        stage_x, stage_y = 50000, 50000
-        pan_x, pan_y = 0.001, -0.002
-        x, y = pixel_to_absolute_um(256, 256, stage_x, stage_y,
-                                     pan_x, pan_y, pixel_size_um=2.0,
-                                     pan_scale_um=_TEST_PAN_SCALE_UM)
-        assert x == pytest.approx(stage_x + pan_x * _TEST_PAN_SCALE_UM)
-        assert y == pytest.approx(stage_y + pan_y * _TEST_PAN_SCALE_UM)
+    def test_pixel_right_of_centre_negates_pan_x(self):
+        """Per LAS X invariant: ``pan_x = -translation_x / pan_scale``.
+        A pixel to the right of centre has positive translation_x, so the
+        pan delta needed to move it to centre is negative.
+        """
+        dx, _ = galvo_pan_for_pixel(
+            300, 256, pixel_size_um=2.0, image_size=512,
+            pan_scale_um=_TEST_PAN_SCALE_UM,
+        )
+        assert dx < 0
 
-    def test_x_inverted(self):
-        """Pixel left of center → higher stage X (X inverted)."""
-        x_left, _ = pixel_to_absolute_um(100, 256, 50000, 50000, 0, 0,
-                                          pixel_size_um=2.0,
-                                          pan_scale_um=_TEST_PAN_SCALE_UM)
-        x_right, _ = pixel_to_absolute_um(400, 256, 50000, 50000, 0, 0,
-                                           pixel_size_um=2.0,
-                                           pan_scale_um=_TEST_PAN_SCALE_UM)
-        assert x_left > 50000
-        assert x_right < 50000
+    def test_pixel_below_centre_positive_pan_y(self):
+        """Per LAS X invariant: ``pan_y = +translation_y / pan_scale``.
+        A pixel below centre has positive translation_y, so pan delta is
+        positive.
+        """
+        _, dy = galvo_pan_for_pixel(
+            256, 300, pixel_size_um=2.0, image_size=512,
+            pan_scale_um=_TEST_PAN_SCALE_UM,
+        )
+        assert dy > 0
 
-    def test_y_cartesian(self):
-        """Cartesian Y: top pixel → higher Y, bottom pixel → lower Y."""
-        _, y_top = pixel_to_absolute_um(256, 100, 50000, 50000, 0, 0,
-                                         pixel_size_um=2.0,
-                                         pan_scale_um=_TEST_PAN_SCALE_UM)
-        _, y_bot = pixel_to_absolute_um(256, 400, 50000, 50000, 0, 0,
-                                         pixel_size_um=2.0,
-                                         pan_scale_um=_TEST_PAN_SCALE_UM)
-        assert y_top > 50000  # top pixel → positive Y (Cartesian up)
-        assert y_bot < 50000  # bottom pixel → negative Y (Cartesian down)
+    def test_magnitude_scales_with_pixel_offset(self):
+        """``|pan| = |pixel_offset| · pixel_size_um / pan_scale_um``."""
+        dx10, _ = galvo_pan_for_pixel(
+            246, 256, pixel_size_um=2.0, image_size=512,
+            pan_scale_um=_TEST_PAN_SCALE_UM,
+        )
+        dx100, _ = galvo_pan_for_pixel(
+            156, 256, pixel_size_um=2.0, image_size=512,
+            pan_scale_um=_TEST_PAN_SCALE_UM,
+        )
+        assert abs(dx100) == pytest.approx(abs(dx10) * 10, rel=1e-9)
 
-    def test_pixel_size_scales_offset(self):
-        """Larger pixel size → larger physical offset per pixel."""
-        x_big, _ = pixel_to_absolute_um(0, 256, 50000, 50000, 0, 0,
-                                         pixel_size_um=2.0,
-                                         pan_scale_um=_TEST_PAN_SCALE_UM)
-        x_small, _ = pixel_to_absolute_um(0, 256, 50000, 50000, 0, 0,
-                                           pixel_size_um=0.2,
-                                           pan_scale_um=_TEST_PAN_SCALE_UM)
-        offset_big = abs(x_big - 50000)
-        offset_small = abs(x_small - 50000)
-        assert offset_big == pytest.approx(offset_small * 10, rel=0.01)
+    def test_magnitude_inverse_with_pan_scale(self):
+        """Doubling pan_scale_um halves the pan delta needed."""
+        dx_a, _ = galvo_pan_for_pixel(
+            300, 256, pixel_size_um=2.0, image_size=512,
+            pan_scale_um=_TEST_PAN_SCALE_UM,
+        )
+        dx_b, _ = galvo_pan_for_pixel(
+            300, 256, pixel_size_um=2.0, image_size=512,
+            pan_scale_um=_TEST_PAN_SCALE_UM * 2,
+        )
+        assert dx_b == pytest.approx(dx_a / 2, rel=1e-9)
 
-    def test_custom_image_size(self):
-        x, y = pixel_to_absolute_um(512, 512, 50000, 50000, 0, 0,
-                                     pixel_size_um=1.0, image_size=1024,
-                                     pan_scale_um=_TEST_PAN_SCALE_UM)
-        assert x == pytest.approx(50000)
-        assert y == pytest.approx(50000)
+    def test_explicit_value(self):
+        """Sanity-check the absolute formula against a hand-computed case."""
+        # pixel offset (44, -44) px @ 2 µm/px → translation (88, -88) µm
+        # pan_scale_um = _TEST_PAN_SCALE_UM
+        # pan_x = -88 / pan_scale; pan_y = -88 / pan_scale
+        dx, dy = galvo_pan_for_pixel(
+            300, 212, pixel_size_um=2.0, image_size=512,
+            pan_scale_um=_TEST_PAN_SCALE_UM,
+        )
+        assert dx == pytest.approx(-88.0 / _TEST_PAN_SCALE_UM)
+        assert dy == pytest.approx(-88.0 / _TEST_PAN_SCALE_UM)
 
 
 class TestBboxToZoom:
@@ -722,67 +730,58 @@ class TestBboxToZoom:
 
 
 class TestMaskContourToRoi:
-    """Test mask_contour_to_roi."""
+    """Test mask_contour_to_roi.
+
+    The function lives entirely in image-frame: vertices are pixel offsets
+    from the polygon centroid in metres, translation is the centroid's
+    image-frame position with the LAS X X-negation convention applied.
+    """
 
     PS = 0.2  # arbitrary pixel size in um
 
     def test_basic_contour(self):
         contour = [(100, 200), (150, 200), (150, 250), (100, 250)]
         verts, trans = mask_contour_to_roi(
-            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS,
-            pan_scale_um=_TEST_PAN_SCALE_UM)
+            contour, pixel_size_um=self.PS)
         assert len(verts) == 4
         assert len(trans) == 2
 
-    def test_vertices_centred(self):
-        """Vertices should be centred around (0, 0)."""
+    def test_vertices_centred_on_polygon_centroid(self):
+        """Vertices should be centred on the polygon centroid."""
         contour = [(100, 200), (200, 200), (200, 300), (100, 300)]
         verts, _ = mask_contour_to_roi(
-            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS,
-            pan_scale_um=_TEST_PAN_SCALE_UM)
+            contour, pixel_size_um=self.PS)
         xs = [v[0] for v in verts]
         ys = [v[1] for v in verts]
         assert sum(xs) == pytest.approx(0, abs=1e-12)
         assert sum(ys) == pytest.approx(0, abs=1e-12)
 
     def test_vertices_in_metres(self):
-        """Vertices should be in metres (small values)."""
+        """Vertices should be in metres."""
         contour = [(200, 200), (300, 200), (300, 300), (200, 300)]
         verts, _ = mask_contour_to_roi(
-            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS,
-            pan_scale_um=_TEST_PAN_SCALE_UM)
+            contour, pixel_size_um=self.PS)
         for x, y in verts:
-            assert abs(x) < 0.001  # less than 1 mm
+            assert abs(x) < 0.001
             assert abs(y) < 0.001
 
-    def test_translation_is_metres(self):
-        """Translation should be in metres."""
-        contour = [(200, 200), (300, 300)]
-        _, trans = mask_contour_to_roi(
-            contour, 50000, 50000, 0, 0, pixel_size_um=self.PS,
-            pan_scale_um=_TEST_PAN_SCALE_UM)
-        tx, ty = trans
-        assert abs(tx) < 1  # reasonable metre-scale values
-        assert abs(ty) < 1
+    def test_translation_x_negated_y_unflipped(self):
+        """Centroid right of and below image centre → tx < 0, ty > 0
+        (matches the LAS X ROI Translation convention).
+        """
+        # Centroid at pixel (350, 350); image_size=512 → centre = 256.
+        # cx − centre = +94, cy − centre = +94 → tx = −94·ps·1e-6, ty = +94·ps·1e-6
+        contour = [(300, 300), (400, 300), (400, 400), (300, 400)]
+        _, (tx, ty) = mask_contour_to_roi(
+            contour, pixel_size_um=self.PS)
+        assert tx == pytest.approx(-94 * self.PS * 1e-6, abs=1e-12)
+        assert ty == pytest.approx(+94 * self.PS * 1e-6, abs=1e-12)
 
-    def test_roundtrip_position(self):
-        """Centroid of contour should match roi_to_absolute_um of translation."""
-        contour = [(100, 200), (200, 200), (200, 300), (100, 300)]
-        stage_x, stage_y = 50000, 50000
-        verts, (tx, ty) = mask_contour_to_roi(
-            contour, stage_x, stage_y, 0, 0, pixel_size_um=self.PS,
-            pan_scale_um=_TEST_PAN_SCALE_UM)
-
-        # Recover absolute position from translation
-        abs_x, abs_y = roi_to_absolute_um(tx, ty, stage_x, stage_y)
-
-        # Compute expected centroid from pixel conversion
-        abs_points = [pixel_to_absolute_um(px, py, stage_x, stage_y,
-                                           0, 0, pixel_size_um=self.PS,
-                                           pan_scale_um=_TEST_PAN_SCALE_UM)
-                      for px, py in contour]
-        expected_x = sum(p[0] for p in abs_points) / len(abs_points)
-        expected_y = sum(p[1] for p in abs_points) / len(abs_points)
-
-        assert abs_x == pytest.approx(expected_x, abs=0.01)
-        assert abs_y == pytest.approx(expected_y, abs=0.01)
+    def test_translation_zero_at_image_centre(self):
+        """Centroid at image centre → translation == (0, 0)."""
+        # 4-vertex polygon symmetric around (256, 256), image_size=512.
+        contour = [(206, 206), (306, 206), (306, 306), (206, 306)]
+        _, (tx, ty) = mask_contour_to_roi(
+            contour, pixel_size_um=self.PS, image_size=512)
+        assert tx == pytest.approx(0, abs=1e-12)
+        assert ty == pytest.approx(0, abs=1e-12)

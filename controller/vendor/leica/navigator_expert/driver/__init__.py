@@ -99,7 +99,7 @@ __all__ = [
     "set_pinhole_airy", "set_detector_gain",
     "set_laser_intensity", "set_laser_shutter",
     "set_filter_wheel_slot", "set_filter_wheel_spectrum",
-    "move_xy", "move_xy_stage", "move_xy_galvo",
+    "move_xy", "move_xy_stage", "move_galvo_to_pixel",
     "move_z", "acquire", "acquire_single_image", "select_job",
     # scanning_templates
     "find_scanning_templates_dir", "save_experiment", "load_experiment",
@@ -132,7 +132,7 @@ __all__ = [
     "lrp_set_resonant_scanner", "lrp_verify_resonant_scanner",
     "lrp_set_bit_depth", "lrp_verify_bit_depth",
     "lrp_set_scan_field_rotation", "lrp_verify_scan_field_rotation",
-    "lrp_set_pan", "lrp_verify_pan",
+    "lrp_set_pan", "lrp_verify_pan", "lrp_get_pan", "reset_pan",
     # scanning_template_editors_roi
     "um",
     "ROI_POLYGON", "ROI_RECTANGLE", "ROI_ELLIPSE", "ROI_LINE",
@@ -144,7 +144,8 @@ __all__ = [
     "lrp_find_aotf_template",
     "roi_translation_to_pan", "roi_to_absolute_um",
     "absolute_um_to_roi_translation",
-    "pixel_to_absolute_um", "bbox_to_zoom", "roi_geometry", "roi_to_pan_zoom",
+    "galvo_pan_for_pixel",
+    "bbox_to_zoom", "roi_geometry", "roi_to_pan_zoom",
     "mask_contour_to_roi",
     # scanning_template_editors_z
     "Z_STACK_DIRECTIONS", "lrp_set_z_stack_direction", "lrp_verify_z_stack_direction",
@@ -166,7 +167,7 @@ __all__ = [
     # high-level acquire-and-load
     "acquire_frame", "acquire_stack",
     # session helpers
-    "connect_python_client", "require_topleft_orientation",
+    "connect_python_client", "require_canonical_scan_orientation",
     "disable_roi_scan",
     # calibration (config + accessors + mutators)
     "CALIBRATION_SCHEMA_VERSION", "STAGE_SCHEMA_VERSION",
@@ -286,7 +287,7 @@ from .commands import (
     set_filter_wheel_spectrum,
     move_xy,
     move_xy_stage,
-    move_xy_galvo,
+    move_galvo_to_pixel,
     move_z,
     acquire,
     acquire_single_image,
@@ -376,6 +377,8 @@ from .scanning_template_editors_scan import (
     lrp_verify_scan_field_rotation,
     lrp_set_pan,
     lrp_verify_pan,
+    lrp_get_pan,
+    reset_pan,
 )
 
 # ── ROI scanning template editors ────────────────────────────────
@@ -398,7 +401,7 @@ from .scanning_template_editors_roi import (
     roi_translation_to_pan,
     roi_to_absolute_um,
     absolute_um_to_roi_translation,
-    pixel_to_absolute_um,
+    galvo_pan_for_pixel,
     bbox_to_zoom,
     roi_geometry,
     roi_to_pan_zoom,
@@ -464,7 +467,7 @@ from .acquire import (
 # ── Session helpers (connect, validate scope state) ──────────────
 from .session import (
     connect_python_client,
-    require_topleft_orientation,
+    require_canonical_scan_orientation,
 )
 from .scanning_template_editors_roi import disable_roi_scan
 

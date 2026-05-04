@@ -33,21 +33,34 @@ def connect_python_client(client_name: str = "PythonClient") -> Any:
     return client
 
 
-def require_topleft_orientation() -> None:
-    """Verify that LAS X image export uses the TOPLEFT origin.
+def require_canonical_scan_orientation() -> None:
+    """Verify that LAS X exports images in the orientation our math assumes.
 
-    Pixel-to-stage math (sign-convention matrix, ``pixel_to_stage_xy_um``)
-    is calibrated under TOPLEFT. With any other transformation enabled
-    the image axes are flipped or rotated and downstream coordinate
-    math silently lands at the wrong place.
+    The pixel↔display-frame mapping ``vx = (col − centre) · pixel_size`` (see
+    ``scanning_template_editors_roi`` module docstring) only holds when the
+    saved TIFF and the on-screen scan field share an axis frame. LAS X
+    guarantees that under ``EnableImageTransformation = false`` or
+    ``ImageTransformation = TOPLEFT``; any other transformation rotates or
+    flips the export and silently misnavigates downstream coordinate math.
 
-    Raises ``RuntimeError`` if a non-TOPLEFT transformation is enabled.
+    *Stage axis settings* (``FlipX``, ``FlipY``, ``SwapXY``,
+    ``InvertXMovement``, ``InvertYMovement``) are NOT validated here: their
+    effect is folded into the calibrated ``image_to_stage`` matrix (the
+    calibration is measured end-to-end), so changing them would invalidate
+    the calibration but does not invalidate this function's derivation. A
+    future check could compare the live values to those captured at
+    calibration time — that's a separate guarantee from "LAS X exports a
+    canonical TIFF".
+
+    Raises ``RuntimeError`` if image export is not in TOPLEFT.
     """
     settings = _readers.get_lasx_settings() or {}
     orient = settings.get("image_orientation", {}) or {}
     if (orient.get("enable_transform", False)
             and orient.get("transformation", "TOPLEFT") != "TOPLEFT"):
         raise RuntimeError(
-            f"ImageTransformation is '{orient.get('transformation')}'; "
-            f"set it to TOPLEFT in LAS X Advanced Settings."
+            f"ImageTransformation = '{orient.get('transformation')}' "
+            f"(expected 'TOPLEFT' or EnableImageTransformation = false). "
+            f"Pixel↔display-frame math will silently misnavigate. "
+            f"Fix in LAS X Advanced Settings, then retry."
         )
