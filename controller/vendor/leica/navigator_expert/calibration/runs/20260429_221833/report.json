@@ -1,0 +1,127 @@
+{
+  "anchor_xy_um": [
+    32231.445312499996,
+    28476.533203124996
+  ],
+  "machine_config": "machine.json",
+  "per_target": {
+    "2": {
+      "image_xy": {
+        "acquisition_z_galvo_um": 2.91326647787092,
+        "acquisition_zoom": 1.5,
+        "agreeing": [
+          "phase",
+          "masked",
+          "ncc",
+          "orb"
+        ],
+        "confidence": 4,
+        "method": "voting",
+        "per_method": {
+          "masked": {
+            "dx_um": -35.227470000000004,
+            "dy_um": 32.19715,
+            "quality": NaN
+          },
+          "ncc": {
+            "dx_um": -35.227470000000004,
+            "dy_um": 32.57594,
+            "quality": 0.9320565462112427
+          },
+          "orb": {
+            "dx_um": -35.46840757327161,
+            "dy_um": 32.34473418728078,
+            "quality": 0.3855421686746988
+          },
+          "phase": {
+            "dx_um": -35.428228700000005,
+            "dy_um": 32.689577,
+            "quality": 0.0
+          }
+        },
+        "quality": NaN,
+        "raw_dx_um": -35.32784935000001,
+        "raw_dy_um": 32.46033709364039,
+        "stage_dx_um": -32.46033709364039,
+        "stage_dy_um": -35.32784935000001
+      },
+      "motor_delta_um": [
+        -7.021484374996362,
+        21.07421875
+      ],
+      "parfocal": {
+        "dz_um": -2.91326647787092,
+        "ref_brenner_peak_um": 20.3014802435984,
+        "tgt_brenner_peak_um": 17.388213765727482,
+        "verification_residual_um": -1.443755852285065
+      },
+      "verification": {
+        "agreeing": [
+          "phase",
+          "masked",
+          "ncc",
+          "orb"
+        ],
+        "confidence": 4,
+        "per_method": {
+          "masked": {
+            "dx_um": -0.75758,
+            "dy_um": -0.0,
+            "quality": NaN
+          },
+          "ncc": {
+            "dx_um": -0.75758,
+            "dy_um": -0.0,
+            "quality": 0.9219458103179932
+          },
+          "orb": {
+            "dx_um": -0.029934391615107116,
+            "dy_um": -0.18730834574706343,
+            "quality": 0.2716049382716049
+          },
+          "phase": {
+            "dx_um": -0.045454800000000004,
+            "dy_um": 0.0416669,
+            "quality": 0.0
+          }
+        },
+        "quality": NaN,
+        "residual_image_um": [
+          -0.4015174,
+          0.0
+        ],
+        "trusted": true
+      }
+    }
+  },
+  "phases_run": [
+    "motor_delta",
+    "parfocal",
+    "xy_image",
+    "verify"
+  ],
+  "reference_objective": {
+    "immersion": "DRY",
+    "magnification": 10.0,
+    "name": "HC PL APO CS2    10x/0.40 DRY",
+    "numerical_aperture": 0.4,
+    "objective_number": 11506424,
+    "slot": 1
+  },
+  "schema_version": 5,
+  "settings": {
+    "backlash_overshoot_um": 50,
+    "backlash_settle_ms": 100,
+    "ref_slot": 1,
+    "ref_zoom": 3.0,
+    "settle_s": 3.0,
+    "sign_move_um": 30.0,
+    "target_slots": [
+      2
+    ],
+    "z_range_um": 15.0,
+    "z_step_um": 1.0
+  },
+  "sign_convention": null,
+  "timestamp": "20260429_221833"
+}

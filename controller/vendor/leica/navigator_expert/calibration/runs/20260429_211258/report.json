@@ -1,0 +1,67 @@
+{
+  "anchor_xy_um": [
+    32213.286132812496,
+    27939.589843749996
+  ],
+  "machine_config": "machine.json",
+  "per_target": {
+    "2": {
+      "motor_delta_um": [
+        -7.021484375,
+        21.07421875
+      ]
+    }
+  },
+  "phases_run": [
+    "sign",
+    "motor_delta"
+  ],
+  "reference_objective": {
+    "immersion": "DRY",
+    "magnification": 10.0,
+    "name": "HC PL APO CS2    10x/0.40 DRY",
+    "numerical_aperture": 0.4,
+    "objective_number": 11506424,
+    "slot": 1
+  },
+  "schema_version": 5,
+  "settings": {
+    "backlash_overshoot_um": 50,
+    "backlash_settle_ms": 100,
+    "ref_slot": 1,
+    "ref_zoom": 1.0,
+    "settle_s": 3.0,
+    "sign_move_um": 30.0,
+    "target_slots": [
+      2
+    ],
+    "z_range_um": 15.0,
+    "z_step_um": 1.0
+  },
+  "sign_convention": {
+    "fitted_matrix": [
+      [
+        0.002490450726421309,
+        -1.0119531451691919
+      ],
+      [
+        1.0841762162354098,
+        -0.008301502421404363
+      ]
+    ],
+    "image_to_stage_um": [
+      [
+        0.0,
+        -1.0
+      ],
+      [
+        1.0,
+        0.0
+      ]
+    ],
+    "label": "-Y +X",
+    "move_um": 30.0,
+    "residual_from_d4": 0.08546127980799002
+  },
+  "timestamp": "20260429_211258"
+}

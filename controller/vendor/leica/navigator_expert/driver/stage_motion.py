@@ -7,7 +7,7 @@ slack-state is pinned and the offset becomes invisible.
 
 Use ``correct_backlash`` immediately before any acquisition where stage
 position must be repeatable. Parameters live in ``config/stage.json``;
-load them with ``machine_config.load_stage_config`` so all consumers
+load them with ``stage_config.load`` so all consumers
 share one source of truth.
 
 See ``docs/session_notes_20260428_backlash_correction.md`` for the

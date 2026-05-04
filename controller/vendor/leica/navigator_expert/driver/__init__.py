@@ -159,14 +159,11 @@ __all__ = [
     "rename_and_move", "confirm_arrival", "confirm_acquisition",
     # alignment
     "load_alignment", "translate_xy", "translate_pan", "translate_z", "translate_xyz",
-    # objective_offsets
-    "measure_objective_switch_offsets",
-    "save_objective_offsets", "load_objective_offsets",
+    # objectives (hw_info helpers)
     "objective_by_slot", "objective_summary", "validate_slots",
-    "default_archive_dir", "default_current_path",
-    "SCHEMA_VERSION", "COORDINATE_POLICY", "MIN_SETTLE_S",
     # calibration (config + accessors + mutators)
     "CALIBRATION_SCHEMA_VERSION", "STAGE_SCHEMA_VERSION",
+    "default_calibration_path",
     "load_calibration", "save_calibration", "save_calibration_report",
     "make_run_dir", "now_timestamp",
     "get_reference_slot", "get_image_to_stage",
@@ -442,23 +439,16 @@ from .alignment import (
     translate_xyz,
 )
 
-# ── Objective switch motor-offset measurement ───────────────────
-from .objective_offsets import (
-    SCHEMA_VERSION,
-    COORDINATE_POLICY,
-    MIN_SETTLE_S,
-    measure_objective_switch_offsets,
-    save_objective_offsets,
-    load_objective_offsets,
+# ── Objective-slot helpers (pure functions over hw_info) ───────
+from .objectives import (
     objective_by_slot,
     objective_summary,
     validate_slots,
-    default_archive_dir,
-    default_current_path,
 )
 
 from .calibration import (
     SCHEMA_VERSION as CALIBRATION_SCHEMA_VERSION,
+    default_path as default_calibration_path,
     load_calibration,
     save_calibration,
     save_calibration_report,
