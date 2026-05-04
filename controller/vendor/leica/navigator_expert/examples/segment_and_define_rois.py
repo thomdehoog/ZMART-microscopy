@@ -272,52 +272,6 @@ def resolve_job(client: Any, override: str | None) -> str:
     return name
 
 
-def acquire_one_frame(
-    client: Any, job: str, channel: int = 0, *,
-    apply_backlash: bool = DEFAULT_APPLY_BACKLASH,
-    backlash_params: dict | None = None,
-) -> tuple[np.ndarray, Path]:
-    """Acquire one frame and return (image_array, .ome.tif path).
-
-    Optionally pre-applies +X+Y backlash takeup so successive acquires
-    sample identical mechanical state. Polls for the new file on disk,
-    waits for it to be unlocked + size-stable, then loads it.
-    """
-    if apply_backlash:
-        params = backlash_params or {}
-        drv.correct_backlash(
-            client,
-            overshoot_um=params.get("overshoot_um", 50.0),
-            settle_ms=params.get("settle_ms", 100),
-            tolerance_um=params.get("tolerance_um", 20.0),
-        )
-
-    baseline = drv.read_relative_path(client)
-    t_start = time.time()
-    result = drv.acquire(client, job)
-    if not result or not result.get("success"):
-        raise RuntimeError(f"acquire failed: {result}")
-
-    media_path = drv.get_lasx_settings()["export"]["media_path"]
-    detection = drv.detect_new_files(client, baseline, media_path,
-                                     acquire_start=t_start)
-    if not detection["success"]:
-        raise RuntimeError(f"file detection failed: {detection.get('error')}")
-
-    files = sorted(detection["image_files"])
-    if not files:
-        raise RuntimeError("acquire produced no image files")
-
-    stable = drv.wait_all_stable(files, timeout=FILE_STABILITY_TIMEOUT_S)
-    if not stable["success"]:
-        log.warning("image file(s) may not be size-stable yet")
-
-    idx = min(channel, len(files) - 1)
-    path = Path(files[idx])
-    img = tifffile.imread(str(path))
-    if img.ndim == 3:
-        img = img[0]
-    return img, path
 
 
 def read_frame_geometry(client: Any, job: str) -> FrameGeometry:
@@ -468,9 +422,8 @@ def step_load_image(
         geometry = read_frame_geometry(client, job)
     else:
         log.info("acquiring image")
-        img, path = acquire_one_frame(
-            client, job, args.channel,
-            apply_backlash=backlash_params is not None,
+        img, path = drv.acquire_frame(
+            client, job, channel=args.channel,
             backlash_params=backlash_params,
         )
         log.info("acquired %s (%s)", path.name, img.shape)

@@ -269,51 +269,6 @@ def resolve_job(client: Any, override: str | None) -> str:
     return name
 
 
-def acquire_one_frame(
-    client: Any, job: str, *,
-    apply_backlash: bool = DEFAULT_APPLY_BACKLASH,
-    backlash_params: dict | None = None,
-) -> tuple[np.ndarray, Path]:
-    """Acquire one frame and return (image_array, .ome.tif path).
-
-    Optionally pre-applies +X+Y backlash takeup. NEVER inserts a
-    sleep / idle check between pan and acquire — that path triggers
-    "Scan not started" timeouts (memory: feedback_no_check_idle_after_pan).
-    """
-    if apply_backlash:
-        params = backlash_params or {}
-        drv.correct_backlash(
-            client,
-            overshoot_um=params.get("overshoot_um", 50.0),
-            settle_ms=params.get("settle_ms", 100),
-            tolerance_um=params.get("tolerance_um", 20.0),
-        )
-
-    baseline = drv.read_relative_path(client)
-    t_start = time.time()
-    result = drv.acquire(client, job)
-    if not result or not result.get("success"):
-        raise RuntimeError(f"acquire failed: {result}")
-
-    media_path = drv.get_lasx_settings()["export"]["media_path"]
-    detection = drv.detect_new_files(client, baseline, media_path,
-                                     acquire_start=t_start)
-    if not detection["success"]:
-        raise RuntimeError(f"file detection failed: {detection.get('error')}")
-
-    files = sorted(detection["image_files"])
-    if not files:
-        raise RuntimeError("acquire produced no image files")
-
-    stable = drv.wait_all_stable(files, timeout=FILE_STABILITY_TIMEOUT_S)
-    if not stable["success"]:
-        log.warning("image file(s) may not be size-stable yet")
-
-    path = Path(files[0])
-    img = tifffile.imread(str(path))
-    if img.ndim == 3:
-        img = img[0]
-    return img, path
 
 
 def read_frame_geometry(client: Any, job: str) -> FrameGeometry:
@@ -516,11 +471,7 @@ def step_acquire_overview(
              geometry.pixel_size_um, geometry.fov_um)
 
     log.info("acquiring overview frame")
-    img, _ = acquire_one_frame(
-        client, job,
-        apply_backlash=backlash_params is not None,
-        backlash_params=backlash_params,
-    )
+    img, _ = drv.acquire_frame(client, job, backlash_params=backlash_params)
     overview_tif = out_dir / "overview.tif"
     tifffile.imwrite(str(overview_tif), img)
     log.info("overview image %s saved → %s", img.shape, overview_tif.name)
@@ -658,11 +609,7 @@ def step_acquire_and_verify(
     Returns (framed_image, framed_tif_path, framed_pixel_size_um, landing).
     """
     log.info("acquiring framed frame")
-    img, _ = acquire_one_frame(
-        client, job,
-        apply_backlash=backlash_params is not None,
-        backlash_params=backlash_params,
-    )
+    img, _ = drv.acquire_frame(client, job, backlash_params=backlash_params)
     framed_tif = out_dir / "framed.tif"
     tifffile.imwrite(str(framed_tif), img)
     log.info("framed image %s saved → %s", img.shape, framed_tif.name)
