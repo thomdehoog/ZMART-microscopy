@@ -754,7 +754,11 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
 
     lrp_path = Path(templates_dir) / xml_name.replace(".xml", ".lrp")
 
-    r = save_experiment(client, xml_name, templates_dir)
+    # Poll the LRP, not the XML: the LRP is the file we're about to
+    # modify (and care about), and LAS X writes the two files on
+    # different schedules — XML can complete before the LRP, leading
+    # to premature "save done" confirmations.
+    r = save_experiment(client, xml_name, templates_dir, confirm_path=lrp_path)
     if r is None:
         log.error("apply_lrp_change: initial save failed")
         return None
@@ -779,7 +783,7 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
 
     for attempt, save_timeout in enumerate(confirm_delays, 1):
         r = save_experiment(client, xml_name, templates_dir,
-                            timeout=save_timeout)
+                            timeout=save_timeout, confirm_path=lrp_path)
         if r is None:
             log.warning("apply_lrp_change: confirm save timed out "
                         "(attempt %d, timeout=%.1fs)", attempt, save_timeout)

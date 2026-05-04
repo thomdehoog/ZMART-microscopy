@@ -894,8 +894,11 @@ def move_galvo_to_pixel(client, px, py, *,
         lrp_set_pan(p, new_pan[0], new_pan[1], job_name)
 
     try:
-        r = apply_lrp_change(client, TEMPLATE_XML, _edit,
-                              confirm_delays=(2, 4, 6))
+        # Use the default confirm_delays from apply_lrp_change rather
+        # than a shortened tuple. A shorter retry budget runs out when
+        # LAS X is slow late in a long session — the ROI cookbook with
+        # the default budget keeps working in those same conditions.
+        r = apply_lrp_change(client, TEMPLATE_XML, _edit)
     except RuntimeError as e:
         return {"success": False, "pan": tuple(new_pan), "delta_pan": (d_pan_x, d_pan_y),
                 "pan_scale_um": pan_scale_um, "message": str(e)}
