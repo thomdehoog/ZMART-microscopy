@@ -675,7 +675,7 @@ def main():
     )
     log.info("cell_source_xy_um=(%.3f, %.3f)", *cell_source_xy_um)
 
-    cell_target_xy_um = drv.translate_stage_xy_between_objectives(
+    cell_target_xy_um = drv.translate_xy_between_objectives(
         *cell_source_xy_um, cfg,
         from_slot=args.source_slot, to_slot=args.target_slot,
     )

@@ -35,20 +35,27 @@ def reset_pan_roi_zstack(client, job):
 
 
 def configure_z_stack(client, job, *, half_range_um, step_um,
-                      begin_um=None, end_um=None):
-    """Enable a z-galvo stack centred at 0 unless explicit begin/end given.
+                      z_drive="z-galvo",
+                      begin_um=None, end_um=None,
+                      centre_um=0.0):
+    """Enable a Z-stack scanned on the chosen drive.
+
+    ``z_drive`` selects which physical drive scans the stack:
+        - ``"z-galvo"`` — small range (~±200 um), centred at 0 by default.
+        - ``"z-wide"`` — wide focus motor; pass ``centre_um`` (the
+          current z-wide reading) so begin/end live around it.
 
     Convention: ``begin > end`` so positive slice indices run from
-    +z-galvo down to -z-galvo. Brenner peaks indexed against this layout
-    convert to z-galvo via ``half_range - peak_sub * step``.
+    high-Z down. Brenner peaks indexed against this layout convert to
+    Z via ``centre + half_range - peak_sub * step``.
     """
     sections = int(2 * half_range_um / step_um) + 1
-    b = begin_um if begin_um is not None else half_range_um
-    e = end_um if end_um is not None else -half_range_um
+    b = begin_um if begin_um is not None else (centre_um + half_range_um)
+    e = end_um if end_um is not None else (centre_um - half_range_um)
 
     def _setup(p):
         lrp_set_z_stack_active(p, False, job)
-        lrp_set_z_use_mode(p, "z-galvo", job)
+        lrp_set_z_use_mode(p, z_drive, job)
         lrp_set_stack_calculation_mode(p, 1, job)
         lrp_set_sections(p, sections, job)
         lrp_set_z_stack_active(p, True, job)
@@ -95,7 +102,11 @@ def apply_scan_format_and_speed(client, job, scan_format, scan_speed):
 
 def setup_reference_state(client, job, hw, *, ref_slot, ref_zoom, settle_s,
                           scan_format=None, scan_speed=None):
-    """Switch to the reference slot and put the scope in canonical state."""
+    """Switch to the reference slot and put the scope in canonical state.
+
+    Z-galvo is forced to 0 — the calibration model holds galvo at 0
+    throughout and uses z-wide for all focal-plane motion.
+    """
     log.info("reference state: slot=%d, zoom=%.2f", ref_slot, ref_zoom)
     r = drv.set_objective(client, job, hw, slot_index=ref_slot)
     if not r or not r.get("success"):
@@ -108,6 +119,9 @@ def setup_reference_state(client, job, hw, *, ref_slot, ref_zoom, settle_s,
     time.sleep(1.0)
     drv.select_job(client, job)
     time.sleep(1.0)
+    rz = drv.move_z(client, job, 0.0, unit="um", z_mode="galvo")
+    if not rz or not rz.get("success"):
+        raise RuntimeError(f"could not zero z-galvo in reference setup: {rz}")
     idle = drv.check_idle(client, timeout=30)
     if not idle or not idle.get("success"):
         raise RuntimeError(f"LAS X not idle after reference setup: {idle}")
@@ -115,7 +129,11 @@ def setup_reference_state(client, job, hw, *, ref_slot, ref_zoom, settle_s,
 
 def switch_to_target(client, job, hw, slot, *, settle_s, zoom,
                      scan_format=None, scan_speed=None):
-    """Switch to a target objective and re-establish job + zoom."""
+    """Switch to a target objective and re-establish job + zoom.
+
+    Z-galvo is forced to 0 after the switch so the rest of the
+    calibration measures purely on z-wide.
+    """
     log.info("switching to target slot=%d (zoom=%.2f)", slot, zoom)
     r = drv.set_objective(client, job, hw, slot_index=slot)
     if not r or not r.get("success"):
@@ -128,6 +146,9 @@ def switch_to_target(client, job, hw, slot, *, settle_s, zoom,
     time.sleep(1.0)
     drv.select_job(client, job)
     time.sleep(1.0)
+    rz = drv.move_z(client, job, 0.0, unit="um", z_mode="galvo")
+    if not rz or not rz.get("success"):
+        raise RuntimeError(f"could not zero z-galvo after target switch: {rz}")
 
 
 def make_acquirer(client, job, stage_cfg):

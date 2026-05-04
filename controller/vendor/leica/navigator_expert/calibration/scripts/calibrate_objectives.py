@@ -4,31 +4,45 @@ calibrate_objectives.py — unified objective-switch calibration.
 One script. Writes the live calibration to ``calibration/config/config.json``
 and per-run snapshots to ``calibration/runs/<ts>/``.
 
+Z model
+-------
+Z-galvo is held at 0 throughout. All Z motion lives on z-wide:
+    - The firmware moves z-wide on every objective switch (parfocal
+      compensation). The script reads z-wide before and after each
+      switch via ``zPosition.z-wide`` and stores the delta as
+      ``zwide_offset_um``. Diagnostic only — firmware re-applies it on
+      every switch, so the cookbook does NOT re-apply it.
+    - Whatever focus residual the firmware leaves behind is measured
+      by Phase 3: a Brenner z-stack scanned on z-wide. The peak gives
+      ``zwide_shift_um``, which the cookbook applies on z-wide via
+      ``move_z(z_mode='zwide')``.
+
 Phases (in order)
 -----------------
 1. **Sign convention** — under the reference objective. Stage moves +X
    then +Y, fits a 2x2 image->stage Jacobian, snaps to the nearest D4
-   reflection/rotation. Always runs on a fresh machine config; reuses
-   the cached value otherwise unless ``--measure-sign``.
+   reflection/rotation. Reuses the cached value if ``image_to_stage`` is
+   already in the config; pass ``--measure-sign`` to force a re-measure.
 
-2. **Parcentric XY (motor)** — for each target, switch from the
-   reference, read XY before/after, store the readback delta. Always
-   runs.
+2. **Firmware XY offset** — per target, read XY before/after the
+   objective switch. Diagnostic only: written to the run report, **not**
+   persisted to ``config.json``. The cookbook commands an absolute XY
+   after the switch, so this delta isn't part of the correction.
 
-3. **Parfocal Z** — optional (``--measure-parfocal``). Z-stacks on
-   reference and target, Brenner peak gives focus per objective,
-   ``dZ = target - reference``. A shifted verification stack confirms
-   the corrected position centres the peak.
+3. **Parfocal (z-wide)** — optional (``--measure-parfocal``). Brenner
+   z-stack scanned on z-wide centred at the post-switch z-wide. Peak
+   gives ``zwide_shift_um``. Phase parks z-wide at the peak so phase 4
+   acquires in focus.
 
-4. **Parcentric XY (image residual)** – optional (``--measure-xy``).
-   Acquires a high-quality slice on each objective and uses multi-method
-   voting registration to measure the residual beyond the motor delta.
-   If ``--measure-parfocal`` is omitted, both slices are acquired at
-   z-galvo 0; this is the preferred dry-objective path when the lenses
-   are parfocal in practice.
-
-5. **Verification** — optional (``--verify``). Re-acquire at the
-   fully-corrected XY+Z and report what is left.
+4. **Parcentric XY (registration)** — optional (``--measure-xy``).
+   Stage parked at the same XY for both acquires; multi-method voting
+   registration (phase / masked / NCC / ORB) measures the optical-axis
+   shift. The result is the value the cookbook applies. Persisted as
+   ``parcentric_xy_um`` only if voting reaches the configured agreement
+   threshold; on low confidence the field is left unset rather than
+   recording garbage. If ``--measure-parfocal`` ran, z-wide is at the
+   focus peak; otherwise z-wide is at the post-switch firmware
+   position and registration may have to fight an out-of-focus image.
 
 Stage state and backlash
 ------------------------
@@ -38,8 +52,9 @@ and takeup parameters come from ``config/stage.json``.
 Reference state
 ---------------
 Every phase starts from a known reference state: reference slot active,
-pan/ROI reset, Z-stack disabled, zoom at ``--ref-zoom``, LAS X idle,
-AFC off. The script restores this state between targets and on exit.
+pan/ROI reset, Z-stack disabled, zoom at ``--ref-zoom``, z-galvo zeroed,
+LAS X idle, AFC off. The script restores this state between targets
+and on exit.
 
 Operator preconditions
 ----------------------
@@ -47,13 +62,24 @@ Operator preconditions
 - ImageTransformation is TOPLEFT.
 - AFC is off; no LAS X modal dialogs.
 - The stage is over a region with enough texture for image registration.
+- The reference objective is in focus on the operator's z-wide setting
+  before the run starts (z-galvo will be forced to 0).
 
 Usage
 -----
-    python calibrate_objectives.py --job Overview --ref-slot 1 --target-slots 2 \\
-        --ref-zoom 3.0 --measure-xy --verify
+    # Fast dry-pair path: skip parfocal (firmware-only z-wide), just
+    # measure parcentric XY at the post-switch firmware focus.
+    python calibrate_objectives.py --job Overview --ref-slot 1 \\
+        --target-slots 2 --ref-zoom 3.0 --measure-xy
+
+    # Full run with parfocal z-wide residual.
+    python calibrate_objectives.py --job Overview --ref-slot 1 \\
+        --target-slots 2 --ref-zoom 3.0 \\
+        --measure-parfocal --measure-xy --z-range-um 100 --z-step-um 2
+
+    # Incremental: only refresh slot 2 zwide values; reuses cached sign.
     python calibrate_objectives.py --job Overview --target-slots 2 \\
-        --measure-parfocal             # incremental: only refresh slot 2 dZ
+        --measure-parfocal --z-range-um 100 --z-step-um 2
 """
 
 import argparse
@@ -65,21 +91,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from LasxApi import PYLICamApiConnector as lasx_api
 import navigator_expert.driver as drv
-from navigator_expert.driver.machine_config import (
-    load_machine_config,
-    save_machine_config,
-    load_stage_config,
-    set_reference,
-    set_sign_convention,
-    update_target,
+from navigator_expert.driver.calibration import (
+    SCHEMA_VERSION as CALIBRATION_SCHEMA_VERSION,
+    load_calibration,
+    save_calibration,
     save_calibration_report,
     make_run_dir,
     now_timestamp,
-    MACHINE_SCHEMA_VERSION,
+    set_image_to_stage,
+    update_objective,
 )
+from navigator_expert.driver.stage_config import load as load_stage_config
 from navigator_expert.calibration.lib.lasx_state import (
     apply_stage_limits,
-    configure_z_stack,
     disable_z_stack,
     make_acquirer,
     setup_reference_state,
@@ -88,9 +112,22 @@ from navigator_expert.calibration.lib.lasx_state import (
 from navigator_expert.calibration.lib.registration import (
     VOTING_MIN_AGREE,
     _VOTING_METHODS,
-    brenner_focus,
 )
 from navigator_expert.calibration.lib import phases
+
+
+def _read_zwide_um(client, job):
+    """Return current z-wide position (um) via job-settings readback."""
+    settings = drv.get_job_settings(client, job)
+    if not settings:
+        raise RuntimeError("could not read job settings to read z-wide")
+    ch = drv.make_changeable_copy(settings)
+    if not ch or "zPosition" not in ch:
+        raise RuntimeError("zPosition not in job settings — LAS X version mismatch?")
+    val = ch["zPosition"].get("z-wide")
+    if val is None:
+        raise RuntimeError(f"z-wide readback missing; got {ch['zPosition']!r}")
+    return float(val)
 
 log = logging.getLogger("calibrate_objectives")
 
@@ -165,7 +202,7 @@ def main():
         return 2
 
     stage_cfg = load_stage_config()
-    machine_cfg = load_machine_config(create_if_missing=True)
+    cal_cfg = load_calibration(create_if_missing=True)
 
     client = lasx_api.LasxApiClientPyModel
     if not client.Connect("PythonClient"):
@@ -187,7 +224,7 @@ def main():
     ref_summary = drv.objective_summary(by_slot[args.ref_slot])
     targets_summary = {s: drv.objective_summary(by_slot[s]) for s in args.target_slots}
 
-    measure_sign = args.measure_sign or machine_cfg.get("image_to_stage") is None
+    measure_sign = args.measure_sign or cal_cfg.get("image_to_stage") is None
     phases_to_run = ["sign"] if measure_sign else []
     phases_to_run.append("offset")
     if args.measure_parfocal:
@@ -214,15 +251,19 @@ def main():
 
     home = drv.get_xy(client)
     home_xy = (float(home["x_um"]), float(home["y_um"]))
-    set_reference(machine_cfg, args.ref_slot,
-                  summary=ref_summary, anchor_xy_um=home_xy)
+    cal_cfg["reference_objective_slot"] = args.ref_slot
+    update_objective(cal_cfg, args.ref_slot,
+                     name=ref_summary["name"],
+                     shift_xy_um=(0.0, 0.0),
+                     offset_z_um=0.0,
+                     shift_z_um=0.0)
 
     acquire_single, acquire_stack = make_acquirer(client, args.job, stage_cfg)
 
     report = {
-        "schema_version": MACHINE_SCHEMA_VERSION,
+        "schema_version": CALIBRATION_SCHEMA_VERSION,
         "timestamp": now_timestamp(),
-        "machine_config": "machine.json",
+        "calibration_file": "config.json",
         "phases_run": list(phases_to_run),
         "settings": {
             "ref_slot": args.ref_slot,
@@ -251,39 +292,23 @@ def main():
             move_um=args.sign_move_um,
             settle_s=args.sign_settle,
         )
-        set_sign_convention(machine_cfg, sign["image_to_stage_um"])
+        set_image_to_stage(cal_cfg, sign["image_to_stage_um"])
         report["sign_convention"] = sign
     else:
-        log.info("sign convention: reusing cached value from machine.json")
+        log.info("sign convention: reusing cached value from config.json")
 
-    image_to_stage = machine_cfg["image_to_stage"]
+    image_to_stage = cal_cfg["image_to_stage"]
 
-    # ── Pre-acquire reference Z-stack and focus slice ──────────
-    # These are reused across all targets — both are properties of the
-    # reference objective at the home XY, not of any particular target.
-    ref_focus = None
+    # ── Pre-acquire reference focus slice (for phase 4) ─────────
+    # Z-galvo is already 0 (setup_reference_state forced it). The
+    # operator focused via z-wide before starting the run, so the
+    # reference is in focus at the current z-wide. No Brenner search
+    # on the reference: the reference's "focus" is whatever the
+    # operator chose, by definition.
     img_ref_focus = None
-    if args.measure_parfocal:
-        log.info("phase 3 (ref): acquiring reference Z-stack")
-        configure_z_stack(client, args.job,
-                          half_range_um=args.z_range_um, step_um=args.z_step_um)
-        ref_stack = acquire_stack()
-        ref_focus = brenner_focus(ref_stack, args.z_step_um)
-        ref_z_galvo_um = args.z_range_um - ref_focus["peak_sub"] * args.z_step_um
-        log.info("ref focus: peak_um=%.2f, z-galvo=%+.2f um",
-                 ref_focus["peak_um"], ref_z_galvo_um)
-
-        if args.measure_xy:
-            log.info("phase 4 prep: ref focus slice at z-galvo=%+.2f", ref_z_galvo_um)
-            disable_z_stack(client, args.job)
-            drv.set_z_stack_definition(client, args.job,
-                                       begin_um=ref_z_galvo_um,
-                                       end_um=ref_z_galvo_um)
-            img_ref_focus = acquire_single()
-    elif args.measure_xy:
-        log.info("phase 4 prep: ref slice at z-galvo=+0.00 (parfocal skipped)")
+    if args.measure_xy:
+        log.info("phase 4 prep: ref slice at galvo=0, operator-focused z-wide")
         disable_z_stack(client, args.job)
-        drv.set_z_stack_definition(client, args.job, begin_um=0.0, end_um=0.0)
         img_ref_focus = acquire_single()
 
     # ── Per-target loop ─────────────────────────────────────────
@@ -302,36 +327,51 @@ def main():
                 ts_zoom_ideal, ZOOM_MIN, ZOOM_MIN, min_ref_zoom,
             )
 
+        # Read z-wide BEFORE the firmware switch so we can compute the
+        # offset the firmware applies.
+        zwide_pre_um = _read_zwide_um(client, args.job)
+        log.info("z-wide before switch: %.2f um", zwide_pre_um)
+
         switch_to_target(client, args.job, hw, ts,
                          settle_s=args.settle, zoom=ts_zoom,
                          scan_format=args.scan_format,
                          scan_speed=args.scan_speed)
 
-        target_report = {}
-        target_update = {"summary": ts_summary}
-        dz_um = 0.0
+        zwide_post_um = _read_zwide_um(client, args.job)
+        zwide_offset_um = float(zwide_post_um - zwide_pre_um)
+        log.info("z-wide after switch:  %.2f um  (offset = %+.2f)",
+                 zwide_post_um, zwide_offset_um)
 
-        # Phase 2: parcentric offset (firmware get_xy delta on switch).
-        # Diagnostic only — recorded so operators can track firmware
-        # behaviour over time. Cookbook math does not use it.
-        offset_um, offset_report = phases.measure_parcentric_offset(client, home_xy)
-        target_report["offset"] = offset_report
-        target_update["parcentric_offset_um"] = offset_um
+        target_report = {
+            "summary": ts_summary,
+            "zwide_pre_switch_um": zwide_pre_um,
+            "zwide_post_switch_um": zwide_post_um,
+            "offset_z_um": zwide_offset_um,
+        }
+        update_kwargs = {
+            "name": ts_summary["name"],
+            "offset_z_um": zwide_offset_um,
+        }
 
-        # Phase 3: parfocal Z shift (optional).
-        # parfocal_offset_um is not measured: there's no GetZ API, so
-        # we can't observe the firmware's Z motion on switch. The
-        # Brenner peak diff IS the shift the cookbook needs.
+        # Phase 2: firmware get_xy delta on switch. Diagnostic only —
+        # recorded in the run report so operators can track firmware
+        # behaviour over time. Not persisted in the live calibration
+        # because the cookbook commands an absolute XY after the switch.
+        _, offset_report = phases.measure_parcentric_offset(client, home_xy)
+        target_report["firmware_xy_offset"] = offset_report
+
+        # Phase 3: parfocal residual on z-wide (optional).
+        # Leaves z-wide parked at the brenner peak.
         if args.measure_parfocal:
-            dz_um, parfocal_report = phases.measure_parfocal(
+            shift_um, parfocal_report = phases.measure_parfocal(
                 client, args.job,
                 acquire_stack=acquire_stack,
-                ref_focus=ref_focus,
                 z_range_um=args.z_range_um,
                 z_step_um=args.z_step_um,
+                zwide_post_switch_um=zwide_post_um,
             )
-            target_report["parfocal"] = parfocal_report
-            target_update["parfocal_shift_um"] = dz_um
+            target_report["shift_z"] = parfocal_report
+            update_kwargs["shift_z_um"] = shift_um
 
         # Phase 4: parcentric XY shift via registration with stage parked
         # at home_xy. This is THE value the cookbook applies. (optional)
@@ -341,17 +381,16 @@ def main():
                 acquire_single=acquire_single,
                 img_ref_focus=img_ref_focus,
                 home_xy=home_xy,
-                dz_um=dz_um,
                 image_to_stage=image_to_stage,
                 ts_zoom=ts_zoom,
                 voting_min_agree=VOTING_MIN_AGREE,
                 voting_method_count=len(_VOTING_METHODS),
             )
-            target_report["parcentric_shift"] = shift_report
+            target_report["shift_xy"] = shift_report
             if shift_xy is not None:
-                target_update["parcentric_shift_um"] = list(shift_xy)
+                update_kwargs["shift_xy_um"] = shift_xy
 
-        update_target(machine_cfg, ts, **target_update)
+        update_objective(cal_cfg, ts, **update_kwargs)
         report["per_target"][str(ts)] = target_report
 
         if ts != args.target_slots[-1]:
@@ -372,7 +411,7 @@ def main():
     drv.move_xy_stage(client, home_xy[0], home_xy[1], unit="um", tolerance=20.0)
 
     run_dir = make_run_dir(report["timestamp"])
-    live_path = save_machine_config(machine_cfg, run_dir)
+    live_path = save_calibration(cal_cfg, run_dir)
     report_path = save_calibration_report(report, run_dir)
 
     print(f"\nLive config:        {live_path}")

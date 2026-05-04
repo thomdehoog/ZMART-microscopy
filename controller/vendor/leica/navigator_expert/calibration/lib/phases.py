@@ -5,21 +5,28 @@ data the orchestrator persists. No phase mutates the machine config or
 the run report directly — the orchestrator does that, so persistence
 stays in one place.
 
+Z model (entire calibration runs with z-galvo at 0):
+    - The firmware applies the bulk parfocal correction by moving z-wide
+      on objective switch. The orchestrator records that as
+      ``zwide_offset_um`` (post-switch zwide minus pre-switch zwide).
+    - ``measure_parfocal`` measures the residual the firmware leaves
+      behind by scanning a Brenner stack on z-wide and recording where
+      the peak lands. That residual is ``zwide_shift_um`` and is what
+      the cookbook applies (also on z-wide via the API).
+
 Phase boundaries:
 
     1. measure_sign_convention      -- under reference objective only
     2. measure_parcentric_offset    -- per target, always runs
                                        (firmware get_xy delta on switch;
                                         diagnostic only)
-    3. measure_parfocal_shift       -- per target, optional
-                                       (focal-plane shift between objectives)
+    3. measure_parfocal             -- per target, optional
+                                       (z-wide focus residual via Brenner;
+                                        leaves z-wide parked at the peak)
     4. measure_parcentric_shift     -- per target, optional
                                        (stage-frame XY shift from registration
                                         with stage parked at the same XY both
                                         times — the value the cookbook applies)
-    5. verify_target                -- per target, optional
-                                       (re-acquire at corrected XY+Z; reports
-                                        the system's noise floor, ~2-3 µm)
 """
 
 import logging
@@ -134,42 +141,60 @@ def measure_parcentric_offset(client, home_xy):
     return offset_um, {"offset_um": list(offset_um)}
 
 
-# ── Phase 3: parfocal Z ──────────────────────────────────────────────
+# ── Phase 3: parfocal — z-wide focus residual ────────────────────────
 
-def measure_parfocal(client, job, *, acquire_stack, ref_focus,
-                     z_range_um, z_step_um):
-    """Phase 3: focal-plane shift between target and reference objectives.
+def measure_parfocal(client, job, *, acquire_stack,
+                     z_range_um, z_step_um, zwide_post_switch_um):
+    """Phase 3: focus residual on z-wide after the firmware's switch.
 
-    The Brenner peak of slot 2's Z-stack at the post-switch z-wide
-    position, minus slot 1's peak, gives the focal-plane offset the
-    cookbook still needs to apply *after* whatever the firmware did
-    with z-wide. Same shift/offset model as XY — except we can't
-    observe the firmware's Z motion separately on this scope (no
-    GetZ API), so the Brenner peak difference IS the shift the
-    cookbook applies.
+    The firmware moves z-wide on every objective switch (the
+    "offset"). What it leaves behind is the residual this phase
+    measures: a Brenner z-stack scanned on z-wide, centred at
+    ``zwide_post_switch_um``. The peak gives the z-wide position
+    that brings the target objective to focus.
 
-    ``ref_focus`` is the brenner_focus dict from the reference objective
-    (acquired once by the orchestrator before the per-target loop).
-    Caller must have already switched to the target objective. Returns
-    ``(dz_um, report_fragment)``.
+    Z-galvo stays at 0 throughout. After the measurement this phase
+    parks z-wide at the peak so phase 4 can acquire in focus.
 
-    No verification stack — for the same reason Phase 5 was dropped.
-    A "residual" measured by re-acquiring at the corrected Z is just
-    the noise floor of (Z stage repeatability + Brenner peak finder
-    accuracy + sample stability). Doesn't validate calibration
-    correctness.
+    Returns ``(shift_um, report_fragment)`` where ``shift_um`` is the
+    delta from ``zwide_post_switch_um`` to the focused z-wide.
     """
-    log.info("phase 3: target Z-stack")
-    configure_z_stack(client, job, half_range_um=z_range_um, step_um=z_step_um)
+    log.info("phase 3: z-wide brenner stack (centre=%.2f, +/-%.1f um)",
+             zwide_post_switch_um, z_range_um)
+    configure_z_stack(client, job, z_drive="z-wide",
+                      half_range_um=z_range_um, step_um=z_step_um,
+                      centre_um=zwide_post_switch_um)
     tgt_stack = acquire_stack()
     tgt_focus = brenner_focus(tgt_stack, z_step_um)
-    dz_um = float((tgt_focus["peak_sub"] - ref_focus["peak_sub"]) * z_step_um)
-    log.info("parfocal shift dZ = %+.2f um", dz_um)
+    # Stack layout is begin > end (high z-wide first), so:
+    #   peak_zwide = (centre + half_range) - peak_sub * step
+    peak_zwide_um = float(
+        zwide_post_switch_um + z_range_um - tgt_focus["peak_sub"] * z_step_um
+    )
+    shift_um = float(peak_zwide_um - zwide_post_switch_um)
+    log.info("z-wide brenner peak = %.2f um  shift = %+.2f um",
+             peak_zwide_um, shift_um)
 
-    return dz_um, {
-        "ref_brenner_peak_um": ref_focus["peak_um"],
-        "tgt_brenner_peak_um": tgt_focus["peak_um"],
-        "shift_um": dz_um,
+    # Park z-wide at the focused position so phase 4 acquires in focus.
+    # Wait for idle first — after a long stack acquire LAS X is still
+    # writing files and the move-z readback won't confirm in time.
+    idle = drv.check_idle(client, timeout=60)
+    if not idle or not idle.get("success"):
+        raise RuntimeError(f"LAS X not idle after stack: {idle}")
+    r = drv.move_z(client, job, peak_zwide_um, unit="um", z_mode="zwide")
+    if not r:
+        raise RuntimeError("move_z returned None")
+    if not r.get("success"):
+        # Command was accepted but readback didn't confirm in 15 s.
+        # Trust the move and warn — z-wide is consistent on this scope.
+        log.warning("park-zwide unconfirmed (%s) — proceeding",
+                    r.get("message"))
+
+    return shift_um, {
+        "zwide_post_switch_um": float(zwide_post_switch_um),
+        "zwide_peak_um": peak_zwide_um,
+        "shift_um": shift_um,
+        "brenner_peak_image_um": float(tgt_focus["peak_um"]),
     }
 
 
@@ -178,7 +203,7 @@ def measure_parfocal(client, job, *, acquire_stack, ref_focus,
 def measure_parcentric_shift(
     client, job, *,
     acquire_single, img_ref_focus,
-    home_xy, dz_um, image_to_stage,
+    home_xy, image_to_stage,
     ts_zoom, voting_min_agree, voting_method_count,
 ):
     """Phase 4: stage-frame XY shift between target and reference objectives.
@@ -189,6 +214,11 @@ def measure_parcentric_shift(
     stage XY, then register. The resulting shift is exactly
     ``c1 − c2`` — the optical-axis difference between the two
     objectives — with no firmware-shift contamination.
+
+    Z-galvo is held at 0 by the orchestrator. If the parfocal phase ran,
+    z-wide is already parked at the focus peak; otherwise z-wide is at
+    the post-switch firmware position and the focus may be off — in
+    that case voting will likely fail and the slot is skipped.
 
     Returns ``(shift_xy_or_None, report_fragment)``. ``shift_xy=None``
     means voting failed and the cookbook should not be given a
@@ -203,13 +233,7 @@ def measure_parcentric_shift(
         raise RuntimeError(f"phase 4 move-back-to-home failed: {r}")
     time.sleep(1.0)
 
-    tgt_z_galvo_um = -dz_um
-    log.info("phase 4: target focus slice at z-galvo=%+.2f", tgt_z_galvo_um)
     disable_z_stack(client, job)
-    drv.set_z_stack_definition(
-        client, job,
-        begin_um=tgt_z_galvo_um, end_um=tgt_z_galvo_um,
-    )
     img_tgt_focus = acquire_single()
 
     tgt_geo = drv.parse_tile_geometry(drv.get_job_settings(client, job) or {})
@@ -263,7 +287,6 @@ def measure_parcentric_shift(
         "per_method": vote["per_method"],
         "method": "voting",
         "acquisition_zoom": ts_zoom,
-        "acquisition_z_galvo_um": tgt_z_galvo_um,
     }
 
 

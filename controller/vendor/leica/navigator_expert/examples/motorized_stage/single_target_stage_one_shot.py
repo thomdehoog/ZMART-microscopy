@@ -326,7 +326,7 @@ def main():
         image_size=source_image_size_px,
         config=cfg,
     )
-    target_command_xy_um = drv.translate_stage_xy_between_objectives(
+    target_command_xy_um = drv.translate_xy_between_objectives(
         *source_target_xy_um, cfg,
         from_slot=args.source_slot,
         to_slot=args.target_slot,
