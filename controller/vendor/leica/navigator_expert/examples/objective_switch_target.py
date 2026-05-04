@@ -305,19 +305,6 @@ def check_image_orientation_is_topleft() -> None:
                f"LAS X Advanced Settings.", 2)
 
 
-def apply_stage_limits_from_config(stage_cfg: dict) -> None:
-    """Centralised stage-limits source. Same file the calibration script
-    reads — the cookbook MUST agree with calibration to avoid surprises.
-    """
-    lim = stage_cfg["limits_um"]
-    drv.set_stage_limits(
-        x_min=lim["x"][0], x_max=lim["x"][1],
-        y_min=lim["y"][0], y_max=lim["y"][1],
-        z_galvo_min=lim["z_galvo"][0], z_galvo_max=lim["z_galvo"][1],
-        z_wide_min=lim["z_wide"][0], z_wide_max=lim["z_wide"][1],
-    )
-
-
 def acquire_one_frame(
     client: Any, job: str, *,
     apply_backlash: bool = DEFAULT_APPLY_BACKLASH,
@@ -382,11 +369,7 @@ def read_frame_geometry(client: Any, job: str) -> FrameGeometry:
     )
 
 
-def read_zwide_um(client: Any, job: str) -> float:
-    """Return the live z-wide reading via job-settings readback (um)."""
-    settings = drv.get_job_settings(client, job) or {}
-    ch = drv.make_changeable_copy(settings)
-    return float(ch["zPosition"]["z-wide"])
+# ``drv.read_zwide_um(client, job)`` lives in driver/readers.py.
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -567,7 +550,7 @@ def step_setup(
         _abort("Could not read hardware info.", 2)
     drv.validate_slots(hw, args.source_slot, [args.target_slot])
 
-    apply_stage_limits_from_config(stage_cfg)
+    drv.apply_stage_limits_from_config(stage_cfg)
 
     idle = drv.check_idle(client, timeout=IDLE_TIMEOUT_S)
     if not idle or not idle.get("success"):
@@ -609,7 +592,7 @@ def step_acquire_source(
     log.info("source stage XY = (%.3f, %.3f) um", *src_stage_xy_um)
 
     geometry = read_frame_geometry(client, args.job)
-    src_zwide_um = read_zwide_um(client, args.job)
+    src_zwide_um = drv.read_zwide_um(client, args.job)
     log.info("source geometry: pixel=%.4f um  FOV=%.1f um  z-wide=%.2f um",
              geometry.pixel_size_um, geometry.fov_um, src_zwide_um)
 

@@ -262,16 +262,6 @@ def check_image_orientation_is_topleft() -> None:
                f"LAS X Advanced Settings.", 2)
 
 
-def apply_stage_limits_from_config(stage_cfg: dict) -> None:
-    lim = stage_cfg["limits_um"]
-    drv.set_stage_limits(
-        x_min=lim["x"][0], x_max=lim["x"][1],
-        y_min=lim["y"][0], y_max=lim["y"][1],
-        z_galvo_min=lim["z_galvo"][0], z_galvo_max=lim["z_galvo"][1],
-        z_wide_min=lim["z_wide"][0], z_wide_max=lim["z_wide"][1],
-    )
-
-
 def resolve_job(client: Any, override: str | None) -> str:
     if override:
         return override
@@ -444,7 +434,7 @@ def step_setup(args: argparse.Namespace) -> tuple[Any, str, dict, Path]:
     stage_cfg = drv.load_stage_config()
     client = connect_lasx()
     check_image_orientation_is_topleft()
-    apply_stage_limits_from_config(stage_cfg)
+    drv.apply_stage_limits_from_config(stage_cfg)
 
     job = resolve_job(client, args.job)
 

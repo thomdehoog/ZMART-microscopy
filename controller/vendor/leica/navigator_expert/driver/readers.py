@@ -211,6 +211,30 @@ def get_xy(client, timeout=1.0, poll_interval=0.01, max_retries=3):
     return None
 
 
+def read_zwide_um(client, job_name):
+    """Return the live z-wide position (in um) for the given job.
+
+    Parses the ``zPosition.z-wide`` field from
+    :func:`get_job_settings` (after :func:`make_changeable_copy` has
+    flattened the API JSON). Raises ``RuntimeError`` if the readback
+    is unavailable — almost always means the job is not selected or
+    the LAS X version doesn't expose Z readback in this shape.
+    """
+    from .settings import make_changeable_copy
+    settings = get_job_settings(client, job_name)
+    if not settings:
+        raise RuntimeError(f"could not read job settings for '{job_name}'")
+    ch = make_changeable_copy(settings)
+    if not ch or "zPosition" not in ch:
+        raise RuntimeError(
+            "zPosition not in job settings — LAS X version mismatch?"
+        )
+    val = ch["zPosition"].get("z-wide")
+    if val is None:
+        raise RuntimeError(f"z-wide readback missing; got {ch['zPosition']!r}")
+    return float(val)
+
+
 def get_jobs(client, timeout=1.0, poll_interval=0.01, max_retries=3):
     """List all available jobs and their selection status.
 
