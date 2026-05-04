@@ -1,0 +1,5 @@
+# Per-run calibration snapshots — disposable. Each run drops a
+# config.json + report.json here; the live config lives in
+# calibration/config/config.json.
+*
+!.gitignore
