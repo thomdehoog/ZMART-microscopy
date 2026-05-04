@@ -664,6 +664,210 @@ def step_set_framed_zoom(
     return zoom, float(target_pixel_size_um)
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Optional refinement: image-based stage correction at intermediate zoom
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _intermediate_zoom_for(
+    target_base_fov_um: float, source_pixel_um: float, source_image_size_px: int,
+) -> int:
+    """Pick the integer zoom that makes target pixel ≈ source pixel.
+
+    Equivalent to choosing the smallest target FOV that still lets us
+    register a source-pixel-sized template against a comparably-coarse
+    intermediate without an aggressive resample.
+    """
+    ideal = target_base_fov_um / (source_pixel_um * source_image_size_px)
+    return max(1, int(round(ideal)))
+
+
+def _ncc_template_match(
+    source_img: np.ndarray, source_pick: SourcePick,
+    intermediate_img: np.ndarray, intermediate_pixel_um: float,
+    template_pad_factor: float = 1.5,
+) -> tuple[float, float, float]:
+    """NCC template-match a source-cell crop against the intermediate.
+
+    Crops a square template around the picked cell in source (padded
+    to ``template_pad_factor × bbox_max`` so the match has surrounding
+    context to be unique), resamples it to the intermediate's pixel
+    size, runs ``cv2.matchTemplate`` with ``TM_CCOEFF_NORMED``, and
+    returns the cell's offset from the intermediate FOV centre in
+    image-frame microns.
+
+    Returns ``(dx_image_um, dy_image_um, peak_correlation)``.
+    """
+    import cv2  # local import keeps top-level imports lean
+
+    cy_src, cx_src = source_pick.centroid_xy_px[1], source_pick.centroid_xy_px[0]
+    bbox_max_px = max(
+        source_pick.bbox_px[2] - source_pick.bbox_px[0],
+        source_pick.bbox_px[3] - source_pick.bbox_px[1],
+    )
+    pad_px = int(round(template_pad_factor * bbox_max_px / 2))
+    h_s, w_s = source_img.shape[:2]
+    cy_int = int(round(cy_src))
+    cx_int = int(round(cx_src))
+    top = max(0, cy_int - pad_px)
+    bottom = min(h_s, cy_int + pad_px)
+    left = max(0, cx_int - pad_px)
+    right = min(w_s, cx_int + pad_px)
+    template = source_img[top:bottom, left:right]
+
+    src_pixel_um = source_pick.geometry.pixel_size_um
+    scale = src_pixel_um / intermediate_pixel_um
+    new_h = max(8, int(round(template.shape[0] * scale)))
+    new_w = max(8, int(round(template.shape[1] * scale)))
+    template_rs = cv2.resize(
+        template, (new_w, new_h), interpolation=cv2.INTER_CUBIC,
+    )
+
+    def _to_u8(a: np.ndarray) -> np.ndarray:
+        a = a.astype(np.float32)
+        hi = a.max() or 1
+        return (a / hi * 255).astype(np.uint8)
+
+    int_u8 = _to_u8(intermediate_img)
+    tpl_u8 = _to_u8(template_rs)
+    if tpl_u8.shape[0] >= int_u8.shape[0] or tpl_u8.shape[1] >= int_u8.shape[1]:
+        raise RuntimeError(
+            f"NCC: resampled template {tpl_u8.shape} ≥ intermediate "
+            f"{int_u8.shape}. Pick a smaller --refine-template-pad or "
+            f"increase --refine-zoom."
+        )
+
+    result = cv2.matchTemplate(int_u8, tpl_u8, cv2.TM_CCOEFF_NORMED)
+    _, peak_val, _, max_loc = cv2.minMaxLoc(result)
+
+    cell_int_x = max_loc[0] + tpl_u8.shape[1] / 2.0
+    cell_int_y = max_loc[1] + tpl_u8.shape[0] / 2.0
+    h_i, w_i = intermediate_img.shape[:2]
+    dx_um = (cell_int_x - w_i / 2.0) * intermediate_pixel_um
+    dy_um = (cell_int_y - h_i / 2.0) * intermediate_pixel_um
+    return float(dx_um), float(dy_um), float(peak_val)
+
+
+def step_refine_position(
+    client: Any, args: argparse.Namespace,
+    source_pick: SourcePick, source_img: np.ndarray,
+    target_base_fov_um: float, image_to_stage: list,
+    backlash_params: dict | None, out_dir: Path,
+) -> dict[str, Any]:
+    """Iterative stage correction at intermediate zoom.
+
+    Runs only when ``--refine`` is set. The intermediate zoom is
+    chosen so target-pixel-size ≈ source-pixel-size; the chosen
+    method (NCC / PCC / voting) reports the cell's offset from the
+    intermediate FOV centre in image-frame microns; the offset is
+    converted to a stage correction via the calibrated
+    ``image_to_stage`` matrix and the stage moves; the loop stops
+    when the correction magnitude drops below
+    ``--refine-converge-um`` or after ``--refine-iterations`` passes.
+
+    Returns a report fragment with the chosen mode, intermediate
+    zoom/pixel, and one entry per iteration.
+    """
+    from navigator_expert import analysis as _ana
+
+    src_pixel_um = source_pick.geometry.pixel_size_um
+    src_size_px = source_pick.geometry.image_size_px
+    int_zoom = _intermediate_zoom_for(target_base_fov_um, src_pixel_um, src_size_px)
+    int_pixel_um = (target_base_fov_um / int_zoom) / src_size_px
+    log.info("refine: mode=%s, intermediate zoom=%d, pixel=%.4f um "
+             "(source %.4f um), max iterations=%d, converge=%.2f um",
+             args.refine, int_zoom, int_pixel_um, src_pixel_um,
+             args.refine_iterations, args.refine_converge_um)
+    drv.set_zoom(client, args.job, int_zoom)
+    time.sleep(SETTLE_AFTER_LAS_X_EDIT_S)
+
+    iterations: list[dict[str, Any]] = []
+    for i in range(args.refine_iterations):
+        img, _ = drv.acquire_frame(
+            client, args.job, backlash_params=backlash_params,
+        )
+        tifffile.imwrite(str(out_dir / f"refine_{i:02d}.tif"), img)
+
+        if args.refine == "ncc":
+            dx_um, dy_um, quality = _ncc_template_match(
+                source_img, source_pick, img, int_pixel_um,
+            )
+            mode_detail: dict[str, Any] = {"ncc_peak": quality}
+        else:
+            pair = _ana.prepare_pair(
+                source_img, img,
+                source_pixel_um=src_pixel_um,
+                intermediate_pixel_um=int_pixel_um,
+                source_cell_col=source_pick.centroid_xy_px[0],
+                source_cell_row=source_pick.centroid_xy_px[1],
+            )
+            ref, tgt, pixel_um = pair["ref"], pair["tgt"], pair["pixel_um"]
+            if args.refine == "pcc":
+                dx_um, dy_um, quality = _ana.pcc(ref, tgt, pixel_um)
+                mode_detail = {"pcc_quality": quality}
+            else:  # voting
+                vote = _ana.register_voting(ref, tgt, pixel_um)
+                mode_detail = {
+                    "voting_agreeing": vote["agreeing"],
+                    "voting_confidence": vote["confidence"],
+                    "voting_trusted": vote["trusted"],
+                    "per_method": vote["per_method"],
+                }
+                if not vote["trusted"]:
+                    log.warning(
+                        "refine: voting not trusted (%d agreeing); "
+                        "stopping refinement at iteration %d",
+                        vote["confidence"], i,
+                    )
+                    iterations.append({
+                        "iteration": i, "skipped": True,
+                        "reason": "voting_low_confidence",
+                        **mode_detail,
+                    })
+                    break
+                dx_um = float(vote["dx_um"])
+                dy_um = float(vote["dy_um"])
+                quality = float(vote["quality"])
+
+        # Image-frame offset → stage correction via calibration matrix.
+        stage_dx = image_to_stage[0][0] * dx_um + image_to_stage[0][1] * dy_um
+        stage_dy = image_to_stage[1][0] * dx_um + image_to_stage[1][1] * dy_um
+        correction_mag = math.hypot(stage_dx, stage_dy)
+
+        log.info(
+            "refine iter %d: image=(%+.2f, %+.2f) um → "
+            "stage=(%+.2f, %+.2f) um  |Δ|=%.2f um  q=%.3f",
+            i, dx_um, dy_um, stage_dx, stage_dy, correction_mag, quality,
+        )
+        iterations.append({
+            "iteration": i,
+            "image_offset_um": [dx_um, dy_um],
+            "stage_correction_um": [float(stage_dx), float(stage_dy)],
+            "correction_magnitude_um": float(correction_mag),
+            "quality": float(quality),
+            **mode_detail,
+        })
+
+        if correction_mag < args.refine_converge_um:
+            log.info("refine: converged after %d iteration(s)", i + 1)
+            break
+
+        cur = drv.get_xy(client)
+        if not cur:
+            _abort("could not read stage XY between refine iterations.")
+        drv.move_xy_stage(
+            client, float(cur["x_um"]) + stage_dx, float(cur["y_um"]) + stage_dy,
+            unit="um",
+        )
+
+    return {
+        "mode": args.refine,
+        "intermediate_zoom": int_zoom,
+        "intermediate_pixel_um": float(int_pixel_um),
+        "iterations": iterations,
+    }
+
+
 def step_acquire_and_verify(
     client: Any, args: argparse.Namespace, out_dir: Path,
     source_pick: SourcePick, cellpose_model: models.CellposeModel,
@@ -713,6 +917,7 @@ def step_save_outputs(
     cell_source_xy_um: tuple[float, float],
     target_xyz_um: tuple[float, float, float],
     target_geom: tuple[int, float, float],
+    refine_report: dict[str, Any] | None = None,
 ) -> Path:
     """Write overlay.png and summary.json. Returns the summary path."""
     overlay_path = out_dir / "overlay.png"
@@ -759,6 +964,7 @@ def step_save_outputs(
             "candidates": landing.candidates,
         },
         "calibration_config": str(drv.default_calibration_path()),
+        "refine": refine_report,
         "outputs": {
             "source_tif": str(source_tif),
             "target_tif": str(target_tif),
@@ -797,8 +1003,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         source_pick, cfg, args.source_slot, args.target_slot,
     )
 
-    zoom, target_base_fov_um, target_pixel_size_um = step_switch_and_aim(
-        client, args, hw, target_xyz_um, source_pick.bbox_um,
+    target_base_fov_um = step_switch_and_position(
+        client, args, hw, target_xyz_um,
+    )
+
+    refine_report: dict[str, Any] | None = None
+    if args.refine:
+        refine_report = step_refine_position(
+            client, args, source_pick, source_img,
+            target_base_fov_um, cfg["image_to_stage"],
+            backlash_params, out_dir,
+        )
+
+    zoom, target_pixel_size_um = step_set_framed_zoom(
+        client, args, target_base_fov_um, source_pick.bbox_um,
     )
 
     target_img, tgt_tif, landing = step_acquire_and_verify(
@@ -810,6 +1028,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         out_dir, source_img, target_img, source_pick, landing, args,
         src_tif, tgt_tif, cell_source_xy_um, target_xyz_um,
         target_geom=(zoom, target_base_fov_um, target_pixel_size_um),
+        refine_report=refine_report,
     )
 
     if landing.error_magnitude_um is not None:
