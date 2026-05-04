@@ -109,9 +109,9 @@ from navigator_expert.calibration.lib.lasx_state import (
     setup_reference_state,
     switch_to_target,
 )
-from navigator_expert.calibration.lib.registration import (
+from navigator_expert.analysis import (
+    VOTING_METHODS,
     VOTING_MIN_AGREE,
-    _VOTING_METHODS,
 )
 from navigator_expert.calibration.lib import phases
 
@@ -384,7 +384,7 @@ def main():
                 image_to_stage=image_to_stage,
                 ts_zoom=ts_zoom,
                 voting_min_agree=VOTING_MIN_AGREE,
-                voting_method_count=len(_VOTING_METHODS),
+                voting_method_count=len(VOTING_METHODS),
             )
             target_report["shift_xy"] = shift_report
             if shift_xy is not None:
