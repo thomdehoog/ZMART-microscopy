@@ -94,6 +94,11 @@ def parse_args():
     p.add_argument("--backlash-settle-ms", type=int, default=100,
                    help="Pause between overshoot and final leg in ms "
                         "(default: 100).")
+    p.add_argument("--backlash-cycles", type=int, default=1,
+                   help="Repeat the back-then-forth pattern N times "
+                        "(default: 1). Try 2-3 if landing repeatability "
+                        "is poor; mechanical hysteresis sometimes needs "
+                        "multiple cycles to settle.")
 
     p.add_argument("--output-dir", type=Path, default=None,
                    help="Output directory (default: "
@@ -140,25 +145,33 @@ def _check_image_orientation():
 
 
 def correct_backlash(client, overshoot_um=50.0, settle_ms=100,
-                     tolerance_um=20.0):
+                     tolerance_um=20.0, cycles=1):
     """Pin the stage to the +X+Y slack-state with no net displacement.
 
     Reads current XY, drives to ``(x - overshoot, y - overshoot)``, pauses,
     then drives back to ``(x, y)``. The final +X +Y leg engages both
     leadscrews against the same flank, removing backlash variance.
+
+    ``cycles`` repeats the back-then-forth pattern N times. A single
+    cycle eliminates pure leadscrew slack, but mechanical hysteresis
+    (frame flex, friction sticking, controller ringdown) sometimes
+    needs multiple cycles to fully settle. Each cycle has a ``settle_ms``
+    pause both before the return move and after.
     """
     pos = drv.get_xy(client)
     x, y = pos["x_um"], pos["y_um"]
-    log.info("backlash takeup at (%.2f, %.2f) um, overshoot %.1f um",
-             x, y, overshoot_um)
-    r = drv.move_xy_stage(client, x - overshoot_um, y - overshoot_um,
-                          unit="um", tolerance=tolerance_um)
-    if not r or not r.get("success"):
-        raise RuntimeError(f"backlash overshoot move failed: {r}")
-    time.sleep(settle_ms / 1000.0)
-    r = drv.move_xy_stage(client, x, y, unit="um", tolerance=tolerance_um)
-    if not r or not r.get("success"):
-        raise RuntimeError(f"backlash return move failed: {r}")
+    log.info("backlash takeup at (%.2f, %.2f) um, overshoot %.1f um, cycles=%d",
+             x, y, overshoot_um, cycles)
+    for i in range(cycles):
+        r = drv.move_xy_stage(client, x - overshoot_um, y - overshoot_um,
+                              unit="um", tolerance=tolerance_um)
+        if not r or not r.get("success"):
+            raise RuntimeError(f"backlash overshoot move failed (cycle {i+1}): {r}")
+        time.sleep(settle_ms / 1000.0)
+        r = drv.move_xy_stage(client, x, y, unit="um", tolerance=tolerance_um)
+        if not r or not r.get("success"):
+            raise RuntimeError(f"backlash return move failed (cycle {i+1}): {r}")
+        time.sleep(settle_ms / 1000.0)
 
 
 def _acquire_one(client, job_name):
@@ -330,7 +343,8 @@ def main():
     correct_backlash(client,
                      overshoot_um=args.backlash_overshoot_um,
                      settle_ms=args.backlash_settle_ms,
-                     tolerance_um=args.stage_tolerance_um)
+                     tolerance_um=args.stage_tolerance_um,
+                     cycles=args.backlash_cycles)
     source_img, source_path = _acquire_one(client, args.job)
     tifffile.imwrite(str(out_dir / "source.tif"), source_img)
 
@@ -371,6 +385,20 @@ def main():
     drv.set_zoom(client, args.job, final_zoom)
     time.sleep(0.5)
 
+    # Apply parfocal Z shift via z-galvo. Convention: slot 1's
+    # acquire was at z-galvo=0 (cookbook never sets it). dz_um from the
+    # config is (tgt_brenner_peak - ref_brenner_peak) in z-galvo terms,
+    # so slot 2 needs z-galvo = -dz_um to image the same focal plane.
+    # Falls through cleanly if --measure-parfocal was never run (shift
+    # = 0), no z-galvo motion applied.
+    parfocal_dz_um = drv.get_parfocal_shift_um(cfg, args.target_slot)
+    log.info("parfocal shift dZ = %+.2f um (z-galvo target = %+.2f)",
+             parfocal_dz_um, -parfocal_dz_um)
+    drv.set_z_stack_definition(client, args.job,
+                               begin_um=-parfocal_dz_um,
+                               end_um=-parfocal_dz_um)
+    time.sleep(0.5)
+
     move_result = drv.move_xy_stage(
         client, target_command_xy_um[0], target_command_xy_um[1],
         unit="um", tolerance=args.stage_tolerance_um,
@@ -382,7 +410,8 @@ def main():
     correct_backlash(client,
                      overshoot_um=args.backlash_overshoot_um,
                      settle_ms=args.backlash_settle_ms,
-                     tolerance_um=args.stage_tolerance_um)
+                     tolerance_um=args.stage_tolerance_um,
+                     cycles=args.backlash_cycles)
     target_img, target_path = _acquire_one(client, args.job)
     tifffile.imwrite(str(out_dir / "target.tif"), target_img)
 
