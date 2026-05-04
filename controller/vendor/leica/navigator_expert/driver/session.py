@@ -28,9 +28,7 @@ def connect_python_client(client_name: str = "PythonClient") -> Any:
     if not client.Connect(client_name):
         raise ConnectionError("Cannot connect to LAS X. Is it running?")
 
-    # Avoid driver -> driver import cycle.
-    from . import core as _core
-    if not _core.ping(client):
+    if not _readers.ping(client):
         raise RuntimeError("LAS X ping failed.")
     return client
 
