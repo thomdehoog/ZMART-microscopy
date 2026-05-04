@@ -423,6 +423,7 @@ def step_acquire_overview(
     """
     drv.set_zoom(client, job, OVERVIEW_ZOOM)
     time.sleep(SETTLE_AFTER_LAS_X_EDIT_S)
+    drv.reset_pan(client, job)
 
     stage = drv.get_xy(client)
     if not stage:

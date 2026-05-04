@@ -405,6 +405,9 @@ def step_load_image(
         # the pixel size. The user must keep the image's job state.
         geometry = read_frame_geometry(client, job)
     else:
+        log.info("setting zoom to 1 for overview acquire")
+        drv.set_zoom(client, job, 1.0)
+        time.sleep(0.5)
         log.info("acquiring image")
         img, path = drv.acquire_frame(
             client, job, channel=args.channel,
@@ -515,7 +518,7 @@ def step_save_outputs(
                 "label": r.label,
                 "area_px": r.area_px,
                 "n_original_vertices": r.n_orig_vertices,
-                "n_simplified_vertices": int(r.vertices_m.shape[0]),
+                "n_simplified_vertices": len(r.vertices_m),
                 "translation_um": [r.translation_m[0] * 1e6,
                                    r.translation_m[1] * 1e6],
             }
