@@ -718,6 +718,18 @@ def apply_lrp_change(client, xml_name, lrp_edit_fn, *args,
     The ``verify_fn`` should only check the specific attributes that
     were edited — LAS X regenerates many internal IDs on every save.
 
+    Known failure mode — fast-confirm race:
+        When the first confirm save returns very quickly ("verified
+        after 1 attempt(s)" in the logs), LAS X has not actually
+        finished processing the load yet. A subsequent acquire fires
+        into a still-busy LAS X and times out with ``Scan not started
+        after 15s``; the LAS X UI shows
+        ``CAM Command >> GetJobSettingsByName >> Error on command``.
+        Recovery: in LAS X, reload the original workflow/template XML
+        from disk (Open Project dialog), verify the job reappears in
+        the job list, then API commands work again. Re-running the
+        script without this manual reload will keep failing.
+
     Args:
         client: Live LAS X CAM client.
         xml_name: Template XML filename (e.g. ``TEMPLATE_XML`` or
