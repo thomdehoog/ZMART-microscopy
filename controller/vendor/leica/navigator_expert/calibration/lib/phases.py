@@ -35,21 +35,18 @@ import time
 import numpy as np
 
 import navigator_expert.driver as drv
-from .lasx_state import configure_z_stack, disable_z_stack
-from .registration import (
+from navigator_expert.analysis import (
+    D4_RESIDUAL_MAX,
     brenner_focus,
     classify_d4,
     register_phase,
     register_voting,
 )
 
+from .lasx_state import configure_z_stack, disable_z_stack
+
 
 log = logging.getLogger(__name__)
-
-
-# Above this Frobenius distance the fit is too far from a pure
-# reflection/rotation to snap; usual cause is drift or sparse texture.
-D4_RESIDUAL_MAX = 0.3
 
 
 # ── Phase 1: sign convention ─────────────────────────────────────────
