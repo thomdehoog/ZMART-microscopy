@@ -47,6 +47,23 @@ def get_stage_limits():
     return dict(_stage_limits)
 
 
+def apply_stage_limits_from_config(stage_cfg: dict) -> None:
+    """Configure stage limits from a stage_config dict.
+
+    The dict shape is the one produced by
+    :func:`navigator_expert.driver.stage_config.load`; pass it through
+    once at session start so the cookbook and calibration share one
+    source of truth.
+    """
+    lim = stage_cfg["limits_um"]
+    set_stage_limits(
+        x_min=lim["x"][0], x_max=lim["x"][1],
+        y_min=lim["y"][0], y_max=lim["y"][1],
+        z_galvo_min=lim["z_galvo"][0], z_galvo_max=lim["z_galvo"][1],
+        z_wide_min=lim["z_wide"][0], z_wide_max=lim["z_wide"][1],
+    )
+
+
 def _check_xy_limits(x, y):
     """Validate XY position against configured limits. Raises RuntimeError."""
     if _stage_limits["x_min"] is None:

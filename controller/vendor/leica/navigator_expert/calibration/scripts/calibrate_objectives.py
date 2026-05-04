@@ -103,7 +103,6 @@ from navigator_expert.driver.calibration import (
 )
 from navigator_expert.driver.stage_config import load as load_stage_config
 from navigator_expert.calibration.lib.lasx_state import (
-    apply_stage_limits,
     disable_z_stack,
     make_acquirer,
     setup_reference_state,
@@ -115,19 +114,6 @@ from navigator_expert.analysis import (
 )
 from navigator_expert.calibration.lib import phases
 
-
-def _read_zwide_um(client, job):
-    """Return current z-wide position (um) via job-settings readback."""
-    settings = drv.get_job_settings(client, job)
-    if not settings:
-        raise RuntimeError("could not read job settings to read z-wide")
-    ch = drv.make_changeable_copy(settings)
-    if not ch or "zPosition" not in ch:
-        raise RuntimeError("zPosition not in job settings — LAS X version mismatch?")
-    val = ch["zPosition"].get("z-wide")
-    if val is None:
-        raise RuntimeError(f"z-wide readback missing; got {ch['zPosition']!r}")
-    return float(val)
 
 log = logging.getLogger("calibrate_objectives")
 
@@ -212,7 +198,7 @@ def main():
         print("ABORT: LAS X ping failed.")
         return 2
 
-    apply_stage_limits(stage_cfg)
+    drv.apply_stage_limits_from_config(stage_cfg)
 
     hw = drv.get_hardware_info(client)
     if not hw:
@@ -329,7 +315,7 @@ def main():
 
         # Read z-wide BEFORE the firmware switch so we can compute the
         # offset the firmware applies.
-        zwide_pre_um = _read_zwide_um(client, args.job)
+        zwide_pre_um = drv.read_zwide_um(client, args.job)
         log.info("z-wide before switch: %.2f um", zwide_pre_um)
 
         switch_to_target(client, args.job, hw, ts,
@@ -337,7 +323,7 @@ def main():
                          scan_format=args.scan_format,
                          scan_speed=args.scan_speed)
 
-        zwide_post_um = _read_zwide_um(client, args.job)
+        zwide_post_um = drv.read_zwide_um(client, args.job)
         zwide_offset_um = float(zwide_post_um - zwide_pre_um)
         log.info("z-wide after switch:  %.2f um  (offset = %+.2f)",
                  zwide_post_um, zwide_offset_um)

@@ -69,10 +69,12 @@ __all__ = [
     "_PERMANENT_PATTERNS", "_TRANSIENT_PATTERNS",
     # limits
     "_stage_limits", "set_stage_limits", "get_stage_limits",
+    "apply_stage_limits_from_config",
     "_check_xy_limits", "_check_z_limits",
     # readers
     "get_scan_status", "ping", "get_job_settings", "get_hardware_info",
-    "get_xy", "get_jobs", "get_job_by_name", "get_selected_job",
+    "get_xy", "read_zwide_um",
+    "get_jobs", "get_job_by_name", "get_selected_job",
     "get_fov", "get_base_fov", "get_lasx_settings",
     # ome_tiff
     "extract_wavelength_from_id",
@@ -200,6 +202,7 @@ from .limits import (
     _stage_limits,
     set_stage_limits,
     get_stage_limits,
+    apply_stage_limits_from_config,
     _check_xy_limits,
     _check_z_limits,
 )
@@ -211,6 +214,7 @@ from .readers import (
     get_job_settings,
     get_hardware_info,
     get_xy,
+    read_zwide_um,
     get_jobs,
     get_job_by_name,
     get_selected_job,
