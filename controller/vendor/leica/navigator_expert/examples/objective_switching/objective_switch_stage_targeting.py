@@ -233,17 +233,67 @@ def _save_overlay(png_path, source_img, target_img, source_prop,
     plt.close(fig)
 
 
-def _measure_landing_error(target_img, target_prop, target_pixel_size_um):
-    """Return (dx_um, dy_um) of the cell centroid from the image centre,
-    or None when *target_prop* is None.
+def _measure_landing_error(
+    target_masks, target_image_shape, source_prop,
+    src_pixel_um, tgt_pixel_um,
+):
+    """Identify the source cell in the target frame by morphology and
+    measure its centroid offset from the target FOV centre.
+
+    Compares area (normalised by pixel size) and eccentricity to the
+    source cell's features and picks the best match — fixes the
+    'closest-to-centre wins' identity bug of naive segmentation, and
+    works without a second acquisition. Centroid accuracy is ~1 target
+    pixel; sub-pixel NCC is not used because the 20× FOV is too narrow
+    to fit a padded source template.
+
+    Returns ``None`` if the target frame has no segmented cells, else a
+    dict with ``error_um``, ``error_magnitude_um``, ``matched_prop``,
+    ``morphology_score``, and ``candidates``.
     """
-    if target_prop is None:
+    target_props = regionprops(target_masks)
+    if not target_props:
         return None
-    h, w = target_img.shape[:2]
-    cy, cx = target_prop.centroid
-    dy_px = cy - h / 2.0
-    dx_px = cx - w / 2.0
-    return (dx_px * target_pixel_size_um, dy_px * target_pixel_size_um)
+
+    src_area_um2 = source_prop.area * (src_pixel_um ** 2)
+    src_ecc = float(source_prop.eccentricity)
+
+    h, w = target_image_shape[:2]
+    cy_centre, cx_centre = h / 2.0, w / 2.0
+
+    best = None
+    best_score = float("inf")
+    candidates = []
+    for p in target_props:
+        tgt_area_um2 = p.area * (tgt_pixel_um ** 2)
+        tgt_ecc = float(p.eccentricity)
+        area_diff = abs(tgt_area_um2 - src_area_um2) / max(src_area_um2, 1.0)
+        ecc_diff = abs(tgt_ecc - src_ecc)
+        score = area_diff + ecc_diff
+        candidates.append({
+            "centroid_px": (float(p.centroid[1]), float(p.centroid[0])),
+            "area_um2": float(tgt_area_um2),
+            "eccentricity": tgt_ecc,
+            "score": float(score),
+        })
+        if score < best_score:
+            best_score = score
+            best = p
+
+    cy, cx = best.centroid
+    dx_um = (cx - cx_centre) * tgt_pixel_um
+    dy_um = (cy - cy_centre) * tgt_pixel_um
+    return {
+        "error_um": (dx_um, dy_um),
+        "error_magnitude_um": math.hypot(dx_um, dy_um),
+        "matched_prop": best,
+        "morphology_score": float(best_score),
+        "candidates": candidates,
+        "source_features": {
+            "area_um2": float(src_area_um2),
+            "eccentricity": src_ecc,
+        },
+    }
 
 
 # ── Main ──────────────────────────────────────────────────────────
@@ -401,24 +451,41 @@ def main():
     tifffile.imwrite(str(tgt_tif), tgt_img)
     log.info("target image %s (%s) → %s", tgt_img.shape, tgt_img.dtype, tgt_tif.name)
 
-    # 10. Verify: segment the target frame and measure the landing error.
+    # 10. Verify: segment the target frame and identify the source cell
+    #     by morphology, then measure the centroid offset from FOV centre.
     tgt_h, tgt_w = tgt_img.shape[:2]
     tgt_pixel_size_um = (target_base_fov_um / zoom) / tgt_w
 
-    tgt_masks, _, _ = model.eval(tgt_img, diameter=args.diameter)
+    # Cellpose at 20x must use a diameter scaled for the target pixel
+    # size, otherwise it segments sub-nuclear features instead of whole
+    # nuclei. Derive from the source cell's mean bbox dimension.
+    src_bbox_diam_um = (bbox_w_um + bbox_h_um) / 2.0
+    tgt_diameter_px = src_bbox_diam_um / tgt_pixel_size_um
+    log.info("target Cellpose diameter = %.0f px (source bbox %.1f um / "
+             "target pixel %.4f um/px)",
+             tgt_diameter_px, src_bbox_diam_um, tgt_pixel_size_um)
+    tgt_masks, _, _ = model.eval(tgt_img, diameter=tgt_diameter_px)
     tgt_n_cells = int(tgt_masks.max())
     log.info("target frame: %d cell(s) segmented", tgt_n_cells)
 
-    tgt_prop = _pick_central_cell(tgt_masks, tgt_img.shape) if tgt_n_cells else None
-    landing_error_um = _measure_landing_error(tgt_img, tgt_prop, tgt_pixel_size_um)
-    if landing_error_um is not None:
-        dx, dy = landing_error_um
-        log.info("landing error: (%+.2f, %+.2f) um  magnitude=%.2f um",
-                 dx, dy, math.hypot(dx, dy))
+    landing = _measure_landing_error(
+        tgt_masks, tgt_img.shape, prop,
+        src_pixel_um=src_pixel_size_um,
+        tgt_pixel_um=tgt_pixel_size_um,
+    )
+    if landing is not None:
+        dx, dy = landing["error_um"]
+        log.info("landing: cell matched by morphology (score=%.3f, "
+                 "candidates=%d). error: (%+.2f, %+.2f) um  "
+                 "magnitude=%.2f um",
+                 landing["morphology_score"], len(landing["candidates"]),
+                 dx, dy, landing["error_magnitude_um"])
     else:
         log.warning("could not measure landing error — no cells found in target frame")
 
     # 11. Overlay + summary
+    tgt_prop = landing["matched_prop"] if landing else None
+    landing_error_um = landing["error_um"] if landing else None
     _save_overlay(
         out_dir / "overlay.png",
         src_img, tgt_img, prop, tgt_prop, landing_error_um or (0.0, 0.0),
@@ -452,9 +519,15 @@ def main():
         },
         "landing": {
             "cells_segmented": tgt_n_cells,
+            "method": "morphology_match",
             "error_um": list(landing_error_um) if landing_error_um else None,
-            "error_magnitude_um": (math.hypot(*landing_error_um)
-                                   if landing_error_um else None),
+            "error_magnitude_um": (landing["error_magnitude_um"]
+                                   if landing else None),
+            "morphology_score": (landing["morphology_score"]
+                                 if landing else None),
+            "source_features": (landing["source_features"]
+                                if landing else None),
+            "candidates": landing["candidates"] if landing else [],
         },
         "offsets_config": str(drv.default_current_path()),
         "outputs": {
