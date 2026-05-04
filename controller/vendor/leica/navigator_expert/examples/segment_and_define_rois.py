@@ -371,7 +371,7 @@ def step_setup(args: argparse.Namespace) -> tuple[Any, str, dict, Path]:
 
     stage_cfg = drv.load_stage_config()
     client = drv.connect_python_client()
-    drv.require_topleft_orientation()
+    drv.require_canonical_scan_orientation()
     drv.apply_stage_limits_from_config(stage_cfg)
 
     job = resolve_job(client, args.job)

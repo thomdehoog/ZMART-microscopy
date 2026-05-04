@@ -712,6 +712,30 @@ def roi_translation_to_pan(translation_x_m, translation_y_m, *,
     return (-tx_um / pan_scale_um, ty_um / pan_scale_um)
 
 
+def galvo_pan_for_pixel(px, py, *, pixel_size_um, image_size, pan_scale_um):
+    """Pan offset that brings pixel (px, py) of the current frame to the FOV centre.
+
+    Pure composition of two LAS X-documented invariants (see module docstring):
+
+        translation_um = ((px - centre) * pixel_size_um,
+                          (py - centre) * pixel_size_um)        # display frame
+        (pan_x, pan_y)  = (-tx_um, +ty_um) / pan_scale_um        # LAS X internal
+
+    Returned values are *deltas* relative to the current pan; the caller adds
+    them to whatever pan is currently set. Stage XY does not enter the
+    derivation — the galvo deflects the scan field, which lives in the image
+    frame, not the stage frame.
+
+    ``pan_scale_um`` is objective-dependent; resolve via
+    :func:`pan_scale_um_from_base_fov` from ``utils``. ``pixel_size_um`` and
+    ``image_size`` come from the active acquisition's ``parse_tile_geometry``.
+    """
+    centre = image_size / 2.0
+    tx_m = (px - centre) * pixel_size_um * 1e-6
+    ty_m = (py - centre) * pixel_size_um * 1e-6
+    return roi_translation_to_pan(tx_m, ty_m, pan_scale_um=pan_scale_um)
+
+
 def roi_to_absolute_um(translation_x_m, translation_y_m, stage_x_um, stage_y_um):
     """Convert ROI Translation to absolute stage coordinates in um.
 
@@ -747,64 +771,6 @@ def absolute_um_to_roi_translation(x_um, y_um, stage_x_um, stage_y_um):
     tx_um = stage_x_um - x_um
     ty_um = y_um - stage_y_um
     return (tx_um * 1e-6, ty_um * 1e-6)
-
-
-# =============================================================================
-# Image coordinate helpers
-# =============================================================================
-
-def pixel_to_absolute_um(px, py, stage_x_um, stage_y_um,
-                         pan_x, pan_y, pixel_size_um, image_size=512, *,
-                         pan_scale_um):
-    """Convert image pixel coordinates to absolute stage coordinates.
-
-    Uses a Cartesian coordinate system (right = +X, up = +Y).
-    Pixel (0, 0) is the top-left of the image.
-
-    **PAN_SCALE is objective-dependent** when pan_x/pan_y are non-zero:
-    the contribution of pan to image centre scales with the objective's
-    base FOV via
-    ``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``
-    (see :func:`pan_scale_um_from_base_fov`). ``pan_scale_um`` is
-    required. For pan=(0, 0) the value is multiplied by zero and so
-    has no effect; you can pass any positive number in that case (but
-    the resolved value is the principled choice).
-
-    .. note::
-
-       This converts to **absolute stage coordinates** (Cartesian),
-       which is a different coordinate system from ROI vertex
-       coordinates (display frame, +X = right, +Y = down).
-       For pixel → ROI vertex mapping, use the simpler formula::
-
-           vx = (col - center) * pixel_size_m
-           vy = (row - center) * pixel_size_m
-
-       See module docstring for details.
-
-    Args:
-        px, py: Pixel coordinates (can be float).
-        stage_x_um, stage_y_um: Stage position in um (from ``get_xy``).
-        pan_x, pan_y: Current pan values.
-        pixel_size_um: Size of one pixel in um (from
-            ``parse_tile_geometry`` → ``pixel_w_um``).
-        image_size: Image dimension in pixels (default 512).
-        pan_scale_um: um per unit pan for the current objective. Required.
-
-    Returns:
-        ``(x_um, y_um)`` — absolute position in um (Cartesian).
-    """
-    center = image_size / 2.0
-
-    # Image center in absolute coords (Cartesian)
-    cx = stage_x_um + pan_x * pan_scale_um
-    cy = stage_y_um + pan_y * pan_scale_um
-
-    # Image X is inverted vs Cartesian X (left pixel = higher stage X)
-    # Image Y is inverted vs Cartesian Y (top pixel = higher stage Y)
-    x_um = cx + (center - px) * pixel_size_um
-    y_um = cy + (center - py) * pixel_size_um
-    return (x_um, y_um)
 
 
 def bbox_to_zoom(width_um, height_um, fov_at_zoom1_um, margin=1.15):
@@ -906,58 +872,44 @@ def roi_to_pan_zoom(roi, fov_at_zoom1_um, margin=1.15):
     return (pan_x, pan_y, zoom)
 
 
-def mask_contour_to_roi(contour_pixels, stage_x_um, stage_y_um,
-                        pan_x, pan_y, pixel_size_um, image_size=512, *,
-                        pan_scale_um):
+def mask_contour_to_roi(contour_pixels, *, pixel_size_um, image_size=512):
     """Convert a segmentation mask contour to ROI vertices + translation.
 
-    Takes a list of pixel coordinates from a segmentation mask contour
-    and converts them into the format needed by ``lrp_add_roi``:
-    vertices in metres relative to the shape centroid, plus a
-    translation that positions the shape at the correct absolute
-    location.
+    Vertices are pixel offsets from the polygon centroid, in metres
+    (display frame, ``vx = (col - cx) * pixel_size_m`` per the module
+    docstring's pixel-to-vertex formula). Translation places the
+    centroid at its observed pixel position in the scan field, applying
+    the LAS X X-negation convention (``roi_abs_x = stage_x − tx``,
+    ``roi_abs_y = stage_y + ty``).
 
-    **PAN_SCALE is objective-dependent** when pan_x/pan_y are non-zero.
-    Pass ``pan_scale_um`` resolved from the current objective's base FOV
-    via :func:`pan_scale_um_from_base_fov`. Required.
+    No stage XY, pan, or calibration matrix is needed: LAS X interprets
+    both vertices and translation in display frame, so the derivation
+    is direct pixel arithmetic.
 
     Args:
         contour_pixels: List of ``(px, py)`` pixel coordinates tracing
             the mask boundary.
-        stage_x_um, stage_y_um: Stage position in um.
-        pan_x, pan_y: Pan values when the image was taken.
         pixel_size_um: Size of one pixel in um.
         image_size: Image dimension in pixels (default 512).
-        pan_scale_um: um per unit pan for the current objective. Required.
 
     Returns:
         ``(vertices_m, translation_m)`` tuple:
-            - ``vertices_m``: list of ``(x_m, y_m)`` in metres,
-              centred on ``(0, 0)``.
+            - ``vertices_m``: list of ``(x_m, y_m)`` in metres relative
+              to the polygon centroid.
             - ``translation_m``: ``(tx_m, ty_m)`` for ``lrp_add_roi``.
     """
-    # Convert all contour pixels to absolute um
-    abs_points = [
-        pixel_to_absolute_um(px, py, stage_x_um, stage_y_um,
-                             pan_x, pan_y, pixel_size_um, image_size,
-                             pan_scale_um=pan_scale_um)
+    centre = image_size / 2.0
+    n = len(contour_pixels)
+    cx = sum(p[0] for p in contour_pixels) / n
+    cy = sum(p[1] for p in contour_pixels) / n
+
+    vertices_m = [
+        ((px - cx) * pixel_size_um * 1e-6,
+         (py - cy) * pixel_size_um * 1e-6)
         for px, py in contour_pixels
     ]
 
-    # Centroid
-    n = len(abs_points)
-    centroid_x = sum(p[0] for p in abs_points) / n
-    centroid_y = sum(p[1] for p in abs_points) / n
+    tx_m = -(cx - centre) * pixel_size_um * 1e-6
+    ty_m = +(cy - centre) * pixel_size_um * 1e-6
 
-    # Vertices relative to centroid, in metres
-    vertices_m = [
-        ((p[0] - centroid_x) * 1e-6, (p[1] - centroid_y) * 1e-6)
-        for p in abs_points
-    ]
-
-    # Translation from centroid absolute position
-    translation_m = absolute_um_to_roi_translation(
-        centroid_x, centroid_y, stage_x_um, stage_y_um
-    )
-
-    return (vertices_m, translation_m)
+    return vertices_m, (tx_m, ty_m)

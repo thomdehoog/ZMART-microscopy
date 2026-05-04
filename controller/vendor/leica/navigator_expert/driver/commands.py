@@ -823,120 +823,88 @@ _PAN_LIMIT = 0.00775          # max pan value in either axis (objective-
                               # independent: fraction of galvo deflection)
 
 
-def move_xy_galvo(client, x, y, unit="um", *, job_name=None):
-    """Move the galvo (pan) to point at an absolute XY position.
+def move_galvo_to_pixel(client, px, py, *,
+                        job_name=None,
+                        pixel_size_um=None, image_size=None):
+    """Pan the galvo so the pixel ``(px, py)`` of the current frame appears at FOV centre.
 
-    Computes the pan offset from the current stage position and applies
-    it via ``apply_lrp_change``. The stage does **not** move.
+    The primary galvo navigation primitive: take a pixel coordinate from
+    whatever image is currently loaded and pan there. No stage XY round-trip,
+    no calibration matrix — pan is image-frame, derived from documented LAS X
+    invariants (see ``galvo_pan_for_pixel``). The stage does not move.
 
-    Both ``move_xy_stage`` and ``move_xy_galvo`` accept the same
-    coordinate system (absolute um), so targets from ``get_xy`` or
-    ``pixel_to_absolute_um`` work with either function.
+    The pan is composed *atomically* with whatever pan was previously written
+    (read-modify-write inside one ``apply_lrp_change`` transaction): if the
+    frame was already acquired at non-zero pan, this still recentres on
+    ``(px, py)`` of that frame.
 
-    **PAN_SCALE is objective-dependent**: sample displacement per unit of
-    pan = ``base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``. The angular
-    galvo range (``PAN_LIMIT = 0.00775``) and the max-pan-to-FOV fraction
-    (``GALVO_FIELD_FRACTION = 0.667``) are scope-level constants (see
-    ``lasx/utils.py``). Only the objective's base FOV changes — so this
-    function resolves ``pan_scale_um`` at call time via
-    :func:`pan_scale_um_from_base_fov`, yielding ~100 000 on 10x, ~50 000
-    on 20x, ~25 000 on 40x. The reachable um range at max pan therefore
-    scales with base FOV too: ~775 um on 10x, ~388 um on 20x, ~194 um on
-    40x.
+    ``pixel_size_um`` and ``image_size`` default to the active acquisition's
+    geometry (``parse_tile_geometry`` from ``get_job_settings``); pass them
+    explicitly only if the caller has cached values.
 
-    **Zoom-change ordering gotcha** (observed on STELLARIS 8, 2026-04-23):
-    if you call ``set_zoom`` AFTER this function and that call CHANGES
-    zoom (old != new), LAS X silently re-clamps pan during the zoom
-    change — even for pan values that were accepted by the LRP write.
-    On 40x this trimmed pan_y 0.00431 -> 0.00194. Workaround: call
-    ``set_zoom`` FIRST, then :func:`move_xy_galvo` (pan written at the
-    final zoom stays intact). No clamping if zoom does not change.
-
-    Args:
-        client: LAS X API client.
-        x, y: Target coordinates in the specified unit.
-        unit: ``'um'`` (default), ``'mm'``, or ``'m'``.
-        job_name: Job whose pan to modify (default: selected job).
-
-    Returns:
-        dict with ``success``, ``pan``, ``offset_um``, ``pan_scale_um``,
-        ``message``.
+    Returns a dict with ``success``, ``pan`` (the absolute pan written),
+    ``delta_pan`` (what was added), ``pan_scale_um``, ``message``. Returns
+    ``success=False`` with ``message`` if the resulting absolute pan would
+    exceed the angular limit (``_PAN_LIMIT``); the caller should stage-move
+    closer first.
     """
-    from .readers import get_xy, get_selected_job, get_base_fov
+    from .readers import get_selected_job, get_base_fov, get_job_settings
     from .scanning_templates import TEMPLATE_XML, apply_lrp_change
-    from .scanning_template_editors_scan import lrp_set_pan
-    from .utils import pan_scale_um_from_base_fov
+    from .scanning_template_editors_scan import lrp_set_pan, lrp_get_pan
+    from .scanning_template_editors_roi import galvo_pan_for_pixel
+    from .utils import pan_scale_um_from_base_fov, parse_tile_geometry
 
-    # Convert to um
-    if unit == "mm":
-        x_um, y_um = x * 1000, y * 1000
-    elif unit == "m":
-        x_um, y_um = x * 1e6, y * 1e6
-    else:
-        x_um, y_um = float(x), float(y)
-
-    # Resolve job name
     if job_name is None:
-        selected = get_selected_job(client)
-        if selected:
-            job_name = selected.get("Name")
+        sel = get_selected_job(client)
+        job_name = sel.get("Name") if sel else None
     if not job_name:
-        return {"success": False, "pan": None, "offset_um": None,
+        return {"success": False, "pan": None, "delta_pan": None,
                 "pan_scale_um": None,
                 "message": "No job name provided and no job selected"}
 
-    # Resolve pan_scale from the current objective's base FOV
+    if pixel_size_um is None or image_size is None:
+        geo = parse_tile_geometry(get_job_settings(client, job_name) or {})
+        pixel_size_um = pixel_size_um if pixel_size_um is not None else float(geo["pixel_w_um"])
+        image_size = image_size if image_size is not None else int(geo["pixels_x"])
+
     base_fov_m = get_base_fov(client, job_name)
     if not base_fov_m:
-        return {"success": False, "pan": None, "offset_um": None,
+        return {"success": False, "pan": None, "delta_pan": None,
                 "pan_scale_um": None,
                 "message": "Could not read base FOV to resolve pan scale"}
-    base_fov_um = base_fov_m[0] * 1e6
-    pan_scale_um = pan_scale_um_from_base_fov(base_fov_um)
+    pan_scale_um = pan_scale_um_from_base_fov(base_fov_m[0] * 1e6)
 
-    # Read current stage position
-    stage = get_xy(client)
-    if stage is None:
-        return {"success": False, "pan": None, "offset_um": None,
-                "pan_scale_um": pan_scale_um,
-                "message": "Failed to read stage position"}
+    d_pan_x, d_pan_y = galvo_pan_for_pixel(
+        px, py,
+        pixel_size_um=pixel_size_um, image_size=image_size,
+        pan_scale_um=pan_scale_um,
+    )
 
-    # Compute offset from stage center
-    offset_x_um = x_um - stage["x_um"]
-    offset_y_um = y_um - stage["y_um"]
-
-    # Convert to pan values using the resolved, objective-specific scale
-    pan_x = offset_x_um / pan_scale_um
-    pan_y = offset_y_um / pan_scale_um
-
-    # Range check (in pan units — the angular limit is objective-independent)
-    if abs(pan_x) > _PAN_LIMIT or abs(pan_y) > _PAN_LIMIT:
-        return {
-            "success": False, "pan": (pan_x, pan_y),
-            "offset_um": (offset_x_um, offset_y_um),
-            "pan_scale_um": pan_scale_um,
-            "message": (
-                f"Target is {max(abs(offset_x_um), abs(offset_y_um)):.1f} um "
-                f"from stage center, exceeds galvo range "
-                f"({_PAN_LIMIT * pan_scale_um:.0f} um on this objective). "
-                f"Move stage first."
-            ),
-        }
-
-    # Apply pan
-    _job = job_name
+    new_pan = [None, None]
 
     def _edit(p):
-        lrp_set_pan(p, pan_x, pan_y, _job)
+        cur_x, cur_y = lrp_get_pan(p, job_name)
+        new_pan[0] = cur_x + d_pan_x
+        new_pan[1] = cur_y + d_pan_y
+        if abs(new_pan[0]) > _PAN_LIMIT or abs(new_pan[1]) > _PAN_LIMIT:
+            raise RuntimeError(
+                f"resulting pan ({new_pan[0]:+.5f}, {new_pan[1]:+.5f}) "
+                f"exceeds angular limit ±{_PAN_LIMIT}; stage-move closer first."
+            )
+        lrp_set_pan(p, new_pan[0], new_pan[1], job_name)
 
-    r = apply_lrp_change(client, TEMPLATE_XML, _edit,
-                         confirm_delays=(2, 4, 6))
+    try:
+        r = apply_lrp_change(client, TEMPLATE_XML, _edit,
+                              confirm_delays=(2, 4, 6))
+    except RuntimeError as e:
+        return {"success": False, "pan": tuple(new_pan), "delta_pan": (d_pan_x, d_pan_y),
+                "pan_scale_um": pan_scale_um, "message": str(e)}
 
     success = r is not None and r.get("success", False)
     return {
         "success": success,
-        "pan": (pan_x, pan_y),
-        "offset_um": (offset_x_um, offset_y_um),
+        "pan": tuple(new_pan),
+        "delta_pan": (d_pan_x, d_pan_y),
         "pan_scale_um": pan_scale_um,
         "message": "OK" if success else "apply_lrp_change failed",
     }

@@ -299,3 +299,40 @@ def lrp_verify_pan(lrp_path, x, y, job_name, tolerance=0.001):
                                    job_name, tolerance) and
             _verify_job_attr_float(lrp_path, "PanSecondDim", float(y),
                                    job_name, tolerance))
+
+
+def reset_pan(client, job_name):
+    """Atomic LRP edit: set galvo pan to ``(0, 0)`` for *job_name*.
+
+    Used to return the scan field to its un-panned position — typically as
+    the final step of a cookbook so a subsequent run starts from a known
+    state. Verifies the change before returning.
+    """
+    from .scanning_templates import TEMPLATE_XML, apply_lrp_change
+    apply_lrp_change(
+        client, TEMPLATE_XML,
+        lambda p: lrp_set_pan(p, 0.0, 0.0, job_name),
+        verify_fn=lambda p: lrp_verify_pan(p, 0.0, 0.0, job_name),
+    )
+
+
+def lrp_get_pan(lrp_path, job_name):
+    """Read ``(PanFirstDim, PanSecondDim)`` for a job from the LRP.
+
+    Used by relative-pan callers that need the current pan to compose a
+    delta. Returns ``(0.0, 0.0)`` if the job or attributes are absent —
+    that matches LAS X's "no pan written yet" state.
+    """
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+    root = ET.parse(Path(lrp_path)).getroot()
+    for b in root.findall(".//LDM_Block_Sequence_Block"):
+        seq = b.find(".//LDM_Block_Sequential")
+        if seq is None or seq.get("BlockName") != job_name:
+            continue
+        for el in b.findall(".//ATLConfocalSettingDefinition"):
+            px = el.get("PanFirstDim")
+            py = el.get("PanSecondDim")
+            if px is not None and py is not None:
+                return float(px), float(py)
+    return 0.0, 0.0

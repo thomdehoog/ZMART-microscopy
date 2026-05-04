@@ -473,7 +473,7 @@ def step_setup(
     cfg = drv.load_calibration()
     stage_cfg = drv.load_stage_config()
     client = drv.connect_python_client()
-    drv.require_topleft_orientation()
+    drv.require_canonical_scan_orientation()
 
     hw = drv.get_hardware_info(client)
     if not hw:

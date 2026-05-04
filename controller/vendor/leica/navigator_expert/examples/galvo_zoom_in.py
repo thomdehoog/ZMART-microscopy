@@ -27,16 +27,11 @@ The PAN_SCALE caveat
 --------------------
 A unit of galvo pan is a fixed *angle*. The resulting sample shift in
 microns scales with the objective's focal length, which is captured
-by the objective's base FOV. ``drv.pan_scale_um_from_base_fov(base)``
-resolves it at call time:
-
-    pan_scale_um  ≈ base_fov_um × 86.07
-    galvo_reach_um = pan_scale_um × PAN_LIMIT (= 0.00775)
-
-So at 10× (base FOV ≈ 1160 µm) the galvo reaches ±775 µm; at 20×
-(base FOV ≈ 581 µm) it's ±388 µm; at 40× ±194 µm. ``move_xy_galvo``
-already resolves this internally — the script only uses pan_scale to
-sanity-check reachability before moving.
+by the objective's base FOV; ``move_galvo_to_pixel`` resolves it
+internally via ``pan_scale_um_from_base_fov``. The reachable range
+shrinks with magnification: ±775 µm at 10×, ±388 µm at 20×, ±194 µm at
+40×. ``move_galvo_to_pixel`` returns ``success=False`` with a message
+if the picked pixel is outside reach — pre-centre the stage first.
 
 Recipe
 ------
@@ -45,21 +40,21 @@ The pipeline is one function per step; ``main()`` chains them.
     1. Setup: connect, validate orientation, resolve job, set limits.
     2. Acquire overview at zoom 1 on the currently selected objective.
     3. Cellpose-segment; pick the n-th-closest cell to image centre.
-    4. Convert pixel centroid → absolute stage XY in the image frame
-       (uses ``pixel_to_absolute_um``, NOT ``pixel_to_stage_xy_um`` —
-       the galvo draws the image, so its axes are image-aligned;
-       see memory ``feedback_pan_uses_image_frame``).
-    5. Choose target zoom that frames ``--fov-bbox-margin × bbox``.
-    6. Disable ROI scan (otherwise scanner only illuminates the ROI
+    4. Choose framed zoom that frames ``--fov-bbox-margin × bbox``.
+    5. Disable ROI scan (otherwise scanner only illuminates the ROI
        region and panning shows nothing — see memory
        ``feedback_roi_scan_before_pan``).
-    7. Set zoom FIRST, then pan. Reversing the order makes LAS X
+    6. Set zoom FIRST, then pan. Reversing the order makes LAS X
        silently re-clamp pan during the zoom change (see memory
        ``feedback_pan_then_zoom_clamps``).
+    7. Pan with ``move_galvo_to_pixel(client, px, py, ...)``: derives
+       the LRP write directly from the pixel coordinate via the
+       documented LAS X invariants (translation→pan), no stage XY
+       round-trip.
     8. Acquire the framed image. Do not insert ``time.sleep`` or
        ``check_idle`` between pan and acquire (memory
        ``feedback_no_check_idle_after_pan``).
-    9. Optionally restore overview state (zoom 1, pan 0).
+    9. Optionally restore overview state (zoom 1, pan 0) via ``reset_pan``.
    10. Save source.tif, framed.tif, overlay.png, summary.json.
 
 Operator preconditions
@@ -399,7 +394,7 @@ def step_setup(args: argparse.Namespace) -> tuple[Any, str, dict, Path]:
 
     stage_cfg = drv.load_stage_config()
     client = drv.connect_python_client()
-    drv.require_topleft_orientation()
+    drv.require_canonical_scan_orientation()
     drv.apply_stage_limits_from_config(stage_cfg)
 
     idle = drv.check_idle(client, timeout=IDLE_TIMEOUT_S)
@@ -487,67 +482,35 @@ def step_pick_cell(
     return pick
 
 
-def step_compute_target(
+def step_compute_framed_zoom(
     client: Any, job: str, pick: CellPick, args: argparse.Namespace,
-) -> tuple[tuple[float, float], int, float, float]:
-    """Compute target absolute XY (image frame), framed zoom, base FOV.
+) -> tuple[int, float]:
+    """Compute the framed zoom from the cell's bbox.
 
-    Aborts if the cell lies outside the galvo's reach.
-
-    Returns (target_xy_um, framed_zoom, base_fov_um, pan_scale_um).
+    Returns (framed_zoom, base_fov_um).
     """
     base_fov_m = drv.get_base_fov(client, job)
     if not base_fov_m:
         _abort("Could not read base FOV.")
     base_fov_um = float(base_fov_m[0] * 1e6)
-    pan_scale_um = drv.pan_scale_um_from_base_fov(base_fov_um)
-    galvo_reach_um = pan_scale_um * drv.PAN_LIMIT
-    log.info("galvo reach = ±%.1f um at this objective "
-             "(pan_scale=%.0f um/unit)", galvo_reach_um, pan_scale_um)
-
-    # Image frame: pixel → absolute stage XY. At pan=(0,0) only the
-    # stage XY and the pixel offset (with NO sign matrix — galvo is
-    # image-aligned) contribute.
-    cx, cy = pick.centroid_xy_px
-    target_xy = drv.pixel_to_absolute_um(
-        cx, cy,
-        stage_x_um=pick.overview_stage_xy_um[0],
-        stage_y_um=pick.overview_stage_xy_um[1],
-        pan_x=0.0, pan_y=0.0,
-        pixel_size_um=pick.geometry.pixel_size_um,
-        image_size=pick.geometry.image_size_px,
-        pan_scale_um=pan_scale_um,
-    )
-    target_xy_um = (float(target_xy[0]), float(target_xy[1]))
-    offset_um = (target_xy_um[0] - pick.overview_stage_xy_um[0],
-                 target_xy_um[1] - pick.overview_stage_xy_um[1])
-    offset_mag = math.hypot(*offset_um)
-    log.info("target XY = (%.3f, %.3f) um  pan offset = (%+.1f, %+.1f) um  "
-             "|Δ|=%.1f um", *target_xy_um, *offset_um, offset_mag)
-
-    if abs(offset_um[0]) > galvo_reach_um or abs(offset_um[1]) > galvo_reach_um:
-        _abort(f"Picked cell is outside galvo reach "
-               f"(offset {offset_um[0]:+.1f}, {offset_um[1]:+.1f} um vs "
-               f"reach ±{galvo_reach_um:.0f} um). Pick a more central cell, "
-               f"use the stage cookbook, or pre-centre the stage on the "
-               f"region of interest.")
 
     bbox_w_um, bbox_h_um = pick.bbox_um
     framed_zoom = drv.bbox_to_zoom(bbox_w_um, bbox_h_um, base_fov_um,
                                    margin=args.fov_bbox_margin)
     log.info("framed zoom = %d (base FOV %.1f um → FOV at zoom %.1f um)",
              framed_zoom, base_fov_um, base_fov_um / framed_zoom)
-    return target_xy_um, framed_zoom, base_fov_um, pan_scale_um
+    return framed_zoom, base_fov_um
 
 
 def step_zoom_then_pan(
-    client: Any, job: str,
-    target_xy_um: tuple[float, float], framed_zoom: int,
+    client: Any, job: str, pick: CellPick, framed_zoom: int,
 ) -> None:
-    """Disable ROI scan, set zoom FIRST, then galvo-pan to target.
+    """Disable ROI scan, set zoom FIRST, then galvo-pan to the picked pixel.
 
     Order matters: pan-then-zoom causes LAS X to silently re-clamp pan
-    during the zoom change.
+    during the zoom change. The pan goes through ``move_galvo_to_pixel``,
+    which derives the LRP write directly from the pixel coordinate (no
+    stage XY round-trip).
     """
     log.info("disabling ROI scan")
     drv.disable_roi_scan(client, job)
@@ -556,13 +519,18 @@ def step_zoom_then_pan(
     drv.set_zoom(client, job, framed_zoom)
     time.sleep(SETTLE_AFTER_LAS_X_EDIT_S)
 
-    log.info("galvo-panning to (%.3f, %.3f) um", *target_xy_um)
-    r = drv.move_xy_galvo(client, target_xy_um[0], target_xy_um[1],
-                          unit="um", job_name=job)
+    cx, cy = pick.centroid_xy_px
+    log.info("galvo-panning to pixel (%.1f, %.1f)", cx, cy)
+    r = drv.move_galvo_to_pixel(
+        client, cx, cy,
+        job_name=job,
+        pixel_size_um=pick.geometry.pixel_size_um,
+        image_size=pick.geometry.image_size_px,
+    )
     if not r or not r.get("success"):
-        _abort(f"galvo pan failed: {r}")
-    # IMPORTANT: do NOT call check_idle or sleep here. The next step
-    # is acquire — the LRP save/load inside move_xy_galvo already
+        _abort(f"galvo pan failed: {r['message']}")
+    # IMPORTANT: do NOT call check_idle or sleep here. The next step is
+    # acquire — the LRP save/load inside move_galvo_to_pixel already
     # confirms state, and any extra query causes "Scan not started"
     # timeouts (memory: feedback_no_check_idle_after_pan).
 
@@ -613,9 +581,8 @@ def step_acquire_and_verify(
 
 def step_save_outputs(
     out_dir: Path, args: argparse.Namespace, job: str,
-    pick: CellPick, target_xy_um: tuple[float, float],
+    pick: CellPick,
     framed_zoom: int, base_fov_um: float, framed_pixel_size_um: float,
-    pan_scale_um: float,
     overview_img: np.ndarray, framed_img: np.ndarray,
     overview_tif: Path, framed_tif: Path,
     landing: LandingResult,
@@ -638,11 +605,6 @@ def step_save_outputs(
             "area_px": pick.area_px,
             "eccentricity": pick.eccentricity,
         },
-        "target_xy_um": list(target_xy_um),
-        "pan_offset_um": [target_xy_um[0] - pick.overview_stage_xy_um[0],
-                          target_xy_um[1] - pick.overview_stage_xy_um[1]],
-        "pan_scale_um": pan_scale_um,
-        "galvo_reach_um": pan_scale_um * drv.PAN_LIMIT,
         "framed_zoom": framed_zoom,
         "base_fov_um": base_fov_um,
         "framed_fov_um": base_fov_um / framed_zoom,
@@ -673,10 +635,7 @@ def step_restore(client: Any, job: str) -> None:
     log.info("restoring overview state (zoom 1, pan 0)")
     drv.set_zoom(client, job, OVERVIEW_ZOOM)
     time.sleep(SETTLE_AFTER_LAS_X_EDIT_S)
-    stage = drv.get_xy(client)
-    if stage:
-        drv.move_xy_galvo(client, float(stage["x_um"]), float(stage["y_um"]),
-                          unit="um", job_name=job)
+    drv.reset_pan(client, job)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -699,11 +658,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     pick = step_pick_cell(overview_img, args, geometry, stage_xy_um,
                           cellpose_model)
 
-    target_xy_um, framed_zoom, base_fov_um, pan_scale_um = step_compute_target(
-        client, job, pick, args,
-    )
+    framed_zoom, base_fov_um = step_compute_framed_zoom(client, job, pick, args)
 
-    step_zoom_then_pan(client, job, target_xy_um, framed_zoom)
+    step_zoom_then_pan(client, job, pick, framed_zoom)
 
     framed_img, framed_tif, framed_pixel_um, landing = step_acquire_and_verify(
         client, job, args, out_dir, pick, cellpose_model,
@@ -714,8 +671,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     summary_path = step_save_outputs(
-        out_dir, args, job, pick, target_xy_um,
-        framed_zoom, base_fov_um, framed_pixel_um, pan_scale_um,
+        out_dir, args, job, pick,
+        framed_zoom, base_fov_um, framed_pixel_um,
         overview_img, framed_img, overview_tif, framed_tif, landing,
     )
 
