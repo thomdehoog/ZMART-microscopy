@@ -107,6 +107,9 @@ def parse_args():
                         "(default: config/objective_targeting/stage/<timestamp>/).")
     p.add_argument("--no-restore", action="store_true",
                    help="Do not switch back to the source objective at the end.")
+    p.add_argument("--pick-rank", type=int, default=0,
+                   help="Which cell to target by distance from the image centre "
+                        "(0=closest, 1=second-closest, ...). Default: 0.")
     return p.parse_args()
 
 
@@ -162,18 +165,24 @@ def _acquire_one(client, job_name):
     return img, path
 
 
-def _pick_central_cell(masks, image_shape):
-    """Pick the nucleus whose centroid is closest to the image centre.
+def _pick_central_cell(masks, image_shape, rank=0):
+    """Pick the nucleus by distance from the image centre.
 
-    Returns a regionprops object or None if no cells were segmented.
+    rank=0 returns the closest, rank=1 the next, etc. Returns None
+    if there are not enough cells to satisfy ``rank``.
     """
     props = regionprops(masks)
     if not props:
         return None
     h, w = image_shape[:2]
     cy, cx = h / 2.0, w / 2.0
-    return min(props, key=lambda p: (p.centroid[0] - cy) ** 2
-                                     + (p.centroid[1] - cx) ** 2)
+    by_dist = sorted(
+        props,
+        key=lambda p: (p.centroid[0] - cy) ** 2 + (p.centroid[1] - cx) ** 2,
+    )
+    if rank >= len(by_dist):
+        return None
+    return by_dist[rank]
 
 
 def _save_overlay(png_path, source_img, target_img, source_prop,
@@ -285,10 +294,12 @@ def main():
     print(f"FOV margin:     {args.fov_bbox_margin}x bounding box")
     print(f"Output dir:     {out_dir}\n")
 
-    # 1. Switch to source objective
+    # 1. Switch to source objective at zoom 1 for the widest FOV
     log.info("switching to source objective")
     drv.set_objective(client, args.job, hw, slot_index=args.source_slot)
     time.sleep(args.settle)
+    drv.set_zoom(client, args.job, 1.0)
+    time.sleep(0.5)
 
     stage = drv.get_xy(client)
     if not stage:
@@ -323,10 +334,10 @@ def main():
     log.info("Cellpose found %d cells in %.1fs",
              int(masks.max()), time.perf_counter() - t0)
 
-    prop = _pick_central_cell(masks, src_img.shape)
+    prop = _pick_central_cell(masks, src_img.shape, rank=args.pick_rank)
     if prop is None:
-        _abort("No cells found. Try adjusting --diameter or move to a denser "
-               "region of the sample.")
+        _abort(f"No cell at rank {args.pick_rank}. Lower --pick-rank or "
+               f"adjust --diameter / move to a denser region.")
 
     cy_px, cx_px = prop.centroid
     min_r, min_c, max_r, max_c = prop.bbox
