@@ -240,23 +240,7 @@ def _now_iso_ts() -> str:
 # ──────────────────────────────────────────────────────────────────────
 
 
-def connect_lasx() -> Any:
-    client = lasx_api.LasxApiClientPyModel
-    if not client.Connect("PythonClient"):
-        _abort("Cannot connect to LAS X.", 2)
-    if not drv.ping(client):
-        _abort("LAS X ping failed.", 2)
-    return client
 
-
-def check_image_orientation_is_topleft() -> None:
-    settings = drv.get_lasx_settings() or {}
-    orient = settings.get("image_orientation", {}) or {}
-    if (orient.get("enable_transform", False)
-            and orient.get("transformation", "TOPLEFT") != "TOPLEFT"):
-        _abort(f"ImageTransformation is "
-               f"'{orient.get('transformation')}'; set it to TOPLEFT in "
-               f"LAS X Advanced Settings.", 2)
 
 
 def resolve_job(client: Any, override: str | None) -> str:
@@ -280,21 +264,6 @@ def read_frame_geometry(client: Any, job: str) -> FrameGeometry:
     )
 
 
-def disable_roi_scan(client: Any, job: str) -> None:
-    """ROI scan must be off before pan/zoom or the scanner only
-    illuminates the ROI region.
-    """
-    from navigator_expert.driver.scanning_template_editors_roi import (
-        lrp_enable_roi_scan, lrp_verify_roi_scan,
-    )
-    from navigator_expert.driver.scanning_templates import (
-        TEMPLATE_XML, apply_lrp_change,
-    )
-    apply_lrp_change(
-        client, TEMPLATE_XML,
-        lambda p: lrp_enable_roi_scan(p, False, job),
-        verify_fn=lambda p: lrp_verify_roi_scan(p, False, job),
-    )
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -429,8 +398,8 @@ def step_setup(args: argparse.Namespace) -> tuple[Any, str, dict, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     stage_cfg = drv.load_stage_config()
-    client = connect_lasx()
-    check_image_orientation_is_topleft()
+    client = drv.connect_python_client()
+    drv.require_topleft_orientation()
     drv.apply_stage_limits_from_config(stage_cfg)
 
     idle = drv.check_idle(client, timeout=IDLE_TIMEOUT_S)
@@ -581,7 +550,7 @@ def step_zoom_then_pan(
     during the zoom change.
     """
     log.info("disabling ROI scan")
-    disable_roi_scan(client, job)
+    drv.disable_roi_scan(client, job)
 
     log.info("setting framed zoom = %d", framed_zoom)
     drv.set_zoom(client, job, framed_zoom)
