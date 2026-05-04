@@ -165,6 +165,9 @@ __all__ = [
     "objective_by_slot", "objective_summary", "validate_slots",
     # high-level acquire-and-load
     "acquire_frame", "acquire_stack",
+    # session helpers
+    "connect_python_client", "require_topleft_orientation",
+    "disable_roi_scan",
     # calibration (config + accessors + mutators)
     "CALIBRATION_SCHEMA_VERSION", "STAGE_SCHEMA_VERSION",
     "default_calibration_path",
@@ -457,6 +460,13 @@ from .acquire import (
     acquire_frame,
     acquire_stack,
 )
+
+# ── Session helpers (connect, validate scope state) ──────────────
+from .session import (
+    connect_python_client,
+    require_topleft_orientation,
+)
+from .scanning_template_editors_roi import disable_roi_scan
 
 from .calibration import (
     SCHEMA_VERSION as CALIBRATION_SCHEMA_VERSION,

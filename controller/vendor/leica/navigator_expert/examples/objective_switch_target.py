@@ -284,25 +284,7 @@ def _now_iso_ts() -> str:
 # ──────────────────────────────────────────────────────────────────────
 
 
-def connect_lasx() -> Any:
-    """Open the LAS X client and verify it responds."""
-    client = lasx_api.LasxApiClientPyModel
-    if not client.Connect("PythonClient"):
-        _abort("Cannot connect to LAS X.", 2)
-    if not drv.ping(client):
-        _abort("LAS X ping failed.", 2)
-    return client
 
-
-def check_image_orientation_is_topleft() -> None:
-    """The pixel→stage matrix is calibrated under TOPLEFT image origin."""
-    settings = drv.get_lasx_settings() or {}
-    orient = settings.get("image_orientation", {}) or {}
-    if (orient.get("enable_transform", False)
-            and orient.get("transformation", "TOPLEFT") != "TOPLEFT"):
-        _abort(f"ImageTransformation is "
-               f"'{orient.get('transformation')}'; set it to TOPLEFT in "
-               f"LAS X Advanced Settings.", 2)
 
 
 
@@ -490,8 +472,8 @@ def step_setup(
 
     cfg = drv.load_calibration()
     stage_cfg = drv.load_stage_config()
-    client = connect_lasx()
-    check_image_orientation_is_topleft()
+    client = drv.connect_python_client()
+    drv.require_topleft_orientation()
 
     hw = drv.get_hardware_info(client)
     if not hw:

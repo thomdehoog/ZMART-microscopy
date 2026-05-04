@@ -165,6 +165,22 @@ def lrp_enable_roi_scan(lrp_path, enable, job_name):
                          "lrp_enable_roi_scan")
 
 
+def disable_roi_scan(client, job_name):
+    """Atomic LRP edit: turn ROI scan off for *job_name*.
+
+    Required before any pan/zoom that should illuminate the full FOV
+    — when ROI scan is on the scanner only paints inside the ROI
+    polygons, so a panned-but-still-roi-scanning frame appears black
+    where the cells used to be. Verifies the change before returning.
+    """
+    from .scanning_templates import TEMPLATE_XML, apply_lrp_change
+    apply_lrp_change(
+        client, TEMPLATE_XML,
+        lambda p: lrp_enable_roi_scan(p, False, job_name),
+        verify_fn=lambda p: lrp_verify_roi_scan(p, False, job_name),
+    )
+
+
 def lrp_verify_roi_scan(lrp_path, enable, job_name):
     """Verify IsRoiScanEnable for a job (exact match)."""
     val = "1" if enable else "0"
