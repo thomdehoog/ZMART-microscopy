@@ -138,40 +138,38 @@ def measure_parcentric_offset(client, home_xy):
 
 def measure_parfocal(client, job, *, acquire_stack, ref_focus,
                      z_range_um, z_step_um):
-    """Phase 3: parfocal dZ + a shifted verification stack.
+    """Phase 3: focal-plane shift between target and reference objectives.
+
+    The Brenner peak of slot 2's Z-stack at the post-switch z-wide
+    position, minus slot 1's peak, gives the focal-plane offset the
+    cookbook still needs to apply *after* whatever the firmware did
+    with z-wide. Same shift/offset model as XY — except we can't
+    observe the firmware's Z motion separately on this scope (no
+    GetZ API), so the Brenner peak difference IS the shift the
+    cookbook applies.
 
     ``ref_focus`` is the brenner_focus dict from the reference objective
     (acquired once by the orchestrator before the per-target loop).
     Caller must have already switched to the target objective. Returns
-    ``(dz_um, dz_residual_um, report_fragment)`` — orchestrator persists
-    dz_um as parfocal_motor_um and dz_residual_um as parfocal_residual_um.
+    ``(dz_um, report_fragment)``.
+
+    No verification stack — for the same reason Phase 5 was dropped.
+    A "residual" measured by re-acquiring at the corrected Z is just
+    the noise floor of (Z stage repeatability + Brenner peak finder
+    accuracy + sample stability). Doesn't validate calibration
+    correctness.
     """
-    log.info("phase 3 (tgt): target Z-stack")
+    log.info("phase 3: target Z-stack")
     configure_z_stack(client, job, half_range_um=z_range_um, step_um=z_step_um)
     tgt_stack = acquire_stack()
     tgt_focus = brenner_focus(tgt_stack, z_step_um)
     dz_um = float((tgt_focus["peak_sub"] - ref_focus["peak_sub"]) * z_step_um)
-    log.info("parfocal dZ = %+.2f um", dz_um)
+    log.info("parfocal shift dZ = %+.2f um", dz_um)
 
-    log.info("phase 3 (ver): shifted Z-stack at corrected position")
-    configure_z_stack(
-        client, job,
-        half_range_um=z_range_um, step_um=z_step_um,
-        begin_um=z_range_um - dz_um,
-        end_um=-z_range_um - dz_um,
-    )
-    ver_stack = acquire_stack()
-    ver_focus = brenner_focus(ver_stack, z_step_um)
-    dz_residual_um = float(
-        (ver_focus["peak_sub"] - ref_focus["peak_sub"]) * z_step_um
-    )
-    log.info("parfocal verification residual: %+.2f um (target ~0)", dz_residual_um)
-
-    return dz_um, dz_residual_um, {
+    return dz_um, {
         "ref_brenner_peak_um": ref_focus["peak_um"],
         "tgt_brenner_peak_um": tgt_focus["peak_um"],
-        "dz_um": dz_um,
-        "verification_residual_um": dz_residual_um,
+        "shift_um": dz_um,
     }
 
 
