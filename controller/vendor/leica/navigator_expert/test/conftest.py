@@ -33,13 +33,13 @@ sys.modules.setdefault("lasx", _drv)
 
 _DRIVER_SUBMODULES = (
     "alignment", "commands", "confirmations", "core", "errors",
-    "file_confirmation", "limits", "machine_config", "objective_offsets",
+    "calibration", "file_confirmation", "limits", "objective_offsets",
     "ome_tiff", "prechecks", "profiles", "readers", "registration",
     "scanning_template_editors", "scanning_template_editors_focus",
     "scanning_template_editors_roi", "scanning_template_editors_scan",
     "scanning_template_editors_z", "scanning_template_parsers",
     "scanning_template_synthesis", "scanning_templates", "settings",
-    "stage_motion", "utils",
+    "stage_config", "stage_motion", "utils",
 )
 for _sub in _DRIVER_SUBMODULES:
     try:

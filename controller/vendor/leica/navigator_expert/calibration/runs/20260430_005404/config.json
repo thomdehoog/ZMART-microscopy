@@ -1,0 +1,48 @@
+{
+  "image_to_stage": [
+    [
+      0.0,
+      -1.0
+    ],
+    [
+      1.0,
+      0.0
+    ]
+  ],
+  "last_updated": "20260430_005523",
+  "objectives": {
+    "1": {
+      "anchor_xy_um": [
+        32027.5634765625,
+        28334.218749999996
+      ],
+      "calibrated_at": "20260430_005404",
+      "immersion": "DRY",
+      "is_reference": true,
+      "magnification": 10.0,
+      "name": "HC PL APO CS2    10x/0.40 DRY",
+      "numerical_aperture": 0.4,
+      "objective_number": 11506424
+    },
+    "2": {
+      "calibrated_at": "20260430_005505",
+      "immersion": "DRY",
+      "magnification": 20.0,
+      "name": "HC PL APO CS2    20x/0.75 DRY",
+      "numerical_aperture": 0.75,
+      "objective_number": 11506517,
+      "parcentric_xy": {
+        "offset_um": [
+          -7.021484375,
+          21.07421875
+        ],
+        "shift_um": [
+          -13.825835000000001,
+          15.492511
+        ]
+      }
+    }
+  },
+  "reference_objective_slot": 1,
+  "schema_version": 6
+}
