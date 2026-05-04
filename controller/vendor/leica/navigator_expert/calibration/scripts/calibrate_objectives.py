@@ -106,7 +106,6 @@ from navigator_expert.driver.calibration import (
     update_objective,
 )
 from navigator_expert.calibration.lib.lasx_state import (
-    disable_z_stack,
     make_acquirer,
     setup_reference_state,
     switch_to_target,
@@ -246,6 +245,8 @@ def step_decide_phases(args: argparse.Namespace, cal_cfg: dict) -> list[str]:
     """Resolve the ordered phase list given CLI flags + cached state."""
     measure_sign = args.measure_sign or cal_cfg.get("image_to_stage") is None
     phases_to_run = ["sign"] if measure_sign else []
+    if args.measure_shift_z or args.measure_shift_xy:
+        phases_to_run.append("ref_brenner")
     phases_to_run.append("xy_firmware_delta")
     if args.measure_shift_z:
         phases_to_run.append("shift_z")
@@ -332,27 +333,36 @@ def step_phase_sign_convention(
     return sign
 
 
-def step_acquire_ref_focus_slice(rig: RigContext, acquire_single) -> Any:
-    """Phase 4 prep: acquire one reference focus slice for the
-    voting registration to match against.
+def step_acquire_ref_brenner(
+    rig: RigContext, acquire_stack,
+) -> phases.BrennerResult:
+    """Phase 0: reference Brenner anchor.
 
-    Z-galvo is already 0 (setup_reference_state forced it). The
-    operator focused via z-wide before the run, so the reference is
-    in focus at the current z-wide. No Brenner search on the
-    reference — the reference's "focus" is whatever the operator
-    chose, by definition.
+    Run once before any objective switch when shift_z or shift_xy is
+    requested. The result's ``residual_um`` is the operator's focus
+    error w.r.t. the Brenner peak (used to make ``shift_z`` objective)
+    and ``peak_slice`` is the in-focus reference slice for shift_xy
+    registration.
+
+    ``measure_brenner`` restores z-wide to its pre-call position, so
+    the operator's focus is left untouched.
     """
-    log.info("phase 4 prep: ref slice at galvo=0, operator-focused z-wide")
-    disable_z_stack(rig.client, rig.args.job)
-    return acquire_single()
+    args = rig.args
+    zwide_at_measure_um = float(drv.read_zwide_um(rig.client, args.job))
+    return phases.measure_brenner(
+        rig.client, args.job,
+        acquire_stack=acquire_stack,
+        z_range_um=args.z_range_um, z_step_um=args.z_step_um,
+        centre_zwide_um=zwide_at_measure_um,
+    )
 
 
 def step_calibrate_target(
     rig: RigContext, ts: int, *,
     home_xy: tuple[float, float],
     image_to_stage: list,
-    img_ref_focus: Any,
-    acquire_single, acquire_stack,
+    ref_brenner: phases.BrennerResult | None,
+    acquire_stack,
     cal_cfg: dict,
 ) -> dict:
     """Run phases 2 – 4 for one target slot and persist its update.
@@ -408,24 +418,36 @@ def step_calibrate_target(
     _, xy_delta_report = phases.measure_xy_firmware_delta(rig.client, home_xy)
     target_report["xy_firmware_delta"] = xy_delta_report
 
-    # Phase 3: shift_z — z-wide focus residual (optional).
-    if args.measure_shift_z:
-        shift_um, shift_z_report = phases.measure_shift_z(
+    # Target Brenner — required for either shift_z or shift_xy.
+    # One stack, two consumers: shift_z reads peak_zwide, shift_xy
+    # reads peak_slice. ref_brenner is guaranteed non-None whenever
+    # either flag is set (main() runs Phase 0 unconditionally then).
+    target_brenner: phases.BrennerResult | None = None
+    if args.measure_shift_z or args.measure_shift_xy:
+        target_brenner = phases.measure_brenner(
             rig.client, args.job,
             acquire_stack=acquire_stack,
-            z_range_um=args.z_range_um,
-            z_step_um=args.z_step_um,
+            z_range_um=args.z_range_um, z_step_um=args.z_step_um,
+            centre_zwide_um=zwide_post_um,
+        )
+        target_report["target_brenner"] = target_brenner.report()
+
+    # Phase 3: shift_z — pure math from the two Brenner results.
+    if args.measure_shift_z:
+        shift_um, shift_z_report = phases.compute_shift_z(
+            target_brenner,
             zwide_post_switch_um=zwide_post_um,
+            ref_residual_um=ref_brenner.residual_um,
         )
         target_report["shift_z"] = shift_z_report
         update_kwargs["shift_z_um"] = shift_um
 
-    # Phase 4: shift_xy — optical-axis XY shift via voting (optional).
+    # Phase 4: shift_xy — registration with Brenner-peak anchors.
     if args.measure_shift_xy:
         shift_xy, shift_xy_report = phases.measure_shift_xy(
             rig.client, args.job,
-            acquire_single=acquire_single,
-            img_ref_focus=img_ref_focus,
+            img_ref_focus=ref_brenner.peak_slice,
+            img_tgt_focus=target_brenner.peak_slice,
             home_xy=home_xy,
             image_to_stage=image_to_stage,
             ts_zoom=ts_zoom,
@@ -503,17 +525,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         log.info("sign convention: reusing cached value from config.json")
     image_to_stage = cal_cfg["image_to_stage"]
 
-    img_ref_focus = (
-        step_acquire_ref_focus_slice(rig, acquire_single)
-        if args.measure_shift_xy else None
-    )
+    # Phase 0: reference Brenner anchor. Runs whenever shift_z or
+    # shift_xy is requested — provides the focus residual for shift_z
+    # and the peak slice for shift_xy registration.
+    ref_brenner: phases.BrennerResult | None = None
+    if args.measure_shift_z or args.measure_shift_xy:
+        ref_brenner = step_acquire_ref_brenner(rig, acquire_stack)
+        report["ref_brenner"] = ref_brenner.report()
 
     for ts in args.target_slots:
         report["per_target"][str(ts)] = step_calibrate_target(
             rig, ts,
             home_xy=home_xy, image_to_stage=image_to_stage,
-            img_ref_focus=img_ref_focus,
-            acquire_single=acquire_single, acquire_stack=acquire_stack,
+            ref_brenner=ref_brenner,
+            acquire_stack=acquire_stack,
             cal_cfg=cal_cfg,
         )
         if ts != args.target_slots[-1]:

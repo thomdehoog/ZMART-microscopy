@@ -9,29 +9,39 @@ Z model (entire calibration runs with z-galvo at 0):
     - The firmware applies the bulk parfocal correction by moving
       z-wide on objective switch. The orchestrator records that as
       ``offset_z_um`` (post-switch zwide minus pre-switch zwide).
-    - ``measure_shift_z`` measures the residual the firmware leaves
-      behind by scanning a Brenner stack on z-wide and recording where
-      the peak lands. That residual is ``shift_z_um`` and is what the
-      cookbook applies (also on z-wide via the API).
+    - ``measure_brenner`` is the single Brenner-stack primitive. Run
+      once on the reference (peak gives the operator's focus error)
+      and once per target (peak gives the firmware's parfocal
+      residual, plus a focused slice for shift_xy registration).
+      Each call restores z-wide to its pre-stack position so the
+      measurement is reversible.
+    - ``compute_shift_z`` is pure math on two Brenner results:
+      ``shift = target_residual - ref_residual``. Both anchors are
+      Brenner peaks, so the operator's focus accuracy at the
+      reference does not bias the cookbook value.
 
-Phase boundaries (function names match the v9 schema fields):
+Phase boundaries:
 
-    1. measure_sign_convention   -- under reference objective only
-    2. measure_xy_firmware_delta -- per target, always runs
-                                    (firmware ``get_xy`` delta on switch;
-                                     diagnostic only)
-    3. measure_shift_z           -- per target, optional
-                                    (z-wide focus residual via Brenner;
-                                     leaves z-wide parked at the peak)
-    4. measure_shift_xy          -- per target, optional
-                                    (stage-frame XY shift from voting
-                                     registration with stage parked at the
-                                     same XY both times — the value the
-                                     cookbook applies)
+    measure_sign_convention   -- under reference objective only
+    measure_brenner           -- one stack on z-wide; used both for
+                                 the reference anchor (Phase 0, run
+                                 once) and the per-target anchor
+                                 (Phase 3 input). Restores z-wide.
+    measure_xy_firmware_delta -- per target, always runs (firmware
+                                 ``get_xy`` delta on switch; diagnostic)
+    compute_shift_z           -- per target (when shift_z is
+                                 requested); pure math from the
+                                 target's BrennerResult + the ref
+                                 residual.
+    measure_shift_xy          -- per target (when shift_xy is
+                                 requested); voting registration with
+                                 both anchors at their Brenner peaks.
 """
 
 import logging
 import time
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -45,7 +55,7 @@ from navigator_expert.analysis import (
     register_voting,
 )
 
-from .lasx_state import configure_z_stack, disable_z_stack
+from .lasx_state import configure_z_stack
 
 
 log = logging.getLogger(__name__)
@@ -139,60 +149,133 @@ def measure_xy_firmware_delta(client, home_xy):
     return delta_um, {"delta_um": list(delta_um)}
 
 
-# ── Phase 3: shift_z — z-wide focus residual ─────────────────────────
+# ── Brenner stack (used for both reference and target) ──────────────
 
-def measure_shift_z(client, job, *, acquire_stack,
-                    z_range_um, z_step_um, zwide_post_switch_um):
-    """Phase 3: focus residual on z-wide after the firmware's switch.
+@dataclass(frozen=True)
+class BrennerResult:
+    """Outcome of one Brenner z-stack on z-wide.
 
-    The firmware moves z-wide on every objective switch (the
-    "offset"). What it leaves behind is the residual this phase
-    measures: a Brenner z-stack scanned on z-wide, centred at
-    ``zwide_post_switch_um``. The peak gives the z-wide position
-    that brings the target objective to focus.
+    A single value type carried between :func:`measure_brenner` and
+    its consumers (orchestrator, :func:`compute_shift_z`,
+    :func:`measure_shift_xy`).
 
-    Z-galvo stays at 0 throughout. After the measurement this phase
-    parks z-wide at the peak so phase 4 can acquire in focus.
-
-    Returns ``(shift_um, report_fragment)`` where ``shift_um`` is the
-    delta from ``zwide_post_switch_um`` to the focused z-wide.
+    ``residual_um`` is the focus error of ``centre_zwide_um`` — the
+    z-wide position where the stack was centred — relative to the
+    Brenner peak. For the reference stack this is the operator's
+    focus error; for a target stack centred at ``zwide_post_switch``
+    it is the firmware's parfocal-compensation residual.
     """
-    log.info("phase 3: z-wide brenner stack (centre=%.2f, +/-%.1f um)",
-             zwide_post_switch_um, z_range_um)
+    centre_zwide_um: float
+    peak_zwide_um: float
+    peak_slice: Any              # in-focus slice from the stack
+    peak_image_um: float         # peak_sub * z_step (relative to stack origin)
+    scores: list[float]          # per-slice Brenner scores
+
+    @property
+    def residual_um(self) -> float:
+        return self.peak_zwide_um - self.centre_zwide_um
+
+    def report(self) -> dict:
+        return {
+            "centre_zwide_um": float(self.centre_zwide_um),
+            "peak_zwide_um": float(self.peak_zwide_um),
+            "residual_um": float(self.residual_um),
+            "peak_image_um": float(self.peak_image_um),
+            "scores": list(self.scores),
+        }
+
+
+def measure_brenner(client, job, *, acquire_stack,
+                    z_range_um, z_step_um, centre_zwide_um) -> BrennerResult:
+    """Run one Brenner z-stack on z-wide, centred at ``centre_zwide_um``.
+
+    The stack acquisition itself moves z-wide from ``centre +
+    half_range`` down to ``centre - half_range``. To keep the
+    measurement reversible — so the caller can rely on z-wide state
+    matching the pre-call state — this function restores z-wide to
+    ``centre_zwide_um`` after the stack. Without that restore, the
+    next firmware switch would compensate from a drifted z-wide and
+    the per-target ``offset_z`` math would be off by ``half_range``.
+
+    Used for both the reference anchor (Phase 0) and per-target
+    (Phase 3) — same measurement, same restore protocol. The
+    orchestrator decides what to compute from the result.
+    """
+    log.info("brenner: stack on z-wide (centre=%.2f, +/-%.1f um)",
+             centre_zwide_um, z_range_um)
     configure_z_stack(client, job, z_drive="z-wide",
                       half_range_um=z_range_um, step_um=z_step_um,
-                      centre_um=zwide_post_switch_um)
-    tgt_stack = acquire_stack()
-    tgt_focus = brenner_focus(tgt_stack, z_step_um)
+                      centre_um=centre_zwide_um)
+    stack = acquire_stack()
+    focus = brenner_focus(stack, z_step_um)
+
     # Stack layout is begin > end (high z-wide first), so:
     #   peak_zwide = (centre + half_range) - peak_sub * step
     peak_zwide_um = float(
-        zwide_post_switch_um + z_range_um - tgt_focus["peak_sub"] * z_step_um
+        centre_zwide_um + z_range_um - focus["peak_sub"] * z_step_um
     )
-    shift_um = float(peak_zwide_um - zwide_post_switch_um)
-    log.info("z-wide brenner peak = %.2f um  shift = %+.2f um",
-             peak_zwide_um, shift_um)
 
-    # Park z-wide at the focused position so phase 4 acquires in focus.
-    # Wait for idle first — after a long stack acquire LAS X is still
-    # writing files and the move-z readback won't confirm in time.
+    # Restore z-wide to the pre-stack position. After the stack
+    # acquire LAS X is still writing files; wait for idle so the
+    # move readback can confirm.
     idle = drv.check_idle(client, timeout=60)
     if not idle or not idle.get("success"):
         raise RuntimeError(f"LAS X not idle after stack: {idle}")
-    r = drv.move_z(client, job, peak_zwide_um, unit="um", z_mode="zwide")
+    r = drv.move_z(client, job, centre_zwide_um, unit="um", z_mode="zwide")
     if not r:
-        raise RuntimeError("move_z returned None")
+        raise RuntimeError("z-wide restore: move_z returned None")
     if not r.get("success"):
         # Command was accepted but readback didn't confirm in 15 s.
         # Trust the move and warn — z-wide is consistent on this scope.
-        log.warning("park-zwide unconfirmed (%s) — proceeding",
+        log.warning("z-wide restore unconfirmed (%s) — proceeding",
                     r.get("message"))
 
+    log.info("brenner peak = %.2f um  residual = %+.2f um",
+             peak_zwide_um, peak_zwide_um - centre_zwide_um)
+
+    return BrennerResult(
+        centre_zwide_um=float(centre_zwide_um),
+        peak_zwide_um=peak_zwide_um,
+        peak_slice=stack[focus["peak_slice"]],
+        peak_image_um=float(focus["peak_um"]),
+        scores=[float(s) for s in focus["scores"]],
+    )
+
+
+# ── Phase 3: shift_z — pure math from a target Brenner result ───────
+
+def compute_shift_z(target_brenner: BrennerResult, *,
+                    zwide_post_switch_um: float,
+                    ref_residual_um: float):
+    """Phase 3: objective shift_z from a target Brenner result.
+
+    Both anchors are Brenner peaks, so the operator's focus accuracy
+    at the reference does not enter the calibration:
+
+        shift_um = (peak_target - zwide_post)
+                 - (peak_ref - zwide_at_ref)
+                 = target.residual_um - ref_residual_um
+
+    The cookbook applies ``shift_um`` on z-wide AFTER the firmware
+    has shifted z-wide for the objective switch.
+
+    Pure math + report fragment — no LAS X interaction; the
+    measurement was done by :func:`measure_brenner`.
+    """
+    raw_um = float(target_brenner.peak_zwide_um - zwide_post_switch_um)
+    shift_um = float(raw_um - ref_residual_um)
+    log.info(
+        "shift_z: raw residual = %+.2f um  ref residual = %+.2f um  "
+        "objective = %+.2f um",
+        raw_um, ref_residual_um, shift_um,
+    )
     return shift_um, {
         "zwide_post_switch_um": float(zwide_post_switch_um),
-        "zwide_peak_um": peak_zwide_um,
+        "zwide_peak_um": float(target_brenner.peak_zwide_um),
+        "shift_raw_um": raw_um,
         "shift_um": shift_um,
-        "brenner_peak_image_um": float(tgt_focus["peak_um"]),
+        "ref_residual_um": float(ref_residual_um),
+        "peak_image_um": float(target_brenner.peak_image_um),
     }
 
 
@@ -200,29 +283,30 @@ def measure_shift_z(client, job, *, acquire_stack,
 
 def measure_shift_xy(
     client, job, *,
-    acquire_single, img_ref_focus,
+    img_ref_focus, img_tgt_focus,
     home_xy, image_to_stage,
     ts_zoom, voting_min_agree,
 ):
     """Phase 4: stage-frame XY shift between target and reference objectives.
 
-    The clean measurement: caller has switched to the target objective
-    (firmware moved the stage by some delta). We **move the stage back
-    to ``home_xy``** so img_ref and img_tgt are acquired at the same
-    stage XY, then register. The resulting shift is exactly
-    ``c1 − c2`` — the optical-axis difference between the two
-    objectives — with no firmware-delta contamination.
+    Both ``img_ref_focus`` and ``img_tgt_focus`` are required: they
+    must be the Brenner-peak slices from :func:`measure_brenner` on
+    the reference and on this target, respectively. Anchoring both
+    images at their optical focus is what makes voting registration
+    robust on objectives with shallow depth of field.
 
-    Z-galvo is held at 0 by the orchestrator. If ``measure_shift_z``
-    ran, z-wide is already parked at the focus peak; otherwise z-wide
-    is at the post-switch firmware position and the focus may be off
-    — in that case voting will likely fail and the slot is skipped.
+    The caller has switched to the target objective (firmware moved
+    the stage). We **move the stage back to** ``home_xy`` so the two
+    anchor images correspond to the same stage XY, then register.
+    The resulting shift is exactly ``c1 − c2`` — the optical-axis
+    difference between the two objectives — with no firmware-delta
+    contamination.
 
     Returns ``(shift_xy_or_None, report_fragment)``. ``shift_xy=None``
     means voting failed and the cookbook should not be given a
     correction for this slot.
     """
-    log.info("phase 4: moving stage back to home before tgt acquire")
+    log.info("phase 4: moving stage back to home before registration")
     r = drv.move_xy_stage(
         client, home_xy[0], home_xy[1],
         unit="um", tolerance=0.5,
@@ -230,9 +314,6 @@ def measure_shift_xy(
     if not r or not r.get("success"):
         raise RuntimeError(f"phase 4 move-back-to-home failed: {r}")
     time.sleep(1.0)
-
-    disable_z_stack(client, job)
-    img_tgt_focus = acquire_single()
 
     tgt_geo = drv.parse_tile_geometry(drv.get_job_settings(client, job) or {})
     tgt_pixel_um = float(tgt_geo["pixel_w_um"])
