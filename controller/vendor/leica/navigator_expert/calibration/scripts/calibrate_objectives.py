@@ -8,53 +8,58 @@ Z model
 -------
 Z-galvo is held at 0 throughout. All Z motion lives on z-wide:
     - The firmware moves z-wide on every objective switch (parfocal
-      compensation). The script reads z-wide before and after each
-      switch via ``zPosition.z-wide`` and stores the delta as
-      ``zwide_offset_um``. Diagnostic only — firmware re-applies it on
-      every switch, so the cookbook does NOT re-apply it.
-    - Whatever focus residual the firmware leaves behind is measured
-      by Phase 3: a Brenner z-stack scanned on z-wide. The peak gives
-      ``zwide_shift_um``, which the cookbook applies on z-wide via
-      ``move_z(z_mode='zwide')``.
+      compensation). ``offset_z_um`` is the cumulative z-wide motion
+      from the operator's reference focus (read at the start of the
+      run) to the post-switch z-wide of the current target. Firmware
+      re-applies it on every switch, so the cookbook does NOT.
+    - ``shift_z_um`` is the difference between the target Brenner
+      peak and the reference Brenner peak, minus ``offset_z_um``.
+      That is what the cookbook applies on z-wide after the firmware
+      has done its parfocal compensation.
 
 Phases (in order)
 -----------------
-1. **Sign convention** — under the reference objective. Stage moves +X
-   then +Y, fits a 2x2 image->stage Jacobian, snaps to the nearest D4
-   reflection/rotation. Reuses the cached value if ``image_to_stage`` is
-   already in the config; pass ``--measure-sign`` to force a re-measure.
+1. **Sign convention** — under the reference objective; always runs.
+   Stage moves +X then +Y, fits a 2x2 image->stage Jacobian, snaps
+   to the nearest D4 reflection/rotation.
 
-2. **Firmware XY offset** — per target, read XY before/after the
-   objective switch. Diagnostic only: written to the run report, **not**
-   persisted to ``config.json``. The cookbook commands an absolute XY
-   after the switch, so this delta isn't part of the correction.
+2. **Reference Brenner** — under the reference objective, runs when
+   shift_z or shift_xy is requested. One stack on z-wide gives the
+   reference's optical focus (``peak_zwide_um``) and the in-focus
+   slice used as the registration anchor for shift_xy. Z-wide is
+   restored to the operator's setting after the stack.
 
-3. **Shift Z (z-wide)** — optional (``--measure-shift-z``). Brenner
-   z-stack scanned on z-wide centred at the post-switch z-wide. Peak
-   gives ``shift_z_um``. Phase parks z-wide at the peak so phase 4
-   acquires in focus.
+3. **Firmware XY offset** — per target, read XY before/after the
+   objective switch. Diagnostic only: written to the run report,
+   **not** persisted to ``config.json``. The cookbook commands an
+   absolute XY after the switch, so this delta isn't part of the
+   correction.
 
-4. **Shift XY (registration)** — optional (``--measure-shift-xy``).
-   Stage parked at the same XY for both acquires; multi-method voting
-   registration (phase / masked / NCC / ORB) measures the optical-axis
-   shift. The result is the value the cookbook applies. Persisted as
-   ``shift_xy_um`` only if voting reaches the configured agreement
-   threshold; on low confidence the field is left unset rather than
-   recording garbage. If ``--measure-shift-z`` ran, z-wide is at the
-   focus peak; otherwise z-wide is at the post-switch firmware
-   position and registration may have to fight an out-of-focus image.
+4. **Shift Z (z-wide)** — optional (``--measure-shift-z``). Brenner
+   stack on the target gives the target's optical focus. Pure math
+   from the two peaks and the cumulative firmware offset gives
+   ``shift_z_um``.
+
+5. **Shift XY (registration)** — optional (``--measure-shift-xy``).
+   Stage parked at the same XY for both acquires; multi-method
+   voting registration (phase / masked / NCC / ORB) measures the
+   optical-axis shift. Persisted as ``shift_xy_um`` only if voting
+   reaches the configured agreement threshold; on low confidence
+   the field is left unset rather than recording garbage. Both
+   anchors are Brenner-peak slices.
 
 Stage state and backlash
 ------------------------
 Every acquisition is preceded by a +X+Y backlash takeup. Stage limits
 and takeup parameters come from ``config/stage.json``.
 
-Reference state
----------------
-Every phase starts from a known reference state: reference slot active,
-pan/ROI reset, Z-stack disabled, zoom at ``--ref-zoom``, z-galvo zeroed,
-LAS X idle, AFC off. The script restores this state between targets
-and on exit.
+Run flow
+--------
+Targets run in sequence. The script does NOT switch back to the
+reference between targets, and does NOT restore the reference at
+the end — once a 40× water immersion is in the target list,
+returning to the 10× dry reference would be unsafe (water residue
+on the plate). The operator selects the next objective explicitly.
 
 Operator preconditions
 ----------------------
@@ -67,20 +72,13 @@ Operator preconditions
 
 Usage
 -----
-    # Fast dry-pair path: skip shift_z (firmware-only z-wide), just
-    # measure shift_xy at the post-switch firmware focus.
+    # Full run (default: sign + offsets + shift_z + shift_xy).
     python calibrate_objectives.py --job Overview --ref-slot 1 \\
-        --target-slots 2 --ref-zoom 3.0 --measure-shift-xy
+        --target-slots 2 0 --ref-zoom 3.0
 
-    # Full run with shift_z (z-wide residual) and shift_xy.
-    python calibrate_objectives.py --job Overview --ref-slot 1 \\
-        --target-slots 2 --ref-zoom 3.0 \\
-        --measure-shift-z --measure-shift-xy \\
-        --z-range-um 100 --z-step-um 2
-
-    # Incremental: only refresh slot 2 shift_z; reuses cached sign.
+    # Skip shift_xy (e.g. low-texture sample where voting fails).
     python calibrate_objectives.py --job Overview --target-slots 2 \\
-        --measure-shift-z --z-range-um 100 --z-step-um 2
+        --skip-shift-xy
 """
 
 from __future__ import annotations
@@ -123,7 +121,7 @@ REF_ZOOM_DEFAULT = 1.0
 SETTLE_S_DEFAULT = 3.0
 SIGN_MOVE_UM_DEFAULT = 30.0
 SIGN_SETTLE_S_DEFAULT = 1.0
-Z_RANGE_UM_DEFAULT = 15.0
+Z_RANGE_UM_DEFAULT = 25.0  # half-range in um (total search = 2 × this)
 Z_STEP_UM_DEFAULT = 1.0
 SCAN_FORMAT_DEFAULT = "1024 x 1024"  # higher pixel density helps NCC on thin texture
 SCAN_SPEED_DEFAULT = 600
@@ -149,17 +147,14 @@ def parse_args(argv: Sequence[str] | None = None):
     p.add_argument("--target-slots", type=int, nargs="+", required=True,
                    help="Target slot(s) to calibrate against the reference.")
 
-    p.add_argument("--measure-sign", action="store_true",
-                   help="Re-measure sign convention "
-                        "(default: reuse the cached value if present).")
-    p.add_argument("--measure-shift-z", action="store_true",
-                   help="Measure z-wide focus residual via a Brenner stack "
-                        "on z-wide (slow). Persists ``shift_z_um``.")
-    p.add_argument("--measure-shift-xy", action="store_true",
-                   help="Measure optical-axis XY shift via voting "
-                        "registration. Z-galvo stays at 0; if "
-                        "--measure-shift-z also ran, z-wide is at the focus "
-                        "peak. Persists ``shift_xy_um``.")
+    p.add_argument("--skip-shift-z", action="store_false",
+                   dest="measure_shift_z", default=True,
+                   help="Skip shift_z (Brenner stacks on z-wide). "
+                        "Default: run.")
+    p.add_argument("--skip-shift-xy", action="store_false",
+                   dest="measure_shift_xy", default=True,
+                   help="Skip shift_xy (voting registration of "
+                        "Brenner-peak slices). Default: run.")
 
     p.add_argument("--ref-zoom", type=float, default=REF_ZOOM_DEFAULT,
                    help=f"Reference zoom (default: {REF_ZOOM_DEFAULT}). "
@@ -241,10 +236,13 @@ def step_setup(args: argparse.Namespace) -> RigContext:
     )
 
 
-def step_decide_phases(args: argparse.Namespace, cal_cfg: dict) -> list[str]:
-    """Resolve the ordered phase list given CLI flags + cached state."""
-    measure_sign = args.measure_sign or cal_cfg.get("image_to_stage") is None
-    phases_to_run = ["sign"] if measure_sign else []
+def step_decide_phases(args: argparse.Namespace) -> list[str]:
+    """Resolve the ordered phase list given the CLI flags.
+
+    The sign convention always runs (it's cheap and it anchors every
+    downstream measurement); the rest follows the optional flags.
+    """
+    phases_to_run = ["sign"]
     if args.measure_shift_z or args.measure_shift_xy:
         phases_to_run.append("ref_brenner")
     phases_to_run.append("xy_firmware_delta")
@@ -257,11 +255,17 @@ def step_decide_phases(args: argparse.Namespace, cal_cfg: dict) -> list[str]:
 
 def step_initial_reference(
     rig: RigContext, cal_cfg: dict,
-) -> tuple[tuple[float, float], float]:
-    """Switch to the reference slot, read pixel size + home XY, write
-    the reference entry into ``cal_cfg``.
+) -> tuple[tuple[float, float], float, float]:
+    """Switch to the reference slot, capture run anchors, write the
+    reference entry into ``cal_cfg``.
 
-    Returns ``(home_xy_um, pixel_size_um)``.
+    The ``zwide_at_ref_um`` anchor is the operator's z-wide setting
+    at the reference, captured before any objective switch. Every
+    target's ``offset_z_um`` is computed relative to it, so the
+    cookbook's "ref→target firmware motion" stays meaningful even
+    when the run never returns to the reference between targets.
+
+    Returns ``(home_xy_um, pixel_size_um, zwide_at_ref_um)``.
     """
     args = rig.args
     setup_reference_state(
@@ -277,15 +281,19 @@ def step_initial_reference(
 
     home = drv.get_xy(rig.client)
     home_xy = (float(home["x_um"]), float(home["y_um"]))
+    zwide_at_ref_um = float(drv.read_zwide_um(rig.client, args.job))
+    log.info("ref anchor: zwide = %.2f um", zwide_at_ref_um)
+
     cal_cfg["reference_objective_slot"] = args.ref_slot
     update_objective(
         cal_cfg, args.ref_slot,
         name=rig.ref_summary["name"],
+        offset_xy_um=(0.0, 0.0),
         shift_xy_um=(0.0, 0.0),
         offset_z_um=0.0,
         shift_z_um=0.0,
     )
-    return home_xy, pixel_size_um
+    return home_xy, pixel_size_um, zwide_at_ref_um
 
 
 def step_init_report(
@@ -334,26 +342,24 @@ def step_phase_sign_convention(
 
 
 def step_acquire_ref_brenner(
-    rig: RigContext, acquire_stack,
+    rig: RigContext, acquire_stack, *, zwide_at_ref_um: float,
 ) -> phases.BrennerResult:
     """Phase 0: reference Brenner anchor.
 
     Run once before any objective switch when shift_z or shift_xy is
-    requested. The result's ``residual_um`` is the operator's focus
-    error w.r.t. the Brenner peak (used to make ``shift_z`` objective)
-    and ``peak_slice`` is the in-focus reference slice for shift_xy
-    registration.
-
-    ``measure_brenner`` restores z-wide to its pre-call position, so
-    the operator's focus is left untouched.
+    requested. ``peak_zwide_um`` is the reference's optical focus
+    (the cookbook anchor for shift_z); ``peak_slice`` is the
+    in-focus reference slice for shift_xy registration. The stack
+    is centred on ``zwide_at_ref_um`` (the run anchor), and
+    ``measure_brenner`` restores z-wide to that position so the
+    operator's focus is left untouched.
     """
     args = rig.args
-    zwide_at_measure_um = float(drv.read_zwide_um(rig.client, args.job))
     return phases.measure_brenner(
         rig.client, args.job,
         acquire_stack=acquire_stack,
         z_range_um=args.z_range_um, z_step_um=args.z_step_um,
-        centre_zwide_um=zwide_at_measure_um,
+        centre_zwide_um=zwide_at_ref_um,
     )
 
 
@@ -361,6 +367,7 @@ def step_calibrate_target(
     rig: RigContext, ts: int, *,
     home_xy: tuple[float, float],
     image_to_stage: list,
+    zwide_at_ref_um: float,
     ref_brenner: phases.BrennerResult | None,
     acquire_stack,
     cal_cfg: dict,
@@ -388,24 +395,25 @@ def step_calibrate_target(
             ts_zoom_ideal, ZOOM_MIN, ZOOM_MIN, min_ref_zoom,
         )
 
-    # Read z-wide BEFORE the firmware switch to measure the offset.
-    zwide_pre_um = drv.read_zwide_um(rig.client, args.job)
-    log.info("z-wide before switch: %.2f um", zwide_pre_um)
-
     switch_to_target(
         rig.client, args.job, rig.hw, ts,
         settle_s=args.settle, zoom=ts_zoom,
         scan_format=args.scan_format, scan_speed=args.scan_speed,
     )
 
-    zwide_post_um = drv.read_zwide_um(rig.client, args.job)
-    offset_z_um = float(zwide_post_um - zwide_pre_um)
-    log.info("z-wide after switch:  %.2f um  (offset = %+.2f)",
+    zwide_post_um = float(drv.read_zwide_um(rig.client, args.job))
+
+    # offset_z is the cumulative z-wide motion from the run's anchor
+    # (operator focus at the reference) to the current target. With
+    # no return-to-ref between targets, the firmware deltas accumulate
+    # naturally — we just read z-wide fresh after each switch and
+    # subtract the run anchor.
+    offset_z_um = float(zwide_post_um - zwide_at_ref_um)
+    log.info("z-wide after switch:  %.2f um  (cumulative offset = %+.2f um)",
              zwide_post_um, offset_z_um)
 
     target_report: dict[str, Any] = {
         "summary": ts_summary,
-        "zwide_pre_switch_um": zwide_pre_um,
         "zwide_post_switch_um": zwide_post_um,
         "offset_z_um": offset_z_um,
     }
@@ -414,9 +422,14 @@ def step_calibrate_target(
         "offset_z_um": offset_z_um,
     }
 
-    # Phase 2: firmware xy delta on switch. Diagnostic only.
-    _, xy_delta_report = phases.measure_xy_firmware_delta(rig.client, home_xy)
+    # Phase 2: firmware xy delta on switch — cumulative ref→target,
+    # because home_xy was captured at the reference and stage hasn't
+    # been moved by anything other than firmware switches up to this
+    # point (shift_xy moves stage to home as its first step, so the
+    # anchor stays valid across targets).
+    xy_delta_um, xy_delta_report = phases.measure_xy_firmware_delta(rig.client, home_xy)
     target_report["xy_firmware_delta"] = xy_delta_report
+    update_kwargs["offset_xy_um"] = xy_delta_um
 
     # Target Brenner — required for either shift_z or shift_xy.
     # One stack, two consumers: shift_z reads peak_zwide, shift_xy
@@ -432,12 +445,12 @@ def step_calibrate_target(
         )
         target_report["target_brenner"] = target_brenner.report()
 
-    # Phase 3: shift_z — pure math from the two Brenner results.
+    # Phase 3: shift_z — pure math from the two Brenner peaks.
     if args.measure_shift_z:
         shift_um, shift_z_report = phases.compute_shift_z(
-            target_brenner,
-            zwide_post_switch_um=zwide_post_um,
-            ref_residual_um=ref_brenner.residual_um,
+            ref_brenner=ref_brenner,
+            target_brenner=target_brenner,
+            offset_z_um=offset_z_um,
         )
         target_report["shift_z"] = shift_z_report
         update_kwargs["shift_z_um"] = shift_um
@@ -463,25 +476,18 @@ def step_calibrate_target(
 
 def step_persist(
     rig: RigContext, cal_cfg: dict, report: dict,
-    home_xy: tuple[float, float],
 ) -> tuple[Any, Any, Any]:
-    """Restore the reference state and write the live config + report.
+    """Write the live config + run report.
+
+    The calibration leaves the scope in whatever state the last
+    target ended in — it does NOT switch back to the reference. With
+    a 40× water immersion in the target list, returning to the 10×
+    dry reference would be unsafe (water residue on the plate).
+    The operator should select the next objective explicitly.
 
     Returns ``(live_path, run_dir, report_path)`` for the caller to
     print at the end.
     """
-    args = rig.args
-    log.info("restoring reference state")
-    setup_reference_state(
-        rig.client, args.job, rig.hw,
-        ref_slot=args.ref_slot, ref_zoom=args.ref_zoom,
-        settle_s=args.settle,
-        scan_format=args.scan_format, scan_speed=args.scan_speed,
-    )
-    drv.move_xy_stage(
-        rig.client, home_xy[0], home_xy[1], unit="um", tolerance=20.0,
-    )
-
     run_dir = make_run_dir(report["timestamp"])
     live_path = save_calibration(cal_cfg, run_dir)
     report_path = save_calibration_report(report, run_dir)
@@ -508,48 +514,47 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     rig = step_setup(args)
     cal_cfg = load_calibration(create_if_missing=True)
-    phases_to_run = step_decide_phases(args, cal_cfg)
+    phases_to_run = step_decide_phases(args)
     _print_run_summary(rig, phases_to_run)
 
-    home_xy, pixel_size_um = step_initial_reference(rig, cal_cfg)
+    home_xy, pixel_size_um, zwide_at_ref_um = step_initial_reference(rig, cal_cfg)
     acquire_single, acquire_stack = make_acquirer(
         rig.client, args.job, rig.stage_cfg,
     )
     report = step_init_report(rig, phases_to_run, home_xy)
+    report["zwide_at_ref_um"] = zwide_at_ref_um
 
-    if "sign" in phases_to_run:
-        report["sign_convention"] = step_phase_sign_convention(
-            rig, cal_cfg, acquire_single, pixel_size_um,
-        )
-    else:
-        log.info("sign convention: reusing cached value from config.json")
+    report["sign_convention"] = step_phase_sign_convention(
+        rig, cal_cfg, acquire_single, pixel_size_um,
+    )
     image_to_stage = cal_cfg["image_to_stage"]
 
     # Phase 0: reference Brenner anchor. Runs whenever shift_z or
-    # shift_xy is requested — provides the focus residual for shift_z
-    # and the peak slice for shift_xy registration.
+    # shift_xy is requested — its peak is the cookbook anchor for
+    # shift_z and its peak slice is the registration anchor for
+    # shift_xy.
     ref_brenner: phases.BrennerResult | None = None
     if args.measure_shift_z or args.measure_shift_xy:
-        ref_brenner = step_acquire_ref_brenner(rig, acquire_stack)
+        ref_brenner = step_acquire_ref_brenner(
+            rig, acquire_stack, zwide_at_ref_um=zwide_at_ref_um,
+        )
         report["ref_brenner"] = ref_brenner.report()
 
+    # Targets run in sequence without returning to the reference
+    # between them. Per-target ``offset_z_um`` is computed cumulatively
+    # against ``zwide_at_ref_um``, so the firmware deltas along the
+    # path compose naturally.
     for ts in args.target_slots:
         report["per_target"][str(ts)] = step_calibrate_target(
             rig, ts,
             home_xy=home_xy, image_to_stage=image_to_stage,
+            zwide_at_ref_um=zwide_at_ref_um,
             ref_brenner=ref_brenner,
             acquire_stack=acquire_stack,
             cal_cfg=cal_cfg,
         )
-        if ts != args.target_slots[-1]:
-            setup_reference_state(
-                rig.client, args.job, rig.hw,
-                ref_slot=args.ref_slot, ref_zoom=args.ref_zoom,
-                settle_s=args.settle,
-                scan_format=args.scan_format, scan_speed=args.scan_speed,
-            )
 
-    live_path, run_dir, report_path = step_persist(rig, cal_cfg, report, home_xy)
+    live_path, run_dir, report_path = step_persist(rig, cal_cfg, report)
 
     print(f"\nLive config:        {live_path}")
     print(f"Run folder:         {run_dir}")
