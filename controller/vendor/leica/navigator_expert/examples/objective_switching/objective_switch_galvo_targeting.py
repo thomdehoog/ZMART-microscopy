@@ -463,7 +463,7 @@ def main():
         image_size=src_image_size,
         config=cfg,
     )
-    cell_target_xy_um_initial = drv.translate_stage_xy_between_objectives(
+    cell_target_xy_um_initial = drv.translate_xy_between_objectives(
         *cell_source_xy_um, cfg,
         from_slot=args.source_slot, to_slot=args.target_slot,
     )

@@ -16,7 +16,7 @@ Recipe (the script's ``main()`` reads top-to-bottom as this flow):
        ``pixel_to_stage_xy_um`` — which applies the measured sign/rotation
        matrix, no hardcoded axis flips.
     4. Translate that stage XY across the objective boundary with
-       ``translate_stage_xy_between_objectives`` — which adds the measured
+       ``translate_xyz_between_objectives`` — which adds the measured
        motor delta in the correct direction.
     5. Switch to target objective; set a zoom that frames ~1.5× the
        nucleus bounding box; ``move_xy_stage`` to the target-frame command.
@@ -296,10 +296,13 @@ def main():
     src_stage_xy_um = (stage["x_um"], stage["y_um"])
     log.info("source stage XY_um=(%.3f, %.3f)", *src_stage_xy_um)
 
-    # 2. Read source FOV + pixel size
-    geo = drv.parse_tile_geometry(drv.get_job_settings(client, args.job) or {})
+    # 2. Read source FOV + pixel size + z-wide
+    src_settings = drv.get_job_settings(client, args.job) or {}
+    geo = drv.parse_tile_geometry(src_settings)
     src_image_size = geo["pixels_x"]
     src_pixel_size_um = geo["pixel_w_um"]
+    src_zwide_um = float(drv.make_changeable_copy(src_settings)["zPosition"]["z-wide"])
+    log.info("source z-wide = %.2f um (operator focus)", src_zwide_um)
     log.info("source FOV_um=(%.1f, %.1f)  image=%dx%d  pixel=%.4f um",
              geo["tile_w_um"], geo["tile_h_um"],
              src_image_size, geo["pixels_y"], src_pixel_size_um)
@@ -344,17 +347,25 @@ def main():
     )
     log.info("cell_source_xy_um=(%.3f, %.3f)", *cell_source_xy_um)
 
-    # 6. Translate across the objective boundary to a target-slot stage command.
-    cell_target_xy_um = drv.translate_stage_xy_between_objectives(
-        *cell_source_xy_um, cfg,
+    # 6. Translate (x, y, z) across the objective boundary in a single call.
+    #    XY: shift_xy delta. Z: (offset_z + shift_z) delta. z-galvo stays 0.
+    cell_target_x, cell_target_y, target_zwide_um = drv.translate_xyz_between_objectives(
+        cell_source_xy_um[0], cell_source_xy_um[1], src_zwide_um, cfg,
         from_slot=args.source_slot, to_slot=args.target_slot,
     )
-    log.info("cell_target_xy_um=(%.3f, %.3f)", *cell_target_xy_um)
+    cell_target_xy_um = (cell_target_x, cell_target_y)
+    log.info("cell_target_xy_um=(%.3f, %.3f)  target_zwide=%.2f um",
+             *cell_target_xy_um, target_zwide_um)
 
-    # 7. Switch to target objective
+    # 7. Switch to target objective. Firmware moves z-wide; we override
+    #    with the absolute target z-wide computed by the translator.
     log.info("switching to target objective")
     drv.set_objective(client, args.job, hw, slot_index=args.target_slot)
     time.sleep(args.settle)
+
+    rz = drv.move_z(client, args.job, target_zwide_um, unit="um", z_mode="zwide")
+    if not rz or not rz.get("success"):
+        _abort(f"could not move z-wide to translated target: {rz}")
 
     # 8. Compute target zoom to frame ~margin × bbox
     target_base_fov_m = drv.get_base_fov(client, args.job)
@@ -423,6 +434,11 @@ def main():
         "target_fov_at_zoom_um": target_base_fov_um / zoom,
         "target_pixel_size_um": tgt_pixel_size_um,
         "fov_bbox_margin": args.fov_bbox_margin,
+        "z_translation": {
+            "source_zwide_um": src_zwide_um,
+            "target_zwide_um": target_zwide_um,
+            "delta_um": target_zwide_um - src_zwide_um,
+        },
         "landing": {
             "cells_segmented": tgt_n_cells,
             "error_um": list(landing_error_um) if landing_error_um else None,

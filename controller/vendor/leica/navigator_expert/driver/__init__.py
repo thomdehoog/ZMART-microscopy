@@ -165,12 +165,17 @@ __all__ = [
     "objective_by_slot", "objective_summary", "validate_slots",
     "default_archive_dir", "default_current_path",
     "SCHEMA_VERSION", "COORDINATE_POLICY", "MIN_SETTLE_S",
-    # calibration
-    "load_calibration", "get_reference_slot", "get_image_to_stage",
-    "get_parcentric_shift_um", "get_parcentric_offset_um",
-    "get_parfocal_shift_um",
-    "translate_stage_xy_between_objectives", "reference_to_objective_command_xy",
+    # calibration (config + accessors + mutators)
+    "CALIBRATION_SCHEMA_VERSION", "STAGE_SCHEMA_VERSION",
+    "load_calibration", "save_calibration", "save_calibration_report",
+    "make_run_dir", "now_timestamp",
+    "get_reference_slot", "get_image_to_stage",
+    "get_shift_xy_um", "get_offset_z_um", "get_shift_z_um",
+    "translate_xy_between_objectives", "translate_z_between_objectives",
+    "translate_xyz_between_objectives", "reference_to_objective_command_xy",
     "pixel_to_stage_xy_um",
+    "set_image_to_stage", "update_objective",
+    "load_stage_config",
 ]
 
 # ── Utilities ────────────────────────────────────────────────────────
@@ -453,35 +458,33 @@ from .objective_offsets import (
 )
 
 from .calibration import (
+    SCHEMA_VERSION as CALIBRATION_SCHEMA_VERSION,
     load_calibration,
+    save_calibration,
+    save_calibration_report,
+    make_run_dir,
+    now_timestamp,
     get_reference_slot,
     get_image_to_stage,
-    get_parcentric_shift_um,
-    get_parcentric_offset_um,
-    get_parfocal_shift_um,
-    translate_stage_xy_between_objectives,
+    get_shift_xy_um,
+    get_offset_z_um,
+    get_shift_z_um,
+    translate_xy_between_objectives,
+    translate_z_between_objectives,
+    translate_xyz_between_objectives,
     reference_to_objective_command_xy,
     pixel_to_stage_xy_um,
+    set_image_to_stage,
+    update_objective,
 )
 
 # ── Stage motion (backlash takeup) ──────────────────────────────
 from .stage_motion import correct_backlash
 
-# ── Calibration config (config.json / stage.json + per-run snapshots) ──
-from .machine_config import (
-    MACHINE_SCHEMA_VERSION,
-    STAGE_SCHEMA_VERSION,
-    load_machine_config,
-    save_machine_config,
-    load_stage_config,
-    set_reference,
-    set_sign_convention,
-    update_target,
-    save_calibration_report,
-    make_run_dir,
-    default_machine_path,
-    default_stage_path,
-    default_runs_dir,
+# ── Stage config (limits + backlash; physical, not optical) ─────
+from .stage_config import (
+    SCHEMA_VERSION as STAGE_SCHEMA_VERSION,
+    load as load_stage_config,
 )
 
 # ── Logging ─────────────────────────────────────────────────────────

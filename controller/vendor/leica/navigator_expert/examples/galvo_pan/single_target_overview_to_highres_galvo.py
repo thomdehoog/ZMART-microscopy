@@ -661,7 +661,7 @@ def main():
     target_id = _target_id(target, target_index)
 
     source_xy_um = _target_source_xy_um(target, manifest, cfg)
-    predicted_xy_um = drv.translate_stage_xy_between_objectives(
+    predicted_xy_um = drv.translate_xy_between_objectives(
         *source_xy_um, cfg,
         from_slot=args.source_slot,
         to_slot=args.target_slot,

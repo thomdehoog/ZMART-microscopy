@@ -361,14 +361,21 @@ def main():
         image_size=source_image_size_px,
         config=cfg,
     )
-    target_command_xy_um = drv.translate_stage_xy_between_objectives(
-        *source_target_xy_um, cfg,
+    src_zwide_um = float(
+        drv.make_changeable_copy(drv.get_job_settings(client, args.job) or {})
+        ["zPosition"]["z-wide"]
+    )
+    target_x, target_y, target_zwide_um = drv.translate_xyz_between_objectives(
+        source_target_xy_um[0], source_target_xy_um[1], src_zwide_um, cfg,
         from_slot=args.source_slot,
         to_slot=args.target_slot,
     )
+    target_command_xy_um = (target_x, target_y)
 
-    log.info("source target XY=(%.3f, %.3f)", *source_target_xy_um)
-    log.info("target objective command XY=(%.3f, %.3f)", *target_command_xy_um)
+    log.info("source target XY=(%.3f, %.3f)  zwide=%.2f",
+             *source_target_xy_um, src_zwide_um)
+    log.info("target command XY=(%.3f, %.3f)  zwide=%.2f",
+             *target_command_xy_um, target_zwide_um)
 
     log.info("switching to target objective")
     drv.set_objective(client, args.job, hw, slot_index=args.target_slot)
@@ -385,18 +392,10 @@ def main():
     drv.set_zoom(client, args.job, final_zoom)
     time.sleep(0.5)
 
-    # Apply parfocal Z shift via z-galvo. Convention: slot 1's
-    # acquire was at z-galvo=0 (cookbook never sets it). dz_um from the
-    # config is (tgt_brenner_peak - ref_brenner_peak) in z-galvo terms,
-    # so slot 2 needs z-galvo = -dz_um to image the same focal plane.
-    # Falls through cleanly if --measure-parfocal was never run (shift
-    # = 0), no z-galvo motion applied.
-    parfocal_dz_um = drv.get_parfocal_shift_um(cfg, args.target_slot)
-    log.info("parfocal shift dZ = %+.2f um (z-galvo target = %+.2f)",
-             parfocal_dz_um, -parfocal_dz_um)
-    drv.set_z_stack_definition(client, args.job,
-                               begin_um=-parfocal_dz_um,
-                               end_um=-parfocal_dz_um)
+    rz = drv.move_z(client, args.job, target_zwide_um,
+                    unit="um", z_mode="zwide")
+    if not rz or not rz.get("success"):
+        _abort(f"could not move z-wide to translated target: {rz}")
     time.sleep(0.5)
 
     move_result = drv.move_xy_stage(
