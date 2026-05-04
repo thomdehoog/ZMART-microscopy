@@ -6,27 +6,28 @@ the run report directly — the orchestrator does that, so persistence
 stays in one place.
 
 Z model (entire calibration runs with z-galvo at 0):
-    - The firmware applies the bulk parfocal correction by moving z-wide
-      on objective switch. The orchestrator records that as
-      ``zwide_offset_um`` (post-switch zwide minus pre-switch zwide).
-    - ``measure_parfocal`` measures the residual the firmware leaves
+    - The firmware applies the bulk parfocal correction by moving
+      z-wide on objective switch. The orchestrator records that as
+      ``offset_z_um`` (post-switch zwide minus pre-switch zwide).
+    - ``measure_shift_z`` measures the residual the firmware leaves
       behind by scanning a Brenner stack on z-wide and recording where
-      the peak lands. That residual is ``zwide_shift_um`` and is what
-      the cookbook applies (also on z-wide via the API).
+      the peak lands. That residual is ``shift_z_um`` and is what the
+      cookbook applies (also on z-wide via the API).
 
-Phase boundaries:
+Phase boundaries (function names match the v9 schema fields):
 
-    1. measure_sign_convention      -- under reference objective only
-    2. measure_parcentric_offset    -- per target, always runs
-                                       (firmware get_xy delta on switch;
-                                        diagnostic only)
-    3. measure_parfocal             -- per target, optional
-                                       (z-wide focus residual via Brenner;
-                                        leaves z-wide parked at the peak)
-    4. measure_parcentric_shift     -- per target, optional
-                                       (stage-frame XY shift from registration
-                                        with stage parked at the same XY both
-                                        times — the value the cookbook applies)
+    1. measure_sign_convention   -- under reference objective only
+    2. measure_xy_firmware_delta -- per target, always runs
+                                    (firmware ``get_xy`` delta on switch;
+                                     diagnostic only)
+    3. measure_shift_z           -- per target, optional
+                                    (z-wide focus residual via Brenner;
+                                     leaves z-wide parked at the peak)
+    4. measure_shift_xy          -- per target, optional
+                                    (stage-frame XY shift from voting
+                                     registration with stage parked at the
+                                     same XY both times — the value the
+                                     cookbook applies)
 """
 
 import logging
@@ -37,6 +38,7 @@ import numpy as np
 import navigator_expert.driver as drv
 from navigator_expert.analysis import (
     D4_RESIDUAL_MAX,
+    VOTING_METHODS,
     brenner_focus,
     classify_d4,
     register_phase,
@@ -113,35 +115,34 @@ def measure_sign_convention(client, acquire_single, *,
     }
 
 
-# ── Phase 2: parcentric offset (firmware get_xy delta) ───────────────
+# ── Phase 2: firmware XY delta on objective switch ───────────────────
 
-def measure_parcentric_offset(client, home_xy):
+def measure_xy_firmware_delta(client, home_xy):
     """Phase 2: ``get_xy`` delta induced by the firmware on objective switch.
 
     Caller must have already switched to the target objective. The stage
-    will read back at ``home_xy + offset``.
+    will read back at ``home_xy + delta``.
 
-    This is recorded for diagnostics (firmware behaviour over time). It
-    is **not** part of the correction the cookbook applies — the
+    Recorded for diagnostics (firmware behaviour over time); it is
+    **not** part of the correction the cookbook applies — the
     cookbook commands an absolute XY after the switch, overwriting
     whatever the firmware did.
 
-    Returns ``(offset_um, report_fragment)``.
+    Returns ``(delta_um, report_fragment)``.
     """
     target_xy = drv.get_xy(client)
-    offset_um = [
+    delta_um = [
         float(target_xy["x_um"] - home_xy[0]),
         float(target_xy["y_um"] - home_xy[1]),
     ]
-    log.info("parcentric offset (firmware get_xy delta): (%+.3f, %+.3f) um",
-             *offset_um)
-    return offset_um, {"offset_um": list(offset_um)}
+    log.info("firmware xy delta on switch: (%+.3f, %+.3f) um", *delta_um)
+    return delta_um, {"delta_um": list(delta_um)}
 
 
-# ── Phase 3: parfocal — z-wide focus residual ────────────────────────
+# ── Phase 3: shift_z — z-wide focus residual ─────────────────────────
 
-def measure_parfocal(client, job, *, acquire_stack,
-                     z_range_um, z_step_um, zwide_post_switch_um):
+def measure_shift_z(client, job, *, acquire_stack,
+                    z_range_um, z_step_um, zwide_post_switch_um):
     """Phase 3: focus residual on z-wide after the firmware's switch.
 
     The firmware moves z-wide on every objective switch (the
@@ -195,27 +196,27 @@ def measure_parfocal(client, job, *, acquire_stack,
     }
 
 
-# ── Phase 4: parcentric shift (registration at same stage XY) ────────
+# ── Phase 4: shift_xy (registration at same stage XY) ────────────────
 
-def measure_parcentric_shift(
+def measure_shift_xy(
     client, job, *,
     acquire_single, img_ref_focus,
     home_xy, image_to_stage,
-    ts_zoom, voting_min_agree, voting_method_count,
+    ts_zoom, voting_min_agree,
 ):
     """Phase 4: stage-frame XY shift between target and reference objectives.
 
     The clean measurement: caller has switched to the target objective
-    (firmware moved the stage by some offset). We **move the stage back
+    (firmware moved the stage by some delta). We **move the stage back
     to ``home_xy``** so img_ref and img_tgt are acquired at the same
     stage XY, then register. The resulting shift is exactly
     ``c1 − c2`` — the optical-axis difference between the two
-    objectives — with no firmware-shift contamination.
+    objectives — with no firmware-delta contamination.
 
-    Z-galvo is held at 0 by the orchestrator. If the parfocal phase ran,
-    z-wide is already parked at the focus peak; otherwise z-wide is at
-    the post-switch firmware position and the focus may be off — in
-    that case voting will likely fail and the slot is skipped.
+    Z-galvo is held at 0 by the orchestrator. If ``measure_shift_z``
+    ran, z-wide is already parked at the focus peak; otherwise z-wide
+    is at the post-switch firmware position and the focus may be off
+    — in that case voting will likely fail and the slot is skipped.
 
     Returns ``(shift_xy_or_None, report_fragment)``. ``shift_xy=None``
     means voting failed and the cookbook should not be given a
@@ -239,8 +240,8 @@ def measure_parcentric_shift(
     vote = register_voting(img_ref_focus, img_tgt_focus, tgt_pixel_um)
     raw_dx, raw_dy = vote["dx_um"], vote["dy_um"]
     log.info(
-        "parcentric shift vote: agreeing=%s confidence=%d/%d trusted=%s quality=%.3f",
-        vote["agreeing"], vote["confidence"], voting_method_count,
+        "shift_xy vote: agreeing=%s confidence=%d/%d trusted=%s quality=%.3f",
+        vote["agreeing"], vote["confidence"], len(VOTING_METHODS),
         vote["trusted"], vote["quality"],
     )
     log.info(
@@ -269,7 +270,7 @@ def measure_parcentric_shift(
     stage_dy = image_to_stage[1][0] * raw_dx + image_to_stage[1][1] * raw_dy
     shift_xy = [float(stage_dx), float(stage_dy)]
     log.info(
-        "parcentric shift: image=(%+.3f, %+.3f) um → stage=(%+.3f, %+.3f) um",
+        "shift_xy: image=(%+.3f, %+.3f) um → stage=(%+.3f, %+.3f) um",
         raw_dx, raw_dy, stage_dx, stage_dy,
     )
 
@@ -285,19 +286,3 @@ def measure_parcentric_shift(
         "method": "voting",
         "acquisition_zoom": ts_zoom,
     }
-
-
-# Phase 5 (verification) deliberately removed.
-#
-# It used to acquire one more image at home + shift and register against
-# img_ref, reporting the residual as a "calibration health check". But
-# that residual is bounded below by the noise floor of (stage motor
-# accuracy + settle + backlash takeup + registration accuracy +
-# correlated sample drift between acquires), all of which are present
-# during the Phase-4 measurement too. So Phase 5 cannot tell you whether
-# the calibration is right — it can only tell you the noise floor of the
-# overall rig.
-#
-# The honest end-to-end validation is the cookbook landing test, run
-# on a different cell at a different stage XY than the calibration
-# anchor. That's what catches real targeting errors.

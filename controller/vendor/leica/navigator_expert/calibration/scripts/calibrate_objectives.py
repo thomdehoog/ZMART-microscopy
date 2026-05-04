@@ -29,18 +29,18 @@ Phases (in order)
    persisted to ``config.json``. The cookbook commands an absolute XY
    after the switch, so this delta isn't part of the correction.
 
-3. **Parfocal (z-wide)** — optional (``--measure-parfocal``). Brenner
+3. **Shift Z (z-wide)** — optional (``--measure-shift-z``). Brenner
    z-stack scanned on z-wide centred at the post-switch z-wide. Peak
-   gives ``zwide_shift_um``. Phase parks z-wide at the peak so phase 4
+   gives ``shift_z_um``. Phase parks z-wide at the peak so phase 4
    acquires in focus.
 
-4. **Parcentric XY (registration)** — optional (``--measure-xy``).
+4. **Shift XY (registration)** — optional (``--measure-shift-xy``).
    Stage parked at the same XY for both acquires; multi-method voting
    registration (phase / masked / NCC / ORB) measures the optical-axis
    shift. The result is the value the cookbook applies. Persisted as
-   ``parcentric_xy_um`` only if voting reaches the configured agreement
+   ``shift_xy_um`` only if voting reaches the configured agreement
    threshold; on low confidence the field is left unset rather than
-   recording garbage. If ``--measure-parfocal`` ran, z-wide is at the
+   recording garbage. If ``--measure-shift-z`` ran, z-wide is at the
    focus peak; otherwise z-wide is at the post-switch firmware
    position and registration may have to fight an out-of-focus image.
 
@@ -67,19 +67,20 @@ Operator preconditions
 
 Usage
 -----
-    # Fast dry-pair path: skip parfocal (firmware-only z-wide), just
-    # measure parcentric XY at the post-switch firmware focus.
+    # Fast dry-pair path: skip shift_z (firmware-only z-wide), just
+    # measure shift_xy at the post-switch firmware focus.
     python calibrate_objectives.py --job Overview --ref-slot 1 \\
-        --target-slots 2 --ref-zoom 3.0 --measure-xy
+        --target-slots 2 --ref-zoom 3.0 --measure-shift-xy
 
-    # Full run with parfocal z-wide residual.
+    # Full run with shift_z (z-wide residual) and shift_xy.
     python calibrate_objectives.py --job Overview --ref-slot 1 \\
         --target-slots 2 --ref-zoom 3.0 \\
-        --measure-parfocal --measure-xy --z-range-um 100 --z-step-um 2
+        --measure-shift-z --measure-shift-xy \\
+        --z-range-um 100 --z-step-um 2
 
-    # Incremental: only refresh slot 2 zwide values; reuses cached sign.
+    # Incremental: only refresh slot 2 shift_z; reuses cached sign.
     python calibrate_objectives.py --job Overview --target-slots 2 \\
-        --measure-parfocal --z-range-um 100 --z-step-um 2
+        --measure-shift-z --z-range-um 100 --z-step-um 2
 """
 
 import argparse
@@ -108,10 +109,7 @@ from navigator_expert.calibration.lib.lasx_state import (
     setup_reference_state,
     switch_to_target,
 )
-from navigator_expert.analysis import (
-    VOTING_METHODS,
-    VOTING_MIN_AGREE,
-)
+from navigator_expert.analysis import VOTING_MIN_AGREE
 from navigator_expert.calibration.lib import phases
 
 
@@ -145,11 +143,14 @@ def parse_args():
     p.add_argument("--measure-sign", action="store_true",
                    help="Re-measure sign convention "
                         "(default: reuse the cached value if present).")
-    p.add_argument("--measure-parfocal", action="store_true",
-                   help="Measure parfocal Z shift via Z-stacks (slow).")
-    p.add_argument("--measure-xy", action="store_true",
-                   help="Measure parcentric XY shift "
-                        "(uses z-galvo 0 unless --measure-parfocal).")
+    p.add_argument("--measure-shift-z", action="store_true",
+                   help="Measure z-wide focus residual via a Brenner stack "
+                        "on z-wide (slow). Persists ``shift_z_um``.")
+    p.add_argument("--measure-shift-xy", action="store_true",
+                   help="Measure optical-axis XY shift via voting "
+                        "registration. Z-galvo stays at 0; if "
+                        "--measure-shift-z also ran, z-wide is at the focus "
+                        "peak. Persists ``shift_xy_um``.")
 
     p.add_argument("--ref-zoom", type=float, default=REF_ZOOM_DEFAULT,
                    help=f"Reference zoom (default: {REF_ZOOM_DEFAULT}). "
@@ -212,11 +213,11 @@ def main():
 
     measure_sign = args.measure_sign or cal_cfg.get("image_to_stage") is None
     phases_to_run = ["sign"] if measure_sign else []
-    phases_to_run.append("offset")
-    if args.measure_parfocal:
-        phases_to_run.append("parfocal_shift")
-    if args.measure_xy:
-        phases_to_run.append("parcentric_shift")
+    phases_to_run.append("xy_firmware_delta")
+    if args.measure_shift_z:
+        phases_to_run.append("shift_z")
+    if args.measure_shift_xy:
+        phases_to_run.append("shift_xy")
 
     print(f"Job:          {args.job}")
     print(f"Reference:    slot {args.ref_slot}  ({ref_summary['name']})")
@@ -292,7 +293,7 @@ def main():
     # on the reference: the reference's "focus" is whatever the
     # operator chose, by definition.
     img_ref_focus = None
-    if args.measure_xy:
+    if args.measure_shift_xy:
         log.info("phase 4 prep: ref slice at galvo=0, operator-focused z-wide")
         disable_z_stack(client, args.job)
         img_ref_focus = acquire_single()
@@ -343,26 +344,26 @@ def main():
         # recorded in the run report so operators can track firmware
         # behaviour over time. Not persisted in the live calibration
         # because the cookbook commands an absolute XY after the switch.
-        _, offset_report = phases.measure_parcentric_offset(client, home_xy)
-        target_report["firmware_xy_offset"] = offset_report
+        _, xy_delta_report = phases.measure_xy_firmware_delta(client, home_xy)
+        target_report["xy_firmware_delta"] = xy_delta_report
 
-        # Phase 3: parfocal residual on z-wide (optional).
-        # Leaves z-wide parked at the brenner peak.
-        if args.measure_parfocal:
-            shift_um, parfocal_report = phases.measure_parfocal(
+        # Phase 3: shift_z — z-wide focus residual (optional).
+        # Leaves z-wide parked at the Brenner peak.
+        if args.measure_shift_z:
+            shift_um, shift_z_report = phases.measure_shift_z(
                 client, args.job,
                 acquire_stack=acquire_stack,
                 z_range_um=args.z_range_um,
                 z_step_um=args.z_step_um,
                 zwide_post_switch_um=zwide_post_um,
             )
-            target_report["shift_z"] = parfocal_report
+            target_report["shift_z"] = shift_z_report
             update_kwargs["shift_z_um"] = shift_um
 
-        # Phase 4: parcentric XY shift via registration with stage parked
-        # at home_xy. This is THE value the cookbook applies. (optional)
-        if args.measure_xy:
-            shift_xy, shift_report = phases.measure_parcentric_shift(
+        # Phase 4: shift_xy — optical-axis XY shift via voting
+        # registration at home_xy. THE value the cookbook applies. (optional)
+        if args.measure_shift_xy:
+            shift_xy, shift_xy_report = phases.measure_shift_xy(
                 client, args.job,
                 acquire_single=acquire_single,
                 img_ref_focus=img_ref_focus,
@@ -370,9 +371,8 @@ def main():
                 image_to_stage=image_to_stage,
                 ts_zoom=ts_zoom,
                 voting_min_agree=VOTING_MIN_AGREE,
-                voting_method_count=len(VOTING_METHODS),
             )
-            target_report["shift_xy"] = shift_report
+            target_report["shift_xy"] = shift_xy_report
             if shift_xy is not None:
                 update_kwargs["shift_xy_um"] = shift_xy
 
