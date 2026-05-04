@@ -31,6 +31,7 @@ from .registration import (
     ncc,
     orb_ransac,
     pcc,
+    prepare_pair,
     register_voting,
     register_phase,
 )
@@ -43,6 +44,8 @@ __all__ = [
     "MASK_PCT_DEFAULT",
     "pcc", "masked_pcc", "ncc", "orb_ransac",
     "register_voting", "register_phase",
+    # registration — pair preparation for cross-magnification voting
+    "prepare_pair",
     # focus
     "brenner", "brenner_focus", "subpixel_peak",
 ]

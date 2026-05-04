@@ -274,6 +274,129 @@ def register_phase(
     return dx_px * pixel_um, dy_px * pixel_um
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Pair preparation for cookbook-side cross-magnification registration
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _resample(img: np.ndarray, src_um: float, dst_um: float) -> np.ndarray:
+    """Cubic resample. Cubic up, area down — the standard pair for
+    image work."""
+    scale = float(src_um) / float(dst_um)
+    h, w = img.shape[:2]
+    new_h = max(8, int(round(h * scale)))
+    new_w = max(8, int(round(w * scale)))
+    interp = cv2.INTER_CUBIC if scale > 1.0 else cv2.INTER_AREA
+    return cv2.resize(img, (new_w, new_h), interpolation=interp)
+
+
+def _crop_around(
+    img: np.ndarray, centre_col: float, centre_row: float, half_size_px: int,
+) -> tuple[np.ndarray, tuple[int, int, int, int]]:
+    """Crop ``img`` around ``(centre_col, centre_row)`` by ±half_size,
+    clipped at edges. Returns ``(crop, (left, top, right, bottom))``."""
+    h, w = img.shape[:2]
+    cc = int(round(centre_col))
+    cr = int(round(centre_row))
+    left = max(0, cc - half_size_px)
+    right = min(w, cc + half_size_px)
+    top = max(0, cr - half_size_px)
+    bottom = min(h, cr + half_size_px)
+    return img[top:bottom, left:right], (left, top, right, bottom)
+
+
+def prepare_pair(
+    source_img: np.ndarray,
+    intermediate_img: np.ndarray,
+    *,
+    source_pixel_um: float,
+    intermediate_pixel_um: float,
+    source_cell_col: float,
+    source_cell_row: float,
+    intermediate_centre_col: float | None = None,
+    intermediate_centre_row: float | None = None,
+) -> dict:
+    """Crop+resample two images to the same physical FOV at the same
+    pixel size, ready for whole-frame voting registration.
+
+    The image with the larger physical FOV is cropped to the smaller's
+    FOV, centred on the picked cell in source / on the intermediate
+    centre in intermediate. The image with the finer pixel size is
+    resampled to the coarser pixel size.
+
+    Returns a dict with:
+        ``ref``           — source crop (matched shape + pixel size)
+        ``tgt``           — intermediate crop (same)
+        ``pixel_um``      — common pixel size
+        ``source_cell_in_ref_px``       — (col, row) of the picked
+            cell in the ``ref`` crop (sub-pixel)
+        ``intermediate_centre_in_tgt_px`` — (col, row) of the
+            intermediate FOV centre in the ``tgt`` crop
+    """
+    sh, sw = source_img.shape[:2]
+    ih, iw = intermediate_img.shape[:2]
+    src_fov_um = sw * source_pixel_um
+    int_fov_um = iw * intermediate_pixel_um
+    common_fov_um = min(src_fov_um, int_fov_um)
+    common_pixel_um = max(source_pixel_um, intermediate_pixel_um)
+
+    src_half_px = int(round(common_fov_um / 2.0 / source_pixel_um))
+    int_half_px = int(round(common_fov_um / 2.0 / intermediate_pixel_um))
+
+    if intermediate_centre_col is None:
+        intermediate_centre_col = iw / 2.0
+    if intermediate_centre_row is None:
+        intermediate_centre_row = ih / 2.0
+
+    src_crop, src_bbox = _crop_around(
+        source_img, source_cell_col, source_cell_row, src_half_px,
+    )
+    int_crop, int_bbox = _crop_around(
+        intermediate_img, intermediate_centre_col, intermediate_centre_row,
+        int_half_px,
+    )
+
+    cell_col_in_src_crop = source_cell_col - src_bbox[0]
+    cell_row_in_src_crop = source_cell_row - src_bbox[1]
+    centre_col_in_int_crop = intermediate_centre_col - int_bbox[0]
+    centre_row_in_int_crop = intermediate_centre_row - int_bbox[1]
+
+    if source_pixel_um < intermediate_pixel_um:
+        ref_img = _resample(src_crop, source_pixel_um, common_pixel_um)
+        tgt_img = int_crop
+        scale = source_pixel_um / common_pixel_um
+        cell_col_in_ref = cell_col_in_src_crop * scale
+        cell_row_in_ref = cell_row_in_src_crop * scale
+        centre_col_in_tgt = centre_col_in_int_crop
+        centre_row_in_tgt = centre_row_in_int_crop
+    else:
+        ref_img = src_crop
+        tgt_img = _resample(int_crop, intermediate_pixel_um, common_pixel_um)
+        cell_col_in_ref = cell_col_in_src_crop
+        cell_row_in_ref = cell_row_in_src_crop
+        scale = intermediate_pixel_um / common_pixel_um
+        centre_col_in_tgt = centre_col_in_int_crop * scale
+        centre_row_in_tgt = centre_row_in_int_crop * scale
+
+    return {
+        "ref": ref_img,
+        "tgt": tgt_img,
+        "pixel_um": float(common_pixel_um),
+        "common_fov_um": float(common_fov_um),
+        "source_cell_in_ref_px": (
+            float(cell_col_in_ref), float(cell_row_in_ref),
+        ),
+        "intermediate_centre_in_tgt_px": (
+            float(centre_col_in_tgt), float(centre_row_in_tgt),
+        ),
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Sign-convention helper (D4)
+# ──────────────────────────────────────────────────────────────────────
+
+
 def classify_d4(matrix) -> tuple[str, np.ndarray, float]:
     """Snap a 2×2 fitted matrix to the nearest D4 reflection/rotation.
 
