@@ -3,9 +3,6 @@
 import logging
 import time
 
-import numpy as np
-import tifffile
-
 import navigator_expert.driver as drv
 from navigator_expert.driver.scanning_template_editors_focus import lrp_set_stack_calculation_mode
 from navigator_expert.driver.scanning_template_editors_roi import lrp_enable_roi_scan
@@ -16,7 +13,6 @@ from navigator_expert.driver.scanning_template_editors_z import (
     lrp_set_z_use_mode,
 )
 from navigator_expert.driver.scanning_templates import TEMPLATE_XML, apply_lrp_change
-from navigator_expert.driver.stage_motion import correct_backlash
 
 
 log = logging.getLogger(__name__)
@@ -152,50 +148,22 @@ def switch_to_target(client, job, hw, slot, *, settle_s, zoom,
 
 
 def make_acquirer(client, job, stage_cfg):
-    """Return (acquire_single, acquire_stack), each preceded by backlash takeup."""
-    bk = stage_cfg["backlash"]
-    bl_kwargs = dict(
-        overshoot_um=bk["overshoot_um"],
-        settle_ms=bk["settle_ms"],
-        tolerance_um=bk.get("tolerance_um", 20.0),
-    )
+    """Return ``(acquire_single, acquire_stack)`` closures pinned to
+    this client/job/backlash config.
 
-    def _files():
-        correct_backlash(client, **bl_kwargs)
-        idle = drv.check_idle(client, timeout=30)
-        if not idle or not idle.get("success"):
-            raise RuntimeError(f"scanner not idle before acquire: {idle}")
-        baseline = drv.read_relative_path(client)
-        t0 = time.time()
-        result = drv.acquire(client, job)
-        if not result or not result.get("success"):
-            raise RuntimeError(f"acquire failed: {result}")
-        media = drv.get_lasx_settings()["export"]["media_path"]
-        det = drv.detect_new_files(client, baseline, media, acquire_start=t0)
-        if not det["success"]:
-            raise RuntimeError(f"file detection failed: {det.get('error')}")
-        files = sorted(det["image_files"])
-        if not files:
-            raise RuntimeError("acquire produced no files")
-        drv.wait_all_stable(files, timeout=30)
-        return files
+    Each closure call pre-applies the configured +X+Y backlash takeup
+    and forwards to the shared driver helpers
+    (``drv.acquire_frame`` / ``drv.acquire_stack``), so calibration and
+    cookbook scripts share one acquire path.
+    """
+    backlash_params = stage_cfg["backlash"]
 
     def acquire_single():
-        files = _files()
-        img = tifffile.imread(str(files[0]))
-        return img[0] if img.ndim == 3 else img
+        img, _ = drv.acquire_frame(client, job, backlash_params=backlash_params)
+        return img
 
     def acquire_stack():
-        files = _files()
-        if len(files) == 1:
-            stack = tifffile.imread(str(files[0]))
-            if stack.ndim == 2:
-                stack = stack[np.newaxis, ...]
-        else:
-            slices = [tifffile.imread(str(f)) for f in files]
-            slices = [s[0] if s.ndim == 3 else s for s in slices]
-            stack = np.array(slices)
-        return stack
+        return drv.acquire_stack(client, job, backlash_params=backlash_params)
 
     return acquire_single, acquire_stack
 

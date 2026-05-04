@@ -163,6 +163,8 @@ __all__ = [
     "load_alignment", "translate_xy", "translate_pan", "translate_z", "translate_xyz",
     # objectives (hw_info helpers)
     "objective_by_slot", "objective_summary", "validate_slots",
+    # high-level acquire-and-load
+    "acquire_frame", "acquire_stack",
     # calibration (config + accessors + mutators)
     "CALIBRATION_SCHEMA_VERSION", "STAGE_SCHEMA_VERSION",
     "default_calibration_path",
@@ -448,6 +450,12 @@ from .objectives import (
     objective_by_slot,
     objective_summary,
     validate_slots,
+)
+
+# ── High-level acquire-and-load helpers ─────────────────────────
+from .acquire import (
+    acquire_frame,
+    acquire_stack,
 )
 
 from .calibration import (

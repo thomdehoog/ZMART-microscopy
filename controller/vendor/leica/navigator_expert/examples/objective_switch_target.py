@@ -305,58 +305,6 @@ def check_image_orientation_is_topleft() -> None:
                f"LAS X Advanced Settings.", 2)
 
 
-def acquire_one_frame(
-    client: Any, job: str, *,
-    apply_backlash: bool = DEFAULT_APPLY_BACKLASH,
-    backlash_params: dict | None = None,
-) -> tuple[np.ndarray, Path]:
-    """Trigger one acquisition and return (image_array, .ome.tif path).
-
-    Optionally pre-applies a +X +Y backlash takeup so successive
-    acquires sample identical mechanical state. Default is on; pass
-    ``apply_backlash=False`` to skip (e.g. when you have already taken
-    up backlash for a sequence of moves and don't want the per-acquire
-    overhead).
-
-    Polls for the new file on disk, waits for it to be unlocked +
-    size-stable, then loads it. 3-D OME-TIFFs collapse to 2-D via the
-    first plane.
-    """
-    if apply_backlash:
-        params = backlash_params or {}
-        drv.correct_backlash(
-            client,
-            overshoot_um=params.get("overshoot_um", 50.0),
-            settle_ms=params.get("settle_ms", 100),
-            tolerance_um=params.get("tolerance_um", 20.0),
-        )
-
-    baseline = drv.read_relative_path(client)
-    t_start = time.time()
-    result = drv.acquire(client, job)
-    if not result or not result.get("success"):
-        raise RuntimeError(f"acquire failed: {result}")
-
-    media_path = drv.get_lasx_settings()["export"]["media_path"]
-    detection = drv.detect_new_files(
-        client, baseline, media_path, acquire_start=t_start,
-    )
-    if not detection["success"]:
-        raise RuntimeError(f"file detection failed: {detection.get('error')}")
-
-    files = sorted(detection["image_files"])
-    if not files:
-        raise RuntimeError("acquire produced no image files")
-
-    stable = drv.wait_all_stable(files, timeout=FILE_STABILITY_TIMEOUT_S)
-    if not stable["success"]:
-        log.warning("image file(s) may not be size-stable yet")
-
-    path = Path(files[0])
-    img = tifffile.imread(str(path))
-    if img.ndim == 3:
-        img = img[0]
-    return img, path
 
 
 def read_frame_geometry(client: Any, job: str) -> FrameGeometry:
@@ -597,11 +545,7 @@ def step_acquire_source(
              geometry.pixel_size_um, geometry.fov_um, src_zwide_um)
 
     log.info("acquiring source frame")
-    img, lasx_path = acquire_one_frame(
-        client, args.job,
-        apply_backlash=backlash_params is not None,
-        backlash_params=backlash_params,
-    )
+    img, lasx_path = drv.acquire_frame(client, args.job, backlash_params=backlash_params)
     src_tif = out_dir / "source.tif"
     tifffile.imwrite(str(src_tif), img)
     log.info("source image %s saved → %s", img.shape, src_tif.name)
@@ -749,11 +693,7 @@ def step_acquire_and_verify(
     Returns (target_image, target_tif_path, landing_result).
     """
     log.info("acquiring target frame")
-    img, lasx_path = acquire_one_frame(
-        client, args.job,
-        apply_backlash=backlash_params is not None,
-        backlash_params=backlash_params,
-    )
+    img, lasx_path = drv.acquire_frame(client, args.job, backlash_params=backlash_params)
     tgt_tif = out_dir / "target.tif"
     tifffile.imwrite(str(tgt_tif), img)
     log.info("target image %s saved → %s", img.shape, tgt_tif.name)
