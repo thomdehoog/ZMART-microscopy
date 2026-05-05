@@ -11,3 +11,6 @@ Thumbs.db
 *.zip
 .pytest_cache/
 **/.claude/settings.local.json
+
+# Example-script run outputs (regenerated on every run)
+controller/vendor/leica/config/
