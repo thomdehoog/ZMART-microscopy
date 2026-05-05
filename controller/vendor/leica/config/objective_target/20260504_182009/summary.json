@@ -1,0 +1,81 @@
+{
+  "calibration_config": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\navigator_expert\\calibration\\config\\config.json",
+  "cell_source_xy_um": [
+    23117.66296875,
+    28072.564453125
+  ],
+  "cell_target_xy_um": [
+    23112.497479193615,
+    28089.81040795929
+  ],
+  "fov_bbox_margin": 1.5,
+  "job": "Overview",
+  "landing": {
+    "candidates": [
+      {
+        "area_um2": 242.4875509982206,
+        "centroid_px": [
+          553.017442210813,
+          481.4445760117627
+        ],
+        "eccentricity": 0.3613548704404696,
+        "score": 0.1578409270056385
+      }
+    ],
+    "cells_segmented": 1,
+    "error_magnitude_um": 1.3825089080302164,
+    "error_um": [
+      1.1086955117668829,
+      -0.8259086771374129
+    ],
+    "method": "morphology_match",
+    "morphology_score": 0.1578409270056385,
+    "source_features": {
+      "area_um2": 246.92399999999998,
+      "eccentricity": 0.2214808036905348
+    }
+  },
+  "outputs": {
+    "overlay_png": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\config\\objective_target\\20260504_182009\\overlay.png",
+    "source_tif": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\config\\objective_target\\20260504_182009\\source.tif",
+    "target_tif": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\config\\objective_target\\20260504_182009\\target.tif"
+  },
+  "picked_cell": {
+    "area_px": 190,
+    "bbox_px": [
+      506,
+      509,
+      522,
+      525
+    ],
+    "bbox_um": [
+      18.24,
+      18.24
+    ],
+    "centroid_xy_px": [
+      516.6052631578947,
+      513.2105263157895
+    ],
+    "eccentricity": 0.2214808036905348,
+    "rank": 0
+  },
+  "refine": null,
+  "source_image_size_px": 1024,
+  "source_pixel_size_um": 1.14,
+  "source_slot": 1,
+  "source_stage_xy_um": [
+    23119.04296875,
+    28067.314453125
+  ],
+  "target_base_fov_um": 581.25,
+  "target_fov_at_zoom_um": 27.678571428571427,
+  "target_pixel_size_um": 0.027029854910714284,
+  "target_slot": 2,
+  "target_zoom": 21,
+  "timestamp": "20260504_182044",
+  "z_translation": {
+    "delta_um": -6.24443756348046,
+    "source_zwide_um": 5436.76,
+    "target_zwide_um": 5430.51556243652
+  }
+}

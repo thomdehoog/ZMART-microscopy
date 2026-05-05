@@ -1,0 +1,50 @@
+{
+  "galvo_offset_requested_um": [
+    -3.694098360654607,
+    -2.4295081967211445
+  ],
+  "job": "Overview",
+  "landing": {
+    "ncc_peak": 0.8457847237586975,
+    "offset_magnitude_um": 4.54254447556653,
+    "offset_um": [
+      0.4545,
+      4.51975
+    ]
+  },
+  "outputs": {
+    "overlay_png": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\navigator_expert\\config\\pan_offset\\20260504_190610\\overlay.png",
+    "ref_lasx_tif": "Z:\\zmbstaff\\10374\\Temporary_Data\\Experiments\\experiment--2026_05_04_13_20_43\\image--L0000--J152--E00--X00--Y00--T0000--Z00--C00.ome.tif",
+    "ref_tif": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\navigator_expert\\config\\pan_offset\\20260504_190610\\ref.tif",
+    "test_lasx_tif": "Z:\\zmbstaff\\10374\\Temporary_Data\\Experiments\\experiment--2026_05_04_13_20_43\\image--L0000--J159--E00--X00--Y00--T0000--Z00--C00.ome.tif",
+    "test_tif": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\navigator_expert\\config\\pan_offset\\20260504_190610\\test.tif"
+  },
+  "pan_applied": [
+    -3.692672369093403e-05,
+    -2.4285703607871313e-05
+  ],
+  "picked_cell": {
+    "area_px": 183,
+    "bbox_um": [
+      17.099999999999998,
+      18.24
+    ],
+    "centroid_px": [
+      514.1311475409836,
+      515.24043715847
+    ]
+  },
+  "predicted_cell_xy_um": [
+    23116.42308913934,
+    28065.71990586578
+  ],
+  "ref_pixel_size_um": 1.14,
+  "ref_zoom": 1.0,
+  "stage_xy_um": [
+    23120.117187499996,
+    28068.1494140625
+  ],
+  "test_pixel_size_um": 0.02525,
+  "test_zoom": 45.0,
+  "timestamp": "20260504_190632"
+}
