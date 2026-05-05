@@ -1,0 +1,45 @@
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = [
+    "build",
+    "dist",
+    ".venv",
+    ".eggs",
+    "**/__pycache__",
+    # Calibration is the validation oracle for the example scripts.
+    # Off-limits for cleanup work — see CLAUDE.md / project notes.
+    "controller/vendor/leica/navigator_expert/calibration",
+    "controller/vendor/leica/navigator_expert/driver/calibration.py",
+    "controller/vendor/leica/navigator_expert/test/test_calibration.py",
+]
+
+[tool.ruff.lint]
+# Conservative starter set. Add rule families incrementally as the
+# baseline shrinks. ruff check is report-only by default — pass --fix
+# explicitly to apply autofixes.
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes (unused imports, undefined names, ...)
+    "W",   # pycodestyle warnings
+    "I",   # isort (import ordering)
+    "UP",  # pyupgrade (dead syntax for the target Python)
+    "B",   # flake8-bugbear (likely bugs)
+]
+ignore = [
+    "E501",  # line length is enforced by the formatter, not the linter
+    "B008",  # function-call-in-default-argument: false-positive heavy
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Example scripts intentionally do `import navigator_expert.driver as drv`
+# after a sys.path manipulation. Don't flag the resulting import order.
+"controller/vendor/leica/navigator_expert/examples/*.py" = ["E402"]
+"acquire_hires.py" = ["E402"]
+"explore_export_paths.py" = ["E402"]
+"test_file_confirmation.py" = ["E402"]
+"test_grid_acquisition.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
