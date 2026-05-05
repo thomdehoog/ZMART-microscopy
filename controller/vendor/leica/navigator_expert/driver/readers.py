@@ -112,7 +112,18 @@ def get_job_settings(client, job_name, timeout=1.0, poll_interval=0.01,
             while time.perf_counter() < deadline:
                 raw = client.PyApiGetJobSettingsByName.Model.Settings
                 if raw is not None:
-                    return json.loads(raw) if isinstance(raw, str) else raw
+                    parsed = json.loads(raw) if isinstance(raw, str) else raw
+                    # LAS X occasionally returns a populated dict whose
+                    # geometry fields are blank — happens right after a
+                    # zoom or format change while the engine is still
+                    # repopulating. Treat that the same as None and let
+                    # the retry loop wait for the real values.
+                    if isinstance(parsed, dict) and not parsed.get("imageSize"):
+                        log.debug("get_job_settings: empty imageSize on "
+                                  "attempt %d/%d; retrying",
+                                  attempt, max_retries)
+                        break
+                    return parsed
                 time.sleep(poll_interval)
 
             log.warning("get_job_settings: attempt %d/%d timed out for '%s'",
