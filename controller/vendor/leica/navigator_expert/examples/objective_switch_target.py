@@ -280,11 +280,6 @@ def _now_iso_ts() -> str:
 # ──────────────────────────────────────────────────────────────────────
 
 
-
-
-
-
-
 def read_frame_geometry(client: Any, job: str) -> FrameGeometry:
     """Pixel size and image extent for the currently-active acquisition."""
     settings = drv.get_job_settings(client, job) or {}

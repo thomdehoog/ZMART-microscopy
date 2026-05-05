@@ -239,9 +239,6 @@ def _now_iso_ts() -> str:
 # ──────────────────────────────────────────────────────────────────────
 
 
-
-
-
 def resolve_job(client: Any, override: str | None) -> str:
     if override:
         return override
