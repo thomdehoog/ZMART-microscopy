@@ -85,7 +85,6 @@ import tifffile
 from cellpose import models
 from skimage.measure import approximate_polygon, find_contours, regionprops
 
-from LasxApi import PYLICamApiConnector as lasx_api  # type: ignore
 import navigator_expert.driver as drv
 from navigator_expert.driver.scanning_template_editors_roi import (
     ROI_POLYGON,
@@ -133,9 +132,6 @@ DEFAULT_VISUAL_PAUSE_S: float = 3.0
 
 #: How long to wait for OME-TIFF files to settle on the export drive.
 FILE_STABILITY_TIMEOUT_S: int = 30
-
-#: Backlash takeup is applied before every acquire by default.
-DEFAULT_APPLY_BACKLASH: bool = True
 
 #: Distinct ARGB colours cycled through the loaded ROIs so they are
 #: visually separable in the LAS X overlay.

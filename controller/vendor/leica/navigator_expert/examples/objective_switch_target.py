@@ -115,7 +115,6 @@ from cellpose import models
 from matplotlib.patches import Rectangle
 from skimage.measure import regionprops
 
-from LasxApi import PYLICamApiConnector as lasx_api  # type: ignore
 import navigator_expert.driver as drv
 
 
@@ -150,11 +149,6 @@ IDLE_TIMEOUT_S: float = 5.0
 #: Maximum time to wait for OME-TIFF files to be unlocked + size-stable
 #: on the export drive after an acquire.
 FILE_STABILITY_TIMEOUT_S: int = 30
-
-#: Backlash takeup is applied before every acquire by default. The +X+Y
-#: takeup engages both leadscrews against the same flank, so successive
-#: acquires sample identical mechanical state.
-DEFAULT_APPLY_BACKLASH: bool = True
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -299,9 +293,6 @@ def read_frame_geometry(client: Any, job: str) -> FrameGeometry:
         pixel_size_um=float(geo["pixel_w_um"]),
         image_size_px=int(geo["pixels_x"]),
     )
-
-
-# ``drv.read_zwide_um(client, job)`` lives in driver/readers.py.
 
 
 # ──────────────────────────────────────────────────────────────────────

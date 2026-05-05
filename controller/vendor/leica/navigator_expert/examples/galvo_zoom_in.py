@@ -98,7 +98,6 @@ from cellpose import models
 from matplotlib.patches import Rectangle
 from skimage.measure import regionprops
 
-from LasxApi import PYLICamApiConnector as lasx_api  # type: ignore
 import navigator_expert.driver as drv
 
 
@@ -127,11 +126,6 @@ IDLE_TIMEOUT_S: float = 5.0
 
 #: Maximum time to wait for OME-TIFF files to be unlocked + size-stable.
 FILE_STABILITY_TIMEOUT_S: int = 30
-
-#: Backlash takeup is applied before every acquire by default. The
-#: galvo doesn't move the stage, so backlash only matters for the
-#: stage state at the start of the run (and any future stage moves).
-DEFAULT_APPLY_BACKLASH: bool = True
 
 
 # ──────────────────────────────────────────────────────────────────────
