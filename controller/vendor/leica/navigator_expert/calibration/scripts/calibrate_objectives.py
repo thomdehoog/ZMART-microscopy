@@ -111,7 +111,7 @@ from navigator_expert.calibration.lib.lasx_state import (
     setup_reference_state,
     switch_to_target,
 )
-from navigator_expert.analysis import VOTING_MIN_AGREE
+from navigator_expert.algorithms import VOTING_MIN_AGREE
 from navigator_expert.calibration.lib import phases
 
 
