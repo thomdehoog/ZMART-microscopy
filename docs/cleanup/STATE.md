@@ -98,26 +98,16 @@ Done:
 - ✅ Removed `lasx_notes.zip`, `smart_microscopy.ipynb`,
   `smart_microscopy_codex.ipynb`, `smart_microscopy_user.ipynb`,
   `t_user.ipynb` from this branch (`31af51c`).
+- ✅ Deleted top-level `analysis/` empty stubs (`f422776`).
+- ✅ Moved 4 root spike scripts to `scripts/legacy/` with README
+  documenting historical context (`34962dc`).
+- ✅ Moved `smart_microscopy_v2.ipynb` to `notebooks/` (`5b32460`).
+- ✅ Trimmed empty whitespace under the LAS X interaction banners
+  in all 3 example scripts (`32c94ee`).
 
-Remaining:
-- Delete the top-level `analysis/` directory — it contains only
-  empty `__init__.py` stubs in `post_acquisition/` and `realtime/`.
-  Not under `navigator_expert/`, not part of driver.
-- Move root scripts to `scripts/legacy/`: `acquire_hires.py`,
-  `explore_export_paths.py`, `test_file_confirmation.py`,
-  `test_grid_acquisition.py`. Add a `scripts/legacy/README.md`
-  explaining the historical context (they import via the deprecated
-  `lasx` shim and pre-date the `examples/` directory).
-- Move `smart_microscopy_v2.ipynb` to `notebooks/`.
-- Trim three empty section banners in `examples/*.py` (functions
-  were moved into `drv.*` but the `# LAS X interaction` headers were
-  left behind): `galvo_zoom_in.py` around line 233;
-  `objective_switch_target.py` around line 284;
-  `segment_and_define_rois.py` around line 241.
-
-End-of-wave hardware test: run all 3 example scripts +
-`calibrate_objectives.py` once. If any misbehaves, bisect by commit
-on `cleanup/wave-2` and revert.
+**Wave A pending only:** end-of-wave hardware test — run all 3
+example scripts + `calibrate_objectives.py` once. If any misbehaves,
+bisect by commit on `cleanup/wave-2` and revert.
 
 **Deferred from Wave A** (now blocked by driver-off-limits rule):
 - Move `driver/.claude/settings.local.json` out of the package.
