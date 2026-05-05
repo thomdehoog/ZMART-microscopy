@@ -1,0 +1,46 @@
+{
+  "base_fov_um": 581.25,
+  "fov_bbox_margin": 1.5,
+  "framed_fov_um": 22.35576923076923,
+  "framed_pixel_size_um": 0.04366361177884615,
+  "framed_zoom": 26,
+  "job": "Overview",
+  "landing": {
+    "cells_segmented": 0,
+    "error_magnitude_um": null,
+    "error_um": null,
+    "method": "morphology_match",
+    "morphology_score": null
+  },
+  "outputs": {
+    "framed_tif": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\config\\galvo_zoom\\20260504_201347\\framed.tif",
+    "overlay_png": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\config\\galvo_zoom\\20260504_201347\\overlay.png",
+    "overview_tif": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\config\\galvo_zoom\\20260504_201347\\overview.tif"
+  },
+  "overview_image_size_px": 512,
+  "overview_pixel_size_um": 1.14,
+  "overview_stage_xy_um": [
+    22849.091796875,
+    28011.474609375
+  ],
+  "picked_cell": {
+    "area_px": 131,
+    "bbox_px": [
+      250,
+      251,
+      263,
+      264
+    ],
+    "bbox_um": [
+      14.819999999999999,
+      14.819999999999999
+    ],
+    "centroid_xy_px": [
+      257.03053435114504,
+      256.21374045801525
+    ],
+    "eccentricity": 0.2068327731063206,
+    "rank": 0
+  },
+  "timestamp": "20260504_201409"
+}

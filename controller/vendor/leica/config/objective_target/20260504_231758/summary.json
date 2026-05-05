@@ -1,0 +1,180 @@
+{
+  "calibration_config": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\navigator_expert\\calibration\\config\\config.json",
+  "cell_source_xy_um": [
+    22963.881828835223,
+    27935.480394176135
+  ],
+  "cell_target_xy_um": [
+    22959.694305385223,
+    27953.495188435245
+  ],
+  "fov_bbox_margin": 1.5,
+  "job": "Overview",
+  "landing": {
+    "candidates": [
+      {
+        "area_um2": 0.09476481115116792,
+        "centroid_px": [
+          373.81176470588235,
+          384.67058823529413
+        ],
+        "eccentricity": 0.999506558809801,
+        "score": 1.4228048132907407
+      },
+      {
+        "area_um2": 0.10591361246307002,
+        "centroid_px": [
+          374.2631578947368,
+          385.6736842105263
+        ],
+        "eccentricity": 0.999456573074993,
+        "score": 1.4227223327052094
+      },
+      {
+        "area_um2": 0.31774083738921005,
+        "centroid_px": [
+          730.1859649122807,
+          540.6912280701754
+        ],
+        "eccentricity": 0.989303727734267,
+        "score": 1.4119520852007463
+      },
+      {
+        "area_um2": 0.497236538510834,
+        "centroid_px": [
+          725.3049327354261,
+          547.8251121076233
+        ],
+        "eccentricity": 0.9898411841402922,
+        "score": 1.411966374510131
+      },
+      {
+        "area_um2": 0.391322926047764,
+        "centroid_px": [
+          722.6239316239316,
+          551.4074074074074
+        ],
+        "eccentricity": 0.9909198784797774,
+        "score": 1.4133537699314846
+      },
+      {
+        "area_um2": 1.0758593265985534,
+        "centroid_px": [
+          710.1616580310881,
+          569.5554404145078
+        ],
+        "eccentricity": 0.9925716407912871,
+        "score": 1.4130103484086014
+      },
+      {
+        "area_um2": 0.6633536780581754,
+        "centroid_px": [
+          699.946218487395,
+          584.0336134453781
+        ],
+        "eccentricity": 0.9931112209083589,
+        "score": 1.4147522380024249
+      },
+      {
+        "area_um2": 0.4035866074908563,
+        "centroid_px": [
+          714.3232044198895,
+          561.9806629834254
+        ],
+        "eccentricity": 0.9921588976357087,
+        "score": 1.414557044751621
+      },
+      {
+        "area_um2": 0.788220252751479,
+        "centroid_px": [
+          684.4780763790665,
+          603.1272984441301
+        ],
+        "eccentricity": 0.9939466871687849,
+        "score": 1.4152237619347527
+      },
+      {
+        "area_um2": 0.12932609521806446,
+        "centroid_px": [
+          703.3362068965517,
+          581.9051724137931
+        ],
+        "eccentricity": 0.9944298338838944,
+        "score": 1.4176273543275926
+      },
+      {
+        "area_um2": 0.0925350508887875,
+        "centroid_px": [
+          716.6626506024096,
+          558.8795180722891
+        ],
+        "eccentricity": 0.9924729131155324,
+        "score": 1.4157776665666164
+      },
+      {
+        "area_um2": 0.07358208865855391,
+        "centroid_px": [
+          630.2575757575758,
+          712.7575757575758
+        ],
+        "eccentricity": 0.9974955081362393,
+        "score": 1.4208555028335526
+      }
+    ],
+    "cells_segmented": 12,
+    "error_magnitude_um": 7.347907969147106,
+    "error_um": [
+      7.285190263399768,
+      0.9579949629934191
+    ],
+    "method": "morphology_match",
+    "morphology_score": 1.4119520852007463,
+    "source_features": {
+      "area_um2": 343.09439999999995,
+      "eccentricity": 0.5764255392879148
+    }
+  },
+  "outputs": {
+    "overlay_png": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\config\\objective_target\\20260504_231758\\overlay.png",
+    "source_tif": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\config\\objective_target\\20260504_231758\\source.tif",
+    "target_tif": "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\controller\\vendor\\leica\\config\\objective_target\\20260504_231758\\target.tif"
+  },
+  "picked_cell": {
+    "area_px": 264,
+    "bbox_px": [
+      499,
+      512,
+      517,
+      532
+    ],
+    "bbox_um": [
+      22.799999999999997,
+      20.52
+    ],
+    "centroid_xy_px": [
+      521.2575757575758,
+      507.3484848484849
+    ],
+    "eccentricity": 0.5764255392879148,
+    "rank": 0
+  },
+  "refine": null,
+  "source_image_size_px": 1024,
+  "source_pixel_size_um": 1.14,
+  "source_slot": 1,
+  "source_stage_xy_um": [
+    22958.579101562496,
+    27924.9267578125
+  ],
+  "target_base_fov_um": 581.25,
+  "target_fov_at_zoom_um": 34.19117647058823,
+  "target_pixel_size_um": 0.03338982077205882,
+  "target_slot": 2,
+  "target_zoom": 17,
+  "timestamp": "20260504_231840",
+  "z_translation": {
+    "delta_um": -11.165326060969164,
+    "source_zwide_um": 5401.25,
+    "target_zwide_um": 5390.084673939031
+  }
+}

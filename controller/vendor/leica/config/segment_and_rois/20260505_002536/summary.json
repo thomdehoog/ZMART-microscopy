@@ -1,0 +1,443 @@
+{
+  "frame": {
+    "fov_um": 290.90815999999995,
+    "image_size_px": 1024,
+    "pixel_size_um": 0.28408999999999995
+  },
+  "image_path": "Z:\\zmbstaff\\10374\\Temporary_Data\\Experiments\\experiment--2026_05_04_20_03_40\\image--L0000--J698--E00--X00--Y00--T0000--Z00--C00.ome.tif",
+  "job": "Overview",
+  "lrp_after_apply": [
+    {
+      "index": 0,
+      "translation_um": [
+        -13.304881666666663,
+        21.164704999999994
+      ],
+      "type": "8",
+      "vertex_count": 12
+    },
+    {
+      "index": 1,
+      "translation_um": [
+        31.87895642857142,
+        -135.65297499999997
+      ],
+      "type": "8",
+      "vertex_count": 14
+    },
+    {
+      "index": 2,
+      "translation_um": [
+        -34.618395714285704,
+        -7.467508571428571
+      ],
+      "type": "8",
+      "vertex_count": 14
+    },
+    {
+      "index": 3,
+      "translation_um": [
+        -45.847755384615375,
+        -40.308000384615376
+      ],
+      "type": "8",
+      "vertex_count": 13
+    },
+    {
+      "index": 4,
+      "translation_um": [
+        -43.12249458333332,
+        -58.96051208333333
+      ],
+      "type": "8",
+      "vertex_count": 12
+    },
+    {
+      "index": 5,
+      "translation_um": [
+        -25.795371999999997,
+        -74.81983633333333
+      ],
+      "type": "8",
+      "vertex_count": 15
+    },
+    {
+      "index": 6,
+      "translation_um": [
+        21.401446666666658,
+        -111.54320366666664
+      ],
+      "type": "8",
+      "vertex_count": 15
+    },
+    {
+      "index": 7,
+      "translation_um": [
+        0.3787866666666669,
+        -0.19886300000000032
+      ],
+      "type": "8",
+      "vertex_count": 15
+    },
+    {
+      "index": 8,
+      "translation_um": [
+        -1.6608338461538454,
+        84.07971346153845
+      ],
+      "type": "8",
+      "vertex_count": 13
+    },
+    {
+      "index": 9,
+      "translation_um": [
+        -18.242636428571423,
+        118.32348499999999
+      ],
+      "type": "8",
+      "vertex_count": 14
+    },
+    {
+      "index": 10,
+      "translation_um": [
+        -63.429549090909084,
+        -136.5568977272727
+      ],
+      "type": "8",
+      "vertex_count": 12
+    },
+    {
+      "index": 11,
+      "translation_um": [
+        -15.797433214285714,
+        -20.971929642857138
+      ],
+      "type": "8",
+      "vertex_count": 14
+    },
+    {
+      "index": 12,
+      "translation_um": [
+        7.495605384615383,
+        -116.96859423076918
+      ],
+      "type": "8",
+      "vertex_count": 13
+    },
+    {
+      "index": 13,
+      "translation_um": [
+        -54.912229583333314,
+        -89.14507458333333
+      ],
+      "type": "8",
+      "vertex_count": 12
+    },
+    {
+      "index": 14,
+      "translation_um": [
+        75.74549624999999,
+        -127.47355041666667
+      ],
+      "type": "8",
+      "vertex_count": 12
+    },
+    {
+      "index": 15,
+      "translation_um": [
+        52.41460499999999,
+        -137.10183400000003
+      ],
+      "type": "8",
+      "vertex_count": 11
+    },
+    {
+      "index": 16,
+      "translation_um": [
+        11.789734999999997,
+        101.8333518181818
+      ],
+      "type": "8",
+      "vertex_count": 11
+    },
+    {
+      "index": 17,
+      "translation_um": [
+        139.11887299999998,
+        3.8352149999999994
+      ],
+      "type": "8",
+      "vertex_count": 11
+    },
+    {
+      "index": 18,
+      "translation_um": [
+        -59.31167888888888,
+        -51.43607277777777
+      ],
+      "type": "8",
+      "vertex_count": 9
+    },
+    {
+      "index": 19,
+      "translation_um": [
+        143.8442366666666,
+        17.187444999999997
+      ],
+      "type": "8",
+      "vertex_count": 7
+    },
+    {
+      "index": 20,
+      "translation_um": [
+        79.90031249999998,
+        -144.48343916666664
+      ],
+      "type": "8",
+      "vertex_count": 7
+    }
+  ],
+  "rois": [
+    {
+      "area_px": 4144,
+      "index": 0,
+      "label": 18,
+      "n_original_vertices": 315,
+      "n_simplified_vertices": 12,
+      "translation_um": [
+        -13.304881666666663,
+        21.164704999999994
+      ]
+    },
+    {
+      "area_px": 4121,
+      "index": 1,
+      "label": 4,
+      "n_original_vertices": 297,
+      "n_simplified_vertices": 14,
+      "translation_um": [
+        31.87895642857142,
+        -135.65297499999997
+      ]
+    },
+    {
+      "area_px": 4029,
+      "index": 2,
+      "label": 14,
+      "n_original_vertices": 287,
+      "n_simplified_vertices": 14,
+      "translation_um": [
+        -34.618395714285704,
+        -7.467508571428571
+      ]
+    },
+    {
+      "area_px": 3966,
+      "index": 3,
+      "label": 12,
+      "n_original_vertices": 287,
+      "n_simplified_vertices": 13,
+      "translation_um": [
+        -45.847755384615375,
+        -40.308000384615376
+      ]
+    },
+    {
+      "area_px": 3762,
+      "index": 4,
+      "label": 10,
+      "n_original_vertices": 285,
+      "n_simplified_vertices": 12,
+      "translation_um": [
+        -43.12249458333332,
+        -58.96051208333333
+      ]
+    },
+    {
+      "area_px": 3582,
+      "index": 5,
+      "label": 9,
+      "n_original_vertices": 293,
+      "n_simplified_vertices": 15,
+      "translation_um": [
+        -25.795371999999997,
+        -74.81983633333333
+      ]
+    },
+    {
+      "area_px": 3525,
+      "index": 6,
+      "label": 7,
+      "n_original_vertices": 277,
+      "n_simplified_vertices": 15,
+      "translation_um": [
+        21.401446666666658,
+        -111.54320366666664
+      ]
+    },
+    {
+      "area_px": 3484,
+      "index": 7,
+      "label": 15,
+      "n_original_vertices": 277,
+      "n_simplified_vertices": 15,
+      "translation_um": [
+        0.3787866666666669,
+        -0.19886300000000032
+      ]
+    },
+    {
+      "area_px": 3265,
+      "index": 8,
+      "label": 19,
+      "n_original_vertices": 271,
+      "n_simplified_vertices": 13,
+      "translation_um": [
+        -1.6608338461538454,
+        84.07971346153845
+      ]
+    },
+    {
+      "area_px": 3244,
+      "index": 9,
+      "label": 21,
+      "n_original_vertices": 261,
+      "n_simplified_vertices": 14,
+      "translation_um": [
+        -18.242636428571423,
+        118.32348499999999
+      ]
+    },
+    {
+      "area_px": 3219,
+      "index": 10,
+      "label": 1,
+      "n_original_vertices": 212,
+      "n_simplified_vertices": 12,
+      "translation_um": [
+        -63.429549090909084,
+        -136.5568977272727
+      ]
+    },
+    {
+      "area_px": 3194,
+      "index": 11,
+      "label": 13,
+      "n_original_vertices": 267,
+      "n_simplified_vertices": 14,
+      "translation_um": [
+        -15.797433214285714,
+        -20.971929642857138
+      ]
+    },
+    {
+      "area_px": 3070,
+      "index": 12,
+      "label": 6,
+      "n_original_vertices": 257,
+      "n_simplified_vertices": 13,
+      "translation_um": [
+        7.495605384615383,
+        -116.96859423076918
+      ]
+    },
+    {
+      "area_px": 2963,
+      "index": 13,
+      "label": 8,
+      "n_original_vertices": 279,
+      "n_simplified_vertices": 12,
+      "translation_um": [
+        -54.912229583333314,
+        -89.14507458333333
+      ]
+    },
+    {
+      "area_px": 2779,
+      "index": 14,
+      "label": 5,
+      "n_original_vertices": 245,
+      "n_simplified_vertices": 12,
+      "translation_um": [
+        75.74549624999999,
+        -127.47355041666667
+      ]
+    },
+    {
+      "area_px": 2558,
+      "index": 15,
+      "label": 2,
+      "n_original_vertices": 188,
+      "n_simplified_vertices": 11,
+      "translation_um": [
+        52.41460499999999,
+        -137.10183400000003
+      ]
+    },
+    {
+      "area_px": 2120,
+      "index": 16,
+      "label": 20,
+      "n_original_vertices": 215,
+      "n_simplified_vertices": 11,
+      "translation_um": [
+        11.789734999999997,
+        101.8333518181818
+      ]
+    },
+    {
+      "area_px": 1858,
+      "index": 17,
+      "label": 16,
+      "n_original_vertices": 155,
+      "n_simplified_vertices": 11,
+      "translation_um": [
+        139.11887299999998,
+        3.8352149999999994
+      ]
+    },
+    {
+      "area_px": 754,
+      "index": 18,
+      "label": 11,
+      "n_original_vertices": 125,
+      "n_simplified_vertices": 9,
+      "translation_um": [
+        -59.31167888888888,
+        -51.43607277777777
+      ]
+    },
+    {
+      "area_px": 377,
+      "index": 19,
+      "label": 17,
+      "n_original_vertices": 66,
+      "n_simplified_vertices": 7,
+      "translation_um": [
+        143.8442366666666,
+        17.187444999999997
+      ]
+    },
+    {
+      "area_px": 223,
+      "index": 20,
+      "label": 3,
+      "n_original_vertices": 59,
+      "n_simplified_vertices": 7,
+      "translation_um": [
+        79.90031249999998,
+        -144.48343916666664
+      ]
+    }
+  ],
+  "settings": {
+    "diameter": null,
+    "max_rois": 0,
+    "min_area_px": 50,
+    "no_backlash": false,
+    "no_gpu": false,
+    "no_roi_scan": false,
+    "tolerance_px": 2.0
+  },
+  "timestamp": "20260505_002610"
+}
