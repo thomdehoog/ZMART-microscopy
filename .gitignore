@@ -8,3 +8,6 @@ dist/
 build/
 Thumbs.db
 .DS_Store
+*.zip
+.pytest_cache/
+**/.claude/settings.local.json
