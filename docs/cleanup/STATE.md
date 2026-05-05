@@ -195,6 +195,34 @@ Rollback to the trusted baseline at any time:
 git switch clean-refactor
 ```
 
+## Findings — hardware test 2026-05-05
+
+Wave-2 hardware run (3 example scripts, 10x/20x):
+
+- `objective_switch_target.py` 10x->20x — pass, landing 6.04 um.
+- `galvo_zoom_in.py` — pass, landing 2.17 um.
+- `segment_and_define_rois.py` (110 ROIs) — failed first attempt
+  with `PermissionError` on the LRP file (verify_fn opened the file
+  while LAS X still held the write handle); the script's own retry
+  loop succeeded on attempt 4 (timeouts ballooned 0.5s -> 1s -> 2s).
+- Re-run of `objective_switch_target.py` immediately after the
+  segment run — `get_hardware_info` timed out 3x and aborted before
+  any acquire. LAS X looked wedged for at least the period of the
+  retry, not just the single LRP write.
+
+Pattern: mtime-poll save confirmation is racy *and* slow under load,
+and after a heavy LRP write LAS X stops answering API calls for a
+while. The existing retry loop only papers over the fast-confirm
+race; it doesn't help with LAS X being locked up downstream.
+
+This makes the existing `project_apply_lrp_change_fast_confirm_race`
+note (memory) more concrete: not just a "next acquire fails" risk,
+but a "heavier LRP writes wedge LAS X long enough that *unrelated*
+reads time out" failure mode. Worth a clean diagnosis pass before
+touching code — pin down whether the lockup is LAS X processing the
+ROI batch, an LRP-load that hasn't actually finished, or a transport
+issue similar to the startup `get_xy()` race.
+
 ## Open questions for next session
 
 - Are the 3 untracked notebooks (`_codex`, `_user`, `t_user`)
