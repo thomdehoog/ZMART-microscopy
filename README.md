@@ -4,8 +4,11 @@ Microscope automation framework.
 
 ## Structure
 
-- `controller/` — Microscope control and hardware drivers
-  - `vendor/leica/lasx/` — Leica STELLARIS confocal driver
-- `analysis/` — Data analysis pipelines
-  - `post_acquisition/` — Post-acquisition analysis
-  - `realtime/` — Real-time analysis during acquisition
+- `controller/vendor/leica/navigator_expert/` — main Python package
+  - `driver/` — Leica STELLARIS / LAS X confocal driver
+  - `algorithms/` — image-analysis primitives (focus, registration)
+  - `calibration/` — multi-objective calibration subsystem
+  - `examples/` — three working end-to-end example scripts
+  - `notebooks/` — workbooks
+  - `test/` — pytest suite
+- `docs/cleanup/` — cleanup state and conventions

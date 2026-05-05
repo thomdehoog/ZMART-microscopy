@@ -4,14 +4,18 @@ Microscope automation framework.
 
 ## Structure
 
-- `controller/vendor/leica/lasx/` — Leica STELLARIS confocal driver
-- `controller/vendor/leica/test/` — Driver tests
-- `analysis/post_acquisition/` — Post-acquisition analysis
-- `analysis/realtime/` — Real-time analysis during acquisition
+- `controller/vendor/leica/navigator_expert/` — main package
+  - `driver/` — Leica STELLARIS / LAS X confocal driver
+  - `algorithms/` — image-analysis primitives (focus, registration)
+  - `calibration/` — multi-objective calibration subsystem
+  - `examples/` — three working end-to-end example scripts
+  - `notebooks/` — workbooks
+  - `test/` — pytest suite
+- `docs/cleanup/` — active cleanup state and conventions
 
-## Leica LASX Driver
+## Leica LAS X driver
 
-- **Package**: `controller/vendor/leica/lasx/`
+- **Package**: `controller/vendor/leica/navigator_expert/driver/`
 - **API reference**: `controller/vendor/leica/README.md`
 - **All commands return** a result dict with `success`, `confirmed`, `message`, `timing`, `logs`
 
@@ -38,5 +42,12 @@ Follow the Zen of Python:
 
 ## Environment
 
-- **Git**: `C:/ProgramData/MinicondaZMB/Library/cmd/git.exe`
+- **Git**: `C:/ProgramData/MinicondaZMB/Library/bin/git.exe`
 - **Conda env**: `C:/ProgramData/MinicondaZMB/envs/lasxapi_extended`
+
+## Active cleanup
+
+Read `docs/cleanup/STATE.md` first for the current cleanup-wave
+state, off-limits zones (driver/, calibration/), open questions,
+and the rollback path. `docs/cleanup/CONVENTIONS.md` is the rubric
+every cleanup commit is graded against.
