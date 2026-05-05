@@ -104,7 +104,11 @@ Done:
   part of any active workflow and the supported example surface is
   `controller/vendor/leica/navigator_expert/examples/`. Anything
   still useful from the spikes can be pulled from git history.
-- ✅ Moved `smart_microscopy_v2.ipynb` to `notebooks/` (`5b32460`).
+- ✅ Moved `smart_microscopy_v2.ipynb` to
+  `controller/vendor/leica/navigator_expert/notebooks/` — the
+  notebook lives inside the package as a subfolder, keeping the
+  repo root free of notebook clutter (`5b32460` → relocated later
+  this session).
 - ✅ Trimmed empty whitespace under the LAS X interaction banners
   in all 3 example scripts (`32c94ee`).
 
