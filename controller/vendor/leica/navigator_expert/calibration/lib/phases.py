@@ -36,7 +36,7 @@ import time
 import numpy as np
 
 import navigator_expert.driver as drv
-from navigator_expert.analysis import (
+from navigator_expert.algorithms import (
     D4_RESIDUAL_MAX,
     VOTING_METHODS,
     brenner_focus,

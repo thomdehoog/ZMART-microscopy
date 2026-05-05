@@ -756,7 +756,7 @@ def step_refine_position(
     Returns a report fragment with the chosen mode, intermediate
     zoom/pixel, and one entry per iteration.
     """
-    from navigator_expert import analysis as _ana
+    from navigator_expert import algorithms as _alg
 
     src_pixel_um = source_pick.geometry.pixel_size_um
     src_size_px = source_pick.geometry.image_size_px
@@ -782,7 +782,7 @@ def step_refine_position(
             )
             mode_detail: dict[str, Any] = {"ncc_peak": quality}
         else:
-            pair = _ana.prepare_pair(
+            pair = _alg.prepare_pair(
                 source_img, img,
                 source_pixel_um=src_pixel_um,
                 intermediate_pixel_um=int_pixel_um,
@@ -791,10 +791,10 @@ def step_refine_position(
             )
             ref, tgt, pixel_um = pair["ref"], pair["tgt"], pair["pixel_um"]
             if args.refine == "pcc":
-                dx_um, dy_um, quality = _ana.pcc(ref, tgt, pixel_um)
+                dx_um, dy_um, quality = _alg.pcc(ref, tgt, pixel_um)
                 mode_detail = {"pcc_quality": quality}
             else:  # voting
-                vote = _ana.register_voting(ref, tgt, pixel_um)
+                vote = _alg.register_voting(ref, tgt, pixel_um)
                 mode_detail = {
                     "voting_agreeing": vote["agreeing"],
                     "voting_confidence": vote["confidence"],
