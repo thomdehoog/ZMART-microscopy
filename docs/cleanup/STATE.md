@@ -99,8 +99,11 @@ Done:
   `smart_microscopy_codex.ipynb`, `smart_microscopy_user.ipynb`,
   `t_user.ipynb` from this branch (`31af51c`).
 - ✅ Deleted top-level `analysis/` empty stubs (`f422776`).
-- ✅ Moved 4 root spike scripts to `scripts/legacy/` with README
-  documenting historical context (`34962dc`).
+- ✅ Moved 4 root spike scripts to `scripts/legacy/` (`34962dc`),
+  then deleted the entire `scripts/legacy/` directory — they're not
+  part of any active workflow and the supported example surface is
+  `controller/vendor/leica/navigator_expert/examples/`. Anything
+  still useful from the spikes can be pulled from git history.
 - ✅ Moved `smart_microscopy_v2.ipynb` to `notebooks/` (`5b32460`).
 - ✅ Trimmed empty whitespace under the LAS X interaction banners
   in all 3 example scripts (`32c94ee`).
