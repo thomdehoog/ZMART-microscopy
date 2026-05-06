@@ -216,7 +216,8 @@ def build_focus_map(ctx: Context) -> FocusMap:
     for i, fp in enumerate(focus_positions):
         print(f"  {i + 1}. x={fp['x_um']:.1f}  y={fp['y_um']:.1f} um")
 
-    drv.strip_template(client)
+    if not drv.strip_template(client):
+        raise RuntimeError("drv.strip_template failed before AF loop.")
     drv.select_job(client, cfg.af_job)
 
     measured: list[dict] = []

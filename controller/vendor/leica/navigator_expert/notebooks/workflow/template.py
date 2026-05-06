@@ -224,14 +224,21 @@ def read_scan_field(ctx: Context) -> None:
             (r.get("tile_size_um") or 0) for r in tile_positions.values()
         ) / 2
 
+        x_min = min(tile_xs) - ts_half - cfg.limit_margin_um
+        x_max = max(tile_xs) + ts_half + cfg.limit_margin_um
+        y_min = min(tile_ys) - ts_half - cfg.limit_margin_um
+        y_max = max(tile_ys) + ts_half + cfg.limit_margin_um
+        x_min, x_max, y_min, y_max = _clamp_xy_to_envelope(
+            x_min, x_max, y_min, y_max, stage_cfg,
+        )
+
         drv.set_stage_limits(
-            x_min=min(tile_xs) - ts_half - cfg.limit_margin_um,
-            x_max=max(tile_xs) + ts_half + cfg.limit_margin_um,
-            y_min=min(tile_ys) - ts_half - cfg.limit_margin_um,
-            y_max=max(tile_ys) + ts_half + cfg.limit_margin_um,
+            x_min=x_min, x_max=x_max,
+            y_min=y_min, y_max=y_max,
             z_galvo_min=z_galvo_min, z_galvo_max=z_galvo_max,
             z_wide_min=z_wide_min, z_wide_max=z_wide_max,
         )
+        ctx.boundary_limits = drv.get_stage_limits()
         print("[step 2] Stage limits narrowed from scan field.")
 
     ctx.scan_field = {
