@@ -4,7 +4,7 @@ Per TARGET_ACQUISITION_DESIGN.md D11 / section 5.1.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +60,19 @@ class Config:
 
 
 @dataclass
+class TargetState:
+    """Run state for Step 5. Explicit model of what happened."""
+    started: bool = False
+    setup_stage: str | None = None
+    setup_error: str | None = None
+    objective_switched: bool = False
+    post_switch_zgalvo_um: float | None = None
+    zgalvo_read_error: str | None = None
+    drift_um: float | None = None
+    drift_warning: bool = False
+
+
+@dataclass
 class Context:
     """Mutable runtime state that workflow helpers update in place.
 
@@ -87,6 +100,9 @@ class Context:
     source_zgalvo_um: float = 0.0
     source_zgalvo_warning: bool = False
     cellpose_env_present: bool = False
+
+    # Target run state (populated by Step 5)
+    target_state: TargetState = field(default_factory=TargetState)
 
     _shutdown_done: bool = False
 
