@@ -1,0 +1,101 @@
+"""Config (immutable operator inputs) + Context (mutable runtime state).
+
+Per TARGET_ACQUISITION_DESIGN.md D11 / section 5.1.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+@dataclass(frozen=True)
+class Config:
+    """Operator inputs -- constructed once in the notebook config cell.
+
+    Stage XY limits come from boundary point markers placed in
+    Navigator Expert (preferred); the physical envelope from
+    `stage.json` is used as the safety ceiling. The cfg `stage_*_um`
+    fields are an opt-in fallback only (escape hatch when LAS X
+    markers cannot be used) -- the notebook does not surface them.
+
+    Z-wide limits always come from `stage.json` (the physical
+    envelope); there is no operator-typed override -- focus behaviour
+    is controlled by the focus map in Step 3.
+    """
+
+    # Slots and jobs
+    source_slot: int
+    target_slot: int
+    acquisition_job: str
+    target_job: str
+    af_job: str
+
+    # Pick policy
+    n_picks_per_tile: int
+
+    # Paths
+    analysis_repo: Path
+    output_root: Path
+
+    # Optional behaviour flags (defaults)
+    feature: str = "area"
+    fov_bbox_margin: float = 1.5
+    settle_after_objective_switch_s: float = 3.0
+    restore_template_after_af: bool = True
+    restore_source_at_end: bool = True
+    smoke_test_pipeline: bool = False
+
+    # Boundary marker margin (only consumed when markers are present)
+    limit_margin_um: float = 500.0
+
+    # Stage XY fallback (escape hatch -- prefer LAS X markers).
+    # All four must be set together. They are validated against the
+    # physical envelope from stage.json; a ValueError is raised if
+    # any value falls outside.
+    stage_x_min_um: float | None = None
+    stage_x_max_um: float | None = None
+    stage_y_min_um: float | None = None
+    stage_y_max_um: float | None = None
+
+
+@dataclass
+class Context:
+    """Mutable runtime state that workflow helpers update in place.
+
+    Contract: preflight returns a fully-validated Context. Every
+    field declared here without a default value is a hard
+    precondition for the rest of the workflow. Optional fields
+    (those with defaults) are populated by later steps.
+    """
+
+    cfg: Config
+    client: Any
+    hw: Any
+    calibration: dict
+    stage_config: dict
+    engine: Any
+    out_dir: Path
+    current_job: str
+    templates_dir: Path                       # required after preflight (D9)
+
+    # Populated by later steps:
+    boundary_limits: dict | None = None       # set in Step 1
+    scan_field: dict | None = None            # set in Step 2
+
+    # Preflight telemetry (consumed by summary.json later)
+    source_zgalvo_um: float = 0.0
+    source_zgalvo_warning: bool = False
+    cellpose_env_present: bool = False
+
+    _shutdown_done: bool = False
+
+    def shutdown(self) -> None:
+        """Idempotent shutdown (D20). Safe to call multiple times."""
+        if self._shutdown_done:
+            return
+        try:
+            self.engine.shutdown()
+        except Exception as exc:
+            print(f"[shutdown] engine.shutdown() raised: {exc}")
+        self._shutdown_done = True

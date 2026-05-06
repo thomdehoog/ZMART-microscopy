@@ -1,0 +1,466 @@
+"""template.py -- Stage limits, strip, z-wide, scan field.
+
+prepare_template (Step 1): read boundary markers, set XY + Z stage
+  limits, strip the template (removes markers), enforce z-wide.
+  All before the operator draws the scan field.
+
+read_scan_field (Step 2): parse the scan field the operator drew,
+  synthesize tiles if geometry-only, narrow limits if Step 1
+  deferred, populate ctx.scan_field.
+
+plot_scan_field: visualise tiles, boundary, and focus markers.
+
+Z-galvo is never commanded by this workflow (D2/D3); we still pass
+the stage.json z-galvo envelope to drv.set_stage_limits because the
+API requires the values.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import navigator_expert.driver as drv
+from navigator_expert.driver.scanning_templates import (
+    TEMPLATE_BASE,
+    TEMPLATE_XML,
+    STRIPPED_BASE,
+    STRIPPED_XML,
+    STRIPPED_LRP,
+)
+
+from .context import Context
+
+
+def prepare_template(ctx: Context) -> None:
+    """Step 1: limits, strip, enforce z-wide.
+
+    Sets stage limits, strips the template (removing boundary markers),
+    and enforces z-wide on every job. All before the operator draws
+    the scan field in Navigator Expert.
+
+    Limits priority:
+      1. Boundary point markers in Navigator Expert (preferred).
+         Marker-derived XY is clamped to the physical envelope from
+         stage.json with a printed report of any clamp.
+      2. Explicit cfg.stage_x/y_min/max_um (escape hatch -- not
+         surfaced in the notebook). Validated against the physical
+         envelope; ValueError if any value falls outside.
+      3. None -- physical envelope is applied for safety; Step 2
+         will narrow XY using the scan field.
+    """
+    cfg = ctx.cfg
+    client = ctx.client
+    stage_cfg = ctx.stage_config
+
+    # --- Validate cfg shape FIRST (fail fast before any LAS X work) ---
+    cfg_xy_values = (cfg.stage_x_min_um, cfg.stage_x_max_um,
+                     cfg.stage_y_min_um, cfg.stage_y_max_um)
+    cfg_xy_any = any(v is not None for v in cfg_xy_values)
+    cfg_xy_all = all(v is not None for v in cfg_xy_values)
+
+    if cfg_xy_any and not cfg_xy_all:
+        raise ValueError(
+            "cfg stage XY fallback is partially set: "
+            f"stage_x_min_um={cfg.stage_x_min_um}, "
+            f"stage_x_max_um={cfg.stage_x_max_um}, "
+            f"stage_y_min_um={cfg.stage_y_min_um}, "
+            f"stage_y_max_um={cfg.stage_y_max_um}. "
+            "All four must be set together, or all four left as None "
+            "(prefer placing boundary markers in LAS X)."
+        )
+
+    # --- Read what's in LAS X right now ---
+    save_result = drv.save_experiment(client, TEMPLATE_XML, ctx.templates_dir, timeout=60)
+    if save_result is None:
+        raise RuntimeError(
+            "drv.save_experiment failed (returned None). "
+            "Cannot read boundary markers from stale files."
+        )
+    parsed = drv.parse_template_positions(
+        ctx.templates_dir, TEMPLATE_BASE, client=client,
+    )
+    boundary_points = [
+        g["center_um"]
+        for g in parsed.get("geometries", {}).values()
+        if g.get("type") == "Point" and "center_um" in g
+    ]
+
+    # --- Z limits always from physical envelope (stage.json) ---
+    z_galvo_min, z_galvo_max = stage_cfg["limits_um"]["z_galvo"]
+    z_wide_min, z_wide_max = stage_cfg["limits_um"]["z_wide"]
+
+    # --- Decide where XY limits come from ---
+    if boundary_points:
+        # Primary path: markers narrow within the envelope
+        xs = [p["x_um"] for p in boundary_points]
+        ys = [p["y_um"] for p in boundary_points]
+        x_min = min(xs) - cfg.limit_margin_um
+        x_max = max(xs) + cfg.limit_margin_um
+        y_min = min(ys) - cfg.limit_margin_um
+        y_max = max(ys) + cfg.limit_margin_um
+        x_min, x_max, y_min, y_max = _clamp_xy_to_envelope(
+            x_min, x_max, y_min, y_max, stage_cfg
+        )
+        source = f"{len(boundary_points)} boundary marker(s)"
+
+    elif cfg_xy_all:
+        # Fallback: explicit cfg, hard-validated
+        _validate_cfg_xy(cfg, stage_cfg)
+        x_min = float(cfg.stage_x_min_um)
+        x_max = float(cfg.stage_x_max_um)
+        y_min = float(cfg.stage_y_min_um)
+        y_max = float(cfg.stage_y_max_um)
+        source = "cfg fallback"
+
+    else:
+        # Defer: apply physical envelope so any intermediate move is
+        # still bounded; Step 2 will narrow from the scan field.
+        drv.apply_stage_limits_from_config(stage_cfg)
+        actual = drv.get_stage_limits()
+        ctx.boundary_limits = None
+        print(
+            "[step 1] No boundary markers and no cfg XY fallback. "
+            "Applied physical envelope from stage.json:\n"
+            f"  X: {actual['x_min']:.0f} - {actual['x_max']:.0f} um\n"
+            f"  Y: {actual['y_min']:.0f} - {actual['y_max']:.0f} um\n"
+            f"  z-wide: {actual['z_wide_min']:.0f} - {actual['z_wide_max']:.0f} um\n"
+            "Step 2 will narrow XY using the scan field."
+        )
+        _strip_and_enforce_zwide(ctx)
+        return
+
+    drv.set_stage_limits(
+        x_min=x_min, x_max=x_max,
+        y_min=y_min, y_max=y_max,
+        z_galvo_min=z_galvo_min, z_galvo_max=z_galvo_max,
+        z_wide_min=z_wide_min, z_wide_max=z_wide_max,
+    )
+    actual = drv.get_stage_limits()
+    ctx.boundary_limits = actual
+
+    print(
+        f"[step 1] Stage limits from {source} "
+        f"(envelope from stage.json):\n"
+        f"  X: {actual['x_min']:.0f} - {actual['x_max']:.0f} um\n"
+        f"  Y: {actual['y_min']:.0f} - {actual['y_max']:.0f} um\n"
+        f"  z-wide: {z_wide_min:.0f} - {z_wide_max:.0f} um (from stage.json)"
+    )
+
+    _strip_and_enforce_zwide(ctx)
+
+
+def read_scan_field(ctx: Context) -> None:
+    """Step 2: parse the scan field, populate ctx.scan_field.
+
+    The operator draws the scan field in Navigator Expert after Step 1
+    strips the template. This function saves the current experiment,
+    parses tile positions (synthesizing from geometries if needed),
+    and optionally narrows stage limits if Step 1 deferred them.
+    """
+    client = ctx.client
+    cfg = ctx.cfg
+
+    save_result = drv.save_experiment(
+        client, TEMPLATE_XML, ctx.templates_dir, timeout=60,
+    )
+    if save_result is None:
+        raise RuntimeError(
+            "drv.save_experiment failed (returned None). "
+            "Cannot read scan field."
+        )
+
+    template_data = drv.parse_template_positions(
+        ctx.templates_dir, TEMPLATE_BASE, client=client,
+    )
+
+    tile_positions = template_data.get("acquisition_positions", {})
+
+    if not tile_positions and template_data.get("geometries"):
+        from navigator_expert.driver.scanning_template_parsers import (
+            _tile_size_from_image_size_str,
+        )
+        settings = drv.get_job_settings(client, cfg.acquisition_job)
+        tile_size_um = None
+        if settings:
+            tile_size_um = _tile_size_from_image_size_str(
+                settings.get("imageSize", ""),
+            )
+        if tile_size_um:
+            template_data = drv.synthesize_tiles(
+                template_data, tile_size_um, job_name=cfg.acquisition_job,
+            )
+            tile_positions = template_data["acquisition_positions"]
+            n_synth = sum(
+                len(r["positions"]) for r in tile_positions.values()
+            )
+            print(f"[step 2] Synthesized {n_synth} tiles from geometries "
+                  f"(tile size {tile_size_um:.1f} um)")
+        else:
+            raise RuntimeError(
+                "No tile positions found and tile size could not be "
+                "determined from the job settings. Draw a scan field "
+                "in Navigator Expert and re-run."
+            )
+
+    if not tile_positions:
+        raise RuntimeError(
+            "No tile positions found. Draw a scan field in "
+            "Navigator Expert and re-run this cell."
+        )
+
+    n_tiles = sum(len(r["positions"]) for r in tile_positions.values())
+
+    # If Step 1 deferred XY limits, narrow from the scan field now
+    if ctx.boundary_limits is None:
+        stage_cfg = ctx.stage_config
+        z_galvo_min, z_galvo_max = stage_cfg["limits_um"]["z_galvo"]
+        z_wide_min, z_wide_max = stage_cfg["limits_um"]["z_wide"]
+
+        tile_xs = [p["x_um"] for r in tile_positions.values()
+                   for p in r["positions"]]
+        tile_ys = [p["y_um"] for r in tile_positions.values()
+                   for p in r["positions"]]
+        ts_half = max(
+            (r.get("tile_size_um") or 0) for r in tile_positions.values()
+        ) / 2
+
+        drv.set_stage_limits(
+            x_min=min(tile_xs) - ts_half - cfg.limit_margin_um,
+            x_max=max(tile_xs) + ts_half + cfg.limit_margin_um,
+            y_min=min(tile_ys) - ts_half - cfg.limit_margin_um,
+            y_max=max(tile_ys) + ts_half + cfg.limit_margin_um,
+            z_galvo_min=z_galvo_min, z_galvo_max=z_galvo_max,
+            z_wide_min=z_wide_min, z_wide_max=z_wide_max,
+        )
+        print("[step 2] Stage limits narrowed from scan field.")
+
+    ctx.scan_field = {
+        "template_data": template_data,
+        "tile_positions": tile_positions,
+        "n_tiles": n_tiles,
+    }
+
+    print(f"[step 2] Scan field: {len(tile_positions)} region(s), "
+          f"{n_tiles} tile(s)")
+    for rid, region in tile_positions.items():
+        print(f"  Region {rid}: {region['job_name']}  "
+              f"{region.get('num_rows', '?')}x{region.get('num_cols', '?')}  "
+              f"tile={region.get('tile_size_um', '?')} um")
+
+
+def plot_scan_field(ctx: Context) -> None:
+    """Visualise the scan field: tiles, boundary, focus markers."""
+    import matplotlib.patches as patches
+    import matplotlib.pyplot as plt
+
+    if ctx.scan_field is None:
+        raise RuntimeError("Call read_scan_field before plot_scan_field.")
+
+    template_data = ctx.scan_field["template_data"]
+    tile_positions = ctx.scan_field["tile_positions"]
+    lim = ctx.boundary_limits
+
+    fig, ax = plt.subplots(figsize=(14, 10))
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("#f5f5f8")
+
+    all_x, all_y = [], []
+
+    viz_colors = (template_data.get("visualization_data", {})
+                  .get("tile_colors", {}))
+    job_color_map = {
+        region["job_name"]: tuple(viz_colors[region["job_name"]])
+        for region in tile_positions.values()
+        if region["job_name"] in viz_colors
+    }
+    legend_jobs: set[str] = set()
+
+    for rid, region in tile_positions.items():
+        jn = region["job_name"]
+        ts = region.get("tile_size_um")
+        if ts is None:
+            continue
+        half = ts / 2
+        rgba = job_color_map.get(jn, (0.78, 0.78, 0.78, 1.0))
+        face = (rgba[0], rgba[1], rgba[2], 0.25)
+        edge = (rgba[0], rgba[1], rgba[2], 0.80)
+        for pos in region["positions"]:
+            cx, cy = pos["x_um"], pos["y_um"]
+            ax.add_patch(patches.Rectangle(
+                (cx - half, cy - half), ts, ts,
+                linewidth=0.6, edgecolor=edge, facecolor=face, zorder=2,
+            ))
+            all_x.extend([cx - half, cx + half])
+            all_y.extend([cy - half, cy + half])
+        if jn not in legend_jobs:
+            label = "No job assigned" if jn == "(unassigned)" else jn
+            ax.plot([], [], "s",
+                    color=(rgba[0], rgba[1], rgba[2], 0.6),
+                    markersize=8, label=label)
+            legend_jobs.add(jn)
+
+    ts_um = max(
+        (r.get("tile_size_um") or 0) for r in tile_positions.values()
+    ) if tile_positions else 0
+    cross = ts_um * 0.25 if ts_um else (
+        max(max(all_x) - min(all_x), max(all_y) - min(all_y)) * 0.01
+        if all_x else 1.0
+    )
+    circle_r = cross * 0.6
+
+    if lim:
+        ax.add_patch(patches.Rectangle(
+            (lim["x_min"], lim["y_min"]),
+            lim["x_max"] - lim["x_min"],
+            lim["y_max"] - lim["y_min"],
+            linewidth=1.0, edgecolor="#aaaaaa", facecolor="none",
+            linestyle=(0, (5, 4)), zorder=1,
+        ))
+        ax.plot([], [], ls=(0, (5, 4)), color="#aaaaaa",
+                linewidth=1.0, label="Sample boundary")
+        all_x.extend([lim["x_min"], lim["x_max"]])
+        all_y.extend([lim["y_min"], lim["y_max"]])
+
+    for fp_list, label in [
+        (template_data.get("focus_points", []), "Focus points"),
+        (template_data.get("autofocus_points", []), "AutoFocus points"),
+    ]:
+        for fp in fp_list:
+            fx, fy = fp["x_um"], fp["y_um"]
+            ax.plot([fx - cross, fx + cross], [fy, fy],
+                    "-", color="#e05555", linewidth=1.2, zorder=10)
+            ax.plot([fx, fx], [fy - cross, fy + cross],
+                    "-", color="#e05555", linewidth=1.2, zorder=10)
+            ax.add_patch(patches.Circle(
+                (fx, fy), circle_r,
+                linewidth=1.2, edgecolor="#e05555",
+                facecolor="none", zorder=11,
+            ))
+            all_x.append(fx)
+            all_y.append(fy)
+        if fp_list:
+            ax.plot([], [], "+", color="#e05555", markersize=10,
+                    markeredgewidth=1.5, label=label)
+
+    if all_x:
+        span = max(max(all_x) - min(all_x), max(all_y) - min(all_y))
+        pad = span * 0.05
+        ax.set_xlim(min(all_x) - pad, max(all_x) + pad)
+        ax.set_ylim(min(all_y) - pad, max(all_y) + pad)
+
+    ax.set_aspect("equal")
+    ax.invert_yaxis()
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.grid(False)
+    for spine in ax.spines.values():
+        spine.set_linewidth(0.8)
+        spine.set_edgecolor("#cccccc")
+    ax.set_title("Scan Field", fontsize=13, fontweight="bold",
+                 color="#222222", pad=12)
+    ax.legend(loc="upper right", fontsize=9, facecolor="white",
+              edgecolor="#cccccc", labelcolor="#444444")
+    plt.tight_layout()
+
+    out_path = ctx.out_dir / "overview_field.png"
+    fig.savefig(out_path, dpi=150)
+    print(f"[step 2] Saved {out_path}")
+    plt.show()
+
+
+# ---------------------------------------------------------------------
+# Internals
+# ---------------------------------------------------------------------
+
+
+def _clamp_xy_to_envelope(
+    x_min: float, x_max: float, y_min: float, y_max: float,
+    stage_cfg: dict,
+) -> tuple[float, float, float, float]:
+    """Clamp marker-derived XY to the physical envelope, print any clamp."""
+    px_min, px_max = stage_cfg["limits_um"]["x"]
+    py_min, py_max = stage_cfg["limits_um"]["y"]
+
+    if x_min < px_min:
+        print(f"[step 1] X min clamped from {x_min:.0f} to {px_min:.0f} um by stage_config.")
+        x_min = px_min
+    if x_max > px_max:
+        print(f"[step 1] X max clamped from {x_max:.0f} to {px_max:.0f} um by stage_config.")
+        x_max = px_max
+    if y_min < py_min:
+        print(f"[step 1] Y min clamped from {y_min:.0f} to {py_min:.0f} um by stage_config.")
+        y_min = py_min
+    if y_max > py_max:
+        print(f"[step 1] Y max clamped from {y_max:.0f} to {py_max:.0f} um by stage_config.")
+        y_max = py_max
+
+    if x_min >= x_max or y_min >= y_max:
+        raise RuntimeError(
+            f"After clamping, XY range is degenerate: "
+            f"X=[{x_min}, {x_max}], Y=[{y_min}, {y_max}]. "
+            f"Markers may be outside the physical envelope "
+            f"(X={stage_cfg['limits_um']['x']}, "
+            f"Y={stage_cfg['limits_um']['y']}). "
+            f"Re-place markers inside the stage range."
+        )
+    return x_min, x_max, y_min, y_max
+
+
+def _validate_cfg_xy(cfg: Any, stage_cfg: dict) -> None:
+    """Hard-fail if explicit cfg XY limits fall outside the physical envelope."""
+    px_min, px_max = stage_cfg["limits_um"]["x"]
+    py_min, py_max = stage_cfg["limits_um"]["y"]
+    problems: list[str] = []
+
+    for name, value, lo, hi in (
+        ("stage_x_min_um", cfg.stage_x_min_um, px_min, px_max),
+        ("stage_x_max_um", cfg.stage_x_max_um, px_min, px_max),
+        ("stage_y_min_um", cfg.stage_y_min_um, py_min, py_max),
+        ("stage_y_max_um", cfg.stage_y_max_um, py_min, py_max),
+    ):
+        if not (lo <= value <= hi):
+            problems.append(
+                f"cfg.{name}={value} outside physical envelope [{lo}, {hi}]"
+            )
+
+    if cfg.stage_x_min_um >= cfg.stage_x_max_um:
+        problems.append(
+            f"cfg.stage_x_min_um ({cfg.stage_x_min_um}) "
+            f"must be < stage_x_max_um ({cfg.stage_x_max_um})"
+        )
+    if cfg.stage_y_min_um >= cfg.stage_y_max_um:
+        problems.append(
+            f"cfg.stage_y_min_um ({cfg.stage_y_min_um}) "
+            f"must be < stage_y_max_um ({cfg.stage_y_max_um})"
+        )
+
+    if problems:
+        raise ValueError(
+            "Invalid cfg stage XY fallback values "
+            "(prefer placing boundary markers in LAS X instead):\n  "
+            + "\n  ".join(problems)
+        )
+
+
+def _strip_and_enforce_zwide(ctx: Context) -> None:
+    """Strip the template; best-effort z-wide enforcement (D2)."""
+    client = ctx.client
+
+    if not drv.strip_template(client):
+        raise RuntimeError("drv.strip_template returned a falsy result.")
+
+    lrp_path = ctx.templates_dir / STRIPPED_LRP
+    if not lrp_path.exists():
+        print("[step 1] Template stripped. Skipped z-wide enforcement "
+              "(stripped LRP not found on disk).")
+        return
+
+    try:
+        parsed = drv.parse_lrp(lrp_path)
+        for name in parsed["jobs"]:
+            drv.lrp_set_z_use_mode(lrp_path, "z-wide", name)
+        drv.load_experiment(client, STRIPPED_BASE)
+        print("[step 1] Template stripped and z-wide enforced on every job.")
+    except Exception as exc:
+        print(f"[step 1] Template stripped. z-wide enforcement failed "
+              f"({exc}); set z-wide manually in LAS X.")
