@@ -80,119 +80,120 @@ def run_overview_with_picks(
     if not drv.strip_template(client):
         raise RuntimeError("strip_template failed before overview acquisition.")
 
-    # 4.0b -- read source frame geometry (pixel size + image size)
-    settings = drv.get_job_settings(client, cfg.acquisition_job)
-    geo = drv.parse_tile_geometry(settings)
-    pixel_size_um = (float(geo["pixel_w_um"]), float(geo["pixel_h_um"]))
-    image_size_px = (int(geo["pixels_x"]), int(geo["pixels_y"]))
+    try:
+        # 4.0b -- read source frame geometry (pixel size + image size)
+        settings = drv.get_job_settings(client, cfg.acquisition_job)
+        geo = drv.parse_tile_geometry(settings)
+        pixel_size_um = (float(geo["pixel_w_um"]), float(geo["pixel_h_um"]))
+        image_size_px = (int(geo["pixels_x"]), int(geo["pixels_y"]))
 
-    # 4.1 -- build snake order
-    sequence = _build_snake_sequence(tile_positions)
-    print(f"[step 4] {len(sequence)} tiles in snake order")
+        # 4.1 -- build snake order
+        sequence = _build_snake_sequence(tile_positions)
+        print(f"[step 4] {len(sequence)} tiles in snake order")
 
-    # Snapshot engine failure count so we only report new ones (D19)
-    failure_count_before = len(
-        engine.status("overview").get("failures", [])
-    )
-
-    # 4.2-4.3 -- acquire + submit + opportunistic drain
-    buffer: list[dict] = []
-    n_submitted = 0
-    tile_acquire_failures: list[dict] = []
-
-    for i, tile in enumerate(sequence):
-        rid = tile["region"]
-        x_um = tile["x_um"]
-        y_um = tile["y_um"]
-        zwide_um = float(focus_map.interpolate_zwide(x_um, y_um))
-        tile_id = (str(rid), tile["row"], tile["col"])
-
-        print(
-            f"[{i + 1}/{len(sequence)}] R{rid} "
-            f"r{tile['row']}c{tile['col']}  "
-            f"x={x_um:.0f} y={y_um:.0f} z={zwide_um:.2f}",
-            end="", flush=True,
+        # Snapshot engine failure count so we only report new ones (D19)
+        failure_count_before = len(
+            engine.status("overview").get("failures", [])
         )
 
+        # 4.2-4.3 -- acquire + submit + opportunistic drain
+        buffer: list[dict] = []
+        n_submitted = 0
+        tile_acquire_failures: list[dict] = []
+
+        for i, tile in enumerate(sequence):
+            rid = tile["region"]
+            x_um = tile["x_um"]
+            y_um = tile["y_um"]
+            zwide_um = float(focus_map.interpolate_zwide(x_um, y_um))
+            tile_id = (str(rid), tile["row"], tile["col"])
+
+            print(
+                f"[{i + 1}/{len(sequence)}] R{rid} "
+                f"r{tile['row']}c{tile['col']}  "
+                f"x={x_um:.0f} y={y_um:.0f} z={zwide_um:.2f}",
+                end="", flush=True,
+            )
+
+            try:
+                image, lasx_path = acquire(
+                    ctx, cfg.acquisition_job, x_um, y_um, zwide_um,
+                )
+                tif_name = f"tile_R{rid:>02s}_r{tile['row']:02d}_c{tile['col']:02d}.tif"
+                tif_path = save_acquired(
+                    image, lasx_path, ctx.out_dir / "overview" / tif_name,
+                )
+                engine.submit("overview", {
+                    "image_path": str(tif_path),
+                    "tile_id": tile_id,
+                    "tile_stage_xy_um": (x_um, y_um),
+                    "tile_zwide_um": zwide_um,
+                    "source_pixel_size_um": pixel_size_um,
+                    "source_image_size_px": image_size_px,
+                    "image_to_stage": ctx.calibration["image_to_stage"],
+                    "n_picks": cfg.n_picks_per_tile,
+                    "feature": cfg.feature,
+                })
+                n_submitted += 1
+                print(f"  ok")
+            except Exception as exc:
+                tile_acquire_failures.append({
+                    "tile_id": tile_id, "error": str(exc),
+                })
+                print(f"  FAIL ({exc})")
+                continue
+
+            # Opportunistic drain
+            buffer.extend(engine.results("overview"))
+
+        # 4.4 -- blocking drain
+        s = None
+        while True:
+            s = engine.status("overview")
+            buffer.extend(engine.results("overview"))
+            if s["pending"] == 0 and s["running"] == 0:
+                break
+            time.sleep(0.05)
+
+        # New failures only (D19) — reuse s from the final loop iteration
+        new_failures = s.get("failures", [])[failure_count_before:]
+
+        # Phase-0 only: each submit produces exactly one result or failure
+        assert len(buffer) + len(new_failures) == n_submitted, (
+            f"Drain mismatch: {len(buffer)} results + {len(new_failures)} "
+            f"failures != {n_submitted} submitted"
+        )
+
+        print(f"\n[step 4] Drain complete: {len(buffer)} result(s), "
+              f"{len(new_failures)} engine failure(s), "
+              f"{len(tile_acquire_failures)} tile acquire failure(s)")
+
+        # 4.5 -- collect picks from engine results
+        raw_picks = _collect_picks_from_results(buffer)
+        n_picks_raw = len(raw_picks)
+
+        # 4.6 -- dedup by cell_source_stage_xy_um (D5)
+        deduped, removed_dup = _dedup_picks(raw_picks)
+
+        # 4.7 -- filter out-of-limits (D6)
+        surviving, removed_xy, removed_z, removed_xlat = _filter_out_of_limits(
+            deduped, ctx,
+        )
+
+        print(f"[step 4] Picks: {n_picks_raw} raw -> "
+              f"{len(removed_dup)} dup, "
+              f"{len(removed_xy)} out-xy, "
+              f"{len(removed_z)} out-z, "
+              f"{len(removed_xlat)} xlat-fail -> "
+              f"{len(surviving)} final")
+
+        all_removed = removed_dup + removed_xy + removed_z + removed_xlat
+    finally:
         try:
-            image, lasx_path = acquire(
-                ctx, cfg.acquisition_job, x_um, y_um, zwide_um,
-            )
-            tif_name = f"tile_R{rid:>02s}_r{tile['row']:02d}_c{tile['col']:02d}.tif"
-            tif_path = save_acquired(
-                image, lasx_path, ctx.out_dir / "overview" / tif_name,
-            )
-            engine.submit("overview", {
-                "image_path": str(tif_path),
-                "tile_id": tile_id,
-                "tile_stage_xy_um": (x_um, y_um),
-                "tile_zwide_um": zwide_um,
-                "source_pixel_size_um": pixel_size_um,
-                "source_image_size_px": image_size_px,
-                "image_to_stage": ctx.calibration["image_to_stage"],
-                "n_picks": cfg.n_picks_per_tile,
-                "feature": cfg.feature,
-            })
-            n_submitted += 1
-            print(f"  ok")
+            drv.restore_template(client)
+            print("[step 4] Template restored.")
         except Exception as exc:
-            tile_acquire_failures.append({
-                "tile_id": tile_id, "error": str(exc),
-            })
-            print(f"  FAIL ({exc})")
-            continue
-
-        # Opportunistic drain
-        buffer.extend(engine.results("overview"))
-
-    # 4.4 -- blocking drain
-    s = None
-    while True:
-        s = engine.status("overview")
-        buffer.extend(engine.results("overview"))
-        if s["pending"] == 0 and s["running"] == 0:
-            break
-        time.sleep(0.05)
-
-    # New failures only (D19) — reuse s from the final loop iteration
-    new_failures = s.get("failures", [])[failure_count_before:]
-
-    # Phase-0 only: each submit produces exactly one result or failure
-    assert len(buffer) + len(new_failures) == n_submitted, (
-        f"Drain mismatch: {len(buffer)} results + {len(new_failures)} "
-        f"failures != {n_submitted} submitted"
-    )
-
-    print(f"\n[step 4] Drain complete: {len(buffer)} result(s), "
-          f"{len(new_failures)} engine failure(s), "
-          f"{len(tile_acquire_failures)} tile acquire failure(s)")
-
-    # 4.5 -- collect picks from engine results
-    raw_picks = _collect_picks_from_results(buffer)
-    n_picks_raw = len(raw_picks)
-
-    # 4.6 -- dedup by cell_source_stage_xy_um (D5)
-    deduped, removed_dup = _dedup_picks(raw_picks)
-
-    # 4.7 -- filter out-of-limits (D6)
-    surviving, removed_xy, removed_z, removed_xlat = _filter_out_of_limits(
-        deduped, ctx,
-    )
-
-    print(f"[step 4] Picks: {n_picks_raw} raw -> "
-          f"{len(removed_dup)} dup, "
-          f"{len(removed_xy)} out-xy, "
-          f"{len(removed_z)} out-z, "
-          f"{len(removed_xlat)} xlat-fail -> "
-          f"{len(surviving)} final")
-
-    all_removed = removed_dup + removed_xy + removed_z + removed_xlat
-
-    try:
-        drv.restore_template(client)
-        print("[step 4] Template restored.")
-    except Exception as exc:
-        print(f"[step 4] WARNING: could not restore template: {exc}")
+            print(f"[step 4] WARNING: could not restore template: {exc}")
 
     return Picks(
         items=surviving,
@@ -323,8 +324,8 @@ def _filter_out_of_limits(
                 pick.cell_source_stage_xy_um[1],
                 pick.tile_zwide_um,
                 calibration,
-                from_slot=cfg.source_slot,
-                to_slot=cfg.target_slot,
+                from_slot=ctx.source_slot,
+                to_slot=ctx.target_slot,
             )
         except Exception as exc:
             removed_translation.append({

@@ -13,9 +13,9 @@ from typing import Any
 import numpy as np
 
 import navigator_expert.driver as drv
-from navigator_expert.driver.commands import select_job as drv_select_job
 
 from .context import Config, Context
+from ._job_state import ensure_job_state
 from .focus import FocusMap
 from .overview import Pick, Picks
 from .target import TargetRecord
@@ -38,9 +38,16 @@ def write_summary(
     n_tiles_acquire_failed = len(picks.tile_acquire_failures)
     n_picks_final = len(picks.items)
 
+    config_dict = _serialize_config(cfg)
+    # Transition compat: inject derived slots into config for old readers
+    config_dict["source_slot"] = ctx.source_slot
+    config_dict["target_slot"] = ctx.target_slot
+
     summary: dict[str, Any] = {
         "timestamp": ctx.out_dir.name,
-        "config": _serialize_config(cfg),
+        "config": config_dict,
+        "source_slot": ctx.source_slot,
+        "target_slot": ctx.target_slot,
         "scan_field": {
             "n_regions": len(tile_positions),
             "n_tiles": n_tiles_planned,
@@ -86,7 +93,6 @@ def write_summary(
             "started": True,
             "setup_stage": ts.setup_stage,
             "setup_error": ts.setup_error,
-            "objective_switched": ts.objective_switched,
             "post_switch_zgalvo_um": ts.post_switch_zgalvo_um,
             "zgalvo_read_error": ts.zgalvo_read_error,
             "drift_um": ts.drift_um,
@@ -240,20 +246,15 @@ def plot_results(
 
 
 def finish(ctx: Context) -> None:
-    """Step 6.3-6.4: optionally restore source objective, then shutdown."""
+    """Step 6.3-6.4: optionally restore source job, then shutdown."""
     cfg = ctx.cfg
 
     if cfg.restore_source_at_end:
         try:
-            r = drv_select_job(client=ctx.client, job_name=cfg.acquisition_job)
-            drv.set_objective(
-                ctx.client, cfg.acquisition_job, ctx.hw,
-                slot_index=cfg.source_slot,
-            )
-            ctx.current_job = cfg.acquisition_job
-            print(f"[step 6] Restored source objective (slot {cfg.source_slot}).")
+            ensure_job_state(ctx, cfg.acquisition_job)
+            print(f"[step 6] Restored source job (slot {ctx.source_slot}).")
         except Exception as exc:
-            print(f"[step 6] WARNING: could not restore source objective: {exc}")
+            print(f"[step 6] WARNING: could not restore source job: {exc}")
 
     ctx.shutdown()
     print("[step 6] Shutdown complete.")

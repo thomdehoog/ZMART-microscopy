@@ -1,6 +1,6 @@
 """_acquire.py -- shared acquire + save helpers for Steps 4 and 5.
 
-acquire(): lazy job switch, move XY, move z-wide, acquire_frame.
+acquire(): verified job state, move z-wide, move XY, acquire_frame.
 save_acquired(): persist a frame to disk (LAS X copy preferred,
   numpy fallback).
 """
@@ -12,9 +12,9 @@ import numpy as np
 import tifffile
 
 import navigator_expert.driver as drv
-from navigator_expert.driver.commands import select_job as drv_select_job
 
 from .context import Context
+from ._job_state import ensure_job_state
 
 
 def acquire(
@@ -26,26 +26,24 @@ def acquire(
 ) -> tuple[np.ndarray, Path]:
     """Move, acquire, return (image, lasx_path).
 
-    Lazy-switches job if ctx.current_job differs. Z is always
-    commanded as z-wide (D2/D3).
+    Job transition goes through ensure_job_state (verified + settled).
+    Z-wide first (job-scoped), XY second (global), then acquire
+    with backlash correction from stage config.
     """
-    client = ctx.client
+    ensure_job_state(ctx, job)
 
-    if ctx.current_job != job:
-        result = drv_select_job(client, job)
-        if not result or not result.get("success"):
-            raise RuntimeError(f"select_job({job!r}) failed: {result!r}")
-        ctx.current_job = job
-
-    r = drv.move_xy(client, x_um, y_um)
-    if not r or not r.get("success"):
-        raise RuntimeError(f"move_xy({x_um}, {y_um}) failed: {r!r}")
-
-    r = drv.move_z(client, job, zwide_um, z_mode="zwide")
+    r = drv.move_z(ctx.client, job, zwide_um, z_mode="zwide")
     if not r or not r.get("success"):
         raise RuntimeError(f"move_z({zwide_um}, zwide) failed: {r!r}")
 
-    image, lasx_path = drv.acquire_frame(client, job)
+    r = drv.move_xy(ctx.client, x_um, y_um)
+    if not r or not r.get("success"):
+        raise RuntimeError(f"move_xy({x_um}, {y_um}) failed: {r!r}")
+
+    backlash_params = ctx.stage_config.get("backlash")
+    image, lasx_path = drv.acquire_frame(
+        ctx.client, job, backlash_params=backlash_params,
+    )
     return image, lasx_path
 
 

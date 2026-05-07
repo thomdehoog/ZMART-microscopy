@@ -24,9 +24,7 @@ class Config:
     is controlled by the focus map in Step 3.
     """
 
-    # Slots and jobs
-    source_slot: int
-    target_slot: int
+    # Jobs
     acquisition_job: str
     target_job: str
     af_job: str
@@ -41,7 +39,7 @@ class Config:
     # Optional behaviour flags (defaults)
     feature: str = "area"
     fov_bbox_margin: float = 1.5
-    settle_after_objective_switch_s: float = 3.0
+    settle_after_job_switch_s: float = 3.0
     restore_template_after_af: bool = True
     restore_source_at_end: bool = True
     smoke_test_pipeline: bool = False
@@ -65,7 +63,6 @@ class TargetState:
     started: bool = False
     setup_stage: str | None = None
     setup_error: str | None = None
-    objective_switched: bool = False
     post_switch_zgalvo_um: float | None = None
     zgalvo_read_error: str | None = None
     drift_um: float | None = None
@@ -89,10 +86,12 @@ class Context:
     stage_config: dict
     engine: Any
     out_dir: Path
-    current_job: str
     templates_dir: Path                       # required after preflight (D9)
+    source_slot: int                          # derived from acquisition_job in preflight
+    target_slot: int                          # derived from target_job in preflight
 
-    # Populated by later steps:
+    # Defaulted fields (populated during or after preflight):
+    current_job: str = ""                     # "" forces first ensure_job_state to run
     boundary_limits: dict | None = None       # set in Step 1
     scan_field: dict | None = None            # set in Step 2
 
@@ -111,7 +110,7 @@ class Context:
         if self._shutdown_done:
             return
         try:
-            self.engine.shutdown()
+            self.engine.shutdown(wait=False)
         except Exception as exc:
             print(f"[shutdown] engine.shutdown() raised: {exc}")
         self._shutdown_done = True

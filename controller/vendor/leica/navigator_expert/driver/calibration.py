@@ -50,10 +50,9 @@ pointer-vs-data is cleanly separated: ``reference_objective_slot`` is
 the only thing that distinguishes ref.
 
 ``offset_xy_um`` is the firmware-applied stage XY motion observed on
-the switch (cumulative ref→target). The cookbook commands an absolute
-XY after the switch, so the firmware delta is not algebraically part
-of the correction at runtime — but it is persisted so callers can
-reason about where the firmware would land if XY were not commanded.
+the switch (cumulative ref→target). Together with ``shift_xy_um`` it
+forms the full XY frame correction, used by
+``translate_xy_between_objectives``.
 """
 
 import json
@@ -219,11 +218,9 @@ def _entry(config, slot):
 def get_offset_xy_um(config, slot):
     """Firmware-applied stage XY delta between *slot* and the reference, in um.
 
-    Read directly from the API on the firmware-driven objective
-    switch. Cumulative from the reference. Reference slot returns
-    ``(0.0, 0.0)``. Diagnostic / informational — the cookbook
-    commands an absolute XY at runtime, so this is not algebraically
-    part of the correction.
+    Signed centricity correction that LAS X applies on objective switch.
+    Cumulative from the reference. Reference slot returns ``(0.0, 0.0)``.
+    Used together with ``shift_xy_um`` in ``translate_xy_between_objectives``.
     """
     entry = _entry(config, slot)
     value = entry.get("offset_xy_um")
@@ -290,13 +287,18 @@ def translate_xy_between_objectives(x_um, y_um, config, *,
                                     from_slot, to_slot):
     """Translate a stage XY from *from_slot*'s frame to *to_slot*'s frame.
 
-    Adds ``shift_xy_um(to) - shift_xy_um(from)``. The reference slot
-    has zero shift, so this works in either direction across any pair
-    the config covers.
+    Adds ``(offset_xy_um + shift_xy_um)(to) - (offset_xy_um + shift_xy_um)(from)``.
+    The reference slot has both at zero, so this works in either
+    direction across any pair the config covers.
     """
+    ox_from, oy_from = get_offset_xy_um(config, from_slot)
+    ox_to, oy_to = get_offset_xy_um(config, to_slot)
     dx_from, dy_from = get_shift_xy_um(config, from_slot)
     dx_to, dy_to = get_shift_xy_um(config, to_slot)
-    return float(x_um) + (dx_to - dx_from), float(y_um) + (dy_to - dy_from)
+    return (
+        float(x_um) + (ox_to - ox_from) + (dx_to - dx_from),
+        float(y_um) + (oy_to - oy_from) + (dy_to - dy_from),
+    )
 
 
 def translate_z_between_objectives(z_um, config, *, from_slot, to_slot):
@@ -317,10 +319,9 @@ def translate_xyz_between_objectives(x_um, y_um, z_um, config, *,
                                      from_slot, to_slot):
     """Translate a full (x, y, z) from *from_slot*'s frame to *to_slot*'s.
 
-    XY is corrected via ``shift_xy_um`` deltas; Z via the sum of
-    ``offset_z_um`` and ``shift_z_um`` deltas. Returns ``(x', y', z')``
-    suitable as absolute commands: ``move_xy_stage(x', y')`` and
-    ``move_z(z', z_mode='zwide')``.
+    All three axes use ``(offset + shift)(to) - (offset + shift)(from)``.
+    Returns ``(x', y', z')`` suitable as absolute commands:
+    ``move_xy_stage(x', y')`` and ``move_z(z', z_mode='zwide')``.
     """
     x_t, y_t = translate_xy_between_objectives(
         x_um, y_um, config, from_slot=from_slot, to_slot=to_slot,
