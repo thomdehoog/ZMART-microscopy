@@ -133,6 +133,7 @@ def run_overview_with_picks(
                     "image_to_stage": ctx.calibration["image_to_stage"],
                     "n_picks": cfg.n_picks_per_tile,
                     "feature": cfg.feature,
+                    "analysis_image_source": cfg.analysis_image_source,
                 })
                 n_submitted += 1
                 print(f"  ok")
