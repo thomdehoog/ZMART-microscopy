@@ -43,6 +43,7 @@ class Config:
     restore_template_after_af: bool = True
     restore_source_at_end: bool = True
     smoke_test_pipeline: bool = False
+    analysis_image_source: str = "acquired"
 
     # Boundary marker margin (only consumed when markers are present)
     limit_margin_um: float = 500.0
