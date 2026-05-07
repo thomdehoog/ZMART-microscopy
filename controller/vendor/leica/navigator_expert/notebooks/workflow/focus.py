@@ -18,6 +18,7 @@ from navigator_expert.driver.scanning_templates import (
 )
 
 from .context import Context
+from ._job_state import ensure_job_state
 
 
 @dataclass
@@ -218,25 +219,30 @@ def build_focus_map(ctx: Context) -> FocusMap:
 
     if not drv.strip_template(client):
         raise RuntimeError("drv.strip_template failed before AF loop.")
-    drv.select_job(client, cfg.af_job)
 
-    measured: list[dict] = []
-    for i, fp in enumerate(focus_positions):
-        print(
-            f"\n[{i + 1}/{len(focus_positions)}] "
-            f"x={fp['x_um']:.0f}  y={fp['y_um']:.0f}",
-            end="", flush=True,
-        )
-        drv.move_xy(client, fp["x_um"], fp["y_um"])
-        drv_acquire(client, cfg.af_job)
-        settings = drv.get_job_settings(client, cfg.af_job)
-        ch = drv.make_changeable_copy(settings)
-        zwide_um = float(ch["zPosition"]["z-wide"])
-        measured.append({**fp, "zwide_um": zwide_um})
-        print(f"  z-wide={zwide_um:.2f} um")
+    try:
+        ensure_job_state(ctx, cfg.af_job)
 
-    if cfg.restore_template_after_af:
-        drv.restore_template(client)
+        measured: list[dict] = []
+        for i, fp in enumerate(focus_positions):
+            print(
+                f"\n[{i + 1}/{len(focus_positions)}] "
+                f"x={fp['x_um']:.0f}  y={fp['y_um']:.0f}",
+                end="", flush=True,
+            )
+            drv.move_xy(client, fp["x_um"], fp["y_um"])
+            drv_acquire(client, cfg.af_job)
+            settings = drv.get_job_settings(client, cfg.af_job)
+            ch = drv.make_changeable_copy(settings)
+            zwide_um = float(ch["zPosition"]["z-wide"])
+            measured.append({**fp, "zwide_um": zwide_um})
+            print(f"  z-wide={zwide_um:.2f} um")
+    finally:
+        if cfg.restore_template_after_af:
+            try:
+                drv.restore_template(client)
+            except Exception as exc:
+                print(f"[step 3] WARNING: could not restore template: {exc}")
 
     xs = np.array([m["x_um"] for m in measured])
     ys = np.array([m["y_um"] for m in measured])

@@ -19,6 +19,7 @@ from typing import Any
 import navigator_expert.driver as drv
 
 from .context import Config, Context
+from ._job_state import ensure_job_state, _read_objective_slot
 
 ZGALVO_WARN_THRESHOLD_UM = 0.5
 CELLPOSE_ENV_NAME = "SMART--target_acquisition--main"
@@ -33,7 +34,7 @@ def preflight(cfg: Config, client: Any) -> Context:
                 The notebook is responsible for the connect handshake.
 
     Raises:
-        RuntimeError: if LAS X is unreachable, slot validation fails,
+        RuntimeError: if LAS X is unreachable, job/slot validation fails,
                       or the analysis pipeline cannot register.
         FileNotFoundError: if the analysis repo / overview.yaml is missing.
     """
@@ -54,31 +55,14 @@ def preflight(cfg: Config, client: Any) -> Context:
     hw = drv.get_hardware_info(client)
     if not hw:
         raise RuntimeError("drv.get_hardware_info returned nothing.")
-    drv.validate_slots(hw, cfg.source_slot, [cfg.target_slot])
 
-    # 0.4 -- force source objective for deterministic starting state
-    set_result = drv.set_objective(
-        client,
-        cfg.acquisition_job,
-        hw,
-        slot_index=cfg.source_slot,
-    )
-    if not set_result or not set_result.get("success"):
-        raise RuntimeError(
-            f"drv.set_objective(slot={cfg.source_slot}) failed: {set_result!r}. "
-            f"Check that the objective is installed in slot {cfg.source_slot} "
-            f"and that the LRP allows objective changes."
-        )
-    # let the firmware settle parfocal motor + objective turret before
-    # we read job settings or use the stage further
-    time.sleep(cfg.settle_after_objective_switch_s)
+    # 0.4a -- derive objective slots from LAS X job settings
+    source_slot, target_slot = _derive_slots(client, cfg, calibration)
 
-    # 0.5 -- read source z-galvo, warn if non-zero (D3)
-    source_zgalvo_um, source_zgalvo_warning = _read_source_zgalvo(
-        client, cfg.acquisition_job
-    )
+    # 0.4b -- verify derived slots are physically installed
+    drv.validate_slots(hw, source_slot, [target_slot])
 
-    # 0.6a -- boot engine (sys.path tweak so smart-analysis is importable)
+    # 0.5 -- boot engine (sys.path tweak so smart-analysis is importable)
     analysis_repo = Path(cfg.analysis_repo)
     if not analysis_repo.exists():
         raise FileNotFoundError(
@@ -91,82 +75,89 @@ def preflight(cfg: Config, client: Any) -> Context:
 
     engine = Engine()
 
-    # 0.6b -- register overview pipeline
-    overview_yaml = (
-        analysis_repo
-        / "workflows"
-        / "target_acquisition"
-        / "pipelines"
-        / "overview.yaml"
-    )
-    if not overview_yaml.exists():
-        engine.shutdown()
-        raise FileNotFoundError(
-            f"overview.yaml not found at {overview_yaml}. "
-            f"Check Config.analysis_repo points at the smart-analysis repo "
-            f"and that workflows/target_acquisition/pipelines/overview.yaml exists."
-        )
     try:
+        # 0.6a -- register overview pipeline
+        overview_yaml = (
+            analysis_repo
+            / "workflows"
+            / "target_acquisition"
+            / "pipelines"
+            / "overview.yaml"
+        )
+        if not overview_yaml.exists():
+            raise FileNotFoundError(
+                f"overview.yaml not found at {overview_yaml}. "
+                f"Check Config.analysis_repo points at the smart-analysis repo "
+                f"and that workflows/target_acquisition/pipelines/overview.yaml exists."
+            )
         engine.register("overview", str(overview_yaml))
+
+        # 0.6b -- env presence check (warn, don't abort)
+        cellpose_env_present = _check_cellpose_env_present()
+
+        # 0.6c -- locate ScanningTemplates dir; HARD-FAIL.
+        templates_dir = drv.find_scanning_templates_dir()
+        if templates_dir is None:
+            raise RuntimeError(
+                "drv.find_scanning_templates_dir() returned None. "
+                "LAS X may not be installed/configured for this Windows "
+                "user, or the kernel was launched without inheriting "
+                "APPDATA. See navigator_expert.driver.find_scanning_templates_dir "
+                "for the exact lookup logic."
+            )
+
+        # 0.6d -- optional synchronous smoke test (D9)
+        if cfg.smoke_test_pipeline:
+            _run_smoke_test(engine)
+
+        # 0.7 -- output dir
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_dir = Path(cfg.output_root) / timestamp
+        (out_dir / "overview").mkdir(parents=True, exist_ok=True)
+        (out_dir / "target").mkdir(parents=True, exist_ok=True)
+        (out_dir / "logs").mkdir(parents=True, exist_ok=True)
+
+        # 0.8 -- construct Context (current_job="" forces ensure_job_state to run)
+        ctx = Context(
+            cfg=cfg,
+            client=client,
+            hw=hw,
+            calibration=calibration,
+            stage_config=stage_config,
+            engine=engine,
+            out_dir=out_dir,
+            templates_dir=templates_dir,
+            source_slot=source_slot,
+            target_slot=target_slot,
+            cellpose_env_present=cellpose_env_present,
+        )
+
+        # 0.9 -- select and verify source job (deterministic starting state)
+        ensure_job_state(ctx, cfg.acquisition_job)
+
+        # 0.10 -- read source z-galvo (AFTER job is ensured)
+        source_zgalvo_um, source_zgalvo_warning = _read_source_zgalvo(
+            client, cfg.acquisition_job
+        )
+        ctx.source_zgalvo_um = source_zgalvo_um
+        ctx.source_zgalvo_warning = source_zgalvo_warning
+
     except Exception:
-        engine.shutdown()
-        raise
-
-    # 0.6c -- env presence check (warn, don't abort)
-    cellpose_env_present = _check_cellpose_env_present()
-
-    # 0.6d -- locate ScanningTemplates dir; HARD-FAIL.
-    # ctx.templates_dir is guaranteed non-None after preflight.
-    templates_dir = drv.find_scanning_templates_dir()
-    if templates_dir is None:
         try:
             engine.shutdown(wait=False)
         except Exception:
             pass
-        raise RuntimeError(
-            "drv.find_scanning_templates_dir() returned None. "
-            "LAS X may not be installed/configured for this Windows "
-            "user, or the kernel was launched without inheriting "
-            "APPDATA. See navigator_expert.driver.find_scanning_templates_dir "
-            "for the exact lookup logic."
-        )
+        raise
 
-    # 0.6d -- optional synchronous smoke test (D9)
-    if cfg.smoke_test_pipeline:
-        _run_smoke_test(engine)
-
-    # 0.7 -- atexit hook is registered after ctx is constructed (below)
-
-    # 0.8 -- output dir
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = Path(cfg.output_root) / timestamp
-    (out_dir / "overview").mkdir(parents=True, exist_ok=True)
-    (out_dir / "target").mkdir(parents=True, exist_ok=True)
-    (out_dir / "logs").mkdir(parents=True, exist_ok=True)
-
-    ctx = Context(
-        cfg=cfg,
-        client=client,
-        hw=hw,
-        calibration=calibration,
-        stage_config=stage_config,
-        engine=engine,
-        out_dir=out_dir,
-        current_job=cfg.acquisition_job,
-        templates_dir=templates_dir,
-        source_zgalvo_um=source_zgalvo_um,
-        source_zgalvo_warning=source_zgalvo_warning,
-        cellpose_env_present=cellpose_env_present,
-    )
-
-    # 0.7 (now) -- idempotent shutdown hook
+    # 0.11 -- idempotent shutdown hook
     atexit.register(ctx.shutdown)
 
     print(
         f"[preflight] ok\n"
         f"  templates_dir : {ctx.templates_dir}\n"
         f"  out_dir       : {ctx.out_dir}\n"
-        f"  current_job   : {ctx.current_job}  (slot {cfg.source_slot})\n"
+        f"  current_job   : {ctx.current_job}  (slot {ctx.source_slot})\n"
+        f"  target_job    : {cfg.target_job}  (slot {ctx.target_slot})\n"
         f"  source z-galvo: {source_zgalvo_um:+.3f} um"
         f"{'  [WARN]' if source_zgalvo_warning else ''}\n"
         f"  cellpose env  : "
@@ -178,6 +169,58 @@ def preflight(cfg: Config, client: Any) -> Context:
 # ---------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------
+
+
+def _derive_slots(
+    client: Any, cfg: Config, calibration: dict,
+) -> tuple[int, int]:
+    """Read each job's objective slot from LAS X, validate against calibration."""
+
+    # Role collision checks
+    if cfg.acquisition_job == cfg.target_job:
+        raise ValueError(
+            f"acquisition_job and target_job are both {cfg.acquisition_job!r}. "
+            f"They must be different jobs with different objectives.")
+    if cfg.af_job == cfg.target_job:
+        raise ValueError(
+            f"af_job and target_job are both {cfg.target_job!r}. "
+            f"The AF job must use the source objective, not the target.")
+
+    source_slot = _read_objective_slot(client, cfg.acquisition_job)
+    target_slot = _read_objective_slot(client, cfg.target_job)
+    af_slot = _read_objective_slot(client, cfg.af_job)
+
+    if source_slot == target_slot:
+        raise ValueError(
+            f"acquisition_job {cfg.acquisition_job!r} and target_job "
+            f"{cfg.target_job!r} use the same objective slot {source_slot}. "
+            f"Configure different objectives in LAS X.")
+
+    if af_slot != source_slot:
+        raise RuntimeError(
+            f"af_job {cfg.af_job!r} uses objective slot {af_slot}, but "
+            f"acquisition_job {cfg.acquisition_job!r} uses slot {source_slot}. "
+            f"The AF job must use the same objective as the acquisition job.")
+
+    # Validate calibration has entries for both slots
+    objectives = calibration.get("objectives", {})
+    for slot, job in [(source_slot, cfg.acquisition_job),
+                      (target_slot, cfg.target_job)]:
+        if str(slot) not in objectives:
+            available = sorted(int(s) for s in objectives)
+            raise ValueError(
+                f"Job {job!r} uses objective slot {slot}, but the "
+                f"calibration has no entry for that slot. "
+                f"Calibrated slots: {available}. "
+                f"Run calibrate_objectives.py first.")
+
+    # Dry-run translation to verify calibration completeness
+    drv.translate_xyz_between_objectives(
+        0, 0, 0, calibration,
+        from_slot=source_slot, to_slot=target_slot,
+    )
+
+    return int(source_slot), int(target_slot)
 
 
 def _ensure_cam_api_mode(client: Any) -> None:
