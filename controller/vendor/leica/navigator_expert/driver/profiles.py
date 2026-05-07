@@ -89,6 +89,11 @@ class CommandProfile:
         fire_async: If True, use UpdateAsync instead of UpdateAwaitReceipt.
             Use for hardware commands (e.g. stage moves, acquisitions)
             where confirm_fn is the authoritative completion signal.
+        success_on_unconfirmed: If True, return success=True when all
+            confirmation attempts are exhausted (confirmed=False).
+            Use for commands where the fire is reliable but the reader
+            may be slow (e.g. XY stage moves). Default False: exhausted
+            confirmation returns success=False.
     """
     pre_check_fn: callable = None
     error_check_fn: callable = _default_error_check
@@ -102,6 +107,7 @@ class CommandProfile:
     skip_echo: bool = False
     receipt_timeout: float = None  # Per-profile UpdateAwaitReceipt deadline. None uses RECEIPT_TIMEOUT.
     fire_async: bool = False
+    success_on_unconfirmed: bool = False
 
 
 # =============================================================================
@@ -226,9 +232,10 @@ FILTER_WHEEL_SPECTRUM = CommandProfile(
 MOVE_XY = CommandProfile(
     confirm_fn=confirm_move_xy,
     error_check_fn=None,
-    max_confirm_attempts=1,
+    max_confirm_attempts=3,
     confirm_timeout=15.0,
     fire_async=True,
+    success_on_unconfirmed=True,
 )
 
 MOVE_Z = CommandProfile(

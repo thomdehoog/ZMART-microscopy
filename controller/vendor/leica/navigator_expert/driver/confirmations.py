@@ -1065,10 +1065,12 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + timeout
+    last_position = None
 
     while time.perf_counter() < deadline:
         pos = _readers.get_xy(client)
         if pos is not None:
+            last_position = pos
             dx = abs(pos["x_um"] - target_x_um)
             dy = abs(pos["y_um"] - target_y_um)
             log.debug("MoveXY confirm: target=(%.1f, %.1f) actual=(%.1f, %.1f) "
@@ -1076,7 +1078,8 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
                       pos["x_um"], pos["y_um"], dx, dy)
 
             if dx < tolerance and dy < tolerance:
-                return {"success": True, "logs": logs}
+                return {"success": True, "logs": logs,
+                        "last_position": last_position}
 
         time.sleep(poll_interval)
 
@@ -1084,7 +1087,8 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
            f"target=({target_x_um:.1f}, {target_y_um:.1f})")
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    return {"success": False, "logs": logs,
+            "last_position": last_position}
 
 
 # =============================================================================

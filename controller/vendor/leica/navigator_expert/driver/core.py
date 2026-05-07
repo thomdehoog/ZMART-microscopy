@@ -346,7 +346,8 @@ def confirm_and_fire(client, api_obj, description, *,
                      retry_escalate=False,
                      skip_echo=False,
                      receipt_timeout=None,
-                     fire_async=False):
+                     fire_async=False,
+                     success_on_unconfirmed=False):
     """Fire a command and optionally confirm the result, with correction.
 
     This is the single entry point through which all commands are
@@ -380,6 +381,8 @@ def confirm_and_fire(client, api_obj, description, *,
             retries. None for immediate retry. Passed to ``_fire_block``.
         retry_escalate: If True, use exponential backoff (delay doubles
             each retry). Passed to ``_fire_block``.
+        success_on_unconfirmed: If True, return success=True when all
+            confirmation attempts are exhausted. Default False.
 
     Returns:
         {
@@ -572,7 +575,7 @@ def confirm_and_fire(client, api_obj, description, *,
                 description, confirm_attempts,
                 time.perf_counter() - t_wall_start)
     return {
-        "success": False,
+        "success": success_on_unconfirmed,
         "confirmed": False,
         "message": f"{description} (readback unconfirmed)",
         "timing": _make_timing(
