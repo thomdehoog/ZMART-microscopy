@@ -137,6 +137,7 @@ def _dispatch(client, api_obj, description, profile, *,
         skip_echo=profile.skip_echo,
         receipt_timeout=profile.receipt_timeout,
         fire_async=profile.fire_async,
+        success_on_unconfirmed=profile.success_on_unconfirmed,
     )
 
 
@@ -808,7 +809,7 @@ def move_xy_stage(client, x, y, unit="um", *,
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
-    # Position is already confirmed by confirm_move_xy
+    # Target position (not a readback — check r["confirmed"] for verification status)
     r["position"] = {"x": x_um * 1e-6, "y": y_um * 1e-6,
                       "x_um": x_um, "y_um": y_um}
     return r
