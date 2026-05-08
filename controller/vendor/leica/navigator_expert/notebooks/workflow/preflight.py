@@ -60,7 +60,8 @@ def preflight(cfg: Config, client: Any) -> Context:
     source_slot, target_slot = _derive_slots(client, cfg, calibration)
 
     # 0.4b -- verify derived slots are physically installed
-    drv.validate_slots(hw, source_slot, [target_slot])
+    if source_slot != target_slot:
+        drv.validate_slots(hw, source_slot, [target_slot])
 
     # 0.5 -- boot engine (sys.path tweak so smart-analysis is importable)
     analysis_repo = Path(cfg.analysis_repo)
@@ -189,12 +190,6 @@ def _derive_slots(
     source_slot = _read_objective_slot(client, cfg.acquisition_job)
     target_slot = _read_objective_slot(client, cfg.target_job)
     af_slot = _read_objective_slot(client, cfg.af_job)
-
-    if source_slot == target_slot:
-        raise ValueError(
-            f"acquisition_job {cfg.acquisition_job!r} and target_job "
-            f"{cfg.target_job!r} use the same objective slot {source_slot}. "
-            f"Configure different objectives in LAS X.")
 
     if af_slot != source_slot:
         raise RuntimeError(
