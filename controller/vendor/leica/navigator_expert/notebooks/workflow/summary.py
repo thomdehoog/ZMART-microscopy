@@ -53,11 +53,15 @@ def write_summary(
             "n_tiles": n_tiles_planned,
         },
         "focus_map": {
+            "model": focus_map.model,
+            "origin_xy_um": list(focus_map.origin_xy_um),
             "axis": "z-wide",
             "n_markers": len(focus_map.measured),
             "z_range_um": float(zs.max() - zs.min()) if len(zs) else 0.0,
-            "tilt_x_deg": float(np.degrees(np.arctan(focus_map.coeffs[0]))),
-            "tilt_y_deg": float(np.degrees(np.arctan(focus_map.coeffs[1]))),
+            "tilt_x_deg": float(np.degrees(np.arctan(focus_map.coeffs[0])))
+            if focus_map.model == "plane" else None,
+            "tilt_y_deg": float(np.degrees(np.arctan(focus_map.coeffs[1])))
+            if focus_map.model == "plane" else None,
             "max_residual_um": float(np.max(np.abs(focus_map.residuals_um)))
             if len(focus_map.residuals_um) else 0.0,
             "zwide_at_focus_markers_um": [
