@@ -1,12 +1,18 @@
 """focus.py -- Step 3: build a z-wide focus map.
 
 At each focus marker, move XY, run the AF job, read back z-wide,
-fit a plane. The fitted plane is used by Step 4 to command z-wide
+fit a surface model. The model is used by Step 4 to command z-wide
 per tile.
+
+Model selection:
+    1 point or flat Z  → constant (mean z)
+    2-3 points         → centered lstsq (line or plane by rank)
+    4+ non-collinear   → thin plate spline (captures curvature)
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -20,15 +26,29 @@ from navigator_expert.driver.scanning_templates import (
 from .context import Context
 from ._job_state import ensure_job_state
 
+FLAT_TOLERANCE_UM = 0.1
+SPLINE_SMOOTHING = 0.1
+
 
 @dataclass
 class FocusMap:
-    coeffs: np.ndarray
+    model: str
+    coeffs: np.ndarray | None
+    origin_xy_um: tuple[float, float]
     measured: list[dict]
     residuals_um: np.ndarray
+    scale_um: float = 1.0
+    _interpolator: Any = field(default=None, repr=False)
 
     def interpolate_zwide(self, x, y):
-        return self.coeffs[0] * x + self.coeffs[1] * y + self.coeffs[2]
+        x0, y0 = self.origin_xy_um
+        if self.model == "spline":
+            x_arr, y_arr = np.broadcast_arrays(np.asarray(x), np.asarray(y))
+            xn = (x_arr.ravel() - x0) / self.scale_um
+            yn = (y_arr.ravel() - y0) / self.scale_um
+            xy = np.column_stack([xn, yn])
+            return self._interpolator(xy).reshape(x_arr.shape)
+        return self.coeffs[0] * (x - x0) + self.coeffs[1] * (y - y0) + self.coeffs[2]
 
     def plot(self, ctx: Context) -> None:
         import matplotlib.patches as patches
@@ -82,7 +102,10 @@ class FocusMap:
         GX, GY = np.meshgrid(gx, gy)
         GZ = self.interpolate_zwide(GX, GY)
 
-        norm = Normalize(vmin=GZ.min(), vmax=GZ.max())
+        if GZ.min() == GZ.max():
+            norm = Normalize(vmin=GZ.min() - 0.5, vmax=GZ.max() + 0.5)
+        else:
+            norm = Normalize(vmin=GZ.min(), vmax=GZ.max())
         cmap = plt.get_cmap("viridis")
 
         verts, codes = [], []
@@ -166,7 +189,7 @@ class FocusMap:
         zs = np.array([m["zwide_um"] for m in self.measured])
         z_range = zs.max() - zs.min()
         ax.set_title(
-            f"Focus Plane  (range {z_range:.2f} um)",
+            f"Focus: {self.model}  (range {z_range:.2f} um)",
             fontsize=13, fontweight="bold", color="#222222", pad=12,
         )
         ax.legend(loc="upper right", fontsize=9, facecolor="white",
@@ -180,13 +203,16 @@ class FocusMap:
 
 
 def build_focus_map(ctx: Context) -> FocusMap:
-    """Step 3: run AF at each focus marker, fit a z-wide plane.
+    """Step 3: run AF at each focus marker, fit a z-wide surface model.
 
     Reads focus/autofocus positions from the template, strips the
     template, selects the AF job, moves to each marker, acquires,
-    reads back the resulting z-wide, then fits a plane.
+    reads back the resulting z-wide, then fits a model.
 
-    Optionally restores the template after AF (cfg.restore_template_after_af).
+    Model selection:
+        flat Z (< 0.1 um range) → constant
+        2-3 points              → centered lstsq (line or plane)
+        4+ non-collinear        → thin plate spline
     """
     client = ctx.client
     cfg = ctx.cfg
@@ -244,19 +270,97 @@ def build_focus_map(ctx: Context) -> FocusMap:
             except Exception as exc:
                 print(f"[step 3] WARNING: could not restore template: {exc}")
 
+    fm = _fit_focus_model(measured)
+    _print_focus_diagnostics(fm, ctx)
+    return fm
+
+
+def _fit_focus_model(measured: list[dict]) -> FocusMap:
+    """Select and fit the appropriate focus model."""
     xs = np.array([m["x_um"] for m in measured])
     ys = np.array([m["y_um"] for m in measured])
     zs = np.array([m["zwide_um"] for m in measured])
-    A = np.column_stack([xs, ys, np.ones(len(measured))])
+
+    x0, y0 = float(xs.mean()), float(ys.mean())
+    xc, yc = xs - x0, ys - y0
+    z_range = float(zs.max() - zs.min())
+    scale_um = 1.0
+
+    if z_range < FLAT_TOLERANCE_UM:
+        coeffs = np.array([0.0, 0.0, float(zs.mean())])
+        residuals = zs - zs.mean()
+        return FocusMap(
+            model="constant", coeffs=coeffs,
+            origin_xy_um=(x0, y0), measured=measured,
+            residuals_um=residuals,
+        )
+
+    if len(measured) >= 4 and np.linalg.matrix_rank(np.column_stack([xc, yc])) >= 2:
+        from scipy.interpolate import RBFInterpolator
+        scale_um = float(max(np.ptp(xc), np.ptp(yc)))
+        if scale_um == 0:
+            scale_um = 1.0
+        xy_n = np.column_stack([xc / scale_um, yc / scale_um])
+        interpolator = RBFInterpolator(
+            xy_n, zs, kernel="thin_plate_spline",
+            smoothing=SPLINE_SMOOTHING,
+        )
+        residuals = zs - interpolator(xy_n).ravel()
+        return FocusMap(
+            model="spline", coeffs=None,
+            origin_xy_um=(x0, y0), measured=measured,
+            residuals_um=residuals, scale_um=scale_um,
+            _interpolator=interpolator,
+        )
+
+    A = np.column_stack([xc, yc, np.ones(len(measured))])
     coeffs, *_ = np.linalg.lstsq(A, zs, rcond=None)
-    residuals = zs - (coeffs[0] * xs + coeffs[1] * ys + coeffs[2])
+    residuals = zs - (coeffs[0] * xc + coeffs[1] * yc + coeffs[2])
+    rank = np.linalg.matrix_rank(A)
+    model = "line" if rank < 3 else "plane"
+    return FocusMap(
+        model=model, coeffs=coeffs,
+        origin_xy_um=(x0, y0), measured=measured,
+        residuals_um=residuals,
+    )
 
-    fm = FocusMap(coeffs=coeffs, measured=measured, residuals_um=residuals)
 
-    print(f"\n[step 3] Focus plane (z-wide):")
-    print(f"  Z range:      {zs.max() - zs.min():.2f} um")
-    print(f"  Tilt X:       {np.degrees(np.arctan(coeffs[0])):+.4f} deg")
-    print(f"  Tilt Y:       {np.degrees(np.arctan(coeffs[1])):+.4f} deg")
-    print(f"  Max residual: {np.max(np.abs(residuals)):.3f} um")
+def _print_focus_diagnostics(fm: FocusMap, ctx: Context) -> None:
+    """Print model-aware diagnostics and extrapolation warning."""
+    zs = np.array([m["zwide_um"] for m in fm.measured])
+    z_range = float(zs.max() - zs.min())
 
-    return fm
+    print(f"\n[step 3] Focus model: {fm.model} ({len(fm.measured)} points)")
+
+    if fm.model == "constant":
+        print(f"  Z mean:       {zs.mean():.2f} um")
+
+    elif fm.model == "line":
+        slope = np.sqrt(fm.coeffs[0]**2 + fm.coeffs[1]**2)
+        print(f"  Z range:          {z_range:.2f} um")
+        print(f"  Directional slope: {np.degrees(np.arctan(slope)):+.4f} deg")
+        print(f"  Max residual:     {np.max(np.abs(fm.residuals_um)):.3f} um")
+
+    elif fm.model == "plane":
+        print(f"  Z range:      {z_range:.2f} um")
+        print(f"  Tilt X:       {np.degrees(np.arctan(fm.coeffs[0])):+.4f} deg")
+        print(f"  Tilt Y:       {np.degrees(np.arctan(fm.coeffs[1])):+.4f} deg")
+        print(f"  Max residual: {np.max(np.abs(fm.residuals_um)):.3f} um")
+
+    elif fm.model == "spline":
+        print(f"  Z range:      {z_range:.2f} um")
+        print(f"  Smoothing:    {SPLINE_SMOOTHING}")
+        print(f"  Max residual: {np.max(np.abs(fm.residuals_um)):.3f} um")
+
+    if ctx.scan_field is not None:
+        tile_positions = ctx.scan_field["tile_positions"]
+        tile_xs = [p["x_um"] for r in tile_positions.values()
+                   for p in r["positions"]]
+        tile_ys = [p["y_um"] for r in tile_positions.values()
+                   for p in r["positions"]]
+        fx = [m["x_um"] for m in fm.measured]
+        fy = [m["y_um"] for m in fm.measured]
+        if (min(tile_xs) < min(fx) or max(tile_xs) > max(fx) or
+                min(tile_ys) < min(fy) or max(tile_ys) > max(fy)):
+            print(f"  WARNING: some tiles are outside the focus marker "
+                  f"bounding box -Z values are extrapolated")
