@@ -14,6 +14,7 @@ import navigator_expert.driver as drv
 from .context import Context
 from .focus import FocusMap
 from ._acquire import acquire, save_acquired
+from ._job_state import ensure_job_state
 
 
 # ─── Dataclasses ──────────────────────────────────────────────────
@@ -81,13 +82,16 @@ def run_overview_with_picks(
         raise RuntimeError("strip_template failed before overview acquisition.")
 
     try:
-        # 4.0b -- read source frame geometry (pixel size + image size)
+        # 4.0b -- select acquisition job before reading geometry
+        ensure_job_state(ctx, cfg.acquisition_job)
+
+        # 4.0c -- read source frame geometry (pixel size + image size)
         settings = drv.get_job_settings(client, cfg.acquisition_job)
         geo = drv.parse_tile_geometry(settings)
         pixel_size_um = (float(geo["pixel_w_um"]), float(geo["pixel_h_um"]))
         image_size_px = (int(geo["pixels_x"]), int(geo["pixels_y"]))
 
-        # 4.1 -- build snake order
+        # 4.2 -- build snake order
         sequence = _build_snake_sequence(tile_positions)
         print(f"[step 4] {len(sequence)} tiles in snake order")
 
