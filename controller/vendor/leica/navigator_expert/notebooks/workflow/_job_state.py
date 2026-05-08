@@ -31,9 +31,25 @@ def ensure_job_state(ctx: Context, job: str) -> None:
     # we must not skip re-verification on the next call.
     ctx.current_job = ""
 
+    select_unconfirmed = False
+
     r = drv.select_job(ctx.client, job)
     if not r or not r.get("success"):
-        raise RuntimeError(f"select_job({job!r}) failed: {r!r}")
+        # Distinguish readback-unconfirmed (reader slow) from real failure.
+        # Temporary heuristic — replaced by structured driver outcomes in Layer 2.
+        message = (r or {}).get("message", "")
+        confirmed = (r or {}).get("confirmed")
+        timing = (r or {}).get("timing", {})
+        readback_unconfirmed = (
+            confirmed is False
+            and "readback unconfirmed" in message
+            and timing.get("fire_s", 0) > 0
+        )
+        if not readback_unconfirmed:
+            raise RuntimeError(f"select_job({job!r}) failed: {r!r}")
+        select_unconfirmed = True
+        print(f"[job] WARNING: {job!r} readback unconfirmed; "
+              f"continuing after settle")
 
     actual_slot = _read_objective_slot(ctx.client, job)
     if actual_slot != expected_slot:
@@ -42,8 +58,28 @@ def ensure_job_state(ctx: Context, job: str) -> None:
             f"expected {expected_slot}. Check LAS X job configuration.")
 
     time.sleep(cfg.settle_after_job_switch_s)
+
+    if select_unconfirmed:
+        # Best-effort post-settle check: if the reader now reports a
+        # different job is selected, hard fail. If it can't respond, continue.
+        try:
+            jobs = drv.get_jobs(ctx.client)
+        except Exception:
+            jobs = None
+        if jobs:
+            selected = [j.get("Name") for j in jobs
+                        if j.get("IsSelected")]
+            if selected and selected[0] != job:
+                raise RuntimeError(
+                    f"Post-settle check: LAS X reports "
+                    f"{selected[0]!r} selected, expected {job!r}.")
+
     ctx.current_job = job
-    print(f"[job] {job!r} selected (slot {actual_slot})")
+    if select_unconfirmed:
+        print(f"[job] {job!r} selected "
+              f"(slot {actual_slot}; readback unconfirmed)")
+    else:
+        print(f"[job] {job!r} selected (slot {actual_slot})")
 
 
 def _expected_slot(ctx: Context, job: str) -> int:
