@@ -181,6 +181,8 @@ __all__ = [
     "pixel_to_stage_xy_um",
     "set_image_to_stage", "update_objective",
     "load_stage_config",
+    # acquisition (driver-first API)
+    "start_run", "acquire_and_save", "RunHandle", "SavedAcquisition",
 ]
 
 # ── Utilities ────────────────────────────────────────────────────────
@@ -500,6 +502,14 @@ from .stage_motion import correct_backlash
 from .stage_config import (
     SCHEMA_VERSION as STAGE_SCHEMA_VERSION,
     load as load_stage_config,
+)
+
+# ── Acquisition (driver-first API: start_run, acquire_and_save) ──
+from .acquisition import (
+    RunHandle,
+    SavedAcquisition,
+    acquire_and_save,
+    start_run,
 )
 
 # ── Logging ─────────────────────────────────────────────────────────
