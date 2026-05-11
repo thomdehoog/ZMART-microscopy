@@ -69,9 +69,11 @@ def patched_drv(fake_lasx_export):
         acquisition._acquire, "acquire_frame",
         return_value=(fake_image, image_path),
     ), patch.object(
-        acquisition._ome, "check_ome_tiff", return_value={"success": True},
+        acquisition._ome, "check_ome_tiff",
+        return_value={"path": "x", "corrupted": False, "violations": [], "error": None},
     ), patch.object(
-        acquisition._ome, "check_ome_xml_file", return_value={"success": True},
+        acquisition._ome, "check_ome_xml_file",
+        return_value={"path": "x", "corrupted": False, "violations": [], "error": None},
     ):
         yield fake_lasx_export
 
@@ -286,7 +288,26 @@ class TestAcquireAndSaveFailure:
         )
         with patch.object(
             acquisition._ome, "check_ome_tiff",
-            return_value={"success": False, "violations": ["bad"]},
+            return_value={"path": "x", "corrupted": True,
+                          "violations": ["bad"], "error": None},
+        ):
+            with pytest.raises(RuntimeError, match="OME-TIFF validation"):
+                drv.acquire_and_save(
+                    client=None, run=run, job="HiRes", naming=naming,
+                )
+
+    def test_ome_read_error_raises(self, patched_drv):
+        """check_ome_tiff returns error=<str> when the file can't be read;
+        the driver must treat this as failure too (not just corrupted=True)."""
+        run = drv.start_run(client=None, experiment="exp")
+        naming = Naming(
+            acquisition_type="overview-scan",
+            hash6=run.layout.hash6,
+        )
+        with patch.object(
+            acquisition._ome, "check_ome_tiff",
+            return_value={"path": "x", "corrupted": False,
+                          "violations": [], "error": "I/O error"},
         ):
             with pytest.raises(RuntimeError, match="OME-TIFF validation"):
                 drv.acquire_and_save(
@@ -301,7 +322,8 @@ class TestAcquireAndSaveFailure:
         )
         with patch.object(
             acquisition._ome, "check_ome_xml_file",
-            return_value={"success": False, "violations": ["bad"]},
+            return_value={"path": "x", "corrupted": True,
+                          "violations": ["bad"], "error": None},
         ):
             with pytest.raises(RuntimeError, match="OME-XML validation"):
                 drv.acquire_and_save(
@@ -316,8 +338,8 @@ class TestAcquireAndSaveFailure:
         )
         # First check fails, after fix succeeds.
         check_results = [
-            {"success": False, "violations": ["bad"]},
-            {"success": True},
+            {"path": "x", "corrupted": True, "violations": ["bad"], "error": None},
+            {"path": "x", "corrupted": False, "violations": [], "error": None},
         ]
         with patch.object(
             acquisition._ome, "check_ome_tiff",

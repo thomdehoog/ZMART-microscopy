@@ -279,25 +279,35 @@ def _find_companion_xml(image_path: Path) -> Path | None:
     return xml_path if xml_path.is_file() else None
 
 
+def _ome_ok(result: dict) -> bool:
+    """check_ome_tiff / check_ome_xml_file success criterion.
+
+    The driver primitives return ``{"path", "corrupted", "violations",
+    "error"}`` — no ``success`` key. A healthy file has ``corrupted=False``
+    and ``error=None``; violations are non-fatal warnings.
+    """
+    return not result.get("corrupted") and result.get("error") is None
+
+
 def _validate_ome(image_path: Path, xml_path: Path, *, fix_ome: bool) -> None:
     """Check OME-TIFF and companion XML. With ``fix_ome=True``, attempt
     in-place repair before failing."""
     img_check = _ome.check_ome_tiff(image_path)
-    if not img_check.get("success"):
+    if not _ome_ok(img_check):
         if fix_ome:
             _ome.fix_ome_tiff(image_path)
             img_check = _ome.check_ome_tiff(image_path)
-        if not img_check.get("success"):
+        if not _ome_ok(img_check):
             raise RuntimeError(
                 f"OME-TIFF validation failed: {image_path} :: {img_check}"
             )
 
     xml_check = _ome.check_ome_xml_file(xml_path)
-    if not xml_check.get("success"):
+    if not _ome_ok(xml_check):
         if fix_ome:
             _ome.fix_ome_xml_file(xml_path)
             xml_check = _ome.check_ome_xml_file(xml_path)
-        if not xml_check.get("success"):
+        if not _ome_ok(xml_check):
             raise RuntimeError(
                 f"OME-XML validation failed: {xml_path} :: {xml_check}"
             )

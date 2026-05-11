@@ -64,9 +64,11 @@ def main() -> None:
         acquisition._acquire, "acquire_frame",
         return_value=(fake_image, image_path),
     ), patch.object(
-        acquisition._ome, "check_ome_tiff", return_value={"success": True},
+        acquisition._ome, "check_ome_tiff",
+        return_value={"path": "x", "corrupted": False, "violations": [], "error": None},
     ), patch.object(
-        acquisition._ome, "check_ome_xml_file", return_value={"success": True},
+        acquisition._ome, "check_ome_xml_file",
+        return_value={"path": "x", "corrupted": False, "violations": [], "error": None},
     ):
         run = drv.start_run(client=None, experiment="crash-exp")
 
