@@ -94,7 +94,13 @@ def start_run(client: Any, experiment: str) -> RunHandle:
     media_path = Path(media_path_str)
 
     output_root = media_path / "smart"
-    layout = build_layout(output_root, experiment)
+    try:
+        layout = build_layout(output_root, experiment)
+    except PermissionError as e:
+        raise RuntimeError(
+            f"LAS X export folder {output_root} is not writable: {e}. "
+            f"Check folder permissions or LAS X export configuration."
+        ) from e
 
     _check_path_budget(layout)
 
@@ -161,6 +167,8 @@ def acquire_and_save(
     image_dest.parent.mkdir(parents=True, exist_ok=True)
     xml_dest.parent.mkdir(parents=True, exist_ok=True)
 
+    _refuse_path_reuse(run, image_dest, xml_dest)
+
     _save_atomic(lasx_image_path, image_dest, xml_src, xml_dest)
 
     record = {
@@ -185,6 +193,41 @@ def acquire_and_save(
 # ---------------------------------------------------------------------------
 # Internal helpers (file-private)
 # ---------------------------------------------------------------------------
+
+
+def _refuse_path_reuse(
+    run: RunHandle, image_dest: Path, xml_dest: Path,
+) -> None:
+    """Raise if the canonical paths are already taken (on disk or in
+    summary.json). Catches workflow bugs that produce duplicate Naming.
+
+    Per the spec's reacquisition contract, workflows that re-shoot the
+    same logical target MUST bump a slot value (typically ``t``) so the
+    new file lands at a distinct path. Deleting the file alone is not a
+    workaround — the original record stays in summary.json and a second
+    record at the same path corrupts provenance.
+    """
+    if image_dest.exists() or xml_dest.exists():
+        raise RuntimeError(
+            f"Refusing to reuse canonical path: {image_dest.name} already "
+            f"exists. Bump a slot value (typically t) to record at a "
+            f"distinct path — deleting the file alone will not help because "
+            f"the original record remains in summary.json."
+        )
+    summary_path = run.layout.run_dir / "summary.json"
+    if not summary_path.is_file():
+        return
+    image_rel = _rel_posix(image_dest, run.layout.run_dir)
+    xml_rel = _rel_posix(xml_dest, run.layout.run_dir)
+    existing = json.loads(summary_path.read_text(encoding="utf-8"))
+    for rec in existing.get("acquisitions", []):
+        if rec.get("image_path") == image_rel or rec.get("xml_path") == xml_rel:
+            raise RuntimeError(
+                f"Refusing to reuse canonical path: {image_rel} is already "
+                f"recorded in summary.json. Bump a slot value (typically t) "
+                f"to record at a distinct path — deleting the file alone "
+                f"will not help because this record remains."
+            )
 
 
 def _check_path_budget(layout: LayoutPlan) -> None:
@@ -212,8 +255,9 @@ def _find_companion_xml(image_path: Path) -> Path | None:
 
     LAS X exports image to ``<experiment_dir>/<image>.ome.tif`` and XML
     to ``<experiment_dir>/metadata/<image>.ome.xml``. XML drops the
-    X/Y/Z/C segments. Returns ``None`` if metadata dir or matching XML
-    not found.
+    X/Y/Z/C segments but preserves the ``--NNN`` repeat suffix when
+    present on the source. Returns ``None`` if metadata dir or matching
+    XML not found.
     """
     parsed = _fc.parse_lasx_filename(image_path.name)
     if parsed is None:
@@ -227,8 +271,10 @@ def _find_companion_xml(image_path: Path) -> Path | None:
         f"--J{parsed['J']:02d}"
         f"--E{parsed['E']:02d}"
         f"--T{parsed['T']:04d}"
-        f".ome.xml"
     )
+    if parsed.get("repeat") is not None:
+        xml_name += f"--{parsed['repeat']:03d}"
+    xml_name += ".ome.xml"
     xml_path = metadata_dir / xml_name
     return xml_path if xml_path.is_file() else None
 
@@ -266,10 +312,16 @@ def _save_atomic(
     Six-step contract:
       1. Copy image to ``image_dest.tmp``.
       2. Copy XML to ``xml_dest.tmp``.
-      3. Validate both ``.tmp`` files exist and are non-empty.
+      3. Validate both ``.tmp`` files match their source file size.
+         Size match catches truncation, the realistic failure mode under
+         partial copies (disk full, network blip). Silent bit corruption
+         is not caught — that responsibility lies with the filesystem.
+         OME integrity is validated source-side before this function;
+         we trust a same-size copy on success.
       4. ``os.replace`` both ``.tmp`` files to their final destinations.
-      5. On any exception in steps 1-3, unlink any ``.tmp`` created
-         by this call; final paths are not touched.
+      5. On any exception in steps 1-3, unconditionally unlink both
+         ``.tmp`` paths (a partial mid-write copy may have left one
+         even if ``copy2`` raised); final paths are not touched.
       6. The narrow window between step 4's two ``os.replace`` calls can
          only leave a final image without final XML on filesystem-level
          failure; log loudly and propagate.
@@ -277,19 +329,28 @@ def _save_atomic(
     image_tmp = _with_tmp_suffix(image_dest)
     xml_tmp = _with_tmp_suffix(xml_dest)
 
-    created: list[Path] = []
     try:
         shutil.copy2(str(image_src), str(image_tmp))
-        created.append(image_tmp)
         shutil.copy2(str(xml_src), str(xml_tmp))
-        created.append(xml_tmp)
 
-        if image_tmp.stat().st_size == 0:
-            raise RuntimeError(f"Image .tmp is empty: {image_tmp}")
-        if xml_tmp.stat().st_size == 0:
-            raise RuntimeError(f"XML .tmp is empty: {xml_tmp}")
+        image_src_size = image_src.stat().st_size
+        image_tmp_size = image_tmp.stat().st_size
+        if image_tmp_size != image_src_size:
+            raise RuntimeError(
+                f"Image copy size mismatch: {image_tmp_size} != "
+                f"{image_src_size} (source: {image_src})"
+            )
+        xml_src_size = xml_src.stat().st_size
+        xml_tmp_size = xml_tmp.stat().st_size
+        if xml_tmp_size != xml_src_size:
+            raise RuntimeError(
+                f"XML copy size mismatch: {xml_tmp_size} != "
+                f"{xml_src_size} (source: {xml_src})"
+            )
     except BaseException:
-        for tmp in created:
+        # Unconditional cleanup: copy2 may have left a partial .tmp
+        # even if it raised mid-write.
+        for tmp in (image_tmp, xml_tmp):
             try:
                 tmp.unlink(missing_ok=True)
             except OSError:

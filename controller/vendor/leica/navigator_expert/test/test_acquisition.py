@@ -139,6 +139,25 @@ class TestStartRun:
         # Should not raise
         acquisition._check_path_budget(layout)
 
+    def test_unwritable_media_path_friendly_error(self, tmp_path, monkeypatch):
+        """A PermissionError from build_layout becomes an actionable
+        RuntimeError telling the operator which folder is the problem.
+        Spec: operator should not have to interpret raw PermissionError."""
+        unwritable = tmp_path / "blocked"
+        unwritable.mkdir()
+
+        with patch.object(
+            acquisition._readers, "get_lasx_settings",
+            return_value={"export": {"media_path": str(unwritable)}},
+        ), patch.object(
+            acquisition._fc, "read_relative_path", return_value="",
+        ), patch.object(
+            acquisition, "build_layout",
+            side_effect=PermissionError("[WinError 5] Access is denied"),
+        ):
+            with pytest.raises(RuntimeError, match="is not writable"):
+                drv.start_run(client=None, experiment="exp")
+
 
 # --- acquire_and_save: happy path -------------------------------------------
 
@@ -369,6 +388,61 @@ class TestSaveAtomic:
         assert not dest_xml.exists()
         assert list(dest_img.parent.glob("*.tmp")) == []
 
+    def test_size_mismatch_raises_and_cleans_up(self, tmp_path, monkeypatch):
+        """If copy2 produces a truncated .tmp (e.g. partial network copy),
+        the size check catches it and the .tmp is removed."""
+        src_img = tmp_path / "src.ome.tif"
+        src_xml = tmp_path / "src.ome.xml"
+        src_img.write_bytes(b"original-image-bytes-50-bytes-long-pad-pad-pad-pa")
+        src_xml.write_bytes(b"<xml/>")
+
+        dest_img = tmp_path / "dest" / "out.ome.tiff"
+        dest_xml = tmp_path / "dest" / "out.ome.xml"
+        dest_img.parent.mkdir()
+
+        # Make copy2 produce a truncated copy for the image (smaller than src).
+        def truncating_copy2(src, dst, *args, **kwargs):
+            data = Path(str(src)).read_bytes()
+            Path(str(dst)).write_bytes(data[:5])  # truncate to 5 bytes
+            return dst
+
+        monkeypatch.setattr(acquisition.shutil, "copy2", truncating_copy2)
+
+        with pytest.raises(RuntimeError, match="size mismatch"):
+            acquisition._save_atomic(src_img, dest_img, src_xml, dest_xml)
+
+        assert not dest_img.exists()
+        assert not dest_xml.exists()
+        assert list(dest_img.parent.glob("*.tmp")) == []
+
+    def test_partial_copy_mid_write_leaves_no_temps(self, tmp_path, monkeypatch):
+        """If copy2 writes some bytes then raises (disk full, network blip),
+        the partial .tmp must be unlinked even though copy2 raised."""
+        src_img = tmp_path / "src.ome.tif"
+        src_xml = tmp_path / "src.ome.xml"
+        src_img.write_bytes(b"image-bytes")
+        src_xml.write_bytes(b"<xml/>")
+
+        dest_img = tmp_path / "dest" / "out.ome.tiff"
+        dest_xml = tmp_path / "dest" / "out.ome.xml"
+        dest_img.parent.mkdir()
+
+        def failing_copy2(src, dst, *args, **kwargs):
+            # Simulate partial write before failure
+            Path(str(dst)).write_bytes(b"partial")
+            raise OSError("simulated disk full mid-copy")
+
+        monkeypatch.setattr(acquisition.shutil, "copy2", failing_copy2)
+
+        with pytest.raises(OSError, match="simulated disk full"):
+            acquisition._save_atomic(src_img, dest_img, src_xml, dest_xml)
+
+        # Partial .tmp must be cleaned up despite copy2 raising before
+        # any cleanup bookkeeping would have run.
+        assert list(dest_img.parent.glob("*.tmp")) == []
+        assert not dest_img.exists()
+        assert not dest_xml.exists()
+
 
 # --- _find_companion_xml ----------------------------------------------------
 
@@ -392,6 +466,83 @@ class TestFindCompanionXml:
         image.write_bytes(b"x")
         (tmp_path / "metadata").mkdir()
         assert acquisition._find_companion_xml(image) is None
+
+    def test_finds_xml_with_repeat_suffix(self, tmp_path):
+        """Repeat-acquisition exports have a --NNN suffix on both image
+        and XML; _find_companion_xml must preserve it when reconstructing
+        the XML name."""
+        experiment_dir = tmp_path / "experiment--demo"
+        metadata_dir = experiment_dir / "metadata"
+        experiment_dir.mkdir()
+        metadata_dir.mkdir()
+        image_name = "image--L0000--J08--E00--X00--Y00--T0000--Z00--C00--001.ome.tif"
+        xml_name = "image--L0000--J08--E00--T0000--001.ome.xml"
+        image_path = experiment_dir / image_name
+        xml_path = metadata_dir / xml_name
+        image_path.write_bytes(b"x")
+        xml_path.write_bytes(b"<xml/>")
+        assert acquisition._find_companion_xml(image_path) == xml_path
+
+
+# --- _refuse_path_reuse -----------------------------------------------------
+
+
+class TestRefusePathReuse:
+    def test_refuses_when_image_dest_exists(self, patched_drv):
+        run = drv.start_run(client=None, experiment="exp")
+        naming = Naming(
+            acquisition_type="overview-scan",
+            hash6=run.layout.hash6, p=0,
+        )
+        # First call succeeds and creates files on disk + summary record.
+        drv.acquire_and_save(
+            client=None, run=run, job="HiRes", naming=naming,
+        )
+        # Second call with identical naming must refuse.
+        with pytest.raises(RuntimeError, match="Refusing to reuse canonical path"):
+            drv.acquire_and_save(
+                client=None, run=run, job="HiRes", naming=naming,
+            )
+
+    def test_error_message_warns_against_delete_only(self, patched_drv):
+        """Operator UX: error must say deleting the file alone won't help
+        because the summary.json record stays. Prevents dead-end retry."""
+        run = drv.start_run(client=None, experiment="exp")
+        naming = Naming(
+            acquisition_type="overview-scan",
+            hash6=run.layout.hash6, p=0,
+        )
+        drv.acquire_and_save(
+            client=None, run=run, job="HiRes", naming=naming,
+        )
+        with pytest.raises(RuntimeError) as exc_info:
+            drv.acquire_and_save(
+                client=None, run=run, job="HiRes", naming=naming,
+            )
+        assert "deleting the file alone" in str(exc_info.value).lower() \
+            or "deleting the file alone" in str(exc_info.value)
+
+    def test_refuses_when_summary_records_path_but_file_deleted(self, patched_drv):
+        """Even if operator deletes the canonical file, the original
+        summary.json record remains. Refusing here catches the
+        delete-then-retry footgun."""
+        run = drv.start_run(client=None, experiment="exp")
+        naming = Naming(
+            acquisition_type="overview-scan",
+            hash6=run.layout.hash6, p=0,
+        )
+        result = drv.acquire_and_save(
+            client=None, run=run, job="HiRes", naming=naming,
+        )
+        # Operator deletes the canonical files (simulating delete-then-retry).
+        result.image_path.unlink()
+        xml_dest = run.layout.metadata_dir("overview-scan") / build_xml_name(naming)
+        xml_dest.unlink()
+        # Files gone, but summary still records the canonical path.
+        with pytest.raises(RuntimeError, match="already recorded in summary.json"):
+            drv.acquire_and_save(
+                client=None, run=run, job="HiRes", naming=naming,
+            )
 
 
 # --- _append_summary_atomic -------------------------------------------------
