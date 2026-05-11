@@ -511,7 +511,7 @@ from .calibration import (
 )
 
 # ── Stage motion (backlash takeup) ──────────────────────────────
-from .stage_motion import correct_backlash
+from .stage_motion import correct_backlash, move_xy_with_backlash
 
 # ── Stage config (limits + backlash; physical, not optical) ─────
 from .stage_config import (
