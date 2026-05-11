@@ -14,6 +14,11 @@ _LEICA_ROOT = str(Path(__file__).resolve().parents[3])
 if _LEICA_ROOT not in sys.path:
     sys.path.insert(0, _LEICA_ROOT)
 
+# parents[4] = .../vendor/ — needed for `from _shared.output_layout import ...`
+_VENDOR_ROOT = str(Path(__file__).resolve().parents[4])
+if _VENDOR_ROOT not in sys.path:
+    sys.path.insert(0, _VENDOR_ROOT)
+
 from .context import Config, Context, TargetState
 from .focus import FocusMap, build_focus_map
 from .overview import Pick, Picks, run_overview_with_picks
