@@ -1,7 +1,14 @@
-"""summary.py -- Step 6: write summary.json, plot results, cleanup.
+"""summary.py -- Step 6: write run_summary.json, plot results, cleanup.
 
-write_summary: serialize the full run into summary.json.
+The driver owns `summary.json` (canonical per-acquisition append log,
+one record per acquire_and_save call, written incrementally). This
+module owns `run_summary.json` -- the rich workflow-level aggregate
+written once at end-of-run: operator config, focus map, scan field,
+preflight telemetry, overview stats, picks, target records.
+
+write_summary: serialize the full workflow state into run_summary.json.
 plot_results: overview-frame plot with pick markers by category.
+finish: restore source job (optional) and shutdown the engine.
 """
 from __future__ import annotations
 
