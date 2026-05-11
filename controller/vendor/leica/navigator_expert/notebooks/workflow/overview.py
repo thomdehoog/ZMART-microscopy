@@ -13,7 +13,8 @@ import navigator_expert.driver as drv
 
 from .context import Context
 from .focus import FocusMap
-from ._acquire import acquire, save_acquired
+from _shared.output_layout import Naming
+from ._acquire import acquire
 from ._job_state import ensure_job_state
 
 
@@ -120,13 +121,17 @@ def run_overview_with_picks(
             )
 
             try:
-                image, lasx_path = acquire(
-                    ctx, cfg.acquisition_job, x_um, y_um, zwide_um,
+                acquire(ctx, cfg.acquisition_job, x_um, y_um, zwide_um)
+                naming = Naming(
+                    acquisition_type="overview-scan",
+                    hash6=ctx.run.layout.hash6,
+                    g=int(rid), p=i,
                 )
-                tif_name = f"tile_R{rid:>02s}_r{tile['row']:02d}_c{tile['col']:02d}.tif"
-                tif_path = save_acquired(
-                    image, lasx_path, ctx.out_dir / "overview" / tif_name,
+                result = drv.acquire_and_save(
+                    ctx.client, ctx.run, cfg.acquisition_job, naming,
                 )
+                image = result.image
+                tif_path = result.image_path
                 engine.submit("overview", {
                     "image_path": str(tif_path),
                     "tile_id": tile_id,

@@ -12,7 +12,8 @@ import navigator_expert.driver as drv
 
 from .context import Context, TargetState
 from .overview import Picks
-from ._acquire import acquire, save_acquired
+from _shared.output_layout import Naming
+from ._acquire import acquire
 from ._job_state import ensure_job_state
 
 
@@ -132,14 +133,26 @@ def acquire_targets(ctx: Context, picks: Picks) -> list[TargetRecord]:
                 target_pixel_size_um = float(target_geo["pixel_w_um"])
 
                 stage = "acquire"
-                image, lasx_path = acquire(ctx, cfg.target_job, tx, ty, tz)
-
-                stage = "save"
+                acquire(ctx, cfg.target_job, tx, ty, tz)
                 rid, row, col, label = pick.pick_id
-                tif_name = f"pick_R{rid:>02s}_r{row:02d}_c{col:02d}_l{label:04d}.tif"
-                tif_path = save_acquired(
-                    image, lasx_path, ctx.out_dir / "target" / tif_name,
+                naming = Naming(
+                    acquisition_type="target-acquisition",
+                    hash6=ctx.run.layout.hash6,
+                    g=int(rid), p=i,
                 )
+                lineage = {
+                    "source_tile_rid": rid,
+                    "row": row,
+                    "col": col,
+                    "label": label,
+                    "cell_source_stage_xy_um": list(pick.cell_source_stage_xy_um),
+                }
+                result = drv.acquire_and_save(
+                    ctx.client, ctx.run, cfg.target_job, naming,
+                    lineage=lineage,
+                )
+                tif_path = result.image_path
+                stage = "save"  # save succeeded inside acquire_and_save
 
                 records.append(TargetRecord(
                     pick_id=pick.pick_id,
