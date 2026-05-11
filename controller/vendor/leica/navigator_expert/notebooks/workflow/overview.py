@@ -121,7 +121,20 @@ def run_overview_with_picks(
             )
 
             try:
-                acquire(ctx, cfg.acquisition_job, x_um, y_um, zwide_um)
+                # Invariant: translate from the coord-source frame (where
+                # the scan-field markers were placed — source objective)
+                # to the acquisition-objective frame (also source here).
+                # source→source is identity by construction (calibration.py:
+                # 286-315), so tx,ty,tz == x_um,y_um,zwide_um today.
+                # Making the call explicit keeps the contract visible at
+                # both acquisition loops (target.py does the same call
+                # with to_slot=target_slot).
+                tx, ty, tz = drv.translate_xyz_between_objectives(
+                    x_um, y_um, zwide_um, ctx.calibration,
+                    from_slot=ctx.source_slot,
+                    to_slot=ctx.source_slot,
+                )
+                acquire(ctx, cfg.acquisition_job, tx, ty, tz)
                 naming = Naming(
                     acquisition_type="overview-scan",
                     hash6=ctx.run.layout.hash6,
