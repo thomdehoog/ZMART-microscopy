@@ -51,6 +51,26 @@ class TestMoveXyWithBacklash:
                     client=None, x_um=100.0, y_um=200.0,
                 )
 
+    def test_final_move_failure_raises(self):
+        """Final approach failure also raises — the primitive is
+        self-contained, callers shouldn't have to recheck the return
+        value to detect a half-completed positioning."""
+        results = iter([
+            {"success": True},                      # overshoot succeeds
+            {"success": False, "error": "limit"},   # final fails
+        ])
+
+        def fake_move_xy_stage(client, x, y, unit="um"):
+            return next(results)
+
+        with patch.object(stage_motion._commands, "move_xy_stage",
+                          side_effect=fake_move_xy_stage), \
+             patch.object(stage_motion.time, "sleep"):
+            with pytest.raises(RuntimeError, match="final approach"):
+                stage_motion.move_xy_with_backlash(
+                    client=None, x_um=100.0, y_um=200.0,
+                )
+
     def test_returns_final_move_result(self):
         """Return value is the final move's result so callers can check
         success the same way they would for plain move_xy."""

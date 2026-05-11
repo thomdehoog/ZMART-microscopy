@@ -5,13 +5,26 @@ introduces a position offset that depends on which side the nut last
 came from. By always finishing every move with the same +X+Y leg, the
 slack-state is pinned and the offset becomes invisible.
 
-Use ``correct_backlash`` immediately before any acquisition where stage
-position must be repeatable. Parameters live in ``config/stage.json``;
-load them with ``stage_config.load`` so all consumers
-share one source of truth.
+Two primitives for the two physical patterns:
+
+  ``move_xy_with_backlash(client, x, y, ...)``
+      Transit-with-takeup. Move to a known target *through* an
+      overshoot waypoint, settle, then make the final +X +Y leg.
+      Two moves, no current-position read. Use when you need to
+      arrive somewhere with backlash compensation built in
+      (e.g. before each acquisition).
+
+  ``correct_backlash(client, ...)``
+      Post-move takeup. Reads current XY, jogs (-X, -Y), settles,
+      moves back. Three operations, with one ``get_xy`` read. Use
+      when you're already at the target and just need to pin the
+      slack-state without net displacement.
+
+Parameters for both live in ``config/stage.json``; load them with
+``stage_config.load`` so all consumers share one source of truth.
 
 See ``docs/session_notes_20260428_backlash_correction.md`` for the
-analysis behind the recipe.
+mechanical analysis behind the recipe.
 """
 
 import logging
@@ -54,11 +67,12 @@ def move_xy_with_backlash(client, x_um, y_um, *,
     Returns
     -------
     dict
-        The result of the final ``move_xy_stage`` call, so callers can
-        check ``["success"]``. Overshoot failure raises — either both
-        legs land or this function fails loudly. Silently continuing
-        after a failed overshoot would image at an uncompensated
-        position, which is exactly the bug backlash compensation exists
+        The result of the final ``move_xy_stage`` call (always
+        ``{"success": True, ...}`` — failures of either leg raise).
+        Self-contained contract: either the stage is at ``(x_um, y_um)``
+        with the slack-state pinned in +X +Y, or this function raises.
+        Silently continuing after a partial move would image at an
+        uncompensated position — the bug backlash compensation exists
         to prevent.
     """
     r = _commands.move_xy_stage(
@@ -70,7 +84,13 @@ def move_xy_with_backlash(client, x_um, y_um, *,
             f"{y_um - overshoot_um:.2f}) failed: {r}"
         )
     time.sleep(settle_ms / 1000.0)
-    return _commands.move_xy_stage(client, x_um, y_um, unit="um")
+    r = _commands.move_xy_stage(client, x_um, y_um, unit="um")
+    if not r or not r.get("success"):
+        raise RuntimeError(
+            f"backlash final approach to ({x_um:.2f}, {y_um:.2f}) "
+            f"failed: {r}"
+        )
+    return r
 
 
 def correct_backlash(client, *, overshoot_um=50.0, settle_ms=100,
