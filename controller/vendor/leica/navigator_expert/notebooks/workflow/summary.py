@@ -108,7 +108,10 @@ def write_summary(
     summary["picks"] = [_serialize_pick(p) for p in picks.items]
     summary["targets"] = [_serialize_target(r, ctx.out_dir) for r in records]
 
-    out_path = ctx.out_dir / "summary.json"
+    # `summary.json` is owned by the driver (canonical per-acquisition append
+    # log; written by acquire_and_save). This workflow-level aggregate goes
+    # to a separate file at run_dir top level.
+    out_path = ctx.out_dir / "run_summary.json"
     out_path.write_text(json.dumps(summary, indent=2, default=_json_default))
     print(f"[step 6] Saved {out_path}")
     return out_path

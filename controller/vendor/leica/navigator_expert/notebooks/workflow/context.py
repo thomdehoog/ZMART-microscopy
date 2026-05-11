@@ -32,9 +32,9 @@ class Config:
     # Pick policy
     n_picks_per_tile: int
 
-    # Paths
+    # Paths + run identity
     analysis_repo: Path
-    output_root: Path
+    experiment: str               # operator-typed; output_root is derived as media_path/smart by driver
 
     # Optional behaviour flags (defaults)
     feature: str = "area"
@@ -86,7 +86,8 @@ class Context:
     calibration: dict
     stage_config: dict
     engine: Any
-    out_dir: Path
+    out_dir: Path                             # == run.layout.run_dir; kept for compat
+    run: Any                                  # driver.RunHandle (loosely typed to avoid driver import)
     templates_dir: Path                       # required after preflight (D9)
     source_slot: int                          # derived from acquisition_job in preflight
     target_slot: int                          # derived from target_job in preflight

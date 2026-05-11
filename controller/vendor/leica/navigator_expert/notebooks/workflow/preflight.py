@@ -12,7 +12,6 @@ import os
 import sys
 import time
 import warnings
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -111,11 +110,9 @@ def preflight(cfg: Config, client: Any) -> Context:
         if cfg.smoke_test_pipeline:
             _run_smoke_test(engine)
 
-        # 0.7 -- output dir
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_dir = Path(cfg.output_root) / timestamp
-        (out_dir / "overview").mkdir(parents=True, exist_ok=True)
-        (out_dir / "target").mkdir(parents=True, exist_ok=True)
+        # 0.7 -- run dir (driver derives output_root = media_path / "smart")
+        run = drv.start_run(client, cfg.experiment)
+        out_dir = run.layout.run_dir
         (out_dir / "logs").mkdir(parents=True, exist_ok=True)
 
         # 0.8 -- construct Context (current_job="" forces ensure_job_state to run)
@@ -127,6 +124,7 @@ def preflight(cfg: Config, client: Any) -> Context:
             stage_config=stage_config,
             engine=engine,
             out_dir=out_dir,
+            run=run,
             templates_dir=templates_dir,
             source_slot=source_slot,
             target_slot=target_slot,
