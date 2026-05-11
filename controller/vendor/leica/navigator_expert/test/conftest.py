@@ -24,6 +24,11 @@ _VENDOR_LEICA = Path(__file__).resolve().parents[2]
 if str(_VENDOR_LEICA) not in sys.path:
     sys.path.insert(0, str(_VENDOR_LEICA))
 
+# Add vendor/ to sys.path so `from _shared.output_layout import ...` resolves.
+_VENDOR = Path(__file__).resolve().parents[3]
+if str(_VENDOR) not in sys.path:
+    sys.path.insert(0, str(_VENDOR))
+
 # Back-compat alias: tests written before the rename do
 # ``import lasx.core``, ``import lasx.errors``, etc. Map every driver
 # submodule under the ``lasx`` namespace via sys.modules.
