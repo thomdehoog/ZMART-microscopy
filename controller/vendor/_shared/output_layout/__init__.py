@@ -1,8 +1,11 @@
 """Lab-wide output naming convention.
 
 Vendor-neutral schema for smart-microscopy acquisition outputs. Drivers
-(Leica navigator_expert, future Zeiss/Nikon) and workflows import from
-here. Canonical spec: auto-memory `smart_microscopy_smart_folder_structure.md`.
+and workflows import from here; the schema does not depend on any
+vendor's API. Vendor-specific extraction logic (e.g. parsing source
+filenames into canonical Naming slots) lives in each driver.
+
+Canonical spec: auto-memory `smart_microscopy_smart_folder_structure.md`.
 
 Import convention: `from _shared.output_layout import Naming, ...`
 Requires `controller/vendor/` on sys.path.

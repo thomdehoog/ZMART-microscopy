@@ -160,7 +160,8 @@ controller/vendor/leica/navigator_expert/
             target.py                    # same, with lineage dict
             context.py                   # Context.run = RunHandle
             _acquire.py                  # MOTION ONLY (acquire_frame + save_acquired removed)
-            summary.py                   # DELETED (driver writes summary now)
+            summary.py                   # KEPT — writes run_summary.json (rich aggregate);
+                                         # driver owns summary.json (per-acquisition append log)
 ```
 
 Two new modules. That's it. No `file_io.py`, no `run_manager.py`, no `summary_schema.py`. If `acquisition.py` grows past ~500 lines and has clear seams, split it then.
@@ -200,7 +201,7 @@ Zero callers.
 **`_save_atomic` contract** (precise operation order, addressing both reviews):
 1. Copy image to `image_dest.tmp` (e.g. `shutil.copy2(src, image_dest.tmp)`).
 2. Copy XML to `xml_dest.tmp` (if XML expected).
-3. Validate both `.tmp` files (OME integrity, size, stability).
+3. Validate both `.tmp` files match their source file size exactly. Size match catches truncation, the realistic failure mode under partial copies (disk full, network blip). Silent bit corruption is not caught — that responsibility lies with the filesystem. OME integrity is validated source-side before this function; same-size copy on success is trusted.
 4. **Only after both `.tmp` files exist and validate**, do `os.replace(image_dest.tmp, image_dest)` followed by `os.replace(xml_dest.tmp, xml_dest)`.
 5. On any exception in steps 1–4: unlink any `.tmp` files this call created, no `os.replace` runs, no final paths appear.
 6. On exception between step 4's two `os.replace` calls (extremely narrow window): unlink the second `.tmp`; the first `os.replace` may have committed an image without its XML — log the partial state loudly, but this is a hardware-level race that can only happen on filesystem failure mid-syscall.
@@ -253,9 +254,9 @@ Integration smoke test: full workflow against mock LAS X, assert canonical file 
 
 ### Commit 4 — driver SMART-naming removal + cleanup
 
-- **Grep all callers** of: `_build_image_name`, `_build_xml_name`, `rename_and_move`, `predict_manifest`, `confirm_acquisition`, `next_position_index`, `_parse_target_name`, `_RE_TARGET_IMAGE`. For each caller: port to new API, or delete. No deprecated shims.
+- **Grep all callers** of: `_build_image_name`, `_build_xml_name`, `rename_and_move`, `predict_manifest`, `confirm_acquisition`, `next_position_index`, `_RE_TARGET_IMAGE`. For each caller: port to new API, or delete. No deprecated shims. (`_parse_target_name` was listed in earlier drafts but never existed in the codebase — phantom.)
 - **`confirm_acquisition` has no callers** (verified by both reviews). The grep hit at `driver/notebook_workflow.py:357` is a substring false-positive — that's a *private* `_confirm_acquisition(sequence, config)` at `notebook_workflow.py:614`, an unrelated `input("Type ACQUIRE…")` prompt helper. Do not touch it. Delete the driver-level `confirm_acquisition` unconditionally.
-- Delete from `driver/file_confirmation.py`: `_build_image_name`, `_build_xml_name`, `rename_and_move`, `predict_manifest`, `confirm_acquisition`, `next_position_index`, `_parse_target_name`, `_RE_TARGET_IMAGE`.
+- Delete from `driver/file_confirmation.py`: `_build_image_name`, `_build_xml_name`, `rename_and_move`, `predict_manifest`, `confirm_acquisition`, `next_position_index`, `_RE_TARGET_IMAGE`, and the private OME-path patching helpers used only by `rename_and_move` (`_replace_full_path_in_xml`, `_set_ome_paths_tiff`, `_set_ome_paths_xml`) and `_result`. (`_parse_target_name` never existed.)
 - **Rewrite `file_confirmation.py` module docstring.** Current docstring (lines 1–50) describes the deleted ten-step SMART workflow. After deletions the module is "LAS X source-side primitives" (parsing + validation + discovery). Rewrite to reflect this, or rename the file to `lasx_source.py` if rename is cheap.
 - Update `driver/__init__.py`: remove deleted symbols from imports + `__all__` (lines 159, 162, 435, 440, 442). Run `python -c "import navigator_expert.driver"` as a hard test.
 - Final grep across all repos to confirm no stale callers.
