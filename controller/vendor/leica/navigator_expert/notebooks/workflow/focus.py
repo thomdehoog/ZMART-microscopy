@@ -251,12 +251,26 @@ def build_focus_map(ctx: Context) -> FocusMap:
 
         measured: list[dict] = []
         for i, fp in enumerate(focus_positions):
+            x_um = fp["x_um"]
+            y_um = fp["y_um"]
             print(
                 f"\n[{i + 1}/{len(focus_positions)}] "
-                f"x={fp['x_um']:.0f}  y={fp['y_um']:.0f}",
+                f"x={x_um:.0f}  y={y_um:.0f}",
                 end="", flush=True,
             )
-            drv.move_xy(client, fp["x_um"], fp["y_um"])
+            backlash = ctx.stage_config.get("backlash")
+            if backlash is not None:
+                r = drv.move_xy_with_backlash(
+                    client, x_um, y_um,
+                    overshoot_um=backlash.get("overshoot_um", 50.0),
+                    settle_ms=backlash.get("settle_ms", 100),
+                )
+            else:
+                r = drv.move_xy(client, x_um, y_um)
+            if not r or not r.get("success"):
+                raise RuntimeError(
+                    f"move_xy({x_um}, {y_um}) failed: {r!r}"
+                )
             drv_acquire(client, cfg.af_job)
             settings = drv.get_job_settings(client, cfg.af_job)
             ch = drv.make_changeable_copy(settings)
