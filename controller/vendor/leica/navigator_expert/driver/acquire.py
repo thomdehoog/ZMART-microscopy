@@ -17,13 +17,13 @@ Two entry points:
         whether LAS X exported the stack as one multi-page TIFF or
         as N single-frame TIFFs.
 
-Both apply a +X +Y backlash takeup before the acquire by default —
-calibration and cookbook share the same takeup parameters via
-``stage_config["backlash"]`` so successive acquires sample identical
-mechanical state. Pass ``apply_backlash=False`` (or
-``backlash_params=None`` from main()) to skip; pass
-``backlash_params=stage_cfg["backlash"]`` to use the configured
-overshoot/settle/tolerance.
+Backlash takeup is optional: pass ``backlash_params=stage_cfg["backlash"]``
+to apply a +X +Y takeup (via ``stage_motion.correct_backlash``) before
+the acquire. The default ``backlash_params=None`` skips it. Callers
+that want compensation positioning at a known target should use
+``stage_motion.move_xy_with_backlash`` *before* calling these helpers
+(that's what the v3 workflow does); the ``backlash_params`` route
+here applies post-move takeup at the current stage position.
 """
 
 from __future__ import annotations
