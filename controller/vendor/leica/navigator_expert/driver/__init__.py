@@ -155,11 +155,11 @@ __all__ = [
     "lrp_set_z_position", "lrp_verify_z_position",
     "lrp_set_z_stack_range", "lrp_verify_z_stack_range",
     "lrp_set_z_stack_size", "lrp_verify_z_stack_size",
-    # file_confirmation
-    "read_relative_path", "parse_lasx_filename", "predict_manifest",
-    "next_position_index",
+    # file_confirmation (LAS X source-side primitives; legacy SMART
+    # builders + orchestrator deleted 2026-05-11)
+    "read_relative_path", "parse_lasx_filename",
     "detect_new_files", "wait_all_stable", "validate_files",
-    "rename_and_move", "confirm_arrival", "confirm_acquisition",
+    "confirm_arrival",
     # alignment
     "load_alignment", "translate_xy", "translate_pan", "translate_z", "translate_xyz",
     # objectives (hw_info helpers)
@@ -430,18 +430,18 @@ from .scanning_template_editors_z import (
     lrp_verify_z_stack_size,
 )
 
-# ── File confirmation ─────────────────────────────────────────────
+# ── File confirmation (LAS X source-side primitives) ─────────────
+# Legacy SMART builders + orchestrator (confirm_acquisition,
+# rename_and_move, predict_manifest, next_position_index,
+# _build_image_name, _build_xml_name) were deleted 2026-05-11.
+# Canonical naming + atomic save now live in driver.acquisition.
 from .file_confirmation import (
     read_relative_path,
     parse_lasx_filename,
-    predict_manifest,
-    next_position_index,
     detect_new_files,
     wait_all_stable,
     validate_files,
-    rename_and_move,
     confirm_arrival,
-    confirm_acquisition,
 )
 
 # ── Alignment / coordinate translation ────────────────────────────
