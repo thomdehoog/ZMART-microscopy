@@ -5,13 +5,11 @@ The driver's ``acquire_and_save`` triggers the frame and persists
 it under the canonical layout; the workflow positions the stage
 before each call.
 
-``acquire`` does verified job state, move z-wide, backlash with
-known target coordinates, move XY. It does not trigger a frame
-and returns None.
+``acquire`` does verified job state, move z-wide, then move XY (with
+backlash takeup via the driver primitive if configured). It does not
+trigger a frame and returns None.
 """
 from __future__ import annotations
-
-import time
 
 import navigator_expert.driver as drv
 
@@ -29,8 +27,9 @@ def acquire(
     """Position the stage for the next acquisition. Does not trigger a frame.
 
     Job transition goes through ensure_job_state (verified + settled).
-    Z-wide first (job-scoped), then backlash overshoot + final XY
-    (target-based, no get_xy needed). The caller then invokes
+    Z-wide first (job-scoped), then XY: with backlash takeup via
+    ``drv.move_xy_with_backlash`` if stage_config["backlash"] is set,
+    plain ``drv.move_xy`` otherwise. The caller then invokes
     ``drv.acquire_and_save`` to acquire and persist.
     """
     ensure_job_state(ctx, job)
@@ -41,14 +40,12 @@ def acquire(
 
     backlash = ctx.stage_config.get("backlash")
     if backlash is not None:
-        overshoot = backlash.get("overshoot_um", 50.0)
-        settle_s = backlash.get("settle_ms", 100) / 1000.0
-        r = drv.move_xy(ctx.client, x_um - overshoot, y_um - overshoot)
-        if not r or not r.get("success"):
-            print(f"[acquire] WARNING: backlash overshoot failed, "
-                  f"continuing to final XY: {r!r}")
-        time.sleep(settle_s)
-
-    r = drv.move_xy(ctx.client, x_um, y_um)
+        r = drv.move_xy_with_backlash(
+            ctx.client, x_um, y_um,
+            overshoot_um=backlash.get("overshoot_um", 50.0),
+            settle_ms=backlash.get("settle_ms", 100),
+        )
+    else:
+        r = drv.move_xy(ctx.client, x_um, y_um)
     if not r or not r.get("success"):
         raise RuntimeError(f"move_xy({x_um}, {y_um}) failed: {r!r}")
