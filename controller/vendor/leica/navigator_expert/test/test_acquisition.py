@@ -296,6 +296,33 @@ class TestAcquireAndSaveFailure:
                     client=None, run=run, job="HiRes", naming=naming,
                 )
 
+    def test_ome_ok_strict_against_malformed_dict(self):
+        """_ome_ok uses strict key access on the documented contract:
+        missing 'corrupted' or 'error' must KeyError, not silently pass.
+
+        This pins the lesson learned from the original validation bug —
+        the wrong mock shape {"success": True} passed silently because
+        the predicate used .get(). Strict access fails loud on the same
+        malformed input, so future drift is caught immediately."""
+        # Real shape: healthy
+        assert acquisition._ome_ok(
+            {"path": "x", "corrupted": False, "violations": [], "error": None}
+        ) is True
+        # Real shape: corrupted
+        assert acquisition._ome_ok(
+            {"path": "x", "corrupted": True, "violations": ["bad"], "error": None}
+        ) is False
+        # Real shape: read error
+        assert acquisition._ome_ok(
+            {"path": "x", "corrupted": False, "violations": [], "error": "I/O"}
+        ) is False
+        # Fictional shape (the old broken mock) — must fail loud
+        with pytest.raises(KeyError):
+            acquisition._ome_ok({"success": True})
+        # Empty dict — same loud failure
+        with pytest.raises(KeyError):
+            acquisition._ome_ok({})
+
     def test_ome_read_error_raises(self, patched_drv):
         """check_ome_tiff returns error=<str> when the file can't be read;
         the driver must treat this as failure too (not just corrupted=True)."""

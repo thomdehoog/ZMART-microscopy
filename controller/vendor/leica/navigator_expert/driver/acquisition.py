@@ -283,10 +283,14 @@ def _ome_ok(result: dict) -> bool:
     """check_ome_tiff / check_ome_xml_file success criterion.
 
     The driver primitives return ``{"path", "corrupted", "violations",
-    "error"}`` — no ``success`` key. A healthy file has ``corrupted=False``
-    and ``error=None``; violations are non-fatal warnings.
+    "error"}`` — no ``success`` key. A healthy file has ``corrupted is
+    False`` and ``error is None``; violations are non-fatal warnings.
+
+    Uses strict key access: malformed dicts (missing ``corrupted`` or
+    ``error``) raise ``KeyError`` rather than silently passing. This
+    catches contract drift and fictional test mocks immediately.
     """
-    return not result.get("corrupted") and result.get("error") is None
+    return result["corrupted"] is False and result["error"] is None
 
 
 def _validate_ome(image_path: Path, xml_path: Path, *, fix_ome: bool) -> None:
