@@ -34,7 +34,12 @@ def write_summary(
     picks: Picks,
     records: list[TargetRecord],
 ) -> Path:
-    """Write summary.json into ctx.out_dir."""
+    """Write run_summary.json (rich workflow aggregate) into ctx.out_dir.
+
+    The driver writes summary.json (per-acquisition append log) during
+    the run; this function writes the analysis-friendly aggregate once
+    at end-of-run.
+    """
     cfg = ctx.cfg
     scan_field = ctx.scan_field or {}
     tile_positions = scan_field.get("tile_positions", {})
