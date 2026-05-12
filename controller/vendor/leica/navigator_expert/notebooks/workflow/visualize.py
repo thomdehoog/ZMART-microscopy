@@ -87,13 +87,14 @@ def display_target(
 ) -> None:
     """Render one target 3-panel figure inline during acquisition.
 
-    Left: full overview tile with red dot on picked cell.
+    Left: full overview tile with cell mask overlay + target FOV rectangle.
     Middle: centroid-centered crop at target FOV.
     Right: acquired high-res target image.
 
     Pass a shared tile_cache dict across calls to avoid re-loading
     npz files for tiles that appear in multiple targets.
     """
+    import matplotlib.patches as patches
     import matplotlib.pyplot as plt
     import tifffile
     from IPython.display import display
@@ -124,14 +125,43 @@ def display_target(
     try:
         fig.patch.set_facecolor("white")
 
-        # Left: full overview tile with marker
-        if tile_data is not None:
-            image_2d = tile_data[0]
+        # Left: full overview tile with cell mask + target FOV rectangle
+        if tile_data is not None and pick is not None:
+            image_2d, masks = tile_data[0], tile_data[1]
             axes[0].imshow(image_2d, cmap="gray")
+
+            label = pick.pick_id[3]
+            mask_overlay = np.zeros((*masks.shape, 4), dtype=np.float32)
+            mask_overlay[masks == label] = [1.0, 0.0, 0.0, 0.4]
+            axes[0].imshow(mask_overlay)
+
             cx, cy = pick.centroid_col_row_px
-            axes[0].scatter(cx, cy, s=60, marker="o",
-                            facecolor="red", edgecolor="white",
-                            linewidth=0.8, zorder=10)
+            src_px_w, src_px_h = pick.source_pixel_size_um
+            if (target_img is not None
+                    and record.target_pixel_size_um is not None
+                    and src_px_w > 0 and src_px_h > 0):
+                th, tw = target_img.shape[:2]
+                crop_w = int(round(tw * record.target_pixel_size_um / src_px_w))
+                crop_h = int(round(th * record.target_pixel_size_um / src_px_h))
+            else:
+                r0b, c0b, r1b, c1b = pick.bbox_px
+                crop_h, crop_w = r1b - r0b, c1b - c0b
+
+            h, w = image_2d.shape[:2]
+            crop_h = min(crop_h, h)
+            crop_w = min(crop_w, w)
+            r0 = int(round(cy - crop_h / 2))
+            c0 = int(round(cx - crop_w / 2))
+            r0 = max(0, min(r0, h - crop_h))
+            c0 = max(0, min(c0, w - crop_w))
+
+            axes[0].add_patch(patches.Rectangle(
+                (c0, r0), crop_w, crop_h,
+                edgecolor="red", facecolor="none",
+                linewidth=1.5, zorder=10,
+            ))
+        elif tile_data is not None:
+            axes[0].imshow(tile_data[0], cmap="gray")
         else:
             axes[0].text(0.5, 0.5, "N/A", ha="center", va="center",
                          transform=axes[0].transAxes, fontsize=12,
