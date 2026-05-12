@@ -176,3 +176,37 @@ class TestSaveTileAnalysis:
 
         data = np.load(list(analysis_dir.glob("*.npz"))[0], allow_pickle=True)
         assert str(data["analysis_image_source"]) == "skimage_human_mitosis"
+
+    def test_missing_naming_p_skips_with_warning(self, tmp_path, capsys):
+        analysis_dir = tmp_path / "analysis"
+        entry = _make_buffer_entry(tile_id=("0", 0, 0), naming_p=0)
+        entry["input"].pop("naming_p")
+
+        _save_tile_analysis(analysis_dir, [entry], hash6="abc123",
+                            acquisition_type="overview-scan")
+
+        assert len(list(analysis_dir.glob("*.npz"))) == 0
+        assert "missing naming_p" in capsys.readouterr().out
+
+    def test_mkdir_failure_does_not_raise(self, tmp_path):
+        # Point analysis_dir at an existing file — mkdir will fail
+        blocker = tmp_path / "analysis"
+        blocker.write_text("not a directory")
+
+        buf = [_make_buffer_entry()]
+        _save_tile_analysis(blocker, buf, hash6="abc123",
+                            acquisition_type="overview-scan")
+        # No exception raised
+
+    def test_missing_segment_data_warns(self, tmp_path, capsys):
+        analysis_dir = tmp_path / "analysis"
+        buf = [{
+            "input": {"tile_id": ("0", 0, 0), "naming_p": 0},
+            "segment_tile": {"image_2d": np.zeros((4, 4))},
+            "pick_targets": {"picks": []},
+        }]
+
+        _save_tile_analysis(analysis_dir, buf, hash6="abc123",
+                            acquisition_type="overview-scan")
+
+        assert "missing segment data" in capsys.readouterr().out
