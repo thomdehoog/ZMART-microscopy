@@ -139,7 +139,7 @@ def run_overview_with_picks(
         )
 
         # 4.2-4.3 -- acquire + submit + opportunistic drain
-        buffer: list[dict] = []  # kept for drain assert only
+        n_results = 0  # count only (results not retained — saves ~2 GB on 200-tile runs)
         n_submitted = 0
         tile_acquire_failures: list[dict] = []
 
@@ -222,7 +222,7 @@ def run_overview_with_picks(
             # Opportunistic drain — per-result: threshold+sample, save, callback
             new_results = engine.results("overview")
             for r in new_results:
-                selected, n_c, n_q, mode = _process_drained_result(
+                selected, n_c, n_q, mode, saved = _process_drained_result(
                     r, cfg, seed_base, ctx.run.layout.hash6,
                     analysis_dir, _analysis_dir_ready, on_tile,
                 )
@@ -235,9 +235,9 @@ def run_overview_with_picks(
                     n_tiles_no_qualifying += 1
                 elif mode == MODE_EMPTY:
                     n_tiles_empty += 1
-                if selected:
+                if saved:
                     n_saved += 1
-            buffer.extend(new_results)
+            n_results += len(new_results)
 
         # 4.4 -- blocking drain
         s = None
@@ -245,7 +245,7 @@ def run_overview_with_picks(
             s = engine.status("overview")
             new_results = engine.results("overview")
             for r in new_results:
-                selected, n_c, n_q, mode = _process_drained_result(
+                selected, n_c, n_q, mode, saved = _process_drained_result(
                     r, cfg, seed_base, ctx.run.layout.hash6,
                     analysis_dir, _analysis_dir_ready, on_tile,
                 )
@@ -258,9 +258,9 @@ def run_overview_with_picks(
                     n_tiles_no_qualifying += 1
                 elif mode == MODE_EMPTY:
                     n_tiles_empty += 1
-                if selected:
+                if saved:
                     n_saved += 1
-            buffer.extend(new_results)
+            n_results += len(new_results)
             if s["pending"] == 0 and s["running"] == 0:
                 break
             time.sleep(0.05)
@@ -269,14 +269,14 @@ def run_overview_with_picks(
         new_failures = s.get("failures", [])[failure_count_before:]
 
         # Phase-0 only: each submit produces exactly one result or failure
-        assert len(buffer) + len(new_failures) == n_submitted, (
-            f"Drain mismatch: {len(buffer)} results + {len(new_failures)} "
+        assert n_results + len(new_failures) == n_submitted, (
+            f"Drain mismatch: {n_results} results + {len(new_failures)} "
             f"failures != {n_submitted} submitted"
         )
 
         n_picks_raw = len(accumulated_selected)
 
-        print(f"\n[step 4] Drain complete: {len(buffer)} result(s), "
+        print(f"\n[step 4] Drain complete: {n_results} result(s), "
               f"{len(new_failures)} engine failure(s), "
               f"{len(tile_acquire_failures)} tile acquire failure(s)")
         print(f"[step 4] Cells: {n_cells_total} total, "
@@ -626,10 +626,10 @@ def _process_drained_result(
     analysis_dir: Path,
     analysis_dir_ready: bool,
     on_tile: Callable[[TileEvent], None] | None,
-) -> tuple[list[Pick], int, int, str]:
+) -> tuple[list[Pick], int, int, str, bool]:
     """Process one drained engine result: picks, save, callback.
 
-    Returns (selected_picks, n_cells, n_qualifying, mode).
+    Returns (selected_picks, n_cells, n_qualifying, mode, saved).
     seed_base and hash6 are separate: seed_base may be cfg.random_seed,
     hash6 is always ctx.run.layout.hash6 (needed for npz filename).
     """
@@ -645,8 +645,9 @@ def _process_drained_result(
         seed_material=seed_material,
     )
 
+    saved = False
     if analysis_dir_ready:
-        _save_single_tile_analysis(
+        saved = _save_single_tile_analysis(
             result, analysis_dir,
             hash6=hash6, acquisition_type="overview-scan",
             extra_arrays={
@@ -667,7 +668,7 @@ def _process_drained_result(
     _fire_on_tile(on_tile, result, selected, all_picks,
                   a_thresh, i_thresh, mode)
 
-    return (selected, len(all_picks), n_qual, mode)
+    return (selected, len(all_picks), n_qual, mode, saved)
 
 
 def _fire_on_tile(

@@ -4,7 +4,7 @@ Live display (during acquisition):
   display_tile:   per-tile triptych, called via on_tile callback.
   display_target: per-target 3-panel, called via on_target callback.
 
-Batch re-render (Steps 4b/5b, after acquisition):
+Batch re-render (programmatic use):
   plot_overview_tiles: all tiles with final deduped picks.
   plot_target_pairs:   all targets in 3-panel layout.
 
@@ -694,7 +694,7 @@ def _scatter_panel(
                     xy=(0.5, 0.02), xycoords="axes fraction",
                     ha="center", fontsize=8, color="#888888")
     elif mode == MODE_SPARSE:
-        ax.annotate(f"< {len(all_labels)} cells: thresholds skipped",
+        ax.annotate("Thresholds skipped (sparse tile)",
                     xy=(0.5, 0.02), xycoords="axes fraction",
                     ha="center", fontsize=8, color="#888888")
 
