@@ -11,7 +11,11 @@ from _shared.output_layout.naming import (
     Naming,
     build_position_analysis_name,
 )
-from workflow.overview import _save_tile_analysis
+from workflow.overview import (
+    TileEvent,
+    _fire_on_tile,
+    _save_tile_analysis,
+)
 
 
 def _make_buffer_entry(
@@ -225,3 +229,45 @@ class TestSaveTileAnalysis:
                             acquisition_type="overview-scan")
 
         assert "missing tile_id" in capsys.readouterr().out
+
+
+class TestFireOnTile:
+    def test_calls_callback_with_tile_event(self):
+        result = _make_buffer_entry(
+            tile_id=("0", 1, 2), naming_p=0,
+            analysis_image_source="acquired",
+        )
+        result["pick_targets"]["picks"] = [
+            {"pick_id": ("0", 1, 2, 5)},
+            {"pick_id": ("0", 1, 2, 10)},
+        ]
+
+        received = []
+        _fire_on_tile(lambda e: received.append(e), result)
+
+        assert len(received) == 1
+        event = received[0]
+        assert isinstance(event, TileEvent)
+        assert event.tile_id == ("0", 1, 2)
+        assert event.picked_labels == (5, 10)
+        assert event.analysis_image_source == "acquired"
+
+    def test_callback_exception_does_not_propagate(self, capsys):
+        result = _make_buffer_entry()
+
+        def _boom(event):
+            raise ValueError("display failed")
+
+        _fire_on_tile(_boom, result)
+
+        assert "on_tile callback failed" in capsys.readouterr().out
+
+    def test_none_callback_is_noop(self):
+        result = _make_buffer_entry()
+        _fire_on_tile(None, result)
+
+    def test_missing_data_skips_callback(self):
+        result = {"input": {}, "segment_tile": {}, "pick_targets": {}}
+        received = []
+        _fire_on_tile(lambda e: received.append(e), result)
+        assert len(received) == 0

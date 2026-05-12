@@ -7,11 +7,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import navigator_expert.driver as drv
 
 from .context import Context, TargetState
-from .overview import Picks
+from .overview import Pick, Picks
 from _shared.output_layout import Naming
 from ._acquire import acquire
 from ._job_state import ensure_job_state
@@ -32,7 +33,12 @@ class TargetRecord:
     failure_stage: str | None = None
 
 
-def acquire_targets(ctx: Context, picks: Picks) -> list[TargetRecord]:
+def acquire_targets(
+    ctx: Context,
+    picks: Picks,
+    *,
+    on_target: Callable[[Pick, TargetRecord], None] | None = None,
+) -> list[TargetRecord]:
     """Step 5: switch objective, translate picks, acquire each target.
 
     Per-pick failure isolation: if translation, zoom, move, or acquire
@@ -154,7 +160,7 @@ def acquire_targets(ctx: Context, picks: Picks) -> list[TargetRecord]:
                 tif_path = result.image_path
                 stage = "save"  # save succeeded inside acquire_and_save
 
-                records.append(TargetRecord(
+                rec = TargetRecord(
                     pick_id=pick.pick_id,
                     cell_source_stage_xy_um=pick.cell_source_stage_xy_um,
                     source_zwide_um=pick.tile_zwide_um,
@@ -165,8 +171,15 @@ def acquire_targets(ctx: Context, picks: Picks) -> list[TargetRecord]:
                     tif_path=tif_path,
                     success=True,
                     error=None,
-                ))
+                )
+                records.append(rec)
                 print(f"  ok  tz={tz:.1f}")
+
+                if on_target is not None:
+                    try:
+                        on_target(pick, rec)
+                    except Exception as exc:
+                        print(f"  [viz] WARNING: on_target failed: {exc}")
 
             except Exception as exc:
                 records.append(TargetRecord(
