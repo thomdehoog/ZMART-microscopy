@@ -123,7 +123,7 @@ def display_target(
     *,
     scan_field: dict | None = None,
     boundary_limits: dict | None = None,
-    target_brightness_match: bool = True,
+    target_brightness_match: bool = False,
     feedback_dir: Path | None = None,
     tile_cache: dict | None = None,
 ) -> None:
@@ -292,7 +292,7 @@ def display_target(
         plt.close(fig)
 
 
-# ─── Batch re-render (Steps 4b/5b) ──────────────────────────────
+# ─── Batch re-render (programmatic use) ──────────────────────────
 
 
 def plot_overview_tiles(
