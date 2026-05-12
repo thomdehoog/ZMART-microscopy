@@ -12,8 +12,15 @@ from _shared.output_layout.naming import (
     build_position_analysis_name,
 )
 from workflow.overview import (
+    MODE_EMPTY,
+    MODE_NO_QUALIFYING,
+    MODE_SPARSE,
+    MODE_THRESHOLD,
+    Pick,
     TileEvent,
+    _apply_threshold_and_sample,
     _fire_on_tile,
+    _picks_from_result,
     _save_tile_analysis,
 )
 
@@ -231,26 +238,44 @@ class TestSaveTileAnalysis:
         assert "missing tile_id" in capsys.readouterr().out
 
 
+def _make_pick(label, area_px=100, mean_intensity=50.0):
+    """Build a minimal Pick for threshold tests."""
+    return Pick(
+        pick_id=("0", 0, 0, label),
+        tile_stage_xy_um=(0.0, 0.0),
+        tile_zwide_um=0.0,
+        source_pixel_size_um=(0.5, 0.5),
+        source_image_size_px=(64, 64),
+        centroid_col_row_px=(32.0, 32.0),
+        bbox_px=(28, 28, 36, 36),
+        bbox_um=(4.0, 4.0),
+        area_px=area_px,
+        eccentricity=0.3,
+        mean_intensity=mean_intensity,
+        cell_source_stage_xy_um=(0.0, 0.0),
+    )
+
+
 class TestFireOnTile:
     def test_calls_callback_with_tile_event(self):
         result = _make_buffer_entry(
             tile_id=("0", 1, 2), naming_p=0,
             analysis_image_source="acquired",
         )
-        result["pick_targets"]["picks"] = [
-            {"pick_id": ("0", 1, 2, 5)},
-            {"pick_id": ("0", 1, 2, 10)},
-        ]
+        selected = [_make_pick(5), _make_pick(10)]
+        all_picks = selected + [_make_pick(15)]
 
         received = []
-        _fire_on_tile(lambda e: received.append(e), result)
+        _fire_on_tile(lambda e: received.append(e), result,
+                      selected, all_picks, 80.0, 40.0, MODE_THRESHOLD)
 
         assert len(received) == 1
         event = received[0]
         assert isinstance(event, TileEvent)
         assert event.tile_id == ("0", 1, 2)
         assert event.picked_labels == (5, 10)
-        assert event.analysis_image_source == "acquired"
+        assert event.mode == MODE_THRESHOLD
+        assert len(event.all_cells_area) == 3
 
     def test_callback_exception_does_not_propagate(self, capsys):
         result = _make_buffer_entry()
@@ -258,16 +283,158 @@ class TestFireOnTile:
         def _boom(event):
             raise ValueError("display failed")
 
-        _fire_on_tile(_boom, result)
+        _fire_on_tile(_boom, result, [], [], 0.0, 0.0, MODE_EMPTY)
 
         assert "on_tile callback failed" in capsys.readouterr().out
 
     def test_none_callback_is_noop(self):
         result = _make_buffer_entry()
-        _fire_on_tile(None, result)
+        _fire_on_tile(None, result, [], [], 0.0, 0.0, MODE_EMPTY)
 
     def test_missing_data_skips_callback(self):
         result = {"input": {}, "segment_tile": {}, "pick_targets": {}}
         received = []
-        _fire_on_tile(lambda e: received.append(e), result)
+        _fire_on_tile(lambda e: received.append(e), result,
+                      [], [], 0.0, 0.0, MODE_EMPTY)
         assert len(received) == 0
+
+
+class TestApplyThresholdAndSample:
+    def test_median_threshold_correct(self):
+        picks = [_make_pick(i, area_px=i * 10, mean_intensity=float(i * 5))
+                 for i in range(1, 21)]
+        selected, a_thresh, i_thresh, n_qual, mode = _apply_threshold_and_sample(
+            picks, n_random=4, seed_material="test",
+        )
+        assert a_thresh == float(np.median([p.area_px for p in picks]))
+        assert i_thresh == float(np.median([p.mean_intensity for p in picks]))
+        assert mode == MODE_THRESHOLD
+
+    def test_filter_both_axes(self):
+        picks = [
+            _make_pick(1, area_px=200, mean_intensity=200.0),
+            _make_pick(2, area_px=50, mean_intensity=200.0),
+            _make_pick(3, area_px=200, mean_intensity=10.0),
+            _make_pick(4, area_px=50, mean_intensity=10.0),
+        ] * 3  # 12 cells to exceed min_cells_for_threshold
+        selected, a_thresh, i_thresh, n_qual, mode = _apply_threshold_and_sample(
+            picks, n_random=4, min_cells_for_threshold=5, seed_material="test",
+        )
+        for p in selected:
+            assert p.area_px >= a_thresh
+            assert p.mean_intensity >= i_thresh
+
+    def test_random_sample_count(self):
+        picks = [_make_pick(i, area_px=100 + i, mean_intensity=100.0 + i)
+                 for i in range(20)]
+        selected, _, _, _, _ = _apply_threshold_and_sample(
+            picks, n_random=4, seed_material="test",
+        )
+        assert len(selected) <= 4
+
+    def test_sparse_fallback_below_min_cells(self):
+        picks = [_make_pick(i) for i in range(5)]
+        selected, a_thresh, i_thresh, n_qual, mode = _apply_threshold_and_sample(
+            picks, n_random=4, min_cells_for_threshold=10, seed_material="test",
+        )
+        assert mode == MODE_SPARSE
+        assert a_thresh == 0.0
+        assert len(selected) == 4
+
+    def test_zero_cells_returns_empty(self):
+        selected, _, _, _, mode = _apply_threshold_and_sample(
+            [], seed_material="test",
+        )
+        assert mode == MODE_EMPTY
+        assert selected == []
+
+    def test_no_qualifying_returns_no_qualifying(self):
+        picks = [
+            _make_pick(1, area_px=200, mean_intensity=10.0),
+            _make_pick(2, area_px=10, mean_intensity=200.0),
+        ] * 6  # 12 cells, negatively correlated
+        selected, a_thresh, i_thresh, n_qual, mode = _apply_threshold_and_sample(
+            picks, n_random=4, min_cells_for_threshold=5, seed_material="test",
+        )
+        assert mode == MODE_NO_QUALIFYING
+        assert n_qual == 0
+        assert len(selected) > 0
+
+    def test_seed_reproducible(self):
+        picks = [_make_pick(i, area_px=100 + i, mean_intensity=50.0 + i)
+                 for i in range(20)]
+        s1, *_ = _apply_threshold_and_sample(picks, seed_material="abc_0_0_0")
+        s2, *_ = _apply_threshold_and_sample(picks, seed_material="abc_0_0_0")
+        assert [p.pick_id for p in s1] == [p.pick_id for p in s2]
+
+    def test_seed_differs_per_tile(self):
+        picks = [_make_pick(i, area_px=100 + i, mean_intensity=50.0 + i)
+                 for i in range(20)]
+        s1, *_ = _apply_threshold_and_sample(picks, seed_material="abc_0_0_0")
+        s2, *_ = _apply_threshold_and_sample(picks, seed_material="abc_0_0_1")
+        assert [p.pick_id for p in s1] != [p.pick_id for p in s2]
+
+    def test_ge_not_gt(self):
+        picks = [_make_pick(i, area_px=100, mean_intensity=50.0)
+                 for i in range(20)]
+        selected, a_thresh, i_thresh, n_qual, mode = _apply_threshold_and_sample(
+            picks, n_random=4, min_cells_for_threshold=10, seed_material="test",
+        )
+        assert mode == MODE_THRESHOLD
+        assert n_qual == 20
+
+
+class TestPicksFromResult:
+    def test_happy_path(self):
+        result = _make_buffer_entry(tile_id=("0", 0, 0), naming_p=0)
+        result["pick_targets"]["picks"] = [{
+            "pick_id": ("0", 0, 0, 1),
+            "tile_stage_xy_um": (100.0, 200.0),
+            "tile_zwide_um": 50.0,
+            "source_pixel_size_um": (0.5, 0.5),
+            "source_image_size_px": (64, 64),
+            "centroid_col_row_px": (32.0, 32.0),
+            "bbox_px": (28, 28, 36, 36),
+            "bbox_um": (4.0, 4.0),
+            "area_px": 100,
+            "eccentricity": 0.3,
+            "mean_intensity": 128.0,
+            "cell_source_stage_xy_um": (100.0, 200.0),
+        }]
+
+        picks = _picks_from_result(result)
+        assert len(picks) == 1
+        assert picks[0].pick_id == ("0", 0, 0, 1)
+        assert picks[0].area_px == 100
+
+    def test_empty_picks(self):
+        result = _make_buffer_entry()
+        result["pick_targets"]["picks"] = []
+        assert _picks_from_result(result) == []
+
+    def test_order_preserved(self):
+        result = _make_buffer_entry()
+        result["pick_targets"]["picks"] = [
+            {**_full_pick_dict(label=3)},
+            {**_full_pick_dict(label=1)},
+            {**_full_pick_dict(label=2)},
+        ]
+        picks = _picks_from_result(result)
+        assert [p.pick_id[3] for p in picks] == [3, 1, 2]
+
+
+def _full_pick_dict(label=1):
+    return {
+        "pick_id": ("0", 0, 0, label),
+        "tile_stage_xy_um": (0.0, 0.0),
+        "tile_zwide_um": 0.0,
+        "source_pixel_size_um": (0.5, 0.5),
+        "source_image_size_px": (64, 64),
+        "centroid_col_row_px": (32.0, 32.0),
+        "bbox_px": (28, 28, 36, 36),
+        "bbox_um": (4.0, 4.0),
+        "area_px": 100,
+        "eccentricity": 0.3,
+        "mean_intensity": 50.0,
+        "cell_source_stage_xy_um": (0.0, 0.0),
+    }

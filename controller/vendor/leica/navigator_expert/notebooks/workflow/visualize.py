@@ -410,6 +410,25 @@ def _load_tile_npz(path: Path):
         return None
 
 
+def _load_scatter_data(path: Path) -> dict | None:
+    """Load cell metrics from npz. Returns None if keys absent (old format)."""
+    try:
+        data = np.load(path, allow_pickle=True)
+        if "cell_labels" not in data.files:
+            return None
+        return {
+            "labels": data["cell_labels"],
+            "area": data["cell_area_px"],
+            "intensity": data["cell_mean_intensity"],
+            "picked": data["picked_labels"],
+            "area_threshold": float(data["area_threshold"]),
+            "intensity_threshold": float(data["intensity_threshold"]),
+            "mode": str(data["selection_mode"]),
+        }
+    except Exception:
+        return None
+
+
 def _normalize_tile_key(key: tuple) -> tuple[str, ...]:
     """Normalize a tile key to all-strings for consistent dict lookup."""
     return tuple(str(x) for x in key)
