@@ -12,6 +12,7 @@ from _shared.output_layout.naming import (
     Naming,
     build_image_name,
     build_layout,
+    build_position_analysis_name,
     build_xml_name,
     parse_image_name,
     run_hash,
@@ -147,6 +148,49 @@ class TestBuildNames:
         )
         # Sanity: the literal max filename is well under 255-char component limit
         assert len(build_image_name(n)) < 255
+
+
+# --- build_position_analysis_name -------------------------------------------
+
+class TestBuildPositionAnalysisName:
+    def test_all_zero(self):
+        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m")
+        assert build_position_analysis_name(n) == (
+            "overview-scan_0a3k7m_k00000_m00000_g00000_p00000"
+            "_t00000_v00.npz"
+        )
+
+    def test_with_values(self):
+        n = Naming(
+            acquisition_type="overview-scan", hash6="bf2x91",
+            g=2, p=123, t=5, v=1, c=7, z=42,
+        )
+        assert build_position_analysis_name(n) == (
+            "overview-scan_bf2x91_k00000_m00000_g00002_p00123"
+            "_t00005_v01.npz"
+        )
+
+    def test_c_and_z_omitted(self):
+        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m",
+                   c=99, z=99999)
+        name = build_position_analysis_name(n)
+        assert "_c" not in name
+        assert "_z" not in name
+        assert name.endswith(".npz")
+
+    def test_same_slots_as_xml(self):
+        n = Naming(
+            acquisition_type="target-acquisition", hash6="abc123",
+            k=1, m=2, g=3, p=4, t=5, v=6, c=7, z=8,
+        )
+        xml = build_xml_name(n)
+        npz = build_position_analysis_name(n)
+        # Same prefix (all slots except extension), different extension
+        assert xml.rsplit(".", 2)[0] == npz.rsplit(".", 1)[0]
+
+    def test_extension_is_npz(self):
+        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m")
+        assert build_position_analysis_name(n).endswith(".npz")
 
 
 # --- parse_image_name -------------------------------------------------------
