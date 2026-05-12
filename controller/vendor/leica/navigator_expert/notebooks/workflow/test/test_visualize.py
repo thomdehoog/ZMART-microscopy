@@ -8,7 +8,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from _shared.output_layout.naming import Naming, build_position_analysis_name
 
