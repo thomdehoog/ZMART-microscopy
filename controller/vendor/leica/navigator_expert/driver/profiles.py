@@ -266,5 +266,6 @@ ACQUIRE_SINGLE_IMAGE = CommandProfile(
 
 SELECT_JOB = CommandProfile(
     confirm_fn=confirm_select_job,
-    max_confirm_attempts=1,
+    max_confirm_attempts=3,
+    confirm_timeout=5.0,
 )
