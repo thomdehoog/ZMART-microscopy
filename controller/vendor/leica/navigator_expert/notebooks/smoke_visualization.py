@@ -30,7 +30,6 @@ for p in [str(_LEICA), str(_VENDOR)]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from _shared.output_layout.naming import Naming
 from workflow.overview import Pick, Picks, _save_tile_analysis
 from workflow.target import TargetRecord
 from workflow.visualize import plot_overview_tiles, plot_target_pairs
@@ -54,7 +53,7 @@ def main():
     print("Running cellpose segmentation...")
     from cellpose.models import CellposeModel
     model = CellposeModel(model_type="cyto3", gpu=False)
-    masks, flows, styles = model.eval(image, diameter=30, channels=[0, 0])
+    masks, _, _ = model.eval(image, diameter=30, channels=[0, 0])
     masks = masks.astype(np.int32)
     n_cells = int(masks.max())
     print(f"  Found {n_cells} cells")
