@@ -63,6 +63,12 @@ class Picks:
 
     simulated: bool = False
 
+    n_cells_total: int = 0
+    n_cells_qualifying: int = 0
+    n_tiles_sparse_fallback: int = 0
+    n_tiles_no_qualifying: int = 0
+    n_tiles_empty: int = 0
+
 
 @dataclass(frozen=True)
 class TileEvent:
@@ -174,8 +180,8 @@ def run_overview_with_picks(
                     "source_pixel_size_um": pixel_size_um,
                     "source_image_size_px": image_size_px,
                     "image_to_stage": ctx.calibration["image_to_stage"],
-                    "n_picks": cfg.n_picks_per_tile,
-                    "feature": cfg.feature,
+                    "n_picks": None,
+                    "feature": "area",
                     "analysis_image_source": cfg.analysis_image_source,
                 })
                 n_submitted += 1
