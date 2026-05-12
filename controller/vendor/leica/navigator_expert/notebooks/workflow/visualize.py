@@ -58,7 +58,7 @@ def plot_overview_tiles(
             continue
 
         image_2d, masks, tile_id, source = loaded
-        tile_key = tuple(tile_id)
+        tile_key = _normalize_tile_key(tile_id)
         labels = picked_by_tile.get(tile_key, [])
         n_cells = int(masks.max())
         is_mock = source != "acquired"
@@ -111,7 +111,8 @@ def plot_target_pairs(
         return
 
     pick_map = {tuple(p.pick_id): p for p in picks.items}
-    tile_index = _build_tile_index(analysis_dir)
+    tile_path_index = _build_tile_path_index(analysis_dir)
+    tile_cache: dict[tuple, tuple | None] = {}
 
     if feedback_dir is not None:
         feedback_dir.mkdir(parents=True, exist_ok=True)
@@ -128,7 +129,13 @@ def plot_target_pairs(
         for i, rec in enumerate(batch):
             pick = pick_map.get(tuple(rec.pick_id))
             tile_key = _normalize_tile_key(rec.pick_id[:3])
-            tile_data = tile_index.get(tile_key)
+
+            if tile_key not in tile_cache:
+                npz_path = tile_path_index.get(tile_key)
+                tile_cache[tile_key] = (
+                    _load_tile_npz(npz_path) if npz_path else None
+                )
+            tile_data = tile_cache[tile_key]
 
             # Left: cropped cell from overview tile
             if pick is not None and tile_data is not None:
@@ -198,17 +205,20 @@ def _normalize_tile_key(key: tuple) -> tuple[str, ...]:
     return tuple(str(x) for x in key)
 
 
-def _build_tile_index(
+def _build_tile_path_index(
     analysis_dir: Path,
-) -> dict[tuple, tuple]:
-    """Load all npz files once and index by tile_id. O(N) not O(N²)."""
-    index: dict[tuple, tuple] = {}
+) -> dict[tuple, Path]:
+    """Map tile_id → npz path without loading image data. O(N) metadata reads."""
+    index: dict[tuple, Path] = {}
     if not analysis_dir.exists():
         return index
     for npz_path in sorted(analysis_dir.glob("*.npz")):
-        loaded = _load_tile_npz(npz_path)
-        if loaded is not None:
-            index[loaded[2]] = loaded
+        try:
+            with np.load(npz_path, allow_pickle=True) as data:
+                tile_id = _normalize_tile_key(data["tile_id"])
+                index[tile_id] = npz_path
+        except Exception:
+            continue
     return index
 
 
@@ -217,14 +227,13 @@ def _ensure_2d(image: np.ndarray) -> np.ndarray:
     if image.ndim == 2:
         return image
     if image.ndim == 3:
-        # (Z/C, Y, X) or (Y, X, C) — pick smallest-last as channel dim
         if image.shape[-1] <= 4:
             return image[..., 0]
         return image[0]
-    # 4D+: take first slice of each leading dim
-    while image.ndim > 2:
+    # 4D+: strip leading dims until 3D, then apply the 3D heuristic
+    while image.ndim > 3:
         image = image[0]
-    return image
+    return _ensure_2d(image)
 
 
 def _segmentation_overlay(ax, image_2d: np.ndarray, masks: np.ndarray) -> None:

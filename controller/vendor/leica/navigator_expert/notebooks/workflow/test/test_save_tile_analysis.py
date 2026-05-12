@@ -209,4 +209,20 @@ class TestSaveTileAnalysis:
         _save_tile_analysis(analysis_dir, buf, hash6="abc123",
                             acquisition_type="overview-scan")
 
-        assert "missing segment data" in capsys.readouterr().out
+        assert "missing masks" in capsys.readouterr().out
+
+    def test_missing_tile_id_warns(self, tmp_path, capsys):
+        analysis_dir = tmp_path / "analysis"
+        buf = [{
+            "input": {"naming_p": 0},
+            "segment_tile": {
+                "image_2d": np.zeros((4, 4)),
+                "masks": np.zeros((4, 4), dtype=np.int32),
+            },
+            "pick_targets": {"picks": []},
+        }]
+
+        _save_tile_analysis(analysis_dir, buf, hash6="abc123",
+                            acquisition_type="overview-scan")
+
+        assert "missing tile_id" in capsys.readouterr().out
