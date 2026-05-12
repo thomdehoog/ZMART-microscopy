@@ -83,16 +83,20 @@ def display_tile(
             mode=event.mode,
         )
 
-        ax1.imshow(event.image_2d, cmap="gray")
+        vmin, vmax = np.percentile(event.image_2d, [1, 99])
+
+        ax1.imshow(event.image_2d, cmap="gray", vmin=vmin, vmax=vmax)
         ax1.set_title("Tile image", fontsize=11)
         ax1.axis("off")
 
-        _segmentation_overlay(ax2, event.image_2d, event.masks)
+        _segmentation_overlay(ax2, event.image_2d, event.masks,
+                              vmin=vmin, vmax=vmax)
         ax2.set_title(f"Segmentation ({n_cells} cells)", fontsize=11)
         ax2.axis("off")
 
         _picked_overlay(ax3, event.image_2d, event.masks,
-                        list(event.picked_labels))
+                        list(event.picked_labels),
+                        vmin=vmin, vmax=vmax)
         ax3.set_title(pick_label, fontsize=11)
         ax3.axis("off")
 
@@ -194,10 +198,15 @@ def display_target(
                 highlight_label=record.pick_id[3],
             )
 
+        # Compute overview brightness range for consistent scaling
+        ov_vmin, ov_vmax = (None, None)
+        if tile_data is not None:
+            ov_vmin, ov_vmax = np.percentile(tile_data[0], [1, 99])
+
         # Row 2, Panel 1: tile + mask + FOV rectangle
         if tile_data is not None and pick is not None:
             image_2d, masks = tile_data[0], tile_data[1]
-            ax1.imshow(image_2d, cmap="gray")
+            ax1.imshow(image_2d, cmap="gray", vmin=ov_vmin, vmax=ov_vmax)
 
             label = pick.pick_id[3]
             mask_overlay = np.zeros((*masks.shape, 4), dtype=np.float32)
@@ -230,20 +239,20 @@ def display_target(
                 linewidth=1.5, zorder=10,
             ))
         elif tile_data is not None:
-            ax1.imshow(tile_data[0], cmap="gray")
+            ax1.imshow(tile_data[0], cmap="gray", vmin=ov_vmin, vmax=ov_vmax)
         else:
             ax1.text(0.5, 0.5, "N/A", ha="center", va="center",
                      transform=ax1.transAxes, fontsize=12, color="#999999")
         ax1.set_title("Overview tile", fontsize=11)
         ax1.axis("off")
 
-        # Row 2, Panel 2: centroid crop
+        # Row 2, Panel 2: centroid crop (overview brightness)
         if pick is not None and tile_data is not None:
             image_2d = tile_data[0]
             crop = _centroid_crop_at_target_fov(
                 image_2d, pick, record, target_img,
             )
-            ax2.imshow(crop, cmap="gray")
+            ax2.imshow(crop, cmap="gray", vmin=ov_vmin, vmax=ov_vmax)
         else:
             ax2.text(0.5, 0.5, "N/A", ha="center", va="center",
                      transform=ax2.transAxes, fontsize=12, color="#999999")
@@ -253,7 +262,13 @@ def display_target(
 
         # Row 2, Panel 3: high-res target
         if target_img is not None:
-            ax3.imshow(target_img, cmap="gray")
+            if target_brightness_match and ov_vmin is not None:
+                ax3.imshow(target_img, cmap="gray",
+                           vmin=ov_vmin, vmax=ov_vmax)
+            else:
+                t_vmin, t_vmax = np.percentile(target_img, [1, 99])
+                ax3.imshow(target_img, cmap="gray",
+                           vmin=t_vmin, vmax=t_vmax)
         else:
             ax3.text(0.5, 0.5, "N/A", ha="center", va="center",
                      transform=ax3.transAxes, fontsize=12, color="#999999")
@@ -689,9 +704,10 @@ def _scatter_panel(
     ax.set_title("Cell selection", fontsize=11)
 
 
-def _segmentation_overlay(ax, image_2d: np.ndarray, masks: np.ndarray) -> None:
+def _segmentation_overlay(ax, image_2d: np.ndarray, masks: np.ndarray,
+                          vmin=None, vmax=None) -> None:
     """Grayscale background + random-color transparent overlay per cell."""
-    ax.imshow(image_2d, cmap="gray")
+    ax.imshow(image_2d, cmap="gray", vmin=vmin, vmax=vmax)
 
     n_labels = int(masks.max())
     if n_labels == 0:
@@ -711,9 +727,10 @@ def _picked_overlay(
     image_2d: np.ndarray,
     masks: np.ndarray,
     picked_labels: list[int],
+    vmin=None, vmax=None,
 ) -> None:
     """Grayscale background + red overlay on picked cells only."""
-    ax.imshow(image_2d, cmap="gray")
+    ax.imshow(image_2d, cmap="gray", vmin=vmin, vmax=vmax)
 
     if not picked_labels:
         return
