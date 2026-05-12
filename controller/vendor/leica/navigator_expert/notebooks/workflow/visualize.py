@@ -37,7 +37,7 @@ def plot_overview_tiles(
 
     picked_by_tile: dict[tuple, list[int]] = defaultdict(list)
     for pick in picks.items:
-        tile_key = pick.pick_id[:3]
+        tile_key = _normalize_tile_key(pick.pick_id[:3])
         picked_by_tile[tile_key].append(pick.pick_id[3])
 
     n_acquire_fail = len(picks.tile_acquire_failures)
@@ -111,7 +111,7 @@ def plot_target_pairs(
         return
 
     pick_map = {tuple(p.pick_id): p for p in picks.items}
-    tile_cache: dict[tuple, tuple | None] = {}
+    tile_index = _build_tile_index(analysis_dir)
 
     if feedback_dir is not None:
         feedback_dir.mkdir(parents=True, exist_ok=True)
@@ -127,14 +127,8 @@ def plot_target_pairs(
 
         for i, rec in enumerate(batch):
             pick = pick_map.get(tuple(rec.pick_id))
-            tile_key = rec.pick_id[:3]
-
-            # Load tile data (cached per tile)
-            if tile_key not in tile_cache:
-                tile_cache[tile_key] = _find_and_load_tile(
-                    analysis_dir, tile_key,
-                )
-            tile_data = tile_cache[tile_key]
+            tile_key = _normalize_tile_key(rec.pick_id[:3])
+            tile_data = tile_index.get(tile_key)
 
             # Left: cropped cell from overview tile
             if pick is not None and tile_data is not None:
@@ -158,8 +152,7 @@ def plot_target_pairs(
             # Right: high-res target image
             try:
                 target_img = tifffile.imread(str(rec.tif_path))
-                if target_img.ndim > 2:
-                    target_img = target_img[0]
+                target_img = _ensure_2d(target_img)
                 axes[i, 1].imshow(target_img, cmap="gray")
             except Exception as exc:
                 axes[i, 1].text(
@@ -200,15 +193,38 @@ def _load_tile_npz(path: Path):
         return None
 
 
-def _find_and_load_tile(analysis_dir: Path, tile_key: tuple):
-    """Find and load the npz for a tile by scanning analysis_dir."""
-    for npz_path in analysis_dir.glob("*.npz"):
+def _normalize_tile_key(key: tuple) -> tuple[str, ...]:
+    """Normalize a tile key to all-strings for consistent dict lookup."""
+    return tuple(str(x) for x in key)
+
+
+def _build_tile_index(
+    analysis_dir: Path,
+) -> dict[tuple, tuple]:
+    """Load all npz files once and index by tile_id. O(N) not O(N²)."""
+    index: dict[tuple, tuple] = {}
+    if not analysis_dir.exists():
+        return index
+    for npz_path in sorted(analysis_dir.glob("*.npz")):
         loaded = _load_tile_npz(npz_path)
         if loaded is not None:
-            tile_id = loaded[2]
-            if tuple(str(x) for x in tile_key) == tile_id:
-                return loaded
-    return None
+            index[loaded[2]] = loaded
+    return index
+
+
+def _ensure_2d(image: np.ndarray) -> np.ndarray:
+    """Collapse a multi-dimensional image to 2D for display."""
+    if image.ndim == 2:
+        return image
+    if image.ndim == 3:
+        # (Z/C, Y, X) or (Y, X, C) — pick smallest-last as channel dim
+        if image.shape[-1] <= 4:
+            return image[..., 0]
+        return image[0]
+    # 4D+: take first slice of each leading dim
+    while image.ndim > 2:
+        image = image[0]
+    return image
 
 
 def _segmentation_overlay(ax, image_2d: np.ndarray, masks: np.ndarray) -> None:

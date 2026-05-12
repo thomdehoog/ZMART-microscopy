@@ -199,6 +199,38 @@ class TestPlotOverviewTiles:
         assert overlay[35, 35, 0] == 0  # label 7 area (not picked)
         plt.close("all")
 
+    def test_picked_overlay_rendered_end_to_end(self, tmp_path, monkeypatch):
+        """Integration: picks with (str, int, int) tile_key match all-str npz tile_id."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import plot_overview_tiles
+
+        analysis_dir = tmp_path / "analysis"
+        naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        _make_npz(analysis_dir, naming=naming, n_cells=3,
+                  tile_id=("0", 0, 0), image_size=(64, 64))
+
+        # pick_id is (str, int, int, int) — mixed types, must still match
+        pick = _make_pick(("0", 0, 0), label=1)
+        picks = _make_picks([pick])
+
+        captured = []
+        _orig_close = plt.close
+        def _spy(fig):
+            ax_right = fig.axes[2]
+            images = ax_right.get_images()
+            if len(images) >= 2:
+                overlay = images[-1].get_array()
+                captured.append(overlay[:, :, 0].sum())
+            _orig_close(fig)
+        monkeypatch.setattr(plt, "close", _spy)
+
+        plot_overview_tiles(analysis_dir, picks)
+
+        assert len(captured) == 1
+        assert captured[0] > 0, "Red overlay should have nonzero pixels for picked cell"
+
 
 # ─── plot_target_pairs ───────────────────────────────────────────
 

@@ -410,7 +410,12 @@ def _save_tile_analysis(
     if not buffer:
         return
 
-    analysis_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        analysis_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        print(f"[step 4] WARNING: could not create {analysis_dir}: {exc}")
+        return
+
     saved = 0
 
     for result in buffer:
@@ -424,6 +429,15 @@ def _save_tile_analysis(
             naming_p = inp.get("naming_p")
 
             if masks is None or image_2d is None or tile_id is None:
+                tid = inp.get("tile_id", "?")
+                if masks is None or image_2d is None:
+                    print(f"[step 4] WARNING: missing segment data for "
+                          f"tile {tid}, skipping analysis save")
+                continue
+
+            if naming_p is None:
+                print(f"[step 4] WARNING: missing naming_p for tile "
+                      f"{tile_id}, skipping analysis save")
                 continue
 
             rid = tile_id[0]
@@ -431,7 +445,7 @@ def _save_tile_analysis(
                 acquisition_type=acquisition_type,
                 hash6=hash6,
                 g=int(rid),
-                p=int(naming_p) if naming_p is not None else 0,
+                p=int(naming_p),
             )
             dest = analysis_dir / build_position_analysis_name(naming)
 
