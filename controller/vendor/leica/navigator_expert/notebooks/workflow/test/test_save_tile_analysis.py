@@ -6,7 +6,6 @@ beyond the paths it needs.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from _shared.output_layout.naming import (
     Naming,
