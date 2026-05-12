@@ -39,7 +39,7 @@ class Config:
     random_seed: int | None = None
 
     # Optional behaviour flags (defaults)
-    target_brightness_match: bool = True  # consumed in brightness normalization
+    target_brightness_match: bool = False  # True = target uses overview vmin/vmax (opt-in when exposures match)
     fov_bbox_margin: float = 1.5
     settle_after_job_switch_s: float = 3.0
     restore_template_after_af: bool = True
