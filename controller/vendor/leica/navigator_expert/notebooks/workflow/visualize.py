@@ -1,7 +1,12 @@
 """visualize.py -- Inline image visualization for the notebook.
 
-plot_overview_tiles: per-tile triptych (grayscale / segmentation / picked).
-plot_target_pairs:   side-by-side overview crop vs. high-res target.
+Live display (during acquisition):
+  display_tile:   per-tile triptych, called via on_tile callback.
+  display_target: per-target 3-panel, called via on_target callback.
+
+Batch re-render (Steps 4b/5b, after acquisition):
+  plot_overview_tiles: all tiles with final deduped picks.
+  plot_target_pairs:   all targets in 3-panel layout.
 
 Path-based API: functions take analysis_dir and picks, not ctx.
 Notebook cells provide thin wrappers that pull paths from ctx.
@@ -13,8 +18,160 @@ from pathlib import Path
 
 import numpy as np
 
-from .overview import Picks
+from .overview import Picks, TileEvent
 from .target import TargetRecord
+
+
+# ─── Live display (during acquisition) ───────────────────────────
+
+
+def display_tile(
+    event: TileEvent,
+    *,
+    feedback_dir: Path | None = None,
+) -> None:
+    """Render one tile triptych inline during acquisition.
+
+    Called via the on_tile callback. Shows raw per-tile picks (before
+    cross-tile dedup).
+    """
+    import matplotlib.pyplot as plt
+    from IPython.display import display
+
+    rid, row, col = event.tile_id
+    n_cells = int(event.masks.max())
+    is_mock = event.analysis_image_source != "acquired"
+    prefix = "(mock) " if is_mock else ""
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    try:
+        fig.patch.set_facecolor("white")
+
+        axes[0].imshow(event.image_2d, cmap="gray")
+        axes[0].set_title("Tile image", fontsize=11)
+        axes[0].axis("off")
+
+        _segmentation_overlay(axes[1], event.image_2d, event.masks)
+        axes[1].set_title(f"Segmentation ({n_cells} cells)", fontsize=11)
+        axes[1].axis("off")
+
+        _picked_overlay(axes[2], event.image_2d, event.masks,
+                        list(event.picked_labels))
+        n = len(event.picked_labels)
+        axes[2].set_title(f"Top-{n} (raw)", fontsize=11)
+        axes[2].axis("off")
+
+        fig.suptitle(f"{prefix}Tile R{rid} r{row}c{col}",
+                     fontsize=13, fontweight="bold")
+        plt.tight_layout()
+
+        if feedback_dir is not None:
+            feedback_dir.mkdir(parents=True, exist_ok=True)
+            fig.savefig(
+                feedback_dir / f"live_tile_R{rid}_r{row}c{col}.png",
+                dpi=150,
+            )
+
+        display(fig)
+    finally:
+        plt.close(fig)
+
+
+def display_target(
+    pick,
+    record: TargetRecord,
+    analysis_dir: Path,
+    *,
+    feedback_dir: Path | None = None,
+) -> None:
+    """Render one target 3-panel figure inline during acquisition.
+
+    Left: full overview tile with red dot on picked cell.
+    Middle: centroid-centered crop at target FOV.
+    Right: acquired high-res target image.
+    """
+    import matplotlib.pyplot as plt
+    import tifffile
+    from IPython.display import display
+
+    tile_key = _normalize_tile_key(record.pick_id[:3])
+    tile_data = None
+    for npz_path in analysis_dir.glob("*.npz"):
+        loaded = _load_tile_npz(npz_path)
+        if loaded is not None and _normalize_tile_key(loaded[2]) == tile_key:
+            tile_data = loaded
+            break
+
+    target_img = None
+    if record.tif_path is not None:
+        try:
+            target_img = tifffile.imread(str(record.tif_path))
+            target_img = _ensure_2d(target_img)
+        except Exception:
+            pass
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    try:
+        fig.patch.set_facecolor("white")
+
+        # Left: full overview tile with marker
+        if tile_data is not None:
+            image_2d = tile_data[0]
+            axes[0].imshow(image_2d, cmap="gray")
+            cx, cy = pick.centroid_col_row_px
+            axes[0].scatter(cx, cy, s=60, marker="o",
+                            facecolor="red", edgecolor="white",
+                            linewidth=0.8, zorder=10)
+        else:
+            axes[0].text(0.5, 0.5, "N/A", ha="center", va="center",
+                         transform=axes[0].transAxes, fontsize=12,
+                         color="#999999")
+        axes[0].set_title("Overview tile", fontsize=11)
+        axes[0].axis("off")
+
+        # Middle: centroid crop at target FOV
+        if pick is not None and tile_data is not None:
+            image_2d = tile_data[0]
+            crop = _centroid_crop_at_target_fov(
+                image_2d, pick, record, target_img,
+            )
+            axes[1].imshow(crop, cmap="gray")
+        else:
+            axes[1].text(0.5, 0.5, "N/A", ha="center", va="center",
+                         transform=axes[1].transAxes, fontsize=12,
+                         color="#999999")
+        axes[1].set_title(f"Overview crop (label {record.pick_id[3]})",
+                          fontsize=11)
+        axes[1].axis("off")
+
+        # Right: acquired high-res target
+        if target_img is not None:
+            axes[2].imshow(target_img, cmap="gray")
+        else:
+            axes[2].text(0.5, 0.5, "N/A", ha="center", va="center",
+                         transform=axes[2].transAxes, fontsize=12,
+                         color="#999999")
+        axes[2].set_title("High-res target", fontsize=11)
+        axes[2].axis("off")
+
+        rid, row, col, label = record.pick_id
+        fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
+                     fontsize=13, fontweight="bold")
+        plt.tight_layout()
+
+        if feedback_dir is not None:
+            feedback_dir.mkdir(parents=True, exist_ok=True)
+            fig.savefig(
+                feedback_dir / f"live_target_R{rid}_r{row}c{col}_l{label}.png",
+                dpi=150,
+            )
+
+        display(fig)
+    finally:
+        plt.close(fig)
+
+
+# ─── Batch re-render (Steps 4b/5b) ──────────────────────────────
 
 
 def plot_overview_tiles(
@@ -101,7 +258,7 @@ def plot_target_pairs(
     *,
     feedback_dir: Path | None = None,
 ) -> None:
-    """Side-by-side: overview crop (left) vs. high-res target (right)."""
+    """Batch re-render: 3-panel per target (tile + crop + high-res)."""
     import matplotlib.pyplot as plt
     import tifffile
 
@@ -117,70 +274,83 @@ def plot_target_pairs(
     if feedback_dir is not None:
         feedback_dir.mkdir(parents=True, exist_ok=True)
 
-    MAX_PER_FIG = 20
-    for batch_start in range(0, len(successful), MAX_PER_FIG):
-        batch = successful[batch_start:batch_start + MAX_PER_FIG]
-        n = len(batch)
+    for j, rec in enumerate(successful):
+        pick = pick_map.get(tuple(rec.pick_id))
+        tile_key = _normalize_tile_key(rec.pick_id[:3])
 
-        fig, axes = plt.subplots(n, 2, figsize=(8, 3 * n),
-                                 squeeze=False)
-        fig.patch.set_facecolor("white")
+        if tile_key not in tile_cache:
+            npz_path = tile_path_index.get(tile_key)
+            tile_cache[tile_key] = (
+                _load_tile_npz(npz_path) if npz_path else None
+            )
+        tile_data = tile_cache[tile_key]
 
-        for i, rec in enumerate(batch):
-            pick = pick_map.get(tuple(rec.pick_id))
-            tile_key = _normalize_tile_key(rec.pick_id[:3])
+        target_img = None
+        try:
+            target_img = tifffile.imread(str(rec.tif_path))
+            target_img = _ensure_2d(target_img)
+        except Exception:
+            pass
 
-            if tile_key not in tile_cache:
-                npz_path = tile_path_index.get(tile_key)
-                tile_cache[tile_key] = (
-                    _load_tile_npz(npz_path) if npz_path else None
-                )
-            tile_data = tile_cache[tile_key]
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        try:
+            fig.patch.set_facecolor("white")
 
-            # Right: high-res target image (load first to derive FOV)
-            target_img = None
-            try:
-                target_img = tifffile.imread(str(rec.tif_path))
-                target_img = _ensure_2d(target_img)
-                axes[i, 1].imshow(target_img, cmap="gray")
-            except Exception as exc:
-                axes[i, 1].text(
-                    0.5, 0.5, f"Load error:\n{exc}",
-                    ha="center", va="center",
-                    transform=axes[i, 1].transAxes, fontsize=8,
-                    color="#cc3333",
-                )
-            axes[i, 1].set_title("High-res target", fontsize=9)
-            axes[i, 1].axis("off")
+            # Left: full overview tile with marker
+            if tile_data is not None:
+                image_2d = tile_data[0]
+                axes[0].imshow(image_2d, cmap="gray")
+                if pick is not None:
+                    cx, cy = pick.centroid_col_row_px
+                    axes[0].scatter(cx, cy, s=60, marker="o",
+                                    facecolor="red", edgecolor="white",
+                                    linewidth=0.8, zorder=10)
+            else:
+                axes[0].text(0.5, 0.5, "N/A", ha="center", va="center",
+                             transform=axes[0].transAxes, fontsize=12,
+                             color="#999999")
+            axes[0].set_title("Overview tile", fontsize=9)
+            axes[0].axis("off")
 
-            # Left: overview crop centered on centroid, sized to
-            # match the target's physical field of view
+            # Middle: centroid crop at target FOV
             if pick is not None and tile_data is not None:
                 image_2d = tile_data[0]
                 crop = _centroid_crop_at_target_fov(
                     image_2d, pick, rec, target_img,
                 )
-                axes[i, 0].imshow(crop, cmap="gray")
+                axes[1].imshow(crop, cmap="gray")
             else:
-                axes[i, 0].text(
-                    0.5, 0.5, "N/A", ha="center", va="center",
-                    transform=axes[i, 0].transAxes, fontsize=12,
-                    color="#999999",
-                )
-            axes[i, 0].set_title(
+                axes[1].text(0.5, 0.5, "N/A", ha="center", va="center",
+                             transform=axes[1].transAxes, fontsize=12,
+                             color="#999999")
+            axes[1].set_title(
                 f"Overview crop (label {rec.pick_id[3]})", fontsize=9)
-            axes[i, 0].axis("off")
+            axes[1].axis("off")
 
-        fig.suptitle("Target Pairs: Overview Crop vs. High-Res",
-                     fontsize=13, fontweight="bold")
-        plt.tight_layout()
+            # Right: acquired high-res target
+            if target_img is not None:
+                axes[2].imshow(target_img, cmap="gray")
+            else:
+                axes[2].text(0.5, 0.5, "N/A", ha="center", va="center",
+                             transform=axes[2].transAxes, fontsize=12,
+                             color="#999999")
+            axes[2].set_title("High-res target", fontsize=9)
+            axes[2].axis("off")
 
-        if feedback_dir is not None:
-            suffix = f"_{batch_start // MAX_PER_FIG}" if len(successful) > MAX_PER_FIG else ""
-            fig.savefig(feedback_dir / f"target_pairs{suffix}.png", dpi=150)
+            rid, row, col, label = rec.pick_id
+            fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
+                         fontsize=13, fontweight="bold")
+            plt.tight_layout()
 
-        plt.show()
-        plt.close(fig)
+            if feedback_dir is not None:
+                fig.savefig(
+                    feedback_dir / f"target_R{rid}_r{row}c{col}_l{label}.png",
+                    dpi=150,
+                )
+
+            plt.show()
+        finally:
+            plt.close(fig)
 
 
 # ─── Internal helpers ────────────────────────────────────────────

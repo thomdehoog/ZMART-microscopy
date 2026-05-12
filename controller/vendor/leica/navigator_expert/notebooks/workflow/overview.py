@@ -9,6 +9,7 @@ import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
@@ -63,12 +64,24 @@ class Picks:
     simulated: bool = False
 
 
+@dataclass(frozen=True)
+class TileEvent:
+    """Per-tile data passed to on_tile callbacks during live visualization."""
+    image_2d: np.ndarray
+    masks: np.ndarray
+    tile_id: tuple[str, int, int]
+    picked_labels: tuple[int, ...]
+    analysis_image_source: str
+
+
 # ─── Public API ───────────────────────────────────────────────────
 
 
 def run_overview_with_picks(
     ctx: Context,
     focus_map: FocusMap,
+    *,
+    on_tile: Callable[[TileEvent], None] | None = None,
 ) -> Picks:
     """Step 4: acquire overview tiles, submit to engine, drain, filter.
 
@@ -109,6 +122,18 @@ def run_overview_with_picks(
         n_submitted = 0
         tile_acquire_failures: list[dict] = []
 
+        # Prepare analysis_dir for per-result saves
+        analysis_dir = ctx.run.layout.analysis_dir("overview-scan")
+        _analysis_dir_ready = False
+        try:
+            analysis_dir.mkdir(parents=True, exist_ok=True)
+            _analysis_dir_ready = True
+        except Exception as exc:
+            print(f"[step 4] WARNING: could not create {analysis_dir}: "
+                  f"{exc}")
+
+        n_saved = 0
+
         for i, tile in enumerate(sequence):
             rid = tile["region"]
             x_um = tile["x_um"]
@@ -124,14 +149,6 @@ def run_overview_with_picks(
             )
 
             try:
-                # Invariant: translate from the coord-source frame (where
-                # the scan-field markers were placed — source objective)
-                # to the acquisition-objective frame (also source here).
-                # source→source is identity by construction (calibration.py:
-                # 286-315), so tx,ty,tz == x_um,y_um,zwide_um today.
-                # Making the call explicit keeps the contract visible at
-                # both acquisition loops (target.py does the same call
-                # with to_slot=target_slot).
                 tx, ty, tz = drv.translate_xyz_between_objectives(
                     x_um, y_um, zwide_um, ctx.calibration,
                     from_slot=ctx.source_slot,
@@ -170,14 +187,32 @@ def run_overview_with_picks(
                 print(f"  FAIL ({exc})")
                 continue
 
-            # Opportunistic drain
-            buffer.extend(engine.results("overview"))
+            # Opportunistic drain — save + display per result
+            new_results = engine.results("overview")
+            for r in new_results:
+                if _analysis_dir_ready and _save_single_tile_analysis(
+                    r, analysis_dir,
+                    hash6=ctx.run.layout.hash6,
+                    acquisition_type="overview-scan",
+                ):
+                    n_saved += 1
+                _fire_on_tile(on_tile, r)
+            buffer.extend(new_results)
 
         # 4.4 -- blocking drain
         s = None
         while True:
             s = engine.status("overview")
-            buffer.extend(engine.results("overview"))
+            new_results = engine.results("overview")
+            for r in new_results:
+                if _analysis_dir_ready and _save_single_tile_analysis(
+                    r, analysis_dir,
+                    hash6=ctx.run.layout.hash6,
+                    acquisition_type="overview-scan",
+                ):
+                    n_saved += 1
+                _fire_on_tile(on_tile, r)
+            buffer.extend(new_results)
             if s["pending"] == 0 and s["running"] == 0:
                 break
             time.sleep(0.05)
@@ -195,13 +230,9 @@ def run_overview_with_picks(
               f"{len(new_failures)} engine failure(s), "
               f"{len(tile_acquire_failures)} tile acquire failure(s)")
 
-        # 4.4b -- persist tile analysis artifacts (masks + image_2d)
-        _save_tile_analysis(
-            ctx.run.layout.analysis_dir("overview-scan"),
-            buffer,
-            hash6=ctx.run.layout.hash6,
-            acquisition_type="overview-scan",
-        )
+        if n_saved:
+            print(f"[step 4] Saved {n_saved} tile analysis artifact(s) "
+                  f"to {analysis_dir}")
 
         # 4.5 -- collect picks from engine results
         raw_picks = _collect_picks_from_results(buffer)
@@ -394,6 +425,63 @@ def _filter_out_of_limits(
     return surviving, removed_xy, removed_z, removed_translation
 
 
+def _save_single_tile_analysis(
+    result: dict,
+    analysis_dir: Path,
+    *,
+    hash6: str,
+    acquisition_type: str,
+) -> bool:
+    """Save one tile's analysis artifacts. Returns True if saved."""
+    try:
+        inp = result.get("input", {})
+        seg = result.get("segment_tile", {})
+
+        masks = seg.get("masks")
+        image_2d = seg.get("image_2d")
+        tile_id = inp.get("tile_id")
+        naming_p = inp.get("naming_p")
+
+        if masks is None or image_2d is None or tile_id is None:
+            tid = inp.get("tile_id", "?")
+            missing = [k for k, v in [("masks", masks),
+                       ("image_2d", image_2d), ("tile_id", tile_id)]
+                       if v is None]
+            print(f"[step 4] WARNING: missing {', '.join(missing)} "
+                  f"for tile {tid}, skipping analysis save")
+            return False
+
+        if naming_p is None:
+            print(f"[step 4] WARNING: missing naming_p for tile "
+                  f"{tile_id}, skipping analysis save")
+            return False
+
+        rid = tile_id[0]
+        naming = Naming(
+            acquisition_type=acquisition_type,
+            hash6=hash6,
+            g=int(rid),
+            p=int(naming_p),
+        )
+        dest = analysis_dir / build_position_analysis_name(naming)
+
+        np.savez_compressed(
+            dest,
+            image_2d=image_2d,
+            masks=masks,
+            tile_id=np.array(tile_id, dtype=str),
+            analysis_image_source=np.array(
+                inp.get("analysis_image_source", "acquired")
+            ),
+        )
+        return True
+    except Exception as exc:
+        tid = result.get("input", {}).get("tile_id", "?")
+        print(f"[step 4] WARNING: could not save tile analysis "
+              f"for {tid}: {exc}")
+        return False
+
+
 def _save_tile_analysis(
     analysis_dir: Path,
     buffer: list[dict],
@@ -401,12 +489,7 @@ def _save_tile_analysis(
     hash6: str,
     acquisition_type: str,
 ) -> None:
-    """Persist per-tile segmentation masks and images for visualization.
-
-    Writes one compressed .npz per tile to analysis_dir, using the same
-    Naming slots (g, p) as the TIFF in data_dir.  Per-tile try/except:
-    a save failure must never raise out of the overview step.
-    """
+    """Bulk wrapper for _save_single_tile_analysis (used by tests)."""
     if not buffer:
         return
 
@@ -416,56 +499,49 @@ def _save_tile_analysis(
         print(f"[step 4] WARNING: could not create {analysis_dir}: {exc}")
         return
 
-    saved = 0
-
-    for result in buffer:
-        try:
-            inp = result.get("input", {})
-            seg = result.get("segment_tile", {})
-
-            masks = seg.get("masks")
-            image_2d = seg.get("image_2d")
-            tile_id = inp.get("tile_id")
-            naming_p = inp.get("naming_p")
-
-            if masks is None or image_2d is None or tile_id is None:
-                tid = inp.get("tile_id", "?")
-                missing = [k for k, v in [("masks", masks),
-                           ("image_2d", image_2d), ("tile_id", tile_id)]
-                           if v is None]
-                print(f"[step 4] WARNING: missing {', '.join(missing)} "
-                      f"for tile {tid}, skipping analysis save")
-                continue
-
-            if naming_p is None:
-                print(f"[step 4] WARNING: missing naming_p for tile "
-                      f"{tile_id}, skipping analysis save")
-                continue
-
-            rid = tile_id[0]
-            naming = Naming(
-                acquisition_type=acquisition_type,
-                hash6=hash6,
-                g=int(rid),
-                p=int(naming_p),
-            )
-            dest = analysis_dir / build_position_analysis_name(naming)
-
-            np.savez_compressed(
-                dest,
-                image_2d=image_2d,
-                masks=masks,
-                tile_id=np.array(tile_id, dtype=str),
-                analysis_image_source=np.array(
-                    inp.get("analysis_image_source", "acquired")
-                ),
-            )
-            saved += 1
-        except Exception as exc:
-            tid = result.get("input", {}).get("tile_id", "?")
-            print(f"[step 4] WARNING: could not save tile analysis "
-                  f"for {tid}: {exc}")
-
+    saved = sum(
+        _save_single_tile_analysis(r, analysis_dir,
+                                   hash6=hash6,
+                                   acquisition_type=acquisition_type)
+        for r in buffer
+    )
     if saved:
         print(f"[step 4] Saved {saved} tile analysis artifact(s) to "
               f"{analysis_dir}")
+
+
+def _fire_on_tile(
+    on_tile: Callable[[TileEvent], None] | None,
+    result: dict,
+) -> None:
+    """Call on_tile callback with fault isolation."""
+    if on_tile is None:
+        return
+
+    inp = result.get("input", {})
+    seg = result.get("segment_tile", {})
+    masks = seg.get("masks")
+    image_2d = seg.get("image_2d")
+    tile_id = inp.get("tile_id")
+
+    if masks is None or image_2d is None or tile_id is None:
+        return
+
+    pick_data = result.get("pick_targets", {}).get("picks", [])
+    picked_labels = tuple(
+        pd["pick_id"][3] for pd in pick_data if "pick_id" in pd
+    )
+
+    try:
+        on_tile(TileEvent(
+            image_2d=image_2d,
+            masks=masks,
+            tile_id=tuple(tile_id),
+            picked_labels=picked_labels,
+            analysis_image_source=inp.get("analysis_image_source",
+                                          "acquired"),
+        ))
+    except Exception as exc:
+        tid = tile_id
+        print(f"[step 4] WARNING: on_tile callback failed for "
+              f"{tid}: {exc}")
