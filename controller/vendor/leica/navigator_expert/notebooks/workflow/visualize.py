@@ -137,26 +137,8 @@ def plot_target_pairs(
                 )
             tile_data = tile_cache[tile_key]
 
-            # Left: cropped cell from overview tile
-            if pick is not None and tile_data is not None:
-                image_2d = tile_data[0]
-                r0, c0, r1, c1 = pick.bbox_px
-                r0, c0 = max(0, r0), max(0, c0)
-                r1 = min(image_2d.shape[0], r1)
-                c1 = min(image_2d.shape[1], c1)
-                crop = image_2d[r0:r1, c0:c1]
-                axes[i, 0].imshow(crop, cmap="gray")
-            else:
-                axes[i, 0].text(
-                    0.5, 0.5, "N/A", ha="center", va="center",
-                    transform=axes[i, 0].transAxes, fontsize=12,
-                    color="#999999",
-                )
-            axes[i, 0].set_title(
-                f"Overview crop (label {rec.pick_id[3]})", fontsize=9)
-            axes[i, 0].axis("off")
-
-            # Right: high-res target image
+            # Right: high-res target image (load first to derive FOV)
+            target_img = None
             try:
                 target_img = tifffile.imread(str(rec.tif_path))
                 target_img = _ensure_2d(target_img)
@@ -170,6 +152,24 @@ def plot_target_pairs(
                 )
             axes[i, 1].set_title("High-res target", fontsize=9)
             axes[i, 1].axis("off")
+
+            # Left: overview crop centered on centroid, sized to
+            # match the target's physical field of view
+            if pick is not None and tile_data is not None:
+                image_2d = tile_data[0]
+                crop = _centroid_crop_at_target_fov(
+                    image_2d, pick, rec, target_img,
+                )
+                axes[i, 0].imshow(crop, cmap="gray")
+            else:
+                axes[i, 0].text(
+                    0.5, 0.5, "N/A", ha="center", va="center",
+                    transform=axes[i, 0].transAxes, fontsize=12,
+                    color="#999999",
+                )
+            axes[i, 0].set_title(
+                f"Overview crop (label {rec.pick_id[3]})", fontsize=9)
+            axes[i, 0].axis("off")
 
         fig.suptitle("Target Pairs: Overview Crop vs. High-Res",
                      fontsize=13, fontweight="bold")
@@ -234,6 +234,44 @@ def _ensure_2d(image: np.ndarray) -> np.ndarray:
     while image.ndim > 3:
         image = image[0]
     return _ensure_2d(image)
+
+
+def _centroid_crop_at_target_fov(
+    image_2d: np.ndarray,
+    pick,
+    rec,
+    target_img: np.ndarray | None,
+) -> np.ndarray:
+    """Crop overview tile at the target job's physical field of view.
+
+    Centered on pick centroid. Crop size derived from the target image
+    dimensions and the pixel-size ratio between target and source.
+    Falls back to pick.bbox_px if target geometry is unavailable.
+    """
+    cx, cy = pick.centroid_col_row_px  # (col, row) in source pixels
+    src_px_w, src_px_h = pick.source_pixel_size_um
+
+    if (target_img is not None
+            and rec.target_pixel_size_um is not None
+            and src_px_w > 0 and src_px_h > 0):
+        th, tw = target_img.shape[:2]
+        fov_w_um = tw * rec.target_pixel_size_um
+        fov_h_um = th * rec.target_pixel_size_um
+        crop_w = int(round(fov_w_um / src_px_w))
+        crop_h = int(round(fov_h_um / src_px_h))
+    else:
+        r0, c0, r1, c1 = pick.bbox_px
+        crop_h, crop_w = r1 - r0, c1 - c0
+
+    h, w = image_2d.shape[:2]
+    r0 = int(round(cy - crop_h / 2))
+    c0 = int(round(cx - crop_w / 2))
+    # Clamp to image bounds
+    r0 = max(0, min(r0, h - crop_h))
+    c0 = max(0, min(c0, w - crop_w))
+    r1 = min(h, r0 + crop_h)
+    c1 = min(w, c0 + crop_w)
+    return image_2d[r0:r1, c0:c1]
 
 
 def _segmentation_overlay(ax, image_2d: np.ndarray, masks: np.ndarray) -> None:
