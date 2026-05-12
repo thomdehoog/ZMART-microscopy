@@ -83,24 +83,34 @@ def display_target(
     analysis_dir: Path,
     *,
     feedback_dir: Path | None = None,
+    tile_cache: dict | None = None,
 ) -> None:
     """Render one target 3-panel figure inline during acquisition.
 
     Left: full overview tile with red dot on picked cell.
     Middle: centroid-centered crop at target FOV.
     Right: acquired high-res target image.
+
+    Pass a shared tile_cache dict across calls to avoid re-loading
+    npz files for tiles that appear in multiple targets.
     """
     import matplotlib.pyplot as plt
     import tifffile
     from IPython.display import display
 
     tile_key = _normalize_tile_key(record.pick_id[:3])
-    tile_data = None
-    for npz_path in analysis_dir.glob("*.npz"):
-        loaded = _load_tile_npz(npz_path)
-        if loaded is not None and _normalize_tile_key(loaded[2]) == tile_key:
-            tile_data = loaded
-            break
+
+    if tile_cache is not None and tile_key in tile_cache:
+        tile_data = tile_cache[tile_key]
+    else:
+        tile_data = None
+        for npz_path in analysis_dir.glob("*.npz"):
+            loaded = _load_tile_npz(npz_path)
+            if loaded is not None and _normalize_tile_key(loaded[2]) == tile_key:
+                tile_data = loaded
+                break
+        if tile_cache is not None:
+            tile_cache[tile_key] = tile_data
 
     target_img = None
     if record.tif_path is not None:
