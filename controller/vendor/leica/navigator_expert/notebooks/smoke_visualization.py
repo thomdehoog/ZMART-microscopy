@@ -1,10 +1,13 @@
-"""End-to-end visualization test using skimage human_mitosis + cellpose.
+"""End-to-end visualization smoke test using skimage human_mitosis + cellpose.
 
 Generates synthetic run data (npz + tif) matching the real pipeline
 schema, then calls plot_overview_tiles and plot_target_pairs.
 
-Run from the notebooks/ directory:
-    python test_visualization.py
+Requires: cellpose, scikit-image (with pooch), tifffile, matplotlib.
+Run with an env that has these (e.g. dino3_test):
+
+    cd notebooks/
+    python smoke_visualization.py
 """
 from __future__ import annotations
 
@@ -27,7 +30,7 @@ for p in [str(_LEICA), str(_VENDOR)]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from _shared.output_layout.naming import Naming, build_position_analysis_name
+from _shared.output_layout.naming import Naming
 from workflow.overview import Pick, Picks, _save_tile_analysis
 from workflow.target import TargetRecord
 from workflow.visualize import plot_overview_tiles, plot_target_pairs
@@ -134,7 +137,6 @@ def main():
     records = []
     for j, pick in enumerate(all_picks[:6]):
         r0, c0, r1, c1 = pick.bbox_px
-        rid, row, col = pick.tile_stage_xy_um[0], pick.tile_stage_xy_um[1], 0
         rs = tiles[[t["tile_id"] for t in tiles].index(
             (str(pick.pick_id[0]), int(pick.pick_id[1]), int(pick.pick_id[2]))
         )]["slice"]

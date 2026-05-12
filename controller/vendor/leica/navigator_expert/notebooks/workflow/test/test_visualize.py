@@ -231,6 +231,110 @@ class TestPlotOverviewTiles:
         assert captured[0] > 0, "Red overlay should have nonzero pixels for picked cell"
 
 
+# ─── _centroid_crop_at_target_fov ─────────────────────────────────
+
+
+class TestCentroidCropAtTargetFov:
+    def _make_rec(self, target_pixel_size_um=0.25):
+        from workflow.target import TargetRecord
+        return TargetRecord(
+            pick_id=("0", 0, 0, 1),
+            cell_source_stage_xy_um=(0.0, 0.0),
+            source_zwide_um=0.0,
+            target_stage_xy_um=None,
+            target_zwide_um=None,
+            target_zoom=None,
+            target_pixel_size_um=target_pixel_size_um,
+            tif_path=None,
+            success=True,
+            error=None,
+        )
+
+    def test_center_crop_correct_size(self):
+        from workflow.visualize import _centroid_crop_at_target_fov
+        image = np.zeros((100, 100))
+        # target: 20x20 px at 0.25 um/px = 5x5 um FOV
+        # source: 0.5 um/px → crop = 5/0.5 = 10x10 px
+        target_img = np.zeros((20, 20))
+        pick = _make_pick(("0", 0, 0), label=1,
+                          centroid_rc=(50.0, 50.0),
+                          bbox=(45, 45, 55, 55))
+        rec = self._make_rec(target_pixel_size_um=0.25)
+
+        crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
+        assert crop.shape == (10, 10)
+
+    def test_center_crop_centered_on_centroid(self):
+        from workflow.visualize import _centroid_crop_at_target_fov
+        image = np.arange(10000).reshape(100, 100).astype(float)
+        target_img = np.zeros((20, 20))
+        # centroid at (col=60, row=40)
+        pick = _make_pick(("0", 0, 0), label=1,
+                          centroid_rc=(60.0, 40.0),
+                          bbox=(35, 55, 45, 65))
+        rec = self._make_rec(target_pixel_size_um=0.25)
+
+        crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
+        # crop should be rows 35:45, cols 55:65 (centered on row=40, col=60)
+        assert crop.shape == (10, 10)
+        expected = image[35:45, 55:65]
+        np.testing.assert_array_equal(crop, expected)
+
+    def test_corner_clamp_shifts_window(self):
+        from workflow.visualize import _centroid_crop_at_target_fov
+        image = np.zeros((100, 100))
+        target_img = np.zeros((20, 20))
+        # centroid near top-left corner — crop would go negative
+        pick = _make_pick(("0", 0, 0), label=1,
+                          centroid_rc=(2.0, 2.0),
+                          bbox=(0, 0, 5, 5))
+        rec = self._make_rec(target_pixel_size_um=0.25)
+
+        crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
+        # Should shift to (0,0) but keep the 10x10 size
+        assert crop.shape == (10, 10)
+
+    def test_bottom_right_clamp(self):
+        from workflow.visualize import _centroid_crop_at_target_fov
+        image = np.zeros((100, 100))
+        target_img = np.zeros((20, 20))
+        # centroid near bottom-right corner
+        pick = _make_pick(("0", 0, 0), label=1,
+                          centroid_rc=(98.0, 98.0),
+                          bbox=(93, 93, 100, 100))
+        rec = self._make_rec(target_pixel_size_um=0.25)
+
+        crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
+        assert crop.shape == (10, 10)
+
+    def test_fallback_to_bbox_when_no_target(self):
+        from workflow.visualize import _centroid_crop_at_target_fov
+        image = np.zeros((100, 100))
+        pick = _make_pick(("0", 0, 0), label=1,
+                          centroid_rc=(50.0, 50.0),
+                          bbox=(40, 42, 60, 58))
+        rec = self._make_rec(target_pixel_size_um=None)
+
+        crop = _centroid_crop_at_target_fov(image, pick, rec, None)
+        # Falls back to bbox size: (60-40) x (58-42) = 20 x 16
+        assert crop.shape == (20, 16)
+
+    def test_col_row_mapping(self):
+        """Verify col maps to x-axis and row maps to y-axis."""
+        from workflow.visualize import _centroid_crop_at_target_fov
+        image = np.zeros((200, 300))
+        image[50, 150] = 1.0  # marker at row=50, col=150
+        target_img = np.zeros((4, 4))
+        # centroid at (col=150, row=50) → crop should contain the marker
+        pick = _make_pick(("0", 0, 0), label=1,
+                          centroid_rc=(150.0, 50.0),
+                          bbox=(48, 148, 52, 152))
+        rec = self._make_rec(target_pixel_size_um=0.25)
+
+        crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
+        assert crop.sum() == 1.0, "Marker should be inside the crop"
+
+
 # ─── _ensure_2d ──────────────────────────────────────────────────
 
 
