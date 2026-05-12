@@ -26,10 +26,12 @@ from .preflight import preflight
 from .summary import write_summary, plot_results, finish
 from .target import TargetRecord, acquire_targets
 from .template import prepare_template, read_scan_field, plot_scan_field
+from .visualize import plot_overview_tiles, plot_target_pairs
 
 __all__ = ["Config", "Context", "TargetState", "FocusMap", "build_focus_map",
            "Pick", "Picks", "run_overview_with_picks",
            "TargetRecord", "acquire_targets",
            "write_summary", "plot_results", "finish",
            "preflight", "prepare_template",
-           "read_scan_field", "plot_scan_field"]
+           "read_scan_field", "plot_scan_field",
+           "plot_overview_tiles", "plot_target_pairs"]

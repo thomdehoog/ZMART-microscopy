@@ -8,12 +8,15 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
+
+import numpy as np
 
 import navigator_expert.driver as drv
 
 from .context import Context
 from .focus import FocusMap
-from _shared.output_layout import Naming
+from _shared.output_layout import Naming, build_position_analysis_name
 from ._acquire import acquire
 from ._job_state import ensure_job_state
 
@@ -148,6 +151,7 @@ def run_overview_with_picks(
                 engine.submit("overview", {
                     "image_path": str(tif_path),
                     "tile_id": tile_id,
+                    "naming_p": i,
                     "tile_stage_xy_um": (x_um, y_um),
                     "tile_zwide_um": zwide_um,
                     "source_pixel_size_um": pixel_size_um,
@@ -190,6 +194,14 @@ def run_overview_with_picks(
         print(f"\n[step 4] Drain complete: {len(buffer)} result(s), "
               f"{len(new_failures)} engine failure(s), "
               f"{len(tile_acquire_failures)} tile acquire failure(s)")
+
+        # 4.4b -- persist tile analysis artifacts (masks + image_2d)
+        _save_tile_analysis(
+            ctx.run.layout.analysis_dir("overview-scan"),
+            buffer,
+            hash6=ctx.run.layout.hash6,
+            acquisition_type="overview-scan",
+        )
 
         # 4.5 -- collect picks from engine results
         raw_picks = _collect_picks_from_results(buffer)
@@ -380,3 +392,64 @@ def _filter_out_of_limits(
         surviving.append(pick)
 
     return surviving, removed_xy, removed_z, removed_translation
+
+
+def _save_tile_analysis(
+    analysis_dir: Path,
+    buffer: list[dict],
+    *,
+    hash6: str,
+    acquisition_type: str,
+) -> None:
+    """Persist per-tile segmentation masks and images for visualization.
+
+    Writes one compressed .npz per tile to analysis_dir, using the same
+    Naming slots (g, p) as the TIFF in data_dir.  Per-tile try/except:
+    a save failure must never raise out of the overview step.
+    """
+    if not buffer:
+        return
+
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+    saved = 0
+
+    for result in buffer:
+        try:
+            inp = result.get("input", {})
+            seg = result.get("segment_tile", {})
+
+            masks = seg.get("masks")
+            image_2d = seg.get("image_2d")
+            tile_id = inp.get("tile_id")
+            naming_p = inp.get("naming_p")
+
+            if masks is None or image_2d is None or tile_id is None:
+                continue
+
+            rid = tile_id[0]
+            naming = Naming(
+                acquisition_type=acquisition_type,
+                hash6=hash6,
+                g=int(rid),
+                p=int(naming_p) if naming_p is not None else 0,
+            )
+            dest = analysis_dir / build_position_analysis_name(naming)
+
+            np.savez_compressed(
+                dest,
+                image_2d=image_2d,
+                masks=masks,
+                tile_id=np.array(tile_id, dtype=str),
+                analysis_image_source=np.array(
+                    inp.get("analysis_image_source", "acquired")
+                ),
+            )
+            saved += 1
+        except Exception as exc:
+            tid = result.get("input", {}).get("tile_id", "?")
+            print(f"[step 4] WARNING: could not save tile analysis "
+                  f"for {tid}: {exc}")
+
+    if saved:
+        print(f"[step 4] Saved {saved} tile analysis artifact(s) to "
+              f"{analysis_dir}")

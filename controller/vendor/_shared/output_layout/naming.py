@@ -111,6 +111,15 @@ def build_xml_name(n: Naming) -> str:
     )
 
 
+def build_position_analysis_name(n: Naming) -> str:
+    """Per-position analysis artifact. Same slots as XML (k,m,g,p,t,v), .npz extension."""
+    return (
+        f"{n.acquisition_type}_{n.hash6}"
+        f"_k{n.k:05d}_m{n.m:05d}_g{n.g:05d}_p{n.p:05d}"
+        f"_t{n.t:05d}_v{n.v:02d}.npz"
+    )
+
+
 _IMAGE_NAME_RE = re.compile(
     r"^(?P<acq>[a-z0-9]+(?:-[a-z0-9]+)*)_(?P<hash>[0-9a-z]{6})"
     r"_k(?P<k>\d{5})_m(?P<m>\d{5})_g(?P<g>\d{5})_p(?P<p>\d{5})"
