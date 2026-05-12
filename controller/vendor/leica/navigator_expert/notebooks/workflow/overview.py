@@ -430,9 +430,11 @@ def _save_tile_analysis(
 
             if masks is None or image_2d is None or tile_id is None:
                 tid = inp.get("tile_id", "?")
-                if masks is None or image_2d is None:
-                    print(f"[step 4] WARNING: missing segment data for "
-                          f"tile {tid}, skipping analysis save")
+                missing = [k for k, v in [("masks", masks),
+                           ("image_2d", image_2d), ("tile_id", tile_id)]
+                           if v is None]
+                print(f"[step 4] WARNING: missing {', '.join(missing)} "
+                      f"for tile {tid}, skipping analysis save")
                 continue
 
             if naming_p is None:

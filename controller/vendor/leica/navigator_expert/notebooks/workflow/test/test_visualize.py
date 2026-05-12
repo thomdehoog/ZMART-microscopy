@@ -232,6 +232,37 @@ class TestPlotOverviewTiles:
         assert captured[0] > 0, "Red overlay should have nonzero pixels for picked cell"
 
 
+# ─── _ensure_2d ──────────────────────────────────────────────────
+
+
+class TestEnsure2D:
+    def test_2d_passthrough(self):
+        from workflow.visualize import _ensure_2d
+        img = np.zeros((64, 64))
+        assert _ensure_2d(img).shape == (64, 64)
+
+    def test_3d_first_plane(self):
+        from workflow.visualize import _ensure_2d
+        img = np.zeros((5, 64, 64))
+        assert _ensure_2d(img).shape == (64, 64)
+
+    def test_3d_channel_last(self):
+        from workflow.visualize import _ensure_2d
+        img = np.zeros((64, 64, 3))
+        assert _ensure_2d(img).shape == (64, 64)
+
+    def test_4d_tczyx_style(self):
+        from workflow.visualize import _ensure_2d
+        img = np.zeros((2, 3, 64, 64))
+        assert _ensure_2d(img).shape == (64, 64)
+
+    def test_4d_channel_last(self):
+        from workflow.visualize import _ensure_2d
+        img = np.zeros((5, 64, 64, 3))
+        result = _ensure_2d(img)
+        assert result.shape == (64, 64)
+
+
 # ─── plot_target_pairs ───────────────────────────────────────────
 
 
