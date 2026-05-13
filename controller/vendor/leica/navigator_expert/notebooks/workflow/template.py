@@ -260,6 +260,8 @@ def plot_scan_field(ctx: Context) -> None:
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
 
+    from .visualize import figsize_for_extent, scan_field_extent_um
+
     if ctx.scan_field is None:
         raise RuntimeError("Call read_scan_field before plot_scan_field.")
 
@@ -267,7 +269,11 @@ def plot_scan_field(ctx: Context) -> None:
     tile_positions = ctx.scan_field["tile_positions"]
     lim = ctx.boundary_limits
 
-    fig, ax = plt.subplots(figsize=(14, 10))
+    # Figure aspect follows the scan field's actual dimensions — most
+    # samples are wider than tall, so a fixed (14, 10) wastes vertical
+    # space on a wide field and crowds a tall one.
+    width_um, height_um = scan_field_extent_um(ctx.scan_field, lim)
+    fig, ax = plt.subplots(figsize=figsize_for_extent(width_um, height_um))
     fig.patch.set_facecolor("white")
     ax.set_facecolor("#f5f5f8")
 
