@@ -106,6 +106,7 @@ def write_summary(
         "selection": {
             "mode": selection.mode,
             "n_total": selection.n_total,
+            "n_near_border": selection.n_near_border,
             "n_qualifying": selection.n_qualifying,
             "n_selected_pre_dedup": selection.n_selected_pre_dedup,
             "n_removed_duplicate": selection.n_removed_duplicate,
@@ -120,6 +121,7 @@ def write_summary(
             "intensity_threshold": selection.intensity_threshold,
             "area_threshold_auto": selection.area_threshold_auto,
             "intensity_threshold_auto": selection.intensity_threshold_auto,
+            "border_margin_px": selection.border_margin_px,
             "seed_material": selection.seed_material,
         },
         "removed_picks": picks.removed_picks,

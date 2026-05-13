@@ -193,6 +193,67 @@ class TestSelectTargets:
             assert pid[2] == 4
 
 
+# ─── Border-margin filter ─────────────────────────────────────────
+
+
+class TestBorderMarginFilter:
+    def _edge_pick(self, label, bbox):
+        """Make a pick with custom bbox so we can test edge cases."""
+        p = _make_pick(label=label, area=200, intensity=100.0)
+        # rebuild with bbox = (y0, x0, y1, x1) at requested position
+        return Pick(
+            pick_id=p.pick_id,
+            tile_stage_xy_um=p.tile_stage_xy_um,
+            tile_zwide_um=p.tile_zwide_um,
+            source_pixel_size_um=p.source_pixel_size_um,
+            source_image_size_px=(2048, 2048),
+            centroid_col_row_px=(
+                (bbox[1] + bbox[3]) / 2,
+                (bbox[0] + bbox[2]) / 2,
+            ),
+            bbox_px=bbox,
+            bbox_um=p.bbox_um,
+            area_px=p.area_px,
+            eccentricity=p.eccentricity,
+            mean_intensity=p.mean_intensity,
+            cell_source_stage_xy_um=p.cell_source_stage_xy_um,
+        )
+
+    def test_cells_touching_top_edge_excluded(self):
+        picks = (
+            [self._edge_pick(i, (10, 500, 30, 520)) for i in range(1, 6)]
+            + [self._edge_pick(i, (500, 500, 520, 520)) for i in range(6, 16)]
+        )
+        ov = _make_overview(picks=picks)
+        _, sel = select_targets(ov, _make_limits(), border_margin_px=64)
+        assert sel.n_near_border == 5
+        assert sel.near_border_mask[:5].all()
+        assert not sel.near_border_mask[5:].any()
+        # Excluded from qualifying
+        assert not (sel.qualifying_mask & sel.near_border_mask).any()
+
+    def test_disabled_when_margin_zero(self):
+        picks = (
+            [self._edge_pick(i, (10, 500, 30, 520)) for i in range(1, 6)]
+            + [self._edge_pick(i, (500, 500, 520, 520)) for i in range(6, 16)]
+        )
+        ov = _make_overview(picks=picks)
+        _, sel = select_targets(ov, _make_limits(), border_margin_px=0)
+        assert sel.n_near_border == 0
+        assert not sel.near_border_mask.any()
+
+    def test_cells_touching_right_edge_excluded(self):
+        picks = (
+            # near right edge
+            [self._edge_pick(i, (500, 2030, 520, 2048)) for i in range(1, 4)]
+            + [self._edge_pick(i, (500, 500, 520, 520)) for i in range(4, 15)]
+        )
+        ov = _make_overview(picks=picks)
+        _, sel = select_targets(ov, _make_limits(), border_margin_px=64)
+        assert sel.n_near_border == 3
+        assert sel.near_border_mask[:3].all()
+
+
 # ─── Per-tile sparseness + empty counters ─────────────────────────
 
 

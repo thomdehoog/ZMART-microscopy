@@ -14,12 +14,16 @@ Notebook cells provide thin wrappers that pull paths from ctx.
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 from .overview import Picks, TileEvent
 from .target import TargetRecord
+from .selection import (
+    MODE_EMPTY, MODE_NO_QUALIFYING, MODE_SPARSE, MODE_THRESHOLD,
+)
 
 
 # ─── Live display (during acquisition) ───────────────────────────
@@ -73,15 +77,64 @@ def display_tile(
         plt.close(fig)
 
 
-# Visual style tokens for display_selection. Chosen for white-background
-# legibility and a clear "selected" red that pops against qualifying blue.
-_COLOR_BELOW = "#C8CDD4"        # warm gray — pre-threshold cells
-_COLOR_QUALIFYING = "#4A7FB8"   # muted steel blue — passed threshold, not picked
-_COLOR_SELECTED = "#1A2942"     # deep navy — final picks (post dedup/filter)
-_COLOR_SHOWN = "#C8423A"        # red — picks rendered as crops below
-_COLOR_THRESHOLD = "#7A8794"    # mid gray — threshold guide lines
+# ─── display_selection: typography, palette, layers ────────────────
+#
+# Single source of truth for the visual style of the Step 4 figure.
+# When something looks wrong, change it here, not at the call site.
 
-_CROP_SIZE_PX = 96               # fixed crop size for visual comparison
+# Palette. White-background-friendly. The "shown" red and "qualifying"
+# blue are chosen so the picked picks pop without competing for attention.
+_COLOR_INK_PRIMARY = "#1A2942"   # near-black navy — titles, picked picks
+_COLOR_INK_BODY = "#3A4350"      # dark gray — body text, axis labels
+_COLOR_INK_MUTED = "#5A6573"     # medium gray — tick labels, secondary
+_COLOR_INK_CAPTION = "#7A8794"   # light gray — caption text, thresholds
+_COLOR_RULE = "#B5BCC4"          # axis spines
+_COLOR_GRID = "#E6E9EE"          # background grid
+_COLOR_PANEL = "#FAFBFC"         # axes facecolor
+
+_COLOR_BELOW = "#C8CDD4"         # warm gray — below threshold
+_COLOR_NEAR_BORDER = "#D9A14B"   # amber — too close to tile edge
+_COLOR_QUALIFYING = "#4A7FB8"    # steel blue — qualified, lost to dedup/limits
+_COLOR_SELECTED = _COLOR_INK_PRIMARY   # navy — selected, not shown as crop
+_COLOR_SHOWN = "#C8423A"         # red — picks shown as crops
+_COLOR_THRESHOLD = _COLOR_INK_MUTED   # threshold guide lines
+_COLOR_PANEL_FALLBACK = "#F4F5F7"     # placeholder background
+
+# Typography scale. Anything not on this scale is a bug.
+_FONT_TITLE = 14
+_FONT_SUBTITLE = 11
+_FONT_CAPTION = 9
+_FONT_AXIS_LABEL = 10
+_FONT_TICK = 9
+_FONT_LEGEND = 9
+_FONT_ANNOTATION = 10
+_FONT_CROP_TITLE = 9
+
+_CROP_SIZE_PX = 96               # fixed crop side length, in pixels
+
+
+@dataclass(frozen=True)
+class _ScatterLayer:
+    """Data-driven scatter layer config. Adding a new category is one
+    entry in `_LAYERS`; no branching in the render loop."""
+    key: str                 # mask key in _classify_cells_for_scatter
+    color: str
+    size: int
+    alpha: float
+    marker: str              # matplotlib marker, e.g. "o", "D"
+    edge: str | None         # edge color, or None for no edge
+    edge_width: float
+    zorder: int
+    label: str               # short label; "({n})" is appended automatically
+
+
+_LAYERS: tuple[_ScatterLayer, ...] = (
+    _ScatterLayer("near_border", _COLOR_NEAR_BORDER,  20, 0.65, "o", None,    0.0, 1, "Near edge"),
+    _ScatterLayer("below",       _COLOR_BELOW,        22, 0.75, "o", None,    0.0, 2, "Below threshold"),
+    _ScatterLayer("qualifying",  _COLOR_QUALIFYING,   28, 0.85, "o", None,    0.0, 3, "Qualifying"),
+    _ScatterLayer("selected",    _COLOR_SELECTED,     42, 1.00, "o", "white", 0.6, 4, "Selected"),
+    _ScatterLayer("shown",       _COLOR_SHOWN,       130, 1.00, "D", "white", 1.2, 5, "Shown"),
+)
 
 
 def display_selection(
@@ -90,58 +143,48 @@ def display_selection(
     *,
     feedback_dir: Path | None = None,
 ) -> None:
-    """Render the selection summary: scatter (intensity x area) + 6 example crops.
+    """Render Step 4 (Target discovery): scatter + 6 example crops.
 
-    Scatter has four layered classes so the operator can see, in one
-    glance, which cells qualified vs. which were actually picked vs.
-    which are being shown as crops below:
+    Layout (fixed; defined once below, no positional drift):
 
-        gray  — below threshold (excluded by area/intensity median)
-        blue  — qualifying but not in the final pick list
-                (lost to dedup or out-of-limits filter)
-        navy  — selected (final picks), but not shown as a crop
-        red   — selected AND shown as a crop below (diamond marker)
+      top margin (5%)
+        Title          "Target discovery"                     14 pt bold
+        Subtitle       "{N} picks · {N} qualifying · {N} cells" 11 pt
+        Caption        "area ≥ ... · intensity ≥ ... · border ..." 9 pt
+      scatter axes (height ratio 2.2 of grid)
+        — gridlines, 5 layered scatter categories, threshold lines —
+      crop strip (height ratio 1)
+        — 6 fixed-size crops with bbox highlighted in red —
+      bottom margin (6%)
 
-    Crops are zero-padded to a fixed 96x96 px so cells compare cleanly
-    side-by-side; each crop highlights the picked cell's bbox in red.
+    Scatter layers (`_LAYERS`):
+      amber — Near edge        bbox within `border_margin_px` of any tile edge
+      gray  — Below threshold  qualifying mask is False, not near-edge
+      blue  — Qualifying       passed threshold, lost to dedup or out-of-limits
+      navy  — Selected         in final picks, did not land in the crop strip
+      red   — Shown            in final picks AND rendered as a crop below
+
+    Crops use a shift-not-pad window: centered on the cell when possible,
+    shifted inward when the cell is near an edge. No zero-padding.
     """
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec
     from matplotlib.patches import Rectangle
     from IPython.display import display
 
-    from .selection import (
-        MODE_EMPTY, MODE_NO_QUALIFYING, MODE_SPARSE, MODE_THRESHOLD,
-    )
-
     has_crops = bool(selection.selected_picks)
     crops_to_show = (
         _pick_example_crops(selection.selected_picks, n=6) if has_crops else []
     )
 
-    if has_crops:
-        fig = plt.figure(figsize=(14, 9))
-        gs = GridSpec(
-            2, 6,
-            height_ratios=[2.2, 1],
-            hspace=0.40, wspace=0.18,
-            figure=fig,
-            top=0.91, bottom=0.06, left=0.06, right=0.98,
-        )
-        scatter_ax = fig.add_subplot(gs[0, :])
-        crop_axes = [fig.add_subplot(gs[1, c]) for c in range(6)]
-    else:
-        fig, scatter_ax = plt.subplots(figsize=(10, 7))
-        fig.subplots_adjust(top=0.88, bottom=0.10, left=0.10, right=0.96)
-        crop_axes = []
+    fig, scatter_ax, crop_axes = _build_selection_figure_layout(
+        has_crops, plt, GridSpec,
+    )
 
     try:
         fig.patch.set_facecolor("white")
 
-        _render_scatter(
-            scatter_ax, selection, crops_to_show,
-            MODE_THRESHOLD, MODE_NO_QUALIFYING, MODE_SPARSE, MODE_EMPTY,
-        )
+        _render_scatter(scatter_ax, selection, crops_to_show)
 
         if has_crops:
             tile_cache: dict[tuple, np.ndarray | None] = {}
@@ -155,26 +198,7 @@ def display_selection(
             for ax in crop_axes[len(crops_to_show):]:
                 ax.set_visible(False)
 
-        title = (
-            f"Target selection  ·  mode: {selection.mode}  ·  "
-            f"{selection.n_final} final  /  "
-            f"{selection.n_qualifying} qualifying  /  "
-            f"{selection.n_total} total cells"
-        )
-        fig.suptitle(title, fontsize=14, fontweight="bold",
-                     color="#1A2942", y=0.98)
-        provenance = (
-            f"area ≥ {selection.area_threshold:.0f} px"
-            f"{' (auto)' if selection.area_threshold_auto else ' (override)'}"
-            f"   ·   "
-            f"intensity ≥ {selection.intensity_threshold:.0f}"
-            f"{' (auto)' if selection.intensity_threshold_auto else ' (override)'}"
-            f"   ·   {selection.seed_material}"
-        )
-        fig.text(
-            0.5, 0.945, provenance,
-            ha="center", fontsize=9, color="#5A6573",
-        )
+        _render_figure_titles(fig, selection)
 
         if feedback_dir is not None:
             feedback_dir.mkdir(parents=True, exist_ok=True)
@@ -188,19 +212,106 @@ def display_selection(
         plt.close(fig)
 
 
+# ─── display_selection: layout + titles ────────────────────────────
+
+
+def _build_selection_figure_layout(has_crops: bool, plt, GridSpec):
+    """Create the figure and return (fig, scatter_ax, crop_axes).
+
+    Two variants:
+      with_crops:   2-row grid, scatter on top spanning 6 columns, 6 crops below
+      no_crops:     scatter only, tighter aspect
+
+    Margins (top/bottom/left/right) are chosen so the title block at the
+    top has fixed pixel headroom regardless of which variant is used.
+    """
+    if has_crops:
+        fig = plt.figure(figsize=(14, 9))
+        gs = GridSpec(
+            2, 6,
+            height_ratios=[2.2, 1.0],
+            hspace=0.40, wspace=0.18,
+            figure=fig,
+            top=0.86, bottom=0.06, left=0.06, right=0.98,
+        )
+        scatter_ax = fig.add_subplot(gs[0, :])
+        crop_axes = [fig.add_subplot(gs[1, c]) for c in range(6)]
+    else:
+        fig = plt.figure(figsize=(10, 7))
+        gs = GridSpec(
+            1, 1,
+            figure=fig,
+            top=0.83, bottom=0.10, left=0.10, right=0.96,
+        )
+        scatter_ax = fig.add_subplot(gs[0, 0])
+        crop_axes = []
+    return fig, scatter_ax, crop_axes
+
+
+def _render_figure_titles(fig, selection) -> None:
+    """Three text blocks above the scatter, vertically stacked at fixed y."""
+    fig.text(
+        0.5, 0.955, "Target discovery",
+        ha="center", fontsize=_FONT_TITLE, fontweight="bold",
+        color=_COLOR_INK_PRIMARY,
+    )
+    fig.text(
+        0.5, 0.920,
+        f"{selection.n_final} picks  ·  "
+        f"{selection.n_qualifying} qualifying  ·  "
+        f"{selection.n_total} cells",
+        ha="center", fontsize=_FONT_SUBTITLE, color=_COLOR_INK_BODY,
+    )
+    fig.text(
+        0.5, 0.890, _format_provenance(selection),
+        ha="center", fontsize=_FONT_CAPTION, color=_COLOR_INK_CAPTION,
+    )
+
+
+def _format_provenance(selection) -> str:
+    """Compact threshold / border / seed line for the figure caption."""
+    parts = [
+        _format_threshold(
+            "area", selection.area_threshold,
+            selection.area_threshold_auto, suffix=" px",
+        ),
+        _format_threshold(
+            "intensity", selection.intensity_threshold,
+            selection.intensity_threshold_auto,
+        ),
+    ]
+    if selection.border_margin_px > 0:
+        parts.append(f"border {selection.border_margin_px} px")
+    parts.append(selection.seed_material)
+    return "   ·   ".join(parts)
+
+
+def _format_threshold(name: str, value: float, auto: bool, *, suffix: str = "") -> str:
+    tag = "auto" if auto else "override"
+    return f"{name} ≥ {value:.0f}{suffix} ({tag})"
+
+
 # ─── display_selection helpers ─────────────────────────────────────
 
 
 def _classify_cells_for_scatter(
     selection, crops_to_show: list,
 ) -> dict[str, np.ndarray]:
-    """Build 4 mutually-exclusive masks over all_cells_*: below, qualifying,
-    selected, shown. They partition the cell index space."""
+    """Partition all_cells_* indices into 5 mutually-exclusive masks.
+
+    Priority (later wins; earlier categories are pre-empted by later ones):
+      near_border < below < qualifying < selected < shown
+
+    near_border cells were force-excluded from qualifying upstream;
+    they sit in their own bucket so the operator can see how many cells
+    were dropped for being too close to a tile edge.
+    """
     n = int(selection.all_cells_area.size)
     if n == 0:
         empty = np.zeros(0, dtype=bool)
-        return {"below": empty, "qualifying": empty,
-                "selected": empty, "shown": empty}
+        return dict.fromkeys(
+            ("near_border", "below", "qualifying", "selected", "shown"), empty,
+        )
 
     cell_pick_ids = [
         (str(tid[0]), int(tid[1]), int(tid[2]), int(label))
@@ -218,122 +329,127 @@ def _classify_cells_for_scatter(
         [pid in shown_set for pid in cell_pick_ids], dtype=bool,
     )
     qualifying = np.asarray(selection.qualifying_mask, dtype=bool)
+    near_border = np.asarray(selection.near_border_mask, dtype=bool)
 
     return {
-        "below": ~qualifying,
-        # qualifying-but-not-selected: passed threshold but lost to dedup/filter
+        # near-border cells were forced out of qualifying upstream
+        "near_border": near_border,
+        # below = neither qualifying nor near_border
+        "below": ~qualifying & ~near_border,
+        # qualifying but not in the final picks (lost to dedup or limits)
         "qualifying": qualifying & ~selected_mask,
-        # selected-but-not-shown: in final picks, didn't land in the crop strip
+        # in final picks but not in the crop strip
         "selected": selected_mask & ~shown_mask,
+        # in final picks and rendered as a crop
         "shown": shown_mask,
     }
 
 
-def _render_scatter(
-    ax, selection, crops_to_show: list,
-    MODE_THRESHOLD: str, MODE_NO_QUALIFYING: str,
-    MODE_SPARSE: str, MODE_EMPTY: str,
-) -> None:
+def _render_scatter(ax, selection, crops_to_show: list) -> None:
+    """Render the scatter panel.
+
+    Iterates `_LAYERS` (single source of truth for the scatter category
+    config). Layers with zero cells are skipped (no legend clutter).
+    Threshold dashed lines and mode-specific annotation are added on top.
+    """
     areas = selection.all_cells_area
     intensities = selection.all_cells_intensity
 
-    ax.set_facecolor("#FAFBFC")
-    ax.grid(True, which="major", linewidth=0.5, color="#E6E9EE", zorder=0)
+    # Panel chrome
+    ax.set_facecolor(_COLOR_PANEL)
+    ax.grid(True, which="major", linewidth=0.5, color=_COLOR_GRID, zorder=0)
     ax.set_axisbelow(True)
     for spine in ax.spines.values():
-        spine.set_color("#B5BCC4")
+        spine.set_color(_COLOR_RULE)
         spine.set_linewidth(0.8)
 
     if areas.size == 0:
         ax.text(
             0.5, 0.5, "No cells detected",
             ha="center", va="center", transform=ax.transAxes,
-            fontsize=13, color="#5A6573",
+            fontsize=_FONT_ANNOTATION + 1, color=_COLOR_INK_MUTED,
         )
         ax.set_xticks([])
         ax.set_yticks([])
         return
 
+    # Scatter layers (data-driven)
     masks = _classify_cells_for_scatter(selection, crops_to_show)
+    for layer in _LAYERS:
+        mask = masks[layer.key]
+        n = int(mask.sum())
+        if n == 0:
+            continue
+        kwargs: dict = dict(
+            s=layer.size, c=layer.color, alpha=layer.alpha,
+            marker=layer.marker, zorder=layer.zorder,
+            label=f"{layer.label} ({n})",
+        )
+        if layer.edge is not None:
+            kwargs["edgecolors"] = layer.edge
+            kwargs["linewidths"] = layer.edge_width
+        else:
+            kwargs["linewidths"] = 0
+        ax.scatter(intensities[mask], areas[mask], **kwargs)
 
-    # Layer order matters: shown on top, below at the bottom.
-    ax.scatter(
-        intensities[masks["below"]], areas[masks["below"]],
-        s=22, c=_COLOR_BELOW, alpha=0.75, linewidths=0,
-        label=f"Below threshold ({int(masks['below'].sum())})",
-        zorder=2,
-    )
-    ax.scatter(
-        intensities[masks["qualifying"]], areas[masks["qualifying"]],
-        s=28, c=_COLOR_QUALIFYING, alpha=0.85, linewidths=0,
-        label=f"Qualifying, not picked ({int(masks['qualifying'].sum())})",
-        zorder=3,
-    )
-    ax.scatter(
-        intensities[masks["selected"]], areas[masks["selected"]],
-        s=42, c=_COLOR_SELECTED,
-        edgecolors="white", linewidths=0.6,
-        label=f"Selected, not shown ({int(masks['selected'].sum())})",
-        zorder=4,
-    )
-    ax.scatter(
-        intensities[masks["shown"]], areas[masks["shown"]],
-        s=130, c=_COLOR_SHOWN, marker="D",
-        edgecolors="white", linewidths=1.2,
-        label=f"Shown below ({int(masks['shown'].sum())})",
-        zorder=5,
-    )
-
+    # Threshold guides (only in modes where thresholds are meaningful)
     if selection.mode in (MODE_THRESHOLD, MODE_NO_QUALIFYING):
-        ax.axvline(
-            selection.intensity_threshold,
-            color=_COLOR_THRESHOLD, linestyle="--", linewidth=1.0,
-            alpha=0.7, zorder=1,
-        )
-        ax.axhline(
-            selection.area_threshold,
-            color=_COLOR_THRESHOLD, linestyle="--", linewidth=1.0,
-            alpha=0.7, zorder=1,
-        )
+        for axis_method, threshold in (
+            (ax.axvline, selection.intensity_threshold),
+            (ax.axhline, selection.area_threshold),
+        ):
+            axis_method(
+                threshold, color=_COLOR_THRESHOLD,
+                linestyle="--", linewidth=1.0, alpha=0.7, zorder=1,
+            )
 
-    ax.set_xlabel("Mean intensity (a.u.)", fontsize=10, color="#3A4350")
-    ax.set_ylabel("Area (px²)", fontsize=10, color="#3A4350")
-    ax.tick_params(colors="#5A6573", labelsize=9)
+    ax.set_xlabel("Mean intensity (a.u.)", fontsize=_FONT_AXIS_LABEL,
+                  color=_COLOR_INK_BODY)
+    ax.set_ylabel("Area (px²)", fontsize=_FONT_AXIS_LABEL,
+                  color=_COLOR_INK_BODY)
+    ax.tick_params(colors=_COLOR_INK_MUTED, labelsize=_FONT_TICK)
 
     leg = ax.legend(
-        loc="upper left", fontsize=9, framealpha=0.95,
-        facecolor="white", edgecolor="#D0D5DC", labelcolor="#3A4350",
+        loc="upper left", fontsize=_FONT_LEGEND, framealpha=0.95,
+        facecolor="white", edgecolor="#D0D5DC", labelcolor=_COLOR_INK_BODY,
     )
     leg.get_frame().set_linewidth(0.6)
 
-    annotation = None
-    if selection.mode == MODE_NO_QUALIFYING:
-        annotation = "Zero cells qualified — adjust thresholds and re-run."
-    elif selection.mode == MODE_SPARSE:
-        annotation = "Sparse sample: thresholds skipped, all cells treated as qualifying."
-    elif selection.mode == MODE_EMPTY:
-        annotation = "No cells detected in this overview."
+    annotation = _MODE_ANNOTATIONS.get(selection.mode)
     if annotation:
         ax.text(
             0.5, 0.04, annotation,
             ha="center", transform=ax.transAxes,
-            fontsize=10, color=_COLOR_SHOWN, fontweight="bold",
+            fontsize=_FONT_ANNOTATION, color=_COLOR_SHOWN, fontweight="bold",
             bbox=dict(boxstyle="round,pad=0.4", facecolor="white",
                       edgecolor=_COLOR_SHOWN, linewidth=0.8, alpha=0.95),
         )
 
 
+_MODE_ANNOTATIONS: dict[str, str] = {
+    MODE_NO_QUALIFYING: "Zero cells qualified — adjust thresholds and re-run.",
+    MODE_SPARSE: "Sparse sample: thresholds skipped, all cells treated as qualifying.",
+    MODE_EMPTY: "No cells detected in this overview.",
+}
+
+
 def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
     """Render one fixed-size crop with the cell's bbox outlined in red.
 
-    Always _CROP_SIZE_PX x _CROP_SIZE_PX. Cells near the image edge are
-    zero-padded so the cell stays centered and crops compare cleanly."""
+    Always _CROP_SIZE_PX x _CROP_SIZE_PX. The crop window is centered on
+    the cell when possible; near the image edge the window shifts inward
+    to stay fully inside the image (so the cell appears off-center but
+    is NEVER cut off / zero-padded). Cells inside `border_margin_px`
+    of any edge should normally be filtered upstream so they don't get
+    selected at all -- this shift-not-pad logic is the fallback for
+    `border_margin_px=0`."""
     if img is None:
-        ax.set_facecolor("#F4F5F7")
+        ax.set_facecolor(_COLOR_PANEL_FALLBACK)
         ax.text(
             0.5, 0.5, "image\nunavailable",
             ha="center", va="center",
-            transform=ax.transAxes, fontsize=9, color="#5A6573",
+            transform=ax.transAxes, fontsize=_FONT_CROP_TITLE,
+            color=_COLOR_INK_MUTED,
         )
         ax.set_xticks([])
         ax.set_yticks([])
@@ -341,29 +457,27 @@ def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
             spine.set_visible(False)
         return
 
-    pad = _CROP_SIZE_PX // 2
     cx = int(round(pick.centroid_col_row_px[0]))
     cy = int(round(pick.centroid_col_row_px[1]))
-    crop = _centered_zero_padded_crop(img, cy, cx, pad)
+    y_origin, x_origin, size = _safe_crop_window(img.shape, cy, cx, _CROP_SIZE_PX)
+    crop = img[y_origin:y_origin + size, x_origin:x_origin + size]
 
     vmin, vmax = _robust_intensity_range(crop)
     ax.imshow(crop, cmap="gray", vmin=vmin, vmax=vmax, interpolation="nearest")
 
-    # skimage regionprops bbox convention: (y0, x0, y1, x1).
+    # Translate skimage bbox (y0, x0, y1, x1) into crop-window coords.
+    # The window may be shifted off-center when the cell is near an edge.
     y0, x0, y1, x1 = pick.bbox_px
-    bx0 = x0 - (cx - pad)
-    by0 = y0 - (cy - pad)
-    rect_w = max(1, x1 - x0)
-    rect_h = max(1, y1 - y0)
     ax.add_patch(Rectangle(
-        (bx0 - 0.5, by0 - 0.5), rect_w, rect_h,
+        (x0 - x_origin - 0.5, y0 - y_origin - 0.5),
+        max(1, x1 - x0), max(1, y1 - y0),
         fill=False, edgecolor=_COLOR_SHOWN, linewidth=1.4,
     ))
 
     rid, row, col = tile_key
     ax.set_title(
-        f"R{rid} r{row}c{col}  ·  label {pick.pick_id[3]}",
-        fontsize=9, color="#3A4350", pad=3,
+        f"R{rid} r{row}c{col}  ·  #{pick.pick_id[3]}",
+        fontsize=_FONT_CROP_TITLE, color=_COLOR_INK_BODY, pad=3,
     )
     ax.set_xticks([])
     ax.set_yticks([])
@@ -372,28 +486,22 @@ def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
         spine.set_linewidth(1.2)
 
 
-def _centered_zero_padded_crop(
-    img: np.ndarray, cy: int, cx: int, pad: int,
-) -> np.ndarray:
-    """Return a (2*pad, 2*pad) crop centered on (cy, cx). Zero-padded
-    where the window falls outside the image."""
-    h, w = img.shape[:2]
-    size = 2 * pad
-    out = np.zeros((size, size), dtype=img.dtype)
-
-    src_y0 = max(0, cy - pad)
-    src_y1 = min(h, cy + pad)
-    src_x0 = max(0, cx - pad)
-    src_x1 = min(w, cx + pad)
-
-    dst_y0 = src_y0 - (cy - pad)
-    dst_x0 = src_x0 - (cx - pad)
-    dst_y1 = dst_y0 + (src_y1 - src_y0)
-    dst_x1 = dst_x0 + (src_x1 - src_x0)
-
-    if src_y1 > src_y0 and src_x1 > src_x0:
-        out[dst_y0:dst_y1, dst_x0:dst_x1] = img[src_y0:src_y1, src_x0:src_x1]
-    return out
+def _safe_crop_window(
+    img_shape: tuple, cy: int, cx: int, size: int,
+) -> tuple[int, int, int]:
+    """Compute a (y_origin, x_origin, actual_size) crop window of side `size`
+    that fits inside img_shape. Centers on (cy, cx) when possible; shifts
+    inward at edges. If the image is smaller than `size`, returns the whole
+    image (actual_size < size).
+    """
+    h, w = img_shape[:2]
+    actual = min(size, h, w)
+    half = actual // 2
+    y_origin = cy - half
+    x_origin = cx - half
+    y_origin = max(0, min(y_origin, h - actual))
+    x_origin = max(0, min(x_origin, w - actual))
+    return y_origin, x_origin, actual
 
 
 def _robust_intensity_range(arr: np.ndarray) -> tuple[float, float]:
