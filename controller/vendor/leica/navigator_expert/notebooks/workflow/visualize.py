@@ -48,15 +48,13 @@ _COLOR_PANEL_FALLBACK = "#F4F5F7"     # placeholder background
 _COLOR_LEGEND_EDGE = "#D0D5DC"   # legend frame edge
 _COLOR_NA_PLACEHOLDER = "#999999"   # gray for "N/A" placeholder text
 
-# Scatter-category colors (display_selection)
-_COLOR_BELOW = "#C8CDD4"         # warm gray — below threshold
-_COLOR_NEAR_BORDER = "#D9A14B"   # amber — too close to tile edge
-_COLOR_QUALIFYING = "#4A7FB8"    # steel blue — qualified, lost to dedup/limits
-_COLOR_SELECTED = _COLOR_INK_PRIMARY   # navy — selected, not shown as crop
 _COLOR_PICK_SHOWN = "#C8423A"    # red — picks rendered as detail crops in
                                  # display_selection; also the target-FOV
                                  # rectangle on the overview tile in
                                  # display_target / plot_target_pairs.
+# Selected-pick dot on the scatter. Same red as _COLOR_PICK_SHOWN; kept as
+# a distinct name because the two are different UI roles and may diverge.
+_COLOR_SELECTED = _COLOR_PICK_SHOWN
 # Current-acquiring-tile highlight in render_scan_field_panel / display_tile's
 # field-position panel. Currently aliased to _COLOR_PICK_SHOWN for visual
 # consistency; kept as a separate name because current-tile highlight and
@@ -106,11 +104,7 @@ class _ScatterLayer:
 
 
 _LAYERS: tuple[_ScatterLayer, ...] = (
-    _ScatterLayer("near_border", _COLOR_NEAR_BORDER,  20, 0.65, "o", None,    0.0, 1, "Near edge"),
-    _ScatterLayer("below",       _COLOR_BELOW,        22, 0.75, "o", None,    0.0, 2, "Below threshold"),
-    _ScatterLayer("qualifying",  _COLOR_QUALIFYING,   28, 0.85, "o", None,    0.0, 3, "Qualifying"),
-    _ScatterLayer("selected",    _COLOR_SELECTED,     42, 1.00, "o", "white", 0.6, 4, "Selected"),
-    _ScatterLayer("shown",       _COLOR_PICK_SHOWN,  130, 1.00, "D", "white", 1.2, 5, "Shown"),
+    _ScatterLayer("selected", _COLOR_SELECTED, 42, 1.00, "o", "white", 0.6, 4, "Selected"),
 )
 
 
@@ -673,33 +667,19 @@ def _format_threshold(name: str, value: float, auto: bool, *, suffix: str = "") 
 def _classify_cells_for_scatter(
     selection, crops_to_show: list,
 ) -> dict[str, np.ndarray]:
-    """Partition all_cells_* indices into 5 mutually-exclusive masks
-    for scatter rendering.
+    """Mark which all_cells_* entries are selected picks.
 
-    Categories (mutually exclusive by construction):
-      near_border — cells whose bbox is within border_margin_px of any
-                    tile edge; force-excluded from `qualifying_mask`
-                    upstream. Surfaced here so the operator can see
-                    how many cells dropped at the tile edge.
-      below       — failed the area or intensity threshold AND not
-                    near-border.
-      qualifying  — passed thresholds but not in the final picks (lost
-                    to dedup, out-of-limits, or per-tile sampling).
-      selected    — in final picks but not rendered as a crop in the
-                    strip below the scatter.
-      shown       — in final picks AND rendered as a crop.
-
-    The masks are constructed by boolean set math against the upstream
-    masks (`qualifying_mask`, `near_border_mask`) and the
-    `selected_picks` / `crops_to_show` sets. The 5 categories partition
-    `all_cells_*` exactly (no overlap, no gaps among detected cells).
+    Returns a single mask `selected` keyed by membership in
+    `selection.selected_picks`. The other categories (near_border,
+    below, qualifying, shown) are no longer surfaced on the scatter
+    -- the operator only wants to see the picks that were actually
+    selected. The `crops_to_show` argument is accepted for signature
+    compatibility but ignored.
     """
     n = int(selection.all_cells_area.size)
     if n == 0:
         empty = np.zeros(0, dtype=bool)
-        return dict.fromkeys(
-            ("near_border", "below", "qualifying", "selected", "shown"), empty,
-        )
+        return {"selected": empty}
 
     cell_pick_ids = [
         (str(tid[0]), int(tid[1]), int(tid[2]), int(label))
@@ -708,29 +688,10 @@ def _classify_cells_for_scatter(
         )
     ]
     selected_set = {p.pick_id for p in selection.selected_picks}
-    shown_set = {p.pick_id for p in crops_to_show}
-
     selected_mask = np.array(
         [pid in selected_set for pid in cell_pick_ids], dtype=bool,
     )
-    shown_mask = np.array(
-        [pid in shown_set for pid in cell_pick_ids], dtype=bool,
-    )
-    qualifying = np.asarray(selection.qualifying_mask, dtype=bool)
-    near_border = np.asarray(selection.near_border_mask, dtype=bool)
-
-    return {
-        # near-border cells were forced out of qualifying upstream
-        "near_border": near_border,
-        # below = neither qualifying nor near_border
-        "below": ~qualifying & ~near_border,
-        # qualifying but not in the final picks (lost to dedup or limits)
-        "qualifying": qualifying & ~selected_mask,
-        # in final picks but not in the crop strip
-        "selected": selected_mask & ~shown_mask,
-        # in final picks and rendered as a crop
-        "shown": shown_mask,
-    }
+    return {"selected": selected_mask}
 
 
 def _render_scatter(ax, selection, crops_to_show: list) -> None:
