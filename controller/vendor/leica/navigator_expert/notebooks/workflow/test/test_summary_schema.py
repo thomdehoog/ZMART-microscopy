@@ -122,7 +122,7 @@ def _make_selection():
         n_removed_out_of_limits_z=0,
         n_removed_translation=0,
         n_final=4,
-        n_tiles_below_sparse_cutoff=0,
+        n_tiles_below_eligible_cutoff=0,
         n_tiles_empty=1,
         selected_picks=[],
     )
