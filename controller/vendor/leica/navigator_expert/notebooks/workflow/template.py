@@ -338,6 +338,8 @@ def plot_scan_field(ctx: Context) -> None:
     circle_r = cross * 0.6
 
     focus_color = "#e05555"
+    marker_xs: list[float] = []
+    marker_ys: list[float] = []
     for fp_list, label in [
         (template_data.get("focus_points", []), "Focus points"),
         (template_data.get("autofocus_points", []), "AutoFocus points"),
@@ -353,9 +355,28 @@ def plot_scan_field(ctx: Context) -> None:
                 linewidth=1.2, edgecolor=focus_color,
                 facecolor="none", zorder=11,
             ))
+            marker_xs.extend([fx - circle_r, fx + circle_r])
+            marker_ys.extend([fy - circle_r, fy + circle_r])
         if fp_list:
             ax.plot([], [], "+", color=focus_color, markersize=10,
                     markeredgewidth=1.5, label=label)
+
+    # render_scan_field_panel set xlim/ylim from tile + boundary bounds
+    # only. Expand if focus / autofocus markers sit outside that envelope
+    # so they aren't clipped at the axis edge (pre-D behavior).
+    if marker_xs:
+        cur_xlo, cur_xhi = ax.get_xlim()
+        cur_ylo, cur_yhi = ax.get_ylim()
+        # ylim is inverted by render_scan_field_panel, so cur_ylo > cur_yhi.
+        y_top, y_bot = min(cur_ylo, cur_yhi), max(cur_ylo, cur_yhi)
+        new_xlo = min(cur_xlo, min(marker_xs))
+        new_xhi = max(cur_xhi, max(marker_xs))
+        new_ytop = min(y_top, min(marker_ys))
+        new_ybot = max(y_bot, max(marker_ys))
+        if (new_xlo, new_xhi) != (cur_xlo, cur_xhi):
+            ax.set_xlim(new_xlo, new_xhi)
+        if (new_ytop, new_ybot) != (y_top, y_bot):
+            ax.set_ylim(new_ybot, new_ytop)  # restore inverted orientation
 
     ax.set_title("Scan Field", fontsize=13, fontweight="bold",
                  color="#222222", pad=12)
