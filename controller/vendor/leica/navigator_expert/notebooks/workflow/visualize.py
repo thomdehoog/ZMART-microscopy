@@ -137,11 +137,17 @@ _MODE_ANNOTATIONS: dict[str, str] = {
 
 @dataclass(frozen=True)
 class TileStyle:
-    """Per-tile drawing style override for render_scan_field_panel."""
+    """Per-tile drawing style override for render_scan_field_panel.
+
+    alpha=None lets the alpha channel embedded in `facecolor` govern.
+    Setting alpha to a float overrides that channel. The previous
+    default of 1.0 silently overrode 0.25-alpha face colors and
+    eliminated tile-tile overlap visibility in plot_scan_field.
+    """
     facecolor: object             # str hex, RGBA tuple, or "none"
     edgecolor: object
     linewidth: float = 0.6
-    alpha: float = 1.0
+    alpha: float | None = None
     zorder: int = 2
 
 
