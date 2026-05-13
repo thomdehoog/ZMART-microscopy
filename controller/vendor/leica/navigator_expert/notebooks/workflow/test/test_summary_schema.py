@@ -12,8 +12,11 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from workflow.overview import OverviewResult, Picks
-from workflow.selection import MODE_THRESHOLD, SelectionResult
+from workflow.context import LimitsContext
+from workflow.overview import OverviewResult, Pick, Picks
+from workflow.selection import (
+    MODE_NO_QUALIFYING, MODE_THRESHOLD, SelectionResult, select_targets,
+)
 from workflow.summary import write_summary
 
 
@@ -189,3 +192,99 @@ class TestSummarySchemaMigration:
         assert summary["overview"]["n_tiles_acquired"] == 1   # submitted - acquire_failed
         assert summary["overview"]["n_tiles_acquire_failed"] == 1
         assert summary["overview"]["completed"] is True
+
+
+# ─── JSON strictness (Bundle C / task C1+C4) ──────────────────────
+
+
+class TestSelectionJsonStrictness:
+    def test_all_near_border_produces_json_strict_safe_thresholds(
+        self, tmp_path, monkeypatch,
+    ):
+        """All cells near-border -> n_eligible == 0 -> MODE_NO_QUALIFYING
+        with 0.0 sentinel thresholds. Drive the full write_summary path
+        and strict-parse the on-disk JSON with parse_constant set to
+        raise on NaN/Infinity/-Infinity tokens.
+
+        Before C1's empty-eligible guard, the threshold branch computed
+        np.median([]) -> NaN, which Python's json.dumps emits as the
+        literal token "NaN" (non-RFC-compliant). This test pins the
+        on-disk artifact's RFC-strictness end-to-end.
+        """
+        # Identity translation so picks survive the limits filter.
+        monkeypatch.setattr(
+            "workflow.overview.drv.translate_xyz_between_objectives",
+            lambda x, y, z, calibration, *, from_slot, to_slot: (x, y, z),
+        )
+
+        # 12 picks all at top-left corner (within margin=64 of two edges)
+        # in a 2048x2048 image -> all near-border.
+        picks = [
+            Pick(
+                pick_id=("0", 0, 0, i),
+                tile_stage_xy_um=(0.0, 0.0),
+                tile_zwide_um=0.5,
+                source_pixel_size_um=(0.65, 0.65),
+                source_image_size_px=(2048, 2048),
+                centroid_col_row_px=(15.0, 15.0),
+                bbox_px=(5, 5, 25, 25),
+                bbox_um=(13.0, 13.0),
+                area_px=200,
+                eccentricity=0.5,
+                mean_intensity=100.0,
+                cell_source_stage_xy_um=(0.5 + i * 100.0, 0.5),
+            )
+            for i in range(1, 13)
+        ]
+        overview = OverviewResult(
+            all_picks=picks,
+            tile_acquire_failures=[],
+            engine_failures=[],
+            npz_save_failures=[],
+            tile_cell_counts={("0", 0, 0): 12},
+            n_tiles_planned=1,
+            n_tiles_submitted=1,
+            completed=True,
+        )
+        limits = LimitsContext(
+            calibration={},
+            stage_config={"limits_um": {"z_wide": (-1e6, 1e6)}},
+            boundary_limits=None,
+            source_slot=1,
+            target_slot=1,
+        )
+
+        sel_picks, selection = select_targets(
+            overview, limits,
+            border_margin_px=64,
+            min_cells_for_threshold=10,
+        )
+
+        # In-process state assertions (cheap; pin sentinel + mode).
+        assert selection.mode == MODE_NO_QUALIFYING
+        assert selection.n_near_border == 12
+        assert selection.n_qualifying == 0
+        assert selection.area_threshold == 0.0
+        assert selection.intensity_threshold == 0.0
+
+        # End-to-end: write to disk, strict-parse the on-disk artifact.
+        ctx = _build_ctx_like(tmp_path)
+        out_path = write_summary(
+            ctx, _make_focus_map(), overview, sel_picks, selection,
+            records=[],
+        )
+
+        def _reject_nonrfc(token):
+            raise ValueError(
+                f"non-RFC JSON token in {out_path.name}: {token!r}"
+            )
+
+        text = out_path.read_text()
+        summary = json.loads(text, parse_constant=_reject_nonrfc)
+
+        # Cross-check the selection block in the on-disk artifact.
+        assert summary["selection"]["mode"] == MODE_NO_QUALIFYING
+        assert summary["selection"]["area_threshold"] == 0.0
+        assert summary["selection"]["intensity_threshold"] == 0.0
+        assert summary["selection"]["n_near_border"] == 12
+        assert summary["selection"]["n_qualifying"] == 0

@@ -37,6 +37,28 @@ def _make_pick(rid="0", row=0, col=0, label=1, *,
     )
 
 
+def _edge_pick(label, bbox, *, size=(2048, 2048)) -> Pick:
+    """Pick with custom bbox and (optionally) custom image size."""
+    p = _make_pick(label=label, area=200, intensity=100.0)
+    return Pick(
+        pick_id=p.pick_id,
+        tile_stage_xy_um=p.tile_stage_xy_um,
+        tile_zwide_um=p.tile_zwide_um,
+        source_pixel_size_um=p.source_pixel_size_um,
+        source_image_size_px=size,
+        centroid_col_row_px=(
+            (bbox[1] + bbox[3]) / 2,
+            (bbox[0] + bbox[2]) / 2,
+        ),
+        bbox_px=bbox,
+        bbox_um=p.bbox_um,
+        area_px=p.area_px,
+        eccentricity=p.eccentricity,
+        mean_intensity=p.mean_intensity,
+        cell_source_stage_xy_um=p.cell_source_stage_xy_um,
+    )
+
+
 def _make_overview(*, picks: list[Pick], tile_cell_counts: dict | None = None,
                    n_planned: int = 0, n_submitted: int = 0) -> OverviewResult:
     if tile_cell_counts is None:
@@ -198,26 +220,7 @@ class TestSelectTargets:
 
 class TestBorderMarginFilter:
     def _edge_pick(self, label, bbox):
-        """Make a pick with custom bbox so we can test edge cases."""
-        p = _make_pick(label=label, area=200, intensity=100.0)
-        # rebuild with bbox = (y0, x0, y1, x1) at requested position
-        return Pick(
-            pick_id=p.pick_id,
-            tile_stage_xy_um=p.tile_stage_xy_um,
-            tile_zwide_um=p.tile_zwide_um,
-            source_pixel_size_um=p.source_pixel_size_um,
-            source_image_size_px=(2048, 2048),
-            centroid_col_row_px=(
-                (bbox[1] + bbox[3]) / 2,
-                (bbox[0] + bbox[2]) / 2,
-            ),
-            bbox_px=bbox,
-            bbox_um=p.bbox_um,
-            area_px=p.area_px,
-            eccentricity=p.eccentricity,
-            mean_intensity=p.mean_intensity,
-            cell_source_stage_xy_um=p.cell_source_stage_xy_um,
-        )
+        return _edge_pick(label, bbox)
 
     def test_cells_touching_top_edge_excluded(self):
         picks = (
@@ -232,15 +235,23 @@ class TestBorderMarginFilter:
         # Excluded from qualifying
         assert not (sel.qualifying_mask & sel.near_border_mask).any()
 
-    def test_disabled_when_margin_zero(self):
+    def test_zero_margin_is_allowed_and_disables_filter(self):
+        """Regression: border_margin_px == 0 is the explicit disable path.
+        It must NOT raise (despite the negative-margin guard) and must
+        produce zero near-border cells even when picks are at the tile
+        edge. Prevents a future 'tightening' from breaking the disable
+        path.
+        """
         picks = (
             [self._edge_pick(i, (10, 500, 30, 520)) for i in range(1, 6)]
             + [self._edge_pick(i, (500, 500, 520, 520)) for i in range(6, 16)]
         )
         ov = _make_overview(picks=picks)
+        # Must not raise: 0 is the documented disable sentinel.
         _, sel = select_targets(ov, _make_limits(), border_margin_px=0)
         assert sel.n_near_border == 0
         assert not sel.near_border_mask.any()
+        assert sel.border_margin_px == 0
 
     def test_cells_touching_right_edge_excluded(self):
         picks = (
@@ -252,6 +263,121 @@ class TestBorderMarginFilter:
         _, sel = select_targets(ov, _make_limits(), border_margin_px=64)
         assert sel.n_near_border == 3
         assert sel.near_border_mask[:3].all()
+
+    def test_boundary_equality_at_x1_equals_width_minus_margin_kept(self):
+        """skimage bbox is half-open [min, max). At x1 == width - margin
+        the pick is KEPT; at x1 == width - margin + 1 it flips to
+        near-border. Pins the off-by-one semantics.
+        """
+        # width=2048, margin=64 -> threshold at x1=1984.
+        # 12 picks total to keep the threshold-mode path active.
+        boundary = self._edge_pick(1, (500, 500, 520, 1984))   # x1 == 1984
+        one_past = self._edge_pick(2, (500, 500, 520, 1985))   # x1 == 1985
+        middles = [self._edge_pick(i, (500, 500, 520, 520))
+                   for i in range(3, 13)]
+        ov = _make_overview(picks=[boundary, one_past, *middles])
+        _, sel = select_targets(ov, _make_limits(), border_margin_px=64)
+
+        assert not sel.near_border_mask[0]    # boundary kept
+        assert sel.near_border_mask[1]        # one-past excluded
+        assert not sel.near_border_mask[2:].any()
+        assert sel.n_near_border == 1
+
+
+# ─── Input validation ─────────────────────────────────────────────
+
+
+class TestInputValidation:
+    def test_negative_margin_raises_value_error(self):
+        """Negative border_margin_px is rejected at the function boundary;
+        zero is the explicit disable sentinel, so the predicate is < 0.
+        """
+        picks = [_make_pick(label=i, area=200, intensity=100.0)
+                 for i in range(1, 5)]
+        ov = _make_overview(picks=picks)
+        with pytest.raises(ValueError, match=r"border_margin_px must be >= 0"):
+            select_targets(ov, _make_limits(), border_margin_px=-1)
+
+    def test_degenerate_image_size_raises_value_error_per_axis(self):
+        """All three degenerate variants (0,H), (W,0), (0,0) trip the
+        same predicate (width <= 0 or height <= 0) in
+        _compute_near_border_mask and fail-fast with pick_id in the
+        message. (border_margin_px > 0 so the validator is actually run.)
+        """
+        for bad_size in [(0, 2048), (2048, 0), (0, 0)]:
+            bad_pick = _edge_pick(1, (5, 5, 25, 25), size=bad_size)
+            ov = _make_overview(picks=[bad_pick])
+            with pytest.raises(
+                ValueError, match=r"invalid source_image_size_px",
+            ):
+                select_targets(ov, _make_limits(), border_margin_px=64)
+
+
+# ─── Eligible-population edge cases ───────────────────────────────
+
+
+class TestEligibleEdgeCases:
+    def test_n_eligible_below_cutoff_triggers_sparse_when_n_total_above(self):
+        """Two-population regression: n_total >= min_cells_for_threshold,
+        but n_eligible < min_cells_for_threshold (most picks excluded by
+        the border filter). Sparse gate must use n_eligible, not n_total.
+        """
+        # 12 corner picks (near-border at margin=64) + 5 middle picks.
+        # n_total=17 (>=10), n_eligible=5 (<10).
+        corners = [_edge_pick(i, (5, 5, 25, 25)) for i in range(1, 13)]
+        middles = [_edge_pick(i, (500, 500, 520, 520)) for i in range(13, 18)]
+        ov = _make_overview(picks=[*corners, *middles])
+        _, sel = select_targets(
+            ov, _make_limits(),
+            border_margin_px=64, min_cells_for_threshold=10,
+        )
+
+        assert sel.n_total == 17
+        assert sel.n_near_border == 12
+        assert sel.mode == MODE_SPARSE
+        assert sel.n_qualifying == 5
+        # Scalar finite check (file-strict JSON pinned by all-near-border test)
+        import math
+        assert math.isfinite(sel.area_threshold)
+        assert math.isfinite(sel.intensity_threshold)
+
+    def test_huge_margin_excludes_all_lands_in_no_qualifying(self):
+        """border_margin_px larger than the tile excludes every cell, so
+        n_eligible == 0 -> MODE_NO_QUALIFYING with 0.0 sentinels (no
+        np.median([]) -> NaN contamination).
+        """
+        picks = [_make_pick(label=i, area=200, intensity=100.0)
+                 for i in range(1, 16)]
+        ov = _make_overview(picks=picks)
+        _, sel = select_targets(ov, _make_limits(), border_margin_px=2000)
+
+        assert sel.n_near_border == 15
+        assert sel.mode == MODE_NO_QUALIFYING
+        assert sel.area_threshold == 0.0
+        assert sel.intensity_threshold == 0.0
+        import math
+        assert math.isfinite(sel.area_threshold)
+        assert math.isfinite(sel.intensity_threshold)
+
+    def test_sparse_and_border_compose_without_double_exclusion(self):
+        """Sparse path + border filter compose cleanly: each non-border
+        cell counts exactly once in qualifying, and qualifying_mask and
+        near_border_mask are disjoint.
+        """
+        corners = [_edge_pick(i, (5, 5, 25, 25)) for i in range(1, 6)]
+        middles = [_edge_pick(i, (500, 500, 520, 520)) for i in range(6, 9)]
+        ov = _make_overview(picks=[*corners, *middles])
+        _, sel = select_targets(
+            ov, _make_limits(),
+            border_margin_px=64, min_cells_for_threshold=10,
+        )
+
+        # 8 total, 5 near-border, 3 eligible -> sparse (3 < 10)
+        assert sel.n_total == 8
+        assert sel.n_near_border == 5
+        assert sel.mode == MODE_SPARSE
+        assert sel.n_qualifying == 3
+        assert not (sel.qualifying_mask & sel.near_border_mask).any()
 
 
 # ─── Per-tile sparseness + empty counters ─────────────────────────
