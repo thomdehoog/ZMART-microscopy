@@ -32,8 +32,8 @@ from .selection import (
 #
 # Single source of truth for the visual style of every renderer in this
 # module. When something looks wrong visually, change it here, not at
-# the call site. The D6 style-token coverage test enforces that no hex
-# colors or fontsize integer literals appear OUTSIDE this block.
+# the call site. test_visualize.py enforces that no hex colors or
+# fontsize integer literals appear OUTSIDE this block.
 
 # Palette. White-background-friendly. The "shown" red and "qualifying"
 # blue are chosen so the picked picks pop without competing for attention.
@@ -119,7 +119,7 @@ _LAYERS: tuple[_ScatterLayer, ...] = (
 # constants stay grouped together.
 _MODE_ANNOTATIONS: dict[str, str] = {
     MODE_NO_QUALIFYING: "Zero cells qualified — adjust thresholds and re-run.",
-    MODE_SPARSE: "Sparse sample: thresholds skipped, all cells treated as qualifying.",
+    MODE_SPARSE: "Sparse sample: thresholds skipped, all non-border cells treated as qualifying.",
     MODE_EMPTY: "No cells detected in this overview.",
 }
 
@@ -858,9 +858,9 @@ def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
     ax.set_xticks([])
     ax.set_yticks([])
     # Crop frame is a subtle neutral gray so the red bbox rectangle drawn
-    # above stays the visually-dominant cue. (Before D4a, frame + bbox
-    # were both _COLOR_PICK_SHOWN; at 96x96 they read as one fat red
-    # border, swallowing the bbox-specific signal.)
+    # above stays the visually-dominant cue. Coloring the frame the same
+    # as the bbox makes the two read as one fat red border at 96x96 and
+    # swallows the bbox-specific signal.
     for spine in ax.spines.values():
         spine.set_color(_COLOR_RULE)
         spine.set_linewidth(1.0)
