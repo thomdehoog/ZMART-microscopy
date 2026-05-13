@@ -88,6 +88,7 @@ class TestBuildDefaultOnTileCallback:
             feedback_dir=None,         # save_png=False -> no feedback dir
             live_display=True,
             save_png=False,
+            _save_queue=None,          # factory called with no queue
         )
 
 

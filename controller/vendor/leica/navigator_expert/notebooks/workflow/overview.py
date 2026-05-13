@@ -146,12 +146,17 @@ def _build_default_on_tile_callback(
     *,
     live_display: bool,
     save_png: bool,
+    save_queue: Any = None,
 ) -> Callable[[TileEvent], None]:
     """Build the default per-tile callback when the operator hasn't
     supplied an explicit on_tile. The renderer (display_tile) lives in
     workflow.visualize, which imports TileEvent from this module -- so
     overview.py imports display_tile LOCALLY here, not at module top.
     Hoisting this import to module top reintroduces the cycle.
+
+    save_queue: optional _FigureSaveQueue threaded through to display_tile.
+    When provided, the per-tile savefig runs on the queue's worker thread
+    so the producer (acquisition loop) returns immediately.
     """
     from .visualize import display_tile
 
@@ -169,6 +174,7 @@ def _build_default_on_tile_callback(
             feedback_dir=feedback_dir,
             live_display=live_display,
             save_png=save_png,
+            _save_queue=save_queue,
         )
 
     return _on_tile
@@ -210,9 +216,19 @@ def run_overview(
     _validate_callback_flags(
         on_tile, live_display, save_png, callback_param="on_tile",
     )
+    # Async PNG save queue. Owned by run_overview when we build the
+    # default callback AND will save (save_png=True). Otherwise None
+    # (sync savefig on the producer thread, or no save at all).
+    save_queue = None
+    if on_tile is None and save_png:
+        from ._save_queue import _FigureSaveQueue
+        save_queue = _FigureSaveQueue(name="overview-savefig")
     if on_tile is None and (live_display or save_png):
         on_tile = _build_default_on_tile_callback(
-            ctx, live_display=live_display, save_png=save_png,
+            ctx,
+            live_display=live_display,
+            save_png=save_png,
+            save_queue=save_queue,
         )
 
     cfg = ctx.cfg
@@ -371,6 +387,12 @@ def run_overview(
             )
         except Exception as exc:
             print(f"[step 3] WARNING: could not write overview_meta.json: {exc}")
+
+        # Drain async per-tile savefig queue (if owned by this run).
+        # The queue holds figure references; shutdown drains + closes the
+        # worker so all PNGs promised by call-return exist on disk.
+        if save_queue is not None:
+            save_queue.shutdown()
 
     return OverviewResult(
         all_picks=all_picks,
