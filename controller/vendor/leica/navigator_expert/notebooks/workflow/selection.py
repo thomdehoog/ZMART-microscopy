@@ -238,6 +238,11 @@ def select_targets(
     See plan rev7 sections "Commit C / 3. workflow/selection.py" for the
     full state machine.
     """
+    if border_margin_px < 0:
+        raise ValueError(
+            f"border_margin_px must be >= 0, got {border_margin_px}"
+        )
+
     all_picks = overview.all_picks
     tile_cell_counts = overview.tile_cell_counts
 
@@ -433,6 +438,10 @@ def _compute_near_border_mask(
 
     bbox_px convention is skimage regionprops: (y0, x0, y1, x1).
     source_image_size_px is (width, height) -- (pixels_x, pixels_y).
+    border_margin_px == 0 is the explicit disable path (filter off);
+    border_margin_px < 0 is rejected upstream in select_targets.
+    Degenerate source_image_size_px (width <= 0 or height <= 0) raises
+    ValueError fail-fast on the first invalid Pick.
     """
     if border_margin_px <= 0 or not all_picks:
         return np.zeros(len(all_picks), dtype=bool)
@@ -440,6 +449,11 @@ def _compute_near_border_mask(
     for i, p in enumerate(all_picks):
         y0, x0, y1, x1 = p.bbox_px
         width, height = p.source_image_size_px
+        if width <= 0 or height <= 0:
+            raise ValueError(
+                f"Pick {p.pick_id} has invalid source_image_size_px="
+                f"{p.source_image_size_px}"
+            )
         if (x0 < border_margin_px
                 or y0 < border_margin_px
                 or x1 > width - border_margin_px
