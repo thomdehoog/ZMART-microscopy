@@ -169,7 +169,7 @@ def run_overview(
 
         sequence = _build_snake_sequence(tile_positions)
         n_tiles_planned = len(sequence)
-        print(f"[step 4] {n_tiles_planned} tiles in snake order")
+        print(f"[step 3] {n_tiles_planned} tiles in snake order")
 
         failure_count_before = len(
             engine.status("overview").get("failures", [])
@@ -180,7 +180,7 @@ def run_overview(
             analysis_dir.mkdir(parents=True, exist_ok=True)
             analysis_dir_ready = True
         except Exception as exc:
-            print(f"[step 4] WARNING: could not create {analysis_dir}: {exc}")
+            print(f"[step 3] WARNING: could not create {analysis_dir}: {exc}")
 
         for i, tile in enumerate(sequence):
             rid = tile["region"]
@@ -265,7 +265,7 @@ def run_overview(
         )
 
         print(
-            f"\n[step 4] Drain complete: {n_results} result(s), "
+            f"\n[step 3] Drain complete: {n_results} result(s), "
             f"{len(new_failures)} engine failure(s), "
             f"{len(tile_acquire_failures)} tile acquire failure(s), "
             f"{len(npz_save_failures)} npz save failure(s). "
@@ -276,9 +276,9 @@ def run_overview(
     finally:
         try:
             drv.restore_template(client)
-            print("[step 4] Template restored.")
+            print("[step 3] Template restored.")
         except Exception as exc:
-            print(f"[step 4] WARNING: could not restore template: {exc}")
+            print(f"[step 3] WARNING: could not restore template: {exc}")
 
         # Persist meta even when the drain raised, so load_overview_result
         # can show partial state. completed=False signals the incompleteness.
@@ -293,7 +293,7 @@ def run_overview(
                 completed=completed,
             )
         except Exception as exc:
-            print(f"[step 4] WARNING: could not write overview_meta.json: {exc}")
+            print(f"[step 3] WARNING: could not write overview_meta.json: {exc}")
 
     return OverviewResult(
         all_picks=all_picks,
@@ -647,12 +647,12 @@ def _save_single_tile_analysis(
             missing = [k for k, v in [("masks", masks),
                        ("image_2d", image_2d), ("tile_id", tile_id)]
                        if v is None]
-            print(f"[step 4] WARNING: missing {', '.join(missing)} "
+            print(f"[step 3] WARNING: missing {', '.join(missing)} "
                   f"for tile {tid}, skipping analysis save")
             return False
 
         if naming_p is None:
-            print(f"[step 4] WARNING: missing naming_p for tile "
+            print(f"[step 3] WARNING: missing naming_p for tile "
                   f"{tile_id}, skipping analysis save")
             return False
 
@@ -680,7 +680,7 @@ def _save_single_tile_analysis(
         return True
     except Exception as exc:
         tid = result.get("input", {}).get("tile_id", "?")
-        print(f"[step 4] WARNING: could not save tile analysis "
+        print(f"[step 3] WARNING: could not save tile analysis "
               f"for {tid}: {exc}")
         return False
 
@@ -699,7 +699,7 @@ def _save_tile_analysis(
     try:
         analysis_dir.mkdir(parents=True, exist_ok=True)
     except Exception as exc:
-        print(f"[step 4] WARNING: could not create {analysis_dir}: {exc}")
+        print(f"[step 3] WARNING: could not create {analysis_dir}: {exc}")
         return
 
     saved = sum(
@@ -709,7 +709,7 @@ def _save_tile_analysis(
         for r in buffer
     )
     if saved:
-        print(f"[step 4] Saved {saved} tile analysis artifact(s) to "
+        print(f"[step 3] Saved {saved} tile analysis artifact(s) to "
               f"{analysis_dir}")
 
 
@@ -746,5 +746,5 @@ def _fire_on_tile(
         ))
     except Exception as exc:
         tid = tile_id
-        print(f"[step 4] WARNING: on_tile callback failed for "
+        print(f"[step 3] WARNING: on_tile callback failed for "
               f"{tid}: {exc}")
