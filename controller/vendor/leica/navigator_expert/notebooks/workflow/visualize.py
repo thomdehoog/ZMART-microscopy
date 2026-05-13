@@ -271,10 +271,16 @@ def render_scan_field_panel(
         all_y.extend([boundary_limits["y_min"], boundary_limits["y_max"]])
 
     if all_x:
-        span = max(max(all_x) - min(all_x), max(all_y) - min(all_y), 1.0)
-        pad = span * 0.05
-        x_lo, x_hi = min(all_x) - pad, max(all_x) + pad
-        y_lo, y_hi = min(all_y) - pad, max(all_y) + pad
+        # Per-axis padding: a wide-format scan field gets the right
+        # vertical padding for its y-span (instead of the over-padded
+        # max(x, y) the previous code produced). set_aspect("equal")
+        # below preserves the visual aspect.
+        x_span = max(max(all_x) - min(all_x), 1.0)
+        y_span = max(max(all_y) - min(all_y), 1.0)
+        pad_x = x_span * 0.05
+        pad_y = y_span * 0.05
+        x_lo, x_hi = min(all_x) - pad_x, max(all_x) + pad_x
+        y_lo, y_hi = min(all_y) - pad_y, max(all_y) + pad_y
         ax.set_xlim(x_lo, x_hi)
         ax.set_ylim(y_lo, y_hi)
     else:
@@ -379,9 +385,24 @@ def display_tile(
 
     show_field = scan_field is not None
     if show_field:
+        # Field panel's share of the figure follows the scan-field aspect
+        # so a wide field doesn't get squeezed into a square panel beside
+        # the (square) tile + segmentation panels. Tile + segmentation
+        # remain equal-width to each other.
+        width_um, height_um = scan_field_extent_um(scan_field, boundary_limits)
+        if width_um > 0 and height_um > 0:
+            field_aspect = width_um / height_um  # >1 = wide, <1 = tall
+        else:
+            field_aspect = 1.0
+        # Clamp to [0.5, 2.5] so very extreme aspect ratios don't squeeze
+        # the tile + segmentation panels to unreadable widths.
+        field_share = max(0.5, min(2.5, field_aspect))
         fig, axes = plt.subplots(
             1, 3, figsize=(15, 5),
-            gridspec_kw={"width_ratios": [1, 1, 1], "wspace": 0.15},
+            gridspec_kw={
+                "width_ratios": [field_share, 1, 1],
+                "wspace": 0.15,
+            },
         )
         field_ax, tile_ax, seg_ax = axes
     else:
@@ -763,13 +784,16 @@ def _render_scatter(ax, selection, crops_to_show: list) -> None:
 def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
     """Render one fixed-size crop with the cell's bbox outlined in red.
 
-    Always _CROP_SIZE_PX x _CROP_SIZE_PX. The crop window is centered on
-    the cell when possible; near the image edge the window shifts inward
-    to stay fully inside the image (so the cell appears off-center but
-    is NEVER cut off / zero-padded). Cells inside `border_margin_px`
-    of any edge should normally be filtered upstream so they don't get
-    selected at all -- this shift-not-pad logic is the fallback for
-    `border_margin_px=0`."""
+    The crop is at most `_CROP_SIZE_PX` square (see `_safe_crop_window`
+    for the off-edge clamping; smaller images yield a smaller crop).
+    The window is centered on the cell when possible; near the image
+    edge the window shifts inward to stay fully inside the image, so
+    the cell appears off-center but is never cut off / zero-padded.
+    This shift-not-pad behavior is the primary mechanism for edge cells
+    -- with `border_margin_px=0` the selection pipeline allows edge
+    cells through, and this is how they get rendered. Cells inside
+    `border_margin_px > 0` are normally filtered upstream and never
+    reach the crop strip."""
     if img is None:
         ax.set_facecolor(_COLOR_PANEL_FALLBACK)
         ax.text(
@@ -808,9 +832,13 @@ def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
     )
     ax.set_xticks([])
     ax.set_yticks([])
+    # Crop frame is a subtle neutral gray so the red bbox rectangle drawn
+    # above stays the visually-dominant cue. (Before D4a, frame + bbox
+    # were both _COLOR_PICK_SHOWN; at 96x96 they read as one fat red
+    # border, swallowing the bbox-specific signal.)
     for spine in ax.spines.values():
-        spine.set_color(_COLOR_PICK_SHOWN)
-        spine.set_linewidth(1.2)
+        spine.set_color(_COLOR_RULE)
+        spine.set_linewidth(1.0)
 
 
 def _safe_crop_window(
