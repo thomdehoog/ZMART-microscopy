@@ -256,42 +256,48 @@ def read_scan_field(ctx: Context) -> None:
 
 
 def plot_stage_envelope(ctx: Context) -> None:
-    """Step 2a visual: just the stage-envelope (boundary) rectangle.
+    """Step 2a visual: stage-envelope rectangle.
 
-    Draws an empty 16:9 figure with the stage limits as a dashed
-    rectangle, using the same axes style as plot_scan_field (inverted-y,
-    no ticks, gray spines). No tiles, no focus markers, no legend --
-    this fires after prepare_template, before the operator has drawn a
-    scan field in Navigator Expert.
+    Draws an empty 16:9 figure with the current stage envelope as a
+    dashed rectangle, using the same axes style as plot_scan_field
+    (inverted-y, no ticks, gray spines). No tiles, no focus markers,
+    no legend -- this fires after prepare_template, before the operator
+    has drawn a scan field in Navigator Expert.
 
-    Raises if `ctx.boundary_limits` is None (the no-scan-field-yet
-    deferred-limits path). In that case there's nothing meaningful to
-    show; rerun prepare_template with boundary markers or call
-    plot_scan_field after read_scan_field.
+    Envelope source:
+      - If `ctx.boundary_limits` is set (boundary markers or cfg
+        fallback path), draw that. Title says "boundary".
+      - Else (deferred-limits path: no markers, no cfg fallback),
+        re-fetch the physical envelope via `drv.get_stage_limits()`.
+        prepare_template applied stage_cfg's physical limits in that
+        branch; Step 2b will later narrow them from the scan field.
+        Title says "physical envelope".
     """
     import matplotlib.pyplot as plt
 
     from .visualize import render_scan_field_panel
 
-    if ctx.boundary_limits is None:
-        raise RuntimeError(
-            "ctx.boundary_limits is None -- prepare_template deferred "
-            "the envelope to read_scan_field. Call plot_scan_field "
-            "after read_scan_field instead."
-        )
+    if ctx.boundary_limits is not None:
+        envelope = ctx.boundary_limits
+        title = "Stage envelope (boundary)"
+    else:
+        # Deferred path. The physical envelope was applied by
+        # prepare_template but not stashed on ctx; re-fetch.
+        envelope = drv.get_stage_limits()
+        title = "Stage envelope (physical, no boundary set)"
 
     fig, ax = plt.subplots(figsize=(14, 7.875))
     fig.patch.set_facecolor("white")
 
-    # render_scan_field_panel handles the no-tiles-but-boundary case
-    # since the boundary-only edit. scan_field shape mirrors what
-    # read_scan_field would populate but with no tile_positions.
+    # render_scan_field_panel handles the no-tiles-but-boundary case:
+    # empty tile_positions plus a non-None envelope skips the
+    # placeholder text and draws boundary + axes style.
     render_scan_field_panel(
-        ax, {"tile_positions": {}, "n_tiles": 0}, ctx.boundary_limits,
+        ax, {"tile_positions": {}, "n_tiles": 0}, envelope,
         padding_factor=0.12,
     )
 
-    ax.set_title("Stage envelope", fontsize=13, fontweight="bold",
+    ax.set_title(title, fontsize=13, fontweight="bold",
                  color="#222222", pad=12)
 
     out_path = ctx.out_dir / "stage_envelope.png"
