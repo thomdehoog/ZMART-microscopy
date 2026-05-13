@@ -159,8 +159,14 @@ def write_summary(
     # `summary.json` is owned by the driver (canonical per-acquisition append
     # log; written by acquire_and_save). This workflow-level aggregate goes
     # to a separate file at run_dir top level.
+    # allow_nan=False: defense-in-depth. C1 prevents NaN from reaching here
+    # via the known path (empty-eligible -> sentinel 0.0); strict mode
+    # makes any future NaN source raise at write time rather than emit a
+    # non-RFC "NaN" / "Infinity" token to disk.
     out_path = ctx.out_dir / "run_summary.json"
-    out_path.write_text(json.dumps(summary, indent=2, default=_json_default))
+    out_path.write_text(
+        json.dumps(summary, indent=2, default=_json_default, allow_nan=False)
+    )
     print(f"[step 6] Saved {out_path}")
     return out_path
 
