@@ -12,7 +12,7 @@ from typing import Callable
 import navigator_expert.driver as drv
 
 from .context import Context, TargetState
-from .overview import Pick, Picks
+from .overview import Pick, Picks, _validate_callback_flags
 from _shared.output_layout import Naming
 from ._acquire import acquire
 from ._job_state import ensure_job_state
@@ -33,18 +33,73 @@ class TargetRecord:
     failure_stage: str | None = None
 
 
+def _build_default_on_target_callback(
+    ctx: Context,
+    *,
+    live_display: bool,
+    save_png: bool,
+) -> Callable[[Pick, "TargetRecord"], None]:
+    """Build the default per-target callback when the operator hasn't
+    supplied an explicit on_target. display_target is imported LOCALLY
+    here because workflow.visualize imports TargetRecord at module top;
+    hoisting this import reintroduces the cycle.
+
+    The tile_cache that callers previously created in the notebook
+    becomes an implementation detail of this callback.
+    """
+    from .visualize import display_target
+
+    analysis_dir = ctx.run.layout.analysis_dir("overview-scan")
+    feedback_dir = (
+        ctx.run.layout.feedback_dir("target-acquisition")
+        if save_png else None
+    )
+    tile_cache: dict = {}
+
+    def _on_target(pick: Pick, record: "TargetRecord") -> None:
+        display_target(
+            pick, record, analysis_dir,
+            feedback_dir=feedback_dir,
+            tile_cache=tile_cache,
+            live_display=live_display,
+            save_png=save_png,
+        )
+
+    return _on_target
+
+
 def acquire_targets(
     ctx: Context,
     picks: Picks,
     *,
-    on_target: Callable[[Pick, TargetRecord], None] | None = None,
+    live_display: bool = True,
+    save_png: bool = True,
+    on_target: Callable[[Pick, "TargetRecord"], None] | None = None,
 ) -> list[TargetRecord]:
     """Step 5: switch objective, translate picks, acquire each target.
 
     Per-pick failure isolation: if translation, zoom, move, or acquire
     fails for one pick, it yields a TargetRecord with success=False,
     failure_stage set to the step that failed, and the loop continues.
+
+    Display/save behavior mirrors run_overview:
+      - live_display=True (default): render each target inline.
+      - save_png=True (default): save each figure to
+        ctx.run.layout.feedback_dir("target-acquisition").
+      - on_target (default None): explicit callback. Mutually exclusive
+        with the two flags; passing on_target alongside live_display=True
+        or save_png=True raises ValueError. To supply on_target, also
+        pass live_display=False, save_png=False.
+      - all three off: silent acquisition (no per-target rendering).
     """
+    _validate_callback_flags(
+        on_target, live_display, save_png, callback_param="on_target",
+    )
+    if on_target is None and (live_display or save_png):
+        on_target = _build_default_on_target_callback(
+            ctx, live_display=live_display, save_png=save_png,
+        )
+
     cfg = ctx.cfg
     client = ctx.client
     calibration = ctx.calibration

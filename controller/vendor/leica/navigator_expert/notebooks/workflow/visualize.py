@@ -762,6 +762,8 @@ def display_target(
     *,
     feedback_dir: Path | None = None,
     tile_cache: dict | None = None,
+    live_display: bool = True,
+    save_png: bool = True,
 ) -> None:
     """Render one target 3-panel figure inline during acquisition.
 
@@ -771,6 +773,9 @@ def display_target(
 
     Pass a shared tile_cache dict across calls to avoid re-loading
     npz files for tiles that appear in multiple targets.
+
+    live_display: when False, build the figure but skip display().
+    save_png: when False, skip fig.savefig even if feedback_dir is set.
     """
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
@@ -877,14 +882,15 @@ def display_target(
                      fontsize=13, fontweight="bold")
         plt.tight_layout()
 
-        if feedback_dir is not None:
+        if feedback_dir is not None and save_png:
             feedback_dir.mkdir(parents=True, exist_ok=True)
             fig.savefig(
                 feedback_dir / f"live_target_R{rid}_r{row}c{col}_l{label}.png",
                 dpi=150,
             )
 
-        display(fig)
+        if live_display:
+            display(fig)
     finally:
         plt.close(fig)
 

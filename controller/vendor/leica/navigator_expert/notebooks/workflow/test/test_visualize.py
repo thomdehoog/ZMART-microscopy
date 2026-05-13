@@ -97,6 +97,26 @@ def _make_tile_event(n_cells: int = 0):
     )
 
 
+def _make_target_record(*, tif_path=None, success: bool = True):
+    """Minimal TargetRecord for display_target flag tests. No tile_data
+    will be found (analysis_dir empty), so the renderer falls back to
+    its "N/A" placeholders without touching tile npz files.
+    """
+    from workflow.target import TargetRecord
+    return TargetRecord(
+        pick_id=("0", 0, 0, 1),
+        cell_source_stage_xy_um=(1005.0, 2005.0),
+        source_zwide_um=100.0,
+        target_stage_xy_um=(1005.0, 2005.0),
+        target_zwide_um=100.0,
+        target_zoom=None,
+        target_pixel_size_um=0.25,
+        tif_path=tif_path,
+        success=success,
+        error=None,
+    )
+
+
 class TestDisplayTileFlags:
     def test_live_display_false_skips_inline_display(self, monkeypatch, tmp_path):
         """display_tile with live_display=False must build the figure and
@@ -136,6 +156,61 @@ class TestDisplayTileFlags:
         )
 
         assert list(tmp_path.glob("*.png")) == []
+        fake_display.assert_called_once()
+
+
+class TestDisplayTargetFlags:
+    def test_live_display_false_skips_inline_display(self, monkeypatch, tmp_path):
+        """display_target with live_display=False builds the figure but
+        skips display(). save_png still produces the PNG.
+        """
+        import IPython.display as ipy_display
+        fake_display = MagicMock(name="ipy_display")
+        monkeypatch.setattr(ipy_display, "display", fake_display)
+
+        from workflow.visualize import display_target
+        analysis_dir = tmp_path / "analysis"
+        analysis_dir.mkdir()
+        feedback_dir = tmp_path / "feedback"
+
+        display_target(
+            pick=None,                          # falls back to "N/A" panels
+            record=_make_target_record(),
+            analysis_dir=analysis_dir,
+            feedback_dir=feedback_dir,
+            live_display=False,
+            save_png=True,
+        )
+
+        fake_display.assert_not_called()
+        assert list(feedback_dir.glob("live_target_R*.png"))
+
+    def test_save_png_false_skips_savefig(self, monkeypatch, tmp_path):
+        """display_target with save_png=False skips fig.savefig even
+        when feedback_dir is provided. The inline display still fires.
+        """
+        import IPython.display as ipy_display
+        fake_display = MagicMock(name="ipy_display")
+        monkeypatch.setattr(ipy_display, "display", fake_display)
+
+        from workflow.visualize import display_target
+        analysis_dir = tmp_path / "analysis"
+        analysis_dir.mkdir()
+        feedback_dir = tmp_path / "feedback"
+
+        display_target(
+            pick=None,
+            record=_make_target_record(),
+            analysis_dir=analysis_dir,
+            feedback_dir=feedback_dir,
+            live_display=True,
+            save_png=False,
+        )
+
+        # feedback_dir may or may not exist (mkdir is gated by save_png),
+        # but in any case there must be no PNG.
+        if feedback_dir.exists():
+            assert list(feedback_dir.glob("*.png")) == []
         fake_display.assert_called_once()
 
 
