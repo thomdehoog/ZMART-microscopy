@@ -258,9 +258,15 @@ class TestBorderMarginFilter:
 
 
 class TestSparseAndEmptyCounters:
-    def test_n_tiles_below_sparse_cutoff_uses_raw_cells(self):
-        """Counter is based on raw engine cells per tile, NOT post-threshold."""
-        # Tile A: 30 cells; Tile B: 5 cells (below cutoff=10); Tile C: 0
+    def test_n_tiles_below_eligible_cutoff_counts_sparse_and_empty_tiles(self):
+        """Counter uses post-border eligible counts per tile; predicate
+        eligible_count < min_cells_for_threshold INCLUDES eligible == 0,
+        so raw-empty tiles count too. n_tiles_empty (raw) is a separate
+        counter and is NOT mutually exclusive with this one.
+        """
+        # Tile A: 30 picks (eligible=30); Tile B: 5 picks (eligible=5);
+        # Tile C: 0 picks (eligible=0). All bbox=(990,990,1010,1010), so
+        # none are near border in a 2048x2048 image -> eligible == raw.
         picks = (
             [_make_pick(rid="0", row=0, col=0, label=i, area=200, intensity=100.0)
              for i in range(1, 31)]
@@ -275,8 +281,10 @@ class TestSparseAndEmptyCounters:
         )
 
         assert sel.mode == MODE_THRESHOLD   # 35 cells total >= 10
-        assert sel.n_tiles_below_sparse_cutoff == 1   # the 5-cell tile
-        assert sel.n_tiles_empty == 1                 # the 0-cell tile
+        # Tile B (5 eligible < 10) AND tile C (0 eligible < 10) both count.
+        assert sel.n_tiles_below_eligible_cutoff == 2
+        # n_tiles_empty still tracks raw-empty only.
+        assert sel.n_tiles_empty == 1
 
 
 # ─── LimitsContext signature ──────────────────────────────────────
@@ -403,6 +411,7 @@ class TestKernelRestartSelectionLoadsFromDisk:
         }
         # 12 + 5 = 17 cells, >= 10, so MODE_THRESHOLD
         assert selection.mode == MODE_THRESHOLD
-        assert selection.n_tiles_below_sparse_cutoff == 1   # the 5-cell tile
+        # Tile B (0 eligible < 10) AND tile C (5 eligible < 10) both count.
+        assert selection.n_tiles_below_eligible_cutoff == 2
         assert selection.n_tiles_empty == 1
         assert selection.n_final > 0   # selection produced picks

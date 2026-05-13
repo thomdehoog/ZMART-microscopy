@@ -48,6 +48,18 @@ def write_summary(
         attributes (which are either persisted in overview_meta.json or
         derived from v2 NPZ scan) -- NEVER from `overview.n_tiles`, which
         means "drained AND saved tiles" (a stricter subset).
+
+    Schema change (Bundle C, task C2):
+      - `selection.n_tiles_below_sparse_cutoff` is replaced by
+        `selection.n_tiles_below_eligible_cutoff`. The new counter uses
+        post-border eligible cell counts (predicate
+        `eligible_count < min_cells_for_threshold`, including 0); the old
+        counter used raw cellpose counts and excluded raw-empty tiles.
+        There is no machine-readable schema version field; consumers that
+        parsed the old key must rename.
+      - This intentionally drops the raw-detection aggregate from
+        run_summary.json. Raw per-tile counts remain in
+        `OverviewResult.tile_cell_counts` when overview state is loaded.
     """
     cfg = ctx.cfg
     scan_field = ctx.scan_field or {}
@@ -114,8 +126,8 @@ def write_summary(
             "n_removed_out_of_limits_z": selection.n_removed_out_of_limits_z,
             "n_removed_translation": selection.n_removed_translation,
             "n_final": selection.n_final,
-            "n_tiles_below_sparse_cutoff":
-                selection.n_tiles_below_sparse_cutoff,
+            "n_tiles_below_eligible_cutoff":
+                selection.n_tiles_below_eligible_cutoff,
             "n_tiles_empty": selection.n_tiles_empty,
             "area_threshold": selection.area_threshold,
             "intensity_threshold": selection.intensity_threshold,
