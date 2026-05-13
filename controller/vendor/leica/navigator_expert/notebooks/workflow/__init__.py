@@ -19,23 +19,30 @@ _VENDOR_ROOT = str(Path(__file__).resolve().parents[4])
 if _VENDOR_ROOT not in sys.path:
     sys.path.insert(0, _VENDOR_ROOT)
 
-from .context import Config, Context, TargetState
+from .context import Config, Context, LimitsContext, TargetState
 from .focus import FocusMap, build_focus_map
-from .overview import Pick, Picks, TileEvent, run_overview_with_picks
+from .overview import OverviewResult, Pick, Picks, TileEvent, run_overview
 from .preflight import preflight
+from .selection import (
+    MODE_EMPTY, MODE_NO_QUALIFYING, MODE_SPARSE, MODE_THRESHOLD,
+    SelectionResult, load_overview_result, select_targets,
+)
 from .summary import write_summary, plot_results, finish
 from .target import TargetRecord, acquire_targets
 from .template import prepare_template, read_scan_field, plot_scan_field
 from .visualize import (
-    display_tile, display_target,
+    display_selection, display_tile, display_target,
     plot_overview_tiles, plot_target_pairs,
 )
 
-__all__ = ["Config", "Context", "TargetState", "FocusMap", "build_focus_map",
-           "Pick", "Picks", "TileEvent", "run_overview_with_picks",
+__all__ = ["Config", "Context", "LimitsContext", "TargetState",
+           "FocusMap", "build_focus_map",
+           "OverviewResult", "Pick", "Picks", "TileEvent", "run_overview",
+           "SelectionResult", "select_targets", "load_overview_result",
+           "MODE_THRESHOLD", "MODE_SPARSE", "MODE_NO_QUALIFYING", "MODE_EMPTY",
            "TargetRecord", "acquire_targets",
            "write_summary", "plot_results", "finish",
            "preflight", "prepare_template",
            "read_scan_field", "plot_scan_field",
-           "display_tile", "display_target",
+           "display_tile", "display_target", "display_selection",
            "plot_overview_tiles", "plot_target_pairs"]

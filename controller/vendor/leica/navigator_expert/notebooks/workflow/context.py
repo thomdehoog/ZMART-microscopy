@@ -54,6 +54,21 @@ class Config:
     stage_y_max_um: float | None = None
 
 
+@dataclass(frozen=True)
+class LimitsContext:
+    """Subset of Context needed for out-of-limits filtering during selection.
+
+    Carved out so select_targets (in selection.py) can construct a tiny
+    typed dependency without taking a full Context (which holds LAS X
+    client, engine, etc.). Tests construct one directly.
+    """
+    calibration: dict
+    stage_config: dict
+    boundary_limits: dict | None
+    source_slot: int
+    target_slot: int
+
+
 @dataclass
 class TargetState:
     """Run state for Step 5. Explicit model of what happened."""
@@ -102,6 +117,16 @@ class Context:
     target_state: TargetState = field(default_factory=TargetState)
 
     _shutdown_done: bool = False
+
+    def limits_context(self) -> LimitsContext:
+        """Build a LimitsContext snapshot for selection.py consumers."""
+        return LimitsContext(
+            calibration=self.calibration,
+            stage_config=self.stage_config,
+            boundary_limits=self.boundary_limits,
+            source_slot=self.source_slot,
+            target_slot=self.target_slot,
+        )
 
     def shutdown(self) -> None:
         """Idempotent shutdown (D20). Safe to call multiple times."""

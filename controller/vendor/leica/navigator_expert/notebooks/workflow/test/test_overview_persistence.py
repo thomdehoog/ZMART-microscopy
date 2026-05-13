@@ -22,9 +22,8 @@ from workflow.overview import (
     _picks_from_result,
     _save_single_tile_analysis,
     _write_overview_meta,
-    load_overview_result,
-    run_overview_with_picks,
 )
+from workflow.selection import load_overview_result
 
 
 def _make_pick(
@@ -361,86 +360,6 @@ class TestOverviewMetaPersistsAcquireLoopCounters:
         assert ov.n_tiles_acquired == 7   # 8 submitted - 1 acquire_failed
 
 
-# ─── run_overview_with_picks compat wrapper ────────────────────────
-
-
-class TestRunOverviewWithPicksWrapperPopulatesAllPicksFields:
-    """The wrapper consumes OverviewResult and must produce a Picks that
-    populates every legacy field downstream callers rely on."""
-
-    def test_all_picks_fields_populated_from_overview_result(self, monkeypatch):
-        # Build an OverviewResult with 3 picks across 2 tiles
-        picks_a = [_make_pick(rid="0", row=0, col=0, label=i,
-                              area=100 + i, x_um=10.0 + i, y_um=20.0)
-                   for i in range(1, 3)]
-        picks_b = [_make_pick(rid="0", row=0, col=1, label=1,
-                              area=500, x_um=50.0, y_um=20.0)]
-        fake_overview = OverviewResult(
-            all_picks=picks_a + picks_b,
-            tile_acquire_failures=[{"tile_id": ("0", 0, 2), "error": "x"}],
-            engine_failures=[{"job_id": 5, "error": "boom"}],
-            npz_save_failures=[],
-            tile_cell_counts={("0", 0, 0): 2, ("0", 0, 1): 1},
-            n_tiles_planned=3,
-            n_tiles_submitted=2,
-            completed=True,
-        )
-
-        # Stub out run_overview and the dedup/filter helpers (the wrapper
-        # under test is the orchestration; correctness of the helpers is
-        # tested elsewhere)
-        monkeypatch.setattr(
-            "workflow.overview.run_overview",
-            lambda *a, **k: fake_overview,
-        )
-        monkeypatch.setattr(
-            "workflow.overview._dedup_picks",
-            lambda picks: (picks, []),
-        )
-        monkeypatch.setattr(
-            "workflow.overview._filter_out_of_limits",
-            lambda picks, ctx: (picks, [], [], []),
-        )
-        # Suppress the intermediate-state print path by keeping <50 picks
-
-        result = run_overview_with_picks(ctx=mock.MagicMock(), focus_map=mock.MagicMock())
-
-        assert isinstance(result, Picks)
-        assert len(result.items) == 3
-        assert result.n_picks_raw == 3
-        assert result.n_picks_removed_duplicate == 0
-        assert result.n_picks_out_of_limits_xy == 0
-        assert result.n_picks_out_of_limits_z == 0
-        assert result.removed_picks == []
-        assert result.tile_acquire_failures == fake_overview.tile_acquire_failures
-        assert result.engine_failures == fake_overview.engine_failures
-
-    def test_wrapper_returns_overview_result_attribute_chain(self, monkeypatch):
-        """Sanity: confirm `run_overview` is called and its result drives the wrapper."""
-        marker = OverviewResult(
-            all_picks=[], tile_acquire_failures=[],
-            engine_failures=[], npz_save_failures=[],
-            tile_cell_counts={}, n_tiles_planned=0,
-            n_tiles_submitted=0, completed=True,
-        )
-        called = {}
-
-        def _fake_run_overview(ctx, focus_map, *, on_tile=None):
-            called["ran"] = True
-            return marker
-
-        monkeypatch.setattr("workflow.overview.run_overview", _fake_run_overview)
-        monkeypatch.setattr(
-            "workflow.overview._dedup_picks",
-            lambda picks: (picks, []),
-        )
-        monkeypatch.setattr(
-            "workflow.overview._filter_out_of_limits",
-            lambda picks, ctx: (picks, [], [], []),
-        )
-
-        result = run_overview_with_picks(ctx=mock.MagicMock(), focus_map=mock.MagicMock())
-
-        assert called["ran"] is True
-        assert isinstance(result, Picks)
-        assert result.items == []
+# run_overview_with_picks compat wrapper was deleted in Commit C; its
+# behavior is now covered by tests against `select_targets` (in
+# test_selection.py) plus the integration smoke at smoke_visualization.py.

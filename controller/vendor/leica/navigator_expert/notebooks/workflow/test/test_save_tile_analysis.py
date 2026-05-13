@@ -233,14 +233,11 @@ class TestSaveTileAnalysis:
 
 class TestFireOnTile:
     def test_calls_callback_with_tile_event(self):
+        # Fixture masks have labels 1 and 2 -> n_cells = 2 (masks.max()).
         result = _make_buffer_entry(
             tile_id=("0", 1, 2), naming_p=0,
             analysis_image_source="acquired",
         )
-        result["pick_targets"]["picks"] = [
-            {"pick_id": ("0", 1, 2, 5)},
-            {"pick_id": ("0", 1, 2, 10)},
-        ]
 
         received = []
         _fire_on_tile(lambda e: received.append(e), result)
@@ -249,7 +246,7 @@ class TestFireOnTile:
         event = received[0]
         assert isinstance(event, TileEvent)
         assert event.tile_id == ("0", 1, 2)
-        assert event.picked_labels == (5, 10)
+        assert event.n_cells == 2
         assert event.analysis_image_source == "acquired"
 
     def test_callback_exception_does_not_propagate(self, capsys):

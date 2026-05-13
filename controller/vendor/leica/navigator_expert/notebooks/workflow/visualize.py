@@ -30,20 +30,20 @@ def display_tile(
     *,
     feedback_dir: Path | None = None,
 ) -> None:
-    """Render one tile triptych inline during acquisition.
+    """Render one tile inline during overview acquisition.
 
-    Called via the on_tile callback. Shows raw per-tile picks (before
-    cross-tile dedup).
+    Two panels: grayscale | segmentation overlay. Selection now happens
+    in a separate step (selection cell -> display_selection), so this
+    no longer renders a picked overlay.
     """
     import matplotlib.pyplot as plt
     from IPython.display import display
 
     rid, row, col = event.tile_id
-    n_cells = int(event.masks.max())
     is_mock = event.analysis_image_source != "acquired"
     prefix = "(mock) " if is_mock else ""
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     try:
         fig.patch.set_facecolor("white")
 
@@ -52,17 +52,13 @@ def display_tile(
         axes[0].axis("off")
 
         _segmentation_overlay(axes[1], event.image_2d, event.masks)
-        axes[1].set_title(f"Segmentation ({n_cells} cells)", fontsize=11)
+        axes[1].set_title(f"Segmentation ({event.n_cells} cells)", fontsize=11)
         axes[1].axis("off")
 
-        _picked_overlay(axes[2], event.image_2d, event.masks,
-                        list(event.picked_labels))
-        n = len(event.picked_labels)
-        axes[2].set_title(f"Top-{n} (raw)", fontsize=11)
-        axes[2].axis("off")
-
-        fig.suptitle(f"{prefix}Tile R{rid} r{row}c{col}",
-                     fontsize=13, fontweight="bold")
+        fig.suptitle(
+            f"{prefix}Tile R{rid} r{row}c{col} -- {event.n_cells} cells",
+            fontsize=13, fontweight="bold",
+        )
         plt.tight_layout()
 
         if feedback_dir is not None:
@@ -75,6 +71,205 @@ def display_tile(
         display(fig)
     finally:
         plt.close(fig)
+
+
+def display_selection(
+    selection,
+    analysis_dir: Path,
+    *,
+    feedback_dir: Path | None = None,
+) -> None:
+    """Render the selection summary: scatter (intensity x area) + 6 example crops.
+
+    Row 1: scatter of (intensity, area) per cell. Threshold lines drawn
+    in MODE_THRESHOLD / MODE_NO_QUALIFYING; mode-specific annotations
+    for MODE_SPARSE / MODE_EMPTY / NO_QUALIFYING.
+    Row 2: up to 6 example crops, one largest per distinct tile (then
+    next-largest within already-represented tiles if fewer than 6 distinct
+    tiles have selected picks). Skipped if selection.selected_picks is empty.
+    """
+    import matplotlib.pyplot as plt
+    from IPython.display import display
+
+    # Import here so module load is cheap when selection isn't used yet.
+    from .selection import (
+        MODE_EMPTY, MODE_NO_QUALIFYING, MODE_SPARSE, MODE_THRESHOLD,
+    )
+
+    has_crops = bool(selection.selected_picks)
+
+    if has_crops:
+        fig, axes = plt.subplots(2, 6, figsize=(18, 6))
+        scatter_ax = axes[0, 0]
+        # Hide unused row-1 cells; we use only the first.
+        for ax in axes[0, 1:]:
+            ax.axis("off")
+        crop_axes = axes[1, :]
+    else:
+        fig, scatter_ax = plt.subplots(1, 1, figsize=(8, 6))
+        crop_axes = []
+
+    try:
+        fig.patch.set_facecolor("white")
+
+        # ── Row 1: scatter ─────────────────────────────────────
+        areas = selection.all_cells_area
+        intensities = selection.all_cells_intensity
+        qualifying = selection.qualifying_mask
+
+        if areas.size == 0:
+            scatter_ax.text(
+                0.5, 0.5, "No cells detected",
+                ha="center", va="center", transform=scatter_ax.transAxes,
+                fontsize=14,
+            )
+        else:
+            scatter_ax.scatter(
+                intensities[~qualifying], areas[~qualifying],
+                c="lightgray", s=15, label="Below threshold",
+            )
+            scatter_ax.scatter(
+                intensities[qualifying], areas[qualifying],
+                c="C0", s=15, label="Qualifying",
+            )
+
+        if selection.mode in (MODE_THRESHOLD, MODE_NO_QUALIFYING):
+            scatter_ax.axvline(
+                selection.intensity_threshold,
+                color="red", linestyle="--", alpha=0.6,
+                label=f"intensity={selection.intensity_threshold:.0f}",
+            )
+            scatter_ax.axhline(
+                selection.area_threshold,
+                color="red", linestyle="--", alpha=0.6,
+                label=f"area={selection.area_threshold:.0f}",
+            )
+
+        scatter_ax.set_xlabel("Mean intensity")
+        scatter_ax.set_ylabel("Area (px)")
+        scatter_ax.set_title(
+            f"Selection ({selection.mode}): "
+            f"{selection.n_qualifying}/{selection.n_total} qualify, "
+            f"{selection.n_final} final"
+        )
+        if areas.size > 0:
+            scatter_ax.legend(loc="best", fontsize=9)
+
+        annotation = None
+        if selection.mode == MODE_NO_QUALIFYING:
+            annotation = "0 cells qualified -- adjust thresholds"
+        elif selection.mode == MODE_SPARSE:
+            annotation = "Thresholds skipped (sparse sample)"
+        elif selection.mode == MODE_EMPTY:
+            annotation = "No cells detected"
+        if annotation:
+            scatter_ax.text(
+                0.5, 0.02, annotation,
+                ha="center", transform=scatter_ax.transAxes,
+                fontsize=10, color="red",
+            )
+
+        # ── Row 2: example crops (only if there are selected picks) ──
+        if has_crops:
+            crops = _pick_example_crops(selection.selected_picks, n=6)
+            tile_image_cache: dict[tuple, np.ndarray | None] = {}
+            for ax, pick in zip(crop_axes, crops):
+                tile_key = (pick.pick_id[0], pick.pick_id[1], pick.pick_id[2])
+                if tile_key not in tile_image_cache:
+                    tile_image_cache[tile_key] = _load_tile_image_for_crop(
+                        analysis_dir, tile_key,
+                    )
+                img = tile_image_cache[tile_key]
+                if img is None:
+                    ax.text(
+                        0.5, 0.5, "image\nunavailable",
+                        ha="center", va="center",
+                        transform=ax.transAxes, fontsize=9,
+                    )
+                    ax.axis("off")
+                    continue
+                y0, x0, y1, x1 = pick.bbox_px
+                # Bbox can be (y0, x0, y1, x1) or (x0, y0, x1, y1) depending
+                # on producer — use a conservative center+pad to be safe.
+                cy, cx = int(pick.centroid_col_row_px[1]), int(pick.centroid_col_row_px[0])
+                pad = 32
+                ya = max(0, cy - pad)
+                yb = min(img.shape[0], cy + pad)
+                xa = max(0, cx - pad)
+                xb = min(img.shape[1], cx + pad)
+                ax.imshow(img[ya:yb, xa:xb], cmap="gray")
+                ax.set_title(
+                    f"R{tile_key[0]} r{tile_key[1]}c{tile_key[2]}",
+                    fontsize=8,
+                )
+                ax.axis("off")
+            # Hide unused crop axes
+            for ax in crop_axes[len(crops):]:
+                ax.axis("off")
+
+        plt.tight_layout()
+
+        if feedback_dir is not None:
+            feedback_dir.mkdir(parents=True, exist_ok=True)
+            fig.savefig(feedback_dir / "selection.png", dpi=150)
+
+        display(fig)
+    finally:
+        plt.close(fig)
+
+
+def _pick_example_crops(picks: list, n: int = 6) -> list:
+    """Pick up to n example picks for the crop grid:
+    1. Group by tile_id, sort within each by area descending.
+    2. Take the largest from each of up to n distinct tiles.
+    3. Fill remaining slots from already-represented tiles
+       (next-largest within each).
+    """
+    by_tile: dict[tuple, list] = {}
+    for p in picks:
+        key = (p.pick_id[0], p.pick_id[1], p.pick_id[2])
+        by_tile.setdefault(key, []).append(p)
+    for group in by_tile.values():
+        group.sort(key=lambda p: p.area_px, reverse=True)
+
+    out: list = []
+    # Round 1: one per tile, largest
+    for key in sorted(by_tile):
+        if len(out) >= n:
+            break
+        out.append(by_tile[key][0])
+    # Round 2: next-largest, in tile order, until we hit n
+    round_idx = 1
+    while len(out) < n:
+        added_this_round = False
+        for key in sorted(by_tile):
+            if round_idx < len(by_tile[key]):
+                out.append(by_tile[key][round_idx])
+                added_this_round = True
+                if len(out) >= n:
+                    break
+        if not added_this_round:
+            break
+        round_idx += 1
+    return out
+
+
+def _load_tile_image_for_crop(analysis_dir: Path, tile_key: tuple) -> np.ndarray | None:
+    """Load image_2d for one tile by scanning v2 NPZ files. Returns None
+    if not found or unreadable."""
+    if not analysis_dir.exists():
+        return None
+    for npz_path in sorted(analysis_dir.glob("*.npz")):
+        try:
+            with np.load(npz_path, allow_pickle=True) as data:
+                if "tile_id" not in data.files:
+                    continue
+                tid = tuple(str(x) for x in data["tile_id"])
+                if (tid[0], int(tid[1]), int(tid[2])) == tile_key:
+                    return np.asarray(data["image_2d"])
+        except Exception:
+            continue
+    return None
 
 
 def display_target(

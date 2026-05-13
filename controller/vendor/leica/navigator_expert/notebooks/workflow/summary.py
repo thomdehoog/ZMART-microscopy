@@ -24,31 +24,36 @@ import navigator_expert.driver as drv
 from .context import Config, Context
 from ._job_state import ensure_job_state
 from .focus import FocusMap
-from .overview import Pick, Picks
+from .overview import OverviewResult, Pick, Picks
+from .selection import SelectionResult
 from .target import TargetRecord
 
 
 def write_summary(
     ctx: Context,
     focus_map: FocusMap,
+    overview: OverviewResult,
     picks: Picks,
+    selection: SelectionResult,
     records: list[TargetRecord],
 ) -> Path:
     """Write run_summary.json (rich workflow aggregate) into ctx.out_dir.
 
-    The driver writes summary.json (per-acquisition append log) during
-    the run; this function writes the analysis-friendly aggregate once
-    at end-of-run.
+    rev7 schema:
+      - `overview` block stays (acquisition counters + failure lists),
+        but `n_picks_*` fields move to `selection`.
+      - `selection` block is NEW: thresholds, mode, per-stage accounting,
+        per-tile sparseness counters.
+      - All `n_tiles_*` overview counters come from `OverviewResult`
+        attributes (which are either persisted in overview_meta.json or
+        derived from v2 NPZ scan) -- NEVER from `overview.n_tiles`, which
+        means "drained AND saved tiles" (a stricter subset).
     """
     cfg = ctx.cfg
     scan_field = ctx.scan_field or {}
     tile_positions = scan_field.get("tile_positions", {})
 
     zs = np.array([m["zwide_um"] for m in focus_map.measured])
-
-    n_tiles_planned = scan_field.get("n_tiles", 0)
-    n_tiles_acquire_failed = len(picks.tile_acquire_failures)
-    n_picks_final = len(picks.items)
 
     config_dict = _serialize_config(cfg)
     # Transition compat: inject derived slots into config for old readers
@@ -62,7 +67,7 @@ def write_summary(
         "target_slot": ctx.target_slot,
         "scan_field": {
             "n_regions": len(tile_positions),
-            "n_tiles": n_tiles_planned,
+            "n_tiles": scan_field.get("n_tiles", 0),
         },
         "focus_map": {
             "model": focus_map.model,
@@ -86,19 +91,36 @@ def write_summary(
             "cellpose_env_present": ctx.cellpose_env_present,
         },
         "overview": {
-            "n_tiles_planned": n_tiles_planned,
-            "n_tiles_acquired": n_tiles_planned - n_tiles_acquire_failed,
-            "n_tiles_submitted": n_tiles_planned - n_tiles_acquire_failed,
-            "n_tiles_acquire_failed": n_tiles_acquire_failed,
-            "tile_acquire_failures": picks.tile_acquire_failures,
-            "n_engine_failures": len(picks.engine_failures),
-            "engine_failures": picks.engine_failures,
-            "n_picks_raw": picks.n_picks_raw,
-            "n_picks_removed_duplicate": picks.n_picks_removed_duplicate,
-            "n_picks_out_of_limits_xy": picks.n_picks_out_of_limits_xy,
-            "n_picks_out_of_limits_z": picks.n_picks_out_of_limits_z,
-            "n_picks_final": n_picks_final,
+            "n_tiles_planned": overview.n_tiles_planned,
+            "n_tiles_submitted": overview.n_tiles_submitted,
+            "n_tiles_acquired": overview.n_tiles_acquired,
+            "n_tiles_acquire_failed": len(overview.tile_acquire_failures),
+            "tile_acquire_failures": overview.tile_acquire_failures,
+            "n_engine_failures": len(overview.engine_failures),
+            "engine_failures": overview.engine_failures,
+            "n_npz_save_failures": len(overview.npz_save_failures),
+            "npz_save_failures": overview.npz_save_failures,
+            "completed": overview.completed,
             "simulated": picks.simulated,
+        },
+        "selection": {
+            "mode": selection.mode,
+            "n_total": selection.n_total,
+            "n_qualifying": selection.n_qualifying,
+            "n_selected_pre_dedup": selection.n_selected_pre_dedup,
+            "n_removed_duplicate": selection.n_removed_duplicate,
+            "n_removed_out_of_limits_xy": selection.n_removed_out_of_limits_xy,
+            "n_removed_out_of_limits_z": selection.n_removed_out_of_limits_z,
+            "n_removed_translation": selection.n_removed_translation,
+            "n_final": selection.n_final,
+            "n_tiles_below_sparse_cutoff":
+                selection.n_tiles_below_sparse_cutoff,
+            "n_tiles_empty": selection.n_tiles_empty,
+            "area_threshold": selection.area_threshold,
+            "intensity_threshold": selection.intensity_threshold,
+            "area_threshold_auto": selection.area_threshold_auto,
+            "intensity_threshold_auto": selection.intensity_threshold_auto,
+            "seed_material": selection.seed_material,
         },
         "removed_picks": picks.removed_picks,
     }
