@@ -255,6 +255,51 @@ def read_scan_field(ctx: Context) -> None:
               f"tile={region.get('tile_size_um', '?')} um")
 
 
+def plot_stage_envelope(ctx: Context) -> None:
+    """Step 2a visual: just the stage-envelope (boundary) rectangle.
+
+    Draws an empty 16:9 figure with the stage limits as a dashed
+    rectangle, using the same axes style as plot_scan_field (inverted-y,
+    no ticks, gray spines). No tiles, no focus markers, no legend --
+    this fires after prepare_template, before the operator has drawn a
+    scan field in Navigator Expert.
+
+    Raises if `ctx.boundary_limits` is None (the no-scan-field-yet
+    deferred-limits path). In that case there's nothing meaningful to
+    show; rerun prepare_template with boundary markers or call
+    plot_scan_field after read_scan_field.
+    """
+    import matplotlib.pyplot as plt
+
+    from .visualize import render_scan_field_panel
+
+    if ctx.boundary_limits is None:
+        raise RuntimeError(
+            "ctx.boundary_limits is None -- prepare_template deferred "
+            "the envelope to read_scan_field. Call plot_scan_field "
+            "after read_scan_field instead."
+        )
+
+    fig, ax = plt.subplots(figsize=(14, 7.875))
+    fig.patch.set_facecolor("white")
+
+    # render_scan_field_panel handles the no-tiles-but-boundary case
+    # since the boundary-only edit. scan_field shape mirrors what
+    # read_scan_field would populate but with no tile_positions.
+    render_scan_field_panel(
+        ax, {"tile_positions": {}, "n_tiles": 0}, ctx.boundary_limits,
+        padding_factor=0.12,
+    )
+
+    ax.set_title("Stage envelope", fontsize=13, fontweight="bold",
+                 color="#222222", pad=12)
+
+    out_path = ctx.out_dir / "stage_envelope.png"
+    fig.savefig(out_path, dpi=150)
+    print(f"[step 2a] Saved {out_path}")
+    plt.show()
+
+
 def plot_scan_field(ctx: Context) -> None:
     """Visualise the scan field: tiles (colored by job), boundary,
     focus / autofocus markers.
