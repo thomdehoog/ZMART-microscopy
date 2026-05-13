@@ -39,25 +39,25 @@ def write_summary(
 ) -> Path:
     """Write run_summary.json (rich workflow aggregate) into ctx.out_dir.
 
-    rev7 schema:
-      - `overview` block stays (acquisition counters + failure lists),
-        but `n_picks_*` fields move to `selection`.
-      - `selection` block is NEW: thresholds, mode, per-stage accounting,
-        per-tile sparseness counters.
+    Schema shape:
+      - `overview` block holds acquisition counters + failure lists; the
+        `n_picks_*` fields live in `selection`, not here.
+      - `selection` block holds thresholds, mode, per-stage accounting,
+        and per-tile sparseness counters.
       - All `n_tiles_*` overview counters come from `OverviewResult`
-        attributes (which are either persisted in overview_meta.json or
-        derived from v2 NPZ scan) -- NEVER from `overview.n_tiles`, which
+        attributes (either persisted in overview_meta.json or derived
+        from the v2 NPZ scan) -- never from `overview.n_tiles`, which
         means "drained AND saved tiles" (a stricter subset).
 
-    Schema change (Bundle C, task C2):
-      - `selection.n_tiles_below_sparse_cutoff` is replaced by
-        `selection.n_tiles_below_eligible_cutoff`. The new counter uses
-        post-border eligible cell counts (predicate
-        `eligible_count < min_cells_for_threshold`, including 0); the old
-        counter used raw cellpose counts and excluded raw-empty tiles.
-        There is no machine-readable schema version field; consumers that
-        parsed the old key must rename.
-      - This intentionally drops the raw-detection aggregate from
+    Per-tile sparseness counter:
+      - `selection.n_tiles_below_eligible_cutoff` uses post-border
+        eligible cell counts (predicate
+        `eligible_count < min_cells_for_threshold`, including 0). This
+        replaced an earlier `n_tiles_below_sparse_cutoff` that used raw
+        cellpose counts and excluded raw-empty tiles; there is no
+        machine-readable schema version field, so external consumers of
+        the old name must rename.
+      - The raw-detection aggregate is intentionally absent from
         run_summary.json. Raw per-tile counts remain in
         `OverviewResult.tile_cell_counts` when overview state is loaded.
     """
@@ -159,10 +159,11 @@ def write_summary(
     # `summary.json` is owned by the driver (canonical per-acquisition append
     # log; written by acquire_and_save). This workflow-level aggregate goes
     # to a separate file at run_dir top level.
-    # allow_nan=False: defense-in-depth. C1 prevents NaN from reaching here
-    # via the known path (empty-eligible -> sentinel 0.0); strict mode
-    # makes any future NaN source raise at write time rather than emit a
-    # non-RFC "NaN" / "Infinity" token to disk.
+    # allow_nan=False: defense-in-depth. select_targets() coerces the
+    # empty-eligible threshold to the 0.0 sentinel so the known NaN path
+    # never reaches here; strict JSON mode makes any future NaN source
+    # raise at write time rather than emit a non-RFC "NaN" / "Infinity"
+    # token to disk.
     out_path = ctx.out_dir / "run_summary.json"
     out_path.write_text(
         json.dumps(summary, indent=2, default=_json_default, allow_nan=False)
