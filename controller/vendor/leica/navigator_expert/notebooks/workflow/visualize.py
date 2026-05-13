@@ -73,6 +73,17 @@ def display_tile(
         plt.close(fig)
 
 
+# Visual style tokens for display_selection. Chosen for white-background
+# legibility and a clear "selected" red that pops against qualifying blue.
+_COLOR_BELOW = "#C8CDD4"        # warm gray — pre-threshold cells
+_COLOR_QUALIFYING = "#4A7FB8"   # muted steel blue — passed threshold, not picked
+_COLOR_SELECTED = "#1A2942"     # deep navy — final picks (post dedup/filter)
+_COLOR_SHOWN = "#C8423A"        # red — picks rendered as crops below
+_COLOR_THRESHOLD = "#7A8794"    # mid gray — threshold guide lines
+
+_CROP_SIZE_PX = 96               # fixed crop size for visual comparison
+
+
 def display_selection(
     selection,
     analysis_dir: Path,
@@ -81,145 +92,324 @@ def display_selection(
 ) -> None:
     """Render the selection summary: scatter (intensity x area) + 6 example crops.
 
-    Row 1: scatter of (intensity, area) per cell. Threshold lines drawn
-    in MODE_THRESHOLD / MODE_NO_QUALIFYING; mode-specific annotations
-    for MODE_SPARSE / MODE_EMPTY / NO_QUALIFYING.
-    Row 2: up to 6 example crops, one largest per distinct tile (then
-    next-largest within already-represented tiles if fewer than 6 distinct
-    tiles have selected picks). Skipped if selection.selected_picks is empty.
+    Scatter has four layered classes so the operator can see, in one
+    glance, which cells qualified vs. which were actually picked vs.
+    which are being shown as crops below:
+
+        gray  — below threshold (excluded by area/intensity median)
+        blue  — qualifying but not in the final pick list
+                (lost to dedup or out-of-limits filter)
+        navy  — selected (final picks), but not shown as a crop
+        red   — selected AND shown as a crop below (diamond marker)
+
+    Crops are zero-padded to a fixed 96x96 px so cells compare cleanly
+    side-by-side; each crop highlights the picked cell's bbox in red.
     """
     import matplotlib.pyplot as plt
+    from matplotlib.gridspec import GridSpec
+    from matplotlib.patches import Rectangle
     from IPython.display import display
 
-    # Import here so module load is cheap when selection isn't used yet.
     from .selection import (
         MODE_EMPTY, MODE_NO_QUALIFYING, MODE_SPARSE, MODE_THRESHOLD,
     )
 
     has_crops = bool(selection.selected_picks)
+    crops_to_show = (
+        _pick_example_crops(selection.selected_picks, n=6) if has_crops else []
+    )
 
     if has_crops:
-        fig, axes = plt.subplots(2, 6, figsize=(18, 6))
-        scatter_ax = axes[0, 0]
-        # Hide unused row-1 cells; we use only the first.
-        for ax in axes[0, 1:]:
-            ax.axis("off")
-        crop_axes = axes[1, :]
+        fig = plt.figure(figsize=(14, 9))
+        gs = GridSpec(
+            2, 6,
+            height_ratios=[2.2, 1],
+            hspace=0.40, wspace=0.18,
+            figure=fig,
+            top=0.91, bottom=0.06, left=0.06, right=0.98,
+        )
+        scatter_ax = fig.add_subplot(gs[0, :])
+        crop_axes = [fig.add_subplot(gs[1, c]) for c in range(6)]
     else:
-        fig, scatter_ax = plt.subplots(1, 1, figsize=(8, 6))
+        fig, scatter_ax = plt.subplots(figsize=(10, 7))
+        fig.subplots_adjust(top=0.88, bottom=0.10, left=0.10, right=0.96)
         crop_axes = []
 
     try:
         fig.patch.set_facecolor("white")
 
-        # ── Row 1: scatter ─────────────────────────────────────
-        areas = selection.all_cells_area
-        intensities = selection.all_cells_intensity
-        qualifying = selection.qualifying_mask
-
-        if areas.size == 0:
-            scatter_ax.text(
-                0.5, 0.5, "No cells detected",
-                ha="center", va="center", transform=scatter_ax.transAxes,
-                fontsize=14,
-            )
-        else:
-            scatter_ax.scatter(
-                intensities[~qualifying], areas[~qualifying],
-                c="lightgray", s=15, label="Below threshold",
-            )
-            scatter_ax.scatter(
-                intensities[qualifying], areas[qualifying],
-                c="C0", s=15, label="Qualifying",
-            )
-
-        if selection.mode in (MODE_THRESHOLD, MODE_NO_QUALIFYING):
-            scatter_ax.axvline(
-                selection.intensity_threshold,
-                color="red", linestyle="--", alpha=0.6,
-                label=f"intensity={selection.intensity_threshold:.0f}",
-            )
-            scatter_ax.axhline(
-                selection.area_threshold,
-                color="red", linestyle="--", alpha=0.6,
-                label=f"area={selection.area_threshold:.0f}",
-            )
-
-        scatter_ax.set_xlabel("Mean intensity")
-        scatter_ax.set_ylabel("Area (px)")
-        scatter_ax.set_title(
-            f"Selection ({selection.mode}): "
-            f"{selection.n_qualifying}/{selection.n_total} qualify, "
-            f"{selection.n_final} final"
+        _render_scatter(
+            scatter_ax, selection, crops_to_show,
+            MODE_THRESHOLD, MODE_NO_QUALIFYING, MODE_SPARSE, MODE_EMPTY,
         )
-        if areas.size > 0:
-            scatter_ax.legend(loc="best", fontsize=9)
 
-        annotation = None
-        if selection.mode == MODE_NO_QUALIFYING:
-            annotation = "0 cells qualified -- adjust thresholds"
-        elif selection.mode == MODE_SPARSE:
-            annotation = "Thresholds skipped (sparse sample)"
-        elif selection.mode == MODE_EMPTY:
-            annotation = "No cells detected"
-        if annotation:
-            scatter_ax.text(
-                0.5, 0.02, annotation,
-                ha="center", transform=scatter_ax.transAxes,
-                fontsize=10, color="red",
-            )
-
-        # ── Row 2: example crops (only if there are selected picks) ──
         if has_crops:
-            crops = _pick_example_crops(selection.selected_picks, n=6)
-            tile_image_cache: dict[tuple, np.ndarray | None] = {}
-            for ax, pick in zip(crop_axes, crops):
+            tile_cache: dict[tuple, np.ndarray | None] = {}
+            for ax, pick in zip(crop_axes, crops_to_show):
                 tile_key = (pick.pick_id[0], pick.pick_id[1], pick.pick_id[2])
-                if tile_key not in tile_image_cache:
-                    tile_image_cache[tile_key] = _load_tile_image_for_crop(
+                if tile_key not in tile_cache:
+                    tile_cache[tile_key] = _load_tile_image_for_crop(
                         analysis_dir, tile_key,
                     )
-                img = tile_image_cache[tile_key]
-                if img is None:
-                    ax.text(
-                        0.5, 0.5, "image\nunavailable",
-                        ha="center", va="center",
-                        transform=ax.transAxes, fontsize=9,
-                    )
-                    ax.axis("off")
-                    continue
-                y0, x0, y1, x1 = pick.bbox_px
-                # Bbox can be (y0, x0, y1, x1) or (x0, y0, x1, y1) depending
-                # on producer — use a conservative center+pad to be safe.
-                cy, cx = int(pick.centroid_col_row_px[1]), int(pick.centroid_col_row_px[0])
-                pad = 32
-                ya = max(0, cy - pad)
-                yb = min(img.shape[0], cy + pad)
-                xa = max(0, cx - pad)
-                xb = min(img.shape[1], cx + pad)
-                ax.imshow(img[ya:yb, xa:xb], cmap="gray")
-                ax.set_title(
-                    f"R{tile_key[0]} r{tile_key[1]}c{tile_key[2]}",
-                    fontsize=8,
-                )
-                ax.axis("off")
-            # Hide unused crop axes
-            for ax in crop_axes[len(crops):]:
-                ax.axis("off")
+                _render_crop(ax, pick, tile_key, tile_cache[tile_key], Rectangle)
+            for ax in crop_axes[len(crops_to_show):]:
+                ax.set_visible(False)
 
-        plt.tight_layout()
+        title = (
+            f"Target selection  ·  mode: {selection.mode}  ·  "
+            f"{selection.n_final} final  /  "
+            f"{selection.n_qualifying} qualifying  /  "
+            f"{selection.n_total} total cells"
+        )
+        fig.suptitle(title, fontsize=14, fontweight="bold",
+                     color="#1A2942", y=0.98)
+        provenance = (
+            f"area ≥ {selection.area_threshold:.0f} px"
+            f"{' (auto)' if selection.area_threshold_auto else ' (override)'}"
+            f"   ·   "
+            f"intensity ≥ {selection.intensity_threshold:.0f}"
+            f"{' (auto)' if selection.intensity_threshold_auto else ' (override)'}"
+            f"   ·   {selection.seed_material}"
+        )
+        fig.text(
+            0.5, 0.945, provenance,
+            ha="center", fontsize=9, color="#5A6573",
+        )
 
         if feedback_dir is not None:
             feedback_dir.mkdir(parents=True, exist_ok=True)
-            fig.savefig(feedback_dir / "selection.png", dpi=150)
+            fig.savefig(
+                feedback_dir / "selection.png",
+                dpi=150, bbox_inches="tight", facecolor="white",
+            )
 
         display(fig)
     finally:
         plt.close(fig)
 
 
+# ─── display_selection helpers ─────────────────────────────────────
+
+
+def _classify_cells_for_scatter(
+    selection, crops_to_show: list,
+) -> dict[str, np.ndarray]:
+    """Build 4 mutually-exclusive masks over all_cells_*: below, qualifying,
+    selected, shown. They partition the cell index space."""
+    n = int(selection.all_cells_area.size)
+    if n == 0:
+        empty = np.zeros(0, dtype=bool)
+        return {"below": empty, "qualifying": empty,
+                "selected": empty, "shown": empty}
+
+    cell_pick_ids = [
+        (str(tid[0]), int(tid[1]), int(tid[2]), int(label))
+        for tid, label in zip(
+            selection.all_cells_tile_ids, selection.all_cells_labels,
+        )
+    ]
+    selected_set = {p.pick_id for p in selection.selected_picks}
+    shown_set = {p.pick_id for p in crops_to_show}
+
+    selected_mask = np.array(
+        [pid in selected_set for pid in cell_pick_ids], dtype=bool,
+    )
+    shown_mask = np.array(
+        [pid in shown_set for pid in cell_pick_ids], dtype=bool,
+    )
+    qualifying = np.asarray(selection.qualifying_mask, dtype=bool)
+
+    return {
+        "below": ~qualifying,
+        # qualifying-but-not-selected: passed threshold but lost to dedup/filter
+        "qualifying": qualifying & ~selected_mask,
+        # selected-but-not-shown: in final picks, didn't land in the crop strip
+        "selected": selected_mask & ~shown_mask,
+        "shown": shown_mask,
+    }
+
+
+def _render_scatter(
+    ax, selection, crops_to_show: list,
+    MODE_THRESHOLD: str, MODE_NO_QUALIFYING: str,
+    MODE_SPARSE: str, MODE_EMPTY: str,
+) -> None:
+    areas = selection.all_cells_area
+    intensities = selection.all_cells_intensity
+
+    ax.set_facecolor("#FAFBFC")
+    ax.grid(True, which="major", linewidth=0.5, color="#E6E9EE", zorder=0)
+    ax.set_axisbelow(True)
+    for spine in ax.spines.values():
+        spine.set_color("#B5BCC4")
+        spine.set_linewidth(0.8)
+
+    if areas.size == 0:
+        ax.text(
+            0.5, 0.5, "No cells detected",
+            ha="center", va="center", transform=ax.transAxes,
+            fontsize=13, color="#5A6573",
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+        return
+
+    masks = _classify_cells_for_scatter(selection, crops_to_show)
+
+    # Layer order matters: shown on top, below at the bottom.
+    ax.scatter(
+        intensities[masks["below"]], areas[masks["below"]],
+        s=22, c=_COLOR_BELOW, alpha=0.75, linewidths=0,
+        label=f"Below threshold ({int(masks['below'].sum())})",
+        zorder=2,
+    )
+    ax.scatter(
+        intensities[masks["qualifying"]], areas[masks["qualifying"]],
+        s=28, c=_COLOR_QUALIFYING, alpha=0.85, linewidths=0,
+        label=f"Qualifying, not picked ({int(masks['qualifying'].sum())})",
+        zorder=3,
+    )
+    ax.scatter(
+        intensities[masks["selected"]], areas[masks["selected"]],
+        s=42, c=_COLOR_SELECTED,
+        edgecolors="white", linewidths=0.6,
+        label=f"Selected, not shown ({int(masks['selected'].sum())})",
+        zorder=4,
+    )
+    ax.scatter(
+        intensities[masks["shown"]], areas[masks["shown"]],
+        s=130, c=_COLOR_SHOWN, marker="D",
+        edgecolors="white", linewidths=1.2,
+        label=f"Shown below ({int(masks['shown'].sum())})",
+        zorder=5,
+    )
+
+    if selection.mode in (MODE_THRESHOLD, MODE_NO_QUALIFYING):
+        ax.axvline(
+            selection.intensity_threshold,
+            color=_COLOR_THRESHOLD, linestyle="--", linewidth=1.0,
+            alpha=0.7, zorder=1,
+        )
+        ax.axhline(
+            selection.area_threshold,
+            color=_COLOR_THRESHOLD, linestyle="--", linewidth=1.0,
+            alpha=0.7, zorder=1,
+        )
+
+    ax.set_xlabel("Mean intensity (a.u.)", fontsize=10, color="#3A4350")
+    ax.set_ylabel("Area (px²)", fontsize=10, color="#3A4350")
+    ax.tick_params(colors="#5A6573", labelsize=9)
+
+    leg = ax.legend(
+        loc="upper left", fontsize=9, framealpha=0.95,
+        facecolor="white", edgecolor="#D0D5DC", labelcolor="#3A4350",
+    )
+    leg.get_frame().set_linewidth(0.6)
+
+    annotation = None
+    if selection.mode == MODE_NO_QUALIFYING:
+        annotation = "Zero cells qualified — adjust thresholds and re-run."
+    elif selection.mode == MODE_SPARSE:
+        annotation = "Sparse sample: thresholds skipped, all cells treated as qualifying."
+    elif selection.mode == MODE_EMPTY:
+        annotation = "No cells detected in this overview."
+    if annotation:
+        ax.text(
+            0.5, 0.04, annotation,
+            ha="center", transform=ax.transAxes,
+            fontsize=10, color=_COLOR_SHOWN, fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="white",
+                      edgecolor=_COLOR_SHOWN, linewidth=0.8, alpha=0.95),
+        )
+
+
+def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
+    """Render one fixed-size crop with the cell's bbox outlined in red.
+
+    Always _CROP_SIZE_PX x _CROP_SIZE_PX. Cells near the image edge are
+    zero-padded so the cell stays centered and crops compare cleanly."""
+    if img is None:
+        ax.set_facecolor("#F4F5F7")
+        ax.text(
+            0.5, 0.5, "image\nunavailable",
+            ha="center", va="center",
+            transform=ax.transAxes, fontsize=9, color="#5A6573",
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        return
+
+    pad = _CROP_SIZE_PX // 2
+    cx = int(round(pick.centroid_col_row_px[0]))
+    cy = int(round(pick.centroid_col_row_px[1]))
+    crop = _centered_zero_padded_crop(img, cy, cx, pad)
+
+    vmin, vmax = _robust_intensity_range(crop)
+    ax.imshow(crop, cmap="gray", vmin=vmin, vmax=vmax, interpolation="nearest")
+
+    # skimage regionprops bbox convention: (y0, x0, y1, x1).
+    y0, x0, y1, x1 = pick.bbox_px
+    bx0 = x0 - (cx - pad)
+    by0 = y0 - (cy - pad)
+    rect_w = max(1, x1 - x0)
+    rect_h = max(1, y1 - y0)
+    ax.add_patch(Rectangle(
+        (bx0 - 0.5, by0 - 0.5), rect_w, rect_h,
+        fill=False, edgecolor=_COLOR_SHOWN, linewidth=1.4,
+    ))
+
+    rid, row, col = tile_key
+    ax.set_title(
+        f"R{rid} r{row}c{col}  ·  label {pick.pick_id[3]}",
+        fontsize=9, color="#3A4350", pad=3,
+    )
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_color(_COLOR_SHOWN)
+        spine.set_linewidth(1.2)
+
+
+def _centered_zero_padded_crop(
+    img: np.ndarray, cy: int, cx: int, pad: int,
+) -> np.ndarray:
+    """Return a (2*pad, 2*pad) crop centered on (cy, cx). Zero-padded
+    where the window falls outside the image."""
+    h, w = img.shape[:2]
+    size = 2 * pad
+    out = np.zeros((size, size), dtype=img.dtype)
+
+    src_y0 = max(0, cy - pad)
+    src_y1 = min(h, cy + pad)
+    src_x0 = max(0, cx - pad)
+    src_x1 = min(w, cx + pad)
+
+    dst_y0 = src_y0 - (cy - pad)
+    dst_x0 = src_x0 - (cx - pad)
+    dst_y1 = dst_y0 + (src_y1 - src_y0)
+    dst_x1 = dst_x0 + (src_x1 - src_x0)
+
+    if src_y1 > src_y0 and src_x1 > src_x0:
+        out[dst_y0:dst_y1, dst_x0:dst_x1] = img[src_y0:src_y1, src_x0:src_x1]
+    return out
+
+
+def _robust_intensity_range(arr: np.ndarray) -> tuple[float, float]:
+    """Per-crop 1st/99th percentile range so a single bright pixel doesn't
+    crush the rest of the cell to black."""
+    flat = arr[arr > 0] if np.any(arr > 0) else arr
+    if flat.size == 0:
+        return 0.0, 1.0
+    lo, hi = float(np.percentile(flat, 1)), float(np.percentile(flat, 99))
+    if hi <= lo:
+        hi = lo + 1.0
+    return lo, hi
+
+
 def _pick_example_crops(picks: list, n: int = 6) -> list:
-    """Pick up to n example picks for the crop grid:
+    """Pick up to n example picks for the crop strip:
     1. Group by tile_id, sort within each by area descending.
     2. Take the largest from each of up to n distinct tiles.
     3. Fill remaining slots from already-represented tiles
@@ -233,12 +423,10 @@ def _pick_example_crops(picks: list, n: int = 6) -> list:
         group.sort(key=lambda p: p.area_px, reverse=True)
 
     out: list = []
-    # Round 1: one per tile, largest
     for key in sorted(by_tile):
         if len(out) >= n:
             break
         out.append(by_tile[key][0])
-    # Round 2: next-largest, in tile order, until we hit n
     round_idx = 1
     while len(out) < n:
         added_this_round = False
@@ -254,7 +442,9 @@ def _pick_example_crops(picks: list, n: int = 6) -> list:
     return out
 
 
-def _load_tile_image_for_crop(analysis_dir: Path, tile_key: tuple) -> np.ndarray | None:
+def _load_tile_image_for_crop(
+    analysis_dir: Path, tile_key: tuple,
+) -> np.ndarray | None:
     """Load image_2d for one tile by scanning v2 NPZ files. Returns None
     if not found or unreadable."""
     if not analysis_dir.exists():
