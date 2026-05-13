@@ -312,6 +312,21 @@ class TestInputValidation:
             ):
                 select_targets(ov, _make_limits(), border_margin_px=64)
 
+    def test_degenerate_image_size_raises_even_when_margin_zero(self):
+        """The size-validity contract is unconditional: it does not
+        depend on whether the border filter is active. Regression
+        against a Bundle C bug where _compute_near_border_mask short-
+        circuited at border_margin_px == 0 BEFORE running the size
+        check, silently accepting degenerate input when the filter
+        was disabled.
+        """
+        bad_pick = _edge_pick(1, (5, 5, 25, 25), size=(0, 0))
+        ov = _make_overview(picks=[bad_pick])
+        with pytest.raises(
+            ValueError, match=r"invalid source_image_size_px",
+        ):
+            select_targets(ov, _make_limits(), border_margin_px=0)
+
 
 # ─── Eligible-population edge cases ───────────────────────────────
 
