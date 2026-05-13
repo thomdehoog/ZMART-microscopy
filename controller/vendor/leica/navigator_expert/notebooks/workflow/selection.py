@@ -234,9 +234,6 @@ def select_targets(
 
     NO_QUALIFYING returns zero picks. No random fallback -- operator sees
     the empty intersection in display_selection and adjusts.
-
-    See plan rev7 sections "Commit C / 3. workflow/selection.py" for the
-    full state machine.
     """
     if border_margin_px < 0:
         raise ValueError(
