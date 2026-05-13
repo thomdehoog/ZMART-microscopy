@@ -27,11 +27,13 @@ from .selection import (
 )
 
 
+# BEGIN VISUALIZE STYLE TOKENS
 # ─── Style tokens (palette + typography) ──────────────────────────
 #
 # Single source of truth for the visual style of every renderer in this
 # module. When something looks wrong visually, change it here, not at
-# the call site.
+# the call site. The D6 style-token coverage test enforces that no hex
+# colors or fontsize integer literals appear OUTSIDE this block.
 
 # Palette. White-background-friendly. The "shown" red and "qualifying"
 # blue are chosen so the picked picks pop without competing for attention.
@@ -43,14 +45,23 @@ _COLOR_RULE = "#B5BCC4"          # axis spines
 _COLOR_GRID = "#E6E9EE"          # background grid
 _COLOR_PANEL = "#FAFBFC"         # axes facecolor
 _COLOR_PANEL_FALLBACK = "#F4F5F7"     # placeholder background
+_COLOR_LEGEND_EDGE = "#D0D5DC"   # legend frame edge
+_COLOR_NA_PLACEHOLDER = "#999999"   # gray for "N/A" placeholder text
 
 # Scatter-category colors (display_selection)
 _COLOR_BELOW = "#C8CDD4"         # warm gray — below threshold
 _COLOR_NEAR_BORDER = "#D9A14B"   # amber — too close to tile edge
 _COLOR_QUALIFYING = "#4A7FB8"    # steel blue — qualified, lost to dedup/limits
 _COLOR_SELECTED = _COLOR_INK_PRIMARY   # navy — selected, not shown as crop
-_COLOR_SHOWN = "#C8423A"         # red — picks shown as crops; also used as
-                                 # the "current tile" highlight in display_tile
+_COLOR_PICK_SHOWN = "#C8423A"    # red — picks rendered as detail crops in
+                                 # display_selection; also the target-FOV
+                                 # rectangle on the overview tile in
+                                 # display_target / plot_target_pairs.
+# Current-acquiring-tile highlight in render_scan_field_panel / display_tile's
+# field-position panel. Currently aliased to _COLOR_PICK_SHOWN for visual
+# consistency; kept as a separate name because current-tile highlight and
+# shown-pick state are different UI roles and may diverge later.
+_COLOR_TILE_HIGHLIGHT = _COLOR_PICK_SHOWN
 _COLOR_THRESHOLD = _COLOR_INK_MUTED   # threshold guide lines
 
 # Scan-field tile coloring (display_tile field panel, plot_scan_field
@@ -61,16 +72,22 @@ _COLOR_BOUNDARY = "#A5ACB4"      # sample boundary outline (dashed)
 
 # Typography scale. Anything not on this scale is a bug.
 _FONT_TITLE = 14
-_FONT_SUBTITLE = 11
+_FONT_FIGURE_TITLE = 13          # batch-renderer figure suptitle (smaller
+                                 # than top-level title; one step above
+                                 # panel titles)
 _FONT_CAPTION = 9
 _FONT_AXIS_LABEL = 10
-_FONT_PANEL_TITLE = 11
+_FONT_PANEL_TITLE = 11           # subplot title; also serves as the figure-
+                                 # subtitle size (the two roles converge at
+                                 # 11pt by design)
+_FONT_PLACEHOLDER = 12           # "N/A" placeholder text
 _FONT_TICK = 9
 _FONT_LEGEND = 9
 _FONT_ANNOTATION = 10
 _FONT_CROP_TITLE = 9
 
 _CROP_SIZE_PX = 96               # fixed crop side length, in pixels
+# END VISUALIZE STYLE TOKENS
 
 
 @dataclass(frozen=True)
@@ -93,8 +110,18 @@ _LAYERS: tuple[_ScatterLayer, ...] = (
     _ScatterLayer("below",       _COLOR_BELOW,        22, 0.75, "o", None,    0.0, 2, "Below threshold"),
     _ScatterLayer("qualifying",  _COLOR_QUALIFYING,   28, 0.85, "o", None,    0.0, 3, "Qualifying"),
     _ScatterLayer("selected",    _COLOR_SELECTED,     42, 1.00, "o", "white", 0.6, 4, "Selected"),
-    _ScatterLayer("shown",       _COLOR_SHOWN,       130, 1.00, "D", "white", 1.2, 5, "Shown"),
+    _ScatterLayer("shown",       _COLOR_PICK_SHOWN,  130, 1.00, "D", "white", 1.2, 5, "Shown"),
 )
+
+
+# Mode-specific annotation banner rendered at the bottom of the scatter
+# in display_selection. Declared here (not at first use) so module-level
+# constants stay grouped together.
+_MODE_ANNOTATIONS: dict[str, str] = {
+    MODE_NO_QUALIFYING: "Zero cells qualified — adjust thresholds and re-run.",
+    MODE_SPARSE: "Sparse sample: thresholds skipped, all cells treated as qualifying.",
+    MODE_EMPTY: "No cells detected in this overview.",
+}
 
 
 # ─── Scan-field rendering primitives ──────────────────────────────
@@ -148,8 +175,8 @@ def render_scan_field_panel(
             is_current = (highlight_tile_id is not None
                           and tid == highlight_tile_id)
             if is_current:
-                face = _COLOR_SHOWN
-                edge = _COLOR_SHOWN
+                face = _COLOR_TILE_HIGHLIGHT
+                edge = _COLOR_TILE_HIGHLIGHT
                 lw = 1.2
                 zorder = 5
             else:
@@ -471,7 +498,7 @@ def _render_figure_titles(fig, selection) -> None:
         f"{selection.n_final} picks  ·  "
         f"{selection.n_qualifying} qualifying  ·  "
         f"{selection.n_total} cells",
-        ha="center", fontsize=_FONT_SUBTITLE, color=_COLOR_INK_BODY,
+        ha="center", fontsize=_FONT_PANEL_TITLE, color=_COLOR_INK_BODY,
     )
     fig.text(
         0.5, 0.890, _format_provenance(selection),
@@ -508,14 +535,26 @@ def _format_threshold(name: str, value: float, auto: bool, *, suffix: str = "") 
 def _classify_cells_for_scatter(
     selection, crops_to_show: list,
 ) -> dict[str, np.ndarray]:
-    """Partition all_cells_* indices into 5 mutually-exclusive masks.
+    """Partition all_cells_* indices into 5 mutually-exclusive masks
+    for scatter rendering.
 
-    Priority (later wins; earlier categories are pre-empted by later ones):
-      near_border < below < qualifying < selected < shown
+    Categories (mutually exclusive by construction):
+      near_border — cells whose bbox is within border_margin_px of any
+                    tile edge; force-excluded from `qualifying_mask`
+                    upstream. Surfaced here so the operator can see
+                    how many cells dropped at the tile edge.
+      below       — failed the area or intensity threshold AND not
+                    near-border.
+      qualifying  — passed thresholds but not in the final picks (lost
+                    to dedup, out-of-limits, or per-tile sampling).
+      selected    — in final picks but not rendered as a crop in the
+                    strip below the scatter.
+      shown       — in final picks AND rendered as a crop.
 
-    near_border cells were force-excluded from qualifying upstream;
-    they sit in their own bucket so the operator can see how many cells
-    were dropped for being too close to a tile edge.
+    The masks are constructed by boolean set math against the upstream
+    masks (`qualifying_mask`, `near_border_mask`) and the
+    `selected_picks` / `crops_to_show` sets. The 5 categories partition
+    `all_cells_*` exactly (no overlap, no gaps among detected cells).
     """
     n = int(selection.all_cells_area.size)
     if n == 0:
@@ -622,7 +661,7 @@ def _render_scatter(ax, selection, crops_to_show: list) -> None:
 
     leg = ax.legend(
         loc="upper left", fontsize=_FONT_LEGEND, framealpha=0.95,
-        facecolor="white", edgecolor="#D0D5DC", labelcolor=_COLOR_INK_BODY,
+        facecolor="white", edgecolor=_COLOR_LEGEND_EDGE, labelcolor=_COLOR_INK_BODY,
     )
     leg.get_frame().set_linewidth(0.6)
 
@@ -631,17 +670,10 @@ def _render_scatter(ax, selection, crops_to_show: list) -> None:
         ax.text(
             0.5, 0.04, annotation,
             ha="center", transform=ax.transAxes,
-            fontsize=_FONT_ANNOTATION, color=_COLOR_SHOWN, fontweight="bold",
+            fontsize=_FONT_ANNOTATION, color=_COLOR_PICK_SHOWN, fontweight="bold",
             bbox=dict(boxstyle="round,pad=0.4", facecolor="white",
-                      edgecolor=_COLOR_SHOWN, linewidth=0.8, alpha=0.95),
+                      edgecolor=_COLOR_PICK_SHOWN, linewidth=0.8, alpha=0.95),
         )
-
-
-_MODE_ANNOTATIONS: dict[str, str] = {
-    MODE_NO_QUALIFYING: "Zero cells qualified — adjust thresholds and re-run.",
-    MODE_SPARSE: "Sparse sample: thresholds skipped, all cells treated as qualifying.",
-    MODE_EMPTY: "No cells detected in this overview.",
-}
 
 
 def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
@@ -682,7 +714,7 @@ def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
     ax.add_patch(Rectangle(
         (x0 - x_origin - 0.5, y0 - y_origin - 0.5),
         max(1, x1 - x0), max(1, y1 - y0),
-        fill=False, edgecolor=_COLOR_SHOWN, linewidth=1.4,
+        fill=False, edgecolor=_COLOR_PICK_SHOWN, linewidth=1.4,
     ))
 
     rid, row, col = tile_key
@@ -693,7 +725,7 @@ def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
-        spine.set_color(_COLOR_SHOWN)
+        spine.set_color(_COLOR_PICK_SHOWN)
         spine.set_linewidth(1.2)
 
 
@@ -873,16 +905,17 @@ def display_target(
 
             axes[0].add_patch(patches.Rectangle(
                 (c0, r0), crop_w, crop_h,
-                edgecolor="red", facecolor="none",
+                edgecolor=_COLOR_PICK_SHOWN, facecolor="none",
                 linewidth=1.5, zorder=10,
             ))
         elif tile_data is not None:
             axes[0].imshow(tile_data[0], cmap="gray")
         else:
             axes[0].text(0.5, 0.5, "N/A", ha="center", va="center",
-                         transform=axes[0].transAxes, fontsize=12,
-                         color="#999999")
-        axes[0].set_title("Overview tile", fontsize=11)
+                         transform=axes[0].transAxes,
+                         fontsize=_FONT_PLACEHOLDER,
+                         color=_COLOR_NA_PLACEHOLDER)
+        axes[0].set_title("Overview tile", fontsize=_FONT_PANEL_TITLE)
         axes[0].axis("off")
 
         # Middle: centroid crop at target FOV
@@ -894,10 +927,11 @@ def display_target(
             axes[1].imshow(crop, cmap="gray")
         else:
             axes[1].text(0.5, 0.5, "N/A", ha="center", va="center",
-                         transform=axes[1].transAxes, fontsize=12,
-                         color="#999999")
+                         transform=axes[1].transAxes,
+                         fontsize=_FONT_PLACEHOLDER,
+                         color=_COLOR_NA_PLACEHOLDER)
         axes[1].set_title(f"Overview crop (label {record.pick_id[3]})",
-                          fontsize=11)
+                          fontsize=_FONT_PANEL_TITLE)
         axes[1].axis("off")
 
         # Right: acquired high-res target
@@ -905,14 +939,15 @@ def display_target(
             axes[2].imshow(target_img, cmap="gray")
         else:
             axes[2].text(0.5, 0.5, "N/A", ha="center", va="center",
-                         transform=axes[2].transAxes, fontsize=12,
-                         color="#999999")
-        axes[2].set_title("High-res target", fontsize=11)
+                         transform=axes[2].transAxes,
+                         fontsize=_FONT_PLACEHOLDER,
+                         color=_COLOR_NA_PLACEHOLDER)
+        axes[2].set_title("High-res target", fontsize=_FONT_PANEL_TITLE)
         axes[2].axis("off")
 
         rid, row, col, label = record.pick_id
         fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
-                     fontsize=13, fontweight="bold")
+                     fontsize=_FONT_FIGURE_TITLE, fontweight="bold")
         plt.tight_layout()
 
         if live_display:
@@ -992,21 +1027,23 @@ def plot_overview_tiles(
         fig.patch.set_facecolor("white")
 
         axes[0].imshow(image_2d, cmap="gray")
-        axes[0].set_title("Tile image", fontsize=11)
+        axes[0].set_title("Tile image", fontsize=_FONT_PANEL_TITLE)
         axes[0].axis("off")
 
         _segmentation_overlay(axes[1], image_2d, masks)
-        axes[1].set_title(f"Segmentation ({n_cells} cells)", fontsize=11)
+        axes[1].set_title(f"Segmentation ({n_cells} cells)",
+                          fontsize=_FONT_PANEL_TITLE)
         axes[1].axis("off")
 
         _picked_overlay(axes[2], image_2d, masks, labels)
-        axes[2].set_title(f"Picked ({len(labels)})", fontsize=11)
+        axes[2].set_title(f"Picked ({len(labels)})",
+                          fontsize=_FONT_PANEL_TITLE)
         axes[2].axis("off")
 
         rid, row, col = tile_id
         prefix = "(mock) " if is_mock else ""
         fig.suptitle(f"{prefix}Tile R{rid} r{row}c{col}",
-                     fontsize=13, fontweight="bold")
+                     fontsize=_FONT_FIGURE_TITLE, fontweight="bold")
         plt.tight_layout()
 
         if feedback_dir is not None:
@@ -1071,13 +1108,15 @@ def plot_target_pairs(
                 if pick is not None:
                     cx, cy = pick.centroid_col_row_px
                     axes[0].scatter(cx, cy, s=60, marker="o",
-                                    facecolor="red", edgecolor="white",
+                                    facecolor=_COLOR_PICK_SHOWN,
+                                    edgecolor="white",
                                     linewidth=0.8, zorder=10)
             else:
                 axes[0].text(0.5, 0.5, "N/A", ha="center", va="center",
-                             transform=axes[0].transAxes, fontsize=12,
-                             color="#999999")
-            axes[0].set_title("Overview tile", fontsize=9)
+                             transform=axes[0].transAxes,
+                             fontsize=_FONT_PLACEHOLDER,
+                             color=_COLOR_NA_PLACEHOLDER)
+            axes[0].set_title("Overview tile", fontsize=_FONT_CROP_TITLE)
             axes[0].axis("off")
 
             # Middle: centroid crop at target FOV
@@ -1089,10 +1128,12 @@ def plot_target_pairs(
                 axes[1].imshow(crop, cmap="gray")
             else:
                 axes[1].text(0.5, 0.5, "N/A", ha="center", va="center",
-                             transform=axes[1].transAxes, fontsize=12,
-                             color="#999999")
+                             transform=axes[1].transAxes,
+                             fontsize=_FONT_PLACEHOLDER,
+                             color=_COLOR_NA_PLACEHOLDER)
             axes[1].set_title(
-                f"Overview crop (label {rec.pick_id[3]})", fontsize=9)
+                f"Overview crop (label {rec.pick_id[3]})",
+                fontsize=_FONT_CROP_TITLE)
             axes[1].axis("off")
 
             # Right: acquired high-res target
@@ -1100,14 +1141,15 @@ def plot_target_pairs(
                 axes[2].imshow(target_img, cmap="gray")
             else:
                 axes[2].text(0.5, 0.5, "N/A", ha="center", va="center",
-                             transform=axes[2].transAxes, fontsize=12,
-                             color="#999999")
-            axes[2].set_title("High-res target", fontsize=9)
+                             transform=axes[2].transAxes,
+                             fontsize=_FONT_PLACEHOLDER,
+                             color=_COLOR_NA_PLACEHOLDER)
+            axes[2].set_title("High-res target", fontsize=_FONT_CROP_TITLE)
             axes[2].axis("off")
 
             rid, row, col, label = rec.pick_id
             fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
-                         fontsize=13, fontweight="bold")
+                         fontsize=_FONT_FIGURE_TITLE, fontweight="bold")
             plt.tight_layout()
 
             if feedback_dir is not None:

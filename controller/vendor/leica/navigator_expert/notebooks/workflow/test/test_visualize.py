@@ -5,6 +5,8 @@ No hardware, no engine, no ctx.
 """
 from __future__ import annotations
 
+import inspect
+import re
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -80,6 +82,75 @@ def _make_target_tif(path: Path, size=(32, 32)):
     image = np.random.default_rng(99).integers(0, 255, size, dtype=np.uint16)
     tifffile.imwrite(str(path), image)
     return path
+
+
+# ─── Style-token coverage (Bundle D / D6 #5) ─────────────────────
+
+
+class TestStyleTokenCoverage:
+    """Pin the design intent at workflow/visualize.py line 62:
+    'Anything not on this scale is a bug.' Walk the visualize.py source,
+    strip the sentinel-bracketed style-tokens block, and assert no hex
+    color or fontsize integer literal survives outside.
+
+    Failures here usually mean a new renderer was added with literals;
+    add a named token inside the BEGIN/END VISUALIZE STYLE TOKENS
+    block and reference it instead. Docstring examples that need to
+    mention a hex color or fontsize value should use a placeholder
+    like 'fontsize=<size>' (not a literal integer) to avoid
+    false-positives.
+    """
+    _BEGIN_SENTINEL = "# BEGIN VISUALIZE STYLE TOKENS"
+    _END_SENTINEL = "# END VISUALIZE STYLE TOKENS"
+    _HEX_COLOR_RE = re.compile(r"#[0-9A-Fa-f]{6}\b")
+    _FONTSIZE_RE = re.compile(r"\bfontsize\s*=\s*\d+(?:\.\d+)?\b")
+
+    def _read_source(self) -> str:
+        import workflow.visualize as viz_mod
+        return inspect.getsource(viz_mod)
+
+    def test_exactly_one_begin_and_one_end_sentinel(self):
+        src = self._read_source()
+        assert src.count(self._BEGIN_SENTINEL) == 1, (
+            f"expected exactly one {self._BEGIN_SENTINEL!r} in visualize.py"
+        )
+        assert src.count(self._END_SENTINEL) == 1, (
+            f"expected exactly one {self._END_SENTINEL!r} in visualize.py"
+        )
+
+    def test_begin_appears_before_end(self):
+        src = self._read_source()
+        begin = src.index(self._BEGIN_SENTINEL)
+        end = src.index(self._END_SENTINEL)
+        assert begin < end, "BEGIN sentinel must appear before END sentinel"
+
+    def test_no_hex_color_literal_outside_style_block(self):
+        src = self._read_source()
+        outside = self._strip_style_block(src)
+        violations = self._HEX_COLOR_RE.findall(outside)
+        assert not violations, (
+            f"hex color literals found OUTSIDE the style-tokens block: "
+            f"{violations!r}. Add a named token to "
+            f"BEGIN/END VISUALIZE STYLE TOKENS and reference it. "
+            f"If the literal is in a docstring example, change it to a "
+            f"placeholder (e.g. '#<hex>') to avoid this check."
+        )
+
+    def test_no_fontsize_integer_literal_outside_style_block(self):
+        src = self._read_source()
+        outside = self._strip_style_block(src)
+        violations = self._FONTSIZE_RE.findall(outside)
+        assert not violations, (
+            f"fontsize=<integer> literals found OUTSIDE the style-tokens "
+            f"block: {violations!r}. Use one of the _FONT_* tokens. "
+            f"If the literal is in a docstring example, change it to a "
+            f"placeholder (e.g. 'fontsize=<size>') to avoid this check."
+        )
+
+    def _strip_style_block(self, src: str) -> str:
+        begin = src.index(self._BEGIN_SENTINEL)
+        end = src.index(self._END_SENTINEL)
+        return src[:begin] + src[end + len(self._END_SENTINEL):]
 
 
 # ─── display_tile flags (Bundle A / A2) ──────────────────────────
