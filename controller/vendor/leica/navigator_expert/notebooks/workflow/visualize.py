@@ -35,8 +35,9 @@ from .selection import (
 # the call site. test_visualize.py enforces that no hex colors or
 # fontsize integer literals appear OUTSIDE this block.
 
-# Palette. White-background-friendly. The "shown" red and "qualifying"
-# blue are chosen so the picked picks pop without competing for attention.
+# Palette. White-background-friendly. The picked / selected red is the
+# only saturated color in the scatter and crop strip so picked picks
+# dominate the operator's eye over the muted grays elsewhere.
 _COLOR_INK_PRIMARY = "#1A2942"   # near-black navy — titles, picked picks
 _COLOR_INK_BODY = "#3A4350"      # dark gray — body text, axis labels
 _COLOR_INK_MUTED = "#5A6573"     # medium gray — tick labels, secondary
@@ -493,21 +494,20 @@ def display_selection(
     Layout (fixed; defined once below, no positional drift):
 
       top margin (5%)
-        Title          "Target discovery"                     14 pt bold
-        Subtitle       "{N} picks · {N} qualifying · {N} cells" 11 pt
+        Title          "Target discovery"                14 pt bold
+        Subtitle       "{N} selected · {N} cells"        11 pt
         Caption        "area ≥ ... · intensity ≥ ... · border ..." 9 pt
       scatter axes (height ratio 2.2 of grid)
-        — gridlines, 5 layered scatter categories, threshold lines —
+        — gridlines, threshold lines, selected picks in red —
       crop strip (height ratio 1)
         — 6 fixed-size crops with bbox highlighted in red —
       bottom margin (6%)
 
-    Scatter layers (`_LAYERS`):
-      amber — Near edge        bbox within `border_margin_px` of any tile edge
-      gray  — Below threshold  qualifying mask is False, not near-edge
-      blue  — Qualifying       passed threshold, lost to dedup or out-of-limits
-      navy  — Selected         in final picks, did not land in the crop strip
-      red   — Shown            in final picks AND rendered as a crop below
+    Scatter layer (`_LAYERS`): a single Selected layer in red. The
+    operator only wants to see picks that were actually selected;
+    qualifying / near-border / below-threshold dots were dropped as
+    visual noise. Empty scatter means zero picks survived (look at the
+    mode annotation below the panel for why).
 
     Crops use a shift-not-pad window: centered on the cell when possible,
     shifted inward when the cell is near an edge. No zero-padding.
@@ -625,8 +625,7 @@ def _render_figure_titles(header_ax, selection) -> None:
     )
     header_ax.text(
         0.5, 0.50,
-        f"{selection.n_final} picks  ·  "
-        f"{selection.n_qualifying} qualifying  ·  "
+        f"{selection.n_final} selected  ·  "
         f"{selection.n_total} cells",
         ha="center", va="top", transform=header_ax.transAxes,
         fontsize=_FONT_PANEL_TITLE, color=_COLOR_INK_BODY,
