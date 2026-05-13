@@ -170,6 +170,25 @@ class TestSummarySchemaMigration:
                          "picks", "targets"):
             assert expected in summary, f"top-level key {expected!r} missing"
 
+    def test_eligible_cutoff_key_is_serialized(self, tmp_path):
+        """The schema rename from n_tiles_below_sparse_cutoff to
+        n_tiles_below_eligible_cutoff is load-bearing: downstream readers
+        index this key directly. Pin both the new name's presence and the
+        old name's absence so a future refactor cannot silently revert.
+        """
+        ctx = _build_ctx_like(tmp_path)
+        write_summary(
+            ctx, _make_focus_map(),
+            _make_overview_result(), _make_picks(), _make_selection(),
+            records=[],
+        )
+        summary = json.loads((tmp_path / "run_summary.json").read_text())
+
+        selection = summary["selection"]
+        assert "n_tiles_below_eligible_cutoff" in selection
+        assert selection["n_tiles_below_eligible_cutoff"] == 0
+        assert "n_tiles_below_sparse_cutoff" not in selection
+
     def test_overview_block_uses_persisted_counters_not_n_tiles(self, tmp_path):
         """summary.overview.n_tiles_acquired must come from
         OverviewResult.n_tiles_acquired (= submitted - acquire_failed),
