@@ -150,6 +150,20 @@ class FocusMap:
         )
         im.set_clip_path(clip_patch)
 
+        # render_scan_field_panel drew the sample boundary at zorder=1;
+        # the imshow above shares that zorder and was added afterward, so
+        # matplotlib draws the colormap on top of the boundary. Redraw
+        # the boundary above the image (zorder=2 sits above the colormap
+        # and below the transparent tile outlines at zorder=3).
+        if lim:
+            ax.add_patch(patches.Rectangle(
+                (lim["x_min"], lim["y_min"]),
+                lim["x_max"] - lim["x_min"],
+                lim["y_max"] - lim["y_min"],
+                linewidth=0.8, edgecolor="#A5ACB4", facecolor="none",
+                linestyle=(0, (4, 3)), zorder=2,
+            ))
+
         cross = (rc.max_tile_size_um * 0.25
                  if rc.max_tile_size_um else span * 0.01)
         circle_r = cross * 0.6
