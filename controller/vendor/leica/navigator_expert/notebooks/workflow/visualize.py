@@ -1051,8 +1051,11 @@ def display_target(
         try:
             target_img = tifffile.imread(str(record.tif_path))
             target_img = _ensure_2d(target_img)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(
+                f"[visualize] WARNING: could not read target TIF "
+                f"{record.tif_path}: {exc}"
+            )
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
     # Figure-ownership flag for the queued-save path; see display_tile.
@@ -1264,8 +1267,11 @@ def plot_target_pairs(
         try:
             target_img = tifffile.imread(str(rec.tif_path))
             target_img = _ensure_2d(target_img)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(
+                f"[visualize] WARNING: could not read target TIF "
+                f"{rec.tif_path}: {exc}"
+            )
 
         fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
         try:
@@ -1389,7 +1395,11 @@ def _build_tile_path_index(
             with np.load(npz_path, allow_pickle=True) as data:
                 tile_id = _normalize_tile_key(data["tile_id"])
                 index[tile_id] = npz_path
-        except Exception:
+        except Exception as exc:
+            print(
+                f"[visualize] WARNING: could not index "
+                f"{npz_path.name}: {exc}"
+            )
             continue
     return index
 
