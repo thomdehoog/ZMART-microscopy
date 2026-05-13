@@ -441,19 +441,27 @@ def _compute_near_border_mask(
     border_margin_px == 0 is the explicit disable path (filter off);
     border_margin_px < 0 is rejected upstream in select_targets.
     Degenerate source_image_size_px (width <= 0 or height <= 0) raises
-    ValueError fail-fast on the first invalid Pick.
+    ValueError fail-fast on the first invalid Pick, regardless of
+    border_margin_px -- the size contract is unconditional.
     """
-    if border_margin_px <= 0 or not all_picks:
-        return np.zeros(len(all_picks), dtype=bool)
-    mask = np.zeros(len(all_picks), dtype=bool)
-    for i, p in enumerate(all_picks):
-        y0, x0, y1, x1 = p.bbox_px
+    # Validate Pick image sizes ALWAYS, before any margin-driven
+    # short-circuit. Degenerate source_image_size_px is invalid input,
+    # not a function-mode-dependent contract; silently accepting it
+    # when the filter happens to be disabled hides bad data.
+    for p in all_picks:
         width, height = p.source_image_size_px
         if width <= 0 or height <= 0:
             raise ValueError(
                 f"Pick {p.pick_id} has invalid source_image_size_px="
                 f"{p.source_image_size_px}"
             )
+
+    if border_margin_px <= 0 or not all_picks:
+        return np.zeros(len(all_picks), dtype=bool)
+    mask = np.zeros(len(all_picks), dtype=bool)
+    for i, p in enumerate(all_picks):
+        y0, x0, y1, x1 = p.bbox_px
+        width, height = p.source_image_size_px
         if (x0 < border_margin_px
                 or y0 < border_margin_px
                 or x1 > width - border_margin_px
