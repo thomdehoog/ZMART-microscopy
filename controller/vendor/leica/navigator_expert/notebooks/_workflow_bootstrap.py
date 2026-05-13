@@ -1,21 +1,27 @@
-"""Side-effect import: add the workflow/ package to sys.path.
+"""Notebook entry point: hide all setup behind a single import.
 
-The notebook imports this module once at the top so `from workflow import ...`
-resolves regardless of which directory Jupyter was launched from. The
-operator-facing notebook stays clean -- one `import _workflow_bootstrap`
-line, no inline path manipulation.
+The operator-facing notebook does only:
 
-Resolution order (first match wins):
-  1. The directory this module lives in (sibling to workflow/) -- the
-     normal case when Jupyter opens the notebook in place.
+    from _workflow_bootstrap import Config, Path
+    cfg = Config(...)
+
+This module:
+  1. Locates the workflow/ package and adds its parent to sys.path,
+     regardless of which directory Jupyter was launched from.
+  2. Re-exports `Config` (from workflow) and `Path` (from pathlib) so
+     the operator doesn't see any plumbing imports.
+
+Resolution order for the workflow/ package (first match wins):
+  1. This module's directory (sibling to workflow/) -- the normal case
+     when Jupyter opens the notebook in place.
   2. cwd / controller/vendor/leica/navigator_expert/notebooks -- when
-     Jupyter is launched from the smart-microscopy repo root.
+     launched from the smart-microscopy repo root.
   3. cwd                  -- when launched from the notebooks/ dir.
   4. cwd / notebooks      -- when launched from navigator_expert/.
   5. cwd.parent / notebooks -- one common sibling layout.
 
-If none of these contain `workflow/__init__.py`, raise so the operator
-sees a clear error instead of a confusing ModuleNotFoundError later.
+If none contain `workflow/__init__.py`, raise so the operator sees a
+clear error instead of a confusing ModuleNotFoundError later.
 """
 from __future__ import annotations
 
@@ -48,3 +54,10 @@ def _add_workflow_to_sys_path() -> Path:
 
 _add_workflow_to_sys_path()
 del _add_workflow_to_sys_path
+
+# Re-exports so the notebook never has to touch workflow internals or
+# pathlib directly. `Path` is included because operators always use it
+# for the analysis_repo argument.
+from workflow import Config  # noqa: E402
+
+__all__ = ["Config", "Path"]
