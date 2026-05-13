@@ -5,16 +5,14 @@ opportunistic + blocking drain, NPZ persistence (schema v2). Selection
 moves to selection.py in Commit C.
 
 Public entry points:
-  - run_overview(ctx, focus_map)            -- new (rev7); returns OverviewResult
-  - run_overview_with_picks(ctx, focus_map) -- compat wrapper; removed in Commit C
-  - load_overview_result(analysis_dir)      -- kernel-restart-safe reconstruction;
-                                               re-homed to selection.py in Commit C
+  - run_overview(ctx, focus_map) -- returns OverviewResult (picks + failure
+    lists + tile_cell_counts + acquire-loop counters + completion sentinel).
+  - Selection now lives in workflow.selection (select_targets + load_overview_result).
 """
 from __future__ import annotations
 
 import json
 import math
-import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -104,14 +102,15 @@ class OverviewResult:
 class TileEvent:
     """Per-tile data passed to on_tile callbacks during live visualization.
 
-    `picked_labels` is the full set of engine-returned cell labels (with
-    n_picks=None, the engine returns every cell). Commit C renames this
-    field to `n_cells: int` once selection moves out of overview.
+    `n_cells` is the cellpose-detected cell count for this tile, computed
+    once from `masks.max()` so the callback doesn't have to. Selection
+    no longer happens during overview (it ships in Commit C as a separate
+    step), so this replaces the rev6 `picked_labels` tuple.
     """
     image_2d: np.ndarray
     masks: np.ndarray
     tile_id: tuple[str, int, int]
-    picked_labels: tuple[int, ...]
+    n_cells: int
     analysis_image_source: str
 
 
@@ -308,168 +307,8 @@ def run_overview(
     )
 
 
-def run_overview_with_picks(
-    ctx: Context,
-    focus_map: FocusMap,
-    *,
-    on_tile: Callable[[TileEvent], None] | None = None,
-) -> Picks:
-    """DEPRECATED (Commit B): removed in Commit C.
-
-    Calls run_overview() and applies legacy dedup + out-of-limits filter so
-    the notebook stays functional during the intermediate state. Replaced
-    by run_overview() + select_targets() in Commit C.
-    """
-    result = run_overview(ctx, focus_map, on_tile=on_tile)
-
-    deduped, removed_dup = _dedup_picks(result.all_picks)
-    final, removed_xy, removed_z, removed_xlat = _filter_out_of_limits(
-        deduped, ctx,
-    )
-
-    print(
-        f"[step 4] Picks: {len(result.all_picks)} raw -> "
-        f"{len(removed_dup)} dup, "
-        f"{len(removed_xy)} out-xy, "
-        f"{len(removed_z)} out-z, "
-        f"{len(removed_xlat)} xlat-fail -> "
-        f"{len(final)} final"
-    )
-
-    if len(final) > 50:
-        print(
-            f"[step 4] WARNING: {len(final)} picks selected. "
-            f"This is intermediate state. Selection step ships in Commit C; "
-            f"do NOT run Step 5 on production hardware."
-        )
-        if os.environ.get("SMART_MICROSCOPY_ALLOW_INTERMEDIATE_RUN") != "1":
-            print(
-                "[step 4] To run Step 5 anyway, set "
-                "SMART_MICROSCOPY_ALLOW_INTERMEDIATE_RUN=1 in your environment."
-            )
-
-    return Picks(
-        items=final,
-        n_picks_raw=len(result.all_picks),
-        n_picks_removed_duplicate=len(removed_dup),
-        n_picks_out_of_limits_xy=len(removed_xy),
-        n_picks_out_of_limits_z=len(removed_z),
-        removed_picks=removed_dup + removed_xy + removed_z + removed_xlat,
-        tile_acquire_failures=result.tile_acquire_failures,
-        engine_failures=result.engine_failures,
-    )
-
-
-def load_overview_result(analysis_dir: Path) -> OverviewResult:
-    """Reconstruct OverviewResult from disk. Kernel-restart safe.
-
-    Single pass over v2 NPZ files: builds all_picks and tile_cell_counts.
-    Empty tiles (cell_labels.shape[0] == 0) contribute (tile_id, 0) to
-    tile_cell_counts. Failure lists + acquire-loop counters + completed
-    sentinel come from overview_meta.json if present; missing meta is
-    tolerated with a warning.
-
-    Re-homed to selection.py in Commit C.
-    """
-    all_picks: list[Pick] = []
-    tile_cell_counts: dict[tuple[str, int, int], int] = {}
-
-    if analysis_dir.exists():
-        for npz_path in sorted(analysis_dir.glob("*.npz")):
-            try:
-                with np.load(npz_path, allow_pickle=True) as data:
-                    version = (
-                        int(data["schema_version"])
-                        if "schema_version" in data.files else 1
-                    )
-                    if version < 2:
-                        print(
-                            f"[load] skipping {npz_path.name} "
-                            f"(schema v{version}, need v2)"
-                        )
-                        continue
-                    tile_id_str = tuple(str(x) for x in data["tile_id"])
-                    tile_id = (
-                        tile_id_str[0], int(tile_id_str[1]), int(tile_id_str[2]),
-                    )
-                    n = len(data["cell_labels"])
-                    tile_cell_counts[tile_id] = n
-                    for i in range(n):
-                        all_picks.append(Pick(
-                            pick_id=(
-                                tile_id[0], tile_id[1], tile_id[2],
-                                int(data["cell_labels"][i]),
-                            ),
-                            tile_stage_xy_um=tuple(data["pick_tile_stage_xy_um"][i]),
-                            tile_zwide_um=float(data["pick_tile_zwide_um"][i]),
-                            source_pixel_size_um=tuple(data["pick_source_pixel_size_um"][i]),
-                            source_image_size_px=tuple(
-                                int(x) for x in data["pick_source_image_size_px"][i]),
-                            centroid_col_row_px=tuple(data["pick_centroid_col_row_px"][i]),
-                            bbox_px=tuple(int(x) for x in data["pick_bbox_px"][i]),
-                            bbox_um=tuple(data["pick_bbox_um"][i]),
-                            area_px=int(data["cell_area_px"][i]),
-                            eccentricity=float(data["pick_eccentricity"][i]),
-                            mean_intensity=float(data["cell_mean_intensity"][i]),
-                            cell_source_stage_xy_um=tuple(
-                                data["pick_cell_source_stage_xy_um"][i]),
-                        ))
-            except Exception as exc:
-                print(f"[load] WARNING: failed to read {npz_path.name}: {exc}")
-                continue
-
-    meta_path = analysis_dir / "overview_meta.json"
-    tile_acquire_failures: list[dict] = []
-    engine_failures: list[dict] = []
-    npz_save_failures: list[dict] = []
-    n_tiles_planned = 0
-    n_tiles_submitted = 0
-    completed = False
-    if meta_path.exists():
-        try:
-            meta = json.loads(meta_path.read_text())
-            tile_acquire_failures = meta.get("tile_acquire_failures", [])
-            engine_failures = meta.get("engine_failures", [])
-            npz_save_failures = meta.get("npz_save_failures", [])
-            completed = bool(meta.get("completed", False))
-            n_tiles_planned = int(meta.get("n_tiles_planned", 0))
-            n_tiles_submitted = int(meta.get("n_tiles_submitted", 0))
-            if "n_tiles_planned" not in meta or "n_tiles_submitted" not in meta:
-                print(
-                    "[load] WARNING: overview_meta.json predates schema v2 "
-                    "(missing n_tiles_planned/n_tiles_submitted). "
-                    "Summary counters for planned/submitted will be 0."
-                )
-        except (json.JSONDecodeError, OSError) as exc:
-            print(
-                f"[load] WARNING: overview_meta.json unreadable ({exc}); "
-                f"failure lists default to []. Treating run as incomplete."
-            )
-    else:
-        print(
-            "[load] WARNING: no overview_meta.json found at "
-            f"{analysis_dir}; either zero tiles ran or the previous "
-            "run_overview crashed before writing meta. Treating run as "
-            "incomplete; failure lists default to []."
-        )
-
-    if not completed:
-        print(
-            f"[load] NOTE: overview run at {analysis_dir} is marked "
-            f"incomplete. Selecting from {len(all_picks)} picks across "
-            f"{len(tile_cell_counts)} tile(s) anyway -- operator should verify."
-        )
-
-    return OverviewResult(
-        all_picks=all_picks,
-        tile_acquire_failures=tile_acquire_failures,
-        engine_failures=engine_failures,
-        npz_save_failures=npz_save_failures,
-        tile_cell_counts=tile_cell_counts,
-        n_tiles_planned=n_tiles_planned,
-        n_tiles_submitted=n_tiles_submitted,
-        completed=completed,
-    )
+# load_overview_result lives in selection.py (re-homed in Commit C so the
+# notebook imports it from where the consumer lives).
 
 
 # ─── Internals ────────────────────────────────────────────────────
@@ -715,16 +554,19 @@ def _dedup_picks(picks: list[Pick]) -> tuple[list[Pick], list[dict]]:
 
 def _filter_out_of_limits(
     picks: list[Pick],
-    ctx: Context,
+    limits,                       # workflow.context.LimitsContext (imported lazily to avoid cycle)
 ) -> tuple[list[Pick], list[dict], list[dict], list[dict]]:
     """Filter picks whose target position falls outside stage limits (D6).
 
     Predicts target XY and Z via the translator (no hardware).
+    Takes a LimitsContext rather than a full Context — selection.py
+    constructs one via ctx.limits_context() so this function doesn't
+    need the LAS X client / engine fields.
     """
-    calibration = ctx.calibration
-    stage_cfg = ctx.stage_config
+    calibration = limits.calibration
+    stage_cfg = limits.stage_config
 
-    lim = ctx.boundary_limits or {}
+    lim = limits.boundary_limits or {}
     x_min = lim.get("x_min")
     x_max = lim.get("x_max")
     y_min = lim.get("y_min")
@@ -745,8 +587,8 @@ def _filter_out_of_limits(
                 pick.cell_source_stage_xy_um[1],
                 pick.tile_zwide_um,
                 calibration,
-                from_slot=ctx.source_slot,
-                to_slot=ctx.target_slot,
+                from_slot=limits.source_slot,
+                to_slot=limits.target_slot,
             )
         except Exception as exc:
             removed_translation.append({
@@ -888,17 +730,17 @@ def _fire_on_tile(
     if masks is None or image_2d is None or tile_id is None:
         return
 
-    pick_data = result.get("pick_targets", {}).get("picks", [])
-    picked_labels = tuple(
-        pd["pick_id"][3] for pd in pick_data if "pick_id" in pd
-    )
+    try:
+        n_cells = int(masks.max())
+    except Exception:
+        n_cells = 0
 
     try:
         on_tile(TileEvent(
             image_2d=image_2d,
             masks=masks,
             tile_id=tuple(tile_id),
-            picked_labels=picked_labels,
+            n_cells=n_cells,
             analysis_image_source=inp.get("analysis_image_source",
                                           "acquired"),
         ))
