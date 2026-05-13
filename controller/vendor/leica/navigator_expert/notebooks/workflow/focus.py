@@ -51,6 +51,18 @@ class FocusMap:
         return self.coeffs[0] * (x - x0) + self.coeffs[1] * (y - y0) + self.coeffs[2]
 
     def plot(self, ctx: Context) -> None:
+        """Render the focus surface model + measured points on top of the
+        scan-field tiles.
+
+        Tile geometry, boundary, aspect, and ticks are delegated to the
+        shared `render_scan_field_panel`; tiles are drawn with
+        transparent faces so the focus colormap shows through. This
+        method retains ownership of:
+          - z-surface interpolation grid and clipping,
+          - colormap normalization and colorbar,
+          - focus / autofocus marker drawing,
+          - figure title and legend.
+        """
         import matplotlib.patches as patches
         import matplotlib.pyplot as plt
         from matplotlib.cm import ScalarMappable
@@ -59,7 +71,10 @@ class FocusMap:
         from matplotlib.patches import PathPatch
         from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-        from .visualize import figsize_for_extent, scan_field_extent_um
+        from .visualize import (
+            TileStyle, figsize_for_extent, render_scan_field_panel,
+            scan_field_extent_um,
+        )
 
         if ctx.scan_field is None:
             raise RuntimeError("Call read_scan_field before focus_map.plot.")
@@ -67,43 +82,46 @@ class FocusMap:
         tile_positions = ctx.scan_field["tile_positions"]
         lim = ctx.boundary_limits
 
-        tile_data = [
-            (p["x_um"], p["y_um"], r.get("tile_size_um", 0) / 2)
-            for r in tile_positions.values()
-            for p in r["positions"]
-        ]
-
-        ts_um = max(
-            (r.get("tile_size_um") or 0) for r in tile_positions.values()
-        ) if tile_positions else 0
+        if not tile_positions:
+            print("[focus] No tiles to plot.")
+            return
 
         # Aspect follows the field. Same helper as plot_scan_field for
         # visual consistency across Step 2b / 2c.
         width_um, height_um = scan_field_extent_um(ctx.scan_field, lim)
         fig, ax = plt.subplots(figsize=figsize_for_extent(width_um, height_um))
         fig.patch.set_facecolor("white")
-        ax.set_facecolor("#f5f5f8")
 
-        if not tile_data:
-            print("[focus] No tiles to plot.")
+        # Force every tile transparent + white-edged so the colormap
+        # (drawn behind, at zorder=1) shows through, with crisp tile
+        # outlines on top. The shared renderer draws the patches; we
+        # then add the colormap below them and the focus markers above.
+        transparent_tile = TileStyle(
+            facecolor="none", edgecolor="white", linewidth=0.5, zorder=3,
+        )
+        tile_styles: dict[tuple[str, int, int], TileStyle] = {}
+        for rid, region in tile_positions.items():
+            for pos in region["positions"]:
+                tid = (str(rid), int(pos["row"]), int(pos["col"]))
+                tile_styles[tid] = transparent_tile
+
+        rc = render_scan_field_panel(
+            ax, ctx.scan_field, lim, tile_styles=tile_styles,
+        )
+
+        if not rc.tile_bounds:
+            print("[focus] No tile geometry to overlay focus surface.")
             plt.close(fig)
             return
 
-        tcx = [t[0] for t in tile_data]
-        tcy = [t[1] for t in tile_data]
-        th = [t[2] for t in tile_data]
-
-        all_tx = ([cx - h for cx, h in zip(tcx, th)]
-                  + [cx + h for cx, h in zip(tcx, th)])
-        all_ty = ([cy - h for cy, h in zip(tcy, th)]
-                  + [cy + h for cy, h in zip(tcy, th)])
-        span = max(max(all_tx) - min(all_tx),
-                   max(all_ty) - min(all_ty))
-
+        # Build the interpolation grid covering the union of tile bounds.
+        xs = [b[0] for b in rc.tile_bounds] + [b[2] for b in rc.tile_bounds]
+        ys = [b[1] for b in rc.tile_bounds] + [b[3] for b in rc.tile_bounds]
+        span = max(max(xs) - min(xs), max(ys) - min(ys))
         step = span / 500 if span > 0 else 1.0
         pad = 3 * step
-        gx = np.arange(min(all_tx) - pad, max(all_tx) + pad + step, step)
-        gy = np.arange(min(all_ty) - pad, max(all_ty) + pad + step, step)
+        gx = np.arange(min(xs) - pad, max(xs) + pad + step, step)
+        gy = np.arange(min(ys) - pad, max(ys) + pad + step, step)
         GX, GY = np.meshgrid(gx, gy)
         GZ = self.interpolate_zwide(GX, GY)
 
@@ -113,9 +131,9 @@ class FocusMap:
             norm = Normalize(vmin=GZ.min(), vmax=GZ.max())
         cmap = plt.get_cmap("viridis")
 
+        # Clip the colormap to the union of tile rectangles.
         verts, codes = [], []
-        for cx, cy, h in zip(tcx, tcy, th):
-            x0, y0, x1, y1 = cx - h, cy - h, cx + h, cy + h
+        for x0, y0, x1, y1 in rc.tile_bounds:
             verts += [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
             codes += [MplPath.MOVETO, MplPath.LINETO, MplPath.LINETO,
                       MplPath.LINETO, MplPath.CLOSEPOLY]
@@ -132,50 +150,39 @@ class FocusMap:
         )
         im.set_clip_path(clip_patch)
 
-        for cx, cy, h in zip(tcx, tcy, th):
-            ax.add_patch(patches.Rectangle(
-                (cx - h, cy - h), 2 * h, 2 * h,
-                linewidth=0.5, edgecolor="white",
-                facecolor="none", zorder=3,
-            ))
-
-        cross = ts_um * 0.25 if ts_um else span * 0.01
-        circle_r = cross * 0.6
-        for m in self.measured:
-            fx, fy = m["x_um"], m["y_um"]
-            ax.plot([fx - cross, fx + cross], [fy, fy],
-                    "-", color="#e05555", linewidth=1.2, zorder=10)
-            ax.plot([fx, fx], [fy - cross, fy + cross],
-                    "-", color="#e05555", linewidth=1.2, zorder=10)
-            ax.add_patch(patches.Circle(
-                (fx, fy), circle_r, linewidth=1.2,
-                edgecolor="#e05555", facecolor="none", zorder=11,
-            ))
-        ax.plot([], [], "+", color="#e05555", markersize=10,
-                markeredgewidth=1.5, label="Focus points")
-
-        all_view_x = list(all_tx)
-        all_view_y = list(all_ty)
+        # render_scan_field_panel drew the sample boundary at zorder=1;
+        # the imshow above shares that zorder and was added afterward, so
+        # matplotlib draws the colormap on top of the boundary. Redraw
+        # the boundary above the image (zorder=2 sits above the colormap
+        # and below the transparent tile outlines at zorder=3).
         if lim:
             ax.add_patch(patches.Rectangle(
                 (lim["x_min"], lim["y_min"]),
                 lim["x_max"] - lim["x_min"],
                 lim["y_max"] - lim["y_min"],
-                linewidth=1.0, edgecolor="#aaaaaa", facecolor="none",
-                linestyle=(0, (5, 4)), zorder=2,
+                linewidth=0.8, edgecolor="#A5ACB4", facecolor="none",
+                linestyle=(0, (4, 3)), zorder=2,
             ))
-            ax.plot([], [], ls=(0, (5, 4)), color="#aaaaaa",
-                    linewidth=1.0, label="Sample boundary")
-            all_view_x.extend([lim["x_min"], lim["x_max"]])
-            all_view_y.extend([lim["y_min"], lim["y_max"]])
 
-        view_span = max(max(all_view_x) - min(all_view_x),
-                        max(all_view_y) - min(all_view_y))
-        pad_plot = view_span * 0.05
-        ax.set_xlim(min(all_view_x) - pad_plot,
-                    max(all_view_x) + pad_plot)
-        ax.set_ylim(min(all_view_y) - pad_plot,
-                    max(all_view_y) + pad_plot)
+        cross = (rc.max_tile_size_um * 0.25
+                 if rc.max_tile_size_um else span * 0.01)
+        circle_r = cross * 0.6
+        focus_color = "#e05555"
+        for m in self.measured:
+            fx, fy = m["x_um"], m["y_um"]
+            ax.plot([fx - cross, fx + cross], [fy, fy],
+                    "-", color=focus_color, linewidth=1.2, zorder=10)
+            ax.plot([fx, fx], [fy - cross, fy + cross],
+                    "-", color=focus_color, linewidth=1.2, zorder=10)
+            ax.add_patch(patches.Circle(
+                (fx, fy), circle_r, linewidth=1.2,
+                edgecolor=focus_color, facecolor="none", zorder=11,
+            ))
+        ax.plot([], [], "+", color=focus_color, markersize=10,
+                markeredgewidth=1.5, label="Focus points")
+        if lim:
+            ax.plot([], [], ls=(0, (4, 3)), color="#A5ACB4",
+                    linewidth=0.8, label="Sample boundary")
 
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="2%", pad=0.15)
@@ -183,14 +190,6 @@ class FocusMap:
         sm.set_array([])
         plt.colorbar(sm, cax=cax, label="z-wide (um)")
 
-        ax.set_aspect("equal")
-        ax.invert_yaxis()
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.grid(False)
-        for spine in ax.spines.values():
-            spine.set_linewidth(0.8)
-            spine.set_edgecolor("#cccccc")
         zs = np.array([m["zwide_um"] for m in self.measured])
         z_range = zs.max() - zs.min()
         ax.set_title(

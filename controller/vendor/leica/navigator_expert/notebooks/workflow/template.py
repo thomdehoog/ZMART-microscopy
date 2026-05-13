@@ -256,11 +256,24 @@ def read_scan_field(ctx: Context) -> None:
 
 
 def plot_scan_field(ctx: Context) -> None:
-    """Visualise the scan field: tiles, boundary, focus markers."""
+    """Visualise the scan field: tiles (colored by job), boundary,
+    focus / autofocus markers.
+
+    Tile geometry, boundary, axis aspect, and ticks are drawn by the
+    shared `render_scan_field_panel` so Step 2b stays visually
+    consistent with display_tile (Step 3) and focus_map.plot (Step 2c).
+    This function owns:
+      - building tile_styles from job colors,
+      - drawing focus / autofocus markers on top,
+      - the legend and the figure title + save.
+    """
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
 
-    from .visualize import figsize_for_extent, scan_field_extent_um
+    from .visualize import (
+        TileStyle, figsize_for_extent, render_scan_field_panel,
+        scan_field_extent_um,
+    )
 
     if ctx.scan_field is None:
         raise RuntimeError("Call read_scan_field before plot_scan_field.")
@@ -275,10 +288,9 @@ def plot_scan_field(ctx: Context) -> None:
     width_um, height_um = scan_field_extent_um(ctx.scan_field, lim)
     fig, ax = plt.subplots(figsize=figsize_for_extent(width_um, height_um))
     fig.patch.set_facecolor("white")
-    ax.set_facecolor("#f5f5f8")
 
-    all_x, all_y = [], []
-
+    # Build per-tile styles from the template's job-color map. Tiles in
+    # regions without a configured color fall back to a neutral gray.
     viz_colors = (template_data.get("visualization_data", {})
                   .get("tile_colors", {}))
     job_color_map = {
@@ -286,25 +298,23 @@ def plot_scan_field(ctx: Context) -> None:
         for region in tile_positions.values()
         if region["job_name"] in viz_colors
     }
-    legend_jobs: set[str] = set()
+    default_rgba = (0.78, 0.78, 0.78, 1.0)
 
+    tile_styles: dict[tuple[str, int, int], TileStyle] = {}
+    legend_jobs: set[str] = set()
     for rid, region in tile_positions.items():
         jn = region["job_name"]
         ts = region.get("tile_size_um")
         if ts is None:
             continue
-        half = ts / 2
-        rgba = job_color_map.get(jn, (0.78, 0.78, 0.78, 1.0))
+        rgba = job_color_map.get(jn, default_rgba)
         face = (rgba[0], rgba[1], rgba[2], 0.25)
         edge = (rgba[0], rgba[1], rgba[2], 0.80)
         for pos in region["positions"]:
-            cx, cy = pos["x_um"], pos["y_um"]
-            ax.add_patch(patches.Rectangle(
-                (cx - half, cy - half), ts, ts,
-                linewidth=0.6, edgecolor=edge, facecolor=face, zorder=2,
-            ))
-            all_x.extend([cx - half, cx + half])
-            all_y.extend([cy - half, cy + half])
+            tid = (str(rid), int(pos["row"]), int(pos["col"]))
+            tile_styles[tid] = TileStyle(
+                facecolor=face, edgecolor=edge, linewidth=0.6, zorder=2,
+            )
         if jn not in legend_jobs:
             label = "No job assigned" if jn == "(unassigned)" else jn
             ax.plot([], [], "s",
@@ -312,28 +322,24 @@ def plot_scan_field(ctx: Context) -> None:
                     markersize=8, label=label)
             legend_jobs.add(jn)
 
-    ts_um = max(
-        (r.get("tile_size_um") or 0) for r in tile_positions.values()
-    ) if tile_positions else 0
-    cross = ts_um * 0.25 if ts_um else (
-        max(max(all_x) - min(all_x), max(all_y) - min(all_y)) * 0.01
-        if all_x else 1.0
+    # Shared renderer draws tiles + boundary + sets aspect/ticks/spines
+    # and returns geometry for our overlays.
+    rc = render_scan_field_panel(
+        ax, ctx.scan_field, lim, tile_styles=tile_styles,
+    )
+    if lim:
+        ax.plot([], [], ls=(0, (4, 3)), color="#A5ACB4",
+                linewidth=0.8, label="Sample boundary")
+
+    cross = rc.max_tile_size_um * 0.25 if rc.max_tile_size_um else (
+        max(rc.extent_x[1] - rc.extent_x[0],
+            rc.extent_y[1] - rc.extent_y[0]) * 0.01
     )
     circle_r = cross * 0.6
 
-    if lim:
-        ax.add_patch(patches.Rectangle(
-            (lim["x_min"], lim["y_min"]),
-            lim["x_max"] - lim["x_min"],
-            lim["y_max"] - lim["y_min"],
-            linewidth=1.0, edgecolor="#aaaaaa", facecolor="none",
-            linestyle=(0, (5, 4)), zorder=1,
-        ))
-        ax.plot([], [], ls=(0, (5, 4)), color="#aaaaaa",
-                linewidth=1.0, label="Sample boundary")
-        all_x.extend([lim["x_min"], lim["x_max"]])
-        all_y.extend([lim["y_min"], lim["y_max"]])
-
+    focus_color = "#e05555"
+    marker_xs: list[float] = []
+    marker_ys: list[float] = []
     for fp_list, label in [
         (template_data.get("focus_points", []), "Focus points"),
         (template_data.get("autofocus_points", []), "AutoFocus points"),
@@ -341,34 +347,42 @@ def plot_scan_field(ctx: Context) -> None:
         for fp in fp_list:
             fx, fy = fp["x_um"], fp["y_um"]
             ax.plot([fx - cross, fx + cross], [fy, fy],
-                    "-", color="#e05555", linewidth=1.2, zorder=10)
+                    "-", color=focus_color, linewidth=1.2, zorder=10)
             ax.plot([fx, fx], [fy - cross, fy + cross],
-                    "-", color="#e05555", linewidth=1.2, zorder=10)
+                    "-", color=focus_color, linewidth=1.2, zorder=10)
             ax.add_patch(patches.Circle(
                 (fx, fy), circle_r,
-                linewidth=1.2, edgecolor="#e05555",
+                linewidth=1.2, edgecolor=focus_color,
                 facecolor="none", zorder=11,
             ))
-            all_x.append(fx)
-            all_y.append(fy)
+            # The cross arms extend to ±cross from (fx, fy); the circle
+            # only reaches ±circle_r = cross * 0.6. Use the arm extent so
+            # we don't clip the outer 40% of the cross when a marker sits
+            # outside the tile envelope.
+            arm = max(cross, circle_r)
+            marker_xs.extend([fx - arm, fx + arm])
+            marker_ys.extend([fy - arm, fy + arm])
         if fp_list:
-            ax.plot([], [], "+", color="#e05555", markersize=10,
+            ax.plot([], [], "+", color=focus_color, markersize=10,
                     markeredgewidth=1.5, label=label)
 
-    if all_x:
-        span = max(max(all_x) - min(all_x), max(all_y) - min(all_y))
-        pad = span * 0.05
-        ax.set_xlim(min(all_x) - pad, max(all_x) + pad)
-        ax.set_ylim(min(all_y) - pad, max(all_y) + pad)
+    # render_scan_field_panel set xlim/ylim from tile + boundary bounds
+    # only. Expand if focus / autofocus markers sit outside that envelope
+    # so they aren't clipped at the axis edge (pre-D behavior).
+    if marker_xs:
+        cur_xlo, cur_xhi = ax.get_xlim()
+        cur_ylo, cur_yhi = ax.get_ylim()
+        # ylim is inverted by render_scan_field_panel, so cur_ylo > cur_yhi.
+        y_top, y_bot = min(cur_ylo, cur_yhi), max(cur_ylo, cur_yhi)
+        new_xlo = min(cur_xlo, min(marker_xs))
+        new_xhi = max(cur_xhi, max(marker_xs))
+        new_ytop = min(y_top, min(marker_ys))
+        new_ybot = max(y_bot, max(marker_ys))
+        if (new_xlo, new_xhi) != (cur_xlo, cur_xhi):
+            ax.set_xlim(new_xlo, new_xhi)
+        if (new_ytop, new_ybot) != (y_top, y_bot):
+            ax.set_ylim(new_ybot, new_ytop)  # restore inverted orientation
 
-    ax.set_aspect("equal")
-    ax.invert_yaxis()
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.grid(False)
-    for spine in ax.spines.values():
-        spine.set_linewidth(0.8)
-        spine.set_edgecolor("#cccccc")
     ax.set_title("Scan Field", fontsize=13, fontweight="bold",
                  color="#222222", pad=12)
     ax.legend(loc="upper right", fontsize=9, facecolor="white",

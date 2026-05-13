@@ -5,6 +5,8 @@ No hardware, no engine, no ctx.
 """
 from __future__ import annotations
 
+import inspect
+import re
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -80,6 +82,75 @@ def _make_target_tif(path: Path, size=(32, 32)):
     image = np.random.default_rng(99).integers(0, 255, size, dtype=np.uint16)
     tifffile.imwrite(str(path), image)
     return path
+
+
+# ─── Style-token coverage (Bundle D / D6 #5) ─────────────────────
+
+
+class TestStyleTokenCoverage:
+    """Pin the design intent at workflow/visualize.py line 62:
+    'Anything not on this scale is a bug.' Walk the visualize.py source,
+    strip the sentinel-bracketed style-tokens block, and assert no hex
+    color or fontsize integer literal survives outside.
+
+    Failures here usually mean a new renderer was added with literals;
+    add a named token inside the BEGIN/END VISUALIZE STYLE TOKENS
+    block and reference it instead. Docstring examples that need to
+    mention a hex color or fontsize value should use a placeholder
+    like 'fontsize=<size>' (not a literal integer) to avoid
+    false-positives.
+    """
+    _BEGIN_SENTINEL = "# BEGIN VISUALIZE STYLE TOKENS"
+    _END_SENTINEL = "# END VISUALIZE STYLE TOKENS"
+    _HEX_COLOR_RE = re.compile(r"#[0-9A-Fa-f]{6}\b")
+    _FONTSIZE_RE = re.compile(r"\bfontsize\s*=\s*\d+(?:\.\d+)?\b")
+
+    def _read_source(self) -> str:
+        import workflow.visualize as viz_mod
+        return inspect.getsource(viz_mod)
+
+    def test_exactly_one_begin_and_one_end_sentinel(self):
+        src = self._read_source()
+        assert src.count(self._BEGIN_SENTINEL) == 1, (
+            f"expected exactly one {self._BEGIN_SENTINEL!r} in visualize.py"
+        )
+        assert src.count(self._END_SENTINEL) == 1, (
+            f"expected exactly one {self._END_SENTINEL!r} in visualize.py"
+        )
+
+    def test_begin_appears_before_end(self):
+        src = self._read_source()
+        begin = src.index(self._BEGIN_SENTINEL)
+        end = src.index(self._END_SENTINEL)
+        assert begin < end, "BEGIN sentinel must appear before END sentinel"
+
+    def test_no_hex_color_literal_outside_style_block(self):
+        src = self._read_source()
+        outside = self._strip_style_block(src)
+        violations = self._HEX_COLOR_RE.findall(outside)
+        assert not violations, (
+            f"hex color literals found OUTSIDE the style-tokens block: "
+            f"{violations!r}. Add a named token to "
+            f"BEGIN/END VISUALIZE STYLE TOKENS and reference it. "
+            f"If the literal is in a docstring example, change it to a "
+            f"placeholder (e.g. '#<hex>') to avoid this check."
+        )
+
+    def test_no_fontsize_integer_literal_outside_style_block(self):
+        src = self._read_source()
+        outside = self._strip_style_block(src)
+        violations = self._FONTSIZE_RE.findall(outside)
+        assert not violations, (
+            f"fontsize=<integer> literals found OUTSIDE the style-tokens "
+            f"block: {violations!r}. Use one of the _FONT_* tokens. "
+            f"If the literal is in a docstring example, change it to a "
+            f"placeholder (e.g. 'fontsize=<size>') to avoid this check."
+        )
+
+    def _strip_style_block(self, src: str) -> str:
+        begin = src.index(self._BEGIN_SENTINEL)
+        end = src.index(self._END_SENTINEL)
+        return src[:begin] + src[end + len(self._END_SENTINEL):]
 
 
 # ─── display_tile flags (Bundle A / A2) ──────────────────────────
@@ -755,3 +826,168 @@ class TestPlotTargetPairs:
 
         plot_target_pairs(analysis_dir, picks, [])
         # No error, no output
+
+
+# ─── Bundle D / D6 remaining tests (#1-#4) ────────────────────────
+
+
+class TestDisplayTileWideField:
+    """D6 #1: aspect-driven width_ratios from D4a. A wide-format scan
+    field must produce a field-position panel wider than the tile +
+    segmentation panels. Regression-pins the previous [1, 1, 1] bug.
+    """
+    def test_wide_field_yields_wider_field_panel(self, monkeypatch, tmp_path):
+        import matplotlib.pyplot as plt
+        import IPython.display as ipy_display
+        monkeypatch.setattr(ipy_display, "display", MagicMock())
+
+        # 10:1 wide scan field (single row of 10 tiles).
+        scan_field = {
+            "tile_positions": {
+                "0": {
+                    "job_name": "Overview",
+                    "tile_size_um": 100,
+                    "positions": [
+                        {"row": 0, "col": c, "x_um": c * 100, "y_um": 0}
+                        for c in range(10)
+                    ],
+                }
+            },
+        }
+
+        captured: list = []
+        real_subplots = plt.subplots
+
+        def capture_subplots(*args, **kwargs):
+            captured.append(kwargs.get("gridspec_kw"))
+            return real_subplots(*args, **kwargs)
+
+        monkeypatch.setattr(plt, "subplots", capture_subplots)
+
+        from workflow.visualize import display_tile
+        display_tile(
+            _make_tile_event(),
+            scan_field=scan_field,
+            live_display=False,
+            save_png=False,
+        )
+
+        # First (and only) subplots call is the 3-panel field-aware layout.
+        gskw = captured[0]
+        assert gskw is not None
+        ratios = gskw["width_ratios"]
+        assert len(ratios) == 3
+        # Wide field -> field panel share > 1.
+        assert ratios[0] > 1.0, (
+            f"width_ratios[0] must be > 1 for a 10:1 wide field, got {ratios}"
+        )
+        # Clamped at 2.5 per the D4a aspect cap.
+        assert ratios[0] <= 2.5
+        # Tile + segmentation panels stay equal-width to each other.
+        assert ratios[1] == ratios[2]
+
+
+class TestSharedScanFieldRenderer:
+    """D6 #2: render_scan_field_panel produces consistent geometry
+    regardless of whether the caller is the Step 3 path (highlight only)
+    or the Step 2b/2c path (tile_styles supplied). Catches future
+    divergence of the renderer's geometry behavior.
+    """
+    def test_context_matches_across_call_styles(self):
+        import matplotlib.pyplot as plt
+        from workflow.visualize import render_scan_field_panel, TileStyle
+
+        scan_field = {
+            "tile_positions": {
+                "0": {
+                    "tile_size_um": 100,
+                    "positions": [
+                        {"row": 0, "col": 0, "x_um": 0, "y_um": 0},
+                        {"row": 0, "col": 1, "x_um": 100, "y_um": 0},
+                    ],
+                }
+            },
+        }
+
+        fig1, ax1 = plt.subplots()
+        rc1 = render_scan_field_panel(
+            ax1, scan_field, None, highlight_tile_id=("0", 0, 0),
+        )
+        plt.close(fig1)
+
+        styles = {
+            ("0", 0, 0): TileStyle(facecolor="red", edgecolor="red"),
+            ("0", 0, 1): TileStyle(facecolor="blue", edgecolor="blue"),
+        }
+        fig2, ax2 = plt.subplots()
+        rc2 = render_scan_field_panel(
+            ax2, scan_field, None, tile_styles=styles,
+        )
+        plt.close(fig2)
+
+        # Geometry context is identical regardless of styling.
+        assert rc1.tile_bounds == rc2.tile_bounds
+        assert rc1.extent_x == rc2.extent_x
+        assert rc1.extent_y == rc2.extent_y
+        assert rc1.max_tile_size_um == rc2.max_tile_size_um
+
+
+class TestLoadTileNpzWarning:
+    """D6 #3: _load_tile_npz logs a warning and returns None on a
+    corrupt / unreadable npz, not silently swallowed. Per D5a's
+    log-and-skip pattern.
+    """
+    def test_warns_on_unreadable_file(self, tmp_path, capsys):
+        from workflow.visualize import _load_tile_npz
+
+        bad_npz = tmp_path / "corrupt.npz"
+        bad_npz.write_bytes(b"not a valid npz file")
+
+        result = _load_tile_npz(bad_npz)
+
+        assert result is None
+        captured = capsys.readouterr()
+        assert "[visualize] WARNING" in captured.out
+        assert "corrupt.npz" in captured.out
+
+
+class TestRenderCropBoundary:
+    """D6 #4: _render_crop / _safe_crop_window behavior when the image
+    is smaller than _CROP_SIZE_PX. Per the D4a docstring-honesty fix:
+    smaller images yield a smaller crop (no zero-padding, no exception).
+    """
+    def test_image_smaller_than_crop_size_renders_whole_image(self):
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Rectangle
+        from workflow.overview import Pick
+        from workflow.visualize import _render_crop
+
+        # 32x32 image << _CROP_SIZE_PX (96).
+        img = np.zeros((32, 32), dtype=np.uint8)
+        img[10:20, 10:20] = 200
+
+        pick = Pick(
+            pick_id=("0", 0, 0, 1),
+            tile_stage_xy_um=(0.0, 0.0), tile_zwide_um=0.5,
+            source_pixel_size_um=(0.65, 0.65),
+            source_image_size_px=(32, 32),
+            centroid_col_row_px=(16.0, 16.0),
+            bbox_px=(10, 10, 20, 20), bbox_um=(13.0, 13.0),
+            area_px=100, eccentricity=0.5, mean_intensity=100.0,
+            cell_source_stage_xy_um=(0.5, 0.5),
+        )
+
+        fig, ax = plt.subplots()
+        try:
+            _render_crop(ax, pick, ("0", 0, 0), img, Rectangle)
+            images = ax.get_images()
+            assert len(images) == 1, (
+                "expected exactly one imshow on the crop axes"
+            )
+            displayed = images[0].get_array()
+            # Whole image is shown (smaller-than-_CROP_SIZE_PX path).
+            assert displayed.shape == (32, 32), (
+                f"expected 32x32 fallback, got {displayed.shape}"
+            )
+        finally:
+            plt.close(fig)

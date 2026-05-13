@@ -27,11 +27,13 @@ from .selection import (
 )
 
 
+# BEGIN VISUALIZE STYLE TOKENS
 # ─── Style tokens (palette + typography) ──────────────────────────
 #
 # Single source of truth for the visual style of every renderer in this
 # module. When something looks wrong visually, change it here, not at
-# the call site.
+# the call site. test_visualize.py enforces that no hex colors or
+# fontsize integer literals appear OUTSIDE this block.
 
 # Palette. White-background-friendly. The "shown" red and "qualifying"
 # blue are chosen so the picked picks pop without competing for attention.
@@ -43,14 +45,23 @@ _COLOR_RULE = "#B5BCC4"          # axis spines
 _COLOR_GRID = "#E6E9EE"          # background grid
 _COLOR_PANEL = "#FAFBFC"         # axes facecolor
 _COLOR_PANEL_FALLBACK = "#F4F5F7"     # placeholder background
+_COLOR_LEGEND_EDGE = "#D0D5DC"   # legend frame edge
+_COLOR_NA_PLACEHOLDER = "#999999"   # gray for "N/A" placeholder text
 
 # Scatter-category colors (display_selection)
 _COLOR_BELOW = "#C8CDD4"         # warm gray — below threshold
 _COLOR_NEAR_BORDER = "#D9A14B"   # amber — too close to tile edge
 _COLOR_QUALIFYING = "#4A7FB8"    # steel blue — qualified, lost to dedup/limits
 _COLOR_SELECTED = _COLOR_INK_PRIMARY   # navy — selected, not shown as crop
-_COLOR_SHOWN = "#C8423A"         # red — picks shown as crops; also used as
-                                 # the "current tile" highlight in display_tile
+_COLOR_PICK_SHOWN = "#C8423A"    # red — picks rendered as detail crops in
+                                 # display_selection; also the target-FOV
+                                 # rectangle on the overview tile in
+                                 # display_target / plot_target_pairs.
+# Current-acquiring-tile highlight in render_scan_field_panel / display_tile's
+# field-position panel. Currently aliased to _COLOR_PICK_SHOWN for visual
+# consistency; kept as a separate name because current-tile highlight and
+# shown-pick state are different UI roles and may diverge later.
+_COLOR_TILE_HIGHLIGHT = _COLOR_PICK_SHOWN
 _COLOR_THRESHOLD = _COLOR_INK_MUTED   # threshold guide lines
 
 # Scan-field tile coloring (display_tile field panel, plot_scan_field
@@ -61,16 +72,22 @@ _COLOR_BOUNDARY = "#A5ACB4"      # sample boundary outline (dashed)
 
 # Typography scale. Anything not on this scale is a bug.
 _FONT_TITLE = 14
-_FONT_SUBTITLE = 11
+_FONT_FIGURE_TITLE = 13          # batch-renderer figure suptitle (smaller
+                                 # than top-level title; one step above
+                                 # panel titles)
 _FONT_CAPTION = 9
 _FONT_AXIS_LABEL = 10
-_FONT_PANEL_TITLE = 11
+_FONT_PANEL_TITLE = 11           # subplot title; also serves as the figure-
+                                 # subtitle size (the two roles converge at
+                                 # 11pt by design)
+_FONT_PLACEHOLDER = 12           # "N/A" placeholder text
 _FONT_TICK = 9
 _FONT_LEGEND = 9
 _FONT_ANNOTATION = 10
 _FONT_CROP_TITLE = 9
 
 _CROP_SIZE_PX = 96               # fixed crop side length, in pixels
+# END VISUALIZE STYLE TOKENS
 
 
 @dataclass(frozen=True)
@@ -93,8 +110,18 @@ _LAYERS: tuple[_ScatterLayer, ...] = (
     _ScatterLayer("below",       _COLOR_BELOW,        22, 0.75, "o", None,    0.0, 2, "Below threshold"),
     _ScatterLayer("qualifying",  _COLOR_QUALIFYING,   28, 0.85, "o", None,    0.0, 3, "Qualifying"),
     _ScatterLayer("selected",    _COLOR_SELECTED,     42, 1.00, "o", "white", 0.6, 4, "Selected"),
-    _ScatterLayer("shown",       _COLOR_SHOWN,       130, 1.00, "D", "white", 1.2, 5, "Shown"),
+    _ScatterLayer("shown",       _COLOR_PICK_SHOWN,  130, 1.00, "D", "white", 1.2, 5, "Shown"),
 )
+
+
+# Mode-specific annotation banner rendered at the bottom of the scatter
+# in display_selection. Declared here (not at first use) so module-level
+# constants stay grouped together.
+_MODE_ANNOTATIONS: dict[str, str] = {
+    MODE_NO_QUALIFYING: "Zero cells qualified — adjust thresholds and re-run.",
+    MODE_SPARSE: "Sparse sample: thresholds skipped, all non-border cells treated as qualifying.",
+    MODE_EMPTY: "No cells detected in this overview.",
+}
 
 
 # ─── Scan-field rendering primitives ──────────────────────────────
@@ -108,22 +135,67 @@ _LAYERS: tuple[_ScatterLayer, ...] = (
 # entry points stay visually consistent.
 
 
+@dataclass(frozen=True)
+class TileStyle:
+    """Per-tile drawing style override for render_scan_field_panel."""
+    facecolor: object             # str hex, RGBA tuple, or "none"
+    edgecolor: object
+    linewidth: float = 0.6
+    alpha: float = 1.0
+    zorder: int = 2
+
+
+@dataclass(frozen=True)
+class ScanFieldRenderContext:
+    """Geometry + extent info returned by render_scan_field_panel so
+    callers can reuse it for overlays (focus colormap, autofocus markers,
+    legend placement, etc.) without recomputing.
+    """
+    tile_bounds: list[tuple[float, float, float, float]]
+    tile_bounds_by_region: dict[str, list[tuple[float, float, float, float]]]
+    extent_x: tuple[float, float]
+    extent_y: tuple[float, float]
+    max_tile_size_um: float
+
+
 def render_scan_field_panel(
     ax,
     scan_field: dict,
     boundary_limits: dict | None,
     *,
     highlight_tile_id: tuple[str, int, int] | None = None,
-) -> None:
-    """Compact scan-field rendering for an embedded panel.
+    tile_styles: dict[tuple[str, int, int], TileStyle] | None = None,
+) -> ScanFieldRenderContext:
+    """Render the scan-field tiles + optional boundary on `ax` and return
+    a ScanFieldRenderContext describing the geometry.
 
-    Light-gray tiles, optional boundary outline, current tile highlighted
-    in red. No legend, no focus markers, no axis labels. Equal aspect.
-    y-axis inverted to match stage convention.
+    Used by display_tile (Step 3, with highlight_tile_id only),
+    plot_scan_field (Step 2b, with tile_styles built from job colors),
+    and focus_map.plot (Step 2c, with tile_styles forcing transparent
+    faces so the focus colormap shows through). The returned context
+    lets the caller place overlays without recomputing tile bounds.
+
+    Style precedence per tile:
+      1. If `tile_id == highlight_tile_id`, force the highlight style.
+         (Deliberate: the current-acquiring-tile indicator must stay
+         visually dominant over any per-tile job coloring.)
+      2. Else, use `tile_styles[tile_id]` if provided.
+      3. Else, use the default (light-gray face + tile-edge gray).
+
+    Boundary is drawn iff `boundary_limits is not None`.
+
+    The renderer is responsible for axes-level concerns (equal aspect,
+    y-axis inversion, ticks off, spine styling). Figure-level concerns
+    (figsize from data extent) live in `figsize_for_extent` — see the
+    docstring there.
     """
     import matplotlib.patches as patches
 
     tile_positions = scan_field.get("tile_positions", {})
+    tile_bounds: list[tuple[float, float, float, float]] = []
+    tile_bounds_by_region: dict[str, list[tuple[float, float, float, float]]] = {}
+    max_tile_size = 0.0
+
     if not tile_positions:
         ax.text(
             0.5, 0.5, "(no scan field)",
@@ -132,7 +204,13 @@ def render_scan_field_panel(
         )
         ax.set_xticks([])
         ax.set_yticks([])
-        return
+        return ScanFieldRenderContext(
+            tile_bounds=[],
+            tile_bounds_by_region={},
+            extent_x=(0.0, 0.0),
+            extent_y=(0.0, 0.0),
+            max_tile_size_um=0.0,
+        )
 
     all_x: list[float] = []
     all_y: list[float] = []
@@ -141,30 +219,47 @@ def render_scan_field_panel(
         ts = region.get("tile_size_um")
         if ts is None:
             continue
+        max_tile_size = max(max_tile_size, float(ts))
         half = ts / 2
+        region_key = str(rid)
+        region_bounds = tile_bounds_by_region.setdefault(region_key, [])
         for pos in region["positions"]:
             cx, cy = pos["x_um"], pos["y_um"]
             tid = (str(rid), int(pos["row"]), int(pos["col"]))
+            bounds = (cx - half, cy - half, cx + half, cy + half)
+            tile_bounds.append(bounds)
+            region_bounds.append(bounds)
+
             is_current = (highlight_tile_id is not None
                           and tid == highlight_tile_id)
             if is_current:
-                face = _COLOR_SHOWN
-                edge = _COLOR_SHOWN
+                face = _COLOR_TILE_HIGHLIGHT
+                edge = _COLOR_TILE_HIGHLIGHT
                 lw = 1.2
                 zorder = 5
+                alpha = 1.0
+            elif tile_styles is not None and tid in tile_styles:
+                style = tile_styles[tid]
+                face = style.facecolor
+                edge = style.edgecolor
+                lw = style.linewidth
+                zorder = style.zorder
+                alpha = style.alpha
             else:
                 face = _COLOR_TILE_FACE
                 edge = _COLOR_TILE_EDGE
                 lw = 0.4
                 zorder = 2
+                alpha = 1.0
             ax.add_patch(patches.Rectangle(
                 (cx - half, cy - half), ts, ts,
-                linewidth=lw, edgecolor=edge, facecolor=face, zorder=zorder,
+                linewidth=lw, edgecolor=edge, facecolor=face,
+                alpha=alpha, zorder=zorder,
             ))
             all_x.extend([cx - half, cx + half])
             all_y.extend([cy - half, cy + half])
 
-    if boundary_limits:
+    if boundary_limits is not None:
         ax.add_patch(patches.Rectangle(
             (boundary_limits["x_min"], boundary_limits["y_min"]),
             boundary_limits["x_max"] - boundary_limits["x_min"],
@@ -176,10 +271,20 @@ def render_scan_field_panel(
         all_y.extend([boundary_limits["y_min"], boundary_limits["y_max"]])
 
     if all_x:
-        span = max(max(all_x) - min(all_x), max(all_y) - min(all_y), 1.0)
-        pad = span * 0.05
-        ax.set_xlim(min(all_x) - pad, max(all_x) + pad)
-        ax.set_ylim(min(all_y) - pad, max(all_y) + pad)
+        # Per-axis padding: a wide-format scan field gets the right
+        # vertical padding for its y-span (instead of the over-padded
+        # max(x, y) the previous code produced). set_aspect("equal")
+        # below preserves the visual aspect.
+        x_span = max(max(all_x) - min(all_x), 1.0)
+        y_span = max(max(all_y) - min(all_y), 1.0)
+        pad_x = x_span * 0.05
+        pad_y = y_span * 0.05
+        x_lo, x_hi = min(all_x) - pad_x, max(all_x) + pad_x
+        y_lo, y_hi = min(all_y) - pad_y, max(all_y) + pad_y
+        ax.set_xlim(x_lo, x_hi)
+        ax.set_ylim(y_lo, y_hi)
+    else:
+        x_lo = x_hi = y_lo = y_hi = 0.0
     ax.set_aspect("equal")
     ax.invert_yaxis()
     ax.set_xticks([])
@@ -187,6 +292,14 @@ def render_scan_field_panel(
     for spine in ax.spines.values():
         spine.set_color(_COLOR_RULE)
         spine.set_linewidth(0.6)
+
+    return ScanFieldRenderContext(
+        tile_bounds=tile_bounds,
+        tile_bounds_by_region=tile_bounds_by_region,
+        extent_x=(x_lo, x_hi),
+        extent_y=(y_lo, y_hi),
+        max_tile_size_um=max_tile_size,
+    )
 
 
 def scan_field_extent_um(
@@ -272,13 +385,31 @@ def display_tile(
 
     show_field = scan_field is not None
     if show_field:
+        # Field panel's share of the figure follows the scan-field aspect
+        # so a wide field doesn't get squeezed into a square panel beside
+        # the (square) tile + segmentation panels. Tile + segmentation
+        # remain equal-width to each other.
+        width_um, height_um = scan_field_extent_um(scan_field, boundary_limits)
+        if width_um > 0 and height_um > 0:
+            field_aspect = width_um / height_um  # >1 = wide, <1 = tall
+        else:
+            field_aspect = 1.0
+        # Clamp to [0.5, 2.5] so very extreme aspect ratios don't squeeze
+        # the tile + segmentation panels to unreadable widths.
+        field_share = max(0.5, min(2.5, field_aspect))
         fig, axes = plt.subplots(
             1, 3, figsize=(15, 5),
-            gridspec_kw={"width_ratios": [1, 1, 1], "wspace": 0.15},
+            gridspec_kw={
+                "width_ratios": [field_share, 1, 1],
+                "wspace": 0.15,
+            },
+            constrained_layout=True,
         )
         field_ax, tile_ax, seg_ax = axes
     else:
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+        fig, axes = plt.subplots(
+            1, 2, figsize=(12, 5), constrained_layout=True,
+        )
         field_ax = None
         tile_ax, seg_ax = axes
 
@@ -306,19 +437,20 @@ def display_tile(
         )
         tile_ax.axis("off")
 
-        _segmentation_overlay(seg_ax, event.image_2d, event.masks)
-        seg_ax.set_title(
-            f"Segmentation ({event.n_cells} cells)",
-            fontsize=_FONT_PANEL_TITLE, color=_COLOR_INK_BODY,
+        # Segmentation panel (shared per-panel helper).
+        _render_tile_segmentation_panel(
+            seg_ax, event.image_2d, event.masks, event.n_cells,
+            title_fontsize=_FONT_PANEL_TITLE,
         )
-        seg_ax.axis("off")
 
         fig.suptitle(
             f"{prefix}Tile R{rid} r{row}c{col}  ·  {event.n_cells} cells",
             fontsize=_FONT_TITLE, fontweight="bold",
             color=_COLOR_INK_PRIMARY,
         )
-        plt.tight_layout()
+        # constrained_layout=True at figure creation handles spacing;
+        # set_aspect("equal") + invert_yaxis() in the field panel no
+        # longer triggers a tight_layout UserWarning.
 
         if live_display:
             display(fig)
@@ -388,7 +520,7 @@ def display_selection(
         _pick_example_crops(selection.selected_picks, n=6) if has_crops else []
     )
 
-    fig, scatter_ax, crop_axes = _build_selection_figure_layout(
+    fig, scatter_ax, crop_axes, header_ax = _build_selection_figure_layout(
         has_crops, plt, GridSpec,
     )
 
@@ -398,18 +530,23 @@ def display_selection(
         _render_scatter(scatter_ax, selection, crops_to_show)
 
         if has_crops:
-            tile_cache: dict[tuple, np.ndarray | None] = {}
+            # _load_tile_by_key owns the cache: tile_key -> loaded tuple.
+            # We only need image_2d for each crop; the helper caches the
+            # full tuple so display_target can reuse if the same cache
+            # is shared (not the case here -- display_selection's cache
+            # is local to this call).
+            tile_cache: dict = {}
             for ax, pick in zip(crop_axes, crops_to_show):
                 tile_key = (pick.pick_id[0], pick.pick_id[1], pick.pick_id[2])
-                if tile_key not in tile_cache:
-                    tile_cache[tile_key] = _load_tile_image_for_crop(
-                        analysis_dir, tile_key,
-                    )
-                _render_crop(ax, pick, tile_key, tile_cache[tile_key], Rectangle)
+                loaded = _load_tile_by_key(
+                    analysis_dir, tile_key, tile_cache=tile_cache,
+                )
+                img = loaded[0] if loaded is not None else None
+                _render_crop(ax, pick, tile_key, img, Rectangle)
             for ax in crop_axes[len(crops_to_show):]:
                 ax.set_visible(False)
 
-        _render_figure_titles(fig, selection)
+        _render_figure_titles(header_ax, selection)
 
         if feedback_dir is not None:
             feedback_dir.mkdir(parents=True, exist_ok=True)
@@ -427,55 +564,75 @@ def display_selection(
 
 
 def _build_selection_figure_layout(has_crops: bool, plt, GridSpec):
-    """Create the figure and return (fig, scatter_ax, crop_axes).
+    """Create the figure and return (fig, scatter_ax, crop_axes, header_ax).
 
     Two variants:
-      with_crops:   2-row grid, scatter on top spanning 6 columns, 6 crops below
-      no_crops:     scatter only, tighter aspect
+      with_crops: 3-row grid (header / scatter / 6 crops)
+      no_crops:   2-row grid (header / scatter)
 
-    Margins (top/bottom/left/right) are chosen so the title block at the
-    top has fixed pixel headroom regardless of which variant is used.
+    The header row is a dedicated invisible axes that owns the title +
+    subtitle + caption text. Replaces the previous design where titles
+    were placed at hardcoded figure-coords (y = 0.955 / 0.920 / 0.890)
+    while the gridspec top margin changed between variants -- a recipe
+    for drift. constrained_layout=True lets matplotlib size the rows
+    without manual margin tuning.
     """
     if has_crops:
-        fig = plt.figure(figsize=(14, 9))
+        fig = plt.figure(figsize=(14, 9), constrained_layout=True)
         gs = GridSpec(
-            2, 6,
-            height_ratios=[2.2, 1.0],
-            hspace=0.40, wspace=0.18,
+            3, 6,
+            height_ratios=[0.55, 2.2, 1.0],
+            hspace=0.30, wspace=0.18,
             figure=fig,
-            top=0.86, bottom=0.06, left=0.06, right=0.98,
         )
-        scatter_ax = fig.add_subplot(gs[0, :])
-        crop_axes = [fig.add_subplot(gs[1, c]) for c in range(6)]
+        header_ax = fig.add_subplot(gs[0, :])
+        scatter_ax = fig.add_subplot(gs[1, :])
+        crop_axes = [fig.add_subplot(gs[2, c]) for c in range(6)]
     else:
-        fig = plt.figure(figsize=(10, 7))
+        fig = plt.figure(figsize=(10, 7), constrained_layout=True)
         gs = GridSpec(
-            1, 1,
+            2, 1,
+            height_ratios=[0.55, 4.0],
             figure=fig,
-            top=0.83, bottom=0.10, left=0.10, right=0.96,
         )
-        scatter_ax = fig.add_subplot(gs[0, 0])
+        header_ax = fig.add_subplot(gs[0, 0])
+        scatter_ax = fig.add_subplot(gs[1, 0])
         crop_axes = []
-    return fig, scatter_ax, crop_axes
+
+    header_ax.set_xticks([])
+    header_ax.set_yticks([])
+    header_ax.set_facecolor("white")
+    for spine in header_ax.spines.values():
+        spine.set_visible(False)
+    return fig, scatter_ax, crop_axes, header_ax
 
 
-def _render_figure_titles(fig, selection) -> None:
-    """Three text blocks above the scatter, vertically stacked at fixed y."""
-    fig.text(
-        0.5, 0.955, "Target discovery",
-        ha="center", fontsize=_FONT_TITLE, fontweight="bold",
+def _render_figure_titles(header_ax, selection) -> None:
+    """Title + subtitle + caption stacked in the header gridspec row.
+
+    Uses axes-relative coordinates (ax.transAxes) so the text scales
+    with the gridspec row, not with the figure. Replaces the previous
+    fig.text(0.5, 0.955/0.920/0.890, ...) design that drifted when the
+    gridspec top margin changed between variants.
+    """
+    header_ax.text(
+        0.5, 0.85, "Target discovery",
+        ha="center", va="top", transform=header_ax.transAxes,
+        fontsize=_FONT_TITLE, fontweight="bold",
         color=_COLOR_INK_PRIMARY,
     )
-    fig.text(
-        0.5, 0.920,
+    header_ax.text(
+        0.5, 0.50,
         f"{selection.n_final} picks  ·  "
         f"{selection.n_qualifying} qualifying  ·  "
         f"{selection.n_total} cells",
-        ha="center", fontsize=_FONT_SUBTITLE, color=_COLOR_INK_BODY,
+        ha="center", va="top", transform=header_ax.transAxes,
+        fontsize=_FONT_PANEL_TITLE, color=_COLOR_INK_BODY,
     )
-    fig.text(
-        0.5, 0.890, _format_provenance(selection),
-        ha="center", fontsize=_FONT_CAPTION, color=_COLOR_INK_CAPTION,
+    header_ax.text(
+        0.5, 0.15, _format_provenance(selection),
+        ha="center", va="top", transform=header_ax.transAxes,
+        fontsize=_FONT_CAPTION, color=_COLOR_INK_CAPTION,
     )
 
 
@@ -508,14 +665,26 @@ def _format_threshold(name: str, value: float, auto: bool, *, suffix: str = "") 
 def _classify_cells_for_scatter(
     selection, crops_to_show: list,
 ) -> dict[str, np.ndarray]:
-    """Partition all_cells_* indices into 5 mutually-exclusive masks.
+    """Partition all_cells_* indices into 5 mutually-exclusive masks
+    for scatter rendering.
 
-    Priority (later wins; earlier categories are pre-empted by later ones):
-      near_border < below < qualifying < selected < shown
+    Categories (mutually exclusive by construction):
+      near_border — cells whose bbox is within border_margin_px of any
+                    tile edge; force-excluded from `qualifying_mask`
+                    upstream. Surfaced here so the operator can see
+                    how many cells dropped at the tile edge.
+      below       — failed the area or intensity threshold AND not
+                    near-border.
+      qualifying  — passed thresholds but not in the final picks (lost
+                    to dedup, out-of-limits, or per-tile sampling).
+      selected    — in final picks but not rendered as a crop in the
+                    strip below the scatter.
+      shown       — in final picks AND rendered as a crop.
 
-    near_border cells were force-excluded from qualifying upstream;
-    they sit in their own bucket so the operator can see how many cells
-    were dropped for being too close to a tile edge.
+    The masks are constructed by boolean set math against the upstream
+    masks (`qualifying_mask`, `near_border_mask`) and the
+    `selected_picks` / `crops_to_show` sets. The 5 categories partition
+    `all_cells_*` exactly (no overlap, no gaps among detected cells).
     """
     n = int(selection.all_cells_area.size)
     if n == 0:
@@ -622,7 +791,7 @@ def _render_scatter(ax, selection, crops_to_show: list) -> None:
 
     leg = ax.legend(
         loc="upper left", fontsize=_FONT_LEGEND, framealpha=0.95,
-        facecolor="white", edgecolor="#D0D5DC", labelcolor=_COLOR_INK_BODY,
+        facecolor="white", edgecolor=_COLOR_LEGEND_EDGE, labelcolor=_COLOR_INK_BODY,
     )
     leg.get_frame().set_linewidth(0.6)
 
@@ -631,29 +800,25 @@ def _render_scatter(ax, selection, crops_to_show: list) -> None:
         ax.text(
             0.5, 0.04, annotation,
             ha="center", transform=ax.transAxes,
-            fontsize=_FONT_ANNOTATION, color=_COLOR_SHOWN, fontweight="bold",
+            fontsize=_FONT_ANNOTATION, color=_COLOR_PICK_SHOWN, fontweight="bold",
             bbox=dict(boxstyle="round,pad=0.4", facecolor="white",
-                      edgecolor=_COLOR_SHOWN, linewidth=0.8, alpha=0.95),
+                      edgecolor=_COLOR_PICK_SHOWN, linewidth=0.8, alpha=0.95),
         )
-
-
-_MODE_ANNOTATIONS: dict[str, str] = {
-    MODE_NO_QUALIFYING: "Zero cells qualified — adjust thresholds and re-run.",
-    MODE_SPARSE: "Sparse sample: thresholds skipped, all non-border cells treated as qualifying.",
-    MODE_EMPTY: "No cells detected in this overview.",
-}
 
 
 def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
     """Render one fixed-size crop with the cell's bbox outlined in red.
 
-    Always _CROP_SIZE_PX x _CROP_SIZE_PX. The crop window is centered on
-    the cell when possible; near the image edge the window shifts inward
-    to stay fully inside the image (so the cell appears off-center but
-    is NEVER cut off / zero-padded). Cells inside `border_margin_px`
-    of any edge should normally be filtered upstream so they don't get
-    selected at all -- this shift-not-pad logic is the fallback for
-    `border_margin_px=0`."""
+    The crop is at most `_CROP_SIZE_PX` square (see `_safe_crop_window`
+    for the off-edge clamping; smaller images yield a smaller crop).
+    The window is centered on the cell when possible; near the image
+    edge the window shifts inward to stay fully inside the image, so
+    the cell appears off-center but is never cut off / zero-padded.
+    This shift-not-pad behavior is the primary mechanism for edge cells
+    -- with `border_margin_px=0` the selection pipeline allows edge
+    cells through, and this is how they get rendered. Cells inside
+    `border_margin_px > 0` are normally filtered upstream and never
+    reach the crop strip."""
     if img is None:
         ax.set_facecolor(_COLOR_PANEL_FALLBACK)
         ax.text(
@@ -682,7 +847,7 @@ def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
     ax.add_patch(Rectangle(
         (x0 - x_origin - 0.5, y0 - y_origin - 0.5),
         max(1, x1 - x0), max(1, y1 - y0),
-        fill=False, edgecolor=_COLOR_SHOWN, linewidth=1.4,
+        fill=False, edgecolor=_COLOR_PICK_SHOWN, linewidth=1.4,
     ))
 
     rid, row, col = tile_key
@@ -692,9 +857,13 @@ def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
     )
     ax.set_xticks([])
     ax.set_yticks([])
+    # Crop frame is a subtle neutral gray so the red bbox rectangle drawn
+    # above stays the visually-dominant cue. Coloring the frame the same
+    # as the bbox makes the two read as one fat red border at 96x96 and
+    # swallows the bbox-specific signal.
     for spine in ax.spines.values():
-        spine.set_color(_COLOR_SHOWN)
-        spine.set_linewidth(1.2)
+        spine.set_color(_COLOR_RULE)
+        spine.set_linewidth(1.0)
 
 
 def _safe_crop_window(
@@ -761,24 +930,79 @@ def _pick_example_crops(picks: list, n: int = 6) -> list:
     return out
 
 
-def _load_tile_image_for_crop(
-    analysis_dir: Path, tile_key: tuple,
-) -> np.ndarray | None:
-    """Load image_2d for one tile by scanning v2 NPZ files. Returns None
-    if not found or unreadable."""
-    if not analysis_dir.exists():
-        return None
-    for npz_path in sorted(analysis_dir.glob("*.npz")):
-        try:
-            with np.load(npz_path, allow_pickle=True) as data:
-                if "tile_id" not in data.files:
-                    continue
-                tid = tuple(str(x) for x in data["tile_id"])
-                if (tid[0], int(tid[1]), int(tid[2])) == tile_key:
-                    return np.asarray(data["image_2d"])
-        except Exception:
-            continue
-    return None
+def _render_tile_segmentation_panel(
+    ax,
+    image_2d: np.ndarray,
+    masks: np.ndarray,
+    n_cells: int,
+    *,
+    title_fontsize: int = _FONT_PANEL_TITLE,
+) -> None:
+    """Per-panel renderer: tile image + cellpose mask overlay + title.
+
+    Composed by display_tile (Step 3, live) and plot_overview_tiles
+    (Step 4b, batch). Wraps the shared `_segmentation_overlay` plus
+    the panel title and axis("off") boilerplate.
+    """
+    _segmentation_overlay(ax, image_2d, masks)
+    ax.set_title(
+        f"Segmentation ({n_cells} cells)",
+        fontsize=title_fontsize, color=_COLOR_INK_BODY,
+    )
+    ax.axis("off")
+
+
+def _render_target_crop_panel(
+    ax,
+    pick,
+    record: "TargetRecord",
+    tile_data: tuple | None,
+    target_img: np.ndarray | None,
+    *,
+    title_fontsize: int = _FONT_PANEL_TITLE,
+) -> None:
+    """Per-panel renderer: centroid-centered crop at target FOV + title.
+
+    Composed by display_target (live) and plot_target_pairs (batch).
+    Falls back to an "N/A" placeholder when pick or tile_data is None.
+    """
+    if pick is not None and tile_data is not None:
+        image_2d = tile_data[0]
+        crop = _centroid_crop_at_target_fov(image_2d, pick, record, target_img)
+        ax.imshow(crop, cmap="gray")
+    else:
+        ax.text(0.5, 0.5, "N/A", ha="center", va="center",
+                transform=ax.transAxes,
+                fontsize=_FONT_PLACEHOLDER,
+                color=_COLOR_NA_PLACEHOLDER)
+    ax.set_title(
+        f"Overview crop (label {record.pick_id[3]})",
+        fontsize=title_fontsize,
+    )
+    ax.axis("off")
+
+
+def _render_highres_target_panel(
+    ax,
+    target_img: np.ndarray | None,
+    *,
+    title_fontsize: int = _FONT_PANEL_TITLE,
+) -> None:
+    """Per-panel renderer: high-res target image + title.
+
+    Composed by display_target and plot_target_pairs. Falls back to an
+    "N/A" placeholder when target_img is None (acquisition failure or
+    unreadable tif).
+    """
+    if target_img is not None:
+        ax.imshow(target_img, cmap="gray")
+    else:
+        ax.text(0.5, 0.5, "N/A", ha="center", va="center",
+                transform=ax.transAxes,
+                fontsize=_FONT_PLACEHOLDER,
+                color=_COLOR_NA_PLACEHOLDER)
+    ax.set_title("High-res target", fontsize=title_fontsize)
+    ax.axis("off")
 
 
 def display_target(
@@ -815,27 +1039,25 @@ def display_target(
 
     tile_key = _normalize_tile_key(record.pick_id[:3])
 
-    if tile_cache is not None and tile_key in tile_cache:
-        tile_data = tile_cache[tile_key]
-    else:
-        tile_data = None
-        for npz_path in analysis_dir.glob("*.npz"):
-            loaded = _load_tile_npz(npz_path)
-            if loaded is not None and _normalize_tile_key(loaded[2]) == tile_key:
-                tile_data = loaded
-                break
-        if tile_cache is not None:
-            tile_cache[tile_key] = tile_data
+    # Single tile-lookup helper. When tile_cache is shared across calls
+    # (e.g. acquire_targets's default callback) the path index is built
+    # once and reused; per-tile loads are O(1) thereafter.
+    tile_data = _load_tile_by_key(
+        analysis_dir, tile_key, tile_cache=tile_cache,
+    )
 
     target_img = None
     if record.tif_path is not None:
         try:
             target_img = tifffile.imread(str(record.tif_path))
             target_img = _ensure_2d(target_img)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(
+                f"[visualize] WARNING: could not read target TIF "
+                f"{record.tif_path}: {exc}"
+            )
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
     # Figure-ownership flag for the queued-save path; see display_tile.
     transferred = False
     try:
@@ -873,47 +1095,33 @@ def display_target(
 
             axes[0].add_patch(patches.Rectangle(
                 (c0, r0), crop_w, crop_h,
-                edgecolor="red", facecolor="none",
+                edgecolor=_COLOR_PICK_SHOWN, facecolor="none",
                 linewidth=1.5, zorder=10,
             ))
         elif tile_data is not None:
             axes[0].imshow(tile_data[0], cmap="gray")
         else:
             axes[0].text(0.5, 0.5, "N/A", ha="center", va="center",
-                         transform=axes[0].transAxes, fontsize=12,
-                         color="#999999")
-        axes[0].set_title("Overview tile", fontsize=11)
+                         transform=axes[0].transAxes,
+                         fontsize=_FONT_PLACEHOLDER,
+                         color=_COLOR_NA_PLACEHOLDER)
+        axes[0].set_title("Overview tile", fontsize=_FONT_PANEL_TITLE)
         axes[0].axis("off")
 
-        # Middle: centroid crop at target FOV
-        if pick is not None and tile_data is not None:
-            image_2d = tile_data[0]
-            crop = _centroid_crop_at_target_fov(
-                image_2d, pick, record, target_img,
-            )
-            axes[1].imshow(crop, cmap="gray")
-        else:
-            axes[1].text(0.5, 0.5, "N/A", ha="center", va="center",
-                         transform=axes[1].transAxes, fontsize=12,
-                         color="#999999")
-        axes[1].set_title(f"Overview crop (label {record.pick_id[3]})",
-                          fontsize=11)
-        axes[1].axis("off")
+        # Middle: centroid crop at target FOV (shared per-panel helper)
+        _render_target_crop_panel(
+            axes[1], pick, record, tile_data, target_img,
+            title_fontsize=_FONT_PANEL_TITLE,
+        )
 
-        # Right: acquired high-res target
-        if target_img is not None:
-            axes[2].imshow(target_img, cmap="gray")
-        else:
-            axes[2].text(0.5, 0.5, "N/A", ha="center", va="center",
-                         transform=axes[2].transAxes, fontsize=12,
-                         color="#999999")
-        axes[2].set_title("High-res target", fontsize=11)
-        axes[2].axis("off")
+        # Right: acquired high-res target (shared per-panel helper)
+        _render_highres_target_panel(
+            axes[2], target_img, title_fontsize=_FONT_PANEL_TITLE,
+        )
 
         rid, row, col, label = record.pick_id
         fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
-                     fontsize=13, fontweight="bold")
-        plt.tight_layout()
+                     fontsize=_FONT_FIGURE_TITLE, fontweight="bold")
 
         if live_display:
             display(fig)
@@ -988,26 +1196,28 @@ def plot_overview_tiles(
         n_cells = int(masks.max())
         is_mock = source != "acquired"
 
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
         fig.patch.set_facecolor("white")
 
         axes[0].imshow(image_2d, cmap="gray")
-        axes[0].set_title("Tile image", fontsize=11)
+        axes[0].set_title("Tile image", fontsize=_FONT_PANEL_TITLE)
         axes[0].axis("off")
 
-        _segmentation_overlay(axes[1], image_2d, masks)
-        axes[1].set_title(f"Segmentation ({n_cells} cells)", fontsize=11)
-        axes[1].axis("off")
+        # Segmentation panel (shared per-panel helper).
+        _render_tile_segmentation_panel(
+            axes[1], image_2d, masks, n_cells,
+            title_fontsize=_FONT_PANEL_TITLE,
+        )
 
         _picked_overlay(axes[2], image_2d, masks, labels)
-        axes[2].set_title(f"Picked ({len(labels)})", fontsize=11)
+        axes[2].set_title(f"Picked ({len(labels)})",
+                          fontsize=_FONT_PANEL_TITLE)
         axes[2].axis("off")
 
         rid, row, col = tile_id
         prefix = "(mock) " if is_mock else ""
         fig.suptitle(f"{prefix}Tile R{rid} r{row}c{col}",
-                     fontsize=13, fontweight="bold")
-        plt.tight_layout()
+                     fontsize=_FONT_FIGURE_TITLE, fontweight="bold")
 
         if feedback_dir is not None:
             fig.savefig(
@@ -1057,10 +1267,13 @@ def plot_target_pairs(
         try:
             target_img = tifffile.imread(str(rec.tif_path))
             target_img = _ensure_2d(target_img)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(
+                f"[visualize] WARNING: could not read target TIF "
+                f"{rec.tif_path}: {exc}"
+            )
 
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
         try:
             fig.patch.set_facecolor("white")
 
@@ -1071,44 +1284,31 @@ def plot_target_pairs(
                 if pick is not None:
                     cx, cy = pick.centroid_col_row_px
                     axes[0].scatter(cx, cy, s=60, marker="o",
-                                    facecolor="red", edgecolor="white",
+                                    facecolor=_COLOR_PICK_SHOWN,
+                                    edgecolor="white",
                                     linewidth=0.8, zorder=10)
             else:
                 axes[0].text(0.5, 0.5, "N/A", ha="center", va="center",
-                             transform=axes[0].transAxes, fontsize=12,
-                             color="#999999")
-            axes[0].set_title("Overview tile", fontsize=9)
+                             transform=axes[0].transAxes,
+                             fontsize=_FONT_PLACEHOLDER,
+                             color=_COLOR_NA_PLACEHOLDER)
+            axes[0].set_title("Overview tile", fontsize=_FONT_CROP_TITLE)
             axes[0].axis("off")
 
-            # Middle: centroid crop at target FOV
-            if pick is not None and tile_data is not None:
-                image_2d = tile_data[0]
-                crop = _centroid_crop_at_target_fov(
-                    image_2d, pick, rec, target_img,
-                )
-                axes[1].imshow(crop, cmap="gray")
-            else:
-                axes[1].text(0.5, 0.5, "N/A", ha="center", va="center",
-                             transform=axes[1].transAxes, fontsize=12,
-                             color="#999999")
-            axes[1].set_title(
-                f"Overview crop (label {rec.pick_id[3]})", fontsize=9)
-            axes[1].axis("off")
+            # Middle: centroid crop at target FOV (shared per-panel helper)
+            _render_target_crop_panel(
+                axes[1], pick, rec, tile_data, target_img,
+                title_fontsize=_FONT_CROP_TITLE,
+            )
 
-            # Right: acquired high-res target
-            if target_img is not None:
-                axes[2].imshow(target_img, cmap="gray")
-            else:
-                axes[2].text(0.5, 0.5, "N/A", ha="center", va="center",
-                             transform=axes[2].transAxes, fontsize=12,
-                             color="#999999")
-            axes[2].set_title("High-res target", fontsize=9)
-            axes[2].axis("off")
+            # Right: acquired high-res target (shared per-panel helper)
+            _render_highres_target_panel(
+                axes[2], target_img, title_fontsize=_FONT_CROP_TITLE,
+            )
 
             rid, row, col, label = rec.pick_id
             fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
-                         fontsize=13, fontweight="bold")
-            plt.tight_layout()
+                         fontsize=_FONT_FIGURE_TITLE, fontweight="bold")
 
             if feedback_dir is not None:
                 fig.savefig(
@@ -1122,6 +1322,46 @@ def plot_target_pairs(
 
 
 # ─── Internal helpers ────────────────────────────────────────────
+
+
+_TILE_INDEX_SENTINEL = ("__path_index__",)
+
+
+def _load_tile_by_key(
+    analysis_dir: Path,
+    tile_key: tuple,
+    *,
+    tile_cache: dict | None = None,
+):
+    """Load a tile npz by tile_key. Returns (image_2d, masks, tile_id,
+    source) or None if not found / unreadable.
+
+    Single tile-lookup helper. Uses _build_tile_path_index for the
+    tile_id -> path map and _load_tile_npz for the per-path read; both
+    are also exposed for callers that iterate the directory directly
+    (plot_overview_tiles, plot_target_pairs).
+
+    When tile_cache is provided, it doubles as the per-call cache:
+      tile_cache[_TILE_INDEX_SENTINEL] holds the path index once built;
+      tile_cache[tile_key]             holds each tile's loaded tuple.
+    Subsequent calls with the same tile_key are O(1).
+    """
+    if tile_cache is not None and tile_key in tile_cache:
+        return tile_cache[tile_key]
+
+    index = None
+    if tile_cache is not None:
+        index = tile_cache.get(_TILE_INDEX_SENTINEL)
+    if index is None:
+        index = _build_tile_path_index(analysis_dir)
+        if tile_cache is not None:
+            tile_cache[_TILE_INDEX_SENTINEL] = index
+
+    path = index.get(tile_key)
+    loaded = _load_tile_npz(path) if path is not None else None
+    if tile_cache is not None:
+        tile_cache[tile_key] = loaded
+    return loaded
 
 
 def _load_tile_npz(path: Path):
@@ -1155,7 +1395,11 @@ def _build_tile_path_index(
             with np.load(npz_path, allow_pickle=True) as data:
                 tile_id = _normalize_tile_key(data["tile_id"])
                 index[tile_id] = npz_path
-        except Exception:
+        except Exception as exc:
+            print(
+                f"[visualize] WARNING: could not index "
+                f"{npz_path.name}: {exc}"
+            )
             continue
     return index
 
