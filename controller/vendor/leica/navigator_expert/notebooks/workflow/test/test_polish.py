@@ -1,13 +1,32 @@
-"""Regression tests for the smoke-test polish commits on try/all-four.
+"""Regression tests for the visualize / template polish behaviors.
 
-Each test pins one behavior introduced by a specific commit so the
-visual / structural choice doesn't silently regress in a future pass.
+Each test pins one behavior so a future refactor cannot silently
+revert it:
 
-  alpha-default          -> commit 2a2e4aa (TileStyle.alpha None)
-  padding_factor effect  -> commit 958d291 (render_scan_field_panel param)
-  plot_stage_envelope    -> commit 4a1923a + 46e818e (boundary + fallback)
-  scatter single layer   -> commit 762f31d (collapse to selected-only)
-  plot_results orphan    -> commit 9a95421 (skip picks without records)
+  TileStyle.alpha default + dispatch
+      Pins that an rgba face color with an embedded alpha channel
+      survives matplotlib's Patch construction inside
+      render_scan_field_panel. Required for tile-overlap visibility
+      in plot_scan_field.
+
+  render_scan_field_panel padding_factor
+      Pins that the parameter scales axis padding linearly. A pass
+      that hardcoded 0.05 again would fail this test.
+
+  plot_stage_envelope dispatch (boundary set + deferred-fallback)
+      Pins that the function uses ctx.boundary_limits when set and
+      falls back to drv.get_stage_limits() when None. The fallback
+      keeps Step 2a working on the deferred-limits path.
+
+  scatter single-layer invariant
+      Pins that _LAYERS contains exactly one structural entry keyed
+      "selected". Re-adding near-border / below / qualifying layers
+      would fail this test.
+
+  plot_results orphan-pick skip
+      Pins that picks without a matching TargetRecord do not appear
+      in the "acquired" category, so the on-field marker count never
+      exceeds len(records).
 """
 from __future__ import annotations
 
@@ -17,30 +36,29 @@ from unittest import mock
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import numpy as np
 
 
-# ─── alpha-default ────────────────────────────────────────────────
+# ─── TileStyle.alpha behavior ─────────────────────────────────────
 
 
-def test_tile_style_alpha_defaults_to_none():
-    """TileStyle.alpha=None lets the rgba face's own alpha govern.
-    A default of 1.0 silently overrides 0.25-alpha fills and kills
-    tile-overlap visibility in plot_scan_field.
+def test_tile_style_alpha_default_and_rgba_passthrough():
+    """TileStyle.alpha=None lets the rgba face's own alpha govern the
+    rendered patch. The previous default of 1.0 silently overrode
+    0.25-alpha fills and killed tile-overlap visibility.
+
+    Verified end-to-end: build a TileStyle with an rgba face that has
+    alpha=0.25, render through render_scan_field_panel, and confirm
+    the resulting Rectangle patch's alpha is None (so matplotlib
+    composites with the rgba's own alpha channel rather than
+    overriding it).
     """
-    from workflow.visualize import TileStyle
+    from workflow.visualize import TileStyle, render_scan_field_panel
 
-    s = TileStyle(facecolor="none", edgecolor="white")
-    assert s.alpha is None
+    # Default-construction sanity
+    assert TileStyle(facecolor="none", edgecolor="white").alpha is None
 
-
-# ─── padding_factor effect ────────────────────────────────────────
-
-
-def test_render_scan_field_panel_padding_factor_widens_axes():
-    """A larger padding_factor must produce wider xlim than the default."""
-    from workflow.visualize import render_scan_field_panel
-
+    # Dispatch behavior: a rgba face must reach matplotlib with
+    # alpha kwarg == None so the channel survives.
     scan_field = {
         "n_tiles": 1,
         "tile_positions": {
@@ -50,23 +68,67 @@ def test_render_scan_field_panel_padding_factor_widens_axes():
             },
         },
     }
+    tid = ("0", 0, 0)
+    rgba_face = (0.4, 0.6, 0.8, 0.25)
+    styles = {tid: TileStyle(facecolor=rgba_face, edgecolor="black")}
+
+    fig, ax = plt.subplots()
+    try:
+        render_scan_field_panel(ax, scan_field, None, tile_styles=styles)
+        # The tile rectangle is the first patch added (boundary is None).
+        rect = ax.patches[0]
+        assert rect.get_alpha() is None, (
+            "TileStyle.alpha=None must reach matplotlib as alpha=None "
+            "so the rgba face's own alpha channel survives. "
+            f"Got alpha={rect.get_alpha()!r}."
+        )
+    finally:
+        plt.close(fig)
+
+
+# ─── padding_factor effect ────────────────────────────────────────
+
+
+def test_render_scan_field_panel_padding_factor_scales_linearly():
+    """padding_factor must scale axis padding linearly (not just monotonic).
+    A broken implementation that doubled padding regardless of input
+    would pass a "greater than" check; the ratio assertion catches it.
+    """
+    from workflow.visualize import render_scan_field_panel
+
+    tile_size = 100.0
+    scan_field = {
+        "n_tiles": 1,
+        "tile_positions": {
+            "0": {
+                "tile_size_um": tile_size,
+                "positions": [{"row": 0, "col": 0, "x_um": 0.0, "y_um": 0.0}],
+            },
+        },
+    }
 
     fig1, ax1 = plt.subplots()
     render_scan_field_panel(ax1, scan_field, None, padding_factor=0.05)
-    xlim_default = ax1.get_xlim()
+    span_default = ax1.get_xlim()[1] - ax1.get_xlim()[0]
     plt.close(fig1)
 
     fig2, ax2 = plt.subplots()
     render_scan_field_panel(ax2, scan_field, None, padding_factor=0.20)
-    xlim_wide = ax2.get_xlim()
+    span_wide = ax2.get_xlim()[1] - ax2.get_xlim()[0]
     plt.close(fig2)
 
-    span_default = xlim_default[1] - xlim_default[0]
-    span_wide = xlim_wide[1] - xlim_wide[0]
-    assert span_wide > span_default
+    # Span = tile_size + 2 * padding. Padding-only ratio = 0.20 / 0.05 = 4.
+    padding_default = (span_default - tile_size) / 2
+    padding_wide = (span_wide - tile_size) / 2
+    assert padding_default > 0
+    ratio = padding_wide / padding_default
+    assert abs(ratio - 4.0) < 1e-6, (
+        f"padding_factor must scale linearly: 0.20 / 0.05 = 4x. "
+        f"Got ratio={ratio:.3f}."
+    )
 
 
-# ─── plot_stage_envelope ──────────────────────────────────────────
+# ─── plot_stage_envelope dispatch ─────────────────────────────────
 
 
 def _envelope_ctx(out_dir: Path, *, boundary_limits):
@@ -76,8 +138,11 @@ def _envelope_ctx(out_dir: Path, *, boundary_limits):
     return ctx
 
 
-def test_plot_stage_envelope_with_boundary(tmp_path):
-    """Happy path: ctx.boundary_limits set -> draw it, no driver call."""
+def test_plot_stage_envelope_with_boundary(tmp_path, monkeypatch):
+    """Happy path: ctx.boundary_limits set -> drawn directly, no
+    driver fallback call.
+    """
+    monkeypatch.setattr(plt, "show", lambda *a, **k: None)
     from workflow.template import plot_stage_envelope
     import navigator_expert.driver as drv
 
@@ -86,17 +151,17 @@ def test_plot_stage_envelope_with_boundary(tmp_path):
 
     with mock.patch.object(drv, "get_stage_limits") as get_limits:
         plot_stage_envelope(ctx)
-        # Boundary was provided -> no driver fallback call
         get_limits.assert_not_called()
 
     assert (tmp_path / "stage_envelope.png").exists()
 
 
-def test_plot_stage_envelope_falls_back_to_driver(tmp_path):
-    """Deferred path: ctx.boundary_limits=None -> drv.get_stage_limits().
-    Must not raise; must produce a figure using the driver-provided
-    envelope.
+def test_plot_stage_envelope_falls_back_to_driver(tmp_path, monkeypatch):
+    """Deferred path: ctx.boundary_limits=None -> drv.get_stage_limits()
+    is called and its return value is used as the envelope. The
+    function must not raise on this path.
     """
+    monkeypatch.setattr(plt, "show", lambda *a, **k: None)
     from workflow.template import plot_stage_envelope
     import navigator_expert.driver as drv
 
@@ -110,28 +175,33 @@ def test_plot_stage_envelope_falls_back_to_driver(tmp_path):
     assert (tmp_path / "stage_envelope.png").exists()
 
 
-# ─── scatter single layer ─────────────────────────────────────────
+# ─── scatter single-layer invariant ───────────────────────────────
 
 
 def test_scatter_layers_is_selected_only():
-    """_LAYERS collapsed to one entry (Selected). Any future addition
-    would re-introduce the visual noise we deliberately removed.
+    """_LAYERS is the structural invariant for the scatter: exactly
+    one entry, keyed "selected". The visible label is a UX choice and
+    intentionally not pinned here.
     """
     from workflow.visualize import _LAYERS
 
     assert len(_LAYERS) == 1
     assert _LAYERS[0].key == "selected"
-    assert _LAYERS[0].label == "Selected"
 
 
 # ─── plot_results orphan-pick skip ────────────────────────────────
 
 
-def test_plot_results_skips_picks_without_records(tmp_path):
+def test_plot_results_skips_picks_without_records(tmp_path, monkeypatch):
     """Picks without a matching TargetRecord must NOT plot as 'acquired'.
-    The pre-fix behavior silently bucketed orphan picks into the green
-    'acquired' category, inflating the on-field count.
+    The pre-fix code silently bucketed orphan picks into the "acquired"
+    category, inflating the on-field marker count.
+
+    Filters scatter calls by label="acquired" (the dict key in
+    plot_results' categories) rather than by hex color, so the test
+    survives palette changes.
     """
+    monkeypatch.setattr(plt, "show", lambda *a, **k: None)
     from workflow.overview import Pick, Picks
     from workflow.summary import plot_results
     from workflow.target import TargetRecord
@@ -186,14 +256,19 @@ def test_plot_results_skips_picks_without_records(tmp_path):
     real_scatter = matplotlib.axes.Axes.scatter
 
     def capturing_scatter(self, x, y, *args, **kwargs):
-        captured.append({"x": list(x), "color": kwargs.get("c")})
+        captured.append({"x": list(x), "label": kwargs.get("label")})
         return real_scatter(self, x, y, *args, **kwargs)
 
     with mock.patch.object(matplotlib.axes.Axes, "scatter", capturing_scatter):
         plot_results(ctx, focus_map, picks, records)
 
-    acquired_calls = [c for c in captured if c["color"] == "#22aa22"]
-    assert acquired_calls, "expected an 'acquired' scatter call (green)"
+    # plot_results uses label=f"{key} ({n})", e.g. "acquired (1)".
+    # Match by prefix so the test doesn't couple to the count.
+    acquired_calls = [
+        c for c in captured
+        if isinstance(c["label"], str) and c["label"].startswith("acquired")
+    ]
+    assert acquired_calls, "expected at least one 'acquired' scatter call"
     n_acquired = sum(len(c["x"]) for c in acquired_calls)
     assert n_acquired == 1, (
         f"expected 1 acquired marker (one record with success=True), "
