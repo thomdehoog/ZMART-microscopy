@@ -127,3 +127,34 @@ class TestBuildDefaultOnTargetCallback:
         first_cache = fake_display_target.call_args_list[0].kwargs["tile_cache"]
         second_cache = fake_display_target.call_args_list[1].kwargs["tile_cache"]
         assert first_cache is second_cache
+
+
+class TestAcquireTargetsEmptyPicks:
+    def test_empty_picks_does_not_construct_save_queue(self, monkeypatch):
+        """Empty Picks on the default save path must early-return without
+        ever instantiating a _FigureSaveQueue. The pre-fix version built
+        the queue first, then returned without shutdown, leaving an
+        unowned executor.
+        """
+        from workflow.overview import Picks
+        from workflow import target as target_mod
+        from workflow import _save_queue as save_queue_mod
+
+        construct_count = {"n": 0}
+        real_init = save_queue_mod._FigureSaveQueue.__init__
+
+        def counting_init(self, *args, **kwargs):
+            construct_count["n"] += 1
+            real_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(
+            save_queue_mod._FigureSaveQueue, "__init__", counting_init,
+        )
+
+        ctx = MagicMock(name="ctx")
+        result = target_mod.acquire_targets(ctx, Picks(items=[]))
+
+        assert result == []
+        assert construct_count["n"] == 0
+        assert ctx.target_state is not None
+        assert ctx.target_state.started is False
