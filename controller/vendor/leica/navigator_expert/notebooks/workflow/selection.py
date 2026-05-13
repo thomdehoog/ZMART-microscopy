@@ -42,17 +42,23 @@ class SelectionResult:
     all_cells_labels: np.ndarray
     all_cells_tile_ids: list[tuple[str, int, int]]
     qualifying_mask: np.ndarray
+    # True for cells whose bbox is within border_margin_px of any tile edge.
+    # These cells are excluded from `qualifying_mask` (cannot be picked) but
+    # remain in all_cells_* so display can show them as a distinct category.
+    near_border_mask: np.ndarray
 
     # Thresholds + provenance
     area_threshold: float
     intensity_threshold: float
     area_threshold_auto: bool
     intensity_threshold_auto: bool
+    border_margin_px: int
     seed_material: str
     mode: str
 
     # Per-stage accounting (global)
     n_total: int
+    n_near_border: int
     n_qualifying: int
     n_selected_pre_dedup: int
     n_removed_duplicate: int
@@ -196,9 +202,15 @@ def select_targets(
     area_threshold: float | None = None,
     intensity_threshold: float | None = None,
     min_cells_for_threshold: int = 10,
+    border_margin_px: int = 64,
     seed: int | None = None,
 ) -> tuple[Picks, SelectionResult]:
     """Global-threshold selection. Mode is global, not per-tile.
+
+    border_margin_px (default 64): cells whose bbox falls within this many
+    pixels of any tile edge are excluded from qualifying. Border cells have
+    truncated area/intensity stats (the cell extends beyond the field of
+    view) and produce unreliable picks. Set to 0 to disable the filter.
 
     NO_QUALIFYING returns zero picks. No random fallback -- operator sees
     the empty intersection in display_selection and adjusts.
@@ -229,6 +241,10 @@ def select_targets(
         (p.pick_id[0], p.pick_id[1], p.pick_id[2]) for p in all_picks
     ]
 
+    # Border-distance mask. Excluded from qualifying; preserved for display.
+    near_border_mask = _compute_near_border_mask(all_picks, border_margin_px)
+    n_near_border = int(near_border_mask.sum())
+
     area_threshold_auto = area_threshold is None
     intensity_threshold_auto = intensity_threshold is None
 
@@ -245,21 +261,26 @@ def select_targets(
         intensity_t = (
             0.0 if intensity_threshold_auto else float(intensity_threshold)
         )
-        qualifying_mask = np.ones(n_total, dtype=bool)
+        qualifying_mask = np.ones(n_total, dtype=bool) & ~near_border_mask
     else:
+        # Compute thresholds on non-border cells only — border cells have
+        # truncated stats and would skew the median. If all cells are
+        # near-border, n_qualifying will be 0 and mode flips to
+        # NO_QUALIFYING; no special-case needed.
+        non_border_areas = areas[~near_border_mask]
+        non_border_intensities = intensities[~near_border_mask]
         area_t = (
-            float(np.median(areas)) if area_threshold_auto
+            float(np.median(non_border_areas)) if area_threshold_auto
             else float(area_threshold)
         )
         intensity_t = (
-            float(np.median(intensities)) if intensity_threshold_auto
+            float(np.median(non_border_intensities)) if intensity_threshold_auto
             else float(intensity_threshold)
         )
-        qualifying_mask = (areas >= area_t) & (intensities >= intensity_t)
-        if int(qualifying_mask.sum()) == 0:
-            mode = MODE_NO_QUALIFYING
-        else:
-            mode = MODE_THRESHOLD
+        qualifying_mask = (
+            (areas >= area_t) & (intensities >= intensity_t) & ~near_border_mask
+        )
+        mode = MODE_THRESHOLD if int(qualifying_mask.sum()) > 0 else MODE_NO_QUALIFYING
 
     n_qualifying = int(qualifying_mask.sum())
 
@@ -316,13 +337,16 @@ def select_targets(
         all_cells_labels=labels,
         all_cells_tile_ids=cell_tile_ids,
         qualifying_mask=qualifying_mask,
+        near_border_mask=near_border_mask,
         area_threshold=area_t,
         intensity_threshold=intensity_t,
         area_threshold_auto=area_threshold_auto,
         intensity_threshold_auto=intensity_threshold_auto,
+        border_margin_px=int(border_margin_px),
         seed_material=seed_material,
         mode=mode,
         n_total=n_total,
+        n_near_border=n_near_border,
         n_qualifying=n_qualifying,
         n_selected_pre_dedup=n_selected_pre_dedup,
         n_removed_duplicate=len(removed_dup),
@@ -336,12 +360,37 @@ def select_targets(
     )
 
     print(
-        f"[step 4] mode={mode}, total={n_total}, qualifying={n_qualifying}, "
+        f"[step 4] mode={mode}, total={n_total} "
+        f"({n_near_border} near-border excluded), "
+        f"qualifying={n_qualifying}, "
         f"selected_pre_dedup={n_selected_pre_dedup}, final={len(final)} "
         f"(area_threshold={area_t:.1f} "
         f"{'auto' if area_threshold_auto else 'override'}, "
         f"intensity_threshold={intensity_t:.1f} "
-        f"{'auto' if intensity_threshold_auto else 'override'})"
+        f"{'auto' if intensity_threshold_auto else 'override'}, "
+        f"border_margin_px={border_margin_px})"
     )
 
     return picks, selection
+
+
+def _compute_near_border_mask(
+    all_picks: list[Pick], border_margin_px: int,
+) -> np.ndarray:
+    """True for picks whose bbox is within border_margin_px of any tile edge.
+
+    bbox_px convention is skimage regionprops: (y0, x0, y1, x1).
+    source_image_size_px is (width, height) -- (pixels_x, pixels_y).
+    """
+    if border_margin_px <= 0 or not all_picks:
+        return np.zeros(len(all_picks), dtype=bool)
+    mask = np.zeros(len(all_picks), dtype=bool)
+    for i, p in enumerate(all_picks):
+        y0, x0, y1, x1 = p.bbox_px
+        width, height = p.source_image_size_px
+        if (x0 < border_margin_px
+                or y0 < border_margin_px
+                or x1 > width - border_margin_px
+                or y1 > height - border_margin_px):
+            mask[i] = True
+    return mask
