@@ -235,15 +235,18 @@ def plot_results(
         "translation": {"color": "#cc4488", "marker": "d", "picks": []},
     }
 
-    # Surviving picks -> acquired or failed
+    # Surviving picks -> acquired or failed. Picks without a record
+    # (acquire_targets was interrupted or returned early before reaching
+    # them) are NOT shown as "acquired" -- the plot must never show more
+    # markers than there are actual TargetRecords.
     for pick in picks.items:
         rec = record_map.get(tuple(pick.pick_id))
-        if rec and rec.success:
+        if rec is None:
+            continue
+        if rec.success:
             categories["acquired"]["picks"].append(pick.cell_source_stage_xy_um)
-        elif rec:
-            categories["failed"]["picks"].append(pick.cell_source_stage_xy_um)
         else:
-            categories["acquired"]["picks"].append(pick.cell_source_stage_xy_um)
+            categories["failed"]["picks"].append(pick.cell_source_stage_xy_um)
 
     # Removed picks -> by reason
     for rp in picks.removed_picks:
