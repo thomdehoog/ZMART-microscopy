@@ -279,6 +279,62 @@ class TestDisplayTileSaveQueue:
         assert list(tmp_path.glob("live_tile_R*.png"))
 
 
+class TestDisplayTargetSaveQueue:
+    """Bundle A / A4b coverage symmetry: pin display_target's queued-
+    save ownership-transfer contract. display_target mirrors
+    display_tile's figure-ownership semantics -- when _save_queue is
+    provided and save_png=True, the worker takes ownership and closes
+    the figure; the producer's finally must not also close.
+
+    A4b initially shipped only the display_tile close-once test; this
+    closes the documented coverage gap for display_target.
+    """
+    def test_closes_figure_exactly_once_on_queued_path(
+        self, monkeypatch, tmp_path,
+    ):
+        """display_target with _save_queue + save_png=True transfers
+        figure ownership to the worker. The worker calls plt.close once
+        after savefig; the producer's finally must not also close.
+        """
+        import matplotlib.pyplot as plt
+        import IPython.display as ipy_display
+
+        monkeypatch.setattr(ipy_display, "display", MagicMock())
+
+        close_calls: list = []
+        real_close = plt.close
+
+        def counting_close(fig=None):
+            close_calls.append(id(fig) if fig is not None else None)
+            real_close(fig)
+
+        monkeypatch.setattr(plt, "close", counting_close)
+
+        from workflow._save_queue import _FigureSaveQueue
+        from workflow.visualize import display_target
+
+        analysis_dir = tmp_path / "analysis"
+        analysis_dir.mkdir()
+        feedback_dir = tmp_path / "feedback"
+
+        with _FigureSaveQueue() as queue:
+            display_target(
+                pick=None,                       # falls back to "N/A" panels
+                record=_make_target_record(),
+                analysis_dir=analysis_dir,
+                feedback_dir=feedback_dir,
+                live_display=False,
+                save_png=True,
+                _save_queue=queue,
+            )
+            # Queue __exit__ -> shutdown -> drain -> worker closes the fig.
+
+        # Exactly one close, performed by the worker.
+        assert len(close_calls) == 1
+        # And the PNG made it to disk.
+        assert list(feedback_dir.glob("live_target_R*.png"))
+
+
 class TestDisplayTargetFlags:
     def test_live_display_false_skips_inline_display(self, monkeypatch, tmp_path):
         """display_target with live_display=False builds the figure but
