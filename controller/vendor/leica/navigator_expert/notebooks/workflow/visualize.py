@@ -238,12 +238,21 @@ def display_tile(
     scan_field: dict | None = None,
     boundary_limits: dict | None = None,
     feedback_dir: Path | None = None,
+    live_display: bool = True,
+    save_png: bool = True,
 ) -> None:
     """Render one tile inline during overview acquisition.
 
     If `scan_field` is provided, render a 3-panel figure:
         Field-with-current-tile | Tile image | Segmentation
     Otherwise fall back to the original 2-panel layout (image | segmentation).
+
+    live_display: when False, build the figure but skip display(); useful
+        in batch mode where only the saved PNG matters.
+    save_png: when False, skip fig.savefig even if feedback_dir is set.
+        With save_png=False and live_display=False the call is no-op
+        rendering (figure built and closed without side effects);
+        run_overview avoids it entirely in that combination.
     """
     import matplotlib.pyplot as plt
     from IPython.display import display
@@ -297,14 +306,15 @@ def display_tile(
         )
         plt.tight_layout()
 
-        if feedback_dir is not None:
+        if feedback_dir is not None and save_png:
             feedback_dir.mkdir(parents=True, exist_ok=True)
             fig.savefig(
                 feedback_dir / f"live_tile_R{rid}_r{row}c{col}.png",
                 dpi=150,
             )
 
-        display(fig)
+        if live_display:
+            display(fig)
     finally:
         plt.close(fig)
 
