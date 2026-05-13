@@ -96,8 +96,8 @@ separates **detection bias** (out of `selection.py`'s scope) from
 
 ### 6. Scope statement
 
-Bundle C (`fix/selection-correctness`) addresses **deterministic
-correctness bugs** in `selection.py`:
+The selection-correctness pass in `workflow/selection.py` covers
+**deterministic correctness bugs**:
 
 - NaN thresholds from `np.median([])` when all cells are near-border.
 - Sparse-gate population mismatch (used `n_total`, computed median on
@@ -109,7 +109,7 @@ correctness bugs** in `selection.py`:
 - Missing validation of `border_margin_px < 0` and degenerate
   `source_image_size_px`.
 
-Bundle C **does not** address the bottom-of-tile bias, because that
-question needs **data, not code changes**. This file makes the
+The bottom-of-tile bias is **not** addressed by that pass, because
+the question needs **data, not code changes**. This file makes the
 deferral explicit rather than silent: the question is tracked here,
 to be closed in a follow-up once representative acquired data exists.
