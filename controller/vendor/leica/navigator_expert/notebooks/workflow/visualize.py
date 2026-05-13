@@ -203,7 +203,8 @@ def render_scan_field_panel(
     tile_bounds_by_region: dict[str, list[tuple[float, float, float, float]]] = {}
     max_tile_size = 0.0
 
-    if not tile_positions:
+    if not tile_positions and boundary_limits is None:
+        # Nothing to draw at all (no tiles, no envelope).
         ax.text(
             0.5, 0.5, "(no scan field)",
             ha="center", va="center", transform=ax.transAxes,
