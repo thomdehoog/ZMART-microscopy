@@ -505,14 +505,19 @@ def display_selection(
         _render_scatter(scatter_ax, selection, crops_to_show)
 
         if has_crops:
-            tile_cache: dict[tuple, np.ndarray | None] = {}
+            # _load_tile_by_key owns the cache: tile_key -> loaded tuple.
+            # We only need image_2d for each crop; the helper caches the
+            # full tuple so display_target can reuse if the same cache
+            # is shared (not the case here -- display_selection's cache
+            # is local to this call).
+            tile_cache: dict = {}
             for ax, pick in zip(crop_axes, crops_to_show):
                 tile_key = (pick.pick_id[0], pick.pick_id[1], pick.pick_id[2])
-                if tile_key not in tile_cache:
-                    tile_cache[tile_key] = _load_tile_image_for_crop(
-                        analysis_dir, tile_key,
-                    )
-                _render_crop(ax, pick, tile_key, tile_cache[tile_key], Rectangle)
+                loaded = _load_tile_by_key(
+                    analysis_dir, tile_key, tile_cache=tile_cache,
+                )
+                img = loaded[0] if loaded is not None else None
+                _render_crop(ax, pick, tile_key, img, Rectangle)
             for ax in crop_axes[len(crops_to_show):]:
                 ax.set_visible(False)
 
@@ -873,26 +878,6 @@ def _pick_example_crops(picks: list, n: int = 6) -> list:
     return out
 
 
-def _load_tile_image_for_crop(
-    analysis_dir: Path, tile_key: tuple,
-) -> np.ndarray | None:
-    """Load image_2d for one tile by scanning v2 NPZ files. Returns None
-    if not found or unreadable."""
-    if not analysis_dir.exists():
-        return None
-    for npz_path in sorted(analysis_dir.glob("*.npz")):
-        try:
-            with np.load(npz_path, allow_pickle=True) as data:
-                if "tile_id" not in data.files:
-                    continue
-                tid = tuple(str(x) for x in data["tile_id"])
-                if (tid[0], int(tid[1]), int(tid[2])) == tile_key:
-                    return np.asarray(data["image_2d"])
-        except Exception:
-            continue
-    return None
-
-
 def display_target(
     pick,
     record: TargetRecord,
@@ -927,17 +912,12 @@ def display_target(
 
     tile_key = _normalize_tile_key(record.pick_id[:3])
 
-    if tile_cache is not None and tile_key in tile_cache:
-        tile_data = tile_cache[tile_key]
-    else:
-        tile_data = None
-        for npz_path in analysis_dir.glob("*.npz"):
-            loaded = _load_tile_npz(npz_path)
-            if loaded is not None and _normalize_tile_key(loaded[2]) == tile_key:
-                tile_data = loaded
-                break
-        if tile_cache is not None:
-            tile_cache[tile_key] = tile_data
+    # Single tile-lookup helper. When tile_cache is shared across calls
+    # (e.g. acquire_targets's default callback) the path index is built
+    # once and reused; per-tile loads are O(1) thereafter.
+    tile_data = _load_tile_by_key(
+        analysis_dir, tile_key, tile_cache=tile_cache,
+    )
 
     target_img = None
     if record.tif_path is not None:
@@ -1244,6 +1224,46 @@ def plot_target_pairs(
 
 
 # ─── Internal helpers ────────────────────────────────────────────
+
+
+_TILE_INDEX_SENTINEL = ("__path_index__",)
+
+
+def _load_tile_by_key(
+    analysis_dir: Path,
+    tile_key: tuple,
+    *,
+    tile_cache: dict | None = None,
+):
+    """Load a tile npz by tile_key. Returns (image_2d, masks, tile_id,
+    source) or None if not found / unreadable.
+
+    Single tile-lookup helper. Uses _build_tile_path_index for the
+    tile_id -> path map and _load_tile_npz for the per-path read; both
+    are also exposed for callers that iterate the directory directly
+    (plot_overview_tiles, plot_target_pairs).
+
+    When tile_cache is provided, it doubles as the per-call cache:
+      tile_cache[_TILE_INDEX_SENTINEL] holds the path index once built;
+      tile_cache[tile_key]             holds each tile's loaded tuple.
+    Subsequent calls with the same tile_key are O(1).
+    """
+    if tile_cache is not None and tile_key in tile_cache:
+        return tile_cache[tile_key]
+
+    index = None
+    if tile_cache is not None:
+        index = tile_cache.get(_TILE_INDEX_SENTINEL)
+    if index is None:
+        index = _build_tile_path_index(analysis_dir)
+        if tile_cache is not None:
+            tile_cache[_TILE_INDEX_SENTINEL] = index
+
+    path = index.get(tile_key)
+    loaded = _load_tile_npz(path) if path is not None else None
+    if tile_cache is not None:
+        tile_cache[tile_key] = loaded
+    return loaded
 
 
 def _load_tile_npz(path: Path):
