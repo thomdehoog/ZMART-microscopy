@@ -211,6 +211,10 @@ def select_targets(
     pixels of any tile edge are excluded from qualifying. Border cells have
     truncated area/intensity stats (the cell extends beyond the field of
     view) and produce unreliable picks. Set to 0 to disable the filter.
+    When n_eligible == n_total - n_near_border == 0 (all cells near-border),
+    auto-thresholds default to the 0.0 sentinel and mode is forced to
+    MODE_NO_QUALIFYING; the on-disk run_summary.json stays strict-JSON-safe
+    (no NaN tokens).
 
     NO_QUALIFYING returns zero picks. No random fallback -- operator sees
     the empty intersection in display_selection and adjusts.
@@ -244,6 +248,7 @@ def select_targets(
     # Border-distance mask. Excluded from qualifying; preserved for display.
     near_border_mask = _compute_near_border_mask(all_picks, border_margin_px)
     n_near_border = int(near_border_mask.sum())
+    n_eligible = n_total - n_near_border
 
     area_threshold_auto = area_threshold is None
     intensity_threshold_auto = intensity_threshold is None
@@ -255,6 +260,17 @@ def select_targets(
             0.0 if intensity_threshold_auto else float(intensity_threshold)
         )
         qualifying_mask = np.zeros(0, dtype=bool)
+    elif n_eligible == 0:
+        # All cells are near-border. np.median([]) would return NaN and
+        # contaminate run_summary.json. Sentinel: thresholds = 0.0,
+        # mode = MODE_NO_QUALIFYING. Operator sees the empty intersection
+        # in display_selection and reduces border_margin_px or re-acquires.
+        mode = MODE_NO_QUALIFYING
+        area_t = 0.0 if area_threshold_auto else float(area_threshold)
+        intensity_t = (
+            0.0 if intensity_threshold_auto else float(intensity_threshold)
+        )
+        qualifying_mask = np.zeros(n_total, dtype=bool)
     elif n_total < min_cells_for_threshold:
         mode = MODE_SPARSE
         area_t = 0.0 if area_threshold_auto else float(area_threshold)
@@ -264,9 +280,8 @@ def select_targets(
         qualifying_mask = np.ones(n_total, dtype=bool) & ~near_border_mask
     else:
         # Compute thresholds on non-border cells only — border cells have
-        # truncated stats and would skew the median. If all cells are
-        # near-border, n_qualifying will be 0 and mode flips to
-        # NO_QUALIFYING; no special-case needed.
+        # truncated stats and would skew the median. The n_eligible == 0
+        # branch above guarantees non_border_areas is non-empty here.
         non_border_areas = areas[~near_border_mask]
         non_border_intensities = intensities[~near_border_mask]
         area_t = (
