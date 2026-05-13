@@ -129,7 +129,14 @@ class Context:
         )
 
     def shutdown(self) -> None:
-        """Idempotent shutdown (D20). Safe to call multiple times."""
+        """Idempotent shutdown (D20). Safe to call multiple times.
+
+        Scope: shuts down the analysis engine only. Does NOT disconnect
+        the LAS X client; that resource is connected once per session
+        (by workflow.connect_lasx() before the first preflight()) and
+        persists until the Python kernel restarts. To force a disconnect,
+        restart the kernel.
+        """
         if self._shutdown_done:
             return
         try:
