@@ -413,12 +413,11 @@ def display_tile(
         )
         tile_ax.axis("off")
 
-        _segmentation_overlay(seg_ax, event.image_2d, event.masks)
-        seg_ax.set_title(
-            f"Segmentation ({event.n_cells} cells)",
-            fontsize=_FONT_PANEL_TITLE, color=_COLOR_INK_BODY,
+        # Segmentation panel (shared per-panel helper).
+        _render_tile_segmentation_panel(
+            seg_ax, event.image_2d, event.masks, event.n_cells,
+            title_fontsize=_FONT_PANEL_TITLE,
         )
-        seg_ax.axis("off")
 
         fig.suptitle(
             f"{prefix}Tile R{rid} r{row}c{col}  ·  {event.n_cells} cells",
@@ -878,6 +877,81 @@ def _pick_example_crops(picks: list, n: int = 6) -> list:
     return out
 
 
+def _render_tile_segmentation_panel(
+    ax,
+    image_2d: np.ndarray,
+    masks: np.ndarray,
+    n_cells: int,
+    *,
+    title_fontsize: int = _FONT_PANEL_TITLE,
+) -> None:
+    """Per-panel renderer: tile image + cellpose mask overlay + title.
+
+    Composed by display_tile (Step 3, live) and plot_overview_tiles
+    (Step 4b, batch). Wraps the shared `_segmentation_overlay` plus
+    the panel title and axis("off") boilerplate.
+    """
+    _segmentation_overlay(ax, image_2d, masks)
+    ax.set_title(
+        f"Segmentation ({n_cells} cells)",
+        fontsize=title_fontsize, color=_COLOR_INK_BODY,
+    )
+    ax.axis("off")
+
+
+def _render_target_crop_panel(
+    ax,
+    pick,
+    record: "TargetRecord",
+    tile_data: tuple | None,
+    target_img: np.ndarray | None,
+    *,
+    title_fontsize: int = _FONT_PANEL_TITLE,
+) -> None:
+    """Per-panel renderer: centroid-centered crop at target FOV + title.
+
+    Composed by display_target (live) and plot_target_pairs (batch).
+    Falls back to an "N/A" placeholder when pick or tile_data is None.
+    """
+    if pick is not None and tile_data is not None:
+        image_2d = tile_data[0]
+        crop = _centroid_crop_at_target_fov(image_2d, pick, record, target_img)
+        ax.imshow(crop, cmap="gray")
+    else:
+        ax.text(0.5, 0.5, "N/A", ha="center", va="center",
+                transform=ax.transAxes,
+                fontsize=_FONT_PLACEHOLDER,
+                color=_COLOR_NA_PLACEHOLDER)
+    ax.set_title(
+        f"Overview crop (label {record.pick_id[3]})",
+        fontsize=title_fontsize,
+    )
+    ax.axis("off")
+
+
+def _render_highres_target_panel(
+    ax,
+    target_img: np.ndarray | None,
+    *,
+    title_fontsize: int = _FONT_PANEL_TITLE,
+) -> None:
+    """Per-panel renderer: high-res target image + title.
+
+    Composed by display_target and plot_target_pairs. Falls back to an
+    "N/A" placeholder when target_img is None (acquisition failure or
+    unreadable tif).
+    """
+    if target_img is not None:
+        ax.imshow(target_img, cmap="gray")
+    else:
+        ax.text(0.5, 0.5, "N/A", ha="center", va="center",
+                transform=ax.transAxes,
+                fontsize=_FONT_PLACEHOLDER,
+                color=_COLOR_NA_PLACEHOLDER)
+    ax.set_title("High-res target", fontsize=title_fontsize)
+    ax.axis("off")
+
+
 def display_target(
     pick,
     record: TargetRecord,
@@ -978,32 +1052,16 @@ def display_target(
         axes[0].set_title("Overview tile", fontsize=_FONT_PANEL_TITLE)
         axes[0].axis("off")
 
-        # Middle: centroid crop at target FOV
-        if pick is not None and tile_data is not None:
-            image_2d = tile_data[0]
-            crop = _centroid_crop_at_target_fov(
-                image_2d, pick, record, target_img,
-            )
-            axes[1].imshow(crop, cmap="gray")
-        else:
-            axes[1].text(0.5, 0.5, "N/A", ha="center", va="center",
-                         transform=axes[1].transAxes,
-                         fontsize=_FONT_PLACEHOLDER,
-                         color=_COLOR_NA_PLACEHOLDER)
-        axes[1].set_title(f"Overview crop (label {record.pick_id[3]})",
-                          fontsize=_FONT_PANEL_TITLE)
-        axes[1].axis("off")
+        # Middle: centroid crop at target FOV (shared per-panel helper)
+        _render_target_crop_panel(
+            axes[1], pick, record, tile_data, target_img,
+            title_fontsize=_FONT_PANEL_TITLE,
+        )
 
-        # Right: acquired high-res target
-        if target_img is not None:
-            axes[2].imshow(target_img, cmap="gray")
-        else:
-            axes[2].text(0.5, 0.5, "N/A", ha="center", va="center",
-                         transform=axes[2].transAxes,
-                         fontsize=_FONT_PLACEHOLDER,
-                         color=_COLOR_NA_PLACEHOLDER)
-        axes[2].set_title("High-res target", fontsize=_FONT_PANEL_TITLE)
-        axes[2].axis("off")
+        # Right: acquired high-res target (shared per-panel helper)
+        _render_highres_target_panel(
+            axes[2], target_img, title_fontsize=_FONT_PANEL_TITLE,
+        )
 
         rid, row, col, label = record.pick_id
         fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
@@ -1090,10 +1148,11 @@ def plot_overview_tiles(
         axes[0].set_title("Tile image", fontsize=_FONT_PANEL_TITLE)
         axes[0].axis("off")
 
-        _segmentation_overlay(axes[1], image_2d, masks)
-        axes[1].set_title(f"Segmentation ({n_cells} cells)",
-                          fontsize=_FONT_PANEL_TITLE)
-        axes[1].axis("off")
+        # Segmentation panel (shared per-panel helper).
+        _render_tile_segmentation_panel(
+            axes[1], image_2d, masks, n_cells,
+            title_fontsize=_FONT_PANEL_TITLE,
+        )
 
         _picked_overlay(axes[2], image_2d, masks, labels)
         axes[2].set_title(f"Picked ({len(labels)})",
@@ -1179,33 +1238,16 @@ def plot_target_pairs(
             axes[0].set_title("Overview tile", fontsize=_FONT_CROP_TITLE)
             axes[0].axis("off")
 
-            # Middle: centroid crop at target FOV
-            if pick is not None and tile_data is not None:
-                image_2d = tile_data[0]
-                crop = _centroid_crop_at_target_fov(
-                    image_2d, pick, rec, target_img,
-                )
-                axes[1].imshow(crop, cmap="gray")
-            else:
-                axes[1].text(0.5, 0.5, "N/A", ha="center", va="center",
-                             transform=axes[1].transAxes,
-                             fontsize=_FONT_PLACEHOLDER,
-                             color=_COLOR_NA_PLACEHOLDER)
-            axes[1].set_title(
-                f"Overview crop (label {rec.pick_id[3]})",
-                fontsize=_FONT_CROP_TITLE)
-            axes[1].axis("off")
+            # Middle: centroid crop at target FOV (shared per-panel helper)
+            _render_target_crop_panel(
+                axes[1], pick, rec, tile_data, target_img,
+                title_fontsize=_FONT_CROP_TITLE,
+            )
 
-            # Right: acquired high-res target
-            if target_img is not None:
-                axes[2].imshow(target_img, cmap="gray")
-            else:
-                axes[2].text(0.5, 0.5, "N/A", ha="center", va="center",
-                             transform=axes[2].transAxes,
-                             fontsize=_FONT_PLACEHOLDER,
-                             color=_COLOR_NA_PLACEHOLDER)
-            axes[2].set_title("High-res target", fontsize=_FONT_CROP_TITLE)
-            axes[2].axis("off")
+            # Right: acquired high-res target (shared per-panel helper)
+            _render_highres_target_panel(
+                axes[2], target_img, title_fontsize=_FONT_CROP_TITLE,
+            )
 
             rid, row, col, label = rec.pick_id
             fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
