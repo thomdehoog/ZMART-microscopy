@@ -29,17 +29,15 @@ class Config:
     target_job: str
     af_job: str
 
+    # Pick policy
+    n_picks_per_tile: int
+
     # Paths + run identity
     analysis_repo: Path
     experiment: str               # operator-typed; output_root is derived as media_path/smart by driver
 
-    # Pick policy (defaults)
-    n_random_picks: int = 4
-    min_cells_for_threshold: int = 10
-    random_seed: int | None = None
-
     # Optional behaviour flags (defaults)
-    target_brightness_match: bool = False  # True = target uses overview vmin/vmax (opt-in when exposures match)
+    feature: str = "area"
     fov_bbox_margin: float = 1.5
     settle_after_job_switch_s: float = 3.0
     restore_template_after_af: bool = True
