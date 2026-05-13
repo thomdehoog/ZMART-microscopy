@@ -119,7 +119,7 @@ def prepare_template(ctx: Context) -> None:
         actual = drv.get_stage_limits()
         ctx.boundary_limits = None
         print(
-            "[step 1] No boundary markers and no cfg XY fallback. "
+            "[step 2a] No boundary markers and no cfg XY fallback. "
             "Applied physical envelope from stage.json:\n"
             f"  X: {actual['x_min']:.0f} - {actual['x_max']:.0f} um\n"
             f"  Y: {actual['y_min']:.0f} - {actual['y_max']:.0f} um\n"
@@ -139,7 +139,7 @@ def prepare_template(ctx: Context) -> None:
     ctx.boundary_limits = actual
 
     print(
-        f"[step 1] Stage limits from {source} "
+        f"[step 2a] Stage limits from {source} "
         f"(envelope from stage.json):\n"
         f"  X: {actual['x_min']:.0f} - {actual['x_max']:.0f} um\n"
         f"  Y: {actual['y_min']:.0f} - {actual['y_max']:.0f} um\n"
@@ -193,7 +193,7 @@ def read_scan_field(ctx: Context) -> None:
             n_synth = sum(
                 len(r["positions"]) for r in tile_positions.values()
             )
-            print(f"[step 2] Synthesized {n_synth} tiles from geometries "
+            print(f"[step 2b] Synthesized {n_synth} tiles from geometries "
                   f"(tile size {tile_size_um:.1f} um)")
         else:
             raise RuntimeError(
@@ -239,7 +239,7 @@ def read_scan_field(ctx: Context) -> None:
             z_wide_min=z_wide_min, z_wide_max=z_wide_max,
         )
         ctx.boundary_limits = drv.get_stage_limits()
-        print("[step 2] Stage limits narrowed from scan field.")
+        print("[step 2b] Stage limits narrowed from scan field.")
 
     ctx.scan_field = {
         "template_data": template_data,
@@ -247,7 +247,7 @@ def read_scan_field(ctx: Context) -> None:
         "n_tiles": n_tiles,
     }
 
-    print(f"[step 2] Scan field: {len(tile_positions)} region(s), "
+    print(f"[step 2b] Scan field: {len(tile_positions)} region(s), "
           f"{n_tiles} tile(s)")
     for rid, region in tile_positions.items():
         print(f"  Region {rid}: {region['job_name']}  "
@@ -371,7 +371,7 @@ def plot_scan_field(ctx: Context) -> None:
 
     out_path = ctx.out_dir / "overview_field.png"
     fig.savefig(out_path, dpi=150)
-    print(f"[step 2] Saved {out_path}")
+    print(f"[step 2b] Saved {out_path}")
     plt.show()
 
 
@@ -389,16 +389,16 @@ def _clamp_xy_to_envelope(
     py_min, py_max = stage_cfg["limits_um"]["y"]
 
     if x_min < px_min:
-        print(f"[step 1] X min clamped from {x_min:.0f} to {px_min:.0f} um by stage_config.")
+        print(f"[step 2a] X min clamped from {x_min:.0f} to {px_min:.0f} um by stage_config.")
         x_min = px_min
     if x_max > px_max:
-        print(f"[step 1] X max clamped from {x_max:.0f} to {px_max:.0f} um by stage_config.")
+        print(f"[step 2a] X max clamped from {x_max:.0f} to {px_max:.0f} um by stage_config.")
         x_max = px_max
     if y_min < py_min:
-        print(f"[step 1] Y min clamped from {y_min:.0f} to {py_min:.0f} um by stage_config.")
+        print(f"[step 2a] Y min clamped from {y_min:.0f} to {py_min:.0f} um by stage_config.")
         y_min = py_min
     if y_max > py_max:
-        print(f"[step 1] Y max clamped from {y_max:.0f} to {py_max:.0f} um by stage_config.")
+        print(f"[step 2a] Y max clamped from {y_max:.0f} to {py_max:.0f} um by stage_config.")
         y_max = py_max
 
     if x_min >= x_max or y_min >= y_max:
@@ -458,7 +458,7 @@ def _strip_and_enforce_zwide(ctx: Context) -> None:
 
     lrp_path = ctx.templates_dir / STRIPPED_LRP
     if not lrp_path.exists():
-        print("[step 1] Template stripped. Skipped z-wide enforcement "
+        print("[step 2a] Template stripped. Skipped z-wide enforcement "
               "(stripped LRP not found on disk).")
         return
 
@@ -467,7 +467,7 @@ def _strip_and_enforce_zwide(ctx: Context) -> None:
         for name in parsed["jobs"]:
             drv.lrp_set_z_use_mode(lrp_path, "z-wide", name)
         drv.load_experiment(client, STRIPPED_BASE)
-        print("[step 1] Template stripped and z-wide enforced on every job.")
+        print("[step 2a] Template stripped and z-wide enforced on every job.")
     except Exception as exc:
-        print(f"[step 1] Template stripped. z-wide enforcement failed "
+        print(f"[step 2a] Template stripped. z-wide enforcement failed "
               f"({exc}); set z-wide manually in LAS X.")

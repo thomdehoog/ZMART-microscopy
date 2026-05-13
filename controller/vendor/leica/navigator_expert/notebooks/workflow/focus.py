@@ -198,7 +198,7 @@ class FocusMap:
 
         out_path = ctx.out_dir / "focus_map.png"
         fig.savefig(out_path, dpi=150)
-        print(f"[step 3] Saved {out_path}")
+        print(f"[step 2c] Saved {out_path}")
         plt.show()
 
 
@@ -239,7 +239,7 @@ def build_focus_map(ctx: Context) -> FocusMap:
             "on the scan field in Navigator Expert, then re-run."
         )
 
-    print(f"[step 3] Focus positions ({len(focus_positions)}):")
+    print(f"[step 2c] Focus positions ({len(focus_positions)}):")
     for i, fp in enumerate(focus_positions):
         print(f"  {i + 1}. x={fp['x_um']:.1f}  y={fp['y_um']:.1f} um")
 
@@ -282,7 +282,7 @@ def build_focus_map(ctx: Context) -> FocusMap:
             try:
                 drv.restore_template(client)
             except Exception as exc:
-                print(f"[step 3] WARNING: could not restore template: {exc}")
+                print(f"[step 2c] WARNING: could not restore template: {exc}")
 
     fm = _fit_focus_model(measured)
     _print_focus_diagnostics(fm, ctx)
@@ -344,7 +344,7 @@ def _print_focus_diagnostics(fm: FocusMap, ctx: Context) -> None:
     zs = np.array([m["zwide_um"] for m in fm.measured])
     z_range = float(zs.max() - zs.min())
 
-    print(f"\n[step 3] Focus model: {fm.model} ({len(fm.measured)} points)")
+    print(f"\n[step 2c] Focus model: {fm.model} ({len(fm.measured)} points)")
 
     if fm.model == "constant":
         print(f"  Z mean:       {zs.mean():.2f} um")

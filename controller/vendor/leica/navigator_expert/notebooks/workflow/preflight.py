@@ -164,7 +164,7 @@ def preflight(cfg: Config, client: Any) -> Context:
     atexit.register(ctx.shutdown)
 
     print(
-        f"[preflight] ok\n"
+        f"[step 1] preflight ok\n"
         f"  templates_dir : {ctx.templates_dir}\n"
         f"  out_dir       : {ctx.out_dir}\n"
         f"  current_job   : {ctx.current_job}  (slot {ctx.source_slot})\n"

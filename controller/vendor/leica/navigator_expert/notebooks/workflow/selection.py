@@ -336,7 +336,7 @@ def select_targets(
     )
 
     print(
-        f"[selection] mode={mode}, total={n_total}, qualifying={n_qualifying}, "
+        f"[step 4] mode={mode}, total={n_total}, qualifying={n_qualifying}, "
         f"selected_pre_dedup={n_selected_pre_dedup}, final={len(final)} "
         f"(area_threshold={area_t:.1f} "
         f"{'auto' if area_threshold_auto else 'override'}, "
