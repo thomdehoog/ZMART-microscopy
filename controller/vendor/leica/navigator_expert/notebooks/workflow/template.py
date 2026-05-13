@@ -355,8 +355,13 @@ def plot_scan_field(ctx: Context) -> None:
                 linewidth=1.2, edgecolor=focus_color,
                 facecolor="none", zorder=11,
             ))
-            marker_xs.extend([fx - circle_r, fx + circle_r])
-            marker_ys.extend([fy - circle_r, fy + circle_r])
+            # The cross arms extend to ±cross from (fx, fy); the circle
+            # only reaches ±circle_r = cross * 0.6. Use the arm extent so
+            # we don't clip the outer 40% of the cross when a marker sits
+            # outside the tile envelope.
+            arm = max(cross, circle_r)
+            marker_xs.extend([fx - arm, fx + arm])
+            marker_ys.extend([fy - arm, fy + arm])
         if fp_list:
             ax.plot([], [], "+", color=focus_color, markersize=10,
                     markeredgewidth=1.5, label=label)
