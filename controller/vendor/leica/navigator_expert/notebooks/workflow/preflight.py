@@ -71,6 +71,18 @@ def preflight(cfg: Config, client: Any) -> Context:
     if str(analysis_repo) not in sys.path:
         sys.path.insert(0, str(analysis_repo))
 
+    try:
+        from workflows.target_acquisition.steps.pick_targets import (  # noqa: E402
+            SUPPORTS_NONE_NPICKS,
+        )
+        if not SUPPORTS_NONE_NPICKS:
+            raise RuntimeError
+    except (ImportError, AttributeError, RuntimeError):
+        raise RuntimeError(
+            f"smart-analysis at {analysis_repo} does not support n_picks=None. "
+            f"Update to the latest version."
+        )
+
     from engine import Engine  # noqa: E402  -- imported after sys.path tweak
 
     engine = Engine()

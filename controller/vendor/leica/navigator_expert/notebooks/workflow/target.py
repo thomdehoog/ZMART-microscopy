@@ -5,6 +5,7 @@ save. Per-pick failure isolation (D17).
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -45,6 +46,14 @@ def acquire_targets(
     fails for one pick, it yields a TargetRecord with success=False,
     failure_stage set to the step that failed, and the loop continues.
     """
+    if (len(picks.items) > 50
+            and os.environ.get("SMART_MICROSCOPY_ALLOW_INTERMEDIATE_RUN") != "1"):
+        raise RuntimeError(
+            f"Refusing to acquire {len(picks.items)} targets -- "
+            f"intermediate-state safety check (commit-A through commit-B). "
+            f"Set SMART_MICROSCOPY_ALLOW_INTERMEDIATE_RUN=1 to override."
+        )
+
     cfg = ctx.cfg
     client = ctx.client
     calibration = ctx.calibration

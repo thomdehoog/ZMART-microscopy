@@ -6,6 +6,7 @@ opportunistic + blocking drain, dedup, and out-of-limits filter.
 from __future__ import annotations
 
 import math
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -174,8 +175,8 @@ def run_overview_with_picks(
                     "source_pixel_size_um": pixel_size_um,
                     "source_image_size_px": image_size_px,
                     "image_to_stage": ctx.calibration["image_to_stage"],
-                    "n_picks": cfg.n_picks_per_tile,
-                    "feature": cfg.feature,
+                    "n_picks": None,
+                    "feature": "area",
                     "analysis_image_source": cfg.analysis_image_source,
                 })
                 n_submitted += 1
@@ -260,6 +261,18 @@ def run_overview_with_picks(
             print("[step 4] Template restored.")
         except Exception as exc:
             print(f"[step 4] WARNING: could not restore template: {exc}")
+
+    if len(surviving) > 50:
+        print(
+            f"[step 4] WARNING: {len(surviving)} picks selected. "
+            f"This is commit-A intermediate state. Selection step ships in "
+            f"Commit C; do NOT run Step 5 on production hardware."
+        )
+        if os.environ.get("SMART_MICROSCOPY_ALLOW_INTERMEDIATE_RUN") != "1":
+            print(
+                "[step 4] To run Step 5 anyway, set "
+                "SMART_MICROSCOPY_ALLOW_INTERMEDIATE_RUN=1 in your environment."
+            )
 
     return Picks(
         items=surviving,
