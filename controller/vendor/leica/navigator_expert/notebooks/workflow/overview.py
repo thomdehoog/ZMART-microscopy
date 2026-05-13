@@ -117,10 +117,69 @@ class TileEvent:
 # ─── Public API ───────────────────────────────────────────────────
 
 
+def _validate_callback_flags(
+    callback: Any,
+    live_display: bool,
+    save_png: bool,
+    *,
+    callback_param: str,
+) -> None:
+    """Mutex: explicit per-event callback vs default-flag-driven rendering.
+
+    Shared by run_overview (callback_param="on_tile") and acquire_targets
+    (callback_param="on_target"). Raises ValueError when the caller
+    supplies an explicit callback alongside live_display=True or
+    save_png=True; the two paths are intentionally exclusive.
+    """
+    if callback is not None and (live_display or save_png):
+        raise ValueError(
+            f"Cannot pass {callback_param} together with live_display=True "
+            f"or save_png=True. The default per-event rendering and an "
+            f"explicit {callback_param} are mutually exclusive. To use "
+            f"{callback_param}, also pass live_display=False, save_png=False; "
+            f"to use defaults, drop {callback_param}."
+        )
+
+
+def _build_default_on_tile_callback(
+    ctx: Context,
+    *,
+    live_display: bool,
+    save_png: bool,
+) -> Callable[[TileEvent], None]:
+    """Build the default per-tile callback when the operator hasn't
+    supplied an explicit on_tile. The renderer (display_tile) lives in
+    workflow.visualize, which imports TileEvent from this module -- so
+    overview.py imports display_tile LOCALLY here, not at module top.
+    Hoisting this import to module top reintroduces the cycle.
+    """
+    from .visualize import display_tile
+
+    feedback_dir = (
+        ctx.run.layout.feedback_dir("overview-scan") if save_png else None
+    )
+    scan_field = ctx.scan_field
+    boundary_limits = ctx.boundary_limits
+
+    def _on_tile(event: TileEvent) -> None:
+        display_tile(
+            event,
+            scan_field=scan_field,
+            boundary_limits=boundary_limits,
+            feedback_dir=feedback_dir,
+            live_display=live_display,
+            save_png=save_png,
+        )
+
+    return _on_tile
+
+
 def run_overview(
     ctx: Context,
     focus_map: FocusMap,
     *,
+    live_display: bool = True,
+    save_png: bool = True,
     on_tile: Callable[[TileEvent], None] | None = None,
 ) -> OverviewResult:
     """Step 4: acquire tiles, submit to engine, drain, persist. NO selection.
@@ -137,7 +196,25 @@ def run_overview(
     lists + n_tiles_planned + n_tiles_submitted + completion sentinel.
     If run_overview raises mid-drain, meta is still written from the
     finally block but with completed=False.
+
+    Display/save behavior:
+      - live_display=True (default): render each tile inline.
+      - save_png=True (default): save each tile figure to
+        ctx.run.layout.feedback_dir("overview-scan").
+      - on_tile (default None): explicit per-tile callback. Mutually
+        exclusive with the two flags above -- supplying on_tile alongside
+        live_display=True or save_png=True raises ValueError. To use an
+        explicit callback, also pass live_display=False, save_png=False.
+      - all three off: silent acquisition (no per-tile rendering or save).
     """
+    _validate_callback_flags(
+        on_tile, live_display, save_png, callback_param="on_tile",
+    )
+    if on_tile is None and (live_display or save_png):
+        on_tile = _build_default_on_tile_callback(
+            ctx, live_display=live_display, save_png=save_png,
+        )
+
     cfg = ctx.cfg
     client = ctx.client
     engine = ctx.engine

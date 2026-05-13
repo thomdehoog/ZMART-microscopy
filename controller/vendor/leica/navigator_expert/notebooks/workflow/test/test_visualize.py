@@ -6,6 +6,7 @@ No hardware, no engine, no ctx.
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 
@@ -79,6 +80,63 @@ def _make_target_tif(path: Path, size=(32, 32)):
     image = np.random.default_rng(99).integers(0, 255, size, dtype=np.uint16)
     tifffile.imwrite(str(path), image)
     return path
+
+
+# ─── display_tile flags (Bundle A / A2) ──────────────────────────
+
+
+def _make_tile_event(n_cells: int = 0):
+    """Minimal TileEvent for testing display_tile flag behavior."""
+    from workflow.overview import TileEvent
+    return TileEvent(
+        image_2d=np.zeros((8, 8)),
+        masks=np.zeros((8, 8), dtype=np.int32),
+        tile_id=("0", 0, 0),
+        n_cells=n_cells,
+        analysis_image_source="acquired",
+    )
+
+
+class TestDisplayTileFlags:
+    def test_live_display_false_skips_inline_display(self, monkeypatch, tmp_path):
+        """display_tile with live_display=False must build the figure and
+        skip the IPython.display() call so the notebook does not show a
+        figure. The figure is still saved when save_png=True.
+        """
+        import IPython.display as ipy_display
+        fake_display = MagicMock(name="ipy_display")
+        monkeypatch.setattr(ipy_display, "display", fake_display)
+
+        from workflow.visualize import display_tile
+        display_tile(
+            _make_tile_event(),
+            feedback_dir=tmp_path,
+            live_display=False,
+            save_png=True,
+        )
+
+        fake_display.assert_not_called()
+        # save_png=True with a feedback_dir still produces the PNG.
+        assert list(tmp_path.glob("live_tile_R*.png"))
+
+    def test_save_png_false_skips_savefig(self, monkeypatch, tmp_path):
+        """display_tile with save_png=False must skip fig.savefig even
+        when feedback_dir is set; the inline display still fires.
+        """
+        import IPython.display as ipy_display
+        fake_display = MagicMock(name="ipy_display")
+        monkeypatch.setattr(ipy_display, "display", fake_display)
+
+        from workflow.visualize import display_tile
+        display_tile(
+            _make_tile_event(),
+            feedback_dir=tmp_path,
+            live_display=True,
+            save_png=False,
+        )
+
+        assert list(tmp_path.glob("*.png")) == []
+        fake_display.assert_called_once()
 
 
 # ─── plot_overview_tiles ─────────────────────────────────────────
