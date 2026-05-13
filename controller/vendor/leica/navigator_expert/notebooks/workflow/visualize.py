@@ -639,7 +639,7 @@ def _render_scatter(ax, selection, crops_to_show: list) -> None:
 
 _MODE_ANNOTATIONS: dict[str, str] = {
     MODE_NO_QUALIFYING: "Zero cells qualified — adjust thresholds and re-run.",
-    MODE_SPARSE: "Sparse sample: thresholds skipped, all cells treated as qualifying.",
+    MODE_SPARSE: "Sparse sample: thresholds skipped, all non-border cells treated as qualifying.",
     MODE_EMPTY: "No cells detected in this overview.",
 }
 
