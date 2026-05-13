@@ -19,6 +19,7 @@ _VENDOR_ROOT = str(Path(__file__).resolve().parents[4])
 if _VENDOR_ROOT not in sys.path:
     sys.path.insert(0, _VENDOR_ROOT)
 
+from .connect import connect_lasx
 from .context import Config, Context, LimitsContext, TargetState
 from .focus import FocusMap, build_focus_map
 from .overview import OverviewResult, Pick, Picks, TileEvent, run_overview
@@ -36,6 +37,7 @@ from .visualize import (
 )
 
 __all__ = ["Config", "Context", "LimitsContext", "TargetState",
+           "connect_lasx",
            "FocusMap", "build_focus_map",
            "OverviewResult", "Pick", "Picks", "TileEvent", "run_overview",
            "SelectionResult", "select_targets", "load_overview_result",

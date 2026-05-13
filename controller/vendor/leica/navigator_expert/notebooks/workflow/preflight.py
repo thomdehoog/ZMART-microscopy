@@ -1,9 +1,16 @@
 """preflight(cfg, client) -- Step 0 of the design.
 
 Substeps 0.1-0.8 per TARGET_ACQUISITION_DESIGN.md section 7.
-The notebook owns the LAS X connect handshake; preflight receives
-an already-connected client and validates / configures everything
-else.
+
+workflow.connect_lasx() owns the LAS X CAM API connect handshake (the
+notebook calls connect_lasx() to obtain the client). preflight() then
+receives an already-connected client and validates / configures
+everything else; it does not open the client itself.
+
+preflight() is re-run-safe in the same Python session: a module-level
+_LAST_CTX reference holds the most recently returned ctx. On a second
+call, the prior ctx is shut down before the new run begins, so the
+operator can re-execute Cell 3 without a globals() guard.
 """
 from __future__ import annotations
 
@@ -24,6 +31,30 @@ ZGALVO_WARN_THRESHOLD_UM = 0.5
 CELLPOSE_ENV_NAME = "SMART--target_acquisition--main"
 
 
+# Module-level handle on the most recent ctx, used to make preflight()
+# re-run-safe inside one Python session. Plain reference (no weakref):
+# easier to reason about; the lifecycle is single-threaded and bounded
+# to the kernel's lifetime.
+_LAST_CTX: Context | None = None
+
+
+def _shutdown_prior_ctx_if_any() -> None:
+    """Re-run safety: if preflight() ran earlier in this Python session,
+    shut down the prior ctx's engine before starting fresh.
+
+    Called at the top of preflight(). Idempotent: clears the slot even
+    if shutdown raises (so a single failure doesn't lock the slot).
+    """
+    global _LAST_CTX
+    if _LAST_CTX is not None:
+        prior = _LAST_CTX
+        _LAST_CTX = None
+        try:
+            prior.shutdown()
+        except Exception as exc:
+            print(f"[preflight] prior ctx.shutdown() raised: {exc}")
+
+
 def preflight(cfg: Config, client: Any) -> Context:
     """Step 0: prepare the world for the workflow.
 
@@ -37,6 +68,10 @@ def preflight(cfg: Config, client: Any) -> Context:
                       or the analysis pipeline cannot register.
         FileNotFoundError: if the analysis repo / overview.yaml is missing.
     """
+    # 0.0 -- re-run safety: tear down any prior ctx left over from an
+    # earlier preflight() call in this Python session.
+    _shutdown_prior_ctx_if_any()
+
     # 0.1 -- API mode (set if not already; harmless if notebook already did it)
     _ensure_cam_api_mode(client)
 
@@ -162,6 +197,12 @@ def preflight(cfg: Config, client: Any) -> Context:
 
     # 0.11 -- idempotent shutdown hook
     atexit.register(ctx.shutdown)
+
+    # 0.12 -- record this ctx so the next preflight() in this session
+    # can tear it down (_shutdown_prior_ctx_if_any). atexit and _LAST_CTX
+    # compose cleanly because ctx.shutdown() is idempotent.
+    global _LAST_CTX
+    _LAST_CTX = ctx
 
     print(
         f"[step 1] preflight ok\n"
