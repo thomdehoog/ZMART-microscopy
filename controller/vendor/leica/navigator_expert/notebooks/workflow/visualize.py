@@ -403,10 +403,13 @@ def display_tile(
                 "width_ratios": [field_share, 1, 1],
                 "wspace": 0.15,
             },
+            constrained_layout=True,
         )
         field_ax, tile_ax, seg_ax = axes
     else:
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+        fig, axes = plt.subplots(
+            1, 2, figsize=(12, 5), constrained_layout=True,
+        )
         field_ax = None
         tile_ax, seg_ax = axes
 
@@ -445,7 +448,9 @@ def display_tile(
             fontsize=_FONT_TITLE, fontweight="bold",
             color=_COLOR_INK_PRIMARY,
         )
-        plt.tight_layout()
+        # constrained_layout=True at figure creation handles spacing;
+        # set_aspect("equal") + invert_yaxis() in the field panel no
+        # longer triggers a tight_layout UserWarning.
 
         if live_display:
             display(fig)
@@ -515,7 +520,7 @@ def display_selection(
         _pick_example_crops(selection.selected_picks, n=6) if has_crops else []
     )
 
-    fig, scatter_ax, crop_axes = _build_selection_figure_layout(
+    fig, scatter_ax, crop_axes, header_ax = _build_selection_figure_layout(
         has_crops, plt, GridSpec,
     )
 
@@ -541,7 +546,7 @@ def display_selection(
             for ax in crop_axes[len(crops_to_show):]:
                 ax.set_visible(False)
 
-        _render_figure_titles(fig, selection)
+        _render_figure_titles(header_ax, selection)
 
         if feedback_dir is not None:
             feedback_dir.mkdir(parents=True, exist_ok=True)
@@ -559,55 +564,75 @@ def display_selection(
 
 
 def _build_selection_figure_layout(has_crops: bool, plt, GridSpec):
-    """Create the figure and return (fig, scatter_ax, crop_axes).
+    """Create the figure and return (fig, scatter_ax, crop_axes, header_ax).
 
     Two variants:
-      with_crops:   2-row grid, scatter on top spanning 6 columns, 6 crops below
-      no_crops:     scatter only, tighter aspect
+      with_crops: 3-row grid (header / scatter / 6 crops)
+      no_crops:   2-row grid (header / scatter)
 
-    Margins (top/bottom/left/right) are chosen so the title block at the
-    top has fixed pixel headroom regardless of which variant is used.
+    The header row is a dedicated invisible axes that owns the title +
+    subtitle + caption text. Replaces the previous design where titles
+    were placed at hardcoded figure-coords (y = 0.955 / 0.920 / 0.890)
+    while the gridspec top margin changed between variants -- a recipe
+    for drift. constrained_layout=True lets matplotlib size the rows
+    without manual margin tuning.
     """
     if has_crops:
-        fig = plt.figure(figsize=(14, 9))
+        fig = plt.figure(figsize=(14, 9), constrained_layout=True)
         gs = GridSpec(
-            2, 6,
-            height_ratios=[2.2, 1.0],
-            hspace=0.40, wspace=0.18,
+            3, 6,
+            height_ratios=[0.55, 2.2, 1.0],
+            hspace=0.30, wspace=0.18,
             figure=fig,
-            top=0.86, bottom=0.06, left=0.06, right=0.98,
         )
-        scatter_ax = fig.add_subplot(gs[0, :])
-        crop_axes = [fig.add_subplot(gs[1, c]) for c in range(6)]
+        header_ax = fig.add_subplot(gs[0, :])
+        scatter_ax = fig.add_subplot(gs[1, :])
+        crop_axes = [fig.add_subplot(gs[2, c]) for c in range(6)]
     else:
-        fig = plt.figure(figsize=(10, 7))
+        fig = plt.figure(figsize=(10, 7), constrained_layout=True)
         gs = GridSpec(
-            1, 1,
+            2, 1,
+            height_ratios=[0.55, 4.0],
             figure=fig,
-            top=0.83, bottom=0.10, left=0.10, right=0.96,
         )
-        scatter_ax = fig.add_subplot(gs[0, 0])
+        header_ax = fig.add_subplot(gs[0, 0])
+        scatter_ax = fig.add_subplot(gs[1, 0])
         crop_axes = []
-    return fig, scatter_ax, crop_axes
+
+    header_ax.set_xticks([])
+    header_ax.set_yticks([])
+    header_ax.set_facecolor("white")
+    for spine in header_ax.spines.values():
+        spine.set_visible(False)
+    return fig, scatter_ax, crop_axes, header_ax
 
 
-def _render_figure_titles(fig, selection) -> None:
-    """Three text blocks above the scatter, vertically stacked at fixed y."""
-    fig.text(
-        0.5, 0.955, "Target discovery",
-        ha="center", fontsize=_FONT_TITLE, fontweight="bold",
+def _render_figure_titles(header_ax, selection) -> None:
+    """Title + subtitle + caption stacked in the header gridspec row.
+
+    Uses axes-relative coordinates (ax.transAxes) so the text scales
+    with the gridspec row, not with the figure. Replaces the previous
+    fig.text(0.5, 0.955/0.920/0.890, ...) design that drifted when the
+    gridspec top margin changed between variants.
+    """
+    header_ax.text(
+        0.5, 0.85, "Target discovery",
+        ha="center", va="top", transform=header_ax.transAxes,
+        fontsize=_FONT_TITLE, fontweight="bold",
         color=_COLOR_INK_PRIMARY,
     )
-    fig.text(
-        0.5, 0.920,
+    header_ax.text(
+        0.5, 0.50,
         f"{selection.n_final} picks  ·  "
         f"{selection.n_qualifying} qualifying  ·  "
         f"{selection.n_total} cells",
-        ha="center", fontsize=_FONT_PANEL_TITLE, color=_COLOR_INK_BODY,
+        ha="center", va="top", transform=header_ax.transAxes,
+        fontsize=_FONT_PANEL_TITLE, color=_COLOR_INK_BODY,
     )
-    fig.text(
-        0.5, 0.890, _format_provenance(selection),
-        ha="center", fontsize=_FONT_CAPTION, color=_COLOR_INK_CAPTION,
+    header_ax.text(
+        0.5, 0.15, _format_provenance(selection),
+        ha="center", va="top", transform=header_ax.transAxes,
+        fontsize=_FONT_CAPTION, color=_COLOR_INK_CAPTION,
     )
 
 
@@ -1029,7 +1054,7 @@ def display_target(
         except Exception:
             pass
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
     # Figure-ownership flag for the queued-save path; see display_tile.
     transferred = False
     try:
@@ -1094,7 +1119,6 @@ def display_target(
         rid, row, col, label = record.pick_id
         fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
                      fontsize=_FONT_FIGURE_TITLE, fontweight="bold")
-        plt.tight_layout()
 
         if live_display:
             display(fig)
@@ -1169,7 +1193,7 @@ def plot_overview_tiles(
         n_cells = int(masks.max())
         is_mock = source != "acquired"
 
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
         fig.patch.set_facecolor("white")
 
         axes[0].imshow(image_2d, cmap="gray")
@@ -1191,7 +1215,6 @@ def plot_overview_tiles(
         prefix = "(mock) " if is_mock else ""
         fig.suptitle(f"{prefix}Tile R{rid} r{row}c{col}",
                      fontsize=_FONT_FIGURE_TITLE, fontweight="bold")
-        plt.tight_layout()
 
         if feedback_dir is not None:
             fig.savefig(
@@ -1244,7 +1267,7 @@ def plot_target_pairs(
         except Exception:
             pass
 
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
         try:
             fig.patch.set_facecolor("white")
 
@@ -1280,7 +1303,6 @@ def plot_target_pairs(
             rid, row, col, label = rec.pick_id
             fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
                          fontsize=_FONT_FIGURE_TITLE, fontweight="bold")
-            plt.tight_layout()
 
             if feedback_dir is not None:
                 fig.savefig(
