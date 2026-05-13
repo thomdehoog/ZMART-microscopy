@@ -67,10 +67,16 @@ class SelectionResult:
     n_removed_translation: int
     n_final: int
 
-    # Per-tile descriptive counters (NOT modes)
-    # Both derived from overview.tile_cell_counts (raw engine cells,
-    # pre-threshold, pre-dedup).
-    n_tiles_below_sparse_cutoff: int
+    # Per-tile descriptive counters (NOT modes).
+    # n_tiles_below_eligible_cutoff: tiles whose post-border eligible count
+    #   (non-near-border picks per tile) is < min_cells_for_threshold.
+    #   Includes tiles with 0 eligible cells (e.g. raw-empty tiles or all
+    #   cells near-border within that tile).
+    # n_tiles_empty: tiles whose raw cellpose detection count is 0
+    #   (overview.n_tiles_empty, pre-border).
+    # These are NOT mutually exclusive: a raw-empty tile counts toward
+    # both, since 0 raw cells implies 0 eligible cells.
+    n_tiles_below_eligible_cutoff: int
     n_tiles_empty: int
 
     # Final selection -- full Pick objects so display can read bbox/centroid
@@ -211,22 +217,32 @@ def select_targets(
     pixels of any tile edge are excluded from qualifying. Border cells have
     truncated area/intensity stats (the cell extends beyond the field of
     view) and produce unreliable picks. Set to 0 to disable the filter.
+    When n_eligible == n_total - n_near_border == 0 (all cells near-border),
+    auto-thresholds default to the 0.0 sentinel and mode is forced to
+    MODE_NO_QUALIFYING; the on-disk run_summary.json stays strict-JSON-safe
+    (no NaN tokens).
+
+    Mode dispatch is gated on n_eligible (not n_total) so the population
+    used for the cutoff matches the population the median is computed on:
+      - n_total == 0                                  -> MODE_EMPTY
+      - n_eligible == 0  (n_total > 0)                -> MODE_NO_QUALIFYING
+      - 0 < n_eligible < min_cells_for_threshold      -> MODE_SPARSE
+      - else                                          -> MODE_THRESHOLD
+    A final override flips any non-EMPTY result with n_qualifying == 0 to
+    MODE_NO_QUALIFYING (defensive: makes "sparse with zero qualifying"
+    unreachable).
 
     NO_QUALIFYING returns zero picks. No random fallback -- operator sees
     the empty intersection in display_selection and adjusts.
-
-    See plan rev7 sections "Commit C / 3. workflow/selection.py" for the
-    full state machine.
     """
+    if border_margin_px < 0:
+        raise ValueError(
+            f"border_margin_px must be >= 0, got {border_margin_px}"
+        )
+
     all_picks = overview.all_picks
     tile_cell_counts = overview.tile_cell_counts
 
-    # Per-tile descriptive counters (sourced from raw engine cells,
-    # pre-threshold and pre-dedup)
-    n_tiles_below_sparse_cutoff = sum(
-        1 for count in tile_cell_counts.values()
-        if 0 < count < min_cells_for_threshold
-    )
     n_tiles_empty = overview.n_tiles_empty
 
     n_total = len(all_picks)
@@ -244,6 +260,23 @@ def select_targets(
     # Border-distance mask. Excluded from qualifying; preserved for display.
     near_border_mask = _compute_near_border_mask(all_picks, border_margin_px)
     n_near_border = int(near_border_mask.sum())
+    n_eligible = n_total - n_near_border
+
+    # Per-tile eligible counts (post-border). Seeded with every tile_id from
+    # tile_cell_counts so raw-empty tiles still appear with eligible=0 and
+    # count toward n_tiles_below_eligible_cutoff.
+    eligible_per_tile: dict[tuple[str, int, int], int] = {
+        tile_id: 0 for tile_id in tile_cell_counts
+    }
+    for pick, is_border in zip(all_picks, near_border_mask):
+        if not is_border:
+            tile_key = (pick.pick_id[0], pick.pick_id[1], pick.pick_id[2])
+            if tile_key in eligible_per_tile:
+                eligible_per_tile[tile_key] += 1
+    n_tiles_below_eligible_cutoff = sum(
+        1 for count in eligible_per_tile.values()
+        if count < min_cells_for_threshold
+    )
 
     area_threshold_auto = area_threshold is None
     intensity_threshold_auto = intensity_threshold is None
@@ -255,7 +288,21 @@ def select_targets(
             0.0 if intensity_threshold_auto else float(intensity_threshold)
         )
         qualifying_mask = np.zeros(0, dtype=bool)
-    elif n_total < min_cells_for_threshold:
+    elif n_eligible == 0:
+        # All cells are near-border. np.median([]) would return NaN and
+        # contaminate run_summary.json. Sentinel: thresholds = 0.0,
+        # mode = MODE_NO_QUALIFYING. Operator sees the empty intersection
+        # in display_selection and reduces border_margin_px or re-acquires.
+        mode = MODE_NO_QUALIFYING
+        area_t = 0.0 if area_threshold_auto else float(area_threshold)
+        intensity_t = (
+            0.0 if intensity_threshold_auto else float(intensity_threshold)
+        )
+        qualifying_mask = np.zeros(n_total, dtype=bool)
+    elif n_eligible < min_cells_for_threshold:
+        # Gate on n_eligible (not n_total): we never compute statistics on
+        # the border-excluded subset, so the population used for the cutoff
+        # must match the population the median would be computed on.
         mode = MODE_SPARSE
         area_t = 0.0 if area_threshold_auto else float(area_threshold)
         intensity_t = (
@@ -264,9 +311,8 @@ def select_targets(
         qualifying_mask = np.ones(n_total, dtype=bool) & ~near_border_mask
     else:
         # Compute thresholds on non-border cells only — border cells have
-        # truncated stats and would skew the median. If all cells are
-        # near-border, n_qualifying will be 0 and mode flips to
-        # NO_QUALIFYING; no special-case needed.
+        # truncated stats and would skew the median. The n_eligible == 0
+        # branch above guarantees non_border_areas is non-empty here.
         non_border_areas = areas[~near_border_mask]
         non_border_intensities = intensities[~near_border_mask]
         area_t = (
@@ -280,9 +326,17 @@ def select_targets(
         qualifying_mask = (
             (areas >= area_t) & (intensities >= intensity_t) & ~near_border_mask
         )
-        mode = MODE_THRESHOLD if int(qualifying_mask.sum()) > 0 else MODE_NO_QUALIFYING
+        mode = MODE_THRESHOLD
 
     n_qualifying = int(qualifying_mask.sum())
+
+    # Final override: if no cells qualify (threshold rejected all, sparse
+    # path with all-border tiles, etc.), force MODE_NO_QUALIFYING so
+    # downstream consumers can rely on "qualifying >= 1 in this mode".
+    # MODE_EMPTY is preserved as a separate "no cells detected at all"
+    # signal that the operator may want to distinguish.
+    if mode != MODE_EMPTY and n_qualifying == 0:
+        mode = MODE_NO_QUALIFYING
 
     # Sampling
     seed_str = str(seed) if seed is not None else "auto"
@@ -354,7 +408,7 @@ def select_targets(
         n_removed_out_of_limits_z=len(removed_z),
         n_removed_translation=len(removed_xlat),
         n_final=len(final),
-        n_tiles_below_sparse_cutoff=n_tiles_below_sparse_cutoff,
+        n_tiles_below_eligible_cutoff=n_tiles_below_eligible_cutoff,
         n_tiles_empty=n_tiles_empty,
         selected_picks=list(final),
     )
@@ -381,7 +435,24 @@ def _compute_near_border_mask(
 
     bbox_px convention is skimage regionprops: (y0, x0, y1, x1).
     source_image_size_px is (width, height) -- (pixels_x, pixels_y).
+    border_margin_px == 0 is the explicit disable path (filter off);
+    border_margin_px < 0 is rejected upstream in select_targets.
+    Degenerate source_image_size_px (width <= 0 or height <= 0) raises
+    ValueError fail-fast on the first invalid Pick, regardless of
+    border_margin_px -- the size contract is unconditional.
     """
+    # Validate Pick image sizes ALWAYS, before any margin-driven
+    # short-circuit. Degenerate source_image_size_px is invalid input,
+    # not a function-mode-dependent contract; silently accepting it
+    # when the filter happens to be disabled hides bad data.
+    for p in all_picks:
+        width, height = p.source_image_size_px
+        if width <= 0 or height <= 0:
+            raise ValueError(
+                f"Pick {p.pick_id} has invalid source_image_size_px="
+                f"{p.source_image_size_px}"
+            )
+
     if border_margin_px <= 0 or not all_picks:
         return np.zeros(len(all_picks), dtype=bool)
     mask = np.zeros(len(all_picks), dtype=bool)
