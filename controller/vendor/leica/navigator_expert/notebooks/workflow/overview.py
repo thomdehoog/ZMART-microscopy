@@ -1,16 +1,24 @@
 """overview.py -- Step 4: overview acquisition with live analysis.
 
 Snake-ordered tile acquisition with per-tile engine submission,
-opportunistic + blocking drain, dedup, and out-of-limits filter.
+opportunistic + blocking drain, NPZ persistence (schema v2). Selection
+moves to selection.py in Commit C.
+
+Public entry points:
+  - run_overview(ctx, focus_map)            -- new (rev7); returns OverviewResult
+  - run_overview_with_picks(ctx, focus_map) -- compat wrapper; removed in Commit C
+  - load_overview_result(analysis_dir)      -- kernel-restart-safe reconstruction;
+                                               re-homed to selection.py in Commit C
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
@@ -65,9 +73,41 @@ class Picks:
     simulated: bool = False
 
 
+@dataclass
+class OverviewResult:
+    all_picks: list[Pick]
+    tile_acquire_failures: list[dict]
+    engine_failures: list[dict]
+    npz_save_failures: list[dict]
+    tile_cell_counts: dict[tuple[str, int, int], int]
+    n_tiles_planned: int
+    n_tiles_submitted: int
+    completed: bool
+
+    @property
+    def n_tiles(self) -> int:
+        # Successfully drained AND saved tiles (= v2 NPZ files written).
+        # Excludes acquire/engine/save failures. NOT for summary.overview.*
+        # counters — use n_tiles_acquired / n_tiles_submitted instead.
+        return len(self.tile_cell_counts)
+
+    @property
+    def n_tiles_empty(self) -> int:
+        return sum(1 for n in self.tile_cell_counts.values() if n == 0)
+
+    @property
+    def n_tiles_acquired(self) -> int:
+        return self.n_tiles_submitted - len(self.tile_acquire_failures)
+
+
 @dataclass(frozen=True)
 class TileEvent:
-    """Per-tile data passed to on_tile callbacks during live visualization."""
+    """Per-tile data passed to on_tile callbacks during live visualization.
+
+    `picked_labels` is the full set of engine-returned cell labels (with
+    n_picks=None, the engine returns every cell). Commit C renames this
+    field to `n_cells: int` once selection moves out of overview.
+    """
     image_2d: np.ndarray
     masks: np.ndarray
     tile_id: tuple[str, int, int]
@@ -78,16 +118,26 @@ class TileEvent:
 # ─── Public API ───────────────────────────────────────────────────
 
 
-def run_overview_with_picks(
+def run_overview(
     ctx: Context,
     focus_map: FocusMap,
     *,
     on_tile: Callable[[TileEvent], None] | None = None,
-) -> Picks:
-    """Step 4: acquire overview tiles, submit to engine, drain, filter.
+) -> OverviewResult:
+    """Step 4: acquire tiles, submit to engine, drain, persist. NO selection.
 
-    Returns Picks with surviving items for Step 5 and full accounting
-    of removed/failed picks for summary.json.
+    Per drained result: build per-tile Pick objects via _picks_from_result;
+    save NPZ schema v2 via _save_single_tile_analysis(extra_arrays=...);
+    fire on_tile. Only when the save returns True is the tile added to
+    all_picks AND tile_cell_counts; otherwise the tile is recorded in
+    npz_save_failures. This guarantees:
+        same-kernel OverviewResult == load_overview_result(analysis_dir)
+    after run_overview returns.
+
+    At end of drain (before return) _write_overview_meta persists failure
+    lists + n_tiles_planned + n_tiles_submitted + completion sentinel.
+    If run_overview raises mid-drain, meta is still written from the
+    finally block but with completed=False.
     """
     cfg = ctx.cfg
     client = ctx.client
@@ -95,45 +145,43 @@ def run_overview_with_picks(
 
     tile_positions = ctx.scan_field["tile_positions"]
 
-    # 4.0 -- strip template before acquisition
     if not drv.strip_template(client):
         raise RuntimeError("strip_template failed before overview acquisition.")
 
+    all_picks: list[Pick] = []
+    tile_acquire_failures: list[dict] = []
+    npz_save_failures: list[dict] = []
+    tile_cell_counts: dict[tuple[str, int, int], int] = {}
+    new_failures: list[dict] = []
+    n_tiles_planned = 0
+    n_tiles_submitted = 0
+    n_results = 0
+    completed = False
+
+    analysis_dir = ctx.run.layout.analysis_dir("overview-scan")
+
     try:
-        # 4.0b -- select acquisition job before reading geometry
         ensure_job_state(ctx, cfg.acquisition_job)
 
-        # 4.0c -- read source frame geometry (pixel size + image size)
         settings = drv.get_job_settings(client, cfg.acquisition_job)
         geo = drv.parse_tile_geometry(settings)
         pixel_size_um = (float(geo["pixel_w_um"]), float(geo["pixel_h_um"]))
         image_size_px = (int(geo["pixels_x"]), int(geo["pixels_y"]))
 
-        # 4.2 -- build snake order
         sequence = _build_snake_sequence(tile_positions)
-        print(f"[step 4] {len(sequence)} tiles in snake order")
+        n_tiles_planned = len(sequence)
+        print(f"[step 4] {n_tiles_planned} tiles in snake order")
 
-        # Snapshot engine failure count so we only report new ones (D19)
         failure_count_before = len(
             engine.status("overview").get("failures", [])
         )
 
-        # 4.2-4.3 -- acquire + submit + opportunistic drain
-        buffer: list[dict] = []
-        n_submitted = 0
-        tile_acquire_failures: list[dict] = []
-
-        # Prepare analysis_dir for per-result saves
-        analysis_dir = ctx.run.layout.analysis_dir("overview-scan")
-        _analysis_dir_ready = False
+        analysis_dir_ready = False
         try:
             analysis_dir.mkdir(parents=True, exist_ok=True)
-            _analysis_dir_ready = True
+            analysis_dir_ready = True
         except Exception as exc:
-            print(f"[step 4] WARNING: could not create {analysis_dir}: "
-                  f"{exc}")
-
-        n_saved = 0
+            print(f"[step 4] WARNING: could not create {analysis_dir}: {exc}")
 
         for i, tile in enumerate(sequence):
             rid = tile["region"]
@@ -143,7 +191,7 @@ def run_overview_with_picks(
             tile_id = (str(rid), tile["row"], tile["col"])
 
             print(
-                f"[{i + 1}/{len(sequence)}] R{rid} "
+                f"[{i + 1}/{n_tiles_planned}] R{rid} "
                 f"r{tile['row']}c{tile['col']}  "
                 f"x={x_um:.0f} y={y_um:.0f} z={zwide_um:.2f}",
                 end="", flush=True,
@@ -164,10 +212,8 @@ def run_overview_with_picks(
                 result = drv.acquire_and_save(
                     ctx.client, ctx.run, cfg.acquisition_job, naming,
                 )
-                image = result.image
-                tif_path = result.image_path
                 engine.submit("overview", {
-                    "image_path": str(tif_path),
+                    "image_path": str(result.image_path),
                     "tile_id": tile_id,
                     "naming_p": i,
                     "tile_stage_xy_um": (x_um, y_um),
@@ -179,7 +225,7 @@ def run_overview_with_picks(
                     "feature": "area",
                     "analysis_image_source": cfg.analysis_image_source,
                 })
-                n_submitted += 1
+                n_tiles_submitted += 1
                 print(f"  ok")
             except Exception as exc:
                 tile_acquire_failures.append({
@@ -188,73 +234,46 @@ def run_overview_with_picks(
                 print(f"  FAIL ({exc})")
                 continue
 
-            # Opportunistic drain — save + display per result
-            new_results = engine.results("overview")
-            for r in new_results:
-                if _analysis_dir_ready and _save_single_tile_analysis(
-                    r, analysis_dir,
-                    hash6=ctx.run.layout.hash6,
-                    acquisition_type="overview-scan",
-                ):
-                    n_saved += 1
-                _fire_on_tile(on_tile, r)
-            buffer.extend(new_results)
+            # Opportunistic drain
+            for r in engine.results("overview"):
+                _process_drained_result(
+                    r, ctx, analysis_dir, analysis_dir_ready,
+                    all_picks, tile_cell_counts, npz_save_failures,
+                    on_tile,
+                )
+                n_results += 1
 
-        # 4.4 -- blocking drain
+        # Blocking drain
         s = None
         while True:
             s = engine.status("overview")
-            new_results = engine.results("overview")
-            for r in new_results:
-                if _analysis_dir_ready and _save_single_tile_analysis(
-                    r, analysis_dir,
-                    hash6=ctx.run.layout.hash6,
-                    acquisition_type="overview-scan",
-                ):
-                    n_saved += 1
-                _fire_on_tile(on_tile, r)
-            buffer.extend(new_results)
+            for r in engine.results("overview"):
+                _process_drained_result(
+                    r, ctx, analysis_dir, analysis_dir_ready,
+                    all_picks, tile_cell_counts, npz_save_failures,
+                    on_tile,
+                )
+                n_results += 1
             if s["pending"] == 0 and s["running"] == 0:
                 break
             time.sleep(0.05)
 
-        # New failures only (D19) — reuse s from the final loop iteration
         new_failures = s.get("failures", [])[failure_count_before:]
 
-        # Phase-0 only: each submit produces exactly one result or failure
-        assert len(buffer) + len(new_failures) == n_submitted, (
-            f"Drain mismatch: {len(buffer)} results + {len(new_failures)} "
-            f"failures != {n_submitted} submitted"
+        assert n_results + len(new_failures) == n_tiles_submitted, (
+            f"Drain mismatch: {n_results} results + {len(new_failures)} "
+            f"failures != {n_tiles_submitted} submitted"
         )
 
-        print(f"\n[step 4] Drain complete: {len(buffer)} result(s), "
-              f"{len(new_failures)} engine failure(s), "
-              f"{len(tile_acquire_failures)} tile acquire failure(s)")
-
-        if n_saved:
-            print(f"[step 4] Saved {n_saved} tile analysis artifact(s) "
-                  f"to {analysis_dir}")
-
-        # 4.5 -- collect picks from engine results
-        raw_picks = _collect_picks_from_results(buffer)
-        n_picks_raw = len(raw_picks)
-
-        # 4.6 -- dedup by cell_source_stage_xy_um (D5)
-        deduped, removed_dup = _dedup_picks(raw_picks)
-
-        # 4.7 -- filter out-of-limits (D6)
-        surviving, removed_xy, removed_z, removed_xlat = _filter_out_of_limits(
-            deduped, ctx,
+        print(
+            f"\n[step 4] Drain complete: {n_results} result(s), "
+            f"{len(new_failures)} engine failure(s), "
+            f"{len(tile_acquire_failures)} tile acquire failure(s), "
+            f"{len(npz_save_failures)} npz save failure(s). "
+            f"{len(tile_cell_counts)} tile(s) persisted."
         )
 
-        print(f"[step 4] Picks: {n_picks_raw} raw -> "
-              f"{len(removed_dup)} dup, "
-              f"{len(removed_xy)} out-xy, "
-              f"{len(removed_z)} out-z, "
-              f"{len(removed_xlat)} xlat-fail -> "
-              f"{len(surviving)} final")
-
-        all_removed = removed_dup + removed_xy + removed_z + removed_xlat
+        completed = True
     finally:
         try:
             drv.restore_template(client)
@@ -262,11 +281,66 @@ def run_overview_with_picks(
         except Exception as exc:
             print(f"[step 4] WARNING: could not restore template: {exc}")
 
-    if len(surviving) > 50:
+        # Persist meta even when the drain raised, so load_overview_result
+        # can show partial state. completed=False signals the incompleteness.
+        try:
+            _write_overview_meta(
+                analysis_dir,
+                n_tiles_planned=n_tiles_planned,
+                n_tiles_submitted=n_tiles_submitted,
+                tile_acquire_failures=tile_acquire_failures,
+                engine_failures=new_failures,
+                npz_save_failures=npz_save_failures,
+                completed=completed,
+            )
+        except Exception as exc:
+            print(f"[step 4] WARNING: could not write overview_meta.json: {exc}")
+
+    return OverviewResult(
+        all_picks=all_picks,
+        tile_acquire_failures=tile_acquire_failures,
+        engine_failures=new_failures,
+        npz_save_failures=npz_save_failures,
+        tile_cell_counts=tile_cell_counts,
+        n_tiles_planned=n_tiles_planned,
+        n_tiles_submitted=n_tiles_submitted,
+        completed=completed,
+    )
+
+
+def run_overview_with_picks(
+    ctx: Context,
+    focus_map: FocusMap,
+    *,
+    on_tile: Callable[[TileEvent], None] | None = None,
+) -> Picks:
+    """DEPRECATED (Commit B): removed in Commit C.
+
+    Calls run_overview() and applies legacy dedup + out-of-limits filter so
+    the notebook stays functional during the intermediate state. Replaced
+    by run_overview() + select_targets() in Commit C.
+    """
+    result = run_overview(ctx, focus_map, on_tile=on_tile)
+
+    deduped, removed_dup = _dedup_picks(result.all_picks)
+    final, removed_xy, removed_z, removed_xlat = _filter_out_of_limits(
+        deduped, ctx,
+    )
+
+    print(
+        f"[step 4] Picks: {len(result.all_picks)} raw -> "
+        f"{len(removed_dup)} dup, "
+        f"{len(removed_xy)} out-xy, "
+        f"{len(removed_z)} out-z, "
+        f"{len(removed_xlat)} xlat-fail -> "
+        f"{len(final)} final"
+    )
+
+    if len(final) > 50:
         print(
-            f"[step 4] WARNING: {len(surviving)} picks selected. "
-            f"This is commit-A intermediate state. Selection step ships in "
-            f"Commit C; do NOT run Step 5 on production hardware."
+            f"[step 4] WARNING: {len(final)} picks selected. "
+            f"This is intermediate state. Selection step ships in Commit C; "
+            f"do NOT run Step 5 on production hardware."
         )
         if os.environ.get("SMART_MICROSCOPY_ALLOW_INTERMEDIATE_RUN") != "1":
             print(
@@ -275,14 +349,126 @@ def run_overview_with_picks(
             )
 
     return Picks(
-        items=surviving,
-        n_picks_raw=n_picks_raw,
+        items=final,
+        n_picks_raw=len(result.all_picks),
         n_picks_removed_duplicate=len(removed_dup),
         n_picks_out_of_limits_xy=len(removed_xy),
         n_picks_out_of_limits_z=len(removed_z),
-        removed_picks=all_removed,
+        removed_picks=removed_dup + removed_xy + removed_z + removed_xlat,
+        tile_acquire_failures=result.tile_acquire_failures,
+        engine_failures=result.engine_failures,
+    )
+
+
+def load_overview_result(analysis_dir: Path) -> OverviewResult:
+    """Reconstruct OverviewResult from disk. Kernel-restart safe.
+
+    Single pass over v2 NPZ files: builds all_picks and tile_cell_counts.
+    Empty tiles (cell_labels.shape[0] == 0) contribute (tile_id, 0) to
+    tile_cell_counts. Failure lists + acquire-loop counters + completed
+    sentinel come from overview_meta.json if present; missing meta is
+    tolerated with a warning.
+
+    Re-homed to selection.py in Commit C.
+    """
+    all_picks: list[Pick] = []
+    tile_cell_counts: dict[tuple[str, int, int], int] = {}
+
+    if analysis_dir.exists():
+        for npz_path in sorted(analysis_dir.glob("*.npz")):
+            try:
+                with np.load(npz_path, allow_pickle=True) as data:
+                    version = (
+                        int(data["schema_version"])
+                        if "schema_version" in data.files else 1
+                    )
+                    if version < 2:
+                        print(
+                            f"[load] skipping {npz_path.name} "
+                            f"(schema v{version}, need v2)"
+                        )
+                        continue
+                    tile_id_str = tuple(str(x) for x in data["tile_id"])
+                    tile_id = (
+                        tile_id_str[0], int(tile_id_str[1]), int(tile_id_str[2]),
+                    )
+                    n = len(data["cell_labels"])
+                    tile_cell_counts[tile_id] = n
+                    for i in range(n):
+                        all_picks.append(Pick(
+                            pick_id=(
+                                tile_id[0], tile_id[1], tile_id[2],
+                                int(data["cell_labels"][i]),
+                            ),
+                            tile_stage_xy_um=tuple(data["pick_tile_stage_xy_um"][i]),
+                            tile_zwide_um=float(data["pick_tile_zwide_um"][i]),
+                            source_pixel_size_um=tuple(data["pick_source_pixel_size_um"][i]),
+                            source_image_size_px=tuple(
+                                int(x) for x in data["pick_source_image_size_px"][i]),
+                            centroid_col_row_px=tuple(data["pick_centroid_col_row_px"][i]),
+                            bbox_px=tuple(int(x) for x in data["pick_bbox_px"][i]),
+                            bbox_um=tuple(data["pick_bbox_um"][i]),
+                            area_px=int(data["cell_area_px"][i]),
+                            eccentricity=float(data["pick_eccentricity"][i]),
+                            mean_intensity=float(data["cell_mean_intensity"][i]),
+                            cell_source_stage_xy_um=tuple(
+                                data["pick_cell_source_stage_xy_um"][i]),
+                        ))
+            except Exception as exc:
+                print(f"[load] WARNING: failed to read {npz_path.name}: {exc}")
+                continue
+
+    meta_path = analysis_dir / "overview_meta.json"
+    tile_acquire_failures: list[dict] = []
+    engine_failures: list[dict] = []
+    npz_save_failures: list[dict] = []
+    n_tiles_planned = 0
+    n_tiles_submitted = 0
+    completed = False
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text())
+            tile_acquire_failures = meta.get("tile_acquire_failures", [])
+            engine_failures = meta.get("engine_failures", [])
+            npz_save_failures = meta.get("npz_save_failures", [])
+            completed = bool(meta.get("completed", False))
+            n_tiles_planned = int(meta.get("n_tiles_planned", 0))
+            n_tiles_submitted = int(meta.get("n_tiles_submitted", 0))
+            if "n_tiles_planned" not in meta or "n_tiles_submitted" not in meta:
+                print(
+                    "[load] WARNING: overview_meta.json predates schema v2 "
+                    "(missing n_tiles_planned/n_tiles_submitted). "
+                    "Summary counters for planned/submitted will be 0."
+                )
+        except (json.JSONDecodeError, OSError) as exc:
+            print(
+                f"[load] WARNING: overview_meta.json unreadable ({exc}); "
+                f"failure lists default to []. Treating run as incomplete."
+            )
+    else:
+        print(
+            "[load] WARNING: no overview_meta.json found at "
+            f"{analysis_dir}; either zero tiles ran or the previous "
+            "run_overview crashed before writing meta. Treating run as "
+            "incomplete; failure lists default to []."
+        )
+
+    if not completed:
+        print(
+            f"[load] NOTE: overview run at {analysis_dir} is marked "
+            f"incomplete. Selecting from {len(all_picks)} picks across "
+            f"{len(tile_cell_counts)} tile(s) anyway -- operator should verify."
+        )
+
+    return OverviewResult(
+        all_picks=all_picks,
         tile_acquire_failures=tile_acquire_failures,
-        engine_failures=new_failures,
+        engine_failures=engine_failures,
+        npz_save_failures=npz_save_failures,
+        tile_cell_counts=tile_cell_counts,
+        n_tiles_planned=n_tiles_planned,
+        n_tiles_submitted=n_tiles_submitted,
+        completed=completed,
     )
 
 
@@ -313,27 +499,184 @@ def _build_snake_sequence(
     return sequence
 
 
-def _collect_picks_from_results(buffer: list[dict]) -> list[Pick]:
-    """Extract Pick objects from engine result dicts."""
+def _picks_from_result(result: dict) -> list[Pick]:
+    """Extract Pick objects from ONE engine result dict (per-tile).
+
+    NOT an aggregate over all tiles -- the per-tile NPZ blocks use this
+    to avoid the name collision with OverviewResult.all_picks.
+    """
     picks: list[Pick] = []
-    for result in buffer:
-        pick_data = result.get("pick_targets", {}).get("picks", [])
-        for pd in pick_data:
-            picks.append(Pick(
-                pick_id=tuple(pd["pick_id"]),
-                tile_stage_xy_um=tuple(pd["tile_stage_xy_um"]),
-                tile_zwide_um=pd["tile_zwide_um"],
-                source_pixel_size_um=tuple(pd["source_pixel_size_um"]),
-                source_image_size_px=tuple(pd["source_image_size_px"]),
-                centroid_col_row_px=tuple(pd["centroid_col_row_px"]),
-                bbox_px=tuple(pd["bbox_px"]),
-                bbox_um=tuple(pd["bbox_um"]),
-                area_px=pd["area_px"],
-                eccentricity=pd["eccentricity"],
-                mean_intensity=pd["mean_intensity"],
-                cell_source_stage_xy_um=tuple(pd["cell_source_stage_xy_um"]),
-            ))
+    pick_data = result.get("pick_targets", {}).get("picks", [])
+    for pd in pick_data:
+        picks.append(Pick(
+            pick_id=tuple(pd["pick_id"]),
+            tile_stage_xy_um=tuple(pd["tile_stage_xy_um"]),
+            tile_zwide_um=pd["tile_zwide_um"],
+            source_pixel_size_um=tuple(pd["source_pixel_size_um"]),
+            source_image_size_px=tuple(pd["source_image_size_px"]),
+            centroid_col_row_px=tuple(pd["centroid_col_row_px"]),
+            bbox_px=tuple(pd["bbox_px"]),
+            bbox_um=tuple(pd["bbox_um"]),
+            area_px=pd["area_px"],
+            eccentricity=pd["eccentricity"],
+            mean_intensity=pd["mean_intensity"],
+            cell_source_stage_xy_um=tuple(pd["cell_source_stage_xy_um"]),
+        ))
     return picks
+
+
+def _process_drained_result(
+    result: dict,
+    ctx: Context,
+    analysis_dir: Path,
+    analysis_dir_ready: bool,
+    all_picks: list[Pick],
+    tile_cell_counts: dict[tuple[str, int, int], int],
+    npz_save_failures: list[dict],
+    on_tile: Callable[[TileEvent], None] | None,
+) -> None:
+    """Handle one drained engine result.
+
+    Save-failure invariant: only when _save_single_tile_analysis returns
+    True does the tile contribute to all_picks AND tile_cell_counts. On
+    False (any cause -- _save_single_tile_analysis catches its own
+    exceptions and returns False, never raises), the tile is recorded in
+    npz_save_failures and excluded from the aggregates. on_tile fires
+    regardless so live display still works.
+    """
+    tile_picks = _picks_from_result(result)
+    tile_id_raw = result.get("input", {}).get("tile_id")
+
+    if tile_id_raw is None:
+        # No tile_id => nothing we can save or attribute to a tile.
+        # Still fire the callback for parity with the old behavior.
+        _fire_on_tile(on_tile, result)
+        return
+
+    tile_id = (str(tile_id_raw[0]), int(tile_id_raw[1]), int(tile_id_raw[2]))
+
+    if analysis_dir_ready:
+        extra_arrays = _build_npz_extra_arrays(tile_picks)
+        if _save_single_tile_analysis(
+            result, analysis_dir,
+            hash6=ctx.run.layout.hash6,
+            acquisition_type="overview-scan",
+            extra_arrays=extra_arrays,
+        ):
+            tile_cell_counts[tile_id] = len(tile_picks)
+            all_picks.extend(tile_picks)
+        else:
+            npz_save_failures.append({
+                "tile_id": list(tile_id),
+                "reason": "save_returned_false",
+            })
+    else:
+        # Without a writable analysis_dir there's nowhere to persist —
+        # record as save failure to preserve the same-kernel==restart
+        # invariant (load_overview_result would see no NPZ either).
+        npz_save_failures.append({
+            "tile_id": list(tile_id),
+            "reason": "analysis_dir_unavailable",
+        })
+
+    _fire_on_tile(on_tile, result)
+
+
+def _array_from_field(
+    values: list, *, shape_suffix: tuple = (), dtype=np.float64,
+) -> np.ndarray:
+    """Construct array preserving per-element shape even when values is empty.
+
+    np.array([]) gives shape (0,) regardless of intended shape.
+    For empty tiles, we need (0, K) for K-tuple fields and (0,) for scalars,
+    so the loader can index uniformly via data[key][i].
+    """
+    if not values:
+        return np.empty((0, *shape_suffix), dtype=dtype)
+    return np.array(values, dtype=dtype)
+
+
+def _build_npz_extra_arrays(tile_picks: list[Pick]) -> dict[str, Any]:
+    """NPZ schema v2 extra_arrays for ONE tile (per-tile, NOT aggregate).
+
+    Writing OverviewResult.all_picks here would inflate every tile's NPZ
+    to O(total cells) and corrupt tile_cell_counts on load.
+
+    Parallel arrays indexed by cell within this tile:
+      cell_labels[i] <-> cell_area_px[i] <-> pick_bbox_px[i] <-> ...
+    Tuple Pick fields -> 2D arrays: (N, 2) xy-pairs, (N, 4) bbox.
+    Empty tiles produce (0, K) arrays via _array_from_field, not (0,).
+    """
+    return {
+        "schema_version": np.int32(2),
+
+        # Cell-level metrics (scatter plot)
+        "cell_labels": _array_from_field(
+            [p.pick_id[3] for p in tile_picks], dtype=np.int32),
+        "cell_area_px": _array_from_field(
+            [p.area_px for p in tile_picks], dtype=np.int32),
+        "cell_mean_intensity": _array_from_field(
+            [p.mean_intensity for p in tile_picks], dtype=np.float64),
+
+        # Full Pick reconstruction
+        "pick_tile_stage_xy_um": _array_from_field(
+            [p.tile_stage_xy_um for p in tile_picks],
+            shape_suffix=(2,), dtype=np.float64),
+        "pick_tile_zwide_um": _array_from_field(
+            [p.tile_zwide_um for p in tile_picks], dtype=np.float64),
+        "pick_source_pixel_size_um": _array_from_field(
+            [p.source_pixel_size_um for p in tile_picks],
+            shape_suffix=(2,), dtype=np.float64),
+        "pick_source_image_size_px": _array_from_field(
+            [p.source_image_size_px for p in tile_picks],
+            shape_suffix=(2,), dtype=np.int32),
+        "pick_centroid_col_row_px": _array_from_field(
+            [p.centroid_col_row_px for p in tile_picks],
+            shape_suffix=(2,), dtype=np.float64),
+        "pick_bbox_px": _array_from_field(
+            [p.bbox_px for p in tile_picks],
+            shape_suffix=(4,), dtype=np.int32),
+        "pick_bbox_um": _array_from_field(
+            [p.bbox_um for p in tile_picks],
+            shape_suffix=(2,), dtype=np.float64),
+        "pick_eccentricity": _array_from_field(
+            [p.eccentricity for p in tile_picks], dtype=np.float64),
+        "pick_cell_source_stage_xy_um": _array_from_field(
+            [p.cell_source_stage_xy_um for p in tile_picks],
+            shape_suffix=(2,), dtype=np.float64),
+    }
+
+
+def _write_overview_meta(
+    analysis_dir: Path,
+    *,
+    n_tiles_planned: int,
+    n_tiles_submitted: int,
+    tile_acquire_failures: list[dict],
+    engine_failures: list[dict],
+    npz_save_failures: list[dict],
+    completed: bool,
+) -> None:
+    """Persist failure lists + acquire-loop counters + completion sentinel.
+
+    `tile_cell_counts` is NOT stored — it's reconstructed from the v2 NPZ
+    files by load_overview_result. n_tiles_planned and n_tiles_submitted
+    cannot be recovered from disk after a kernel restart (no NPZ for
+    planned-but-not-submitted or acquire-failed tiles), so they live here.
+
+    Ensures analysis_dir exists in case zero tiles succeeded.
+    """
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "schema_version": 2,
+        "completed": completed,
+        "n_tiles_planned": n_tiles_planned,
+        "n_tiles_submitted": n_tiles_submitted,
+        "tile_acquire_failures": tile_acquire_failures,
+        "engine_failures": engine_failures,
+        "npz_save_failures": npz_save_failures,
+    }
+    (analysis_dir / "overview_meta.json").write_text(json.dumps(meta, indent=2))
 
 
 def _dedup_picks(picks: list[Pick]) -> tuple[list[Pick], list[dict]]:
@@ -373,12 +716,11 @@ def _dedup_picks(picks: list[Pick]) -> tuple[list[Pick], list[dict]]:
 def _filter_out_of_limits(
     picks: list[Pick],
     ctx: Context,
-) -> tuple[list[Pick], list[dict], list[dict]]:
+) -> tuple[list[Pick], list[dict], list[dict], list[dict]]:
     """Filter picks whose target position falls outside stage limits (D6).
 
     Predicts target XY and Z via the translator (no hardware).
     """
-    cfg = ctx.cfg
     calibration = ctx.calibration
     stage_cfg = ctx.stage_config
 
@@ -444,8 +786,11 @@ def _save_single_tile_analysis(
     *,
     hash6: str,
     acquisition_type: str,
+    extra_arrays: dict[str, Any] | None = None,
 ) -> bool:
-    """Save one tile's analysis artifacts. Returns True if saved."""
+    """Save one tile's analysis artifacts. Returns True if saved, False
+    on any failure (catches its own exceptions). Callers branch on the
+    bool — this function never raises."""
     try:
         inp = result.get("input", {})
         seg = result.get("segment_tile", {})
@@ -478,15 +823,18 @@ def _save_single_tile_analysis(
         )
         dest = analysis_dir / build_position_analysis_name(naming)
 
-        np.savez_compressed(
-            dest,
-            image_2d=image_2d,
-            masks=masks,
-            tile_id=np.array(tile_id, dtype=str),
-            analysis_image_source=np.array(
+        save_kwargs: dict[str, Any] = {
+            "image_2d": image_2d,
+            "masks": masks,
+            "tile_id": np.array(tile_id, dtype=str),
+            "analysis_image_source": np.array(
                 inp.get("analysis_image_source", "acquired")
             ),
-        )
+        }
+        if extra_arrays:
+            # Invariant: cell_labels[i] <-> cell_area_px[i] <-> ...
+            save_kwargs.update(extra_arrays)
+        np.savez_compressed(dest, **save_kwargs)
         return True
     except Exception as exc:
         tid = result.get("input", {}).get("tile_id", "?")
