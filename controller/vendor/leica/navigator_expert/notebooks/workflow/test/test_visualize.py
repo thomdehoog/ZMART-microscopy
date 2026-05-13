@@ -159,6 +159,126 @@ class TestDisplayTileFlags:
         fake_display.assert_called_once()
 
 
+class TestDisplayTileSaveQueue:
+    """Bundle A / A4b: per-tile savefig routes through _FigureSaveQueue.
+
+    Pins three contracts:
+      - Callback latency: display_tile returns before the save completes
+        when the worker is gated.
+      - Close exactly once on the sync path (no _save_queue, no save_png).
+      - Close exactly once on the queued path (worker takes ownership of
+        plt.close; producer's finally must not double-close).
+    """
+    def test_callback_returns_promptly_when_save_queue_worker_is_gated(
+        self, monkeypatch, tmp_path,
+    ):
+        """With the worker blocked, display_tile returns immediately --
+        it submits to the queue and proceeds without waiting for savefig.
+        Event-gated, no time.sleep.
+        """
+        import threading
+        import IPython.display as ipy_display
+        from workflow._save_queue import _FigureSaveQueue
+        from workflow.visualize import display_tile
+
+        monkeypatch.setattr(ipy_display, "display", MagicMock())
+
+        queue = _FigureSaveQueue(max_queued=4)
+        # Block the worker by submitting a gated "first" save.
+        gate = threading.Event()
+        queue.submit(lambda: gate.wait(timeout=5.0))
+
+        display_tile(
+            _make_tile_event(),
+            feedback_dir=tmp_path,
+            live_display=False,
+            save_png=True,
+            _save_queue=queue,
+        )
+
+        # display_tile has returned. The worker is still gated, so the
+        # second save (display_tile's own) has not been processed yet --
+        # the PNG must not exist on disk.
+        assert list(tmp_path.glob("*.png")) == []
+
+        # Release the worker and drain.
+        gate.set()
+        queue.shutdown()
+
+        # After drain, display_tile's PNG is on disk.
+        assert list(tmp_path.glob("live_tile_R*.png"))
+
+    def test_closes_figure_exactly_once_on_sync_path(
+        self, monkeypatch, tmp_path,
+    ):
+        """No _save_queue, save_png=False: figure is built on the
+        producer thread and closed by its finally block. plt.close
+        must be called exactly once for that figure.
+        """
+        import matplotlib.pyplot as plt
+        import IPython.display as ipy_display
+
+        monkeypatch.setattr(ipy_display, "display", MagicMock())
+
+        close_calls: list = []
+        real_close = plt.close
+
+        def counting_close(fig=None):
+            close_calls.append(id(fig) if fig is not None else None)
+            real_close(fig)
+
+        monkeypatch.setattr(plt, "close", counting_close)
+
+        from workflow.visualize import display_tile
+        display_tile(
+            _make_tile_event(),
+            save_png=False,
+            live_display=False,
+        )
+
+        # Exactly one close, for one figure (no plt.close("all") leak).
+        assert len(close_calls) == 1
+
+    def test_closes_figure_exactly_once_on_queued_path(
+        self, monkeypatch, tmp_path,
+    ):
+        """With _save_queue, ownership transfers to the worker. The
+        worker calls plt.close after savefig; the producer's finally
+        must NOT also close (no double-close).
+        """
+        import matplotlib.pyplot as plt
+        import IPython.display as ipy_display
+
+        monkeypatch.setattr(ipy_display, "display", MagicMock())
+
+        close_calls: list = []
+        real_close = plt.close
+
+        def counting_close(fig=None):
+            close_calls.append(id(fig) if fig is not None else None)
+            real_close(fig)
+
+        monkeypatch.setattr(plt, "close", counting_close)
+
+        from workflow._save_queue import _FigureSaveQueue
+        from workflow.visualize import display_tile
+
+        with _FigureSaveQueue() as queue:
+            display_tile(
+                _make_tile_event(),
+                feedback_dir=tmp_path,
+                live_display=False,
+                save_png=True,
+                _save_queue=queue,
+            )
+            # Queue exit -> shutdown -> drain -> worker closes the fig.
+
+        # Exactly one close, performed by the worker.
+        assert len(close_calls) == 1
+        # And the PNG made it to disk.
+        assert list(tmp_path.glob("live_tile_R*.png"))
+
+
 class TestDisplayTargetFlags:
     def test_live_display_false_skips_inline_display(self, monkeypatch, tmp_path):
         """display_target with live_display=False builds the figure but

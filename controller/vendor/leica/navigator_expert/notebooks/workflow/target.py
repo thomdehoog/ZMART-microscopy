@@ -38,6 +38,7 @@ def _build_default_on_target_callback(
     *,
     live_display: bool,
     save_png: bool,
+    save_queue: object = None,
 ) -> Callable[[Pick, "TargetRecord"], None]:
     """Build the default per-target callback when the operator hasn't
     supplied an explicit on_target. display_target is imported LOCALLY
@@ -46,6 +47,10 @@ def _build_default_on_target_callback(
 
     The tile_cache that callers previously created in the notebook
     becomes an implementation detail of this callback.
+
+    save_queue: optional _FigureSaveQueue. When provided, per-target
+    savefig + plt.close run on the queue's worker thread so the
+    acquisition loop returns immediately.
     """
     from .visualize import display_target
 
@@ -63,6 +68,7 @@ def _build_default_on_target_callback(
             tile_cache=tile_cache,
             live_display=live_display,
             save_png=save_png,
+            _save_queue=save_queue,
         )
 
     return _on_target
@@ -95,9 +101,19 @@ def acquire_targets(
     _validate_callback_flags(
         on_target, live_display, save_png, callback_param="on_target",
     )
+    # Async PNG save queue. Owned here when we build the default callback
+    # AND will save (save_png=True); see run_overview for the symmetric
+    # construct + drain-on-return contract.
+    save_queue = None
+    if on_target is None and save_png:
+        from ._save_queue import _FigureSaveQueue
+        save_queue = _FigureSaveQueue(name="target-savefig")
     if on_target is None and (live_display or save_png):
         on_target = _build_default_on_target_callback(
-            ctx, live_display=live_display, save_png=save_png,
+            ctx,
+            live_display=live_display,
+            save_png=save_png,
+            save_queue=save_queue,
         )
 
     cfg = ctx.cfg
@@ -260,5 +276,9 @@ def acquire_targets(
             print("[step 5] Template restored.")
         except Exception as exc:
             print(f"[step 5] WARNING: could not restore template: {exc}")
+
+        # Drain async per-target savefig queue (if owned by this run).
+        if save_queue is not None:
+            save_queue.shutdown()
 
     return records

@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -240,6 +241,7 @@ def display_tile(
     feedback_dir: Path | None = None,
     live_display: bool = True,
     save_png: bool = True,
+    _save_queue: Any = None,
 ) -> None:
     """Render one tile inline during overview acquisition.
 
@@ -253,6 +255,13 @@ def display_tile(
         With save_png=False and live_display=False the call is no-op
         rendering (figure built and closed without side effects);
         run_overview avoids it entirely in that combination.
+    _save_queue: optional workflow._save_queue._FigureSaveQueue. When
+        provided AND save_png=True, the savefig (and plt.close of the
+        figure) is queued to the worker thread. Ownership of the figure
+        transfers to the worker -- the producer must not close it. When
+        None, savefig + close run on the producer thread (existing
+        synchronous path; appropriate for ad-hoc invocations outside
+        run_overview).
     """
     import matplotlib.pyplot as plt
     from IPython.display import display
@@ -273,6 +282,11 @@ def display_tile(
         field_ax = None
         tile_ax, seg_ax = axes
 
+    # Figure-ownership flag. When the save is queued to _save_queue,
+    # the worker thread closes the figure after savefig; the producer
+    # must not also close it (would race the worker / drop the canvas
+    # before savefig runs).
+    transferred = False
     try:
         fig.patch.set_facecolor("white")
 
@@ -306,17 +320,29 @@ def display_tile(
         )
         plt.tight_layout()
 
-        if feedback_dir is not None and save_png:
-            feedback_dir.mkdir(parents=True, exist_ok=True)
-            fig.savefig(
-                feedback_dir / f"live_tile_R{rid}_r{row}c{col}.png",
-                dpi=150,
-            )
-
         if live_display:
             display(fig)
+
+        if feedback_dir is not None and save_png:
+            feedback_dir.mkdir(parents=True, exist_ok=True)
+            out_path = (
+                feedback_dir / f"live_tile_R{rid}_r{row}c{col}.png"
+            )
+            if _save_queue is not None:
+                # Hand the figure off to the worker thread. Worker
+                # saves AND closes; producer must not call plt.close.
+                def _save_and_close(fig=fig, out_path=out_path):
+                    try:
+                        fig.savefig(out_path, dpi=150)
+                    finally:
+                        plt.close(fig)
+                _save_queue.submit(_save_and_close, label=out_path.name)
+                transferred = True
+            else:
+                fig.savefig(out_path, dpi=150)
     finally:
-        plt.close(fig)
+        if not transferred:
+            plt.close(fig)
 
 
 # ─── display_selection: Step 4 figure ─────────────────────────────
@@ -764,6 +790,7 @@ def display_target(
     tile_cache: dict | None = None,
     live_display: bool = True,
     save_png: bool = True,
+    _save_queue: Any = None,
 ) -> None:
     """Render one target 3-panel figure inline during acquisition.
 
@@ -776,6 +803,10 @@ def display_target(
 
     live_display: when False, build the figure but skip display().
     save_png: when False, skip fig.savefig even if feedback_dir is set.
+    _save_queue: optional workflow._save_queue._FigureSaveQueue. Same
+        semantics as display_tile's _save_queue -- when provided AND
+        save_png=True, the savefig + plt.close are queued to the
+        worker; ownership of the figure transfers there.
     """
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
@@ -805,6 +836,8 @@ def display_target(
             pass
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    # Figure-ownership flag for the queued-save path; see display_tile.
+    transferred = False
     try:
         fig.patch.set_facecolor("white")
 
@@ -882,17 +915,28 @@ def display_target(
                      fontsize=13, fontweight="bold")
         plt.tight_layout()
 
-        if feedback_dir is not None and save_png:
-            feedback_dir.mkdir(parents=True, exist_ok=True)
-            fig.savefig(
-                feedback_dir / f"live_target_R{rid}_r{row}c{col}_l{label}.png",
-                dpi=150,
-            )
-
         if live_display:
             display(fig)
+
+        if feedback_dir is not None and save_png:
+            feedback_dir.mkdir(parents=True, exist_ok=True)
+            out_path = (
+                feedback_dir
+                / f"live_target_R{rid}_r{row}c{col}_l{label}.png"
+            )
+            if _save_queue is not None:
+                def _save_and_close(fig=fig, out_path=out_path):
+                    try:
+                        fig.savefig(out_path, dpi=150)
+                    finally:
+                        plt.close(fig)
+                _save_queue.submit(_save_and_close, label=out_path.name)
+                transferred = True
+            else:
+                fig.savefig(out_path, dpi=150)
     finally:
-        plt.close(fig)
+        if not transferred:
+            plt.close(fig)
 
 
 # ─── Batch re-render (Steps 4b/5b) ──────────────────────────────
