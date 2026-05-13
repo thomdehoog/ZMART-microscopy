@@ -26,61 +26,11 @@ from .selection import (
 )
 
 
-# ─── Live display (during acquisition) ───────────────────────────
-
-
-def display_tile(
-    event: TileEvent,
-    *,
-    feedback_dir: Path | None = None,
-) -> None:
-    """Render one tile inline during overview acquisition.
-
-    Two panels: grayscale | segmentation overlay. Selection now happens
-    in a separate step (selection cell -> display_selection), so this
-    no longer renders a picked overlay.
-    """
-    import matplotlib.pyplot as plt
-    from IPython.display import display
-
-    rid, row, col = event.tile_id
-    is_mock = event.analysis_image_source != "acquired"
-    prefix = "(mock) " if is_mock else ""
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    try:
-        fig.patch.set_facecolor("white")
-
-        axes[0].imshow(event.image_2d, cmap="gray")
-        axes[0].set_title("Tile image", fontsize=11)
-        axes[0].axis("off")
-
-        _segmentation_overlay(axes[1], event.image_2d, event.masks)
-        axes[1].set_title(f"Segmentation ({event.n_cells} cells)", fontsize=11)
-        axes[1].axis("off")
-
-        fig.suptitle(
-            f"{prefix}Tile R{rid} r{row}c{col} -- {event.n_cells} cells",
-            fontsize=13, fontweight="bold",
-        )
-        plt.tight_layout()
-
-        if feedback_dir is not None:
-            feedback_dir.mkdir(parents=True, exist_ok=True)
-            fig.savefig(
-                feedback_dir / f"live_tile_R{rid}_r{row}c{col}.png",
-                dpi=150,
-            )
-
-        display(fig)
-    finally:
-        plt.close(fig)
-
-
-# ─── display_selection: typography, palette, layers ────────────────
+# ─── Style tokens (palette + typography) ──────────────────────────
 #
-# Single source of truth for the visual style of the Step 4 figure.
-# When something looks wrong, change it here, not at the call site.
+# Single source of truth for the visual style of every renderer in this
+# module. When something looks wrong visually, change it here, not at
+# the call site.
 
 # Palette. White-background-friendly. The "shown" red and "qualifying"
 # blue are chosen so the picked picks pop without competing for attention.
@@ -91,20 +41,29 @@ _COLOR_INK_CAPTION = "#7A8794"   # light gray — caption text, thresholds
 _COLOR_RULE = "#B5BCC4"          # axis spines
 _COLOR_GRID = "#E6E9EE"          # background grid
 _COLOR_PANEL = "#FAFBFC"         # axes facecolor
+_COLOR_PANEL_FALLBACK = "#F4F5F7"     # placeholder background
 
+# Scatter-category colors (display_selection)
 _COLOR_BELOW = "#C8CDD4"         # warm gray — below threshold
 _COLOR_NEAR_BORDER = "#D9A14B"   # amber — too close to tile edge
 _COLOR_QUALIFYING = "#4A7FB8"    # steel blue — qualified, lost to dedup/limits
 _COLOR_SELECTED = _COLOR_INK_PRIMARY   # navy — selected, not shown as crop
-_COLOR_SHOWN = "#C8423A"         # red — picks shown as crops
+_COLOR_SHOWN = "#C8423A"         # red — picks shown as crops; also used as
+                                 # the "current tile" highlight in display_tile
 _COLOR_THRESHOLD = _COLOR_INK_MUTED   # threshold guide lines
-_COLOR_PANEL_FALLBACK = "#F4F5F7"     # placeholder background
+
+# Scan-field tile coloring (display_tile field panel, plot_scan_field
+# secondary tiles, etc.)
+_COLOR_TILE_FACE = "#E6E9EE"     # filled tiles, light gray
+_COLOR_TILE_EDGE = "#BFC5CC"     # tile outline
+_COLOR_BOUNDARY = "#A5ACB4"      # sample boundary outline (dashed)
 
 # Typography scale. Anything not on this scale is a bug.
 _FONT_TITLE = 14
 _FONT_SUBTITLE = 11
 _FONT_CAPTION = 9
 _FONT_AXIS_LABEL = 10
+_FONT_PANEL_TITLE = 11
 _FONT_TICK = 9
 _FONT_LEGEND = 9
 _FONT_ANNOTATION = 10
@@ -135,6 +94,222 @@ _LAYERS: tuple[_ScatterLayer, ...] = (
     _ScatterLayer("selected",    _COLOR_SELECTED,     42, 1.00, "o", "white", 0.6, 4, "Selected"),
     _ScatterLayer("shown",       _COLOR_SHOWN,       130, 1.00, "D", "white", 1.2, 5, "Shown"),
 )
+
+
+# ─── Scan-field rendering primitives ──────────────────────────────
+#
+# Shared helpers used by:
+#   plot_scan_field     (Step 2b, standalone figure)
+#   focus_map.plot      (Step 2c, surface overlay on top of the same tiles)
+#   display_tile        (Step 3, small "where am I" panel during overview)
+#
+# Single source of truth for tile rendering + aspect handling so the three
+# entry points stay visually consistent.
+
+
+def render_scan_field_panel(
+    ax,
+    scan_field: dict,
+    boundary_limits: dict | None,
+    *,
+    highlight_tile_id: tuple[str, int, int] | None = None,
+) -> None:
+    """Compact scan-field rendering for an embedded panel.
+
+    Light-gray tiles, optional boundary outline, current tile highlighted
+    in red. No legend, no focus markers, no axis labels. Equal aspect.
+    y-axis inverted to match stage convention.
+    """
+    import matplotlib.patches as patches
+
+    tile_positions = scan_field.get("tile_positions", {})
+    if not tile_positions:
+        ax.text(
+            0.5, 0.5, "(no scan field)",
+            ha="center", va="center", transform=ax.transAxes,
+            fontsize=_FONT_CROP_TITLE, color=_COLOR_INK_MUTED,
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+        return
+
+    all_x: list[float] = []
+    all_y: list[float] = []
+
+    for rid, region in tile_positions.items():
+        ts = region.get("tile_size_um")
+        if ts is None:
+            continue
+        half = ts / 2
+        for pos in region["positions"]:
+            cx, cy = pos["x_um"], pos["y_um"]
+            tid = (str(rid), int(pos["row"]), int(pos["col"]))
+            is_current = (highlight_tile_id is not None
+                          and tid == highlight_tile_id)
+            if is_current:
+                face = _COLOR_SHOWN
+                edge = _COLOR_SHOWN
+                lw = 1.2
+                zorder = 5
+            else:
+                face = _COLOR_TILE_FACE
+                edge = _COLOR_TILE_EDGE
+                lw = 0.4
+                zorder = 2
+            ax.add_patch(patches.Rectangle(
+                (cx - half, cy - half), ts, ts,
+                linewidth=lw, edgecolor=edge, facecolor=face, zorder=zorder,
+            ))
+            all_x.extend([cx - half, cx + half])
+            all_y.extend([cy - half, cy + half])
+
+    if boundary_limits:
+        ax.add_patch(patches.Rectangle(
+            (boundary_limits["x_min"], boundary_limits["y_min"]),
+            boundary_limits["x_max"] - boundary_limits["x_min"],
+            boundary_limits["y_max"] - boundary_limits["y_min"],
+            linewidth=0.8, edgecolor=_COLOR_BOUNDARY, facecolor="none",
+            linestyle=(0, (4, 3)), zorder=1,
+        ))
+        all_x.extend([boundary_limits["x_min"], boundary_limits["x_max"]])
+        all_y.extend([boundary_limits["y_min"], boundary_limits["y_max"]])
+
+    if all_x:
+        span = max(max(all_x) - min(all_x), max(all_y) - min(all_y), 1.0)
+        pad = span * 0.05
+        ax.set_xlim(min(all_x) - pad, max(all_x) + pad)
+        ax.set_ylim(min(all_y) - pad, max(all_y) + pad)
+    ax.set_aspect("equal")
+    ax.invert_yaxis()
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_color(_COLOR_RULE)
+        spine.set_linewidth(0.6)
+
+
+def scan_field_extent_um(
+    scan_field: dict, boundary_limits: dict | None = None,
+) -> tuple[float, float]:
+    """Return (width_um, height_um) of the scan field's bounding box,
+    including the boundary if present. (0, 0) if empty."""
+    tile_positions = scan_field.get("tile_positions", {})
+    xs: list[float] = []
+    ys: list[float] = []
+    for region in tile_positions.values():
+        ts = region.get("tile_size_um") or 0.0
+        half = ts / 2
+        for pos in region["positions"]:
+            xs.extend([pos["x_um"] - half, pos["x_um"] + half])
+            ys.extend([pos["y_um"] - half, pos["y_um"] + half])
+    if boundary_limits:
+        xs.extend([boundary_limits["x_min"], boundary_limits["x_max"]])
+        ys.extend([boundary_limits["y_min"], boundary_limits["y_max"]])
+    if not xs or not ys:
+        return 0.0, 0.0
+    return float(max(xs) - min(xs)), float(max(ys) - min(ys))
+
+
+def figsize_for_extent(
+    width_um: float, height_um: float,
+    *, long_inches: float = 14.0,
+    short_min_inches: float = 5.0,
+    short_max_inches: float = 10.0,
+) -> tuple[float, float]:
+    """Figure (width, height) inches whose aspect matches the data.
+
+    The longer axis is fixed at `long_inches`; the shorter axis scales
+    proportionally but is clamped to [short_min_inches, short_max_inches]
+    so degenerate aspects don't produce unusable figures.
+    """
+    if width_um <= 0 or height_um <= 0:
+        return long_inches, long_inches
+    aspect = max(width_um, height_um) / min(width_um, height_um)
+    short = max(short_min_inches, min(short_max_inches, long_inches / aspect))
+    return (long_inches, short) if width_um >= height_um else (short, long_inches)
+
+
+# ─── Live display (during acquisition) ───────────────────────────
+
+
+def display_tile(
+    event: TileEvent,
+    *,
+    scan_field: dict | None = None,
+    boundary_limits: dict | None = None,
+    feedback_dir: Path | None = None,
+) -> None:
+    """Render one tile inline during overview acquisition.
+
+    If `scan_field` is provided, render a 3-panel figure:
+        Field-with-current-tile | Tile image | Segmentation
+    Otherwise fall back to the original 2-panel layout (image | segmentation).
+    """
+    import matplotlib.pyplot as plt
+    from IPython.display import display
+
+    rid, row, col = event.tile_id
+    is_mock = event.analysis_image_source != "acquired"
+    prefix = "(mock) " if is_mock else ""
+
+    show_field = scan_field is not None
+    if show_field:
+        fig, axes = plt.subplots(
+            1, 3, figsize=(15, 5),
+            gridspec_kw={"width_ratios": [1, 1, 1], "wspace": 0.15},
+        )
+        field_ax, tile_ax, seg_ax = axes
+    else:
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+        field_ax = None
+        tile_ax, seg_ax = axes
+
+    try:
+        fig.patch.set_facecolor("white")
+
+        if field_ax is not None:
+            render_scan_field_panel(
+                field_ax, scan_field, boundary_limits,
+                highlight_tile_id=(str(rid), int(row), int(col)),
+            )
+            field_ax.set_title(
+                "Field position", fontsize=_FONT_PANEL_TITLE,
+                color=_COLOR_INK_BODY,
+            )
+
+        tile_ax.imshow(event.image_2d, cmap="gray")
+        tile_ax.set_title(
+            "Tile image", fontsize=_FONT_PANEL_TITLE, color=_COLOR_INK_BODY,
+        )
+        tile_ax.axis("off")
+
+        _segmentation_overlay(seg_ax, event.image_2d, event.masks)
+        seg_ax.set_title(
+            f"Segmentation ({event.n_cells} cells)",
+            fontsize=_FONT_PANEL_TITLE, color=_COLOR_INK_BODY,
+        )
+        seg_ax.axis("off")
+
+        fig.suptitle(
+            f"{prefix}Tile R{rid} r{row}c{col}  ·  {event.n_cells} cells",
+            fontsize=_FONT_TITLE, fontweight="bold",
+            color=_COLOR_INK_PRIMARY,
+        )
+        plt.tight_layout()
+
+        if feedback_dir is not None:
+            feedback_dir.mkdir(parents=True, exist_ok=True)
+            fig.savefig(
+                feedback_dir / f"live_tile_R{rid}_r{row}c{col}.png",
+                dpi=150,
+            )
+
+        display(fig)
+    finally:
+        plt.close(fig)
+
+
+# ─── display_selection: Step 4 figure ─────────────────────────────
 
 
 def display_selection(

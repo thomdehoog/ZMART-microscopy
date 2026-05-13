@@ -59,6 +59,8 @@ class FocusMap:
         from matplotlib.patches import PathPatch
         from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+        from .visualize import figsize_for_extent, scan_field_extent_um
+
         if ctx.scan_field is None:
             raise RuntimeError("Call read_scan_field before focus_map.plot.")
 
@@ -75,7 +77,10 @@ class FocusMap:
             (r.get("tile_size_um") or 0) for r in tile_positions.values()
         ) if tile_positions else 0
 
-        fig, ax = plt.subplots(figsize=(14, 10))
+        # Aspect follows the field. Same helper as plot_scan_field for
+        # visual consistency across Step 2b / 2c.
+        width_um, height_um = scan_field_extent_um(ctx.scan_field, lim)
+        fig, ax = plt.subplots(figsize=figsize_for_extent(width_um, height_um))
         fig.patch.set_facecolor("white")
         ax.set_facecolor("#f5f5f8")
 
