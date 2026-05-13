@@ -135,22 +135,67 @@ _MODE_ANNOTATIONS: dict[str, str] = {
 # entry points stay visually consistent.
 
 
+@dataclass(frozen=True)
+class TileStyle:
+    """Per-tile drawing style override for render_scan_field_panel."""
+    facecolor: object             # str hex, RGBA tuple, or "none"
+    edgecolor: object
+    linewidth: float = 0.6
+    alpha: float = 1.0
+    zorder: int = 2
+
+
+@dataclass(frozen=True)
+class ScanFieldRenderContext:
+    """Geometry + extent info returned by render_scan_field_panel so
+    callers can reuse it for overlays (focus colormap, autofocus markers,
+    legend placement, etc.) without recomputing.
+    """
+    tile_bounds: list[tuple[float, float, float, float]]
+    tile_bounds_by_region: dict[str, list[tuple[float, float, float, float]]]
+    extent_x: tuple[float, float]
+    extent_y: tuple[float, float]
+    max_tile_size_um: float
+
+
 def render_scan_field_panel(
     ax,
     scan_field: dict,
     boundary_limits: dict | None,
     *,
     highlight_tile_id: tuple[str, int, int] | None = None,
-) -> None:
-    """Compact scan-field rendering for an embedded panel.
+    tile_styles: dict[tuple[str, int, int], TileStyle] | None = None,
+) -> ScanFieldRenderContext:
+    """Render the scan-field tiles + optional boundary on `ax` and return
+    a ScanFieldRenderContext describing the geometry.
 
-    Light-gray tiles, optional boundary outline, current tile highlighted
-    in red. No legend, no focus markers, no axis labels. Equal aspect.
-    y-axis inverted to match stage convention.
+    Used by display_tile (Step 3, with highlight_tile_id only),
+    plot_scan_field (Step 2b, with tile_styles built from job colors),
+    and focus_map.plot (Step 2c, with tile_styles forcing transparent
+    faces so the focus colormap shows through). The returned context
+    lets the caller place overlays without recomputing tile bounds.
+
+    Style precedence per tile:
+      1. If `tile_id == highlight_tile_id`, force the highlight style.
+         (Deliberate: the current-acquiring-tile indicator must stay
+         visually dominant over any per-tile job coloring.)
+      2. Else, use `tile_styles[tile_id]` if provided.
+      3. Else, use the default (light-gray face + tile-edge gray).
+
+    Boundary is drawn iff `boundary_limits is not None`.
+
+    The renderer is responsible for axes-level concerns (equal aspect,
+    y-axis inversion, ticks off, spine styling). Figure-level concerns
+    (figsize from data extent) live in `figsize_for_extent` — see the
+    docstring there.
     """
     import matplotlib.patches as patches
 
     tile_positions = scan_field.get("tile_positions", {})
+    tile_bounds: list[tuple[float, float, float, float]] = []
+    tile_bounds_by_region: dict[str, list[tuple[float, float, float, float]]] = {}
+    max_tile_size = 0.0
+
     if not tile_positions:
         ax.text(
             0.5, 0.5, "(no scan field)",
@@ -159,7 +204,13 @@ def render_scan_field_panel(
         )
         ax.set_xticks([])
         ax.set_yticks([])
-        return
+        return ScanFieldRenderContext(
+            tile_bounds=[],
+            tile_bounds_by_region={},
+            extent_x=(0.0, 0.0),
+            extent_y=(0.0, 0.0),
+            max_tile_size_um=0.0,
+        )
 
     all_x: list[float] = []
     all_y: list[float] = []
@@ -168,10 +219,17 @@ def render_scan_field_panel(
         ts = region.get("tile_size_um")
         if ts is None:
             continue
+        max_tile_size = max(max_tile_size, float(ts))
         half = ts / 2
+        region_key = str(rid)
+        region_bounds = tile_bounds_by_region.setdefault(region_key, [])
         for pos in region["positions"]:
             cx, cy = pos["x_um"], pos["y_um"]
             tid = (str(rid), int(pos["row"]), int(pos["col"]))
+            bounds = (cx - half, cy - half, cx + half, cy + half)
+            tile_bounds.append(bounds)
+            region_bounds.append(bounds)
+
             is_current = (highlight_tile_id is not None
                           and tid == highlight_tile_id)
             if is_current:
@@ -179,19 +237,29 @@ def render_scan_field_panel(
                 edge = _COLOR_TILE_HIGHLIGHT
                 lw = 1.2
                 zorder = 5
+                alpha = 1.0
+            elif tile_styles is not None and tid in tile_styles:
+                style = tile_styles[tid]
+                face = style.facecolor
+                edge = style.edgecolor
+                lw = style.linewidth
+                zorder = style.zorder
+                alpha = style.alpha
             else:
                 face = _COLOR_TILE_FACE
                 edge = _COLOR_TILE_EDGE
                 lw = 0.4
                 zorder = 2
+                alpha = 1.0
             ax.add_patch(patches.Rectangle(
                 (cx - half, cy - half), ts, ts,
-                linewidth=lw, edgecolor=edge, facecolor=face, zorder=zorder,
+                linewidth=lw, edgecolor=edge, facecolor=face,
+                alpha=alpha, zorder=zorder,
             ))
             all_x.extend([cx - half, cx + half])
             all_y.extend([cy - half, cy + half])
 
-    if boundary_limits:
+    if boundary_limits is not None:
         ax.add_patch(patches.Rectangle(
             (boundary_limits["x_min"], boundary_limits["y_min"]),
             boundary_limits["x_max"] - boundary_limits["x_min"],
@@ -205,8 +273,12 @@ def render_scan_field_panel(
     if all_x:
         span = max(max(all_x) - min(all_x), max(all_y) - min(all_y), 1.0)
         pad = span * 0.05
-        ax.set_xlim(min(all_x) - pad, max(all_x) + pad)
-        ax.set_ylim(min(all_y) - pad, max(all_y) + pad)
+        x_lo, x_hi = min(all_x) - pad, max(all_x) + pad
+        y_lo, y_hi = min(all_y) - pad, max(all_y) + pad
+        ax.set_xlim(x_lo, x_hi)
+        ax.set_ylim(y_lo, y_hi)
+    else:
+        x_lo = x_hi = y_lo = y_hi = 0.0
     ax.set_aspect("equal")
     ax.invert_yaxis()
     ax.set_xticks([])
@@ -214,6 +286,14 @@ def render_scan_field_panel(
     for spine in ax.spines.values():
         spine.set_color(_COLOR_RULE)
         spine.set_linewidth(0.6)
+
+    return ScanFieldRenderContext(
+        tile_bounds=tile_bounds,
+        tile_bounds_by_region=tile_bounds_by_region,
+        extent_x=(x_lo, x_hi),
+        extent_y=(y_lo, y_hi),
+        max_tile_size_um=max_tile_size,
+    )
 
 
 def scan_field_extent_um(
