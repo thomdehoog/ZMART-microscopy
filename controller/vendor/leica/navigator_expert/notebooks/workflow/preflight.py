@@ -60,8 +60,9 @@ def preflight(cfg: Config, client: Any) -> Context:
 
     Args:
         cfg:    operator inputs (frozen).
-        client: an already-connected LAS X CAM API client.
-                The notebook is responsible for the connect handshake.
+        client: an already-connected LAS X CAM API client, usually returned
+                by workflow.connect_lasx(). preflight() validates and
+                configures it; it does not open the client itself.
 
     Raises:
         RuntimeError: if LAS X is unreachable, job/slot validation fails,
@@ -75,12 +76,12 @@ def preflight(cfg: Config, client: Any) -> Context:
     # 0.1 -- API mode (set if not already; harmless if notebook already did it)
     _ensure_cam_api_mode(client)
 
-    # 0.2 -- verify the connection (notebook already called .Connect)
+    # 0.2 -- verify the connection (connect_lasx already called .Connect)
     if not drv.ping(client):
         raise RuntimeError(
             "LAS X did not respond to ping. Check that LAS X is running "
-            "with the CAM interface enabled, and that the notebook called "
-            "client.Connect(...) successfully."
+            "with the CAM interface enabled, and that workflow.connect_lasx() "
+            "connected successfully."
         )
 
     # 0.3 -- calibration + stage config + hardware

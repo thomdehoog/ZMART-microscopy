@@ -1,30 +1,31 @@
 """Async figure-save queue (Bundle A / A4).
 
-Move per-figure fig.savefig() off the synchronous caller path so that
-per-tile / per-target callbacks return quickly. The acquisition loop
-no longer pays ~1 s/tile for matplotlib's PNG encode.
+Move callback-path fig.savefig() off the synchronous acquisition path
+so per-tile / per-target display callbacks return quickly.
 
-Design (decided in Bundle A):
+Final Bundle A design:
 
+- Used only by the callback-path renderers display_tile and
+  display_target. Top-level/batch renderers (display_selection,
+  plot_overview_tiles, plot_target_pairs) remain synchronous by
+  design: with a single worker and drain-on-return, queueing those
+  sites provides no wall-clock benefit.
 - Single worker thread (ThreadPoolExecutor max_workers=1). PNG writes
-  do not parallelize cleanly (no Agg-thread-safety guarantees beyond
-  serialization; ordering predictability matters for the operator).
-- BoundedSemaphore-backed queue. submit() blocks the producer when the
-  queue is full -- backpressure. Default cap is max(16, 2 * n_tiles)
-  set by the owner (run_overview / acquire_targets / top-level
-  renderer).
-- Errors raised by user-provided save_fn are caught inside the worker
-  and logged; they do not propagate to the producer. The acquisition
-  loop must not crash because a single PNG write fails.
-- drain() waits for all in-flight saves. shutdown() drains then closes
-  the executor with wait=False. Idempotent.
+  are serialized for ordering predictability and conservative
+  matplotlib/Agg use.
+- BoundedSemaphore-backed queue. submit() blocks the producer when
+  the queue is full -- backpressure.
+- The queued save closure owns figure lifetime on the queued path:
+  it must perform fig.savefig(...) and then plt.close(fig). After
+  queue handoff, the producer must not close the figure.
+- Producers still build the figure and, when live_display=True, call
+  display(fig) on the producer thread before queue handoff.
+- Errors raised by save_fn are caught inside the worker and logged;
+  they do not propagate to the acquisition loop.
+- drain() waits for queued saves. shutdown() drains then closes the
+  executor with wait=False. Idempotent.
 - Context-manager support: `with _FigureSaveQueue() as q: ...` drains
   on exit.
-
-Threading constraints addressed elsewhere:
-- matplotlib figures: callers should build + display + close on the
-  main thread; only the file write is queued. The queued save_fn is
-  expected to be a closure that captures everything it needs.
 """
 from __future__ import annotations
 
