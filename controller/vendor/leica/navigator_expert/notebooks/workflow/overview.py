@@ -5,30 +5,21 @@ opportunistic + blocking drain, dedup, and out-of-limits filter.
 """
 from __future__ import annotations
 
-import hashlib
 import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
 
 import navigator_expert.driver as drv
 
-from .context import Config, Context
+from .context import Context
 from .focus import FocusMap
 from _shared.output_layout import Naming, build_position_analysis_name
 from ._acquire import acquire
 from ._job_state import ensure_job_state
-
-
-# ─── Mode constants ──────────────────────────────────────────────
-
-MODE_THRESHOLD = "threshold"
-MODE_SPARSE = "sparse_fallback"
-MODE_NO_QUALIFYING = "no_qualifying"
-MODE_EMPTY = "empty"
 
 
 # ─── Dataclasses ──────────────────────────────────────────────────
@@ -72,12 +63,6 @@ class Picks:
 
     simulated: bool = False
 
-    n_cells_total: int = 0
-    n_cells_qualifying: int = 0
-    n_tiles_sparse_fallback: int = 0
-    n_tiles_no_qualifying: int = 0
-    n_tiles_empty: int = 0
-
 
 @dataclass(frozen=True)
 class TileEvent:
@@ -87,12 +72,6 @@ class TileEvent:
     tile_id: tuple[str, int, int]
     picked_labels: tuple[int, ...]
     analysis_image_source: str
-    all_cells_area: tuple[int, ...]
-    all_cells_intensity: tuple[float, ...]
-    all_cells_labels: tuple[int, ...]
-    area_threshold: float
-    intensity_threshold: float
-    mode: str
 
 
 # ─── Public API ───────────────────────────────────────────────────
@@ -139,7 +118,7 @@ def run_overview_with_picks(
         )
 
         # 4.2-4.3 -- acquire + submit + opportunistic drain
-        n_results = 0  # count only (results not retained — saves ~2 GB on 200-tile runs)
+        buffer: list[dict] = []
         n_submitted = 0
         tile_acquire_failures: list[dict] = []
 
@@ -153,18 +132,7 @@ def run_overview_with_picks(
             print(f"[step 4] WARNING: could not create {analysis_dir}: "
                   f"{exc}")
 
-        # Per-result accumulators
-        accumulated_selected: list[Pick] = []
-        n_cells_total = 0
-        n_cells_qualifying = 0
-        n_tiles_sparse = 0
-        n_tiles_no_qualifying = 0
-        n_tiles_empty = 0
         n_saved = 0
-        seed_base = str(
-            cfg.random_seed if cfg.random_seed is not None
-            else ctx.run.layout.hash6
-        )
 
         for i, tile in enumerate(sequence):
             rid = tile["region"]
@@ -206,8 +174,8 @@ def run_overview_with_picks(
                     "source_pixel_size_um": pixel_size_um,
                     "source_image_size_px": image_size_px,
                     "image_to_stage": ctx.calibration["image_to_stage"],
-                    "n_picks": None,
-                    "feature": "area",
+                    "n_picks": cfg.n_picks_per_tile,
+                    "feature": cfg.feature,
                     "analysis_image_source": cfg.analysis_image_source,
                 })
                 n_submitted += 1
@@ -219,25 +187,17 @@ def run_overview_with_picks(
                 print(f"  FAIL ({exc})")
                 continue
 
-            # Opportunistic drain — per-result: threshold+sample, save, callback
+            # Opportunistic drain — save + display per result
             new_results = engine.results("overview")
             for r in new_results:
-                selected, n_c, n_q, mode, saved = _process_drained_result(
-                    r, cfg, seed_base, ctx.run.layout.hash6,
-                    analysis_dir, _analysis_dir_ready, on_tile,
-                )
-                accumulated_selected.extend(selected)
-                n_cells_total += n_c
-                n_cells_qualifying += n_q
-                if mode == MODE_SPARSE:
-                    n_tiles_sparse += 1
-                elif mode == MODE_NO_QUALIFYING:
-                    n_tiles_no_qualifying += 1
-                elif mode == MODE_EMPTY:
-                    n_tiles_empty += 1
-                if saved:
+                if _analysis_dir_ready and _save_single_tile_analysis(
+                    r, analysis_dir,
+                    hash6=ctx.run.layout.hash6,
+                    acquisition_type="overview-scan",
+                ):
                     n_saved += 1
-            n_results += len(new_results)
+                _fire_on_tile(on_tile, r)
+            buffer.extend(new_results)
 
         # 4.4 -- blocking drain
         s = None
@@ -245,22 +205,14 @@ def run_overview_with_picks(
             s = engine.status("overview")
             new_results = engine.results("overview")
             for r in new_results:
-                selected, n_c, n_q, mode, saved = _process_drained_result(
-                    r, cfg, seed_base, ctx.run.layout.hash6,
-                    analysis_dir, _analysis_dir_ready, on_tile,
-                )
-                accumulated_selected.extend(selected)
-                n_cells_total += n_c
-                n_cells_qualifying += n_q
-                if mode == MODE_SPARSE:
-                    n_tiles_sparse += 1
-                elif mode == MODE_NO_QUALIFYING:
-                    n_tiles_no_qualifying += 1
-                elif mode == MODE_EMPTY:
-                    n_tiles_empty += 1
-                if saved:
+                if _analysis_dir_ready and _save_single_tile_analysis(
+                    r, analysis_dir,
+                    hash6=ctx.run.layout.hash6,
+                    acquisition_type="overview-scan",
+                ):
                     n_saved += 1
-            n_results += len(new_results)
+                _fire_on_tile(on_tile, r)
+            buffer.extend(new_results)
             if s["pending"] == 0 and s["running"] == 0:
                 break
             time.sleep(0.05)
@@ -269,33 +221,32 @@ def run_overview_with_picks(
         new_failures = s.get("failures", [])[failure_count_before:]
 
         # Phase-0 only: each submit produces exactly one result or failure
-        assert n_results + len(new_failures) == n_submitted, (
-            f"Drain mismatch: {n_results} results + {len(new_failures)} "
+        assert len(buffer) + len(new_failures) == n_submitted, (
+            f"Drain mismatch: {len(buffer)} results + {len(new_failures)} "
             f"failures != {n_submitted} submitted"
         )
 
-        n_picks_raw = len(accumulated_selected)
-
-        print(f"\n[step 4] Drain complete: {n_results} result(s), "
+        print(f"\n[step 4] Drain complete: {len(buffer)} result(s), "
               f"{len(new_failures)} engine failure(s), "
               f"{len(tile_acquire_failures)} tile acquire failure(s)")
-        print(f"[step 4] Cells: {n_cells_total} total, "
-              f"{n_cells_qualifying} qualifying, "
-              f"{n_picks_raw} selected")
 
         if n_saved:
             print(f"[step 4] Saved {n_saved} tile analysis artifact(s) "
                   f"to {analysis_dir}")
 
+        # 4.5 -- collect picks from engine results
+        raw_picks = _collect_picks_from_results(buffer)
+        n_picks_raw = len(raw_picks)
+
         # 4.6 -- dedup by cell_source_stage_xy_um (D5)
-        deduped, removed_dup = _dedup_picks(accumulated_selected)
+        deduped, removed_dup = _dedup_picks(raw_picks)
 
         # 4.7 -- filter out-of-limits (D6)
         surviving, removed_xy, removed_z, removed_xlat = _filter_out_of_limits(
             deduped, ctx,
         )
 
-        print(f"[step 4] Picks: {n_picks_raw} selected -> "
+        print(f"[step 4] Picks: {n_picks_raw} raw -> "
               f"{len(removed_dup)} dup, "
               f"{len(removed_xy)} out-xy, "
               f"{len(removed_z)} out-z, "
@@ -319,11 +270,6 @@ def run_overview_with_picks(
         removed_picks=all_removed,
         tile_acquire_failures=tile_acquire_failures,
         engine_failures=new_failures,
-        n_cells_total=n_cells_total,
-        n_cells_qualifying=n_cells_qualifying,
-        n_tiles_sparse_fallback=n_tiles_sparse,
-        n_tiles_no_qualifying=n_tiles_no_qualifying,
-        n_tiles_empty=n_tiles_empty,
     )
 
 
@@ -354,77 +300,27 @@ def _build_snake_sequence(
     return sequence
 
 
-def _picks_from_result(result: dict) -> list[Pick]:
-    """Create Pick objects for ALL cells in one engine result."""
+def _collect_picks_from_results(buffer: list[dict]) -> list[Pick]:
+    """Extract Pick objects from engine result dicts."""
     picks: list[Pick] = []
-    pick_data = result.get("pick_targets", {}).get("picks", [])
-    for pd in pick_data:
-        picks.append(Pick(
-            pick_id=tuple(pd["pick_id"]),
-            tile_stage_xy_um=tuple(pd["tile_stage_xy_um"]),
-            tile_zwide_um=pd["tile_zwide_um"],
-            source_pixel_size_um=tuple(pd["source_pixel_size_um"]),
-            source_image_size_px=tuple(pd["source_image_size_px"]),
-            centroid_col_row_px=tuple(pd["centroid_col_row_px"]),
-            bbox_px=tuple(pd["bbox_px"]),
-            bbox_um=tuple(pd["bbox_um"]),
-            area_px=pd["area_px"],
-            eccentricity=pd["eccentricity"],
-            mean_intensity=pd["mean_intensity"],
-            cell_source_stage_xy_um=tuple(pd["cell_source_stage_xy_um"]),
-        ))
+    for result in buffer:
+        pick_data = result.get("pick_targets", {}).get("picks", [])
+        for pd in pick_data:
+            picks.append(Pick(
+                pick_id=tuple(pd["pick_id"]),
+                tile_stage_xy_um=tuple(pd["tile_stage_xy_um"]),
+                tile_zwide_um=pd["tile_zwide_um"],
+                source_pixel_size_um=tuple(pd["source_pixel_size_um"]),
+                source_image_size_px=tuple(pd["source_image_size_px"]),
+                centroid_col_row_px=tuple(pd["centroid_col_row_px"]),
+                bbox_px=tuple(pd["bbox_px"]),
+                bbox_um=tuple(pd["bbox_um"]),
+                area_px=pd["area_px"],
+                eccentricity=pd["eccentricity"],
+                mean_intensity=pd["mean_intensity"],
+                cell_source_stage_xy_um=tuple(pd["cell_source_stage_xy_um"]),
+            ))
     return picks
-
-
-def _apply_threshold_and_sample(
-    all_picks: list[Pick],
-    *,
-    n_random: int = 4,
-    min_cells_for_threshold: int = 10,
-    seed_material: str = "",
-) -> tuple[list[Pick], float, float, int, str]:
-    """Per-tile: median threshold on area + intensity, then random sample.
-
-    Returns (selected, area_threshold, intensity_threshold, n_qualifying, mode).
-    Preserves input order — does not re-sort all_picks.
-    """
-    if not all_picks:
-        return ([], 0.0, 0.0, 0, MODE_EMPTY)
-
-    seed = int.from_bytes(
-        hashlib.sha256(seed_material.encode()).digest()[:8], "big"
-    )
-    rng = np.random.default_rng(seed)
-
-    if len(all_picks) < min_cells_for_threshold:
-        n = min(n_random, len(all_picks))
-        indices = rng.choice(len(all_picks), size=n, replace=False)
-        selected = [all_picks[i] for i in sorted(indices)]
-        return (selected, 0.0, 0.0, len(all_picks), MODE_SPARSE)
-
-    areas = [p.area_px for p in all_picks]
-    intensities = [p.mean_intensity for p in all_picks]
-    area_threshold = float(np.median(areas))
-    intensity_threshold = float(np.median(intensities))
-
-    qualifying = [
-        p for p in all_picks
-        if p.area_px >= area_threshold
-        and p.mean_intensity >= intensity_threshold
-    ]
-
-    if not qualifying:
-        n = min(n_random, len(all_picks))
-        indices = rng.choice(len(all_picks), size=n, replace=False)
-        selected = [all_picks[i] for i in sorted(indices)]
-        return (selected, area_threshold, intensity_threshold, 0,
-                MODE_NO_QUALIFYING)
-
-    n = min(n_random, len(qualifying))
-    indices = rng.choice(len(qualifying), size=n, replace=False)
-    selected = [qualifying[i] for i in sorted(indices)]
-    return (selected, area_threshold, intensity_threshold,
-            len(qualifying), MODE_THRESHOLD)
 
 
 def _dedup_picks(picks: list[Pick]) -> tuple[list[Pick], list[dict]]:
@@ -535,7 +431,6 @@ def _save_single_tile_analysis(
     *,
     hash6: str,
     acquisition_type: str,
-    extra_arrays: dict[str, Any] | None = None,
 ) -> bool:
     """Save one tile's analysis artifacts. Returns True if saved."""
     try:
@@ -570,18 +465,15 @@ def _save_single_tile_analysis(
         )
         dest = analysis_dir / build_position_analysis_name(naming)
 
-        save_kwargs = {
-            "image_2d": image_2d,
-            "masks": masks,
-            "tile_id": np.array(tile_id, dtype=str),
-            "analysis_image_source": np.array(
+        np.savez_compressed(
+            dest,
+            image_2d=image_2d,
+            masks=masks,
+            tile_id=np.array(tile_id, dtype=str),
+            analysis_image_source=np.array(
                 inp.get("analysis_image_source", "acquired")
             ),
-        }
-        if extra_arrays:
-            # Invariant: cell_labels[i] <-> cell_area_px[i] <-> cell_mean_intensity[i]
-            save_kwargs.update(extra_arrays)
-        np.savez_compressed(dest, **save_kwargs)
+        )
         return True
     except Exception as exc:
         tid = result.get("input", {}).get("tile_id", "?")
@@ -618,67 +510,9 @@ def _save_tile_analysis(
               f"{analysis_dir}")
 
 
-def _process_drained_result(
-    result: dict,
-    cfg: Config,
-    seed_base: str,
-    hash6: str,
-    analysis_dir: Path,
-    analysis_dir_ready: bool,
-    on_tile: Callable[[TileEvent], None] | None,
-) -> tuple[list[Pick], int, int, str, bool]:
-    """Process one drained engine result: picks, save, callback.
-
-    Returns (selected_picks, n_cells, n_qualifying, mode, saved).
-    seed_base and hash6 are separate: seed_base may be cfg.random_seed,
-    hash6 is always ctx.run.layout.hash6 (needed for npz filename).
-    """
-    all_picks = _picks_from_result(result)
-
-    tile_id = tuple(result.get("input", {}).get("tile_id", ("?", 0, 0)))
-    seed_material = f"{seed_base}_{tile_id[0]}_{tile_id[1]}_{tile_id[2]}"
-
-    selected, a_thresh, i_thresh, n_qual, mode = _apply_threshold_and_sample(
-        all_picks,
-        n_random=cfg.n_random_picks,
-        min_cells_for_threshold=cfg.min_cells_for_threshold,
-        seed_material=seed_material,
-    )
-
-    saved = False
-    if analysis_dir_ready:
-        saved = _save_single_tile_analysis(
-            result, analysis_dir,
-            hash6=hash6, acquisition_type="overview-scan",
-            extra_arrays={
-                "cell_labels": np.array([p.pick_id[3] for p in all_picks]),
-                "cell_area_px": np.array([p.area_px for p in all_picks]),
-                "cell_mean_intensity": np.array(
-                    [p.mean_intensity for p in all_picks]),
-                "picked_labels": np.array(
-                    [p.pick_id[3] for p in selected]),
-                "area_threshold": np.float64(a_thresh),
-                "intensity_threshold": np.float64(i_thresh),
-                "selection_mode": np.array(mode),
-                "selection_seed": np.array(seed_material),
-                "n_qualifying": np.int64(n_qual),
-            },
-        )
-
-    _fire_on_tile(on_tile, result, selected, all_picks,
-                  a_thresh, i_thresh, mode)
-
-    return (selected, len(all_picks), n_qual, mode, saved)
-
-
 def _fire_on_tile(
     on_tile: Callable[[TileEvent], None] | None,
     result: dict,
-    selected: list[Pick],
-    all_picks: list[Pick],
-    area_threshold: float,
-    intensity_threshold: float,
-    mode: str,
 ) -> None:
     """Call on_tile callback with fault isolation."""
     if on_tile is None:
@@ -693,20 +527,19 @@ def _fire_on_tile(
     if masks is None or image_2d is None or tile_id is None:
         return
 
+    pick_data = result.get("pick_targets", {}).get("picks", [])
+    picked_labels = tuple(
+        pd["pick_id"][3] for pd in pick_data if "pick_id" in pd
+    )
+
     try:
         on_tile(TileEvent(
             image_2d=image_2d,
             masks=masks,
             tile_id=tuple(tile_id),
-            picked_labels=tuple(p.pick_id[3] for p in selected),
+            picked_labels=picked_labels,
             analysis_image_source=inp.get("analysis_image_source",
                                           "acquired"),
-            all_cells_area=tuple(p.area_px for p in all_picks),
-            all_cells_intensity=tuple(p.mean_intensity for p in all_picks),
-            all_cells_labels=tuple(p.pick_id[3] for p in all_picks),
-            area_threshold=area_threshold,
-            intensity_threshold=intensity_threshold,
-            mode=mode,
         ))
     except Exception as exc:
         tid = tile_id

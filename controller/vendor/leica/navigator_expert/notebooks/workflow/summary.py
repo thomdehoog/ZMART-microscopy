@@ -99,11 +99,6 @@ def write_summary(
             "n_picks_out_of_limits_z": picks.n_picks_out_of_limits_z,
             "n_picks_final": n_picks_final,
             "simulated": picks.simulated,
-            "n_cells_total": picks.n_cells_total,
-            "n_cells_qualifying": picks.n_cells_qualifying,
-            "n_tiles_sparse_fallback": picks.n_tiles_sparse_fallback,
-            "n_tiles_no_qualifying": picks.n_tiles_no_qualifying,
-            "n_tiles_empty": picks.n_tiles_empty,
         },
         "removed_picks": picks.removed_picks,
     }
