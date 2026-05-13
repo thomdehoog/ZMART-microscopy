@@ -101,6 +101,21 @@ def acquire_targets(
     _validate_callback_flags(
         on_target, live_display, save_png, callback_param="on_target",
     )
+
+    cfg = ctx.cfg
+    client = ctx.client
+    calibration = ctx.calibration
+
+    # Reset target state for this run
+    ts = TargetState()
+    ctx.target_state = ts
+
+    if not picks.items:
+        # Hoisted above queue construction so the early return doesn't
+        # orphan a _FigureSaveQueue without a matching shutdown.
+        print("[step 5] No picks to acquire -- skipping target pass.")
+        return []
+
     # Async PNG save queue. Owned here when we build the default callback
     # AND will save (save_png=True); see run_overview for the symmetric
     # construct + drain-on-return contract.
@@ -115,18 +130,6 @@ def acquire_targets(
             save_png=save_png,
             save_queue=save_queue,
         )
-
-    cfg = ctx.cfg
-    client = ctx.client
-    calibration = ctx.calibration
-
-    # Reset target state for this run
-    ts = TargetState()
-    ctx.target_state = ts
-
-    if not picks.items:
-        print("[step 5] No picks to acquire -- skipping target pass.")
-        return []
 
     ts.started = True
 

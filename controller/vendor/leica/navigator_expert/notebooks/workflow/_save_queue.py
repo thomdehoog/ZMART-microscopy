@@ -116,14 +116,22 @@ class _FigureSaveQueue:
     ) -> None:
         """Drain in-flight saves (with timeout) then close the executor.
         Safe to call multiple times.
+
+        Best-effort, not a hard guarantee: drain() waits up to `timeout`
+        per pending future. Any future that does not complete within that
+        window is logged as a drain failure and left running. The
+        executor is then closed with wait=False so a stuck worker cannot
+        block the operator; the worker thread may still be writing after
+        this returns.
         """
         if self._closed:
             return
         self._closed = True
         self.drain(timeout=timeout)
         # wait=False: do not block the operator further if the worker
-        # is wedged on a stuck save. Saves submitted before shutdown
-        # have either drained or been logged as drain failures above.
+        # is wedged on a stuck save. Saves observed by drain() have
+        # either completed or been logged as drain failures above; saves
+        # that timed out may still be writing on the worker thread.
         self._executor.shutdown(wait=False)
 
     # ─── context manager ──────────────────────────────────────────
