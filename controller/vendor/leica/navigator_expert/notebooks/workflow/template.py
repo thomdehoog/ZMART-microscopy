@@ -270,10 +270,7 @@ def plot_scan_field(ctx: Context) -> None:
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
 
-    from .visualize import (
-        TileStyle, figsize_for_extent, render_scan_field_panel,
-        scan_field_extent_um,
-    )
+    from .visualize import TileStyle, render_scan_field_panel
 
     if ctx.scan_field is None:
         raise RuntimeError("Call read_scan_field before plot_scan_field.")
@@ -282,11 +279,11 @@ def plot_scan_field(ctx: Context) -> None:
     tile_positions = ctx.scan_field["tile_positions"]
     lim = ctx.boundary_limits
 
-    # Figure aspect follows the scan field's actual dimensions — most
-    # samples are wider than tall, so a fixed (14, 10) wastes vertical
-    # space on a wide field and crowds a tall one.
-    width_um, height_um = scan_field_extent_um(ctx.scan_field, lim)
-    fig, ax = plt.subplots(figsize=figsize_for_extent(width_um, height_um))
+    # Fixed 16:9 figure. set_aspect("equal") (inside render_scan_field_panel)
+    # preserves the data aspect inside the axes; the wider figure leaves
+    # headroom for the upper-right legend without the boundary dashed line
+    # overlapping.
+    fig, ax = plt.subplots(figsize=(14, 7.875))
     fig.patch.set_facecolor("white")
 
     # Build per-tile styles from the template's job-color map. Tiles in
@@ -323,9 +320,12 @@ def plot_scan_field(ctx: Context) -> None:
             legend_jobs.add(jn)
 
     # Shared renderer draws tiles + boundary + sets aspect/ticks/spines
-    # and returns geometry for our overlays.
+    # and returns geometry for our overlays. padding_factor=0.12 widens
+    # the axes margin so the boundary dashed line doesn't reach the
+    # upper-right legend.
     rc = render_scan_field_panel(
         ax, ctx.scan_field, lim, tile_styles=tile_styles,
+        padding_factor=0.12,
     )
     if lim:
         ax.plot([], [], ls=(0, (4, 3)), color="#A5ACB4",

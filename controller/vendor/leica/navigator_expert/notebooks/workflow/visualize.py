@@ -171,6 +171,7 @@ def render_scan_field_panel(
     *,
     highlight_tile_id: tuple[str, int, int] | None = None,
     tile_styles: dict[tuple[str, int, int], TileStyle] | None = None,
+    padding_factor: float = 0.05,
 ) -> ScanFieldRenderContext:
     """Render the scan-field tiles + optional boundary on `ax` and return
     a ScanFieldRenderContext describing the geometry.
@@ -283,8 +284,8 @@ def render_scan_field_panel(
         # below preserves the visual aspect.
         x_span = max(max(all_x) - min(all_x), 1.0)
         y_span = max(max(all_y) - min(all_y), 1.0)
-        pad_x = x_span * 0.05
-        pad_y = y_span * 0.05
+        pad_x = x_span * padding_factor
+        pad_y = y_span * padding_factor
         x_lo, x_hi = min(all_x) - pad_x, max(all_x) + pad_x
         y_lo, y_hi = min(all_y) - pad_y, max(all_y) + pad_y
         ax.set_xlim(x_lo, x_hi)

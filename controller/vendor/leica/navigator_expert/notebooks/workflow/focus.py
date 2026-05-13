@@ -71,10 +71,7 @@ class FocusMap:
         from matplotlib.patches import PathPatch
         from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-        from .visualize import (
-            TileStyle, figsize_for_extent, render_scan_field_panel,
-            scan_field_extent_um,
-        )
+        from .visualize import TileStyle, render_scan_field_panel
 
         if ctx.scan_field is None:
             raise RuntimeError("Call read_scan_field before focus_map.plot.")
@@ -86,10 +83,11 @@ class FocusMap:
             print("[focus] No tiles to plot.")
             return
 
-        # Aspect follows the field. Same helper as plot_scan_field for
-        # visual consistency across Step 2b / 2c.
-        width_um, height_um = scan_field_extent_um(ctx.scan_field, lim)
-        fig, ax = plt.subplots(figsize=figsize_for_extent(width_um, height_um))
+        # Fixed 16:9 figure to match plot_scan_field (Step 2b). The axes
+        # still preserves data aspect via set_aspect("equal") in the
+        # shared renderer; the wider figure leaves headroom for the
+        # upper-right legend + colorbar.
+        fig, ax = plt.subplots(figsize=(14, 7.875))
         fig.patch.set_facecolor("white")
 
         # Force every tile transparent + white-edged so the colormap
@@ -107,6 +105,7 @@ class FocusMap:
 
         rc = render_scan_field_panel(
             ax, ctx.scan_field, lim, tile_styles=tile_styles,
+            padding_factor=0.12,
         )
 
         if not rc.tile_bounds:
