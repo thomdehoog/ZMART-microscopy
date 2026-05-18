@@ -868,60 +868,65 @@ class TestPlotTargetPairs:
 # ─── Bundle D / D6 remaining tests (#1-#4) ────────────────────────
 
 
-class TestDisplayTileWideField:
-    """D6 #1: aspect-driven width_ratios from D4a. A wide-format scan
-    field must produce a field-position panel wider than the tile +
-    segmentation panels. Regression-pins the previous [1, 1, 1] bug.
+class TestDisplayTilePanelLayout:
+    """Step 3 (display_tile): the three panels get equal-width layout
+    cells. An earlier width_ratios=[field_share, 1, 1] widened the
+    field cell up to 2.5x, and constrained_layout left the slack as
+    ~2.5 in of gap. Equal cells are checked via
+    get_position(original=True) -- the layout cell, not the
+    aspect-shrunk box -- for square, wide, and tall scan fields. (A
+    tall field's *visible* field axes still letterboxes inside its
+    equal cell via set_aspect("equal"); that is by design and is not
+    asserted here.)
     """
-    def test_wide_field_yields_wider_field_panel(self, monkeypatch, tmp_path):
+
+    @staticmethod
+    def _scan_field(n_cols, n_rows):
+        return {"tile_positions": {"0": {
+            "job_name": "Overview", "tile_size_um": 100,
+            "positions": [
+                {"row": r, "col": c, "x_um": c * 100, "y_um": r * 100}
+                for r in range(n_rows) for c in range(n_cols)
+            ],
+        }}}
+
+    def _cell_widths(self, monkeypatch, scan_field):
+        import matplotlib
+        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        import IPython.display as ipy_display
-        monkeypatch.setattr(ipy_display, "display", MagicMock())
-
-        # 10:1 wide scan field (single row of 10 tiles).
-        scan_field = {
-            "tile_positions": {
-                "0": {
-                    "job_name": "Overview",
-                    "tile_size_um": 100,
-                    "positions": [
-                        {"row": 0, "col": c, "x_um": c * 100, "y_um": 0}
-                        for c in range(10)
-                    ],
-                }
-            },
-        }
-
-        captured: list = []
-        real_subplots = plt.subplots
-
-        def capture_subplots(*args, **kwargs):
-            captured.append(kwargs.get("gridspec_kw"))
-            return real_subplots(*args, **kwargs)
-
-        monkeypatch.setattr(plt, "subplots", capture_subplots)
-
         from workflow.visualize import display_tile
-        display_tile(
-            _make_tile_event(),
-            scan_field=scan_field,
-            live_display=False,
-            save_png=False,
-        )
 
-        # First (and only) subplots call is the 3-panel field-aware layout.
-        gskw = captured[0]
-        assert gskw is not None
-        ratios = gskw["width_ratios"]
-        assert len(ratios) == 3
-        # Wide field -> field panel share > 1.
-        assert ratios[0] > 1.0, (
-            f"width_ratios[0] must be > 1 for a 10:1 wide field, got {ratios}"
+        widths: list = []
+        real_close = plt.close
+
+        def spy(fig=None):
+            if fig is not None and len(getattr(fig, "axes", [])) == 3:
+                fig.canvas.draw()
+                widths.extend(
+                    ax.get_position(original=True).width for ax in fig.axes
+                )
+            real_close(fig) if fig is not None else real_close()
+
+        monkeypatch.setattr(plt, "close", spy)
+        monkeypatch.setattr(
+            "IPython.display.display", lambda *a, **kw: None,
         )
-        # Clamped at 2.5 per the D4a aspect cap.
-        assert ratios[0] <= 2.5
-        # Tile + segmentation panels stay equal-width to each other.
-        assert ratios[1] == ratios[2]
+        display_tile(_make_tile_event(), scan_field=scan_field,
+                     live_display=False, save_png=False)
+        return widths
+
+    def test_panels_get_equal_cells(self, monkeypatch):
+        for label, (cols, rows) in (
+            ("square", (3, 3)), ("wide", (10, 1)), ("tall", (1, 8)),
+        ):
+            widths = self._cell_widths(
+                monkeypatch, self._scan_field(cols, rows))
+            assert len(widths) == 3, f"{label}: expected 3 panels"
+            assert max(widths) - min(widths) < 1e-3, (
+                f"{label} field: the three panel cells must be equal "
+                f"width -- a re-introduced width_ratios would fail this. "
+                f"got {widths}"
+            )
 
 
 class TestSharedScanFieldRenderer:
@@ -999,7 +1004,7 @@ class TestRenderCropBoundary:
         from workflow.overview import Pick
         from workflow.visualize import _render_crop
 
-        # 32x32 image << _CROP_SIZE_PX (96).
+        # 32x32 image, smaller than _CROP_SIZE_PX.
         img = np.zeros((32, 32), dtype=np.uint8)
         img[10:20, 10:20] = 200
 
@@ -1016,7 +1021,7 @@ class TestRenderCropBoundary:
 
         fig, ax = plt.subplots()
         try:
-            _render_crop(ax, pick, ("0", 0, 0), img, Rectangle)
+            _render_crop(ax, 1, pick, ("0", 0, 0), img, Rectangle)
             images = ax.get_images()
             assert len(images) == 1, (
                 "expected exactly one imshow on the crop axes"
@@ -1440,40 +1445,50 @@ class TestSelectionCropRow:
             plt.close(fig)
 
 
-# ─── Change D: in-image cell-number label on Step 4 crops ──────────
+# ─── Step 4 scatter: numbered leader-line crop badges ──────────────
 
 
-class TestCropCornerLabel:
-    def test_corner_bbox_pushes_label_clear_of_bbox(self):
-        from workflow.visualize import _least_overlapped_crop_corner
+class TestScatterCropAnnotations:
+    """_render_scatter draws one numbered badge per shown crop, each
+    carrying a `crop-annot-{n}` gid. The gid is what the test keys on:
+    counting raw ax.texts would also catch the mode banner and the
+    legend labels."""
 
-        # bbox in the top-left quarter -> label goes to the first
-        # zero-overlap corner (top-right).
-        _, _, ha, va = _least_overlapped_crop_corner((5, 5, 35, 35), 144)
-        assert (ha, va) == ("right", "top")
-
-    def test_spanning_bbox_falls_back_to_top_left(self):
-        from workflow.visualize import _least_overlapped_crop_corner
-
-        # bbox covers the whole crop -> every corner ties -> top-left.
-        _, _, ha, va = _least_overlapped_crop_corner((0, 0, 144, 144), 144)
-        assert (ha, va) == ("left", "top")
-
-    def test_render_crop_draws_cell_number_label(self):
+    def test_one_numbered_badge_per_shown_crop(self, tmp_path, monkeypatch):
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from matplotlib.patches import Rectangle
-        from workflow.visualize import _render_crop
+        from workflow.visualize import display_selection
 
-        fig, ax = plt.subplots()
-        try:
-            pick = _make_pick(("0", 0, 0), label=7,
-                              centroid_rc=(80.0, 80.0))
-            img = np.random.default_rng(0).random((160, 160))
-            _render_crop(ax, pick, ("0", 0, 0), img, Rectangle)
-            assert "#7" in [t.get_text() for t in ax.texts], (
-                "crop must carry an in-image '#7' cell-number label"
-            )
-        finally:
-            plt.close(fig)
+        analysis_dir = tmp_path / "analysis"
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        _make_npz(analysis_dir, naming=naming, n_cells=6,
+                  tile_id=("0", 0, 0), image_size=(160, 160))
+        sel = _make_selection(n_cells=8, n_selected=4)
+
+        gids: list = []
+        real_close = plt.close
+
+        def spy(fig=None):
+            if fig is not None and hasattr(fig, "findobj"):
+                gids.extend(
+                    o.get_gid() for o in fig.findobj()
+                    if o.get_gid()
+                    and o.get_gid().startswith("crop-annot-")
+                )
+            real_close(fig) if fig is not None else real_close()
+
+        monkeypatch.setattr(plt, "close", spy)
+        monkeypatch.setattr(
+            "IPython.display.display", lambda *a, **kw: None,
+        )
+        display_selection(sel, analysis_dir)
+
+        assert sorted(set(gids)) == [
+            "crop-annot-1", "crop-annot-2",
+            "crop-annot-3", "crop-annot-4",
+        ], (
+            f"expected one numbered badge per shown crop (4), "
+            f"got {sorted(set(gids))}"
+        )
