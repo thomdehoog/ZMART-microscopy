@@ -95,7 +95,7 @@ class FocusMap:
         field_bottom = 1 - top_margin - _FIELD_HEIGHT * s
         ax = fig.add_axes([_FIELD_LEFT, field_bottom,
                            _FIELD_WIDTH, _FIELD_HEIGHT * s])
-        cax = fig.add_axes([_FIELD_LEFT, 0.04, _FIELD_WIDTH, 0.025])
+        cax = fig.add_axes([_FIELD_LEFT, 0.08, _FIELD_WIDTH, 0.025])
         fig.patch.set_facecolor("white")
 
         # Force every tile transparent + white-edged so the colormap
