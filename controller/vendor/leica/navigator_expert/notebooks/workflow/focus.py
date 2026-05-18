@@ -67,7 +67,6 @@ class FocusMap:
         import matplotlib.pyplot as plt
         from matplotlib.cm import ScalarMappable
         from matplotlib.colors import Normalize
-        from matplotlib.gridspec import GridSpec
         from matplotlib.path import Path as MplPath
         from matplotlib.patches import PathPatch
 
@@ -87,16 +86,13 @@ class FocusMap:
             return
 
         field_h = _FRAME_WIDTH_IN / _FRAME_ASPECT
-        cbar_h = 0.35
-        total_h = field_h + cbar_h
-        gs = GridSpec(
-            2, 1,
-            height_ratios=[field_h, cbar_h],
-            hspace=0.08,
+        cbar_extra_in = 0.5
+        fig = plt.figure(
+            figsize=(_FRAME_WIDTH_IN, field_h + cbar_extra_in),
         )
-        fig = plt.figure(figsize=(_FRAME_WIDTH_IN, total_h))
-        ax = fig.add_subplot(gs[0])
-        cax = fig.add_subplot(gs[1])
+        s = field_h / (field_h + cbar_extra_in)
+        ax = fig.add_axes([0.0385, 1 - 0.9230 * s, 0.9230, 0.9230 * s])
+        cax = fig.add_axes([0.0385, 0.04, 0.9230, 0.025])
         fig.patch.set_facecolor("white")
 
         # Force every tile transparent + white-edged so the colormap
@@ -205,7 +201,6 @@ class FocusMap:
         )
         ax.legend(loc="upper right", fontsize=9, facecolor="white",
                   edgecolor="#cccccc", labelcolor="#444444")
-        plt.tight_layout()
 
         out_path = ctx.out_dir / "focus_map.png"
         fig.savefig(out_path, dpi=150)
