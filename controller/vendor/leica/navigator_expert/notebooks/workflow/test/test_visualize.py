@@ -1339,6 +1339,106 @@ class TestFigureWidth:
         )
         assert widths and all(w == _FRAME_WIDTH_IN for w in widths)
 
+    def test_display_target_is_14_wide(self, tmp_path, monkeypatch):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import display_target, _FRAME_WIDTH_IN
+
+        analysis_dir = tmp_path / "analysis"
+        analysis_dir.mkdir()
+        widths = self._widths(
+            plt, monkeypatch,
+            lambda: display_target(
+                pick=None, record=_make_target_record(),
+                analysis_dir=analysis_dir,
+                live_display=False, save_png=False),
+        )
+        assert widths == [_FRAME_WIDTH_IN]
+
+    def test_plot_target_pairs_is_14_wide(self, tmp_path, monkeypatch):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import plot_target_pairs, _FRAME_WIDTH_IN
+        from workflow.target import TargetRecord
+
+        analysis_dir = tmp_path / "analysis"
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
+        picks = _make_picks([_make_pick(("0", 0, 0), label=1,
+                                        bbox=(10, 10, 20, 20))])
+        records = [TargetRecord(
+            pick_id=("0", 0, 0, 1),
+            cell_source_stage_xy_um=(1005.0, 2005.0),
+            source_zwide_um=100.0,
+            target_stage_xy_um=(2000.0, 3000.0),
+            target_zwide_um=100.0,
+            target_zoom=None,
+            target_pixel_size_um=0.1,
+            tif_path=_make_target_tif(tmp_path / "t" / "target.tif"),
+            success=True,
+            error=None,
+        )]
+        widths = self._widths(
+            plt, monkeypatch,
+            lambda: plot_target_pairs(analysis_dir, picks, records),
+        )
+        assert widths and all(w == _FRAME_WIDTH_IN for w in widths)
+
+
+class TestNoHardcodedFigureWidth:
+    """Render-based width tests above cannot fixture the ctx-bound
+    figures (Step 2 panels, plot_results) without a full Context. This
+    static guard pins every figure-creating call in the four figure
+    modules to route its width through _FRAME_WIDTH_IN -- a bare
+    numeric figsize width fails here."""
+
+    _NUMERIC_FIGSIZE = re.compile(r"figsize\s*=\s*\(\s*[0-9]")
+
+    def test_no_numeric_figsize_width_in_figure_modules(self):
+        import importlib
+        for modname in ("workflow.visualize", "workflow.template",
+                        "workflow.focus", "workflow.summary"):
+            src = inspect.getsource(importlib.import_module(modname))
+            hits = self._NUMERIC_FIGSIZE.findall(src)
+            assert not hits, (
+                f"{modname}: a figure is created at a hardcoded numeric "
+                f"width ({hits!r}). Route width through _FRAME_WIDTH_IN."
+            )
+
+
+class TestSelectionCropRow:
+    """Change C: the Step 4 example crops are one row of six equal
+    square axes, explicitly positioned so each is a readable size."""
+
+    def test_six_equal_square_crops_in_one_row(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib.gridspec import GridSpec
+        from workflow.visualize import _build_selection_figure_layout
+
+        fig, _, crop_axes, _ = _build_selection_figure_layout(
+            True, plt, GridSpec)
+        try:
+            assert len(crop_axes) == 6
+            fig_w, fig_h = fig.get_size_inches()
+            rows, sizes = set(), []
+            for ax in crop_axes:
+                x0, y0, w, h = ax.get_position().bounds
+                rows.add(round(y0, 4))
+                sizes.append((w * fig_w, h * fig_h))
+            assert len(rows) == 1, "crops must be a single 1x6 row"
+            for w_in, h_in in sizes:
+                assert abs(w_in - h_in) < 0.05, "crop axes must be square"
+                assert abs(w_in - sizes[0][0]) < 0.05, "crops must be equal"
+            assert sizes[0][0] > 1.5, (
+                f"crop should be a readable size, got {sizes[0][0]:.2f} in")
+        finally:
+            plt.close(fig)
+
 
 # ─── Change D: in-image cell-number label on Step 4 crops ──────────
 

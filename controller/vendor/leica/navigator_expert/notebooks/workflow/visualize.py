@@ -98,6 +98,20 @@ _COLOR_CROP_LABEL = _COLOR_INK_PRIMARY   # label text — navy, matches titles
 _COLOR_CROP_LABEL_BG = "white"           # label background-box fill
 _COLOR_CROP_LABEL_EDGE = _COLOR_RULE     # label background-box edge
 
+_CROP_BBOX_PAD_PX = 6            # red bbox drawn this many px outside the
+                                 # cell so the cell stays visible inside it
+
+# Step 4 (display_selection) explicit layout, in inches. The 1x6 crop
+# row is positioned explicitly because matplotlib auto-layout shrinks a
+# six-column crop row to unreadably small cells.
+_SEL_MARGIN_IN = 0.30
+_SEL_SCATTER_LEFT_IN = 0.85
+_SEL_CROP_GAP_IN = 0.20
+_SEL_HEADER_IN = 1.00
+_SEL_SCATTER_IN = 4.20
+_SEL_CROP_TITLE_GAP_IN = 0.85    # holds the scatter x-label AND the crop
+                                 # titles without the two colliding
+
 _FRAME_ASPECT = 16 / 9
 _FRAME_WIDTH_IN = 14.0
 
@@ -556,17 +570,13 @@ def display_selection(
 ) -> None:
     """Render Step 4 (Target discovery): scatter + 6 example crops.
 
-    Layout (header / scatter / two rows of three example crops):
+    Layout — explicit add_axes (header / scatter / 1x6 crop row):
 
-      header row
-        Title    "Target discovery"                       13 pt bold
-        Subtitle "{N} selected · {N} cells"                11 pt
-        Caption  "area ≥ ... · intensity ≥ ... · border"    9 pt
-      scatter axes
-        — gridlines, threshold lines, all cells (gray) with
-          selected picks (red) on top —
-      crop grid (2 rows x 3 columns)
-        — up to 6 crops, cell bbox in red, cell number labelled —
+      header     "Target discovery" + subtitle + caption
+      scatter    all cells in gray, selected picks in red on top,
+                 gridlines and dashed threshold lines
+      crop row   up to 6 example crops in a single row, each with the
+                 padded cell bbox in red and the cell number labelled
 
     Scatter layers (`_LAYERS`): two layers — gray "other" (all non-
     selected cells) underneath, red "selected" on top. The contrast
@@ -643,25 +653,47 @@ def _build_selection_figure_layout(has_crops: bool, plt, GridSpec):
     without manual margin tuning.
     """
     if has_crops:
-        # Header / scatter / two rows of three example crops. Six crops
-        # in a 2x3 grid (not 1x6): inside the fixed 14 in figure width a
-        # single row of six caps each crop at ~2 in wide, too small to
-        # read. Three-per-row gives each crop its full ~1.5x size. The
-        # figure height and crop-row ratios are tuned so a crop renders
-        # ~1.5x the former size (pinned by test_visualize.py).
-        fig = plt.figure(
-            figsize=(_FRAME_WIDTH_IN, 10.8), constrained_layout=True,
+        # Explicit 1x6 layout. matplotlib's auto-layout shrinks a
+        # six-column crop row to unreadably small cells, so the figure
+        # height and every axes rect are computed here in inches and
+        # converted to figure fractions -- the same explicit-positioning
+        # approach the Step 2 panels use. The six crops are equal squares
+        # that fill the row width.
+        n_crops = 6
+        crop_in = (
+            _FRAME_WIDTH_IN - 2 * _SEL_MARGIN_IN
+            - (n_crops - 1) * _SEL_CROP_GAP_IN
+        ) / n_crops
+        fig_h = (
+            _SEL_MARGIN_IN + _SEL_HEADER_IN + _SEL_SCATTER_IN
+            + _SEL_CROP_TITLE_GAP_IN + crop_in + _SEL_MARGIN_IN
         )
-        gs = GridSpec(
-            4, 3,
-            height_ratios=[0.4, 2.8, 1.75, 1.75],
-            hspace=0.22, wspace=0.15,
-            figure=fig,
-        )
-        header_ax = fig.add_subplot(gs[0, :])
-        scatter_ax = fig.add_subplot(gs[1, :])
+        fig = plt.figure(figsize=(_FRAME_WIDTH_IN, fig_h))
+
+        def _rect(x_in, y_in, w_in, h_in):
+            return [x_in / _FRAME_WIDTH_IN, y_in / fig_h,
+                    w_in / _FRAME_WIDTH_IN, h_in / fig_h]
+
+        # y measured from the figure bottom: crop row, then scatter
+        # (with a gap for the crop titles), then header.
+        crop_y = _SEL_MARGIN_IN
+        scatter_y = crop_y + crop_in + _SEL_CROP_TITLE_GAP_IN
+        header_y = scatter_y + _SEL_SCATTER_IN
+        header_ax = fig.add_axes(_rect(
+            _SEL_MARGIN_IN, header_y,
+            _FRAME_WIDTH_IN - 2 * _SEL_MARGIN_IN, _SEL_HEADER_IN,
+        ))
+        scatter_ax = fig.add_axes(_rect(
+            _SEL_SCATTER_LEFT_IN, scatter_y,
+            _FRAME_WIDTH_IN - _SEL_SCATTER_LEFT_IN - _SEL_MARGIN_IN,
+            _SEL_SCATTER_IN,
+        ))
         crop_axes = [
-            fig.add_subplot(gs[2 + i // 3, i % 3]) for i in range(6)
+            fig.add_axes(_rect(
+                _SEL_MARGIN_IN + i * (crop_in + _SEL_CROP_GAP_IN),
+                crop_y, crop_in, crop_in,
+            ))
+            for i in range(n_crops)
         ]
     else:
         fig = plt.figure(
@@ -883,19 +915,24 @@ def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
 
     # Translate skimage bbox (y0, x0, y1, x1) into crop-window coords.
     # The window may be shifted off-center when the cell is near an edge.
+    # The red rectangle is drawn _CROP_BBOX_PAD_PX outside the cell bbox
+    # so the cell stays visible inside the outline (a tight box hides it).
     y0, x0, y1, x1 = pick.bbox_px
+    pad = _CROP_BBOX_PAD_PX
+    rx0, ry0 = x0 - x_origin - pad, y0 - y_origin - pad
+    rx1, ry1 = x1 - x_origin + pad, y1 - y_origin + pad
     ax.add_patch(Rectangle(
-        (x0 - x_origin - 0.5, y0 - y_origin - 0.5),
-        max(1, x1 - x0), max(1, y1 - y0),
+        (rx0 - 0.5, ry0 - 0.5),
+        max(1, rx1 - rx0), max(1, ry1 - ry0),
         fill=False, edgecolor=_COLOR_PICK_SHOWN, linewidth=1.4,
     ))
 
     # In-image cell-number label, placed in whichever crop corner
-    # overlaps the red bbox least (top-left on a tie). The cell number
-    # is also in the panel title -- the in-image copy keeps the cell
+    # overlaps the (padded) red bbox least -- top-left on a tie. The cell
+    # number is also in the panel title; the in-image copy keeps the cell
     # identifiable if a crop is exported or screenshotted standalone.
     lx, ly, lha, lva = _least_overlapped_crop_corner(
-        (x0 - x_origin, y0 - y_origin, x1 - x_origin, y1 - y_origin), size,
+        (rx0, ry0, rx1, ry1), size,
     )
     ax.text(
         lx, ly, f"#{pick.pick_id[3]}",
