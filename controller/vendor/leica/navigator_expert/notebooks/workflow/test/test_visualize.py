@@ -75,6 +75,43 @@ def _make_picks(items, **kwargs):
     return Picks(items=items, n_picks_raw=len(items), **kwargs)
 
 
+def _make_selection(n_cells, n_selected, tile_id=("0", 0, 0)):
+    """Build a SelectionResult with n_selected picks out of n_cells.
+
+    Module-level so the classify tests and the display tests share it.
+    """
+    from workflow.selection import SelectionResult, MODE_THRESHOLD
+
+    picks = [_make_pick(tile_id, label=i + 1) for i in range(n_selected)]
+    return SelectionResult(
+        all_cells_area=np.arange(1, n_cells + 1, dtype=float),
+        all_cells_intensity=np.arange(1, n_cells + 1, dtype=float),
+        all_cells_labels=np.arange(1, n_cells + 1),
+        all_cells_tile_ids=[tile_id] * n_cells,
+        qualifying_mask=np.ones(n_cells, dtype=bool),
+        near_border_mask=np.zeros(n_cells, dtype=bool),
+        area_threshold=0.0,
+        intensity_threshold=0.0,
+        area_threshold_auto=False,
+        intensity_threshold_auto=False,
+        border_margin_px=0,
+        seed_material="test",
+        mode=MODE_THRESHOLD,
+        n_total=n_cells,
+        n_near_border=0,
+        n_qualifying=n_cells,
+        n_selected_pre_dedup=n_selected,
+        n_removed_duplicate=0,
+        n_removed_out_of_limits_xy=0,
+        n_removed_out_of_limits_z=0,
+        n_removed_translation=0,
+        n_final=n_selected,
+        n_tiles_below_eligible_cutoff=0,
+        n_tiles_empty=0,
+        selected_picks=picks,
+    )
+
+
 def _make_target_tif(path: Path, size=(32, 32)):
     """Write a synthetic target TIFF."""
     import tifffile
@@ -997,46 +1034,10 @@ class TestRenderCropBoundary:
 
 
 class TestClassifyCellsForScatter:
-    def _make_selection(self, n_cells, n_selected):
-        from workflow.selection import SelectionResult, MODE_THRESHOLD
-
-        tile_id = ("0", 0, 0)
-        picks = [
-            _make_pick(tile_id, label=i + 1)
-            for i in range(n_selected)
-        ]
-        return SelectionResult(
-            all_cells_area=np.arange(1, n_cells + 1, dtype=float),
-            all_cells_intensity=np.arange(1, n_cells + 1, dtype=float),
-            all_cells_labels=np.arange(1, n_cells + 1),
-            all_cells_tile_ids=[tile_id] * n_cells,
-            qualifying_mask=np.ones(n_cells, dtype=bool),
-            near_border_mask=np.zeros(n_cells, dtype=bool),
-            area_threshold=0.0,
-            intensity_threshold=0.0,
-            area_threshold_auto=False,
-            intensity_threshold_auto=False,
-            border_margin_px=0,
-            seed_material="test",
-            mode=MODE_THRESHOLD,
-            n_total=n_cells,
-            n_near_border=0,
-            n_qualifying=n_cells,
-            n_selected_pre_dedup=n_selected,
-            n_removed_duplicate=0,
-            n_removed_out_of_limits_xy=0,
-            n_removed_out_of_limits_z=0,
-            n_removed_translation=0,
-            n_final=n_selected,
-            n_tiles_below_eligible_cutoff=0,
-            n_tiles_empty=0,
-            selected_picks=picks,
-        )
-
     def test_returns_both_masks(self):
         from workflow.visualize import _classify_cells_for_scatter
 
-        selection = self._make_selection(n_cells=10, n_selected=3)
+        selection = _make_selection(n_cells=10, n_selected=3)
         masks = _classify_cells_for_scatter(selection, [])
 
         assert "selected" in masks
@@ -1045,7 +1046,7 @@ class TestClassifyCellsForScatter:
     def test_masks_are_complementary(self):
         from workflow.visualize import _classify_cells_for_scatter
 
-        selection = self._make_selection(n_cells=10, n_selected=3)
+        selection = _make_selection(n_cells=10, n_selected=3)
         masks = _classify_cells_for_scatter(selection, [])
 
         assert masks["selected"].sum() == 3
@@ -1056,7 +1057,7 @@ class TestClassifyCellsForScatter:
     def test_empty_returns_both_keys(self):
         from workflow.visualize import _classify_cells_for_scatter
 
-        selection = self._make_selection(n_cells=0, n_selected=0)
+        selection = _make_selection(n_cells=0, n_selected=0)
         masks = _classify_cells_for_scatter(selection, [])
 
         assert "selected" in masks
@@ -1247,6 +1248,132 @@ class TestFrameAspectPadding:
             )
             assert rc.extent_y[0] < rc.extent_y[1], (
                 "Context extent_y should be normalized as (low, high)"
+            )
+        finally:
+            plt.close(fig)
+
+
+# ─── figure width: every notebook figure is _FRAME_WIDTH_IN wide ───
+
+
+class TestFigureWidth:
+    """Change A: every inline figure is _FRAME_WIDTH_IN (14 in) wide so
+    the notebook output column is uniform.
+
+    The display functions build a figure, display/save it, and close it
+    in a finally block -- they never return it. Capture the figure via
+    a plt.close spy (same approach as test_picked_overlay_rendered...).
+    """
+
+    def _widths(self, plt, monkeypatch, call):
+        seen = []
+        real_close = plt.close
+
+        def spy(fig=None):
+            if fig is not None and hasattr(fig, "get_size_inches"):
+                seen.append(float(fig.get_size_inches()[0]))
+            real_close(fig) if fig is not None else real_close()
+
+        monkeypatch.setattr(plt, "close", spy)
+        monkeypatch.setattr(
+            "IPython.display.display", lambda *a, **kw: None,
+        )
+        call()
+        return seen
+
+    def test_display_tile_is_14_wide(self, monkeypatch):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import display_tile, _FRAME_WIDTH_IN
+
+        scan_field = {"tile_positions": {"0": {
+            "job_name": "Overview", "tile_size_um": 100,
+            "positions": [{"row": 0, "col": 0, "x_um": 0, "y_um": 0}]}}}
+        widths = self._widths(
+            plt, monkeypatch,
+            lambda: display_tile(
+                _make_tile_event(), scan_field=scan_field,
+                live_display=False, save_png=False),
+        )
+        assert widths == [_FRAME_WIDTH_IN]
+
+    def test_display_selection_is_14_wide(self, tmp_path, monkeypatch):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import display_selection, _FRAME_WIDTH_IN
+
+        analysis_dir = tmp_path / "analysis"
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        _make_npz(analysis_dir, naming=naming, n_cells=6,
+                  tile_id=("0", 0, 0), image_size=(160, 160))
+
+        sel = _make_selection(n_cells=8, n_selected=6)
+        assert self._widths(
+            plt, monkeypatch,
+            lambda: display_selection(sel, analysis_dir),
+        ) == [_FRAME_WIDTH_IN]
+
+        sel0 = _make_selection(n_cells=4, n_selected=0)
+        assert self._widths(
+            plt, monkeypatch,
+            lambda: display_selection(sel0, analysis_dir),
+        ) == [_FRAME_WIDTH_IN]
+
+    def test_plot_overview_tiles_is_14_wide(self, tmp_path, monkeypatch):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import plot_overview_tiles, _FRAME_WIDTH_IN
+
+        analysis_dir = tmp_path / "analysis"
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        _make_npz(analysis_dir, naming=naming, n_cells=3, tile_id=("0", 0, 0))
+        picks = _make_picks([_make_pick(("0", 0, 0), label=1)])
+        widths = self._widths(
+            plt, monkeypatch,
+            lambda: plot_overview_tiles(analysis_dir, picks),
+        )
+        assert widths and all(w == _FRAME_WIDTH_IN for w in widths)
+
+
+# ─── Change D: in-image cell-number label on Step 4 crops ──────────
+
+
+class TestCropCornerLabel:
+    def test_corner_bbox_pushes_label_clear_of_bbox(self):
+        from workflow.visualize import _least_overlapped_crop_corner
+
+        # bbox in the top-left quarter -> label goes to the first
+        # zero-overlap corner (top-right).
+        _, _, ha, va = _least_overlapped_crop_corner((5, 5, 35, 35), 144)
+        assert (ha, va) == ("right", "top")
+
+    def test_spanning_bbox_falls_back_to_top_left(self):
+        from workflow.visualize import _least_overlapped_crop_corner
+
+        # bbox covers the whole crop -> every corner ties -> top-left.
+        _, _, ha, va = _least_overlapped_crop_corner((0, 0, 144, 144), 144)
+        assert (ha, va) == ("left", "top")
+
+    def test_render_crop_draws_cell_number_label(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Rectangle
+        from workflow.visualize import _render_crop
+
+        fig, ax = plt.subplots()
+        try:
+            pick = _make_pick(("0", 0, 0), label=7,
+                              centroid_rc=(80.0, 80.0))
+            img = np.random.default_rng(0).random((160, 160))
+            _render_crop(ax, pick, ("0", 0, 0), img, Rectangle)
+            assert "#7" in [t.get_text() for t in ax.texts], (
+                "crop must carry an in-image '#7' cell-number label"
             )
         finally:
             plt.close(fig)

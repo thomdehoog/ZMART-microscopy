@@ -75,6 +75,7 @@ class FocusMap:
             _FRAME_ASPECT, _FRAME_WIDTH_IN,
             _FIELD_LEFT, _FIELD_BOTTOM, _FIELD_WIDTH, _FIELD_HEIGHT,
             _FIELD_CBAR_EXTRA_IN,
+            _FONT_FIGURE_TITLE, _COLOR_INK_PRIMARY, _TITLE_PAD,
         )
 
         if ctx.scan_field is None:
@@ -208,7 +209,8 @@ class FocusMap:
         z_range = zs.max() - zs.min()
         ax.set_title(
             f"Focus: {self.model}  (range {z_range:.2f} um)",
-            fontsize=13, fontweight="bold", color="#222222", pad=12,
+            fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
+            color=_COLOR_INK_PRIMARY, pad=_TITLE_PAD,
         )
         ax.legend(loc="upper right", fontsize=9, facecolor="white",
                   edgecolor="#cccccc", labelcolor="#444444")

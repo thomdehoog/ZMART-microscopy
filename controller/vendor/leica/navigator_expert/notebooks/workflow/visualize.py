@@ -70,10 +70,9 @@ _COLOR_TILE_EDGE = "#BFC5CC"     # tile outline
 _COLOR_BOUNDARY = "#A5ACB4"      # sample boundary outline (dashed)
 
 # Typography scale. Anything not on this scale is a bug.
-_FONT_TITLE = 14
-_FONT_FIGURE_TITLE = 13          # batch-renderer figure suptitle (smaller
-                                 # than top-level title; one step above
-                                 # panel titles)
+_FONT_FIGURE_TITLE = 13          # the single top-level title size — every
+                                 # figure's suptitle / header title; one
+                                 # step above panel titles
 _FONT_CAPTION = 9
 _FONT_AXIS_LABEL = 10
 _FONT_PANEL_TITLE = 11           # subplot title; also serves as the figure-
@@ -84,10 +83,20 @@ _FONT_TICK = 9
 _FONT_LEGEND = 9
 _FONT_ANNOTATION = 10
 _FONT_CROP_TITLE = 9
+_FONT_CROP_LABEL = 11            # in-image cell-number label on Step 4 crops
 
-_CROP_SIZE_PX = 96               # fixed crop side length, in pixels
+_TITLE_PAD = 12                  # pad (points) between an ax.set_title and
+                                 # its axes — one source for every
+                                 # single-axes figure title (Steps 2, 6)
+
+_CROP_SIZE_PX = 144              # crop side length, px (1.5x the former 96)
 
 _COLOR_SCATTER_OTHER = "#B5BCC4" # gray — non-selected cells on scatter
+
+# In-image cell-number label on the Step 4 example crops.
+_COLOR_CROP_LABEL = _COLOR_INK_PRIMARY   # label text — navy, matches titles
+_COLOR_CROP_LABEL_BG = "white"           # label background-box fill
+_COLOR_CROP_LABEL_EDGE = _COLOR_RULE     # label background-box edge
 
 _FRAME_ASPECT = 16 / 9
 _FRAME_WIDTH_IN = 14.0
@@ -457,7 +466,7 @@ def display_tile(
         # the tile + segmentation panels to unreadable widths.
         field_share = max(0.5, min(2.5, field_aspect))
         fig, axes = plt.subplots(
-            1, 3, figsize=(15, 5),
+            1, 3, figsize=(_FRAME_WIDTH_IN, 5),
             gridspec_kw={
                 "width_ratios": [field_share, 1, 1],
                 "wspace": 0.15,
@@ -467,7 +476,7 @@ def display_tile(
         field_ax, tile_ax, seg_ax = axes
     else:
         fig, axes = plt.subplots(
-            1, 2, figsize=(12, 5), constrained_layout=True,
+            1, 2, figsize=(_FRAME_WIDTH_IN, 5), constrained_layout=True,
         )
         field_ax = None
         tile_ax, seg_ax = axes
@@ -504,7 +513,7 @@ def display_tile(
 
         fig.suptitle(
             f"{prefix}Tile R{rid} r{row}c{col}  ·  {event.n_cells} cells",
-            fontsize=_FONT_TITLE, fontweight="bold",
+            fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
             color=_COLOR_INK_PRIMARY,
         )
         # constrained_layout=True at figure creation handles spacing;
@@ -547,17 +556,17 @@ def display_selection(
 ) -> None:
     """Render Step 4 (Target discovery): scatter + 6 example crops.
 
-    Layout (fixed; defined once below, no positional drift):
+    Layout (header / scatter / two rows of three example crops):
 
-      top margin (5%)
-        Title          "Target discovery"                14 pt bold
-        Subtitle       "{N} selected · {N} cells"        11 pt
-        Caption        "area ≥ ... · intensity ≥ ... · border ..." 9 pt
-      scatter axes (height ratio 2.2 of grid)
-        — gridlines, threshold lines, selected picks in red —
-      crop strip (height ratio 1)
-        — 6 fixed-size crops with bbox highlighted in red —
-      bottom margin (6%)
+      header row
+        Title    "Target discovery"                       13 pt bold
+        Subtitle "{N} selected · {N} cells"                11 pt
+        Caption  "area ≥ ... · intensity ≥ ... · border"    9 pt
+      scatter axes
+        — gridlines, threshold lines, all cells (gray) with
+          selected picks (red) on top —
+      crop grid (2 rows x 3 columns)
+        — up to 6 crops, cell bbox in red, cell number labelled —
 
     Scatter layers (`_LAYERS`): two layers — gray "other" (all non-
     selected cells) underneath, red "selected" on top. The contrast
@@ -634,18 +643,30 @@ def _build_selection_figure_layout(has_crops: bool, plt, GridSpec):
     without manual margin tuning.
     """
     if has_crops:
-        fig = plt.figure(figsize=(14, 9), constrained_layout=True)
+        # Header / scatter / two rows of three example crops. Six crops
+        # in a 2x3 grid (not 1x6): inside the fixed 14 in figure width a
+        # single row of six caps each crop at ~2 in wide, too small to
+        # read. Three-per-row gives each crop its full ~1.5x size. The
+        # figure height and crop-row ratios are tuned so a crop renders
+        # ~1.5x the former size (pinned by test_visualize.py).
+        fig = plt.figure(
+            figsize=(_FRAME_WIDTH_IN, 10.8), constrained_layout=True,
+        )
         gs = GridSpec(
-            3, 6,
-            height_ratios=[0.55, 2.2, 1.0],
-            hspace=0.30, wspace=0.18,
+            4, 3,
+            height_ratios=[0.4, 2.8, 1.75, 1.75],
+            hspace=0.22, wspace=0.15,
             figure=fig,
         )
         header_ax = fig.add_subplot(gs[0, :])
         scatter_ax = fig.add_subplot(gs[1, :])
-        crop_axes = [fig.add_subplot(gs[2, c]) for c in range(6)]
+        crop_axes = [
+            fig.add_subplot(gs[2 + i // 3, i % 3]) for i in range(6)
+        ]
     else:
-        fig = plt.figure(figsize=(10, 7), constrained_layout=True)
+        fig = plt.figure(
+            figsize=(_FRAME_WIDTH_IN, 7), constrained_layout=True,
+        )
         gs = GridSpec(
             2, 1,
             height_ratios=[0.55, 4.0],
@@ -674,7 +695,7 @@ def _render_figure_titles(header_ax, selection) -> None:
     header_ax.text(
         0.5, 0.85, "Target discovery",
         ha="center", va="top", transform=header_ax.transAxes,
-        fontsize=_FONT_TITLE, fontweight="bold",
+        fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
         color=_COLOR_INK_PRIMARY,
     )
     header_ax.text(
@@ -869,6 +890,21 @@ def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
         fill=False, edgecolor=_COLOR_PICK_SHOWN, linewidth=1.4,
     ))
 
+    # In-image cell-number label, placed in whichever crop corner
+    # overlaps the red bbox least (top-left on a tie). The cell number
+    # is also in the panel title -- the in-image copy keeps the cell
+    # identifiable if a crop is exported or screenshotted standalone.
+    lx, ly, lha, lva = _least_overlapped_crop_corner(
+        (x0 - x_origin, y0 - y_origin, x1 - x_origin, y1 - y_origin), size,
+    )
+    ax.text(
+        lx, ly, f"#{pick.pick_id[3]}",
+        ha=lha, va=lva, fontsize=_FONT_CROP_LABEL, fontweight="bold",
+        color=_COLOR_CROP_LABEL, zorder=5,
+        bbox=dict(boxstyle="round,pad=0.25", facecolor=_COLOR_CROP_LABEL_BG,
+                  edgecolor=_COLOR_CROP_LABEL_EDGE, linewidth=0.6, alpha=0.9),
+    )
+
     rid, row, col = tile_key
     ax.set_title(
         f"R{rid} r{row}c{col}  ·  #{pick.pick_id[3]}",
@@ -901,6 +937,38 @@ def _safe_crop_window(
     y_origin = max(0, min(y_origin, h - actual))
     x_origin = max(0, min(x_origin, w - actual))
     return y_origin, x_origin, actual
+
+
+def _least_overlapped_crop_corner(
+    bbox_xyxy: tuple[float, float, float, float], size: int,
+) -> tuple[float, float, str, str]:
+    """Pick the crop corner whose label zone overlaps the cell bbox least.
+
+    `bbox_xyxy` is the cell bbox in crop-window pixel coords (x0, y0, x1,
+    y1). Returns (x, y, ha, va) for `ax.text` in crop data coords.
+    Corners are evaluated top-left, top-right, bottom-left, bottom-right;
+    `min` keeps the first on a tie, so a crop fully covered by the bbox
+    (a large edge cell) falls back to top-left.
+    """
+    bx0, by0, bx1, by1 = bbox_xyxy
+    zone = 0.34 * size
+    margin = 0.045 * size
+    s = float(size)
+    corners = (
+        (margin, margin, "left", "top", 0.0, 0.0, zone, zone),
+        (s - margin, margin, "right", "top", s - zone, 0.0, s, zone),
+        (margin, s - margin, "left", "bottom", 0.0, s - zone, zone, s),
+        (s - margin, s - margin, "right", "bottom",
+         s - zone, s - zone, s, s),
+    )
+
+    def _overlap(zx0: float, zy0: float, zx1: float, zy1: float) -> float:
+        ox = max(0.0, min(zx1, bx1) - max(zx0, bx0))
+        oy = max(0.0, min(zy1, by1) - max(zy0, by0))
+        return ox * oy
+
+    best = min(corners, key=lambda c: _overlap(*c[4:]))
+    return best[0], best[1], best[2], best[3]
 
 
 def _robust_intensity_range(arr: np.ndarray) -> tuple[float, float]:
@@ -1076,7 +1144,9 @@ def display_target(
                 f"{record.tif_path}: {exc}"
             )
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
+    fig, axes = plt.subplots(
+        1, 3, figsize=(_FRAME_WIDTH_IN, 5), constrained_layout=True,
+    )
     # Figure-ownership flag for the queued-save path; see display_tile.
     transferred = False
     try:
@@ -1140,7 +1210,8 @@ def display_target(
 
         rid, row, col, label = record.pick_id
         fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
-                     fontsize=_FONT_FIGURE_TITLE, fontweight="bold")
+                     fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
+                     color=_COLOR_INK_PRIMARY)
 
         if live_display:
             display(fig)
@@ -1215,7 +1286,9 @@ def plot_overview_tiles(
         n_cells = int(masks.max())
         is_mock = source != "acquired"
 
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
+        fig, axes = plt.subplots(
+            1, 3, figsize=(_FRAME_WIDTH_IN, 5), constrained_layout=True,
+        )
         fig.patch.set_facecolor("white")
 
         axes[0].imshow(image_2d, cmap="gray")
@@ -1236,7 +1309,8 @@ def plot_overview_tiles(
         rid, row, col = tile_id
         prefix = "(mock) " if is_mock else ""
         fig.suptitle(f"{prefix}Tile R{rid} r{row}c{col}",
-                     fontsize=_FONT_FIGURE_TITLE, fontweight="bold")
+                     fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
+                     color=_COLOR_INK_PRIMARY)
 
         if feedback_dir is not None:
             fig.savefig(
@@ -1292,7 +1366,9 @@ def plot_target_pairs(
                 f"{rec.tif_path}: {exc}"
             )
 
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
+        fig, axes = plt.subplots(
+            1, 3, figsize=(_FRAME_WIDTH_IN, 5), constrained_layout=True,
+        )
         try:
             fig.patch.set_facecolor("white")
 
@@ -1327,7 +1403,8 @@ def plot_target_pairs(
 
             rid, row, col, label = rec.pick_id
             fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
-                         fontsize=_FONT_FIGURE_TITLE, fontweight="bold")
+                         fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
+                         color=_COLOR_INK_PRIMARY)
 
             if feedback_dir is not None:
                 fig.savefig(

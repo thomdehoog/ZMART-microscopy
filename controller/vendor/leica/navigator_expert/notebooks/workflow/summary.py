@@ -182,6 +182,10 @@ def plot_results(
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
 
+    from .visualize import (
+        _FRAME_WIDTH_IN, _FONT_FIGURE_TITLE, _COLOR_INK_PRIMARY, _TITLE_PAD,
+    )
+
     if ctx.scan_field is None:
         print("[step 6] No scan field — skipping results plot.")
         return
@@ -189,7 +193,7 @@ def plot_results(
     tile_positions = ctx.scan_field["tile_positions"]
     lim = ctx.boundary_limits
 
-    fig, ax = plt.subplots(figsize=(14, 10))
+    fig, ax = plt.subplots(figsize=(_FRAME_WIDTH_IN, 10))
     fig.patch.set_facecolor("white")
     ax.set_facecolor("#f5f5f8")
 
@@ -298,7 +302,8 @@ def plot_results(
     ax.set_title(
         f"Results  ({ok}/{total} acquired, "
         f"{picks.n_picks_raw} raw picks)",
-        fontsize=13, fontweight="bold", color="#222222", pad=12,
+        fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
+        color=_COLOR_INK_PRIMARY, pad=_TITLE_PAD,
     )
     ax.legend(loc="upper right", fontsize=9, facecolor="white",
               edgecolor="#cccccc", labelcolor="#444444")
