@@ -289,6 +289,7 @@ def plot_stage_envelope(ctx: Context) -> None:
     from .visualize import (
         _FRAME_ASPECT, _FRAME_WIDTH_IN,
         _FIELD_LEFT, _FIELD_BOTTOM, _FIELD_WIDTH, _FIELD_HEIGHT,
+        _FONT_FIGURE_TITLE, _COLOR_INK_PRIMARY, _TITLE_PAD,
     )
 
     fig = plt.figure(
@@ -303,8 +304,8 @@ def plot_stage_envelope(ctx: Context) -> None:
         padding_factor=0.12, frame_aspect=_FRAME_ASPECT,
     )
 
-    ax.set_title(title, fontsize=13, fontweight="bold",
-                 color="#222222", pad=12)
+    ax.set_title(title, fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
+                 color=_COLOR_INK_PRIMARY, pad=_TITLE_PAD)
 
     out_path = ctx.out_dir / "stage_envelope.png"
     fig.savefig(out_path, dpi=150)
@@ -331,6 +332,7 @@ def plot_scan_field(ctx: Context) -> None:
         TileStyle, render_scan_field_panel,
         _FRAME_ASPECT, _FRAME_WIDTH_IN, _pad_limits_to_aspect,
         _FIELD_LEFT, _FIELD_BOTTOM, _FIELD_WIDTH, _FIELD_HEIGHT,
+        _FONT_FIGURE_TITLE, _COLOR_INK_PRIMARY, _TITLE_PAD,
     )
 
     if ctx.scan_field is None:
@@ -445,8 +447,8 @@ def plot_scan_field(ctx: Context) -> None:
             ax.set_ylim(new_ybot, new_ytop)  # restore inverted orientation
         _pad_limits_to_aspect(ax, _FRAME_ASPECT)
 
-    ax.set_title("Scan Field", fontsize=13, fontweight="bold",
-                 color="#222222", pad=12)
+    ax.set_title("Scan Field", fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
+                 color=_COLOR_INK_PRIMARY, pad=_TITLE_PAD)
     ax.legend(loc="upper right", fontsize=9, facecolor="white",
               edgecolor="#cccccc", labelcolor="#444444")
 
