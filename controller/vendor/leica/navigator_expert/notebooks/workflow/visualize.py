@@ -89,7 +89,9 @@ _TITLE_PAD = 12                  # pad (points) between an ax.set_title and
                                  # its axes — one source for every
                                  # single-axes figure title (Steps 2, 6)
 
-_CROP_SIZE_PX = 144              # crop side length, px (1.5x the former 96)
+_CROP_SIZE_PX = 144              # crop sampling window, source px (1.5x
+                                 # the former 96); the rendered crop size
+                                 # is set by the display_selection layout
 
 _COLOR_SCATTER_OTHER = "#B5BCC4" # gray — non-selected cells on scatter
 
@@ -625,9 +627,11 @@ def display_selection(
 
         if feedback_dir is not None:
             feedback_dir.mkdir(parents=True, exist_ok=True)
+            # No bbox_inches="tight" -- save the full 14 in figure so the
+            # feedback PNG matches the other steps' saved width.
             fig.savefig(
                 feedback_dir / "selection.png",
-                dpi=150, bbox_inches="tight", facecolor="white",
+                dpi=150, facecolor="white",
             )
 
         display(fig)
@@ -642,15 +646,19 @@ def _build_selection_figure_layout(has_crops: bool, plt, GridSpec):
     """Create the figure and return (fig, scatter_ax, crop_axes, header_ax).
 
     Two variants:
-      with_crops: 3-row grid (header / scatter / 6 crops)
-      no_crops:   2-row grid (header / scatter)
+      with_crops: explicit add_axes -- header, scatter, and a 1x6 crop
+                  row. The figure height and every axes rect are
+                  computed in inches (see the body). matplotlib
+                  auto-layout is deliberately NOT used here: it
+                  collapses a six-column crop row to unreadably small
+                  cells.
+      no_crops:   a 2-row GridSpec (header / scatter) under
+                  constrained_layout -- with no crop row to fight, the
+                  auto layout is fine, so this branch keeps it.
 
-    The header row is a dedicated invisible axes that owns the title +
-    subtitle + caption text. Replaces the previous design where titles
-    were placed at hardcoded figure-coords (y = 0.955 / 0.920 / 0.890)
-    while the gridspec top margin changed between variants -- a recipe
-    for drift. constrained_layout=True lets matplotlib size the rows
-    without manual margin tuning.
+    The header is a dedicated invisible axes that owns the title +
+    subtitle + caption text, so those never drift relative to the
+    panels below.
     """
     if has_crops:
         # Explicit 1x6 layout. matplotlib's auto-layout shrinks a
@@ -951,8 +959,8 @@ def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
     ax.set_yticks([])
     # Crop frame is a subtle neutral gray so the red bbox rectangle drawn
     # above stays the visually-dominant cue. Coloring the frame the same
-    # as the bbox makes the two read as one fat red border at 96x96 and
-    # swallows the bbox-specific signal.
+    # as the bbox makes the two read as one fat red border and swallows
+    # the bbox-specific signal.
     for spine in ax.spines.values():
         spine.set_color(_COLOR_RULE)
         spine.set_linewidth(1.0)
