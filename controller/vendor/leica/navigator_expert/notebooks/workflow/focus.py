@@ -67,9 +67,9 @@ class FocusMap:
         import matplotlib.pyplot as plt
         from matplotlib.cm import ScalarMappable
         from matplotlib.colors import Normalize
+        from matplotlib.gridspec import GridSpec
         from matplotlib.path import Path as MplPath
         from matplotlib.patches import PathPatch
-        from mpl_toolkits.axes_grid1 import make_axes_locatable
 
         from .visualize import (
             TileStyle, render_scan_field_panel,
@@ -86,9 +86,12 @@ class FocusMap:
             print("[focus] No tiles to plot.")
             return
 
-        fig, ax = plt.subplots(
+        gs = GridSpec(2, 1, height_ratios=[1, 0.03], hspace=0.08)
+        fig = plt.figure(
             figsize=(_FRAME_WIDTH_IN, _FRAME_WIDTH_IN / _FRAME_ASPECT),
         )
+        ax = fig.add_subplot(gs[0])
+        cax = fig.add_subplot(gs[1])
         fig.patch.set_facecolor("white")
 
         # Force every tile transparent + white-edged so the colormap
@@ -184,8 +187,6 @@ class FocusMap:
             ax.plot([], [], ls=(0, (4, 3)), color="#A5ACB4",
                     linewidth=0.8, label="Sample boundary")
 
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes("bottom", size="3%", pad=0.25)
         sm = ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
         plt.colorbar(sm, cax=cax, label="z-wide (um)",
