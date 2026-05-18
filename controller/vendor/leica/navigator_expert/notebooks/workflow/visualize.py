@@ -83,7 +83,7 @@ _FONT_TICK = 9
 _FONT_LEGEND = 9
 _FONT_ANNOTATION = 10
 _FONT_CROP_TITLE = 9
-_FONT_CROP_LABEL = 11            # in-image cell-number label on Step 4 crops
+_FONT_CROP_NUMBER = 10           # 1..N badge on the scatter (Step 4)
 
 _TITLE_PAD = 12                  # pad (points) between an ax.set_title and
                                  # its axes — one source for every
@@ -94,11 +94,6 @@ _CROP_SIZE_PX = 144              # crop sampling window, source px (1.5x
                                  # is set by the display_selection layout
 
 _COLOR_SCATTER_OTHER = "#B5BCC4" # gray — non-selected cells on scatter
-
-# In-image cell-number label on the Step 4 example crops.
-_COLOR_CROP_LABEL = _COLOR_INK_PRIMARY   # label text — navy, matches titles
-_COLOR_CROP_LABEL_BG = "white"           # label background-box fill
-_COLOR_CROP_LABEL_EDGE = _COLOR_RULE     # label background-box edge
 
 _CROP_BBOX_PAD_PX = 6            # red bbox drawn this many px outside the
                                  # cell so the cell stays visible inside it
@@ -386,28 +381,6 @@ def _pad_limits_to_aspect(ax, aspect: float) -> None:
             ax.set_ylim(y_lo_new, y_hi_new)
 
 
-def scan_field_extent_um(
-    scan_field: dict, boundary_limits: dict | None = None,
-) -> tuple[float, float]:
-    """Return (width_um, height_um) of the scan field's bounding box,
-    including the boundary if present. (0, 0) if empty."""
-    tile_positions = scan_field.get("tile_positions", {})
-    xs: list[float] = []
-    ys: list[float] = []
-    for region in tile_positions.values():
-        ts = region.get("tile_size_um") or 0.0
-        half = ts / 2
-        for pos in region["positions"]:
-            xs.extend([pos["x_um"] - half, pos["x_um"] + half])
-            ys.extend([pos["y_um"] - half, pos["y_um"] + half])
-    if boundary_limits:
-        xs.extend([boundary_limits["x_min"], boundary_limits["x_max"]])
-        ys.extend([boundary_limits["y_min"], boundary_limits["y_max"]])
-    if not xs or not ys:
-        return 0.0, 0.0
-    return float(max(xs) - min(xs)), float(max(ys) - min(ys))
-
-
 def figsize_for_extent(
     width_um: float, height_um: float,
     *, long_inches: float = 14.0,
@@ -469,25 +442,13 @@ def display_tile(
 
     show_field = scan_field is not None
     if show_field:
-        # Field panel's share of the figure follows the scan-field aspect
-        # so a wide field doesn't get squeezed into a square panel beside
-        # the (square) tile + segmentation panels. Tile + segmentation
-        # remain equal-width to each other.
-        width_um, height_um = scan_field_extent_um(scan_field, boundary_limits)
-        if width_um > 0 and height_um > 0:
-            field_aspect = width_um / height_um  # >1 = wide, <1 = tall
-        else:
-            field_aspect = 1.0
-        # Clamp to [0.5, 2.5] so very extreme aspect ratios don't squeeze
-        # the tile + segmentation panels to unreadable widths.
-        field_share = max(0.5, min(2.5, field_aspect))
+        # Three equal panels under constrained_layout -- identical to
+        # the Step 5 (display_target) layout. An earlier
+        # width_ratios=[field_share, 1, 1] handed constrained_layout a
+        # cell up to 2.5x wide that the aspect-locked field panel could
+        # not fill, and it left the slack as ~2.5 in of gap.
         fig, axes = plt.subplots(
-            1, 3, figsize=(_FRAME_WIDTH_IN, 5),
-            gridspec_kw={
-                "width_ratios": [field_share, 1, 1],
-                "wspace": 0.15,
-            },
-            constrained_layout=True,
+            1, 3, figsize=(_FRAME_WIDTH_IN, 5), constrained_layout=True,
         )
         field_ax, tile_ax, seg_ax = axes
     else:
@@ -578,7 +539,8 @@ def display_selection(
       scatter    all cells in gray, selected picks in red on top,
                  gridlines and dashed threshold lines
       crop row   up to 6 example crops in a single row, each with the
-                 padded cell bbox in red and the cell number labelled
+                 padded cell bbox in red and a 1..N number in its title
+                 matching the numbered badge on the scatter
 
     Scatter layers (`_LAYERS`): two layers — gray "other" (all non-
     selected cells) underneath, red "selected" on top. The contrast
@@ -613,13 +575,15 @@ def display_selection(
             # is shared (not the case here -- display_selection's cache
             # is local to this call).
             tile_cache: dict = {}
-            for ax, pick in zip(crop_axes, crops_to_show):
+            for number, (ax, pick) in enumerate(
+                zip(crop_axes, crops_to_show), start=1,
+            ):
                 tile_key = _normalize_tile_key(pick.pick_id[:3])
                 loaded = _load_tile_by_key(
                     analysis_dir, tile_key, tile_cache=tile_cache,
                 )
                 img = loaded[0] if loaded is not None else None
-                _render_crop(ax, pick, tile_key, img, Rectangle)
+                _render_crop(ax, number, pick, tile_key, img, Rectangle)
             for ax in crop_axes[len(crops_to_show):]:
                 ax.set_visible(False)
 
@@ -668,9 +632,12 @@ def _build_selection_figure_layout(has_crops: bool, plt, GridSpec):
         # approach the Step 2 panels use. The six crops are equal squares
         # that fill the row width.
         n_crops = 6
+        # The crop row spans the same x-range as the scatter axes (its
+        # left edge is _SEL_SCATTER_LEFT_IN), so the 1x6 strip lines up
+        # under the scatter instead of overhanging it on the left.
+        crop_row_w = _FRAME_WIDTH_IN - _SEL_SCATTER_LEFT_IN - _SEL_MARGIN_IN
         crop_in = (
-            _FRAME_WIDTH_IN - 2 * _SEL_MARGIN_IN
-            - (n_crops - 1) * _SEL_CROP_GAP_IN
+            crop_row_w - (n_crops - 1) * _SEL_CROP_GAP_IN
         ) / n_crops
         fig_h = (
             _SEL_MARGIN_IN + _SEL_HEADER_IN + _SEL_SCATTER_IN
@@ -698,7 +665,7 @@ def _build_selection_figure_layout(has_crops: bool, plt, GridSpec):
         ))
         crop_axes = [
             fig.add_axes(_rect(
-                _SEL_MARGIN_IN + i * (crop_in + _SEL_CROP_GAP_IN),
+                _SEL_SCATTER_LEFT_IN + i * (crop_in + _SEL_CROP_GAP_IN),
                 crop_y, crop_in, crop_in,
             ))
             for i in range(n_crops)
@@ -875,6 +842,9 @@ def _render_scatter(ax, selection, crops_to_show: list) -> None:
     )
     leg.get_frame().set_linewidth(0.6)
 
+    # Numbered leader-line badges for the picks shown as crops below.
+    _annotate_scatter_crops(ax, crops_to_show)
+
     annotation = _MODE_ANNOTATIONS.get(selection.mode)
     if annotation:
         ax.text(
@@ -886,8 +856,52 @@ def _render_scatter(ax, selection, crops_to_show: list) -> None:
         )
 
 
-def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
+def _annotate_scatter_crops(ax, crops_to_show: list) -> None:
+    """Number the shown-crop picks 1..N on the scatter, each badge
+    joined to its (intensity, area) point by a thin leader line.
+
+    The crop strip favours large-area cells (`_pick_example_crops`), so
+    the shown picks cluster high on the area axis. The badges are laid
+    out in a row a fixed offset *below* the points (the open space),
+    fanned horizontally by each point's intensity rank — so the badges
+    never overlap and, being in the same left-to-right order as the
+    points, their leader lines do not cross. The `crop-annot-{n}` gid
+    lets tests locate them.
+    """
+    n = len(crops_to_show)
+    if n == 0:
+        return
+    # Horizontal rank of each pick by intensity (0 = leftmost).
+    order = sorted(range(n), key=lambda i: crops_to_show[i].mean_intensity)
+    x_rank = [0] * n
+    for rank, i in enumerate(order):
+        x_rank[i] = rank
+
+    span_pt = 54.0   # half-width of the badge fan, in points
+    drop_pt = 42.0   # how far below its point each badge sits
+    for i, pick in enumerate(crops_to_show):
+        frac = x_rank[i] / (n - 1) if n > 1 else 0.5
+        dx = (2.0 * frac - 1.0) * span_pt
+        ax.annotate(
+            str(i + 1),
+            xy=(pick.mean_intensity, pick.area_px),
+            xytext=(dx, -drop_pt), textcoords="offset points",
+            ha="center", va="center",
+            fontsize=_FONT_CROP_NUMBER, fontweight="bold",
+            color=_COLOR_INK_PRIMARY, zorder=6, gid=f"crop-annot-{i + 1}",
+            bbox=dict(boxstyle="circle,pad=0.3", facecolor="white",
+                      edgecolor=_COLOR_PICK_SHOWN, linewidth=1.2),
+            arrowprops=dict(arrowstyle="-", color=_COLOR_PICK_SHOWN,
+                            linewidth=0.9, shrinkA=4.0, shrinkB=4.0),
+        )
+
+
+def _render_crop(ax, number, pick, tile_key, img, Rectangle) -> None:
     """Render one fixed-size crop with the cell's bbox outlined in red.
+
+    `number` is the crop's 1..N index, shown in the title to match the
+    numbered leader-line badge on the scatter (see
+    _annotate_scatter_crops).
 
     The crop is at most `_CROP_SIZE_PX` square (see `_safe_crop_window`
     for the off-edge clamping; smaller images yield a smaller crop).
@@ -935,24 +949,9 @@ def _render_crop(ax, pick, tile_key, img, Rectangle) -> None:
         fill=False, edgecolor=_COLOR_PICK_SHOWN, linewidth=1.4,
     ))
 
-    # In-image cell-number label, placed in whichever crop corner
-    # overlaps the (padded) red bbox least -- top-left on a tie. The cell
-    # number is also in the panel title; the in-image copy keeps the cell
-    # identifiable if a crop is exported or screenshotted standalone.
-    lx, ly, lha, lva = _least_overlapped_crop_corner(
-        (rx0, ry0, rx1, ry1), size,
-    )
-    ax.text(
-        lx, ly, f"#{pick.pick_id[3]}",
-        ha=lha, va=lva, fontsize=_FONT_CROP_LABEL, fontweight="bold",
-        color=_COLOR_CROP_LABEL, zorder=5,
-        bbox=dict(boxstyle="round,pad=0.25", facecolor=_COLOR_CROP_LABEL_BG,
-                  edgecolor=_COLOR_CROP_LABEL_EDGE, linewidth=0.6, alpha=0.9),
-    )
-
     rid, row, col = tile_key
     ax.set_title(
-        f"R{rid} r{row}c{col}  ·  #{pick.pick_id[3]}",
+        f"{number} · R{rid} r{row}c{col}",
         fontsize=_FONT_CROP_TITLE, color=_COLOR_INK_BODY, pad=3,
     )
     ax.set_xticks([])
@@ -982,38 +981,6 @@ def _safe_crop_window(
     y_origin = max(0, min(y_origin, h - actual))
     x_origin = max(0, min(x_origin, w - actual))
     return y_origin, x_origin, actual
-
-
-def _least_overlapped_crop_corner(
-    bbox_xyxy: tuple[float, float, float, float], size: int,
-) -> tuple[float, float, str, str]:
-    """Pick the crop corner whose label zone overlaps the cell bbox least.
-
-    `bbox_xyxy` is the cell bbox in crop-window pixel coords (x0, y0, x1,
-    y1). Returns (x, y, ha, va) for `ax.text` in crop data coords.
-    Corners are evaluated top-left, top-right, bottom-left, bottom-right;
-    `min` keeps the first on a tie, so a crop fully covered by the bbox
-    (a large edge cell) falls back to top-left.
-    """
-    bx0, by0, bx1, by1 = bbox_xyxy
-    zone = 0.34 * size
-    margin = 0.045 * size
-    s = float(size)
-    corners = (
-        (margin, margin, "left", "top", 0.0, 0.0, zone, zone),
-        (s - margin, margin, "right", "top", s - zone, 0.0, s, zone),
-        (margin, s - margin, "left", "bottom", 0.0, s - zone, zone, s),
-        (s - margin, s - margin, "right", "bottom",
-         s - zone, s - zone, s, s),
-    )
-
-    def _overlap(zx0: float, zy0: float, zx1: float, zy1: float) -> float:
-        ox = max(0.0, min(zx1, bx1) - max(zx0, bx0))
-        oy = max(0.0, min(zy1, by1) - max(zy0, by0))
-        return ox * oy
-
-    best = min(corners, key=lambda c: _overlap(*c[4:]))
-    return best[0], best[1], best[2], best[3]
 
 
 def _robust_intensity_range(arr: np.ndarray) -> tuple[float, float]:
