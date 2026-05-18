@@ -73,6 +73,8 @@ class FocusMap:
         from .visualize import (
             TileStyle, render_scan_field_panel,
             _FRAME_ASPECT, _FRAME_WIDTH_IN,
+            _FIELD_LEFT, _FIELD_BOTTOM, _FIELD_WIDTH, _FIELD_HEIGHT,
+            _FIELD_CBAR_EXTRA_IN,
         )
 
         if ctx.scan_field is None:
@@ -86,13 +88,14 @@ class FocusMap:
             return
 
         field_h = _FRAME_WIDTH_IN / _FRAME_ASPECT
-        cbar_extra_in = 0.5
-        fig = plt.figure(
-            figsize=(_FRAME_WIDTH_IN, field_h + cbar_extra_in),
-        )
-        s = field_h / (field_h + cbar_extra_in)
-        ax = fig.add_axes([0.0385, 1 - 0.9230 * s, 0.9230, 0.9230 * s])
-        cax = fig.add_axes([0.0385, 0.04, 0.9230, 0.025])
+        total_h = field_h + _FIELD_CBAR_EXTRA_IN
+        s = field_h / total_h
+        fig = plt.figure(figsize=(_FRAME_WIDTH_IN, total_h))
+        top_margin = (1 - _FIELD_BOTTOM - _FIELD_HEIGHT) * s
+        field_bottom = 1 - top_margin - _FIELD_HEIGHT * s
+        ax = fig.add_axes([_FIELD_LEFT, field_bottom,
+                           _FIELD_WIDTH, _FIELD_HEIGHT * s])
+        cax = fig.add_axes([_FIELD_LEFT, 0.04, _FIELD_WIDTH, 0.025])
         fig.patch.set_facecolor("white")
 
         # Force every tile transparent + white-edged so the colormap
