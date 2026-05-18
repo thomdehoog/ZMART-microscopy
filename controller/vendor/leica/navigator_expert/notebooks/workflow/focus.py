@@ -205,10 +205,8 @@ class FocusMap:
         plt.colorbar(sm, cax=cax, label="z-wide (um)",
                       orientation="horizontal")
 
-        zs = np.array([m["zwide_um"] for m in self.measured])
-        z_range = zs.max() - zs.min()
         ax.set_title(
-            f"Focus: {self.model}  (range {z_range:.2f} um)",
+            "Focus map",
             fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
             color=_COLOR_INK_PRIMARY, pad=_TITLE_PAD,
         )

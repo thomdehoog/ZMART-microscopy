@@ -283,7 +283,7 @@ def run_overview(
             tile_id = (str(rid), tile["row"], tile["col"])
 
             print(
-                f"[{i + 1}/{n_tiles_planned}] R{rid} "
+                f"[{i + 1}/{n_tiles_planned}] G{rid} "
                 f"r{tile['row']}c{tile['col']}  "
                 f"x={x_um:.0f} y={y_um:.0f} z={zwide_um:.2f}",
                 end="", flush=True,

@@ -1554,3 +1554,36 @@ class TestPickExampleCrops:
         first = [p.pick_id for p in _pick_example_crops(picks, n=6)]
         second = [p.pick_id for p in _pick_example_crops(picks, n=6)]
         assert first == second
+
+
+# ─── tile-id / region wording ─────────────────────────────────────
+
+
+class TestTileLabelWording:
+    """Operator-facing tile ids read 'Group N, Row N, Column N' (the
+    cryptic 'R0 r0c0' was unclear). The figures use _format_tile_label;
+    the Step 2b / Step 3 console output must match."""
+
+    def test_format_tile_label_full_and_compact(self):
+        from workflow.visualize import _format_tile_label
+        assert _format_tile_label(0, 1, 2) == "Group 0, Row 1, Column 2"
+        assert _format_tile_label(0, 1, 2, compact=True) == "G0 R1 C2"
+
+    def test_console_wording_says_group_not_region(self):
+        """No integration test pins the Step 2b / Step 3 console prints,
+        so this guards the wording at the source level against the old
+        'Region' / 'R{rid}' form drifting back."""
+        import importlib
+        import inspect
+
+        template_src = inspect.getsource(
+            importlib.import_module("workflow.template"))
+        overview_src = inspect.getsource(
+            importlib.import_module("workflow.overview"))
+
+        assert "region(s)" not in template_src
+        assert "Region {rid}" not in template_src
+        assert "group(s)" in template_src
+        assert "Group {rid}" in template_src
+        assert "] R{rid} " not in overview_src
+        assert "] G{rid} " in overview_src

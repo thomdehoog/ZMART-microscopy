@@ -247,10 +247,10 @@ def read_scan_field(ctx: Context) -> None:
         "n_tiles": n_tiles,
     }
 
-    print(f"[step 2b] Scan field: {len(tile_positions)} region(s), "
+    print(f"[step 2b] Scan field: {len(tile_positions)} group(s), "
           f"{n_tiles} tile(s)")
     for rid, region in tile_positions.items():
-        print(f"  Region {rid}: {region['job_name']}  "
+        print(f"  Group {rid}: {region['job_name']}  "
               f"{region.get('num_rows', '?')}x{region.get('num_cols', '?')}  "
               f"tile={region.get('tile_size_um', '?')} um")
 
