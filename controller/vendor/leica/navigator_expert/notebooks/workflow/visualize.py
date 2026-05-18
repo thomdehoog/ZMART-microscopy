@@ -493,7 +493,8 @@ def display_tile(
         )
 
         fig.suptitle(
-            f"{prefix}Tile R{rid} r{row}c{col}  ·  {event.n_cells} cells",
+            f"{prefix}Tile {_format_tile_label(rid, row, col)}"
+            f"  ·  {event.n_cells} cells",
             fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
             color=_COLOR_INK_PRIMARY,
         )
@@ -960,7 +961,7 @@ def _render_crop(ax, number, pick, tile_key, img, Rectangle) -> None:
 
     rid, row, col = tile_key
     ax.set_title(
-        f"{number} · R{rid} r{row}c{col}",
+        f"{number} · {_format_tile_label(rid, row, col, compact=True)}",
         fontsize=_FONT_CROP_TITLE, color=_COLOR_INK_BODY, pad=3,
     )
     ax.set_xticks([])
@@ -1237,7 +1238,8 @@ def display_target(
         )
 
         rid, row, col, label = record.pick_id
-        fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
+        fig.suptitle(f"Target {_format_tile_label(rid, row, col)} "
+                     f"label {label}",
                      fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
                      color=_COLOR_INK_PRIMARY)
 
@@ -1336,7 +1338,7 @@ def plot_overview_tiles(
 
         rid, row, col = tile_id
         prefix = "(mock) " if is_mock else ""
-        fig.suptitle(f"{prefix}Tile R{rid} r{row}c{col}",
+        fig.suptitle(f"{prefix}Tile {_format_tile_label(rid, row, col)}",
                      fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
                      color=_COLOR_INK_PRIMARY)
 
@@ -1430,7 +1432,8 @@ def plot_target_pairs(
             )
 
             rid, row, col, label = rec.pick_id
-            fig.suptitle(f"Target R{rid} r{row}c{col} label {label}",
+            fig.suptitle(f"Target {_format_tile_label(rid, row, col)} "
+                         f"label {label}",
                          fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
                          color=_COLOR_INK_PRIMARY)
 
@@ -1505,6 +1508,16 @@ def _load_tile_npz(path: Path):
 def _normalize_tile_key(key: tuple) -> tuple[str, ...]:
     """Normalize a tile key to all-strings for consistent dict lookup."""
     return tuple(str(x) for x in key)
+
+
+def _format_tile_label(rid, row, col, *, compact: bool = False) -> str:
+    """Operator-facing tile id. Full form for figure suptitles
+    ("Group 0, Row 0, Column 0"); compact form for the tight Step 4
+    crop panels ("G0 R0 C0"). One definition so the wording cannot
+    drift between the renderers that show it."""
+    if compact:
+        return f"G{rid} R{row} C{col}"
+    return f"Group {rid}, Row {row}, Column {col}"
 
 
 def _build_tile_path_index(
