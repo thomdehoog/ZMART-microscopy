@@ -50,7 +50,8 @@ def _make_npz(
     return dest
 
 
-def _make_pick(tile_id, label, centroid_rc=(15.0, 15.0), bbox=(10, 10, 20, 20)):
+def _make_pick(tile_id, label, centroid_rc=(15.0, 15.0), bbox=(10, 10, 20, 20),
+               cell_xy=(1005.0, 2005.0)):
     """Build a minimal Pick-like object with the fields visualize.py needs."""
     from workflow.overview import Pick
     return Pick(
@@ -65,7 +66,7 @@ def _make_pick(tile_id, label, centroid_rc=(15.0, 15.0), bbox=(10, 10, 20, 20)):
         area_px=100,
         eccentricity=0.3,
         mean_intensity=128.0,
-        cell_source_stage_xy_um=(1005.0, 2005.0),
+        cell_source_stage_xy_um=cell_xy,
     )
 
 
@@ -1494,3 +1495,50 @@ class TestScatterCropAnnotations:
             f"expected exactly one numbered badge per shown crop (4), "
             f"got {sorted(gids)}"
         )
+
+
+# ─── _pick_example_crops: spatial spread ──────────────────────────
+
+
+class TestPickExampleCrops:
+    """The crop strip is chosen by farthest-point sampling on stage XY,
+    so it spreads across the sample instead of showing co-located
+    cells."""
+
+    def test_returns_all_when_at_most_n(self):
+        from workflow.visualize import _pick_example_crops
+        picks = [_make_pick(("0", 0, 0), label=i + 1) for i in range(4)]
+        assert len(_pick_example_crops(picks, n=6)) == 4
+
+    def test_spreads_across_distinct_locations(self):
+        from workflow.visualize import _pick_example_crops
+
+        # Six distinct stage locations, each with a co-located twin.
+        spots = [(0.0, 0.0), (1000.0, 0.0), (0.0, 1000.0),
+                 (1000.0, 1000.0), (500.0, 500.0), (2000.0, 2000.0)]
+        picks, label = [], 1
+        for x, y in spots:
+            for _ in range(2):                  # the spot + its twin
+                picks.append(_make_pick(("0", 0, 0), label=label,
+                                        cell_xy=(x, y)))
+                label += 1
+
+        chosen = _pick_example_crops(picks, n=6)
+        locs = {p.cell_source_stage_xy_um for p in chosen}
+        assert len(chosen) == 6
+        assert len(locs) == 6, (
+            f"the 6 crops must sit at 6 distinct locations, never "
+            f"co-located; got {sorted(locs)}"
+        )
+
+    def test_deterministic(self):
+        from workflow.visualize import _pick_example_crops
+        picks = [
+            _make_pick(("0", 0, 0), label=i + 1,
+                       cell_xy=(float(i * 137 % 900),
+                                float(i * 53 % 700)))
+            for i in range(15)
+        ]
+        first = [p.pick_id for p in _pick_example_crops(picks, n=6)]
+        second = [p.pick_id for p in _pick_example_crops(picks, n=6)]
+        assert first == second
