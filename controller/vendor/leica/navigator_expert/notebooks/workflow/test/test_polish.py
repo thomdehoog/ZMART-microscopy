@@ -175,18 +175,19 @@ def test_plot_stage_envelope_falls_back_to_driver(tmp_path, monkeypatch):
     assert (tmp_path / "stage_envelope.png").exists()
 
 
-# ─── scatter single-layer invariant ───────────────────────────────
+# ─── scatter two-layer invariant ─────────────────────────────────
 
 
-def test_scatter_layers_is_selected_only():
-    """_LAYERS is the structural invariant for the scatter: exactly
-    one entry, keyed "selected". The visible label is a UX choice and
-    intentionally not pinned here.
+def test_scatter_layers_other_then_selected():
+    """_LAYERS is the structural invariant for the scatter: two entries,
+    "other" (gray background) drawn first, then "selected" (red) on top.
     """
     from workflow.visualize import _LAYERS
 
-    assert len(_LAYERS) == 1
-    assert _LAYERS[0].key == "selected"
+    assert len(_LAYERS) == 2
+    assert _LAYERS[0].key == "other"
+    assert _LAYERS[1].key == "selected"
+    assert _LAYERS[0].zorder < _LAYERS[1].zorder
 
 
 # ─── plot_results orphan-pick skip ────────────────────────────────
