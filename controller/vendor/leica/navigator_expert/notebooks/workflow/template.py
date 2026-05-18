@@ -286,15 +286,16 @@ def plot_stage_envelope(ctx: Context) -> None:
         envelope = drv.get_stage_limits()
         title = "Stage envelope (physical, no boundary set)"
 
-    fig, ax = plt.subplots(figsize=(14, 7.875))
+    from .visualize import _FRAME_ASPECT, _FRAME_WIDTH_IN
+
+    fig, ax = plt.subplots(
+        figsize=(_FRAME_WIDTH_IN, _FRAME_WIDTH_IN / _FRAME_ASPECT),
+    )
     fig.patch.set_facecolor("white")
 
-    # render_scan_field_panel handles the no-tiles-but-boundary case:
-    # empty tile_positions plus a non-None envelope skips the
-    # placeholder text and draws boundary + axes style.
     render_scan_field_panel(
         ax, {"tile_positions": {}, "n_tiles": 0}, envelope,
-        padding_factor=0.12,
+        padding_factor=0.12, frame_aspect=_FRAME_ASPECT,
     )
 
     ax.set_title(title, fontsize=13, fontweight="bold",
@@ -321,7 +322,10 @@ def plot_scan_field(ctx: Context) -> None:
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
 
-    from .visualize import TileStyle, render_scan_field_panel
+    from .visualize import (
+        TileStyle, render_scan_field_panel,
+        _FRAME_ASPECT, _FRAME_WIDTH_IN, _pad_limits_to_aspect,
+    )
 
     if ctx.scan_field is None:
         raise RuntimeError("Call read_scan_field before plot_scan_field.")
@@ -330,11 +334,9 @@ def plot_scan_field(ctx: Context) -> None:
     tile_positions = ctx.scan_field["tile_positions"]
     lim = ctx.boundary_limits
 
-    # Fixed 16:9 figure. set_aspect("equal") (inside render_scan_field_panel)
-    # preserves the data aspect inside the axes; the wider figure leaves
-    # headroom for the upper-right legend without the boundary dashed line
-    # overlapping.
-    fig, ax = plt.subplots(figsize=(14, 7.875))
+    fig, ax = plt.subplots(
+        figsize=(_FRAME_WIDTH_IN, _FRAME_WIDTH_IN / _FRAME_ASPECT),
+    )
     fig.patch.set_facecolor("white")
 
     # Build per-tile styles from the template's job-color map. Tiles in
@@ -376,7 +378,7 @@ def plot_scan_field(ctx: Context) -> None:
     # upper-right legend.
     rc = render_scan_field_panel(
         ax, ctx.scan_field, lim, tile_styles=tile_styles,
-        padding_factor=0.12,
+        padding_factor=0.12, frame_aspect=_FRAME_ASPECT,
     )
     if lim:
         ax.plot([], [], ls=(0, (4, 3)), color="#A5ACB4",
@@ -433,6 +435,7 @@ def plot_scan_field(ctx: Context) -> None:
             ax.set_xlim(new_xlo, new_xhi)
         if (new_ytop, new_ybot) != (y_top, y_bot):
             ax.set_ylim(new_ybot, new_ytop)  # restore inverted orientation
+        _pad_limits_to_aspect(ax, _FRAME_ASPECT)
 
     ax.set_title("Scan Field", fontsize=13, fontweight="bold",
                  color="#222222", pad=12)
