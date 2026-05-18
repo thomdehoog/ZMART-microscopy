@@ -109,6 +109,10 @@ _SEL_SCATTER_IN = 4.20
 _SEL_CROP_TITLE_GAP_IN = 0.85    # holds the scatter x-label AND the crop
                                  # titles without the two colliding
 
+# Scatter crop-number badges (display_selection), offsets in points.
+_SCATTER_BADGE_FAN_PT = 54.0     # half-width of the intensity-rank fan
+_SCATTER_BADGE_DROP_PT = 42.0    # how far below its point each badge sits
+
 _FRAME_ASPECT = 16 / 9
 _FRAME_WIDTH_IN = 14.0
 
@@ -861,12 +865,19 @@ def _annotate_scatter_crops(ax, crops_to_show: list) -> None:
     joined to its (intensity, area) point by a thin leader line.
 
     The crop strip favours large-area cells (`_pick_example_crops`), so
-    the shown picks cluster high on the area axis. The badges are laid
-    out in a row a fixed offset *below* the points (the open space),
-    fanned horizontally by each point's intensity rank — so the badges
-    never overlap and, being in the same left-to-right order as the
-    points, their leader lines do not cross. The `crop-annot-{n}` gid
-    lets tests locate them.
+    the shown picks cluster high on the area axis. Each badge is offset
+    below its own point (into the open space) and fanned horizontally
+    by the point's intensity rank — so it is a fan at per-point heights,
+    not a literal row. Two properties hold by construction:
+
+      - badge x = point_x + dx, and both terms increase with intensity
+        rank, so badges keep the same left-to-right order as their
+        points — leader lines cannot cross;
+      - adjacent badges differ in dx by 2·_SCATTER_BADGE_FAN_PT/(N−1)
+        regardless of how tightly the points cluster, so badges of
+        clustered picks still do not overlap.
+
+    Each badge carries a `crop-annot-{n}` gid so tests can locate it.
     """
     n = len(crops_to_show)
     if n == 0:
@@ -877,15 +888,13 @@ def _annotate_scatter_crops(ax, crops_to_show: list) -> None:
     for rank, i in enumerate(order):
         x_rank[i] = rank
 
-    span_pt = 54.0   # half-width of the badge fan, in points
-    drop_pt = 42.0   # how far below its point each badge sits
     for i, pick in enumerate(crops_to_show):
         frac = x_rank[i] / (n - 1) if n > 1 else 0.5
-        dx = (2.0 * frac - 1.0) * span_pt
+        dx = (2.0 * frac - 1.0) * _SCATTER_BADGE_FAN_PT
         ax.annotate(
             str(i + 1),
             xy=(pick.mean_intensity, pick.area_px),
-            xytext=(dx, -drop_pt), textcoords="offset points",
+            xytext=(dx, -_SCATTER_BADGE_DROP_PT), textcoords="offset points",
             ha="center", va="center",
             fontsize=_FONT_CROP_NUMBER, fontweight="bold",
             color=_COLOR_INK_PRIMARY, zorder=6, gid=f"crop-annot-{i + 1}",
