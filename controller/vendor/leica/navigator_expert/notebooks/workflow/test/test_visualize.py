@@ -1485,10 +1485,12 @@ class TestScatterCropAnnotations:
         )
         display_selection(sel, analysis_dir)
 
-        assert sorted(set(gids)) == [
+        # sorted(gids) -- not sorted(set(gids)) -- so a duplicated
+        # badge (same gid drawn twice) fails instead of being masked.
+        assert sorted(gids) == [
             "crop-annot-1", "crop-annot-2",
             "crop-annot-3", "crop-annot-4",
         ], (
-            f"expected one numbered badge per shown crop (4), "
-            f"got {sorted(set(gids))}"
+            f"expected exactly one numbered badge per shown crop (4), "
+            f"got {sorted(gids)}"
         )
