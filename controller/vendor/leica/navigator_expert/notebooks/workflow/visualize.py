@@ -86,6 +86,11 @@ _FONT_ANNOTATION = 10
 _FONT_CROP_TITLE = 9
 
 _CROP_SIZE_PX = 96               # fixed crop side length, in pixels
+
+_COLOR_SCATTER_OTHER = "#B5BCC4" # gray — non-selected cells on scatter
+
+_FRAME_ASPECT = 16 / 9
+_FRAME_WIDTH_IN = 14.0
 # END VISUALIZE STYLE TOKENS
 
 
@@ -105,6 +110,7 @@ class _ScatterLayer:
 
 
 _LAYERS: tuple[_ScatterLayer, ...] = (
+    _ScatterLayer("other", _COLOR_SCATTER_OTHER, 18, 0.45, "o", None, 0, 2, "Other"),
     _ScatterLayer("selected", _COLOR_SELECTED, 42, 1.00, "o", "white", 0.6, 4, "Selected"),
 )
 
@@ -167,6 +173,7 @@ def render_scan_field_panel(
     highlight_tile_id: tuple[str, int, int] | None = None,
     tile_styles: dict[tuple[str, int, int], TileStyle] | None = None,
     padding_factor: float = 0.05,
+    frame_aspect: float | None = None,
 ) -> ScanFieldRenderContext:
     """Render the scan-field tiles + optional boundary on `ax` and return
     a ScanFieldRenderContext describing the geometry.
@@ -296,6 +303,13 @@ def render_scan_field_panel(
         spine.set_color(_COLOR_RULE)
         spine.set_linewidth(0.6)
 
+    if frame_aspect is not None and all_x:
+        _pad_limits_to_aspect(ax, frame_aspect)
+        new_xl = ax.get_xlim()
+        new_yl = ax.get_ylim()
+        x_lo, x_hi = new_xl[0], new_xl[1]
+        y_lo, y_hi = min(new_yl), max(new_yl)
+
     return ScanFieldRenderContext(
         tile_bounds=tile_bounds,
         tile_bounds_by_region=tile_bounds_by_region,
@@ -303,6 +317,38 @@ def render_scan_field_panel(
         extent_y=(y_lo, y_hi),
         max_tile_size_um=max_tile_size,
     )
+
+
+def _pad_limits_to_aspect(ax, aspect: float) -> None:
+    """Symmetrically pad axes limits so x_range / y_range == aspect.
+
+    Preserves inverted y-axis orientation (render_scan_field_panel calls
+    invert_yaxis, so get_ylim() returns (high, low)).
+    """
+    xl = ax.get_xlim()
+    yl = ax.get_ylim()
+    y_inverted = yl[0] > yl[1]
+
+    x_range = abs(xl[1] - xl[0])
+    y_range = abs(yl[1] - yl[0])
+    if y_range == 0 or x_range == 0:
+        return
+
+    current = x_range / y_range
+    x_mid = (xl[0] + xl[1]) / 2
+    y_lo, y_hi = min(yl), max(yl)
+    y_mid = (y_lo + y_hi) / 2
+
+    if current < aspect:
+        new_x_half = y_range * aspect / 2
+        ax.set_xlim(x_mid - new_x_half, x_mid + new_x_half)
+    else:
+        new_y_half = x_range / aspect / 2
+        y_lo_new, y_hi_new = y_mid - new_y_half, y_mid + new_y_half
+        if y_inverted:
+            ax.set_ylim(y_hi_new, y_lo_new)
+        else:
+            ax.set_ylim(y_lo_new, y_hi_new)
 
 
 def scan_field_extent_um(
@@ -503,11 +549,9 @@ def display_selection(
         — 6 fixed-size crops with bbox highlighted in red —
       bottom margin (6%)
 
-    Scatter layer (`_LAYERS`): a single Selected layer in red. The
-    operator only wants to see picks that were actually selected;
-    qualifying / near-border / below-threshold dots were dropped as
-    visual noise. Empty scatter means zero picks survived (look at the
-    mode annotation below the panel for why).
+    Scatter layers (`_LAYERS`): two layers — gray "other" (all non-
+    selected cells) underneath, red "selected" on top. The contrast
+    lets the operator see what was picked vs. what wasn't.
 
     Crops use a shift-not-pad window: centered on the cell when possible,
     shifted inward when the cell is near an edge. No zero-padding.
@@ -539,7 +583,7 @@ def display_selection(
             # is local to this call).
             tile_cache: dict = {}
             for ax, pick in zip(crop_axes, crops_to_show):
-                tile_key = (pick.pick_id[0], pick.pick_id[1], pick.pick_id[2])
+                tile_key = _normalize_tile_key(pick.pick_id[:3])
                 loaded = _load_tile_by_key(
                     analysis_dir, tile_key, tile_cache=tile_cache,
                 )
@@ -666,19 +710,16 @@ def _format_threshold(name: str, value: float, auto: bool, *, suffix: str = "") 
 def _classify_cells_for_scatter(
     selection, crops_to_show: list,
 ) -> dict[str, np.ndarray]:
-    """Mark which all_cells_* entries are selected picks.
+    """Classify all_cells_* entries into "selected" and "other" masks.
 
-    Returns a single mask `selected` keyed by membership in
-    `selection.selected_picks`. The other categories (near_border,
-    below, qualifying, shown) are no longer surfaced on the scatter
-    -- the operator only wants to see the picks that were actually
-    selected. The `crops_to_show` argument is accepted for signature
-    compatibility but ignored.
+    Returns two boolean masks keyed by the _LAYERS entries:
+      "selected" — cells whose pick_id is in selection.selected_picks
+      "other"    — all remaining cells (the complement)
     """
     n = int(selection.all_cells_area.size)
     if n == 0:
         empty = np.zeros(0, dtype=bool)
-        return {"selected": empty}
+        return {"selected": empty, "other": empty}
 
     cell_pick_ids = [
         (str(tid[0]), int(tid[1]), int(tid[2]), int(label))
@@ -690,7 +731,7 @@ def _classify_cells_for_scatter(
     selected_mask = np.array(
         [pid in selected_set for pid in cell_pick_ids], dtype=bool,
     )
-    return {"selected": selected_mask}
+    return {"selected": selected_mask, "other": ~selected_mask}
 
 
 def _render_scatter(ax, selection, crops_to_show: list) -> None:

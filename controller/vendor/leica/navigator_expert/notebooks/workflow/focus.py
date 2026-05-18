@@ -71,7 +71,10 @@ class FocusMap:
         from matplotlib.patches import PathPatch
         from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-        from .visualize import TileStyle, render_scan_field_panel
+        from .visualize import (
+            TileStyle, render_scan_field_panel,
+            _FRAME_ASPECT, _FRAME_WIDTH_IN,
+        )
 
         if ctx.scan_field is None:
             raise RuntimeError("Call read_scan_field before focus_map.plot.")
@@ -83,11 +86,9 @@ class FocusMap:
             print("[focus] No tiles to plot.")
             return
 
-        # Fixed 16:9 figure to match plot_scan_field (Step 2b). The axes
-        # still preserves data aspect via set_aspect("equal") in the
-        # shared renderer; the wider figure leaves headroom for the
-        # upper-right legend + colorbar.
-        fig, ax = plt.subplots(figsize=(14, 7.875))
+        fig, ax = plt.subplots(
+            figsize=(_FRAME_WIDTH_IN, _FRAME_WIDTH_IN / _FRAME_ASPECT),
+        )
         fig.patch.set_facecolor("white")
 
         # Force every tile transparent + white-edged so the colormap
@@ -105,7 +106,7 @@ class FocusMap:
 
         rc = render_scan_field_panel(
             ax, ctx.scan_field, lim, tile_styles=tile_styles,
-            padding_factor=0.12,
+            padding_factor=0.12, frame_aspect=_FRAME_ASPECT,
         )
 
         if not rc.tile_bounds:
@@ -184,10 +185,11 @@ class FocusMap:
                     linewidth=0.8, label="Sample boundary")
 
         divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="2%", pad=0.15)
+        cax = divider.append_axes("bottom", size="3%", pad=0.25)
         sm = ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
-        plt.colorbar(sm, cax=cax, label="z-wide (um)")
+        plt.colorbar(sm, cax=cax, label="z-wide (um)",
+                      orientation="horizontal")
 
         zs = np.array([m["zwide_um"] for m in self.measured])
         z_range = zs.max() - zs.min()

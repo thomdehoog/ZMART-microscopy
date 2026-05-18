@@ -991,3 +991,262 @@ class TestRenderCropBoundary:
             )
         finally:
             plt.close(fig)
+
+
+# ─── _classify_cells_for_scatter ──────────────────────────────────
+
+
+class TestClassifyCellsForScatter:
+    def _make_selection(self, n_cells, n_selected):
+        from workflow.selection import SelectionResult, MODE_THRESHOLD
+
+        tile_id = ("0", 0, 0)
+        picks = [
+            _make_pick(tile_id, label=i + 1)
+            for i in range(n_selected)
+        ]
+        return SelectionResult(
+            all_cells_area=np.arange(1, n_cells + 1, dtype=float),
+            all_cells_intensity=np.arange(1, n_cells + 1, dtype=float),
+            all_cells_labels=np.arange(1, n_cells + 1),
+            all_cells_tile_ids=[tile_id] * n_cells,
+            qualifying_mask=np.ones(n_cells, dtype=bool),
+            near_border_mask=np.zeros(n_cells, dtype=bool),
+            area_threshold=0.0,
+            intensity_threshold=0.0,
+            area_threshold_auto=False,
+            intensity_threshold_auto=False,
+            border_margin_px=0,
+            seed_material="test",
+            mode=MODE_THRESHOLD,
+            n_total=n_cells,
+            n_near_border=0,
+            n_qualifying=n_cells,
+            n_selected_pre_dedup=n_selected,
+            n_removed_duplicate=0,
+            n_removed_out_of_limits_xy=0,
+            n_removed_out_of_limits_z=0,
+            n_removed_translation=0,
+            n_final=n_selected,
+            n_tiles_below_eligible_cutoff=0,
+            n_tiles_empty=0,
+            selected_picks=picks,
+        )
+
+    def test_returns_both_masks(self):
+        from workflow.visualize import _classify_cells_for_scatter
+
+        selection = self._make_selection(n_cells=10, n_selected=3)
+        masks = _classify_cells_for_scatter(selection, [])
+
+        assert "selected" in masks
+        assert "other" in masks
+
+    def test_masks_are_complementary(self):
+        from workflow.visualize import _classify_cells_for_scatter
+
+        selection = self._make_selection(n_cells=10, n_selected=3)
+        masks = _classify_cells_for_scatter(selection, [])
+
+        assert masks["selected"].sum() == 3
+        assert masks["other"].sum() == 7
+        assert np.all(masks["selected"] | masks["other"])
+        assert not np.any(masks["selected"] & masks["other"])
+
+    def test_empty_returns_both_keys(self):
+        from workflow.visualize import _classify_cells_for_scatter
+
+        selection = self._make_selection(n_cells=0, n_selected=0)
+        masks = _classify_cells_for_scatter(selection, [])
+
+        assert "selected" in masks
+        assert "other" in masks
+        assert masks["selected"].size == 0
+        assert masks["other"].size == 0
+
+
+# ─── display_selection crop-strip tile-key regression ─────────────
+
+
+class TestDisplaySelectionCropStrip:
+    def test_mixed_key_pick_renders_crop_not_placeholder(
+        self, tmp_path, monkeypatch,
+    ):
+        """Regression: pick_id has (str, int, int, int) but npz tile_id
+        is all-string. display_selection must normalize before lookup."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import display_selection
+        from workflow.selection import SelectionResult, MODE_THRESHOLD
+
+        analysis_dir = tmp_path / "analysis"
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", g=0, p=0,
+        )
+        _make_npz(
+            analysis_dir, naming=naming, n_cells=3,
+            tile_id=("0", 0, 0), image_size=(64, 64),
+        )
+
+        tile_id = ("0", 0, 0)
+        pick = _make_pick(tile_id, label=1)
+        selection = SelectionResult(
+            all_cells_area=np.array([100.0, 200.0, 300.0]),
+            all_cells_intensity=np.array([50.0, 60.0, 70.0]),
+            all_cells_labels=np.array([1, 2, 3]),
+            all_cells_tile_ids=[tile_id, tile_id, tile_id],
+            qualifying_mask=np.ones(3, dtype=bool),
+            near_border_mask=np.zeros(3, dtype=bool),
+            area_threshold=0.0,
+            intensity_threshold=0.0,
+            area_threshold_auto=False,
+            intensity_threshold_auto=False,
+            border_margin_px=0,
+            seed_material="test",
+            mode=MODE_THRESHOLD,
+            n_total=3,
+            n_near_border=0,
+            n_qualifying=3,
+            n_selected_pre_dedup=1,
+            n_removed_duplicate=0,
+            n_removed_out_of_limits_xy=0,
+            n_removed_out_of_limits_z=0,
+            n_removed_translation=0,
+            n_final=1,
+            n_tiles_below_eligible_cutoff=0,
+            n_tiles_empty=0,
+            selected_picks=[pick],
+        )
+
+        crop_has_image = []
+        _orig_close = plt.close
+
+        def _spy(fig):
+            for ax in fig.axes:
+                if ax.get_images():
+                    crop_has_image.append(True)
+            _orig_close(fig)
+
+        monkeypatch.setattr(plt, "close", _spy)
+        monkeypatch.setattr(
+            "IPython.display.display", lambda *a, **kw: None,
+        )
+
+        display_selection(selection, analysis_dir)
+
+        assert crop_has_image, (
+            "Crop axes should render an image, not 'image unavailable'"
+        )
+
+
+# ─── render_scan_field_panel frame_aspect padding ─────────────────
+
+
+class TestFrameAspectPadding:
+    def _make_scan_field(self, width_um, height_um):
+        return {
+            "tile_positions": {
+                "R1": {
+                    "tile_size_um": min(width_um, height_um),
+                    "positions": [
+                        {"x_um": 0.0, "y_um": 0.0, "row": 0, "col": 0},
+                        {"x_um": width_um, "y_um": height_um,
+                         "row": 0, "col": 1},
+                    ],
+                },
+            },
+        }
+
+    def test_square_field_padded_to_16_9(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import render_scan_field_panel
+
+        fig, ax = plt.subplots(figsize=(14, 7.875))
+        try:
+            render_scan_field_panel(
+                ax, self._make_scan_field(1000, 1000), None,
+                frame_aspect=16 / 9,
+            )
+            xl = ax.get_xlim()
+            yl = ax.get_ylim()
+            x_range = abs(xl[1] - xl[0])
+            y_range = abs(yl[1] - yl[0])
+            ratio = x_range / y_range
+            assert abs(ratio - 16 / 9) < 0.01, (
+                f"Expected 16:9 ratio, got {ratio:.3f}"
+            )
+        finally:
+            plt.close(fig)
+
+    def test_wide_field_padded_to_16_9(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import render_scan_field_panel
+
+        fig, ax = plt.subplots(figsize=(14, 7.875))
+        try:
+            render_scan_field_panel(
+                ax, self._make_scan_field(3000, 1000), None,
+                frame_aspect=16 / 9,
+            )
+            xl = ax.get_xlim()
+            yl = ax.get_ylim()
+            x_range = abs(xl[1] - xl[0])
+            y_range = abs(yl[1] - yl[0])
+            ratio = x_range / y_range
+            assert abs(ratio - 16 / 9) < 0.01, (
+                f"Expected 16:9 ratio, got {ratio:.3f}"
+            )
+        finally:
+            plt.close(fig)
+
+    def test_no_frame_aspect_preserves_natural_extent(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import render_scan_field_panel
+
+        fig, ax = plt.subplots(figsize=(14, 7.875))
+        try:
+            rc = render_scan_field_panel(
+                ax, self._make_scan_field(1000, 1000), None,
+            )
+            xl = ax.get_xlim()
+            yl = ax.get_ylim()
+            x_range = abs(xl[1] - xl[0])
+            y_range = abs(yl[1] - yl[0])
+            ratio = x_range / y_range
+            assert abs(ratio - 1.0) < 0.01, (
+                f"Square field without frame_aspect should stay ~1:1, "
+                f"got {ratio:.3f}"
+            )
+        finally:
+            plt.close(fig)
+
+    def test_context_extents_updated_after_padding(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import render_scan_field_panel
+
+        fig, ax = plt.subplots(figsize=(14, 7.875))
+        try:
+            rc = render_scan_field_panel(
+                ax, self._make_scan_field(1000, 1000), None,
+                frame_aspect=16 / 9,
+            )
+            ctx_x_range = rc.extent_x[1] - rc.extent_x[0]
+            ctx_y_range = rc.extent_y[1] - rc.extent_y[0]
+            ratio = ctx_x_range / ctx_y_range
+            assert abs(ratio - 16 / 9) < 0.01, (
+                f"Context extents should reflect padded 16:9, got {ratio:.3f}"
+            )
+            assert rc.extent_y[0] < rc.extent_y[1], (
+                "Context extent_y should be normalized as (low, high)"
+            )
+        finally:
+            plt.close(fig)
