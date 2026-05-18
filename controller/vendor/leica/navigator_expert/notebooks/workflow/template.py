@@ -300,6 +300,7 @@ def plot_stage_envelope(ctx: Context) -> None:
 
     ax.set_title(title, fontsize=13, fontweight="bold",
                  color="#222222", pad=12)
+    plt.tight_layout()
 
     out_path = ctx.out_dir / "stage_envelope.png"
     fig.savefig(out_path, dpi=150)
