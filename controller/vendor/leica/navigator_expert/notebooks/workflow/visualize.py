@@ -789,7 +789,7 @@ def _render_scatter(ax, selection, crops_to_show: list) -> None:
         ):
             axis_method(
                 threshold, color=_COLOR_THRESHOLD,
-                linestyle="--", linewidth=1.0, alpha=0.7, zorder=1,
+                linestyle="--", linewidth=1.0, alpha=0.7, zorder=3,
             )
 
     ax.set_xlabel("Mean intensity (a.u.)", fontsize=_FONT_AXIS_LABEL,
