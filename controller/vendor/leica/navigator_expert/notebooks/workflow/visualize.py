@@ -1005,37 +1005,42 @@ def _robust_intensity_range(arr: np.ndarray) -> tuple[float, float]:
 
 
 def _pick_example_crops(picks: list, n: int = 6) -> list:
-    """Pick up to n example picks for the crop strip:
-    1. Group by tile_id, sort within each by area descending.
-    2. Take the largest from each of up to n distinct tiles.
-    3. Fill remaining slots from already-represented tiles
-       (next-largest within each).
-    """
-    by_tile: dict[tuple, list] = {}
-    for p in picks:
-        key = (p.pick_id[0], p.pick_id[1], p.pick_id[2])
-        by_tile.setdefault(key, []).append(p)
-    for group in by_tile.values():
-        group.sort(key=lambda p: p.area_px, reverse=True)
+    """Pick up to n example picks for the crop strip, spread across the
+    sample so the strip conveys the selection in general rather than
+    showing several cells from the same spot.
 
-    out: list = []
-    for key in sorted(by_tile):
-        if len(out) >= n:
-            break
-        out.append(by_tile[key][0])
-    round_idx = 1
-    while len(out) < n:
-        added_this_round = False
-        for key in sorted(by_tile):
-            if round_idx < len(by_tile[key]):
-                out.append(by_tile[key][round_idx])
-                added_this_round = True
-                if len(out) >= n:
-                    break
-        if not added_this_round:
-            break
-        round_idx += 1
-    return out
+    Farthest-point sampling on each pick's stage XY: seed with the
+    largest-area pick, then repeatedly add the pick whose nearest
+    already-chosen neighbour is farthest away. Co-located picks are
+    picked last (a duplicate location scores zero distance), so the
+    strip never shows two crops of the same place while distinct ones
+    remain. Deterministic: picks are pre-sorted by pick_id so the seed
+    and every tie resolve stably.
+    """
+    ordered = sorted(picks, key=lambda p: p.pick_id)
+    if len(ordered) <= n:
+        return ordered
+
+    xy = [p.cell_source_stage_xy_um for p in ordered]
+
+    def _dist_sq(i: int, j: int) -> float:
+        return (xy[i][0] - xy[j][0]) ** 2 + (xy[i][1] - xy[j][1]) ** 2
+
+    # Seed with the largest-area pick (a prominent, stable first crop).
+    seed = max(range(len(ordered)), key=lambda i: ordered[i].area_px)
+    chosen = [seed]
+    # nearest_sq[i] = squared distance from pick i to its nearest chosen
+    # pick; the next pick maximises it (farthest-point sampling).
+    nearest_sq = [_dist_sq(i, seed) for i in range(len(ordered))]
+    while len(chosen) < n:
+        nxt = max(
+            (i for i in range(len(ordered)) if i not in chosen),
+            key=lambda i: nearest_sq[i],
+        )
+        chosen.append(nxt)
+        for i in range(len(ordered)):
+            nearest_sq[i] = min(nearest_sq[i], _dist_sq(i, nxt))
+    return [ordered[i] for i in chosen]
 
 
 def _render_tile_segmentation_panel(
