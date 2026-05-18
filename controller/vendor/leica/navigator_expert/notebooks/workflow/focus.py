@@ -86,10 +86,15 @@ class FocusMap:
             print("[focus] No tiles to plot.")
             return
 
-        gs = GridSpec(2, 1, height_ratios=[1, 0.03], hspace=0.08)
-        fig = plt.figure(
-            figsize=(_FRAME_WIDTH_IN, _FRAME_WIDTH_IN / _FRAME_ASPECT),
+        field_h = _FRAME_WIDTH_IN / _FRAME_ASPECT
+        cbar_h = 0.35
+        total_h = field_h + cbar_h
+        gs = GridSpec(
+            2, 1,
+            height_ratios=[field_h, cbar_h],
+            hspace=0.08,
         )
+        fig = plt.figure(figsize=(_FRAME_WIDTH_IN, total_h))
         ax = fig.add_subplot(gs[0])
         cax = fig.add_subplot(gs[1])
         fig.patch.set_facecolor("white")
