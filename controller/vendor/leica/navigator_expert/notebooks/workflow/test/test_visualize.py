@@ -1508,7 +1508,19 @@ class TestPickExampleCrops:
     def test_returns_all_when_at_most_n(self):
         from workflow.visualize import _pick_example_crops
         picks = [_make_pick(("0", 0, 0), label=i + 1) for i in range(4)]
-        assert len(_pick_example_crops(picks, n=6)) == 4
+        chosen = _pick_example_crops(picks, n=6)
+        # sorted-list equality catches a dropped pick AND a duplicated
+        # one (length + content), not just the count.
+        assert (sorted(p.pick_id for p in chosen)
+                == sorted(p.pick_id for p in picks)), (
+            "with <= n picks the strip must show every pick exactly "
+            "once -- no drops, no duplicates"
+        )
+
+    def test_non_positive_n_returns_empty(self):
+        from workflow.visualize import _pick_example_crops
+        picks = [_make_pick(("0", 0, 0), label=i + 1) for i in range(5)]
+        assert _pick_example_crops(picks, n=0) == []
 
     def test_spreads_across_distinct_locations(self):
         from workflow.visualize import _pick_example_crops

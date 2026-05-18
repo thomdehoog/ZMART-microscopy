@@ -1017,6 +1017,8 @@ def _pick_example_crops(picks: list, n: int = 6) -> list:
     remain. Deterministic: picks are pre-sorted by pick_id so the seed
     and every tie resolve stably.
     """
+    if n <= 0:
+        return []
     ordered = sorted(picks, key=lambda p: p.pick_id)
     if len(ordered) <= n:
         return ordered
