@@ -91,6 +91,16 @@ _COLOR_SCATTER_OTHER = "#B5BCC4" # gray — non-selected cells on scatter
 
 _FRAME_ASPECT = 16 / 9
 _FRAME_WIDTH_IN = 14.0
+
+# Step 2 field axes rect in normalized figure coordinates [left, bottom,
+# width, height]. All Step 2 panels (2a/2b/2c) use these so the field
+# axes is pixel-identical across panels. Derived from tight_layout on a
+# 14 x 7.875 figure with 13pt bold title and pad=12.
+_FIELD_LEFT = 0.0385
+_FIELD_BOTTOM = 0.0190
+_FIELD_WIDTH = 0.9230
+_FIELD_HEIGHT = 0.9230
+_FIELD_CBAR_EXTRA_IN = 0.5
 # END VISUALIZE STYLE TOKENS
 
 
