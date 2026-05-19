@@ -43,14 +43,15 @@ class _Tee:
         self._file = file_obj
         self._lock = threading.Lock()
 
-    def write(self, text) -> None:
+    def write(self, text) -> int:
         with self._lock:
-            self._original.write(text)
+            n = self._original.write(text)
             try:
                 self._file.write(text)
                 self._file.flush()
             except (ValueError, OSError):
                 pass
+            return n
 
     def flush(self) -> None:
         with self._lock:
@@ -78,9 +79,17 @@ def capture_console(log_path: Path | None):
         yield
         return
 
-    log_path.parent.mkdir(parents=True, exist_ok=True)
     original = sys.stdout
-    handle = open(log_path, "a", encoding="utf-8")
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(log_path, "a", encoding="utf-8")
+    except OSError as exc:
+        # Logging is observational -- a locked or unwritable logs/ dir
+        # must never block the workflow. Fall back to no capture.
+        print(f"[logcapture] WARNING: console log disabled "
+              f"({log_path}): {exc}")
+        yield
+        return
     _active_paths.add(log_path)
     try:
         handle.write(_separator(log_path.stem))
@@ -101,6 +110,9 @@ def _log_path_for(ctx, kind: str) -> Path | None:
     try:
         path = ctx.run.layout.logs_dir(kind) / f"{kind}.log"
     except Exception:
+        # Fail open: a fault resolving the log path must never break
+        # the workflow -- logging is observational. None -> the
+        # decorator runs the step with no capture.
         return None
     return path if isinstance(path, Path) else None
 
@@ -138,17 +150,18 @@ class _DeferredTee:
         self._buffer: list[str] = []
         self._lock = threading.Lock()
 
-    def write(self, text) -> None:
+    def write(self, text) -> int:
         with self._lock:
-            self._original.write(text)
+            n = self._original.write(text)
             if self._file is None:
                 self._buffer.append(text)
-                return
+                return n
             try:
                 self._file.write(text)
                 self._file.flush()
             except (ValueError, OSError):
                 pass
+            return n
 
     def flush(self) -> None:
         with self._lock:
@@ -169,8 +182,18 @@ class _DeferredTee:
         with self._lock:
             if self._file is not None or not isinstance(log_path, Path):
                 return
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            handle = open(log_path, "a", encoding="utf-8")
+            try:
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                handle = open(log_path, "a", encoding="utf-8")
+            except OSError as exc:
+                # Best-effort: keep buffering to memory, never abort
+                # the caller. Write straight to the real stdout (not
+                # via print, which would re-enter this locked tee).
+                self._original.write(
+                    f"[logcapture] WARNING: console log disabled "
+                    f"({log_path}): {exc}\n"
+                )
+                return
             handle.write(_separator(log_path.stem))
             handle.write("".join(self._buffer))
             handle.flush()

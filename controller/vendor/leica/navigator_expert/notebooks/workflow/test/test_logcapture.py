@@ -82,6 +82,23 @@ class TestCaptureConsole:
         f.close()
         tee.write("after close")                 # must not raise
 
+    def test_open_failure_is_best_effort(self, tmp_path, capsys):
+        # tmp_path is a directory, so open(..., "a") raises OSError --
+        # capture_console must still run the body, not propagate, so a
+        # locked logs/ dir can never abort an acquisition step.
+        ran = []
+        with capture_console(tmp_path):
+            ran.append(True)
+            print("still-ran")
+        assert ran == [True]
+        out = capsys.readouterr().out
+        assert "still-ran" in out
+        assert "console log disabled" in out
+
+    def test_write_returns_count(self):
+        tee = _Tee(io.StringIO(), io.StringIO())
+        assert tee.write("abc") == 3
+
 
 class TestLogPathFor:
     def test_real_layout_resolves_to_path(self, tmp_path):
