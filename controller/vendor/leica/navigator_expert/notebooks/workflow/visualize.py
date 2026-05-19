@@ -418,7 +418,7 @@ def display_tile(
     save_png: bool = True,
     hash6: str | None = None,
     _save_queue: Any = None,
-    feedback_dir: Path | None = None,   # deprecated alias of logs_dir
+    feedback_dir: Path | None = None,   # compatibility alias of logs_dir
 ) -> None:
     """Render one tile inline during overview acquisition.
 
@@ -429,7 +429,8 @@ def display_tile(
     live_display: when False, build the figure but skip display(); useful
         in batch mode where only the saved PNG matters.
     logs_dir: per-acquisition-type logs/ dir the PNG is saved into.
-        `feedback_dir=` is accepted as a deprecated alias.
+        `feedback_dir=` is accepted as a compatibility alias (the
+        pre-rename name) and silently maps to logs_dir.
     hash6: run hash, used to build the canonical PNG name; without it
         (or without event.position) the legacy R/r/c name is used.
     save_png: when False, skip fig.savefig even if logs_dir is set.
@@ -543,7 +544,7 @@ def display_selection(
     analysis_dir: Path,
     *,
     logs_dir: Path | None = None,
-    feedback_dir: Path | None = None,   # deprecated alias of logs_dir
+    feedback_dir: Path | None = None,   # compatibility alias of logs_dir
 ) -> None:
     """Render Step 4 (Target discovery): scatter + 6 example crops.
 
@@ -1152,7 +1153,7 @@ def display_target(
     live_display: bool = True,
     save_png: bool = True,
     _save_queue: Any = None,
-    feedback_dir: Path | None = None,   # deprecated alias of logs_dir
+    feedback_dir: Path | None = None,   # compatibility alias of logs_dir
 ) -> None:
     """Render one target 3-panel figure inline during acquisition.
 
@@ -1165,7 +1166,8 @@ def display_target(
 
     live_display: when False, build the figure but skip display().
     logs_dir: per-acquisition-type logs/ dir the PNG is saved into.
-        `feedback_dir=` is accepted as a deprecated alias.
+        `feedback_dir=` is accepted as a compatibility alias (the
+        pre-rename name) and silently maps to logs_dir.
     save_png: when False, skip fig.savefig even if logs_dir is set.
     _save_queue: optional workflow._save_queue._FigureSaveQueue. Same
         semantics as display_tile's _save_queue -- when provided AND
@@ -1326,7 +1328,7 @@ def plot_overview_tiles(
     picks: Picks,
     *,
     logs_dir: Path | None = None,
-    feedback_dir: Path | None = None,   # deprecated alias of logs_dir
+    feedback_dir: Path | None = None,   # compatibility alias of logs_dir
 ) -> None:
     """Render per-tile triptych: grayscale | segmentation overlay | picked mask.
 
@@ -1411,7 +1413,7 @@ def plot_target_pairs(
     records: list[TargetRecord],
     *,
     logs_dir: Path | None = None,
-    feedback_dir: Path | None = None,   # deprecated alias of logs_dir
+    feedback_dir: Path | None = None,   # compatibility alias of logs_dir
 ) -> None:
     """Batch re-render: 3-panel per target (tile + crop + high-res)."""
     import matplotlib.pyplot as plt
@@ -1626,7 +1628,8 @@ def _target_png_name(record, *, live: bool) -> str:
         stem = record.tif_path.name.removesuffix(".ome.tiff")
         return f"{stem}_live.png" if live else f"{stem}.png"
     rid, row, col, label = record.pick_id
-    return f"live_target_R{rid}_r{row}c{col}_l{label}.png"
+    prefix = "live_target" if live else "target"
+    return f"{prefix}_R{rid}_r{row}c{col}_l{label}.png"
 
 
 def _build_tile_path_index(
