@@ -26,8 +26,14 @@ def _make_npz(
     image_size: tuple[int, int] = (64, 64),
     tile_id: tuple = ("0", 0, 0),
     analysis_image_source: str = "acquired",
+    position: int | None = None,
 ) -> Path:
-    """Write a synthetic tile analysis npz matching the real schema."""
+    """Write a synthetic tile analysis npz matching the real schema.
+
+    position: when given, the flat tile index ("Position N") key is
+    written. Omitted by default so the pre-`position` back-compat path
+    stays exercised; pass it to exercise the position-present path.
+    """
     analysis_dir.mkdir(parents=True, exist_ok=True)
 
     rng = np.random.default_rng(42)
@@ -40,12 +46,14 @@ def _make_npz(
         masks[r:r + cell_size, c:c + cell_size] = label
 
     dest = analysis_dir / build_position_analysis_name(naming)
+    extra = {} if position is None else {"position": np.int32(position)}
     np.savez_compressed(
         dest,
         image_2d=image_2d,
         masks=masks,
         tile_id=np.array(tile_id, dtype=str),
         analysis_image_source=np.array(analysis_image_source),
+        **extra,
     )
     return dest
 
@@ -992,6 +1000,27 @@ class TestLoadTileNpzWarning:
         captured = capsys.readouterr()
         assert "[visualize] WARNING" in captured.out
         assert "corrupt.npz" in captured.out
+
+
+class TestLoadTileNpzPosition:
+    """_load_tile_npz surfaces the flat tile index as TileNpz.position:
+    the integer when the NPZ carries it, None for a pre-`position`
+    NPZ."""
+
+    def test_returns_position_when_present(self, tmp_path):
+        from workflow.visualize import _load_tile_npz
+        naming = Naming(acquisition_type="overview-scan",
+                        hash6="abc123", g=0, p=7)
+        npz = _make_npz(tmp_path / "a", naming=naming,
+                        tile_id=("0", 0, 0), position=7)
+        assert _load_tile_npz(npz).position == 7
+
+    def test_position_is_none_when_absent(self, tmp_path):
+        from workflow.visualize import _load_tile_npz
+        naming = Naming(acquisition_type="overview-scan",
+                        hash6="abc123", g=0, p=0)
+        npz = _make_npz(tmp_path / "a", naming=naming, tile_id=("0", 0, 0))
+        assert _load_tile_npz(npz).position is None
 
 
 class TestRenderCropBoundary:
