@@ -59,7 +59,7 @@ class TestBuildDefaultOnTileCallback:
     def test_threads_flags_through_to_display_tile(self, monkeypatch):
         """When the workflow builds the default callback internally, the
         flags passed by the operator (live_display, save_png) must reach
-        display_tile unchanged. The feedback_dir is filled in when
+        display_tile unchanged. The logs_dir is filled in when
         save_png=True and is None when save_png=False.
         """
         # Patch the renderer at its module path; the local import inside
