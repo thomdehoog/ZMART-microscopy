@@ -16,6 +16,7 @@ from .overview import Pick, Picks, _validate_callback_flags
 from _shared.output_layout import Naming
 from ._acquire import acquire
 from ._job_state import ensure_job_state
+from ._logcapture import _logged
 
 
 @dataclass
@@ -89,6 +90,7 @@ def _build_default_on_target_callback(
     return _on_target
 
 
+@_logged("target-acquisition")
 def acquire_targets(
     ctx: Context,
     picks: Picks,

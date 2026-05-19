@@ -25,6 +25,7 @@ from navigator_expert.driver.scanning_templates import (
 
 from .context import Context
 from ._job_state import ensure_job_state
+from ._logcapture import _logged
 
 FLAT_TOLERANCE_UM = 0.1
 SPLINE_SMOOTHING = 0.1
@@ -50,6 +51,7 @@ class FocusMap:
             return self._interpolator(xy).reshape(x_arr.shape)
         return self.coeffs[0] * (x - x0) + self.coeffs[1] * (y - y0) + self.coeffs[2]
 
+    @_logged("initialization", ctx_arg=1)
     def plot(self, ctx: Context) -> None:
         """Render the focus surface model + measured points on top of the
         scan-field tiles.
@@ -221,6 +223,7 @@ class FocusMap:
         plt.show()
 
 
+@_logged("initialization")
 def build_focus_map(ctx: Context) -> FocusMap:
     """Step 3: run AF at each focus marker, fit a z-wide surface model.
 

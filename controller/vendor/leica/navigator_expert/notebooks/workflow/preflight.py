@@ -26,6 +26,7 @@ import navigator_expert.driver as drv
 
 from .context import Config, Context
 from ._job_state import ensure_job_state, _read_objective_slot
+from ._logcapture import capture_console_deferred
 
 ZGALVO_WARN_THRESHOLD_UM = 0.5
 CELLPOSE_ENV_NAME = "SMART--target_acquisition--main"
@@ -56,6 +57,19 @@ def _shutdown_prior_ctx_if_any() -> None:
 
 
 def preflight(cfg: Config, client: Any) -> Context:
+    """Step 0: prepare the world for the workflow.
+
+    Thin wrapper around `_preflight_impl`: tees console output to
+    `initialization/logs/initialization.log` — buffered from the start,
+    flushed once the run dir exists (`_cap.bind`). `connect_lasx()`
+    runs in an earlier notebook cell, so connection output is not in
+    scope.
+    """
+    with capture_console_deferred() as _cap:
+        return _preflight_impl(cfg, client, _cap)
+
+
+def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
     """Step 0: prepare the world for the workflow.
 
     Args:
@@ -161,6 +175,9 @@ def preflight(cfg: Config, client: Any) -> Context:
         # 0.7 -- run dir (driver derives output_root = media_path / "smart")
         run = drv.start_run(client, cfg.experiment)
         out_dir = run.layout.run_dir
+        _cap.bind(
+            run.layout.logs_dir("initialization") / "initialization.log"
+        )
 
         # 0.8 -- construct Context (current_job="" forces ensure_job_state to run)
         ctx = Context(

@@ -29,8 +29,10 @@ from navigator_expert.driver.scanning_templates import (
 )
 
 from .context import Context
+from ._logcapture import _logged
 
 
+@_logged("initialization")
 def prepare_template(ctx: Context) -> None:
     """Step 1: limits, strip, enforce z-wide.
 
@@ -149,6 +151,7 @@ def prepare_template(ctx: Context) -> None:
     _strip_and_enforce_zwide(ctx)
 
 
+@_logged("initialization")
 def read_scan_field(ctx: Context) -> None:
     """Step 2: parse the scan field, populate ctx.scan_field.
 
@@ -255,6 +258,7 @@ def read_scan_field(ctx: Context) -> None:
               f"tile={region.get('tile_size_um', '?')} um")
 
 
+@_logged("initialization")
 def plot_stage_envelope(ctx: Context) -> None:
     """Step 2a visual: stage-envelope rectangle.
 
@@ -315,6 +319,7 @@ def plot_stage_envelope(ctx: Context) -> None:
     plt.show()
 
 
+@_logged("initialization")
 def plot_scan_field(ctx: Context) -> None:
     """Visualise the scan field: tiles (colored by job), boundary,
     focus / autofocus markers.

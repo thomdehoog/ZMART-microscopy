@@ -27,6 +27,7 @@ from .focus import FocusMap
 from _shared.output_layout import Naming, build_position_analysis_name
 from ._acquire import acquire
 from ._job_state import ensure_job_state
+from ._logcapture import _logged
 
 
 # ─── Dataclasses ──────────────────────────────────────────────────
@@ -190,6 +191,7 @@ def _build_default_on_tile_callback(
     return _on_tile
 
 
+@_logged("overview-scan")
 def run_overview(
     ctx: Context,
     focus_map: FocusMap,
