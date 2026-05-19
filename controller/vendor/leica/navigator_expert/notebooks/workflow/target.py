@@ -70,8 +70,8 @@ def _build_default_on_target_callback(
     from .visualize import display_target
 
     analysis_dir = ctx.run.layout.analysis_dir("overview-scan")
-    feedback_dir = (
-        ctx.run.layout.feedback_dir("target-acquisition")
+    logs_dir = (
+        ctx.run.layout.logs_dir("target-acquisition")
         if save_png else None
     )
     tile_cache: dict = {}
@@ -79,7 +79,7 @@ def _build_default_on_target_callback(
     def _on_target(pick: Pick, record: "TargetRecord") -> None:
         display_target(
             pick, record, analysis_dir,
-            feedback_dir=feedback_dir,
+            logs_dir=logs_dir,
             tile_cache=tile_cache,
             live_display=live_display,
             save_png=save_png,
@@ -106,7 +106,7 @@ def acquire_targets(
     Display/save behavior mirrors run_overview:
       - live_display=True (default): render each target inline.
       - save_png=True (default): save each figure to
-        ctx.run.layout.feedback_dir("target-acquisition").
+        ctx.run.layout.logs_dir("target-acquisition").
       - on_target (default None): explicit callback. Mutually exclusive
         with the two flags; passing on_target alongside live_display=True
         or save_png=True raises ValueError. To supply on_target, also

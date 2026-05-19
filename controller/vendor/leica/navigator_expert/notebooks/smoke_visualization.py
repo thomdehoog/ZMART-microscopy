@@ -41,8 +41,8 @@ def main():
         shutil.rmtree(out_dir)
 
     analysis_dir = out_dir / "overview-scan" / "analysis"
-    feedback_overview = out_dir / "overview-scan" / "feedback"
-    feedback_target = out_dir / "target-acquisition" / "feedback"
+    logs_overview = out_dir / "overview-scan" / "logs"
+    logs_target = out_dir / "target-acquisition" / "logs"
     target_data_dir = out_dir / "target-acquisition" / "data"
 
     # ── 1. Load image + segment with cellpose ────────────────────
@@ -165,13 +165,13 @@ def main():
     print("\n=== Step 4b: Overview triptychs ===")
     plot_overview_tiles(
         analysis_dir, picks,
-        feedback_dir=feedback_overview,
+        logs_dir=logs_overview,
     )
 
     print("\n=== Step 5b: Target pairs ===")
     plot_target_pairs(
         analysis_dir, picks, records,
-        feedback_dir=feedback_target,
+        logs_dir=logs_target,
     )
 
     # ── 7. Report ────────────────────────────────────────────────

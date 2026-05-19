@@ -263,6 +263,14 @@ class TestLayoutPlan:
         assert layout.metadata_dir(acq) == layout.run_dir / acq / "data" / "metadata"
         assert layout.analysis_dir(acq) == layout.run_dir / acq / "analysis"
         assert layout.feedback_dir(acq) == layout.run_dir / acq / "feedback"
+        assert layout.logs_dir(acq) == layout.run_dir / acq / "logs"
+
+    def test_logs_dir_accepts_any_kind(self, tmp_path):
+        # "initialization" is a kind like any other -- acquisition_dir
+        # takes any string, so logs_dir does too.
+        layout = LayoutPlan(tmp_path, "exp", "0a3k7m", EPOCH + 1000)
+        assert layout.logs_dir("initialization") == (
+            layout.run_dir / "initialization" / "logs")
 
 
 # --- build_layout (atomic mkdir + collision bump) ---------------------------

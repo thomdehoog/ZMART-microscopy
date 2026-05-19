@@ -213,7 +213,9 @@ class FocusMap:
         ax.legend(loc="upper right", fontsize=9, facecolor="white",
                   edgecolor="#cccccc", labelcolor="#444444")
 
-        out_path = ctx.out_dir / "focus_map.png"
+        logs_dir = ctx.run.layout.logs_dir("initialization")
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        out_path = logs_dir / "focus_map.png"
         fig.savefig(out_path, dpi=150)
         print(f"[step 2c] Saved {out_path}")
         plt.show()
