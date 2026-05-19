@@ -1216,6 +1216,21 @@ def display_target(
                 edgecolor=_COLOR_PICK_SHOWN, facecolor="none",
                 linewidth=1.5, zorder=10,
             ))
+
+            # Zoom-callout: connect the target-FOV rectangle's right
+            # corners to the crop panel's left corners, so the crop
+            # reads as a zoomed-in view of the boxed region.
+            for rect_xy, crop_corner in (
+                ((c0 + crop_w, r0), (0.0, 1.0)),
+                ((c0 + crop_w, r0 + crop_h), (0.0, 0.0)),
+            ):
+                con = patches.ConnectionPatch(
+                    xyA=rect_xy, coordsA=axes[0].transData,
+                    xyB=crop_corner, coordsB=axes[1].transAxes,
+                    color=_COLOR_PICK_SHOWN, linewidth=1.0, zorder=5,
+                )
+                con.set_clip_on(False)
+                fig.add_artist(con)
         elif tile_data is not None:
             axes[0].imshow(tile_data[0], cmap="gray")
         else:

@@ -1587,3 +1587,78 @@ class TestTileLabelWording:
         assert "Group {rid}" in template_src
         assert "] R{rid} " not in overview_src
         assert "] G{rid} " in overview_src
+
+
+# ─── Step 5 zoom-callout ──────────────────────────────────────────
+
+
+class TestTargetZoomCallout:
+    """display_target connects the target-FOV rectangle to the crop
+    panel with two ConnectionPatch lines, so the crop reads as a
+    zoomed-in view of the boxed region."""
+
+    def _connection_count(self, plt, monkeypatch, call):
+        from matplotlib.patches import ConnectionPatch
+
+        seen = []
+        real_close = plt.close
+
+        def spy(fig=None):
+            if fig is not None and hasattr(fig, "artists"):
+                seen.append(sum(isinstance(a, ConnectionPatch)
+                                for a in fig.artists))
+            real_close(fig) if fig is not None else real_close()
+
+        monkeypatch.setattr(plt, "close", spy)
+        monkeypatch.setattr(
+            "IPython.display.display", lambda *a, **kw: None)
+        call()
+        return seen
+
+    def test_two_lines_when_rect_is_drawn(self, tmp_path, monkeypatch):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import display_target
+        from workflow.target import TargetRecord
+
+        analysis_dir = tmp_path / "analysis"
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
+        pick = _make_pick(("0", 0, 0), label=1)
+        rec = TargetRecord(
+            pick_id=("0", 0, 0, 1),
+            cell_source_stage_xy_um=(1005.0, 2005.0),
+            source_zwide_um=100.0, target_stage_xy_um=(2000.0, 3000.0),
+            target_zwide_um=100.0, target_zoom=None,
+            target_pixel_size_um=0.1,
+            tif_path=_make_target_tif(tmp_path / "t" / "target.tif"),
+            success=True, error=None,
+        )
+        seen = self._connection_count(
+            plt, monkeypatch,
+            lambda: display_target(pick, rec, analysis_dir,
+                                   live_display=False, save_png=False),
+        )
+        assert seen == [2], (
+            f"expected the 2-line zoom callout, got {seen}")
+
+    def test_no_lines_without_a_pick(self, tmp_path, monkeypatch):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import display_target
+
+        analysis_dir = tmp_path / "analysis"
+        analysis_dir.mkdir()
+        seen = self._connection_count(
+            plt, monkeypatch,
+            lambda: display_target(
+                pick=None, record=_make_target_record(),
+                analysis_dir=analysis_dir,
+                live_display=False, save_png=False),
+        )
+        assert seen == [0], (
+            f"no rectangle is drawn without a pick, so no callout; "
+            f"got {seen}")
