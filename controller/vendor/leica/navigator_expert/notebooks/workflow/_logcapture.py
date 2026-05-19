@@ -148,19 +148,20 @@ class _DeferredTee:
         self._original = original
         self._file = None
         self._buffer: list[str] = []
+        self._disabled = False
         self._lock = threading.Lock()
 
     def write(self, text) -> int:
         with self._lock:
             n = self._original.write(text)
-            if self._file is None:
+            if self._file is not None:
+                try:
+                    self._file.write(text)
+                    self._file.flush()
+                except (ValueError, OSError):
+                    pass
+            elif not self._disabled:
                 self._buffer.append(text)
-                return n
-            try:
-                self._file.write(text)
-                self._file.flush()
-            except (ValueError, OSError):
-                pass
             return n
 
     def flush(self) -> None:
@@ -180,19 +181,24 @@ class _DeferredTee:
         separator, and capture there onward. No-op if already bound or
         if ``log_path`` is not a real ``pathlib.Path`` (mocked ctx)."""
         with self._lock:
-            if self._file is not None or not isinstance(log_path, Path):
+            if (self._file is not None or self._disabled
+                    or not isinstance(log_path, Path)):
                 return
             try:
                 log_path.parent.mkdir(parents=True, exist_ok=True)
                 handle = open(log_path, "a", encoding="utf-8")
             except OSError as exc:
-                # Best-effort: keep buffering to memory, never abort
-                # the caller. Write straight to the real stdout (not
-                # via print, which would re-enter this locked tee).
+                # Best-effort: never abort the caller. Drop the buffer
+                # and disable, so later output only goes to live stdout
+                # instead of accumulating in memory unbounded. Write
+                # straight to the real stdout (not via print, which
+                # would re-enter this locked tee).
                 self._original.write(
                     f"[logcapture] WARNING: console log disabled "
                     f"({log_path}): {exc}\n"
                 )
+                self._buffer = []
+                self._disabled = True
                 return
             handle.write(_separator(log_path.stem))
             handle.write("".join(self._buffer))

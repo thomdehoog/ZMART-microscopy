@@ -166,3 +166,13 @@ class TestDeferredCapture:
             cap.bind(MagicMock())                # mock path -> no-op, no crash
             print("x")
         assert not any(tmp_path.rglob("*.log"))
+
+    def test_bind_failure_disables_buffering(self, tmp_path):
+        # tmp_path is a directory -> open fails -> bind drops the
+        # buffer and disables, so later output does not pile up in RAM.
+        with capture_console_deferred() as cap:
+            print("before")
+            cap.bind(tmp_path)
+            print("after-failure")
+            assert cap._disabled is True
+            assert cap._buffer == []
