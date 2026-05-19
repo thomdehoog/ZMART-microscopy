@@ -31,6 +31,21 @@ class TargetRecord:
     success: bool
     error: str | None
     failure_stage: str | None = None
+    # Flat tile index ("Position N") of the SOURCE overview tile this
+    # target came from -- the overview-scan file index p, NOT the
+    # target-acquisition index. None only on a pre-`position` reload.
+    source_tile_position: int | None = None
+
+
+def _position_label(position) -> str:
+    """'Position N' / 'Position unknown' for the Step 5 console.
+
+    A one-line twin of workflow.visualize._position_label -- target.py
+    cannot import from visualize.py at module top (import cycle)."""
+    return (
+        f"Position {position}" if position is not None
+        else "Position unknown"
+    )
 
 
 def _build_default_on_target_callback(
@@ -183,9 +198,11 @@ def acquire_targets(
         records: list[TargetRecord] = []
 
         for i, pick in enumerate(sorted_picks):
+            rid, _, _, label = pick.pick_id
             print(
                 f"[{i + 1}/{len(sorted_picks)}] "
-                f"pick={pick.pick_id}  "
+                f"Group {rid}, {_position_label(pick.position)}, "
+                f"label {label}  "
                 f"src=({pick.cell_source_stage_xy_um[0]:.0f}, "
                 f"{pick.cell_source_stage_xy_um[1]:.0f})",
                 end="", flush=True,
@@ -222,6 +239,7 @@ def acquire_targets(
                 )
                 lineage = {
                     "source_tile_rid": rid,
+                    "source_tile_position": pick.position,
                     "row": row,
                     "col": col,
                     "label": label,
@@ -245,6 +263,7 @@ def acquire_targets(
                     tif_path=tif_path,
                     success=True,
                     error=None,
+                    source_tile_position=pick.position,
                 )
                 records.append(rec)
                 print(f"  ok  tz={tz:.1f}")
@@ -268,6 +287,7 @@ def acquire_targets(
                     success=False,
                     error=str(exc),
                     failure_stage=stage,
+                    source_tile_position=pick.position,
                 ))
                 print(f"  FAIL@{stage} ({exc})")
 

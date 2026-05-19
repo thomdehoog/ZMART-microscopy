@@ -363,3 +363,49 @@ class TestOverviewMetaPersistsAcquireLoopCounters:
 # run_overview_with_picks compat wrapper was deleted in Commit C; its
 # behavior is now covered by tests against `select_targets` (in
 # test_selection.py) plus the integration smoke at smoke_visualization.py.
+
+
+# ─── Position (flat tile index) round-trip ─────────────────────────
+
+
+class TestPositionRoundtripThroughNPZ:
+    """The flat tile index "Position N" == the overview-scan file index
+    naming_p. It threads result["input"]["naming_p"] -> Pick.position
+    and -> the NPZ "position" key -> load_overview_result."""
+
+    def test_picks_from_result_carries_naming_p(self):
+        result = _make_result(
+            tile_id=("0", 0, 0), naming_p=7,
+            picks=[_make_pick(label=1), _make_pick(label=2)],
+        )
+        picks = _picks_from_result(result)
+        assert [p.position for p in picks] == [7, 7]
+
+    def test_position_round_trips_npz_to_load_overview_result(self, tmp_path):
+        analysis_dir = tmp_path / "analysis"
+        result = _make_result(
+            tile_id=("0", 0, 0), naming_p=41, picks=[_make_pick(label=1)],
+        )
+        assert _save_tile_with_picks(analysis_dir, result)
+        ov = load_overview_result(analysis_dir)
+        assert len(ov.all_picks) == 1
+        assert ov.all_picks[0].position == 41
+
+    def test_v2_npz_without_position_loads_as_none(self, tmp_path):
+        """Back-compat: a v2 NPZ written before the `position` key
+        existed must load with Pick.position is None, not error."""
+        analysis_dir = tmp_path / "analysis"
+        result = _make_result(
+            tile_id=("0", 0, 0), naming_p=3, picks=[_make_pick(label=1)],
+        )
+        assert _save_tile_with_picks(analysis_dir, result)
+        # Rewrite the NPZ stripped of `position`, simulating a file
+        # written before this change (still schema v2 otherwise).
+        npz_path = list(analysis_dir.glob("*.npz"))[0]
+        with np.load(npz_path, allow_pickle=True) as data:
+            assert "position" in data.files   # the save path writes it
+            kept = {k: data[k] for k in data.files if k != "position"}
+        np.savez_compressed(npz_path, **kept)
+        ov = load_overview_result(analysis_dir)
+        assert len(ov.all_picks) == 1
+        assert ov.all_picks[0].position is None

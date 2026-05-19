@@ -355,6 +355,7 @@ def _serialize_pick(pick: Pick) -> dict:
         "eccentricity": pick.eccentricity,
         "mean_intensity": pick.mean_intensity,
         "cell_source_stage_xy_um": list(pick.cell_source_stage_xy_um),
+        "position": pick.position,
     }
 
 
@@ -373,6 +374,7 @@ def _serialize_target(rec: TargetRecord, out_dir: Path) -> dict:
         "success": rec.success,
         "error": rec.error,
         "failure_stage": rec.failure_stage,
+        "source_tile_position": rec.source_tile_position,
     }
 
 

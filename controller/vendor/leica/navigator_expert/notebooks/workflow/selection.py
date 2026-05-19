@@ -120,6 +120,12 @@ def load_overview_result(analysis_dir: Path) -> OverviewResult:
                     tile_id = (
                         tile_id_str[0], int(tile_id_str[1]), int(tile_id_str[2]),
                     )
+                    # Flat tile index ("Position N"). Additive within
+                    # schema v2 -- a pre-`position` v2 NPZ has no key.
+                    position = (
+                        int(data["position"])
+                        if "position" in data.files else None
+                    )
                     n = len(data["cell_labels"])
                     tile_cell_counts[tile_id] = n
                     for i in range(n):
@@ -141,6 +147,7 @@ def load_overview_result(analysis_dir: Path) -> OverviewResult:
                             mean_intensity=float(data["cell_mean_intensity"][i]),
                             cell_source_stage_xy_um=tuple(
                                 data["pick_cell_source_stage_xy_um"][i]),
+                            position=position,
                         ))
             except Exception as exc:
                 print(f"[load] WARNING: failed to read {npz_path.name}: {exc}")

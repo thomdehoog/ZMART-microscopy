@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 
@@ -493,7 +493,7 @@ def display_tile(
         )
 
         fig.suptitle(
-            f"{prefix}Tile {_format_tile_label(rid, row, col)}"
+            f"{prefix}Tile {_format_tile_label(rid, event.position)}"
             f"  ·  {event.n_cells} cells",
             fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
             color=_COLOR_INK_PRIMARY,
@@ -588,7 +588,7 @@ def display_selection(
                     analysis_dir, tile_key, tile_cache=tile_cache,
                 )
                 img = loaded[0] if loaded is not None else None
-                _render_crop(ax, number, pick, tile_key, img, Rectangle)
+                _render_crop(ax, number, pick, img, Rectangle)
             for ax in crop_axes[len(crops_to_show):]:
                 ax.set_visible(False)
 
@@ -906,7 +906,7 @@ def _annotate_scatter_crops(ax, crops_to_show: list) -> None:
         )
 
 
-def _render_crop(ax, number, pick, tile_key, img, Rectangle) -> None:
+def _render_crop(ax, number, pick, img, Rectangle) -> None:
     """Render one fixed-size crop with the cell's bbox outlined in red.
 
     `number` is the crop's 1..N index, shown in the title to match the
@@ -959,9 +959,8 @@ def _render_crop(ax, number, pick, tile_key, img, Rectangle) -> None:
         fill=False, edgecolor=_COLOR_PICK_SHOWN, linewidth=1.4,
     ))
 
-    rid, row, col = tile_key
     ax.set_title(
-        f"{number} · {_format_tile_label(rid, row, col, compact=True)}",
+        f"Example {number}",
         fontsize=_FONT_CROP_TITLE, color=_COLOR_INK_BODY, pad=3,
     )
     ax.set_xticks([])
@@ -1005,24 +1004,36 @@ def _robust_intensity_range(arr: np.ndarray) -> tuple[float, float]:
     return lo, hi
 
 
+def _scatter_reading_order(picks: list) -> list:
+    """Sort crop picks for the strip / badge 1..N numbering: largest
+    area first (area is the scatter y-axis), mean intensity breaks
+    ties. area_px is integer-valued so the intensity tiebreaker is
+    real."""
+    return sorted(picks, key=lambda p: (-p.area_px, p.mean_intensity))
+
+
 def _pick_example_crops(picks: list, n: int = 6) -> list:
     """Pick up to n example picks for the crop strip, spread across the
     sample so the strip conveys the selection in general rather than
     showing several cells from the same spot.
 
-    Farthest-point sampling on each pick's stage XY: seed with the
-    largest-area pick, then repeatedly add the pick whose nearest
-    already-chosen neighbour is farthest away. Co-located picks are
-    picked last (a duplicate location scores zero distance), so the
+    Selection is farthest-point sampling on each pick's stage XY: seed
+    with the largest-area pick, then repeatedly add the pick whose
+    nearest already-chosen neighbour is farthest away. Co-located picks
+    are picked last (a duplicate location scores zero distance), so the
     strip never shows two crops of the same place while distinct ones
     remain. Deterministic: picks are pre-sorted by pick_id so the seed
     and every tie resolve stably.
+
+    The *returned order* is scatter reading order (see
+    `_scatter_reading_order`) so the crop strip and scatter badges
+    number 1..N top-to-bottom by area, not in FPS order.
     """
     if n <= 0:
         return []
     ordered = sorted(picks, key=lambda p: p.pick_id)
     if len(ordered) <= n:
-        return ordered
+        return _scatter_reading_order(ordered)
 
     xy = [p.cell_source_stage_xy_um for p in ordered]
 
@@ -1043,7 +1054,7 @@ def _pick_example_crops(picks: list, n: int = 6) -> list:
         chosen.append(nxt)
         for i in range(len(ordered)):
             nearest_sq[i] = min(nearest_sq[i], _dist_sq(i, nxt))
-    return [ordered[i] for i in chosen]
+    return _scatter_reading_order([ordered[i] for i in chosen])
 
 
 def _render_tile_segmentation_panel(
@@ -1247,16 +1258,30 @@ def display_target(
             title_fontsize=_FONT_PANEL_TITLE,
         )
 
+        # Red border on the crop panel -- only when the FOV rectangle
+        # exists (same guard as axes[0]) so box -> callout lines -> crop
+        # read as one unit. clip_on=False: a transAxes rectangle sits
+        # exactly on the panel edge; the default clip would shave the
+        # outer half of the linewidth.
+        if tile_data is not None and pick is not None:
+            axes[1].add_patch(patches.Rectangle(
+                (0, 0), 1, 1, transform=axes[1].transAxes,
+                fill=False, edgecolor=_COLOR_PICK_SHOWN, linewidth=1.5,
+                clip_on=False, zorder=20, gid="target-crop-border",
+            ))
+
         # Right: acquired high-res target (shared per-panel helper)
         _render_highres_target_panel(
             axes[2], target_img, title_fontsize=_FONT_PANEL_TITLE,
         )
 
         rid, row, col, label = record.pick_id
-        fig.suptitle(f"Target {_format_tile_label(rid, row, col)} "
-                     f"label {label}",
-                     fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
-                     color=_COLOR_INK_PRIMARY)
+        fig.suptitle(
+            f"Target — from "
+            f"{_format_tile_label(rid, record.source_tile_position)}, "
+            f"label {label}",
+            fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
+            color=_COLOR_INK_PRIMARY)
 
         if live_display:
             display(fig)
@@ -1325,7 +1350,7 @@ def plot_overview_tiles(
         if loaded is None:
             continue
 
-        image_2d, masks, tile_id, source = loaded
+        image_2d, masks, tile_id, source, position = loaded
         tile_key = _normalize_tile_key(tile_id)
         labels = picked_by_tile.get(tile_key, [])
         n_cells = int(masks.max())
@@ -1353,7 +1378,7 @@ def plot_overview_tiles(
 
         rid, row, col = tile_id
         prefix = "(mock) " if is_mock else ""
-        fig.suptitle(f"{prefix}Tile {_format_tile_label(rid, row, col)}",
+        fig.suptitle(f"{prefix}Tile {_format_tile_label(rid, position)}",
                      fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
                      color=_COLOR_INK_PRIMARY)
 
@@ -1447,10 +1472,12 @@ def plot_target_pairs(
             )
 
             rid, row, col, label = rec.pick_id
-            fig.suptitle(f"Target {_format_tile_label(rid, row, col)} "
-                         f"label {label}",
-                         fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
-                         color=_COLOR_INK_PRIMARY)
+            fig.suptitle(
+                f"Target — from "
+                f"{_format_tile_label(rid, rec.source_tile_position)}, "
+                f"label {label}",
+                fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
+                color=_COLOR_INK_PRIMARY)
 
             if feedback_dir is not None:
                 fig.savefig(
@@ -1506,15 +1533,29 @@ def _load_tile_by_key(
     return loaded
 
 
+class TileNpz(NamedTuple):
+    """Result of _load_tile_npz. `position` is the flat tile index
+    ("Position N"); None for a pre-`position` NPZ. A NamedTuple so the
+    field can be added without disturbing index-access callers."""
+    image_2d: np.ndarray
+    masks: np.ndarray
+    tile_id: tuple
+    source: str
+    position: int | None
+
+
 def _load_tile_npz(path: Path):
-    """Load a tile analysis npz. Returns (image_2d, masks, tile_id, source) or None."""
+    """Load a tile analysis npz. Returns a TileNpz or None."""
     try:
         data = np.load(path, allow_pickle=True)
         image_2d = data["image_2d"]
         masks = data["masks"]
         tile_id = tuple(str(x) for x in data["tile_id"])
         source = str(data["analysis_image_source"])
-        return image_2d, masks, tile_id, source
+        position = (
+            int(data["position"]) if "position" in data.files else None
+        )
+        return TileNpz(image_2d, masks, tile_id, source, position)
     except Exception as exc:
         print(f"[visualize] WARNING: skipping {path.name}: {exc}")
         return None
@@ -1525,14 +1566,21 @@ def _normalize_tile_key(key: tuple) -> tuple[str, ...]:
     return tuple(str(x) for x in key)
 
 
-def _format_tile_label(rid, row, col, *, compact: bool = False) -> str:
-    """Operator-facing tile id. Full form for figure suptitles
-    ("Group 0, Row 0, Column 0"); compact form for the tight Step 4
-    crop panels ("G0 R0 C0"). One definition so the wording cannot
-    drift between the renderers that show it."""
-    if compact:
-        return f"G{rid} R{row} C{col}"
-    return f"Group {rid}, Row {row}, Column {col}"
+def _position_label(position) -> str:
+    """Operator-facing 'Position N' fragment. 'Position unknown' for a
+    pick / tile loaded from a pre-`position` NPZ (back-compat)."""
+    return (
+        f"Position {position}" if position is not None
+        else "Position unknown"
+    )
+
+
+def _format_tile_label(rid, position) -> str:
+    """Operator-facing tile id for figure suptitles:
+    "Group 0, Position 41". "Position unknown" when the position is
+    unknown (a pre-`position` NPZ, or pick-less construction). One
+    definition so the wording cannot drift between the renderers."""
+    return f"Group {rid}, {_position_label(position)}"
 
 
 def _build_tile_path_index(
