@@ -168,9 +168,10 @@ def _build_default_on_tile_callback(
     """
     from .visualize import display_tile
 
-    feedback_dir = (
-        ctx.run.layout.feedback_dir("overview-scan") if save_png else None
+    logs_dir = (
+        ctx.run.layout.logs_dir("overview-scan") if save_png else None
     )
+    hash6 = ctx.run.layout.hash6
     scan_field = ctx.scan_field
     boundary_limits = ctx.boundary_limits
 
@@ -179,9 +180,10 @@ def _build_default_on_tile_callback(
             event,
             scan_field=scan_field,
             boundary_limits=boundary_limits,
-            feedback_dir=feedback_dir,
+            logs_dir=logs_dir,
             live_display=live_display,
             save_png=save_png,
+            hash6=hash6,
             _save_queue=save_queue,
         )
 
@@ -214,7 +216,7 @@ def run_overview(
     Display/save behavior:
       - live_display=True (default): render each tile inline.
       - save_png=True (default): save each tile figure to
-        ctx.run.layout.feedback_dir("overview-scan").
+        ctx.run.layout.logs_dir("overview-scan").
       - on_tile (default None): explicit per-tile callback. Mutually
         exclusive with the two flags above -- supplying on_tile alongside
         live_display=True or save_png=True raises ValueError. To use an

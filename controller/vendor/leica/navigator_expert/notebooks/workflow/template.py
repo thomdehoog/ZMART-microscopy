@@ -307,7 +307,9 @@ def plot_stage_envelope(ctx: Context) -> None:
     ax.set_title(title, fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
                  color=_COLOR_INK_PRIMARY, pad=_TITLE_PAD)
 
-    out_path = ctx.out_dir / "stage_envelope.png"
+    logs_dir = ctx.run.layout.logs_dir("initialization")
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    out_path = logs_dir / "stage_envelope.png"
     fig.savefig(out_path, dpi=150)
     print(f"[step 2a] Saved {out_path}")
     plt.show()
@@ -452,7 +454,9 @@ def plot_scan_field(ctx: Context) -> None:
     ax.legend(loc="upper right", fontsize=9, facecolor="white",
               edgecolor="#cccccc", labelcolor="#444444")
 
-    out_path = ctx.out_dir / "overview_field.png"
+    logs_dir = ctx.run.layout.logs_dir("initialization")
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    out_path = logs_dir / "overview_field.png"
     fig.savefig(out_path, dpi=150)
     print(f"[step 2b] Saved {out_path}")
     plt.show()

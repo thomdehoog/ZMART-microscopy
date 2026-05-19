@@ -71,7 +71,7 @@ class TestBuildDefaultOnTileCallback:
         ctx = MagicMock(name="ctx")
         ctx.scan_field = "fake_scan_field_dict"
         ctx.boundary_limits = "fake_limits_dict"
-        ctx.run.layout.feedback_dir.return_value = Path("/fake/feedback")
+        ctx.run.layout.logs_dir.return_value = Path("/fake/logs")
 
         from workflow.overview import _build_default_on_tile_callback
 
@@ -85,9 +85,10 @@ class TestBuildDefaultOnTileCallback:
             event,
             scan_field="fake_scan_field_dict",
             boundary_limits="fake_limits_dict",
-            feedback_dir=None,         # save_png=False -> no feedback dir
+            logs_dir=None,             # save_png=False -> no logs dir
             live_display=True,
             save_png=False,
+            hash6=ctx.run.layout.hash6,
             _save_queue=None,          # factory called with no queue
         )
 
@@ -104,7 +105,7 @@ class TestBuildDefaultOnTargetCallback:
 
         ctx = MagicMock(name="ctx")
         ctx.run.layout.analysis_dir.return_value = Path("/fake/analysis")
-        ctx.run.layout.feedback_dir.return_value = Path("/fake/feedback")
+        ctx.run.layout.logs_dir.return_value = Path("/fake/logs")
 
         from workflow.target import _build_default_on_target_callback
 
@@ -117,7 +118,7 @@ class TestBuildDefaultOnTargetCallback:
 
         # tile_cache is owned by the closure (an empty dict on first call)
         kwargs = fake_display_target.call_args.kwargs
-        assert kwargs["feedback_dir"] == Path("/fake/feedback")
+        assert kwargs["logs_dir"] == Path("/fake/logs")
         assert kwargs["live_display"] is False
         assert kwargs["save_png"] is True
         assert kwargs["tile_cache"] == {}   # fresh cache, populated by callback

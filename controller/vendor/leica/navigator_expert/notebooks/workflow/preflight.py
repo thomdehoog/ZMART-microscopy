@@ -161,7 +161,6 @@ def preflight(cfg: Config, client: Any) -> Context:
         # 0.7 -- run dir (driver derives output_root = media_path / "smart")
         run = drv.start_run(client, cfg.experiment)
         out_dir = run.layout.run_dir
-        (out_dir / "logs").mkdir(parents=True, exist_ok=True)
 
         # 0.8 -- construct Context (current_job="" forces ensure_job_state to run)
         ctx = Context(

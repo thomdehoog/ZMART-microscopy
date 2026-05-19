@@ -202,7 +202,7 @@ class TestStyleTokenCoverage:
 # ─── display_tile flags (Bundle A / A2) ──────────────────────────
 
 
-def _make_tile_event(n_cells: int = 0):
+def _make_tile_event(n_cells: int = 0, *, position=None):
     """Minimal TileEvent for testing display_tile flag behavior."""
     from workflow.overview import TileEvent
     return TileEvent(
@@ -211,6 +211,7 @@ def _make_tile_event(n_cells: int = 0):
         tile_id=("0", 0, 0),
         n_cells=n_cells,
         analysis_image_source="acquired",
+        position=position,
     )
 
 
@@ -1906,3 +1907,104 @@ class TestTargetSuptitlePosition:
         pick = _make_pick(("0", 0, 0), label=1)
         pick.position = 7
         assert _serialize_pick(pick)["position"] == 7
+
+
+# ─── canonical PNG naming ─────────────────────────────────────────
+
+
+class TestPngNaming:
+    """Workflow PNGs are named after the data they depict — overview
+    tiles by the position stem (pairs with `analysis/.npz`), targets by
+    the target `.ome.tiff` stem (pairs with `data/.ome.tiff`); the live
+    renderer gets a `_live` suffix so it never collides with the batch
+    re-render."""
+
+    def test_overview_tile_png_name_canonical(self):
+        from workflow.visualize import _overview_tile_png_name, _position_stem
+        from _shared.output_layout.naming import Naming
+        stem = _position_stem(Naming(
+            acquisition_type="overview-scan", hash6="abc123", g=0, p=7))
+        assert _overview_tile_png_name(0, 1, 2, 7, "abc123") == f"{stem}_live.png"
+
+    def test_overview_tile_png_name_fallback(self):
+        """No position or no hash6 -> legacy R/r/c name, never a wrong
+        canonical stem."""
+        from workflow.visualize import _overview_tile_png_name
+        assert _overview_tile_png_name(0, 1, 2, None, "abc123") == \
+            "live_tile_R0_r1c2.png"
+        assert _overview_tile_png_name(0, 1, 2, 7, None) == \
+            "live_tile_R0_r1c2.png"
+
+    def test_target_png_name_canonical(self, tmp_path):
+        from workflow.visualize import _target_png_name
+        from workflow.target import TargetRecord
+        tif = tmp_path / (
+            "target-acquisition_abc123_k00000_m00000_g00000_p00003"
+            "_t00000_v00_c00_z00000.ome.tiff")
+        rec = TargetRecord(
+            pick_id=("0", 0, 0, 1), cell_source_stage_xy_um=(1.0, 2.0),
+            source_zwide_um=0.0, target_stage_xy_um=None,
+            target_zwide_um=None, target_zoom=None,
+            target_pixel_size_um=None, tif_path=tif,
+            success=True, error=None,
+        )
+        stem = tif.name.removesuffix(".ome.tiff")
+        assert _target_png_name(rec, live=False) == f"{stem}.png"
+        assert _target_png_name(rec, live=True) == f"{stem}_live.png"
+
+    def test_target_png_name_fallback_no_tif(self):
+        """A target with no TIFF (failed / pick-less) -> legacy name,
+        no AttributeError on record.tif_path is None."""
+        from workflow.visualize import _target_png_name
+        from workflow.target import TargetRecord
+        rec = TargetRecord(
+            pick_id=("0", 1, 2, 5), cell_source_stage_xy_um=(1.0, 2.0),
+            source_zwide_um=0.0, target_stage_xy_um=None,
+            target_zwide_um=None, target_zoom=None,
+            target_pixel_size_um=None, tif_path=None,
+            success=False, error="x",
+        )
+        assert _target_png_name(rec, live=True) == "live_target_R0_r1c2_l5.png"
+
+    def test_display_tile_writes_canonical_name(self, tmp_path, monkeypatch):
+        import matplotlib
+        matplotlib.use("Agg")
+        monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
+        from workflow.visualize import display_tile, _position_stem
+        from _shared.output_layout.naming import Naming
+
+        logs = tmp_path / "logs"
+        display_tile(_make_tile_event(position=7), logs_dir=logs,
+                     hash6="abc123", live_display=False, save_png=True)
+        stem = _position_stem(Naming(
+            acquisition_type="overview-scan", hash6="abc123", g=0, p=7))
+        assert (logs / f"{stem}_live.png").exists()
+
+    def test_feedback_dir_alias_still_writes(self, tmp_path, monkeypatch):
+        """The deprecated feedback_dir= kwarg is still accepted (keeps
+        the un-migrated v3 notebook running)."""
+        import matplotlib
+        matplotlib.use("Agg")
+        monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
+        from workflow.visualize import display_tile
+
+        legacy = tmp_path / "legacy"
+        display_tile(_make_tile_event(position=3), feedback_dir=legacy,
+                     hash6="abc123", live_display=False, save_png=True)
+        assert list(legacy.glob("*.png"))
+
+    def test_display_target_tif_none_fallback(self, tmp_path, monkeypatch):
+        """display_target with a tif_path-less record still saves (legacy
+        name) and does not raise."""
+        import matplotlib
+        matplotlib.use("Agg")
+        monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
+        from workflow.visualize import display_target
+
+        analysis_dir = tmp_path / "analysis"
+        analysis_dir.mkdir()
+        logs = tmp_path / "logs"
+        display_target(pick=None, record=_make_target_record(),
+                       analysis_dir=analysis_dir, logs_dir=logs,
+                       live_display=False, save_png=True)
+        assert (logs / "live_target_R0_r0c0_l1.png").exists()

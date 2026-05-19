@@ -175,6 +175,9 @@ class LayoutPlan:
     def feedback_dir(self, kind: str) -> Path:
         return self.acquisition_dir(kind) / "feedback"
 
+    def logs_dir(self, kind: str) -> Path:
+        return self.acquisition_dir(kind) / "logs"
+
 
 def build_layout(
     output_root: Path | str,

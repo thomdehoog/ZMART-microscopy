@@ -20,6 +20,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
+from _shared.output_layout import Naming, build_position_analysis_name
 from .overview import Picks, TileEvent
 from .target import TargetRecord
 from .selection import (
@@ -412,10 +413,12 @@ def display_tile(
     *,
     scan_field: dict | None = None,
     boundary_limits: dict | None = None,
-    feedback_dir: Path | None = None,
+    logs_dir: Path | None = None,
     live_display: bool = True,
     save_png: bool = True,
+    hash6: str | None = None,
     _save_queue: Any = None,
+    feedback_dir: Path | None = None,   # deprecated alias of logs_dir
 ) -> None:
     """Render one tile inline during overview acquisition.
 
@@ -425,7 +428,11 @@ def display_tile(
 
     live_display: when False, build the figure but skip display(); useful
         in batch mode where only the saved PNG matters.
-    save_png: when False, skip fig.savefig even if feedback_dir is set.
+    logs_dir: per-acquisition-type logs/ dir the PNG is saved into.
+        `feedback_dir=` is accepted as a deprecated alias.
+    hash6: run hash, used to build the canonical PNG name; without it
+        (or without event.position) the legacy R/r/c name is used.
+    save_png: when False, skip fig.savefig even if logs_dir is set.
         With save_png=False and live_display=False the call is no-op
         rendering (figure built and closed without side effects);
         run_overview avoids it entirely in that combination.
@@ -505,10 +512,11 @@ def display_tile(
         if live_display:
             display(fig)
 
-        if feedback_dir is not None and save_png:
-            feedback_dir.mkdir(parents=True, exist_ok=True)
-            out_path = (
-                feedback_dir / f"live_tile_R{rid}_r{row}c{col}.png"
+        logs_dir = logs_dir if logs_dir is not None else feedback_dir
+        if logs_dir is not None and save_png:
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            out_path = logs_dir / _overview_tile_png_name(
+                rid, row, col, event.position, hash6,
             )
             if _save_queue is not None:
                 # Hand the figure off to the worker thread. Worker
@@ -534,7 +542,8 @@ def display_selection(
     selection,
     analysis_dir: Path,
     *,
-    feedback_dir: Path | None = None,
+    logs_dir: Path | None = None,
+    feedback_dir: Path | None = None,   # deprecated alias of logs_dir
 ) -> None:
     """Render Step 4 (Target discovery): scatter + 6 example crops.
 
@@ -594,12 +603,13 @@ def display_selection(
 
         _render_figure_titles(header_ax, selection)
 
-        if feedback_dir is not None:
-            feedback_dir.mkdir(parents=True, exist_ok=True)
+        logs_dir = logs_dir if logs_dir is not None else feedback_dir
+        if logs_dir is not None:
+            logs_dir.mkdir(parents=True, exist_ok=True)
             # No bbox_inches="tight" -- save the full 14 in figure so the
-            # feedback PNG matches the other steps' saved width.
+            # log PNG matches the other steps' saved width.
             fig.savefig(
-                feedback_dir / "selection.png",
+                logs_dir / "selection.png",
                 dpi=150, facecolor="white",
             )
 
@@ -1137,11 +1147,12 @@ def display_target(
     record: TargetRecord,
     analysis_dir: Path,
     *,
-    feedback_dir: Path | None = None,
+    logs_dir: Path | None = None,
     tile_cache: dict | None = None,
     live_display: bool = True,
     save_png: bool = True,
     _save_queue: Any = None,
+    feedback_dir: Path | None = None,   # deprecated alias of logs_dir
 ) -> None:
     """Render one target 3-panel figure inline during acquisition.
 
@@ -1153,7 +1164,9 @@ def display_target(
     npz files for tiles that appear in multiple targets.
 
     live_display: when False, build the figure but skip display().
-    save_png: when False, skip fig.savefig even if feedback_dir is set.
+    logs_dir: per-acquisition-type logs/ dir the PNG is saved into.
+        `feedback_dir=` is accepted as a deprecated alias.
+    save_png: when False, skip fig.savefig even if logs_dir is set.
     _save_queue: optional workflow._save_queue._FigureSaveQueue. Same
         semantics as display_tile's _save_queue -- when provided AND
         save_png=True, the savefig + plt.close are queued to the
@@ -1286,12 +1299,10 @@ def display_target(
         if live_display:
             display(fig)
 
-        if feedback_dir is not None and save_png:
-            feedback_dir.mkdir(parents=True, exist_ok=True)
-            out_path = (
-                feedback_dir
-                / f"live_target_R{rid}_r{row}c{col}_l{label}.png"
-            )
+        logs_dir = logs_dir if logs_dir is not None else feedback_dir
+        if logs_dir is not None and save_png:
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            out_path = logs_dir / _target_png_name(record, live=True)
             if _save_queue is not None:
                 def _save_and_close(fig=fig, out_path=out_path):
                     try:
@@ -1314,7 +1325,8 @@ def plot_overview_tiles(
     analysis_dir: Path,
     picks: Picks,
     *,
-    feedback_dir: Path | None = None,
+    logs_dir: Path | None = None,
+    feedback_dir: Path | None = None,   # deprecated alias of logs_dir
 ) -> None:
     """Render per-tile triptych: grayscale | segmentation overlay | picked mask.
 
@@ -1342,8 +1354,9 @@ def plot_overview_tiles(
         parts.append(f"{n_acquire_fail} acquire failure(s)")
     print(f"[visualize] {'. '.join(parts)}.")
 
-    if feedback_dir is not None:
-        feedback_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = logs_dir if logs_dir is not None else feedback_dir
+    if logs_dir is not None:
+        logs_dir.mkdir(parents=True, exist_ok=True)
 
     for npz_path in npz_files:
         loaded = _load_tile_npz(npz_path)
@@ -1382,9 +1395,9 @@ def plot_overview_tiles(
                      fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
                      color=_COLOR_INK_PRIMARY)
 
-        if feedback_dir is not None:
+        if logs_dir is not None:
             fig.savefig(
-                feedback_dir / npz_path.with_suffix(".png").name,
+                logs_dir / npz_path.with_suffix(".png").name,
                 dpi=150,
             )
 
@@ -1397,7 +1410,8 @@ def plot_target_pairs(
     picks: Picks,
     records: list[TargetRecord],
     *,
-    feedback_dir: Path | None = None,
+    logs_dir: Path | None = None,
+    feedback_dir: Path | None = None,   # deprecated alias of logs_dir
 ) -> None:
     """Batch re-render: 3-panel per target (tile + crop + high-res)."""
     import matplotlib.pyplot as plt
@@ -1412,8 +1426,9 @@ def plot_target_pairs(
     tile_path_index = _build_tile_path_index(analysis_dir)
     tile_cache: dict[tuple, tuple | None] = {}
 
-    if feedback_dir is not None:
-        feedback_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = logs_dir if logs_dir is not None else feedback_dir
+    if logs_dir is not None:
+        logs_dir.mkdir(parents=True, exist_ok=True)
 
     for j, rec in enumerate(successful):
         pick = pick_map.get(tuple(rec.pick_id))
@@ -1479,9 +1494,9 @@ def plot_target_pairs(
                 fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
                 color=_COLOR_INK_PRIMARY)
 
-            if feedback_dir is not None:
+            if logs_dir is not None:
                 fig.savefig(
-                    feedback_dir / f"target_R{rid}_r{row}c{col}_l{label}.png",
+                    logs_dir / _target_png_name(rec, live=False),
                     dpi=150,
                 )
 
@@ -1581,6 +1596,37 @@ def _format_tile_label(rid, position) -> str:
     unknown (a pre-`position` NPZ, or pick-less construction). One
     definition so the wording cannot drift between the renderers."""
     return f"Group {rid}, {_position_label(position)}"
+
+
+def _position_stem(naming: Naming) -> str:
+    """Canonical position stem -- build_position_analysis_name minus .npz."""
+    name = build_position_analysis_name(naming)
+    return name[:-4] if name.endswith(".npz") else name
+
+
+def _overview_tile_png_name(rid, row, col, position, hash6) -> str:
+    """Filename for a live overview-tile PNG: the canonical position
+    stem + `_live` when the run hash and position are known (so it
+    pairs by name with `analysis/{stem}.npz`), else the legacy
+    R/r/c name for a pre-`position` reload."""
+    if position is not None and hash6 is not None:
+        stem = _position_stem(Naming(
+            acquisition_type="overview-scan", hash6=hash6,
+            g=int(rid), p=int(position)))
+        return f"{stem}_live.png"
+    return f"live_tile_R{rid}_r{row}c{col}.png"
+
+
+def _target_png_name(record, *, live: bool) -> str:
+    """Filename for a target PNG: the target `.ome.tiff` stem (pairs by
+    name with `data/{stem}.ome.tiff`), `_live` for the live renderer.
+    Falls back to the legacy R/r/c/l name when the target has no TIFF
+    (a failed target / pick-less render)."""
+    if record.tif_path is not None:
+        stem = record.tif_path.name.removesuffix(".ome.tiff")
+        return f"{stem}_live.png" if live else f"{stem}.png"
+    rid, row, col, label = record.pick_id
+    return f"live_target_R{rid}_r{row}c{col}_l{label}.png"
 
 
 def _build_tile_path_index(
