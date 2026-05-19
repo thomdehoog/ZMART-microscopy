@@ -1502,8 +1502,8 @@ def _load_tile_by_key(
     *,
     tile_cache: dict | None = None,
 ):
-    """Load a tile npz by tile_key. Returns (image_2d, masks, tile_id,
-    source) or None if not found / unreadable.
+    """Load a tile npz by tile_key. Returns a TileNpz (see
+    _load_tile_npz) or None if not found / unreadable.
 
     Single tile-lookup helper. Uses _build_tile_path_index for the
     tile_id -> path map and _load_tile_npz for the per-path read; both
