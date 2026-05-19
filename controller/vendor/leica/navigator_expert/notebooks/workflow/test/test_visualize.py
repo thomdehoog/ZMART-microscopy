@@ -1022,7 +1022,7 @@ class TestRenderCropBoundary:
 
         fig, ax = plt.subplots()
         try:
-            _render_crop(ax, 1, pick, ("0", 0, 0), img, Rectangle)
+            _render_crop(ax, 1, pick, img, Rectangle)
             images = ax.get_images()
             assert len(images) == 1, (
                 "expected exactly one imshow on the crop axes"
@@ -1555,19 +1555,70 @@ class TestPickExampleCrops:
         second = [p.pick_id for p in _pick_example_crops(picks, n=6)]
         assert first == second
 
+    def test_returns_scatter_reading_order_le_n_branch(self):
+        """<= n branch: crops come back largest-area-first so the
+        strip / badge 1..N numbering reads top-down on the scatter."""
+        from workflow.visualize import _pick_example_crops
+        picks = [_make_pick(("0", 0, 0), label=i + 1) for i in range(4)]
+        for p, area in zip(picks, [100, 400, 200, 300]):
+            p.area_px = area
+        chosen = _pick_example_crops(picks, n=6)
+        assert [p.area_px for p in chosen] == [400, 300, 200, 100]
+
+    def test_returns_scatter_reading_order_fps_branch(self):
+        """FPS branch (> n picks): the returned six are also ordered
+        largest-area-first."""
+        from workflow.visualize import _pick_example_crops
+        picks = [
+            _make_pick(("0", 0, 0), label=i + 1,
+                       cell_xy=(float(i * 137 % 900), float(i * 53 % 700)))
+            for i in range(15)
+        ]
+        for i, p in enumerate(picks):
+            p.area_px = i * 10          # distinct areas
+        areas = [p.area_px for p in _pick_example_crops(picks, n=6)]
+        assert areas == sorted(areas, reverse=True)
+
+    def test_scatter_order_breaks_area_ties_by_intensity(self):
+        """Equal area_px -> lower mean_intensity sorts first, pinning
+        the (-area_px, mean_intensity) key. area_px is integer-valued
+        so this tie is reachable."""
+        from workflow.visualize import _pick_example_crops
+        a = _make_pick(("0", 0, 0), label=1)
+        b = _make_pick(("0", 0, 0), label=2)
+        a.area_px = b.area_px = 500
+        a.mean_intensity = 200.0
+        b.mean_intensity = 50.0
+        chosen = _pick_example_crops([a, b], n=6)
+        assert [p.pick_id[3] for p in chosen] == [2, 1]
+
 
 # ─── tile-id / region wording ─────────────────────────────────────
 
 
 class TestTileLabelWording:
-    """Operator-facing tile ids read 'Group N, Row N, Column N' (the
-    cryptic 'R0 r0c0' was unclear). The figures use _format_tile_label;
-    the Step 2b / Step 3 console output must match."""
+    """Operator-facing tile ids read 'Group N, Position N' (Position N
+    is the flat overview-scan file index p). The figures use
+    _format_tile_label; the Step 2b / Step 3 console output must match."""
 
-    def test_format_tile_label_full_and_compact(self):
+    def test_format_tile_label(self):
         from workflow.visualize import _format_tile_label
-        assert _format_tile_label(0, 1, 2) == "Group 0, Row 1, Column 2"
-        assert _format_tile_label(0, 1, 2, compact=True) == "G0 R1 C2"
+        assert _format_tile_label(0, 41) == "Group 0, Position 41"
+        assert _format_tile_label(0, None) == "Group 0, Position unknown"
+
+    def test_position_label(self):
+        from workflow.visualize import _position_label
+        assert _position_label(0) == "Position 0"
+        assert _position_label(41) == "Position 41"
+        assert _position_label(None) == "Position unknown"
+
+    def test_target_position_label_twin_matches_visualize(self):
+        """target.py carries a one-line twin of _position_label to dodge
+        an import cycle -- pin that it has not drifted."""
+        from workflow.visualize import _position_label as viz
+        from workflow.target import _position_label as tgt
+        for v in (0, 41, None):
+            assert viz(v) == tgt(v)
 
     def test_console_wording_says_group_not_region(self):
         """No integration test pins the Step 2b / Step 3 console prints,
@@ -1586,7 +1637,8 @@ class TestTileLabelWording:
         assert "group(s)" in template_src
         assert "Group {rid}" in template_src
         assert "] R{rid} " not in overview_src
-        assert "] G{rid} " in overview_src
+        assert "] G{rid} " not in overview_src
+        assert "Group {rid}, Position" in overview_src
 
 
 # ─── Step 5 zoom-callout ──────────────────────────────────────────
@@ -1662,3 +1714,166 @@ class TestTargetZoomCallout:
         assert seen == [0], (
             f"no rectangle is drawn without a pick, so no callout; "
             f"got {seen}")
+
+
+# ─── Step 5 crop-panel border ─────────────────────────────────────
+
+
+class TestTargetCropBorder:
+    """display_target draws a red border (gid='target-crop-border') on
+    the crop panel only when the target-FOV rectangle is drawn -- i.e.
+    when both a pick and tile_data are present."""
+
+    def _border_count(self, plt, monkeypatch, call):
+        seen = []
+        real_close = plt.close
+
+        def spy(fig=None):
+            if fig is not None and hasattr(fig, "findobj"):
+                seen.append(sum(
+                    1 for o in fig.findobj()
+                    if o.get_gid() == "target-crop-border"
+                ))
+            real_close(fig) if fig is not None else real_close()
+
+        monkeypatch.setattr(plt, "close", spy)
+        monkeypatch.setattr(
+            "IPython.display.display", lambda *a, **kw: None)
+        call()
+        return seen
+
+    def test_border_drawn_with_pick_and_tile(self, tmp_path, monkeypatch):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import display_target
+        from workflow.target import TargetRecord
+
+        analysis_dir = tmp_path / "analysis"
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
+        pick = _make_pick(("0", 0, 0), label=1)
+        rec = TargetRecord(
+            pick_id=("0", 0, 0, 1),
+            cell_source_stage_xy_um=(1005.0, 2005.0),
+            source_zwide_um=100.0, target_stage_xy_um=(2000.0, 3000.0),
+            target_zwide_um=100.0, target_zoom=None,
+            target_pixel_size_um=0.1,
+            tif_path=_make_target_tif(tmp_path / "t" / "target.tif"),
+            success=True, error=None,
+        )
+        seen = self._border_count(
+            plt, monkeypatch,
+            lambda: display_target(pick, rec, analysis_dir,
+                                   live_display=False, save_png=False),
+        )
+        assert seen == [1], (
+            f"expected one crop-panel border, got {seen}")
+
+    def test_no_border_without_a_pick(self, tmp_path, monkeypatch):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import display_target
+
+        analysis_dir = tmp_path / "analysis"
+        analysis_dir.mkdir()
+        seen = self._border_count(
+            plt, monkeypatch,
+            lambda: display_target(
+                pick=None, record=_make_target_record(),
+                analysis_dir=analysis_dir,
+                live_display=False, save_png=False),
+        )
+        assert seen == [0], (
+            f"no FOV rectangle without a pick, so no border; got {seen}")
+
+
+# ─── Step 5 suptitle carries the source overview tile position ─────
+
+
+class TestTargetSuptitlePosition:
+    """The Step 5 suptitle / summary / lineage carry the SOURCE overview
+    tile position (TargetRecord.source_tile_position), independent of
+    the target-acquisition index."""
+
+    def _suptitle(self, plt, monkeypatch, call):
+        seen = []
+        real_close = plt.close
+
+        def spy(fig=None):
+            if fig is not None and getattr(fig, "_suptitle", None):
+                seen.append(fig._suptitle.get_text())
+            real_close(fig) if fig is not None else real_close()
+
+        monkeypatch.setattr(plt, "close", spy)
+        monkeypatch.setattr(
+            "IPython.display.display", lambda *a, **kw: None)
+        call()
+        return seen
+
+    def test_suptitle_uses_source_tile_position(self, tmp_path, monkeypatch):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import display_target
+        from workflow.target import TargetRecord
+
+        analysis_dir = tmp_path / "analysis"
+        analysis_dir.mkdir()
+        # source_tile_position 41, but this is the first target acquired
+        # (target-acquisition index 0) -- the suptitle must show 41.
+        rec = TargetRecord(
+            pick_id=("0", 0, 0, 3),
+            cell_source_stage_xy_um=(1005.0, 2005.0),
+            source_zwide_um=100.0, target_stage_xy_um=(2000.0, 3000.0),
+            target_zwide_um=100.0, target_zoom=None,
+            target_pixel_size_um=0.1, tif_path=None,
+            success=True, error=None, source_tile_position=41,
+        )
+        seen = self._suptitle(
+            plt, monkeypatch,
+            lambda: display_target(pick=None, record=rec,
+                                   analysis_dir=analysis_dir,
+                                   live_display=False, save_png=False),
+        )
+        assert len(seen) == 1
+        assert "Position 41" in seen[0], seen
+        assert "label 3" in seen[0], seen
+
+    def test_suptitle_position_unknown_when_none(self, tmp_path, monkeypatch):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import display_target
+
+        analysis_dir = tmp_path / "analysis"
+        analysis_dir.mkdir()
+        seen = self._suptitle(
+            plt, monkeypatch,
+            lambda: display_target(
+                pick=None, record=_make_target_record(),
+                analysis_dir=analysis_dir,
+                live_display=False, save_png=False),
+        )
+        assert len(seen) == 1
+        assert "Position unknown" in seen[0], seen
+
+    def test_serialize_target_includes_source_tile_position(self, tmp_path):
+        from workflow.summary import _serialize_target
+        from workflow.target import TargetRecord
+        rec = TargetRecord(
+            pick_id=("0", 0, 0, 3), cell_source_stage_xy_um=(1.0, 2.0),
+            source_zwide_um=0.0, target_stage_xy_um=None,
+            target_zwide_um=None, target_zoom=None,
+            target_pixel_size_um=None, tif_path=None,
+            success=False, error="x", source_tile_position=41,
+        )
+        assert _serialize_target(rec, tmp_path)["source_tile_position"] == 41
+
+    def test_serialize_pick_includes_position(self):
+        from workflow.summary import _serialize_pick
+        pick = _make_pick(("0", 0, 0), label=1)
+        pick.position = 7
+        assert _serialize_pick(pick)["position"] == 7

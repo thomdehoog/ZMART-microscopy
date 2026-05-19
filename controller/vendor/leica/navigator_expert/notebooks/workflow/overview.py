@@ -53,6 +53,11 @@ class Pick:
     # Canonical pick address
     cell_source_stage_xy_um: tuple[float, float]
 
+    # Flat tile index ("Position N") of this pick's overview tile --
+    # the overview-scan file index p (= naming_p). None only when the
+    # pick is reconstructed from a pre-`position` NPZ.
+    position: int | None = None
+
 
 @dataclass
 class Picks:
@@ -112,6 +117,9 @@ class TileEvent:
     tile_id: tuple[str, int, int]
     n_cells: int
     analysis_image_source: str
+    # Flat tile index ("Position N") -- the overview-scan file index p
+    # (= naming_p). None only on a pre-`position` reload.
+    position: int | None = None
 
 
 # ─── Public API ───────────────────────────────────────────────────
@@ -283,8 +291,8 @@ def run_overview(
             tile_id = (str(rid), tile["row"], tile["col"])
 
             print(
-                f"[{i + 1}/{n_tiles_planned}] G{rid} "
-                f"r{tile['row']}c{tile['col']}  "
+                f"[{i + 1}/{n_tiles_planned}] "
+                f"Group {rid}, Position {i}  "
                 f"x={x_um:.0f} y={y_um:.0f} z={zwide_um:.2f}",
                 end="", flush=True,
             )
@@ -445,6 +453,7 @@ def _picks_from_result(result: dict) -> list[Pick]:
     """
     picks: list[Pick] = []
     pick_data = result.get("pick_targets", {}).get("picks", [])
+    position = result.get("input", {}).get("naming_p")
     for pd in pick_data:
         picks.append(Pick(
             pick_id=tuple(pd["pick_id"]),
@@ -459,6 +468,7 @@ def _picks_from_result(result: dict) -> list[Pick]:
             eccentricity=pd["eccentricity"],
             mean_intensity=pd["mean_intensity"],
             cell_source_stage_xy_um=tuple(pd["cell_source_stage_xy_um"]),
+            position=position,
         ))
     return picks
 
@@ -771,6 +781,9 @@ def _save_single_tile_analysis(
             "analysis_image_source": np.array(
                 inp.get("analysis_image_source", "acquired")
             ),
+            # Flat tile index ("Position N"). naming_p is guaranteed
+            # non-None here -- the None check above returns False first.
+            "position": np.int32(int(naming_p)),
         }
         if extra_arrays:
             # Invariant: cell_labels[i] <-> cell_area_px[i] <-> ...
@@ -842,6 +855,7 @@ def _fire_on_tile(
             n_cells=n_cells,
             analysis_image_source=inp.get("analysis_image_source",
                                           "acquired"),
+            position=inp.get("naming_p"),
         ))
     except Exception as exc:
         tid = tile_id
