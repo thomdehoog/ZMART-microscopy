@@ -1266,7 +1266,7 @@ def display_target(
         if tile_data is not None and pick is not None:
             axes[1].add_patch(patches.Rectangle(
                 (0, 0), 1, 1, transform=axes[1].transAxes,
-                fill=False, edgecolor=_COLOR_PICK_SHOWN, linewidth=1.5,
+                fill=False, edgecolor=_COLOR_PICK_SHOWN, linewidth=3.0,
                 clip_on=False, zorder=20, gid="target-crop-border",
             ))
 
