@@ -438,30 +438,21 @@ class TestPrePlan2NpzBackCompat:
     def _write_legacy_npz(
         self, path: Path, *, analysis_image_source: str, tile_id=("0", 0, 0),
     ) -> None:
-        """Write a synthetic pre-Plan-2 NPZ: has ``analysis_image_source``,
-        no ``simulated``. Matches the exact on-disk shape produced by
-        smart-microscopy before the cut."""
+        """Write a synthetic pre-Plan-2 NPZ carrying just the keys
+        ``_load_tile_npz`` actually reads: ``image_2d``, ``masks``,
+        ``tile_id``, and the legacy ``analysis_image_source`` (the
+        seam under test). The pre-cut on-disk shape carried other
+        schema-v2 arrays too; we don't write them here because the
+        test exercises ``_load_tile_npz`` directly, not the
+        ``load_overview_result`` aggregate which would consume the
+        per-cell arrays. Keep the fixture minimal to the assertion
+        surface."""
         np.savez_compressed(
             path,
             image_2d=np.zeros((16, 16), dtype=np.float64),
             masks=np.zeros((16, 16), dtype=np.int32),
             tile_id=np.array(tile_id, dtype=str),
             analysis_image_source=np.array(analysis_image_source),
-            schema_version=np.int32(2),
-            cell_labels=np.empty((0,), dtype=np.int32),
-            # Minimal schema-v2 extra arrays so _load_tile_npz/visualize
-            # don't crash on missing per-cell arrays during reload.
-            cell_area_px=np.empty((0,), dtype=np.int32),
-            cell_mean_intensity=np.empty((0,), dtype=np.float64),
-            pick_tile_stage_xy_um=np.empty((0, 2), dtype=np.float64),
-            pick_tile_zwide_um=np.empty((0,), dtype=np.float64),
-            pick_source_pixel_size_um=np.empty((0, 2), dtype=np.float64),
-            pick_source_image_size_px=np.empty((0, 2), dtype=np.int32),
-            pick_centroid_col_row_px=np.empty((0, 2), dtype=np.float64),
-            pick_bbox_px=np.empty((0, 4), dtype=np.int32),
-            pick_bbox_um=np.empty((0, 2), dtype=np.float64),
-            pick_eccentricity=np.empty((0,), dtype=np.float64),
-            pick_cell_source_stage_xy_um=np.empty((0, 2), dtype=np.float64),
         )
 
     def test_legacy_acquired_derives_simulated_false(self, tmp_path):
@@ -485,7 +476,9 @@ class TestPrePlan2NpzBackCompat:
     def test_post_cut_npz_with_simulated_takes_precedence(self, tmp_path):
         """A post-cut NPZ has ``simulated`` and no
         ``analysis_image_source``. The loader must read ``simulated``
-        directly without consulting the legacy field."""
+        directly without consulting the legacy field. Fixture is
+        intentionally minimal to the assertion surface (see
+        ``_write_legacy_npz``)."""
         from workflow.visualize import _load_tile_npz
         path = tmp_path / "tile.npz"
         np.savez_compressed(
@@ -494,19 +487,6 @@ class TestPrePlan2NpzBackCompat:
             masks=np.zeros((16, 16), dtype=np.int32),
             tile_id=np.array(("0", 0, 0), dtype=str),
             simulated=np.bool_(True),
-            schema_version=np.int32(2),
-            cell_labels=np.empty((0,), dtype=np.int32),
-            cell_area_px=np.empty((0,), dtype=np.int32),
-            cell_mean_intensity=np.empty((0,), dtype=np.float64),
-            pick_tile_stage_xy_um=np.empty((0, 2), dtype=np.float64),
-            pick_tile_zwide_um=np.empty((0,), dtype=np.float64),
-            pick_source_pixel_size_um=np.empty((0, 2), dtype=np.float64),
-            pick_source_image_size_px=np.empty((0, 2), dtype=np.int32),
-            pick_centroid_col_row_px=np.empty((0, 2), dtype=np.float64),
-            pick_bbox_px=np.empty((0, 4), dtype=np.int32),
-            pick_bbox_um=np.empty((0, 2), dtype=np.float64),
-            pick_eccentricity=np.empty((0,), dtype=np.float64),
-            pick_cell_source_stage_xy_um=np.empty((0, 2), dtype=np.float64),
         )
         loaded = _load_tile_npz(path)
         assert loaded is not None
