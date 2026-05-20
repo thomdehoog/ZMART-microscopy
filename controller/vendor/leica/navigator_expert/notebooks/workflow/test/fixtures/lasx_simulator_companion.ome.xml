@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><!-- Warning: this comment is an OME-XML metadata block, which contains crucial dimensional parameters and other important metadata. Please edit cautiously (if at all), and back up the original data before doing so. For more information, see the OME-TIFF web site: http://loci.wisc.edu/ome/ome-tiff.html. --><OME xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http://www.openmicroscopy.org/Schemas/OME/2008-09" xmlns:Bin="http://www.openmicroscopy.org/Schemas/BinaryFile/2008-09" xmlns:CA="http://www.openmicroscopy.org/Schemas/CA/2008-09" xmlns:SA="http://www.openmicroscopy.org/Schemas/SA/2008-09" xmlns:SPW="http://www.openmicroscopy.org/Schemas/SPW/2008-09" xmlns:STD="http://www.openmicroscopy.org/Schemas/STD/2008-09" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" UUID="urn:uuid:00000000-0000-0000-0000-000000000000">
+<SemanticTypeDefinitions xmlns="http://www.openmicroscopy.org/Schemas/STD/2008-09"><SemanticType AppliesTo="I" Name="OriginalMetadata"><Element DBLocation="ORIGINAL_METADATA.NAME" DataType="string" Name="Name"/><Element DBLocation="ORIGINAL_METADATA.VALUE" DataType="string" Name="Value"/></SemanticType></SemanticTypeDefinitions>
+<CustomAttributes xmlns="http://www.openmicroscopy.org/Schemas/CA/2008-09">
+<OriginalMetadata ID="OriginalMetadata:0" Name="Data - Number of Attributes" Value="0" />
+<OriginalMetadata ID="OriginalMetadata:1" Name="Data - Number of Subnodes" Value="1" />
+<OriginalMetadata ID="OriginalMetadata:182" Name="Data - Image - Attachment - HardwareServerVersion" Value="Build 30051" />
+<OriginalMetadata ID="OriginalMetadata:183" Name="Data - Image - Attachment - SystemType" Value="100" />
+<OriginalMetadata ID="OriginalMetadata:184" Name="Data - Image - Attachment - SystemTypeName" Value="SIMULATOR" />
+</CustomAttributes>
+</OME>

@@ -48,14 +48,17 @@ OME-rewrite recipe (Plan 2 §4c):
 5. Atomically ``os.replace`` the target with the temp file.
 
 The recipe is validated for the workflow's normal single-plane saved
-files. Multi-page or multi-series OME-TIFFs would need the
-tag-preservation test extended (Plan 2 §4c scope).
+files. A multi-plane saved frame is rejected explicitly in
+``hijack_frame`` (RuntimeError -- per-tile, not run-fatal) so the
+loop records it and continues rather than producing 100 silent
+shape-mismatch hijack failures. Extending to multi-plane support is
+a `workflow/_mockprovider.py` change, not a guard change.
 """
 from __future__ import annotations
 
 import os
-import re
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Callable
 
@@ -64,6 +67,18 @@ import tifffile
 import navigator_expert.driver.ome_tiff as ome_tiff
 
 from _shared.output_layout import build_xml_name
+
+
+# Descendant-XPath for ``OriginalMetadata`` across any namespace. LAS X
+# actually places these elements inside a ``<CustomAttributes>`` block
+# carrying the CA-2008-09 default namespace, which is DIFFERENT from
+# the OME root namespace -- a naive ``root.iter("OriginalMetadata")``
+# misses them entirely. The ``{*}`` namespace wildcard (Python 3.8+
+# findall/iterfind XPath syntax; NOT supported by ``iter``) matches
+# the local name in any namespace, including none. This makes the
+# lookup robust to any future LAS X namespace drift.
+_ORIGINAL_METADATA_XPATH = ".//{*}OriginalMetadata"
+_SYSTEM_TYPE_NAME_ATTR = "Data - Image - Attachment - SystemTypeName"
 
 
 class NonSimulatorFrameError(RuntimeError):
@@ -77,30 +92,38 @@ class NonSimulatorFrameError(RuntimeError):
     """
 
 
-# OriginalMetadata element carrying the system type, embedded by LAS X
-# into the companion .ome.xml for every acquisition. Verified across
-# ~30 simulator XMLs / overview and target jobs / positions 0-15
-# (Plan 2 §1-C). On the simulator the Value is "SIMULATOR"; on a real
-# STELLARIS it is e.g. "STELLARIS 8".
-_SYS_TYPE_RE = re.compile(
-    r'<OriginalMetadata[^>]*Name="Data - Image - Attachment - '
-    r'SystemTypeName"[^>]*Value="([^"]*)"',
-)
-
-
 def _read_system_type(xml_path: Path) -> str | None:
     """Extract ``SystemTypeName`` from a LAS X-exported companion XML.
 
-    Returns the string value, or ``None`` if the element is missing or
-    the file is unreadable. The §2 allowlist treats anything but the
-    exact value ``"SIMULATOR"`` (including ``None``) as not-a-simulator.
+    Walks every ``<OriginalMetadata>`` element (across any namespace,
+    via ET's ``{*}`` wildcard -- LAS X wraps them in a CustomAttributes
+    block under a separate namespace) and returns the ``Value``
+    attribute of the one whose ``Name`` is exactly
+    ``"Data - Image - Attachment - SystemTypeName"``.
+
+    Returns ``None`` if the element is missing, the XML is unparseable,
+    or the file is unreadable. The §2 allowlist treats anything but
+    the exact value ``"SIMULATOR"`` (including ``None``) as
+    not-a-simulator.
+
+    This replaces an earlier regex implementation; the regex was
+    attribute-order-dependent and unaware of namespaces, which made it
+    fragile against perfectly-valid LAS X output variations. The ET
+    walk is order-independent, namespace-aware, and pinned in
+    ``test_hijack.py`` against a real (sanitized) LAS X simulator XML.
     """
     try:
-        text = xml_path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+        tree = ET.parse(xml_path)
+    except (OSError, ET.ParseError):
         return None
-    m = _SYS_TYPE_RE.search(text)
-    return m.group(1) if m else None
+    # ``iter`` does NOT honour the ``{*}`` namespace wildcard, only
+    # ``findall``/``iterfind`` do. Using the descendant-or-self XPath
+    # form so the OME root namespace and the CustomAttributes CA
+    # namespace are both swept.
+    for el in tree.getroot().iterfind(_ORIGINAL_METADATA_XPATH):
+        if el.get("Name") == _SYSTEM_TYPE_NAME_ATTR:
+            return el.get("Value")
+    return None
 
 
 def hijack_frame(
@@ -144,6 +167,14 @@ def hijack_frame(
     # Derive the companion XML path from the *canonical* naming -- do
     # NOT use the driver's _find_companion_xml (that resolves LAS X
     # source filenames, not canonical workflow names).
+    #
+    # Timing: this call is synchronous with respect to acquire_and_save
+    # -- driver/acquisition.py:172 calls _save_atomic(image, xml) which
+    # copies both to .tmp + size-validates + os.replaces both before
+    # acquire_and_save returns at line 190. By the time we get here the
+    # canonical-named XML is on disk. (Audited @ef4d2a2.) No retry
+    # needed; a missing-file read here would be a genuine bug, not a
+    # race.
     xml_path = layout.metadata_dir(kind) / build_xml_name(result.naming)
     system_type = _read_system_type(xml_path)
     if system_type != "SIMULATOR":
@@ -158,6 +189,22 @@ def hijack_frame(
     saved = tifffile.imread(result.image_path)        # closes its own handle
     with tifffile.TiffFile(result.image_path) as tif:  # explicit -- no leak
         desc = tif.pages[0].description
+
+    # 2D-only scope guard. The provider returns a 2-D image; downstream
+    # cellpose / pixel-to-stage chains have been validated for 2-D
+    # frames only (single-plane, single-channel). A multi-plane saved
+    # frame is a per-tile failure (RuntimeError -- recorded in
+    # hijack_failures and the loop continues), NOT a NonSimulatorFrame
+    # (which would hard-abort the run). The allowlist above runs FIRST
+    # so a real-hardware multi-plane frame still aborts on the
+    # allowlist as it should.
+    if saved.ndim != 2:
+        raise RuntimeError(
+            f"multi-plane simulator hijack unsupported on this commit; "
+            f"{result.image_path.name} has shape {saved.shape}. v3 jobs "
+            f"are single-plane single-channel overview/target; extend "
+            f"workflow/_mockprovider.py for >2D content."
+        )
 
     mock = provider(saved.shape, saved.dtype, naming=result.naming)
     if mock.shape != saved.shape or mock.dtype != saved.dtype:
@@ -196,18 +243,25 @@ def hijack_frame(
                 f"{result.image_path.name} -- aborting"
             )
         chk = ome_tiff.check_ome_tiff(str(tmp_path))
-        if chk.get("corrupted"):
+        # check_ome_tiff returns {corrupted: bool, error: str|None, ...}
+        # -- the driver convention treats `error` (e.g. unreadable tag
+        # 270, encoding error) as a check failure distinct from a known
+        # schema violation. Honour both.
+        if chk.get("corrupted") or chk.get("error"):
             raise RuntimeError(
                 f"hijacked OME-TIFF failed check on "
-                f"{result.image_path.name}: {chk.get('violations')}"
+                f"{result.image_path.name}: "
+                f"violations={chk.get('violations')} error={chk.get('error')}"
             )
         # Companion XML is untouched by a pixel rewrite -- validate
-        # for completeness.
+        # for completeness. Same {corrupted|error} contract.
         chk_xml = ome_tiff.check_ome_xml_file(str(xml_path))
-        if chk_xml.get("corrupted"):
+        if chk_xml.get("corrupted") or chk_xml.get("error"):
             raise RuntimeError(
                 f"companion XML failed check on "
-                f"{xml_path.name}: {chk_xml.get('violations')}"
+                f"{xml_path.name}: "
+                f"violations={chk_xml.get('violations')} "
+                f"error={chk_xml.get('error')}"
             )
 
         os.replace(tmp_path, result.image_path)
