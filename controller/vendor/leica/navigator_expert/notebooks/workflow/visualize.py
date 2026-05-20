@@ -1116,7 +1116,14 @@ def _render_target_crop_panel(
     if pick is not None and tile_data is not None:
         image_2d = tile_data[0]
         crop = _centroid_crop_at_target_fov(image_2d, pick, record, target_img)
-        ax.imshow(crop, cmap="gray")
+        # interpolation="nearest" is the structural way to say "show
+        # the pixels" -- the default (rcParam image.interpolation,
+        # often "auto" or "antialiased") would silently smooth small
+        # arrays when matplotlib upscales for display, which would
+        # misrepresent overview resolution as smoother than it is.
+        # See the operator's "image quality must reflect actual
+        # resolution" directive.
+        ax.imshow(crop, cmap="gray", interpolation="nearest")
     else:
         ax.text(0.5, 0.5, "N/A", ha="center", va="center",
                 transform=ax.transAxes,
@@ -1142,7 +1149,13 @@ def _render_highres_target_panel(
     unreadable tif).
     """
     if target_img is not None:
-        ax.imshow(target_img, cmap="gray")
+        # interpolation="nearest" -- same reasoning as
+        # _render_target_crop_panel above. In simulator mode this
+        # makes the hijacked target file's nearest-upsampled blocks
+        # visible (no display-side smoothing hiding them); in real-
+        # hardware mode each pixel is a real measurement and nearest
+        # honestly displays them at their native size.
+        ax.imshow(target_img, cmap="gray", interpolation="nearest")
     else:
         ax.text(0.5, 0.5, "N/A", ha="center", va="center",
                 transform=ax.transAxes,

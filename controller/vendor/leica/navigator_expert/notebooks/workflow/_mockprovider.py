@@ -188,13 +188,35 @@ def build_target_provider(
             target_pixel_size_um=px_tg,
         )
 
-        # Resample to target dimensions (zoom up). anti_aliasing=False
-        # because we're scaling up; preserve_range=True keeps intensity
-        # values in their original numeric range rather than [0, 1].
-        # This step is the hijack-only concern; the bare crop above is
-        # what the visualization centre panel also wants.
+        # Resample to target dimensions (zoom up). order=0 -- nearest-
+        # neighbour, NOT bilinear. The file shape matches what a real
+        # high-mag acquisition would produce (so the OME envelope,
+        # downstream consumers, and Step 5 visualization see the
+        # right shape), but each (target_pixel_size / source_pixel_size)-
+        # sized block carries the same value as one overview pixel.
+        # Visually-blocky pixels in the target file honestly signal
+        # "the simulator added no information at the target step --
+        # this is the overview's pixels stretched to the target's
+        # pixel count, not new measurements."
+        #
+        # Bilinear here was the dishonest choice: it produced visually-
+        # smooth target pixels that misrepresented the information
+        # content as if it were a real high-res capture. See the
+        # operator's "image quality must reflect actual resolution"
+        # directive. The long-term clean answer for a realistic
+        # simulator is a synthetic high-res specimen scene that both
+        # overview and target sample from at their own pixel sizes
+        # (not derive-from-overview); until then nearest is the
+        # honest fix.
+        #
+        # anti_aliasing=False because we're scaling up (the kwarg is
+        # a no-op for order=0 but documents intent for any future
+        # downscale path).
+        # preserve_range=True keeps intensity values in their original
+        # numeric range rather than skimage's default [0, 1].
         mock = resize(
             crop, (int(shape[0]), int(shape[1])),
+            order=0,
             preserve_range=True, anti_aliasing=False,
         )
         return mock.astype(dtype)
