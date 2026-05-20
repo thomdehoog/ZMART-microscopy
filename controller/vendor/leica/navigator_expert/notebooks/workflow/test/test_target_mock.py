@@ -325,7 +325,12 @@ class TestTargetProviderErrors:
         provider = build_target_provider(
             pick=pick, target_pixel_size_um=0.13, layout=layout,
         )
-        with pytest.raises(RuntimeError, match=r"2-D"):
+        # The shared geometry helper raises ValueError (more honest
+        # for "bad input shape") rather than RuntimeError; either
+        # would land in acquire_targets' per-pick failure path. What
+        # matters is it's NOT a NonSimulatorFrameError (which would
+        # hard-abort the whole run).
+        with pytest.raises((ValueError, RuntimeError), match=r"2-D"):
             provider((64, 64), np.uint16, naming=_dummy_naming())
 
 

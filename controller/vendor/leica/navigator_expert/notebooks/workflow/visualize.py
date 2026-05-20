@@ -21,6 +21,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from _shared.output_layout import Naming, build_position_analysis_name
+from ._geom import crop_overview_at_target_fov
 from .overview import Picks, TileEvent
 from .target import TargetRecord
 from .selection import (
@@ -1714,29 +1715,46 @@ def _centroid_crop_at_target_fov(
 ) -> np.ndarray:
     """Crop overview tile at the target job's physical field of view.
 
-    Centered on pick centroid. Crop size derived from the target image
-    dimensions and the pixel-size ratio between target and source.
-    Falls back to pick.bbox_px if target geometry is unavailable.
-    """
-    cx, cy = pick.centroid_col_row_px  # (col, row) in source pixels
-    src_px_w, src_px_h = pick.source_pixel_size_um
+    Two paths:
 
+      - Normal: target acquisition succeeded and we have target
+        geometry. Delegate to ``workflow._geom.crop_overview_at_target_fov``
+        -- the *same* helper the hijack provider uses to produce the
+        target file's content. This is the no-drift property: the
+        centre panel and the saved target TIFF show the same source
+        window for the same cell.
+
+      - Fallback: target acquisition not yet done (or target geometry
+        unavailable). Use ``pick.bbox_px`` -- cellpose's bounding
+        box -- and a simple clamped slice. Operator hasn't seen a
+        target yet, so the "match the target's FOV" property doesn't
+        apply.
+    """
     if (target_img is not None
             and rec.target_pixel_size_um is not None
-            and src_px_w > 0 and src_px_h > 0):
-        th, tw = target_img.shape[:2]
-        fov_w_um = tw * rec.target_pixel_size_um
-        fov_h_um = th * rec.target_pixel_size_um
-        crop_w = int(round(fov_w_um / src_px_w))
-        crop_h = int(round(fov_h_um / src_px_h))
-    else:
-        r0, c0, r1, c1 = pick.bbox_px
-        crop_h, crop_w = r1 - r0, c1 - c0
+            and pick.source_pixel_size_um[0] > 0):
+        return crop_overview_at_target_fov(
+            image_2d,
+            centroid_col_row_px=pick.centroid_col_row_px,
+            # Scalar pixel size (col-axis) -- rest of the pipeline
+            # does the same; see plan §"Pixel-size model".
+            source_pixel_size_um=float(pick.source_pixel_size_um[0]),
+            target_shape_px=(
+                int(target_img.shape[0]), int(target_img.shape[1]),
+            ),
+            target_pixel_size_um=float(rec.target_pixel_size_um),
+        )
 
+    # Fallback: no target yet, crop at cellpose's bbox, clamped to
+    # the overview bounds. Different math than the helper because the
+    # contract is different ("show me what cellpose detected" vs
+    # "show me the same window the target will see").
+    r0, c0, r1, c1 = pick.bbox_px
+    crop_h, crop_w = r1 - r0, c1 - c0
+    cx, cy = pick.centroid_col_row_px
     h, w = image_2d.shape[:2]
     r0 = int(round(cy - crop_h / 2))
     c0 = int(round(cx - crop_w / 2))
-    # Clamp to image bounds
     r0 = max(0, min(r0, h - crop_h))
     c0 = max(0, min(c0, w - crop_w))
     r1 = min(h, r0 + crop_h)

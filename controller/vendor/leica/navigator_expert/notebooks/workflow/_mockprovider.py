@@ -36,12 +36,13 @@ missing source overview file for the target provider) raise as
 """
 from __future__ import annotations
 
-import math
 from typing import Any, Callable
 
 import numpy as np
 
 from _shared.output_layout import Naming, build_image_name
+
+from ._geom import crop_overview_at_target_fov
 
 
 def get_provider(name: str) -> Callable:
@@ -165,70 +166,35 @@ def build_target_provider(
             / build_image_name(overview_naming)
         )
 
-        # Overview pixel size: scalar (use the col-axis value); the
-        # rest of the pipeline does the same. See plan §"Pixel-size
-        # model".
-        pw_ov = float(pick.source_pixel_size_um[0])
-        cx, cy = pick.centroid_col_row_px
         # Lazy: tifffile + skimage.transform are both lazy-imported so
         # the cost is paid only when simulation mode actually fires.
         import tifffile
         from skimage.transform import resize
 
         overview = tifffile.imread(overview_path)
-        # Scope boundary, structurally enforced: the target mock
-        # requires a 2-D overview. hijack_frame already guards
-        # multi-plane saved files upstream, so a fresh simulator
-        # overview is 2-D by construction. This check defends
-        # against stale / reused / hand-corrupted overview files
-        # where the upstream invariant doesn't hold. Per-tile
-        # failure (caller records in hijack_failures), not run-fatal.
-        if overview.ndim != 2:
-            raise RuntimeError(
-                f"build_target_provider: source overview file "
-                f"{overview_path.name} has shape {overview.shape} "
-                f"(ndim={overview.ndim}); target mock requires a "
-                f"2-D overview. A fresh simulator run should always "
-                f"produce 2-D overviews -- this is likely a stale "
-                f"or hand-modified file."
-            )
-        H_ov, W_ov = overview.shape
-        H_tg, W_tg = int(shape[0]), int(shape[1])
-
-        # Per-axis FOV (image may be non-square; pixel size is scalar).
-        target_fov_w_um = W_tg * px_tg
-        target_fov_h_um = H_tg * px_tg
-        crop_w_ov_px = int(math.floor(target_fov_w_um / pw_ov))
-        crop_h_ov_px = int(math.floor(target_fov_h_um / pw_ov))
-        # Defensive floor: ensure at least 1 px on each axis so resize
-        # has something to work with even on degenerate zoom ratios.
-        crop_w_ov_px = max(1, crop_w_ov_px)
-        crop_h_ov_px = max(1, crop_h_ov_px)
-
-        # Crop top-left in overview pixels (centred on the cell).
-        x0 = int(math.floor(cx - crop_w_ov_px / 2))
-        y0 = int(math.floor(cy - crop_h_ov_px / 2))
-
-        # Median-pad: cell near tile edge -> some of the requested
-        # crop window is outside the overview's bounds. Build the
-        # padded crop in a single allocation; copy in the in-bounds
-        # portion.
-        pad = int(np.median(overview))
-        xs = max(0, x0); ys = max(0, y0)
-        xe = min(W_ov, x0 + crop_w_ov_px); ye = min(H_ov, y0 + crop_h_ov_px)
-        crop = np.full(
-            (crop_h_ov_px, crop_w_ov_px), pad, dtype=overview.dtype,
+        # Shared geometry helper: same crop math as visualize.py's
+        # centre panel -- structurally enforces "what the operator
+        # sees in the Overview-crop panel matches what's in the saved
+        # target file." See workflow/_geom.py. Helper also enforces
+        # the 2-D-overview scope boundary (raises ValueError on
+        # ndim != 2 -- per-tile failure, not run-fatal).
+        crop = crop_overview_at_target_fov(
+            overview,
+            centroid_col_row_px=pick.centroid_col_row_px,
+            # Scalar pixel size (col-axis) -- rest of the pipeline
+            # treats it the same. See plan §"Pixel-size model".
+            source_pixel_size_um=float(pick.source_pixel_size_um[0]),
+            target_shape_px=(int(shape[0]), int(shape[1])),
+            target_pixel_size_um=px_tg,
         )
-        if xs < xe and ys < ye:
-            dst_y0 = ys - y0; dst_x0 = xs - x0
-            crop[dst_y0:dst_y0 + (ye - ys),
-                 dst_x0:dst_x0 + (xe - xs)] = overview[ys:ye, xs:xe]
 
         # Resample to target dimensions (zoom up). anti_aliasing=False
         # because we're scaling up; preserve_range=True keeps intensity
         # values in their original numeric range rather than [0, 1].
+        # This step is the hijack-only concern; the bare crop above is
+        # what the visualization centre panel also wants.
         mock = resize(
-            crop, (H_tg, W_tg),
+            crop, (int(shape[0]), int(shape[1])),
             preserve_range=True, anti_aliasing=False,
         )
         return mock.astype(dtype)
