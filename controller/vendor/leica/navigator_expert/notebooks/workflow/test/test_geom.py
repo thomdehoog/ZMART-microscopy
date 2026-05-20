@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -159,13 +160,25 @@ class TestNoDriftAgainstCallers:
     """Pin the convergence: _mockprovider.build_target_provider and
     visualize.py's centre-panel render must both delegate to
     crop_overview_at_target_fov so they cannot disagree on the source
-    window. These tests assert the call-site math (whatever
-    translation each caller does from its domain object to the
-    helper's primitives) ends up at the same crop.
+    window for the same cell.
+
+    Two complementary structural pins:
+      1. ``test_visualize_centroid_crop_equals_helper_output`` and
+         ``test_hijack_provider_crop_step_equals_helper_output``
+         compare actual outputs. Pin: visualize/hijack produce the
+         same crop the helper would produce. Drift impossible
+         regardless of implementation.
+      2. ``test_both_call_sites_invoke_helper_with_same_primitives``
+         spies on the helper symbol as imported by each module.
+         Pin: both call sites delegate via the shared symbol (no
+         copy-pasted local implementation), AND pass identical
+         primitive arguments derived from the same domain inputs.
+
+    Together: drift class is closed structurally, not just by
+    matching test outputs in three lucky cases.
     """
 
     def _make_layout(self, tmp_dir: Path, hash6: str = "abcdef"):
-        from _shared.output_layout import Naming, build_image_name
         data = tmp_dir / "data" / "overview-scan"
         data.mkdir(parents=True, exist_ok=True)
 
@@ -204,72 +217,188 @@ class TestNoDriftAgainstCallers:
             position=position,
         )
 
+    def _make_target_record(self, *, target_pixel_size_um=0.13):
+        from workflow.target import TargetRecord
+        return TargetRecord(
+            pick_id=("0", 0, 0, 1),
+            cell_source_stage_xy_um=(0.0, 0.0),
+            source_zwide_um=0.0,
+            target_stage_xy_um=(0.0, 0.0),
+            target_zwide_um=0.0,
+            target_zoom=None,
+            target_pixel_size_um=target_pixel_size_um,
+            tif_path=None,
+            success=True,
+            error=None,
+        )
+
+    def _dummy_naming(self):
+        from _shared.output_layout import Naming
+        return Naming(
+            acquisition_type="target-acquisition",
+            hash6="abcdef", g=0, p=0,
+        )
+
+    # ── Output-equality pins (rev2's recommendation) ─────────────
+
     @pytest.mark.parametrize("centroid", [
-        (200.0, 200.0),     # centred -- both implementations agree
-        (5.0, 5.0),         # near corner -- the edge case that drifted
-        (395.0, 395.0),     # near opposite corner
+        (200.0, 200.0),     # centred
+        (120.0, 50.0),      # asymmetric -- fails any (col, row) swap
+        (5.0, 5.0),         # near low-low corner (edge padding)
+        (395.0, 395.0),     # near high-high corner (edge padding)
     ])
-    def test_hijack_provider_and_visualization_crop_match(
+    def test_visualize_centroid_crop_equals_helper_output(
         self, tmp_path, centroid,
     ):
-        """The hijack provider crops, then resamples to target shape.
-        The visualization's centre panel crops, then displays directly.
-        Both must produce the *same crop* (the pre-resize step) for
-        the same inputs. Asserts identity of the crop array between
-        the two code paths."""
-        from workflow._mockprovider import build_target_provider
-        # Helper: capture the crop the hijack produces by inspecting
-        # what build_target_provider's resize step sees. We call the
-        # helper directly (the same way both callers do) and assert
-        # the array is byte-identical to what each call site would
-        # construct.
-        layout = self._make_layout(tmp_path)
-        overview = np.full((400, 400), 10000, dtype=np.uint16)
-        overview[int(centroid[1]), int(centroid[0])] = 50000
-        self._write_overview(layout, overview)
+        """Visualize's centre-panel crop MUST go through the shared
+        helper on the normal (target-acquired) path. Calls the
+        actual visualize entry point and asserts byte-equality
+        against the helper called directly with the primitives the
+        call site translates from Pick + TargetRecord.
 
-        # Path 1: direct helper call (what visualize.py should be
-        # doing).
-        direct = crop_overview_at_target_fov(
+        A future refactor that inlines different crop math in
+        visualize fails this test loudly across all four centroids
+        (centred works either way; the asymmetric and edge cases
+        catch the bugs).
+        """
+        from workflow.visualize import _centroid_crop_at_target_fov
+
+        overview = np.full((400, 400), 10000, dtype=np.uint16)
+        cy, cx = int(centroid[1]), int(centroid[0])
+        if 0 <= cy < 400 and 0 <= cx < 400:
+            overview[cy, cx] = 50000      # asymmetric sentinel
+        pick = self._make_pick(centroid=centroid)
+        record = self._make_target_record(target_pixel_size_um=0.13)
+        target_img = np.zeros((200, 200), dtype=np.uint16)
+
+        via_visualize = _centroid_crop_at_target_fov(
+            overview, pick, record, target_img,
+        )
+        via_helper = crop_overview_at_target_fov(
             overview,
             centroid_col_row_px=centroid,
             source_pixel_size_um=0.65,
             target_shape_px=(200, 200),
             target_pixel_size_um=0.13,
         )
+        assert np.array_equal(via_visualize, via_helper)
 
-        # Path 2: hijack provider's internal crop. Invoke the
-        # provider, then re-derive the crop dimensions and compare
-        # by re-cropping the source overview the same way the helper
-        # would. The provider's output is resized; what we're pinning
-        # is that the crop step matches the direct helper call.
-        pick = self._make_pick(centroid=centroid)
+    def test_hijack_provider_crop_step_equals_helper_output(self, tmp_path):
+        """Hijack provider's crop step (before resize) MUST go
+        through the shared helper. Patches ``skimage.transform.resize``
+        to identity so the provider's output IS the crop -- directly
+        comparable to the helper's output.
+
+        A future refactor that inlines different crop math in
+        _mockprovider fails this test loudly.
+        """
+        from workflow._mockprovider import build_target_provider
+
+        layout = self._make_layout(tmp_path)
+        overview = np.full((400, 400), 10000, dtype=np.uint16)
+        overview[50, 120] = 50000     # [cy=50, cx=120] sentinel
+        self._write_overview(layout, overview)
+
+        pick = self._make_pick(centroid=(120.0, 50.0), position=0)
         provider = build_target_provider(
             pick=pick, target_pixel_size_um=0.13, layout=layout,
         )
-        # The provider's resize step is bilinear; its input crop is
-        # the value we want to compare. Call the helper a second time
-        # with the *same primitives the provider should derive from
-        # the pick* -- if the provider uses the shared helper, those
-        # primitives are floor + median-pad. Same call = same result.
-        provider_input_crop = crop_overview_at_target_fov(
+
+        # Identity resize: provider output == crop output. Need a
+        # shape that matches the crop dims so identity-resize works
+        # without reshape (target_shape = (40, 40) since FOV math
+        # gives 40-px crop at this zoom).
+        with mock.patch(
+            "skimage.transform.resize",
+            side_effect=lambda crop, shape, **k: crop,
+        ):
+            via_provider = provider(
+                (40, 40), np.uint16, naming=self._dummy_naming(),
+            )
+
+        via_helper = crop_overview_at_target_fov(
             overview,
-            centroid_col_row_px=centroid,
+            centroid_col_row_px=(120.0, 50.0),
             source_pixel_size_um=0.65,
-            target_shape_px=(200, 200),
+            target_shape_px=(40, 40),
             target_pixel_size_um=0.13,
         )
-        assert np.array_equal(direct, provider_input_crop)
-        # Sanity that the provider actually runs end-to-end on this
-        # input -- ensures we didn't break the integration during
-        # extraction.
-        from _shared.output_layout import Naming
-        out = provider(
-            (200, 200), np.uint16,
-            naming=Naming(
-                acquisition_type="target-acquisition",
-                hash6="abcdef", g=0, p=0,
-            ),
+        assert np.array_equal(via_provider, via_helper)
+
+    # ── Call-args structural pin (rev1's recommendation) ──────────
+
+    def test_both_call_sites_invoke_helper_with_same_primitives(
+        self, tmp_path,
+    ):
+        """Spy on the helper symbol as imported by each module.
+        Assert both call sites delegate to it (the spy fires)
+        with identical primitive arguments derived from the same
+        domain inputs.
+
+        Stronger than the output-comparison tests because it pins
+        that the helper is the single source of truth -- a future
+        contributor copy-pasting the crop math locally (producing
+        identical output by coincidence) would still fail this test.
+        """
+        from workflow.visualize import _centroid_crop_at_target_fov
+        from workflow._mockprovider import build_target_provider
+
+        layout = self._make_layout(tmp_path)
+        overview = np.full((400, 400), 10000, dtype=np.uint16)
+        self._write_overview(layout, overview)
+
+        pick = self._make_pick(centroid=(120.0, 50.0), position=0)
+        record = self._make_target_record(target_pixel_size_um=0.13)
+        # In production, target_img.shape == the shape the provider is
+        # called with (both derive from the same saved target file).
+        # Mirror that here so the primitives end up equal.
+        target_shape = (40, 40)
+        target_img = np.zeros(target_shape, dtype=np.uint16)
+
+        sentinel = np.zeros(target_shape, dtype=np.uint16)
+
+        # ── visualize side ───────────────────────────────────────
+        with mock.patch(
+            "workflow.visualize.crop_overview_at_target_fov",
+            return_value=sentinel,
+        ) as viz_spy:
+            _centroid_crop_at_target_fov(
+                overview, pick, record, target_img,
+            )
+        assert viz_spy.call_count == 1, (
+            "visualize must delegate to the shared helper "
+            "(spy never fired -- likely a local copy-paste)"
         )
-        assert out.shape == (200, 200)
-        assert out.dtype == np.uint16
+        viz_kwargs = viz_spy.call_args.kwargs
+
+        # ── hijack-provider side ─────────────────────────────────
+        # build_target_provider returns a closure; calling it
+        # invokes the helper. Stub resize to no-op so we don't
+        # need a shape-matching sentinel.
+        with mock.patch(
+            "workflow._mockprovider.crop_overview_at_target_fov",
+            return_value=sentinel,
+        ) as hijack_spy, mock.patch(
+            "skimage.transform.resize",
+            side_effect=lambda crop, shape, **k: crop,
+        ):
+            provider = build_target_provider(
+                pick=pick, target_pixel_size_um=0.13, layout=layout,
+            )
+            provider(target_shape, np.uint16, naming=self._dummy_naming())
+        assert hijack_spy.call_count == 1, (
+            "_mockprovider must delegate to the shared helper "
+            "(spy never fired -- likely a local copy-paste)"
+        )
+        hijack_kwargs = hijack_spy.call_args.kwargs
+
+        # The structural pin: same primitives derived from the
+        # same domain inputs. Tuples and floats compare by value;
+        # ndarrays are positional (overview), not kwargs, so this
+        # comparison is clean.
+        assert viz_kwargs == hijack_kwargs, (
+            f"visualize and _mockprovider passed different "
+            f"primitives to the shared helper:\n"
+            f"  visualize: {viz_kwargs}\n"
+            f"  hijack:    {hijack_kwargs}"
+        )
