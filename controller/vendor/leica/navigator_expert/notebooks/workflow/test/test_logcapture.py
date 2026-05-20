@@ -176,3 +176,15 @@ class TestDeferredCapture:
             print("after-failure")
             assert cap._disabled is True
             assert cap._buffer == []
+
+    def test_bound_path_registered_for_reentrancy_guard(self, tmp_path):
+        # After bind, a nested capture_console on the same path no-ops
+        # (the deferred path is registered in _active_paths), so a
+        # decorated step that happened to share the path would not
+        # double-write every line.
+        log = tmp_path / "init" / "initialization.log"
+        with capture_console_deferred() as cap:
+            cap.bind(log)
+            with capture_console(log):           # same path -> inner no-ops
+                print("once-only")
+        assert log.read_text().count("once-only") == 1
