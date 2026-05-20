@@ -334,6 +334,99 @@ class TestTargetProviderErrors:
             provider((64, 64), np.uint16, naming=_dummy_naming())
 
 
+class TestTargetMockHonestResolution:
+    """Pin the operator's directive: 'image quality must reflect actual
+    resolution in the picture'. The hijack must NOT bilinear-upsample
+    the overview crop -- doing so produces a target file whose visual
+    smoothness misrepresents the actual information content (only
+    overview-resolution info, stretched to target pixel count).
+
+    Nearest-neighbour upsampling (order=0) is the honest fix: the file
+    has the right target shape but each block of pixels carries the
+    same value as one overview pixel, visibly signalling 'no new
+    information added at the target step.'
+    """
+
+    def test_hijack_resize_uses_nearest_neighbour(self, tmp_path):
+        """Pin that build_target_provider passes order=0 to
+        skimage.transform.resize. A future contributor removing
+        order=0 (e.g. via 'cleanup' that drops what looks like a
+        default arg) silently re-introduces the dishonest bilinear
+        smoothing. Spy catches it loudly."""
+        from workflow._mockprovider import build_target_provider
+
+        layout = _make_layout(tmp_path)
+        overview = np.full((64, 64), 10000, dtype=np.uint16)
+        _write_overview_file(layout, overview)
+        pick = _make_pick(
+            centroid_col_row_px=(32.0, 32.0),
+            source_pixel_size_um=(0.65, 0.65),
+            source_image_size_px=(64, 64),
+        )
+        provider = build_target_provider(
+            pick=pick, target_pixel_size_um=0.13, layout=layout,
+        )
+
+        # The lazy `from skimage.transform import resize` inside the
+        # closure rebinds the name to whatever skimage.transform.resize
+        # currently is, so patching the module attribute does
+        # intercept the call.
+        with mock.patch(
+            "skimage.transform.resize",
+            side_effect=lambda crop, shape, **k: np.zeros(shape, dtype=crop.dtype),
+        ) as resize_spy:
+            provider((64, 64), np.uint16, naming=_dummy_naming())
+
+        assert resize_spy.call_count == 1
+        assert resize_spy.call_args.kwargs.get("order") == 0, (
+            f"hijack must pass order=0 (nearest-neighbour) to "
+            f"skimage.transform.resize -- got kwargs "
+            f"{resize_spy.call_args.kwargs}. Bilinear (order=1, "
+            f"the default) is dishonest: it makes the target file "
+            f"look smoother than its information content warrants."
+        )
+
+    def test_hijack_output_is_blocky_in_simulator_mode(self, tmp_path):
+        """End-to-end pin: a 4x4 overview crop upsampled to 8x8 target
+        must contain visible 2x2 blocks of identical values (nearest-
+        neighbour), not gradients (bilinear). Catches order=0 being
+        dropped even if the spy test above somehow misses it."""
+        from workflow._mockprovider import build_target_provider
+
+        layout = _make_layout(tmp_path)
+        # Construct an overview where each pixel has a distinct value
+        # so any interpolation across pixels is visible. 8x8 overview;
+        # crop will be ~4x4 (target 8x8 at 1x zoom would be 8x8, so we
+        # need target larger than source for upsampling).
+        overview = (np.arange(64, dtype=np.uint16).reshape(8, 8)
+                    * 1000)
+        _write_overview_file(layout, overview)
+        pick = _make_pick(
+            centroid_col_row_px=(4.0, 4.0),
+            source_pixel_size_um=(1.0, 1.0),
+            source_image_size_px=(8, 8),
+        )
+        provider = build_target_provider(
+            # 2x zoom: target 8x8 covers same FOV as 4x4 overview pixels.
+            pick=pick, target_pixel_size_um=0.5, layout=layout,
+        )
+        out = provider((8, 8), np.uint16, naming=_dummy_naming())
+
+        # Each 2x2 block in the output should contain identical values
+        # (nearest-neighbour upsampling: each overview pixel becomes a
+        # 2x2 block of itself). Bilinear would interpolate ->
+        # different values in the block.
+        for r in range(0, 8, 2):
+            for c in range(0, 8, 2):
+                block = out[r:r+2, c:c+2]
+                assert len(set(block.flatten().tolist())) == 1, (
+                    f"2x2 block at ({r},{c}) has multiple distinct "
+                    f"values {block.tolist()} -- nearest-neighbour "
+                    f"upsampling should produce uniform blocks; "
+                    f"bilinear was likely re-introduced"
+                )
+
+
 # ─── acquire_targets integration (wiring + simulate-gate) ─────────
 
 

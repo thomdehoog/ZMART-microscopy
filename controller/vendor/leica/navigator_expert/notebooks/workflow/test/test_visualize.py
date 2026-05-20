@@ -780,6 +780,81 @@ class TestCentroidCropAtTargetFov:
         assert crop.sum() == 1.0, "Marker should be inside the crop"
 
 
+# ─── Display-side honest-resolution pin ──────────────────────────
+
+
+class TestStep5PanelInterpolation:
+    """Pin that Step 5's centre and right panels use
+    interpolation='nearest' on imshow. The default matplotlib
+    rcParam (image.interpolation = 'auto' or 'antialiased') would
+    silently smooth small arrays on display upscale, which would
+    misrepresent the centre panel's overview resolution as smoother
+    than it actually is and hide the simulator's blocky nearest-
+    upsampled target file content. Explicit nearest is the
+    structural 'show the pixels' guarantee.
+
+    Pinning by invoking the panel renderers and inspecting the
+    AxesImage object's interpolation -- a future contributor
+    dropping the kwarg or changing it to something else fails this
+    test loudly.
+    """
+
+    def test_centre_panel_imshow_uses_nearest(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import _render_target_crop_panel
+        from workflow.target import TargetRecord
+
+        image = np.zeros((100, 100), dtype=np.uint16)
+        target_img = np.zeros((20, 20), dtype=np.uint16)
+        pick = _make_pick(("0", 0, 0), label=1,
+                          centroid_rc=(50.0, 50.0),
+                          bbox=(45, 45, 55, 55))
+        rec = TargetRecord(
+            pick_id=("0", 0, 0, 1),
+            cell_source_stage_xy_um=(0.0, 0.0), source_zwide_um=0.0,
+            target_stage_xy_um=(0.0, 0.0), target_zwide_um=0.0,
+            target_zoom=None, target_pixel_size_um=0.25,
+            tif_path=None, success=True, error=None,
+        )
+        tile_data = (image, np.zeros_like(image, dtype=np.int32))
+
+        fig, ax = plt.subplots()
+        try:
+            _render_target_crop_panel(ax, pick, rec, tile_data, target_img)
+            assert ax.images, "no imshow was called on the centre panel"
+            assert ax.images[0].get_interpolation() == "nearest", (
+                f"centre panel imshow used interpolation="
+                f"{ax.images[0].get_interpolation()!r} -- must be "
+                f"'nearest' to honestly show overview pixel "
+                f"resolution. See workflow/visualize.py."
+            )
+        finally:
+            plt.close(fig)
+
+    def test_right_panel_imshow_uses_nearest(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import _render_highres_target_panel
+
+        target_img = np.zeros((200, 200), dtype=np.uint16)
+        fig, ax = plt.subplots()
+        try:
+            _render_highres_target_panel(ax, target_img)
+            assert ax.images, "no imshow was called on the right panel"
+            assert ax.images[0].get_interpolation() == "nearest", (
+                f"right panel imshow used interpolation="
+                f"{ax.images[0].get_interpolation()!r} -- must be "
+                f"'nearest' to honestly show target file pixels. "
+                f"In simulator mode the file is nearest-upsampled "
+                f"and the display must not smooth that away."
+            )
+        finally:
+            plt.close(fig)
+
+
 # ─── _ensure_2d ──────────────────────────────────────────────────
 
 
