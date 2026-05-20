@@ -17,6 +17,8 @@ from _shared.output_layout import Naming
 from ._acquire import acquire
 from ._job_state import ensure_job_state
 from ._logcapture import _logged
+from ._hijack import hijack_frame, NonSimulatorFrameError
+from ._mockprovider import get_provider
 
 
 @dataclass
@@ -36,6 +38,13 @@ class TargetRecord:
     # target came from -- the overview-scan file index p, NOT the
     # target-acquisition index. None only on a pre-`position` reload.
     source_tile_position: int | None = None
+    # Plan 2 -- per-record provenance. simulated=True means this
+    # target's saved .ome.tiff carries mock pixels under the LAS X
+    # simulator's OME envelope; mock_image_source names the provider.
+    # Default False/None preserves back-compat for non-simulate runs
+    # and pre-Plan-2 reloads.
+    simulated: bool = False
+    mock_image_source: str | None = None
 
 
 def _position_label(position) -> str:
@@ -148,6 +157,12 @@ def acquire_targets(
             save_queue=save_queue,
         )
 
+    # Plan 2 simulation mode. provider is None for a real run; set to a
+    # mock-image callable when cfg.simulate. Mirrors run_overview's
+    # construct -- per-frame NonSimulatorFrameError allowlist enforced
+    # by hijack_frame().
+    provider = get_provider(cfg.mock_image_source) if cfg.simulate else None
+
     ts.started = True
 
     try:
@@ -254,6 +269,19 @@ def acquire_targets(
                 tif_path = result.image_path
                 stage = "save"  # save succeeded inside acquire_and_save
 
+                if cfg.simulate:
+                    # NonSimulatorFrameError propagates past the per-pick
+                    # `except Exception` below (we re-raise it
+                    # explicitly there) so the run hard-aborts -- a
+                    # real-hardware frame must never be silently logged
+                    # as a per-pick failure.
+                    stage = "hijack"
+                    hijack_frame(
+                        result, kind="target-acquisition",
+                        layout=ctx.run.layout, provider=provider,
+                    )
+                    stage = "save"  # hijack complete; back to terminal
+
                 rec = TargetRecord(
                     pick_id=pick.pick_id,
                     cell_source_stage_xy_um=pick.cell_source_stage_xy_um,
@@ -266,6 +294,8 @@ def acquire_targets(
                     success=True,
                     error=None,
                     source_tile_position=pick.position,
+                    simulated=cfg.simulate,
+                    mock_image_source=cfg.mock_image_source,
                 )
                 records.append(rec)
                 print(f"  ok  tz={tz:.1f}")
@@ -276,6 +306,11 @@ def acquire_targets(
                     except Exception as exc:
                         print(f"  [viz] WARNING: on_target failed: {exc}")
 
+            except NonSimulatorFrameError:
+                # Run-fatal: re-raise past the broad except below and
+                # past the outer finally so the caller sees the
+                # simulator-mismatch and the run hard-aborts mid-list.
+                raise
             except Exception as exc:
                 records.append(TargetRecord(
                     pick_id=pick.pick_id,
@@ -285,11 +320,18 @@ def acquire_targets(
                     target_zwide_um=tz,
                     target_zoom=None,
                     target_pixel_size_um=target_pixel_size_um,
-                    tif_path=tif_path,
+                    # A hijack failure means the .ome.tiff was saved
+                    # but its pixels were NOT replaced with mock content.
+                    # Hide the path so downstream consumers don't pick
+                    # up the simulator-content file as if it were a
+                    # successful (mock) acquisition.
+                    tif_path=None if stage == "hijack" else tif_path,
                     success=False,
                     error=str(exc),
                     failure_stage=stage,
                     source_tile_position=pick.position,
+                    simulated=cfg.simulate,
+                    mock_image_source=cfg.mock_image_source,
                 ))
                 print(f"  FAIL@{stage} ({exc})")
 

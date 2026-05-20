@@ -76,6 +76,13 @@ def _make_focus_map():
 
 
 def _make_overview_result():
+    # Plan 2: n_tiles_acquired is a stored counter now (was derived
+    # `submitted - acquire_failed`). On a non-simulate run with no
+    # hijack-failure path, acquired = submitted + acquire_failed = the
+    # number of tiles where acquire_and_save returned. With 1
+    # acquire_failure and 2 submitted, that's 2 (acquire_failed tiles
+    # don't reach the n_tiles_acquired += 1 line). The legacy value 1
+    # under the derived rule is preserved here for back-compat.
     return OverviewResult(
         all_picks=[],
         tile_acquire_failures=[{"tile_id": ["0", 0, 0], "error": "boom"}],
@@ -84,6 +91,7 @@ def _make_overview_result():
         tile_cell_counts={("0", 0, 0): 12, ("0", 0, 1): 0},
         n_tiles_planned=3,
         n_tiles_submitted=2,
+        n_tiles_acquired=1,
         completed=True,
     )
 

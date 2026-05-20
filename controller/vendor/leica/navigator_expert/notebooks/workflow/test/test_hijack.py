@@ -1,0 +1,320 @@
+"""Tests for the Plan 2 simulation-mode hijack.
+
+Two surfaces under test:
+
+  Guard (per-frame allowlist on the companion XML's SystemTypeName):
+    - Refuses to overwrite when the value isn't exactly "SIMULATOR" --
+      including missing element, unreadable XML, and a real-instrument
+      identifier like "STELLARIS 8". This is the load-bearing safety
+      property; a regression here would let cfg.simulate=True silently
+      replace real-hardware pixels with mock content.
+
+  OME-rewrite (overwrite path):
+    - Tag 270 (ImageDescription, the OME-XML) survives the rewrite
+      byte-for-byte. This is enforced inside hijack_frame; the test
+      pins it by reading tag 270 from the rewritten file directly.
+    - Provider shape/dtype mismatch raises RuntimeError (not
+      NonSimulatorFrameError) so the loop records a per-tile failure
+      and continues -- not a run-fatal abort.
+
+The fixtures are synthesized at test time with tifffile. No binary
+blobs are committed; the synthesized OME envelope carries a minimal
+OriginalMetadata block for the SystemTypeName allowlist regex.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+import tifffile
+
+from _shared.output_layout import Naming, build_xml_name
+from workflow._hijack import (
+    NonSimulatorFrameError,
+    _read_system_type,
+    hijack_frame,
+)
+from workflow._mockprovider import get_provider
+
+
+# ─── Helpers ──────────────────────────────────────────────────────
+
+
+_OME_DESC_TMPL = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
+    '<Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYCZT" '
+    'Type="uint16" SizeX="16" SizeY="16" SizeC="1" SizeZ="1" SizeT="1"/>'
+    '</Image>'
+    '<StructuredAnnotations>'
+    '<XMLAnnotation ID="Annotation:0">'
+    '<Value><OriginalMetadata>'
+    '<Key>Data - Image - Attachment - SystemTypeName</Key>'
+    '<Value>{system_type}</Value>'
+    '</OriginalMetadata></Value>'
+    '</XMLAnnotation>'
+    '</StructuredAnnotations>'
+    '</OME>'
+)
+# The hijack reads the system type via a regex on a compact one-line
+# OriginalMetadata representation. The on-disk LAS X form is the
+# attribute-encoded variant; we mirror it inside tag 270 here so the
+# regex finds it after the round-trip too.
+_INLINE_ORIGINAL_META = (
+    '<OriginalMetadata Name="Data - Image - Attachment - SystemTypeName" '
+    'Value="{system_type}"/>'
+)
+
+
+def _make_companion_xml(system_type: str) -> bytes:
+    """Build a minimal companion .ome.xml carrying SystemTypeName."""
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
+        + _INLINE_ORIGINAL_META.format(system_type=system_type)
+        + '</OME>'
+    )
+    return body.encode("utf-8")
+
+
+def _make_image_description(system_type: str) -> str:
+    """tag-270 OME-XML that includes the inline OriginalMetadata line so
+    the hijack's per-frame guard could (in principle) read either the
+    companion XML or the tag's XML. The guard only reads the companion;
+    we include the line here for symmetry with the live LAS X output."""
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
+        '<Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYCZT" '
+        'Type="uint16" SizeX="16" SizeY="16" SizeC="1" SizeZ="1" '
+        'SizeT="1"/></Image>'
+        + _INLINE_ORIGINAL_META.format(system_type=system_type)
+        + '</OME>'
+    )
+
+
+def _write_ome_tiff(path: Path, arr: np.ndarray, desc: str) -> None:
+    """Write an .ome.tiff with description=desc verbatim (ome=False).
+
+    Matches the hijack's own rewrite recipe -- ome=False is essential
+    so tifffile does not regenerate the description from the array.
+    """
+    tifffile.imwrite(path, arr, description=desc, ome=False,
+                     photometric="minisblack")
+
+
+def _build_result(tmp_dir: Path, system_type: str, *,
+                  shape=(16, 16), dtype=np.uint16):
+    """Build a (layout, result) pair for a fake one-tile acquisition.
+
+    Returns a SimpleNamespace shaped like SavedAcquisition (image,
+    image_path, naming) plus a layout stub whose metadata_dir() points
+    at tmp_dir/metadata so the companion XML resolves there.
+    """
+    naming = Naming(
+        acquisition_type="overview-scan",
+        hash6="abcdef",
+        g=0, p=0,
+    )
+    metadata_dir = tmp_dir / "metadata"
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    xml_path = metadata_dir / build_xml_name(naming)
+    xml_path.write_bytes(_make_companion_xml(system_type))
+
+    image_path = tmp_dir / "frame.ome.tiff"
+    arr = np.full(shape, 100, dtype=dtype)
+    _write_ome_tiff(image_path, arr, _make_image_description(system_type))
+
+    layout = SimpleNamespace(
+        metadata_dir=lambda kind: metadata_dir,
+    )
+    result = SimpleNamespace(
+        image=arr, image_path=image_path, naming=naming,
+    )
+    return layout, result
+
+
+def _constant_provider(value: int):
+    """Provider that always returns a constant-valued array of the
+    requested shape and dtype. Lets tests assert "pixels changed" by
+    comparing against the original constant."""
+    def _p(shape, dtype, *, naming):
+        return np.full(shape, value, dtype=dtype)
+    return _p
+
+
+# ─── Guard: positive allowlist ────────────────────────────────────
+
+
+class TestGuardRejectsNonSimulator:
+    def test_rejects_real_instrument(self, tmp_path):
+        """A real-hardware companion XML must abort the hijack with
+        NonSimulatorFrameError -- the load-bearing safety property."""
+        layout, result = _build_result(tmp_path, "STELLARIS 8")
+        with pytest.raises(NonSimulatorFrameError):
+            hijack_frame(result, kind="overview-scan",
+                         layout=layout, provider=_constant_provider(42))
+
+    def test_rejects_missing_systemtype_element(self, tmp_path):
+        """A companion XML without the SystemTypeName OriginalMetadata
+        element -- unknown system -- must abort."""
+        layout, result = _build_result(tmp_path, "SIMULATOR")
+        # Overwrite the companion XML with one that lacks the
+        # SystemTypeName element entirely.
+        metadata_dir = layout.metadata_dir("overview-scan")
+        xml_path = metadata_dir / build_xml_name(result.naming)
+        xml_path.write_bytes(
+            b'<?xml version="1.0"?><OME></OME>'
+        )
+        with pytest.raises(NonSimulatorFrameError):
+            hijack_frame(result, kind="overview-scan",
+                         layout=layout, provider=_constant_provider(42))
+
+    def test_rejects_missing_xml_file(self, tmp_path):
+        """An unreadable companion XML (file does not exist on disk)
+        must abort -- never silently overwrite."""
+        layout, result = _build_result(tmp_path, "SIMULATOR")
+        metadata_dir = layout.metadata_dir("overview-scan")
+        xml_path = metadata_dir / build_xml_name(result.naming)
+        xml_path.unlink()
+        with pytest.raises(NonSimulatorFrameError):
+            hijack_frame(result, kind="overview-scan",
+                         layout=layout, provider=_constant_provider(42))
+
+    def test_rejects_empty_string_systemtype(self, tmp_path):
+        """An empty SystemTypeName value is neither 'SIMULATOR' nor a
+        recognized real instrument -- abort to be safe."""
+        layout, result = _build_result(tmp_path, "")
+        with pytest.raises(NonSimulatorFrameError):
+            hijack_frame(result, kind="overview-scan",
+                         layout=layout, provider=_constant_provider(42))
+
+    def test_does_not_overwrite_when_rejected(self, tmp_path):
+        """A rejected guard MUST leave the original .ome.tiff bytes
+        intact -- not even a partial overwrite is acceptable."""
+        layout, result = _build_result(tmp_path, "STELLARIS 8")
+        original_bytes = result.image_path.read_bytes()
+        with pytest.raises(NonSimulatorFrameError):
+            hijack_frame(result, kind="overview-scan",
+                         layout=layout, provider=_constant_provider(42))
+        assert result.image_path.read_bytes() == original_bytes
+
+
+# ─── _read_system_type unit ───────────────────────────────────────
+
+
+class TestReadSystemType:
+    def test_returns_simulator_value(self, tmp_path):
+        xml = tmp_path / "x.xml"
+        xml.write_bytes(_make_companion_xml("SIMULATOR"))
+        assert _read_system_type(xml) == "SIMULATOR"
+
+    def test_returns_real_instrument(self, tmp_path):
+        xml = tmp_path / "x.xml"
+        xml.write_bytes(_make_companion_xml("STELLARIS 8"))
+        assert _read_system_type(xml) == "STELLARIS 8"
+
+    def test_returns_none_on_missing_element(self, tmp_path):
+        xml = tmp_path / "x.xml"
+        xml.write_bytes(b"<OME></OME>")
+        assert _read_system_type(xml) is None
+
+    def test_returns_none_on_missing_file(self, tmp_path):
+        assert _read_system_type(tmp_path / "nope.xml") is None
+
+
+# ─── Overwrite: tag-270 preservation + provider validation ────────
+
+
+class TestHijackOverwrite:
+    def test_pixels_replaced_on_simulator(self, tmp_path):
+        layout, result = _build_result(tmp_path, "SIMULATOR")
+        # Original pixel value is 100 (see _build_result).
+        assert tifffile.imread(result.image_path).max() == 100
+
+        hijack_frame(result, kind="overview-scan",
+                     layout=layout, provider=_constant_provider(42))
+
+        # Pixels overwritten with the provider's constant.
+        new_arr = tifffile.imread(result.image_path)
+        assert new_arr.min() == 42
+        assert new_arr.max() == 42
+        assert new_arr.shape == (16, 16)
+
+    def test_tag_270_preserved_byte_for_byte(self, tmp_path):
+        layout, result = _build_result(tmp_path, "SIMULATOR")
+        with tifffile.TiffFile(result.image_path) as tif:
+            desc_before = tif.pages[0].description
+
+        hijack_frame(result, kind="overview-scan",
+                     layout=layout, provider=_constant_provider(42))
+
+        with tifffile.TiffFile(result.image_path) as tif:
+            desc_after = tif.pages[0].description
+        # The OriginalMetadata SystemTypeName line is what the guard
+        # would re-read. A silent regeneration that dropped it would
+        # break the next run's guard -- pin byte-equality.
+        assert desc_after == desc_before
+        assert 'Value="SIMULATOR"' in desc_after
+
+    def test_provider_shape_mismatch_is_runtime_error(self, tmp_path):
+        """A provider that returns the wrong shape must raise
+        RuntimeError -- NOT NonSimulatorFrameError -- so the
+        acquisition loop records a per-tile failure and continues
+        rather than hard-aborting the run."""
+        layout, result = _build_result(tmp_path, "SIMULATOR")
+
+        def bad_shape_provider(shape, dtype, *, naming):
+            return np.zeros((shape[0] + 1, shape[1]), dtype=dtype)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            hijack_frame(result, kind="overview-scan",
+                         layout=layout, provider=bad_shape_provider)
+        assert not isinstance(exc_info.value, NonSimulatorFrameError)
+        # Original file must remain intact -- the overwrite is atomic.
+        assert tifffile.imread(result.image_path).max() == 100
+
+    def test_provider_dtype_mismatch_is_runtime_error(self, tmp_path):
+        layout, result = _build_result(tmp_path, "SIMULATOR")
+
+        def bad_dtype_provider(shape, dtype, *, naming):
+            return np.zeros(shape, dtype=np.uint8)        # not uint16
+
+        with pytest.raises(RuntimeError) as exc_info:
+            hijack_frame(result, kind="overview-scan",
+                         layout=layout, provider=bad_dtype_provider)
+        assert not isinstance(exc_info.value, NonSimulatorFrameError)
+
+
+# ─── Mock provider unit ───────────────────────────────────────────
+
+
+class TestMockProvider:
+    def test_unknown_provider_raises(self):
+        with pytest.raises(ValueError):
+            get_provider("no-such-provider")
+
+    def test_human_mitosis_matches_shape_and_dtype(self):
+        provider = get_provider("skimage_human_mitosis")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abcdef", g=2, p=5,
+        )
+        out = provider((128, 96), np.uint16, naming=naming)
+        assert out.shape == (128, 96)
+        assert out.dtype == np.uint16
+
+    def test_human_mitosis_deterministic_per_naming(self):
+        """Same (g, p) -> same content; different (g, p) -> different
+        content. A deterministic mapping is what makes the mock
+        tile-stitchable and reproducible across runs."""
+        provider = get_provider("skimage_human_mitosis")
+        n_a = Naming(acquisition_type="overview-scan", hash6="abcdef", g=0, p=0)
+        n_b = Naming(acquisition_type="overview-scan", hash6="abcdef", g=0, p=1)
+
+        a1 = provider((128, 128), np.uint16, naming=n_a)
+        a2 = provider((128, 128), np.uint16, naming=n_a)
+        b1 = provider((128, 128), np.uint16, naming=n_b)
+        assert np.array_equal(a1, a2)
+        assert not np.array_equal(a1, b1)
