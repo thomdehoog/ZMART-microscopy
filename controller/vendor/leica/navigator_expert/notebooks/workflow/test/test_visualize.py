@@ -25,14 +25,20 @@ def _make_npz(
     n_cells: int = 5,
     image_size: tuple[int, int] = (64, 64),
     tile_id: tuple = ("0", 0, 0),
-    analysis_image_source: str = "acquired",
     position: int | None = None,
+    simulated: bool = False,
 ) -> Path:
-    """Write a synthetic tile analysis npz matching the real schema.
+    """Write a synthetic post-cut tile analysis npz.
 
     position: when given, the flat tile index ("Position N") key is
     written. Omitted by default so the pre-`position` back-compat path
     stays exercised; pass it to exercise the position-present path.
+
+    simulated: when True, writes the `simulated` key so the
+    visualize loader marks tiles as mock-content. Mirrors the post-cut
+    write path produced by _save_single_tile_analysis (Plan 2 §6 /
+    D1). Pre-Plan-2 NPZs with `analysis_image_source` are exercised
+    separately in test_overview_persistence.TestPrePlan2NpzBackCompat.
     """
     analysis_dir.mkdir(parents=True, exist_ok=True)
 
@@ -46,13 +52,16 @@ def _make_npz(
         masks[r:r + cell_size, c:c + cell_size] = label
 
     dest = analysis_dir / build_position_analysis_name(naming)
-    extra = {} if position is None else {"position": np.int32(position)}
+    extra: dict = {}
+    if position is not None:
+        extra["position"] = np.int32(position)
+    if simulated:
+        extra["simulated"] = np.bool_(True)
     np.savez_compressed(
         dest,
         image_2d=image_2d,
         masks=masks,
         tile_id=np.array(tile_id, dtype=str),
-        analysis_image_source=np.array(analysis_image_source),
         **extra,
     )
     return dest
@@ -202,16 +211,21 @@ class TestStyleTokenCoverage:
 # ─── display_tile flags (Bundle A / A2) ──────────────────────────
 
 
-def _make_tile_event(n_cells: int = 0, *, position=None):
-    """Minimal TileEvent for testing display_tile flag behavior."""
+def _make_tile_event(n_cells: int = 0, *, position=None, simulated: bool = False):
+    """Minimal TileEvent for testing display_tile flag behavior.
+
+    simulated: when True, mirrors the post-hijack path; display_tile
+    prefixes the figure title with "(mock)" and behaves identically
+    to a real-run event otherwise.
+    """
     from workflow.overview import TileEvent
     return TileEvent(
         image_2d=np.zeros((8, 8)),
         masks=np.zeros((8, 8), dtype=np.int32),
         tile_id=("0", 0, 0),
         n_cells=n_cells,
-        analysis_image_source="acquired",
         position=position,
+        simulated=simulated,
     )
 
 
@@ -562,6 +576,10 @@ class TestPlotOverviewTiles:
         # No error, no output
 
     def test_mock_mode_title_contains_mock(self, tmp_path, monkeypatch):
+        # Post-cut: the "(mock)" title prefix is driven by the
+        # `simulated` NPZ key (written by the hijack flow), not by
+        # the legacy `analysis_image_source` field. Same UX, single
+        # source of truth.
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
@@ -570,7 +588,7 @@ class TestPlotOverviewTiles:
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0),
-                  analysis_image_source="skimage_human_mitosis")
+                  simulated=True)
 
         captured_titles = []
         _orig_close = plt.close

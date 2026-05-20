@@ -7,6 +7,7 @@ in smoke_visualization.py.
 """
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 from unittest import mock
@@ -64,7 +65,6 @@ def _make_result(
             "tile_id": tile_id,
             "naming_p": naming_p,
             "image_path": "/fake.tiff",
-            "analysis_image_source": "acquired",
         },
         "segment_tile": {
             "image_2d": image_2d,
@@ -414,3 +414,228 @@ class TestPositionRoundtripThroughNPZ:
         ov = load_overview_result(analysis_dir)
         assert len(ov.all_picks) == 1
         assert ov.all_picks[0].position is None
+
+
+# ─── analysis_image_source removal -- back-compat seam pin ────────
+
+
+class TestPrePlan2NpzBackCompat:
+    """Pin the load-boundary back-compat seam.
+
+    After the analysis_image_source removal commit (Plan 2 §6 / D1
+    coupled cleanup), the active codebase no longer writes the
+    ``analysis_image_source`` NPZ key and no longer carries the
+    ``simulated`` derivation outside this single load site. Pre-cut
+    NPZs on disk still have ``analysis_image_source`` and may lack
+    ``simulated`` -- the visualize.py loader must derive ``simulated``
+    from the old field so legacy runs reload correctly.
+
+    This test pins that derivation. If a future contributor deletes
+    the back-compat branch in ``_load_tile_npz`` thinking it's dead
+    code, this test breaks loudly and names the contract.
+    """
+
+    def _write_legacy_npz(
+        self, path: Path, *, analysis_image_source: str, tile_id=("0", 0, 0),
+    ) -> None:
+        """Write a synthetic pre-Plan-2 NPZ: has ``analysis_image_source``,
+        no ``simulated``. Matches the exact on-disk shape produced by
+        smart-microscopy before the cut."""
+        np.savez_compressed(
+            path,
+            image_2d=np.zeros((16, 16), dtype=np.float64),
+            masks=np.zeros((16, 16), dtype=np.int32),
+            tile_id=np.array(tile_id, dtype=str),
+            analysis_image_source=np.array(analysis_image_source),
+            schema_version=np.int32(2),
+            cell_labels=np.empty((0,), dtype=np.int32),
+            # Minimal schema-v2 extra arrays so _load_tile_npz/visualize
+            # don't crash on missing per-cell arrays during reload.
+            cell_area_px=np.empty((0,), dtype=np.int32),
+            cell_mean_intensity=np.empty((0,), dtype=np.float64),
+            pick_tile_stage_xy_um=np.empty((0, 2), dtype=np.float64),
+            pick_tile_zwide_um=np.empty((0,), dtype=np.float64),
+            pick_source_pixel_size_um=np.empty((0, 2), dtype=np.float64),
+            pick_source_image_size_px=np.empty((0, 2), dtype=np.int32),
+            pick_centroid_col_row_px=np.empty((0, 2), dtype=np.float64),
+            pick_bbox_px=np.empty((0, 4), dtype=np.int32),
+            pick_bbox_um=np.empty((0, 2), dtype=np.float64),
+            pick_eccentricity=np.empty((0,), dtype=np.float64),
+            pick_cell_source_stage_xy_um=np.empty((0, 2), dtype=np.float64),
+        )
+
+    def test_legacy_acquired_derives_simulated_false(self, tmp_path):
+        from workflow.visualize import _load_tile_npz
+        path = tmp_path / "tile.npz"
+        self._write_legacy_npz(path, analysis_image_source="acquired")
+        loaded = _load_tile_npz(path)
+        assert loaded is not None
+        assert loaded.simulated is False
+
+    def test_legacy_skimage_human_mitosis_derives_simulated_true(self, tmp_path):
+        from workflow.visualize import _load_tile_npz
+        path = tmp_path / "tile.npz"
+        self._write_legacy_npz(
+            path, analysis_image_source="skimage_human_mitosis",
+        )
+        loaded = _load_tile_npz(path)
+        assert loaded is not None
+        assert loaded.simulated is True
+
+    def test_post_cut_npz_with_simulated_takes_precedence(self, tmp_path):
+        """A post-cut NPZ has ``simulated`` and no
+        ``analysis_image_source``. The loader must read ``simulated``
+        directly without consulting the legacy field."""
+        from workflow.visualize import _load_tile_npz
+        path = tmp_path / "tile.npz"
+        np.savez_compressed(
+            path,
+            image_2d=np.zeros((16, 16), dtype=np.float64),
+            masks=np.zeros((16, 16), dtype=np.int32),
+            tile_id=np.array(("0", 0, 0), dtype=str),
+            simulated=np.bool_(True),
+            schema_version=np.int32(2),
+            cell_labels=np.empty((0,), dtype=np.int32),
+            cell_area_px=np.empty((0,), dtype=np.int32),
+            cell_mean_intensity=np.empty((0,), dtype=np.float64),
+            pick_tile_stage_xy_um=np.empty((0, 2), dtype=np.float64),
+            pick_tile_zwide_um=np.empty((0,), dtype=np.float64),
+            pick_source_pixel_size_um=np.empty((0, 2), dtype=np.float64),
+            pick_source_image_size_px=np.empty((0, 2), dtype=np.int32),
+            pick_centroid_col_row_px=np.empty((0, 2), dtype=np.float64),
+            pick_bbox_px=np.empty((0, 4), dtype=np.int32),
+            pick_bbox_um=np.empty((0, 2), dtype=np.float64),
+            pick_eccentricity=np.empty((0,), dtype=np.float64),
+            pick_cell_source_stage_xy_um=np.empty((0, 2), dtype=np.float64),
+        )
+        loaded = _load_tile_npz(path)
+        assert loaded is not None
+        assert loaded.simulated is True
+
+
+# ─── analysis_image_source removal -- single-trace structural test ─
+
+
+class TestAnalysisImageSourceSingleTrace:
+    """Structurally enforce 'one mock mechanism' across the codebase.
+
+    After the cut, the identifier ``analysis_image_source`` may
+    appear as **active Python code** -- a dict key, kwarg, attribute
+    access, name, or type annotation -- in only two places: the
+    load-boundary back-compat read in ``_load_tile_npz`` (the
+    legitimate seam for forward-compatible code) and this test file
+    (which constructs synthetic pre-Plan-2 NPZs to exercise that
+    seam).
+
+    A future contributor re-adding the field as a Config attribute,
+    a submit-dict key, a TileEvent field, an NPZ writer key, a
+    fixture argument, etc., breaks this test loudly. The breakage
+    names the contract: "we removed this concept; the hijack is the
+    dry-run mechanism. Don't re-introduce it under a new disguise."
+
+    Comments and docstrings are NOT counted as offenders -- they
+    document the removal, which is exactly what we want preserved
+    for future readers grepping the codebase ("why is this gone?").
+    The check is AST-based and walks only nodes that represent
+    runtime behaviour: ``Name``, ``Attribute``, ``keyword`` (kwarg),
+    string literals NOT used as docstrings, and arg/annotation
+    names. Pure prose stays in.
+
+    Notebook .ipynb files are skipped because their JSON encoding
+    produces noisy matches that are operator-controlled, not
+    code-controlled. The v3.1 notebook cleanup is pinned by operator
+    review; smart_microscopy_v3.ipynb is the operator's dirty working
+    copy and explicitly off-limits.
+    """
+
+    # Files (relative to the notebooks/ root) allowed to mention the
+    # identifier in active code. The set is intentionally tiny -- if
+    # it grows, the cleanup is incomplete.
+    ALLOWLIST = frozenset({
+        "workflow/visualize.py",                       # back-compat read
+        "workflow/test/test_overview_persistence.py",  # this test file
+    })
+
+    _TARGET = "analysis_image_source"
+
+    @classmethod
+    def _docstring_node_ids(cls, tree: ast.AST) -> set[int]:
+        """ids of Constant string nodes that are docstrings (first
+        Expr in a module/class/function body whose value is a str
+        Constant)."""
+        ids: set[int] = set()
+        for scope in [tree] + [
+            n for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
+                              ast.ClassDef, ast.Module))
+        ]:
+            body = getattr(scope, "body", None)
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                ids.add(id(body[0].value))
+        return ids
+
+    @classmethod
+    def _code_references(cls, path: Path) -> list[str]:
+        """Return human-readable descriptions of every active-code
+        reference to the target identifier. Returns [] for files
+        that only mention it in comments or docstrings.
+        """
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return []
+        # Fast exit: no occurrences at all.
+        if cls._TARGET not in text:
+            return []
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            # Not parseable Python (partial WIP, fragment) -- be
+            # conservative and skip rather than block on it.
+            return []
+        docstrings = cls._docstring_node_ids(tree)
+        refs: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == cls._TARGET:
+                refs.append(f"line {node.lineno}: Name `{cls._TARGET}`")
+            elif isinstance(node, ast.Attribute) and node.attr == cls._TARGET:
+                refs.append(f"line {node.lineno}: Attribute `.{cls._TARGET}`")
+            elif isinstance(node, ast.keyword) and node.arg == cls._TARGET:
+                refs.append(f"line {node.lineno}: kwarg `{cls._TARGET}=`")
+            elif isinstance(node, ast.arg) and node.arg == cls._TARGET:
+                refs.append(f"line {node.lineno}: parameter `{cls._TARGET}`")
+            elif (isinstance(node, ast.Constant)
+                  and isinstance(node.value, str)
+                  and cls._TARGET in node.value
+                  and id(node) not in docstrings):
+                refs.append(
+                    f"line {node.lineno}: string literal "
+                    f"{node.value!r}"
+                )
+        return refs
+
+    def test_only_back_compat_seam_and_this_test_use_field(self):
+        notebooks_root = Path(__file__).resolve().parents[2]
+        offenders: list[str] = []
+        for path in notebooks_root.rglob("*.py"):
+            if "__pycache__" in path.parts:
+                continue
+            rel = path.relative_to(notebooks_root).as_posix()
+            if rel in self.ALLOWLIST:
+                continue
+            refs = self._code_references(path)
+            if refs:
+                offenders.append(f"{rel}:\n    " + "\n    ".join(refs))
+
+        assert not offenders, (
+            f"Active-code references to `{self._TARGET}` are only "
+            f"allowed in {sorted(self.ALLOWLIST)}.\n"
+            f"Found additional code references:\n\n"
+            + "\n\n".join(offenders)
+            + "\n\nThe hijack (cfg.simulate) is the single dry-run "
+              "mechanism. Comments and docstrings explaining the "
+              "removal are fine -- this test ignores them. Do not "
+              "re-introduce the field as active code."
+        )

@@ -491,7 +491,6 @@ class TestKernelRestartSelectionLoadsFromDisk:
                 "input": {
                     "tile_id": tile_id,
                     "naming_p": tile_id[2],
-                    "analysis_image_source": "acquired",
                     "image_path": "/fake.tiff",
                 },
                 "segment_tile": {

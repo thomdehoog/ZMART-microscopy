@@ -449,12 +449,12 @@ def display_tile(
     from IPython.display import display
 
     rid, row, col = event.tile_id
-    # Plan 2: `simulated` is the load-bearing flag (set when the file
-    # was hijacked). The `analysis_image_source != "acquired"` branch
-    # remains for back-compat with the pre-Plan-2 engine-side mock
-    # branch -- harmless and a no-op on a real run, where simulated is
-    # False and the engine source is "acquired".
-    is_mock = event.simulated or event.analysis_image_source != "acquired"
+    # Plan 2: the hijack is the single dry-run mechanism. `simulated`
+    # is the only signal -- True when the saved file's pixels were
+    # mock-overwritten, False otherwise. The pre-Plan-2 engine-side
+    # mock branch (which would have set this via analysis_image_source)
+    # is gone.
+    is_mock = event.simulated
     prefix = "(mock) " if is_mock else ""
 
     show_field = scan_field is not None
@@ -1370,14 +1370,17 @@ def plot_overview_tiles(
         if loaded is None:
             continue
 
-        image_2d, masks, tile_id, source, position, simulated = loaded
+        image_2d, masks, tile_id, position, simulated = loaded
         tile_key = _normalize_tile_key(tile_id)
         labels = picked_by_tile.get(tile_key, [])
         n_cells = int(masks.max())
-        # Plan 2: same back-compat construct as display_tile -- prefer
-        # the `simulated` NPZ field; fall back to the legacy source
-        # check for pre-Plan-2 reloads.
-        is_mock = simulated or source != "acquired"
+        # Plan 2: `simulated` is the single dry-run signal. The
+        # load-boundary back-compat for pre-Plan-2 NPZs lives in
+        # _load_tile_npz, which derives `simulated` from the old
+        # `analysis_image_source` key when present -- so by the time
+        # we're here, `simulated` is authoritative regardless of NPZ
+        # vintage.
+        is_mock = simulated
 
         fig, axes = plt.subplots(
             1, 3, figsize=(_FRAME_WIDTH_IN, 5), constrained_layout=True,
@@ -1561,35 +1564,54 @@ def _load_tile_by_key(
 class TileNpz(NamedTuple):
     """Result of _load_tile_npz. `position` is the flat tile index
     ("Position N"); None for a pre-`position` NPZ. A NamedTuple so the
-    field can be added without disturbing index-access callers."""
+    field can be added without disturbing index-access callers.
+
+    The dropped ``source`` field used to echo the engine's
+    ``analysis_image_source`` input. Removed when the dual-mock-
+    mechanism was collapsed into the hijack (Plan 2 §6 / D1);
+    ``simulated`` is now the only dry-run signal here. Pre-Plan-2
+    NPZs without ``simulated`` are handled by ``_load_tile_npz``'s
+    load-boundary back-compat -- by the time TileNpz is built,
+    ``simulated`` is authoritative regardless of NPZ vintage."""
     image_2d: np.ndarray
     masks: np.ndarray
     tile_id: tuple
-    source: str
     position: int | None
-    # Plan 2 -- True when the underlying .ome.tiff's pixels were
-    # hijacked with mock content (cfg.simulate). Drives the "(mock)"
-    # figure-title prefix. False for a pre-Plan-2 NPZ.
     simulated: bool = False
 
 
 def _load_tile_npz(path: Path):
-    """Load a tile analysis npz. Returns a TileNpz or None."""
+    """Load a tile analysis npz. Returns a TileNpz or None.
+
+    Back-compat seam (the only one for ``analysis_image_source`` in
+    the active codebase): post-Plan-2 NPZs carry a ``simulated``
+    boolean -- read it directly. Pre-Plan-2 NPZs carry an
+    ``analysis_image_source`` string but no ``simulated`` key --
+    derive ``simulated`` from the legacy field's value
+    (anything other than ``"acquired"`` means a mock run).
+
+    DO NOT extend this branch elsewhere. The pinned single-trace
+    test (``test_overview_persistence.TestAnalysisImageSourceSingleTrace``)
+    enforces that this is the only site that mentions
+    ``analysis_image_source``. New consumers must read
+    ``simulated`` directly.
+    """
     try:
         data = np.load(path, allow_pickle=True)
         image_2d = data["image_2d"]
         masks = data["masks"]
         tile_id = tuple(str(x) for x in data["tile_id"])
-        source = str(data["analysis_image_source"])
         position = (
             int(data["position"]) if "position" in data.files else None
         )
-        # Plan 2 -- additive within schema v2; defaults are back-compat
-        # values for a pre-Plan-2 NPZ that has no `simulated` key.
-        simulated = (
-            bool(data["simulated"]) if "simulated" in data.files else False
-        )
-        return TileNpz(image_2d, masks, tile_id, source, position, simulated)
+        if "simulated" in data.files:
+            simulated = bool(data["simulated"])
+        elif "analysis_image_source" in data.files:
+            # Pre-Plan-2 NPZ: derive simulated from the dropped field.
+            simulated = str(data["analysis_image_source"]) != "acquired"
+        else:
+            simulated = False
+        return TileNpz(image_2d, masks, tile_id, position, simulated)
     except Exception as exc:
         print(f"[visualize] WARNING: skipping {path.name}: {exc}")
         return None

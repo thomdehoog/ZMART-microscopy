@@ -130,13 +130,14 @@ class TileEvent:
     masks: np.ndarray
     tile_id: tuple[str, int, int]
     n_cells: int
-    analysis_image_source: str
     # Flat tile index ("Position N") -- the overview-scan file index p
     # (= naming_p). None only on a pre-`position` reload.
     position: int | None = None
     # Plan 2 -- True when the saved .ome.tiff's pixels were hijacked
     # with mock content (cfg.simulate). The "(mock)" figure prefix
-    # reads this, not the legacy analysis_image_source.
+    # reads this. Single source of truth for the dry-run mode; the
+    # earlier `analysis_image_source` field was removed when the
+    # engine-side mock branch was deleted (Plan 2 §6 / D1).
     simulated: bool = False
     mock_image_source: str | None = None
 
@@ -376,18 +377,12 @@ def run_overview(
                     "image_to_stage": ctx.calibration["image_to_stage"],
                     "n_picks": None,
                     "feature": "area",
-                    # On a simulate run the workflow swapped the file's
-                    # pixels; send "acquired" so the engine reads the
-                    # (mock-content) file. Otherwise pass cfg's value
-                    # through unchanged (back-compat with the pre-D1
-                    # engine-side mock branch).
-                    "analysis_image_source": (
-                        "acquired" if cfg.simulate
-                        else cfg.analysis_image_source
-                    ),
                     # Engine-ignored provenance keys -- they reach
                     # _fire_on_tile and _save_single_tile_analysis via
-                    # result["input"].
+                    # result["input"]. The engine itself reads only
+                    # image_path (D1: no per-source branch); a simulate
+                    # run hijacked image_path's content above, so a
+                    # plain file read gives the engine the mock pixels.
                     "simulated": cfg.simulate,
                     "mock_image_source": cfg.mock_image_source,
                 })
@@ -875,18 +870,16 @@ def _save_single_tile_analysis(
             "image_2d": image_2d,
             "masks": masks,
             "tile_id": np.array(tile_id, dtype=str),
-            "analysis_image_source": np.array(
-                inp.get("analysis_image_source", "acquired")
-            ),
             # Flat tile index ("Position N"). naming_p is guaranteed
             # non-None here -- the None check above returns False first.
             "position": np.int32(int(naming_p)),
             # Plan 2 -- True when the saved .ome.tiff's pixels were
             # hijacked with mock content. mock_image_source is the
-            # provider name or "" when not simulating. A reload reads
-            # both, with back-compat in _load_tile_npz: legacy NPZs
-            # without these keys derive simulated from the engine-side
-            # `analysis_image_source == "skimage_human_mitosis"`.
+            # provider name or "" when not simulating. _load_tile_npz
+            # reads `simulated` directly; pre-Plan-2 NPZs lacking the
+            # key are handled by a load-boundary back-compat branch
+            # that derives `simulated` from the dropped
+            # `analysis_image_source` key.
             "simulated": np.bool_(bool(inp.get("simulated", False))),
             "mock_image_source": np.array(
                 inp.get("mock_image_source") or ""
@@ -960,8 +953,6 @@ def _fire_on_tile(
             masks=masks,
             tile_id=tuple(tile_id),
             n_cells=n_cells,
-            analysis_image_source=inp.get("analysis_image_source",
-                                          "acquired"),
             position=inp.get("naming_p"),
             simulated=bool(inp.get("simulated", False)),
             mock_image_source=inp.get("mock_image_source"),

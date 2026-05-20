@@ -74,12 +74,18 @@ def main():
         rs, cs = tile["slice"]
         tile_img = image[rs, cs]
         tile_masks = masks[rs, cs]
+        # Post-Plan-2 §6 / D1: simulate=True is the single dry-run
+        # signal. Mirrors what run_overview's submit dict carries on
+        # a hijack-mode run; _save_tile_analysis persists the same
+        # `simulated` key the production hijack path writes, so the
+        # smoke render exercises the post-cut figure-title path.
         buffer.append({
             "input": {
                 "tile_id": tile["tile_id"],
                 "naming_p": i,
                 "image_path": f"/fake/tile_{i}.ome.tiff",
-                "analysis_image_source": "skimage_human_mitosis",
+                "simulated": True,
+                "mock_image_source": "skimage_human_mitosis",
             },
             "segment_tile": {
                 "image_2d": tile_img,

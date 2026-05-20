@@ -25,22 +25,31 @@ def _make_buffer_entry(
     image_2d=None,
     masks=None,
     n_cells=5,
-    analysis_image_source="acquired",
+    simulated: bool = False,
 ):
-    """Build a single engine result dict matching the real schema."""
+    """Build a single engine result dict matching the real schema.
+
+    simulated: when True, mirrors the hijack-mode submit payload --
+    the workflow sets `simulated`/`mock_image_source` on the engine
+    submission so _save_single_tile_analysis can persist them and
+    _fire_on_tile can populate TileEvent. Real runs leave both off.
+    """
     if image_2d is None:
         image_2d = np.random.default_rng(42).random((64, 64))
     if masks is None:
         masks = np.zeros((64, 64), dtype=np.int32)
         masks[10:20, 10:20] = 1
         masks[30:40, 30:40] = 2
+    inp: dict = {
+        "tile_id": tile_id,
+        "naming_p": naming_p,
+        "image_path": "/fake/tile.ome.tiff",
+    }
+    if simulated:
+        inp["simulated"] = True
+        inp["mock_image_source"] = "skimage_human_mitosis"
     return {
-        "input": {
-            "tile_id": tile_id,
-            "naming_p": naming_p,
-            "image_path": "/fake/tile.ome.tiff",
-            "analysis_image_source": analysis_image_source,
-        },
+        "input": inp,
         "segment_tile": {
             "image_2d": image_2d,
             "masks": masks,
@@ -65,7 +74,17 @@ class TestSaveTileAnalysis:
         assert "image_2d" in data
         assert "masks" in data
         assert "tile_id" in data
-        assert "analysis_image_source" in data
+        # Post-cut: the writer persists `simulated` instead of the
+        # dropped legacy mock-source key. Even on a non-simulate
+        # entry, `simulated` is present (with False) so the loader
+        # does not need to fall through to the back-compat seam on
+        # post-cut NPZs. Absence of the legacy key is enforced
+        # structurally by the single-trace test in
+        # test_overview_persistence.py -- no need to repeat the
+        # assertion here (which would itself add a string literal
+        # the structural test would flag).
+        assert "simulated" in data
+        assert bool(data["simulated"]) is False
 
     def test_npz_filename_matches_naming_convention(self, tmp_path):
         analysis_dir = tmp_path / "analysis"
@@ -170,15 +189,21 @@ class TestSaveTileAnalysis:
                             acquisition_type="overview-scan")
         assert not analysis_dir.exists()
 
-    def test_analysis_image_source_stored(self, tmp_path):
+    def test_simulated_persisted_to_npz(self, tmp_path):
+        # Post-cut: the hijack-mode submit payload carries
+        # `simulated=True` and `mock_image_source=<provider>`. The
+        # writer persists both so a reload reconstructs the (mock)
+        # title prefix and downstream provenance. Replaces the
+        # pre-cut `test_analysis_image_source_stored`.
         analysis_dir = tmp_path / "analysis"
-        buf = [_make_buffer_entry(analysis_image_source="skimage_human_mitosis")]
+        buf = [_make_buffer_entry(simulated=True)]
 
         _save_tile_analysis(analysis_dir, buf, hash6="abc123",
                             acquisition_type="overview-scan")
 
         data = np.load(list(analysis_dir.glob("*.npz"))[0], allow_pickle=True)
-        assert str(data["analysis_image_source"]) == "skimage_human_mitosis"
+        assert bool(data["simulated"]) is True
+        assert str(data["mock_image_source"]) == "skimage_human_mitosis"
 
     def test_missing_naming_p_skips_with_warning(self, tmp_path, capsys):
         analysis_dir = tmp_path / "analysis"
@@ -234,10 +259,8 @@ class TestSaveTileAnalysis:
 class TestFireOnTile:
     def test_calls_callback_with_tile_event(self):
         # Fixture masks have labels 1 and 2 -> n_cells = 2 (masks.max()).
-        result = _make_buffer_entry(
-            tile_id=("0", 1, 2), naming_p=0,
-            analysis_image_source="acquired",
-        )
+        # Non-simulate path: event.simulated must default to False.
+        result = _make_buffer_entry(tile_id=("0", 1, 2), naming_p=0)
 
         received = []
         _fire_on_tile(lambda e: received.append(e), result)
@@ -247,7 +270,22 @@ class TestFireOnTile:
         assert isinstance(event, TileEvent)
         assert event.tile_id == ("0", 1, 2)
         assert event.n_cells == 2
-        assert event.analysis_image_source == "acquired"
+        assert event.simulated is False
+
+    def test_calls_callback_with_simulated_flag(self):
+        # Hijack-mode path: the submit dict carries `simulated=True`,
+        # and _fire_on_tile must surface it on the TileEvent so the
+        # default callback prefixes the figure title with "(mock)".
+        result = _make_buffer_entry(
+            tile_id=("0", 1, 2), naming_p=0, simulated=True,
+        )
+
+        received = []
+        _fire_on_tile(lambda e: received.append(e), result)
+
+        assert len(received) == 1
+        assert received[0].simulated is True
+        assert received[0].mock_image_source == "skimage_human_mitosis"
 
     def test_callback_exception_does_not_propagate(self, capsys):
         result = _make_buffer_entry()

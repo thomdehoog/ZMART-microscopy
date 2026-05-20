@@ -32,7 +32,6 @@ def _build_ctx_like(out_dir: Path, *, scan_field=None):
     cfg.restore_template_after_af = True
     cfg.restore_source_at_end = True
     cfg.smoke_test_pipeline = False
-    cfg.analysis_image_source = "acquired"
     cfg.limit_margin_um = 500.0
     cfg.stage_x_min_um = None
     cfg.stage_x_max_um = None
