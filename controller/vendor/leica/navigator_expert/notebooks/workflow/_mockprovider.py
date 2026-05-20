@@ -1,24 +1,52 @@
-"""Mock image providers for simulation mode (Plan 2 §4b).
+"""Mock image providers for simulation mode (Plan 2 §4b + target zoom).
 
-Each provider, given a target shape and dtype plus the tile's
-canonical Naming, returns a 2-D image of *exactly* that shape and
-dtype, deterministic from (Naming.g, Naming.p). The returned array
-becomes the pixel content of the canonical .ome.tiff in simulation
-mode -- see workflow/_hijack.py for the OME-preserving overwrite.
+Two flavours of provider, distinguished by what determines the mock
+content:
 
-The provider must never raise on a sensible (shape, dtype, naming);
+  Overview providers (``get_provider(name)``):
+    Invent content from scratch, deterministic from (Naming.g,
+    Naming.p). The returned array becomes the pixel content of the
+    canonical overview .ome.tiff in simulation mode -- see
+    workflow/_hijack.py for the OME-preserving overwrite. Each
+    overview tile gets distinct content; that's what an overview
+    looks like in reality.
+
+  Target provider (``build_target_provider(...)``):
+    Derives content from the saved overview tile this pick came from
+    -- reads the source overview file, crops a window around the
+    picked cell sized to match the target job's FOV, resamples up to
+    the target image's pixel dimensions. The high-res target frame
+    then shows a zoomed-in view of the same cell cellpose detected
+    in the overview, instead of arbitrary mock content. Closes over
+    the per-pick context (centroid + lineage); cheap to construct,
+    re-built per iteration in acquire_targets.
+
+The two builders are intentionally separate functions because they
+do structurally different things (one invents content, the other
+derives it from a saved file). Both return callables matching the
+same ``(shape, dtype, *, naming) -> ndarray`` contract so the
+generic ``hijack_frame`` can call either without branching.
+
+Providers must never raise on a sensible (shape, dtype, naming);
 shape/dtype mismatches are caught by the hijack and recorded as a
-per-tile hijack failure, not a run-fatal error.
+per-tile hijack failure. Genuine data-integrity errors (e.g.,
+missing source overview file for the target provider) raise as
+``RuntimeError``/``OSError`` -- per-tile, never
+``NonSimulatorFrameError``.
 """
 from __future__ import annotations
 
-from typing import Callable
+import math
+from pathlib import Path
+from typing import Any, Callable
 
 import numpy as np
 
+from _shared.output_layout import Naming, build_image_name
+
 
 def get_provider(name: str) -> Callable:
-    """Look up a mock provider by name. Raises ValueError on unknown."""
+    """Look up an overview mock provider by name. Raises ValueError on unknown."""
     if name == "skimage_human_mitosis":
         return _skimage_human_mitosis
     raise ValueError(
@@ -62,3 +90,132 @@ def _skimage_human_mitosis(
         scaled = tile.astype(np.float64) * (info.max / 255.0)
         return scaled.astype(dtype)
     return tile.astype(dtype)
+
+
+def build_target_provider(
+    *,
+    pick: Any,
+    target_pixel_size_um: float,
+    layout: Any,
+) -> Callable:
+    """Build a per-pick target mock provider.
+
+    Returns a callable matching the standard provider contract
+    ``(shape, dtype, *, naming) -> ndarray``. The returned callable
+    is a closure over the source pick + layout + scalar target pixel
+    size; the ``naming`` argument is **ignored** at call time because
+    the content source is determined entirely by the closed-over
+    ``pick`` (it identifies which overview file to read from and
+    where the cell is in that file).
+
+    Plan §"Geometry" defines the math. Summary:
+      1. Read source overview tile (``layout.data_dir("overview-scan")
+         / build_image_name(overview_naming)``).
+      2. Crop a window centred on ``pick.centroid_col_row_px``, sized
+         in overview pixels to match the target job's physical FOV
+         (``W_tg * target_pixel_size_um / overview_pixel_size_um``;
+         per-axis from per-axis target dimensions, scalar pixel size
+         on both axes per the rest-of-pipeline contract).
+      3. Pad with overview's median intensity for any area that
+         falls outside the overview's bounds (cell near tile edge --
+         silent padding; this is normal, not an error).
+      4. Resample to ``shape`` (the target's pixel dimensions) using
+         ``skimage.transform.resize`` with ``anti_aliasing=False``
+         (scaling up, no aliasing concern).
+      5. Cast back to ``dtype``.
+
+    Errors:
+      ``RuntimeError`` -- ``pick.position`` is None (pre-`position`
+      NPZ reload -- the source overview tile can't be identified).
+      Per-tile, never ``NonSimulatorFrameError``.
+
+      ``OSError`` / ``FileNotFoundError`` -- source overview file
+      missing on disk. Per-tile data integrity issue -- caller
+      records as a hijack failure and the loop continues.
+    """
+    # Construction is always safe -- failures (missing `position`,
+    # missing overview file) surface at call time, where the existing
+    # per-pick try/except in acquire_targets handles them uniformly.
+    # Capture pick attributes that the closure needs; resolve the
+    # overview path lazily so a None `position` raises a clear
+    # RuntimeError on call rather than an opaque NoneType-in-int()
+    # error here.
+    px_tg = float(target_pixel_size_um)
+
+    def _target_mock(shape, dtype, *, naming):
+        # naming is ignored -- documented in the function docstring
+        # above. The content source is entirely the closed-over pick.
+        del naming
+        if pick.position is None:
+            raise RuntimeError(
+                "build_target_provider: pick.position is None -- the "
+                "source overview tile index is missing (likely a "
+                "pre-`position` NPZ reload). Target mock cannot be "
+                "derived without it."
+            )
+
+        # Resolve overview file path from the pick's lineage.
+        overview_naming = Naming(
+            acquisition_type="overview-scan",
+            hash6=layout.hash6,
+            g=int(pick.pick_id[0]),
+            p=int(pick.position),
+        )
+        overview_path = (
+            layout.data_dir("overview-scan")
+            / build_image_name(overview_naming)
+        )
+
+        # Overview pixel size: scalar (use the col-axis value); the
+        # rest of the pipeline does the same. See plan §"Pixel-size
+        # model".
+        pw_ov = float(pick.source_pixel_size_um[0])
+        cx, cy = pick.centroid_col_row_px
+        # Lazy: tifffile + skimage.transform are both lazy-imported so
+        # the cost is paid only when simulation mode actually fires.
+        import tifffile
+        from skimage.transform import resize
+
+        overview = tifffile.imread(overview_path)
+        H_ov, W_ov = overview.shape[:2]
+        H_tg, W_tg = int(shape[0]), int(shape[1])
+
+        # Per-axis FOV (image may be non-square; pixel size is scalar).
+        target_fov_w_um = W_tg * px_tg
+        target_fov_h_um = H_tg * px_tg
+        crop_w_ov_px = int(math.floor(target_fov_w_um / pw_ov))
+        crop_h_ov_px = int(math.floor(target_fov_h_um / pw_ov))
+        # Defensive floor: ensure at least 1 px on each axis so resize
+        # has something to work with even on degenerate zoom ratios.
+        crop_w_ov_px = max(1, crop_w_ov_px)
+        crop_h_ov_px = max(1, crop_h_ov_px)
+
+        # Crop top-left in overview pixels (centred on the cell).
+        x0 = int(math.floor(cx - crop_w_ov_px / 2))
+        y0 = int(math.floor(cy - crop_h_ov_px / 2))
+
+        # Median-pad: cell near tile edge -> some of the requested
+        # crop window is outside the overview's bounds. Build the
+        # padded crop in a single allocation; copy in the in-bounds
+        # portion.
+        pad = int(np.median(overview))
+        xs = max(0, x0); ys = max(0, y0)
+        xe = min(W_ov, x0 + crop_w_ov_px); ye = min(H_ov, y0 + crop_h_ov_px)
+        crop = np.full(
+            (crop_h_ov_px, crop_w_ov_px), pad, dtype=overview.dtype,
+        )
+        if xs < xe and ys < ye:
+            dst_y0 = ys - y0; dst_x0 = xs - x0
+            crop[dst_y0:dst_y0 + (ye - ys),
+                 dst_x0:dst_x0 + (xe - xs)] = overview[ys:ye, xs:xe]
+
+        # Resample to target dimensions (zoom up). anti_aliasing=False
+        # because we're scaling up; preserve_range=True keeps intensity
+        # values in their original numeric range rather than [0, 1].
+        mock = resize(
+            crop, (H_tg, W_tg),
+            preserve_range=True, anti_aliasing=False,
+        )
+        return mock.astype(dtype)
+
+    return _target_mock
