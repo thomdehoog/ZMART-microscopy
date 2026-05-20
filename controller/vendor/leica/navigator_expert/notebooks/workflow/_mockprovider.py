@@ -42,7 +42,7 @@ import numpy as np
 
 from _shared.output_layout import Naming, build_image_name
 
-from ._geom import crop_overview_at_target_fov
+from ._geom import crop_and_resize_overview_to_target
 
 
 def get_provider(name: str) -> Callable:
@@ -166,19 +166,20 @@ def build_target_provider(
             / build_image_name(overview_naming)
         )
 
-        # Lazy: tifffile + skimage.transform are both lazy-imported so
-        # the cost is paid only when simulation mode actually fires.
+        # Lazy: tifffile is heavy and only needed when the provider
+        # actually fires. The skimage.transform.resize call lives
+        # inside crop_and_resize_overview_to_target with its own lazy
+        # import; we don't duplicate that import here.
         import tifffile
-        from skimage.transform import resize
 
         overview = tifffile.imread(overview_path)
-        # Shared geometry helper: same crop math as visualize.py's
-        # centre panel -- structurally enforces "what the operator
-        # sees in the Overview-crop panel matches what's in the saved
-        # target file." See workflow/_geom.py. Helper also enforces
-        # the 2-D-overview scope boundary (raises ValueError on
-        # ndim != 2 -- per-tile failure, not run-fatal).
-        crop = crop_overview_at_target_fov(
+        # Shared geometry helper -- the full crop + resize-to-target
+        # pipeline. Same call as visualize.py's centre panel, so in
+        # simulator mode the centre and right panels show
+        # byte-identical content (proves the simulator doesn't fake
+        # information at the target step). Helper raises ValueError
+        # on a non-2-D overview (per-tile failure, not run-fatal).
+        mock = crop_and_resize_overview_to_target(
             overview,
             centroid_col_row_px=pick.centroid_col_row_px,
             # Scalar pixel size (col-axis) -- rest of the pipeline
@@ -186,16 +187,6 @@ def build_target_provider(
             source_pixel_size_um=float(pick.source_pixel_size_um[0]),
             target_shape_px=(int(shape[0]), int(shape[1])),
             target_pixel_size_um=px_tg,
-        )
-
-        # Resample to target dimensions (zoom up). anti_aliasing=False
-        # because we're scaling up; preserve_range=True keeps intensity
-        # values in their original numeric range rather than [0, 1].
-        # This step is the hijack-only concern; the bare crop above is
-        # what the visualization centre panel also wants.
-        mock = resize(
-            crop, (int(shape[0]), int(shape[1])),
-            preserve_range=True, anti_aliasing=False,
         )
         return mock.astype(dtype)
 

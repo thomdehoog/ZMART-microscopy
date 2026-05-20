@@ -26,7 +26,10 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from workflow._geom import crop_overview_at_target_fov
+from workflow._geom import (
+    crop_overview_at_target_fov,
+    crop_and_resize_overview_to_target,
+)
 
 
 # ─── Helpers ──────────────────────────────────────────────────────
@@ -250,16 +253,16 @@ class TestNoDriftAgainstCallers:
     def test_visualize_centroid_crop_equals_helper_output(
         self, tmp_path, centroid,
     ):
-        """Visualize's centre-panel crop MUST go through the shared
-        helper on the normal (target-acquired) path. Calls the
-        actual visualize entry point and asserts byte-equality
-        against the helper called directly with the primitives the
-        call site translates from Pick + TargetRecord.
+        """Visualize's centre-panel content MUST go through the
+        shared crop+resize helper on the normal (target-acquired)
+        path. Calls the actual visualize entry point and asserts
+        byte-equality against the helper called directly with the
+        primitives the call site translates from Pick + TargetRecord.
 
-        A future refactor that inlines different crop math in
-        visualize fails this test loudly across all four centroids
-        (centred works either way; the asymmetric and edge cases
-        catch the bugs).
+        The helper returns at *target* resolution (not raw crop) --
+        the centre panel now displays at the same pixel dimensions
+        as the right panel, eliminating matplotlib's display-upscale
+        asymmetry that the operator flagged.
         """
         from workflow.visualize import _centroid_crop_at_target_fov
 
@@ -274,7 +277,7 @@ class TestNoDriftAgainstCallers:
         via_visualize = _centroid_crop_at_target_fov(
             overview, pick, record, target_img,
         )
-        via_helper = crop_overview_at_target_fov(
+        via_helper = crop_and_resize_overview_to_target(
             overview,
             centroid_col_row_px=centroid,
             source_pixel_size_um=0.65,
@@ -283,14 +286,12 @@ class TestNoDriftAgainstCallers:
         )
         assert np.array_equal(via_visualize, via_helper)
 
-    def test_hijack_provider_crop_step_equals_helper_output(self, tmp_path):
-        """Hijack provider's crop step (before resize) MUST go
-        through the shared helper. Patches ``skimage.transform.resize``
-        to identity so the provider's output IS the crop -- directly
-        comparable to the helper's output.
-
-        A future refactor that inlines different crop math in
-        _mockprovider fails this test loudly.
+    def test_hijack_provider_output_equals_helper_output(self, tmp_path):
+        """Hijack provider's output MUST equal the shared
+        crop+resize helper. The provider is now a thin wrapper that
+        delegates to the helper (and casts dtype). No need to mock
+        skimage.transform.resize -- both paths share the same resize
+        call inside the helper.
         """
         from workflow._mockprovider import build_target_provider
 
@@ -304,26 +305,72 @@ class TestNoDriftAgainstCallers:
             pick=pick, target_pixel_size_um=0.13, layout=layout,
         )
 
-        # Identity resize: provider output == crop output. Need a
-        # shape that matches the crop dims so identity-resize works
-        # without reshape (target_shape = (40, 40) since FOV math
-        # gives 40-px crop at this zoom).
-        with mock.patch(
-            "skimage.transform.resize",
-            side_effect=lambda crop, shape, **k: crop,
-        ):
-            via_provider = provider(
-                (40, 40), np.uint16, naming=self._dummy_naming(),
-            )
+        via_provider = provider(
+            (200, 200), np.uint16, naming=self._dummy_naming(),
+        )
 
-        via_helper = crop_overview_at_target_fov(
+        via_helper = crop_and_resize_overview_to_target(
             overview,
             centroid_col_row_px=(120.0, 50.0),
             source_pixel_size_um=0.65,
-            target_shape_px=(40, 40),
+            target_shape_px=(200, 200),
             target_pixel_size_um=0.13,
         )
         assert np.array_equal(via_provider, via_helper)
+
+    def test_simulator_mode_centre_equals_target_byte_for_byte(
+        self, tmp_path,
+    ):
+        """THE structural pin for the operator's directive: in
+        simulator mode the centre panel and the right panel display
+        byte-identical arrays. Both go through
+        crop_and_resize_overview_to_target with the same primitives;
+        the visualization shows what's actually in the saved target
+        file, no smoothing-or-pixelation asymmetry from matplotlib's
+        display interpolation.
+
+        This proves the simulator is honest about itself: the target
+        file's content IS just the upsampled overview crop -- no new
+        information is fabricated at the target step.
+        """
+        from workflow.visualize import _centroid_crop_at_target_fov
+        from workflow._mockprovider import build_target_provider
+
+        layout = self._make_layout(tmp_path)
+        overview = np.full((400, 400), 10000, dtype=np.uint16)
+        overview[50, 120] = 50000
+        self._write_overview(layout, overview)
+
+        pick = self._make_pick(centroid=(120.0, 50.0), position=0)
+        record = self._make_target_record(target_pixel_size_um=0.13)
+        target_shape = (200, 200)
+
+        # Right-panel content: what the hijack provider writes into
+        # the target .ome.tiff. In production the visualization
+        # reads this back from disk; here we use the provider's
+        # output directly (the file write + read is identity for
+        # the array values).
+        provider = build_target_provider(
+            pick=pick, target_pixel_size_um=0.13, layout=layout,
+        )
+        right_panel = provider(
+            target_shape, np.uint16, naming=self._dummy_naming(),
+        )
+
+        # Centre-panel content: what visualize.py prepares for
+        # imshow. Now at target resolution, not raw crop.
+        target_img = np.zeros(target_shape, dtype=np.uint16)
+        centre_panel = _centroid_crop_at_target_fov(
+            overview, pick, record, target_img,
+        )
+
+        assert centre_panel.shape == right_panel.shape == target_shape
+        assert np.array_equal(centre_panel, right_panel), (
+            "centre and right panels must be byte-identical in "
+            "simulator mode (both are crop_and_resize_overview_to_target "
+            "of the same overview region). Asymmetry here means the "
+            "simulator is silently lying about the target step."
+        )
 
     # ── Call-args structural pin (rev1's recommendation) ──────────
 
@@ -358,8 +405,12 @@ class TestNoDriftAgainstCallers:
         sentinel = np.zeros(target_shape, dtype=np.uint16)
 
         # ── visualize side ───────────────────────────────────────
+        # Spy on the crop+resize helper symbol as imported by
+        # workflow.visualize. If visualize bypassed it (e.g.
+        # someone re-introduced a local copy-paste), the spy never
+        # fires and this test fails loudly.
         with mock.patch(
-            "workflow.visualize.crop_overview_at_target_fov",
+            "workflow.visualize.crop_and_resize_overview_to_target",
             return_value=sentinel,
         ) as viz_spy:
             _centroid_crop_at_target_fov(
@@ -373,15 +424,12 @@ class TestNoDriftAgainstCallers:
 
         # ── hijack-provider side ─────────────────────────────────
         # build_target_provider returns a closure; calling it
-        # invokes the helper. Stub resize to no-op so we don't
-        # need a shape-matching sentinel.
+        # invokes the helper. Spy on the symbol as imported by
+        # workflow._mockprovider.
         with mock.patch(
-            "workflow._mockprovider.crop_overview_at_target_fov",
+            "workflow._mockprovider.crop_and_resize_overview_to_target",
             return_value=sentinel,
-        ) as hijack_spy, mock.patch(
-            "skimage.transform.resize",
-            side_effect=lambda crop, shape, **k: crop,
-        ):
+        ) as hijack_spy:
             provider = build_target_provider(
                 pick=pick, target_pixel_size_um=0.13, layout=layout,
             )
