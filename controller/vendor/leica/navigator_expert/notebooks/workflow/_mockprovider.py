@@ -37,7 +37,6 @@ missing source overview file for the target provider) raise as
 from __future__ import annotations
 
 import math
-from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
@@ -177,7 +176,23 @@ def build_target_provider(
         from skimage.transform import resize
 
         overview = tifffile.imread(overview_path)
-        H_ov, W_ov = overview.shape[:2]
+        # Scope boundary, structurally enforced: the target mock
+        # requires a 2-D overview. hijack_frame already guards
+        # multi-plane saved files upstream, so a fresh simulator
+        # overview is 2-D by construction. This check defends
+        # against stale / reused / hand-corrupted overview files
+        # where the upstream invariant doesn't hold. Per-tile
+        # failure (caller records in hijack_failures), not run-fatal.
+        if overview.ndim != 2:
+            raise RuntimeError(
+                f"build_target_provider: source overview file "
+                f"{overview_path.name} has shape {overview.shape} "
+                f"(ndim={overview.ndim}); target mock requires a "
+                f"2-D overview. A fresh simulator run should always "
+                f"produce 2-D overviews -- this is likely a stale "
+                f"or hand-modified file."
+            )
+        H_ov, W_ov = overview.shape
         H_tg, W_tg = int(shape[0]), int(shape[1])
 
         # Per-axis FOV (image may be non-square; pixel size is scalar).

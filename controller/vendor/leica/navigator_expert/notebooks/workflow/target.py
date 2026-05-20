@@ -157,15 +157,6 @@ def acquire_targets(
             save_queue=save_queue,
         )
 
-    # Plan 2 simulation mode. Unlike run_overview's shared provider,
-    # the target hijack uses a per-pick provider built inside the
-    # acquisition loop (see the `if cfg.simulate:` block below).
-    # Each pick's provider closes over its own centroid + source-tile
-    # lineage so the high-res mock is a zoom of *that pick's* cell
-    # from the overview file -- building one provider here would lose
-    # the per-iteration context. Construction is cheap (closures only)
-    # so per-iteration cost is negligible.
-
     ts.started = True
 
     try:
@@ -279,17 +270,10 @@ def acquire_targets(
                     # real-hardware frame must never be silently logged
                     # as a per-pick failure.
                     stage = "hijack"
-                    # Per-pick provider: closes over this pick's
-                    # centroid + source-tile lineage. The provider
-                    # reads the source overview file (already
-                    # hijacked one step earlier in the same simulate
-                    # run), crops a window centred on the cell at
-                    # the target job's FOV, and resamples to the
-                    # target image's pixel dimensions -- so the
-                    # high-res frame shows the picked cell at the
-                    # zoom ratio between overview and target
-                    # objectives. See workflow/_mockprovider.py:
-                    # build_target_provider.
+                    # Per-pick provider -- closes over this pick's
+                    # centroid + source-tile lineage so the high-res
+                    # mock is a zoom of *that pick's* cell from the
+                    # overview file. See _mockprovider.build_target_provider.
                     target_provider = build_target_provider(
                         pick=pick,
                         target_pixel_size_um=target_pixel_size_um,
