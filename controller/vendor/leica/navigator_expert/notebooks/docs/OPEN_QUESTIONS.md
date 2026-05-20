@@ -59,9 +59,12 @@ Available data in `media_path/smart` (as of 2026-05-13,
 
 - **Acquired runs with zero detections** — not representative for a
   centroid-row histogram (the bias question presupposes detections).
-- **Mock runs** with `analysis_image_source="skimage_human_mitosis"` —
-  not the real cellpose / acquired image pipeline; would answer the
-  wrong question.
+- **Simulator dry runs** (`cfg.simulate=True`) — pixels are hijacked
+  with mock content under the simulator's OME envelope; not the real
+  cellpose / acquired image pipeline, so would answer the wrong
+  question. NPZs from such runs carry `simulated=True` (post-Plan-2)
+  or `analysis_image_source="skimage_human_mitosis"` (pre-Plan-2,
+  via the back-compat seam in `_load_tile_npz`).
 
 ### 5. Cheapest next diagnostic (once representative data exists)
 
@@ -73,8 +76,8 @@ Run these in order; stop at the first one that explains the symptom.
      are empty or minimal.
 
 2. **Filter to representative tiles**: in `overview-scan/analysis/*.npz`,
-   keep tiles where `analysis_image_source == "acquired"` and
-   `masks.max() > 0`.
+   keep tiles where `simulated` is False (post-Plan-2 NPZs) or absent
+   (pre-Plan-2 NPZs default to non-simulated) and `masks.max() > 0`.
 
 3. **All-detection y-histogram** (cheapest, ~20 lines): for each
    selected tile npz, compute `regionprops` over `masks` and plot a
