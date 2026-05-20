@@ -303,6 +303,31 @@ class TestTargetProviderErrors:
         with pytest.raises(RuntimeError, match="position"):
             provider((128, 128), np.uint16, naming=_dummy_naming())
 
+    def test_multi_plane_overview_raises_clearly(self, tmp_path):
+        """The target mock requires a 2-D overview. hijack_frame
+        already blocks multi-plane saved files upstream, so a fresh
+        simulator run is 2-D by construction. This test pins the
+        scope boundary structurally -- defends against stale /
+        reused / hand-corrupted overview files where the upstream
+        invariant doesn't hold. Per-tile RuntimeError, not
+        NonSimulatorFrameError (which would hard-abort the run)."""
+        layout = _make_layout(tmp_path)
+        # Write a 3-D overview (2 planes) directly, bypassing the
+        # hijack_frame 2-D guard. Reproduces the "stale file"
+        # scenario the check defends against.
+        overview = np.zeros((2, 64, 64), dtype=np.uint16)
+        _write_overview_file(layout, overview)
+        pick = _make_pick(
+            centroid_col_row_px=(32.0, 32.0),
+            source_pixel_size_um=(0.65, 0.65),
+            source_image_size_px=(64, 64),
+        )
+        provider = build_target_provider(
+            pick=pick, target_pixel_size_um=0.13, layout=layout,
+        )
+        with pytest.raises(RuntimeError, match=r"2-D"):
+            provider((64, 64), np.uint16, naming=_dummy_naming())
+
 
 # ─── acquire_targets integration (wiring + simulate-gate) ─────────
 
