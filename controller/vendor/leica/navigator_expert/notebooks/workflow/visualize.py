@@ -23,7 +23,7 @@ import numpy as np
 from _shared.output_layout import Naming, build_position_analysis_name
 from ._geom import (
     crop_overview_at_target_fov,
-    crop_and_resize_overview_to_target,
+    target_fov_window_in_overview,
 )
 from .overview import Picks, TileEvent
 from .target import TargetRecord
@@ -1226,28 +1226,45 @@ def display_target(
             mask_overlay[masks == label] = [1.0, 0.0, 0.0, 0.4]
             axes[0].imshow(mask_overlay)
 
-            cx, cy = pick.centroid_col_row_px
-            src_px_w, src_px_h = pick.source_pixel_size_um
+            # Shared window math with _geom.crop_overview_at_target_fov
+            # -- the rectangle on the left panel reflects exactly the
+            # window the centre panel's crop is taken from. No drift
+            # between callout and crop for edge cells. If the cell is
+            # near a tile boundary, x0/y0 may be negative and/or
+            # x0+w/y0+h may exceed the overview's shape; matplotlib
+            # clips the off-image portion of the rectangle to the
+            # axis limits, honestly showing "the target FOV extends
+            # past this tile."
             if (target_img is not None
                     and record.target_pixel_size_um is not None
-                    and src_px_w > 0 and src_px_h > 0):
-                th, tw = target_img.shape[:2]
-                crop_w = int(round(tw * record.target_pixel_size_um / src_px_w))
-                crop_h = int(round(th * record.target_pixel_size_um / src_px_h))
+                    and pick.source_pixel_size_um[0] > 0):
+                x0, y0, crop_w, crop_h = target_fov_window_in_overview(
+                    centroid_col_row_px=pick.centroid_col_row_px,
+                    # Scalar pixel size (col-axis) -- rest of the
+                    # pipeline does the same.
+                    source_pixel_size_um=float(pick.source_pixel_size_um[0]),
+                    target_shape_px=(
+                        int(target_img.shape[0]), int(target_img.shape[1]),
+                    ),
+                    target_pixel_size_um=float(record.target_pixel_size_um),
+                )
             else:
+                # Fallback: no target acquired yet. Show cellpose's
+                # bbox -- different contract ("what did cellpose
+                # detect") so still uses its own clamped slice math.
                 r0b, c0b, r1b, c1b = pick.bbox_px
                 crop_h, crop_w = r1b - r0b, c1b - c0b
-
-            h, w = image_2d.shape[:2]
-            crop_h = min(crop_h, h)
-            crop_w = min(crop_w, w)
-            r0 = int(round(cy - crop_h / 2))
-            c0 = int(round(cx - crop_w / 2))
-            r0 = max(0, min(r0, h - crop_h))
-            c0 = max(0, min(c0, w - crop_w))
+                cx, cy = pick.centroid_col_row_px
+                h, w = image_2d.shape[:2]
+                crop_h = min(crop_h, h)
+                crop_w = min(crop_w, w)
+                y0 = int(round(cy - crop_h / 2))
+                x0 = int(round(cx - crop_w / 2))
+                y0 = max(0, min(y0, h - crop_h))
+                x0 = max(0, min(x0, w - crop_w))
 
             axes[0].add_patch(patches.Rectangle(
-                (c0, r0), crop_w, crop_h,
+                (x0, y0), crop_w, crop_h,
                 edgecolor=_COLOR_PICK_SHOWN, facecolor="none",
                 linewidth=1.5, zorder=10,
             ))
@@ -1256,8 +1273,8 @@ def display_target(
             # corners to the crop panel's left corners, so the crop
             # reads as a zoomed-in view of the boxed region.
             for rect_xy, crop_corner in (
-                ((c0 + crop_w, r0), (0.0, 1.0)),
-                ((c0 + crop_w, r0 + crop_h), (0.0, 0.0)),
+                ((x0 + crop_w, y0), (0.0, 1.0)),
+                ((x0 + crop_w, y0 + crop_h), (0.0, 0.0)),
             ):
                 con = patches.ConnectionPatch(
                     xyA=rect_xy, coordsA=axes[0].transData,
@@ -1716,33 +1733,27 @@ def _centroid_crop_at_target_fov(
     rec,
     target_img: np.ndarray | None,
 ) -> np.ndarray:
-    """Render-ready centre-panel content for the Step 5 triptych.
+    """Crop overview tile at the target job's physical field of view.
 
     Two paths:
 
       - Normal: target acquisition succeeded and we have target
-        geometry. Delegate to ``workflow._geom.crop_and_resize_overview_to_target``
+        geometry. Delegate to ``workflow._geom.crop_overview_at_target_fov``
         -- the *same* helper the hijack provider uses to produce the
-        target file's content. Returns an array at the target's
-        pixel dimensions, ready for ``imshow`` with no matplotlib
-        upscaling asymmetry relative to the right panel.
+        target file's content. This is the no-drift property: the
+        centre panel and the saved target TIFF show the same source
+        window for the same cell.
 
-        In simulator mode this means centre and right panels show
-        byte-identical content (proves the simulator doesn't fake
-        information). In real-hardware mode the centre shows
-        "bilinear upsample of the overview region" -- a meaningful
-        baseline against the right panel's genuine high-res capture.
-
-      - Fallback: target acquisition not yet done (or target
-        geometry unavailable). Use ``pick.bbox_px`` -- cellpose's
-        bounding box -- and a simple clamped slice. Operator hasn't
-        seen a target yet, so the "match the target's FOV" property
-        doesn't apply.
+      - Fallback: target acquisition not yet done (or target geometry
+        unavailable). Use ``pick.bbox_px`` -- cellpose's bounding
+        box -- and a simple clamped slice. Operator hasn't seen a
+        target yet, so the "match the target's FOV" property doesn't
+        apply.
     """
     if (target_img is not None
             and rec.target_pixel_size_um is not None
             and pick.source_pixel_size_um[0] > 0):
-        return crop_and_resize_overview_to_target(
+        return crop_overview_at_target_fov(
             image_2d,
             centroid_col_row_px=pick.centroid_col_row_px,
             # Scalar pixel size (col-axis) -- rest of the pipeline
@@ -1757,8 +1768,7 @@ def _centroid_crop_at_target_fov(
     # Fallback: no target yet, crop at cellpose's bbox, clamped to
     # the overview bounds. Different math than the helper because the
     # contract is different ("show me what cellpose detected" vs
-    # "show me the same window the target will see"). No resize --
-    # without a target, there's no target resolution to resample to.
+    # "show me the same window the target will see").
     r0, c0, r1, c1 = pick.bbox_px
     crop_h, crop_w = r1 - r0, c1 - c0
     cx, cy = pick.centroid_col_row_px
