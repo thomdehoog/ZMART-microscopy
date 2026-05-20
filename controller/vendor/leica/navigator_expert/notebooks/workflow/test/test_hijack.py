@@ -17,9 +17,16 @@ Two surfaces under test:
       NonSimulatorFrameError) so the loop records a per-tile failure
       and continues -- not a run-fatal abort.
 
-The fixtures are synthesized at test time with tifffile. No binary
-blobs are committed; the synthesized OME envelope carries a minimal
-OriginalMetadata block for the SystemTypeName allowlist regex.
+Fixtures are split. Most tests synthesize their companion XML and
+OME-TIFF at test time with tifffile -- those pin the local recipe
+against the implementer's mental model of LAS X output. A small
+committed XML at ``fixtures/lasx_simulator_companion.ome.xml``
+preserves the structurally-relevant shape of real LAS X output
+(declaration form, OME root namespaces, the CustomAttributes
+wrapper in its distinct CA-2008-09 namespace, real OriginalMetadata
+encoding) and is the durable regression catch for the
+SystemTypeName allowlist parser -- see
+TestReadSystemTypeAgainstRealLasxXml.
 """
 from __future__ import annotations
 
@@ -58,10 +65,11 @@ _OME_DESC_TMPL = (
     '</StructuredAnnotations>'
     '</OME>'
 )
-# The hijack reads the system type via a regex on a compact one-line
-# OriginalMetadata representation. The on-disk LAS X form is the
-# attribute-encoded variant; we mirror it inside tag 270 here so the
-# regex finds it after the round-trip too.
+# Attribute-encoded OriginalMetadata fragment matching real LAS X
+# output. The hijack's allowlist parser (workflow/_hijack.py) walks
+# OriginalMetadata via ElementTree across any namespace, so this
+# inline form is namespace-inherited from its parent OME element in
+# the synthesized companion XML below.
 _INLINE_ORIGINAL_META = (
     '<OriginalMetadata Name="Data - Image - Attachment - SystemTypeName" '
     'Value="{system_type}"/>'
