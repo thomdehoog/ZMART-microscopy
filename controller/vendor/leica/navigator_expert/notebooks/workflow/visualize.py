@@ -449,7 +449,12 @@ def display_tile(
     from IPython.display import display
 
     rid, row, col = event.tile_id
-    is_mock = event.analysis_image_source != "acquired"
+    # Plan 2: `simulated` is the load-bearing flag (set when the file
+    # was hijacked). The `analysis_image_source != "acquired"` branch
+    # remains for back-compat with the pre-Plan-2 engine-side mock
+    # branch -- harmless and a no-op on a real run, where simulated is
+    # False and the engine source is "acquired".
+    is_mock = event.simulated or event.analysis_image_source != "acquired"
     prefix = "(mock) " if is_mock else ""
 
     show_field = scan_field is not None
@@ -1365,11 +1370,14 @@ def plot_overview_tiles(
         if loaded is None:
             continue
 
-        image_2d, masks, tile_id, source, position = loaded
+        image_2d, masks, tile_id, source, position, simulated = loaded
         tile_key = _normalize_tile_key(tile_id)
         labels = picked_by_tile.get(tile_key, [])
         n_cells = int(masks.max())
-        is_mock = source != "acquired"
+        # Plan 2: same back-compat construct as display_tile -- prefer
+        # the `simulated` NPZ field; fall back to the legacy source
+        # check for pre-Plan-2 reloads.
+        is_mock = simulated or source != "acquired"
 
         fig, axes = plt.subplots(
             1, 3, figsize=(_FRAME_WIDTH_IN, 5), constrained_layout=True,
@@ -1559,6 +1567,10 @@ class TileNpz(NamedTuple):
     tile_id: tuple
     source: str
     position: int | None
+    # Plan 2 -- True when the underlying .ome.tiff's pixels were
+    # hijacked with mock content (cfg.simulate). Drives the "(mock)"
+    # figure-title prefix. False for a pre-Plan-2 NPZ.
+    simulated: bool = False
 
 
 def _load_tile_npz(path: Path):
@@ -1572,7 +1584,12 @@ def _load_tile_npz(path: Path):
         position = (
             int(data["position"]) if "position" in data.files else None
         )
-        return TileNpz(image_2d, masks, tile_id, source, position)
+        # Plan 2 -- additive within schema v2; defaults are back-compat
+        # values for a pre-Plan-2 NPZ that has no `simulated` key.
+        simulated = (
+            bool(data["simulated"]) if "simulated" in data.files else False
+        )
+        return TileNpz(image_2d, masks, tile_id, source, position, simulated)
     except Exception as exc:
         print(f"[visualize] WARNING: skipping {path.name}: {exc}")
         return None

@@ -41,6 +41,14 @@ class Config:
     smoke_test_pipeline: bool = False
     analysis_image_source: str = "acquired"
 
+    # Simulation mode (Plan 2): when True, after each acquire_and_save
+    # the saved canonical .ome.tiff's pixels are overwritten with mock
+    # content (matched shape/dtype) -- gated by the per-frame
+    # SystemTypeName=="SIMULATOR" allowlist (see workflow/_hijack.py).
+    # mock_image_source names the provider, e.g. "skimage_human_mitosis".
+    simulate: bool = False
+    mock_image_source: str | None = None
+
     # Boundary marker margin (only consumed when markers are present)
     limit_margin_um: float = 500.0
 

@@ -342,11 +342,16 @@ class TestOverviewMetaMissingMarkedIncomplete:
 
 class TestOverviewMetaPersistsAcquireLoopCounters:
     def test_planned_and_submitted_round_trip(self, tmp_path):
+        # Plan 2 -- n_tiles_acquired is now a stored counter (not a
+        # derived `submitted - acquire_failed`), because hijack failures
+        # land between acquire-and-submit and break that identity. The
+        # write path must persist it; the round-trip just reads it back.
         analysis_dir = tmp_path / "analysis"
         _write_overview_meta(
             analysis_dir,
             n_tiles_planned=10,
             n_tiles_submitted=8,
+            n_tiles_acquired=9,
             tile_acquire_failures=[{"tile_id": ("0", 0, 0), "error": "x"}],
             engine_failures=[{"job_id": 1, "error": "y"}],
             npz_save_failures=[],
@@ -357,7 +362,7 @@ class TestOverviewMetaPersistsAcquireLoopCounters:
 
         assert ov.n_tiles_planned == 10
         assert ov.n_tiles_submitted == 8
-        assert ov.n_tiles_acquired == 7   # 8 submitted - 1 acquire_failed
+        assert ov.n_tiles_acquired == 9
 
 
 # run_overview_with_picks compat wrapper was deleted in Commit C; its

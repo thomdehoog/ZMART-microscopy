@@ -157,8 +157,13 @@ def load_overview_result(analysis_dir: Path) -> OverviewResult:
     tile_acquire_failures: list[dict] = []
     engine_failures: list[dict] = []
     npz_save_failures: list[dict] = []
+    hijack_failures: list[dict] = []
     n_tiles_planned = 0
     n_tiles_submitted = 0
+    n_tiles_acquired = 0
+    n_tiles_hijacked = 0
+    simulated = False
+    mock_image_source: str | None = None
     completed = False
     if meta_path.exists():
         try:
@@ -166,9 +171,16 @@ def load_overview_result(analysis_dir: Path) -> OverviewResult:
             tile_acquire_failures = meta.get("tile_acquire_failures", [])
             engine_failures = meta.get("engine_failures", [])
             npz_save_failures = meta.get("npz_save_failures", [])
+            hijack_failures = meta.get("hijack_failures", [])
             completed = bool(meta.get("completed", False))
             n_tiles_planned = int(meta.get("n_tiles_planned", 0))
             n_tiles_submitted = int(meta.get("n_tiles_submitted", 0))
+            # Plan 2 -- additive within schema v2; defaults are
+            # back-compat values for a pre-Plan-2 meta.
+            n_tiles_acquired = int(meta.get("n_tiles_acquired", 0))
+            n_tiles_hijacked = int(meta.get("n_tiles_hijacked", 0))
+            simulated = bool(meta.get("simulated", False))
+            mock_image_source = meta.get("mock_image_source", None)
             if "n_tiles_planned" not in meta or "n_tiles_submitted" not in meta:
                 print(
                     "[load] WARNING: overview_meta.json predates schema v2 "
@@ -204,6 +216,11 @@ def load_overview_result(analysis_dir: Path) -> OverviewResult:
         n_tiles_planned=n_tiles_planned,
         n_tiles_submitted=n_tiles_submitted,
         completed=completed,
+        n_tiles_acquired=n_tiles_acquired,
+        n_tiles_hijacked=n_tiles_hijacked,
+        hijack_failures=hijack_failures,
+        simulated=simulated,
+        mock_image_source=mock_image_source,
     )
 
 
@@ -390,6 +407,7 @@ def select_targets(
         removed_picks=removed_dup + removed_xy + removed_z + removed_xlat,
         tile_acquire_failures=overview.tile_acquire_failures,
         engine_failures=overview.engine_failures,
+        simulated=overview.simulated,
     )
 
     selection = SelectionResult(

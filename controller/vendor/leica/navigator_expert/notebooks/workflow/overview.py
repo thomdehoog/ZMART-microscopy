@@ -28,6 +28,8 @@ from _shared.output_layout import Naming, build_position_analysis_name
 from ._acquire import acquire
 from ._job_state import ensure_job_state
 from ._logcapture import _logged
+from ._hijack import hijack_frame, NonSimulatorFrameError
+from ._mockprovider import get_provider
 
 
 # ─── Dataclasses ──────────────────────────────────────────────────
@@ -88,6 +90,21 @@ class OverviewResult:
     n_tiles_submitted: int
     completed: bool
 
+    # Plan 2 -- stored counters (not derived). A tile can now be
+    # acquired-but-not-hijacked-not-submitted, so the prior derived
+    # n_tiles_acquired = submitted - acquire_failed breaks. These all
+    # default to 0 / [] for back-compat; run_overview /
+    # load_overview_result populate them.
+    n_tiles_acquired: int = 0
+    n_tiles_hijacked: int = 0
+    hijack_failures: list[dict] = field(default_factory=list)
+
+    # True when the run executed in simulation mode (cfg.simulate); the
+    # canonical .ome.tiffs in data/ then carry mock pixels under their
+    # real LAS-X-simulator OME envelopes.
+    simulated: bool = False
+    mock_image_source: str | None = None
+
     @property
     def n_tiles(self) -> int:
         # Successfully drained AND saved tiles (= v2 NPZ files written).
@@ -98,10 +115,6 @@ class OverviewResult:
     @property
     def n_tiles_empty(self) -> int:
         return sum(1 for n in self.tile_cell_counts.values() if n == 0)
-
-    @property
-    def n_tiles_acquired(self) -> int:
-        return self.n_tiles_submitted - len(self.tile_acquire_failures)
 
 
 @dataclass(frozen=True)
@@ -121,6 +134,11 @@ class TileEvent:
     # Flat tile index ("Position N") -- the overview-scan file index p
     # (= naming_p). None only on a pre-`position` reload.
     position: int | None = None
+    # Plan 2 -- True when the saved .ome.tiff's pixels were hijacked
+    # with mock content (cfg.simulate). The "(mock)" figure prefix
+    # reads this, not the legacy analysis_image_source.
+    simulated: bool = False
+    mock_image_source: str | None = None
 
 
 # ─── Public API ───────────────────────────────────────────────────
@@ -259,8 +277,16 @@ def run_overview(
     new_failures: list[dict] = []
     n_tiles_planned = 0
     n_tiles_submitted = 0
+    n_tiles_acquired = 0
+    n_tiles_hijacked = 0
+    hijack_failures: list[dict] = []
     n_results = 0
     completed = False
+
+    # Plan 2 simulation mode. provider is None for a real run; set to a
+    # mock-image callable when cfg.simulate, with the per-frame
+    # NonSimulatorFrameError allowlist enforced by hijack_frame().
+    provider = get_provider(cfg.mock_image_source) if cfg.simulate else None
 
     analysis_dir = ctx.run.layout.analysis_dir("overview-scan")
 
@@ -316,6 +342,29 @@ def run_overview(
                 result = drv.acquire_and_save(
                     ctx.client, ctx.run, cfg.acquisition_job, naming,
                 )
+                n_tiles_acquired += 1
+
+                if cfg.simulate:
+                    try:
+                        hijack_frame(
+                            result, kind="overview-scan",
+                            layout=ctx.run.layout, provider=provider,
+                        )
+                        n_tiles_hijacked += 1
+                    except NonSimulatorFrameError:
+                        # Run-fatal: re-raise past the broad except
+                        # below so the loop hard-aborts on the very
+                        # first non-simulator frame instead of silently
+                        # logging a tile failure and continuing onto
+                        # more real-hardware frames.
+                        raise
+                    except Exception as exc:
+                        hijack_failures.append({
+                            "tile_id": tile_id, "error": str(exc),
+                        })
+                        print(f"  HIJACK-FAIL ({exc})")
+                        continue
+
                 engine.submit("overview", {
                     "image_path": str(result.image_path),
                     "tile_id": tile_id,
@@ -327,10 +376,28 @@ def run_overview(
                     "image_to_stage": ctx.calibration["image_to_stage"],
                     "n_picks": None,
                     "feature": "area",
-                    "analysis_image_source": cfg.analysis_image_source,
+                    # On a simulate run the workflow swapped the file's
+                    # pixels; send "acquired" so the engine reads the
+                    # (mock-content) file. Otherwise pass cfg's value
+                    # through unchanged (back-compat with the pre-D1
+                    # engine-side mock branch).
+                    "analysis_image_source": (
+                        "acquired" if cfg.simulate
+                        else cfg.analysis_image_source
+                    ),
+                    # Engine-ignored provenance keys -- they reach
+                    # _fire_on_tile and _save_single_tile_analysis via
+                    # result["input"].
+                    "simulated": cfg.simulate,
+                    "mock_image_source": cfg.mock_image_source,
                 })
                 n_tiles_submitted += 1
                 print(f"  ok")
+            except NonSimulatorFrameError:
+                # Announced inside the inner try; re-raise here so the
+                # outer finally writes meta with completed=False and
+                # the exception surfaces to the caller (run-fatal).
+                raise
             except Exception as exc:
                 tile_acquire_failures.append({
                     "tile_id": tile_id, "error": str(exc),
@@ -392,10 +459,15 @@ def run_overview(
                 analysis_dir,
                 n_tiles_planned=n_tiles_planned,
                 n_tiles_submitted=n_tiles_submitted,
+                n_tiles_acquired=n_tiles_acquired,
+                n_tiles_hijacked=n_tiles_hijacked,
                 tile_acquire_failures=tile_acquire_failures,
                 engine_failures=new_failures,
                 npz_save_failures=npz_save_failures,
+                hijack_failures=hijack_failures,
                 completed=completed,
+                simulated=cfg.simulate,
+                mock_image_source=cfg.mock_image_source,
             )
         except Exception as exc:
             print(f"[step 3] WARNING: could not write overview_meta.json: {exc}")
@@ -415,6 +487,11 @@ def run_overview(
         n_tiles_planned=n_tiles_planned,
         n_tiles_submitted=n_tiles_submitted,
         completed=completed,
+        n_tiles_acquired=n_tiles_acquired,
+        n_tiles_hijacked=n_tiles_hijacked,
+        hijack_failures=hijack_failures,
+        simulated=cfg.simulate,
+        mock_image_source=cfg.mock_image_source,
     )
 
 
@@ -604,17 +681,28 @@ def _write_overview_meta(
     *,
     n_tiles_planned: int,
     n_tiles_submitted: int,
+    n_tiles_acquired: int = 0,
+    n_tiles_hijacked: int = 0,
     tile_acquire_failures: list[dict],
     engine_failures: list[dict],
     npz_save_failures: list[dict],
+    hijack_failures: list[dict] | None = None,
     completed: bool,
+    simulated: bool = False,
+    mock_image_source: str | None = None,
 ) -> None:
     """Persist failure lists + acquire-loop counters + completion sentinel.
 
     `tile_cell_counts` is NOT stored — it's reconstructed from the v2 NPZ
-    files by load_overview_result. n_tiles_planned and n_tiles_submitted
-    cannot be recovered from disk after a kernel restart (no NPZ for
-    planned-but-not-submitted or acquire-failed tiles), so they live here.
+    files by load_overview_result. n_tiles_planned, n_tiles_submitted,
+    n_tiles_acquired, n_tiles_hijacked cannot be recovered from disk
+    after a kernel restart (no NPZ for planned-but-not-submitted or
+    acquire-failed-or-hijack-failed tiles), so they live here.
+
+    Plan 2: simulated / mock_image_source / n_tiles_hijacked /
+    hijack_failures land in meta so a reload knows the run was a
+    simulation hijack (the canonical .ome.tiff carries mock pixels but
+    the OME envelope still says SIMULATOR).
 
     Ensures analysis_dir exists in case zero tiles succeeded.
     """
@@ -624,9 +712,14 @@ def _write_overview_meta(
         "completed": completed,
         "n_tiles_planned": n_tiles_planned,
         "n_tiles_submitted": n_tiles_submitted,
+        "n_tiles_acquired": n_tiles_acquired,
+        "n_tiles_hijacked": n_tiles_hijacked,
         "tile_acquire_failures": tile_acquire_failures,
         "engine_failures": engine_failures,
         "npz_save_failures": npz_save_failures,
+        "hijack_failures": hijack_failures or [],
+        "simulated": simulated,
+        "mock_image_source": mock_image_source,
     }
     (analysis_dir / "overview_meta.json").write_text(json.dumps(meta, indent=2))
 
@@ -788,6 +881,16 @@ def _save_single_tile_analysis(
             # Flat tile index ("Position N"). naming_p is guaranteed
             # non-None here -- the None check above returns False first.
             "position": np.int32(int(naming_p)),
+            # Plan 2 -- True when the saved .ome.tiff's pixels were
+            # hijacked with mock content. mock_image_source is the
+            # provider name or "" when not simulating. A reload reads
+            # both, with back-compat in _load_tile_npz: legacy NPZs
+            # without these keys derive simulated from the engine-side
+            # `analysis_image_source == "skimage_human_mitosis"`.
+            "simulated": np.bool_(bool(inp.get("simulated", False))),
+            "mock_image_source": np.array(
+                inp.get("mock_image_source") or ""
+            ),
         }
         if extra_arrays:
             # Invariant: cell_labels[i] <-> cell_area_px[i] <-> ...
@@ -860,6 +963,8 @@ def _fire_on_tile(
             analysis_image_source=inp.get("analysis_image_source",
                                           "acquired"),
             position=inp.get("naming_p"),
+            simulated=bool(inp.get("simulated", False)),
+            mock_image_source=inp.get("mock_image_source"),
         ))
     except Exception as exc:
         tid = tile_id

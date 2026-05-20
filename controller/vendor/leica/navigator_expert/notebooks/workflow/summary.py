@@ -112,6 +112,13 @@ def write_summary(
             "engine_failures": overview.engine_failures,
             "n_npz_save_failures": len(overview.npz_save_failures),
             "npz_save_failures": overview.npz_save_failures,
+            # Plan 2 -- hijack counters and per-tile failure list. On a
+            # non-simulate run these are 0 / []; the keys are always
+            # present so consumers don't have to branch on simulated.
+            "n_tiles_hijacked": overview.n_tiles_hijacked,
+            "n_hijack_failures": len(overview.hijack_failures),
+            "hijack_failures": overview.hijack_failures,
+            "mock_image_source": overview.mock_image_source,
             "completed": overview.completed,
             "simulated": picks.simulated,
         },
@@ -375,6 +382,11 @@ def _serialize_target(rec: TargetRecord, out_dir: Path) -> dict:
         "error": rec.error,
         "failure_stage": rec.failure_stage,
         "source_tile_position": rec.source_tile_position,
+        # Plan 2 -- per-record provenance. simulated=True means the
+        # saved .ome.tiff carries mock pixels; failure_stage="hijack"
+        # identifies a hijack-specific failure path.
+        "simulated": rec.simulated,
+        "mock_image_source": rec.mock_image_source,
     }
 
 
