@@ -695,62 +695,41 @@ class TestCentroidCropAtTargetFov:
             error=None,
         )
 
-    def test_center_crop_correct_size(self):
+    def test_center_panel_shape_matches_target_image(self):
+        """Post-refactor: visualize's centre panel returns at the
+        TARGET's pixel dimensions (not the raw crop shape). The
+        crop+resize lives in workflow._geom; both centre and right
+        panels then go through matplotlib's display upscale
+        symmetrically. Exhaustive crop / centring / dtype properties
+        are pinned in test_geom.py; this test just confirms the
+        contract surface (shape == target_img.shape)."""
         from workflow.visualize import _centroid_crop_at_target_fov
         image = np.zeros((100, 100))
-        # target: 20x20 px at 0.25 um/px = 5x5 um FOV
-        # source: 0.5 um/px → crop = 5/0.5 = 10x10 px
         target_img = np.zeros((20, 20))
         pick = _make_pick(("0", 0, 0), label=1,
                           centroid_rc=(50.0, 50.0),
                           bbox=(45, 45, 55, 55))
         rec = self._make_rec(target_pixel_size_um=0.25)
 
-        crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
-        assert crop.shape == (10, 10)
+        result = _centroid_crop_at_target_fov(image, pick, rec, target_img)
+        assert result.shape == target_img.shape
 
-    def test_center_crop_centered_on_centroid(self):
-        from workflow.visualize import _centroid_crop_at_target_fov
-        image = np.arange(10000).reshape(100, 100).astype(float)
-        target_img = np.zeros((20, 20))
-        # centroid at (col=60, row=40)
-        pick = _make_pick(("0", 0, 0), label=1,
-                          centroid_rc=(60.0, 40.0),
-                          bbox=(35, 55, 45, 65))
-        rec = self._make_rec(target_pixel_size_um=0.25)
-
-        crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
-        # crop should be rows 35:45, cols 55:65 (centered on row=40, col=60)
-        assert crop.shape == (10, 10)
-        expected = image[35:45, 55:65]
-        np.testing.assert_array_equal(crop, expected)
-
-    def test_corner_clamp_shifts_window(self):
+    def test_center_panel_edge_cell_does_not_crash(self):
+        """Edge cells used to need a "clamp inside overview bounds"
+        path. Post-refactor the shared helper median-pads instead;
+        the centre panel inherits that behaviour. Pin: edge cells
+        still produce a target-shaped array, no exception."""
         from workflow.visualize import _centroid_crop_at_target_fov
         image = np.zeros((100, 100))
         target_img = np.zeros((20, 20))
-        # centroid near top-left corner — crop would go negative
+        # centroid at corner -- crop would extend out of overview
         pick = _make_pick(("0", 0, 0), label=1,
                           centroid_rc=(2.0, 2.0),
                           bbox=(0, 0, 5, 5))
         rec = self._make_rec(target_pixel_size_um=0.25)
 
-        crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
-        # Should shift to (0,0) but keep the 10x10 size
-        assert crop.shape == (10, 10)
-
-    def test_bottom_right_clamp(self):
-        from workflow.visualize import _centroid_crop_at_target_fov
-        image = np.zeros((100, 100))
-        target_img = np.zeros((20, 20))
-        # centroid near bottom-right corner
-        pick = _make_pick(("0", 0, 0), label=1,
-                          centroid_rc=(98.0, 98.0),
-                          bbox=(93, 93, 100, 100))
-        rec = self._make_rec(target_pixel_size_um=0.25)
-
-        crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
-        assert crop.shape == (10, 10)
+        result = _centroid_crop_at_target_fov(image, pick, rec, target_img)
+        assert result.shape == target_img.shape
 
     def test_fallback_to_bbox_when_no_target(self):
         from workflow.visualize import _centroid_crop_at_target_fov
@@ -765,19 +744,37 @@ class TestCentroidCropAtTargetFov:
         assert crop.shape == (20, 16)
 
     def test_col_row_mapping(self):
-        """Verify col maps to x-axis and row maps to y-axis."""
+        """Verify col maps to x-axis and row maps to y-axis. After
+        the refactor the centre panel returns a target-shaped
+        bilinear-upsampled array; the marker's intensity is spread
+        across nearby pixels, but the total energy is preserved
+        (preserve_range=True, anti_aliasing=False) so the centre
+        of mass still lands near the array centre."""
         from workflow.visualize import _centroid_crop_at_target_fov
         image = np.zeros((200, 300))
         image[50, 150] = 1.0  # marker at row=50, col=150
-        target_img = np.zeros((4, 4))
-        # centroid at (col=150, row=50) → crop should contain the marker
+        target_img = np.zeros((40, 40))
+        # centroid at (col=150, row=50) -> the upsampled output's
+        # brightest region should be near the array centre (20, 20).
         pick = _make_pick(("0", 0, 0), label=1,
                           centroid_rc=(150.0, 50.0),
                           bbox=(48, 148, 52, 152))
         rec = self._make_rec(target_pixel_size_um=0.25)
 
-        crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
-        assert crop.sum() == 1.0, "Marker should be inside the crop"
+        result = _centroid_crop_at_target_fov(image, pick, rec, target_img)
+        # Brightest pixel near the centre of the resized output --
+        # bilinear upsample of a single-pixel marker keeps the
+        # brightness concentrated near where the marker was, which
+        # is the array centre after centroid-aligned cropping.
+        peak_row, peak_col = np.unravel_index(np.argmax(result), result.shape)
+        assert abs(peak_row - 20) <= 3, (
+            f"marker fell at row={peak_row}, expected near 20 "
+            f"(= H_tg/2). Possible (col, row) <-> (x, y) swap."
+        )
+        assert abs(peak_col - 20) <= 3, (
+            f"marker fell at col={peak_col}, expected near 20 "
+            f"(= W_tg/2). Possible (col, row) <-> (x, y) swap."
+        )
 
 
 # ─── _ensure_2d ──────────────────────────────────────────────────

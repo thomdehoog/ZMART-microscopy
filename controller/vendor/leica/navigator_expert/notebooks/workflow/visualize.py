@@ -21,7 +21,10 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from _shared.output_layout import Naming, build_position_analysis_name
-from ._geom import crop_overview_at_target_fov
+from ._geom import (
+    crop_overview_at_target_fov,
+    crop_and_resize_overview_to_target,
+)
 from .overview import Picks, TileEvent
 from .target import TargetRecord
 from .selection import (
@@ -1713,27 +1716,33 @@ def _centroid_crop_at_target_fov(
     rec,
     target_img: np.ndarray | None,
 ) -> np.ndarray:
-    """Crop overview tile at the target job's physical field of view.
+    """Render-ready centre-panel content for the Step 5 triptych.
 
     Two paths:
 
       - Normal: target acquisition succeeded and we have target
-        geometry. Delegate to ``workflow._geom.crop_overview_at_target_fov``
+        geometry. Delegate to ``workflow._geom.crop_and_resize_overview_to_target``
         -- the *same* helper the hijack provider uses to produce the
-        target file's content. This is the no-drift property: the
-        centre panel and the saved target TIFF show the same source
-        window for the same cell.
+        target file's content. Returns an array at the target's
+        pixel dimensions, ready for ``imshow`` with no matplotlib
+        upscaling asymmetry relative to the right panel.
 
-      - Fallback: target acquisition not yet done (or target geometry
-        unavailable). Use ``pick.bbox_px`` -- cellpose's bounding
-        box -- and a simple clamped slice. Operator hasn't seen a
-        target yet, so the "match the target's FOV" property doesn't
-        apply.
+        In simulator mode this means centre and right panels show
+        byte-identical content (proves the simulator doesn't fake
+        information). In real-hardware mode the centre shows
+        "bilinear upsample of the overview region" -- a meaningful
+        baseline against the right panel's genuine high-res capture.
+
+      - Fallback: target acquisition not yet done (or target
+        geometry unavailable). Use ``pick.bbox_px`` -- cellpose's
+        bounding box -- and a simple clamped slice. Operator hasn't
+        seen a target yet, so the "match the target's FOV" property
+        doesn't apply.
     """
     if (target_img is not None
             and rec.target_pixel_size_um is not None
             and pick.source_pixel_size_um[0] > 0):
-        return crop_overview_at_target_fov(
+        return crop_and_resize_overview_to_target(
             image_2d,
             centroid_col_row_px=pick.centroid_col_row_px,
             # Scalar pixel size (col-axis) -- rest of the pipeline
@@ -1748,7 +1757,8 @@ def _centroid_crop_at_target_fov(
     # Fallback: no target yet, crop at cellpose's bbox, clamped to
     # the overview bounds. Different math than the helper because the
     # contract is different ("show me what cellpose detected" vs
-    # "show me the same window the target will see").
+    # "show me the same window the target will see"). No resize --
+    # without a target, there's no target resolution to resample to.
     r0, c0, r1, c1 = pick.bbox_px
     crop_h, crop_w = r1 - r0, c1 - c0
     cx, cy = pick.centroid_col_row_px
