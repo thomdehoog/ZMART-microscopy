@@ -224,6 +224,89 @@ class TestReadSystemType:
     def test_returns_none_on_missing_file(self, tmp_path):
         assert _read_system_type(tmp_path / "nope.xml") is None
 
+    def test_returns_none_on_unparseable_xml(self, tmp_path):
+        """A malformed XML must yield None (not crash). Belt-and-
+        suspenders: the LAS X writer should never produce malformed
+        XML, but the parser must fail closed -- a crash here would
+        propagate as an uncaught exception out of the acquisition
+        loop, which would record as a tile failure instead of a
+        deliberate NonSimulatorFrameError."""
+        xml = tmp_path / "bad.xml"
+        xml.write_bytes(b"<OME><not-closed>")
+        assert _read_system_type(xml) is None
+
+    def test_attribute_order_value_before_name(self, tmp_path):
+        """ET-based parser is attribute-order-independent (the previous
+        regex required Name="..." to appear before Value="..." on the
+        same element). LAS X's current writer happens to emit Name
+        first, but the parser must not depend on that."""
+        xml = tmp_path / "reversed.xml"
+        xml.write_bytes(
+            b'<?xml version="1.0"?>'
+            b'<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2008-09">'
+            b'<OriginalMetadata Value="SIMULATOR" '
+            b'Name="Data - Image - Attachment - SystemTypeName" />'
+            b'</OME>'
+        )
+        assert _read_system_type(xml) == "SIMULATOR"
+
+    def test_finds_element_in_distinct_child_namespace(self, tmp_path):
+        """The real LAS X envelope wraps OriginalMetadata in a
+        CustomAttributes block whose default xmlns is the CA-2008-09
+        schema -- distinct from the OME root namespace. A namespace-
+        unaware parser (e.g. ``root.iter("OriginalMetadata")``) would
+        miss them entirely. The ``{*}`` wildcard match must find them."""
+        xml = tmp_path / "ca_nested.xml"
+        xml.write_bytes(
+            b'<?xml version="1.0"?>'
+            b'<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2008-09">'
+            b'<CustomAttributes '
+            b'xmlns="http://www.openmicroscopy.org/Schemas/CA/2008-09">'
+            b'<OriginalMetadata '
+            b'Name="Data - Image - Attachment - SystemTypeName" '
+            b'Value="SIMULATOR" />'
+            b'</CustomAttributes>'
+            b'</OME>'
+        )
+        assert _read_system_type(xml) == "SIMULATOR"
+
+
+# ─── Real LAS X simulator XML fixture ─────────────────────────────
+
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+class TestReadSystemTypeAgainstRealLasxXml:
+    """Pin the allowlist parser against a real (sanitized) LAS X
+    simulator companion XML. Without this fixture the parser was only
+    validated against synthesized minimal XML -- a representation that
+    happened to match the implementer's mental model of LAS X output,
+    not LAS X itself.
+
+    The fixture preserves the structurally-relevant shape:
+
+      - the LAS X XML declaration (`standalone="no"`) and the long
+        OME-XML warning comment
+      - the OME root with all eight namespace declarations LAS X emits
+      - the SemanticTypeDefinitions stub
+      - the <CustomAttributes xmlns="...CA-2008-09"> wrapper -- the
+        DIFFERENT namespace from the OME root that broke a naive
+        non-namespace-aware parser implementation
+      - a handful of real OriginalMetadata entries, including the
+        SystemTypeName="SIMULATOR" one
+
+    Operator-identifiable values (UUID, paths, names) are sanitized.
+    """
+
+    def test_allowlist_passes_on_real_simulator_xml(self):
+        xml = _FIXTURES_DIR / "lasx_simulator_companion.ome.xml"
+        assert xml.exists(), (
+            f"fixture missing: {xml}. The real-LAS-X regression test "
+            f"depends on this file being committed alongside the test."
+        )
+        assert _read_system_type(xml) == "SIMULATOR"
+
 
 # ─── Overwrite: tag-270 preservation + provider validation ────────
 
@@ -286,6 +369,37 @@ class TestHijackOverwrite:
             hijack_frame(result, kind="overview-scan",
                          layout=layout, provider=bad_dtype_provider)
         assert not isinstance(exc_info.value, NonSimulatorFrameError)
+
+    def test_multi_plane_saved_array_fails_loudly_not_silently(self, tmp_path):
+        """Plan 2 phase 1 supports single-plane single-channel saved
+        frames. A multi-plane saved frame must raise a clearly-labelled
+        RuntimeError (per-tile path, recorded in hijack_failures and
+        the loop continues), NOT a NonSimulatorFrameError (which would
+        hard-abort the entire run).
+
+        The previous implementation only had a generic shape-mismatch
+        error: the 2-D mock provider would return shape (H, W) for a
+        saved shape of (Z, H, W), and every tile in a multi-plane run
+        would silently land in hijack_failures with an opaque mismatch
+        message. This pins the explicit early reject + the operator-
+        facing 'multi-plane unsupported' message."""
+        # Build a (planes=2, H=16, W=16) saved frame on a SIMULATOR
+        # companion so the allowlist passes and the 2D check is the
+        # only thing that can fire.
+        layout, result = _build_result(
+            tmp_path, "SIMULATOR",
+            shape=(2, 16, 16), dtype=np.uint16,
+        )
+        with pytest.raises(RuntimeError) as exc_info:
+            hijack_frame(result, kind="overview-scan",
+                         layout=layout, provider=_constant_provider(42))
+        # Must NOT be NonSimulatorFrameError -- a multi-plane frame is
+        # an unsupported scope, not a safety violation.
+        assert not isinstance(exc_info.value, NonSimulatorFrameError)
+        # Message must name the scope explicitly so the operator knows
+        # what to do (extend the mock provider) instead of seeing a
+        # mysterious shape error.
+        assert "multi-plane" in str(exc_info.value).lower()
 
 
 # ─── Mock provider unit ───────────────────────────────────────────
