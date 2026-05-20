@@ -67,11 +67,11 @@ scope.initialize()                              # connect, read hardware, set up
 
 # stage
 scope.getxyz()                  -> Position     # live (x, y, z) in the declared frame
-scope.setxyz(x, y, z=None, *, timeout=...)      # move the stage; validated against active limits
+scope.setxyz(x, y, z=None, *, timeout=None)     # move the stage; validated against active limits
 
 # named acquisition state
 scope.getstate(name)            -> Preset       # read a named state from the scope
-scope.setstate(preset, *, timeout=...)          # apply preset.fields; name is identity, not a lookup key
+scope.setstate(preset, *, timeout=None)         # apply preset.fields; name is identity, not a lookup key
 
 # named stage-limits bundle
 scope.getlimits(name)           -> Preset       # read named limits
@@ -81,7 +81,7 @@ scope.setlimits(preset)                         # apply as active guard; every s
 scope.getposition(name)         -> Positions    # list of XYZ targets
 
 # acquisition lifecycle
-scope.acquire(*, timeout=...)   -> ImageHandle  # acquires whatever was last setstate'd (one plane)
+scope.acquire(*, timeout=None)  -> ImageHandle  # acquires whatever was last setstate'd (one plane)
 scope.save(handle, experiment, lineage=None)    # writes canonical OME-TIFF + sidecar; mutates handle.path
 scope.release(handle)                           # free in-memory pixels
 
@@ -103,7 +103,9 @@ is done; on runtime hardware failure it raises `MicroscopeError`. Workflow code
 can rely on the next line meaning *"the previous op completed."* Timeout
 exhaustion is failure, not return — never a silent half-done state. This
 applies to every method on the waist; misuse (wrong preset type, unknown
-plug-in id, etc.) raises `ValueError`/`TypeError` per §2.2 and §4.
+plug-in id, etc.) raises `ValueError`/`TypeError` per §2.2 and §4. Omitting
+`timeout` passes `None`; adapters resolve their own implementation-specific
+defaults (§4).
 
 **Notes on a few methods:**
 
@@ -164,8 +166,8 @@ Rules, total and minimal:
 - **Timeout is a failure threshold, not cancellation.** The adapter raises
   `TRANSIENT` (or `FAILED`) once the vendor operation has returned, or once
   idle has been observed — never while a native call is mid-flight. v1 has no
-  mid-call cancellation (§8). The "leave the instrument idle on timeout" rule
-  in §4 applies only after the vendor call has yielded control.
+  mid-call cancellation (§8). The idle-before-raising obligation in §4 applies
+  only after a hardware operation has started and control/idle can be observed.
 - **Session degradation** is contained inside the adapter: it settles after any
   operation known to perturb the vendor session before returning. Subsequent
   unrelated methods never inherit a degraded session. The vendor-specific
@@ -471,6 +473,8 @@ A thin pointer to the body; resolution detail lives in the cited section.
 | Failure types | `Status`, `Verdict`, `MicroscopeError` — §2.2 |
 | Other data shapes | `Capability`, `PresetType`, `Position`, `Positions`, `Preset`, `ImageHandle` — §2.3 |
 | `acquire` / `save` | separate verbs (not fused) — §2.1, §6 |
+| Timeout ownership | caller override; adapter resolves `None` — §2.1, §4 |
+| Synchronous calls | return only after completion or documented failure — §2.1, §4 |
 | Preset types | two: `STATE`, `LIMITS` — §2.3 |
 | Plug-in selection | string id + explicit registry — §4 |
 | Vendor escape | rejected — §8 |
