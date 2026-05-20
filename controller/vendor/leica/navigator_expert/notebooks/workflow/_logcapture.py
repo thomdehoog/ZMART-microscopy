@@ -147,6 +147,7 @@ class _DeferredTee:
     def __init__(self, original) -> None:
         self._original = original
         self._file = None
+        self._log_path = None
         self._buffer: list[str] = []
         self._disabled = False
         self._lock = threading.Lock()
@@ -204,7 +205,12 @@ class _DeferredTee:
             handle.write("".join(self._buffer))
             handle.flush()
             self._file = handle
+            self._log_path = log_path
             self._buffer = []
+            # Register the bound path so a nested capture_console on the
+            # same file no-ops (re-entrancy guard) rather than wrapping
+            # this tee and double-writing every line.
+            _active_paths.add(log_path)
 
 
 @contextmanager
@@ -221,5 +227,7 @@ def capture_console_deferred():
         yield tee
     finally:
         sys.stdout = original
+        if tee._log_path is not None:
+            _active_paths.discard(tee._log_path)
         if tee._file is not None:
             tee._file.close()

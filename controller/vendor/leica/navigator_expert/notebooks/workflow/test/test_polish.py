@@ -135,8 +135,10 @@ def _envelope_ctx(out_dir: Path, *, boundary_limits):
     ctx = mock.MagicMock()
     ctx.out_dir = out_dir
     ctx.boundary_limits = boundary_limits
-    # plot_stage_envelope saves into logs_dir("initialization"); point
-    # it at the real tmp dir so savefig has somewhere to write.
+    # plot_stage_envelope saves into logs_dir("initialization") and is
+    # @_logged-decorated (tees console output into the same dir) --
+    # point logs_dir at the real tmp dir so both savefig and the tee
+    # have a real path to write to.
     ctx.run.layout.logs_dir.return_value = out_dir
     return ctx
 
