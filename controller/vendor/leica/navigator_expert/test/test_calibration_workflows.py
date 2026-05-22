@@ -1,0 +1,2766 @@
+"""Tests for calibration/workflows/ (PR 1).
+
+Covers:
+
+- SessionPaths creation and folder layout
+- slug + objective_config_name + geometry validation
+- non-square pixel rejection
+- promotion behavior (success, archive, missing source, wrong kind,
+  relative live_path rejection)
+- image_to_stage success path with mocked driver + register_voting
+- weak-vote and D4-residual-failure paths block the staging config
+- report image paths are session-root-relative
+- overlay smoke test
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pytest
+
+from navigator_expert.calibration.workflows import common as cm
+from navigator_expert.calibration.workflows import (
+    image_to_stage as wf_i2s,
+    objective_pair as wf_obj,
+    promotion as wf_promotion,
+)
+
+
+# ---------------------------------------------------------------------
+# Explicit runtime roots
+# ---------------------------------------------------------------------
+
+@pytest.fixture
+def sessions_root(tmp_path):
+    return tmp_path / "sessions"
+
+
+@pytest.fixture
+def live_root(tmp_path):
+    return tmp_path / "live"
+
+
+# ---------------------------------------------------------------------
+# Common helpers
+# ---------------------------------------------------------------------
+
+def test_make_session_paths_creates_layout(sessions_root):
+    paths = cm.make_session_paths(
+        "sess1", "image_to_stage", sessions_root=sessions_root,
+    )
+    for sub in (paths.configs_dir, paths.reports_dir,
+                paths.notebooks_dir, paths.data_dir):
+        assert sub.is_dir()
+    assert paths.data_dir.name == "image_to_stage"
+    assert paths.data_dir.parent.name == "data"
+    assert paths.session_dir.name == "sess1"
+
+
+def test_make_session_paths_uses_explicit_root(sessions_root):
+    paths = cm.make_session_paths(
+        "sess_explicit", "image_to_stage", sessions_root=sessions_root,
+    )
+    assert paths.session_dir.parent == sessions_root.absolute()
+
+
+def test_make_session_paths_does_not_use_package_sessions_root(sessions_root):
+    paths = cm.make_session_paths(
+        "sess_pkg", "image_to_stage", sessions_root=sessions_root,
+    )
+    package_sessions = (
+        Path(cm.__file__).resolve().parents[1] / "sessions"
+    )
+    # session_dir lives under the explicit root, NOT the package tree.
+    assert package_sessions not in paths.session_dir.parents
+
+
+def test_runtime_paths_preserve_drive_letter(sessions_root):
+    paths = cm.make_session_paths(
+        "probe", "image_to_stage", sessions_root=sessions_root,
+    )
+    # The constructed session_dir keeps the same drive letter / prefix
+    # as the input root -- no UNC conversion, no symlink dereferencing.
+    expected_drive = sessions_root.absolute().drive
+    assert str(paths.session_dir).startswith(str(sessions_root.absolute().drive)) \
+        or paths.session_dir.drive == expected_drive
+
+
+def test_slug_and_objective_config_name():
+    assert cm.slug("10x") == "10x"
+    assert cm.slug("100x oil") == "100x_oil"
+    assert cm.slug("0.5x") == "0p5x"
+    assert (cm.objective_config_name("10x", "20x")
+            == "objective_10x_to_20x.json")
+    assert (cm.objective_config_name("10x", "100x oil")
+            == "objective_10x_to_100x_oil.json")
+
+
+def test_assert_geometry_matches_accepts_exact_match():
+    g = cm.ImageGeometry(
+        image_size_px=(1024, 1024), format_px=(1024, 1024),
+        pixel_size_um=0.5, pixel_w_um=0.5, pixel_h_um=0.5,
+    )
+    cm.assert_geometry_matches(g, (1024, 1024), 0.5, context="x")
+
+
+def test_assert_geometry_matches_rejects_image_size():
+    g = cm.ImageGeometry(
+        image_size_px=(1024, 512), format_px=(1024, 512),
+        pixel_size_um=0.5, pixel_w_um=0.5, pixel_h_um=0.5,
+    )
+    with pytest.raises(ValueError, match="image size mismatch"):
+        cm.assert_geometry_matches(g, (1024, 1024), 0.5, context="x")
+
+
+def test_assert_geometry_matches_rejects_pixel_size():
+    g = cm.ImageGeometry(
+        image_size_px=(1024, 1024), format_px=(1024, 1024),
+        pixel_size_um=0.6, pixel_w_um=0.6, pixel_h_um=0.6,
+    )
+    with pytest.raises(ValueError, match="pixel size mismatch"):
+        cm.assert_geometry_matches(g, (1024, 1024), 0.5, context="x")
+
+
+def test_read_job_geometry_rejects_non_square_pixels(monkeypatch):
+    monkeypatch.setattr(
+        cm.drv, "get_job_settings", lambda *a, **k: {"some": "settings"},
+    )
+    monkeypatch.setattr(
+        cm.drv, "parse_tile_geometry",
+        lambda settings: {
+            "pixel_w_um": 0.5, "pixel_h_um": 0.6,
+            "pixels_x": 512, "pixels_y": 512,
+        },
+    )
+    with pytest.raises(ValueError, match="non-square pixels"):
+        cm.read_job_geometry(client=object(), job_name="Overview")
+
+
+def test_read_job_geometry_uses_image_shape_when_provided(monkeypatch):
+    monkeypatch.setattr(
+        cm.drv, "get_job_settings", lambda *a, **k: {"some": "settings"},
+    )
+    monkeypatch.setattr(
+        cm.drv, "parse_tile_geometry",
+        lambda settings: {
+            "pixel_w_um": 0.5, "pixel_h_um": 0.5,
+            "pixels_x": 512, "pixels_y": 512,
+        },
+    )
+    img = np.zeros((256, 384), dtype=np.uint16)
+    g = cm.read_job_geometry(client=object(), job_name="Overview", image=img)
+    assert g.image_size_px == (256, 384)
+    assert g.format_px == (512, 512)
+    assert g.pixel_size_um == 0.5
+
+
+def test_plot_overlay_smoke():
+    ref = (np.random.RandomState(0).rand(32, 32) * 255).astype(np.uint8)
+    tgt = (np.random.RandomState(1).rand(32, 32) * 255).astype(np.uint8)
+    fig = cm.plot_overlay(
+        ref, tgt, "smoke",
+        shift_um=(0.5, -0.3), pixel_size_um=1.0,
+    )
+    assert fig is not None
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------
+# image_to_stage workflow
+# ---------------------------------------------------------------------
+
+def _patch_driver(monkeypatch, *, pixel_size_um=0.5,
+                  image_shape=(64, 64), home_xy=(1000.0, 2000.0),
+                  acquire_side_effects=None):
+    """Patch driver + register_voting hooks used by image_to_stage.
+
+    Returns the mutable ``pos`` dict so tests can inspect stage position
+    after a failure path.
+
+    ``acquire_side_effects`` is an optional list; the N-th acquire call
+    uses entry N. ``None`` entries return the default frame; an
+    ``Exception`` instance is raised instead. The list is padded with
+    ``None`` if shorter than the number of calls.
+    """
+
+    monkeypatch.setattr(
+        wf_i2s.drv, "connect_python_client",
+        lambda *a, **k: object(),
+    )
+    monkeypatch.setattr(
+        wf_i2s.drv, "load_stage_config",
+        lambda *a, **k: {"backlash": {"x_um": 50.0, "y_um": 50.0}},
+    )
+    monkeypatch.setattr(
+        wf_i2s.drv, "apply_stage_limits_from_config", lambda cfg: None,
+    )
+    monkeypatch.setattr(
+        wf_i2s.drv, "get_hardware_info", lambda client: {"ok": True},
+    )
+
+    pos = {"x": home_xy[0], "y": home_xy[1]}
+
+    def _get_xy(client, **kw):
+        return {"x_um": pos["x"], "y_um": pos["y"]}
+
+    def _move_xy_stage(client, x, y, unit="um", **kw):
+        pos["x"] = x
+        pos["y"] = y
+        return {"success": True}
+
+    monkeypatch.setattr(wf_i2s.drv, "get_xy", _get_xy)
+    monkeypatch.setattr(cm.drv, "get_xy", _get_xy)
+    monkeypatch.setattr(cm.drv, "move_xy_stage", _move_xy_stage)
+
+    monkeypatch.setattr(
+        cm.drv, "get_job_settings",
+        lambda *a, **k: {"some": "settings"},
+    )
+    monkeypatch.setattr(
+        cm.drv, "parse_tile_geometry",
+        lambda settings: {
+            "pixel_w_um": pixel_size_um,
+            "pixel_h_um": pixel_size_um,
+            "pixels_x": image_shape[1],
+            "pixels_y": image_shape[0],
+        },
+    )
+
+    rng = np.random.RandomState(42)
+    img_template = (rng.rand(*image_shape) * 255).astype(np.uint16)
+    side_effects = list(acquire_side_effects or [])
+    call_count = {"n": 0}
+
+    def _acquire_frame(client, job, **kw):
+        idx = call_count["n"]
+        call_count["n"] += 1
+        if idx < len(side_effects) and side_effects[idx] is not None:
+            effect = side_effects[idx]
+            if isinstance(effect, Exception):
+                raise effect
+            return effect, Path("C:/fake/export.tif")
+        return img_template.copy(), Path("C:/fake/export.tif")
+
+    monkeypatch.setattr(cm.drv, "acquire_frame", _acquire_frame)
+    return pos
+
+
+def _install_register_voting(monkeypatch, votes):
+    """votes is a list consumed FIFO; each entry is dict returned."""
+    iterator = iter(votes)
+
+    def _rv(ref, tgt, pixel_um, **kw):
+        return next(iterator)
+
+    monkeypatch.setattr(wf_i2s, "register_voting", _rv)
+
+
+def _trusted(dx_um, dy_um):
+    return {
+        "dx_um": dx_um, "dy_um": dy_um,
+        "trusted": True, "confidence": 4,
+        "agreeing": ["pcc", "masked_pcc", "ncc", "orb"],
+    }
+
+
+def _untrusted():
+    return {
+        "dx_um": float("nan"), "dy_um": float("nan"),
+        "trusted": False, "confidence": 0,
+        "agreeing": [],
+    }
+
+
+def test_start_session_requires_sessions_root_image_to_stage(monkeypatch):
+    # No driver patches: start_session must raise BEFORE any driver
+    # call. TypeError comes from the keyword-only signature when
+    # sessions_root is missing.
+    with pytest.raises(TypeError):
+        wf_i2s.start_session(
+            session_id="needs_root",
+            job_name="Overview",
+            reference_objective="10x",
+            stage_move_um=30.0,
+            settle_s=0.0,
+        )
+
+
+def test_start_session_fails_fast_on_uncreatable_sessions_root(
+    monkeypatch, tmp_path,
+):
+    # Place a regular file where sessions_root expects a directory. The
+    # next mkdir call inside make_session_paths must raise -- and it
+    # must raise BEFORE any driver connection, stage movement, or
+    # acquisition call.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory")
+    bad_root = blocker / "sessions"
+
+    connect_calls = {"n": 0}
+
+    def _no_driver(*a, **kw):
+        connect_calls["n"] += 1
+        raise AssertionError(
+            "driver must not be called when sessions_root is invalid"
+        )
+
+    monkeypatch.setattr(wf_i2s.drv, "connect_python_client", _no_driver)
+    monkeypatch.setattr(wf_i2s.drv, "load_stage_config", _no_driver)
+    monkeypatch.setattr(
+        wf_i2s.drv, "apply_stage_limits_from_config", _no_driver,
+    )
+    monkeypatch.setattr(wf_i2s.drv, "get_hardware_info", _no_driver)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        wf_i2s.start_session(
+            session_id="bad_root",
+            job_name="Overview",
+            reference_objective="10x",
+            stage_move_um=30.0,
+            settle_s=0.0,
+            sessions_root=bad_root,
+        )
+    assert str(bad_root) in str(exc_info.value) \
+        or "bad_root" in str(exc_info.value) \
+        or "blocker" in str(exc_info.value)
+    assert connect_calls["n"] == 0
+
+
+def test_image_to_stage_success_writes_config_and_report(monkeypatch, sessions_root):
+    _patch_driver(monkeypatch)
+    # Perfect canonical "-Y +X" orientation:
+    # stage +X (30 um) -> image (0, +30) um
+    # stage +Y (30 um) -> image (-30, 0) um
+    _install_register_voting(monkeypatch, [
+        _trusted(0.0, 30.0),
+        _trusted(-30.0, 0.0),
+    ])
+
+    session = wf_i2s.start_session(
+        session_id="sess_ok",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=30.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+    session = wf_i2s.measure(session)
+    summary = wf_i2s.save_and_visualize(session)
+
+    assert summary["config_written"] is True
+    assert summary["d4_accepted"] is True
+    assert summary["status"].startswith("OK")
+    assert summary["d4_label"] == "-Y +X"
+    assert session.image_to_stage == [[0.0, -1.0], [1.0, 0.0]]
+    assert session.residual_from_d4 == pytest.approx(0.0, abs=1e-9)
+
+    cfg_path = session.paths.configs_dir / "image_to_stage.json"
+    assert cfg_path.is_file()
+    payload = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == cm.SCHEMA_VERSION
+    assert payload["kind"] == "image_to_stage"
+    assert payload["image_to_stage"] == [[0.0, -1.0], [1.0, 0.0]]
+    assert payload["pixel_size_um"] == 0.5
+    assert payload["image_size_px"] == [64, 64]
+
+    report_path = session.paths.reports_dir / "image_to_stage_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["config_written"] is True
+    assert report["d4_accepted"] is True
+    assert report["residual_from_d4"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_image_to_stage_weak_vote_blocks_config(monkeypatch, sessions_root):
+    _patch_driver(monkeypatch)
+    _install_register_voting(monkeypatch, [
+        _untrusted(),
+        _trusted(-30.0, 0.0),
+    ])
+
+    session = wf_i2s.start_session(
+        session_id="sess_weak",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=30.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+    session = wf_i2s.measure(session)
+    summary = wf_i2s.save_and_visualize(session)
+
+    assert summary["config_written"] is False
+    assert "WEAK VOTE" in summary["status"]
+    assert not (session.paths.configs_dir / "image_to_stage.json").exists()
+    report = json.loads(
+        (session.paths.reports_dir / "image_to_stage_report.json")
+        .read_text(encoding="utf-8")
+    )
+    assert report["config_written"] is False
+    assert report["registrations"]["home_to_plus_x"]["trusted"] is False
+
+
+def test_image_to_stage_d4_residual_failure_blocks_config(monkeypatch, sessions_root):
+    _patch_driver(monkeypatch)
+    # The fitted matrix from these shifts -- computed via
+    # M = [[10/30, -25/30], [25/30, 10/30]], fitted = -inv(M) --
+    # lands closest to "-Y +X" (rotation, det +1) with Frobenius
+    # residual ~= 0.587, well above D4_RESIDUAL_MAX (0.3). The
+    # rotation winner sidesteps the PR 7 reflection guard so this
+    # test still exercises the residual-rejection path specifically.
+    _install_register_voting(monkeypatch, [
+        _trusted(10.0, 25.0),
+        _trusted(-25.0, 10.0),
+    ])
+
+    session = wf_i2s.start_session(
+        session_id="sess_d4",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=30.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+    session = wf_i2s.measure(session)
+    summary = wf_i2s.save_and_visualize(session)
+
+    assert summary["config_written"] is False
+    assert summary["d4_accepted"] is False
+    assert "D4 RESIDUAL" in summary["status"]
+    assert not (session.paths.configs_dir / "image_to_stage.json").exists()
+
+    report_path = session.paths.reports_dir / "image_to_stage_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["config_written"] is False
+    assert report["d4_accepted"] is False
+    assert report["residual_from_d4"] is not None
+
+
+def test_report_image_paths_are_session_relative(monkeypatch, sessions_root):
+    _patch_driver(monkeypatch)
+    _install_register_voting(monkeypatch, [
+        _trusted(0.0, 30.0),
+        _trusted(-30.0, 0.0),
+    ])
+
+    session = wf_i2s.start_session(
+        session_id="sess_paths",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=30.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+    session = wf_i2s.measure(session)
+    wf_i2s.save_and_visualize(session)
+
+    report = json.loads(
+        (session.paths.reports_dir / "image_to_stage_report.json")
+        .read_text(encoding="utf-8")
+    )
+    for key, rel in report["images"].items():
+        # Must not be absolute, must resolve against session_dir
+        assert not Path(rel).is_absolute(), (key, rel)
+        full = session.paths.session_dir / rel
+        assert full.is_file(), (key, full)
+        # Must live under the session's data/<kind>/ folder
+        assert rel.startswith("data/image_to_stage/"), (key, rel)
+
+
+# ---------------------------------------------------------------------
+# Promotion
+# ---------------------------------------------------------------------
+
+def _make_staging_session(sessions_root, kind_payload):
+    sess_id = "promo_sess"
+    paths = cm.make_session_paths(
+        sess_id, "image_to_stage", sessions_root=sessions_root,
+    )
+    cfg = paths.configs_dir / "image_to_stage.json"
+    cm.write_json_atomic(cfg, kind_payload)
+
+    class _Stub:
+        pass
+
+    s = _Stub()
+    s.session_id = sess_id
+    s.paths = paths
+    return s, cfg
+
+
+def _valid_i2s_payload():
+    return {
+        "schema_version": cm.SCHEMA_VERSION,
+        "kind": "image_to_stage",
+        "created_at": "2026-05-22T14:30:00+02:00",
+        "reference_objective": "10x",
+        "image_size_px": [1024, 1024],
+        "pixel_size_um": 0.5,
+        "image_to_stage": [[0.0, -1.0], [1.0, 0.0]],
+    }
+
+
+def test_promotion_first_promote_writes_live_and_log(sessions_root, live_root):
+    session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
+    out = wf_promotion.promote_calibration(
+        session, "image_to_stage.json", live_root=live_root,
+    )
+
+    live = live_root / "image_to_stage.json"
+    assert live.is_file()
+    assert out["archived_previous"] is None
+    # Returned paths are absolute strings.
+    assert Path(out["live_path"]).is_absolute()
+    assert Path(out["source"]).is_absolute()
+
+    log = (live_root / ".promotion.log").read_text(encoding="utf-8")
+    assert "image_to_stage" in log
+    assert session.session_id in log
+
+
+def test_promotion_archives_existing_live(sessions_root, live_root):
+    session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
+    # Seed a pre-existing live file.
+    live_root.mkdir(parents=True, exist_ok=True)
+    live = live_root / "image_to_stage.json"
+    cm.write_json_atomic(live, {
+        **_valid_i2s_payload(),
+        "created_at": "2025-01-01T00:00:00+00:00",
+    })
+
+    out = wf_promotion.promote_calibration(
+        session, "image_to_stage.json", live_root=live_root,
+    )
+    assert out["archived_previous"] is not None
+    archived = Path(out["archived_previous"])
+    assert archived.is_file()
+    assert archived.parent.name == "archive"
+    # New live still in place.
+    assert live.is_file()
+
+
+def test_promotion_missing_staging_raises(sessions_root, live_root):
+    sess_id = "missing_sess"
+    paths = cm.make_session_paths(
+        sess_id, "image_to_stage", sessions_root=sessions_root,
+    )
+
+    class _Stub:
+        pass
+    s = _Stub()
+    s.session_id = sess_id
+    s.paths = paths
+
+    with pytest.raises(FileNotFoundError):
+        wf_promotion.promote_calibration(
+            s, "image_to_stage.json", live_root=live_root,
+        )
+
+
+def test_promotion_wrong_kind_rejected(sessions_root, live_root):
+    bad = dict(_valid_i2s_payload())
+    bad["kind"] = "garbage"
+    session, _ = _make_staging_session(sessions_root, bad)
+    with pytest.raises(ValueError, match="unsupported kind"):
+        wf_promotion.promote_calibration(
+            session, "image_to_stage.json", live_root=live_root,
+        )
+
+
+def test_promotion_requires_live_root(sessions_root):
+    session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
+    with pytest.raises(TypeError):
+        wf_promotion.promote_calibration(session, "image_to_stage.json")
+
+
+def test_promotion_writes_to_explicit_live_root(sessions_root, live_root):
+    session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
+    out = wf_promotion.promote_calibration(
+        session, "image_to_stage.json", live_root=live_root,
+    )
+
+    # Source lives under the session's configs/ dir.
+    source = Path(out["source"])
+    assert source == session.paths.configs_dir / "image_to_stage.json"
+
+    # Live destination, archive dir, and promotion log all live under
+    # the operator-supplied live_root.
+    live_path = Path(out["live_path"])
+    assert live_path == live_root.absolute() / "image_to_stage.json"
+    assert (live_root.absolute() / "archive").is_dir()
+    assert (live_root.absolute() / ".promotion.log").is_file()
+
+    # Returned paths are absolute strings.
+    assert live_path.is_absolute()
+
+
+# ---------------------------------------------------------------------
+# Post-review fixes (PR 1 polish)
+# ---------------------------------------------------------------------
+
+def _strict_json_parse(text: str):
+    """Strict JSON parse that rejects NaN / Infinity tokens."""
+    def _no_constants(c):
+        raise ValueError(f"non-finite JSON constant: {c!r}")
+    return json.loads(text, parse_constant=_no_constants)
+
+
+def test_weak_vote_report_round_trips_strict_json(monkeypatch, sessions_root):
+    _patch_driver(monkeypatch)
+    _install_register_voting(monkeypatch, [
+        _untrusted(),
+        _trusted(-30.0, 0.0),
+    ])
+
+    session = wf_i2s.start_session(
+        session_id="sess_nan",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=30.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+    session = wf_i2s.measure(session)
+    wf_i2s.save_and_visualize(session)
+
+    report_path = session.paths.reports_dir / "image_to_stage_report.json"
+    text = report_path.read_text(encoding="utf-8")
+    # No raw NaN tokens should have hit disk.
+    assert "NaN" not in text
+    assert "Infinity" not in text
+
+    report = _strict_json_parse(text)
+    weak = report["registrations"]["home_to_plus_x"]
+    assert weak["trusted"] is False
+    assert weak["image_shift_um"] == [None, None]
+    # The strong vote's shifts stay floats.
+    strong = report["registrations"]["home_to_plus_y"]
+    assert strong["trusted"] is True
+    assert strong["image_shift_um"] == [-30.0, 0.0]
+    # Weak vote never evaluates D4.
+    assert report["d4_accepted"] is None
+
+
+def test_collinear_votes_singular_matrix(monkeypatch, sessions_root):
+    _patch_driver(monkeypatch)
+    # Both shifts along image-X with no Y component: M is rank-1 / singular.
+    # vote_x = (30, 0) means stage +X moved the image (30, 0) um.
+    # vote_y = (60, 0) means stage +Y also moved the image only along X.
+    _install_register_voting(monkeypatch, [
+        _trusted(30.0, 0.0),
+        _trusted(60.0, 0.0),
+    ])
+
+    session = wf_i2s.start_session(
+        session_id="sess_singular",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=30.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+    session = wf_i2s.measure(session)
+    summary = wf_i2s.save_and_visualize(session)
+
+    assert summary["config_written"] is False
+    # Could-not-complete is distinct from "evaluated and rejected".
+    assert summary["d4_accepted"] is None
+    assert session.d4_accepted is None
+    assert session.failure_reason is not None
+    assert "singular" in session.failure_reason
+
+    cfg = session.paths.configs_dir / "image_to_stage.json"
+    assert not cfg.exists()
+
+    report = _strict_json_parse(
+        (session.paths.reports_dir / "image_to_stage_report.json")
+        .read_text(encoding="utf-8")
+    )
+    assert report["config_written"] is False
+    assert report["d4_accepted"] is None
+    # Voting was trusted, so both shifts are real numbers.
+    assert report["registrations"]["home_to_plus_x"]["trusted"] is True
+    assert report["registrations"]["home_to_plus_y"]["trusted"] is True
+
+
+def test_acquire_failure_returns_stage_to_home(monkeypatch, sessions_root):
+    boom = RuntimeError("acquire_frame failed")
+    home_xy = (1000.0, 2000.0)
+    # 1st call (home) succeeds (None -> default frame).
+    # 2nd call (plus_x) raises.
+    pos = _patch_driver(
+        monkeypatch,
+        home_xy=home_xy,
+        acquire_side_effects=[None, boom],
+    )
+
+    session = wf_i2s.start_session(
+        session_id="sess_recover",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=30.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+
+    with pytest.raises(RuntimeError, match="acquire_frame failed"):
+        wf_i2s.measure(session)
+
+    # The original exception propagated and the best-effort recovery
+    # move returned the stage to home.
+    assert pos["x"] == home_xy[0]
+    assert pos["y"] == home_xy[1]
+
+
+def test_double_promote_creates_counter_archive(sessions_root, live_root):
+    """Promoting twice with the same payload created_at must not lose data.
+
+    Both archived copies should land with deterministic, distinct names.
+    """
+    session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
+
+    # Promote 1: no live exists yet, no archive.
+    out1 = wf_promotion.promote_calibration(
+        session, "image_to_stage.json", live_root=live_root,
+    )
+    assert out1["archived_previous"] is None
+
+    # Promote 2: live exists, archive 1.
+    out2 = wf_promotion.promote_calibration(
+        session, "image_to_stage.json", live_root=live_root,
+    )
+    assert out2["archived_previous"] is not None
+    archive_1 = Path(out2["archived_previous"])
+    assert archive_1.is_file()
+
+    # Promote 3: live exists with the same created_at as before; the
+    # counter suffix must kick in so the new archive doesn't overwrite
+    # archive_1.
+    out3 = wf_promotion.promote_calibration(
+        session, "image_to_stage.json", live_root=live_root,
+    )
+    assert out3["archived_previous"] is not None
+    archive_2 = Path(out3["archived_previous"])
+    assert archive_2.is_file()
+    assert archive_1 != archive_2
+    assert archive_1.exists()  # still there, not overwritten
+
+    # Archive directory now has both files.
+    archive_dir = live_root.absolute() / "archive"
+    archived_names = sorted(p.name for p in archive_dir.glob("*.json"))
+    assert len(archived_names) == 2
+
+
+def test_promotion_staging_name_with_separator_rejected(sessions_root, live_root):
+    session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
+    with pytest.raises(ValueError, match="bare filename"):
+        wf_promotion.promote_calibration(
+            session, "sub/image_to_stage.json", live_root=live_root,
+        )
+    with pytest.raises(ValueError, match="bare filename"):
+        wf_promotion.promote_calibration(
+            session, "..\\evil.json", live_root=live_root,
+        )
+
+
+def test_promotion_staging_name_prefix_must_match_kind(sessions_root, live_root):
+    # The file is a valid objective_translation, but the operator passes
+    # the wrong staging_name. Refuse to promote rather than silently
+    # writing it to the image_to_stage.json slot.
+    payload = {
+        "schema_version": cm.SCHEMA_VERSION,
+        "kind": "objective_translation",
+        "created_at": "2026-05-22T15:10:00+02:00",
+        "from_objective": "10x",
+        "to_objective": "20x",
+        "translation_xy_um": [1.0, 2.0],
+        "translation_z_um": 0.5,
+    }
+    session, _ = _make_staging_session(sessions_root, payload)
+    # The file on disk is named image_to_stage.json (because that's how
+    # _make_staging_session writes it), but the kind is objective_translation.
+    with pytest.raises(ValueError, match="expects kind"):
+        wf_promotion.promote_calibration(
+            session, "image_to_stage.json", live_root=live_root,
+        )
+
+
+def test_failed_rerun_removes_stale_staging_config(monkeypatch, sessions_root, live_root):
+    # Run 1: success -> writes configs/image_to_stage.json.
+    # Run 2 (same session): weak vote -> stale config must be removed,
+    # config_written=False, d4_accepted=None, promote raises.
+    _patch_driver(monkeypatch)
+    _install_register_voting(monkeypatch, [
+        # Run 1: trusted shifts that produce the "-Y +X" orientation.
+        _trusted(0.0, 30.0),
+        _trusted(-30.0, 0.0),
+        # Run 2: weak vote on the first registration.
+        _untrusted(),
+        _trusted(-30.0, 0.0),
+    ])
+
+    session = wf_i2s.start_session(
+        session_id="sess_rerun",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=30.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+
+    summary1 = wf_i2s.save_and_visualize(wf_i2s.measure(session))
+    assert summary1["config_written"] is True
+    cfg = session.paths.configs_dir / "image_to_stage.json"
+    assert cfg.is_file()
+
+    summary2 = wf_i2s.save_and_visualize(wf_i2s.measure(session))
+    assert summary2["config_written"] is False
+    assert summary2["d4_accepted"] is None
+    assert not cfg.exists()
+    assert session.config_written is False
+
+    with pytest.raises(FileNotFoundError):
+        wf_promotion.promote_calibration(
+            session, "image_to_stage.json", live_root=live_root,
+        )
+
+
+# =====================================================================
+# objective_pair workflow
+# =====================================================================
+
+def _write_live_image_to_stage(live_root, matrix=None,
+                                image_size_px=(64, 64),
+                                pixel_size_um=0.5):
+    """Write a live image_to_stage.json into the operator-supplied live_root."""
+    payload = {
+        "schema_version": cm.SCHEMA_VERSION,
+        "kind": "image_to_stage",
+        "created_at": "2026-05-22T14:30:00+02:00",
+        "reference_objective": "10x",
+        "image_size_px": [int(image_size_px[0]), int(image_size_px[1])],
+        "pixel_size_um": float(pixel_size_um),
+        "image_to_stage": (matrix if matrix is not None
+                           else [[1.0, 0.0], [0.0, 1.0]]),
+    }
+    live_root.mkdir(parents=True, exist_ok=True)
+    out = live_root / "image_to_stage.json"
+    cm.write_json_atomic(out, payload)
+    return out
+
+
+def _patch_objective_driver(
+    monkeypatch, *,
+    pixel_size_um=0.5,
+    image_shape=(64, 64),
+    home_xy=(1000.0, 2000.0),
+    home_z=100.0,
+    z_post=94.0,
+    xy_post=(1010.0, 2020.0),
+    ref_focus_z=100.0,
+    target_focus_z=103.0,
+    brenner_sigma=5.0,
+    ref_stack=None,
+    target_stack=None,
+    acquire_side_effects=None,
+    stack_side_effects=None,
+):
+    """Patch driver + algorithm hooks used by objective_pair.
+
+    Each test phase ("ref" then "target") drives a separate stack
+    acquisition. The fixture exposes ``state["stack_phase"]`` so tests
+    can flip from "ref" to "target" between Steps 2 and 3 to simulate
+    the operator switching objective and reconfiguring the LAS X stack.
+
+    ``ref_stack`` / ``target_stack`` are dicts with begin/end/sections
+    (and optional stepSize/zDrive); the mocked LAS X reports them via
+    ``get_job_settings`` + ``make_changeable_copy``.
+
+    Brenner score is a Gaussian centered at the phase-specific focus
+    (``ref_focus_z`` / ``target_focus_z``). Each slice of the mocked
+    stack is filled with its absolute z value, so the mocked
+    ``brenner(slice)`` reads ``slice.flat[0]`` to know the slice's z.
+    """
+    monkeypatch.setattr(
+        wf_obj.drv, "connect_python_client",
+        lambda *a, **k: object(),
+    )
+    monkeypatch.setattr(
+        wf_obj.drv, "load_stage_config",
+        lambda *a, **k: {"backlash": {"x_um": 50.0, "y_um": 50.0}},
+    )
+    monkeypatch.setattr(
+        wf_obj.drv, "apply_stage_limits_from_config", lambda cfg: None,
+    )
+    monkeypatch.setattr(
+        wf_obj.drv, "get_hardware_info", lambda client: {"ok": True},
+    )
+
+    default_ref = {
+        "begin": 95.0, "end": 105.0, "sections": 11,
+        "stepSize": 1.0, "zDrive": "z-wide",
+    }
+    default_target = {
+        "begin": 98.0, "end": 108.0, "sections": 11,
+        "stepSize": 1.0, "zDrive": "z-wide",
+    }
+    state = {
+        "x": home_xy[0], "y": home_xy[1],
+        "zwide": home_z,
+        "stack_phase": "ref",
+        "ref_stack": dict(default_ref if ref_stack is None else ref_stack),
+        "target_stack": dict(default_target if target_stack is None
+                             else target_stack),
+        "xy_post": xy_post,
+    }
+
+    def _get_xy(client, **kw):
+        return {"x_um": state["x"], "y_um": state["y"]}
+
+    def _move_xy_stage(client, x, y, unit="um", **kw):
+        state["x"] = x
+        state["y"] = y
+        return {"success": True}
+
+    def _move_z(client, job_name, z, unit="um", z_mode="galvo", **kw):
+        if z_mode == "zwide":
+            state["zwide"] = float(z)
+        return {"success": True}
+
+    def _read_zwide_um(client, job_name):
+        # Returns the most recently commanded z-wide. Tests set
+        # state["zwide"] = z_post before measure_parfocality_target to
+        # simulate the firmware's post-switch z-wide reading.
+        return float(state["zwide"])
+
+    monkeypatch.setattr(wf_obj.drv, "get_xy", _get_xy)
+    monkeypatch.setattr(cm.drv, "get_xy", _get_xy)
+    monkeypatch.setattr(cm.drv, "move_xy_stage", _move_xy_stage)
+    monkeypatch.setattr(cm.drv, "move_z", _move_z)
+    monkeypatch.setattr(cm.drv, "read_zwide_um", _read_zwide_um)
+    monkeypatch.setattr(wf_obj.drv, "read_zwide_um", _read_zwide_um)
+
+    def _get_job_settings(client, job_name, **kw):
+        return {
+            "zoom": {"current": 1.0},
+            "scanSpeed": {"value": 600.0, "isResonant": False},
+            "activeSettings": [],
+            "scanMode": "xyz",
+            "stack": dict(state[f"{state['stack_phase']}_stack"]),
+        }
+
+    monkeypatch.setattr(cm.drv, "get_job_settings", _get_job_settings)
+
+    def _make_changeable_copy(settings):
+        if settings is None:
+            return None
+        stack = settings.get("stack")
+        return {
+            "stack": dict(stack) if isinstance(stack, dict) else None,
+        }
+
+    monkeypatch.setattr(cm.drv, "make_changeable_copy", _make_changeable_copy)
+
+    monkeypatch.setattr(
+        cm.drv, "parse_tile_geometry",
+        lambda settings: {
+            "pixel_w_um": pixel_size_um,
+            "pixel_h_um": pixel_size_um,
+            "pixels_x": image_shape[1],
+            "pixels_y": image_shape[0],
+        },
+    )
+
+    rng = np.random.RandomState(7)
+    img_template = (rng.rand(*image_shape) * 255).astype(np.uint16)
+
+    frame_side_effects = list(acquire_side_effects or [])
+    frame_count = {"n": 0}
+
+    def _acquire_frame(client, job, **kw):
+        idx = frame_count["n"]
+        frame_count["n"] += 1
+        if (idx < len(frame_side_effects)
+                and frame_side_effects[idx] is not None):
+            effect = frame_side_effects[idx]
+            if isinstance(effect, Exception):
+                raise effect
+            return effect, Path("C:/fake/export.tif")
+        return img_template.copy(), Path("C:/fake/export.tif")
+
+    monkeypatch.setattr(cm.drv, "acquire_frame", _acquire_frame)
+
+    stack_effects = list(stack_side_effects or [])
+    stack_count = {"n": 0}
+
+    def _acquire_stack(client, job, **kw):
+        idx = stack_count["n"]
+        stack_count["n"] += 1
+        if (idx < len(stack_effects)
+                and stack_effects[idx] is not None):
+            effect = stack_effects[idx]
+            if isinstance(effect, Exception):
+                raise effect
+            return np.asarray(effect)
+        meta = state[f"{state['stack_phase']}_stack"]
+        n = int(meta["sections"])
+        begin = float(meta["begin"])
+        end = float(meta["end"])
+        positions = np.linspace(begin, end, n)
+        h, w = image_shape
+        arr = np.zeros((n, h, w), dtype=np.float32)
+        for i, z in enumerate(positions):
+            arr[i] = float(z)
+        return arr
+
+    monkeypatch.setattr(cm.drv, "acquire_stack", _acquire_stack)
+
+    def _brenner(img):
+        # Slices are filled with the absolute z position by the
+        # acquire_stack mock; read flat[0] to recover it.
+        z = float(np.asarray(img).flat[0])
+        peak = (target_focus_z if state["stack_phase"] == "target"
+                else ref_focus_z)
+        return float(np.exp(-((z - peak) ** 2)
+                            / (2.0 * brenner_sigma ** 2)))
+
+    monkeypatch.setattr(wf_obj, "brenner", _brenner)
+
+    return state
+
+
+def _install_obj_vote(monkeypatch, vote):
+    def _rv(ref, tgt, pixel_um, **kw):
+        return vote
+    monkeypatch.setattr(wf_obj, "register_voting", _rv)
+
+
+def _start_objective_session(sessions_root, live_root, *, matrix=None,
+                             image_size_px=(64, 64), pixel_size_um=0.5):
+    """Helper: write live image_to_stage, then start an objective session."""
+    i2s_path = _write_live_image_to_stage(
+        live_root, matrix=matrix, image_size_px=image_size_px,
+        pixel_size_um=pixel_size_um,
+    )
+    return wf_obj.start_session(
+        session_id="obj_sess",
+        job_name="Overview",
+        from_objective="10x",
+        to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=i2s_path,
+    )
+
+
+def test_objective_pair_missing_image_to_stage_raises(
+    monkeypatch, sessions_root, live_root,
+):
+    _patch_objective_driver(monkeypatch)
+    # No live config written. start_session must raise with a clear
+    # message that points the operator at Notebook 1.
+    missing = live_root / "image_to_stage.json"
+    with pytest.raises(FileNotFoundError, match="calibrate_image_to_stage"):
+        wf_obj.start_session(
+            session_id="obj_missing",
+            job_name="Overview",
+            from_objective="10x",
+            to_objective="20x",
+            sessions_root=sessions_root,
+            image_to_stage_path=missing,
+        )
+
+
+def test_start_session_requires_sessions_root_objective_pair(monkeypatch):
+    # No driver patches: start_session must raise BEFORE any driver
+    # call. TypeError comes from the keyword-only signature.
+    with pytest.raises(TypeError):
+        wf_obj.start_session(
+            session_id="obj_no_root",
+            job_name="Overview",
+            from_objective="10x",
+            to_objective="20x",
+            image_to_stage_path="ignored.json",
+        )
+
+
+def test_objective_pair_requires_explicit_image_to_stage_path(monkeypatch):
+    # The previous API allowed image_to_stage_path=None and inferred
+    # the package current_config path. The new API has no implicit
+    # fallback; omitting it must raise TypeError.
+    with pytest.raises(TypeError):
+        wf_obj.start_session(
+            session_id="obj_no_i2s",
+            job_name="Overview",
+            from_objective="10x",
+            to_objective="20x",
+            sessions_root="ignored",
+        )
+
+
+def test_objective_pair_override_image_to_stage_path_recorded(
+    monkeypatch, sessions_root, live_root, tmp_path,
+):
+    # Stage the override file at an arbitrary operator-supplied path.
+    override = tmp_path / "alt_configs" / "alt_image_to_stage.json"
+    override.parent.mkdir(parents=True, exist_ok=True)
+    cm.write_json_atomic(override, {
+        "schema_version": cm.SCHEMA_VERSION,
+        "kind": "image_to_stage",
+        "created_at": "2026-05-22T14:30:00+02:00",
+        "reference_objective": "10x",
+        "image_size_px": [64, 64],
+        "pixel_size_um": 0.5,
+        "image_to_stage": [[1.0, 0.0], [0.0, 1.0]],
+    })
+
+    state = _patch_objective_driver(monkeypatch)
+    _install_obj_vote(monkeypatch, {
+        "dx_um": 0.0, "dy_um": 0.0,
+        "trusted": True, "confidence": 4, "agreeing": ["pcc"],
+    })
+
+    session = wf_obj.start_session(
+        session_id="obj_override",
+        job_name="Overview",
+        from_objective="10x",
+        to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=override,
+    )
+    assert session.image_to_stage_path == override.absolute()
+
+    session = wf_obj.measure_parfocality_reference(session)
+    state["stack_phase"] = "target"
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+    session = wf_obj.measure_parcentricity_reference(session)
+    summary = wf_obj.measure_parcentricity_target_and_save(session)
+
+    report = json.loads(
+        (session.paths.reports_dir / f"{session.kind}_report.json")
+        .read_text(encoding="utf-8")
+    )
+    # The report records the exact source we used.
+    assert override.name in report["image_to_stage_file"]
+    assert summary["config_written"] is True
+
+
+def test_objective_pair_z_translation_arithmetic_peak_to_peak(
+    monkeypatch, sessions_root, live_root,
+):
+    # Ref-stack peak-to-peak case: home_z is diagnostic (operator's
+    # approximate focus), the Brenner peaks set focus_z_ref_um=100 and
+    # focus_z_target_um=103; z_post=94 after the firmware switch.
+    # translation_z_um must equal focus_z_target - focus_z_ref = 3.0,
+    # and motor_shift_z + correction_z must equal translation_z.
+    state = _patch_objective_driver(
+        monkeypatch,
+        home_z=99.8,           # diagnostic, not the focus anchor
+        z_post=94.0,
+        ref_focus_z=100.0,
+        target_focus_z=103.0,
+        brenner_sigma=5.0,
+    )
+    _install_obj_vote(monkeypatch, {
+        "dx_um": 0.0, "dy_um": 0.0,
+        "trusted": True, "confidence": 4, "agreeing": ["pcc"],
+    })
+    _write_live_image_to_stage(live_root)
+
+    session = wf_obj.start_session(
+        session_id="obj_z",
+        job_name="Overview",
+        from_objective="10x",
+        to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+    assert session.home_z == pytest.approx(99.8)
+    assert session.focus_z_ref_um == pytest.approx(100.0, abs=1e-6)
+
+    # Operator switches to target; firmware leaves z-wide at z_post.
+    state["stack_phase"] = "target"
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+
+    assert session.z_post == pytest.approx(94.0)
+    assert session.focus_z_target_um == pytest.approx(103.0, abs=1e-6)
+    assert session.motor_shift_z_um == pytest.approx(-6.0, abs=1e-6)
+    assert session.correction_z_um == pytest.approx(9.0, abs=1e-6)
+    # Peak-to-peak translation:
+    assert session.translation_z_um == pytest.approx(3.0, abs=1e-6)
+    # Identity: motor_shift + correction == translation.
+    assert (
+        session.motor_shift_z_um + session.correction_z_um
+    ) == pytest.approx(session.translation_z_um, abs=1e-6)
+
+
+def test_objective_pair_xy_translation_arithmetic_identity(
+    monkeypatch, sessions_root, live_root,
+):
+    # image_to_stage = identity, motor_shift = (10, 20), image shift = (2, -3)
+    # -> correction = (2, -3); translation = (12, 17).
+    home_xy = (1000.0, 2000.0)
+    xy_post = (1010.0, 2020.0)
+    state = _patch_objective_driver(
+        monkeypatch,
+        home_xy=home_xy, xy_post=xy_post,
+        home_z=100.0, z_post=94.0,
+        ref_focus_z=100.0, target_focus_z=103.0,
+    )
+    _install_obj_vote(monkeypatch, {
+        "dx_um": 2.0, "dy_um": -3.0,
+        "trusted": True, "confidence": 4, "agreeing": ["pcc"],
+    })
+    _write_live_image_to_stage(live_root, matrix=[[1.0, 0.0], [0.0, 1.0]])
+
+    session = wf_obj.start_session(
+        session_id="obj_xy_id",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+    state["stack_phase"] = "target"
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+    session = wf_obj.measure_parcentricity_reference(session)
+    # Operator "switches" to target: simulate the firmware shifting XY.
+    state["x"], state["y"] = xy_post
+    summary = wf_obj.measure_parcentricity_target_and_save(session)
+
+    assert summary["config_written"] is True
+    assert session.motor_shift_xy_um == pytest.approx((10.0, 20.0))
+    assert session.correction_xy_um == pytest.approx((2.0, -3.0))
+    assert session.translation_xy_um == pytest.approx((12.0, 17.0))
+
+    cfg_path = session.paths.configs_dir / session.objective_config_name
+    assert cfg_path.is_file()
+    payload = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert payload["kind"] == "objective_translation"
+    assert payload["translation_xy_um"] == [12.0, 17.0]
+    assert payload["translation_z_um"] == pytest.approx(3.0, abs=1e-6)
+
+
+def test_objective_pair_weak_xy_vote_blocks_config(monkeypatch, sessions_root, live_root):
+    home_xy = (1000.0, 2000.0)
+    xy_post = (1010.0, 2020.0)
+    state = _patch_objective_driver(
+        monkeypatch,
+        home_xy=home_xy, xy_post=xy_post,
+        home_z=100.0, z_post=94.0,
+        ref_focus_z=100.0, target_focus_z=103.0,
+    )
+    _install_obj_vote(monkeypatch, {
+        "dx_um": float("nan"), "dy_um": float("nan"),
+        "trusted": False, "confidence": 0, "agreeing": [],
+    })
+    _write_live_image_to_stage(live_root)
+
+    session = wf_obj.start_session(
+        session_id="obj_weak",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+    state["stack_phase"] = "target"
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+    session = wf_obj.measure_parcentricity_reference(session)
+    state["x"], state["y"] = xy_post
+    summary = wf_obj.measure_parcentricity_target_and_save(session)
+
+    assert summary["config_written"] is False
+    assert "WEAK VOTE" in summary["status"]
+    assert session.translation_xy_um is None
+    assert not (session.paths.configs_dir
+                / session.objective_config_name).exists()
+
+    report = json.loads(
+        (session.paths.reports_dir / f"{session.kind}_report.json")
+        .read_text(encoding="utf-8")
+    )
+    assert report["config_written"] is False
+    # NaN must be coerced to null on disk.
+    assert "NaN" not in (session.paths.reports_dir
+                          / f"{session.kind}_report.json").read_text(
+        encoding="utf-8"
+    )
+    assert report["registration"]["trusted"] is False
+    assert report["registration"]["image_shift_um"] == [None, None]
+    assert report["translation_xy_um"] is None
+    # Z fields stay populated even when XY voting fails.
+    assert report["translation_z_um"] is not None
+
+
+def test_objective_pair_target_xy_acquire_at_post_switch_xy(
+    monkeypatch, sessions_root, live_root,
+):
+    # Confirm the workflow does NOT return to home_xy before acquiring
+    # target_xy. We assert that at the time of the target acquire the
+    # stage is still at xy_post.
+    home_xy = (1000.0, 2000.0)
+    xy_post = (1010.0, 2020.0)
+    state = _patch_objective_driver(
+        monkeypatch,
+        home_xy=home_xy, xy_post=xy_post,
+        home_z=100.0, z_post=94.0,
+        ref_focus_z=100.0, target_focus_z=103.0,
+    )
+    _install_obj_vote(monkeypatch, {
+        "dx_um": 0.0, "dy_um": 0.0,
+        "trusted": True, "confidence": 4, "agreeing": ["pcc"],
+    })
+    _write_live_image_to_stage(live_root)
+
+    # Track the stage XY at the moment of every frame acquire (only
+    # ref_xy and target_xy go through acquire_frame; the z-stacks
+    # use acquire_stack and are not relevant here).
+    acquire_positions: list[tuple[float, float]] = []
+
+    real_acquire = cm.drv.acquire_frame
+
+    def _tracking_acquire(client, job, **kw):
+        acquire_positions.append((state["x"], state["y"]))
+        return real_acquire(client, job, **kw)
+
+    monkeypatch.setattr(cm.drv, "acquire_frame", _tracking_acquire)
+
+    session = wf_obj.start_session(
+        session_id="obj_postswitch",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+    state["stack_phase"] = "target"
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+    session = wf_obj.measure_parcentricity_reference(session)
+    # Operator switches to target: firmware shifts XY to xy_post.
+    state["x"], state["y"] = xy_post
+    wf_obj.measure_parcentricity_target_and_save(session)
+
+    # The last acquire is the target_xy. It must have happened at the
+    # post-switch XY, not at home_xy.
+    target_xy_position = acquire_positions[-1]
+    assert target_xy_position == pytest.approx(xy_post)
+    assert target_xy_position != pytest.approx(home_xy)
+
+
+def test_objective_pair_parcentricity_reference_moves_to_home(
+    monkeypatch, sessions_root, live_root,
+):
+    home_xy = (1000.0, 2000.0)
+    state = _patch_objective_driver(
+        monkeypatch,
+        home_xy=home_xy,
+        home_z=100.0, z_post=94.0,
+        ref_focus_z=100.0, target_focus_z=103.0,
+    )
+    _install_obj_vote(monkeypatch, {
+        "dx_um": 0.0, "dy_um": 0.0,
+        "trusted": True, "confidence": 4, "agreeing": ["pcc"],
+    })
+    _write_live_image_to_stage(live_root)
+
+    session = wf_obj.start_session(
+        session_id="obj_ref_home",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+    state["stack_phase"] = "target"
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+    # Simulate the operator drifting XY and z-wide before running Step 4.
+    state["x"], state["y"] = (9999.0, -9999.0)
+    state["zwide"] = 88.0
+
+    session = wf_obj.measure_parcentricity_reference(session)
+    # The cell must return the stage to home_xy and z-wide to the
+    # reference Brenner focus before acquiring the reference image.
+    assert (state["x"], state["y"]) == pytest.approx(home_xy)
+    assert state["zwide"] == pytest.approx(session.focus_z_ref_um)
+
+
+def test_objective_pair_failed_rerun_removes_stale_config(monkeypatch, sessions_root, live_root):
+    # Run 1: trusted vote -> staging config written.
+    # Run 2 (same session): weak vote on the parcentricity step. The
+    # stale staging config must be removed and promotion must raise.
+    home_xy = (1000.0, 2000.0)
+    xy_post = (1010.0, 2020.0)
+    state = _patch_objective_driver(
+        monkeypatch,
+        home_xy=home_xy, xy_post=xy_post,
+        home_z=100.0, z_post=94.0,
+        ref_focus_z=100.0, target_focus_z=103.0,
+    )
+    _write_live_image_to_stage(live_root)
+
+    votes = [
+        {"dx_um": 1.0, "dy_um": -2.0, "trusted": True, "confidence": 4,
+         "agreeing": ["pcc"]},
+        {"dx_um": float("nan"), "dy_um": float("nan"), "trusted": False,
+         "confidence": 0, "agreeing": []},
+    ]
+    vote_iter = iter(votes)
+
+    def _rv(ref, tgt, pixel_um, **kw):
+        return next(vote_iter)
+    monkeypatch.setattr(wf_obj, "register_voting", _rv)
+
+    session = wf_obj.start_session(
+        session_id="obj_rerun",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+    state["stack_phase"] = "target"
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+    session = wf_obj.measure_parcentricity_reference(session)
+    state["x"], state["y"] = xy_post
+    summary1 = wf_obj.measure_parcentricity_target_and_save(session)
+    assert summary1["config_written"] is True
+    cfg = session.paths.configs_dir / session.objective_config_name
+    assert cfg.is_file()
+
+    # Operator reruns just the parcentricity target cell with new data.
+    state["x"], state["y"] = xy_post
+    summary2 = wf_obj.measure_parcentricity_target_and_save(session)
+    assert summary2["config_written"] is False
+    assert not cfg.exists()
+    assert session.config_written is False
+
+    with pytest.raises(FileNotFoundError):
+        wf_promotion.promote_calibration(
+            session, session.objective_config_name, live_root=live_root,
+        )
+
+
+# ---------------------------------------------------------------------
+# Upstream rerun invalidation (Section 15 invariant for the multi-step
+# objective-pair pipeline)
+# ---------------------------------------------------------------------
+
+def _full_objective_run(
+    monkeypatch, sessions_root, live_root, *, session_id="obj_full",
+):
+    """Drive the four objective-pair cells end-to-end with a trusted vote.
+
+    Returns (session, state). Caller can then mutate ``state`` and rerun
+    individual cells.
+    """
+    home_xy = (1000.0, 2000.0)
+    xy_post = (1010.0, 2020.0)
+    state = _patch_objective_driver(
+        monkeypatch,
+        home_xy=home_xy, xy_post=xy_post,
+        home_z=100.0, z_post=94.0,
+        ref_focus_z=100.0, target_focus_z=103.0,
+        brenner_sigma=5.0,
+    )
+    _install_obj_vote(monkeypatch, {
+        "dx_um": 2.0, "dy_um": -3.0,
+        "trusted": True, "confidence": 4, "agreeing": ["pcc"],
+    })
+    _write_live_image_to_stage(live_root, matrix=[[1.0, 0.0], [0.0, 1.0]])
+
+    session = wf_obj.start_session(
+        session_id=session_id,
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+    state["stack_phase"] = "target"
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+    session = wf_obj.measure_parcentricity_reference(session)
+    state["x"], state["y"] = xy_post
+    summary = wf_obj.measure_parcentricity_target_and_save(session)
+    assert summary["config_written"] is True
+    cfg = session.paths.configs_dir / session.objective_config_name
+    assert cfg.is_file()
+    return session, state, cfg
+
+
+def test_objective_pair_rerun_2a_invalidates_full_pipeline(
+    monkeypatch, sessions_root, live_root,
+):
+    session, state, cfg = _full_objective_run(
+        monkeypatch, sessions_root, live_root, session_id="obj_rerun_2a",
+    )
+
+    # Operator returns to the reference objective and reruns Step 2.
+    state["stack_phase"] = "ref"
+    session = wf_obj.measure_parfocality_reference(session)
+
+    assert not cfg.exists()
+    assert session.config_written is False
+    # Downstream state cleared:
+    assert session.focus_z_target_um is None
+    assert session.translation_z_um is None
+    assert session.ref_image is None
+    assert session.translation_xy_um is None
+    assert session.target_image is None
+    assert session.registration is None
+    # Upstream values are freshly populated (not None) -- the rerun
+    # itself wrote them.
+    assert session.home_xy is not None
+    assert session.home_z is not None
+    assert session.focus_z_ref_um is not None
+
+    # Skipping ahead to 3b must fail because focus_z_target_um /
+    # ref_image are gone.
+    with pytest.raises(RuntimeError, match="must run before"):
+        wf_obj.measure_parcentricity_target_and_save(session)
+
+    with pytest.raises(FileNotFoundError):
+        wf_promotion.promote_calibration(
+            session, session.objective_config_name, live_root=live_root,
+        )
+
+
+def test_objective_pair_rerun_2b_invalidates_parcentricity_target(
+    monkeypatch, sessions_root, live_root,
+):
+    session, state, cfg = _full_objective_run(
+        monkeypatch, sessions_root, live_root, session_id="obj_rerun_2b",
+    )
+
+    # Operator reruns 2b. ref_image and focus_z_ref_um stay valid;
+    # 3b outputs and the staging config must clear.
+    ref_image_before = session.ref_image
+    focus_ref_before = session.focus_z_ref_um
+    state["stack_phase"] = "target"
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+
+    assert not cfg.exists()
+    assert session.config_written is False
+    assert session.translation_xy_um is None
+    assert session.target_image is None
+    assert session.registration is None
+    assert session.motor_shift_xy_um is None
+    # 2b does not change the reference focus or the reference image.
+    assert session.ref_image is ref_image_before
+    assert session.focus_z_ref_um == focus_ref_before
+    # 2b also re-populates its own outputs.
+    assert session.translation_z_um is not None
+
+    with pytest.raises(FileNotFoundError):
+        wf_promotion.promote_calibration(
+            session, session.objective_config_name, live_root=live_root,
+        )
+
+
+def test_objective_pair_rerun_3a_invalidates_parcentricity_target(
+    monkeypatch, sessions_root, live_root,
+):
+    session, state, cfg = _full_objective_run(
+        monkeypatch, sessions_root, live_root, session_id="obj_rerun_3a",
+    )
+
+    # Operator reruns 3a. translation_z_um stays valid; 3b outputs must
+    # clear; ref_image must be replaced.
+    translation_z_before = session.translation_z_um
+    ref_image_before = session.ref_image
+    session = wf_obj.measure_parcentricity_reference(session)
+
+    assert not cfg.exists()
+    assert session.config_written is False
+    assert session.translation_xy_um is None
+    assert session.target_image is None
+    assert session.registration is None
+    # 2b's outputs are NOT cleared.
+    assert session.translation_z_um == translation_z_before
+    # 3a re-populates ref_image (a new object).
+    assert session.ref_image is not None
+    assert session.ref_image is not ref_image_before
+
+    with pytest.raises(FileNotFoundError):
+        wf_promotion.promote_calibration(
+            session, session.objective_config_name, live_root=live_root,
+        )
+
+
+def test_objective_pair_rerun_2b_wipes_target_z_stack_dir(
+    monkeypatch, sessions_root, live_root,
+):
+    home_xy = (1000.0, 2000.0)
+    xy_post = (1010.0, 2020.0)
+    state = _patch_objective_driver(
+        monkeypatch,
+        home_xy=home_xy, xy_post=xy_post,
+        home_z=100.0, z_post=94.0,
+        ref_focus_z=100.0, target_focus_z=103.0,
+        # First-run target stack: 21 slices [93..113].
+        target_stack={
+            "begin": 93.0, "end": 113.0, "sections": 21,
+            "stepSize": 1.0, "zDrive": "z-wide",
+        },
+    )
+    _install_obj_vote(monkeypatch, {
+        "dx_um": 0.0, "dy_um": 0.0,
+        "trusted": True, "confidence": 4, "agreeing": ["pcc"],
+    })
+    _write_live_image_to_stage(live_root)
+
+    session = wf_obj.start_session(
+        session_id="obj_zstack_wipe",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+
+    state["stack_phase"] = "target"
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+    z_dir = session.paths.data_dir / "target_z_stack"
+    first_run_files = sorted(p.name for p in z_dir.glob("*.tif"))
+    assert len(first_run_files) == 21
+    assert "z_020.tif" in first_run_files
+
+    # Operator reconfigures LAS X to a smaller stack (5 slices) and
+    # reruns Step 3. The disk wipe must remove the stale z_005..z_020.
+    state["target_stack"] = {
+        "begin": 101.0, "end": 105.0, "sections": 5,
+        "stepSize": 1.0, "zDrive": "z-wide",
+    }
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+    second_run_files = sorted(p.name for p in z_dir.glob("*.tif"))
+    assert len(second_run_files) == 5
+    for stale in ("z_005.tif", "z_010.tif", "z_020.tif"):
+        assert stale not in second_run_files
+    assert second_run_files == [
+        "z_000.tif", "z_001.tif", "z_002.tif", "z_003.tif", "z_004.tif",
+    ]
+
+
+# ---------------------------------------------------------------------
+# Exception-path stale-config invariants (Section 15 invariant on the
+# partial-failure-during-rerun path)
+# ---------------------------------------------------------------------
+
+def test_image_to_stage_rerun_with_measure_failure_removes_stale_config(monkeypatch, sessions_root, live_root):
+    """Run 1: full success writes config. Run 2: measure() raises
+    mid-execution. The stale staging config must be gone BEFORE the
+    exception propagates, so a downstream promote cannot ship the
+    previous run's matrix.
+    """
+    boom = RuntimeError("acquire_frame failed")
+    # Run 1: home / plus_x / plus_y all OK (indices 0,1,2).
+    # Run 2: home OK (index 3), plus_x raises (index 4).
+    _patch_driver(
+        monkeypatch,
+        acquire_side_effects=[None, None, None, None, boom],
+    )
+    _install_register_voting(monkeypatch, [
+        _trusted(0.0, 30.0),
+        _trusted(-30.0, 0.0),
+    ])
+
+    session = wf_i2s.start_session(
+        session_id="sess_partial_rerun",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=30.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+    wf_i2s.save_and_visualize(wf_i2s.measure(session))
+    cfg = session.paths.configs_dir / "image_to_stage.json"
+    assert cfg.is_file()
+
+    with pytest.raises(RuntimeError, match="acquire_frame failed"):
+        wf_i2s.measure(session)
+
+    assert not cfg.exists()
+    assert session.config_written is False
+    with pytest.raises(FileNotFoundError):
+        wf_promotion.promote_calibration(
+            session, "image_to_stage.json", live_root=live_root,
+        )
+
+
+def test_objective_pair_rerun_3b_acquire_failure_removes_stale_config(
+    monkeypatch, sessions_root, live_root,
+):
+    """Full pipeline success writes the objective staging config. A 3b
+    rerun raises mid-acquire. The stale config must be gone BEFORE the
+    exception propagates.
+    """
+    home_xy = (1000.0, 2000.0)
+    xy_post = (1010.0, 2020.0)
+    boom = RuntimeError("acquire_frame failed")
+    # Full run uses acquire_stack for the z-stacks; only ref_xy and
+    # target_xy go through acquire_frame (indices 0 and 1). The
+    # rerun's target_xy is index 2.
+    state = _patch_objective_driver(
+        monkeypatch,
+        home_xy=home_xy, xy_post=xy_post,
+        home_z=100.0, z_post=94.0,
+        ref_focus_z=100.0, target_focus_z=103.0,
+        acquire_side_effects=[None, None, boom],
+    )
+    _install_obj_vote(monkeypatch, {
+        "dx_um": 1.0, "dy_um": -2.0,
+        "trusted": True, "confidence": 4, "agreeing": ["pcc"],
+    })
+    _write_live_image_to_stage(live_root)
+
+    session = wf_obj.start_session(
+        session_id="obj_3b_fail",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+    state["stack_phase"] = "target"
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+    session = wf_obj.measure_parcentricity_reference(session)
+    state["x"], state["y"] = xy_post
+    summary1 = wf_obj.measure_parcentricity_target_and_save(session)
+    assert summary1["config_written"] is True
+    cfg = session.paths.configs_dir / session.objective_config_name
+    assert cfg.is_file()
+
+    # Rerun 3b. The next acquire (target_xy) raises.
+    state["x"], state["y"] = xy_post
+    with pytest.raises(RuntimeError, match="acquire_frame failed"):
+        wf_obj.measure_parcentricity_target_and_save(session)
+
+    assert not cfg.exists()
+    assert session.config_written is False
+    with pytest.raises(FileNotFoundError):
+        wf_promotion.promote_calibration(
+            session, session.objective_config_name, live_root=live_root,
+        )
+
+
+def test_objective_pair_rerun_2a_wipes_per_step_tiffs(
+    monkeypatch, sessions_root, live_root,
+):
+    """A 2a rerun must leave data_dir consistent with the freshly-reset
+    session: no stale ref_xy.tif / target_xy.tif / target_z_stack from
+    the previous run remain on disk. (Ref stack is also wiped at the
+    top of 2a; that case is verified separately in
+    test_objective_pair_rerun_2a_wipes_ref_z_stack_dir, but the new
+    2a immediately re-acquires the ref stack, so the directory ends
+    populated -- we don't assert its absence here.)
+    """
+    session, state, cfg = _full_objective_run(
+        monkeypatch, sessions_root, live_root, session_id="obj_2a_tiff_wipe",
+    )
+
+    data_dir = session.paths.data_dir
+    assert (data_dir / "ref_xy.tif").is_file()
+    assert (data_dir / "target_xy.tif").is_file()
+    target_z_dir = data_dir / "target_z_stack"
+    assert target_z_dir.is_dir()
+    assert any(target_z_dir.glob("*.tif"))
+
+    state["stack_phase"] = "ref"
+    session = wf_obj.measure_parfocality_reference(session)
+
+    assert not (data_dir / "ref_xy.tif").exists()
+    assert not (data_dir / "target_xy.tif").exists()
+    assert not target_z_dir.exists()
+    assert not cfg.exists()
+
+
+# ---------------------------------------------------------------------
+# Ref-stack workflow (CALIBRATION_REF_STACK_UPDATE_PLAN.md)
+# ---------------------------------------------------------------------
+
+def test_objective_pair_parfocality_reference_acquires_z_stack(
+    monkeypatch, sessions_root, live_root,
+):
+    state = _patch_objective_driver(
+        monkeypatch,
+        home_z=99.8,            # diagnostic, distinct from peak
+        ref_focus_z=100.0,
+    )
+    _install_obj_vote(monkeypatch, {
+        "dx_um": 0.0, "dy_um": 0.0,
+        "trusted": True, "confidence": 4, "agreeing": ["pcc"],
+    })
+    _write_live_image_to_stage(live_root)
+
+    session = wf_obj.start_session(
+        session_id="obj_ref_stack",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+
+    # Ref stack landed on disk with one TIFF per slice.
+    z_dir = session.paths.data_dir / "ref_z_stack"
+    assert z_dir.is_dir()
+    files = sorted(p.name for p in z_dir.glob("*.tif"))
+    assert len(files) == 11
+    # Brenner peak roughly at the Gaussian center (100.0).
+    assert session.focus_z_ref_um == pytest.approx(100.0, abs=1e-6)
+    # Diagnostic vs anchor are distinct.
+    assert session.home_z == pytest.approx(99.8)
+    assert session.focus_z_ref_um != pytest.approx(session.home_z)
+    # Brenner series captured.
+    assert session.ref_z_brenner is not None
+    assert len(session.ref_z_brenner) == 11
+    assert session.ref_z_positions_um is not None
+    assert len(session.ref_z_positions_um) == 11
+
+
+def test_objective_pair_z_stack_zoom_independent_of_image_to_stage(
+    monkeypatch, sessions_root, live_root,
+):
+    # image_to_stage carries only the X/Y sign; the operator can run the
+    # parfocality z-stack at any zoom they like. Brenner focus does not
+    # depend on pixel size. This test runs Steps 2 and 3 with z-stack
+    # pixel_size_um intentionally different from whatever image_to_stage
+    # was acquired at, and asserts no geometry check fires.
+    state = _patch_objective_driver(
+        monkeypatch, pixel_size_um=1.0,
+    )
+    _install_obj_vote(monkeypatch, {
+        "dx_um": 0.0, "dy_um": 0.0,
+        "trusted": True, "confidence": 4, "agreeing": ["pcc"],
+    })
+    _write_live_image_to_stage(live_root, image_size_px=(64, 64), pixel_size_um=0.5)
+
+    session = wf_obj.start_session(
+        session_id="obj_z_zoom",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    # Both parfocality steps must run without raising despite the
+    # zoom difference from image_to_stage.
+    session = wf_obj.measure_parfocality_reference(session)
+    state["stack_phase"] = "target"
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+    assert session.focus_z_ref_um is not None
+    assert session.focus_z_target_um is not None
+
+
+def test_objective_pair_parcentricity_xy_pixel_size_mismatch_raises(
+    monkeypatch, sessions_root, live_root,
+):
+    # The only real geometry constraint in objective-pair: the target XY
+    # must match the reference XY's pixel size so voting registration
+    # sees the same scale on both sides. Mismatch -> raise.
+    state = _patch_objective_driver(
+        monkeypatch, pixel_size_um=0.5,
+    )
+    _install_obj_vote(monkeypatch, {
+        "dx_um": 0.0, "dy_um": 0.0,
+        "trusted": True, "confidence": 4, "agreeing": ["pcc"],
+    })
+    _write_live_image_to_stage(live_root, matrix=[[1.0, 0.0], [0.0, 1.0]])
+
+    session = wf_obj.start_session(
+        session_id="obj_xy_pix_mismatch",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+    state["stack_phase"] = "target"
+    state["zwide"] = 94.0
+    session = wf_obj.measure_parfocality_target(session)
+    session = wf_obj.measure_parcentricity_reference(session)
+
+    # Before Step 5, change the reported pixel size so target XY does
+    # not match the ref XY's recorded pixel size.
+    monkeypatch.setattr(
+        cm.drv, "parse_tile_geometry",
+        lambda settings: {
+            "pixel_w_um": 1.0, "pixel_h_um": 1.0,
+            "pixels_x": 64, "pixels_y": 64,
+        },
+    )
+    state["x"], state["y"] = (1010.0, 2020.0)
+
+    with pytest.raises(ValueError, match="pixel size"):
+        wf_obj.measure_parcentricity_target_and_save(session)
+
+
+def test_objective_pair_report_has_ref_and_target_brenner_blocks(
+    monkeypatch, sessions_root, live_root,
+):
+    session, state, cfg = _full_objective_run(
+        monkeypatch, sessions_root, live_root, session_id="obj_report_brenner",
+    )
+    report = json.loads(
+        (session.paths.reports_dir / f"{session.kind}_report.json")
+        .read_text(encoding="utf-8")
+    )
+
+    # Both Brenner blocks present, populated, with matching lengths.
+    assert "brenner_ref" in report
+    assert "brenner_target" in report
+    for key in ("brenner_ref", "brenner_target"):
+        block = report[key]
+        assert block["peak_z_um"] is not None
+        assert len(block["scores"]) >= 3
+        assert len(block["scores"]) == len(block["z_positions_um"])
+
+    # Both z-stack directories referenced under images.
+    assert "ref_z_stack" in report["images"]
+    assert "target_z_stack" in report["images"]
+    assert report["images"]["ref_z_stack"].endswith("/")
+    assert report["images"]["target_z_stack"].endswith("/")
+    # focus_z_ref_um surfaces at the top level for quick inspection.
+    assert report["focus_z_ref_um"] is not None
+    assert report["focus_z_target_um"] is not None
+
+
+def test_objective_pair_rerun_2a_wipes_ref_z_stack_dir(monkeypatch, sessions_root, live_root):
+    # First run with 11 ref slices; rerun 2a with 5 ref slices. The
+    # wipe at the top of _clear_parfocality_reference must remove the
+    # stale higher-index slices.
+    state = _patch_objective_driver(
+        monkeypatch,
+        home_z=100.0, ref_focus_z=100.0, target_focus_z=103.0,
+        ref_stack={
+            "begin": 95.0, "end": 105.0, "sections": 11,
+            "stepSize": 1.0, "zDrive": "z-wide",
+        },
+    )
+    _install_obj_vote(monkeypatch, {
+        "dx_um": 0.0, "dy_um": 0.0,
+        "trusted": True, "confidence": 4, "agreeing": ["pcc"],
+    })
+    _write_live_image_to_stage(live_root)
+
+    session = wf_obj.start_session(
+        session_id="obj_ref_wipe",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+    ref_dir = session.paths.data_dir / "ref_z_stack"
+    first_run_files = sorted(p.name for p in ref_dir.glob("*.tif"))
+    assert len(first_run_files) == 11
+    assert "z_010.tif" in first_run_files
+
+    # Operator reconfigures the LAS X ref stack to 5 sections and
+    # reruns Step 2. begin/end must keep the focus peak interior even
+    # after slice 0 is dropped by the analysis -- this test exercises
+    # the wipe behavior, not the peak math.
+    state["ref_stack"] = {
+        "begin": 98.0, "end": 102.0, "sections": 5,
+        "stepSize": 1.0, "zDrive": "z-wide",
+    }
+    state["stack_phase"] = "ref"
+    session = wf_obj.measure_parfocality_reference(session)
+
+    second_run_files = sorted(p.name for p in ref_dir.glob("*.tif"))
+    assert len(second_run_files) == 5
+    for stale in ("z_005.tif", "z_010.tif"):
+        assert stale not in second_run_files
+    assert second_run_files == [
+        "z_000.tif", "z_001.tif", "z_002.tif", "z_003.tif", "z_004.tif",
+    ]
+
+
+def test_objective_pair_missing_stack_positions_raises(monkeypatch, sessions_root, live_root):
+    # LAS X reports no stack metadata and the operator did not pass an
+    # override. The workflow must raise a clear RuntimeError rather
+    # than guess positions from slice count.
+    _patch_objective_driver(monkeypatch)
+    # Strip the stack block from get_job_settings.
+    monkeypatch.setattr(
+        cm.drv, "get_job_settings",
+        lambda *a, **k: {
+            "zoom": {"current": 1.0},
+            "scanSpeed": {"value": 600.0},
+            "activeSettings": [],
+            "scanMode": "xyz",
+        },
+    )
+    monkeypatch.setattr(
+        cm.drv, "make_changeable_copy",
+        lambda settings: {"stack": None} if settings else None,
+    )
+    _write_live_image_to_stage(live_root)
+
+    session = wf_obj.start_session(
+        session_id="obj_missing_pos",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    with pytest.raises(RuntimeError, match="z-stack"):
+        wf_obj.measure_parfocality_reference(session)
+
+
+def test_objective_pair_z_stack_requires_at_least_three_slices(
+    monkeypatch, sessions_root, live_root,
+):
+    # Case A: metadata reports sections=2 -- workflow must raise.
+    state = _patch_objective_driver(
+        monkeypatch,
+        ref_stack={
+            "begin": 99.0, "end": 100.0, "sections": 2,
+            "stepSize": 1.0, "zDrive": "z-wide",
+        },
+    )
+    _write_live_image_to_stage(live_root)
+    session_a = wf_obj.start_session(
+        session_id="obj_min_slices_meta",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    with pytest.raises(RuntimeError, match="at least 3"):
+        wf_obj.measure_parfocality_reference(session_a)
+
+
+def test_objective_pair_z_stack_override_requires_at_least_three(
+    monkeypatch, sessions_root, live_root,
+):
+    # Case B: operator passes an override list shorter than 3. The
+    # parabolic peak refinement is not meaningful below 3 samples;
+    # the workflow must raise before Brenner analysis.
+    state = _patch_objective_driver(
+        monkeypatch,
+        ref_stack={
+            "begin": 99.0, "end": 100.0, "sections": 2,
+            "stepSize": 1.0, "zDrive": "z-wide",
+        },
+    )
+    _write_live_image_to_stage(live_root)
+    session = wf_obj.start_session(
+        session_id="obj_min_slices_override",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    with pytest.raises(ValueError, match="at least 3"):
+        wf_obj.measure_parfocality_reference(
+            session, z_positions_um=[99.0, 100.0],
+        )
+
+
+def test_objective_pair_descending_stack_fits_peak_correctly(
+    monkeypatch, sessions_root, live_root,
+):
+    # np.linspace(105, 95, 11) yields the slices in descending order
+    # (z_arr[1] - z_arr[0] = -1.0). The parabolic refinement must use
+    # the SIGNED spacing or the sub-slice correction moves in the
+    # wrong direction (away from the true peak).
+    state = _patch_objective_driver(
+        monkeypatch,
+        home_z=105.0,
+        ref_focus_z=100.3,
+        target_focus_z=103.0,
+        brenner_sigma=5.0,
+        ref_stack={
+            "begin": 105.0, "end": 95.0, "sections": 11,
+            "stepSize": 1.0, "zDrive": "z-wide",
+        },
+    )
+    _install_obj_vote(monkeypatch, {
+        "dx_um": 0.0, "dy_um": 0.0,
+        "trusted": True, "confidence": 4, "agreeing": ["pcc"],
+    })
+    _write_live_image_to_stage(live_root)
+
+    session = wf_obj.start_session(
+        session_id="obj_descending",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+
+    # The true peak is at 100.3; the discrete max sits at slice index
+    # 5 (z=100). With abs(step), parabolic refinement moves DOWN to
+    # ~99.7. With signed step, it moves UP to ~100.3.
+    assert session.focus_z_ref_um == pytest.approx(100.3, abs=0.05)
+    assert session.focus_z_ref_um > 100.0
+
+
+def test_read_stack_z_positions_falls_back_on_partial_normalized(monkeypatch):
+    # make_changeable_copy returns a stack dict with only `begin`
+    # populated; the raw settings carry full begin/end/sections. The
+    # helper must fall back to the raw block rather than raise.
+    _patch_objective_driver(monkeypatch)
+
+    full_raw = {
+        "zoom": {"current": 1.0},
+        "scanSpeed": {"value": 600.0, "isResonant": False},
+        "activeSettings": [],
+        "scanMode": "xyz",
+        "stack": {
+            "begin": 95.0, "end": 105.0, "sections": 11,
+            "stepSize": 1.0, "mode": "z-wide",
+        },
+    }
+    monkeypatch.setattr(
+        cm.drv, "get_job_settings",
+        lambda *a, **k: full_raw,
+    )
+    # Normalized form has only `begin`; end/sections are None.
+    monkeypatch.setattr(
+        cm.drv, "make_changeable_copy",
+        lambda settings: {
+            "stack": {
+                "begin": 95.0,
+                "end": None,
+                "sections": None,
+                "stepSize": None,
+                "zDrive": None,
+            }
+        } if settings else None,
+    )
+
+    positions = cm.read_stack_z_positions(
+        client=object(), job_name="Overview", expected_slices=11,
+    )
+    assert len(positions) == 11
+    assert positions[0] == pytest.approx(95.0)
+    assert positions[-1] == pytest.approx(105.0)
+
+
+def test_read_stack_z_positions_ignores_rounded_step_size(monkeypatch):
+    # Regression: LAS X reports stepSize with limited precision. On
+    # the rig, stepSize=2.051 came back alongside begin=0.0,
+    # end=79.98003, sections=40 -- a derived step of 2.05077 um. The
+    # workflow previously raised on this 0.00023 um disagreement.
+    # begin/end/sections are authoritative; stepSize is informational
+    # only and must not gate calibration.
+    full_raw = {
+        "zoom": {"current": 1.0},
+        "scanSpeed": {"value": 600.0, "isResonant": False},
+        "activeSettings": [],
+        "scanMode": "xyz",
+        "stack": {
+            "begin": 0.0,
+            "end": 79.98003,
+            "sections": 40,
+            "stepSize": 2.051,
+            "zDrive": "z-wide",
+        },
+    }
+    monkeypatch.setattr(
+        cm.drv, "get_job_settings",
+        lambda *a, **k: full_raw,
+    )
+    monkeypatch.setattr(
+        cm.drv, "make_changeable_copy",
+        lambda settings: {"stack": dict(settings["stack"])}
+        if settings else None,
+    )
+
+    positions = cm.read_stack_z_positions(
+        client=object(), job_name="Overview", expected_slices=40,
+    )
+    assert len(positions) == 40
+    assert all(isinstance(z, float) for z in positions)
+    assert positions[0] == pytest.approx(0.0)
+    assert positions[-1] == pytest.approx(79.98003)
+
+
+def test_objective_pair_non_finite_brenner_raises(monkeypatch, sessions_root, live_root):
+    # If any slice's Brenner score comes back NaN or +/-inf, the
+    # workflow must raise rather than feed it into argmax/parabolic
+    # peak (where it would silently corrupt focus_z_ref_um).
+    _patch_objective_driver(
+        monkeypatch,
+        ref_focus_z=100.0, target_focus_z=103.0,
+    )
+    _write_live_image_to_stage(live_root)
+
+    call_count = {"n": 0}
+    real_brenner = wf_obj.brenner
+
+    def _brenner_with_nan(img):
+        idx = call_count["n"]
+        call_count["n"] += 1
+        if idx == 3:
+            return float("nan")
+        return float(real_brenner(img))
+
+    monkeypatch.setattr(wf_obj, "brenner", _brenner_with_nan)
+
+    session = wf_obj.start_session(
+        session_id="obj_nan_brenner",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    with pytest.raises(RuntimeError, match="non-finite"):
+        wf_obj.measure_parfocality_reference(session)
+
+
+def test_objective_pair_first_slice_artifact_is_dropped(
+    monkeypatch, sessions_root, live_root,
+):
+    # The driver's stack readback returns slice 0 before its file is
+    # fully written, producing a Brenner spike on slice 0 that would
+    # otherwise hijack argmax. The workflow drops slice 0 before peak
+    # fitting; a spike on slice 0 must NOT corrupt focus_z_ref_um. The
+    # full Brenner array stays in the session for diagnostics.
+    state = _patch_objective_driver(
+        monkeypatch,
+        ref_focus_z=100.0, target_focus_z=103.0,
+    )
+    _write_live_image_to_stage(live_root)
+
+    real_brenner = wf_obj.brenner
+    call_count = {"n": 0}
+
+    def _brenner_with_slice0_spike(img):
+        idx = call_count["n"]
+        call_count["n"] += 1
+        if idx == 0:
+            return 100.0
+        return float(real_brenner(img))
+
+    monkeypatch.setattr(wf_obj, "brenner", _brenner_with_slice0_spike)
+
+    session = wf_obj.start_session(
+        session_id="obj_slice0_drop",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+
+    # Recovered Brenner peak is the real Gaussian peak, not slice 0.
+    assert session.focus_z_ref_um == pytest.approx(100.0, abs=0.5)
+    # The full Brenner array stays on the session, including the slice-0
+    # spike. Operator/report can see the artifact happened.
+    assert session.ref_z_brenner[0] == pytest.approx(100.0)
+
+
+def test_objective_pair_last_slice_artifact_is_dropped(
+    monkeypatch, sessions_root, live_root,
+):
+    # Symmetric counterpart: a spike on the last slice (file-commit timing
+    # is in principle symmetric, even if only the leading slice has been
+    # observed breaking in practice). The trailing slice is dropped before
+    # peak fitting; the spike must NOT corrupt focus_z_ref_um.
+    state = _patch_objective_driver(
+        monkeypatch,
+        ref_focus_z=100.0, target_focus_z=103.0,
+    )
+    _write_live_image_to_stage(live_root)
+
+    real_brenner = wf_obj.brenner
+    call_count = {"n": 0}
+
+    def _brenner_with_last_spike(img):
+        idx = call_count["n"]
+        call_count["n"] += 1
+        # Default ref stack has 11 slices; spike index 10 (the last one).
+        if idx == 10:
+            return 100.0
+        return float(real_brenner(img))
+
+    monkeypatch.setattr(wf_obj, "brenner", _brenner_with_last_spike)
+
+    session = wf_obj.start_session(
+        session_id="obj_lastslice_drop",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    session = wf_obj.measure_parfocality_reference(session)
+
+    assert session.focus_z_ref_um == pytest.approx(100.0, abs=0.5)
+    assert session.ref_z_brenner[-1] == pytest.approx(100.0)
+
+
+def test_objective_pair_brenner_peak_at_stack_edge_raises(
+    monkeypatch, sessions_root, live_root,
+):
+    # The operator configures the stack around the focal plane, so a
+    # valid Brenner peak must be inside the stack. After the workflow
+    # drops slice 0 (driver artifact workaround), the new lower edge of
+    # the analysis is slice 1. A spike there still raises.
+    _patch_objective_driver(
+        monkeypatch,
+        ref_focus_z=100.0, target_focus_z=103.0,
+    )
+    _write_live_image_to_stage(live_root)
+
+    real_brenner = wf_obj.brenner
+    call_count = {"n": 0}
+
+    def _brenner_edge_spike(img):
+        idx = call_count["n"]
+        call_count["n"] += 1
+        # Spike at slice 1 -- slice 0 is dropped, so slice 1 is the new
+        # lower edge of the peak-fit window.
+        if idx == 1:
+            return 100.0
+        return float(real_brenner(img))
+
+    monkeypatch.setattr(wf_obj, "brenner", _brenner_edge_spike)
+
+    session = wf_obj.start_session(
+        session_id="obj_edge_peak",
+        job_name="Overview",
+        from_objective="10x", to_objective="20x",
+        sessions_root=sessions_root,
+        image_to_stage_path=live_root / "image_to_stage.json",
+    )
+    with pytest.raises(RuntimeError, match="stack edge"):
+        wf_obj.measure_parfocality_reference(session)
+
+
+# ---------------------------------------------------------------------
+# Image-to-stage review diagnostics (CALIBRATION_REVIEW_DIAGNOSTICS_PLAN)
+# ---------------------------------------------------------------------
+
+def test_d4_candidate_prediction_uses_correct_sign():
+    # Pin the workflow's sign convention. The saved image_to_stage
+    # matrix maps an image displacement to the corrective stage move;
+    # the inverse-with-minus produces the predicted image shift from a
+    # known stage move.
+    candidate = np.array([[0.0, -1.0], [1.0, 0.0]])  # label "-Y +X"
+
+    pred_plus_x = -np.linalg.inv(candidate) @ np.array([40.0, 0.0])
+    pred_plus_y = -np.linalg.inv(candidate) @ np.array([0.0, 40.0])
+
+    assert pred_plus_x == pytest.approx([0.0, 40.0])
+    assert pred_plus_y == pytest.approx([-40.0, 0.0])
+
+    # Same prediction must come out of the pure helper.
+    rows = cm.compute_d4_candidate_residuals(
+        measured_plus_x_um=(0.0, 40.0),
+        measured_plus_y_um=(-40.0, 0.0),
+        stage_move_um=40.0,
+    )
+    winner = next(r for r in rows if r["label"] == "-Y +X")
+    assert winner["pred_plus_x_um"] == pytest.approx((0.0, 40.0))
+    assert winner["pred_plus_y_um"] == pytest.approx((-40.0, 0.0))
+
+
+def test_plot_d4_candidates_no_redundant_axis_titles():
+    # Inner axes must carry no titles. The candidate label and per-axis
+    # residuals belong in the subfigure suptitle, not on each axis.
+    rng = np.random.RandomState(91)
+    home = (rng.rand(32, 32) * 255).astype(np.uint16)
+    plus_x = (rng.rand(32, 32) * 255).astype(np.uint16)
+    plus_y = (rng.rand(32, 32) * 255).astype(np.uint16)
+    fig = cm.plot_d4_candidates(
+        home, plus_x, plus_y,
+        stage_move_um=40.0,
+        pixel_size_um=1.0,
+        measured_plus_x_um=(0.0, 40.0),
+        measured_plus_y_um=(-40.0, 0.0),
+        selected_label="-Y +X",
+        d4_accepted=True,
+    )
+    for ax in fig.axes:
+        title = ax.get_title()
+        assert "stage +X correction" not in title, title
+        assert "stage +Y correction" not in title, title
+        # No axis carries a candidate label as its title either.
+        for lbl in ("+X +Y", "-Y +X", "-X -Y", "+Y -X"):
+            assert title.strip() != lbl, (lbl, title)
+
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
+def test_image_to_stage_save_and_visualize_writes_png_diagnostics(monkeypatch, sessions_root):
+    _patch_driver(monkeypatch)
+    _install_register_voting(monkeypatch, [
+        _trusted(0.0, 30.0),
+        _trusted(-30.0, 0.0),
+    ])
+    session = wf_i2s.start_session(
+        session_id="sess_diag_ok",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=30.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+    session = wf_i2s.measure(session)
+
+    # Record every figure passed to IPython.display.display. Exactly
+    # one must be displayed (the D4 candidate grid). Raw triplet and
+    # overlays are saved to reports/ but never shown inline.
+    displayed: list = []
+
+    def _recorder(obj, *a, **kw):
+        displayed.append(obj)
+
+    import IPython.display as ipy_display
+    monkeypatch.setattr(ipy_display, "display", _recorder)
+
+    summary = wf_i2s.save_and_visualize(session)
+    assert summary["config_written"] is True
+
+    assert len(displayed) == 1, (
+        f"expected exactly 1 inline displayed figure, got {len(displayed)}"
+    )
+    sup = displayed[0]._suptitle.get_text() if displayed[0]._suptitle else ""
+    assert sup.startswith("Winner:") or sup.startswith("NO WINNER") \
+        or sup.startswith("REFLECTION REJECTED") \
+        or sup.startswith("SINGULAR FIT"), sup
+
+    report_path = session.paths.reports_dir / "image_to_stage_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    figures = report.get("figures")
+    assert isinstance(figures, dict)
+    expected_keys = {
+        "raw_triplet",
+        "overlay_home_plus_x",
+        "overlay_home_plus_y",
+        "d4_candidates",
+    }
+    assert set(figures.keys()) == expected_keys
+
+    for key, rel in figures.items():
+        # Session-root-relative string under reports/.
+        assert isinstance(rel, str)
+        assert not Path(rel).is_absolute(), (key, rel)
+        assert rel.startswith("reports/"), (key, rel)
+        # The corresponding PNG file exists and is non-empty.
+        png_path = session.paths.session_dir / rel
+        assert png_path.is_file(), (key, png_path)
+        assert png_path.stat().st_size > 0, (key, png_path)
+
+
+def test_image_to_stage_save_and_visualize_operator_summary_format(
+    monkeypatch, capsys, sessions_root,
+):
+    # Success path: stdout carries the new human-readable operator
+    # block and does NOT carry the old dev-style keys.
+    _patch_driver(monkeypatch)
+    _install_register_voting(monkeypatch, [
+        _trusted(0.0, 30.0),
+        _trusted(-30.0, 0.0),
+    ])
+    session = wf_i2s.start_session(
+        session_id="sess_op_summary_ok",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=30.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+    session = wf_i2s.measure(session)
+    capsys.readouterr()
+    wf_i2s.save_and_visualize(session)
+    out = capsys.readouterr().out
+
+    assert "Image-to-stage calibration: OK" in out, out
+    assert "Orientation winner:" in out, out
+    assert "D4 residual:" in out, out
+    assert "Staging config written:" in out, out
+    # Old dev-style keys must be gone.
+    assert "fitted_image_to_stage:" not in out, out
+    assert "residual_from_d4:" not in out, out
+    assert "d4_label:" not in out, out
+
+    # Reflection-rejection path: stdout carries the REFLECTION REJECTED
+    # header and explicitly says no staging config was written.
+    _install_register_voting(monkeypatch, [
+        _trusted(40.0, 0.0),
+        _trusted(0.0, -40.0),
+    ])
+    session = wf_i2s.start_session(
+        session_id="sess_op_summary_refl",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=40.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+    session = wf_i2s.measure(session)
+    capsys.readouterr()
+    wf_i2s.save_and_visualize(session)
+    out = capsys.readouterr().out
+
+    assert "REFLECTION REJECTED" in out, out
+    assert "No staging config written." in out, out
+    assert "fitted_image_to_stage:" not in out, out
+    assert "residual_from_d4:" not in out, out
+    assert "d4_label:" not in out, out
+
+
+def test_image_to_stage_weak_vote_writes_review_pngs_but_no_config(monkeypatch, sessions_root):
+    _patch_driver(monkeypatch)
+    _install_register_voting(monkeypatch, [
+        _untrusted(),
+        _trusted(-30.0, 0.0),
+    ])
+    session = wf_i2s.start_session(
+        session_id="sess_diag_weak",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=30.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+    session = wf_i2s.measure(session)
+    summary = wf_i2s.save_and_visualize(session)
+
+    assert summary["config_written"] is False
+    assert not (session.paths.configs_dir / "image_to_stage.json").exists()
+
+    report_path = session.paths.reports_dir / "image_to_stage_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    figures = report.get("figures")
+    assert isinstance(figures, dict)
+    # Raw triplet must exist on the weak-vote path.
+    assert "raw_triplet" in figures
+    raw_png = session.paths.session_dir / figures["raw_triplet"]
+    assert raw_png.is_file()
+    assert raw_png.stat().st_size > 0
+
+    # Both measured-overlay PNGs land on disk because both home and
+    # plus_x / plus_y images were acquired before the weak vote was
+    # produced.
+    for key in ("overlay_home_plus_x", "overlay_home_plus_y"):
+        assert key in figures, key
+        png = session.paths.session_dir / figures[key]
+        assert png.is_file(), key
+        assert png.stat().st_size > 0, key
+
+    # D4 grid may be present but must not imply an accepted winner --
+    # the report's d4_accepted is None on the weak-vote path, which is
+    # what plot_d4_candidates checks before highlighting.
+    assert report["d4_accepted"] is None
+    if "d4_candidates" in figures:
+        d4_png = session.paths.session_dir / figures["d4_candidates"]
+        assert d4_png.is_file()
+        assert d4_png.stat().st_size > 0
+
+
+def _collect_all_titles(fig) -> list[str]:
+    """Return every title surface on the rotation-only grid.
+
+    Walks each subfigure's suptitle (the per-tile label + residual
+    line) plus every inner axes title, so tests can scan the full
+    visible text the operator would see.
+    """
+    titles: list[str] = []
+    subfigs = getattr(fig, "subfigs", None) or ()
+    for sf in subfigs:
+        sup = getattr(sf, "_suptitle", None)
+        if sup is not None:
+            titles.append(sup.get_text())
+    for ax in fig.axes:
+        titles.append(ax.get_title())
+    sup = getattr(fig, "_suptitle", None)
+    if sup is not None:
+        titles.append(sup.get_text())
+    return titles
+
+
+def test_plot_d4_candidates_nan_measurement_titles_have_no_nan():
+    # Weak-vote registration returns NaN dx/dy. Neither the per-tile
+    # subfigure suptitles (label + residual line) nor any inner axes
+    # title may contain literal "nan" -- the operator should see "no
+    # measurement", not a numeric residual.
+    rng = np.random.RandomState(11)
+    home = (rng.rand(32, 32) * 255).astype(np.uint16)
+    plus_x = (rng.rand(32, 32) * 255).astype(np.uint16)
+    plus_y = (rng.rand(32, 32) * 255).astype(np.uint16)
+    fig = cm.plot_d4_candidates(
+        home, plus_x, plus_y,
+        stage_move_um=40.0,
+        pixel_size_um=1.0,
+        measured_plus_x_um=(float("nan"), float("nan")),
+        measured_plus_y_um=(float("nan"), float("nan")),
+        selected_label=None,
+        d4_accepted=None,
+    )
+    for t in _collect_all_titles(fig):
+        assert "nan" not in t.lower(), t
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
+def test_plot_d4_candidates_rotation_only_layout():
+    # The operator view must show exactly the 4 rotation candidates,
+    # not the 4 reflections. Each label lives in the subfigure
+    # suptitle, NOT on an inner axis title.
+    rng = np.random.RandomState(13)
+    home = (rng.rand(32, 32) * 255).astype(np.uint16)
+    plus_x = (rng.rand(32, 32) * 255).astype(np.uint16)
+    plus_y = (rng.rand(32, 32) * 255).astype(np.uint16)
+    fig = cm.plot_d4_candidates(
+        home, plus_x, plus_y,
+        stage_move_um=40.0,
+        pixel_size_um=1.0,
+        measured_plus_x_um=(0.0, 40.0),
+        measured_plus_y_um=(-40.0, 0.0),
+        selected_label="-Y +X",
+        d4_accepted=True,
+    )
+
+    # Tile titles are the per-subfigure suptitles. The first line of
+    # each is the candidate label.
+    tile_labels: list[str] = []
+    for sf in (fig.subfigs or ()):
+        sup = getattr(sf, "_suptitle", None)
+        assert sup is not None
+        first_line = sup.get_text().split("\n", 1)[0].strip()
+        tile_labels.append(first_line)
+
+    rotation_labels = {"+X +Y", "-Y +X", "-X -Y", "+Y -X"}
+    reflection_labels = {"+X -Y", "-X +Y", "+Y +X", "-Y -X"}
+
+    assert set(tile_labels) == rotation_labels
+    for refl in reflection_labels:
+        assert refl not in tile_labels, refl
+
+    # Labels must NOT appear as inner axis titles.
+    inner_axis_titles = [ax.get_title() for ax in fig.axes]
+    for lbl in rotation_labels:
+        assert lbl not in inner_axis_titles, lbl
+
+    for t in _collect_all_titles(fig):
+        assert "nan" not in t.lower(), t
+
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
+def test_plot_d4_candidates_suptitle_names_rotation_winner():
+    # On the accepted rotation path the global suptitle is one line,
+    # exactly "Winner: <label> (rotation)". Residuals belong in the
+    # per-tile titles, not the global one.
+    rng = np.random.RandomState(17)
+    home = (rng.rand(32, 32) * 255).astype(np.uint16)
+    plus_x = (rng.rand(32, 32) * 255).astype(np.uint16)
+    plus_y = (rng.rand(32, 32) * 255).astype(np.uint16)
+    fig = cm.plot_d4_candidates(
+        home, plus_x, plus_y,
+        stage_move_um=40.0,
+        pixel_size_um=1.0,
+        measured_plus_x_um=(0.0, 40.0),
+        measured_plus_y_um=(-40.0, 0.0),
+        selected_label="-Y +X",
+        d4_accepted=True,
+    )
+    sup = fig._suptitle.get_text() if fig._suptitle else ""
+
+    assert sup == "Winner: -Y +X (rotation)", sup
+    assert "\n" not in sup, sup
+    assert "residual" not in sup, sup
+
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
+def test_image_to_stage_rejects_reflection_candidate(monkeypatch, sessions_root):
+    # Votes designed so the fitted matrix snaps to the reflection
+    # "-X +Y" with zero residual. measure() must reject in-place
+    # (Step 2 needs to see the rejected state), and Step 3 must not
+    # write a staging config.
+    _patch_driver(monkeypatch)
+    _install_register_voting(monkeypatch, [
+        _trusted(40.0, 0.0),
+        _trusted(0.0, -40.0),
+    ])
+
+    session = wf_i2s.start_session(
+        session_id="sess_reflection",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=40.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+    session = wf_i2s.measure(session)
+
+    # Rejection must be visible immediately after measure().
+    assert session.d4_label == "-X +Y"
+    assert session.d4_accepted is False
+    assert session.failure_reason is not None
+    assert "reflection-free" in session.failure_reason
+
+    summary = wf_i2s.save_and_visualize(session)
+    assert summary["config_written"] is False
+    assert not (session.paths.configs_dir / "image_to_stage.json").exists()
+    assert "REFLECTION REJECTED" in summary["status"]
+
+    report = json.loads(
+        (session.paths.reports_dir / "image_to_stage_report.json")
+        .read_text(encoding="utf-8")
+    )
+    assert report["config_written"] is False
+    assert report["d4_accepted"] is False
+    assert report["d4_label"] == "-X +Y"
+    # Persisted rejection reason -- future readers of the report can
+    # tell WHY config was withheld without having to re-run.
+    assert report["failure_reason"] is not None
+    assert "reflection-free" in report["failure_reason"]
+    assert "REFLECTION REJECTED" in report["status"]
+
+
+def test_save_and_visualize_raises_when_png_save_fails(monkeypatch, sessions_root):
+    # A figure's savefig may fail (full disk, permissions, broken
+    # backend, etc.). The workflow must surface that as a clear
+    # RuntimeError rather than silently writing a report that
+    # references a PNG which is not on disk.
+    _patch_driver(monkeypatch)
+    _install_register_voting(monkeypatch, [
+        _trusted(0.0, 30.0),
+        _trusted(-30.0, 0.0),
+    ])
+    session = wf_i2s.start_session(
+        session_id="sess_png_fail",
+        job_name="Overview",
+        reference_objective="10x",
+        stage_move_um=30.0,
+        settle_s=0.0,
+        sessions_root=sessions_root,
+    )
+    session = wf_i2s.measure(session)
+
+    import matplotlib.figure as mpl_figure
+
+    def _boom(self, *a, **kw):
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(mpl_figure.Figure, "savefig", _boom)
+
+    with pytest.raises(RuntimeError, match="failed to write diagnostic PNG"):
+        wf_i2s.save_and_visualize(session)
