@@ -20,8 +20,10 @@ Two primitives for the two physical patterns:
       when you're already at the target and just need to pin the
       slack-state without net displacement.
 
-Parameters for both live in ``config/stage.json``; load them with
-``stage.config.load`` so all consumers share one source of truth.
+Parameters for both live in
+``calibration/vendor/leica/navigator_expert/live/stage.json``; load
+them with ``stage.config.load`` so all consumers share one source of
+truth.
 
 See ``docs/session_notes_20260428_backlash_correction.md`` for the
 mechanical analysis behind the recipe.

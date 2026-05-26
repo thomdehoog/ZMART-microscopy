@@ -1,11 +1,11 @@
 """Objective calibration: load, save, and read the calibration config.
 
-The live calibration lives at ``config/calibration.json``. Calibration
+The live calibration lives at ``live/calibration.json``. Calibration
 notebooks write session artifacts outside the driver-facing config path
 and promote validated results into that file.
 
-Stage-physical config (limits, backlash) is unrelated and lives at
-``config/stage.json``.
+Stage state (limits, backlash) is separate and lives at
+``live/stage.json``.
 
 Schema (v9)::
 
@@ -89,13 +89,13 @@ SCHEMA_VERSION = 9
 
 # ── Paths ────────────────────────────────────────────────────────────
 
-def _navigator_expert_root():
-    return Path(__file__).resolve().parent.parent.parent
+def _calibration_root():
+    return Path(__file__).resolve().parent.parent
 
 
 def default_path():
     """Path to the live promoted calibration config."""
-    return _navigator_expert_root() / "config" / "calibration.json"
+    return _calibration_root() / "live" / "calibration.json"
 
 
 def now_timestamp():
@@ -125,7 +125,7 @@ def _empty():
 
 
 def load_calibration(path=None, *, create_if_missing=False):
-    """Load config.json. If absent and ``create_if_missing``, return a fresh dict."""
+    """Load calibration.json. If absent and ``create_if_missing``, return a fresh dict."""
     path = Path(path) if path is not None else default_path()
     if not path.exists():
         if create_if_missing:

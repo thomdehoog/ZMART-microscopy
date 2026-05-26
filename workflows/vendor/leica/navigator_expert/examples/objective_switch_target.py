@@ -20,7 +20,7 @@ script should consume that calibration to revisit a feature across
 an objective swap.
 
 The full coordinate model lives in
-``navigator_expert/calibration/core/model.py`` (v9 schema).
+``calibration/vendor/leica/navigator_expert/core/model.py`` (v9 schema).
 The short version:
 
     For each non-reference objective ``slot``, calibration stores
@@ -77,7 +77,7 @@ Operator preconditions
 - ``ImageTransformation = TOPLEFT`` in LAS X Advanced Settings.
 - AFC / autofocus OFF; no LAS X modal dialogs.
 - Stage positioned over a region with cells visible at 10×.
-- ``config/calibration.json`` (v9) and ``config/stage.json`` exist.
+- ``live/calibration.json`` (v9) and ``live/stage.json`` exist.
 
 Usage
 -----
@@ -121,7 +121,7 @@ from matplotlib.patches import Rectangle
 from skimage.measure import regionprops
 
 import navigator_expert.driver as drv
-from navigator_expert.calibration.core import model as calib
+from calibration.vendor.leica.navigator_expert.core import model as calib
 from navigator_expert.driver.core.objectives import validate_slots
 
 

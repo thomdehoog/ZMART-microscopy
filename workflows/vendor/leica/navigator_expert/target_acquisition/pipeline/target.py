@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 import navigator_expert.driver as drv
-from navigator_expert.calibration.core import model as calib
+from calibration.vendor.leica.navigator_expert.core import model as calib
 
 from .context import Context, TargetState
 from .overview import Pick, Picks, _validate_callback_flags

@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import navigator_expert.driver as drv
-from navigator_expert.calibration.core import model as calib
+from calibration.vendor.leica.navigator_expert.core import model as calib
 from navigator_expert.driver.core.objectives import validate_slots
 
 from .context import Config, Context
