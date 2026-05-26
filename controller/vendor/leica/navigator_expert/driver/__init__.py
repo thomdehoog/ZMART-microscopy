@@ -110,8 +110,6 @@ __all__ = [
     "get_master_attrs", "get_rois",
     "parse_acquisition_positions", "parse_base_grid", "parse_focus_points",
     "parse_rgn_geometries", "parse_rgn_tile_colors", "parse_matrix_settings",
-    # scanning_template_synthesis
-    "synthesize_tiles", "assign_focus_points_to_regions",
     # scanning_template_editors (core)
     "lrp_set_line_average", "lrp_verify_line_average",
     "lrp_set_line_accumulation", "lrp_verify_line_accumulation",
@@ -320,11 +318,6 @@ from .experimental.lrp_edits.z import (
     lrp_set_z_position, lrp_verify_z_position,
     lrp_set_z_stack_range, lrp_verify_z_stack_range,
     lrp_set_z_stack_size, lrp_verify_z_stack_size,
-)
-
-# ── Scanning template synthesis (legacy, removed in Phase K) ─────
-from .scanning_template_synthesis import (
-    synthesize_tiles, assign_focus_points_to_regions,
 )
 
 # ── driver-root modules (not moved) ───────────────────────────────

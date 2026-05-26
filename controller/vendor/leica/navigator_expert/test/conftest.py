@@ -47,7 +47,7 @@ _DRIVER_SUBMODULES = (
     "scanning_template_editors", "scanning_template_editors_focus",
     "scanning_template_editors_roi", "scanning_template_editors_scan",
     "scanning_template_editors_z", "scanning_template_parsers",
-    "scanning_template_synthesis", "scanning_templates",
+    "scanning_templates",
     "stage_config", "stage_motion",
 )
 for _sub in _DRIVER_SUBMODULES:
