@@ -19,21 +19,25 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from navigator_expert.driver.scanning_templates import (
-    reorder_jobs,
+from navigator_expert.driver.templates.files import (
     save_experiment,
     load_experiment,
-    apply_lrp_change,
-    strip_template,
-    restore_template,
     find_scanning_templates_dir,
-    _count_objects,
-    _strip_xml,
-    _strip_rgn,
     _wait_file_stable,
     TEMPLATE_XML, TEMPLATE_RGN, TEMPLATE_LRP,
     STRIPPED_XML, STRIPPED_RGN, STRIPPED_LRP,
     TEMPLATE_BASE,
+)
+from navigator_expert.driver.templates.strip_restore import (
+    strip_template,
+    restore_template,
+    _count_objects,
+    _strip_xml,
+    _strip_rgn,
+)
+from navigator_expert.driver.templates.transaction import (
+    reorder_jobs,
+    apply_lrp_change,
 )
 
 

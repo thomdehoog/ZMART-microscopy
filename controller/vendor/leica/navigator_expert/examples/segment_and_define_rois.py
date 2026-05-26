@@ -86,7 +86,7 @@ from cellpose import models
 from skimage.measure import approximate_polygon, find_contours, regionprops
 
 import navigator_expert.driver as drv
-from navigator_expert.driver.scanning_template_editors_roi import (
+from navigator_expert.driver.experimental.lrp_edits.roi import (
     ROI_POLYGON,
     argb_color,
     lrp_add_roi,
@@ -96,17 +96,17 @@ from navigator_expert.driver.scanning_template_editors_roi import (
     lrp_verify_roi_scan,
     pixels_to_roi,
 )
-from navigator_expert.driver.scanning_template_parsers import (
+from navigator_expert.driver.templates.parsers import (
     get_master_attrs,
     get_rois,
     parse_lrp,
 )
-from navigator_expert.driver.scanning_templates import (
+from navigator_expert.driver.templates.files import (
     TEMPLATE_XML,
-    apply_lrp_change,
     find_scanning_templates_dir,
     save_experiment,
 )
+from navigator_expert.driver.templates.transaction import apply_lrp_change
 
 
 log = logging.getLogger("segment_and_define_rois")

@@ -49,12 +49,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from LasxApi import PYLICamApiConnector as lasx_api
 import navigator_expert.driver as drv
-from navigator_expert.driver.scanning_templates import TEMPLATE_XML, apply_lrp_change
-from navigator_expert.driver.scanning_template_editors_scan import lrp_set_pan
-from navigator_expert.driver.scanning_template_editors_roi import lrp_enable_roi_scan
-from navigator_expert.driver.readers import get_job_settings, get_lasx_settings
-from navigator_expert.driver.utils import parse_tile_geometry
-from navigator_expert.driver.prechecks import check_idle
+from navigator_expert.driver.templates.files import TEMPLATE_XML
+from navigator_expert.driver.templates.transaction import apply_lrp_change
+from navigator_expert.driver.experimental.lrp_edits.scan import lrp_set_pan
+from navigator_expert.driver.experimental.lrp_edits.roi import lrp_enable_roi_scan
+from navigator_expert.driver.api.readers import get_job_settings, get_lasx_settings
+from navigator_expert.driver.api.utils import parse_tile_geometry
+from navigator_expert.driver.api.prechecks import check_idle
 
 import matplotlib
 matplotlib.use("Agg")

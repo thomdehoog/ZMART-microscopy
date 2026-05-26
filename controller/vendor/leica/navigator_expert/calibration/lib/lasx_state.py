@@ -4,15 +4,16 @@ import logging
 import time
 
 import navigator_expert.driver as drv
-from navigator_expert.driver.scanning_template_editors_focus import lrp_set_stack_calculation_mode
-from navigator_expert.driver.scanning_template_editors_roi import lrp_enable_roi_scan
-from navigator_expert.driver.scanning_template_editors_scan import lrp_set_pan
-from navigator_expert.driver.scanning_template_editors_z import (
+from navigator_expert.driver.experimental.lrp_edits.focus import lrp_set_stack_calculation_mode
+from navigator_expert.driver.experimental.lrp_edits.roi import lrp_enable_roi_scan
+from navigator_expert.driver.experimental.lrp_edits.scan import lrp_set_pan
+from navigator_expert.driver.experimental.lrp_edits.z import (
     lrp_set_sections,
     lrp_set_z_stack_active,
     lrp_set_z_use_mode,
 )
-from navigator_expert.driver.scanning_templates import TEMPLATE_XML, apply_lrp_change
+from navigator_expert.driver.templates.files import TEMPLATE_XML
+from navigator_expert.driver.templates.transaction import apply_lrp_change
 
 
 log = logging.getLogger(__name__)

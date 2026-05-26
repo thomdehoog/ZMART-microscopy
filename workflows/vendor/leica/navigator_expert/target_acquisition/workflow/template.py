@@ -23,7 +23,7 @@ import shutil
 import time
 
 import navigator_expert.driver as drv
-from navigator_expert.driver.scanning_templates import (
+from navigator_expert.driver.templates.files import (
     TEMPLATE_BASE,
     TEMPLATE_XML,
     TEMPLATE_LRP,
@@ -185,7 +185,7 @@ def read_scan_field(ctx: Context) -> None:
     tile_positions = template_data.get("acquisition_positions", {})
 
     if not tile_positions and template_data.get("geometries"):
-        from navigator_expert.driver.scanning_template_parsers import (
+        from navigator_expert.driver.templates.parsers import (
             _tile_size_from_image_size_str,
         )
         settings = drv.get_job_settings(client, cfg.acquisition_job)

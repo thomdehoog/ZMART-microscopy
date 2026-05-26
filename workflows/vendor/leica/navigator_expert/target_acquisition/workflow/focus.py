@@ -18,7 +18,7 @@ import numpy as np
 
 import navigator_expert.driver as drv
 from navigator_expert.driver.commands import acquire as drv_acquire
-from navigator_expert.driver.scanning_templates import (
+from navigator_expert.driver.templates.files import (
     TEMPLATE_BASE,
     TEMPLATE_XML,
 )
