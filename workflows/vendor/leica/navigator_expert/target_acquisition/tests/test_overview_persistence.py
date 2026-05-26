@@ -532,8 +532,8 @@ class TestAnalysisImageSourceSingleTrace:
     # identifier in active code. The set is intentionally tiny -- if
     # it grows, the cleanup is incomplete.
     ALLOWLIST = frozenset({
-        "workflow/visualize.py",                       # back-compat read
-        "workflow/test/test_overview_persistence.py",  # this test file
+        "target_acquisition/workflow/visualize.py",              # back-compat read
+        "target_acquisition/tests/test_overview_persistence.py", # this test file
     })
 
     _TARGET = "analysis_image_source"
