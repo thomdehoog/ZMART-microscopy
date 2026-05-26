@@ -43,18 +43,15 @@ class Config:
     # rendered -- they're once-per-run setup figures.
     visualize: bool = True
 
-    # Simulation mode (Plan 2): when True, after each acquire_and_save
+    # Simulation mode: when True, after each acquire_and_save
     # the saved canonical .ome.tiff's pixels are overwritten with mock
     # content (matched shape/dtype) -- gated by the per-frame
     # SystemTypeName=="SIMULATOR" allowlist (see pipeline/_hijack.py).
     # mock_image_source names the provider, e.g. "skimage_human_mitosis".
     #
-    # This is the single dry-run mechanism. The pre-Plan-2
-    # cfg.analysis_image_source knob (which used to branch the
-    # engine's image read between "acquired" and a hardcoded
-    # skimage source) was removed by the Plan 2 §6 / D1 cleanup --
-    # the engine now always reads from image_path, and the hijack
-    # is what makes that file contain mock content for a dry run.
+    # This is the single dry-run mechanism. The engine always reads
+    # from image_path; the hijack is what makes that file contain mock
+    # content for a dry run.
     simulate: bool = False
     mock_image_source: str | None = None
 

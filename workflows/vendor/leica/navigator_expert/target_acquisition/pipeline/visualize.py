@@ -454,11 +454,9 @@ def display_tile(
     from IPython.display import display
 
     rid, row, col = event.tile_id
-    # Plan 2: the hijack is the single dry-run mechanism. `simulated`
-    # is the only signal -- True when the saved file's pixels were
-    # mock-overwritten, False otherwise. The pre-Plan-2 engine-side
-    # mock branch (which would have set this via analysis_image_source)
-    # is gone.
+    # The hijack is the single dry-run mechanism. `simulated` is the
+    # only signal -- True when the saved file's pixels were
+    # mock-overwritten, False otherwise.
     is_mock = event.simulated
     prefix = "(mock) " if is_mock else ""
 
@@ -1422,12 +1420,9 @@ def plot_overview_tiles(
         tile_key = _normalize_tile_key(tile_id)
         labels = picked_by_tile.get(tile_key, [])
         n_cells = int(masks.max())
-        # Plan 2: `simulated` is the single dry-run signal. The
-        # load-boundary back-compat for pre-Plan-2 NPZs lives in
-        # _load_tile_npz, which derives `simulated` from the old
-        # `analysis_image_source` key when present -- so by the time
-        # we're here, `simulated` is authoritative regardless of NPZ
-        # vintage.
+        # `simulated` is the single dry-run signal. _load_tile_npz
+        # handles older NPZs, so by the time we are here this flag is
+        # authoritative regardless of NPZ vintage.
         is_mock = simulated
 
         fig, axes = plt.subplots(
@@ -1614,13 +1609,10 @@ class TileNpz(NamedTuple):
     ("Position N"); None for a pre-`position` NPZ. A NamedTuple so the
     field can be added without disturbing index-access callers.
 
-    The dropped ``source`` field used to echo the engine's
-    ``analysis_image_source`` input. Removed when the dual-mock-
-    mechanism was collapsed into the hijack (Plan 2 §6 / D1);
-    ``simulated`` is now the only dry-run signal here. Pre-Plan-2
-    NPZs without ``simulated`` are handled by ``_load_tile_npz``'s
-    load-boundary back-compat -- by the time TileNpz is built,
-    ``simulated`` is authoritative regardless of NPZ vintage."""
+    ``simulated`` is the only dry-run signal here. Older NPZs without
+    ``simulated`` are handled by ``_load_tile_npz``'s load-boundary
+    back-compat -- by the time TileNpz is built, ``simulated`` is
+    authoritative regardless of NPZ vintage."""
     image_2d: np.ndarray
     masks: np.ndarray
     tile_id: tuple
@@ -1631,18 +1623,11 @@ class TileNpz(NamedTuple):
 def _load_tile_npz(path: Path):
     """Load a tile analysis npz. Returns a TileNpz or None.
 
-    Back-compat seam (the only one for ``analysis_image_source`` in
-    the active codebase): post-Plan-2 NPZs carry a ``simulated``
-    boolean -- read it directly. Pre-Plan-2 NPZs carry an
-    ``analysis_image_source`` string but no ``simulated`` key --
-    derive ``simulated`` from the legacy field's value
-    (anything other than ``"acquired"`` means a mock run).
-
-    DO NOT extend this branch elsewhere. The pinned single-trace
-    test (``test_overview_persistence.TestAnalysisImageSourceSingleTrace``)
-    enforces that this is the only site that mentions
-    ``analysis_image_source``. New consumers must read
-    ``simulated`` directly.
+    Current NPZs carry a ``simulated`` boolean and this loader reads it
+    directly. Older NPZs may carry ``analysis_image_source`` without a
+    ``simulated`` key; in that case, anything other than ``"acquired"``
+    is treated as a mock run. New consumers should read ``simulated``
+    directly.
     """
     try:
         data = np.load(path, allow_pickle=True)
@@ -1655,7 +1640,7 @@ def _load_tile_npz(path: Path):
         if "simulated" in data.files:
             simulated = bool(data["simulated"])
         elif "analysis_image_source" in data.files:
-            # Pre-Plan-2 NPZ: derive simulated from the dropped field.
+            # Older NPZ: derive simulated from the dropped field.
             simulated = str(data["analysis_image_source"]) != "acquired"
         else:
             simulated = False
@@ -1784,7 +1769,7 @@ def _centroid_crop_at_target_fov(
             image_2d,
             centroid_col_row_px=pick.centroid_col_row_px,
             # Scalar pixel size (col-axis) -- rest of the pipeline
-            # does the same; see plan §"Pixel-size model".
+            # does the same.
             source_pixel_size_um=float(pick.source_pixel_size_um[0]),
             target_shape_px=(
                 int(target_img.shape[0]), int(target_img.shape[1]),

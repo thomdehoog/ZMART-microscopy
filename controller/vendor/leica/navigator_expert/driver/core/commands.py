@@ -18,6 +18,10 @@ The binding pattern is identical across all commands — no exceptions::
     error_check_fn = lambda: profile.error_check_fn(client)
     confirm_fn    = lambda: profile.confirm_fn(client, ...)
 
+Numeric command tuning comes from ``profiles.py``. Wrapper keyword
+arguments are explicit overrides for tests and unusual hardware runs;
+``None`` means "use the profile".
+
 Import restrictions: only ``dispatch``, ``profiles``, ``errors``, ``limits``,
 ``readers``, ``confirmations``, ``prechecks``, and ``utils``. The ``prechecks`` import
 is used in ``_dispatch`` for the ``pre_check_timeout`` override.
@@ -58,6 +62,11 @@ from . import readers as _readers
 from .utils import _hw_get, parse_format, _make_timing
 
 log = logging.getLogger(__name__)
+
+
+def _profile_value(profile, name, override=None):
+    """Return an explicit override or the command profile value."""
+    return override if override is not None else getattr(profile, name)
 
 
 # =============================================================================
@@ -132,6 +141,7 @@ def _dispatch(client, api_obj, description, profile, *,
                     if profile.correct_fn else None,
         max_retries=max_retries if max_retries is not None else profile.max_retries,
         max_confirm_attempts=max_confirm_attempts if max_confirm_attempts is not None else profile.max_confirm_attempts,
+        refire_on_unconfirmed=profile.refire_on_unconfirmed,
         retry_backoff=retry_backoff if retry_backoff is not None else profile.retry_backoff,
         retry_escalate=retry_escalate if retry_escalate is not None else profile.retry_escalate,
         skip_echo=profile.skip_echo,
@@ -146,7 +156,7 @@ def _dispatch(client, api_obj, description, profile, *,
 # =============================================================================
 
 def set_zoom(client, job_name, value, *,
-             max_retries=None, pre_check_timeout=None, tolerance=0.1):
+             max_retries=None, pre_check_timeout=None, tolerance=None):
     """Set zoom level for the specified job.
 
     Args:
@@ -166,8 +176,10 @@ def set_zoom(client, job_name, value, *,
     return _dispatch(
         client, api_obj, f"Zoom -> {value}", ZOOM,
         setup_fn=setup,
-        confirm_fn=partial(_confirm_zoom, job_name=job_name, target=value,
-                           tolerance=tolerance),
+        confirm_fn=partial(
+            _confirm_zoom, job_name=job_name, target=value,
+            tolerance=_profile_value(ZOOM, "confirm_tolerance", tolerance),
+        ),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
@@ -272,7 +284,7 @@ def set_sequential_mode(client, job_name, mode, *,
 
 def set_scan_field_rotation(client, job_name, angle, *,
                             max_retries=None, pre_check_timeout=None,
-                            tolerance=0.5):
+                            tolerance=None):
     """Set scan field rotation angle (degrees) for the specified job."""
     api_obj = client.PyApiSetScanFieldRotationByJobName
 
@@ -283,8 +295,12 @@ def set_scan_field_rotation(client, job_name, angle, *,
     return _dispatch(
         client, api_obj, f"Rotation -> {angle}", SCAN_FIELD_ROTATION,
         setup_fn=setup,
-        confirm_fn=partial(_confirm_scan_field_rotation, job_name=job_name,
-                           target=angle, tolerance=tolerance),
+        confirm_fn=partial(
+            _confirm_scan_field_rotation, job_name=job_name,
+            target=angle,
+            tolerance=_profile_value(
+                SCAN_FIELD_ROTATION, "confirm_tolerance", tolerance),
+        ),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
@@ -392,7 +408,7 @@ def set_objective(client, job_name, hw_info, slot_index=None, name=None,
 def set_z_stack_definition(client, job_name, begin_um=None, end_um=None,
                            old_begin_um=None, old_end_um=None, *,
                            max_retries=None, pre_check_timeout=None,
-                           tolerance=1.0):
+                           tolerance=None):
     """Set z-stack begin/end positions (micrometers).
 
     Note: confirm_fn is provided but LAS X may recalculate z-stack
@@ -430,16 +446,19 @@ def set_z_stack_definition(client, job_name, begin_um=None, end_um=None,
         f"Z-stack def: begin={begin_um}, end={end_um}",
         Z_STACK_DEFINITION,
         setup_fn=setup,
-        confirm_fn=partial(_confirm_z_stack_definition, job_name=job_name,
-                           begin_um=begin_um, end_um=end_um,
-                           tolerance=tolerance),
+        confirm_fn=partial(
+            _confirm_z_stack_definition, job_name=job_name,
+            begin_um=begin_um, end_um=end_um,
+            tolerance=_profile_value(
+                Z_STACK_DEFINITION, "confirm_tolerance", tolerance),
+        ),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
 
 def set_z_stack_step_size(client, job_name, step_size_um, *,
                           max_retries=None, pre_check_timeout=None,
-                          tolerance=0.5):
+                          tolerance=None):
     """Set z-stack step size (micrometers)."""
     api_obj = client.PyApiCommandSetZStackStepSizeByJobName
 
@@ -451,15 +470,19 @@ def set_z_stack_step_size(client, job_name, step_size_um, *,
         client, api_obj, f"Z-stack step -> {step_size_um} um",
         Z_STACK_STEP_SIZE,
         setup_fn=setup,
-        confirm_fn=partial(_confirm_z_stack_step_size, job_name=job_name,
-                           target_um=step_size_um, tolerance=tolerance),
+        confirm_fn=partial(
+            _confirm_z_stack_step_size, job_name=job_name,
+            target_um=step_size_um,
+            tolerance=_profile_value(
+                Z_STACK_STEP_SIZE, "confirm_tolerance", tolerance),
+        ),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
 
 def set_z_stack_size(client, job_name, size_um, *,
                      max_retries=None, pre_check_timeout=None,
-                     tolerance=1.5):
+                     tolerance=None):
     """Set z-stack total size (micrometers).
 
     Note: LAS X may recalculate z-stack geometry when size is changed.
@@ -474,8 +497,12 @@ def set_z_stack_size(client, job_name, size_um, *,
     return _dispatch(
         client, api_obj, f"Z-stack size -> {size_um} um", Z_STACK_SIZE,
         setup_fn=setup,
-        confirm_fn=partial(_confirm_z_stack_size, job_name=job_name,
-                           target_um=size_um, tolerance=tolerance),
+        confirm_fn=partial(
+            _confirm_z_stack_size, job_name=job_name,
+            target_um=size_um,
+            tolerance=_profile_value(
+                Z_STACK_SIZE, "confirm_tolerance", tolerance),
+        ),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
@@ -570,7 +597,7 @@ def set_line_average(client, job_name, setting_index, value, *,
 
 def set_pinhole_airy(client, job_name, setting_index, value, *,
                      max_retries=None, pre_check_timeout=None,
-                     tolerance=0.05):
+                     tolerance=None):
     """Set pinhole size in Airy units for a specific setting index."""
     api_obj = client.PyApiSetPinholeAUByJobName
 
@@ -584,9 +611,12 @@ def set_pinhole_airy(client, job_name, setting_index, value, *,
         f"Setting[{setting_index}].PinholeAiry -> {value}",
         PINHOLE_AIRY,
         setup_fn=setup,
-        confirm_fn=partial(_confirm_pinhole_airy, job_name=job_name,
-                           si=setting_index, target=value,
-                           tolerance=tolerance),
+        confirm_fn=partial(
+            _confirm_pinhole_airy, job_name=job_name,
+            si=setting_index, target=value,
+            tolerance=_profile_value(
+                PINHOLE_AIRY, "confirm_tolerance", tolerance),
+        ),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
@@ -597,7 +627,7 @@ def set_pinhole_airy(client, job_name, setting_index, value, *,
 
 def set_detector_gain(client, job_name, setting_index, beam_route, value, *,
                       max_retries=None, pre_check_timeout=None,
-                      tolerance=1.0):
+                      tolerance=None):
     """Set detector gain for a specific detector identified by beam route."""
     api_obj = client.PyApiSetDetectorGainByJobName
 
@@ -612,9 +642,12 @@ def set_detector_gain(client, job_name, setting_index, beam_route, value, *,
         f"Setting[{setting_index}].Detector[{beam_route}].Gain -> {value}",
         DETECTOR_GAIN,
         setup_fn=setup,
-        confirm_fn=partial(_confirm_detector_gain, job_name=job_name,
-                           si=setting_index, beam_route=beam_route,
-                           target=value, tolerance=tolerance),
+        confirm_fn=partial(
+            _confirm_detector_gain, job_name=job_name,
+            si=setting_index, beam_route=beam_route, target=value,
+            tolerance=_profile_value(DETECTOR_GAIN, "confirm_tolerance",
+                                     tolerance),
+        ),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
@@ -626,7 +659,7 @@ def set_detector_gain(client, job_name, setting_index, beam_route, value, *,
 def set_laser_intensity(client, job_name, setting_index, beam_route,
                         line_index, value, *,
                         max_retries=None, pre_check_timeout=None,
-                        tolerance=0.005):
+                        tolerance=None):
     """Set laser intensity (0.0-1.0) for a specific laser line."""
     api_obj = client.PyApiSetLaserIntensityByJobName
 
@@ -643,10 +676,13 @@ def set_laser_intensity(client, job_name, setting_index, beam_route,
         f"Setting[{setting_index}].Laser[{beam_route}][{line_index}] -> {value}",
         LASER_INTENSITY,
         setup_fn=setup,
-        confirm_fn=partial(_confirm_laser_intensity, job_name=job_name,
-                           si=setting_index, beam_route=beam_route,
-                           line_index=line_index, target=value,
-                           tolerance=tolerance),
+        confirm_fn=partial(
+            _confirm_laser_intensity, job_name=job_name,
+            si=setting_index, beam_route=beam_route,
+            line_index=line_index, target=value,
+            tolerance=_profile_value(
+                LASER_INTENSITY, "confirm_tolerance", tolerance),
+        ),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
@@ -712,7 +748,7 @@ def set_filter_wheel_slot(client, job_name, setting_index, beam_route,
 def set_filter_wheel_spectrum(client, job_name, setting_index, beam_route,
                               filter_wheel_type, position, *,
                               max_retries=None, pre_check_timeout=None,
-                              tolerance=1):
+                              tolerance=None):
     """Set filter wheel spectrum position (nm)."""
     api_obj = client.PyApiSetFilterWheelSpectrumPositionByJobName
 
@@ -733,10 +769,14 @@ def set_filter_wheel_spectrum(client, job_name, setting_index, beam_route,
         f"FilterWheel[{beam_route}] spectrum -> {position}",
         FILTER_WHEEL_SPECTRUM,
         setup_fn=setup,
-        confirm_fn=partial(_confirm_filter_wheel_spectrum,
-                           job_name=job_name, si=setting_index,
-                           beam_route=beam_route, fw_type=filter_wheel_type,
-                           target=position, tolerance=tolerance),
+        confirm_fn=partial(
+            _confirm_filter_wheel_spectrum,
+            job_name=job_name, si=setting_index,
+            beam_route=beam_route, fw_type=filter_wheel_type,
+            target=position,
+            tolerance=_profile_value(
+                FILTER_WHEEL_SPECTRUM, "confirm_tolerance", tolerance),
+        ),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
@@ -747,7 +787,7 @@ def set_filter_wheel_spectrum(client, job_name, setting_index, beam_route,
 
 def move_xy_stage(client, x, y, unit="um", *,
                   max_retries=None, pre_check_timeout=None,
-                  tolerance=20.0):
+                  tolerance=None):
     """Move XY stage to absolute position.
 
     Args:
@@ -804,8 +844,10 @@ def move_xy_stage(client, x, y, unit="um", *,
     r = _dispatch(
         client, api_obj, f"MoveXY -> ({x}, {y}) {unit}", MOVE_XY,
         setup_fn=setup,
-        confirm_fn=partial(confirm_move_xy, target_x_um=x_um,
-                           target_y_um=y_um, tolerance=tolerance),
+        confirm_fn=partial(
+            confirm_move_xy, target_x_um=x_um, target_y_um=y_um,
+            tolerance=_profile_value(MOVE_XY, "confirm_tolerance", tolerance),
+        ),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
@@ -917,7 +959,7 @@ def move_galvo_to_pixel(client, px, py, *,
 
 def move_z(client, job_name, z, unit="um", z_mode="galvo", *,
            max_retries=None, pre_check_timeout=None,
-           tolerance=1.0):
+           tolerance=None):
     """Move Z drive to an absolute position (galvo or zwide).
 
     Args:
@@ -981,9 +1023,10 @@ def move_z(client, job_name, z, unit="um", z_mode="galvo", *,
     return _dispatch(
         client, api_obj, f"Z -> {z} {unit} ({z_mode})", MOVE_Z,
         setup_fn=setup,
-        confirm_fn=partial(confirm_move_z, job_name=job_name,
-                           z_mode=z_mode, target_um=z_um,
-                           tolerance=tolerance),
+        confirm_fn=partial(
+            confirm_move_z, job_name=job_name, z_mode=z_mode, target_um=z_um,
+            tolerance=_profile_value(MOVE_Z, "confirm_tolerance", tolerance),
+        ),
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
@@ -992,16 +1035,15 @@ def move_z(client, job_name, z, unit="um", z_mode="galvo", *,
 # Acquisition
 # =============================================================================
 
-def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
-            heartbeat_interval=30.0, start_timeout=15.0,
-            max_start_retries=3, pre_check_timeout=None):
+def acquire(client, job_name, poll_interval=None, poll_timeout=None,
+            heartbeat_interval=None, start_timeout=None,
+            pre_check_timeout=None):
     """Trigger acquisition and block until scan completes.
 
-    Routes through the backbone for consistent idle-wait, retry, and
-    timing instrumentation. ``confirm_acquire`` is a pure status-polling
-    function; if the scan doesn't start within *start_timeout*, it
-    returns failure and the backbone re-fires (up to *max_start_retries*
-    times via ``max_confirm_attempts``).
+    Routes through the backbone for consistent idle-wait and timing
+    instrumentation. Acquisition commands are deliberately fired once.
+    If LAS X never reports scanning before ``start_timeout``, the result
+    is a failure; the driver does not send a second acquire command.
 
     Args:
         client: LAS X API client.
@@ -1011,9 +1053,7 @@ def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
             for no timeout (wait indefinitely).
         heartbeat_interval: Log interval during long scans (seconds).
         start_timeout: Seconds to wait for scan to start before
-            the backbone re-fires.
-        max_start_retries: How many times the backbone may re-fire
-            if the scan doesn't start. Maps to ``max_confirm_attempts``.
+            reporting failure.
 
     Returns:
         Result dict with timing in timing['total_s'].
@@ -1026,28 +1066,33 @@ def acquire(client, job_name, poll_interval=0.1, poll_timeout=None,
     return _dispatch(
         client, api_obj, f"Acquire '{job_name}'", ACQUIRE,
         setup_fn=setup,
-        confirm_fn=partial(confirm_acquire,
-                           start_timeout=start_timeout,
-                           heartbeat_interval=heartbeat_interval,
-                           timeout=poll_timeout,
-                           poll_interval=poll_interval),
-        max_confirm_attempts=max_start_retries,
+        confirm_fn=partial(
+            confirm_acquire,
+            start_timeout=_profile_value(ACQUIRE, "start_timeout",
+                                         start_timeout),
+            heartbeat_interval=_profile_value(ACQUIRE, "heartbeat_interval",
+                                              heartbeat_interval),
+            timeout=_profile_value(ACQUIRE, "poll_timeout", poll_timeout),
+            poll_interval=_profile_value(ACQUIRE, "poll_interval",
+                                         poll_interval),
+        ),
         pre_check_timeout=pre_check_timeout,
     )
 
 
-def acquire_single_image(client, poll_interval=0.1, poll_timeout=None,
-                         heartbeat_interval=30.0, start_timeout=15.0,
-                         max_start_retries=3, pre_check_timeout=None):
+def acquire_single_image(client, poll_interval=None, poll_timeout=None,
+                         heartbeat_interval=None, start_timeout=None,
+                         pre_check_timeout=None):
     """Acquire a single image using the currently selected job settings.
 
     Unlike ``acquire``, this does not take a job name — it fires
     ``PyApiAcquireSingleImage`` which captures with whatever settings
     are currently active in LAS X.
 
-    Routes through the backbone for consistent idle-wait, retry, and
-    timing instrumentation. ``confirm_acquire`` is a pure status-polling
-    function; the backbone owns re-firing via ``max_confirm_attempts``.
+    Routes through the backbone for consistent idle-wait and timing
+    instrumentation. Single-image acquisition is deliberately fired
+    once; stale or missing completion readback returns failure rather
+    than sending another acquire command.
 
     Args:
         client: LAS X API client.
@@ -1056,9 +1101,7 @@ def acquire_single_image(client, poll_interval=0.1, poll_timeout=None,
             for no timeout (wait indefinitely).
         heartbeat_interval: Log interval during long scans (seconds).
         start_timeout: Seconds to wait for scan to start before
-            the backbone re-fires.
-        max_start_retries: How many times the backbone may re-fire
-            if the scan doesn't start. Maps to ``max_confirm_attempts``.
+            reporting failure.
 
     Returns:
         Result dict with timing in timing['total_s'].
@@ -1068,12 +1111,18 @@ def acquire_single_image(client, poll_interval=0.1, poll_timeout=None,
     return _dispatch(
         client, api_obj, "AcquireSingleImage", ACQUIRE_SINGLE_IMAGE,
         setup_fn=None,
-        confirm_fn=partial(confirm_acquire,
-                           start_timeout=start_timeout,
-                           heartbeat_interval=heartbeat_interval,
-                           timeout=poll_timeout,
-                           poll_interval=poll_interval),
-        max_confirm_attempts=max_start_retries,
+        confirm_fn=partial(
+            confirm_acquire,
+            start_timeout=_profile_value(
+                ACQUIRE_SINGLE_IMAGE, "start_timeout", start_timeout),
+            heartbeat_interval=_profile_value(
+                ACQUIRE_SINGLE_IMAGE, "heartbeat_interval",
+                heartbeat_interval),
+            timeout=_profile_value(
+                ACQUIRE_SINGLE_IMAGE, "poll_timeout", poll_timeout),
+            poll_interval=_profile_value(
+                ACQUIRE_SINGLE_IMAGE, "poll_interval", poll_interval),
+        ),
         pre_check_timeout=pre_check_timeout,
     )
 
@@ -1082,7 +1131,7 @@ def acquire_single_image(client, poll_interval=0.1, poll_timeout=None,
 # Job selection
 # =============================================================================
 
-def select_job(client, job_name, poll_timeout=10.0, poll_interval=0.01):
+def select_job(client, job_name, poll_timeout=None, poll_interval=None):
     """Select a job by name.
 
     Routes through the backbone. No pre_check_fn (job switching doesn't
@@ -1122,7 +1171,10 @@ def select_job(client, job_name, poll_timeout=10.0, poll_interval=0.01):
     return _dispatch(
         client, api_obj, f"SelectJob '{job_name}'", SELECT_JOB,
         setup_fn=setup,
-        confirm_fn=partial(confirm_select_job, job_name=job_name,
-                           timeout=poll_timeout,
-                           poll_interval=poll_interval),
+        confirm_fn=partial(
+            confirm_select_job, job_name=job_name,
+            timeout=_profile_value(SELECT_JOB, "poll_timeout", poll_timeout),
+            poll_interval=_profile_value(
+                SELECT_JOB, "poll_interval", poll_interval),
+        ),
     )

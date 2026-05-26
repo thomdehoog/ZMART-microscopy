@@ -91,7 +91,7 @@ class OverviewResult:
     n_tiles_submitted: int
     completed: bool
 
-    # Plan 2 -- stored counters (not derived). A tile can now be
+    # Stored counters, not derived. A tile can be
     # acquired-but-not-hijacked-not-submitted, so the prior derived
     # n_tiles_acquired = submitted - acquire_failed breaks. These all
     # default to 0 / [] for back-compat; run_overview /
@@ -134,11 +134,9 @@ class TileEvent:
     # Flat tile index ("Position N") -- the overview-scan file index p
     # (= naming_p). None only on a pre-`position` reload.
     position: int | None = None
-    # Plan 2 -- True when the saved .ome.tiff's pixels were hijacked
-    # with mock content (cfg.simulate). The "(mock)" figure prefix
-    # reads this. Single source of truth for the dry-run mode; the
-    # earlier `analysis_image_source` field was removed when the
-    # engine-side mock branch was deleted (Plan 2 §6 / D1).
+    # True when the saved .ome.tiff's pixels were hijacked with mock
+    # content (cfg.simulate). This is the single source of truth for
+    # dry-run mode.
     simulated: bool = False
     mock_image_source: str | None = None
 
@@ -282,7 +280,7 @@ def run_overview(
     n_results = 0
     completed = False
 
-    # Plan 2 simulation mode. provider is None for a real run; set to a
+    # Simulation mode. provider is None for a real run; set to a
     # mock-image callable when cfg.simulate, with the per-frame
     # NonSimulatorFrameError allowlist enforced by hijack_frame().
     provider = get_provider(cfg.mock_image_source) if cfg.simulate else None
@@ -686,10 +684,10 @@ def _write_overview_meta(
     after a kernel restart (no NPZ for planned-but-not-submitted or
     acquire-failed-or-hijack-failed tiles), so they live here.
 
-    Plan 2: simulated / mock_image_source / n_tiles_hijacked /
-    hijack_failures land in meta so a reload knows the run was a
-    simulation hijack (the canonical .ome.tiff carries mock pixels but
-    the OME envelope still says SIMULATOR).
+    simulated / mock_image_source / n_tiles_hijacked / hijack_failures
+    land in meta so a reload knows the run was a simulation hijack (the
+    canonical .ome.tiff carries mock pixels but the OME envelope still
+    says SIMULATOR).
 
     Ensures analysis_dir exists in case zero tiles succeeded.
     """
@@ -865,13 +863,10 @@ def _save_single_tile_analysis(
             # Flat tile index ("Position N"). naming_p is guaranteed
             # non-None here -- the None check above returns False first.
             "position": np.int32(int(naming_p)),
-            # Plan 2 -- True when the saved .ome.tiff's pixels were
-            # hijacked with mock content. mock_image_source is the
-            # provider name or "" when not simulating. _load_tile_npz
-            # reads `simulated` directly; pre-Plan-2 NPZs lacking the
-            # key are handled by a load-boundary back-compat branch
-            # that derives `simulated` from the dropped
-            # `analysis_image_source` key.
+            # True when the saved .ome.tiff's pixels were hijacked
+            # with mock content. mock_image_source is the provider name
+            # or "" when not simulating. _load_tile_npz handles older
+            # NPZ files that lack the `simulated` key.
             "simulated": np.bool_(bool(inp.get("simulated", False))),
             "mock_image_source": np.array(
                 inp.get("mock_image_source") or ""

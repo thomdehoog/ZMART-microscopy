@@ -1,7 +1,8 @@
 """
 Unit tests for scanning_template_parsers (no LAS X connection needed).
 ======================================================================
-Run with: python -m pytest test_scanning_template_parsers_unit.py -v
+Run with:
+    python -m pytest controller/vendor/leica/navigator_expert/tests/unit/test_template_parsers.py -v
 """
 
 import sys
@@ -10,17 +11,15 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from navigator_expert.driver.templates.parsers import (
     _to_float, _to_int,
     _parse_size_string, _tile_size_from_image_size_str,
-    _get_job_names,
     _get_raw_tiles, parse_acquisition_positions,
     parse_base_grid, parse_focus_points,
     parse_rgn_geometries, parse_rgn_tile_colors,
     parse_matrix_settings,
-    parse_lrp, diff_lrp,
     UNASSIGNED_JOB,
 )
 
@@ -72,28 +71,6 @@ SAMPLE_RGN = """\
   </FocusMap>
 </StageOverviewRegions>
 """
-
-SAMPLE_LRP = """\
-<?xml version="1.0" encoding="utf-8"?>
-<LDM_Block_Sequence BlockName="MySequence">
-  <LDM_Block_Sequence_Element_List>
-    <LDM_Block_Sequence_Element BlockID="b1" />
-  </LDM_Block_Sequence_Element_List>
-  <LDM_Block_Sequence_Block_List>
-    <LDM_Block_Sequence_Block BlockID="b1" BlockType="1">
-      <LDM_Block_Sequential BlockName="AF Job">
-        <LDM_Block_Sequential_Master>
-          <ATLConfocalSettingDefinition LineAverage="2" StackCalculationMode="1" StackCalculationModeName="Constant step size" />
-        </LDM_Block_Sequential_Master>
-        <LDM_Block_Sequential_List>
-          <ATLConfocalSettingDefinition LineAverage="2" />
-        </LDM_Block_Sequential_List>
-      </LDM_Block_Sequential>
-    </LDM_Block_Sequence_Block>
-  </LDM_Block_Sequence_Block_List>
-</LDM_Block_Sequence>
-"""
-
 
 # ── Type conversion helpers ─────────────────────────────────────────────
 
@@ -156,16 +133,6 @@ class TestTileSizeFromImageSizeStr:
 
     def test_invalid(self):
         assert _tile_size_from_image_size_str("garbage") is None
-
-
-# ── Job names from LRP ──────────────────────────────────────────────────
-
-class TestGetJobNames:
-    def test_extracts_job_names(self, tmp_path):
-        lrp = tmp_path / "test.lrp"
-        lrp.write_text(SAMPLE_LRP, encoding="utf-8")
-        names = _get_job_names(lrp)
-        assert names == ["AF Job"]
 
 
 # ── Tile positions from XML ─────────────────────────────────────────────
@@ -240,49 +207,6 @@ class TestParseFocusPoints:
         focus, autofocus = parse_focus_points(tmp_path / "nope.rgn")
         assert focus == []
         assert autofocus == []
-
-
-# ── LRP parser ──────────────────────────────────────────────────────────
-
-class TestParseLrp:
-    def test_parses_job(self, tmp_path):
-        lrp = tmp_path / "test.lrp"
-        lrp.write_text(SAMPLE_LRP, encoding="utf-8")
-        parsed = parse_lrp(lrp)
-        assert parsed["sequence_name"] == "MySequence"
-        assert "AF Job" in parsed["jobs"]
-        job = parsed["jobs"]["AF Job"]
-        assert "Master" in job
-        assert job["Master"]["attrs"]["LineAverage"] == "2"
-
-    def test_sequence_elements(self, tmp_path):
-        lrp = tmp_path / "test.lrp"
-        lrp.write_text(SAMPLE_LRP, encoding="utf-8")
-        parsed = parse_lrp(lrp)
-        assert len(parsed["sequence_elements"]) == 1
-        assert parsed["sequence_elements"][0]["BlockID"] == "b1"
-
-
-# ── LRP diff ────────────────────────────────────────────────────────────
-
-class TestDiffLrp:
-    def test_identical(self, tmp_path):
-        lrp = tmp_path / "test.lrp"
-        lrp.write_text(SAMPLE_LRP, encoding="utf-8")
-        parsed = parse_lrp(lrp)
-        diffs = diff_lrp(parsed, parsed)
-        assert diffs == []
-
-    def test_detects_change(self, tmp_path):
-        lrp = tmp_path / "test.lrp"
-        lrp.write_text(SAMPLE_LRP, encoding="utf-8")
-        a = parse_lrp(lrp)
-        b = parse_lrp(lrp)
-        b["jobs"]["AF Job"]["Master"]["attrs"]["LineAverage"] = "4"
-        diffs = diff_lrp(a, b)
-        assert len(diffs) >= 1
-        paths = [d["path"] for d in diffs]
-        assert any("LineAverage" in p for p in paths)
 
 
 # =============================================================================
@@ -362,9 +286,6 @@ SAMPLE_XML_MATRIX = """\
     </DistanceData>
     <CarrierData IsEnabled="true" Description1="Frost slide" Description2=""
                  RotationAngle="0" SlideTypeSelected="true" SelectedGlassTypeIndex="0" />
-    <TimeLapseData IsEnabled="true" RepeatLoops="5"
-                   RepeatTimeDays="0" RepeatTimeHours="0" RepeatTimeMinutes="5"
-                   RunTime="00:25:00" />
     <AutofocusData ZUseMode="z-galvo" AFForecastMode="1" />
     <ConfocalData FieldRotation="45.0" />
   </MatrixData>
@@ -477,12 +398,6 @@ class TestParseMatrixSettings:
         ms = parse_matrix_settings(root)
         assert ms["carrier"]["type"] == "Slide"
 
-    def test_time_lapse(self):
-        root = ET.fromstring(SAMPLE_XML_MATRIX)
-        ms = parse_matrix_settings(root)
-        assert ms["timeLapse"]["repeatLoops"] == 5
-        assert ms["timeLapse"]["repeatTimeMinutes"] == 5
-
     def test_autofocus(self):
         root = ET.fromstring(SAMPLE_XML_MATRIX)
         ms = parse_matrix_settings(root)
@@ -505,7 +420,7 @@ class TestParseMatrixSettings:
 # Real workflow file tests
 # =============================================================================
 
-TEST_DATA = Path(__file__).resolve().parent / "test_data" / "templates"
+TEST_DATA = Path(__file__).resolve().parents[1] / "fixtures" / "templates"
 
 
 @pytest.mark.skipif(not TEST_DATA.is_dir(), reason="test data not found")

@@ -1,4 +1,4 @@
-"""Per-frame simulation-mode pixel hijack (Plan 2 §2 + §4c).
+"""Per-frame simulation-mode pixel hijack.
 
 After ``acquire_and_save`` returns a canonical ``.ome.tiff``, the
 workflow calls ``hijack_frame(...)`` to overwrite that file's pixels
@@ -7,7 +7,7 @@ the saved companion ``.ome.xml``'s ``SystemTypeName`` -- read from the
 **very file pair about to be overwritten**, using that file pair's
 own ground-truth metadata.
 
-Safety properties (Plan 2 §2):
+Safety properties:
 
 - The allowlist is a **positive** one: overwrite only when
   ``SystemTypeName`` is exactly ``"SIMULATOR"``. Any other value, a
@@ -24,7 +24,7 @@ Safety properties (Plan 2 §2):
   exported standalone overwrite function** -- ``hijack_frame`` is the
   only entry point. Anyone overwriting must do so via the check.
 
-OME-rewrite recipe (Plan 2 §4c):
+OME-rewrite recipe:
 
 1. Read the saved canonical TIFF and the embedded OME-XML description
    (TIFF tag 270) via the public ``tifffile`` API, in a ``with`` block
@@ -102,8 +102,8 @@ def _read_system_type(xml_path: Path) -> str | None:
     ``"Data - Image - Attachment - SystemTypeName"``.
 
     Returns ``None`` if the element is missing, the XML is unparseable,
-    or the file is unreadable. The §2 allowlist treats anything but
-    the exact value ``"SIMULATOR"`` (including ``None``) as
+    or the file is unreadable. The allowlist treats anything but the
+    exact value ``"SIMULATOR"`` (including ``None``) as
     not-a-simulator.
 
     This replaces an earlier regex implementation; the regex was
@@ -133,7 +133,7 @@ def hijack_frame(
     layout,
     provider: Callable,
 ) -> None:
-    """§2 allowlist + §4c overwrite, indivisible.
+    """Simulator allowlist + OME-preserving overwrite, indivisible.
 
     Parameters
     ----------
@@ -163,7 +163,7 @@ def hijack_frame(
         Per-tile -- caller records it in ``hijack_failures`` and
         continues.
     """
-    # ── §2: per-frame allowlist on the companion XML ──────────────────
+    # Per-frame allowlist on the companion XML.
     # Derive the companion XML path from the *canonical* naming -- do
     # NOT use the driver's _find_companion_xml (that resolves LAS X
     # source filenames, not canonical pipeline names).
@@ -172,7 +172,7 @@ def hijack_frame(
     # -- driver/acquisition/save.py calls _save_atomic(image, xml) which
     # copies both to .tmp + size-validates + os.replaces both before
     # acquire_and_save returns at line 190. By the time we get here the
-    # canonical-named XML is on disk. (Audited @ef4d2a2.) No retry
+    # canonical-named XML is on disk. No retry
     # needed; a missing-file read here would be a genuine bug, not a
     # race.
     xml_path = layout.metadata_dir(kind) / build_xml_name(result.naming)
@@ -185,7 +185,7 @@ def hijack_frame(
             f"LAS X simulator.)"
         )
 
-    # ── §4c: OME-preserving pixel overwrite ──────────────────────────
+    # OME-preserving pixel overwrite.
     saved = tifffile.imread(result.image_path)        # closes its own handle
     with tifffile.TiffFile(result.image_path) as tif:  # explicit -- no leak
         desc = tif.pages[0].description
@@ -200,7 +200,7 @@ def hijack_frame(
     # allowlist as it should.
     if saved.ndim != 2:
         raise RuntimeError(
-            f"multi-plane simulator hijack unsupported on this commit; "
+            f"multi-plane simulator hijack unsupported; "
             f"{result.image_path.name} has shape {saved.shape}. v3 jobs "
             f"are single-plane single-channel overview/target; extend "
             f"pipeline/_mockprovider.py for >2D content."
@@ -229,7 +229,7 @@ def hijack_frame(
         tifffile.imwrite(
             tmp_path, mock,
             description=desc,
-            ome=False,                       # essential -- see §4c
+            ome=False,                       # preserve existing OME XML
             photometric="minisblack",
         )
         # Tag-270 byte-equality is the load-bearing assertion: a

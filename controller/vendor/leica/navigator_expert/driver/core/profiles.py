@@ -6,6 +6,11 @@ pluggable callables and all retry/confirm settings in one place. Adding
 a new command means adding a profile and a command function. Tuning a
 command means editing its profile. Nothing else needs to change.
 
+Command wrappers may accept explicit overrides for tests and unusual
+hardware sessions, but their default tolerances, polling intervals, and
+retry ceilings live here. This keeps machine-sensitive tuning out of
+the wrapper logic.
+
 All four callable fields follow the same rule: ``callable(client) → result``.
 Extra parameters are pre-bound with ``partial`` at profile definition
 time. The command function always binds ``client`` via lambda — the same
@@ -74,6 +79,24 @@ class CommandProfile:
             None uses built-in idle correction. Stubbed for future use.
         max_retries: Transient error retries inside the fire block.
         max_confirm_attempts: Confirm wrapper re-attempt ceiling.
+        refire_on_unconfirmed: If True, an unconfirmed readback causes
+            the command to be sent again before the next confirmation
+            attempt. If False, the dispatcher retries readback only.
+            Leica setting commands normally re-fire because the API may
+            accept a command while LAS X later settles to a different
+            state, or an operator may change the setting manually.
+        confirm_timeout: Per-attempt readback confirmation timeout.
+            None lets the confirmation function use its own low-level
+            default.
+        confirm_tolerance: Numeric tolerance passed to target readback
+            confirmations. None means exact-match or function default.
+        poll_interval: Poll interval for command-specific long-running
+            confirmations such as acquire and select-job.
+        poll_timeout: Poll deadline for long-running confirmations.
+            None means the confirmation waits until LAS X completes.
+        start_timeout: Acquisition-start deadline before the acquire
+            confirmation treats the command as failed.
+        heartbeat_interval: Status-log cadence during long acquisitions.
         retry_backoff: Base delay in seconds between transient error retries.
             None for immediate retry (no delay).
         retry_escalate: If True, double the delay after each retry
@@ -101,7 +124,13 @@ class CommandProfile:
     correct_fn: callable = None
     max_retries: int = 3
     max_confirm_attempts: int = 3
+    refire_on_unconfirmed: bool = True
     confirm_timeout: float = None  # Per-attempt confirm timeout (seconds). None uses CONFIRM_TIMEOUT.
+    confirm_tolerance: float = None
+    poll_interval: float = None
+    poll_timeout: float = None
+    start_timeout: float = None
+    heartbeat_interval: float = None
     retry_backoff: float = None
     retry_escalate: bool = False
     skip_echo: bool = False
@@ -110,36 +139,56 @@ class CommandProfile:
     success_on_unconfirmed: bool = False
 
 
+def _leica_setting_profile(confirm_fn, **overrides):
+    """Profile for Leica setting updates with occasionally stale readback.
+
+    Setting commands get three 5-second readback windows. If a readback
+    window does not confirm the requested state, the command is sent
+    again before the next readback. If LAS X still reports another
+    state, the result is ``success=True, confirmed=False`` so the larger
+    acquisition workflow can continue while the logs show the mismatch.
+    """
+    return CommandProfile(
+        confirm_fn=confirm_fn,
+        max_confirm_attempts=3,
+        confirm_timeout=5.0,
+        success_on_unconfirmed=True,
+        **overrides,
+    )
+
+
 # =============================================================================
 # Job-level set commands
 # =============================================================================
 
-ZOOM = CommandProfile(
-    confirm_fn=_confirm_zoom,
+ZOOM = _leica_setting_profile(
+    _confirm_zoom,
+    confirm_tolerance=0.1,
 )
 
-SCAN_SPEED = CommandProfile(
-    confirm_fn=_confirm_scan_speed,
+SCAN_SPEED = _leica_setting_profile(
+    _confirm_scan_speed,
 )
 
-SCAN_RESONANT = CommandProfile(
-    confirm_fn=_confirm_scan_resonant,
+SCAN_RESONANT = _leica_setting_profile(
+    _confirm_scan_resonant,
 )
 
-SCAN_MODE = CommandProfile(
-    confirm_fn=_confirm_scan_mode,
+SCAN_MODE = _leica_setting_profile(
+    _confirm_scan_mode,
 )
 
-SEQUENTIAL_MODE = CommandProfile(
-    confirm_fn=_confirm_sequential_mode,
+SEQUENTIAL_MODE = _leica_setting_profile(
+    _confirm_sequential_mode,
 )
 
-SCAN_FIELD_ROTATION = CommandProfile(
-    confirm_fn=_confirm_scan_field_rotation,
+SCAN_FIELD_ROTATION = _leica_setting_profile(
+    _confirm_scan_field_rotation,
+    confirm_tolerance=0.5,
 )
 
-IMAGE_FORMAT = CommandProfile(
-    confirm_fn=_confirm_image_format,
+IMAGE_FORMAT = _leica_setting_profile(
+    _confirm_image_format,
 )
 
 OBJECTIVE = CommandProfile(
@@ -152,16 +201,19 @@ OBJECTIVE = CommandProfile(
 # Z-stack commands
 # =============================================================================
 
-Z_STACK_DEFINITION = CommandProfile(
-    confirm_fn=_confirm_z_stack_definition,
+Z_STACK_DEFINITION = _leica_setting_profile(
+    _confirm_z_stack_definition,
+    confirm_tolerance=1.0,
 )
 
-Z_STACK_STEP_SIZE = CommandProfile(
-    confirm_fn=_confirm_z_stack_step_size,
+Z_STACK_STEP_SIZE = _leica_setting_profile(
+    _confirm_z_stack_step_size,
+    confirm_tolerance=0.5,
 )
 
-Z_STACK_SIZE = CommandProfile(
-    confirm_fn=_confirm_z_stack_size,
+Z_STACK_SIZE = _leica_setting_profile(
+    _confirm_z_stack_size,
+    confirm_tolerance=1.5,
 )
 
 
@@ -169,20 +221,20 @@ Z_STACK_SIZE = CommandProfile(
 # Per-setting commands
 # =============================================================================
 
-FRAME_ACCUMULATION = CommandProfile(
-    confirm_fn=_confirm_frame_accumulation,
+FRAME_ACCUMULATION = _leica_setting_profile(
+    _confirm_frame_accumulation,
 )
 
-FRAME_AVERAGE = CommandProfile(
-    confirm_fn=_confirm_frame_average,
+FRAME_AVERAGE = _leica_setting_profile(
+    _confirm_frame_average,
 )
 
-LINE_ACCUMULATION = CommandProfile(
-    confirm_fn=_confirm_line_accumulation,
+LINE_ACCUMULATION = _leica_setting_profile(
+    _confirm_line_accumulation,
 )
 
-LINE_AVERAGE = CommandProfile(
-    confirm_fn=_confirm_line_average,
+LINE_AVERAGE = _leica_setting_profile(
+    _confirm_line_average,
 )
 
 
@@ -190,12 +242,14 @@ LINE_AVERAGE = CommandProfile(
 # Detector commands
 # =============================================================================
 
-DETECTOR_GAIN = CommandProfile(
-    confirm_fn=_confirm_detector_gain,
+DETECTOR_GAIN = _leica_setting_profile(
+    _confirm_detector_gain,
+    confirm_tolerance=1.0,
 )
 
-PINHOLE_AIRY = CommandProfile(
-    confirm_fn=_confirm_pinhole_airy,
+PINHOLE_AIRY = _leica_setting_profile(
+    _confirm_pinhole_airy,
+    confirm_tolerance=0.05,
 )
 
 
@@ -203,12 +257,13 @@ PINHOLE_AIRY = CommandProfile(
 # Laser commands
 # =============================================================================
 
-LASER_INTENSITY = CommandProfile(
-    confirm_fn=_confirm_laser_intensity,
+LASER_INTENSITY = _leica_setting_profile(
+    _confirm_laser_intensity,
+    confirm_tolerance=0.005,
 )
 
-LASER_SHUTTER = CommandProfile(
-    confirm_fn=_confirm_laser_shutter,
+LASER_SHUTTER = _leica_setting_profile(
+    _confirm_laser_shutter,
 )
 
 
@@ -216,12 +271,13 @@ LASER_SHUTTER = CommandProfile(
 # Filter wheel commands
 # =============================================================================
 
-FILTER_WHEEL_SLOT = CommandProfile(
-    confirm_fn=_confirm_filter_wheel_slot,
+FILTER_WHEEL_SLOT = _leica_setting_profile(
+    _confirm_filter_wheel_slot,
 )
 
-FILTER_WHEEL_SPECTRUM = CommandProfile(
-    confirm_fn=_confirm_filter_wheel_spectrum,
+FILTER_WHEEL_SPECTRUM = _leica_setting_profile(
+    _confirm_filter_wheel_spectrum,
+    confirm_tolerance=1.0,
 )
 
 
@@ -233,7 +289,9 @@ MOVE_XY = CommandProfile(
     confirm_fn=confirm_move_xy,
     error_check_fn=None,
     max_confirm_attempts=3,
+    refire_on_unconfirmed=False,
     confirm_timeout=15.0,
+    confirm_tolerance=20.0,
     fire_async=True,
     success_on_unconfirmed=True,
 )
@@ -241,6 +299,7 @@ MOVE_XY = CommandProfile(
 MOVE_Z = CommandProfile(
     confirm_fn=confirm_move_z,
     max_confirm_attempts=1,
+    confirm_tolerance=1.0,
 )
 
 
@@ -251,7 +310,12 @@ MOVE_Z = CommandProfile(
 ACQUIRE = CommandProfile(
     confirm_fn=confirm_acquire,
     error_check_fn=None,
-    max_confirm_attempts=3,
+    max_confirm_attempts=1,
+    refire_on_unconfirmed=False,
+    poll_interval=0.1,
+    poll_timeout=None,
+    start_timeout=15.0,
+    heartbeat_interval=30.0,
     skip_echo=True,
     fire_async=True,
 )
@@ -259,7 +323,12 @@ ACQUIRE = CommandProfile(
 ACQUIRE_SINGLE_IMAGE = CommandProfile(
     confirm_fn=confirm_acquire,
     error_check_fn=None,
-    max_confirm_attempts=3,
+    max_confirm_attempts=1,
+    refire_on_unconfirmed=False,
+    poll_interval=0.1,
+    poll_timeout=None,
+    start_timeout=15.0,
+    heartbeat_interval=30.0,
     skip_echo=True,
     fire_async=True,
 )
@@ -268,4 +337,6 @@ SELECT_JOB = CommandProfile(
     confirm_fn=confirm_select_job,
     max_confirm_attempts=3,
     confirm_timeout=5.0,
+    poll_interval=0.01,
+    poll_timeout=None,
 )

@@ -331,7 +331,6 @@ class MockLasxClient:
             "PyApiSetZStackDefinitionByJobName",
             "PyApiCommandSetZStackStepSizeByJobName",
             "PyApiSetZStackSizeByJobName",
-            "PyApiSetTimeDefinitionByJobName",
             "PyApiSetFrameAccumulationByJobName",
             "PyApiSetFrameAverageByJobName",
             "PyApiSetLineAccumulationByJobName",
@@ -537,8 +536,6 @@ class MockLasxClient:
                 self._set_z_stack_step_size(model, job)
             elif "ZStackSize" in cmd_name:
                 self._set_z_stack_size(model, job)
-            elif "TimeDefinition" in cmd_name:
-                pass  # no validation needed
             elif "FrameAccumulation" in cmd_name:
                 self._set_frame_accumulation(model, job)
             elif "FrameAverage" in cmd_name:

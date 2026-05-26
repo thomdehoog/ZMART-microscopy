@@ -47,6 +47,20 @@ from .utils import _make_timing, _make_log_entry, RECEIPT_TIMEOUT
 log = logging.getLogger(__name__)
 
 
+def _confirmation_detail(result):
+    """Return compact non-log readback details from a confirmation result."""
+    if not isinstance(result, dict):
+        return ""
+    details = {
+        key: value
+        for key, value in result.items()
+        if key not in {"success", "logs"}
+    }
+    if not details:
+        return ""
+    return f"; last_confirmation={details!r}"
+
+
 # =============================================================================
 # Transport helper
 # =============================================================================
@@ -342,6 +356,7 @@ def confirm_and_fire(client, api_obj, description, *,
                      correct_fn=None,
                      max_retries=3,
                      max_confirm_attempts=3,
+                     refire_on_unconfirmed=True,
                      retry_backoff=None,
                      retry_escalate=False,
                      skip_echo=False,
@@ -355,12 +370,13 @@ def confirm_and_fire(client, api_obj, description, *,
     runs ``confirm_fn`` to verify the result. If confirmation fails,
     the wrapper can run corrective actions and re-attempt.
 
-    Correction strategy (when confirm_fn returns failure):
-        1. If ``correct_fn`` is provided, call it.
-        2. Otherwise, run built-in idle correction (re-run pre_check_fn
-           to wait for scanner idle, then re-fire).
-        3. Re-confirm after correction.
-        4. All correction attempts count against ``max_confirm_attempts``.
+    Confirmation strategy (when confirm_fn returns failure):
+        1. If ``refire_on_unconfirmed`` is False, retry readback only.
+           The command is not sent again.
+        2. Otherwise, call ``correct_fn`` when provided, or run the
+           built-in idle correction (pre_check_fn), then re-fire.
+        3. Re-confirm after each retry. All confirmation attempts count
+           against ``max_confirm_attempts``.
 
     Args:
         client: LAS X API client.
@@ -377,6 +393,9 @@ def confirm_and_fire(client, api_obj, description, *,
         max_retries: Transient error retries inside the fire block.
         max_confirm_attempts: How many times the confirm wrapper can
             re-run the fire-then-confirm cycle.
+        refire_on_unconfirmed: If True, a failed confirmation sends the
+            command again before the next confirmation attempt. If False,
+            the command is not fired again; only readback is retried.
         retry_backoff: Base delay in seconds between transient error
             retries. None for immediate retry. Passed to ``_fire_block``.
         retry_escalate: If True, use exponential backoff (delay doubles
@@ -466,6 +485,7 @@ def confirm_and_fire(client, api_obj, description, *,
     acc_setup = fb_timing["setup_s"]
     acc_fire = fb_timing["fire_s"]
     acc_check = fb_timing["check_s"]
+    last_confirm_result = None
 
     for ca in range(max_confirm_attempts):
         confirm_attempts = ca + 1
@@ -479,6 +499,7 @@ def confirm_and_fire(client, api_obj, description, *,
             log.warning(msg)
             all_logs.append(_make_log_entry("warning", msg))
             conf_result = {"success": False, "logs": []}
+        last_confirm_result = conf_result
         t_confirm_total += time.perf_counter() - t0
         all_logs.extend(conf_result.get("logs", []))
 
@@ -506,6 +527,16 @@ def confirm_and_fire(client, api_obj, description, *,
 
         # Confirmation failed — attempt correction if not last attempt
         if ca < max_confirm_attempts - 1:
+            if not refire_on_unconfirmed:
+                msg = (
+                    f"{description} | Readback unconfirmed; retrying "
+                    f"readback only "
+                    f"(attempt {confirm_attempts + 1}/{max_confirm_attempts})"
+                )
+                log.info(msg)
+                all_logs.append(_make_log_entry("info", msg))
+                continue
+
             if correct_fn is not None:
                 # Custom correction — result success is not checked because
                 # the re-fire + re-confirm cycle determines the outcome.
@@ -570,10 +601,15 @@ def confirm_and_fire(client, api_obj, description, *,
                     "logs": all_logs,
                 }
 
-    # All confirm attempts exhausted
-    log.warning("%s | UNCONFIRMED after %d confirm attempts (%.3fs)",
-                description, confirm_attempts,
-                time.perf_counter() - t_wall_start)
+    # All confirm attempts exhausted.
+    msg = (
+        f"{description} | UNCONFIRMED after {confirm_attempts} "
+        f"readback attempt(s); command was sent successfully, but LAS X "
+        f"state readback did not confirm the requested value"
+        f"{_confirmation_detail(last_confirm_result)}"
+    )
+    log.warning("%s (%.3fs)", msg, time.perf_counter() - t_wall_start)
+    all_logs.append(_make_log_entry("warning", msg))
     return {
         "success": success_on_unconfirmed,
         "confirmed": False,

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,7 +26,10 @@ class TestCaptureConsole:
         log = tmp_path / "k.log"
         with capture_console(log):
             print("hello-tee")
-        assert "hello-tee" in log.read_text()
+        text = log.read_text()
+        assert "hello-tee" in text
+        assert re.search(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| hello-tee$",
+                         text, re.MULTILINE)
         assert "hello-tee" in capsys.readouterr().out
 
     def test_stdout_restored_on_exit(self, tmp_path):
@@ -60,7 +64,7 @@ class TestCaptureConsole:
         with capture_console(log):
             print("second")
         text = log.read_text()
-        assert text.count("=== overview-scan |") == 2
+        assert text.count("capture.start | kind=overview-scan") == 2
         assert "first" in text and "second" in text
 
     def test_reentrancy_guard_no_double_write(self, tmp_path):
@@ -154,7 +158,7 @@ class TestDeferredCapture:
         text = log.read_text()
         assert "before-bind" in text             # buffered, then flushed
         assert "after-bind" in text
-        assert "=== initialization |" in text
+        assert "capture.start | kind=initialization" in text
 
     def test_no_bind_discards(self, tmp_path):
         with capture_console_deferred():
