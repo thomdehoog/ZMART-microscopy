@@ -13,7 +13,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from navigator_expert.notebooks.workflow.focus import FocusMap, _fit_focus_model
+from workflow.focus import FocusMap, _fit_focus_model
 
 
 def _point(x_um, y_um, zwide_um):
