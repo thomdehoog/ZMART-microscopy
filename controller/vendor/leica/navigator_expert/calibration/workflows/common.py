@@ -541,7 +541,7 @@ def compute_d4_candidate_residuals(
     - ``residual_plus_x_um`` / ``residual_plus_y_um``: per-row L2 errors.
     - ``residual_um``: combined row residual.
     """
-    from navigator_expert.algorithms import D4_ELEMENTS
+    from algorithms import D4_ELEMENTS
 
     measured_x = np.asarray(measured_plus_x_um, dtype=float)
     measured_y = np.asarray(measured_plus_y_um, dtype=float)

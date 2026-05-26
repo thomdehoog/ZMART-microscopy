@@ -104,6 +104,8 @@ from typing import Any, Sequence
 
 # Allow ``import navigator_expert`` from any CWD by inserting the package root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+# Add repo root so `import algorithms` resolves to the vendor-neutral package.
+sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
 
 import matplotlib
 
@@ -756,7 +758,7 @@ def step_refine_position(
     Returns a report fragment with the chosen mode, intermediate
     zoom/pixel, and one entry per iteration.
     """
-    from navigator_expert import algorithms as _alg
+    import algorithms as _alg
 
     src_pixel_um = source_pick.geometry.pixel_size_um
     src_size_px = source_pick.geometry.image_size_px

@@ -46,7 +46,7 @@ from typing import Any
 import numpy as np
 
 import navigator_expert.driver as drv
-from navigator_expert.algorithms import brenner, register_voting
+from algorithms import brenner, register_voting
 
 from .common import (
     SCHEMA_VERSION,

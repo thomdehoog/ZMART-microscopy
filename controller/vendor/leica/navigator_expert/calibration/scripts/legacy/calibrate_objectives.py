@@ -97,6 +97,9 @@ from pathlib import Path
 from typing import Any, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+# Add repo root so `from algorithms import ...` resolves to the
+# vendor-neutral top-level package.
+sys.path.insert(0, str(Path(__file__).resolve().parents[6]))
 
 import navigator_expert.driver as drv
 from navigator_expert.driver.calibration import (
@@ -115,7 +118,7 @@ from navigator_expert.calibration.lib.lasx_state import (
     setup_reference_state,
     switch_to_target,
 )
-from navigator_expert.algorithms import VOTING_MIN_AGREE
+from algorithms import VOTING_MIN_AGREE
 from navigator_expert.calibration.lib import phases
 
 
