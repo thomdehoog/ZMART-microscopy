@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from navigator_expert.driver.scanning_template_editors_scan import (
+from navigator_expert.driver.experimental.lrp_edits.scan import (
     lrp_set_zoom, lrp_verify_zoom,
     lrp_set_scan_speed, lrp_verify_scan_speed,
     lrp_set_scan_direction, lrp_verify_scan_direction,

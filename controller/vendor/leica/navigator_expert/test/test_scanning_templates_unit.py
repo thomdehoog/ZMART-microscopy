@@ -13,11 +13,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from navigator_expert.driver.scanning_templates import (
-    _strip_xml, _strip_rgn, _count_objects,
+from navigator_expert.driver.templates.files import (
     _is_file_locked, _wait_file_stable,
     get_template_state,
     TEMPLATE_XML, STRIPPED_XML,
+)
+from navigator_expert.driver.templates.strip_restore import (
+    _strip_xml, _strip_rgn, _count_objects,
 )
 
 # ── Sample fixtures ─────────────────────────────────────────────────────

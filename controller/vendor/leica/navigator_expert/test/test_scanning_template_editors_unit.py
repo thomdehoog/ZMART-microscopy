@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from navigator_expert.driver.scanning_template_editors_focus import (
+from navigator_expert.driver.experimental.lrp_edits.focus import (
     STACK_MODES,
     lrp_set_stack_calculation_mode,
     lrp_verify_stack_calculation_mode,
