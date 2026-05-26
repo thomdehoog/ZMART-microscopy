@@ -1,9 +1,21 @@
 """Lab-wide canonical naming and layout for smart-microscopy outputs.
 
-Pure functions and frozen dataclasses; no I/O except `build_layout`,
-which creates the run directory atomically.
+Layout::
 
-Canonical spec: auto-memory `smart_microscopy_smart_folder_structure.md`.
+    media_path/smart/[experiment]_[hash6]/[acquisition-type]/{data,analysis,feedback}/
+
+Filenames carry eight dimensional slots (k, m, g, p, t, v, c, z), each
+zero-padded to a fixed width so listings sort sensibly. The XML companion
+omits c and z (one XML per (k, m, g, p, t, v) position; it describes the
+c x z grid). The 6-char `hash6` is base36-encoded seconds-since-EPOCH
+(2026-01-01 UTC), so it is chronologically meaningful AND
+lexicographically sortable.
+
+Length caps on `experiment` and `acquisition_type` keep total paths under
+Windows MAX_PATH (260) for a shallow output_root.
+
+Pure functions plus frozen `Naming` / `LayoutPlan` dataclasses. Only
+`build_layout` performs I/O (creates the run directory).
 """
 
 from __future__ import annotations

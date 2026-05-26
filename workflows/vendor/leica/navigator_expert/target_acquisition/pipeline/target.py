@@ -1,7 +1,10 @@
-"""target.py -- Step 5: acquire targets at the high-magnification objective.
+"""Step 5: acquire each pick at the high-magnification objective.
 
-Switch to the target job once, then per pick: translate, move, acquire,
-save. Per-pick failure isolation (D17).
+Switches the objective once at the start (via job selection -- the job
+binds the objective), then for every pick: translates the source-objective
+stage XY into the target frame using the calibration, moves, acquires,
+saves. Failures are isolated per pick; one bad target does not abort the
+run. Each result becomes a `TargetRecord` for the run summary.
 """
 from __future__ import annotations
 
