@@ -1,4 +1,4 @@
-"""Unit tests for driver/acquisition.py.
+"""Unit tests for driver/output/acquisition.py.
 
 Mocks the LAS X-facing primitives (get_lasx_settings, acquire_frame,
 read_relative_path, check_ome_*) with stdlib unittest.mock. Real

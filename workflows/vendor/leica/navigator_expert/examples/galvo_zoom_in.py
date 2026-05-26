@@ -85,8 +85,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
 
-# Allow ``import navigator_expert`` from any CWD.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+# Allow imports from any CWD while this cookbook lives outside the driver tree.
+_REPO_ROOT = Path(__file__).resolve().parents[5]
+_CONTROLLER_LEICA = _REPO_ROOT / "controller" / "vendor" / "leica"
+for _path in (str(_CONTROLLER_LEICA), str(_REPO_ROOT)):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
+del _path
 
 import matplotlib
 

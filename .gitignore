@@ -14,6 +14,7 @@ Thumbs.db
 
 # Example-script run outputs (regenerated on every run)
 controller/vendor/leica/config/
+workflows/vendor/leica/config/
 
 # v3 workflow runtime artifacts (acquisition outputs + per-run calibration)
 controller/vendor/leica/navigator_expert/output/

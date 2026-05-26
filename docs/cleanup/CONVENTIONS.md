@@ -16,7 +16,8 @@ Names show what; comments earn their keep by explaining hardware
 quirks, invariants, or surprises a reader can't infer.
 
 - Bad: `# Set zoom to 1`
-- Good: the `#:` blocks in `examples/galvo_zoom_in.py` for
+- Good: the `#:` blocks in
+  `workflows/vendor/leica/navigator_expert/examples/galvo_zoom_in.py` for
   `IDLE_TIMEOUT_S` — names the constant AND explains why it's 5.0
   and why it isn't used between pan and acquire.
 
@@ -24,7 +25,8 @@ quirks, invariants, or surprises a reader can't infer.
 
 Don't explain `@dataclass(frozen=True)`. Do explain what an LRP is,
 why galvo pan ≠ stage move, why `ImageTransformation = TOPLEFT`
-matters. The top-of-file docstrings in `examples/*.py` are the model
+matters. The top-of-file docstrings in
+`workflows/vendor/leica/navigator_expert/examples/*.py` are the model
 — replicate that flavour in module docstrings across the codebase.
 
 ## 3. Workarounds carry a marker; root causes get fixed
@@ -81,7 +83,7 @@ become an actual contract instead of a leaky surface.
 ## 10. Errors have specific types and propagate
 
 No bare `except:`, no `except Exception:` without re-raising. No
-silent `pass`. The `driver/errors.py` hierarchy used consistently.
+silent `pass`. The `driver/api/errors.py` hierarchy used consistently.
 If an example script can't continue, it crashes with a clear
 message — not retries silently.
 

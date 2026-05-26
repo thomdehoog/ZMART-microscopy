@@ -4,24 +4,26 @@ Microscope automation framework.
 
 ## Structure
 
-- `controller/vendor/leica/navigator_expert/` — main package
-  - `driver/` — Leica STELLARIS / LAS X confocal driver
-  - `algorithms/` — image-analysis primitives (focus, registration)
-  - `calibration/` — multi-objective calibration subsystem
-  - `examples/` — three working end-to-end example scripts
-  - `notebooks/` — workbooks
-  - `test/` — pytest suite
-- `docs/cleanup/` — active cleanup state and conventions
+- `shared/` - vendor-neutral utilities used by controllers and workflows.
+- `controller/vendor/leica/navigator_expert/` - Leica Navigator Expert package.
+  - `driver/` - LAS X driver, template handling, acquisition output, and motion helpers.
+  - `calibration/` - calibration core code and operator notebooks.
+  - `config/` - Leica machine, stage, API profile, and calibration config files.
+  - `test/` - driver and calibration unit tests.
+- `workflows/vendor/leica/navigator_expert/` - Leica workflow entry points.
+  - `target_acquisition/` - target acquisition notebook, pipeline code, docs, and tests.
+  - `examples/` - runnable Leica workflow cookbooks.
+- `docs/cleanup/` - active cleanup state and conventions.
 
-## Leica LAS X driver
+## Leica LAS X Driver
 
 - **Package**: `controller/vendor/leica/navigator_expert/driver/`
-- **API reference**: `controller/vendor/leica/README.md`
+- **API reference**: `controller/vendor/leica/navigator_expert/README.md`
 - **All commands return** a result dict with `success`, `confirmed`, `message`, `timing`, `logs`
 
-## Code quality
+## Code Quality
 
-Before finalizing any change, review it for cleanliness: every fix should be structural, not bolted on. Prefer refactoring the underlying design over adding special cases, branching logic, or conditional workarounds. If a new parameter creates a parallel code path instead of unifying an existing one, rethink the approach. The goal is code that looks like it was always designed this way — not code that reveals its history of patches.
+Before finalizing any change, review it for cleanliness: every fix should be structural, not bolted on. Prefer refactoring the underlying design over adding special cases, branching logic, or conditional workarounds. If a new parameter creates a parallel code path instead of unifying an existing one, rethink the approach. The goal is code that looks like it was always designed this way, not code that reveals its history of patches.
 
 Follow the Zen of Python:
 
@@ -36,7 +38,7 @@ Follow the Zen of Python:
 - Errors should never pass silently.
 - Unless explicitly silenced.
 - In the face of ambiguity, refuse the temptation to guess.
-- There should be one — and preferably only one — obvious way to do it.
+- There should be one, and preferably only one, obvious way to do it.
 - If the implementation is hard to explain, it's a bad idea.
 - If the implementation is easy to explain, it may be a good idea.
 
@@ -45,9 +47,6 @@ Follow the Zen of Python:
 - **Git**: `C:/ProgramData/MinicondaZMB/Library/bin/git.exe`
 - **Conda env**: `C:/ProgramData/MinicondaZMB/envs/lasxapi_extended`
 
-## Active cleanup
+## Active Cleanup
 
-Read `docs/cleanup/STATE.md` first for the current cleanup-wave
-state, off-limits zones (driver/, calibration/), open questions,
-and the rollback path. `docs/cleanup/CONVENTIONS.md` is the rubric
-every cleanup commit is graded against.
+Read `docs/cleanup/STATE.md` first for the current cleanup-wave state, off-limits zones, open questions, and the rollback path. `docs/cleanup/CONVENTIONS.md` is the rubric every cleanup commit is graded against.

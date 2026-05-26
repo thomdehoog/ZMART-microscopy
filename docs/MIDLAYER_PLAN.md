@@ -346,7 +346,7 @@ Four files in the waist. Three files in the plug-in, plus the frozen driver.
 limits-guard enforces `setxyz` against the active `LIMITS` preset *before* the
 adapter is called; the adapter does not duplicate that check. Verb-coverage
 audit of today's workflow (currently at
-`controller/vendor/leica/navigator_expert/notebooks/workflow/`):
+`workflows/vendor/leica/navigator_expert/target_acquisition/pipeline/`):
 
 | Class | What | Where |
 |-------|------|-------|
@@ -370,8 +370,8 @@ audit of today's workflow (currently at
    against `get_hardware_info` for a manually-actuated slot before the LAS X
    call is issued.
 
-2. **LRP template machinery** (`templates.py`). Relocated from the workflow
-   tree (`notebooks/workflow/`) into the plug-in, driven inside `setstate` /
+2. **LRP template machinery** (`driver/templates/`). Relocated from the workflow
+   tree into the plug-in, driven inside `setstate` /
    `acquire`.
 
 3. **Acquire / save split + `ImageHandle` assembly + run lifecycle.** On first
@@ -411,7 +411,7 @@ Build on `feat/mid-layer` off `try/all-four`.
   job-settings JSON. Gate: one example script ported to run through
   `Microscope` on hardware.
 - **Phase 3 — relocate `workflow/`.** Move
-  `controller/vendor/leica/navigator_expert/notebooks/workflow/` to
+  `workflows/vendor/leica/navigator_expert/target_acquisition/pipeline/` to
   `controller/workflow/`. (3a) Lift pure code and the transform module up;
   swap imports incrementally. (3b) The LRP-machinery move-down is an atomic
   cut-over; the old workflow location stays runnable until the new path passes
@@ -487,11 +487,12 @@ A thin pointer to the body; resolution detail lives in the cited section.
 
 - Frozen backend: `controller/vendor/leica/navigator_expert/driver/`. **Public
   API surface and docstrings live in `driver/__init__.py`**; treat that as the
-  authoritative API reference (the older `controller/vendor/leica/README.md`
+  authoritative API reference (the package README at
+  `controller/vendor/leica/navigator_expert/README.md`
   may lag the code).
-  Lower-level acquire: `acquire_frame` in `driver/acquire.py`. Save layer +
+  Lower-level acquire: `acquire_frame` in `driver/output/acquire.py`. Save layer +
   companion-XML sidecar: `shared/output_layout/` and the v6 helper
-  `_find_companion_xml` in `driver/acquisition.py`.
+  `_find_companion_xml` in `driver/output/acquisition.py`.
 - Prior prototype (up-face source): SMART v4, at
   `Z:/zmbstaff/10374/Protocols_Notes/thom/notes/20260224_thom_SMART/smart/smart_controller/`.
 - Constraints and off-limits zones: `docs/cleanup/STATE.md`.
