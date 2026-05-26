@@ -1,6 +1,7 @@
 """Objective calibration: load, save, and read the calibration config.
 
-The calibration lives at ``calibration/config/config.json`` and is
+The calibration lives at ``config/calibration.json`` (consolidated) with
+a legacy fallback to ``calibration/config/config.json``, and is
 written by ``calibration/scripts/calibrate_objectives.py``. Each
 calibration run also drops a snapshot ``config.json`` and a
 ``report.json`` into ``calibration/runs/<timestamp>/`` for full
@@ -91,11 +92,19 @@ SCHEMA_VERSION = 9
 
 # ── Paths ────────────────────────────────────────────────────────────
 
+def _navigator_expert_root():
+    return Path(__file__).resolve().parent.parent
+
+
 def _calibration_dir():
-    return Path(__file__).resolve().parent.parent / "calibration"
+    return _navigator_expert_root() / "calibration"
 
 
 def default_path():
+    """Consolidated path first, legacy fallback second."""
+    consolidated = _navigator_expert_root() / "config" / "calibration.json"
+    if consolidated.exists():
+        return consolidated
     return _calibration_dir() / "config" / "config.json"
 
 
