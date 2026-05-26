@@ -268,9 +268,6 @@ def run_overview(
 
     tile_positions = ctx.scan_field["tile_positions"]
 
-    if not drv.strip_template(client):
-        raise RuntimeError("strip_template failed before overview acquisition.")
-
     all_picks: list[Pick] = []
     tile_acquire_failures: list[dict] = []
     npz_save_failures: list[dict] = []
@@ -441,12 +438,6 @@ def run_overview(
 
         completed = True
     finally:
-        try:
-            drv.restore_template(client)
-            print("[step 3] Template restored.")
-        except Exception as exc:
-            print(f"[step 3] WARNING: could not restore template: {exc}")
-
         # Persist meta even when the drain raised, so load_overview_result
         # can show partial state. completed=False signals the incompleteness.
         try:

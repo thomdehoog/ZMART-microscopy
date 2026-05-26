@@ -25,9 +25,13 @@ Phases (in order)
    already in the config; pass ``--measure-sign`` to force a re-measure.
 
 2. **Firmware XY offset** — per target, read XY before/after the
-   objective switch. Diagnostic only: written to the run report, **not**
-   persisted to ``config.json``. The cookbook commands an absolute XY
-   after the switch, so this delta isn't part of the correction.
+   objective switch. Persisted as ``offset_xy_um``. NOT added to
+   ``shift_xy_um`` by the absolute translator
+   (``translate_xy_between_objectives`` uses shift alone, since shift
+   is measured at the post-switch home_xy and is already the full
+   optical-axis correction). Used by ``firmware_xy_after_switch`` and
+   ``residual_xy_after_switch`` for callers that want to reason about
+   the post-switch stage position or apply a relative move.
 
 3. **Shift Z (z-wide)** — optional (``--measure-shift-z``). Brenner
    z-stack scanned on z-wide centred at the post-switch z-wide. Peak
@@ -280,6 +284,7 @@ def step_initial_reference(
     update_objective(
         cal_cfg, args.ref_slot,
         name=rig.ref_summary["name"],
+        offset_xy_um=(0.0, 0.0),
         shift_xy_um=(0.0, 0.0),
         offset_z_um=0.0,
         shift_z_um=0.0,
@@ -405,9 +410,15 @@ def step_calibrate_target(
         "offset_z_um": offset_z_um,
     }
 
-    # Phase 2: firmware xy delta on switch. Diagnostic only.
-    _, xy_delta_report = phases.measure_xy_firmware_delta(rig.client, home_xy)
+    # Phase 2: firmware xy delta on switch. Persisted as offset_xy_um —
+    # where LAS X leaves the stage immediately after the switch. NOT
+    # added to shift_xy_um by translate_xy_between_objectives (which
+    # uses shift alone, since measure_shift_xy measures the full
+    # optical-axis correction at the post-switch home_xy). Used by
+    # firmware_xy_after_switch and residual_xy_after_switch.
+    xy_delta, xy_delta_report = phases.measure_xy_firmware_delta(rig.client, home_xy)
     target_report["xy_firmware_delta"] = xy_delta_report
+    update_kwargs["offset_xy_um"] = xy_delta
 
     # Phase 3: shift_z — z-wide focus residual (optional).
     # Subtract the reference Brenner residual to get an objective

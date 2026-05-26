@@ -1842,6 +1842,114 @@ class TestTargetZoomCallout:
 # ─── Step 5 crop-panel border ─────────────────────────────────────
 
 
+class TestTargetMultiCueRendering:
+    def _render(
+        self,
+        tmp_path,
+        monkeypatch,
+        *,
+        centroid=(32.0, 32.0),
+        bbox=(24, 24, 40, 40),
+        image_size=(64, 64),
+        target_size=(64, 64),
+        target_pixel_size_um=0.5,
+    ):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from workflow.visualize import display_target
+        from workflow.target import TargetRecord
+
+        analysis_dir = tmp_path / "analysis"
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        _make_npz(
+            analysis_dir, naming=naming, tile_id=("0", 0, 0),
+            image_size=image_size,
+        )
+        pick = _make_pick(
+            ("0", 0, 0), label=1, centroid_rc=centroid, bbox=bbox,
+        )
+        rec = TargetRecord(
+            pick_id=("0", 0, 0, 1),
+            cell_source_stage_xy_um=(1005.0, 2005.0),
+            source_zwide_um=100.0,
+            target_stage_xy_um=(2000.0, 3000.0),
+            target_zwide_um=100.0,
+            target_zoom=None,
+            target_pixel_size_um=target_pixel_size_um,
+            tif_path=_make_target_tif(
+                tmp_path / "t" / "target.tif", size=target_size,
+            ),
+            success=True,
+            error=None,
+        )
+
+        captured = []
+        real_close = plt.close
+
+        def spy(fig=None):
+            if fig is not None and hasattr(fig, "axes"):
+                captured.append(fig)
+            real_close(fig) if fig is not None else real_close()
+
+        monkeypatch.setattr(plt, "close", spy)
+        monkeypatch.setattr(
+            "IPython.display.display", lambda *a, **kw: None)
+        display_target(
+            pick, rec, analysis_dir, live_display=False, save_png=False,
+        )
+        assert captured, "display_target did not create a figure"
+        return captured[-1], pick
+
+    @staticmethod
+    def _patch_by_gid(ax, gid):
+        hits = [p for p in ax.patches if p.get_gid() == gid]
+        assert len(hits) == 1, f"expected one patch {gid!r}, got {hits}"
+        return hits[0]
+
+    def test_left_panel_axis_limits_pinned_at_zoom_one_x(
+        self, tmp_path, monkeypatch,
+    ):
+        fig, _ = self._render(
+            tmp_path, monkeypatch,
+            centroid=(32.0, 32.0),
+            target_size=(64, 64),
+            target_pixel_size_um=0.5,
+        )
+        ax = fig.axes[0]
+        assert tuple(ax.get_xlim()) == (0.0, 64.0)
+        assert tuple(ax.get_ylim()) == (64.0, 0.0)
+
+    def test_visible_clipped_rectangle_when_fov_exceeds_tile(
+        self, tmp_path, monkeypatch,
+    ):
+        fig, _ = self._render(
+            tmp_path, monkeypatch,
+            centroid=(15.0, 15.0),
+            target_size=(64, 64),
+            target_pixel_size_um=0.5,
+        )
+        rect = self._patch_by_gid(fig.axes[0], "target-visible-fov-window")
+        assert (rect.get_x(), rect.get_y()) == (0, 0)
+        assert (rect.get_width(), rect.get_height()) == (47, 47)
+
+    def test_no_callout_lines_when_fov_does_not_intersect(
+        self, tmp_path, monkeypatch,
+    ):
+        from matplotlib.patches import ConnectionPatch
+
+        fig, _ = self._render(
+            tmp_path, monkeypatch,
+            centroid=(-20.0, -20.0),
+            target_size=(8, 8),
+            target_pixel_size_um=0.5,
+        )
+        assert not [
+            a for a in fig.artists if isinstance(a, ConnectionPatch)
+        ]
+
+
 class TestTargetCropBorder:
     """display_target draws a red border (gid='target-crop-border') on
     the crop panel only when the target-FOV rectangle is drawn -- i.e.

@@ -471,10 +471,27 @@ class TestAcquireTargetsIntegration:
         from workflow import target as target_mod
         import navigator_expert.driver as drv
 
-        # Strip / restore / job-state: silent noop.
+        # Strip / restore: hard-fail spies. v3.1 moved the final strip
+        # into Step 2d (archive_and_strip); acquire_targets must NOT
+        # call either of these. Silent no-op mocks would mask a
+        # regression that reintroduced the per-step strip cycle.
         monkeypatch.setattr(target_mod, "drv", drv)
-        monkeypatch.setattr(drv, "strip_template", lambda c: True)
-        monkeypatch.setattr(drv, "restore_template", lambda c: True)
+
+        def _fail_strip(*args, **kwargs):
+            raise AssertionError(
+                "acquire_targets called drv.strip_template -- since "
+                "v3.1 the only strip lives in Step 2d "
+                "(archive_and_strip)."
+            )
+
+        def _fail_restore(*args, **kwargs):
+            raise AssertionError(
+                "acquire_targets called drv.restore_template -- since "
+                "v3.1 nothing past Step 2 restores the template."
+            )
+
+        monkeypatch.setattr(drv, "strip_template", _fail_strip)
+        monkeypatch.setattr(drv, "restore_template", _fail_restore)
         monkeypatch.setattr(drv, "translate_xyz_between_objectives",
                             lambda x, y, z, cal, **k: (x, y, z))
 

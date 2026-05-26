@@ -68,20 +68,12 @@ def disable_z_stack(client, job):
 
 
 def reselect_job(client, job):
-    """Re-select the job after an objective switch.
+    """No-op: operator pre-selects the job in LAS X GUI before running.
 
-    LAS X drops the job selection on objective switch; the readback also
-    lags briefly. Retry until the selection sticks.
+    Calling select_job from the API on this rig triggers spurious CAM
+    errors and unreliable readbacks. Skip entirely.
     """
-    for _ in range(JOB_SELECT_RETRIES):
-        drv.select_job(client, job)
-        time.sleep(2)
-        if (drv.get_selected_job(client) or {}).get("Name", "") == job:
-            return
-    sel = (drv.get_selected_job(client) or {}).get("Name", "")
-    raise RuntimeError(
-        f"could not select job {job!r} after objective switch (got {sel!r})"
-    )
+    return
 
 
 def apply_scan_format_and_speed(client, job, scan_format, scan_speed):
@@ -113,8 +105,6 @@ def setup_reference_state(client, job, hw, *, ref_slot, ref_zoom, settle_s,
     drv.set_zoom(client, job, ref_zoom)
     apply_scan_format_and_speed(client, job, scan_format, scan_speed)
     time.sleep(1.0)
-    drv.select_job(client, job)
-    time.sleep(1.0)
     rz = drv.move_z(client, job, 0.0, unit="um", z_mode="galvo")
     if not rz or not rz.get("success"):
         raise RuntimeError(f"could not zero z-galvo in reference setup: {rz}")
@@ -139,8 +129,6 @@ def switch_to_target(client, job, hw, slot, *, settle_s, zoom,
     reset_pan_roi_zstack(client, job)
     drv.set_zoom(client, job, zoom)
     apply_scan_format_and_speed(client, job, scan_format, scan_speed)
-    time.sleep(1.0)
-    drv.select_job(client, job)
     time.sleep(1.0)
     rz = drv.move_z(client, job, 0.0, unit="um", z_mode="galvo")
     if not rz or not rz.get("success"):

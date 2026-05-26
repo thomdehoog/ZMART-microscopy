@@ -29,7 +29,7 @@ from ._job_state import ensure_job_state, _read_objective_slot
 from ._logcapture import capture_console_deferred
 
 ZGALVO_WARN_THRESHOLD_UM = 0.5
-CELLPOSE_ENV_NAME = "SMART--target_acquisition--main"
+CELLPOSE_ENV_NAME = "lasxapi_extended"
 
 
 # Module-level handle on the most recent ctx, used to make preflight()

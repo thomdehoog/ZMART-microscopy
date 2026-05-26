@@ -123,10 +123,13 @@ def measure_xy_firmware_delta(client, home_xy):
     Caller must have already switched to the target objective. The stage
     will read back at ``home_xy + delta``.
 
-    Recorded for diagnostics (firmware behaviour over time); it is
-    **not** part of the correction the cookbook applies — the
-    cookbook commands an absolute XY after the switch, overwriting
-    whatever the firmware did.
+    Persisted as ``offset_xy_um``. The absolute translator
+    (``translate_xy_between_objectives``) does NOT add this to
+    ``shift_xy_um`` — ``shift_xy_um`` is measured at the post-switch
+    home_xy and is already the full optical-axis correction. The
+    firmware delta is used by ``firmware_xy_after_switch`` (predicted
+    post-switch position) and ``residual_xy_after_switch`` (relative
+    move from post-switch position).
 
     Returns ``(delta_um, report_fragment)``.
     """

@@ -29,6 +29,7 @@ import pytest
 from workflow._geom import (
     crop_overview_at_target_fov,
     target_fov_window_in_overview,
+    visible_target_fov_window,
 )
 
 
@@ -113,6 +114,31 @@ class TestTargetFovWindow:
             "target_shape_px": (200, 200),
             "target_pixel_size_um": 0.13,
         }
+
+
+class TestVisibleTargetFovWindow:
+    def test_fully_inside(self):
+        assert visible_target_fov_window(
+            window=(10, 20, 30, 40), image_shape=(100, 120),
+        ) == (10, 20, 40, 60)
+
+    def test_partial(self):
+        assert visible_target_fov_window(
+            window=(-5, -7, 120, 90), image_shape=(80, 100),
+        ) == (0, 0, 100, 80)
+
+    def test_returns_none_when_empty(self):
+        assert visible_target_fov_window(
+            window=(-50, 10, 20, 20), image_shape=(100, 100),
+        ) is None
+
+    def test_returns_none_when_zero_area(self):
+        assert visible_target_fov_window(
+            window=(10, 10, 0, 20), image_shape=(100, 100),
+        ) is None
+        assert visible_target_fov_window(
+            window=(10, 10, 20, 0), image_shape=(100, 100),
+        ) is None
 
 
 # ─── crop math ────────────────────────────────────────────────────

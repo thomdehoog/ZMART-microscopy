@@ -40,6 +40,12 @@ class Config:
     restore_source_at_end: bool = True
     smoke_test_pipeline: bool = False
 
+    # Per-tile / per-target / selection visualization for steps 3, 4, 5.
+    # Set False for large runs (e.g. well plates) where rendering and
+    # saving every tile/target is prohibitive. Step 2 plots are always
+    # rendered -- they're once-per-run setup figures.
+    visualize: bool = True
+
     # Simulation mode (Plan 2): when True, after each acquire_and_save
     # the saved canonical .ome.tiff's pixels are overwritten with mock
     # content (matched shape/dtype) -- gated by the per-frame
