@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "limits_um": {
+    "x":       [1000, 130000],
+    "y":       [1000, 100000],
+    "z_galvo": [-200, 200],
+    "z_wide":  [0, 25000]
+  },
+  "backlash": {
+    "approach": "+X+Y",
+    "overshoot_um": 50,
+    "settle_ms": 100,
+    "tolerance_um": 20
+  }
+}
