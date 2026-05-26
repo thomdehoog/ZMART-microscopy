@@ -70,7 +70,7 @@ def _make_npz(
 def _make_pick(tile_id, label, centroid_rc=(15.0, 15.0), bbox=(10, 10, 20, 20),
                cell_xy=(1005.0, 2005.0)):
     """Build a minimal Pick-like object with the fields visualize.py needs."""
-    from workflow.overview import Pick
+    from pipeline.overview import Pick
     return Pick(
         pick_id=(str(tile_id[0]), int(tile_id[1]), int(tile_id[2]), label),
         tile_stage_xy_um=(1000.0, 2000.0),
@@ -89,7 +89,7 @@ def _make_pick(tile_id, label, centroid_rc=(15.0, 15.0), bbox=(10, 10, 20, 20),
 
 def _make_picks(items, **kwargs):
     """Build a Picks container from a list of Pick objects."""
-    from workflow.overview import Picks
+    from pipeline.overview import Picks
     return Picks(items=items, n_picks_raw=len(items), **kwargs)
 
 
@@ -98,7 +98,7 @@ def _make_selection(n_cells, n_selected, tile_id=("0", 0, 0)):
 
     Module-level so the classify tests and the display tests share it.
     """
-    from workflow.selection import SelectionResult, MODE_THRESHOLD
+    from pipeline.selection import SelectionResult, MODE_THRESHOLD
 
     picks = [_make_pick(tile_id, label=i + 1) for i in range(n_selected)]
     return SelectionResult(
@@ -143,7 +143,7 @@ def _make_target_tif(path: Path, size=(32, 32)):
 
 
 class TestStyleTokenCoverage:
-    """Pin the design intent at workflow/visualize.py line 62:
+    """Pin the design intent at pipeline/visualize.py line 62:
     'Anything not on this scale is a bug.' Walk the visualize.py source,
     strip the sentinel-bracketed style-tokens block, and assert no hex
     color or fontsize integer literal survives outside.
@@ -161,7 +161,7 @@ class TestStyleTokenCoverage:
     _FONTSIZE_RE = re.compile(r"\bfontsize\s*=\s*\d+(?:\.\d+)?\b")
 
     def _read_source(self) -> str:
-        import workflow.visualize as viz_mod
+        import pipeline.visualize as viz_mod
         return inspect.getsource(viz_mod)
 
     def test_exactly_one_begin_and_one_end_sentinel(self):
@@ -218,7 +218,7 @@ def _make_tile_event(n_cells: int = 0, *, position=None, simulated: bool = False
     prefixes the figure title with "(mock)" and behaves identically
     to a real-run event otherwise.
     """
-    from workflow.overview import TileEvent
+    from pipeline.overview import TileEvent
     return TileEvent(
         image_2d=np.zeros((8, 8)),
         masks=np.zeros((8, 8), dtype=np.int32),
@@ -234,7 +234,7 @@ def _make_target_record(*, tif_path=None, success: bool = True):
     will be found (analysis_dir empty), so the renderer falls back to
     its "N/A" placeholders without touching tile npz files.
     """
-    from workflow.target import TargetRecord
+    from pipeline.target import TargetRecord
     return TargetRecord(
         pick_id=("0", 0, 0, 1),
         cell_source_stage_xy_um=(1005.0, 2005.0),
@@ -259,7 +259,7 @@ class TestDisplayTileFlags:
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
 
-        from workflow.visualize import display_tile
+        from pipeline.visualize import display_tile
         display_tile(
             _make_tile_event(),
             feedback_dir=tmp_path,
@@ -279,7 +279,7 @@ class TestDisplayTileFlags:
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
 
-        from workflow.visualize import display_tile
+        from pipeline.visualize import display_tile
         display_tile(
             _make_tile_event(),
             feedback_dir=tmp_path,
@@ -310,8 +310,8 @@ class TestDisplayTileSaveQueue:
         """
         import threading
         import IPython.display as ipy_display
-        from workflow._save_queue import _FigureSaveQueue
-        from workflow.visualize import display_tile
+        from pipeline._save_queue import _FigureSaveQueue
+        from pipeline.visualize import display_tile
 
         monkeypatch.setattr(ipy_display, "display", MagicMock())
 
@@ -361,7 +361,7 @@ class TestDisplayTileSaveQueue:
 
         monkeypatch.setattr(plt, "close", counting_close)
 
-        from workflow.visualize import display_tile
+        from pipeline.visualize import display_tile
         display_tile(
             _make_tile_event(),
             save_png=False,
@@ -392,8 +392,8 @@ class TestDisplayTileSaveQueue:
 
         monkeypatch.setattr(plt, "close", counting_close)
 
-        from workflow._save_queue import _FigureSaveQueue
-        from workflow.visualize import display_tile
+        from pipeline._save_queue import _FigureSaveQueue
+        from pipeline.visualize import display_tile
 
         with _FigureSaveQueue() as queue:
             display_tile(
@@ -442,8 +442,8 @@ class TestDisplayTargetSaveQueue:
 
         monkeypatch.setattr(plt, "close", counting_close)
 
-        from workflow._save_queue import _FigureSaveQueue
-        from workflow.visualize import display_target
+        from pipeline._save_queue import _FigureSaveQueue
+        from pipeline.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -476,7 +476,7 @@ class TestDisplayTargetFlags:
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
 
-        from workflow.visualize import display_target
+        from pipeline.visualize import display_target
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
         feedback_dir = tmp_path / "feedback"
@@ -501,7 +501,7 @@ class TestDisplayTargetFlags:
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
 
-        from workflow.visualize import display_target
+        from pipeline.visualize import display_target
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
         feedback_dir = tmp_path / "feedback"
@@ -529,7 +529,7 @@ class TestPlotOverviewTiles:
     def test_renders_triptych_for_each_tile(self, tmp_path):
         import matplotlib
         matplotlib.use("Agg")
-        from workflow.visualize import plot_overview_tiles
+        from pipeline.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         n0 = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
@@ -551,7 +551,7 @@ class TestPlotOverviewTiles:
     def test_zero_pick_tile_renders(self, tmp_path):
         import matplotlib
         matplotlib.use("Agg")
-        from workflow.visualize import plot_overview_tiles
+        from pipeline.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
@@ -566,7 +566,7 @@ class TestPlotOverviewTiles:
     def test_missing_npz_skipped(self, tmp_path):
         import matplotlib
         matplotlib.use("Agg")
-        from workflow.visualize import plot_overview_tiles
+        from pipeline.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir(parents=True)
@@ -583,7 +583,7 @@ class TestPlotOverviewTiles:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import plot_overview_tiles
+        from pipeline.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
@@ -607,7 +607,7 @@ class TestPlotOverviewTiles:
     def test_creates_feedback_dir(self, tmp_path):
         import matplotlib
         matplotlib.use("Agg")
-        from workflow.visualize import plot_overview_tiles
+        from pipeline.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
@@ -624,7 +624,7 @@ class TestPlotOverviewTiles:
         """Verify that pick_id[3] is used as the label for the red overlay."""
         import matplotlib
         matplotlib.use("Agg")
-        from workflow.visualize import _picked_overlay
+        from pipeline.visualize import _picked_overlay
 
         image_2d = np.zeros((64, 64), dtype=np.float64)
         masks = np.zeros((64, 64), dtype=np.int32)
@@ -648,7 +648,7 @@ class TestPlotOverviewTiles:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import plot_overview_tiles
+        from pipeline.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
@@ -681,7 +681,7 @@ class TestPlotOverviewTiles:
 
 class TestCentroidCropAtTargetFov:
     def _make_rec(self, target_pixel_size_um=0.25):
-        from workflow.target import TargetRecord
+        from pipeline.target import TargetRecord
         return TargetRecord(
             pick_id=("0", 0, 0, 1),
             cell_source_stage_xy_um=(0.0, 0.0),
@@ -696,7 +696,7 @@ class TestCentroidCropAtTargetFov:
         )
 
     def test_center_crop_correct_size(self):
-        from workflow.visualize import _centroid_crop_at_target_fov
+        from pipeline.visualize import _centroid_crop_at_target_fov
         image = np.zeros((100, 100))
         # target: 20x20 px at 0.25 um/px = 5x5 um FOV
         # source: 0.5 um/px → crop = 5/0.5 = 10x10 px
@@ -710,7 +710,7 @@ class TestCentroidCropAtTargetFov:
         assert crop.shape == (10, 10)
 
     def test_center_crop_centered_on_centroid(self):
-        from workflow.visualize import _centroid_crop_at_target_fov
+        from pipeline.visualize import _centroid_crop_at_target_fov
         image = np.arange(10000).reshape(100, 100).astype(float)
         target_img = np.zeros((20, 20))
         # centroid at (col=60, row=40)
@@ -726,7 +726,7 @@ class TestCentroidCropAtTargetFov:
         np.testing.assert_array_equal(crop, expected)
 
     def test_corner_clamp_shifts_window(self):
-        from workflow.visualize import _centroid_crop_at_target_fov
+        from pipeline.visualize import _centroid_crop_at_target_fov
         image = np.zeros((100, 100))
         target_img = np.zeros((20, 20))
         # centroid near top-left corner — crop would go negative
@@ -740,7 +740,7 @@ class TestCentroidCropAtTargetFov:
         assert crop.shape == (10, 10)
 
     def test_bottom_right_clamp(self):
-        from workflow.visualize import _centroid_crop_at_target_fov
+        from pipeline.visualize import _centroid_crop_at_target_fov
         image = np.zeros((100, 100))
         target_img = np.zeros((20, 20))
         # centroid near bottom-right corner
@@ -753,7 +753,7 @@ class TestCentroidCropAtTargetFov:
         assert crop.shape == (10, 10)
 
     def test_fallback_to_bbox_when_no_target(self):
-        from workflow.visualize import _centroid_crop_at_target_fov
+        from pipeline.visualize import _centroid_crop_at_target_fov
         image = np.zeros((100, 100))
         pick = _make_pick(("0", 0, 0), label=1,
                           centroid_rc=(50.0, 50.0),
@@ -766,7 +766,7 @@ class TestCentroidCropAtTargetFov:
 
     def test_col_row_mapping(self):
         """Verify col maps to x-axis and row maps to y-axis."""
-        from workflow.visualize import _centroid_crop_at_target_fov
+        from pipeline.visualize import _centroid_crop_at_target_fov
         image = np.zeros((200, 300))
         image[50, 150] = 1.0  # marker at row=50, col=150
         target_img = np.zeros((4, 4))
@@ -803,8 +803,8 @@ class TestStep5PanelInterpolation:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import _render_target_crop_panel
-        from workflow.target import TargetRecord
+        from pipeline.visualize import _render_target_crop_panel
+        from pipeline.target import TargetRecord
 
         image = np.zeros((100, 100), dtype=np.uint16)
         target_img = np.zeros((20, 20), dtype=np.uint16)
@@ -828,7 +828,7 @@ class TestStep5PanelInterpolation:
                 f"centre panel imshow used interpolation="
                 f"{ax.images[0].get_interpolation()!r} -- must be "
                 f"'nearest' to honestly show overview pixel "
-                f"resolution. See workflow/visualize.py."
+                f"resolution. See pipeline/visualize.py."
             )
         finally:
             plt.close(fig)
@@ -837,7 +837,7 @@ class TestStep5PanelInterpolation:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import _render_highres_target_panel
+        from pipeline.visualize import _render_highres_target_panel
 
         target_img = np.zeros((200, 200), dtype=np.uint16)
         fig, ax = plt.subplots()
@@ -860,27 +860,27 @@ class TestStep5PanelInterpolation:
 
 class TestEnsure2D:
     def test_2d_passthrough(self):
-        from workflow.visualize import _ensure_2d
+        from pipeline.visualize import _ensure_2d
         img = np.zeros((64, 64))
         assert _ensure_2d(img).shape == (64, 64)
 
     def test_3d_first_plane(self):
-        from workflow.visualize import _ensure_2d
+        from pipeline.visualize import _ensure_2d
         img = np.zeros((5, 64, 64))
         assert _ensure_2d(img).shape == (64, 64)
 
     def test_3d_channel_last(self):
-        from workflow.visualize import _ensure_2d
+        from pipeline.visualize import _ensure_2d
         img = np.zeros((64, 64, 3))
         assert _ensure_2d(img).shape == (64, 64)
 
     def test_4d_tczyx_style(self):
-        from workflow.visualize import _ensure_2d
+        from pipeline.visualize import _ensure_2d
         img = np.zeros((2, 3, 64, 64))
         assert _ensure_2d(img).shape == (64, 64)
 
     def test_4d_channel_last(self):
-        from workflow.visualize import _ensure_2d
+        from pipeline.visualize import _ensure_2d
         img = np.zeros((5, 64, 64, 3))
         result = _ensure_2d(img)
         assert result.shape == (64, 64)
@@ -893,8 +893,8 @@ class TestPlotTargetPairs:
     def test_renders_pairs_for_successful_targets(self, tmp_path):
         import matplotlib
         matplotlib.use("Agg")
-        from workflow.visualize import plot_target_pairs
-        from workflow.target import TargetRecord
+        from pipeline.visualize import plot_target_pairs
+        from pipeline.target import TargetRecord
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
@@ -926,8 +926,8 @@ class TestPlotTargetPairs:
     def test_skips_failed_targets(self, tmp_path):
         import matplotlib
         matplotlib.use("Agg")
-        from workflow.visualize import plot_target_pairs
-        from workflow.target import TargetRecord
+        from pipeline.visualize import plot_target_pairs
+        from pipeline.target import TargetRecord
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
@@ -959,7 +959,7 @@ class TestPlotTargetPairs:
     def test_no_successful_targets(self, tmp_path):
         import matplotlib
         matplotlib.use("Agg")
-        from workflow.visualize import plot_target_pairs
+        from pipeline.visualize import plot_target_pairs
 
         analysis_dir = tmp_path / "analysis"
         picks = _make_picks([])
@@ -997,7 +997,7 @@ class TestDisplayTilePanelLayout:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import display_tile
+        from pipeline.visualize import display_tile
 
         widths: list = []
         real_close = plt.close
@@ -1040,7 +1040,7 @@ class TestSharedScanFieldRenderer:
     """
     def test_context_matches_across_call_styles(self):
         import matplotlib.pyplot as plt
-        from workflow.visualize import render_scan_field_panel, TileStyle
+        from pipeline.visualize import render_scan_field_panel, TileStyle
 
         scan_field = {
             "tile_positions": {
@@ -1083,7 +1083,7 @@ class TestLoadTileNpzWarning:
     log-and-skip pattern.
     """
     def test_warns_on_unreadable_file(self, tmp_path, capsys):
-        from workflow.visualize import _load_tile_npz
+        from pipeline.visualize import _load_tile_npz
 
         bad_npz = tmp_path / "corrupt.npz"
         bad_npz.write_bytes(b"not a valid npz file")
@@ -1102,7 +1102,7 @@ class TestLoadTileNpzPosition:
     NPZ."""
 
     def test_returns_position_when_present(self, tmp_path):
-        from workflow.visualize import _load_tile_npz
+        from pipeline.visualize import _load_tile_npz
         naming = Naming(acquisition_type="overview-scan",
                         hash6="abc123", g=0, p=7)
         npz = _make_npz(tmp_path / "a", naming=naming,
@@ -1110,7 +1110,7 @@ class TestLoadTileNpzPosition:
         assert _load_tile_npz(npz).position == 7
 
     def test_position_is_none_when_absent(self, tmp_path):
-        from workflow.visualize import _load_tile_npz
+        from pipeline.visualize import _load_tile_npz
         naming = Naming(acquisition_type="overview-scan",
                         hash6="abc123", g=0, p=0)
         npz = _make_npz(tmp_path / "a", naming=naming, tile_id=("0", 0, 0))
@@ -1125,8 +1125,8 @@ class TestRenderCropBoundary:
     def test_image_smaller_than_crop_size_renders_whole_image(self):
         import matplotlib.pyplot as plt
         from matplotlib.patches import Rectangle
-        from workflow.overview import Pick
-        from workflow.visualize import _render_crop
+        from pipeline.overview import Pick
+        from pipeline.visualize import _render_crop
 
         # 32x32 image, smaller than _CROP_SIZE_PX.
         img = np.zeros((32, 32), dtype=np.uint8)
@@ -1164,7 +1164,7 @@ class TestRenderCropBoundary:
 
 class TestClassifyCellsForScatter:
     def test_returns_both_masks(self):
-        from workflow.visualize import _classify_cells_for_scatter
+        from pipeline.visualize import _classify_cells_for_scatter
 
         selection = _make_selection(n_cells=10, n_selected=3)
         masks = _classify_cells_for_scatter(selection, [])
@@ -1173,7 +1173,7 @@ class TestClassifyCellsForScatter:
         assert "other" in masks
 
     def test_masks_are_complementary(self):
-        from workflow.visualize import _classify_cells_for_scatter
+        from pipeline.visualize import _classify_cells_for_scatter
 
         selection = _make_selection(n_cells=10, n_selected=3)
         masks = _classify_cells_for_scatter(selection, [])
@@ -1184,7 +1184,7 @@ class TestClassifyCellsForScatter:
         assert not np.any(masks["selected"] & masks["other"])
 
     def test_empty_returns_both_keys(self):
-        from workflow.visualize import _classify_cells_for_scatter
+        from pipeline.visualize import _classify_cells_for_scatter
 
         selection = _make_selection(n_cells=0, n_selected=0)
         masks = _classify_cells_for_scatter(selection, [])
@@ -1207,8 +1207,8 @@ class TestDisplaySelectionCropStrip:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import display_selection
-        from workflow.selection import SelectionResult, MODE_THRESHOLD
+        from pipeline.visualize import display_selection
+        from pipeline.selection import SelectionResult, MODE_THRESHOLD
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(
@@ -1292,7 +1292,7 @@ class TestFrameAspectPadding:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import render_scan_field_panel
+        from pipeline.visualize import render_scan_field_panel
 
         fig, ax = plt.subplots(figsize=(14, 7.875))
         try:
@@ -1315,7 +1315,7 @@ class TestFrameAspectPadding:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import render_scan_field_panel
+        from pipeline.visualize import render_scan_field_panel
 
         fig, ax = plt.subplots(figsize=(14, 7.875))
         try:
@@ -1338,7 +1338,7 @@ class TestFrameAspectPadding:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import render_scan_field_panel
+        from pipeline.visualize import render_scan_field_panel
 
         fig, ax = plt.subplots(figsize=(14, 7.875))
         try:
@@ -1361,7 +1361,7 @@ class TestFrameAspectPadding:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import render_scan_field_panel
+        from pipeline.visualize import render_scan_field_panel
 
         fig, ax = plt.subplots(figsize=(14, 7.875))
         try:
@@ -1414,7 +1414,7 @@ class TestFigureWidth:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import display_tile, _FRAME_WIDTH_IN
+        from pipeline.visualize import display_tile, _FRAME_WIDTH_IN
 
         scan_field = {"tile_positions": {"0": {
             "job_name": "Overview", "tile_size_um": 100,
@@ -1431,7 +1431,7 @@ class TestFigureWidth:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import display_selection, _FRAME_WIDTH_IN
+        from pipeline.visualize import display_selection, _FRAME_WIDTH_IN
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(
@@ -1455,7 +1455,7 @@ class TestFigureWidth:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import plot_overview_tiles, _FRAME_WIDTH_IN
+        from pipeline.visualize import plot_overview_tiles, _FRAME_WIDTH_IN
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(
@@ -1472,7 +1472,7 @@ class TestFigureWidth:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import display_target, _FRAME_WIDTH_IN
+        from pipeline.visualize import display_target, _FRAME_WIDTH_IN
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -1489,8 +1489,8 @@ class TestFigureWidth:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import plot_target_pairs, _FRAME_WIDTH_IN
-        from workflow.target import TargetRecord
+        from pipeline.visualize import plot_target_pairs, _FRAME_WIDTH_IN
+        from pipeline.target import TargetRecord
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(
@@ -1528,8 +1528,8 @@ class TestNoHardcodedFigureWidth:
 
     def test_no_numeric_figsize_width_in_figure_modules(self):
         import importlib
-        for modname in ("workflow.visualize", "workflow.template",
-                        "workflow.focus", "workflow.summary"):
+        for modname in ("pipeline.visualize", "pipeline.template",
+                        "pipeline.focus", "pipeline.summary"):
             src = inspect.getsource(importlib.import_module(modname))
             hits = self._NUMERIC_FIGSIZE.findall(src)
             assert not hits, (
@@ -1547,7 +1547,7 @@ class TestSelectionCropRow:
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from matplotlib.gridspec import GridSpec
-        from workflow.visualize import _build_selection_figure_layout
+        from pipeline.visualize import _build_selection_figure_layout
 
         fig, _, crop_axes, _ = _build_selection_figure_layout(
             True, plt, GridSpec)
@@ -1582,7 +1582,7 @@ class TestScatterCropAnnotations:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import display_selection
+        from pipeline.visualize import display_selection
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(
@@ -1629,7 +1629,7 @@ class TestPickExampleCrops:
     cells."""
 
     def test_returns_all_when_at_most_n(self):
-        from workflow.visualize import _pick_example_crops
+        from pipeline.visualize import _pick_example_crops
         picks = [_make_pick(("0", 0, 0), label=i + 1) for i in range(4)]
         chosen = _pick_example_crops(picks, n=6)
         # sorted-list equality catches a dropped pick AND a duplicated
@@ -1641,12 +1641,12 @@ class TestPickExampleCrops:
         )
 
     def test_non_positive_n_returns_empty(self):
-        from workflow.visualize import _pick_example_crops
+        from pipeline.visualize import _pick_example_crops
         picks = [_make_pick(("0", 0, 0), label=i + 1) for i in range(5)]
         assert _pick_example_crops(picks, n=0) == []
 
     def test_spreads_across_distinct_locations(self):
-        from workflow.visualize import _pick_example_crops
+        from pipeline.visualize import _pick_example_crops
 
         # Six distinct stage locations, each with a co-located twin.
         spots = [(0.0, 0.0), (1000.0, 0.0), (0.0, 1000.0),
@@ -1667,7 +1667,7 @@ class TestPickExampleCrops:
         )
 
     def test_deterministic(self):
-        from workflow.visualize import _pick_example_crops
+        from pipeline.visualize import _pick_example_crops
         picks = [
             _make_pick(("0", 0, 0), label=i + 1,
                        cell_xy=(float(i * 137 % 900),
@@ -1681,7 +1681,7 @@ class TestPickExampleCrops:
     def test_returns_scatter_reading_order_le_n_branch(self):
         """<= n branch: crops come back largest-area-first so the
         strip / badge 1..N numbering reads top-down on the scatter."""
-        from workflow.visualize import _pick_example_crops
+        from pipeline.visualize import _pick_example_crops
         picks = [_make_pick(("0", 0, 0), label=i + 1) for i in range(4)]
         for p, area in zip(picks, [100, 400, 200, 300]):
             p.area_px = area
@@ -1691,7 +1691,7 @@ class TestPickExampleCrops:
     def test_returns_scatter_reading_order_fps_branch(self):
         """FPS branch (> n picks): the returned six are also ordered
         largest-area-first."""
-        from workflow.visualize import _pick_example_crops
+        from pipeline.visualize import _pick_example_crops
         picks = [
             _make_pick(("0", 0, 0), label=i + 1,
                        cell_xy=(float(i * 137 % 900), float(i * 53 % 700)))
@@ -1706,7 +1706,7 @@ class TestPickExampleCrops:
         """Equal area_px -> lower mean_intensity sorts first, pinning
         the (-area_px, mean_intensity) key. area_px is integer-valued
         so this tie is reachable."""
-        from workflow.visualize import _pick_example_crops
+        from pipeline.visualize import _pick_example_crops
         a = _make_pick(("0", 0, 0), label=1)
         b = _make_pick(("0", 0, 0), label=2)
         a.area_px = b.area_px = 500
@@ -1725,12 +1725,12 @@ class TestTileLabelWording:
     _format_tile_label; the Step 2b / Step 3 console output must match."""
 
     def test_format_tile_label(self):
-        from workflow.visualize import _format_tile_label
+        from pipeline.visualize import _format_tile_label
         assert _format_tile_label(0, 41) == "Group 0, Position 41"
         assert _format_tile_label(0, None) == "Group 0, Position unknown"
 
     def test_position_label(self):
-        from workflow.visualize import _position_label
+        from pipeline.visualize import _position_label
         assert _position_label(0) == "Position 0"
         assert _position_label(41) == "Position 41"
         assert _position_label(None) == "Position unknown"
@@ -1738,8 +1738,8 @@ class TestTileLabelWording:
     def test_target_position_label_twin_matches_visualize(self):
         """target.py carries a one-line twin of _position_label to dodge
         an import cycle -- pin that it has not drifted."""
-        from workflow.visualize import _position_label as viz
-        from workflow.target import _position_label as tgt
+        from pipeline.visualize import _position_label as viz
+        from pipeline.target import _position_label as tgt
         for v in (0, 41, None):
             assert viz(v) == tgt(v)
 
@@ -1751,9 +1751,9 @@ class TestTileLabelWording:
         import inspect
 
         template_src = inspect.getsource(
-            importlib.import_module("workflow.template"))
+            importlib.import_module("pipeline.template"))
         overview_src = inspect.getsource(
-            importlib.import_module("workflow.overview"))
+            importlib.import_module("pipeline.overview"))
 
         assert "region(s)" not in template_src
         assert "Region {rid}" not in template_src
@@ -1794,8 +1794,8 @@ class TestTargetZoomCallout:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import display_target
-        from workflow.target import TargetRecord
+        from pipeline.visualize import display_target
+        from pipeline.target import TargetRecord
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(
@@ -1823,7 +1823,7 @@ class TestTargetZoomCallout:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import display_target
+        from pipeline.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -1857,8 +1857,8 @@ class TestTargetMultiCueRendering:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import display_target
-        from workflow.target import TargetRecord
+        from pipeline.visualize import display_target
+        from pipeline.target import TargetRecord
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(
@@ -1977,8 +1977,8 @@ class TestTargetCropBorder:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import display_target
-        from workflow.target import TargetRecord
+        from pipeline.visualize import display_target
+        from pipeline.target import TargetRecord
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(
@@ -2006,7 +2006,7 @@ class TestTargetCropBorder:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import display_target
+        from pipeline.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -2048,8 +2048,8 @@ class TestTargetSuptitlePosition:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import display_target
-        from workflow.target import TargetRecord
+        from pipeline.visualize import display_target
+        from pipeline.target import TargetRecord
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -2077,7 +2077,7 @@ class TestTargetSuptitlePosition:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from workflow.visualize import display_target
+        from pipeline.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -2092,8 +2092,8 @@ class TestTargetSuptitlePosition:
         assert "Position unknown" in seen[0], seen
 
     def test_serialize_target_includes_source_tile_position(self, tmp_path):
-        from workflow.summary import _serialize_target
-        from workflow.target import TargetRecord
+        from pipeline.summary import _serialize_target
+        from pipeline.target import TargetRecord
         rec = TargetRecord(
             pick_id=("0", 0, 0, 3), cell_source_stage_xy_um=(1.0, 2.0),
             source_zwide_um=0.0, target_stage_xy_um=None,
@@ -2104,7 +2104,7 @@ class TestTargetSuptitlePosition:
         assert _serialize_target(rec, tmp_path)["source_tile_position"] == 41
 
     def test_serialize_pick_includes_position(self):
-        from workflow.summary import _serialize_pick
+        from pipeline.summary import _serialize_pick
         pick = _make_pick(("0", 0, 0), label=1)
         pick.position = 7
         assert _serialize_pick(pick)["position"] == 7
@@ -2121,7 +2121,7 @@ class TestPngNaming:
     re-render."""
 
     def test_overview_tile_png_name_canonical(self):
-        from workflow.visualize import _overview_tile_png_name, _position_stem
+        from pipeline.visualize import _overview_tile_png_name, _position_stem
         from shared.output_layout.naming import Naming
         stem = _position_stem(Naming(
             acquisition_type="overview-scan", hash6="abc123", g=0, p=7))
@@ -2130,15 +2130,15 @@ class TestPngNaming:
     def test_overview_tile_png_name_fallback(self):
         """No position or no hash6 -> legacy R/r/c name, never a wrong
         canonical stem."""
-        from workflow.visualize import _overview_tile_png_name
+        from pipeline.visualize import _overview_tile_png_name
         assert _overview_tile_png_name(0, 1, 2, None, "abc123") == \
             "live_tile_R0_r1c2.png"
         assert _overview_tile_png_name(0, 1, 2, 7, None) == \
             "live_tile_R0_r1c2.png"
 
     def test_target_png_name_canonical(self, tmp_path):
-        from workflow.visualize import _target_png_name
-        from workflow.target import TargetRecord
+        from pipeline.visualize import _target_png_name
+        from pipeline.target import TargetRecord
         tif = tmp_path / (
             "target-acquisition_abc123_k00000_m00000_g00000_p00003"
             "_t00000_v00_c00_z00000.ome.tiff")
@@ -2156,8 +2156,8 @@ class TestPngNaming:
     def test_target_png_name_fallback_no_tif(self):
         """A target with no TIFF (failed / pick-less) -> legacy name,
         no AttributeError on record.tif_path is None."""
-        from workflow.visualize import _target_png_name
-        from workflow.target import TargetRecord
+        from pipeline.visualize import _target_png_name
+        from pipeline.target import TargetRecord
         rec = TargetRecord(
             pick_id=("0", 1, 2, 5), cell_source_stage_xy_um=(1.0, 2.0),
             source_zwide_um=0.0, target_stage_xy_um=None,
@@ -2171,7 +2171,7 @@ class TestPngNaming:
         import matplotlib
         matplotlib.use("Agg")
         monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
-        from workflow.visualize import display_tile, _position_stem
+        from pipeline.visualize import display_tile, _position_stem
         from shared.output_layout.naming import Naming
 
         logs = tmp_path / "logs"
@@ -2187,7 +2187,7 @@ class TestPngNaming:
         import matplotlib
         matplotlib.use("Agg")
         monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
-        from workflow.visualize import display_tile
+        from pipeline.visualize import display_tile
 
         legacy = tmp_path / "legacy"
         display_tile(_make_tile_event(position=3), feedback_dir=legacy,
@@ -2200,7 +2200,7 @@ class TestPngNaming:
         import matplotlib
         matplotlib.use("Agg")
         monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
-        from workflow.visualize import display_target
+        from pipeline.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()

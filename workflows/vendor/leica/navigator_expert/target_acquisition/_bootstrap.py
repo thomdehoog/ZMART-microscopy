@@ -1,7 +1,7 @@
 """Notebook entry point. Importing this module:
-  1. Adds necessary paths to sys.path so the workflow package, the
-     driver, algorithms, and shared packages are all importable.
-  2. Re-exports `Config` (workflow) and `Path` (pathlib), so the
+  1. Adds necessary paths to sys.path so the pipeline package, the
+     driver and shared packages are all importable.
+  2. Re-exports `Config` (pipeline) and `Path` (pathlib), so the
      notebook cell is one import line + `cfg = Config(...)`.
 """
 from __future__ import annotations
@@ -17,18 +17,18 @@ _VENDOR_LEICA = _REPO_ROOT / "controller" / "vendor" / "leica"
 if str(_VENDOR_LEICA) not in sys.path:
     sys.path.insert(0, str(_VENDOR_LEICA))
 
-# algorithms/ and shared/ live at repo root
+# shared/ lives at repo root
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 # Pre-load navigator_expert.driver so its package identity is
-# established before workflow modules trigger the same import.
+# established before pipeline modules trigger the same import.
 import navigator_expert.driver  # noqa: E402,F401
 
-# workflow/ is a sibling package to this bootstrap
+# pipeline/ is a sibling package to this bootstrap
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from workflow import Config  # noqa: E402
+from pipeline import Config  # noqa: E402
 
 __all__ = ["Config", "Path"]

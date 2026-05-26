@@ -22,7 +22,7 @@ import pytest
 
 class TestValidateCallbackFlags:
     def test_raises_when_on_tile_with_live_display_true(self):
-        from workflow.overview import _validate_callback_flags
+        from pipeline.overview import _validate_callback_flags
         with pytest.raises(ValueError, match=r"Cannot pass on_tile"):
             _validate_callback_flags(
                 lambda e: None,
@@ -31,7 +31,7 @@ class TestValidateCallbackFlags:
             )
 
     def test_raises_when_on_tile_with_save_png_true(self):
-        from workflow.overview import _validate_callback_flags
+        from pipeline.overview import _validate_callback_flags
         with pytest.raises(ValueError, match=r"Cannot pass on_tile"):
             _validate_callback_flags(
                 lambda e: None,
@@ -43,7 +43,7 @@ class TestValidateCallbackFlags:
         """Same validator, parametrized by callback name. Pin the
         on_target wording for the acquire_targets path.
         """
-        from workflow.overview import _validate_callback_flags
+        from pipeline.overview import _validate_callback_flags
         with pytest.raises(ValueError, match=r"Cannot pass on_target"):
             _validate_callback_flags(
                 lambda p, r: None,
@@ -57,7 +57,7 @@ class TestValidateCallbackFlags:
 
 class TestBuildDefaultOnTileCallback:
     def test_threads_flags_through_to_display_tile(self, monkeypatch):
-        """When the workflow builds the default callback internally, the
+        """When the pipeline builds the default callback internally, the
         flags passed by the operator (live_display, save_png) must reach
         display_tile unchanged. The logs_dir is filled in when
         save_png=True and is None when save_png=False.
@@ -65,7 +65,7 @@ class TestBuildDefaultOnTileCallback:
         # Patch the renderer at its module path; the local import inside
         # _build_default_on_tile_callback resolves to this patched ref.
         fake_display_tile = MagicMock(name="display_tile")
-        import workflow.visualize as viz_mod
+        import pipeline.visualize as viz_mod
         monkeypatch.setattr(viz_mod, "display_tile", fake_display_tile)
 
         ctx = MagicMock(name="ctx")
@@ -73,7 +73,7 @@ class TestBuildDefaultOnTileCallback:
         ctx.boundary_limits = "fake_limits_dict"
         ctx.run.layout.logs_dir.return_value = Path("/fake/logs")
 
-        from workflow.overview import _build_default_on_tile_callback
+        from pipeline.overview import _build_default_on_tile_callback
 
         callback = _build_default_on_tile_callback(
             ctx, live_display=True, save_png=False,
@@ -100,14 +100,14 @@ class TestBuildDefaultOnTargetCallback:
         operator notebook), so a single dict is reused across calls.
         """
         fake_display_target = MagicMock(name="display_target")
-        import workflow.visualize as viz_mod
+        import pipeline.visualize as viz_mod
         monkeypatch.setattr(viz_mod, "display_target", fake_display_target)
 
         ctx = MagicMock(name="ctx")
         ctx.run.layout.analysis_dir.return_value = Path("/fake/analysis")
         ctx.run.layout.logs_dir.return_value = Path("/fake/logs")
 
-        from workflow.target import _build_default_on_target_callback
+        from pipeline.target import _build_default_on_target_callback
 
         callback = _build_default_on_target_callback(
             ctx, live_display=False, save_png=True,
@@ -137,9 +137,9 @@ class TestAcquireTargetsEmptyPicks:
         the queue first, then returned without shutdown, leaving an
         unowned executor.
         """
-        from workflow.overview import Picks
-        from workflow import target as target_mod
-        from workflow import _save_queue as save_queue_mod
+        from pipeline.overview import Picks
+        from pipeline import target as target_mod
+        from pipeline import _save_queue as save_queue_mod
 
         construct_count = {"n": 0}
         real_init = save_queue_mod._FigureSaveQueue.__init__

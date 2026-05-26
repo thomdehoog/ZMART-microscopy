@@ -1,5 +1,5 @@
 """
-Offline unit tests for the v3 workflow focus map.
+Offline unit tests for the v3 pipeline focus map.
 
 These tests exercise the mathematical fitting and interpolation paths only.
 They do not call LAS X, move hardware, or require scipy/cellpose.
@@ -13,7 +13,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from workflow.focus import FocusMap, _fit_focus_model
+from pipeline.focus import FocusMap, _fit_focus_model
 
 
 def _point(x_um, y_um, zwide_um):

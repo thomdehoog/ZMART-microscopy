@@ -52,7 +52,7 @@ def test_tile_style_alpha_default_and_rgba_passthrough():
     composites with the rgba's own alpha channel rather than
     overriding it).
     """
-    from workflow.visualize import TileStyle, render_scan_field_panel
+    from pipeline.visualize import TileStyle, render_scan_field_panel
 
     # Default-construction sanity
     assert TileStyle(facecolor="none", edgecolor="white").alpha is None
@@ -94,7 +94,7 @@ def test_render_scan_field_panel_padding_factor_scales_linearly():
     A broken implementation that doubled padding regardless of input
     would pass a "greater than" check; the ratio assertion catches it.
     """
-    from workflow.visualize import render_scan_field_panel
+    from pipeline.visualize import render_scan_field_panel
 
     tile_size = 100.0
     scan_field = {
@@ -148,7 +148,7 @@ def test_plot_stage_envelope_with_boundary(tmp_path, monkeypatch):
     driver fallback call.
     """
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
-    from workflow.template import plot_stage_envelope
+    from pipeline.template import plot_stage_envelope
     import navigator_expert.driver as drv
 
     boundary = {"x_min": 0.0, "x_max": 1000.0, "y_min": 0.0, "y_max": 800.0}
@@ -167,7 +167,7 @@ def test_plot_stage_envelope_falls_back_to_driver(tmp_path, monkeypatch):
     function must not raise on this path.
     """
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
-    from workflow.template import plot_stage_envelope
+    from pipeline.template import plot_stage_envelope
     import navigator_expert.driver as drv
 
     ctx = _envelope_ctx(tmp_path, boundary_limits=None)
@@ -187,7 +187,7 @@ def test_scatter_layers_other_then_selected():
     """_LAYERS is the structural invariant for the scatter: two entries,
     "other" (gray background) drawn first, then "selected" (red) on top.
     """
-    from workflow.visualize import _LAYERS
+    from pipeline.visualize import _LAYERS
 
     assert len(_LAYERS) == 2
     assert _LAYERS[0].key == "other"
@@ -208,9 +208,9 @@ def test_plot_results_skips_picks_without_records(tmp_path, monkeypatch):
     survives palette changes.
     """
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
-    from workflow.overview import Pick, Picks
-    from workflow.summary import plot_results
-    from workflow.target import TargetRecord
+    from pipeline.overview import Pick, Picks
+    from pipeline.summary import plot_results
+    from pipeline.target import TargetRecord
 
     # Three picks, only one has a record (success). Two are orphans.
     picks_items = [

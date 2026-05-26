@@ -1,4 +1,4 @@
-"""Tests for workflow.connect_lasx() helper.
+"""Tests for pipeline.connect_lasx() helper.
 
 connect_lasx() owns the LAS X CAM API connect handshake so the operator
 notebook can ask for "connect" in one call without leaking LasxApi
@@ -29,7 +29,7 @@ def test_connect_lasx_returns_connected_client(monkeypatch):
     """
     fake_client = _install_fake_lasxapi(monkeypatch)
 
-    from workflow import connect_lasx
+    from pipeline import connect_lasx
 
     result = connect_lasx()
 
@@ -41,7 +41,7 @@ def test_connect_lasx_passes_role_through(monkeypatch):
     """The role argument is threaded through to client.Connect."""
     fake_client = _install_fake_lasxapi(monkeypatch)
 
-    from workflow import connect_lasx
+    from pipeline import connect_lasx
 
     result = connect_lasx(role="OtherClient")
 

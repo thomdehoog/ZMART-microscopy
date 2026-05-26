@@ -77,7 +77,7 @@ Operator preconditions
 - ``ImageTransformation = TOPLEFT`` in LAS X Advanced Settings.
 - AFC / autofocus OFF; no LAS X modal dialogs.
 - Stage positioned over a region with cells visible at 10×.
-- ``calibration/config/config.json`` (v9) and ``stage.json`` exist.
+- ``config/calibration.json`` (v9) and ``config/stage.json`` exist.
 
 Usage
 -----
@@ -104,7 +104,7 @@ from typing import Any, Sequence
 
 # Allow ``import navigator_expert`` from any CWD by inserting the package root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-# Add repo root so `import algorithms` resolves to the vendor-neutral package.
+# Add repo root so `import shared.algorithms` resolves.
 sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
 
 import matplotlib
@@ -758,7 +758,7 @@ def step_refine_position(
     Returns a report fragment with the chosen mode, intermediate
     zoom/pixel, and one entry per iteration.
     """
-    import algorithms as _alg
+    import shared.algorithms as _alg
 
     src_pixel_um = source_pick.geometry.pixel_size_um
     src_size_px = source_pick.geometry.image_size_px

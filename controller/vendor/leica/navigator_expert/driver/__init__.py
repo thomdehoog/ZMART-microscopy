@@ -2,55 +2,17 @@
 Navigator Expert Driver v6.0.0
 ==============================
 Python driver for the Leica STELLARIS confocal microscope via the LAS X
-Python API. Lives at ``navigator_expert/driver/`` — sibling to
-``calibration/``, ``examples/``, ``docs/``, ``test/``.
+Python API.
 
 Package layout::
 
     navigator_expert/driver/
-    ├── __init__.py               ← you are here (public API)
-    ├── utils.py                  ← helpers: _make_log_entry, _make_timing,
-    │                                parse_format, parse_tile_geometry, etc.
-    ├── errors.py                 ← error classification + _check_api_error +
-    │                                _default_error_check adapter
-    ├── limits.py                 ← stage safety limits
-    ├── readers.py                ← get_scan_status, ping, get_jobs,
-    │                                get_job_settings, get_hardware_info, get_xy
-    ├── settings.py               ← make_changeable_copy
-    ├── prechecks.py              ← pre-flight check functions (check_idle)
-    ├── confirmations.py          ← readback confirmation functions,
-    │                                confirm_acquire, confirm_select_job
-    ├── core.py                   ← _fire_with_receipt, _fire_block,
-    │                                confirm_and_fire
-    ├── profiles.py               ← CommandProfile dataclass + per-command profiles
-    ├── commands.py               ← set_*, move_*, acquire, select_job
-    ├── scanning_templates.py     ← save_experiment, load_experiment,
-    │                                strip_template, restore_template,
-    │                                apply_lrp_change, reorder_jobs
-    ├── scanning_template_parsers.py ← parse_lrp, diff_lrp,
-    │                                parse_template_positions,
-    │                                parse_acquisition_positions
-    ├── scanning_template_editors.py ← lrp_set_stack_calculation_mode,
-    │                                lrp_verify_stack_calculation_mode
-    └── ome_tiff.py               ← OME-XML validation and patching
-
-Dependency flow (strict DAG — no cycles)::
-
-    utils                         ← stdlib only
-    errors                        ← utils
-    limits                        ← stdlib only
-    readers                       ← stdlib only
-    ome_tiff                      ← stdlib only
-    settings                      ← utils
-    prechecks                     ← readers, utils
-    confirmations                 ← readers, settings, utils
-    core                          ← errors, utils
-    profiles                      ← prechecks, confirmations, errors
-    commands                      ← core, profiles, confirmations, errors,
-                                     limits, readers, utils
-    scanning_templates            ← utils
-    scanning_template_parsers     ← stdlib (+ optional readers)
-    scanning_template_editors     ← stdlib only
+    - api/          raw LAS X commands, readers, confirmations, profiles
+    - templates/    LRP/XML/RGN parsing, strip/restore, transactions
+    - output/       LAS X output detection, OME fixes, acquire-and-save
+    - motion/       stage limits, backlash-aware motion, stage config
+    - experimental/ LRP mutation helpers without live-state readback
+    - calibration.py, alignment.py, objectives.py
 """
 
 __version__ = "6.0.0"
@@ -170,8 +132,8 @@ __all__ = [
     # calibration (config + accessors + mutators)
     "CALIBRATION_SCHEMA_VERSION", "STAGE_SCHEMA_VERSION",
     "default_calibration_path",
-    "load_calibration", "save_calibration", "save_calibration_report",
-    "make_run_dir", "now_timestamp",
+    "load_calibration", "save_calibration",
+    "now_timestamp",
     "get_reference_slot", "get_image_to_stage",
     "get_offset_xy_um", "get_shift_xy_um", "get_offset_z_um", "get_shift_z_um",
     "translate_xy_between_objectives", "translate_z_between_objectives",
@@ -326,8 +288,8 @@ from .objectives import objective_by_slot, objective_summary, validate_slots
 from .calibration import (
     SCHEMA_VERSION as CALIBRATION_SCHEMA_VERSION,
     default_path as default_calibration_path,
-    load_calibration, save_calibration, save_calibration_report,
-    make_run_dir, now_timestamp,
+    load_calibration, save_calibration,
+    now_timestamp,
     get_reference_slot, get_image_to_stage,
     get_offset_xy_um, get_shift_xy_um, get_offset_z_um, get_shift_z_um,
     translate_xy_between_objectives, translate_z_between_objectives,

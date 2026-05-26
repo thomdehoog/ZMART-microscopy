@@ -1,4 +1,4 @@
-"""Tests for workflow/selection.py: select_targets, SelectionResult,
+"""Tests for pipeline/selection.py: select_targets, SelectionResult,
 load_overview_result re-homing, LimitsContext-typed filter signature.
 
 Display tests (display_selection) and example-crops are covered visually
@@ -9,11 +9,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from workflow.context import LimitsContext
-from workflow.overview import (
+from pipeline.context import LimitsContext
+from pipeline.overview import (
     OverviewResult, Pick, _filter_out_of_limits,
 )
-from workflow.selection import (
+from pipeline.selection import (
     MODE_EMPTY, MODE_NO_QUALIFYING, MODE_SPARSE, MODE_THRESHOLD,
     SelectionResult, load_overview_result, select_targets,
 )
@@ -95,11 +95,11 @@ def _patch_translate(monkeypatch):
     so the filter exercises only the limits-checking branches, not the
     driver-internal calibration math.
 
-    Patched at the import site (workflow.overview) because that's where
+    Patched at the import site (pipeline.overview) because that's where
     _filter_out_of_limits looks it up via `drv.translate_xyz_between_objectives`.
     """
     monkeypatch.setattr(
-        "workflow.overview.drv.translate_xyz_between_objectives",
+        "pipeline.overview.drv.translate_xyz_between_objectives",
         lambda x, y, z, calibration, *, from_slot, to_slot: (x, y, z),
     )
 
@@ -451,13 +451,13 @@ class TestFilterOutOfLimitsTakesLimitsContext:
 
 class TestLoadOverviewResultFromSelectionModule:
     def test_import_path_is_selection(self):
-        """load_overview_result lives in workflow.selection, no underscore."""
-        from workflow.selection import load_overview_result as f
+        """load_overview_result lives in pipeline.selection, no underscore."""
+        from pipeline.selection import load_overview_result as f
         assert callable(f)
 
     def test_load_overview_picks_is_not_importable(self):
         """The legacy name was deleted, not retained as a compat helper."""
-        from workflow import selection as sel_mod
+        from pipeline import selection as sel_mod
         assert not hasattr(sel_mod, "load_overview_picks")
 
 
@@ -469,7 +469,7 @@ class TestKernelRestartSelectionLoadsFromDisk:
         """Simulate fresh kernel: write npz + meta manually, then run only
         load_overview_result + select_targets. The test does NOT import or
         call run_overview anywhere."""
-        from workflow.overview import (
+        from pipeline.overview import (
             _build_npz_extra_arrays, _save_single_tile_analysis,
             _write_overview_meta,
         )
@@ -519,7 +519,7 @@ class TestKernelRestartSelectionLoadsFromDisk:
                     ],
                 },
             }
-            from workflow.overview import _picks_from_result
+            from pipeline.overview import _picks_from_result
             assert _save_single_tile_analysis(
                 result, analysis_dir, hash6="abc123",
                 acquisition_type="overview-scan",

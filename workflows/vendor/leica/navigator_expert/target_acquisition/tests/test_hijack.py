@@ -38,12 +38,12 @@ import pytest
 import tifffile
 
 from shared.output_layout import Naming, build_xml_name
-from workflow._hijack import (
+from pipeline._hijack import (
     NonSimulatorFrameError,
     _read_system_type,
     hijack_frame,
 )
-from workflow._mockprovider import get_provider
+from pipeline._mockprovider import get_provider
 
 
 # ─── Helpers ──────────────────────────────────────────────────────
@@ -66,7 +66,7 @@ _OME_DESC_TMPL = (
     '</OME>'
 )
 # Attribute-encoded OriginalMetadata fragment matching real LAS X
-# output. The hijack's allowlist parser (workflow/_hijack.py) walks
+# output. The hijack's allowlist parser (pipeline/_hijack.py) walks
 # OriginalMetadata via ElementTree across any namespace, so this
 # inline form is namespace-inherited from its parent OME element in
 # the synthesized companion XML below.

@@ -11,5 +11,5 @@ for p in [str(_VENDOR_LEICA), str(_REPO_ROOT), str(_TARGET_ACQ)]:
         sys.path.insert(0, p)
 
 # Pre-load navigator_expert.driver so its package identity is
-# established before workflow modules trigger the same import.
+# established before pipeline modules trigger the same import.
 import navigator_expert.driver  # noqa: E402,F401

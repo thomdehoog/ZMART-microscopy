@@ -107,11 +107,11 @@ def test_shutdown_prior_ctx_calls_shutdown_and_clears_slot(monkeypatch):
     fresh.
     """
     from unittest.mock import MagicMock
-    # workflow.__init__ re-exports the function `preflight`, which shadows
+    # pipeline.__init__ re-exports the function `preflight`, which shadows
     # the submodule in the package namespace. Reach the module via
     # sys.modules to monkeypatch its module-level _LAST_CTX.
-    import workflow.preflight   # noqa: F401  -- ensure submodule is loaded
-    preflight_mod = sys.modules["workflow.preflight"]
+    import pipeline.preflight   # noqa: F401  -- ensure submodule is loaded
+    preflight_mod = sys.modules["pipeline.preflight"]
 
     prior = MagicMock(name="prior_ctx")
     monkeypatch.setattr(preflight_mod, "_LAST_CTX", prior)
@@ -126,11 +126,11 @@ def test_shutdown_prior_ctx_is_noop_when_slot_empty(monkeypatch):
     """First preflight() in the session has _LAST_CTX is None; the
     helper must be a no-op (not call .shutdown() on None).
     """
-    # workflow.__init__ re-exports the function `preflight`, which shadows
+    # pipeline.__init__ re-exports the function `preflight`, which shadows
     # the submodule in the package namespace. Reach the module via
     # sys.modules to monkeypatch its module-level _LAST_CTX.
-    import workflow.preflight   # noqa: F401  -- ensure submodule is loaded
-    preflight_mod = sys.modules["workflow.preflight"]
+    import pipeline.preflight   # noqa: F401  -- ensure submodule is loaded
+    preflight_mod = sys.modules["pipeline.preflight"]
 
     monkeypatch.setattr(preflight_mod, "_LAST_CTX", None)
 
@@ -145,11 +145,11 @@ def test_shutdown_prior_ctx_clears_slot_even_when_shutdown_raises(monkeypatch):
     session.
     """
     from unittest.mock import MagicMock
-    # workflow.__init__ re-exports the function `preflight`, which shadows
+    # pipeline.__init__ re-exports the function `preflight`, which shadows
     # the submodule in the package namespace. Reach the module via
     # sys.modules to monkeypatch its module-level _LAST_CTX.
-    import workflow.preflight   # noqa: F401  -- ensure submodule is loaded
-    preflight_mod = sys.modules["workflow.preflight"]
+    import pipeline.preflight   # noqa: F401  -- ensure submodule is loaded
+    preflight_mod = sys.modules["pipeline.preflight"]
 
     prior = MagicMock(name="prior_ctx")
     prior.shutdown.side_effect = RuntimeError("engine already dead")

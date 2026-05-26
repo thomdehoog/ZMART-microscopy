@@ -1,4 +1,4 @@
-"""Tests for workflow.template.archive_and_strip (Step 2d).
+"""Tests for pipeline.template.archive_and_strip (Step 2d).
 
 Pins:
   - Pre-check refuses when on-disk state != "unstripped" (covers Step 2c
@@ -31,7 +31,7 @@ def ctx_factory(tmp_path, monkeypatch):
     where `calls` records each driver invocation in order so tests can
     assert relative ordering between save / copy / strip / restore.
     """
-    from workflow import template as template_mod
+    from pipeline import template as template_mod
 
     templates_dir = tmp_path / "templates"
     templates_dir.mkdir()
@@ -97,7 +97,7 @@ def test_refuses_when_state_is_stripped(ctx_factory):
     """Step 2c with restore_template_after_af=False -- or a rerun of 2d
     -- leaves disk in 'stripped' state. Refuse before save_experiment
     overwrites the configured template with the stripped one."""
-    from workflow.template import archive_and_strip
+    from pipeline.template import archive_and_strip
 
     ctx, calls = ctx_factory(state="stripped")
     with pytest.raises(RuntimeError, match="state is 'stripped'"):
@@ -109,7 +109,7 @@ def test_refuses_when_state_is_stripped(ctx_factory):
 def test_refuses_when_state_is_fresh(ctx_factory):
     """'fresh' = no _PythonInspect template on disk yet. 2a hasn't run
     or the operator pointed at the wrong templates_dir; refuse."""
-    from workflow.template import archive_and_strip
+    from pipeline.template import archive_and_strip
 
     ctx, calls = ctx_factory(state="fresh")
     with pytest.raises(RuntimeError, match="state is 'fresh'"):
@@ -121,11 +121,11 @@ def test_refuses_when_state_is_fresh(ctx_factory):
 
 
 def test_refuses_when_archive_already_populated(ctx_factory):
-    """The archive is the canonical workflow record for a run; a rerun
+    """The archive is the canonical pipeline record for a run; a rerun
     must not silently overwrite it. Even one of the three present is
     enough to refuse."""
-    from workflow import template as template_mod
-    from workflow.template import archive_and_strip
+    from pipeline import template as template_mod
+    from pipeline.template import archive_and_strip
 
     ctx, calls = ctx_factory()
     archive_dir = ctx.run.layout.metadata_dir("initialization")
@@ -146,8 +146,8 @@ def test_save_called_before_copy_and_strip(ctx_factory):
     """Operationally critical: save_experiment must flush operator
     edits to disk BEFORE the copy, and strip_template runs LAST so the
     archive captures the configured (not stripped) state."""
-    from workflow import template as template_mod
-    from workflow.template import archive_and_strip
+    from pipeline import template as template_mod
+    from pipeline.template import archive_and_strip
 
     ctx, calls = ctx_factory()
     archive_and_strip(ctx)
@@ -164,8 +164,8 @@ def test_save_experiment_confirms_on_lrp(ctx_factory):
     """LRP is the late-updating file under the modify-lrp path per the
     driver comment in scanning_templates.py. archive_and_strip must
     confirm on it so the copy doesn't race a half-written LRP."""
-    from workflow import template as template_mod
-    from workflow.template import archive_and_strip
+    from pipeline import template as template_mod
+    from pipeline.template import archive_and_strip
 
     ctx, calls = ctx_factory()
     archive_and_strip(ctx)
@@ -180,8 +180,8 @@ def test_save_experiment_confirms_on_lrp(ctx_factory):
 
 
 def test_copies_all_three_files_byte_for_byte(ctx_factory):
-    from workflow import template as template_mod
-    from workflow.template import archive_and_strip
+    from pipeline import template as template_mod
+    from pipeline.template import archive_and_strip
 
     ctx, _ = ctx_factory()
     archive_and_strip(ctx)
@@ -198,9 +198,9 @@ def test_copies_all_three_files_byte_for_byte(ctx_factory):
 def test_missing_source_file_warns_and_skips(ctx_factory, capsys):
     """If LAS X never wrote a .rgn (no markers ever placed), the archive
     should warn for the missing file and still archive the others. Not
-    a fatal -- the workflow xml/lrp still capture the run config."""
-    from workflow import template as template_mod
-    from workflow.template import archive_and_strip
+    a fatal -- the pipeline xml/lrp still capture the run config."""
+    from pipeline import template as template_mod
+    from pipeline.template import archive_and_strip
 
     ctx, _ = ctx_factory()
     (ctx.templates_dir / template_mod.TEMPLATE_RGN).unlink()
@@ -219,7 +219,7 @@ def test_missing_source_file_warns_and_skips(ctx_factory, capsys):
 
 
 def test_strip_template_called_exactly_once(ctx_factory):
-    from workflow.template import archive_and_strip
+    from pipeline.template import archive_and_strip
 
     ctx, calls = ctx_factory()
     archive_and_strip(ctx)
@@ -229,7 +229,7 @@ def test_strip_template_called_exactly_once(ctx_factory):
 def test_restore_template_never_called(ctx_factory):
     """The whole point of 2d: no restore. LAS X stays stripped for the
     rest of the run."""
-    from workflow.template import archive_and_strip
+    from pipeline.template import archive_and_strip
 
     ctx, calls = ctx_factory()
     archive_and_strip(ctx)
@@ -243,8 +243,8 @@ def test_save_experiment_failure_raises_before_copy(ctx_factory, monkeypatch):
     """If save_experiment returns None, no archive copy should land and
     strip_template must not fire -- the configured-template flush is the
     invariant of the whole step."""
-    from workflow import template as template_mod
-    from workflow.template import archive_and_strip
+    from pipeline import template as template_mod
+    from pipeline.template import archive_and_strip
 
     ctx, calls = ctx_factory()
     monkeypatch.setattr(template_mod.drv, "save_experiment",

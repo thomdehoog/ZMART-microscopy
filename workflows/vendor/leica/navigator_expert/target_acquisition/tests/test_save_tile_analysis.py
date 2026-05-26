@@ -11,7 +11,7 @@ from shared.output_layout.naming import (
     Naming,
     build_position_analysis_name,
 )
-from workflow.overview import (
+from pipeline.overview import (
     TileEvent,
     _fire_on_tile,
     _save_tile_analysis,
@@ -30,7 +30,7 @@ def _make_buffer_entry(
     """Build a single engine result dict matching the real schema.
 
     simulated: when True, mirrors the hijack-mode submit payload --
-    the workflow sets `simulated`/`mock_image_source` on the engine
+    the pipeline sets `simulated`/`mock_image_source` on the engine
     submission so _save_single_tile_analysis can persist them and
     _fire_on_tile can populate TileEvent. Real runs leave both off.
     """

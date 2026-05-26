@@ -1,4 +1,4 @@
-"""Tests for workflow._geom.
+"""Tests for pipeline._geom.
 
 The load-bearing test here is the no-drift assertion: the centre
 panel of Step 5's visualization and the target hijack provider must
@@ -26,7 +26,7 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from workflow._geom import (
+from pipeline._geom import (
     crop_overview_at_target_fov,
     target_fov_window_in_overview,
     visible_target_fov_window,
@@ -95,7 +95,7 @@ class TestTargetFovWindow:
         overview = np.full((400, 400), 10000, dtype=np.uint16)
         sentinel_window = (50, 60, 40, 30)
         with mock.patch(
-            "workflow._geom.target_fov_window_in_overview",
+            "pipeline._geom.target_fov_window_in_overview",
             return_value=sentinel_window,
         ) as spy:
             crop_overview_at_target_fov(
@@ -307,7 +307,7 @@ class TestNoDriftAgainstCallers:
         return path
 
     def _make_pick(self, *, centroid, position=0):
-        from workflow.overview import Pick
+        from pipeline.overview import Pick
         cx, cy = centroid
         return Pick(
             pick_id=("0", 0, 0, 1),
@@ -323,7 +323,7 @@ class TestNoDriftAgainstCallers:
         )
 
     def _make_target_record(self, *, target_pixel_size_um=0.13):
-        from workflow.target import TargetRecord
+        from pipeline.target import TargetRecord
         return TargetRecord(
             pick_id=("0", 0, 0, 1),
             cell_source_stage_xy_um=(0.0, 0.0),
@@ -366,7 +366,7 @@ class TestNoDriftAgainstCallers:
         (centred works either way; the asymmetric and edge cases
         catch the bugs).
         """
-        from workflow.visualize import _centroid_crop_at_target_fov
+        from pipeline.visualize import _centroid_crop_at_target_fov
 
         overview = np.full((400, 400), 10000, dtype=np.uint16)
         cy, cx = int(centroid[1]), int(centroid[0])
@@ -397,7 +397,7 @@ class TestNoDriftAgainstCallers:
         A future refactor that inlines different crop math in
         _mockprovider fails this test loudly.
         """
-        from workflow._mockprovider import build_target_provider
+        from pipeline._mockprovider import build_target_provider
 
         layout = self._make_layout(tmp_path)
         overview = np.full((400, 400), 10000, dtype=np.uint16)
@@ -445,8 +445,8 @@ class TestNoDriftAgainstCallers:
         contributor copy-pasting the crop math locally (producing
         identical output by coincidence) would still fail this test.
         """
-        from workflow.visualize import _centroid_crop_at_target_fov
-        from workflow._mockprovider import build_target_provider
+        from pipeline.visualize import _centroid_crop_at_target_fov
+        from pipeline._mockprovider import build_target_provider
 
         layout = self._make_layout(tmp_path)
         overview = np.full((400, 400), 10000, dtype=np.uint16)
@@ -464,7 +464,7 @@ class TestNoDriftAgainstCallers:
 
         # ── visualize side ───────────────────────────────────────
         with mock.patch(
-            "workflow.visualize.crop_overview_at_target_fov",
+            "pipeline.visualize.crop_overview_at_target_fov",
             return_value=sentinel,
         ) as viz_spy:
             _centroid_crop_at_target_fov(
@@ -481,7 +481,7 @@ class TestNoDriftAgainstCallers:
         # invokes the helper. Stub resize to no-op so we don't
         # need a shape-matching sentinel.
         with mock.patch(
-            "workflow._mockprovider.crop_overview_at_target_fov",
+            "pipeline._mockprovider.crop_overview_at_target_fov",
             return_value=sentinel,
         ) as hijack_spy, mock.patch(
             "skimage.transform.resize",

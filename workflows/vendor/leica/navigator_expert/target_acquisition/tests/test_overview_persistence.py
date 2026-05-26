@@ -15,7 +15,7 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from workflow.overview import (
+from pipeline.overview import (
     OverviewResult,
     Pick,
     Picks,
@@ -24,7 +24,7 @@ from workflow.overview import (
     _save_single_tile_analysis,
     _write_overview_meta,
 )
-from workflow.selection import load_overview_result
+from pipeline.selection import load_overview_result
 
 
 def _make_pick(
@@ -456,7 +456,7 @@ class TestPrePlan2NpzBackCompat:
         )
 
     def test_legacy_acquired_derives_simulated_false(self, tmp_path):
-        from workflow.visualize import _load_tile_npz
+        from pipeline.visualize import _load_tile_npz
         path = tmp_path / "tile.npz"
         self._write_legacy_npz(path, analysis_image_source="acquired")
         loaded = _load_tile_npz(path)
@@ -464,7 +464,7 @@ class TestPrePlan2NpzBackCompat:
         assert loaded.simulated is False
 
     def test_legacy_skimage_human_mitosis_derives_simulated_true(self, tmp_path):
-        from workflow.visualize import _load_tile_npz
+        from pipeline.visualize import _load_tile_npz
         path = tmp_path / "tile.npz"
         self._write_legacy_npz(
             path, analysis_image_source="skimage_human_mitosis",
@@ -479,7 +479,7 @@ class TestPrePlan2NpzBackCompat:
         directly without consulting the legacy field. Fixture is
         intentionally minimal to the assertion surface (see
         ``_write_legacy_npz``)."""
-        from workflow.visualize import _load_tile_npz
+        from pipeline.visualize import _load_tile_npz
         path = tmp_path / "tile.npz"
         np.savez_compressed(
             path,
@@ -532,7 +532,7 @@ class TestAnalysisImageSourceSingleTrace:
     # identifier in active code. The set is intentionally tiny -- if
     # it grows, the cleanup is incomplete.
     ALLOWLIST = frozenset({
-        "target_acquisition/workflow/visualize.py",              # back-compat read
+        "target_acquisition/pipeline/visualize.py",              # back-compat read
         "target_acquisition/tests/test_overview_persistence.py", # this test file
     })
 

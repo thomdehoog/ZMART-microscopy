@@ -12,12 +12,12 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from workflow.context import LimitsContext
-from workflow.overview import OverviewResult, Pick, Picks
-from workflow.selection import (
+from pipeline.context import LimitsContext
+from pipeline.overview import OverviewResult, Pick, Picks
+from pipeline.selection import (
     MODE_NO_QUALIFYING, MODE_THRESHOLD, SelectionResult, select_targets,
 )
-from workflow.summary import write_summary
+from pipeline.summary import write_summary
 
 
 def _build_ctx_like(out_dir: Path, *, scan_field=None):
@@ -38,7 +38,7 @@ def _build_ctx_like(out_dir: Path, *, scan_field=None):
     cfg.stage_y_min_um = None
     cfg.stage_y_max_um = None
     # asdict() walks fields via __dataclass_fields__, so use a real Config
-    from workflow.context import Config
+    from pipeline.context import Config
     cfg = Config(
         acquisition_job="Overview",
         target_job="HiRes",
@@ -59,7 +59,7 @@ def _build_ctx_like(out_dir: Path, *, scan_field=None):
     ctx.source_zgalvo_um = 0.0
     ctx.source_zgalvo_warning = False
     ctx.cellpose_env_present = True
-    from workflow.context import TargetState
+    from pipeline.context import TargetState
     ctx.target_state = TargetState()
     return ctx
 
@@ -239,7 +239,7 @@ class TestSelectionJsonStrictness:
         """
         # Identity translation so picks survive the limits filter.
         monkeypatch.setattr(
-            "workflow.overview.drv.translate_xyz_between_objectives",
+            "pipeline.overview.drv.translate_xyz_between_objectives",
             lambda x, y, z, calibration, *, from_slot, to_slot: (x, y, z),
         )
 
