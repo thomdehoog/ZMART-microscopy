@@ -1,7 +1,17 @@
-﻿"""Notebook-side pipeline helpers for target acquisition.
+﻿"""Public surface for the target-acquisition pipeline.
 
-The notebook imports only from this package; implementation logic lives
-here while operator-facing notes live in the parent README.
+The notebook imports only from this package. Re-exports:
+
+- the six numbered step functions executed in order from the notebook:
+  preflight -> prepare_template -> build_focus_map -> run_overview ->
+  select_targets -> acquire_targets -> finish;
+- the run-scoped types (`Config`, `Context`, `LimitsContext`, `TargetState`),
+  the dataclasses each step produces (`Picks`, `OverviewResult`,
+  `SelectionResult`, `TargetRecord`, `FocusMap`), and the selection-mode
+  constants;
+- the visualization helpers used both live in the notebook and offline.
+
+Modules whose names start with `_` are internal.
 """
 import sys
 from pathlib import Path

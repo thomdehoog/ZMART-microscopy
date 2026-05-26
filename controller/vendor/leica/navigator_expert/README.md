@@ -181,7 +181,7 @@ the command profile in `driver/core/profiles.py`.
 | `set_sequential_mode` | `client, job_name, mode` | e.g. `"Line"`, `"Frame"`, `"Stack"` |
 | `set_scan_field_rotation` | `client, job_name, angle` | `tolerance=0.5` (degrees) |
 | `set_image_format` | `client, job_name, format_str` | Accepts `"512 x 512"` or `(512, 512)` |
-| `set_objective` | `client, job_name, hw_info, name=None, magnification=None` | Requires `hw_info` from `get_hardware_info()`. Specify either `name` or `magnification` |
+| `set_objective` | `client, job_name, hw_info, slot_index=None, name=None, magnification=None` | Requires `hw_info` from `get_hardware_info()`. Specify exactly one of `slot_index`, `name`, or `magnification` |
 
 ### Z-Stack Settings
 
@@ -208,7 +208,6 @@ These commands require a `setting_index` to target a specific sequential setting
 | Function | Key Parameters | Notes |
 |----------|---------------|-------|
 | `set_detector_gain` | `client, job_name, setting_index, beam_route, value` | `tolerance=1.0` |
-| `set_detector_active` | `client, job_name, setting_index, beam_route, activate` | No readback confirmation |
 
 ### Laser
 
@@ -216,7 +215,6 @@ These commands require a `setting_index` to target a specific sequential setting
 |----------|---------------|-------|
 | `set_laser_intensity` | `client, job_name, setting_index, beam_route, line_index, value` | `tolerance=0.005`. Value range: 0.0 - 1.0 |
 | `set_laser_shutter` | `client, job_name, setting_index, beam_route, activate` | `True` = open, `False` = closed |
-| `add_or_remove_laser_line` | `client, job_name, setting_index, beam_route, line_index, wavelength, add=True` | No readback confirmation |
 
 ### Filter Wheel
 

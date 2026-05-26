@@ -1,5 +1,10 @@
 # Calibration
 
+Measure the optical state of the microscope: the image-to-stage rotation
+for the reference objective, then the translation between each objective
+pair the scope should support. Workflows consume only the promoted JSON
+under `current/`; nothing else here is a runtime dependency.
+
 Operator-facing calibration is notebook driven. The notebooks stay thin:
 each cell calls one procedure function, while reusable code lives in
 `core/`.

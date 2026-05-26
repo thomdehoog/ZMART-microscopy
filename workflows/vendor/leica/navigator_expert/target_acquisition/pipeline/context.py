@@ -1,4 +1,18 @@
-"""Config (immutable operator inputs) + Context (mutable runtime state)."""
+"""Run-scoped types shared by every pipeline step.
+
+- `Config` is the immutable record of operator inputs, constructed once
+  in the notebook config cell. Stage XY limits come from LAS X boundary
+  markers by default; the `stage_*_um` cfg fields are an opt-in escape
+  hatch when markers cannot be used.
+- `Context` is the mutable runtime state that steps read and update in
+  place: connected LAS X client, run naming, scan-field geometry, focus
+  map, per-step result handles, job-state cache.
+- `LimitsContext` is a narrow subset constructed by `select_targets` so
+  the selection step can do out-of-limits filtering without holding the
+  full Context (and so tests can build one directly).
+- `TargetState` records what happened during Step 5 (objective switch,
+  post-switch z-galvo readback, drift) for the run summary.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

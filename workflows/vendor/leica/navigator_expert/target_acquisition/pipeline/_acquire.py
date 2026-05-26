@@ -1,11 +1,10 @@
-"""_acquire.py -- stage-positioning helper for Steps 4 and 5.
+"""Stage-positioning helper for Steps 4 and 5.
 
-After the driver-first migration, this module is motion only.
-The driver's ``acquire_and_save`` triggers the frame and persists
-it under the canonical layout; the pipeline positions the stage
-before each call.
+This module owns motion only -- the driver's ``acquire_and_save``
+triggers the frame and persists it under the canonical layout. The
+pipeline positions the stage before each driver call.
 
-``acquire`` does verified job state, move z-wide, then move XY (with
+``acquire`` verifies job state, moves z-wide, then moves XY (with
 backlash takeup via the driver primitive if configured). It does not
 trigger a frame and returns None.
 """
