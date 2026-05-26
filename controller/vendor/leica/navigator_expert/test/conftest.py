@@ -42,14 +42,13 @@ import navigator_expert.driver as _drv  # noqa: E402
 sys.modules.setdefault("lasx", _drv)
 
 _DRIVER_SUBMODULES = (
-    "alignment", "commands", "confirmations", "core", "errors",
-    "calibration", "file_confirmation", "limits", "objective_offsets",
-    "ome_tiff", "prechecks", "profiles", "readers", "registration",
+    "alignment", "calibration", "file_confirmation", "limits",
+    "objective_offsets", "ome_tiff", "registration",
     "scanning_template_editors", "scanning_template_editors_focus",
     "scanning_template_editors_roi", "scanning_template_editors_scan",
     "scanning_template_editors_z", "scanning_template_parsers",
-    "scanning_template_synthesis", "scanning_templates", "settings",
-    "stage_config", "stage_motion", "utils",
+    "scanning_template_synthesis", "scanning_templates",
+    "stage_config", "stage_motion",
 )
 for _sub in _DRIVER_SUBMODULES:
     try:
@@ -57,3 +56,22 @@ for _sub in _DRIVER_SUBMODULES:
     except ImportError:
         continue
     sys.modules.setdefault(f"lasx.{_sub}", _mod)
+
+# Phase F: core API modules moved to driver.api.*. Map lasx.<sub> to the
+# real module (not the compatibility shim) so unittest.mock.patch targets
+# the live namespace.  We use assignment (not setdefault) and also set the
+# attribute on the lasx package to override any subsequent ``import
+# lasx.<sub>`` resolution that would otherwise find the shim via the
+# package's __path__.
+_API_SUBMODULES = (
+    "commands", "confirmations", "core", "errors", "prechecks",
+    "profiles", "readers", "settings", "utils",
+)
+_lasx_pkg = sys.modules["lasx"]
+for _sub in _API_SUBMODULES:
+    try:
+        _mod = importlib.import_module(f"navigator_expert.driver.api.{_sub}")
+    except ImportError:
+        continue
+    sys.modules[f"lasx.{_sub}"] = _mod
+    setattr(_lasx_pkg, _sub, _mod)
