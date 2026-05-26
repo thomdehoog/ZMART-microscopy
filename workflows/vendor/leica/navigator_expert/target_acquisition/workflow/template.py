@@ -195,15 +195,12 @@ def read_scan_field(ctx: Context) -> None:
                 settings.get("imageSize", ""),
             )
         if tile_size_um:
-            template_data = drv.synthesize_tiles(
-                template_data, tile_size_um, job_name=cfg.acquisition_job,
+            raise RuntimeError(
+                "Template has geometries but no pre-computed tile positions. "
+                "Tile synthesis (synthesize_tiles) was removed as experimental. "
+                "Use LAS X to generate tile positions from the geometry, then "
+                "re-run the workflow."
             )
-            tile_positions = template_data["acquisition_positions"]
-            n_synth = sum(
-                len(r["positions"]) for r in tile_positions.values()
-            )
-            print(f"[step 2b] Synthesized {n_synth} tiles from geometries "
-                  f"(tile size {tile_size_um:.1f} um)")
         else:
             raise RuntimeError(
                 "No tile positions found and tile size could not be "
