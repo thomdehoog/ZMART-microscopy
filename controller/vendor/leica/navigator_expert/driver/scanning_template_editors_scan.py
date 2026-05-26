@@ -1,24 +1,5 @@
 # Compatibility shim. Prefer navigator_expert.driver.experimental.lrp_edits.scan.
-from .experimental.lrp_edits.scan import (  # noqa: F401
-    SCAN_DIRECTIONS,
-    lrp_set_zoom,
-    lrp_verify_zoom,
-    lrp_set_scan_speed,
-    lrp_verify_scan_speed,
-    lrp_set_image_format,
-    lrp_verify_image_format,
-    lrp_set_scan_direction,
-    lrp_verify_scan_direction,
-    lrp_set_phase_x,
-    lrp_verify_phase_x,
-    lrp_set_resonant_scanner,
-    lrp_verify_resonant_scanner,
-    lrp_set_bit_depth,
-    lrp_verify_bit_depth,
-    lrp_set_scan_field_rotation,
-    lrp_verify_scan_field_rotation,
-    lrp_set_pan,
-    lrp_verify_pan,
-    lrp_get_pan,
-    reset_pan,
-)
+# sys.modules alias so monkey-patching targets the real module globals.
+import sys as _sys
+from .experimental.lrp_edits import scan as _canonical
+_sys.modules[__name__] = _canonical
