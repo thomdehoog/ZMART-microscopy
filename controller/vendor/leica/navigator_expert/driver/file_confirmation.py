@@ -43,7 +43,7 @@ from .ome_tiff import (
     check_ome_tiff, check_ome_xml_file,
     fix_ome_tiff, fix_ome_xml_file,
 )
-from .scanning_templates import _wait_file_stable
+from ._file_utils import _wait_file_stable
 
 log = logging.getLogger(__name__)
 
