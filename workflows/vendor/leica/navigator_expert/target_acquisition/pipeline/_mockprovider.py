@@ -1,4 +1,4 @@
-"""Mock image providers for simulation mode (Plan 2 §4b + target zoom).
+"""Mock image providers for simulation mode.
 
 Two flavours of provider, distinguished by what determines the mock
 content:
@@ -108,7 +108,7 @@ def build_target_provider(
     ``pick`` (it identifies which overview file to read from and
     where the cell is in that file).
 
-    Plan §"Geometry" defines the math. Summary:
+    Summary:
       1. Read source overview tile (``layout.data_dir("overview-scan")
          / build_image_name(overview_naming)``).
       2. Crop a window centred on ``pick.centroid_col_row_px``, sized
@@ -182,7 +182,7 @@ def build_target_provider(
             overview,
             centroid_col_row_px=pick.centroid_col_row_px,
             # Scalar pixel size (col-axis) -- rest of the pipeline
-            # treats it the same. See plan §"Pixel-size model".
+            # treats it the same.
             source_pixel_size_um=float(pick.source_pixel_size_um[0]),
             target_shape_px=(int(shape[0]), int(shape[1])),
             target_pixel_size_um=px_tg,

@@ -5,7 +5,7 @@ import pytest
 
 
 def _load_calibration_module():
-    sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[6]))
     import calibration.vendor.leica.navigator_expert.core.model as calibration
     return calibration
 

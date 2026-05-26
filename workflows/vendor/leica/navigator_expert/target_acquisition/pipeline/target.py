@@ -39,11 +39,11 @@ class TargetRecord:
     # target came from -- the overview-scan file index p, NOT the
     # target-acquisition index. None only on a pre-`position` reload.
     source_tile_position: int | None = None
-    # Plan 2 -- per-record provenance. simulated=True means this
-    # target's saved .ome.tiff carries mock pixels under the LAS X
-    # simulator's OME envelope; mock_image_source names the provider.
-    # Default False/None preserves back-compat for non-simulate runs
-    # and pre-Plan-2 reloads.
+    # Per-record provenance. simulated=True means this target's saved
+    # .ome.tiff carries mock pixels under the LAS X simulator's OME
+    # envelope; mock_image_source names the provider. Default
+    # False/None preserves back-compat for non-simulate runs and older
+    # reloads.
     simulated: bool = False
     mock_image_source: str | None = None
 

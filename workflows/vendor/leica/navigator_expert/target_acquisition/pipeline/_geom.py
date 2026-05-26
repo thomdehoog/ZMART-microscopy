@@ -172,8 +172,7 @@ def crop_overview_at_target_fov(
         pixel coordinates. (Convention matches ``Pick.centroid_col_row_px``.)
     source_pixel_size_um : float
         Overview's pixel size in micrometres. Scalar (square pixels
-        assumption -- consistent with the rest of the pipeline; see
-        the target-mock-zoom plan, §"Pixel-size model").
+        assumption -- consistent with the rest of the pipeline.
     target_shape_px : tuple[int, int]
         Target image's pixel dimensions as ``(H_tg, W_tg)``. Non-
         square *images* are honoured (height and width derive

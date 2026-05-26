@@ -30,7 +30,7 @@ set_scan_speed(client, "MyExperiment", 600)
 # 4. Move stage and acquire
 move_xy(client, 65_000, 65_000)
 result = acquire(client, "MyExperiment")
-print(f"Acquired in {result['elapsed']:.1f}s")
+print(f"Acquired in {result['timing']['total_s']:.1f}s")
 ```
 
 ---
@@ -133,7 +133,7 @@ move_z(client, "Tiling_10x", 5.0, unit="um", z_mode="galvo")
 # Acquire
 result = acquire(client, "Tiling_10x", poll_timeout=300)
 if result["success"]:
-    print(f"Done in {result['elapsed']:.1f}s")
+    print(f"Done in {result['timing']['total_s']:.1f}s")
 else:
     print(f"Failed: {result['message']}")
 ```
@@ -142,12 +142,13 @@ else:
 
 ## API Reference
 
-All command functions (`set_*`, `move_*`, `acquire`, `select_job`) accept these common optional parameters:
+Most command functions accept these optional overrides. `None` means use
+the command profile in `driver/core/profiles.py`.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `max_retries` | `3` | Transient error retry ceiling |
-| `pre_check_timeout` | `None` | Override idle-wait timeout (seconds). `None` uses the profile default (30s for most commands, 60s for acquire) |
+| `max_retries` | `None` | Override transient error retry ceiling |
+| `pre_check_timeout` | `None` | Override idle-wait timeout when the profile has a pre-check |
 
 ### Read-Only Functions
 
@@ -184,7 +185,6 @@ All command functions (`set_*`, `move_*`, `acquire`, `select_job`) accept these 
 | `set_z_stack_definition` | `client, job_name, begin_um=None, end_um=None, old_begin_um=None, old_end_um=None` | `tolerance=1.0` um. Use `old_*` params to reset previous bounds |
 | `set_z_stack_step_size` | `client, job_name, step_size_um` | `tolerance=0.5` um |
 | `set_z_stack_size` | `client, job_name, size_um` | `tolerance=1.5` um |
-| `set_time_definition` | `client, job_name, interval=1, cycles=1, minimize=False` | No readback confirmation |
 
 ### Per-Setting Optical
 
@@ -222,9 +222,9 @@ These commands require a `setting_index` to target a specific sequential setting
 
 ### Stage Movement
 
-**`move_xy(client, x, y, unit="um", *, max_retries=3, pre_check_timeout=None, tolerance=20.0)`**
+**`move_xy(client, x, y, unit="um", *, max_retries=None, pre_check_timeout=None, tolerance=None)`**
 
-Moves the XY stage to an absolute position. The result dict includes a `"position"` key with the final readback.
+Moves the XY stage to an absolute position. The result dict includes a `"position"` key with the requested target position; check `confirmed` and the logs for readback status.
 
 - `unit`: `"um"` (micrometers), `"mm"` (millimeters), or `"m"` (meters)
 - `tolerance`: position confirmation tolerance in micrometers (default 20.0)
@@ -236,31 +236,29 @@ if result["success"]:
     print(f"At ({pos['x_um']:.1f}, {pos['y_um']:.1f}) um")
 ```
 
-**`move_z(client, job_name, z, relative=False, unit="um", z_mode="galvo", *, max_retries=3, pre_check_timeout=None, tolerance=1.0)`**
+**`move_z(client, job_name, z, unit="um", z_mode="galvo", *, max_retries=None, pre_check_timeout=None, tolerance=None)`**
 
 Moves the Z drive.
 
-- `relative`: if `True`, moves by offset rather than to absolute position
-- `z_mode`: `"galvo"`, `"zwide"`, `"both"`, `"finefocus"`, `"microtome"`, or `"none"`
-- Readback confirmation only works for absolute `"galvo"` and `"zwide"` moves
+- `z_mode`: `"galvo"` or `"zwide"`
+- Readback confirmation checks the requested absolute Z position.
 
 ### Acquisition & Job Selection
 
-**`acquire(client, job_name, poll_interval=0.1, poll_timeout=None, heartbeat_interval=30.0, settle_time=0.5, start_timeout=15.0, pre_check_timeout=None)`**
+**`acquire(client, job_name, poll_interval=None, poll_timeout=None, heartbeat_interval=None, start_timeout=None, pre_check_timeout=None)`**
 
-Triggers acquisition and blocks until the scan completes. Returns a result dict with an `"elapsed"` key.
+Triggers acquisition once and blocks until the scan completes. Returns timing in `result["timing"]["total_s"]`.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `poll_interval` | `0.1` | Seconds between scan status polls |
+| `poll_interval` | profile | Seconds between scan status polls |
 | `poll_timeout` | `None` | Hard ceiling for completion. `None` = wait indefinitely |
-| `heartbeat_interval` | `30.0` | Log interval during long scans |
-| `settle_time` | `0.5` | Minimum seconds after fire before accepting idle as completion |
-| `start_timeout` | `15.0` | Seconds to wait for scan to start before logging a warning |
+| `heartbeat_interval` | profile | Log interval during long scans |
+| `start_timeout` | profile | Seconds to wait for scan to start before returning failure |
 
-**`select_job(client, job_name, poll_timeout=30.0, poll_interval=0.3, settle_time=0.1)`**
+**`select_job(client, job_name, poll_timeout=None, poll_interval=None)`**
 
-Selects a job by name. Returns immediately if the job is already selected. Returns a result dict with an `"elapsed"` key.
+Selects a job by name. Returns immediately if the job is already selected. Returns timing in `result["timing"]["total_s"]`.
 
 ### Settings Parsing
 
@@ -356,9 +354,7 @@ Every command function returns a result dict with this shape:
 
 | Command | Extra Key | Value |
 |---------|-----------|-------|
-| `move_xy` | `"position"` | `{"x", "y", "x_um", "y_um"}` — final XY readback |
-| `acquire` | `"elapsed"` | `float` — same as `timing["total_s"]` |
-| `select_job` | `"elapsed"` | `float` — same as `timing["total_s"]` |
+| `move_xy` | `"position"` | Requested target position: `{"x", "y", "x_um", "y_um"}` |
 
 ---
 
@@ -396,7 +392,7 @@ Unknown errors are treated as permanent (conservative: fail immediately rather t
 The backbone has two retry ceilings:
 
 1. **`max_retries`** (default 3) — transient error retries inside the fire block. Total attempts = `max_retries + 1`.
-2. **`max_confirm_attempts`** (default 3, set per profile) — readback confirmation attempts. On failure, the backbone waits for idle and re-fires the command.
+2. **`max_confirm_attempts`** (default 3, set per profile) — readback confirmation attempts. Setting profiles may re-fire between failed readback windows and still return `success=True, confirmed=False` if LAS X never reports the requested state. Acquisition profiles fire once only.
 
 ---
 
@@ -406,20 +402,21 @@ The backbone has two retry ceilings:
 
 ```
 controller/vendor/leica/navigator_expert/
-??? README.md
-??? driver/
-?   ??? __init__.py          # frozen facade for LAS X driver commands
-?   ??? core/                # raw LAS X commands, readers, confirmations, profiles
-?   ??? templates/           # LRP/XML/RGN parsing, strip/restore, transactions
-?   ??? acquisition/         # capture, LAS X file arrival, OME fixes, acquire-and-save
-?   ??? stage/               # stage limits, movement, stage current-state loader
-?   ??? experimental/        # LRP mutation helpers without live-state readback
-??? test/                    # driver and calibration unit tests
+├── README.md
+├── driver/
+│   ├── __init__.py          # frozen facade for LAS X driver commands
+│   ├── core/                # commands, readers, confirmations, profiles
+│   ├── templates/           # LRP/XML/RGN parsing and transactions
+│   ├── acquisition/         # capture, LAS X files, OME fixes, save chain
+│   ├── stage/               # stage limits, movement, current-state loader
+│   └── experimental/        # LRP mutation helpers without live readback
+└── tests/                   # offline driver unit tests and fixtures
 
 calibration/vendor/leica/navigator_expert/
-??? current/                 # promoted measured state: calibration.json, stage.json
-??? core/                    # calibration model + notebook implementation
-??? notebooks/               # operator calibration notebooks
+├── current/                 # promoted measured state: calibration.json, stage.json
+├── core/                    # calibration model + notebook implementation
+├── notebooks/               # operator calibration notebooks
+└── tests/                   # calibration unit/integration tests
 ```
 
 ### Dependency DAG
@@ -454,21 +451,20 @@ confirm_and_fire (outer wrapper)
 ├── _fire_block (inner, up to max_retries + 1 attempts)
 │     ├── 1. pre_check_fn()       wait for scanner idle
 │     ├── 2. setup_fn(model)      write parameters to API model
-│     ├── 3. _fire_with_receipt   UpdateAwaitReceipt transport
+│     ├── 3. fire API command     UpdateAwaitReceipt or UpdateAsync
 │     ├── 4. error_check_fn()     inspect PyApiCommandEcho
 │     └── retry on transient error
 │
 ├── confirm_fn()                  readback verification
 │
 └── on confirm failure (up to max_confirm_attempts):
-      ├── correct_fn() or idle wait
-      ├── re-fire via _fire_block
+      ├── profile decides readback-only retry or idle/correction + re-fire
       └── re-confirm
 ```
 
 **Inner layer (`_fire_block`):** Executes the four-step delivery pipeline. Retries on transient errors (e.g. scanner busy). Permanent errors fail immediately.
 
-**Outer layer (`confirm_and_fire`):** Calls the fire block, then runs readback confirmation. If confirmation fails, it waits for idle (or runs a custom correction function), re-fires, and re-confirms.
+**Outer layer (`confirm_and_fire`):** Calls the fire block, then runs readback confirmation. Profile policy decides whether a failed confirmation re-fires the command or retries readback only. Acquisition profiles disable re-fire so an acquisition command is never sent twice by the confirmation loop.
 
 ### Pluggable Function Contract
 
@@ -489,9 +485,11 @@ class CommandProfile:
     correct_fn: callable = None                # Custom correction (None = idle wait)
     max_retries: int = 3                       # Transient error retries
     max_confirm_attempts: int = 3              # Confirm loop ceiling
+    refire_on_unconfirmed: bool = True         # Re-send after failed readback
+    success_on_unconfirmed: bool = False       # Non-fatal exhausted readback
 ```
 
-Profiles are defined in `profiles.py`. Most commands use `_idle_standard` (30s timeout) as their pre-check. `acquire` uses `_idle_long` (60s). `select_job` has no pre-check.
+Profiles are defined in `driver/core/profiles.py`. Tolerances, polling intervals, confirmation windows, and acquisition fire-once policy live there rather than being hardcoded in command wrappers.
 
 ---
 
@@ -501,10 +499,10 @@ Adding a new command requires changes to four files, following the same pattern 
 
 ### Step 1: Write a Confirm Function
 
-In `confirm.py`, add a readback function that checks whether the value was applied. If readback is not possible for the command, skip this step.
+In `driver/core/confirmations.py`, add a readback function that checks whether the value was applied. If readback is not possible for the command, skip this step.
 
 ```python
-# confirm.py
+# confirmations.py
 
 def _confirm_my_param(client, job_name, si, target, tolerance=0.1):
     """Confirm my_param readback is within tolerance."""
@@ -530,12 +528,9 @@ In `profiles.py`, import the confirm function and create a profile:
 ```python
 # profiles.py
 
-from .confirm import _confirm_my_param
+from .confirmations import _confirm_my_param
 
-MY_PARAM = CommandProfile(
-    pre_check_fn=_idle_standard,
-    confirm_fn=_confirm_my_param,
-)
+MY_PARAM = _leica_setting_profile(_confirm_my_param)
 ```
 
 ### Step 3: Write the Command Wrapper
@@ -546,10 +541,10 @@ In `commands.py`, write the public function using the three-phase pattern:
 # commands.py
 
 from .profiles import MY_PARAM
-from .confirm import _confirm_my_param
+from .confirmations import _confirm_my_param
 
 def set_my_param(client, job_name, setting_index, value, *,
-                 max_retries=3, pre_check_timeout=None, tolerance=0.1):
+                 max_retries=None, tolerance=None):
     """Set my_param for a specific setting index."""
     api_obj = client.PyApiSetMyParamByJobName
 
@@ -565,9 +560,9 @@ def set_my_param(client, job_name, setting_index, value, *,
         setup_fn=setup,
         confirm_fn=partial(_confirm_my_param, job_name=job_name,
                            si=setting_index, target=value,
-                           tolerance=tolerance),
+                           tolerance=_profile_value(
+                               MY_PARAM, "confirm_tolerance", tolerance)),
         max_retries=max_retries,
-        pre_check_timeout=pre_check_timeout,
     )
 ```
 
@@ -588,7 +583,7 @@ from .commands import set_my_param
 ### Notes
 
 - The pattern is identical for every command. Copy an existing command of similar shape.
-- `_dispatch` handles all lambda binding, pre-check timeout overrides, and the `confirm_and_fire` call.
+- `_dispatch` handles lambda binding, profile defaults, and the `confirm_and_fire` call.
 - If no readback is possible, omit `confirm_fn` from the `_dispatch` call (the profile's `confirm_fn=None` is used).
 - Commands that need no pre-check (like `select_job`) set `pre_check_fn=None` in the profile.
 

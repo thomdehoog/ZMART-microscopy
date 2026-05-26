@@ -1,13 +1,14 @@
-"""Per-kind console-log capture.
+"""Timestamped console-log capture for notebook-driven acquisitions.
 
-Tees the workflow's ``print()`` output into a per-acquisition-type
-``logs/<kind>.log`` text file while still showing it live in the
-notebook. A *tee*, not a redirect: output reaches both the real stdout
-and the file.
+The target-acquisition notebook still uses ``print()`` for operator
+feedback. This module tees that output to per-kind log files under the
+run directory while preserving the live notebook output exactly as the
+operator sees it.
 
-Design notes in ``.claude/plans/plan-console-logs.md``. This is a raw
-console capture, not a structured log -- ``run_summary.json`` remains
-the canonical structured run record.
+Only the file side is decorated: every captured line is prefixed with a
+local timestamp so hardware runs can be reconstructed after the fact.
+``run_summary.json`` remains the canonical structured run record; these
+logs are the chronological narrative.
 """
 from __future__ import annotations
 
@@ -23,13 +24,37 @@ from pathlib import Path
 # nested capture_console on the same path no-ops, so a line is never
 # written to the same file twice.
 _active_paths: set[Path] = set()
+_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def _timestamp() -> str:
+    """Current local wall-clock timestamp for operator-facing logs."""
+    return datetime.now().strftime(_TIMESTAMP_FORMAT)
 
 
 def _separator(label: str) -> str:
-    """Header line opening a capture block, so re-runs and multi-step
-    phases stay legible and time-anchored in the log."""
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return f"=== {label} | {ts} ===\n"
+    """Header line opening a capture block for re-runs of the same step."""
+    return f"{_timestamp()} | capture.start | kind={label}\n"
+
+
+class _TimestampedFileWriter:
+    """Write text to a file with one timestamp prefix per completed line."""
+
+    def __init__(self, file_obj) -> None:
+        self._file = file_obj
+        self._at_line_start = True
+
+    def write(self, text) -> None:
+        if not text:
+            return
+        for chunk in str(text).splitlines(keepends=True):
+            if self._at_line_start:
+                self._file.write(f"{_timestamp()} | ")
+            self._file.write(chunk)
+            self._at_line_start = chunk.endswith(("\n", "\r"))
+
+    def flush(self) -> None:
+        self._file.flush()
 
 
 class _Tee:
@@ -40,7 +65,7 @@ class _Tee:
 
     def __init__(self, original, file_obj) -> None:
         self._original = original
-        self._file = file_obj
+        self._file = _TimestampedFileWriter(file_obj)
         self._lock = threading.Lock()
 
     def write(self, text) -> int:
@@ -147,6 +172,7 @@ class _DeferredTee:
     def __init__(self, original) -> None:
         self._original = original
         self._file = None
+        self._file_writer = None
         self._log_path = None
         self._buffer: list[str] = []
         self._disabled = False
@@ -155,10 +181,10 @@ class _DeferredTee:
     def write(self, text) -> int:
         with self._lock:
             n = self._original.write(text)
-            if self._file is not None:
+            if self._file_writer is not None:
                 try:
-                    self._file.write(text)
-                    self._file.flush()
+                    self._file_writer.write(text)
+                    self._file_writer.flush()
                 except (ValueError, OSError):
                     pass
             elif not self._disabled:
@@ -168,9 +194,9 @@ class _DeferredTee:
     def flush(self) -> None:
         with self._lock:
             self._original.flush()
-            if self._file is not None:
+            if self._file_writer is not None:
                 try:
-                    self._file.flush()
+                    self._file_writer.flush()
                 except (ValueError, OSError):
                     pass
 
@@ -202,9 +228,11 @@ class _DeferredTee:
                 self._disabled = True
                 return
             handle.write(_separator(log_path.stem))
-            handle.write("".join(self._buffer))
-            handle.flush()
+            writer = _TimestampedFileWriter(handle)
+            writer.write("".join(self._buffer))
+            writer.flush()
             self._file = handle
+            self._file_writer = writer
             self._log_path = log_path
             self._buffer = []
             # Register the bound path so a nested capture_console on the

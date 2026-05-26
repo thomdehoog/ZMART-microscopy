@@ -14,9 +14,10 @@ Extra parameters (job_name, target, tolerance, etc.) are pre-bound with
 binds ``client`` via lambda. The backbone sees only a zero-arg callable
 returning a result dict.
 
-**Polling ownership:** Every confirm function owns its polling loop and
-returns only when the readback matches or timeout is exceeded. The
-backbone calls each with ``max_confirm_attempts=1``.
+**Polling ownership:** Every confirm function owns one bounded polling
+window and returns only when the readback matches or the window expires.
+Profiles decide how many confirmation windows are allowed and whether a
+failed window causes a re-fire.
 
 **No closure factories.** The old ``_make_acquire_confirm`` and
 ``_make_select_job_confirm`` factories are eliminated. Confirm functions
@@ -62,8 +63,8 @@ def confirm_move_z(client, *, job_name, z_mode, target_um, tolerance=1.0,
                    timeout=None, poll_interval=0.01):
     """Poll until Z drive position is within tolerance, or until timeout.
 
-    Owns its polling loop — the backbone calls this once with
-    ``max_confirm_attempts=1``.
+    Owns one bounded polling window; the command profile decides how
+    many windows are attempted.
 
     Args:
         client: The connected LAS X API client.
@@ -754,9 +755,9 @@ def confirm_objective(client, *, job_name, target_slot, target_name=None,
                       timeout=None, poll_interval=0.01):
     """Poll until the active objective's slot matches *target_slot*.
 
-    Owns its polling loop — the backbone calls this once with
-    ``max_confirm_attempts=1``. Objective turret rotation is mechanical
-    and can take several seconds.
+    Owns one bounded polling window. Objective turret rotation is
+    mechanical and can take several seconds, so the objective profile
+    keeps this as a single confirmation window.
 
     Args:
         client: The connected LAS X API client.
@@ -1099,19 +1100,20 @@ def confirm_acquire(client, *, start_timeout=10.0, heartbeat_interval=30.0,
                     timeout=None, poll_interval=0.01):
     """Poll until acquisition completes, or return False if scan never starts.
 
-    Pure status-polling function — reads only, never fires. When the scan
-    hasn't started within *start_timeout*, returns ``{"success": False}``
-    so the backbone can re-fire via its ``max_confirm_attempts`` loop.
+    Pure status-polling function: reads only, never fires. When the scan
+    has not started within *start_timeout*, returns ``{"success": False}``.
+    Acquisition profiles fire the command once and treat that as a
+    failed acquisition, not as permission to send another acquire command.
 
     Phase 1 — wait up to *start_timeout* for scan to go non-idle.
               Returns False immediately on permanent error.
-              Returns False if scan hasn't started — backbone re-fires.
+              Returns False if scan hasn't started.
     Phase 2 — wait for consecutive idle reads to confirm completion.
 
     Args:
         client: The connected LAS X API client.
         start_timeout: Seconds to wait for scan to start before
-            returning failure (letting the backbone re-fire).
+            returning acquisition failure.
         heartbeat_interval: Seconds between heartbeat log messages
             during long scans.
         timeout: Hard ceiling in seconds. None means wait indefinitely.
@@ -1152,7 +1154,8 @@ def confirm_acquire(client, *, start_timeout=10.0, heartbeat_interval=30.0,
                     return {"success": False, "logs": logs}
                 log.debug("Transient error during acquire start: %s", error_msg)
 
-            # Start timeout — return False, let the backbone re-fire
+            # Start timeout: return acquisition failure. The acquire
+            # profile does not re-fire acquisition commands.
             if time.perf_counter() > start_deadline:
                 msg = f"Scan not started after {start_timeout:.0f}s ({elapsed:.0f}s total)"
                 log.warning(msg)

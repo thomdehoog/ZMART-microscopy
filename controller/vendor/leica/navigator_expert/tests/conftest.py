@@ -14,6 +14,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[5]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+_HELPERS = Path(__file__).resolve().parent / "helpers"
+if str(_HELPERS) not in sys.path:
+    sys.path.insert(0, str(_HELPERS))
+
 # Add target_acquisition dir so workflow tests imported from this suite
 # can resolve `from pipeline...`.
 _TARGET_ACQ = (

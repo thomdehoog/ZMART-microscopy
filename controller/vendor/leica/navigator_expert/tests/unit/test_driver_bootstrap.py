@@ -35,7 +35,7 @@ def test_driver_self_bootstrap_with_only_leica_on_path(tmp_path):
     only (no repository root). The driver's self-bootstrap must add
     the repository root so `import shared.output_layout` resolves
     transitively when acquisition.py loads."""
-    repo_root = Path(__file__).resolve().parents[5]  # smart-microscopy/
+    repo_root = Path(__file__).resolve().parents[6]  # smart-microscopy/
     leica_dir = repo_root / "controller" / "vendor" / "leica"
     assert leica_dir.is_dir(), f"missing {leica_dir}"
 

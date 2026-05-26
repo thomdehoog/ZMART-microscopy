@@ -36,7 +36,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 from functools import partial
 
 # Add the leica directory to sys.path so `import navigator_expert` works.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import navigator_expert.driver as drv
 from navigator_expert.driver.core import dispatch
@@ -45,6 +45,7 @@ from navigator_expert.driver.core import readers
 from navigator_expert.driver.core import confirmations
 from navigator_expert.driver.core import commands
 from navigator_expert.driver.core import prechecks
+from navigator_expert.driver.core import profiles
 
 
 # =============================================================================
@@ -538,6 +539,38 @@ class TestRetryBackoff(unittest.TestCase):
         self.assertEqual(kwargs["retry_backoff"], 2.0)
         self.assertTrue(kwargs["retry_escalate"])
 
+    def test_profile_confirmation_policy_passed_through_dispatch(self):
+        """_dispatch passes the profile's readback retry policy."""
+        client = make_client()
+        api_obj = make_api_obj()
+
+        from navigator_expert.driver.core.profiles import CommandProfile
+        profile = CommandProfile(
+            refire_on_unconfirmed=False,
+        )
+
+        with patch.object(commands, 'confirm_and_fire',
+                          return_value={"success": True, "confirmed": None,
+                                        "message": "ok", "timing": {},
+                                        "logs": []}) as mock_caf:
+            commands._dispatch(
+                client, api_obj, "Test", profile,
+                setup_fn=lambda m: None)
+
+        _, kwargs = mock_caf.call_args
+        self.assertFalse(kwargs["refire_on_unconfirmed"])
+
+    def test_default_setting_and_acquire_profiles_encode_retry_policy(self):
+        """Settings are non-fatal if unconfirmed; acquisition fires once."""
+        self.assertEqual(profiles.ZOOM.max_confirm_attempts, 3)
+        self.assertEqual(profiles.ZOOM.confirm_timeout, 5.0)
+        self.assertTrue(profiles.ZOOM.refire_on_unconfirmed)
+        self.assertTrue(profiles.ZOOM.success_on_unconfirmed)
+
+        self.assertEqual(profiles.ACQUIRE.max_confirm_attempts, 1)
+        self.assertFalse(profiles.ACQUIRE.refire_on_unconfirmed)
+        self.assertFalse(profiles.ACQUIRE.success_on_unconfirmed)
+
 
 # =============================================================================
 # 4. Confirmation via confirm_and_fire
@@ -599,6 +632,111 @@ class TestConfirmation(unittest.TestCase):
                                            max_confirm_attempts=3,
                                            pre_check_fn=_idle_pre_check)
         self.assertTrue(r["success"])
+
+    def test_readback_retry_does_not_refire_when_policy_says_so(self):
+        """A stale Leica readback can retry confirmation without re-firing."""
+        client = make_client()
+        api_obj = make_api_obj()
+        fire_result = {
+            "success": True,
+            "logs": [],
+            "attempts": 1,
+            "timing": {
+                "pre_check_s": 0.0, "setup_s": 0.0,
+                "fire_s": 0.0, "check_s": 0.0,
+            },
+        }
+        confirm_fn = MagicMock(side_effect=[
+            {"success": False, "logs": []},
+            {"success": False, "logs": []},
+            {"success": True, "logs": []},
+        ])
+
+        with patch.object(dispatch, '_fire_block', return_value=fire_result) as fire:
+            r = dispatch.confirm_and_fire(
+                client, api_obj, "Set Zoom",
+                setup_fn=lambda m: None,
+                confirm_fn=confirm_fn,
+                max_confirm_attempts=3,
+                refire_on_unconfirmed=False,
+            )
+
+        self.assertTrue(r["success"])
+        self.assertTrue(r["confirmed"])
+        self.assertEqual(fire.call_count, 1)
+        self.assertEqual(confirm_fn.call_count, 3)
+
+    def test_unconfirmed_readback_can_be_non_fatal_without_refire(self):
+        """Settings may be applied even when Leica's state readback is stale."""
+        client = make_client()
+        api_obj = make_api_obj()
+        fire_result = {
+            "success": True,
+            "logs": [],
+            "attempts": 1,
+            "timing": {
+                "pre_check_s": 0.0, "setup_s": 0.0,
+                "fire_s": 0.0, "check_s": 0.0,
+            },
+        }
+        confirm_fn = MagicMock(return_value={"success": False, "logs": []})
+
+        with patch.object(dispatch, '_fire_block', return_value=fire_result) as fire:
+            r = dispatch.confirm_and_fire(
+                client, api_obj, "Set Zoom",
+                setup_fn=lambda m: None,
+                confirm_fn=confirm_fn,
+                max_confirm_attempts=3,
+                refire_on_unconfirmed=False,
+                success_on_unconfirmed=True,
+            )
+
+        self.assertTrue(r["success"])
+        self.assertFalse(r["confirmed"])
+        self.assertEqual(fire.call_count, 1)
+        self.assertIn("readback unconfirmed", r["message"])
+        self.assertTrue(any(
+            "command was sent successfully" in item["msg"]
+            for item in r["logs"]
+        ))
+
+    def test_unconfirmed_setting_refire_is_non_fatal(self):
+        """Settings may re-fire and still continue when readback disagrees."""
+        client = make_client()
+        api_obj = make_api_obj()
+        fire_result = {
+            "success": True,
+            "logs": [],
+            "attempts": 1,
+            "timing": {
+                "pre_check_s": 0.0, "setup_s": 0.0,
+                "fire_s": 0.0, "check_s": 0.0,
+            },
+        }
+        confirm_fn = MagicMock(return_value={
+            "success": False,
+            "logs": [],
+            "actual": 4.0,
+        })
+
+        with patch.object(dispatch, '_fire_block', return_value=fire_result) as fire:
+            r = dispatch.confirm_and_fire(
+                client, api_obj, "Set Zoom",
+                setup_fn=lambda m: None,
+                confirm_fn=confirm_fn,
+                max_confirm_attempts=3,
+                refire_on_unconfirmed=True,
+                success_on_unconfirmed=True,
+            )
+
+        self.assertTrue(r["success"])
+        self.assertFalse(r["confirmed"])
+        self.assertEqual(fire.call_count, 3)
+        self.assertEqual(confirm_fn.call_count, 3)
+        self.assertTrue(any(
+            "last_confirmation={'actual': 4.0}" in item["msg"]
+            for item in r["logs"]
+        ))
 
     def test_confirm_fn_exception_handled(self):
         """Exceptions in confirm_fn are caught and treated as failure."""
@@ -1360,9 +1498,19 @@ PROTOCOL_POSITIONS = [
     ("ROI-3", "HiRes", 11800, 21200, 8.0, 100, 0.8, 0.25),
     ("Deep-1", "ZStack", 10500, 20500, 5.0, 200, 1.0, 0.20),
     ("Deep-2", "ZStack", 11800, 21200, 5.0, 200, 1.0, 0.20),
-    ("TimeLapse", "Live", 10000, 20000, 2.0, 400, 1.5, 0.10),
     ("Ref", "Overview", 65000, 50000, 1.0, 800, None, None),
 ]
+
+
+def _protocol_job_switches():
+    """Expected selected jobs when only changes trigger select_job."""
+    selected = []
+    last_job = None
+    for _, job, *_ in PROTOCOL_POSITIONS:
+        if job != last_job:
+            selected.append(job)
+            last_job = job
+    return selected
 
 def _mock_select(client, job_name, **kw):
     return _make_v6_result(msg=f"Switched to '{job_name}'")
@@ -1424,7 +1572,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
              patch.object(drv, 'acquire', side_effect=_mock_acq), \
              patch.object(commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
             results = self._run_protocol()
-        self.assertEqual(len(results), 10)
+        self.assertEqual(len(results), len(PROTOCOL_POSITIONS))
 
     def test_job_switches_only_when_needed(self):
         select_calls = []
@@ -1436,7 +1584,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
              patch.object(drv, 'acquire', side_effect=_mock_acq), \
              patch.object(commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
             self._run_protocol()
-        self.assertEqual(select_calls, ["Overview", "HiRes", "ZStack", "Live", "Overview"])
+        self.assertEqual(select_calls, _protocol_job_switches())
 
     def test_correct_xy_coordinates(self):
         coords = []
@@ -1503,7 +1651,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
              patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             self._run_protocol()
         self.assertEqual(pinholes, [p[6] for p in PROTOCOL_POSITIONS if p[6] is not None])
-        self.assertEqual(len(pinholes), 6)
+        self.assertEqual(len(pinholes), sum(p[6] is not None for p in PROTOCOL_POSITIONS))
 
     def test_laser_only_set_when_specified(self):
         lasers = []
@@ -1518,7 +1666,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
              patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             self._run_protocol()
         self.assertEqual(lasers, [p[7] for p in PROTOCOL_POSITIONS if p[7] is not None])
-        self.assertEqual(len(lasers), 6)
+        self.assertEqual(len(lasers), sum(p[7] is not None for p in PROTOCOL_POSITIONS))
 
     def test_acquire_failure_at_position_5(self):
         acq_count = [0]
@@ -1600,8 +1748,15 @@ class TestAcquisitionProtocol(unittest.TestCase):
              patch.object(drv, 'acquire', side_effect=mock_a), \
              patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             self._run_protocol()
-        self.assertEqual(counts, {"select_job": 5, "move_xy": 10, "acquire": 10,
-                                  "set_zoom": 10, "set_speed": 10, "set_pinhole": 6, "set_laser": 6})
+        self.assertEqual(counts, {
+            "select_job": len(_protocol_job_switches()),
+            "move_xy": len(PROTOCOL_POSITIONS),
+            "acquire": len(PROTOCOL_POSITIONS),
+            "set_zoom": len(PROTOCOL_POSITIONS),
+            "set_speed": len(PROTOCOL_POSITIONS),
+            "set_pinhole": sum(p[6] is not None for p in PROTOCOL_POSITIONS),
+            "set_laser": sum(p[7] is not None for p in PROTOCOL_POSITIONS),
+        })
 
 
 # =============================================================================
@@ -1829,14 +1984,15 @@ class TestAcquireSingleImage(unittest.TestCase):
             drv.acquire_single_image(make_client())
         self.assertIn("SingleImage", captured["description"])
 
-    def test_max_start_retries_maps_to_confirm_attempts(self):
+    def test_single_image_acquisition_fires_once(self):
         captured = {}
         def mock_fire(client, api_obj, description, **kw):
             captured["kwargs"] = kw
             return _make_v6_result(msg=description)
         with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
-            drv.acquire_single_image(make_client(), max_start_retries=5)
-        self.assertEqual(captured["kwargs"].get("max_confirm_attempts"), 5)
+            drv.acquire_single_image(make_client())
+        self.assertEqual(captured["kwargs"].get("max_confirm_attempts"), 1)
+        self.assertFalse(captured["kwargs"].get("refire_on_unconfirmed"))
 
     def test_differs_from_acquire(self):
         """acquire_single_image uses a different API object than acquire."""

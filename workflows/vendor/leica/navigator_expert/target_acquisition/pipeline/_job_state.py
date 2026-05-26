@@ -36,7 +36,6 @@ def ensure_job_state(ctx: Context, job: str) -> None:
     r = drv.select_job(ctx.client, job)
     if not r or not r.get("success"):
         # Distinguish readback-unconfirmed (reader slow) from real failure.
-        # Temporary heuristic — replaced by structured driver outcomes in Layer 2.
         message = (r or {}).get("message", "")
         confirmed = (r or {}).get("confirmed")
         timing = (r or {}).get("timing", {})
@@ -60,10 +59,9 @@ def ensure_job_state(ctx: Context, job: str) -> None:
     time.sleep(cfg.settle_after_job_switch_s)
 
     if select_unconfirmed:
-        # Layer 1 simulator unblock: get_jobs can return stale state
-        # under load. Treat contradiction as warning only; Layer 2 must
-        # replace this with structured driver outcomes and real
-        # job-binding verification.
+        # get_jobs can return stale state under load. Treat a
+        # post-settle contradiction as a warning only; the objective
+        # slot check above remains the hard job-binding guard.
         try:
             jobs = drv.get_jobs(ctx.client)
         except Exception:
