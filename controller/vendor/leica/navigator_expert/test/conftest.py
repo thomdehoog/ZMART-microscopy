@@ -34,6 +34,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[5]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+# Add target_acquisition dir so `from workflow.focus import ...` resolves.
+_TARGET_ACQ = _REPO_ROOT / "workflows" / "vendor" / "leica" / "navigator_expert" / "target_acquisition"
+if str(_TARGET_ACQ) not in sys.path:
+    sys.path.insert(0, str(_TARGET_ACQ))
+
 # Back-compat alias: tests written before the rename do
 # ``import lasx.core``, ``import lasx.errors``, etc. Map every driver
 # submodule under the ``lasx`` namespace via sys.modules.
