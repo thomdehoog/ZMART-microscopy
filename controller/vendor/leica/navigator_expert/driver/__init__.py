@@ -202,334 +202,148 @@ if _vendor_root not in _sys.path:
     _sys.path.insert(0, _vendor_root)
 del _sys, _Path, _vendor_root
 
-# ── Utilities ────────────────────────────────────────────────────────
-from .utils import (
-    _safe_float,
-    _hw_get,
-    parse_format,
-    format_to_str,
-    _make_timing,
-    _make_log_entry,
-    parse_tile_geometry,
-)
-
-# ── Error classification ─────────────────────────────────────────────
-from .errors import (
-    _is_transient_error,
-    _check_api_error,
-    _default_error_check,
-    _PERMANENT_PATTERNS,
-    _TRANSIENT_PATTERNS,
-)
-
-# ── Stage limits ─────────────────────────────────────────────────────
-from .limits import (
-    _stage_limits,
-    set_stage_limits,
-    get_stage_limits,
-    apply_stage_limits_from_config,
-    _check_xy_limits,
-    _check_z_limits,
-)
-
-# ── Read functions ───────────────────────────────────────────────────
-from .readers import (
-    get_scan_status,
-    ping,
-    get_job_settings,
-    get_hardware_info,
-    get_xy,
-    read_zwide_um,
-    get_jobs,
-    get_job_by_name,
-    get_selected_job,
-    get_fov,
-    get_base_fov,
-    get_lasx_settings,
-)
-
-# ── OME-TIFF / OME-XML validation and patching ────────────────────
-from .ome_tiff import (
-    extract_wavelength_from_id,
-    check_ome_xml_bytes,
-    check_ome_tiff,
-    check_ome_xml_file,
-    fix_ome_xml_bytes,
-    fix_ome_tiff,
-    fix_ome_xml_file,
-    update_ome_tiff_filename,
-    update_ome_xml_filename,
-)
-
-# ── Settings parsing ────────────────────────────────────────────────
-from .settings import make_changeable_copy
-
-# ── Pre-flight checks ───────────────────────────────────────────────
-from .prechecks import check_idle
-
-# ── Confirm (public readback helper only) ────────────────────────────
-from .confirmations import _readback
-
-# ── Core dispatch ───────────────────────────────────────────────────
-from .utils import (  # noqa: F401
+# ── api/ — core LAS X command/readback mechanics ───────────────────
+from .api.utils import (
+    _safe_float, _hw_get, parse_format, format_to_str,
+    _make_timing, _make_log_entry, parse_tile_geometry,
     RECEIPT_TIMEOUT, CONFIRM_TIMEOUT,
     PAN_LIMIT, GALVO_FIELD_FRACTION, pan_scale_um_from_base_fov,
 )
-
-from .core import (
-    _fire_with_receipt,
-    confirm_and_fire,
+from .api.errors import (
+    _is_transient_error, _check_api_error, _default_error_check,
+    _PERMANENT_PATTERNS, _TRANSIENT_PATTERNS,
 )
-
-# ── Command wrappers ────────────────────────────────────────────────
-from .commands import (
-    set_zoom,
-    set_scan_speed,
-    set_scan_resonant,
-    set_scan_mode,
-    set_sequential_mode,
-    set_scan_field_rotation,
-    set_image_format,
-    set_objective,
-    set_z_stack_definition,
-    set_z_stack_step_size,
-    set_z_stack_size,
-    set_frame_accumulation,
-    set_frame_average,
-    set_line_accumulation,
-    set_line_average,
-    set_pinhole_airy,
-    set_detector_gain,
-    set_laser_intensity,
-    set_laser_shutter,
-    set_filter_wheel_slot,
-    set_filter_wheel_spectrum,
-    move_xy,
-    move_xy_stage,
-    move_galvo_to_pixel,
-    move_z,
-    acquire,
-    acquire_single_image,
-    select_job,
+from .api.readers import (
+    get_scan_status, ping, get_job_settings, get_hardware_info,
+    get_xy, read_zwide_um, get_jobs, get_job_by_name, get_selected_job,
+    get_fov, get_base_fov, get_lasx_settings,
 )
-
-# ── Scanning templates ─────────────────────────────────────────────
-from .scanning_templates import (
-    find_scanning_templates_dir,
-    save_experiment,
-    load_experiment,
-    strip_template,
-    restore_template,
-    get_template_state,
-    apply_lrp_change,
-    reorder_jobs,
-    save_and_read_lrp,
+from .api.settings import make_changeable_copy
+from .api.prechecks import check_idle
+from .api.confirmations import _readback
+from .api.core import _fire_with_receipt, confirm_and_fire
+from .api.commands import (
+    set_zoom, set_scan_speed, set_scan_resonant, set_scan_mode,
+    set_sequential_mode, set_scan_field_rotation, set_image_format,
+    set_objective, set_z_stack_definition, set_z_stack_step_size,
+    set_z_stack_size, set_frame_accumulation, set_frame_average,
+    set_line_accumulation, set_line_average, set_pinhole_airy,
+    set_detector_gain, set_laser_intensity, set_laser_shutter,
+    set_filter_wheel_slot, set_filter_wheel_spectrum,
+    move_xy, move_xy_stage, move_galvo_to_pixel, move_z,
+    acquire, acquire_single_image, select_job,
 )
+from .api.session import connect_python_client, require_canonical_scan_orientation
 
-# ── Scanning template parsers ─────────────────────────────────────
-from .scanning_template_parsers import (
-    parse_lrp,
-    diff_lrp,
-    parse_template_positions,
-    parse_acquisition_positions,
-    parse_base_grid,
-    parse_focus_points,
-    parse_rgn_geometries,
-    parse_rgn_tile_colors,
-    parse_matrix_settings,
-    get_master_attrs,
-    get_rois,
+# ── motion/ — stage safety + movement ──────────────────────────────
+from .motion.limits import (
+    _stage_limits, set_stage_limits, get_stage_limits,
+    apply_stage_limits_from_config, _check_xy_limits, _check_z_limits,
 )
-
-# ── Scanning template synthesis ──────────────────────────────────
-from .scanning_template_synthesis import (
-    synthesize_tiles,
-    assign_focus_points_to_regions,
-)
-
-# ── Scanning template editors (core + averaging + mode) ──────────
-from .scanning_template_editors import (
-    lrp_set_line_average,
-    lrp_verify_line_average,
-    lrp_set_line_accumulation,
-    lrp_verify_line_accumulation,
-    lrp_set_frame_average,
-    lrp_verify_frame_average,
-    lrp_set_frame_accumulation,
-    lrp_verify_frame_accumulation,
-    lrp_set_scan_mode,
-    lrp_verify_scan_mode,
-    SEQUENTIAL_MODES,
-    lrp_set_sequential_mode,
-    lrp_verify_sequential_mode,
-)
-
-# ── Focus editors (autofocus, pinhole, stack calc mode) ──────────
-from .scanning_template_editors_focus import (
-    STACK_MODES,
-    lrp_set_stack_calculation_mode,
-    lrp_verify_stack_calculation_mode,
-    lrp_set_pinhole_airy,
-    lrp_verify_pinhole_airy,
-    lrp_set_autofocus_active,
-    lrp_verify_autofocus_active,
-)
-
-# ── Scan-field editors (zoom, speed, format, direction, etc.) ────
-from .scanning_template_editors_scan import (
-    lrp_set_zoom,
-    lrp_verify_zoom,
-    lrp_set_scan_speed,
-    lrp_verify_scan_speed,
-    lrp_set_image_format,
-    lrp_verify_image_format,
-    SCAN_DIRECTIONS,
-    lrp_set_scan_direction,
-    lrp_verify_scan_direction,
-    lrp_set_phase_x,
-    lrp_verify_phase_x,
-    lrp_set_resonant_scanner,
-    lrp_verify_resonant_scanner,
-    lrp_set_bit_depth,
-    lrp_verify_bit_depth,
-    lrp_set_scan_field_rotation,
-    lrp_verify_scan_field_rotation,
-    lrp_set_pan,
-    lrp_verify_pan,
-    lrp_get_pan,
-    reset_pan,
-)
-
-# ── ROI scanning template editors ────────────────────────────────
-from .scanning_template_editors_roi import (
-    um,
-    ROI_POLYGON, ROI_RECTANGLE, ROI_ELLIPSE, ROI_LINE,
-    argb_color, COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_YELLOW,
-    lrp_enable_roi_scan,
-    lrp_verify_roi_scan,
-    lrp_clear_rois,
-    lrp_add_roi,
-    lrp_verify_roi_count,
-    lrp_verify_roi,
-    make_rectangle,
-    make_ellipse,
-    make_polygon,
-    make_star,
-    make_line,
-    lrp_find_aotf_template,
-    roi_translation_to_pan,
-    roi_to_absolute_um,
-    absolute_um_to_roi_translation,
-    galvo_pan_for_pixel,
-    bbox_to_zoom,
-    roi_geometry,
-    roi_to_pan_zoom,
-    mask_contour_to_roi,
-)
-
-# ── Z-stack scanning template editors ────────────────────────────
-from .scanning_template_editors_z import (
-    Z_STACK_DIRECTIONS,
-    lrp_set_z_stack_direction,
-    lrp_verify_z_stack_direction,
-    lrp_set_sections,
-    lrp_verify_sections,
-    lrp_set_z_stack_active,
-    lrp_verify_z_stack_active,
-    Z_USE_MODES,
-    lrp_set_z_use_mode,
-    lrp_verify_z_use_mode,
-    lrp_set_z_position,
-    lrp_verify_z_position,
-    lrp_set_z_stack_range,
-    lrp_verify_z_stack_range,
-    lrp_set_z_stack_size,
-    lrp_verify_z_stack_size,
-)
-
-# ── File confirmation (LAS X source-side primitives) ─────────────
-# Legacy SMART builders + orchestrator (confirm_acquisition,
-# rename_and_move, predict_manifest, next_position_index,
-# _build_image_name, _build_xml_name) were deleted 2026-05-11.
-# Canonical naming + atomic save now live in driver.acquisition.
-from .file_confirmation import (
-    read_relative_path,
-    parse_lasx_filename,
-    detect_new_files,
-    wait_all_stable,
-    validate_files,
-    confirm_arrival,
-)
-
-# ── Alignment / coordinate translation ────────────────────────────
-from .alignment import (
-    load_alignment,
-    translate_xy,
-    translate_pan,
-    translate_z,
-    translate_xyz,
-)
-
-# ── Objective-slot helpers (pure functions over hw_info) ───────
-from .objectives import (
-    objective_by_slot,
-    objective_summary,
-    validate_slots,
-)
-
-# ── High-level acquire-and-load helpers ─────────────────────────
-from .acquire import (
-    acquire_frame,
-    acquire_stack,
-)
-
-# ── Session helpers (connect, validate scope state) ──────────────
-from .session import (
-    connect_python_client,
-    require_canonical_scan_orientation,
-)
-from .scanning_template_editors_roi import disable_roi_scan
-
-from .calibration import (
-    SCHEMA_VERSION as CALIBRATION_SCHEMA_VERSION,
-    default_path as default_calibration_path,
-    load_calibration,
-    save_calibration,
-    save_calibration_report,
-    make_run_dir,
-    now_timestamp,
-    get_reference_slot,
-    get_image_to_stage,
-    get_offset_xy_um,
-    get_shift_xy_um,
-    get_offset_z_um,
-    get_shift_z_um,
-    translate_xy_between_objectives,
-    translate_z_between_objectives,
-    translate_xyz_between_objectives,
-    firmware_xy_after_switch,
-    residual_xy_after_switch,
-    reference_to_objective_command_xy,
-    pixel_to_stage_xy_um,
-    set_image_to_stage,
-    update_objective,
-)
-
-# ── Stage motion (backlash takeup) ──────────────────────────────
-from .stage_motion import correct_backlash, move_xy_with_backlash
-
-# ── Stage config (limits + backlash; physical, not optical) ─────
-from .stage_config import (
+from .motion.stage import correct_backlash, move_xy_with_backlash
+from .motion.config import (
     SCHEMA_VERSION as STAGE_SCHEMA_VERSION,
     load as load_stage_config,
 )
 
-# ── Acquisition (driver-first API: start_run, acquire_and_save) ──
-from .acquisition import (
-    RunHandle,
-    SavedAcquisition,
-    acquire_and_save,
-    start_run,
+# ── templates/ — LRP/XML/RGN file operations ──────────────────────
+from .templates.files import (
+    find_scanning_templates_dir, save_experiment, load_experiment,
+    get_template_state, save_and_read_lrp,
+)
+from .templates.strip_restore import strip_template, restore_template
+from .templates.transaction import apply_lrp_change, reorder_jobs
+from .templates.parsers import (
+    parse_lrp, diff_lrp, parse_template_positions,
+    parse_acquisition_positions, parse_base_grid, parse_focus_points,
+    parse_rgn_geometries, parse_rgn_tile_colors, parse_matrix_settings,
+    get_master_attrs, get_rois,
+)
+from .templates.edits.read import lrp_get_pan
+
+# ── output/ — acquisition output handling ──────────────────────────
+from .output.ome import (
+    extract_wavelength_from_id,
+    check_ome_xml_bytes, check_ome_tiff, check_ome_xml_file,
+    fix_ome_xml_bytes, fix_ome_tiff, fix_ome_xml_file,
+    update_ome_tiff_filename, update_ome_xml_filename,
+)
+from .output.lasx_files import (
+    read_relative_path, parse_lasx_filename,
+    detect_new_files, wait_all_stable, validate_files, confirm_arrival,
+)
+from .output.acquire import acquire_frame, acquire_stack
+from .output.acquisition import (
+    RunHandle, SavedAcquisition, acquire_and_save, start_run,
+)
+
+# ── experimental/lrp_edits/ — LRP mutation helpers ─────────────────
+from .experimental.lrp_edits.general import (
+    lrp_set_line_average, lrp_verify_line_average,
+    lrp_set_line_accumulation, lrp_verify_line_accumulation,
+    lrp_set_frame_average, lrp_verify_frame_average,
+    lrp_set_frame_accumulation, lrp_verify_frame_accumulation,
+    lrp_set_scan_mode, lrp_verify_scan_mode,
+    SEQUENTIAL_MODES, lrp_set_sequential_mode, lrp_verify_sequential_mode,
+)
+from .experimental.lrp_edits.focus import (
+    STACK_MODES, lrp_set_stack_calculation_mode, lrp_verify_stack_calculation_mode,
+    lrp_set_pinhole_airy, lrp_verify_pinhole_airy,
+    lrp_set_autofocus_active, lrp_verify_autofocus_active,
+)
+from .experimental.lrp_edits.scan import (
+    lrp_set_zoom, lrp_verify_zoom, lrp_set_scan_speed, lrp_verify_scan_speed,
+    lrp_set_image_format, lrp_verify_image_format,
+    SCAN_DIRECTIONS, lrp_set_scan_direction, lrp_verify_scan_direction,
+    lrp_set_phase_x, lrp_verify_phase_x,
+    lrp_set_resonant_scanner, lrp_verify_resonant_scanner,
+    lrp_set_bit_depth, lrp_verify_bit_depth,
+    lrp_set_scan_field_rotation, lrp_verify_scan_field_rotation,
+    lrp_set_pan, lrp_verify_pan, reset_pan,
+)
+from .experimental.lrp_edits.roi import (
+    um, ROI_POLYGON, ROI_RECTANGLE, ROI_ELLIPSE, ROI_LINE,
+    argb_color, COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_YELLOW,
+    lrp_enable_roi_scan, lrp_verify_roi_scan,
+    lrp_clear_rois, lrp_add_roi, lrp_verify_roi_count, lrp_verify_roi,
+    make_rectangle, make_ellipse, make_polygon, make_star, make_line,
+    lrp_find_aotf_template,
+    roi_translation_to_pan, roi_to_absolute_um, absolute_um_to_roi_translation,
+    galvo_pan_for_pixel, bbox_to_zoom, roi_geometry, roi_to_pan_zoom,
+    mask_contour_to_roi, disable_roi_scan,
+)
+from .experimental.lrp_edits.z import (
+    Z_STACK_DIRECTIONS, lrp_set_z_stack_direction, lrp_verify_z_stack_direction,
+    lrp_set_sections, lrp_verify_sections,
+    lrp_set_z_stack_active, lrp_verify_z_stack_active,
+    Z_USE_MODES, lrp_set_z_use_mode, lrp_verify_z_use_mode,
+    lrp_set_z_position, lrp_verify_z_position,
+    lrp_set_z_stack_range, lrp_verify_z_stack_range,
+    lrp_set_z_stack_size, lrp_verify_z_stack_size,
+)
+
+# ── Scanning template synthesis (legacy, removed in Phase K) ─────
+from .scanning_template_synthesis import (
+    synthesize_tiles, assign_focus_points_to_regions,
+)
+
+# ── driver-root modules (not moved) ───────────────────────────────
+from .alignment import (
+    load_alignment, translate_xy, translate_pan, translate_z, translate_xyz,
+)
+from .objectives import objective_by_slot, objective_summary, validate_slots
+from .calibration import (
+    SCHEMA_VERSION as CALIBRATION_SCHEMA_VERSION,
+    default_path as default_calibration_path,
+    load_calibration, save_calibration, save_calibration_report,
+    make_run_dir, now_timestamp,
+    get_reference_slot, get_image_to_stage,
+    get_offset_xy_um, get_shift_xy_um, get_offset_z_um, get_shift_z_um,
+    translate_xy_between_objectives, translate_z_between_objectives,
+    translate_xyz_between_objectives,
+    firmware_xy_after_switch, residual_xy_after_switch,
+    reference_to_objective_command_xy, pixel_to_stage_xy_um,
+    set_image_to_stage, update_objective,
 )
 
 # ── Logging ─────────────────────────────────────────────────────────
