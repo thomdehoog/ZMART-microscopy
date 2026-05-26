@@ -28,7 +28,7 @@ under a ``Carrier/Compartment`` hierarchy) was deleted on 2026-05-11.
 New code uses ``_shared.output_layout`` for canonical output naming.
 
 Dependency direction:
-    - Imports: ``scanning_templates`` (``_wait_file_stable``),
+    - Imports: ``_file_utils`` (``_wait_file_stable``),
       ``ome_tiff`` (validation helpers), and stdlib.
     - Imported by: ``acquisition.py``, ``acquire.py``, ``__init__``
       (re-export).
@@ -347,7 +347,7 @@ def wait_all_stable(files, *, timeout=60, poll_interval=0.5,
     """Block until every file in *files* is unlocked and size-stable.
 
     Distributes the timeout across all files sequentially.  Uses
-    ``_wait_file_stable`` from ``scanning_templates`` which requires
+    ``_wait_file_stable`` from ``_file_utils`` which requires
     3 consecutive stable-size + unlocked readings.
 
     Returns:
