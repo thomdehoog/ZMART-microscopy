@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 
 import navigator_expert.driver as drv
+from navigator_expert.calibration.core import model as calib
+from navigator_expert.driver.core.objectives import validate_slots
 
 from .context import Config, Context
 from ._job_state import ensure_job_state, _read_objective_slot
@@ -97,7 +99,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
         )
 
     # 0.3 -- calibration + stage config + hardware
-    calibration = drv.load_calibration()
+    calibration = calib.load_calibration()
     stage_config = drv.load_stage_config()
     hw = drv.get_hardware_info(client)
     if not hw:
@@ -108,7 +110,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
 
     # 0.4b -- verify derived slots are physically installed
     if source_slot != target_slot:
-        drv.validate_slots(hw, source_slot, [target_slot])
+        validate_slots(hw, source_slot, [target_slot])
 
     # 0.5 -- boot engine (sys.path tweak so smart-analysis is importable)
     analysis_repo = Path(cfg.analysis_repo)
@@ -276,7 +278,7 @@ def _derive_slots(
                 f"Run the calibration notebooks first and promote the config.")
 
     # Dry-run translation to verify calibration completeness
-    drv.translate_xyz_between_objectives(
+    calib.translate_xyz_between_objectives(
         0, 0, 0, calibration,
         from_slot=source_slot, to_slot=target_slot,
     )

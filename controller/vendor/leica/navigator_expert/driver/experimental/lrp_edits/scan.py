@@ -5,8 +5,8 @@ Editors for scan direction, zoom, image format, phase correction,
 resonant scanner, bit depth, and scan field rotation.
 
 Dependency direction:
-    - Imports: ``scanning_template_editors`` (helpers), stdlib.
-    - Imported by: ``__init__`` (re-export).
+    - Imports: ``_primitives``, ``templates.edits.read``, stdlib.
+    - Imported by: driver facade re-exports.
 """
 
 import logging

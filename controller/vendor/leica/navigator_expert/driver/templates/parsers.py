@@ -131,7 +131,7 @@ def _get_tile_sizes_from_api(client, job_names):
     Returns:
         Dict ``{job_name: tile_size_um}``.
     """
-    from ..api.readers import get_job_settings
+    from ..core.readers import get_job_settings
 
     sizes = {}
     for jn in job_names:

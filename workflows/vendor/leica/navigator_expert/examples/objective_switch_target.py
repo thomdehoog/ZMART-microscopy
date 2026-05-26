@@ -20,7 +20,7 @@ script should consume that calibration to revisit a feature across
 an objective swap.
 
 The full coordinate model lives in
-``vendor/leica/navigator_expert/driver/calibration.py`` (v9 schema).
+``navigator_expert/calibration/core/model.py`` (v9 schema).
 The short version:
 
     For each non-reference objective ``slot``, calibration stores
@@ -33,7 +33,7 @@ The short version:
                              (peak_target − peak_ref − offset_z).
 
     To map a stage XY + z-wide from one objective's frame to another:
-        x', y', z' = drv.translate_xyz_between_objectives(x, y, z, cfg,
+        x', y', z' = calib.translate_xyz_between_objectives(x, y, z, cfg,
                          from_slot=src, to_slot=tgt)
     and absolute-move the stage to (x', y') and z-wide to z'. Z-galvo
     stays at 0 throughout — all focus motion lives on z-wide.
@@ -121,6 +121,8 @@ from matplotlib.patches import Rectangle
 from skimage.measure import regionprops
 
 import navigator_expert.driver as drv
+from navigator_expert.calibration.core import model as calib
+from navigator_expert.driver.core.objectives import validate_slots
 
 
 log = logging.getLogger("objective_switch_stage_targeting")
@@ -463,7 +465,7 @@ def step_setup(
     if args.source_slot == args.target_slot:
         _abort("source-slot and target-slot must differ.")
 
-    cfg = drv.load_calibration()
+    cfg = calib.load_calibration()
     stage_cfg = drv.load_stage_config()
     client = drv.connect_python_client()
     drv.require_canonical_scan_orientation()
@@ -471,7 +473,7 @@ def step_setup(
     hw = drv.get_hardware_info(client)
     if not hw:
         _abort("Could not read hardware info.", 2)
-    drv.validate_slots(hw, args.source_slot, [args.target_slot])
+    validate_slots(hw, args.source_slot, [args.target_slot])
 
     drv.apply_stage_limits_from_config(stage_cfg)
 
@@ -585,7 +587,7 @@ def step_translate_to_target(
     disk.
     """
     cx, cy = source_pick.centroid_xy_px
-    cell_source_xy_um = drv.pixel_to_stage_xy_um(
+    cell_source_xy_um = calib.pixel_to_stage_xy_um(
         cx, cy,
         stage_xy_um=source_pick.stage_xy_um,
         pixel_size_um=source_pick.geometry.pixel_size_um,
@@ -595,7 +597,7 @@ def step_translate_to_target(
     log.info("cell stage XY in source frame = (%.3f, %.3f) um",
              *cell_source_xy_um)
 
-    target_x, target_y, target_zwide = drv.translate_xyz_between_objectives(
+    target_x, target_y, target_zwide = calib.translate_xyz_between_objectives(
         cell_source_xy_um[0], cell_source_xy_um[1], source_pick.zwide_um, cfg,
         from_slot=source_slot, to_slot=target_slot,
     )
@@ -956,7 +958,7 @@ def step_save_outputs(
             "source_features": landing.source_features,
             "candidates": landing.candidates,
         },
-        "calibration_config": str(drv.default_calibration_path()),
+        "calibration_config": str(calib.default_path()),
         "refine": refine_report,
         "outputs": {
             "source_tif": str(source_tif),

@@ -5,8 +5,6 @@ Low-level helpers that modify individual XML attributes inside LAS X
 scanning template ``.lrp`` files.  Every higher-level editor (general,
 scan, z, roi, focus) is built on top of these four functions.
 
-Extracted from ``driver.scanning_template_editors`` during the E2
-restructuring phase.
 
 Dependency direction:
     - Imports: stdlib only.

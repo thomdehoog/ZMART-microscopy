@@ -29,9 +29,9 @@ New code uses ``shared.output_layout`` for canonical output naming.
 
 Dependency direction:
     - Imports: ``_file_utils`` (``_wait_file_stable``),
-      ``ome_tiff`` (validation helpers), and stdlib.
-    - Imported by: ``acquisition.py``, ``acquire.py``, ``__init__``
-      (re-export).
+      ``acquisition.ome`` (validation helpers), and stdlib.
+    - Imported by: ``acquisition.save``, ``acquisition.capture``,
+      ``__init__`` (re-export).
 """
 
 import logging

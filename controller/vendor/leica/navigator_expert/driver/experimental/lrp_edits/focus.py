@@ -4,8 +4,8 @@ Focus-related scanning template editors.
 Editors for autofocus, pinhole, and Z-stack calculation mode.
 
 Dependency direction:
-    - Imports: ``scanning_template_editors`` (helpers), stdlib.
-    - Imported by: ``__init__`` (re-export).
+    - Imports: ``_primitives``, stdlib.
+    - Imported by: driver facade re-exports.
 """
 
 import logging

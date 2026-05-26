@@ -18,7 +18,7 @@ The binding pattern is identical across all commands — no exceptions::
     error_check_fn = lambda: profile.error_check_fn(client)
     confirm_fn    = lambda: profile.confirm_fn(client, ...)
 
-Import restrictions: only ``core``, ``profiles``, ``errors``, ``limits``,
+Import restrictions: only ``dispatch``, ``profiles``, ``errors``, ``limits``,
 ``readers``, ``confirmations``, ``prechecks``, and ``utils``. The ``prechecks`` import
 is used in ``_dispatch`` for the ``pre_check_timeout`` override.
 """
@@ -28,7 +28,7 @@ import time
 from functools import partial
 
 from .prechecks import check_idle
-from .core import confirm_and_fire
+from .dispatch import confirm_and_fire
 from .profiles import (
     ZOOM, SCAN_SPEED, SCAN_RESONANT, SCAN_MODE, SEQUENTIAL_MODE,
     SCAN_FIELD_ROTATION, IMAGE_FORMAT, OBJECTIVE,
@@ -53,7 +53,7 @@ from .confirmations import (
     confirm_move_xy, confirm_move_z,
     confirm_acquire, confirm_select_job,
 )
-from ..motion.limits import _check_xy_limits, _check_z_limits
+from ..stage.limits import _check_xy_limits, _check_z_limits
 from . import readers as _readers
 from .utils import _hw_get, parse_format, _make_timing
 

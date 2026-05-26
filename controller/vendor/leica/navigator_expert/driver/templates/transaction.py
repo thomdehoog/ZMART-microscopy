@@ -8,7 +8,7 @@ modifications are dispatched: save -> edit -> reorder -> load -> save
 selects the right job after a template reload.
 
 Dependency direction:
-    - Imports: ``.files``, ``..readers``, stdlib.
+    - Imports: ``.files``, ``..core.readers``, stdlib.
     - Imported by: ``__init__`` (re-export), editor modules.
 """
 
@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .files import find_scanning_templates_dir, save_experiment, load_experiment
-from ..api.readers import get_selected_job
+from ..core.readers import get_selected_job
 
 log = logging.getLogger(__name__)
 

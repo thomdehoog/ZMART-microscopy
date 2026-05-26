@@ -21,7 +21,7 @@ Two primitives for the two physical patterns:
       slack-state without net displacement.
 
 Parameters for both live in ``config/stage.json``; load them with
-``stage_config.load`` so all consumers share one source of truth.
+``stage.config.load`` so all consumers share one source of truth.
 
 See ``docs/session_notes_20260428_backlash_correction.md`` for the
 mechanical analysis behind the recipe.
@@ -30,8 +30,8 @@ mechanical analysis behind the recipe.
 import logging
 import time
 
-from ..api import commands as _commands
-from ..api import readers as _readers
+from ..core import commands as _commands
+from ..core import readers as _readers
 
 log = logging.getLogger(__name__)
 

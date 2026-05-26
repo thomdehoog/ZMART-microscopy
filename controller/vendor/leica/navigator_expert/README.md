@@ -406,24 +406,19 @@ The backbone has two retry ceilings:
 
 ```
 navigator_expert/
-├── __init__.py
-└── driver/
-    ├── __init__.py                  ← public API exports
-    ├── utils.py                     ← helpers: _make_log_entry, _make_timing, parse_format
-    ├── errors.py                    ← error classification + _default_error_check
-    ├── limits.py                    ← stage safety limits
-    ├── readers.py                   ← get_scan_status, ping, get_jobs, get_job_settings, ...
-    ├── settings.py                  ← make_changeable_copy
-    ├── prechecks.py                 ← check_idle
-    ├── confirmations.py             ← readback confirmation functions
-    ├── core.py                      ← _fire_with_receipt, _fire_block, confirm_and_fire
-    ├── profiles.py                  ← CommandProfile dataclass + per-command profiles
-    ├── commands.py                  ← set_*, move_*, acquire, select_job
-    ├── stage_motion.py              ← correct_backlash takeup helper
-    ├── machine_config.py            ← load/save calibration config (config.json + stage.json)
-    ├── alignment.py, registration.py, objective_offsets.py
-    ├── ome_tiff.py, file_confirmation.py, scanning_template_*.py
-    └── datacontainer/
+??? README.md
+??? config/                  # promoted Leica stage/calibration config
+??? calibration/
+?   ??? core/                # calibration model + notebook implementation
+?   ??? notebooks/           # operator calibration notebooks
+??? driver/
+?   ??? __init__.py          # frozen facade for LAS X driver commands
+?   ??? core/                # raw LAS X commands, readers, confirmations, profiles
+?   ??? templates/           # LRP/XML/RGN parsing, strip/restore, transactions
+?   ??? acquisition/         # capture, LAS X file arrival, OME fixes, acquire-and-save
+?   ??? stage/               # stage limits, movement, stage config
+?   ??? experimental/        # LRP mutation helpers without live-state readback
+??? test/                    # driver and calibration unit tests
 ```
 
 ### Dependency DAG
@@ -431,21 +426,26 @@ navigator_expert/
 Strict hierarchy with no circular imports:
 
 ```
-util                  ← stdlib only
-errors                ← util
-limits                ← stdlib only
-readers               ← stdlib only
-settings              ← util
-checks                ← readers, util
-confirm               ← readers, settings, util
-core                  ← errors, util
-profiles              ← checks, confirm, errors
-commands              ← core, profiles, confirm, errors, limits, readers, util
+core.utils             -> stdlib only
+core.errors            -> core.utils
+stage.limits           -> stdlib only
+core.readers           -> stdlib only
+core.settings          -> core.utils
+core.prechecks         -> core.readers, core.utils
+core.confirmations     -> core.readers, core.settings, core.utils
+core.dispatch          -> core.errors, core.utils
+core.profiles          -> core.prechecks, core.confirmations, core.errors
+core.commands          -> core.dispatch, core.profiles, core.confirmations,
+                          core.readers, core.utils, stage.limits
+templates/*            -> file/template operations above API readback
+acquisition/*          -> capture, LAS X file arrival, and OME metadata fixes
+stage/*                -> stage safety and backlash-aware movement
+calibration.core.model -> promoted calibration config + coordinate transforms
 ```
 
 ### Two-Layer Backbone
 
-All commands route through `confirm_and_fire` in `core.py`:
+All commands route through `confirm_and_fire` in `driver/core/dispatch.py`:
 
 ```
 confirm_and_fire (outer wrapper)

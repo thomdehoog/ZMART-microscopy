@@ -157,5 +157,5 @@ def make_acquirer(client, job, stage_cfg):
     return acquire_single, acquire_stack
 
 
-# ``apply_stage_limits_from_config`` lives in driver/motion/limits.py; both
+# ``apply_stage_limits_from_config`` lives in driver/stage/limits.py; both
 # calibration and the cookbook share that single helper.

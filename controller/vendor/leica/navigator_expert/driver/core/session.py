@@ -37,7 +37,7 @@ def require_canonical_scan_orientation() -> None:
     """Verify that LAS X exports images in the orientation our math assumes.
 
     The pixel↔display-frame mapping ``vx = (col − centre) · pixel_size`` (see
-    ``scanning_template_editors_roi`` module docstring) only holds when the
+    ``experimental.lrp_edits.roi`` module docstring) only holds when the
     saved TIFF and the on-screen scan field share an axis frame. LAS X
     guarantees that under ``EnableImageTransformation = false`` or
     ``ImageTransformation = TOPLEFT``; any other transformation rotates or

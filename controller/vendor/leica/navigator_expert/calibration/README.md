@@ -30,4 +30,4 @@ they are not source files and should not be committed.
 - `core/` contains low-level calibration internals.
 - `notebooks/` contains the operator UI.
 
-The driver reads only the promoted files under `navigator_expert/config/`.
+Runtime code reads only the promoted files under `navigator_expert/config/`.

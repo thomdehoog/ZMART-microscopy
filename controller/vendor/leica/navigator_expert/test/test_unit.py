@@ -35,16 +35,16 @@ from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
 from functools import partial
 
-# Add the leica directory to sys.path so `import lasx` works unchanged.
+# Add the leica directory to sys.path so `import navigator_expert` works.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import navigator_expert.driver as drv
-import lasx.core
-import lasx.errors
-import lasx.readers
-import lasx.confirmations
-import lasx.commands
-import lasx.prechecks
+from navigator_expert.driver.core import dispatch
+from navigator_expert.driver.core import errors
+from navigator_expert.driver.core import readers
+from navigator_expert.driver.core import confirmations
+from navigator_expert.driver.core import commands
+from navigator_expert.driver.core import prechecks
 
 
 # =============================================================================
@@ -209,8 +209,8 @@ class TestConfirmAndFire(unittest.TestCase):
     def test_success(self):
         client = make_client()
         api_obj = make_api_obj()
-        with patch.object(lasx.errors, '_check_api_error', return_value=None):
-            r = lasx.core.confirm_and_fire(
+        with patch.object(errors, '_check_api_error', return_value=None):
+            r = dispatch.confirm_and_fire(
                 client, api_obj, "Test",
                 setup_fn=lambda m: setattr(m, 'X', 1), max_retries=0,
                 pre_check_fn=_idle_pre_check)
@@ -222,8 +222,8 @@ class TestConfirmAndFire(unittest.TestCase):
     def test_timing_dict_structure(self):
         client = make_client()
         api_obj = make_api_obj()
-        with patch.object(lasx.errors, '_check_api_error', return_value=None):
-            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+        with patch.object(errors, '_check_api_error', return_value=None):
+            r = dispatch.confirm_and_fire(client, api_obj, "Test",
                                            max_retries=0,
                                            pre_check_fn=_idle_pre_check)
         t = r["timing"]
@@ -239,11 +239,11 @@ class TestConfirmAndFire(unittest.TestCase):
         client = make_client()
         api_obj = make_api_obj()
         perm_error = {"error": "out of range", "result": "Failure", "result_code": 2}
-        with patch.object(lasx.errors, '_check_api_error', return_value=perm_error):
-            r = lasx.core.confirm_and_fire(client, api_obj, "Zoom -> 999",
+        with patch.object(errors, '_check_api_error', return_value=perm_error):
+            r = dispatch.confirm_and_fire(client, api_obj, "Zoom -> 999",
                                            max_retries=5,
                                            pre_check_fn=_idle_pre_check,
-                                           error_check_fn=lambda: lasx.errors._default_error_check(client))
+                                           error_check_fn=lambda: errors._default_error_check(client))
         self.assertFalse(r["success"])
         self.assertIn("out of range", r["message"])
         self.assertEqual(r["timing"]["attempts"], 1)
@@ -252,11 +252,11 @@ class TestConfirmAndFire(unittest.TestCase):
         client = make_client()
         api_obj = make_api_obj()
         trans_error = {"error": "block is being scanned", "result": "Failure", "result_code": 2}
-        with patch.object(lasx.errors, '_check_api_error', return_value=trans_error):
-            r = lasx.core.confirm_and_fire(client, api_obj, "Zoom -> 5",
+        with patch.object(errors, '_check_api_error', return_value=trans_error):
+            r = dispatch.confirm_and_fire(client, api_obj, "Zoom -> 5",
                                            max_retries=2,
                                            pre_check_fn=_idle_pre_check,
-                                           error_check_fn=lambda: lasx.errors._default_error_check(client))
+                                           error_check_fn=lambda: errors._default_error_check(client))
         self.assertFalse(r["success"])
         self.assertIn("being scanned", r["message"])
         self.assertEqual(r["timing"]["attempts"], 3)
@@ -269,11 +269,11 @@ class TestConfirmAndFire(unittest.TestCase):
         def mock_check(c):
             call_count[0] += 1
             return trans_error if call_count[0] == 1 else None
-        with patch.object(lasx.errors, '_check_api_error', side_effect=mock_check):
-            r = lasx.core.confirm_and_fire(client, api_obj, "Zoom -> 5",
+        with patch.object(errors, '_check_api_error', side_effect=mock_check):
+            r = dispatch.confirm_and_fire(client, api_obj, "Zoom -> 5",
                                            max_retries=3,
                                            pre_check_fn=_idle_pre_check,
-                                           error_check_fn=lambda: lasx.errors._default_error_check(client))
+                                           error_check_fn=lambda: errors._default_error_check(client))
         self.assertTrue(r["success"])
         self.assertEqual(r["timing"]["attempts"], 2)
 
@@ -281,11 +281,11 @@ class TestConfirmAndFire(unittest.TestCase):
         client = make_client()
         api_obj = make_api_obj()
         trans_error = {"error": "busy", "result": "Failure", "result_code": 2}
-        with patch.object(lasx.errors, '_check_api_error', return_value=trans_error):
-            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+        with patch.object(errors, '_check_api_error', return_value=trans_error):
+            r = dispatch.confirm_and_fire(client, api_obj, "Test",
                                            max_retries=0,
                                            pre_check_fn=_idle_pre_check,
-                                           error_check_fn=lambda: lasx.errors._default_error_check(client))
+                                           error_check_fn=lambda: errors._default_error_check(client))
         self.assertFalse(r["success"])
         self.assertEqual(r["timing"]["attempts"], 1)
 
@@ -299,18 +299,18 @@ class TestConfirmAndFire(unittest.TestCase):
         def mock_check(c):
             call_count[0] += 1
             return trans_error if call_count[0] <= 2 else None
-        with patch.object(lasx.errors, '_check_api_error', side_effect=mock_check):
-            lasx.core.confirm_and_fire(client, api_obj, "Test",
+        with patch.object(errors, '_check_api_error', side_effect=mock_check):
+            dispatch.confirm_and_fire(client, api_obj, "Test",
                                        setup_fn=setup, max_retries=3,
                                        pre_check_fn=_idle_pre_check,
-                                       error_check_fn=lambda: lasx.errors._default_error_check(client))
+                                       error_check_fn=lambda: errors._default_error_check(client))
         self.assertEqual(len(setup_calls), 3)
 
     def test_setup_fn_exception(self):
         client = make_client()
         api_obj = make_api_obj()
         def bad_setup(m): raise ValueError("bad value")
-        r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+        r = dispatch.confirm_and_fire(client, api_obj, "Test",
                                        setup_fn=bad_setup, max_retries=0,
                                        pre_check_fn=_idle_pre_check)
         self.assertFalse(r["success"])
@@ -319,8 +319,8 @@ class TestConfirmAndFire(unittest.TestCase):
     def test_no_setup_fn(self):
         client = make_client()
         api_obj = make_api_obj()
-        with patch.object(lasx.errors, '_check_api_error', return_value=None):
-            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+        with patch.object(errors, '_check_api_error', return_value=None):
+            r = dispatch.confirm_and_fire(client, api_obj, "Test",
                                            setup_fn=None, max_retries=0,
                                            pre_check_fn=_idle_pre_check)
         self.assertTrue(r["success"])
@@ -331,7 +331,7 @@ class TestConfirmAndFire(unittest.TestCase):
         api_obj = make_api_obj()
         def failing_pre_check():
             return {"success": False, "logs": []}
-        r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+        r = dispatch.confirm_and_fire(client, api_obj, "Test",
                                        max_retries=0,
                                        pre_check_fn=failing_pre_check)
         self.assertFalse(r["success"])
@@ -340,8 +340,8 @@ class TestConfirmAndFire(unittest.TestCase):
     def test_confirmed_key_present(self):
         client = make_client()
         api_obj = make_api_obj()
-        with patch.object(lasx.errors, '_check_api_error', return_value=None):
-            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+        with patch.object(errors, '_check_api_error', return_value=None):
+            r = dispatch.confirm_and_fire(client, api_obj, "Test",
                                            max_retries=0,
                                            pre_check_fn=_idle_pre_check)
         self.assertIn("confirmed", r)
@@ -386,10 +386,10 @@ class TestRetryBackoff(unittest.TestCase):
         api_obj = make_api_obj()
         sleep_calls = []
 
-        with patch('lasx.core.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
-             patch.object(lasx.core, '_fire_with_receipt', return_value=True), \
-             patch.object(lasx.core, '_await_echo_result', return_value=True):
-            r = lasx.core._fire_block(
+        with patch('navigator_expert.driver.core.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
+             patch.object(dispatch, '_fire_with_receipt', return_value=True), \
+             patch.object(dispatch, '_await_echo_result', return_value=True):
+            r = dispatch._fire_block(
                 client, api_obj, "Test",
                 error_check_fn=self._make_always_transient(),
                 max_retries=4,
@@ -408,10 +408,10 @@ class TestRetryBackoff(unittest.TestCase):
         api_obj = make_api_obj()
         sleep_calls = []
 
-        with patch('lasx.core.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
-             patch.object(lasx.core, '_fire_with_receipt', return_value=True), \
-             patch.object(lasx.core, '_await_echo_result', return_value=True):
-            r = lasx.core._fire_block(
+        with patch('navigator_expert.driver.core.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
+             patch.object(dispatch, '_fire_with_receipt', return_value=True), \
+             patch.object(dispatch, '_await_echo_result', return_value=True):
+            r = dispatch._fire_block(
                 client, api_obj, "Test",
                 error_check_fn=self._make_always_transient(),
                 max_retries=4,
@@ -429,10 +429,10 @@ class TestRetryBackoff(unittest.TestCase):
         api_obj = make_api_obj()
         sleep_calls = []
 
-        with patch('lasx.core.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
-             patch.object(lasx.core, '_fire_with_receipt', return_value=True), \
-             patch.object(lasx.core, '_await_echo_result', return_value=True):
-            r = lasx.core._fire_block(
+        with patch('navigator_expert.driver.core.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
+             patch.object(dispatch, '_fire_with_receipt', return_value=True), \
+             patch.object(dispatch, '_await_echo_result', return_value=True):
+            r = dispatch._fire_block(
                 client, api_obj, "Test",
                 error_check_fn=self._make_always_transient(),
                 max_retries=3,
@@ -456,10 +456,10 @@ class TestRetryBackoff(unittest.TestCase):
                         "error": "busy", "logs": []}
             return {"success": True, "logs": []}
 
-        with patch('lasx.core.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
-             patch.object(lasx.core, '_fire_with_receipt', return_value=True), \
-             patch.object(lasx.core, '_await_echo_result', return_value=True):
-            r = lasx.core._fire_block(
+        with patch('navigator_expert.driver.core.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
+             patch.object(dispatch, '_fire_with_receipt', return_value=True), \
+             patch.object(dispatch, '_await_echo_result', return_value=True):
+            r = dispatch._fire_block(
                 client, api_obj, "Test",
                 error_check_fn=error_check,
                 max_retries=3,
@@ -478,10 +478,10 @@ class TestRetryBackoff(unittest.TestCase):
         api_obj = make_api_obj()
         sleep_calls = []
 
-        with patch('lasx.core.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
-             patch.object(lasx.core, '_fire_with_receipt', return_value=True), \
-             patch.object(lasx.core, '_await_echo_result', return_value=True):
-            r = lasx.core._fire_block(
+        with patch('navigator_expert.driver.core.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
+             patch.object(dispatch, '_fire_with_receipt', return_value=True), \
+             patch.object(dispatch, '_await_echo_result', return_value=True):
+            r = dispatch._fire_block(
                 client, api_obj, "Test",
                 error_check_fn=self._make_always_transient(),
                 max_retries=4,
@@ -498,10 +498,10 @@ class TestRetryBackoff(unittest.TestCase):
         api_obj = make_api_obj()
         sleep_calls = []
 
-        with patch('lasx.core.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
-             patch.object(lasx.core, '_fire_with_receipt', return_value=True), \
-             patch.object(lasx.core, '_await_echo_result', return_value=True):
-            r = lasx.core._fire_block(
+        with patch('navigator_expert.driver.core.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
+             patch.object(dispatch, '_fire_with_receipt', return_value=True), \
+             patch.object(dispatch, '_await_echo_result', return_value=True):
+            r = dispatch._fire_block(
                 client, api_obj, "Test",
                 error_check_fn=self._make_always_permanent(),
                 max_retries=4,
@@ -518,18 +518,18 @@ class TestRetryBackoff(unittest.TestCase):
         client = make_client()
         api_obj = make_api_obj()
 
-        from lasx.profiles import CommandProfile
+        from navigator_expert.driver.core.profiles import CommandProfile
         profile = CommandProfile(
             retry_backoff=2.0,
             retry_escalate=True,
             max_retries=2,
         )
 
-        with patch.object(lasx.commands, 'confirm_and_fire',
+        with patch.object(commands, 'confirm_and_fire',
                           return_value={"success": True, "confirmed": None,
                                         "message": "ok", "timing": {},
                                         "logs": []}) as mock_caf:
-            lasx.commands._dispatch(
+            commands._dispatch(
                 client, api_obj, "Test", profile,
                 setup_fn=lambda m: None)
 
@@ -549,8 +549,8 @@ class TestConfirmation(unittest.TestCase):
         client = make_client()
         api_obj = make_api_obj()
         confirm_fn = MagicMock(return_value={"success": True, "logs": []})
-        with patch.object(lasx.errors, '_check_api_error', return_value=None):
-            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+        with patch.object(errors, '_check_api_error', return_value=None):
+            r = dispatch.confirm_and_fire(client, api_obj, "Test",
                                            confirm_fn=confirm_fn,
                                            max_retries=0,
                                            pre_check_fn=_idle_pre_check)
@@ -561,8 +561,8 @@ class TestConfirmation(unittest.TestCase):
     def test_no_confirm_fn_skips(self):
         client = make_client()
         api_obj = make_api_obj()
-        with patch.object(lasx.errors, '_check_api_error', return_value=None):
-            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+        with patch.object(errors, '_check_api_error', return_value=None):
+            r = dispatch.confirm_and_fire(client, api_obj, "Test",
                                            confirm_fn=None, max_retries=0,
                                            pre_check_fn=_idle_pre_check)
         self.assertTrue(r["success"])
@@ -574,8 +574,8 @@ class TestConfirmation(unittest.TestCase):
         client = make_client()
         api_obj = make_api_obj()
         confirm_fn = MagicMock(return_value={"success": False, "logs": []})
-        with patch.object(lasx.errors, '_check_api_error', return_value=None):
-            r = lasx.core.confirm_and_fire(client, api_obj, "Zoom -> 5",
+        with patch.object(errors, '_check_api_error', return_value=None):
+            r = dispatch.confirm_and_fire(client, api_obj, "Zoom -> 5",
                                            confirm_fn=confirm_fn,
                                            max_retries=0,
                                            max_confirm_attempts=1,
@@ -592,8 +592,8 @@ class TestConfirmation(unittest.TestCase):
         def delayed_confirm():
             call_count[0] += 1
             return {"success": call_count[0] >= 2, "logs": []}
-        with patch.object(lasx.errors, '_check_api_error', return_value=None):
-            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+        with patch.object(errors, '_check_api_error', return_value=None):
+            r = dispatch.confirm_and_fire(client, api_obj, "Test",
                                            confirm_fn=delayed_confirm,
                                            max_retries=0,
                                            max_confirm_attempts=3,
@@ -609,8 +609,8 @@ class TestConfirmation(unittest.TestCase):
             call_count[0] += 1
             if call_count[0] < 2: raise RuntimeError("COM error")
             return {"success": True, "logs": []}
-        with patch.object(lasx.errors, '_check_api_error', return_value=None):
-            r = lasx.core.confirm_and_fire(client, api_obj, "Test",
+        with patch.object(errors, '_check_api_error', return_value=None):
+            r = dispatch.confirm_and_fire(client, api_obj, "Test",
                                            confirm_fn=flaky_confirm,
                                            max_retries=0,
                                            max_confirm_attempts=3,
@@ -626,7 +626,7 @@ class TestApiSetRemoved(unittest.TestCase):
     def test_api_set_removed(self):
         self.assertFalse(hasattr(drv, '_api_set'))
     def test_api_set_removed_from_core(self):
-        self.assertFalse(hasattr(lasx.core, '_api_set'))
+        self.assertFalse(hasattr(dispatch, '_api_set'))
 
 
 # =============================================================================
@@ -665,91 +665,91 @@ class TestErrorClassification(unittest.TestCase):
 
 
 # =============================================================================
-# 7. Confirm functions (lasx.confirmations)
+# 7. Confirm functions
 # =============================================================================
 
 class TestConfirmFunctions(unittest.TestCase):
 
     def _mock_readback(self, changeable_dict):
-        return patch.object(lasx.confirmations, '_readback', return_value=changeable_dict)
+        return patch.object(confirmations, '_readback', return_value=changeable_dict)
 
     def test_confirm_zoom_pass(self):
         with self._mock_readback({"zoom": {"current": 5.0}}):
-            self.assertTrue(lasx.confirmations._confirm_zoom(None, "J", 5.0)["success"])
+            self.assertTrue(confirmations._confirm_zoom(None, "J", 5.0)["success"])
 
     def test_confirm_zoom_within_tolerance(self):
         with self._mock_readback({"zoom": {"current": 5.05}}):
-            self.assertTrue(lasx.confirmations._confirm_zoom(None, "J", 5.0)["success"])
+            self.assertTrue(confirmations._confirm_zoom(None, "J", 5.0)["success"])
 
     def test_confirm_zoom_fail(self):
         with self._mock_readback({"zoom": {"current": 3.0}}):
-            self.assertFalse(lasx.confirmations._confirm_zoom(None, "J", 5.0)["success"])
+            self.assertFalse(confirmations._confirm_zoom(None, "J", 5.0)["success"])
 
     def test_confirm_zoom_none_readback(self):
         with self._mock_readback(None):
-            self.assertFalse(lasx.confirmations._confirm_zoom(None, "J", 5.0)["success"])
+            self.assertFalse(confirmations._confirm_zoom(None, "J", 5.0)["success"])
 
     def test_confirm_scan_speed(self):
         with self._mock_readback({"scanSpeed": {"value": 600}}):
-            self.assertTrue(lasx.confirmations._confirm_scan_speed(None, "J", 600)["success"])
+            self.assertTrue(confirmations._confirm_scan_speed(None, "J", 600)["success"])
         with self._mock_readback({"scanSpeed": {"value": 400}}):
-            self.assertFalse(lasx.confirmations._confirm_scan_speed(None, "J", 600)["success"])
+            self.assertFalse(confirmations._confirm_scan_speed(None, "J", 600)["success"])
 
     def test_confirm_scan_resonant(self):
         with self._mock_readback({"scanSpeed": {"isResonant": True}}):
-            self.assertTrue(lasx.confirmations._confirm_scan_resonant(None, "J", True)["success"])
-            self.assertFalse(lasx.confirmations._confirm_scan_resonant(None, "J", False)["success"])
+            self.assertTrue(confirmations._confirm_scan_resonant(None, "J", True)["success"])
+            self.assertFalse(confirmations._confirm_scan_resonant(None, "J", False)["success"])
 
     def test_confirm_scan_mode(self):
         with self._mock_readback({"scanMode": "xyz"}):
-            self.assertTrue(lasx.confirmations._confirm_scan_mode(None, "J", "xyz")["success"])
-            self.assertFalse(lasx.confirmations._confirm_scan_mode(None, "J", "xy")["success"])
+            self.assertTrue(confirmations._confirm_scan_mode(None, "J", "xyz")["success"])
+            self.assertFalse(confirmations._confirm_scan_mode(None, "J", "xy")["success"])
 
     def test_confirm_sequential_mode(self):
         with self._mock_readback({"sequentialMode": "Frame"}):
-            self.assertTrue(lasx.confirmations._confirm_sequential_mode(None, "J", "Frame")["success"])
+            self.assertTrue(confirmations._confirm_sequential_mode(None, "J", "Frame")["success"])
 
     def test_confirm_rotation(self):
         with self._mock_readback({"scanFieldRotation": {"value": 45.3}}):
-            self.assertTrue(lasx.confirmations._confirm_scan_field_rotation(None, "J", 45.0)["success"])
+            self.assertTrue(confirmations._confirm_scan_field_rotation(None, "J", 45.0)["success"])
         with self._mock_readback({"scanFieldRotation": {"value": 46.0}}):
-            self.assertFalse(lasx.confirmations._confirm_scan_field_rotation(None, "J", 45.0)["success"])
+            self.assertFalse(confirmations._confirm_scan_field_rotation(None, "J", 45.0)["success"])
 
     def test_confirm_image_format(self):
         with self._mock_readback({"format": "1024 x 1024"}):
-            self.assertTrue(lasx.confirmations._confirm_image_format(None, "J", 1024, 1024)["success"])
-            self.assertFalse(lasx.confirmations._confirm_image_format(None, "J", 512, 512)["success"])
+            self.assertTrue(confirmations._confirm_image_format(None, "J", 1024, 1024)["success"])
+            self.assertFalse(confirmations._confirm_image_format(None, "J", 512, 512)["success"])
 
     def test_confirm_pinhole_airy(self):
         with self._mock_readback({"activeSettings": [{"pinholeAiry": {"value": 1.02}}]}):
-            self.assertTrue(lasx.confirmations._confirm_pinhole_airy(None, "J", 0, 1.0)["success"])
+            self.assertTrue(confirmations._confirm_pinhole_airy(None, "J", 0, 1.0)["success"])
         with self._mock_readback({"activeSettings": [{"pinholeAiry": {"value": 0.5}}]}):
-            self.assertFalse(lasx.confirmations._confirm_pinhole_airy(None, "J", 0, 1.0)["success"])
+            self.assertFalse(confirmations._confirm_pinhole_airy(None, "J", 0, 1.0)["success"])
 
     def test_confirm_frame_accumulation(self):
         with self._mock_readback({"activeSettings": [{"frameAccumulation": 4}]}):
-            self.assertTrue(lasx.confirmations._confirm_frame_accumulation(None, "J", 0, 4)["success"])
-            self.assertFalse(lasx.confirmations._confirm_frame_accumulation(None, "J", 0, 2)["success"])
+            self.assertTrue(confirmations._confirm_frame_accumulation(None, "J", 0, 4)["success"])
+            self.assertFalse(confirmations._confirm_frame_accumulation(None, "J", 0, 2)["success"])
 
     def test_confirm_frame_average(self):
         with self._mock_readback({"activeSettings": [{"frameAverage": 2}]}):
-            self.assertTrue(lasx.confirmations._confirm_frame_average(None, "J", 0, 2)["success"])
+            self.assertTrue(confirmations._confirm_frame_average(None, "J", 0, 2)["success"])
 
     def test_confirm_line_accumulation(self):
         with self._mock_readback({"activeSettings": [{"lineAccumulation": 3}]}):
-            self.assertTrue(lasx.confirmations._confirm_line_accumulation(None, "J", 0, 3)["success"])
+            self.assertTrue(confirmations._confirm_line_accumulation(None, "J", 0, 3)["success"])
 
     def test_confirm_line_average(self):
         with self._mock_readback({"activeSettings": [{"lineAverage": 8}]}):
-            self.assertTrue(lasx.confirmations._confirm_line_average(None, "J", 0, 8)["success"])
+            self.assertTrue(confirmations._confirm_line_average(None, "J", 0, 8)["success"])
 
     def test_confirm_move_xy(self):
-        with patch.object(lasx.readers, 'get_xy', return_value={
+        with patch.object(readers, 'get_xy', return_value={
                 "x_um": 50000, "y_um": 50000, "x_m": 0.05, "y_m": 0.05}):
-            self.assertTrue(lasx.confirmations.confirm_move_xy(
+            self.assertTrue(confirmations.confirm_move_xy(
                 None, target_x_um=50000, target_y_um=50000,
                 timeout=1)["success"])
-            self.assertFalse(lasx.confirmations.confirm_move_xy(
+            self.assertFalse(confirmations.confirm_move_xy(
                 None, target_x_um=50000, target_y_um=99999,
                 timeout=0.2)["success"])
 
@@ -757,31 +757,31 @@ class TestConfirmFunctions(unittest.TestCase):
 
     def test_confirm_move_z_galvo_pass(self):
         with self._mock_readback({"zPosition": {"z-galvo": 50.0}}):
-            self.assertTrue(lasx.confirmations.confirm_move_z(
+            self.assertTrue(confirmations.confirm_move_z(
                 None, job_name="J", z_mode="galvo",
                 target_um=50.0, timeout=1)["success"])
 
     def test_confirm_move_z_galvo_fail(self):
         with self._mock_readback({"zPosition": {"z-galvo": 10.0}}):
-            self.assertFalse(lasx.confirmations.confirm_move_z(
+            self.assertFalse(confirmations.confirm_move_z(
                 None, job_name="J", z_mode="galvo",
                 target_um=50.0, timeout=0.1)["success"])
 
     def test_confirm_move_z_zwide_pass(self):
         with self._mock_readback({"zPosition": {"z-wide": 100.0}}):
-            self.assertTrue(lasx.confirmations.confirm_move_z(
+            self.assertTrue(confirmations.confirm_move_z(
                 None, job_name="J", z_mode="zwide",
                 target_um=100.0, timeout=1)["success"])
 
     def test_confirm_move_z_within_tolerance(self):
         with self._mock_readback({"zPosition": {"z-galvo": 50.5}}):
-            self.assertTrue(lasx.confirmations.confirm_move_z(
+            self.assertTrue(confirmations.confirm_move_z(
                 None, job_name="J", z_mode="galvo",
                 target_um=50.0, tolerance=1.0, timeout=1)["success"])
 
     def test_confirm_move_z_none_readback(self):
         with self._mock_readback(None):
-            self.assertFalse(lasx.confirmations.confirm_move_z(
+            self.assertFalse(confirmations.confirm_move_z(
                 None, job_name="J", z_mode="galvo",
                 target_um=50.0, timeout=0.1)["success"])
 
@@ -789,53 +789,53 @@ class TestConfirmFunctions(unittest.TestCase):
 
     def test_confirm_z_stack_step_size_pass(self):
         with self._mock_readback({"stack": {"stepSize": 2.0}}):
-            self.assertTrue(lasx.confirmations._confirm_z_stack_step_size(
+            self.assertTrue(confirmations._confirm_z_stack_step_size(
                 None, "J", target_um=2.0, timeout=1)["success"])
 
     def test_confirm_z_stack_step_size_fail(self):
         with self._mock_readback({"stack": {"stepSize": 5.0}}):
-            self.assertFalse(lasx.confirmations._confirm_z_stack_step_size(
+            self.assertFalse(confirmations._confirm_z_stack_step_size(
                 None, "J", target_um=2.0, timeout=0.1)["success"])
 
     def test_confirm_z_stack_step_size_within_tolerance(self):
         with self._mock_readback({"stack": {"stepSize": 2.3}}):
-            self.assertTrue(lasx.confirmations._confirm_z_stack_step_size(
+            self.assertTrue(confirmations._confirm_z_stack_step_size(
                 None, "J", target_um=2.0, tolerance=0.5, timeout=1)["success"])
 
     def test_confirm_z_stack_size_pass(self):
         with self._mock_readback({"stack": {"size": 10.0, "stepSize": 2.0}}):
-            self.assertTrue(lasx.confirmations._confirm_z_stack_size(
+            self.assertTrue(confirmations._confirm_z_stack_size(
                 None, "J", target_um=10.0, timeout=1)["success"])
 
     def test_confirm_z_stack_size_fail(self):
         with self._mock_readback({"stack": {"size": 20.0, "stepSize": 2.0}}):
-            self.assertFalse(lasx.confirmations._confirm_z_stack_size(
+            self.assertFalse(confirmations._confirm_z_stack_size(
                 None, "J", target_um=10.0, timeout=0.1)["success"])
 
     def test_confirm_z_stack_size_quantised_match(self):
         """Target 9.5 with step 2.0: quantised candidates are 8.0 (n=4) and
         10.0 (n=5). Actual=10.0 should match via quantised path."""
         with self._mock_readback({"stack": {"size": 10.0, "stepSize": 2.0}}):
-            self.assertTrue(lasx.confirmations._confirm_z_stack_size(
+            self.assertTrue(confirmations._confirm_z_stack_size(
                 None, "J", target_um=9.5, timeout=1)["success"])
 
     def test_confirm_z_stack_definition_pass(self):
         with self._mock_readback({"stack": {"begin": -5.0, "end": 5.0,
                                              "stepSize": 1.0}}):
-            self.assertTrue(lasx.confirmations._confirm_z_stack_definition(
+            self.assertTrue(confirmations._confirm_z_stack_definition(
                 None, "J", begin_um=-5.0, end_um=5.0, timeout=1)["success"])
 
     def test_confirm_z_stack_definition_fail(self):
         with self._mock_readback({"stack": {"begin": -5.0, "end": 5.0,
                                              "stepSize": 1.0}}):
-            self.assertFalse(lasx.confirmations._confirm_z_stack_definition(
+            self.assertFalse(confirmations._confirm_z_stack_definition(
                 None, "J", begin_um=-10.0, end_um=10.0,
                 timeout=0.1)["success"])
 
     def test_confirm_z_stack_definition_begin_only(self):
         with self._mock_readback({"stack": {"begin": -5.0, "end": 5.0,
                                              "stepSize": 1.0}}):
-            self.assertTrue(lasx.confirmations._confirm_z_stack_definition(
+            self.assertTrue(confirmations._confirm_z_stack_definition(
                 None, "J", begin_um=-5.0, end_um=None, timeout=1)["success"])
 
     def test_confirm_z_stack_definition_quantised(self):
@@ -845,7 +845,7 @@ class TestConfirmFunctions(unittest.TestCase):
         Actual (-4.5, 4.5) should match."""
         with self._mock_readback({"stack": {"begin": -4.5, "end": 4.5,
                                              "stepSize": 3.0}}):
-            self.assertTrue(lasx.confirmations._confirm_z_stack_definition(
+            self.assertTrue(confirmations._confirm_z_stack_definition(
                 None, "J", begin_um=-5.0, end_um=5.0, timeout=1)["success"])
 
     # ── filter wheel confirm functions ────────────────────────────────
@@ -865,44 +865,44 @@ class TestConfirmFunctions(unittest.TestCase):
 
     def test_confirm_filter_wheel_slot_pass(self):
         with self._fw_readback(filter_index=2):
-            self.assertTrue(lasx.confirmations._confirm_filter_wheel_slot(
+            self.assertTrue(confirmations._confirm_filter_wheel_slot(
                 None, "J", si=0, beam_route="BR1", fw_type="emission",
                 target=2, timeout=1)["success"])
 
     def test_confirm_filter_wheel_slot_fail(self):
         with self._fw_readback(filter_index=0):
-            self.assertFalse(lasx.confirmations._confirm_filter_wheel_slot(
+            self.assertFalse(confirmations._confirm_filter_wheel_slot(
                 None, "J", si=0, beam_route="BR1", fw_type="emission",
                 target=2, timeout=0.1)["success"])
 
     def test_confirm_filter_wheel_slot_wrong_beam_route(self):
         with self._fw_readback(beam_route="BR2", filter_index=2):
-            self.assertFalse(lasx.confirmations._confirm_filter_wheel_slot(
+            self.assertFalse(confirmations._confirm_filter_wheel_slot(
                 None, "J", si=0, beam_route="BR1", fw_type="emission",
                 target=2, timeout=0.1)["success"])
 
     def test_confirm_filter_wheel_spectrum_pass(self):
         with self._fw_readback(spectrum_position=525):
-            self.assertTrue(lasx.confirmations._confirm_filter_wheel_spectrum(
+            self.assertTrue(confirmations._confirm_filter_wheel_spectrum(
                 None, "J", si=0, beam_route="BR1", fw_type="emission",
                 target=525, timeout=1)["success"])
 
     def test_confirm_filter_wheel_spectrum_fail(self):
         with self._fw_readback(spectrum_position=600):
-            self.assertFalse(lasx.confirmations._confirm_filter_wheel_spectrum(
+            self.assertFalse(confirmations._confirm_filter_wheel_spectrum(
                 None, "J", si=0, beam_route="BR1", fw_type="emission",
                 target=525, timeout=0.1)["success"])
 
     def test_confirm_filter_wheel_spectrum_within_tolerance(self):
         with self._fw_readback(spectrum_position=525.5):
-            self.assertTrue(lasx.confirmations._confirm_filter_wheel_spectrum(
+            self.assertTrue(confirmations._confirm_filter_wheel_spectrum(
                 None, "J", si=0, beam_route="BR1", fw_type="emission",
                 target=525, tolerance=1, timeout=1)["success"])
 
     def test_confirm_returns_dict_shape(self):
         """All confirm functions return {"success": bool, "logs": [...]}."""
         with self._mock_readback({"zoom": {"current": 5.0}}):
-            result = lasx.confirmations._confirm_zoom(None, "J", 5.0)
+            result = confirmations._confirm_zoom(None, "J", 5.0)
         self.assertIn("success", result)
         self.assertIn("logs", result)
         self.assertIsInstance(result["logs"], list)
@@ -936,7 +936,7 @@ class TestSetFunctionWiring(unittest.TestCase):
             if kw.get("setup_fn"): kw["setup_fn"](model)
             captured["model"] = model
             return _make_v6_result(msg=description)
-        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+        with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             r = set_fn(*args, **kwargs)
         return captured, r
 
@@ -1030,7 +1030,7 @@ class TestSetFunctionWiring(unittest.TestCase):
 
     def _run_move_z(self, *args, **kwargs):
         """Like _run_set but also mocks _check_z_limits."""
-        with patch.object(lasx.commands, '_check_z_limits'):
+        with patch.object(commands, '_check_z_limits'):
             return self._run_set(drv.move_z, *args, **kwargs)
 
     def test_move_z_galvo_model(self):
@@ -1159,7 +1159,7 @@ class TestSetFunctionDefaults(unittest.TestCase):
         def mock_fire(client, api_obj, desc, **kw):
             captured.update(kw)
             return _make_v6_result(msg=desc)
-        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+        with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             fn(make_client(), "J")
         return captured
 
@@ -1290,13 +1290,13 @@ class TestReadback(unittest.TestCase):
                      "scanMode": "xyz", "sequentialMode": "Frame", "scanFieldRotation": {"value": 0.0},
                      "format": "512 x 512", "objective": {"name": "Obj", "magnification": 63},
                      "activeSettings": []}
-        with patch.object(lasx.readers, 'get_job_settings', return_value=settings):
+        with patch.object(readers, 'get_job_settings', return_value=settings):
             ch = drv._readback(None, "HiRes")
         self.assertIsNotNone(ch)
         self.assertEqual(ch["zoom"]["current"], 5.0)
 
     def test_failure(self):
-        with patch.object(lasx.readers, 'get_job_settings', return_value=None):
+        with patch.object(readers, 'get_job_settings', return_value=None):
             self.assertIsNone(drv._readback(None, "HiRes"))
 
 
@@ -1324,13 +1324,13 @@ class TestModuleStructure(unittest.TestCase):
                       "_confirm_filter_wheel_slot", "_confirm_filter_wheel_spectrum",
                       "confirm_move_xy", "confirm_move_z"]:
             with self.subTest(name=name):
-                self.assertTrue(callable(getattr(lasx.confirmations, name, None)),
-                                f"{name} missing in lasx.confirmations")
+                self.assertTrue(callable(getattr(confirmations, name, None)),
+                                f"{name} missing in confirmations")
 
     def test_confirm_functions_replaced_factories(self):
         """confirm_acquire and confirm_select_job replaced closure factories."""
-        self.assertTrue(callable(getattr(lasx.confirmations, 'confirm_acquire', None)))
-        self.assertTrue(callable(getattr(lasx.confirmations, 'confirm_select_job', None)))
+        self.assertTrue(callable(getattr(confirmations, 'confirm_acquire', None)))
+        self.assertTrue(callable(getattr(confirmations, 'confirm_select_job', None)))
 
     def test_all_set_functions_have_max_retries(self):
         import inspect
@@ -1422,7 +1422,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         with patch.object(drv, 'select_job', side_effect=_mock_select), \
              patch.object(drv, 'move_xy', side_effect=_mock_move), \
              patch.object(drv, 'acquire', side_effect=_mock_acq), \
-             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+             patch.object(commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
             results = self._run_protocol()
         self.assertEqual(len(results), 10)
 
@@ -1434,7 +1434,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         with patch.object(drv, 'select_job', side_effect=mock_sel), \
              patch.object(drv, 'move_xy', side_effect=_mock_move), \
              patch.object(drv, 'acquire', side_effect=_mock_acq), \
-             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+             patch.object(commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
             self._run_protocol()
         self.assertEqual(select_calls, ["Overview", "HiRes", "ZStack", "Live", "Overview"])
 
@@ -1446,7 +1446,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         with patch.object(drv, 'select_job', side_effect=_mock_select), \
              patch.object(drv, 'move_xy', side_effect=mock_mv), \
              patch.object(drv, 'acquire', side_effect=_mock_acq), \
-             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+             patch.object(commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
             self._run_protocol()
         self.assertEqual(coords, [(p[2], p[3]) for p in PROTOCOL_POSITIONS])
 
@@ -1458,7 +1458,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         with patch.object(drv, 'select_job', side_effect=_mock_select), \
              patch.object(drv, 'move_xy', side_effect=_mock_move), \
              patch.object(drv, 'acquire', side_effect=mock_a), \
-             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+             patch.object(commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
             self._run_protocol()
         self.assertEqual(acq_jobs, [p[1] for p in PROTOCOL_POSITIONS])
 
@@ -1472,7 +1472,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         with patch.object(drv, 'select_job', side_effect=_mock_select), \
              patch.object(drv, 'move_xy', side_effect=_mock_move), \
              patch.object(drv, 'acquire', side_effect=_mock_acq), \
-             patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+             patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             self._run_protocol()
         self.assertEqual(zooms, [p[4] for p in PROTOCOL_POSITIONS])
 
@@ -1486,7 +1486,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         with patch.object(drv, 'select_job', side_effect=_mock_select), \
              patch.object(drv, 'move_xy', side_effect=_mock_move), \
              patch.object(drv, 'acquire', side_effect=_mock_acq), \
-             patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+             patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             self._run_protocol()
         self.assertEqual(speeds, [p[5] for p in PROTOCOL_POSITIONS])
 
@@ -1500,7 +1500,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         with patch.object(drv, 'select_job', side_effect=_mock_select), \
              patch.object(drv, 'move_xy', side_effect=_mock_move), \
              patch.object(drv, 'acquire', side_effect=_mock_acq), \
-             patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+             patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             self._run_protocol()
         self.assertEqual(pinholes, [p[6] for p in PROTOCOL_POSITIONS if p[6] is not None])
         self.assertEqual(len(pinholes), 6)
@@ -1515,7 +1515,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         with patch.object(drv, 'select_job', side_effect=_mock_select), \
              patch.object(drv, 'move_xy', side_effect=_mock_move), \
              patch.object(drv, 'acquire', side_effect=_mock_acq), \
-             patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+             patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             self._run_protocol()
         self.assertEqual(lasers, [p[7] for p in PROTOCOL_POSITIONS if p[7] is not None])
         self.assertEqual(len(lasers), 6)
@@ -1530,7 +1530,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         with patch.object(drv, 'select_job', side_effect=_mock_select), \
              patch.object(drv, 'move_xy', side_effect=_mock_move), \
              patch.object(drv, 'acquire', side_effect=mock_a), \
-             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+             patch.object(commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
             with self.assertRaises(AssertionError) as ctx: self._run_protocol()
             self.assertIn("acquire failed", str(ctx.exception))
             self.assertIn("ROI-2", str(ctx.exception))
@@ -1547,7 +1547,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         with patch.object(drv, 'select_job', side_effect=_mock_select), \
              patch.object(drv, 'move_xy', side_effect=mock_mv), \
              patch.object(drv, 'acquire', side_effect=_mock_acq), \
-             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+             patch.object(commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
             with self.assertRaises(AssertionError) as ctx: self._run_protocol()
             self.assertIn("move_xy failed", str(ctx.exception))
 
@@ -1559,7 +1559,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         with patch.object(drv, 'select_job', side_effect=mock_sel), \
              patch.object(drv, 'move_xy', side_effect=_mock_move), \
              patch.object(drv, 'acquire', side_effect=_mock_acq), \
-             patch.object(lasx.commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
+             patch.object(commands, 'confirm_and_fire', side_effect=_mock_fire_ok):
             with self.assertRaises(AssertionError) as ctx: self._run_protocol()
             self.assertIn("select_job failed", str(ctx.exception))
             self.assertIn("Deep-1", str(ctx.exception))
@@ -1575,7 +1575,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         with patch.object(drv, 'select_job', side_effect=_mock_select), \
              patch.object(drv, 'move_xy', side_effect=_mock_move), \
              patch.object(drv, 'acquire', side_effect=_mock_acq), \
-             patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+             patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             with self.assertRaises(AssertionError) as ctx: self._run_protocol()
             self.assertIn("set_zoom failed", str(ctx.exception))
             self.assertIn("ROI-3", str(ctx.exception))
@@ -1598,7 +1598,7 @@ class TestAcquisitionProtocol(unittest.TestCase):
         with patch.object(drv, 'select_job', side_effect=mock_sel), \
              patch.object(drv, 'move_xy', side_effect=mock_mv), \
              patch.object(drv, 'acquire', side_effect=mock_a), \
-             patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+             patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             self._run_protocol()
         self.assertEqual(counts, {"select_job": 5, "move_xy": 10, "acquire": 10,
                                   "set_zoom": 10, "set_speed": 10, "set_pinhole": 6, "set_laser": 6})
@@ -1611,15 +1611,15 @@ class TestAcquisitionProtocol(unittest.TestCase):
 class TestCheckIdle(unittest.TestCase):
 
     def test_idle_returns_immediately(self):
-        with patch.object(lasx.readers, 'get_scan_status', return_value="eScanIdle"):
-            result = lasx.prechecks.check_idle(None, timeout=5.0)
+        with patch.object(readers, 'get_scan_status', return_value="eScanIdle"):
+            result = prechecks.check_idle(None, timeout=5.0)
         self.assertTrue(result["success"])
         self.assertIsInstance(result["logs"], list)
 
     def test_timeout_returns_failure(self):
-        with patch.object(lasx.readers, 'get_scan_status', return_value="eScanRunning"), \
+        with patch.object(readers, 'get_scan_status', return_value="eScanRunning"), \
              patch('time.sleep'):
-            result = lasx.prechecks.check_idle(None, timeout=0.01)
+            result = prechecks.check_idle(None, timeout=0.01)
         self.assertFalse(result["success"])
         self.assertTrue(any("timeout" in e["msg"].lower() for e in result["logs"]))
 
@@ -1628,9 +1628,9 @@ class TestCheckIdle(unittest.TestCase):
         def mock_status(client):
             call_count[0] += 1
             return "eScanIdle" if call_count[0] > 3 else "eScanRunning"
-        with patch.object(lasx.readers, 'get_scan_status', side_effect=mock_status), \
+        with patch.object(readers, 'get_scan_status', side_effect=mock_status), \
              patch('time.sleep'):
-            result = lasx.prechecks.check_idle(None, timeout=None)
+            result = prechecks.check_idle(None, timeout=None)
         self.assertTrue(result["success"])
 
 
@@ -1643,11 +1643,11 @@ class TestMoveXYConsistency(unittest.TestCase):
         client = make_client()
         drv.set_stage_limits(x_min=0, x_max=130000, y_min=0, y_max=100000,
                              z_galvo_min=-200, z_galvo_max=200, z_wide_min=0, z_wide_max=25000)
-        with patch.object(lasx.readers, 'get_scan_status', return_value="eScanIdle"), \
-             patch.object(lasx.errors, '_check_api_error', return_value=None), \
-             patch.object(lasx.readers, 'get_xy', return_value={
+        with patch.object(readers, 'get_scan_status', return_value="eScanIdle"), \
+             patch.object(errors, '_check_api_error', return_value=None), \
+             patch.object(readers, 'get_xy', return_value={
                  "x_um": 50000, "y_um": 50000, "x_m": 0.05, "y_m": 0.05}), \
-             patch.object(lasx.confirmations, 'confirm_move_xy',
+             patch.object(confirmations, 'confirm_move_xy',
                           return_value={"success": True, "logs": []}):
             r = drv.move_xy(client, 50000, 50000, unit="um")
         self.assertTrue(r["success"])
@@ -1726,10 +1726,10 @@ class TestConfirmAcquire(unittest.TestCase):
 
     def test_idle_without_scanning_returns_failure(self):
         """Always idle, never saw scanning → failure (start_timeout)."""
-        with patch.object(lasx.readers, 'get_scan_status', return_value="eScanIdle"), \
-             patch.object(lasx.confirmations, '_check_api_error', return_value=None), \
+        with patch.object(readers, 'get_scan_status', return_value="eScanIdle"), \
+             patch.object(confirmations, '_check_api_error', return_value=None), \
              patch('time.sleep'):
-            result = lasx.confirmations.confirm_acquire(
+            result = confirmations.confirm_acquire(
                 None, start_timeout=0.0, timeout=1.0, poll_interval=0.001)
         self.assertFalse(result["success"])
 
@@ -1739,9 +1739,9 @@ class TestConfirmAcquire(unittest.TestCase):
         def mock_status(client):
             call_count[0] += 1
             return "eScanStarted" if call_count[0] <= 2 else "eScanIdle"
-        with patch.object(lasx.readers, 'get_scan_status', side_effect=mock_status), \
+        with patch.object(readers, 'get_scan_status', side_effect=mock_status), \
              patch('time.sleep'):
-            result = lasx.confirmations.confirm_acquire(
+            result = confirmations.confirm_acquire(
                 None, timeout=5.0, poll_interval=0.001)
         self.assertTrue(result["success"])
 
@@ -1751,9 +1751,9 @@ class TestConfirmSelectJob(unittest.TestCase):
     def test_selected_after_settle(self):
         """Job is selected on first poll → success."""
         jobs = [{"Name": "HiRes", "IsSelected": True}]
-        with patch.object(lasx.readers, 'get_jobs', return_value=jobs), \
+        with patch.object(readers, 'get_jobs', return_value=jobs), \
              patch('time.sleep'):
-            result = lasx.confirmations.confirm_select_job(
+            result = confirmations.confirm_select_job(
                 None, job_name="HiRes", timeout=1.0,
                 poll_interval=0.001)
         self.assertTrue(result["success"])
@@ -1761,9 +1761,9 @@ class TestConfirmSelectJob(unittest.TestCase):
     def test_timeout_returns_failure(self):
         """Job never becomes selected → failure."""
         jobs = [{"Name": "Other", "IsSelected": True}]
-        with patch.object(lasx.readers, 'get_jobs', return_value=jobs), \
+        with patch.object(readers, 'get_jobs', return_value=jobs), \
              patch('time.sleep'):
-            result = lasx.confirmations.confirm_select_job(
+            result = confirmations.confirm_select_job(
                 None, job_name="HiRes", timeout=0.01,
                 poll_interval=0.001)
         self.assertFalse(result["success"])
@@ -1797,7 +1797,7 @@ class TestAcquireSingleImage(unittest.TestCase):
             captured["kwargs"] = kw
             return _make_v6_result(msg=description)
         client = make_client()
-        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+        with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             r = drv.acquire_single_image(client)
         self.assertIs(captured["api_obj"], client.PyApiAcquireSingleImage)
 
@@ -1807,7 +1807,7 @@ class TestAcquireSingleImage(unittest.TestCase):
         def mock_fire(client, api_obj, description, **kw):
             captured["kwargs"] = kw
             return _make_v6_result(msg=description)
-        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+        with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             drv.acquire_single_image(make_client())
         self.assertIsNone(captured["kwargs"].get("setup_fn"))
 
@@ -1816,7 +1816,7 @@ class TestAcquireSingleImage(unittest.TestCase):
         def mock_fire(client, api_obj, description, **kw):
             captured["kwargs"] = kw
             return _make_v6_result(msg=description)
-        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+        with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             drv.acquire_single_image(make_client())
         self.assertIsNotNone(captured["kwargs"].get("confirm_fn"))
 
@@ -1825,7 +1825,7 @@ class TestAcquireSingleImage(unittest.TestCase):
         def mock_fire(client, api_obj, description, **kw):
             captured["description"] = description
             return _make_v6_result(msg=description)
-        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+        with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             drv.acquire_single_image(make_client())
         self.assertIn("SingleImage", captured["description"])
 
@@ -1834,7 +1834,7 @@ class TestAcquireSingleImage(unittest.TestCase):
         def mock_fire(client, api_obj, description, **kw):
             captured["kwargs"] = kw
             return _make_v6_result(msg=description)
-        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire):
+        with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
             drv.acquire_single_image(make_client(), max_start_retries=5)
         self.assertEqual(captured["kwargs"].get("max_confirm_attempts"), 5)
 
@@ -1849,9 +1849,9 @@ class TestAcquireSingleImage(unittest.TestCase):
             captured_acquire["api_obj"] = api_obj
             return _make_v6_result(msg=description)
         client = make_client()
-        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire_single):
+        with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire_single):
             drv.acquire_single_image(client)
-        with patch.object(lasx.commands, 'confirm_and_fire', side_effect=mock_fire_acquire):
+        with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire_acquire):
             drv.acquire(client, "J")
         self.assertIsNot(captured_single["api_obj"],
                          captured_acquire["api_obj"])

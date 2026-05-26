@@ -2,16 +2,15 @@
 Z-stack scanning template editors.
 ====================================
 Functions that modify Z-stack–related attributes in LAS X scanning
-template LRP files.  Split from ``scanning_template_editors`` for
-manageability.
+template LRP files.
 
 Editors here follow the same pattern as the main editors module:
 string replacement on raw LRP text, designed for use with
-``scanning_templates.apply_lrp_change``.
+``templates.transaction.apply_lrp_change``.
 
 Dependency direction:
-    - Imports: ``scanning_template_editors`` (helpers), stdlib.
-    - Imported by: ``__init__`` (re-export).
+    - Imports: ``_primitives``, stdlib.
+    - Imported by: driver facade re-exports.
 """
 
 import logging

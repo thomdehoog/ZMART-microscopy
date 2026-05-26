@@ -53,7 +53,7 @@ def main() -> None:
 
     from shared.output_layout import Naming  # noqa: E402
     import navigator_expert.driver as drv  # noqa: E402
-    from navigator_expert.driver.output import acquisition  # noqa: E402
+    from navigator_expert.driver.acquisition import save as acquisition  # noqa: E402
 
     fake_image = np.ones((8, 8), dtype=np.uint8)
 

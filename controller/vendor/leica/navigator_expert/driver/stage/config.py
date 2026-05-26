@@ -1,7 +1,7 @@
 """Stage configuration: physical limits + backlash takeup parameters.
 
 Loaded from ``config/stage.json``. Hand-edited; rarely changes.
-Independent of optical calibration (see ``calibration.py``).
+Independent of optical calibration (see ``calibration/core/model.py``).
 
 Schema (v1)::
 
