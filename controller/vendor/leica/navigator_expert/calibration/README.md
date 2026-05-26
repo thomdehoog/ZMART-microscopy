@@ -2,7 +2,7 @@
 
 Operator-facing calibration is notebook driven. The notebooks stay thin:
 each cell calls one procedure function, while reusable code lives in
-`procedures/` and `core/`.
+`core/`.
 
 ## Entry Points
 
@@ -28,7 +28,6 @@ they are not source files and should not be committed.
 ## Package Layout
 
 - `core/` contains low-level calibration internals.
-- `procedures/` contains notebook-facing procedures.
 - `notebooks/` contains the operator UI.
 
 The driver reads only the promoted files under `navigator_expert/config/`.

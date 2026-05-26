@@ -1,4 +1,4 @@
-"""Tests for calibration/procedures/ (PR 1).
+"""Tests for calibration/core/ (PR 1).
 
 Covers:
 
@@ -22,8 +22,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from navigator_expert.calibration.procedures import common as cm
-from navigator_expert.calibration.procedures import (
+from navigator_expert.calibration.core import common as cm
+from navigator_expert.calibration.core import (
     image_to_stage as wf_i2s,
     objective_pair as wf_obj,
     promotion as wf_promotion,

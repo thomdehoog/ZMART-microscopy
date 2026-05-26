@@ -169,7 +169,7 @@ def hijack_frame(
     # source filenames, not canonical pipeline names).
     #
     # Timing: this call is synchronous with respect to acquire_and_save
-    # -- driver/acquisition.py:172 calls _save_atomic(image, xml) which
+    # -- driver/output/acquisition.py calls _save_atomic(image, xml) which
     # copies both to .tmp + size-validates + os.replaces both before
     # acquire_and_save returns at line 190. By the time we get here the
     # canonical-named XML is on disk. (Audited @ef4d2a2.) No retry

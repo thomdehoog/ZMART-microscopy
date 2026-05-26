@@ -528,7 +528,7 @@ class TestAnalysisImageSourceSingleTrace:
     copy and explicitly off-limits.
     """
 
-    # Files (relative to the notebooks/ root) allowed to mention the
+    # Files (relative to the target_acquisition root) allowed to mention the
     # identifier in active code. The set is intentionally tiny -- if
     # it grows, the cleanup is incomplete.
     ALLOWLIST = frozenset({

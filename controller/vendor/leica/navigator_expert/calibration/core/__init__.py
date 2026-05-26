@@ -1,1 +1,1 @@
-"""Low-level calibration internals used by notebook-facing workflows."""
+"""Calibration implementation used by the operator notebooks."""

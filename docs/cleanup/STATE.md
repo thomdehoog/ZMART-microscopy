@@ -51,9 +51,9 @@ just enumerated differently now.
 
 2. **The 3 example scripts are the integration test.** They must run
    end-to-end on the microscope after every cleanup wave:
-   - `examples/galvo_zoom_in.py`
-   - `examples/segment_and_define_rois.py`
-   - `examples/objective_switch_target.py`
+   - `workflows/vendor/leica/navigator_expert/examples/galvo_zoom_in.py`
+   - `workflows/vendor/leica/navigator_expert/examples/segment_and_define_rois.py`
+   - `workflows/vendor/leica/navigator_expert/examples/objective_switch_target.py`
 
 3. **Don't extend mocks for `commands.py` or `confirmations.py`.**
    Mock-vs-real divergence has bitten before. Live runs are the truth.
@@ -76,7 +76,7 @@ just enumerated differently now.
   example scripts). Removed dangling `# drv.read_zwide_um lives in...`
   breadcrumb in `objective_switch_target.py`.
 - **Driver fix (not strictly cleanup).** `get_job_settings` in
-  `driver/readers.py` now treats a populated-but-empty-`imageSize`
+  `driver/api/readers.py` now treats a populated-but-empty-`imageSize`
   response as transient and lets the retry loop wait. Surfaced during
   the slow LAS X session on 2026-05-04.
 - **Calibration values.** New 10x->20x and 10x->40x calibration values
@@ -102,10 +102,10 @@ Done:
 - ✅ Moved 4 root spike scripts to `scripts/legacy/` (`34962dc`),
   then deleted the entire `scripts/legacy/` directory — they're not
   part of any active workflow and the supported example surface is
-  `controller/vendor/leica/navigator_expert/examples/`. Anything
+  `workflows/vendor/leica/navigator_expert/examples/`. Anything
   still useful from the spikes can be pulled from git history.
 - ✅ Moved `smart_microscopy_v2.ipynb` to
-  `controller/vendor/leica/navigator_expert/notebooks/` — the
+  `workflows/vendor/leica/navigator_expert/target_acquisition/notebook.ipynb` — the
   notebook lives inside the package as a subfolder, keeping the
   repo root free of notebook clutter (`5b32460` → relocated later
   this session).
@@ -194,9 +194,9 @@ example script before merge.
 
 ```
 git switch cleanup/wave-2
-python controller/vendor/leica/navigator_expert/examples/galvo_zoom_in.py
-python controller/vendor/leica/navigator_expert/examples/segment_and_define_rois.py
-python controller/vendor/leica/navigator_expert/examples/objective_switch_target.py
+python workflows/vendor/leica/navigator_expert/examples/galvo_zoom_in.py
+python workflows/vendor/leica/navigator_expert/examples/segment_and_define_rois.py
+python workflows/vendor/leica/navigator_expert/examples/objective_switch_target.py
 ```
 
 Same invocation as the validated 78942e2 baseline. CLI args unchanged.
