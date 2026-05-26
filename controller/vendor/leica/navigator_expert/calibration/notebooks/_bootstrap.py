@@ -23,3 +23,9 @@ else:
 
 if str(_pkg_parent) not in sys.path:
     sys.path.insert(0, str(_pkg_parent))
+
+# Add repo root so `from algorithms import ...` resolves to the
+# vendor-neutral top-level package.
+_repo_root = _pkg_parent.parents[2]
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
