@@ -1,36 +1,5 @@
 # Compatibility shim. Prefer navigator_expert.driver.experimental.lrp_edits.roi.
-from .experimental.lrp_edits.roi import (  # noqa: F401
-    um,
-    ROI_POLYGON,
-    ROI_RECTANGLE,
-    ROI_ELLIPSE,
-    ROI_LINE,
-    argb_color,
-    COLOR_RED,
-    COLOR_GREEN,
-    COLOR_BLUE,
-    COLOR_YELLOW,
-    lrp_enable_roi_scan,
-    lrp_verify_roi_scan,
-    disable_roi_scan,
-    lrp_clear_rois,
-    lrp_add_roi,
-    lrp_verify_roi_count,
-    lrp_verify_roi,
-    lrp_find_aotf_template,
-    make_rectangle,
-    make_ellipse,
-    make_polygon,
-    make_star,
-    make_line,
-    center_vertices,
-    pixels_to_roi,
-    roi_translation_to_pan,
-    galvo_pan_for_pixel,
-    roi_to_absolute_um,
-    absolute_um_to_roi_translation,
-    bbox_to_zoom,
-    roi_geometry,
-    roi_to_pan_zoom,
-    mask_contour_to_roi,
-)
+# sys.modules alias so monkey-patching targets the real module globals.
+import sys as _sys
+from .experimental.lrp_edits import roi as _canonical
+_sys.modules[__name__] = _canonical

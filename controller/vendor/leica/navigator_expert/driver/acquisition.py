@@ -1,23 +1,5 @@
 # Compatibility shim. Prefer navigator_expert.driver.output.acquisition.
-from .output.acquisition import (  # noqa: F401
-    RunHandle,
-    SavedAcquisition,
-    start_run,
-    acquire_and_save,
-    log,
-    _acquire,
-    _fc,
-    _ome,
-    _readers,
-    _MAX_PATH_BUDGET,
-    _check_path_budget,
-    _find_companion_xml,
-    _ome_ok,
-    _validate_ome,
-    _save_atomic,
-    _write_summary_atomic,
-    _append_summary_atomic,
-    _with_tmp_suffix,
-    _rel_posix,
-    _naming_to_dict,
-)
+# sys.modules alias so patch.object targets the real module globals.
+import sys as _sys
+from .output import acquisition as _canonical
+_sys.modules[__name__] = _canonical

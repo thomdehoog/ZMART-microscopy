@@ -435,16 +435,16 @@ class TestApplyLrpChange:
         td = _make_templates_dir(tmp_path)
         patches = {
             "find": patch(
-                "lasx.scanning_templates.find_scanning_templates_dir",
+                "navigator_expert.driver.templates.transaction.find_scanning_templates_dir",
                 return_value=td),
             "save": patch(
-                "lasx.scanning_templates.save_experiment",
+                "navigator_expert.driver.templates.transaction.save_experiment",
                 side_effect=_save_that_touches_file(td, TEMPLATE_XML)),
             "load": patch(
-                "lasx.scanning_templates.load_experiment",
+                "navigator_expert.driver.templates.transaction.load_experiment",
                 side_effect=_fake_load),
             "job": patch(
-                "lasx.scanning_templates.get_selected_job",
+                "navigator_expert.driver.templates.transaction.get_selected_job",
                 return_value={"Name": "HiRes", "IsSelected": True}),
         }
         return td, patches
@@ -472,7 +472,7 @@ class TestApplyLrpChange:
             return _save_that_touches_file(td, name)(client, name, tdir,
                                                       **kwargs)
         patches["save"] = patch(
-            "lasx.scanning_templates.save_experiment",
+            "navigator_expert.driver.templates.transaction.save_experiment",
             side_effect=_save_fail_first)
         with patches["find"], patches["save"], patches["load"], patches["job"]:
             r = apply_lrp_change(MagicMock(), TEMPLATE_XML, MagicMock(),
@@ -482,7 +482,7 @@ class TestApplyLrpChange:
     def test_load_failure_returns_none(self, tmp_path):
         td, patches = self._patch_infra(tmp_path)
         patches["load"] = patch(
-            "lasx.scanning_templates.load_experiment",
+            "navigator_expert.driver.templates.transaction.load_experiment",
             return_value=None)
         with patches["find"], patches["save"], patches["load"], patches["job"]:
             r = apply_lrp_change(MagicMock(), TEMPLATE_XML, MagicMock(),
@@ -533,11 +533,11 @@ class TestApplyLrpChange:
         td, patches = self._patch_infra(tmp_path)
         # Patch get_selected_job to return "Overview" (second job)
         patches["job"] = patch(
-            "lasx.scanning_templates.get_selected_job",
+            "navigator_expert.driver.templates.transaction.get_selected_job",
             return_value={"Name": "Overview", "IsSelected": True})
         with patches["find"], patches["save"], patches["load"], \
              patches["job"], \
-             patch("lasx.scanning_templates.reorder_jobs") as mock_reorder:
+             patch("navigator_expert.driver.templates.transaction.reorder_jobs") as mock_reorder:
             mock_reorder.return_value = True
             r = apply_lrp_change(MagicMock(), TEMPLATE_XML, MagicMock(),
                                  confirm_delays=(0.5,))
@@ -547,17 +547,17 @@ class TestApplyLrpChange:
     def test_no_active_job_skips_reorder(self, tmp_path):
         td, patches = self._patch_infra(tmp_path)
         patches["job"] = patch(
-            "lasx.scanning_templates.get_selected_job",
+            "navigator_expert.driver.templates.transaction.get_selected_job",
             return_value=None)
         with patches["find"], patches["save"], patches["load"], \
              patches["job"], \
-             patch("lasx.scanning_templates.reorder_jobs") as mock_reorder:
+             patch("navigator_expert.driver.templates.transaction.reorder_jobs") as mock_reorder:
             r = apply_lrp_change(MagicMock(), TEMPLATE_XML, MagicMock(),
                                  confirm_delays=(0.5,))
         mock_reorder.assert_not_called()
 
     def test_no_templates_dir_returns_none(self):
-        with patch("lasx.scanning_templates.find_scanning_templates_dir",
+        with patch("navigator_expert.driver.templates.transaction.find_scanning_templates_dir",
                    return_value=None):
             r = apply_lrp_change(MagicMock(), TEMPLATE_XML, MagicMock())
         assert r is None
@@ -571,7 +571,7 @@ class TestStripTemplate:
     def _setup(self, tmp_path):
         td = _make_templates_dir(tmp_path)
         p_find = patch(
-            "lasx.scanning_templates.find_scanning_templates_dir",
+            "navigator_expert.driver.templates.strip_restore.find_scanning_templates_dir",
             return_value=td)
         return td, p_find
 
@@ -595,13 +595,13 @@ class TestStripTemplate:
                             "attempts": 1, "method": "async"},
                 "logs": [],
             }
-        return patch("lasx.scanning_templates.save_experiment",
+        return patch("navigator_expert.driver.templates.strip_restore.save_experiment",
                       side_effect=_save)
 
     def test_creates_stripped_files(self, tmp_path):
         td, p_find = self._setup(tmp_path)
         with p_find, self._mock_save(td), \
-             patch("lasx.scanning_templates.load_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.load_experiment",
                    side_effect=_fake_load):
             r = strip_template(MagicMock())
         assert r is not None
@@ -613,7 +613,7 @@ class TestStripTemplate:
     def test_result_contains_original_counts(self, tmp_path):
         td, p_find = self._setup(tmp_path)
         with p_find, self._mock_save(td), \
-             patch("lasx.scanning_templates.load_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.load_experiment",
                    side_effect=_fake_load):
             r = strip_template(MagicMock())
         assert r["original_fields"] == 1
@@ -623,9 +623,9 @@ class TestStripTemplate:
     def test_initial_save_failure_returns_none(self, tmp_path):
         td, p_find = self._setup(tmp_path)
         with p_find, \
-             patch("lasx.scanning_templates.save_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.save_experiment",
                    return_value=None), \
-             patch("lasx.scanning_templates.load_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.load_experiment",
                    side_effect=_fake_load):
             r = strip_template(MagicMock())
         assert r is None
@@ -633,7 +633,7 @@ class TestStripTemplate:
     def test_load_failure_returns_none(self, tmp_path):
         td, p_find = self._setup(tmp_path)
         with p_find, self._mock_save(td), \
-             patch("lasx.scanning_templates.load_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.load_experiment",
                    return_value=None):
             r = strip_template(MagicMock())
         assert r is None
@@ -652,15 +652,15 @@ class TestStripTemplate:
             # Second save (confirm stripped) fails
             return None
         with p_find, \
-             patch("lasx.scanning_templates.save_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.save_experiment",
                    side_effect=_save_fail_second), \
-             patch("lasx.scanning_templates.load_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.load_experiment",
                    side_effect=_fake_load):
             r = strip_template(MagicMock())
         assert r is None
 
     def test_no_templates_dir_returns_none(self):
-        with patch("lasx.scanning_templates.find_scanning_templates_dir",
+        with patch("navigator_expert.driver.templates.strip_restore.find_scanning_templates_dir",
                    return_value=None):
             r = strip_template(MagicMock())
         assert r is None
@@ -668,7 +668,7 @@ class TestStripTemplate:
     def test_lrp_copied_to_stripped(self, tmp_path):
         td, p_find = self._setup(tmp_path)
         with p_find, self._mock_save(td), \
-             patch("lasx.scanning_templates.load_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.load_experiment",
                    side_effect=_fake_load):
             strip_template(MagicMock())
         orig_lrp = (td / TEMPLATE_LRP).read_text(encoding="utf-8")
@@ -692,7 +692,7 @@ class TestRestoreTemplate:
             TWO_JOB_LRP.replace("MySequence", "ModifiedSequence"),
             encoding="utf-8")
         p_find = patch(
-            "lasx.scanning_templates.find_scanning_templates_dir",
+            "navigator_expert.driver.templates.strip_restore.find_scanning_templates_dir",
             return_value=td)
         return td, p_find
 
@@ -710,15 +710,15 @@ class TestRestoreTemplate:
                 "message": f"SaveExperiment '{name}'",
                 "timing": {}, "logs": [],
             }
-        return patch("lasx.scanning_templates.save_experiment",
+        return patch("navigator_expert.driver.templates.strip_restore.save_experiment",
                       side_effect=_save)
 
     def test_success_restores_object_counts(self, tmp_path):
         td, p_find = self._setup(tmp_path)
         with p_find, self._mock_save_ok(td), \
-             patch("lasx.scanning_templates.load_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.load_experiment",
                    side_effect=_fake_load), \
-             patch("lasx.scanning_templates._wait_file_stable",
+             patch("navigator_expert.driver.templates.strip_restore._wait_file_stable",
                    return_value=True):
             r = restore_template(MagicMock())
         assert r is not None
@@ -728,9 +728,9 @@ class TestRestoreTemplate:
     def test_modified_lrp_copied_back(self, tmp_path):
         td, p_find = self._setup(tmp_path)
         with p_find, self._mock_save_ok(td), \
-             patch("lasx.scanning_templates.load_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.load_experiment",
                    side_effect=_fake_load), \
-             patch("lasx.scanning_templates._wait_file_stable",
+             patch("navigator_expert.driver.templates.strip_restore._wait_file_stable",
                    return_value=True):
             restore_template(MagicMock())
         lrp_text = (td / TEMPLATE_LRP).read_text(encoding="utf-8")
@@ -739,9 +739,9 @@ class TestRestoreTemplate:
     def test_stripped_files_cleaned_up(self, tmp_path):
         td, p_find = self._setup(tmp_path)
         with p_find, self._mock_save_ok(td), \
-             patch("lasx.scanning_templates.load_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.load_experiment",
                    side_effect=_fake_load), \
-             patch("lasx.scanning_templates._wait_file_stable",
+             patch("navigator_expert.driver.templates.strip_restore._wait_file_stable",
                    return_value=True):
             restore_template(MagicMock())
         assert not (td / STRIPPED_XML).exists()
@@ -777,11 +777,11 @@ class TestRestoreTemplate:
                 "message": "ok", "timing": {}, "logs": [],
             }
         with p_find, \
-             patch("lasx.scanning_templates.save_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.save_experiment",
                    side_effect=_save_with_delayed_objects), \
-             patch("lasx.scanning_templates.load_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.load_experiment",
                    side_effect=_fake_load), \
-             patch("lasx.scanning_templates._wait_file_stable",
+             patch("navigator_expert.driver.templates.strip_restore._wait_file_stable",
                    return_value=True):
             r = restore_template(MagicMock())
         assert r is not None
@@ -804,11 +804,11 @@ class TestRestoreTemplate:
                 "message": "ok", "timing": {}, "logs": [],
             }
         with p_find, \
-             patch("lasx.scanning_templates.save_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.save_experiment",
                    side_effect=_save_empty), \
-             patch("lasx.scanning_templates.load_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.load_experiment",
                    side_effect=_fake_load), \
-             patch("lasx.scanning_templates._wait_file_stable",
+             patch("navigator_expert.driver.templates.strip_restore._wait_file_stable",
                    return_value=True):
             r = restore_template(MagicMock())
         assert r is None
@@ -817,17 +817,17 @@ class TestRestoreTemplate:
         td, p_find = self._setup(tmp_path)
         # Save always returns None (timeout)
         with p_find, \
-             patch("lasx.scanning_templates.save_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.save_experiment",
                    return_value=None), \
-             patch("lasx.scanning_templates.load_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.load_experiment",
                    side_effect=_fake_load), \
-             patch("lasx.scanning_templates._wait_file_stable",
+             patch("navigator_expert.driver.templates.strip_restore._wait_file_stable",
                    return_value=True):
             r = restore_template(MagicMock())
         assert r is None
 
     def test_no_templates_dir_returns_none(self):
-        with patch("lasx.scanning_templates.find_scanning_templates_dir",
+        with patch("navigator_expert.driver.templates.strip_restore.find_scanning_templates_dir",
                    return_value=None):
             r = restore_template(MagicMock())
         assert r is None
@@ -837,9 +837,9 @@ class TestRestoreTemplate:
         # Remove stripped LRP — should still work, just no LRP copy-back
         (td / STRIPPED_LRP).unlink()
         with p_find, self._mock_save_ok(td), \
-             patch("lasx.scanning_templates.load_experiment",
+             patch("navigator_expert.driver.templates.strip_restore.load_experiment",
                    side_effect=_fake_load), \
-             patch("lasx.scanning_templates._wait_file_stable",
+             patch("navigator_expert.driver.templates.strip_restore._wait_file_stable",
                    return_value=True):
             r = restore_template(MagicMock())
         assert r is not None
