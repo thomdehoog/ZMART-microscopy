@@ -31,7 +31,8 @@ from .selection import (
 from .summary import write_summary, plot_results, finish
 from .target import TargetRecord, acquire_targets
 from .template import (
-    plot_scan_field, plot_stage_envelope, prepare_template, read_scan_field,
+    archive_and_strip, plot_scan_field, plot_stage_envelope,
+    prepare_template, read_scan_field,
 )
 from .visualize import (
     display_selection, display_tile, display_target,
@@ -46,7 +47,7 @@ __all__ = ["Config", "Context", "LimitsContext", "TargetState",
            "MODE_THRESHOLD", "MODE_SPARSE", "MODE_NO_QUALIFYING", "MODE_EMPTY",
            "TargetRecord", "acquire_targets",
            "write_summary", "plot_results", "finish",
-           "preflight", "prepare_template",
+           "preflight", "prepare_template", "archive_and_strip",
            "read_scan_field", "plot_scan_field", "plot_stage_envelope",
            "display_tile", "display_target", "display_selection",
            "plot_overview_tiles", "plot_target_pairs"]

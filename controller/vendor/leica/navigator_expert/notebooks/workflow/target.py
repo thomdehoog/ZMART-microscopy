@@ -161,11 +161,6 @@ def acquire_targets(
 
     try:
         try:
-            # 5.0 -- strip template before acquisition
-            ts.setup_stage = "strip"
-            if not drv.strip_template(client):
-                raise RuntimeError("strip_template failed before target acquisition.")
-
             # 5.1 -- switch to target job (LAS X handles the objective)
             ts.setup_stage = "select_job"
             ensure_job_state(ctx, cfg.target_job)
@@ -341,12 +336,6 @@ def acquire_targets(
         ok = sum(1 for r in records if r.success)
         print(f"\n[step 5] Done: {ok}/{len(records)} targets acquired")
     finally:
-        try:
-            drv.restore_template(client)
-            print("[step 5] Template restored.")
-        except Exception as exc:
-            print(f"[step 5] WARNING: could not restore template: {exc}")
-
         # Drain async per-target savefig queue (if owned by this run).
         if save_queue is not None:
             save_queue.shutdown()

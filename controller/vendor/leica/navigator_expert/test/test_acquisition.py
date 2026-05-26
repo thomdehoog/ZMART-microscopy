@@ -533,65 +533,40 @@ class TestFindCompanionXml:
         assert acquisition._find_companion_xml(image_path) == xml_path
 
 
-# --- _refuse_path_reuse -----------------------------------------------------
+# --- acquire_and_save overwrite semantics -----------------------------------
 
 
-class TestRefusePathReuse:
-    def test_refuses_when_image_dest_exists(self, patched_drv):
+class TestAcquireAndSaveOverwrite:
+    def test_reacquire_same_path_overwrites_file_and_replaces_record(
+        self, patched_drv,
+    ):
         run = drv.start_run(client=None, experiment="exp")
         naming = Naming(
             acquisition_type="overview-scan",
             hash6=run.layout.hash6, p=0,
         )
-        # First call succeeds and creates files on disk + summary record.
+        # First call lays down the canonical files and a summary record.
         drv.acquire_and_save(
             client=None, run=run, job="HiRes", naming=naming,
         )
-        # Second call with identical naming must refuse.
-        with pytest.raises(RuntimeError, match="Refusing to reuse canonical path"):
-            drv.acquire_and_save(
-                client=None, run=run, job="HiRes", naming=naming,
-            )
-
-    def test_error_message_warns_against_delete_only(self, patched_drv):
-        """Operator UX: error must say deleting the file alone won't help
-        because the summary.json record stays. Prevents dead-end retry."""
-        run = drv.start_run(client=None, experiment="exp")
-        naming = Naming(
-            acquisition_type="overview-scan",
-            hash6=run.layout.hash6, p=0,
-        )
+        # Second call with identical naming is allowed; files are
+        # overwritten and the summary record at that path is replaced,
+        # not duplicated.
         drv.acquire_and_save(
             client=None, run=run, job="HiRes", naming=naming,
         )
-        with pytest.raises(RuntimeError) as exc_info:
-            drv.acquire_and_save(
-                client=None, run=run, job="HiRes", naming=naming,
-            )
-        assert "deleting the file alone" in str(exc_info.value).lower() \
-            or "deleting the file alone" in str(exc_info.value)
-
-    def test_refuses_when_summary_records_path_but_file_deleted(self, patched_drv):
-        """Even if operator deletes the canonical file, the original
-        summary.json record remains. Refusing here catches the
-        delete-then-retry footgun."""
-        run = drv.start_run(client=None, experiment="exp")
-        naming = Naming(
-            acquisition_type="overview-scan",
-            hash6=run.layout.hash6, p=0,
+        summary = json.loads(
+            (run.layout.run_dir / "summary.json").read_text(encoding="utf-8")
         )
-        result = drv.acquire_and_save(
-            client=None, run=run, job="HiRes", naming=naming,
+        image_rel = (
+            f"overview-scan/data/overview-scan_{run.layout.hash6}"
+            f"_k00000_m00000_g00000_p00000_t00000_v00_c00_z00000.ome.tiff"
         )
-        # Operator deletes the canonical files (simulating delete-then-retry).
-        result.image_path.unlink()
-        xml_dest = run.layout.metadata_dir("overview-scan") / build_xml_name(naming)
-        xml_dest.unlink()
-        # Files gone, but summary still records the canonical path.
-        with pytest.raises(RuntimeError, match="already recorded in summary.json"):
-            drv.acquire_and_save(
-                client=None, run=run, job="HiRes", naming=naming,
-            )
+        matching = [
+            r for r in summary["acquisitions"]
+            if r.get("image_path") == image_rel
+        ]
+        assert len(matching) == 1
 
 
 # --- _append_summary_atomic -------------------------------------------------
@@ -626,3 +601,20 @@ class TestAppendSummaryAtomic:
         summary.write_text(json.dumps({"acquisitions": []}))
         acquisition._append_summary_atomic(summary, {"r": 1})
         assert list(tmp_path.glob("*.tmp")) == []
+
+    def test_replaces_record_with_same_image_path(self, tmp_path):
+        summary = tmp_path / "summary.json"
+        summary.write_text(json.dumps({
+            "experiment": "x",
+            "acquisitions": [
+                {"image_path": "a/b.tif", "v": 1},
+                {"image_path": "a/c.tif", "v": 2},
+            ],
+        }))
+        acquisition._append_summary_atomic(
+            summary, {"image_path": "a/b.tif", "v": 99},
+        )
+        data = json.loads(summary.read_text())
+        assert len(data["acquisitions"]) == 2
+        by_path = {r["image_path"]: r["v"] for r in data["acquisitions"]}
+        assert by_path == {"a/b.tif": 99, "a/c.tif": 2}

@@ -24,6 +24,7 @@ from _shared.output_layout import Naming, build_position_analysis_name
 from ._geom import (
     crop_overview_at_target_fov,
     target_fov_window_in_overview,
+    visible_target_fov_window,
 )
 from .overview import Picks, TileEvent
 from .target import TargetRecord
@@ -1099,6 +1100,42 @@ def _render_tile_segmentation_panel(
     ax.axis("off")
 
 
+def _target_fov_window_for_pick(
+    pick,
+    record: "TargetRecord",
+    target_img: np.ndarray | None,
+) -> tuple[int, int, int, int] | None:
+    """Physical target FOV in overview pixels, or None if unavailable."""
+    if (target_img is None
+            or record.target_pixel_size_um is None
+            or pick.source_pixel_size_um[0] <= 0):
+        return None
+    return target_fov_window_in_overview(
+        centroid_col_row_px=pick.centroid_col_row_px,
+        source_pixel_size_um=float(pick.source_pixel_size_um[0]),
+        target_shape_px=(int(target_img.shape[0]), int(target_img.shape[1])),
+        target_pixel_size_um=float(record.target_pixel_size_um),
+    )
+
+
+def _fallback_bbox_window(
+    pick,
+    image_shape: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    """Cellpose-bbox fallback window when target geometry is unavailable."""
+    r0b, c0b, r1b, c1b = pick.bbox_px
+    crop_h, crop_w = r1b - r0b, c1b - c0b
+    cx, cy = pick.centroid_col_row_px
+    h, w = image_shape[:2]
+    crop_h = min(crop_h, h)
+    crop_w = min(crop_w, w)
+    y0 = int(round(cy - crop_h / 2))
+    x0 = int(round(cx - crop_w / 2))
+    y0 = max(0, min(y0, h - crop_h))
+    x0 = max(0, min(x0, w - crop_w))
+    return x0, y0, crop_w, crop_h
+
+
 def _render_target_crop_panel(
     ax,
     pick,
@@ -1239,63 +1276,40 @@ def display_target(
             mask_overlay[masks == label] = [1.0, 0.0, 0.0, 0.4]
             axes[0].imshow(mask_overlay)
 
-            # Shared window math with _geom.crop_overview_at_target_fov
-            # -- the rectangle on the left panel reflects exactly the
-            # window the centre panel's crop is taken from. No drift
-            # between callout and crop for edge cells. If the cell is
-            # near a tile boundary, x0/y0 may be negative and/or
-            # x0+w/y0+h may exceed the overview's shape; matplotlib
-            # clips the off-image portion of the rectangle to the
-            # axis limits, honestly showing "the target FOV extends
-            # past this tile."
-            if (target_img is not None
-                    and record.target_pixel_size_um is not None
-                    and pick.source_pixel_size_um[0] > 0):
-                x0, y0, crop_w, crop_h = target_fov_window_in_overview(
-                    centroid_col_row_px=pick.centroid_col_row_px,
-                    # Scalar pixel size (col-axis) -- rest of the
-                    # pipeline does the same.
-                    source_pixel_size_um=float(pick.source_pixel_size_um[0]),
-                    target_shape_px=(
-                        int(target_img.shape[0]), int(target_img.shape[1]),
-                    ),
-                    target_pixel_size_um=float(record.target_pixel_size_um),
-                )
-            else:
-                # Fallback: no target acquired yet. Show cellpose's
-                # bbox -- different contract ("what did cellpose
-                # detect") so still uses its own clamped slice math.
-                r0b, c0b, r1b, c1b = pick.bbox_px
-                crop_h, crop_w = r1b - r0b, c1b - c0b
-                cx, cy = pick.centroid_col_row_px
-                h, w = image_2d.shape[:2]
-                crop_h = min(crop_h, h)
-                crop_w = min(crop_w, w)
-                y0 = int(round(cy - crop_h / 2))
-                x0 = int(round(cx - crop_w / 2))
-                y0 = max(0, min(y0, h - crop_h))
-                x0 = max(0, min(x0, w - crop_w))
+            # Axis limits are part of the renderer contract: patches
+            # must never autoscale an imshow panel. Large/same-scale
+            # target FOVs are drawn as clipped context.
+            H_ov, W_ov = image_2d.shape[:2]
+            axes[0].set_xlim(0, W_ov)
+            axes[0].set_ylim(H_ov, 0)
+            axes[0].set_autoscale_on(False)
 
-            axes[0].add_patch(patches.Rectangle(
-                (x0, y0), crop_w, crop_h,
-                edgecolor=_COLOR_PICK_SHOWN, facecolor="none",
-                linewidth=1.5, zorder=10,
-            ))
+            raw_window = _target_fov_window_for_pick(pick, record, target_img)
+            if raw_window is None:
+                raw_window = _fallback_bbox_window(pick, image_2d.shape[:2])
 
-            # Zoom-callout: connect the target-FOV rectangle's right
-            # corners to the crop panel's left corners, so the crop
-            # reads as a zoomed-in view of the boxed region.
-            for rect_xy, crop_corner in (
-                ((x0 + crop_w, y0), (0.0, 1.0)),
-                ((x0 + crop_w, y0 + crop_h), (0.0, 0.0)),
-            ):
-                con = patches.ConnectionPatch(
-                    xyA=rect_xy, coordsA=axes[0].transData,
-                    xyB=crop_corner, coordsB=axes[1].transAxes,
-                    color=_COLOR_PICK_SHOWN, linewidth=1.0, zorder=5,
-                )
-                con.set_clip_on(False)
-                fig.add_artist(con)
+            visible_window = visible_target_fov_window(
+                window=raw_window, image_shape=image_2d.shape[:2],
+            )
+            if visible_window is not None:
+                vx0, vy0, vx1, vy1 = visible_window
+                axes[0].add_patch(patches.Rectangle(
+                    (vx0, vy0), vx1 - vx0, vy1 - vy0,
+                    edgecolor=_COLOR_PICK_SHOWN, facecolor="none",
+                    linewidth=1.5, zorder=10,
+                    gid="target-visible-fov-window",
+                ))
+                for rect_xy, crop_corner in (
+                    ((vx1, vy0), (0.0, 1.0)),
+                    ((vx1, vy1), (0.0, 0.0)),
+                ):
+                    con = patches.ConnectionPatch(
+                        xyA=rect_xy, coordsA=axes[0].transData,
+                        xyB=crop_corner, coordsB=axes[1].transAxes,
+                        color=_COLOR_PICK_SHOWN, linewidth=1.0, zorder=5,
+                    )
+                    con.set_clip_on(False)
+                    fig.add_artist(con)
         elif tile_data is not None:
             axes[0].imshow(tile_data[0], cmap="gray")
         else:

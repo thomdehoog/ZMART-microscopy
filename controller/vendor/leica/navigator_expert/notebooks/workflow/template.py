@@ -19,13 +19,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import shutil
+import time
+
 import navigator_expert.driver as drv
 from navigator_expert.driver.scanning_templates import (
     TEMPLATE_BASE,
     TEMPLATE_XML,
+    TEMPLATE_LRP,
+    TEMPLATE_RGN,
     STRIPPED_BASE,
     STRIPPED_XML,
     STRIPPED_LRP,
+    get_template_state,
 )
 
 from .context import Context
@@ -467,9 +473,142 @@ def plot_scan_field(ctx: Context) -> None:
     plt.show()
 
 
+@_logged("initialization")
+def archive_and_strip(ctx: Context) -> None:
+    """Step 2d: archive the configured workflow, then strip for real.
+
+    Preconditions:
+      - ``drv.get_template_state(ctx.templates_dir) == "unstripped"``.
+        Refusing otherwise prevents persisting a stripped LAS X state
+        over the configured template -- happens when Step 2c ran with
+        ``cfg.restore_template_after_af=False`` or when 2d is re-run
+        after acquisition.
+      - ``metadata_dir("initialization")`` does not already hold any of
+        the three template files. The archive is the canonical record
+        of the workflow used for this run; refuse to overwrite it.
+
+    Saves the current LAS X experiment to flush operator edits, waits
+    for xml / lrp / rgn to settle on disk (the driver only confirms one
+    file per save -- xml / lrp / rgn complete on different schedules),
+    copies all three into ``run.layout.metadata_dir("initialization")``,
+    then calls ``drv.strip_template`` -- the *final* strip. Step 3 and
+    Step 5 no longer strip-or-restore; LAS X stays on the stripped
+    template through the rest of the run.
+    """
+    client = ctx.client
+    templates_dir = ctx.templates_dir
+
+    state = get_template_state(templates_dir)
+    if state != "unstripped":
+        raise RuntimeError(
+            f"archive_and_strip refused: template state is {state!r}, "
+            f"expected 'unstripped'. If Step 2c ran with "
+            f"cfg.restore_template_after_af=False, set it to True and "
+            f"re-run 2c; otherwise restart from Step 2a so a fresh "
+            f"configured template exists on disk."
+        )
+
+    archive_dir = ctx.run.layout.metadata_dir("initialization")
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    existing = [name for name in (TEMPLATE_XML, TEMPLATE_LRP, TEMPLATE_RGN)
+                if (archive_dir / name).is_file()]
+    if existing:
+        raise RuntimeError(
+            f"archive_and_strip refused: archive already populated at "
+            f"{archive_dir} ({', '.join(existing)}). The workflow has "
+            f"already been archived for this run; delete the existing "
+            f"files manually if you need to re-archive."
+        )
+
+    src_xml = templates_dir / TEMPLATE_XML
+    src_lrp = templates_dir / TEMPLATE_LRP
+    src_rgn = templates_dir / TEMPLATE_RGN
+    pre_mtimes = {
+        p: (p.stat().st_mtime if p.is_file() else 0.0)
+        for p in (src_xml, src_lrp, src_rgn)
+    }
+
+    # Confirm on the LRP because the driver flags LRP as the
+    # late-updating file under the modify-lrp save path; XML and RGN
+    # are then verified independently below.
+    save_result = drv.save_experiment(
+        client, TEMPLATE_XML, templates_dir,
+        timeout=60, confirm_path=str(src_lrp),
+    )
+    if save_result is None:
+        raise RuntimeError(
+            "drv.save_experiment failed (returned None). "
+            "Cannot archive workflow files before final strip."
+        )
+
+    # save_experiment only confirmed LRP. Wait for XML and RGN to also
+    # settle (mtime > snapshot + 3 consecutive stable size reads). A
+    # file whose mtime never moves is treated as untouched-by-this-save
+    # (LAS X didn't rewrite it because nothing affecting that file
+    # changed) -- not an error.
+    for path in (src_xml, src_rgn):
+        _wait_for_file_stable(path, prev_mtime=pre_mtimes[path], timeout=10.0)
+
+    archived: list[str] = []
+    for name in (TEMPLATE_XML, TEMPLATE_LRP, TEMPLATE_RGN):
+        src = templates_dir / name
+        if not src.is_file():
+            print(f"[step 2d] WARNING: {name} not found in templates_dir; "
+                  f"skipping archive.")
+            continue
+        shutil.copy2(src, archive_dir / name)
+        archived.append(name)
+
+    print(f"[step 2d] Archived {len(archived)} workflow file(s) to "
+          f"{archive_dir}: {', '.join(archived)}")
+
+    if not drv.strip_template(client):
+        raise RuntimeError("drv.strip_template failed in archive_and_strip.")
+    print("[step 2d] Template stripped. Scan field and markers will not "
+          "be restored.")
+
+
 # ---------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------
+
+
+def _wait_for_file_stable(
+    path: Path, *, prev_mtime: float,
+    timeout: float, poll_interval: float = 0.1,
+) -> None:
+    """Wait for ``path`` to update past ``prev_mtime`` and stabilise.
+
+    Mirrors save_experiment's confirm loop: poll until mtime > prev,
+    then require 3 consecutive equal-size reads. If the mtime never
+    advances within ``timeout``, return without raising -- LAS X
+    didn't rewrite this file for this save, which is a valid
+    no-op (e.g. operator edited only objects that live in the XML,
+    so the RGN/LRP are still current from a prior save).
+    """
+    t0 = time.perf_counter()
+    while (time.perf_counter() - t0) < timeout:
+        try:
+            if (path.is_file()
+                    and path.stat().st_size > 0
+                    and path.stat().st_mtime > prev_mtime):
+                last_size = path.stat().st_size
+                stable = 0
+                while (time.perf_counter() - t0) < timeout:
+                    time.sleep(poll_interval)
+                    cur_size = path.stat().st_size
+                    if cur_size == last_size:
+                        stable += 1
+                        if stable >= 3:
+                            return
+                    else:
+                        stable = 0
+                    last_size = cur_size
+                return
+        except OSError:
+            pass
+        time.sleep(poll_interval)
 
 
 def _clamp_xy_to_envelope(

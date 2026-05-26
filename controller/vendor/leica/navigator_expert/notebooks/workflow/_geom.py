@@ -90,6 +90,55 @@ def target_fov_window_in_overview(
     return (x0, y0, w, h)
 
 
+def visible_target_fov_window(
+    *,
+    window: tuple[int, int, int, int],
+    image_shape: tuple[int, int],
+) -> tuple[int, int, int, int] | None:
+    """Intersect a target-FOV window with image bounds.
+
+    Returns ``(vx0, vy0, vx1, vy1)`` -- the visible rectangle in
+    overview pixel coordinates (top-left + bottom-right), or ``None``
+    when the window doesn't intersect the image at all.
+
+    The unclamped ``window`` from ``target_fov_window_in_overview`` is
+    the physical target FOV in overview pixels and can extend past the
+    image when (a) the cell is near a tile edge or (b) the target's
+    physical FOV exceeds the overview tile (e.g. same-objective
+    targeting). For visualization, callers need the visible portion to
+    anchor callout lines and crosshairs to coordinates that actually
+    sit inside the panel. The crop helper still operates on the full
+    unclamped window -- this helper only governs visualization
+    geometry, not crop math.
+
+    Parameters
+    ----------
+    window : tuple[int, int, int, int]
+        ``(x0, y0, w, h)`` from ``target_fov_window_in_overview``.
+        ``x0``/``y0`` may be negative; ``x0 + w`` / ``y0 + h`` may
+        exceed image dimensions.
+    image_shape : tuple[int, int]
+        ``(H, W)`` of the overview image.
+
+    Returns
+    -------
+    tuple[int, int, int, int] | None
+        ``(vx0, vy0, vx1, vy1)`` with ``0 <= vx0 < vx1 <= W`` and
+        ``0 <= vy0 < vy1 <= H``. ``None`` when the intersection is
+        empty (window entirely off-image -- degenerate; should not
+        occur for a valid pick but callers can short-circuit).
+    """
+    x0, y0, w, h = window
+    H, W = int(image_shape[0]), int(image_shape[1])
+    vx0 = max(0, int(x0))
+    vy0 = max(0, int(y0))
+    vx1 = min(W, int(x0) + int(w))
+    vy1 = min(H, int(y0) + int(h))
+    if vx0 >= vx1 or vy0 >= vy1:
+        return None
+    return (vx0, vy0, vx1, vy1)
+
+
 def crop_overview_at_target_fov(
     overview: np.ndarray,
     *,
