@@ -7,7 +7,7 @@ Two jobs:
 
 2. Install a back-compat alias so the legacy ``import lasx.<submodule>``
    form (used throughout the existing test suite) still resolves to the
-   renamed ``navigator_expert.driver.<submodule>``.
+   canonical ``navigator_expert.driver.api.<submodule>``.
 
 The alias is a temporary bridge while the test suite is migrated. It
 should be removed once every test file uses the ``navigator_expert``
@@ -40,34 +40,13 @@ if str(_TARGET_ACQ) not in sys.path:
     sys.path.insert(0, str(_TARGET_ACQ))
 
 # Back-compat alias: tests written before the rename do
-# ``import lasx.core``, ``import lasx.errors``, etc. Map every driver
-# submodule under the ``lasx`` namespace via sys.modules.
+# ``import lasx.core``, ``import lasx.errors``, etc. Map the driver
+# facade and each API submodule under the ``lasx`` namespace via
+# sys.modules so unittest.mock.patch targets the canonical module.
 import navigator_expert.driver as _drv  # noqa: E402
 
 sys.modules.setdefault("lasx", _drv)
 
-_DRIVER_SUBMODULES = (
-    "alignment", "calibration", "file_confirmation", "limits",
-    "objective_offsets", "ome_tiff", "registration",
-    "scanning_template_editors", "scanning_template_editors_focus",
-    "scanning_template_editors_roi", "scanning_template_editors_scan",
-    "scanning_template_editors_z", "scanning_template_parsers",
-    "scanning_templates",
-    "stage_config", "stage_motion",
-)
-for _sub in _DRIVER_SUBMODULES:
-    try:
-        _mod = importlib.import_module(f"navigator_expert.driver.{_sub}")
-    except ImportError:
-        continue
-    sys.modules.setdefault(f"lasx.{_sub}", _mod)
-
-# Phase F: core API modules moved to driver.api.*. Map lasx.<sub> to the
-# real module (not the compatibility shim) so unittest.mock.patch targets
-# the live namespace.  We use assignment (not setdefault) and also set the
-# attribute on the lasx package to override any subsequent ``import
-# lasx.<sub>`` resolution that would otherwise find the shim via the
-# package's __path__.
 _API_SUBMODULES = (
     "commands", "confirmations", "core", "errors", "prechecks",
     "profiles", "readers", "settings", "utils",
