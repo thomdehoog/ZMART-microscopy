@@ -6,7 +6,7 @@ import pytest
 
 def _load_calibration_module():
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    import navigator_expert.driver.calibration as calibration
+    import navigator_expert.calibration.core.model as calibration
     return calibration
 
 

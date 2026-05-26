@@ -4,9 +4,8 @@ Read-only LRP helpers.
 Functions that *read* attributes from LAS X scanning template ``.lrp``
 files without modifying them.
 
-Extracted from ``scanning_template_editors_scan`` during the E2
-restructuring phase.  These are pure readers (no side-effects), so
-they belong in ``templates/edits/`` rather than ``experimental/lrp_edits/``.
+These are pure readers with no side effects. Mutation helpers live under
+``experimental/lrp_edits/`` until they have live-state verification.
 
 Dependency direction:
     - Imports: stdlib only.

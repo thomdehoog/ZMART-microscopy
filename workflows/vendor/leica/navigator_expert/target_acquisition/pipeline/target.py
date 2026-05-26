@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 import navigator_expert.driver as drv
+from navigator_expert.calibration.core import model as calib
 
 from .context import Context, TargetState
 from .overview import Pick, Picks, _validate_callback_flags
@@ -221,7 +222,7 @@ def acquire_targets(
             stage = "translate"
 
             try:
-                tx, ty, tz = drv.translate_xyz_between_objectives(
+                tx, ty, tz = calib.translate_xyz_between_objectives(
                     pick.cell_source_stage_xy_um[0],
                     pick.cell_source_stage_xy_um[1],
                     pick.tile_zwide_um,

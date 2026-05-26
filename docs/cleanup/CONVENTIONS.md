@@ -83,7 +83,7 @@ become an actual contract instead of a leaky surface.
 ## 10. Errors have specific types and propagate
 
 No bare `except:`, no `except Exception:` without re-raising. No
-silent `pass`. The `driver/api/errors.py` hierarchy used consistently.
+silent `pass`. The `driver/core/errors.py` hierarchy used consistently.
 If an example script can't continue, it crashes with a clear
 message — not retries silently.
 

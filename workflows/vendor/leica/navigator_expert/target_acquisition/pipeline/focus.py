@@ -17,7 +17,7 @@ from typing import Any
 import numpy as np
 
 import navigator_expert.driver as drv
-from navigator_expert.driver.api.commands import acquire as drv_acquire
+from navigator_expert.driver.core.commands import acquire as drv_acquire
 from navigator_expert.driver.templates.files import (
     TEMPLATE_BASE,
     TEMPLATE_XML,

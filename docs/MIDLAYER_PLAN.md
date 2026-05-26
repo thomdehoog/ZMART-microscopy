@@ -390,7 +390,7 @@ audit of today's workflow (currently at
 **Name resolution for `getlimits` and `getposition`:**
 
 - `getlimits(name)` → the adapter resolves via the existing stage-config
-  loader (`stage_config.load(name)`) and returns a `Preset(type=LIMITS,
+  loader (`stage.config.load(name)`) and returns a `Preset(type=LIMITS,
   fields={"x_min": …, "x_max": …, …})`. Accepted names match the bundles
   defined in the stage config file.
 - `getposition(name)` → resolves via `parse_template_positions(name)` against
@@ -490,9 +490,9 @@ A thin pointer to the body; resolution detail lives in the cited section.
   authoritative API reference (the package README at
   `controller/vendor/leica/navigator_expert/README.md`
   may lag the code).
-  Lower-level acquire: `acquire_frame` in `driver/output/acquire.py`. Save layer +
+  Lower-level acquire: `acquire_frame` in `driver/acquisition/capture.py`. Save layer +
   companion-XML sidecar: `shared/output_layout/` and the v6 helper
-  `_find_companion_xml` in `driver/output/acquisition.py`.
+  `_find_companion_xml` in `driver/acquisition/save.py`.
 - Prior prototype (up-face source): SMART v4, at
   `Z:/zmbstaff/10374/Protocols_Notes/thom/notes/20260224_thom_SMART/smart/smart_controller/`.
 - Constraints and off-limits zones: `docs/cleanup/STATE.md`.

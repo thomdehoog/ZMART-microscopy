@@ -64,7 +64,7 @@ from typing import Callable
 
 import tifffile
 
-import navigator_expert.driver.output.ome as ome_tiff
+import navigator_expert.driver.acquisition.ome as ome_tiff
 
 from shared.output_layout import build_xml_name
 
@@ -169,7 +169,7 @@ def hijack_frame(
     # source filenames, not canonical pipeline names).
     #
     # Timing: this call is synchronous with respect to acquire_and_save
-    # -- driver/output/acquisition.py calls _save_atomic(image, xml) which
+    # -- driver/acquisition/save.py calls _save_atomic(image, xml) which
     # copies both to .tmp + size-validates + os.replaces both before
     # acquire_and_save returns at line 190. By the time we get here the
     # canonical-named XML is on disk. (Audited @ef4d2a2.) No retry

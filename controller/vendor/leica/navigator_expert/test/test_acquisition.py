@@ -1,4 +1,4 @@
-"""Unit tests for driver/output/acquisition.py.
+"""Unit tests for driver/acquisition/save.py.
 
 Mocks the LAS X-facing primitives (get_lasx_settings, acquire_frame,
 read_relative_path, check_ome_*) with stdlib unittest.mock. Real
@@ -16,7 +16,7 @@ import pytest
 
 from shared.output_layout import Naming, build_image_name, build_xml_name
 import navigator_expert.driver as drv
-from navigator_expert.driver.output import acquisition
+from navigator_expert.driver.acquisition import save as acquisition
 
 
 # --- Fixtures ---------------------------------------------------------------

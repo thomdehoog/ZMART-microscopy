@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from navigator_expert.driver.motion import stage as stage_motion
+from navigator_expert.driver.stage import movement as stage_movement
 
 
 class TestMoveXyWithBacklash:
@@ -22,10 +22,10 @@ class TestMoveXyWithBacklash:
         def fake_sleep(s):
             calls.append(("sleep", s))
 
-        with patch.object(stage_motion._commands, "move_xy_stage",
+        with patch.object(stage_movement._commands, "move_xy_stage",
                           side_effect=fake_move_xy_stage), \
-             patch.object(stage_motion.time, "sleep", side_effect=fake_sleep):
-            stage_motion.move_xy_with_backlash(
+             patch.object(stage_movement.time, "sleep", side_effect=fake_sleep):
+            stage_movement.move_xy_with_backlash(
                 client=None, x_um=100.0, y_um=200.0,
                 overshoot_um=50.0, settle_ms=100,
             )
@@ -43,11 +43,11 @@ class TestMoveXyWithBacklash:
         def fake_move_xy_stage(client, x, y, unit="um"):
             return {"success": False, "error": "timeout"}
 
-        with patch.object(stage_motion._commands, "move_xy_stage",
+        with patch.object(stage_movement._commands, "move_xy_stage",
                           side_effect=fake_move_xy_stage), \
-             patch.object(stage_motion.time, "sleep"):
+             patch.object(stage_movement.time, "sleep"):
             with pytest.raises(RuntimeError, match="backlash overshoot"):
-                stage_motion.move_xy_with_backlash(
+                stage_movement.move_xy_with_backlash(
                     client=None, x_um=100.0, y_um=200.0,
                 )
 
@@ -63,11 +63,11 @@ class TestMoveXyWithBacklash:
         def fake_move_xy_stage(client, x, y, unit="um"):
             return next(results)
 
-        with patch.object(stage_motion._commands, "move_xy_stage",
+        with patch.object(stage_movement._commands, "move_xy_stage",
                           side_effect=fake_move_xy_stage), \
-             patch.object(stage_motion.time, "sleep"):
+             patch.object(stage_movement.time, "sleep"):
             with pytest.raises(RuntimeError, match="final approach"):
-                stage_motion.move_xy_with_backlash(
+                stage_movement.move_xy_with_backlash(
                     client=None, x_um=100.0, y_um=200.0,
                 )
 
@@ -79,10 +79,10 @@ class TestMoveXyWithBacklash:
         def fake_move_xy_stage(client, x, y, unit="um"):
             return results.pop(0)
 
-        with patch.object(stage_motion._commands, "move_xy_stage",
+        with patch.object(stage_movement._commands, "move_xy_stage",
                           side_effect=fake_move_xy_stage), \
-             patch.object(stage_motion.time, "sleep"):
-            r = stage_motion.move_xy_with_backlash(
+             patch.object(stage_movement.time, "sleep"):
+            r = stage_movement.move_xy_with_backlash(
                 client=None, x_um=100.0, y_um=200.0,
             )
 

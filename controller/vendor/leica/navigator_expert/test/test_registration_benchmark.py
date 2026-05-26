@@ -53,9 +53,9 @@ from navigator_expert.driver.templates.files import TEMPLATE_XML
 from navigator_expert.driver.templates.transaction import apply_lrp_change
 from navigator_expert.driver.experimental.lrp_edits.scan import lrp_set_pan
 from navigator_expert.driver.experimental.lrp_edits.roi import lrp_enable_roi_scan
-from navigator_expert.driver.api.readers import get_job_settings, get_lasx_settings
-from navigator_expert.driver.api.utils import parse_tile_geometry
-from navigator_expert.driver.api.prechecks import check_idle
+from navigator_expert.driver.core.readers import get_job_settings, get_lasx_settings
+from navigator_expert.driver.core.utils import parse_tile_geometry
+from navigator_expert.driver.core.prechecks import check_idle
 
 import matplotlib
 matplotlib.use("Agg")

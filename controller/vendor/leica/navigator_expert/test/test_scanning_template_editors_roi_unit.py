@@ -34,7 +34,7 @@ from navigator_expert.driver.templates.parsers import parse_lrp
 # so any test that accidentally relied on the old hardcoded legacy
 # default would fail visibly. Real callers call
 # pan_scale_um_from_base_fov with the current objective's base FOV.
-from navigator_expert.driver.api.utils import pan_scale_um_from_base_fov as _pan_scale_helper
+from navigator_expert.driver.core.utils import pan_scale_um_from_base_fov as _pan_scale_helper
 _TEST_PAN_SCALE_UM = _pan_scale_helper(600.0)
 
 

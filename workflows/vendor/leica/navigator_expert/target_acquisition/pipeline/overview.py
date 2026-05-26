@@ -21,6 +21,7 @@ from typing import Any, Callable
 import numpy as np
 
 import navigator_expert.driver as drv
+from navigator_expert.calibration.core import model as calib
 
 from .context import Context
 from .focus import FocusMap
@@ -326,7 +327,7 @@ def run_overview(
             )
 
             try:
-                tx, ty, tz = drv.translate_xyz_between_objectives(
+                tx, ty, tz = calib.translate_xyz_between_objectives(
                     x_um, y_um, zwide_um, ctx.calibration,
                     from_slot=ctx.source_slot,
                     to_slot=ctx.source_slot,
@@ -774,7 +775,7 @@ def _filter_out_of_limits(
 
     for pick in picks:
         try:
-            tx, ty, tz = drv.translate_xyz_between_objectives(
+            tx, ty, tz = calib.translate_xyz_between_objectives(
                 pick.cell_source_stage_xy_um[0],
                 pick.cell_source_stage_xy_um[1],
                 pick.tile_zwide_um,

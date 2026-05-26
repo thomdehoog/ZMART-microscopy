@@ -492,8 +492,10 @@ class TestAcquireTargetsIntegration:
 
         monkeypatch.setattr(drv, "strip_template", _fail_strip)
         monkeypatch.setattr(drv, "restore_template", _fail_restore)
-        monkeypatch.setattr(drv, "translate_xyz_between_objectives",
-                            lambda x, y, z, cal, **k: (x, y, z))
+        monkeypatch.setattr(
+            "pipeline.target.calib.translate_xyz_between_objectives",
+            lambda x, y, z, cal, **k: (x, y, z),
+        )
 
         # Job settings → minimal parse_tile_geometry output.
         monkeypatch.setattr(drv, "get_job_settings",

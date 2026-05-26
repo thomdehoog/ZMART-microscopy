@@ -28,26 +28,15 @@ binaries are individually listed because the parent dirs got partially
 tracked when JSONs were force-added — same files that existed before,
 just enumerated differently now.
 
-## Hard constraints — read before changing anything
+## Historical Constraints
 
-1. **Driver and calibration are off-limits for cleanup (for now).**
-   Calibration is the validation oracle — if math drifts during a
-   cleanup pass there is no way to tell whether a regression came
-   from cleanup or from calibration. Driver is the load-bearing core
-   of the package (29 modules, ~250KB) and cleanup waves stay on the
-   periphery until the user explicitly opens the driver door.
-   Off-limits paths:
-   - `controller/vendor/leica/navigator_expert/calibration/` (entire
-     tree: `lib/`, `scripts/`, `config/`, `runs/`)
-   - `controller/vendor/leica/navigator_expert/driver/` (entire tree,
-     including the suspected-dead `notebook_workflow.py`,
-     `alignment.py`, `datacontainer/`)
-   - `controller/vendor/leica/navigator_expert/test/test_calibration.py`
-   - `controller/vendor/leica/navigator_expert/test/test_alignment_unit.py`
-     (stays as long as `driver/alignment.py` stays)
-   Calibration is already encoded in `pyproject.toml` ruff
-   `extend-exclude`; the driver-wide rule is enforced by judgment for
-   now (extending the exclude would silence ruff on the entire core).
+This file records the older `cleanup/wave-2` cleanup plan. It is
+historical context, not the active structure for
+`restructure/layered-driver`.
+
+1. **Driver and calibration were off-limits for that cleanup wave.**
+   That constraint no longer applies to this restructuring branch, where
+   the driver and calibration package layout were intentionally cleaned.
 
 2. **The 3 example scripts are the integration test.** They must run
    end-to-end on the microscope after every cleanup wave:
@@ -57,12 +46,9 @@ just enumerated differently now.
 
 3. **Don't extend mocks for `commands.py` or `confirmations.py`.**
    Mock-vs-real divergence has bitten before. Live runs are the truth.
-   For these modules, the example scripts are the authoritative test.
 
 4. **Calibration is a two-acquisition process.** A z-stack alone is not
-   enough — there is also a separate XY registration acquisition.
-   This is essential to remember when reasoning about calibration
-   behaviour, even though the code itself is off-limits.
+   enough; there is also a separate XY registration acquisition.
 
 ## What's already done in this cleanup effort
 
@@ -76,7 +62,7 @@ just enumerated differently now.
   example scripts). Removed dangling `# drv.read_zwide_um lives in...`
   breadcrumb in `objective_switch_target.py`.
 - **Driver fix (not strictly cleanup).** `get_job_settings` in
-  `driver/api/readers.py` now treats a populated-but-empty-`imageSize`
+  `driver/core/readers.py` now treats a populated-but-empty-`imageSize`
   response as transient and lets the retry loop wait. Surfaced during
   the slow LAS X session on 2026-05-04.
 - **Calibration values.** New 10x->20x and 10x->40x calibration values
@@ -116,9 +102,8 @@ Done:
 example scripts + `calibrate_objectives.py` once. If any misbehaves,
 bisect by commit on `cleanup/wave-2` and revert.
 
-**Deferred from Wave A** (now blocked by driver-off-limits rule):
-- Move `driver/.claude/settings.local.json` out of the package.
-- Rewrite the stale v6.0.0 banner in `driver/__init__.py`.
+**Deferred from Wave A** items were handled later on
+`restructure/layered-driver`.
 
 ### Wave B — test-suite cleanup, low-medium risk (next branch off Wave A)
 
@@ -126,32 +111,18 @@ Driver and calibration off-limits, so the dead-code removal in
 `driver/` is now deferred. What remains in Wave B is the test-suite
 cleanup, which only changes import statements in tests:
 
-- Migrate `test/test_unit.py` (89KB) off the legacy `lasx` shim to
-  `from navigator_expert.driver import ...`. The shim already
-  references one submodule that no longer exists
-  (`objective_offsets`), swallowed by `try/except ImportError` —
-  evidence that the shim is rotting. Tests should pass identically
-  before and after the migration; the only change is the import
-  surface used.
-- Once `test_unit.py` is migrated, delete the `lasx` back-compat
-  machinery in `test/conftest.py`.
+- `test/test_unit.py` now imports canonical `navigator_expert.driver.core`
+  modules directly. `test/conftest.py` only sets import paths and no
+  longer installs `lasx.*` aliases.
 
-**Deferred from Wave B** (blocked by driver-off-limits rule):
-- Delete `driver/notebook_workflow.py` (24KB, 28 functions; only
-  self-references).
-- Delete `driver/alignment.py` and `test/test_alignment_unit.py`
-  (superseded by `driver/calibration.translate_xyz_between_objectives`).
-- Delete `driver/datacontainer/temp_image_reader.py` and the empty
-  `datacontainer/` directory.
-
-These three become a Wave B' once the driver door opens.
+**Deferred from Wave B**: no known driver cleanup items remain here.
 
 ### Then — production-prep (further out)
 
 - Phase 5: coverage gap analysis. Run pytest under coverage, commit
   the report to `docs/cleanup/coverage/<date>/`. Expected dark zones:
   `commands.py` (44KB), `confirmations.py` (46KB),
-  `file_confirmation.py` (39KB), `scanning_template_parsers.py` (44KB).
+  `driver/acquisition/files.py`, `driver/templates/parsers.py`, and the large core command/readback modules.
 - Phase 6: targeted unit tests for pure-Python helpers
   (`pick_cell_by_distance_rank`, `measure_landing_error_by_morphology`,
   `_intermediate_zoom_for`, `bbox_to_zoom`, `pixels_to_roi`,

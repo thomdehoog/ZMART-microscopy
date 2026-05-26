@@ -2,7 +2,7 @@
 
 The workflow-facing API for smart-microscopy acquisitions. Composes
 existing driver primitives (acquire_frame, parse_lasx_filename,
-check_ome_*, ome_tiff fixers) with the lab-wide naming convention from
+check_ome_*, OME fixers) with the lab-wide naming convention from
 ``shared.output_layout``.
 
 Public surface:
@@ -30,10 +30,10 @@ from typing import Any
 
 import numpy as np
 
-from . import acquire as _acquire
-from . import lasx_files as _fc
+from . import capture as _acquire
+from . import files as _fc
 from . import ome as _ome
-from ..api import readers as _readers
+from ..core import readers as _readers
 
 from shared.output_layout import (
     LayoutPlan,

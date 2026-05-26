@@ -239,7 +239,7 @@ class TestSelectionJsonStrictness:
         """
         # Identity translation so picks survive the limits filter.
         monkeypatch.setattr(
-            "pipeline.overview.drv.translate_xyz_between_objectives",
+            "pipeline.overview.calib.translate_xyz_between_objectives",
             lambda x, y, z, calibration, *, from_slot, to_slot: (x, y, z),
         )
 

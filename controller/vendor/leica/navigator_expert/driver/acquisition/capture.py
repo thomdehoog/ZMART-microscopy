@@ -18,10 +18,10 @@ Two entry points:
         as N single-frame TIFFs.
 
 Backlash takeup is optional: pass ``backlash_params=stage_cfg["backlash"]``
-to apply a +X +Y takeup (via ``stage_motion.correct_backlash``) before
+to apply a +X +Y takeup (via ``stage.movement.correct_backlash``) before
 the acquire. The default ``backlash_params=None`` skips it. Callers
 that want compensation positioning at a known target should use
-``stage_motion.move_xy_with_backlash`` *before* calling these helpers
+``stage.movement.move_xy_with_backlash`` *before* calling these helpers
 (that's what the v3 workflow does); the ``backlash_params`` route
 here applies post-move takeup at the current stage position.
 """
@@ -35,10 +35,10 @@ from typing import Any
 import numpy as np
 import tifffile
 
-from ..api import commands as _commands
-from ..api import readers as _readers
-from . import lasx_files as _file_confirmation
-from ..motion.stage import correct_backlash
+from ..core import commands as _commands
+from ..core import readers as _readers
+from . import files as _files
+from ..stage.movement import correct_backlash
 
 
 #: How long to wait for OME-TIFF files to be unlocked + size-stable on
@@ -73,14 +73,14 @@ def _acquire_files(
     """
     _apply_backlash_if_requested(client, backlash_params)
 
-    baseline = _file_confirmation.read_relative_path(client)
+    baseline = _files.read_relative_path(client)
     t_start = time.time()
     result = _commands.acquire(client, job)
     if not result or not result.get("success"):
         raise RuntimeError(f"acquire failed: {result}")
 
     media_path = _readers.get_lasx_settings()["export"]["media_path"]
-    detection = _file_confirmation.detect_new_files(
+    detection = _files.detect_new_files(
         client, baseline, media_path, acquire_start=t_start,
     )
     if not detection["success"]:
@@ -90,7 +90,7 @@ def _acquire_files(
     if not files:
         raise RuntimeError("acquire produced no image files")
 
-    _file_confirmation.wait_all_stable(files, timeout=file_stability_timeout_s)
+    _files.wait_all_stable(files, timeout=file_stability_timeout_s)
     return [Path(f) for f in files]
 
 

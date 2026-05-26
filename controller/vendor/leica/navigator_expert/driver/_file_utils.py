@@ -1,12 +1,10 @@
 """Shared file-stability helpers.
 
-Used by both template operations (scanning_templates) and acquisition
-output handling (file_confirmation). Extracted here to break the
-cross-dependency between those two modules.
+Used by both template operations and acquisition file handling.
 
 Dependency direction:
     - Imports: stdlib only (pathlib, time).
-    - Imported by: scanning_templates, file_confirmation.
+    - Imported by: templates and acquisition.files.
 """
 
 import time

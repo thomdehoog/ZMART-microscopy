@@ -2,12 +2,10 @@
 General LRP editors -- line/frame averaging, scan mode, sequential mode.
 =========================================================================
 Editors for line/frame averaging, scan mode, and sequential mode.
-Extracted from ``driver.scanning_template_editors`` during the E2
-restructuring phase.
 
 Dependency direction:
     - Imports: ``_primitives``, stdlib.
-    - Imported by: ``__init__`` (re-export).
+    - Imported by: driver facade re-exports.
 """
 
 import logging

@@ -16,8 +16,8 @@ pattern for every field, no exceptions.
     Pattern A — callable needs extra parameters: use partial to pre-bind.
     Pattern B — callable takes only client: assign directly.
 
-Import restrictions: only ``prechecks``, ``confirmations``, ``errors``, and
-stdlib. Nothing from ``core``, ``commands``, or ``utils``.
+Import restrictions: only ``prechecks``, ``confirmations``, ``errors``,
+``utils``, and stdlib. Nothing from ``dispatch`` or ``commands``.
 """
 
 from dataclasses import dataclass

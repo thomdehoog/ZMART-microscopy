@@ -91,15 +91,15 @@ def _make_limits() -> LimitsContext:
 
 @pytest.fixture(autouse=True)
 def _patch_translate(monkeypatch):
-    """Patch drv.translate_xyz_between_objectives to an identity function
+    """Patch calib.translate_xyz_between_objectives to an identity function
     so the filter exercises only the limits-checking branches, not the
     driver-internal calibration math.
 
     Patched at the import site (pipeline.overview) because that's where
-    _filter_out_of_limits looks it up via `drv.translate_xyz_between_objectives`.
+    _filter_out_of_limits looks it up via `calib.translate_xyz_between_objectives`.
     """
     monkeypatch.setattr(
-        "pipeline.overview.drv.translate_xyz_between_objectives",
+        "pipeline.overview.calib.translate_xyz_between_objectives",
         lambda x, y, z, calibration, *, from_slot, to_slot: (x, y, z),
     )
 

@@ -90,7 +90,7 @@ SCHEMA_VERSION = 9
 # ── Paths ────────────────────────────────────────────────────────────
 
 def _navigator_expert_root():
-    return Path(__file__).resolve().parent.parent
+    return Path(__file__).resolve().parent.parent.parent
 
 
 def default_path():

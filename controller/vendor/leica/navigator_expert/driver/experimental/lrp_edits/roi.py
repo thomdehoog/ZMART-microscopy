@@ -40,7 +40,7 @@ pixel ↔ ROI vertex relationship — both live in the same display frame.
 
 Check the setting at runtime via::
 
-    s = get_lasx_settings()  # from lasx.readers
+    s = get_lasx_settings()
     orient = s["image_orientation"]
     # orient["enable_transform"]  → bool
     # orient["transformation"]    → "TOPLEFT", "RIGHTTOP", etc.
@@ -75,8 +75,8 @@ readback reveals the clamp. See ``feedback_pan_then_zoom_clamps.md``.
 Use ``get_fov()`` from ``readers`` to query the FOV in metres,
 then size shapes as a fraction of it::
 
-    from lasx.readers import get_fov
-    from lasx.scanning_template_editors_roi import make_star, lrp_add_roi, um
+    from ...core.readers import get_fov
+    from .roi import make_star, lrp_add_roi, um
 
     fov_w, fov_h = get_fov(client, "HiRes")   # e.g. (2.9e-5, 2.9e-5)
     verts = make_star(outer_radius=fov_w * 0.4,
@@ -87,9 +87,8 @@ RoiType values: ``8`` = polygon, ``16`` = rectangle, ``32`` = ellipse,
 ``64`` = line.
 
 Dependency direction:
-    - Imports: ``scanning_template_editors`` (helpers),
-      ``scanning_template_parsers`` (parse_lrp), stdlib.
-    - Imported by: ``__init__`` (re-export).
+    - Imports: ``_primitives``, ``templates.parsers``, stdlib.
+    - Imported by: driver facade re-exports.
 """
 
 import copy
@@ -694,7 +693,7 @@ def roi_translation_to_pan(translation_x_m, translation_y_m, *,
     **PAN_SCALE is objective-dependent**: um-per-pan-unit scales with
     the objective's base FOV via
     ``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``
-    (see ``lasx/utils.py`` and :func:`pan_scale_um_from_base_fov`).
+    (see ``driver/core/utils.py`` and :func:`pan_scale_um_from_base_fov`).
     ``pan_scale_um`` is required — the caller must resolve it from the
     current objective's base FOV.
 
@@ -849,7 +848,7 @@ def roi_to_pan_zoom(roi, fov_at_zoom1_um, margin=1.15):
     Internally resolves the objective-dependent ``pan_scale_um`` from
     ``fov_at_zoom1_um`` via :func:`pan_scale_um_from_base_fov`
     (``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``,
-    see ``lasx/utils.py``). Callers that already pass the correct base
+    see ``driver/core/utils.py``). Callers that already pass the correct base
     FOV (e.g. from :func:`get_base_fov`) get correct pan values on any
     objective — no caller changes needed after the PAN_SCALE refactor.
 
@@ -862,7 +861,7 @@ def roi_to_pan_zoom(roi, fov_at_zoom1_um, margin=1.15):
     Returns:
         ``(pan_x, pan_y, zoom)`` tuple.
     """
-    from ...api.utils import pan_scale_um_from_base_fov
+    from ...core.utils import pan_scale_um_from_base_fov
     pan_scale_um = pan_scale_um_from_base_fov(fov_at_zoom1_um)
     geo = roi_geometry(roi)
     eff_tx, eff_ty = geo["effective_translation_m"]

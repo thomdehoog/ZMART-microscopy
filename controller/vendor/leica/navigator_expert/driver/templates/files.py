@@ -4,7 +4,7 @@ Save/load experiments, locate the ScanningTemplates directory,
 detect template state, and define the canonical filename constants.
 
 Dependency direction:
-    - Imports: ``..utils``, ``.parsers``, ``..readers``, ``_file_utils``, stdlib.
+    - Imports: ``..core.utils``, ``.parsers``, ``_file_utils``, stdlib.
     - Imported by: ``strip_restore``, ``transaction``, ``__init__`` (re-export).
 """
 
@@ -13,7 +13,7 @@ import os
 import time
 from pathlib import Path
 
-from ..api.utils import RECEIPT_TIMEOUT, _make_timing
+from ..core.utils import RECEIPT_TIMEOUT, _make_timing
 from .parsers import parse_lrp
 from .._file_utils import _is_file_locked, _wait_file_stable  # noqa: F401 — re-export
 
