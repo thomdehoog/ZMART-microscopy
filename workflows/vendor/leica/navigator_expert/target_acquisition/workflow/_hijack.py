@@ -64,7 +64,7 @@ from typing import Callable
 
 import tifffile
 
-import navigator_expert.driver.ome_tiff as ome_tiff
+import navigator_expert.driver.output.ome as ome_tiff
 
 from _shared.output_layout import build_xml_name
 

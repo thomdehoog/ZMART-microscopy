@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from navigator_expert.driver import stage_motion
+from navigator_expert.driver.motion import stage as stage_motion
 
 
 class TestMoveXyWithBacklash:

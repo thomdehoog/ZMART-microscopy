@@ -16,7 +16,7 @@ import pytest
 
 from _shared.output_layout import Naming, build_image_name, build_xml_name
 import navigator_expert.driver as drv
-from navigator_expert.driver import acquisition
+from navigator_expert.driver.output import acquisition
 
 
 # --- Fixtures ---------------------------------------------------------------

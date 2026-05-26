@@ -862,7 +862,7 @@ def roi_to_pan_zoom(roi, fov_at_zoom1_um, margin=1.15):
     Returns:
         ``(pan_x, pan_y, zoom)`` tuple.
     """
-    from ...utils import pan_scale_um_from_base_fov
+    from ...api.utils import pan_scale_um_from_base_fov
     pan_scale_um = pan_scale_um_from_base_fov(fov_at_zoom1_um)
     geo = roi_geometry(roi)
     eff_tx, eff_ty = geo["effective_translation_m"]

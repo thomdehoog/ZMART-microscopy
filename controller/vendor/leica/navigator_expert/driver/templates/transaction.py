@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .files import find_scanning_templates_dir, save_experiment, load_experiment
-from ..readers import get_selected_job
+from ..api.readers import get_selected_job
 
 log = logging.getLogger(__name__)
 
