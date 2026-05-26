@@ -134,15 +134,11 @@ cleanup, which only changes import statements in tests:
   behind the coverage built in Phase 6, *only* one boundary at a
   time, *each* gated on a real example-script run.
 
-### Deferred — need explicit go-ahead before touching
+### Later cleanup context
 
-- Two-config-folders inconsistency:
-  `controller/vendor/leica/config/` (example-script outputs,
-  `parents[2]` = `leica/`) vs
-  `controller/vendor/leica/navigator_expert/config/` (calibration-script
-  outputs, `parents[2]` = `navigator_expert/`). Same idiom, different
-  resolution. Fixing it requires touching path resolution in
-  calibration code, which is off-limits without explicit ok.
+- Calibration state later moved out of the Leica driver package to
+  `calibration/vendor/leica/navigator_expert/live/` on
+  `restructure/layered-driver`.
 - Flattening `controller/vendor/leica/navigator_expert/` to
   `src/navigator_expert/`. Multi-day; rewrites every import statement
   in the codebase. Worthwhile but its own dedicated workstream.

@@ -22,8 +22,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from navigator_expert.calibration.core import common as cm
-from navigator_expert.calibration.core import (
+from calibration.vendor.leica.navigator_expert.core import common as cm
+from calibration.vendor.leica.navigator_expert.core import (
     image_to_stage as wf_i2s,
     objective_pair as wf_obj,
     promotion as wf_promotion,

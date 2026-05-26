@@ -405,20 +405,21 @@ The backbone has two retry ceilings:
 ### Package Layout
 
 ```
-navigator_expert/
+controller/vendor/leica/navigator_expert/
 ??? README.md
-??? config/                  # promoted Leica stage/calibration config
-??? calibration/
-?   ??? core/                # calibration model + notebook implementation
-?   ??? notebooks/           # operator calibration notebooks
 ??? driver/
 ?   ??? __init__.py          # frozen facade for LAS X driver commands
 ?   ??? core/                # raw LAS X commands, readers, confirmations, profiles
 ?   ??? templates/           # LRP/XML/RGN parsing, strip/restore, transactions
 ?   ??? acquisition/         # capture, LAS X file arrival, OME fixes, acquire-and-save
-?   ??? stage/               # stage limits, movement, stage config
+?   ??? stage/               # stage limits, movement, stage live-state loader
 ?   ??? experimental/        # LRP mutation helpers without live-state readback
 ??? test/                    # driver and calibration unit tests
+
+calibration/vendor/leica/navigator_expert/
+??? live/                    # promoted measured state: calibration.json, stage.json
+??? core/                    # calibration model + notebook implementation
+??? notebooks/               # operator calibration notebooks
 ```
 
 ### Dependency DAG
@@ -440,7 +441,7 @@ core.commands          -> core.dispatch, core.profiles, core.confirmations,
 templates/*            -> file/template operations above API readback
 acquisition/*          -> capture, LAS X file arrival, and OME metadata fixes
 stage/*                -> stage safety and backlash-aware movement
-calibration.core.model -> promoted calibration config + coordinate transforms
+calibration/.../core.model -> promoted calibration state + coordinate transforms
 ```
 
 ### Two-Layer Backbone

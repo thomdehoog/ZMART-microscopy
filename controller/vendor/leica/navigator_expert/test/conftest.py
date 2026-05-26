@@ -9,8 +9,7 @@ _VENDOR_LEICA = Path(__file__).resolve().parents[2]
 if str(_VENDOR_LEICA) not in sys.path:
     sys.path.insert(0, str(_VENDOR_LEICA))
 
-# Add repo root to sys.path so `from shared...` and `from algorithms...`
-# imports resolve.
+# Add repo root to sys.path so `from shared...` imports resolve.
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
