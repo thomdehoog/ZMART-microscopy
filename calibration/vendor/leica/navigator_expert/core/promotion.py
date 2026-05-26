@@ -1,12 +1,12 @@
-"""Promote a session-staging calibration to the live folder.
+"""Promote a session-staging calibration to the current folder.
 
 Promotion is the explicit operator step that turns a session's
 trustworthy staging config into a file inside the operator-supplied
-``live_root``. Save workflows never promote; this module is the only
-writer of ``<live_root>/<staging_name>``.
+``current_root``. Save workflows never promote; this module is the only
+writer of ``<current_root>/<staging_name>``.
 
-The operator passes ``live_root`` on every call. The workflow refuses
-to guess a default: live config writes are too easy to overlook, and a
+The operator passes ``current_root`` on every call. The workflow refuses
+to guess a default: current config writes are too easy to overlook, and a
 silent default would let a stale package-tree file become the truth.
 """
 
@@ -62,26 +62,26 @@ def promote_calibration(
     session: Any,
     staging_name: str,
     *,
-    live_root: str | Path,
+    current_root: str | Path,
 ) -> dict:
-    """Copy ``session.paths.configs_dir / staging_name`` into ``live_root``.
+    """Copy ``session.paths.configs_dir / staging_name`` into ``current_root``.
 
     Args:
         session: A workflow session with ``.paths.configs_dir`` and
             ``.session_id``.
         staging_name: Bare filename inside the session's ``configs/`` folder.
-        live_root: Operator-supplied directory that holds the live
+        current_root: Operator-supplied directory that holds the current
             calibration configs. Required.
 
     Returns:
-        ``{"source": str, "live_path": str, "archived_previous": str | None}``
+        ``{"source": str, "current_path": str, "archived_previous": str | None}``
         with absolute path strings.
 
     Raises:
         FileNotFoundError: if the staging file does not exist.
         ValueError: if the staging payload schema/kind is invalid or the
             staging_name is not a bare filename.
-        RuntimeError: if the live_root or archive directory cannot be
+        RuntimeError: if the current_root or archive directory cannot be
             created.
     """
     _validate_staging_name(staging_name)
@@ -114,13 +114,13 @@ def promote_calibration(
         )
 
     # absolute(), not resolve(): keep the operator's drive letter intact.
-    resolved_root = Path(live_root).absolute()
-    resolved_live = resolved_root / staging_name
+    resolved_root = Path(current_root).absolute()
+    resolved_current = resolved_root / staging_name
     try:
         resolved_root.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         raise RuntimeError(
-            f"cannot create live config directory {resolved_root}: {exc}"
+            f"cannot create current config directory {resolved_root}: {exc}"
         ) from exc
 
     archive_dir = resolved_root / "archive"
@@ -132,9 +132,9 @@ def promote_calibration(
         ) from exc
 
     archived: Path | None = None
-    if resolved_live.exists():
+    if resolved_current.exists():
         try:
-            existing = json.loads(resolved_live.read_text(encoding="utf-8"))
+            existing = json.loads(resolved_current.read_text(encoding="utf-8"))
             stamp_raw = existing.get("created_at", "unknown")
         except Exception:
             stamp_raw = "unknown"
@@ -147,18 +147,18 @@ def promote_calibration(
             candidate = archive_dir / f"{stamp}_{i}_{staging_name}"
             i += 1
         archived = candidate
-        shutil.copy2(resolved_live, archived)
+        shutil.copy2(resolved_current, archived)
 
-    write_json_atomic(resolved_live, data)
+    write_json_atomic(resolved_current, data)
 
     session_id = getattr(session, "session_id", "unknown")
     log_path = resolved_root / ".promotion.log"
-    line = f"{now_iso()} {kind} {session_id} -> {resolved_live}\n"
+    line = f"{now_iso()} {kind} {session_id} -> {resolved_current}\n"
     with log_path.open("a", encoding="utf-8") as fh:
         fh.write(line)
 
     return {
         "source": str(source),
-        "live_path": str(resolved_live),
+        "current_path": str(resolved_current),
         "archived_previous": str(archived) if archived else None,
     }

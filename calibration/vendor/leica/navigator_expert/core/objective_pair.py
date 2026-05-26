@@ -7,7 +7,7 @@ analyzes what comes back. See CALIBRATION_REF_STACK_UPDATE_PLAN.md.
 
 Five operator steps, each one workflow call:
 
-1. ``start_session`` -- connect, load live ``image_to_stage.json``,
+1. ``start_session`` -- connect, load current ``image_to_stage.json``,
    prepare folders.
 2. ``measure_parfocality_reference`` -- under the reference objective,
    record home XY and home z-wide (diagnostic), trigger the configured
@@ -159,7 +159,7 @@ def start_session(
     kind = f"objective_{slug(from_objective)}_to_{slug(to_objective)}"
     objective_config_name = f"{kind}.json"
 
-    # Create the session directory tree BEFORE loading the live config
+    # Create the session directory tree BEFORE loading the current config
     # or touching the driver, so an invalid sessions_root surfaces as a
     # single clear setup error before any hardware interaction.
     paths = make_session_paths(session_id, kind, sessions_root)
@@ -284,7 +284,7 @@ def _print_step5_summary(session, summary: dict) -> None:
         print("  Staging config written:")
         print(f"    {summary.get('config_path')}")
         print()
-        print("  Run the promote cell below to copy this to the live config.")
+        print("  Run the promote cell below to copy this to the current config.")
     else:
         print("  No staging config written.")
         if session.failure_reason:
@@ -782,7 +782,7 @@ def measure_parcentricity_target_and_save(
             )
 
     # image_to_stage_file: record the absolute source we actually used
-    # (live config or override). The operator-supplied path may live
+    # (current config or override). The operator-supplied path may live
     # outside the package tree, so the absolute string is the only form
     # that round-trips meaningfully.
     i2s_file = str(session.image_to_stage_path)

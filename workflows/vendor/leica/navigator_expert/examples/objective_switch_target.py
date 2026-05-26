@@ -77,7 +77,7 @@ Operator preconditions
 - ``ImageTransformation = TOPLEFT`` in LAS X Advanced Settings.
 - AFC / autofocus OFF; no LAS X modal dialogs.
 - Stage positioned over a region with cells visible at 10×.
-- ``live/calibration.json`` (v9) and ``live/stage.json`` exist.
+- ``current/calibration.json`` (v9) and ``current/stage.json`` exist.
 
 Usage
 -----

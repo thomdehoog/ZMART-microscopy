@@ -137,7 +137,7 @@ cleanup, which only changes import statements in tests:
 ### Later cleanup context
 
 - Calibration state later moved out of the Leica driver package to
-  `calibration/vendor/leica/navigator_expert/live/` on
+  `calibration/vendor/leica/navigator_expert/current/` on
   `restructure/layered-driver`.
 - Flattening `controller/vendor/leica/navigator_expert/` to
   `src/navigator_expert/`. Multi-day; rewrites every import statement

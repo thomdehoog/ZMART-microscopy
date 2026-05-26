@@ -1,7 +1,7 @@
 """Stage calibration: physical limits + backlash takeup parameters.
 
-Loaded from the root-level calibration live state:
-``calibration/vendor/leica/navigator_expert/live/stage.json``.
+Loaded from the root-level calibration current state:
+``calibration/vendor/leica/navigator_expert/current/stage.json``.
 
 Schema (v1)::
 
@@ -21,7 +21,7 @@ _REQUIRED_AXES = ("x", "y", "z_galvo", "z_wide")
 
 
 def default_path():
-    """Path to the live stage configuration."""
+    """Path to the current stage configuration."""
     repo_root = Path(__file__).resolve().parents[6]
     return (
         repo_root
@@ -29,7 +29,7 @@ def default_path():
         / "vendor"
         / "leica"
         / "navigator_expert"
-        / "live"
+        / "current"
         / "stage.json"
     )
 
