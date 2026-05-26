@@ -2,12 +2,15 @@
 import sys
 from pathlib import Path
 
-# workflow/ lives at notebooks/workflow/; its __init__.py adds these paths
-# at import time, but we need them before that for _shared imports.
-_NOTEBOOKS = Path(__file__).resolve().parents[2]   # .../notebooks/
-_LEICA = _NOTEBOOKS.parents[1]                     # .../leica/
-_VENDOR = _LEICA.parent                            # .../vendor/
+_TARGET_ACQ = Path(__file__).resolve().parents[1]  # .../target_acquisition/
+_REPO_ROOT = _TARGET_ACQ.parents[4]                # .../smart-microscopy/
+_VENDOR_LEICA = _REPO_ROOT / "controller" / "vendor" / "leica"
+_VENDOR = _VENDOR_LEICA.parent
 
-for p in [str(_NOTEBOOKS), str(_LEICA), str(_VENDOR)]:
+for p in [str(_VENDOR_LEICA), str(_VENDOR), str(_REPO_ROOT), str(_TARGET_ACQ)]:
     if p not in sys.path:
         sys.path.insert(0, p)
+
+# Pre-load navigator_expert.driver so its package identity is
+# established before workflow modules trigger the same import.
+import navigator_expert.driver  # noqa: E402,F401
