@@ -1,8 +1,8 @@
 """Tests for pipeline/selection.py: select_targets, SelectionResult,
 load_overview_result re-homing, LimitsContext-typed filter signature.
 
-Display tests (display_selection) and example-crops are covered visually
-via smoke_visualization.py; this file is unit-level.
+Display tests (display_selection) and example-crops are covered in
+test_visualize.py; this file is unit-level.
 """
 from __future__ import annotations
 

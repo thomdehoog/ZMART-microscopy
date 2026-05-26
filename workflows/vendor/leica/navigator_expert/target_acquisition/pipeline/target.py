@@ -17,9 +17,9 @@ from .overview import Pick, Picks, _validate_callback_flags
 from shared.output_layout import Naming
 from ._acquire import acquire
 from ._job_state import ensure_job_state
-from ._logcapture import _logged
+from ._log_capture import _logged
 from ._hijack import hijack_frame, NonSimulatorFrameError
-from ._mockprovider import build_target_provider
+from ._mock_provider import build_target_provider
 
 
 @dataclass
@@ -29,7 +29,6 @@ class TargetRecord:
     source_zwide_um: float
     target_stage_xy_um: tuple[float, float] | None
     target_zwide_um: float | None
-    target_zoom: int | None
     target_pixel_size_um: float | None
     tif_path: Path | None
     success: bool
@@ -269,7 +268,7 @@ def acquire_targets(
                     # Per-pick provider -- closes over this pick's
                     # centroid + source-tile lineage so the high-res
                     # mock is a zoom of *that pick's* cell from the
-                    # overview file. See _mockprovider.build_target_provider.
+                    # overview file. See _mock_provider.build_target_provider.
                     target_provider = build_target_provider(
                         pick=pick,
                         target_pixel_size_um=target_pixel_size_um,
@@ -287,7 +286,6 @@ def acquire_targets(
                     source_zwide_um=pick.tile_zwide_um,
                     target_stage_xy_um=(tx, ty),
                     target_zwide_um=tz,
-                    target_zoom=None,
                     target_pixel_size_um=target_pixel_size_um,
                     tif_path=tif_path,
                     success=True,
@@ -317,7 +315,6 @@ def acquire_targets(
                     source_zwide_um=pick.tile_zwide_um,
                     target_stage_xy_um=(tx, ty) if tx is not None else None,
                     target_zwide_um=tz,
-                    target_zoom=None,
                     target_pixel_size_um=target_pixel_size_um,
                     # A hijack failure means the .ome.tiff was saved
                     # but its pixels were NOT replaced with mock content.

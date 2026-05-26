@@ -21,7 +21,7 @@ Two functions live here:
       overview's median intensity for any portion outside bounds.
       Returns a 2-D array of shape (h, w) from the window.
 
-Both ``_mockprovider.build_target_provider`` (target hijack content
+Both ``_mock_provider.build_target_provider`` (target hijack content
 source) and ``visualize._render_target_crop_panel`` + the left-
 panel red-rectangle callout call into this module. Independent
 implementations of this math drifted in the past: visualize used
@@ -157,7 +157,7 @@ def crop_overview_at_target_fov(
     the overview's bounds (cell near tile edge).
 
     Pure-data signature -- no Pick, no Naming, no LayoutPlan. Both
-    call sites (``_mockprovider.build_target_provider`` and
+    call sites (``_mock_provider.build_target_provider`` and
     ``visualize._render_target_crop_panel``) translate their domain
     objects to these primitives at the call site so this helper
     stays import-cycle-free and unit-testable in isolation.

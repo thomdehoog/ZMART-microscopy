@@ -1,7 +1,7 @@
 """Timestamped console-log capture for notebook-driven acquisitions.
 
-The target-acquisition notebook still uses ``print()`` for operator
-feedback. This module tees that output to per-kind log files under the
+The target-acquisition notebook uses ``print()`` for operator-facing
+status. This module tees that output to per-kind log files under the
 run directory while preserving the live notebook output exactly as the
 operator sees it.
 

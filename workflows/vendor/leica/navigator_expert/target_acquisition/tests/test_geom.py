@@ -262,7 +262,7 @@ class TestEdgePadding:
 
 
 class TestNoDriftAgainstCallers:
-    """Pin the convergence: _mockprovider.build_target_provider and
+    """Pin the convergence: _mock_provider.build_target_provider and
     visualize.py's centre-panel render must both delegate to
     crop_overview_at_target_fov so they cannot disagree on the source
     window for the same cell.
@@ -330,7 +330,7 @@ class TestNoDriftAgainstCallers:
             source_zwide_um=0.0,
             target_stage_xy_um=(0.0, 0.0),
             target_zwide_um=0.0,
-            target_zoom=None,
+
             target_pixel_size_um=target_pixel_size_um,
             tif_path=None,
             success=True,
@@ -344,7 +344,7 @@ class TestNoDriftAgainstCallers:
             hash6="abcdef", g=0, p=0,
         )
 
-    # ── Output-equality pins (rev2's recommendation) ─────────────
+    # Output-equality pins.
 
     @pytest.mark.parametrize("centroid", [
         (200.0, 200.0),     # centred
@@ -395,9 +395,9 @@ class TestNoDriftAgainstCallers:
         comparable to the helper's output.
 
         A future refactor that inlines different crop math in
-        _mockprovider fails this test loudly.
+        _mock_provider fails this test loudly.
         """
-        from pipeline._mockprovider import build_target_provider
+        from pipeline._mock_provider import build_target_provider
 
         layout = self._make_layout(tmp_path)
         overview = np.full((400, 400), 10000, dtype=np.uint16)
@@ -430,7 +430,7 @@ class TestNoDriftAgainstCallers:
         )
         assert np.array_equal(via_provider, via_helper)
 
-    # ── Call-args structural pin (rev1's recommendation) ──────────
+    # Call-args structural pin.
 
     def test_both_call_sites_invoke_helper_with_same_primitives(
         self, tmp_path,
@@ -446,7 +446,7 @@ class TestNoDriftAgainstCallers:
         identical output by coincidence) would still fail this test.
         """
         from pipeline.visualize import _centroid_crop_at_target_fov
-        from pipeline._mockprovider import build_target_provider
+        from pipeline._mock_provider import build_target_provider
 
         layout = self._make_layout(tmp_path)
         overview = np.full((400, 400), 10000, dtype=np.uint16)
@@ -481,7 +481,7 @@ class TestNoDriftAgainstCallers:
         # invokes the helper. Stub resize to no-op so we don't
         # need a shape-matching sentinel.
         with mock.patch(
-            "pipeline._mockprovider.crop_overview_at_target_fov",
+            "pipeline._mock_provider.crop_overview_at_target_fov",
             return_value=sentinel,
         ) as hijack_spy, mock.patch(
             "skimage.transform.resize",
@@ -492,7 +492,7 @@ class TestNoDriftAgainstCallers:
             )
             provider(target_shape, np.uint16, naming=self._dummy_naming())
         assert hijack_spy.call_count == 1, (
-            "_mockprovider must delegate to the shared helper "
+            "_mock_provider must delegate to the shared helper "
             "(spy never fired -- likely a local copy-paste)"
         )
         hijack_kwargs = hijack_spy.call_args.kwargs
@@ -502,7 +502,7 @@ class TestNoDriftAgainstCallers:
         # ndarrays are positional (overview), not kwargs, so this
         # comparison is clean.
         assert viz_kwargs == hijack_kwargs, (
-            f"visualize and _mockprovider passed different "
+            f"visualize and _mock_provider passed different "
             f"primitives to the shared helper:\n"
             f"  visualize: {viz_kwargs}\n"
             f"  hijack:    {hijack_kwargs}"

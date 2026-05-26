@@ -1,5 +1,6 @@
 # Session notes — 2026-04-28: stage backlash correction
 
+> Historical note: this document describes pre-restructure paths and workflow state.
 Following up on open item (4) from `session_notes_20260427_registration.md`:
 the iterative stage cookbook hits a 1–2 µm noise floor that is mechanical,
 not algorithmic. This session formalises the backlash recipe and adds two

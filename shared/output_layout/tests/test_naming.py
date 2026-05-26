@@ -256,13 +256,12 @@ class TestLayoutPlan:
         layout = LayoutPlan(tmp_path, "exp", "0a3k7m", EPOCH + 1000)
         assert layout.acquisition_dir("overview-scan") == tmp_path / "exp_0a3k7m" / "overview-scan"
 
-    def test_data_metadata_analysis_feedback(self, tmp_path):
+    def test_data_metadata_analysis_logs(self, tmp_path):
         layout = LayoutPlan(tmp_path, "exp", "0a3k7m", EPOCH + 1000)
         acq = "overview-scan"
         assert layout.data_dir(acq) == layout.run_dir / acq / "data"
         assert layout.metadata_dir(acq) == layout.run_dir / acq / "data" / "metadata"
         assert layout.analysis_dir(acq) == layout.run_dir / acq / "analysis"
-        assert layout.feedback_dir(acq) == layout.run_dir / acq / "feedback"
         assert layout.logs_dir(acq) == layout.run_dir / acq / "logs"
 
     def test_logs_dir_accepts_any_kind(self, tmp_path):

@@ -1,4 +1,4 @@
-"""Tests for pipeline._logcapture -- per-kind console-log capture."""
+"""Tests for pipeline._log_capture -- per-kind console-log capture."""
 from __future__ import annotations
 
 import io
@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from shared.output_layout import build_layout
-from pipeline._logcapture import (
+from pipeline._log_capture import (
     _Tee, _log_path_for, _logged,
     capture_console, capture_console_deferred,
 )

@@ -1,9 +1,8 @@
-"""Tests for the rev7 NPZ v2 schema + overview_meta.json + load_overview_result.
+"""Tests for NPZ schema v2, overview_meta.json, and load_overview_result.
 
 These tests exercise the persistence layer in isolation -- no hardware,
 no full run_overview. The same-kernel == load_overview_result invariant
-is enforced at the building-block level here; the end-to-end check lives
-in smoke_visualization.py.
+is enforced at the building-block level here.
 """
 from __future__ import annotations
 
@@ -342,10 +341,9 @@ class TestOverviewMetaMissingMarkedIncomplete:
 
 class TestOverviewMetaPersistsAcquireLoopCounters:
     def test_planned_and_submitted_round_trip(self, tmp_path):
-        # Plan 2 -- n_tiles_acquired is now a stored counter (not a
-        # derived `submitted - acquire_failed`), because hijack failures
-        # land between acquire-and-submit and break that identity. The
-        # write path must persist it; the round-trip just reads it back.
+        # n_tiles_acquired is a stored counter, not a derived
+        # `submitted - acquire_failed` value, because hijack failures
+        # land between acquire-and-submit and break that identity.
         analysis_dir = tmp_path / "analysis"
         _write_overview_meta(
             analysis_dir,
@@ -365,9 +363,8 @@ class TestOverviewMetaPersistsAcquireLoopCounters:
         assert ov.n_tiles_acquired == 9
 
 
-# run_overview_with_picks compat wrapper was deleted in Commit C; its
-# behavior is now covered by tests against `select_targets` (in
-# test_selection.py) plus the integration smoke at smoke_visualization.py.
+# The old run_overview_with_picks wrapper is gone; its behavior is now
+# covered by tests against `select_targets` in test_selection.py.
 
 
 # ─── Position (flat tile index) round-trip ─────────────────────────
@@ -416,19 +413,18 @@ class TestPositionRoundtripThroughNPZ:
         assert ov.all_picks[0].position is None
 
 
-# ─── analysis_image_source removal -- back-compat seam pin ────────
+# analysis_image_source load compatibility.
 
 
-class TestPrePlan2NpzBackCompat:
+class TestLegacyAnalysisImageSourceNpz:
     """Pin the load-boundary back-compat seam.
 
-    After the analysis_image_source removal commit (Plan 2 §6 / D1
-    coupled cleanup), the active codebase no longer writes the
-    ``analysis_image_source`` NPZ key and no longer carries the
-    ``simulated`` derivation outside this single load site. Pre-cut
-    NPZs on disk still have ``analysis_image_source`` and may lack
-    ``simulated`` -- the visualize.py loader must derive ``simulated``
-    from the old field so legacy runs reload correctly.
+    The active codebase no longer writes the ``analysis_image_source``
+    NPZ key and no longer carries the ``simulated`` derivation outside
+    this single load site. Older NPZs on disk still have
+    ``analysis_image_source`` and may lack ``simulated`` -- the
+    visualize.py loader must derive ``simulated`` from the old field so
+    historical runs reload correctly.
 
     This test pins that derivation. If a future contributor deletes
     the back-compat branch in ``_load_tile_npz`` thinking it's dead
@@ -438,10 +434,10 @@ class TestPrePlan2NpzBackCompat:
     def _write_legacy_npz(
         self, path: Path, *, analysis_image_source: str, tile_id=("0", 0, 0),
     ) -> None:
-        """Write a synthetic pre-Plan-2 NPZ carrying just the keys
+        """Write a synthetic historical NPZ carrying just the keys
         ``_load_tile_npz`` actually reads: ``image_2d``, ``masks``,
         ``tile_id``, and the legacy ``analysis_image_source`` (the
-        seam under test). The pre-cut on-disk shape carried other
+        seam under test). The older on-disk shape carried other
         schema-v2 arrays too; we don't write them here because the
         test exercises ``_load_tile_npz`` directly, not the
         ``load_overview_result`` aggregate which would consume the

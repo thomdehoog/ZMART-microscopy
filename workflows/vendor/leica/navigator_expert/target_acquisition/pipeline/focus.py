@@ -25,7 +25,7 @@ from navigator_expert.driver.templates.files import (
 
 from .context import Context
 from ._job_state import ensure_job_state
-from ._logcapture import _logged
+from ._log_capture import _logged
 
 FLAT_TOLERANCE_UM = 0.1
 SPLINE_SMOOTHING = 0.1

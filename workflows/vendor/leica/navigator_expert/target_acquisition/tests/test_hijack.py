@@ -1,4 +1,4 @@
-"""Tests for the Plan 2 simulation-mode hijack.
+"""Tests for simulation-mode image hijacking.
 
 Two surfaces under test:
 
@@ -43,7 +43,7 @@ from pipeline._hijack import (
     _read_system_type,
     hijack_frame,
 )
-from pipeline._mockprovider import get_provider
+from pipeline._mock_provider import get_provider
 
 
 # ─── Helpers ──────────────────────────────────────────────────────
@@ -379,8 +379,8 @@ class TestHijackOverwrite:
         assert not isinstance(exc_info.value, NonSimulatorFrameError)
 
     def test_multi_plane_saved_array_fails_loudly_not_silently(self, tmp_path):
-        """Plan 2 phase 1 supports single-plane single-channel saved
-        frames. A multi-plane saved frame must raise a clearly-labelled
+        """Only single-plane single-channel saved frames are supported.
+        A multi-plane saved frame must raise a clearly-labelled
         RuntimeError (per-tile path, recorded in hijack_failures and
         the loop continues), NOT a NonSimulatorFrameError (which would
         hard-abort the entire run).

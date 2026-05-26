@@ -56,7 +56,7 @@ CONFIRM_TIMEOUT = 15   # Polling confirmation deadline (move_xy, move_z,
 #     base_fov_um = get_base_fov(client, job)[0] * 1e6
 #     pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT
 #
-# Re-measure with test/test_pan_scale_calibrate.py on a different
+# Re-measure GALVO_FIELD_FRACTION on each new
 # instrument — GALVO_FIELD_FRACTION is scope-specific but fixed per
 # scope.
 PAN_LIMIT = 0.00775                # max pan value per axis (software limit)

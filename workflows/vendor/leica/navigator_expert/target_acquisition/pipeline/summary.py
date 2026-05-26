@@ -68,7 +68,7 @@ def write_summary(
     zs = np.array([m["zwide_um"] for m in focus_map.measured])
 
     config_dict = _serialize_config(cfg)
-    # Transition compat: inject derived slots into config for old readers
+    # Include derived slots next to the operator-entered config values.
     config_dict["source_slot"] = ctx.source_slot
     config_dict["target_slot"] = ctx.target_slot
 
@@ -374,7 +374,6 @@ def _serialize_target(rec: TargetRecord, out_dir: Path) -> dict:
         "target_stage_xy_um": list(rec.target_stage_xy_um)
         if rec.target_stage_xy_um else None,
         "target_zwide_um": rec.target_zwide_um,
-        "target_zoom": rec.target_zoom,
         "target_pixel_size_um": rec.target_pixel_size_um,
         "tif_path": str(rec.tif_path.relative_to(out_dir))
         if rec.tif_path else None,

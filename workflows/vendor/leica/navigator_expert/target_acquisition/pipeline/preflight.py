@@ -26,7 +26,7 @@ from navigator_expert.driver.core.objectives import validate_slots
 
 from .context import Config, Context
 from ._job_state import ensure_job_state, _read_objective_slot
-from ._logcapture import capture_console_deferred
+from ._log_capture import capture_console_deferred
 
 ZGALVO_WARN_THRESHOLD_UM = 0.5
 CELLPOSE_ENV_NAME = "lasxapi_extended"

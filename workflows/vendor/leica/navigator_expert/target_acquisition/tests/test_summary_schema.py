@@ -1,4 +1,4 @@
-"""Summary schema migration tests (rev7).
+"""Summary schema tests.
 
 n_picks_* fields move from `summary["overview"]` to `summary["selection"]`.
 Other top-level keys must be preserved.
@@ -27,7 +27,6 @@ def _build_ctx_like(out_dir: Path, *, scan_field=None):
     cfg.af_job = "AF Job"
     cfg.analysis_repo = Path("/fake/smart-analysis")
     cfg.experiment = "test"
-    cfg.fov_bbox_margin = 1.5
     cfg.settle_after_job_switch_s = 3.0
     cfg.restore_template_after_af = True
     cfg.restore_source_at_end = True
@@ -75,13 +74,9 @@ def _make_focus_map():
 
 
 def _make_overview_result():
-    # Plan 2: n_tiles_acquired is a stored counter now (was derived
-    # `submitted - acquire_failed`). On a non-simulate run with no
-    # hijack-failure path, acquired = submitted + acquire_failed = the
-    # number of tiles where acquire_and_save returned. With 1
-    # acquire_failure and 2 submitted, that's 2 (acquire_failed tiles
-    # don't reach the n_tiles_acquired += 1 line). The legacy value 1
-    # under the derived rule is preserved here for back-compat.
+    # n_tiles_acquired is stored, not derived from
+    # `submitted - acquire_failed`. Keep this fixture's value pinned so
+    # the summary writer preserves the OverviewResult it was given.
     return OverviewResult(
         all_picks=[],
         tile_acquire_failures=[{"tile_id": ["0", 0, 0], "error": "boom"}],
