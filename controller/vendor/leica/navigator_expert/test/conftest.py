@@ -29,6 +29,11 @@ _VENDOR = Path(__file__).resolve().parents[3]
 if str(_VENDOR) not in sys.path:
     sys.path.insert(0, str(_VENDOR))
 
+# Add repo root to sys.path so `from algorithms import ...` resolves.
+_REPO_ROOT = Path(__file__).resolve().parents[5]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 # Back-compat alias: tests written before the rename do
 # ``import lasx.core``, ``import lasx.errors``, etc. Map every driver
 # submodule under the ``lasx`` namespace via sys.modules.
