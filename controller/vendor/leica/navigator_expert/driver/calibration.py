@@ -1,14 +1,11 @@
 """Objective calibration: load, save, and read the calibration config.
 
-The calibration lives at ``config/calibration.json`` (consolidated) with
-a legacy fallback to ``calibration/config/config.json``, and is
-written by ``calibration/scripts/calibrate_objectives.py``. Each
-calibration run also drops a snapshot ``config.json`` and a
-``report.json`` into ``calibration/runs/<timestamp>/`` for full
-reproducibility from disk.
+The live calibration lives at ``config/calibration.json``. Calibration
+notebooks write session artifacts outside the driver-facing config path
+and promote validated results into that file.
 
-Stage-physical config (limits, backlash) is unrelated and lives in
-``stage_config.py``.
+Stage-physical config (limits, backlash) is unrelated and lives at
+``config/stage.json``.
 
 Schema (v9)::
 
@@ -96,27 +93,9 @@ def _navigator_expert_root():
     return Path(__file__).resolve().parent.parent
 
 
-def _calibration_dir():
-    return _navigator_expert_root() / "calibration"
-
-
 def default_path():
-    """Consolidated path first, legacy fallback second."""
-    consolidated = _navigator_expert_root() / "config" / "calibration.json"
-    if consolidated.exists():
-        return consolidated
-    return _calibration_dir() / "config" / "config.json"
-
-
-def default_runs_dir():
-    return _calibration_dir() / "runs"
-
-
-def make_run_dir(timestamp):
-    """Create ``calibration/runs/<timestamp>/`` and return its Path."""
-    path = default_runs_dir() / timestamp
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    """Path to the live promoted calibration config."""
+    return _navigator_expert_root() / "config" / "calibration.json"
 
 
 def now_timestamp():
@@ -162,26 +141,13 @@ def load_calibration(path=None, *, create_if_missing=False):
     return cfg
 
 
-def save_calibration(config, run_dir=None, *, path=None):
-    """Write the live config.json atomically; bump ``last_updated``.
+def save_calibration(config, *, path=None):
+    """Write the live calibration config atomically; bump ``last_updated``."""
 
-    If ``run_dir`` is given, also drops a snapshot in that directory so
-    each run keeps the exact config it produced.
-    """
     config["last_updated"] = now_timestamp()
     live = Path(path) if path is not None else default_path()
     _atomic_write_json(live, config)
-    if run_dir is not None:
-        _atomic_write_json(Path(run_dir) / "config.json", config)
     return live
-
-
-def save_calibration_report(report, run_dir):
-    """Write the run's report.json into ``run_dir``."""
-    path = Path(run_dir) / "report.json"
-    _atomic_write_json(path, report)
-    return path
-
 
 # ── Mutators ─────────────────────────────────────────────────────────
 
@@ -275,7 +241,7 @@ def get_offset_xy_um(config, slot):
             return 0.0, 0.0
         raise ValueError(
             f"Slot {slot} has no offset_xy_um. "
-            f"Re-run calibrate_objectives.py."
+            f"Run the calibration notebooks and promote the config."
         )
     return float(value[0]), float(value[1])
 
@@ -291,7 +257,7 @@ def get_shift_xy_um(config, slot):
     if value is None:
         raise ValueError(
             f"Slot {slot} has no shift_xy_um. "
-            f"Re-run calibrate_objectives.py with --measure-shift-xy."
+            f"Run the calibration notebooks and promote the config."
         )
     return float(value[0]), float(value[1])
 
@@ -308,7 +274,7 @@ def get_offset_z_um(config, slot):
     if value is None:
         raise ValueError(
             f"Slot {slot} has no offset_z_um. "
-            f"Re-run calibrate_objectives.py with --measure-shift-z."
+            f"Run the calibration notebooks and promote the config."
         )
     return float(value)
 
@@ -326,7 +292,7 @@ def get_shift_z_um(config, slot):
     if value is None:
         raise ValueError(
             f"Slot {slot} has no shift_z_um. "
-            f"Re-run calibrate_objectives.py with --measure-shift-z."
+            f"Run the calibration notebooks and promote the config."
         )
     return float(value)
 

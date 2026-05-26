@@ -37,8 +37,8 @@ Operator preconditions (apply to all three)
 - A job is currently selected in the LAS X UI.
 - `ImageTransformation = TOPLEFT` in LAS X Advanced Settings.
 - AFC / autofocus OFF; no LAS X modal dialogs.
-- `calibration/config/config.json` (v9 schema) and `stage.json` exist.
-  Run `calibration/scripts/calibrate_objectives.py` first.
+- `config/calibration.json` (v9 schema) and `config/stage.json` exist.
+  Run the calibration notebooks first and promote the generated config.
 
 Outputs
 -------

@@ -1,8 +1,7 @@
 """Stage configuration: physical limits + backlash takeup parameters.
 
-Loaded from ``config/stage.json`` (consolidated) with a legacy fallback
-to ``calibration/config/stage.json``. Hand-edited; rarely
-changes. Independent of optical calibration (see ``calibration.py``).
+Loaded from ``config/stage.json``. Hand-edited; rarely changes.
+Independent of optical calibration (see ``calibration.py``).
 
 Schema (v1)::
 
@@ -22,12 +21,9 @@ _REQUIRED_AXES = ("x", "y", "z_galvo", "z_wide")
 
 
 def default_path():
-    """Consolidated path first, legacy fallback second."""
+    """Path to the live stage configuration."""
     ne_root = Path(__file__).resolve().parent.parent.parent
-    consolidated = ne_root / "config" / "stage.json"
-    if consolidated.exists():
-        return consolidated
-    return ne_root / "calibration" / "config" / "stage.json"
+    return ne_root / "config" / "stage.json"
 
 
 def load(path=None):

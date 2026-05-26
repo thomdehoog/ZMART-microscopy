@@ -24,13 +24,12 @@ _VENDOR_LEICA = Path(__file__).resolve().parents[2]
 if str(_VENDOR_LEICA) not in sys.path:
     sys.path.insert(0, str(_VENDOR_LEICA))
 
-# Add repo root to sys.path so `from algorithms import ...` and
-# `from shared.output_layout import ...` resolve.
+# Add repo root to sys.path so `from shared...` imports resolve.
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-# Add target_acquisition dir so `from workflow.focus import ...` resolves.
+# Add target_acquisition dir so `from pipeline.focus import ...` resolves.
 _TARGET_ACQ = _REPO_ROOT / "workflows" / "vendor" / "leica" / "navigator_expert" / "target_acquisition"
 if str(_TARGET_ACQ) not in sys.path:
     sys.path.insert(0, str(_TARGET_ACQ))

@@ -43,9 +43,9 @@ import pytest
 import tifffile
 
 from shared.output_layout import Naming, build_image_name
-from workflow._hijack import NonSimulatorFrameError
-from workflow._mockprovider import build_target_provider
-from workflow.overview import Pick
+from pipeline._hijack import NonSimulatorFrameError
+from pipeline._mockprovider import build_target_provider
+from pipeline.overview import Pick
 
 
 # ─── Helpers ──────────────────────────────────────────────────────
@@ -77,7 +77,7 @@ def _write_overview_file(
     p: int = 0,
 ) -> Path:
     """Write a synthetic overview tile to disk at the canonical
-    workflow path. The provider reads this with tifffile.imread."""
+    pipeline path. The provider reads this with tifffile.imread."""
     naming = Naming(
         acquisition_type="overview-scan",
         hash6=layout.hash6,
@@ -353,7 +353,7 @@ class TestTargetMockHonestResolution:
         order=0 (e.g. via 'cleanup' that drops what looks like a
         default arg) silently re-introduces the dishonest bilinear
         smoothing. Spy catches it loudly."""
-        from workflow._mockprovider import build_target_provider
+        from pipeline._mockprovider import build_target_provider
 
         layout = _make_layout(tmp_path)
         overview = np.full((64, 64), 10000, dtype=np.uint16)
@@ -391,7 +391,7 @@ class TestTargetMockHonestResolution:
         must contain visible 2x2 blocks of identical values (nearest-
         neighbour), not gradients (bilinear). Catches order=0 being
         dropped even if the spy test above somehow misses it."""
-        from workflow._mockprovider import build_target_provider
+        from pipeline._mockprovider import build_target_provider
 
         layout = _make_layout(tmp_path)
         # Construct an overview where each pixel has a distinct value
@@ -435,7 +435,7 @@ def _integration_ctx(tmp_path, *, simulate: bool):
     acquire_targets needs to run through one pick. Real-driver calls
     are patched at the module level in the test; this helper only
     sets up the data structures."""
-    from workflow.context import Config, Context, TargetState
+    from pipeline.context import Config, Context, TargetState
     cfg = Config(
         acquisition_job="Overview", target_job="HiRes", af_job="AF",
         analysis_repo=Path("/fake"),
@@ -468,7 +468,7 @@ class TestAcquireTargetsIntegration:
         """Patch out all driver calls acquire_targets makes.
         acquire_and_save writes a real fake target TIFF that
         hijack_frame can read."""
-        from workflow import target as target_mod
+        from pipeline import target as target_mod
         import navigator_expert.driver as drv
 
         # Strip / restore: hard-fail spies. v3.1 moved the final strip
@@ -558,7 +558,7 @@ class TestAcquireTargetsIntegration:
         """Build a Picks container with 2 picks at distinct centroids,
         each referencing a (distinct) source overview tile we've
         written."""
-        from workflow.overview import Picks
+        from pipeline.overview import Picks
         # Two overview tiles, two distinct picks.
         ov_a = np.full((400, 400), 10000, dtype=np.uint16)
         ov_a[100, 200] = 50000     # pick A's centroid
@@ -593,7 +593,7 @@ class TestAcquireTargetsIntegration:
         picks = self._two_picks(tmp_path, ctx.run.layout)
 
         # Spy on hijack_frame: capture the provider arg per call.
-        from workflow import target as target_mod
+        from pipeline import target as target_mod
         seen_providers = []
         real_hijack = target_mod.hijack_frame
 
@@ -603,7 +603,7 @@ class TestAcquireTargetsIntegration:
 
         monkeypatch.setattr(target_mod, "hijack_frame", _spy)
 
-        from workflow.target import acquire_targets
+        from pipeline.target import acquire_targets
         records = acquire_targets(
             ctx, picks,
             live_display=False, save_png=False, on_target=None,
@@ -637,7 +637,7 @@ class TestAcquireTargetsIntegration:
         self._drv_mocks(monkeypatch, tmp_path)
         ctx = _integration_ctx(tmp_path, simulate=False)
         # Picks with simulated=False; one pick is enough.
-        from workflow.overview import Picks
+        from pipeline.overview import Picks
         pick = _make_pick(
             centroid_col_row_px=(100.0, 100.0),
             source_pixel_size_um=(0.65, 0.65),
@@ -648,8 +648,8 @@ class TestAcquireTargetsIntegration:
 
         # Sentinel: any call to build_target_provider or hijack_frame
         # on a non-simulate run is a regression.
-        from workflow import target as target_mod
-        from workflow import _mockprovider as mp_mod
+        from pipeline import target as target_mod
+        from pipeline import _mockprovider as mp_mod
 
         def _build_sentinel(*args, **kwargs):
             raise AssertionError(
@@ -671,7 +671,7 @@ class TestAcquireTargetsIntegration:
         )
         monkeypatch.setattr(target_mod, "hijack_frame", _hijack_sentinel)
 
-        from workflow.target import acquire_targets
+        from pipeline.target import acquire_targets
         records = acquire_targets(
             ctx, picks,
             live_display=False, save_png=False, on_target=None,
