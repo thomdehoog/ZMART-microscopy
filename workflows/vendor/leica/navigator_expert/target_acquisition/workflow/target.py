@@ -13,7 +13,7 @@ import navigator_expert.driver as drv
 
 from .context import Context, TargetState
 from .overview import Pick, Picks, _validate_callback_flags
-from _shared.output_layout import Naming
+from shared.output_layout import Naming
 from ._acquire import acquire
 from ._job_state import ensure_job_state
 from ._logcapture import _logged

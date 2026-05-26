@@ -328,7 +328,7 @@ controller/
 ├── transform/                  ← registration / objective math (vendor-neutral)
 ├── workflow/                   ← Phase-3 target (relocated from the plug-in)
 └── vendor/
-    ├── _shared/output_layout/  ← EXISTS — canonical naming (used by adapters)
+    ├── shared/output_layout/  ← EXISTS — canonical naming (used by adapters)
     └── leica/navigator_expert/
         ├── adapter.py          ← NavigatorExpertAdapter
         ├── connect.py          ← connect() returning a v6 client
@@ -384,7 +384,7 @@ audit of today's workflow (currently at
    the `ImageHandle`. On `save()`, the adapter derives a `Naming` (from
    `handle.indices` + the current state name as `acquisition_type` + any slot
    overrides on the `output` preset bundle if used) and writes the canonical
-   layout via `_shared/output_layout`, mutating `handle.path`. `lineage` is
+   layout via `shared/output_layout`, mutating `handle.path`. `lineage` is
    persisted to the run's metadata sidecar.
 
 **Name resolution for `getlimits` and `getposition`:**
@@ -478,7 +478,7 @@ A thin pointer to the body; resolution detail lives in the cited section.
 | Preset types | two: `STATE`, `LIMITS` — §2.3 |
 | Plug-in selection | string id + explicit registry — §4 |
 | Vendor escape | rejected — §8 |
-| File format | flat OME-TIFF + companion XML sidecar via `_shared/output_layout` — §2.3, §6 |
+| File format | flat OME-TIFF + companion XML sidecar via `shared/output_layout` — §2.3, §6 |
 | Scope boundaries | batch only, one plug-in, no cancellation, no session teardown — §8 |
 
 ---
@@ -490,7 +490,7 @@ A thin pointer to the body; resolution detail lives in the cited section.
   authoritative API reference (the older `controller/vendor/leica/README.md`
   may lag the code).
   Lower-level acquire: `acquire_frame` in `driver/acquire.py`. Save layer +
-  companion-XML sidecar: `_shared/output_layout/` and the v6 helper
+  companion-XML sidecar: `shared/output_layout/` and the v6 helper
   `_find_companion_xml` in `driver/acquisition.py`.
 - Prior prototype (up-face source): SMART v4, at
   `Z:/zmbstaff/10374/Protocols_Notes/thom/notes/20260224_thom_SMART/smart/smart_controller/`.

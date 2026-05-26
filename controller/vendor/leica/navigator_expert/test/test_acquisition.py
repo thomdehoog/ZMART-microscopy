@@ -14,7 +14,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from _shared.output_layout import Naming, build_image_name, build_xml_name
+from shared.output_layout import Naming, build_image_name, build_xml_name
 import navigator_expert.driver as drv
 from navigator_expert.driver.output import acquisition
 
@@ -123,7 +123,7 @@ class TestStartRun:
         # 250-char budget. Can't use a real tmp_path here because Windows
         # itself can't create paths that long (the test setup would fail
         # before reaching the sentinel).
-        from _shared.output_layout import LayoutPlan
+        from shared.output_layout import LayoutPlan
         fake_root = Path("Z:/" + "a" * 200)  # not real; never touched
         layout = LayoutPlan(
             output_root=fake_root, experiment="exp",
@@ -133,7 +133,7 @@ class TestStartRun:
             acquisition._check_path_budget(layout)
 
     def test_path_length_sentinel_accepts_shallow(self):
-        from _shared.output_layout import LayoutPlan
+        from shared.output_layout import LayoutPlan
         layout = LayoutPlan(
             output_root=Path("D:/LASX/smart"), experiment="exp",
             hash6="000000", start_time_utc=0.0,

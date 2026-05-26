@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from _shared.output_layout.naming import (
+from shared.output_layout.naming import (
     EPOCH,
     MAX_ACQUISITION_TYPE_LEN,
     MAX_EXPERIMENT_LEN,

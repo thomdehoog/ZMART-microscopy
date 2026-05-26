@@ -187,18 +187,16 @@ __all__ = [
 
 # ── _shared self-bootstrap ──────────────────────────────────────────
 # Package infrastructure: navigator_expert.driver depends on
-# _shared.output_layout, which lives at controller/vendor/_shared/,
-# parallel to controller/vendor/leica/. Callers that put only
-# controller/vendor/leica/ on sys.path would otherwise get
-# ModuleNotFoundError when driver imports _shared. Adding
-# controller/vendor/ once here keeps the dependency invisible to
-# callers. Idempotent.
+# shared.output_layout, which lives at the repository root. Callers
+# that put only controller/vendor/leica/ on sys.path would otherwise get
+# ModuleNotFoundError when driver imports shared. Adding the repository
+# root once here keeps the dependency invisible to callers. Idempotent.
 import sys as _sys
 from pathlib import Path as _Path
-_vendor_root = str(_Path(__file__).resolve().parents[3])
-if _vendor_root not in _sys.path:
-    _sys.path.insert(0, _vendor_root)
-del _sys, _Path, _vendor_root
+_repo_root = str(_Path(__file__).resolve().parents[5])
+if _repo_root not in _sys.path:
+    _sys.path.insert(0, _repo_root)
+del _sys, _Path, _repo_root
 
 # ── api/ — core LAS X command/readback mechanics ───────────────────
 from .api.utils import (

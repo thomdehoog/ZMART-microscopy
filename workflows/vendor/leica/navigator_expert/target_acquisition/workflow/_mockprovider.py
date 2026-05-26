@@ -40,7 +40,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from _shared.output_layout import Naming, build_image_name
+from shared.output_layout import Naming, build_image_name
 
 from ._geom import crop_overview_at_target_fov
 

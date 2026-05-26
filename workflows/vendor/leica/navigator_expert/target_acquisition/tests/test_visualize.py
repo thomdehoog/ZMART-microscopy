@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from _shared.output_layout.naming import Naming, build_position_analysis_name
+from shared.output_layout.naming import Naming, build_position_analysis_name
 
 
 # ─── Fixtures ────────────────────────────────────────────────────
@@ -2122,7 +2122,7 @@ class TestPngNaming:
 
     def test_overview_tile_png_name_canonical(self):
         from workflow.visualize import _overview_tile_png_name, _position_stem
-        from _shared.output_layout.naming import Naming
+        from shared.output_layout.naming import Naming
         stem = _position_stem(Naming(
             acquisition_type="overview-scan", hash6="abc123", g=0, p=7))
         assert _overview_tile_png_name(0, 1, 2, 7, "abc123") == f"{stem}_live.png"
@@ -2172,7 +2172,7 @@ class TestPngNaming:
         matplotlib.use("Agg")
         monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
         from workflow.visualize import display_tile, _position_stem
-        from _shared.output_layout.naming import Naming
+        from shared.output_layout.naming import Naming
 
         logs = tmp_path / "logs"
         display_tile(_make_tile_event(position=7), logs_dir=logs,

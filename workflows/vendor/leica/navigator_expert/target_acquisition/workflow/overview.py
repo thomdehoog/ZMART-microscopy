@@ -24,7 +24,7 @@ import navigator_expert.driver as drv
 
 from .context import Context
 from .focus import FocusMap
-from _shared.output_layout import Naming, build_position_analysis_name
+from shared.output_layout import Naming, build_position_analysis_name
 from ._acquire import acquire
 from ._job_state import ensure_job_state
 from ._logcapture import _logged

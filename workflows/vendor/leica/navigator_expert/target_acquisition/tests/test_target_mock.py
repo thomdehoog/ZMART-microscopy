@@ -42,7 +42,7 @@ import numpy as np
 import pytest
 import tifffile
 
-from _shared.output_layout import Naming, build_image_name
+from shared.output_layout import Naming, build_image_name
 from workflow._hijack import NonSimulatorFrameError
 from workflow._mockprovider import build_target_provider
 from workflow.overview import Pick
@@ -517,7 +517,7 @@ class TestAcquireTargetsIntegration:
         # acquire_and_save: write a real fake target TIFF + companion
         # XML that hijack_frame can read and the SystemTypeName guard
         # will accept (SIMULATOR).
-        from _shared.output_layout import build_xml_name
+        from shared.output_layout import build_xml_name
 
         def _fake_acquire_and_save(client, run, job, naming, lineage=None):
             data_dir = run.layout.data_dir("target-acquisition")

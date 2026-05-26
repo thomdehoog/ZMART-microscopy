@@ -23,8 +23,10 @@ def _setup_sys_path() -> None:
     # The test launches us from arbitrary cwd. Resolve repo paths from this
     # file's location: navigator_expert/test/_crash_recovery_child.py
     here = Path(__file__).resolve()
+    repo_root = here.parents[5]           # .../smart-microscopy
     vendor = here.parents[3]               # .../controller/vendor
     leica = here.parents[2]                # .../controller/vendor/leica
+    sys.path.insert(0, str(repo_root))
     sys.path.insert(0, str(vendor))
     sys.path.insert(0, str(leica))
 
@@ -49,7 +51,7 @@ def main() -> None:
     image_path.write_bytes(b"fake_tiff" * 200)
     xml_path.write_bytes(b"<xml/>")
 
-    from _shared.output_layout import Naming  # noqa: E402
+    from shared.output_layout import Naming  # noqa: E402
     import navigator_expert.driver as drv  # noqa: E402
     from navigator_expert.driver.output import acquisition  # noqa: E402
 

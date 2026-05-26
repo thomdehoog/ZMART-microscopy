@@ -1,12 +1,11 @@
-"""Subprocess test for the driver's _shared self-bootstrap.
+"""Subprocess test for the driver's shared-package self-bootstrap.
 
-The driver imports _shared.output_layout, which lives at
-controller/vendor/_shared/ — parallel to controller/vendor/leica/.
-driver/__init__.py inserts controller/vendor/ on sys.path so the
+The driver imports shared.output_layout, which lives at the repository
+root. driver/__init__.py inserts the repository root on sys.path so the
 import resolves even for callers that only know about leica/.
 
 This test MUST run in a subprocess: the in-process pytest session
-already has controller/vendor/ on sys.path (via conftest.py), so an
+already has the repository root on sys.path (via conftest.py), so an
 in-process import would succeed even if the bootstrap were broken
 and silently mask the real failure mode.
 """
@@ -33,8 +32,8 @@ print("bootstrap-ok")
 
 def test_driver_self_bootstrap_with_only_leica_on_path(tmp_path):
     """Spawn a fresh Python process with PYTHONPATH=controller/vendor/leica
-    only (no controller/vendor). The driver's self-bootstrap must add
-    controller/vendor/ so `import _shared.output_layout` resolves
+    only (no repository root). The driver's self-bootstrap must add
+    the repository root so `import shared.output_layout` resolves
     transitively when acquisition.py loads."""
     repo_root = Path(__file__).resolve().parents[5]  # smart-microscopy/
     leica_dir = repo_root / "controller" / "vendor" / "leica"

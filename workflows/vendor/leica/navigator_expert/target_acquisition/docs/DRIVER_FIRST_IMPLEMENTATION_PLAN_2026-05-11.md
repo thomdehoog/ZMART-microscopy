@@ -75,7 +75,7 @@ After resolution of the blocking items, two questions remain. Q1/Q3/Q5/Q6 from e
 
 The driver currently lives under `controller/vendor/leica/navigator_expert/` and is self-contained. The schema module is lab-wide and vendor-neutral. Two coherent options:
 
-- **(a) `controller/vendor/_shared/output_layout/`** — sibling shared package under the vendor tree. Driver imports stay within `controller/vendor/...`, preserving vendor-isolation pattern. Recommended.
+- **(a) `shared/output_layout/`** — repository-level shared package. Driver and workflows import the same vendor-neutral naming convention.
 - **(b) `controller/output_layout/`** — sibling of `controller/vendor/`. Cleaner semantic placement (the convention is not a vendor), but driver now reaches outward from its vendor folder. Acceptable if vendor isolation isn't a hard requirement.
 
 Pick before Commit 1. Recommend (a).
@@ -139,7 +139,7 @@ No `finalize_run`. If a workflow needs to mark a run done, add `record_status(ru
 ## Module layout
 
 ```
-controller/vendor/_shared/output_layout/
+shared/output_layout/
     __init__.py
     naming.py                            # Naming, LayoutPlan, build_image_name, build_xml_name,
                                          # parse_image_name, run_hash, build_layout — one file
@@ -174,12 +174,12 @@ Four commits. Each independently runnable.
 
 Pre-condition: BLOCKING-1 and BLOCKING-2 resolved; spec verified consistent.
 
-**Package wiring (required — current sys.path does not reach `_shared/`):**
-- Create `controller/vendor/_shared/__init__.py` (empty).
-- Create `controller/vendor/_shared/output_layout/__init__.py` (re-exports from `naming.py`).
+**Package wiring:**
+- Create `shared/__init__.py` (empty).
+- Create `shared/output_layout/__init__.py` (re-exports from `naming.py`).
 - Update `controller/vendor/leica/navigator_expert/test/conftest.py` to also insert `controller/vendor/` into `sys.path`. Currently it only inserts `controller/vendor/leica/`.
 - Update `controller/vendor/leica/navigator_expert/notebooks/workflow/__init__.py:14-15` to insert `controller/vendor/` into `sys.path` *before* importing workflow modules. The current bootstrap only inserts `controller/vendor/leica/`; once `driver/acquisition.py` imports from `_shared`, any code path going through this bootstrap fails without it.
-- Driver imports use: `from _shared.output_layout.naming import Naming, LayoutPlan, build_image_name, ...`. Document this convention in `_shared/output_layout/__init__.py` docstring.
+- Driver imports use: `from shared.output_layout.naming import Naming, LayoutPlan, build_image_name, ...`. Document this convention in `shared/output_layout/__init__.py` docstring.
 - Update `smart_microscopy_v3.ipynb` first cell to inject `controller/vendor/` into `sys.path` alongside the existing `controller/vendor/leica/` injection.
 
 **Schema module:**
@@ -289,8 +289,8 @@ Kept and used by `acquisition.py`:
 ## Critical files
 
 **New:**
-- `controller/vendor/_shared/output_layout/naming.py`
-- `controller/vendor/_shared/output_layout/test/test_naming.py`
+- `shared/output_layout/naming.py`
+- `shared/output_layout/test/test_naming.py`
 - `controller/vendor/leica/navigator_expert/driver/acquisition.py`
 - `controller/vendor/leica/navigator_expert/driver/test/test_acquisition.py`
 

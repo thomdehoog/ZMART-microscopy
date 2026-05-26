@@ -2,7 +2,7 @@
 LAS X source-side primitives.
 ================================
 Discovery, validation, and parsing of files exported by LAS X.
-The canonical naming convention now lives in ``_shared.output_layout``
+The canonical naming convention now lives in ``shared.output_layout``
 and is consumed by ``driver.acquisition`` for atomic save under
 ``media_path / "smart"``.
 
@@ -25,7 +25,7 @@ Source naming (LAS X auto-export)::
 
 The legacy SMART naming convention (``G00000_P00000_T00000_J08_V00_C00_Z00000.ome.tiff``
 under a ``Carrier/Compartment`` hierarchy) was deleted on 2026-05-11.
-New code uses ``_shared.output_layout`` for canonical output naming.
+New code uses ``shared.output_layout`` for canonical output naming.
 
 Dependency direction:
     - Imports: ``_file_utils`` (``_wait_file_stable``),
@@ -100,7 +100,7 @@ def parse_lasx_filename(name):
 
 
 # (Legacy SMART filename builders and parser deleted 2026-05-11.
-# Canonical naming now lives in _shared.output_layout.)
+# Canonical naming now lives in shared.output_layout.)
 
 
 # =====================================================================

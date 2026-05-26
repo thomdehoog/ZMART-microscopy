@@ -7,8 +7,8 @@ filenames into canonical Naming slots) lives in each driver.
 
 Canonical spec: auto-memory `smart_microscopy_smart_folder_structure.md`.
 
-Import convention: `from _shared.output_layout import Naming, ...`
-Requires `controller/vendor/` on sys.path.
+Import convention: `from shared.output_layout import Naming, ...`
+Requires the repository root on sys.path.
 """
 
 from .naming import (

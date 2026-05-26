@@ -20,7 +20,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from _shared.output_layout import Naming, build_position_analysis_name
+from shared.output_layout import Naming, build_position_analysis_name
 from ._geom import (
     crop_overview_at_target_fov,
     target_fov_window_in_overview,
