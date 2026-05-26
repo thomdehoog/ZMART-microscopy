@@ -412,12 +412,12 @@ controller/vendor/leica/navigator_expert/
 ?   ??? core/                # raw LAS X commands, readers, confirmations, profiles
 ?   ??? templates/           # LRP/XML/RGN parsing, strip/restore, transactions
 ?   ??? acquisition/         # capture, LAS X file arrival, OME fixes, acquire-and-save
-?   ??? stage/               # stage limits, movement, stage live-state loader
+?   ??? stage/               # stage limits, movement, stage current-state loader
 ?   ??? experimental/        # LRP mutation helpers without live-state readback
 ??? test/                    # driver and calibration unit tests
 
 calibration/vendor/leica/navigator_expert/
-??? live/                    # promoted measured state: calibration.json, stage.json
+??? current/                 # promoted measured state: calibration.json, stage.json
 ??? core/                    # calibration model + notebook implementation
 ??? notebooks/               # operator calibration notebooks
 ```

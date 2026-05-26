@@ -1,11 +1,11 @@
 """Objective calibration: load, save, and read the calibration config.
 
-The live calibration lives at ``live/calibration.json``. Calibration
+The current calibration lives at ``current/calibration.json``. Calibration
 notebooks write session artifacts outside the driver-facing config path
 and promote validated results into that file.
 
 Stage state (limits, backlash) is separate and lives at
-``live/stage.json``.
+``current/stage.json``.
 
 Schema (v9)::
 
@@ -94,8 +94,8 @@ def _calibration_root():
 
 
 def default_path():
-    """Path to the live promoted calibration config."""
-    return _calibration_root() / "live" / "calibration.json"
+    """Path to the current promoted calibration config."""
+    return _calibration_root() / "current" / "calibration.json"
 
 
 def now_timestamp():
@@ -142,12 +142,12 @@ def load_calibration(path=None, *, create_if_missing=False):
 
 
 def save_calibration(config, *, path=None):
-    """Write the live calibration config atomically; bump ``last_updated``."""
+    """Write the current calibration config atomically; bump ``last_updated``."""
 
     config["last_updated"] = now_timestamp()
-    live = Path(path) if path is not None else default_path()
-    _atomic_write_json(live, config)
-    return live
+    current = Path(path) if path is not None else default_path()
+    _atomic_write_json(current, config)
+    return current
 
 # ── Mutators ─────────────────────────────────────────────────────────
 

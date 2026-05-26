@@ -415,7 +415,7 @@ def _print_text_summary(
         print("  Staging config written:")
         print(f"    {config_path}")
         print()
-        print("  Run the promote cell below to copy this to the live config.")
+        print("  Run the promote cell below to copy this to the current config.")
     else:
         print("  No staging config written.")
         if session.failure_reason:
