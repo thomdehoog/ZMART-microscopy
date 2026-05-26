@@ -31,7 +31,6 @@ class Config:
     experiment: str               # operator-typed; output_root is derived as media_path/smart by driver
 
     # Optional behaviour flags (defaults)
-    fov_bbox_margin: float = 1.5
     settle_after_job_switch_s: float = 3.0
     restore_template_after_af: bool = True
     restore_source_at_end: bool = True

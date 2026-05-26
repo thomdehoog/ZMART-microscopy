@@ -2,7 +2,7 @@
 
 Snake-ordered tile acquisition with per-tile engine submission,
 opportunistic + blocking drain, NPZ persistence (schema v2). Selection
-moves to selection.py in Commit C.
+lives in selection.py.
 
 Public entry points:
   - run_overview(ctx, focus_map) -- returns OverviewResult (picks + failure
@@ -28,9 +28,9 @@ from .focus import FocusMap
 from shared.output_layout import Naming, build_position_analysis_name
 from ._acquire import acquire
 from ._job_state import ensure_job_state
-from ._logcapture import _logged
+from ._log_capture import _logged
 from ._hijack import hijack_frame, NonSimulatorFrameError
-from ._mockprovider import get_provider
+from ._mock_provider import get_provider
 
 
 # ─── Dataclasses ──────────────────────────────────────────────────
@@ -124,8 +124,7 @@ class TileEvent:
 
     `n_cells` is the cellpose-detected cell count for this tile, computed
     once from `masks.max()` so the callback doesn't have to. Selection
-    no longer happens during overview (it ships in Commit C as a separate
-    step), so this replaces the rev6 `picked_labels` tuple.
+    no longer happens during overview.
     """
     image_2d: np.ndarray
     masks: np.ndarray
@@ -480,8 +479,7 @@ def run_overview(
     )
 
 
-# load_overview_result lives in selection.py (re-homed in Commit C so the
-# notebook imports it from where the consumer lives).
+# load_overview_result lives in selection.py, next to the selection consumer.
 
 
 # ─── Internals ────────────────────────────────────────────────────
@@ -882,34 +880,6 @@ def _save_single_tile_analysis(
         print(f"[step 3] WARNING: could not save tile analysis "
               f"for {tid}: {exc}")
         return False
-
-
-def _save_tile_analysis(
-    analysis_dir: Path,
-    buffer: list[dict],
-    *,
-    hash6: str,
-    acquisition_type: str,
-) -> None:
-    """Bulk wrapper for _save_single_tile_analysis (used by tests)."""
-    if not buffer:
-        return
-
-    try:
-        analysis_dir.mkdir(parents=True, exist_ok=True)
-    except Exception as exc:
-        print(f"[step 3] WARNING: could not create {analysis_dir}: {exc}")
-        return
-
-    saved = sum(
-        _save_single_tile_analysis(r, analysis_dir,
-                                   hash6=hash6,
-                                   acquisition_type=acquisition_type)
-        for r in buffer
-    )
-    if saved:
-        print(f"[step 3] Saved {saved} tile analysis artifact(s) to "
-              f"{analysis_dir}")
 
 
 def _fire_on_tile(

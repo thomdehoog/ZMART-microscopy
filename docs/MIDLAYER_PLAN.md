@@ -317,6 +317,9 @@ instantiates.
 
 ## 5. Package layout
 
+Target-state sketch for the future mid-layer branch; this is not the
+current `restructure/layered-driver` source tree.
+
 ```
 controller/
 ├── microscope/                 ← THE WAIST — vendor-neutral, names no vendor

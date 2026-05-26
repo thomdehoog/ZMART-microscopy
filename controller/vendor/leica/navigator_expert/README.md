@@ -7,6 +7,11 @@ Python driver for the Leica STELLARIS confocal microscope via the LAS X Python A
 ## Quick Start
 
 ```python
+# From a source checkout, make the vendor package importable first.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path("controller/vendor/leica").resolve()))
+
 from navigator_expert.driver import (
     set_stage_limits, ping, select_job,
     set_zoom, set_scan_speed, move_xy, acquire,

@@ -1,5 +1,7 @@
 # Cleanup state — pick up here
 
+> Historical note: this file records the older `cleanup/wave-2` cleanup plan.
+> It is not the active branch state for `restructure/layered-driver`.
 Last updated: 2026-05-05.
 
 A future-you / future-Claude reads this first when working on cleanup.

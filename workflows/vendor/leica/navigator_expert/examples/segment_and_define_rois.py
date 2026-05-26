@@ -193,7 +193,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                    help="Leave ROIs in place; don't prompt for cleanup.")
     p.add_argument("--output-dir", type=Path, default=None,
                    help="Where to save image + summary "
-                        "(default: config/segment_and_rois/<timestamp>/).")
+                        "(default: examples/output/segment_and_rois/<timestamp>/).")
     return p.parse_args(argv)
 
 
@@ -231,8 +231,7 @@ def _abort(msg: str, code: int = 1) -> None:
 
 def _default_output_dir() -> Path:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return (Path(__file__).resolve().parents[2]
-            / "config" / "segment_and_rois" / ts)
+    return Path(__file__).resolve().parent / "output" / "segment_and_rois" / ts
 
 
 def _now_iso_ts() -> str:

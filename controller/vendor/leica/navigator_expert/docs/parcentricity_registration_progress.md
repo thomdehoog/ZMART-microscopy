@@ -1,5 +1,6 @@
 # Parcentricity Registration Pipeline — Technical Progress Report
 
+> Historical note: this document describes pre-restructure paths and workflow state.
 **Date:** 2026-04-14  
 **Author:** Thom De Hoog  
 **System:** Leica STELLARIS 8 confocal microscope (stand DMI8, serial 8400000246), LAS X driver stack (Python)  

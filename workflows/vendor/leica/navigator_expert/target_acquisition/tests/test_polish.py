@@ -238,7 +238,7 @@ def test_plot_results_skips_picks_without_records(tmp_path, monkeypatch):
             source_zwide_um=0.0,
             target_stage_xy_um=(10.0, 0.0),
             target_zwide_um=0.0,
-            target_zoom=None,
+
             target_pixel_size_um=0.5,
             tif_path=None,
             success=True,

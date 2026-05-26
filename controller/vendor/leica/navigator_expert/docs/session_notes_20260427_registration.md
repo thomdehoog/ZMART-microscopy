@@ -1,5 +1,6 @@
 # Session notes — 2026-04-27: cookbook + registration
 
+> Historical note: this document describes pre-restructure paths and workflow state.
 Picking up where today left off.
 
 ## What was shipped (commits on `dev`)

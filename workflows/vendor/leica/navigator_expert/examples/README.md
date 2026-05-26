@@ -29,8 +29,8 @@ All three scripts share the same code shape:
 
 ## Outputs
 
-Each script writes disposable run outputs under `workflows/vendor/leica/config/<scope>/<timestamp>/`:
+Each script writes disposable run outputs under `workflows/vendor/leica/navigator_expert/examples/output/<scope>/<timestamp>/` by default:
 
-- `objective_switch_target.py` -> `config/objective_target/<ts>/`
-- `galvo_zoom_in.py` -> `config/galvo_zoom/<ts>/`
-- `segment_and_define_rois.py` -> `config/segment_and_rois/<ts>/`
+- `objective_switch_target.py` -> `examples/output/objective_target/<ts>/`
+- `galvo_zoom_in.py` -> `examples/output/galvo_zoom/<ts>/`
+- `segment_and_define_rois.py` -> `examples/output/segment_and_rois/<ts>/`

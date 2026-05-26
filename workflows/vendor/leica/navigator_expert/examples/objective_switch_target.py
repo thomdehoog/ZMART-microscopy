@@ -190,7 +190,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                         f"(default: {SETTLE_AFTER_OBJECTIVE_SWITCH_S}).")
     p.add_argument("--output-dir", type=Path, default=None,
                    help="Output directory (default: "
-                        "config/objective_targeting/stage/<timestamp>/).")
+                        "examples/output/objective_target/<timestamp>/).")
     p.add_argument("--no-restore", action="store_true",
                    help="Do not switch back to the source objective at the end.")
     p.add_argument("--no-backlash", action="store_true",
@@ -272,10 +272,9 @@ def _abort(msg: str, code: int = 1) -> None:
 
 
 def _default_output_dir() -> Path:
-    """Default output is config/objective_target/<timestamp>/."""
+    """Default output is examples/output/objective_target/<timestamp>/."""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return (Path(__file__).resolve().parents[2]
-            / "config" / "objective_target" / ts)
+    return Path(__file__).resolve().parent / "output" / "objective_target" / ts
 
 
 def _now_iso_ts() -> str:

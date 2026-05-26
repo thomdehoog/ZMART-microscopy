@@ -29,13 +29,12 @@ from navigator_expert.driver.templates.files import (
     TEMPLATE_LRP,
     TEMPLATE_RGN,
     STRIPPED_BASE,
-    STRIPPED_XML,
     STRIPPED_LRP,
     get_template_state,
 )
 
 from .context import Context
-from ._logcapture import _logged
+from ._log_capture import _logged
 
 
 @_logged("initialization")

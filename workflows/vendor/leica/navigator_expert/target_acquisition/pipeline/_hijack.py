@@ -52,7 +52,7 @@ files. A multi-plane saved frame is rejected explicitly in
 ``hijack_frame`` (RuntimeError -- per-tile, not run-fatal) so the
 loop records it and continues rather than producing 100 silent
 shape-mismatch hijack failures. Extending to multi-plane support is
-a `pipeline/_mockprovider.py` change, not a guard change.
+a `pipeline/_mock_provider.py` change, not a guard change.
 """
 from __future__ import annotations
 
@@ -147,7 +147,7 @@ def hijack_frame(
     layout
         ``ctx.run.layout`` -- ``LayoutPlan`` for the run.
     provider
-        Mock-image callable; see ``pipeline._mockprovider``. Signature:
+        Mock-image callable; see ``pipeline._mock_provider``. Signature:
         ``provider(shape, dtype, *, naming) -> ndarray``.
 
     Raises
@@ -203,7 +203,7 @@ def hijack_frame(
             f"multi-plane simulator hijack unsupported; "
             f"{result.image_path.name} has shape {saved.shape}. v3 jobs "
             f"are single-plane single-channel overview/target; extend "
-            f"pipeline/_mockprovider.py for >2D content."
+            f"pipeline/_mock_provider.py for >2D content."
         )
 
     mock = provider(saved.shape, saved.dtype, naming=result.naming)

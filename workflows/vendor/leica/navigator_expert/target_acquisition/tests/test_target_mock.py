@@ -1,4 +1,4 @@
-"""Tests for the Plan 2 target-mock zoom provider.
+"""Tests for the target mock-image provider.
 
 Two surfaces under test:
 
@@ -44,7 +44,7 @@ import tifffile
 
 from shared.output_layout import Naming, build_image_name
 from pipeline._hijack import NonSimulatorFrameError
-from pipeline._mockprovider import build_target_provider
+from pipeline._mock_provider import build_target_provider
 from pipeline.overview import Pick
 
 
@@ -353,7 +353,7 @@ class TestTargetMockHonestResolution:
         order=0 (e.g. via 'cleanup' that drops what looks like a
         default arg) silently re-introduces the dishonest bilinear
         smoothing. Spy catches it loudly."""
-        from pipeline._mockprovider import build_target_provider
+        from pipeline._mock_provider import build_target_provider
 
         layout = _make_layout(tmp_path)
         overview = np.full((64, 64), 10000, dtype=np.uint16)
@@ -391,7 +391,7 @@ class TestTargetMockHonestResolution:
         must contain visible 2x2 blocks of identical values (nearest-
         neighbour), not gradients (bilinear). Catches order=0 being
         dropped even if the spy test above somehow misses it."""
-        from pipeline._mockprovider import build_target_provider
+        from pipeline._mock_provider import build_target_provider
 
         layout = _make_layout(tmp_path)
         # Construct an overview where each pixel has a distinct value
@@ -631,7 +631,7 @@ class TestAcquireTargetsIntegration:
         # Sentinel: any call to build_target_provider or hijack_frame
         # on a non-simulate run is a regression.
         from pipeline import target as target_mod
-        from pipeline import _mockprovider as mp_mod
+        from pipeline import _mock_provider as mp_mod
 
         def _build_sentinel(*args, **kwargs):
             raise AssertionError(

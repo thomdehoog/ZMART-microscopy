@@ -159,7 +159,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                    help="Disable GPU for Cellpose.")
     p.add_argument("--output-dir", type=Path, default=None,
                    help="Where to save outputs "
-                        "(default: config/galvo_zoom/<timestamp>/).")
+                        "(default: examples/output/galvo_zoom/<timestamp>/).")
     p.add_argument("--no-restore", action="store_true",
                    help="Leave the scope at the framed zoom + pan; do not "
                         "return to zoom 1 + pan 0.")
@@ -221,8 +221,7 @@ def _abort(msg: str, code: int = 1) -> None:
 
 def _default_output_dir() -> Path:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return (Path(__file__).resolve().parents[2]
-            / "config" / "galvo_zoom" / ts)
+    return Path(__file__).resolve().parent / "output" / "galvo_zoom" / ts
 
 
 def _now_iso_ts() -> str:

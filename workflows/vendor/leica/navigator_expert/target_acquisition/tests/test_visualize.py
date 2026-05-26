@@ -35,10 +35,10 @@ def _make_npz(
     stays exercised; pass it to exercise the position-present path.
 
     simulated: when True, writes the `simulated` key so the
-    visualize loader marks tiles as mock-content. Mirrors the post-cut
-    write path produced by _save_single_tile_analysis (Plan 2 §6 /
-    D1). Pre-Plan-2 NPZs with `analysis_image_source` are exercised
-    separately in test_overview_persistence.TestPrePlan2NpzBackCompat.
+    visualize loader marks tiles as mock-content. Mirrors the current
+    write path produced by _save_single_tile_analysis. Historical NPZs
+    with `analysis_image_source` are exercised separately in
+    test_overview_persistence.TestLegacyAnalysisImageSourceNpz.
     """
     analysis_dir.mkdir(parents=True, exist_ok=True)
 
@@ -241,7 +241,7 @@ def _make_target_record(*, tif_path=None, success: bool = True):
         source_zwide_um=100.0,
         target_stage_xy_um=(1005.0, 2005.0),
         target_zwide_um=100.0,
-        target_zoom=None,
+
         target_pixel_size_um=0.25,
         tif_path=tif_path,
         success=success,
@@ -262,18 +262,18 @@ class TestDisplayTileFlags:
         from pipeline.visualize import display_tile
         display_tile(
             _make_tile_event(),
-            feedback_dir=tmp_path,
+            logs_dir=tmp_path,
             live_display=False,
             save_png=True,
         )
 
         fake_display.assert_not_called()
-        # save_png=True with a feedback_dir still produces the PNG.
+        # save_png=True with a logs_dir still produces the PNG.
         assert list(tmp_path.glob("live_tile_R*.png"))
 
     def test_save_png_false_skips_savefig(self, monkeypatch, tmp_path):
         """display_tile with save_png=False must skip fig.savefig even
-        when feedback_dir is set; the inline display still fires.
+        when logs_dir is set; the inline display still fires.
         """
         import IPython.display as ipy_display
         fake_display = MagicMock(name="ipy_display")
@@ -282,7 +282,7 @@ class TestDisplayTileFlags:
         from pipeline.visualize import display_tile
         display_tile(
             _make_tile_event(),
-            feedback_dir=tmp_path,
+            logs_dir=tmp_path,
             live_display=True,
             save_png=False,
         )
@@ -322,7 +322,7 @@ class TestDisplayTileSaveQueue:
 
         display_tile(
             _make_tile_event(),
-            feedback_dir=tmp_path,
+            logs_dir=tmp_path,
             live_display=False,
             save_png=True,
             _save_queue=queue,
@@ -398,7 +398,7 @@ class TestDisplayTileSaveQueue:
         with _FigureSaveQueue() as queue:
             display_tile(
                 _make_tile_event(),
-                feedback_dir=tmp_path,
+                logs_dir=tmp_path,
                 live_display=False,
                 save_png=True,
                 _save_queue=queue,
@@ -447,14 +447,14 @@ class TestDisplayTargetSaveQueue:
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
-        feedback_dir = tmp_path / "feedback"
+        logs_dir = tmp_path / "logs"
 
         with _FigureSaveQueue() as queue:
             display_target(
                 pick=None,                       # falls back to "N/A" panels
                 record=_make_target_record(),
                 analysis_dir=analysis_dir,
-                feedback_dir=feedback_dir,
+                logs_dir=logs_dir,
                 live_display=False,
                 save_png=True,
                 _save_queue=queue,
@@ -464,7 +464,7 @@ class TestDisplayTargetSaveQueue:
         # Exactly one close, performed by the worker.
         assert len(close_calls) == 1
         # And the PNG made it to disk.
-        assert list(feedback_dir.glob("live_target_R*.png"))
+        assert list(logs_dir.glob("live_target_R*.png"))
 
 
 class TestDisplayTargetFlags:
@@ -479,23 +479,23 @@ class TestDisplayTargetFlags:
         from pipeline.visualize import display_target
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
-        feedback_dir = tmp_path / "feedback"
+        logs_dir = tmp_path / "logs"
 
         display_target(
             pick=None,                          # falls back to "N/A" panels
             record=_make_target_record(),
             analysis_dir=analysis_dir,
-            feedback_dir=feedback_dir,
+            logs_dir=logs_dir,
             live_display=False,
             save_png=True,
         )
 
         fake_display.assert_not_called()
-        assert list(feedback_dir.glob("live_target_R*.png"))
+        assert list(logs_dir.glob("live_target_R*.png"))
 
     def test_save_png_false_skips_savefig(self, monkeypatch, tmp_path):
         """display_target with save_png=False skips fig.savefig even
-        when feedback_dir is provided. The inline display still fires.
+        when logs_dir is provided. The inline display still fires.
         """
         import IPython.display as ipy_display
         fake_display = MagicMock(name="ipy_display")
@@ -504,21 +504,21 @@ class TestDisplayTargetFlags:
         from pipeline.visualize import display_target
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
-        feedback_dir = tmp_path / "feedback"
+        logs_dir = tmp_path / "logs"
 
         display_target(
             pick=None,
             record=_make_target_record(),
             analysis_dir=analysis_dir,
-            feedback_dir=feedback_dir,
+            logs_dir=logs_dir,
             live_display=True,
             save_png=False,
         )
 
-        # feedback_dir may or may not exist (mkdir is gated by save_png),
+        # logs_dir may or may not exist (mkdir is gated by save_png),
         # but in any case there must be no PNG.
-        if feedback_dir.exists():
-            assert list(feedback_dir.glob("*.png")) == []
+        if logs_dir.exists():
+            assert list(logs_dir.glob("*.png")) == []
         fake_display.assert_called_once()
 
 
@@ -542,10 +542,10 @@ class TestPlotOverviewTiles:
             _make_pick(("0", 0, 1), label=2),
         ])
 
-        feedback_dir = tmp_path / "feedback"
-        plot_overview_tiles(analysis_dir, picks, feedback_dir=feedback_dir)
+        logs_dir = tmp_path / "logs"
+        plot_overview_tiles(analysis_dir, picks, logs_dir=logs_dir)
 
-        pngs = list(feedback_dir.glob("*.png"))
+        pngs = list(logs_dir.glob("*.png"))
         assert len(pngs) == 2
 
     def test_zero_pick_tile_renders(self, tmp_path):
@@ -558,10 +558,10 @@ class TestPlotOverviewTiles:
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
 
         picks = _make_picks([])
-        feedback_dir = tmp_path / "feedback"
-        plot_overview_tiles(analysis_dir, picks, feedback_dir=feedback_dir)
+        logs_dir = tmp_path / "logs"
+        plot_overview_tiles(analysis_dir, picks, logs_dir=logs_dir)
 
-        assert len(list(feedback_dir.glob("*.png"))) == 1
+        assert len(list(logs_dir.glob("*.png"))) == 1
 
     def test_missing_npz_skipped(self, tmp_path):
         import matplotlib
@@ -604,7 +604,7 @@ class TestPlotOverviewTiles:
         assert len(captured_titles) == 1
         assert "mock" in captured_titles[0].lower()
 
-    def test_creates_feedback_dir(self, tmp_path):
+    def test_creates_logs_dir(self, tmp_path):
         import matplotlib
         matplotlib.use("Agg")
         from pipeline.visualize import plot_overview_tiles
@@ -613,12 +613,12 @@ class TestPlotOverviewTiles:
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
 
-        feedback_dir = tmp_path / "deep" / "nested" / "feedback"
-        assert not feedback_dir.exists()
+        logs_dir = tmp_path / "deep" / "nested" / "logs"
+        assert not logs_dir.exists()
 
         plot_overview_tiles(analysis_dir, _make_picks([]),
-                           feedback_dir=feedback_dir)
-        assert feedback_dir.exists()
+                           logs_dir=logs_dir)
+        assert logs_dir.exists()
 
     def test_picked_labels_from_pick_id(self, tmp_path):
         """Verify that pick_id[3] is used as the label for the red overlay."""
@@ -688,7 +688,7 @@ class TestCentroidCropAtTargetFov:
             source_zwide_um=0.0,
             target_stage_xy_um=None,
             target_zwide_um=None,
-            target_zoom=None,
+
             target_pixel_size_um=target_pixel_size_um,
             tif_path=None,
             success=True,
@@ -815,7 +815,7 @@ class TestStep5PanelInterpolation:
             pick_id=("0", 0, 0, 1),
             cell_source_stage_xy_um=(0.0, 0.0), source_zwide_um=0.0,
             target_stage_xy_um=(0.0, 0.0), target_zwide_um=0.0,
-            target_zoom=None, target_pixel_size_um=0.25,
+            target_pixel_size_um=0.25,
             tif_path=None, success=True, error=None,
         )
         tile_data = (image, np.zeros_like(image, dtype=np.int32))
@@ -910,18 +910,18 @@ class TestPlotTargetPairs:
             source_zwide_um=100.0,
             target_stage_xy_um=(2000.0, 3000.0),
             target_zwide_um=100.0,
-            target_zoom=None,
+
             target_pixel_size_um=0.1,
             tif_path=target_tif,
             success=True,
             error=None,
         )]
 
-        feedback_dir = tmp_path / "feedback"
+        logs_dir = tmp_path / "logs"
         plot_target_pairs(analysis_dir, picks, records,
-                          feedback_dir=feedback_dir)
+                          logs_dir=logs_dir)
 
-        assert len(list(feedback_dir.glob("*.png"))) == 1
+        assert len(list(logs_dir.glob("*.png"))) == 1
 
     def test_skips_failed_targets(self, tmp_path):
         import matplotlib
@@ -942,7 +942,7 @@ class TestPlotTargetPairs:
             source_zwide_um=100.0,
             target_stage_xy_um=None,
             target_zwide_um=None,
-            target_zoom=None,
+
             target_pixel_size_um=None,
             tif_path=None,
             success=False,
@@ -950,11 +950,11 @@ class TestPlotTargetPairs:
             failure_stage="translate",
         )]
 
-        feedback_dir = tmp_path / "feedback"
+        logs_dir = tmp_path / "logs"
         plot_target_pairs(analysis_dir, picks, records,
-                          feedback_dir=feedback_dir)
+                          logs_dir=logs_dir)
 
-        assert len(list(feedback_dir.glob("*.png"))) == 0
+        assert len(list(logs_dir.glob("*.png"))) == 0
 
     def test_no_successful_targets(self, tmp_path):
         import matplotlib
@@ -1504,7 +1504,7 @@ class TestFigureWidth:
             source_zwide_um=100.0,
             target_stage_xy_um=(2000.0, 3000.0),
             target_zwide_um=100.0,
-            target_zoom=None,
+
             target_pixel_size_um=0.1,
             tif_path=_make_target_tif(tmp_path / "t" / "target.tif"),
             success=True,
@@ -1806,7 +1806,7 @@ class TestTargetZoomCallout:
             pick_id=("0", 0, 0, 1),
             cell_source_stage_xy_um=(1005.0, 2005.0),
             source_zwide_um=100.0, target_stage_xy_um=(2000.0, 3000.0),
-            target_zwide_um=100.0, target_zoom=None,
+            target_zwide_um=100.0,
             target_pixel_size_um=0.1,
             tif_path=_make_target_tif(tmp_path / "t" / "target.tif"),
             success=True, error=None,
@@ -1876,7 +1876,7 @@ class TestTargetMultiCueRendering:
             source_zwide_um=100.0,
             target_stage_xy_um=(2000.0, 3000.0),
             target_zwide_um=100.0,
-            target_zoom=None,
+
             target_pixel_size_um=target_pixel_size_um,
             tif_path=_make_target_tif(
                 tmp_path / "t" / "target.tif", size=target_size,
@@ -1989,7 +1989,7 @@ class TestTargetCropBorder:
             pick_id=("0", 0, 0, 1),
             cell_source_stage_xy_um=(1005.0, 2005.0),
             source_zwide_um=100.0, target_stage_xy_um=(2000.0, 3000.0),
-            target_zwide_um=100.0, target_zoom=None,
+            target_zwide_um=100.0,
             target_pixel_size_um=0.1,
             tif_path=_make_target_tif(tmp_path / "t" / "target.tif"),
             success=True, error=None,
@@ -2059,7 +2059,7 @@ class TestTargetSuptitlePosition:
             pick_id=("0", 0, 0, 3),
             cell_source_stage_xy_um=(1005.0, 2005.0),
             source_zwide_um=100.0, target_stage_xy_um=(2000.0, 3000.0),
-            target_zwide_um=100.0, target_zoom=None,
+            target_zwide_um=100.0,
             target_pixel_size_um=0.1, tif_path=None,
             success=True, error=None, source_tile_position=41,
         )
@@ -2097,7 +2097,7 @@ class TestTargetSuptitlePosition:
         rec = TargetRecord(
             pick_id=("0", 0, 0, 3), cell_source_stage_xy_um=(1.0, 2.0),
             source_zwide_um=0.0, target_stage_xy_um=None,
-            target_zwide_um=None, target_zoom=None,
+            target_zwide_um=None,
             target_pixel_size_um=None, tif_path=None,
             success=False, error="x", source_tile_position=41,
         )
@@ -2145,7 +2145,7 @@ class TestPngNaming:
         rec = TargetRecord(
             pick_id=("0", 0, 0, 1), cell_source_stage_xy_um=(1.0, 2.0),
             source_zwide_um=0.0, target_stage_xy_um=None,
-            target_zwide_um=None, target_zoom=None,
+            target_zwide_um=None,
             target_pixel_size_um=None, tif_path=tif,
             success=True, error=None,
         )
@@ -2161,7 +2161,7 @@ class TestPngNaming:
         rec = TargetRecord(
             pick_id=("0", 1, 2, 5), cell_source_stage_xy_um=(1.0, 2.0),
             source_zwide_um=0.0, target_stage_xy_um=None,
-            target_zwide_um=None, target_zoom=None,
+            target_zwide_um=None,
             target_pixel_size_um=None, tif_path=None,
             success=False, error="x",
         )
@@ -2180,19 +2180,6 @@ class TestPngNaming:
         stem = _position_stem(Naming(
             acquisition_type="overview-scan", hash6="abc123", g=0, p=7))
         assert (logs / f"{stem}_live.png").exists()
-
-    def test_feedback_dir_alias_still_writes(self, tmp_path, monkeypatch):
-        """The deprecated feedback_dir= kwarg is still accepted (keeps
-        the un-migrated v3 notebook running)."""
-        import matplotlib
-        matplotlib.use("Agg")
-        monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
-        from pipeline.visualize import display_tile
-
-        legacy = tmp_path / "legacy"
-        display_tile(_make_tile_event(position=3), feedback_dir=legacy,
-                     hash6="abc123", live_display=False, save_png=True)
-        assert list(legacy.glob("*.png"))
 
     def test_display_target_tif_none_fallback(self, tmp_path, monkeypatch):
         """display_target with a tif_path-less record still saves (legacy

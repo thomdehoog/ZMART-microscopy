@@ -172,9 +172,6 @@ class LayoutPlan:
     def analysis_dir(self, kind: str) -> Path:
         return self.acquisition_dir(kind) / "analysis"
 
-    def feedback_dir(self, kind: str) -> Path:
-        return self.acquisition_dir(kind) / "feedback"
-
     def logs_dir(self, kind: str) -> Path:
         return self.acquisition_dir(kind) / "logs"
 
