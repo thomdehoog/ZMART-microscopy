@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from _shared.output_layout import build_layout
+from shared.output_layout import build_layout
 from workflow._logcapture import (
     _Tee, _log_path_for, _logged,
     capture_console, capture_console_deferred,

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from _shared.output_layout.naming import (
+from shared.output_layout.naming import (
     Naming,
     build_position_analysis_name,
 )

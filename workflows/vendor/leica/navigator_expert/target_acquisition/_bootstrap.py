@@ -1,6 +1,6 @@
 """Notebook entry point. Importing this module:
   1. Adds necessary paths to sys.path so the workflow package, the
-     driver, algorithms, and _shared are all importable.
+     driver, algorithms, and shared packages are all importable.
   2. Re-exports `Config` (workflow) and `Path` (pathlib), so the
      notebook cell is one import line + `cfg = Config(...)`.
 """
@@ -17,12 +17,7 @@ _VENDOR_LEICA = _REPO_ROOT / "controller" / "vendor" / "leica"
 if str(_VENDOR_LEICA) not in sys.path:
     sys.path.insert(0, str(_VENDOR_LEICA))
 
-# _shared.output_layout needs controller/vendor/ on sys.path
-_VENDOR = _VENDOR_LEICA.parent
-if str(_VENDOR) not in sys.path:
-    sys.path.insert(0, str(_VENDOR))
-
-# algorithms/ lives at repo root
+# algorithms/ and shared/ live at repo root
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 

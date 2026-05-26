@@ -297,7 +297,7 @@ class TestNoDriftAgainstCallers:
 
     def _write_overview(self, layout, image, *, g=0, p=0):
         import tifffile
-        from _shared.output_layout import Naming, build_image_name
+        from shared.output_layout import Naming, build_image_name
         naming = Naming(
             acquisition_type="overview-scan", hash6=layout.hash6,
             g=g, p=p,
@@ -338,7 +338,7 @@ class TestNoDriftAgainstCallers:
         )
 
     def _dummy_naming(self):
-        from _shared.output_layout import Naming
+        from shared.output_layout import Naming
         return Naming(
             acquisition_type="target-acquisition",
             hash6="abcdef", g=0, p=0,

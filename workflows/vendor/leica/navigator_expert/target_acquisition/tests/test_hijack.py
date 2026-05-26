@@ -37,7 +37,7 @@ import numpy as np
 import pytest
 import tifffile
 
-from _shared.output_layout import Naming, build_xml_name
+from shared.output_layout import Naming, build_xml_name
 from workflow._hijack import (
     NonSimulatorFrameError,
     _read_system_type,

@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from _shared.output_layout import build_layout
+from shared.output_layout import build_layout
 
 
 @pytest.fixture

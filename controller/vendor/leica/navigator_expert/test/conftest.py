@@ -24,12 +24,8 @@ _VENDOR_LEICA = Path(__file__).resolve().parents[2]
 if str(_VENDOR_LEICA) not in sys.path:
     sys.path.insert(0, str(_VENDOR_LEICA))
 
-# Add vendor/ to sys.path so `from _shared.output_layout import ...` resolves.
-_VENDOR = Path(__file__).resolve().parents[3]
-if str(_VENDOR) not in sys.path:
-    sys.path.insert(0, str(_VENDOR))
-
-# Add repo root to sys.path so `from algorithms import ...` resolves.
+# Add repo root to sys.path so `from algorithms import ...` and
+# `from shared.output_layout import ...` resolve.
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
