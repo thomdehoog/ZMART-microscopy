@@ -850,9 +850,10 @@ def move_galvo_to_pixel(client, px, py, *,
     closer first.
     """
     from .readers import get_selected_job, get_base_fov, get_job_settings
-    from ..scanning_templates import TEMPLATE_XML, apply_lrp_change
-    from ..scanning_template_editors_scan import lrp_set_pan, lrp_get_pan
-    from ..scanning_template_editors_roi import galvo_pan_for_pixel
+    from ..templates.files import TEMPLATE_XML
+    from ..templates.transaction import apply_lrp_change
+    from ..experimental.lrp_edits.scan import lrp_set_pan, lrp_get_pan
+    from ..experimental.lrp_edits.roi import galvo_pan_for_pixel
     from .utils import pan_scale_um_from_base_fov, parse_tile_geometry
 
     if job_name is None:

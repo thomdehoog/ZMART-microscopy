@@ -30,8 +30,8 @@ mechanical analysis behind the recipe.
 import logging
 import time
 
-from .. import commands as _commands
-from .. import readers as _readers
+from ..api import commands as _commands
+from ..api import readers as _readers
 
 log = logging.getLogger(__name__)
 

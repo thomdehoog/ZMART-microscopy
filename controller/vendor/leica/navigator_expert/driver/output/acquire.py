@@ -35,8 +35,8 @@ from typing import Any
 import numpy as np
 import tifffile
 
-from .. import commands as _commands
-from .. import readers as _readers
+from ..api import commands as _commands
+from ..api import readers as _readers
 from . import lasx_files as _file_confirmation
 from ..motion.stage import correct_backlash
 

@@ -32,7 +32,7 @@ from navigator_expert.driver.alignment import (
 # identity) so any positive value would do — using the helper keeps the
 # number honest. Real callers resolve pan_scale_um from the current
 # objective's base FOV via lasx.pan_scale_um_from_base_fov.
-from navigator_expert.driver.utils import pan_scale_um_from_base_fov as _pan_scale_helper
+from navigator_expert.driver.api.utils import pan_scale_um_from_base_fov as _pan_scale_helper
 _TEST_PAN_SCALE_UM = _pan_scale_helper(600.0)
 
 

@@ -33,7 +33,7 @@ import numpy as np
 from . import acquire as _acquire
 from . import lasx_files as _fc
 from . import ome as _ome
-from .. import readers as _readers
+from ..api import readers as _readers
 
 from _shared.output_layout import (
     LayoutPlan,
