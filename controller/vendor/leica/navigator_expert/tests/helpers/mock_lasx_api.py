@@ -21,6 +21,9 @@ _DEFAULT_JOBS = {
         "sequentialMode": "Frame",
         "scanFieldRotation": {"value": 0.0},
         "format": "1024 x 1024",
+        "imageSize": "100.0 um x 100.0 um",
+        "pixelSize": "0.0977 um x 0.0977 um",
+        "xyStage": {"posX": 50000.0, "posY": 30000.0},
         "objective": {"name": "HC PL APO 63x/1.40 OIL CS2", "magnification": 63},
         "stack": {"begin": -10.0, "end": 10.0, "stepSize": 1.0, "size": 20.0},
         "zPosition": {
@@ -57,6 +60,9 @@ _DEFAULT_JOBS = {
         "sequentialMode": "Frame",
         "scanFieldRotation": {"value": 0.0},
         "format": "512 x 512",
+        "imageSize": "1200.0 um x 1200.0 um",
+        "pixelSize": "2.3438 um x 2.3438 um",
+        "xyStage": {"posX": 50000.0, "posY": 30000.0},
         "objective": {"name": "HC PL APO 10x/0.40 CS2", "magnification": 10},
         "zPosition": {
             "z-galvo": {"position": 0.0},
@@ -375,11 +381,26 @@ class MockLasxClient:
             def XPosition(self):
                 return client._stage_x
 
+            @XPosition.setter
+            def XPosition(self, value):
+                pass
+
             @property
             def YPosition(self):
                 return client._stage_y
 
+            @YPosition.setter
+            def YPosition(self, value):
+                pass
+
         return XYModel()
+
+    def _sync_stage_to_jobs(self):
+        """Keep raw job settings aligned with the global stage position."""
+        x_um = self._stage_x * 1e6
+        y_um = self._stage_y * 1e6
+        for job in self._jobs.values():
+            job["xyStage"] = {"posX": x_um, "posY": y_um}
 
     def _handle_command_dispatch(self, model):
         """Handle PyApiCommand dispatch — triggers the appropriate read handler.
@@ -491,6 +512,7 @@ class MockLasxClient:
         scale = {0: 1, 1: 1, 2: 1e-2, 3: 1e-3, 4: 1e-6}.get(units_int, 1)
         self._stage_x = x * scale
         self._stage_y = y * scale
+        self._sync_stage_to_jobs()
 
     # ── Set command dispatch ──
 
