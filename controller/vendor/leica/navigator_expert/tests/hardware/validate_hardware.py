@@ -634,7 +634,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="use the python in-process mock (CI; no LasxApi needed). "
                         "Default is to connect via LasxApi -- the LAS X session "
                         "behind the API can be simulator mode or real hardware.")
-    p.add_argument("--client-name", default="PythonClient_Validate",
+    p.add_argument("--client-name", default="PythonClient",
                    help="LAS X client name (LasxApi.Connect)")
     p.add_argument("--job", help="job to validate (default: currently selected)")
     p.add_argument("--mock-latency", type=float, default=0.0,
