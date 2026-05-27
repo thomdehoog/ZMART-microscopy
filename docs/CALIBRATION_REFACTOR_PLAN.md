@@ -1,4 +1,4 @@
-# Calibration Refactor Plan
+﻿# Calibration Refactor Plan
 
 **Branch**: `restructure/layered-driver`
 **Drafted**: 2026-05-27
@@ -304,7 +304,7 @@ shared/calibration/
   `translate_z_between_objectives`, `translate_xyz_between_objectives`
   to subtract translations directly (no more offset/shift dual paths).
 - Default `load_calibration(path)` REFUSES old schemas; the error
-  points to the explicit migration script (see §4).
+  points to the explicit migration script (see section 4).
 
 ### 3.7. Workflow imports
 
@@ -383,10 +383,10 @@ schema, it logs "already current" and exits 0.
 **Steps the script performs:**
 
 1. Read existing `calibration/vendor/leica/navigator_expert/current/calibration.json` (v9)
-   and `calibration/vendor/leica/navigator_expert/current/stage.json` (v0).
+   and `calibration/vendor/leica/navigator_expert/current/stage.json` (v1).
 2. Build the new v11 calibration dict:
    - For each entry in `objectives`:
-     - Apply the formula from §3.3:
+     - Apply the formula from section 3.3:
        - `translation_um[0] = v9.shift_xy_um[0]`
        - `translation_um[1] = v9.shift_xy_um[1]`
        - `translation_um[2] = v9.offset_z_um + v9.shift_z_um`
@@ -406,9 +406,10 @@ schema, it logs "already current" and exits 0.
    `{"schema_version": 1, "stage_um": <old stage.json["limits_um"]>}`
    (note: rename `limits_um` -> `stage_um` to match the extensibility
    convention; `load_stage_config()` maps it back to `limits_um` for
-   consumers, per §3.5).
-6. Rename `stage.json` -> `stage.json.bak` (safety net for one release;
-   delete in a subsequent cleanup commit).
+   consumers, per section 3.5).
+6. Delete `stage.json`. Git history is the backup -- the migration is
+   one commit, so a single `git revert` returns the working tree to v9.
+   No `.bak` fossil in the source tree.
 7. Print a summary: "Migrated to v11. {N} objectives. Reference: slot {S} ({name})."
 
 **What `load_calibration()` does on an old schema:**
@@ -417,8 +418,8 @@ schema, it logs "already current" and exits 0.
 - Raises `OldSchemaError` (or similar) with the message:
   > "calibration.json is at schema v{N}; this code expects v11. Run
   > `python -m calibration.vendor.leica.navigator_expert.migrate_current_calibration`
-  > to migrate. The migration is one-shot and reversible from the
-  > `.bak` files it leaves behind."
+  > to migrate. The migration is reversible via `git revert` on the
+  > migration commit."
 - Does NOT mutate any files. Loading is a read-only operation.
 
 ### 4.2. Verification pins for the migration
@@ -474,7 +475,8 @@ python controller/vendor/leica/navigator_expert/tests/hardware/validate_hardware
 
 # Stress runner against the mock (includes template round-trip and acquire terminal steps)
 python controller/vendor/leica/navigator_expert/tests/hardware/stress_hardware.py \
-    --mock --rounds 30 --cycles 4 --seed 1
+    --mock --rounds 30 --cycles 4 --seed 1 \
+    --allow-template-roundtrip --allow-acquire
 
 # Focused gates for the validator and stress runner
 python -m pytest \
@@ -486,7 +488,7 @@ All commands must return exit 0.
 
 For PR #1 specifically, two additional tests:
 
-1. **Migration unit test**: pins the three triples in §4.2 exactly,
+1. **Migration unit test**: pins the three triples in section 4.2 exactly,
    plus the slot 1 reference check `[0.0, 0.0, 0.0]`, plus the
    `reference_objective_slot` consistency check (it must equal the
    slot of the `[0, 0, 0]` entry).
@@ -526,9 +528,9 @@ Tasks:
 
 1. Bump `SCHEMA_VERSION` to 11 in `model.py`.
 2. Write `calibration/vendor/leica/navigator_expert/migrate_current_calibration.py`
-   (the explicit migration script per §4.1).
+   (the explicit migration script per section 4.1).
 3. Update `load_calibration()` to detect old schemas and raise the
-   `OldSchemaError` per §4.1. Reads do NOT mutate files.
+   `OldSchemaError` per section 4.1. Reads do NOT mutate files.
 4. Refactor `model.py`:
    - Drop offset/shift accessors and the `firmware_*` / `residual_*`
      helpers.
@@ -537,11 +539,11 @@ Tasks:
 5. Rename `promotion.py` -> `adopt.py`, `promote_calibration` ->
    `adopt_calibration`, `.promotion.log` -> `.adopt.log`.
 6. Update notebooks to write v11 and use "adopt" cell headings.
-7. Update the driver's stage-config loader per §3.5: read limits from
+7. Update the driver's stage-config loader per section 3.5: read limits from
    `limits.json`, backlash from `calibration.json["backlash"]`,
    preserve the legacy return-shape contract (`{"limits_um": ...,
    "backlash": ...}`).
-8. Backlash consumer audit per §3.5: confirm every production caller
+8. Backlash consumer audit per section 3.5: confirm every production caller
    passes `stage_cfg["backlash"]` through, document the function-signature
    defaults as fallbacks only.
 9. Update the four caller files (`pipeline/target.py`,
@@ -552,11 +554,12 @@ Tasks:
 11. Sweep "promote" -> "adopt" in docstrings / READMEs / CLAUDE.md /
     root README.
 12. Add the migration unit test and the semantic round-trip test from
-    §4.3.
+    section 4.3.
 13. Run the migration script against the repo's current
     `calibration.json` and commit the resulting v11 `calibration.json`
-    + `limits.json` + `stage.json.bak` in the same PR (so reviewers can
-    see the actual data transformation).
+    + `limits.json` (and the deletion of `stage.json`) in the same PR
+    so reviewers can see the actual data transformation. Git history
+    on the migration commit IS the backup; no `.bak` files committed.
 
 ### PR #2 -- move calibration math to `shared/`
 
@@ -608,11 +611,13 @@ These are the decisions explicitly deferred to implementation:
    clear message ("schema vN not supported; manually upgrade to v9
    first or open an issue") rather than silently up-migrate.
 
-3. **`stage.json` backwards-compat window.** PR #1 leaves
-   `stage.json.bak` next to the new files (safety net). Schedule a
-   follow-up cleanup commit that deletes the `.bak` once one release
-   has shipped. Or, if you prefer, hard-delete in PR #1 -- the v9 ->
-   v11 transform is reversible by anyone with a copy of the script.
+3. **`stage.json` removal.** PR #1 deletes `stage.json` (git history
+   is the backup; the migration is one commit, so `git revert`
+   restores it). Don't commit a `.bak` fossil in the source tree.
+   If you prefer a more conservative posture, keep `stage.json.bak`
+   for one release as a local-only safety net (added to `.gitignore`,
+   not committed), but the default plan is hard-delete in the
+   migration commit.
 
 4. **Backlash calibration notebook.** This plan reserves a
    `session_id` slot in the new `backlash` block but does not require
@@ -653,11 +658,11 @@ These are the decisions explicitly deferred to implementation:
 - `migrate_current_calibration.py` is the only thing that writes the
   schema bump. `load_calibration()` raises on old schemas.
 - `core/adopt.py` (renamed from `core/promotion.py`).
-- The migration unit test pins the exact triples from §4.2.
+- The migration unit test pins the exact triples from section 4.2.
 - The semantic round-trip test passes (last_updated allowed to differ).
 - Backlash consumer audit complete: production callers explicitly pass
   `stage_cfg["backlash"]`; function defaults documented as fallbacks.
-- All commands in §4.3 return exit 0.
+- All commands in section 4.3 return exit 0.
 
 **PR #2 lands** -> `shared/calibration/model.py` is the canonical home
 of translation math; vendor package exports `calibration_path()` /
