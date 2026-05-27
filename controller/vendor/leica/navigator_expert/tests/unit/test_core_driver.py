@@ -622,6 +622,7 @@ class TestRetryBackoff(unittest.TestCase):
         self.assertTrue(profiles.ZOOM.refire_on_unconfirmed)
         self.assertTrue(profiles.ZOOM.success_on_unconfirmed)
 
+        self.assertEqual(profiles.OBJECTIVE.confirm_timeout, 10.0)
         self.assertTrue(profiles.OBJECTIVE.success_on_unconfirmed)
 
         self.assertEqual(profiles.ACQUIRE.max_confirm_attempts, 1)
