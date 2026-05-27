@@ -55,6 +55,8 @@ def test_validate_hardware_full_mock_run(tmp_path):
     assert {
         "stage config: load",
         "stage limits: apply",
+        "job selection: select alternate",
+        "job selection: selected alternate",
         "settings: read",
         "zoom: write alternate",
         "frame_accumulation: write alternate",
