@@ -24,7 +24,11 @@ _DEFAULT_JOBS = {
         "imageSize": "100.0 um x 100.0 um",
         "pixelSize": "0.0977 um x 0.0977 um",
         "xyStage": {"posX": 50000.0, "posY": 30000.0},
-        "objective": {"name": "HC PL APO 63x/1.40 OIL CS2", "magnification": 63},
+        "objective": {
+            "name": "HC PL APO 63x/1.40 OIL CS2",
+            "magnification": 63,
+            "slotIndex": 3,
+        },
         "stack": {"begin": -10.0, "end": 10.0, "stepSize": 1.0, "size": 20.0},
         "zPosition": {
             "z-galvo": {"position": 0.0},
@@ -63,7 +67,11 @@ _DEFAULT_JOBS = {
         "imageSize": "1200.0 um x 1200.0 um",
         "pixelSize": "2.3438 um x 2.3438 um",
         "xyStage": {"posX": 50000.0, "posY": 30000.0},
-        "objective": {"name": "HC PL APO 10x/0.40 CS2", "magnification": 10},
+        "objective": {
+            "name": "HC PL APO 10x/0.40 CS2",
+            "magnification": 10,
+            "slotIndex": 1,
+        },
         "zPosition": {
             "z-galvo": {"position": 0.0},
             "z-wide": {"position": 0.0},
@@ -85,9 +93,24 @@ _DEFAULT_JOBS = {
 _DEFAULT_HARDWARE = {
     "Microscope": {
         "objectives": [
-            {"name": "HC PL APO 10x/0.40 CS2", "magnification": 10, "slotIndex": 1},
-            {"name": "HC PL APO 40x/1.30 OIL CS2", "magnification": 40, "slotIndex": 2},
-            {"name": "HC PL APO 63x/1.40 OIL CS2", "magnification": 63, "slotIndex": 3},
+            {
+                "name": "HC PL APO 10x/0.40 CS2",
+                "magnification": 10,
+                "slotIndex": 1,
+                "objectiveNumber": 1,
+            },
+            {
+                "name": "HC PL APO 40x/1.30 OIL CS2",
+                "magnification": 40,
+                "slotIndex": 2,
+                "objectiveNumber": 2,
+            },
+            {
+                "name": "HC PL APO 63x/1.40 OIL CS2",
+                "magnification": 63,
+                "slotIndex": 3,
+                "objectiveNumber": 3,
+            },
         ],
     },
     "LightSources": [],
@@ -649,8 +672,11 @@ class MockLasxClient:
         slot = getattr(model, "ObjectiveSlotIndex", None)
         for obj in self._hardware["Microscope"]["objectives"]:
             if obj["slotIndex"] == slot:
-                job["objective"] = {"name": obj["name"],
-                                     "magnification": obj["magnification"]}
+                job["objective"] = {
+                    "name": obj["name"],
+                    "magnification": obj["magnification"],
+                    "slotIndex": obj["slotIndex"],
+                }
                 return
         self._echo.set_error(f"Objective slot {slot} not found")
 
