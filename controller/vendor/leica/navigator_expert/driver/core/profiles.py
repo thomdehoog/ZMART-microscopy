@@ -194,6 +194,7 @@ IMAGE_FORMAT = _leica_setting_profile(
 OBJECTIVE = CommandProfile(
     confirm_fn=confirm_objective,
     max_confirm_attempts=1,
+    confirm_timeout=10.0,
     success_on_unconfirmed=True,
 )
 
