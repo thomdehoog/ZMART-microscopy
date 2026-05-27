@@ -51,6 +51,27 @@ def test_compact_status_includes_driver_timing():
     assert status == "Zoom -> 5.0; [total=1.235s, att=2, conf=3, m=async]"
 
 
+def test_stage_limit_helpers_report_out_of_bounds_points():
+    """Movement phases should explain why a point is outside hard limits."""
+    limits = {
+        "x_min": 1000.0,
+        "x_max": 130000.0,
+        "y_min": 1000.0,
+        "y_max": 100000.0,
+        "z_galvo_min": -50.0,
+        "z_galvo_max": 50.0,
+        "z_wide_min": -200.0,
+        "z_wide_max": 200.0,
+    }
+
+    assert validate_hardware._xy_limit_error(50000.0, 30000.0, limits) is None
+    assert validate_hardware._z_limit_error(0.0, "galvo", limits) is None
+    assert "X=0.0 outside calibrated limits" in (
+        validate_hardware._xy_limit_error(0.0, 30000.0, limits) or "")
+    assert "Z galvo=60.0 outside calibrated limits" in (
+        validate_hardware._z_limit_error(60.0, "galvo", limits) or "")
+
+
 def test_validate_hardware_full_mock_run(tmp_path):
     """Run the full reversible validation flow against the Python mock."""
     output = tmp_path / "hardware_mock.jsonl"
