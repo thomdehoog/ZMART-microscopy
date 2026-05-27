@@ -414,6 +414,26 @@ def _pick_alt(current: Any, candidates: list) -> Any | None:
     return None
 
 
+def _active_setting(settings: dict, index: int = 0) -> dict | None:
+    """Return one active setting block from parsed job settings."""
+    active = settings.get("activeSettings") or []
+    if index < 0 or index >= len(active):
+        return None
+    return active[index]
+
+
+def _bounded_numeric_candidate(current: float, lower: float, upper: float,
+                               step: float) -> float | None:
+    """Choose a reversible numeric target inside [lower, upper]."""
+    up = current + step
+    if up <= upper:
+        return up
+    down = current - step
+    if down >= lower:
+        return down
+    return None
+
+
 # --- Validation phases ------------------------------------------------------
 
 def phase_readonly(drv: Any, v: Validator, client: Any,
@@ -448,7 +468,7 @@ def phase_readonly(drv: Any, v: Validator, client: Any,
 
 def phase_job_selection(drv: Any, v: Validator, client: Any,
                         preferred_job: str) -> None:
-    """Select an alternate job, verify, then restore the original selection."""
+    """Select every reported job once, verify each, then restore original."""
     with v.phase("job selection round-trip"):
         jobs = v.callable("job selection: read jobs", lambda: drv.get_jobs(client))
         if not jobs:
@@ -458,21 +478,21 @@ def phase_job_selection(drv: Any, v: Validator, client: Any,
         names = [j["Name"] for j in jobs]
         original = next(
             (j["Name"] for j in jobs if j.get("IsSelected")), preferred_job)
-        target = preferred_job if preferred_job != original else _pick_alt(
-            original, names)
-        if target is None:
-            v.skip("job selection: round-trip", "need at least two jobs")
+        if not names:
+            v.skip("job selection: round-trip", "job list was empty")
             return
 
-        ctx = {"current": original, "target": target}
         try:
-            v.command("job selection: select alternate",
-                      lambda: drv.select_job(client, target),
-                      context=ctx)
-            selected = v.callable("job selection: read alternate",
-                                  lambda: _selected_job_name(drv, client))
-            if selected is not None:
-                v.compare("job selection: selected alternate", selected, target)
+            for index, name in enumerate(names):
+                ctx = {"index": index, "count": len(names), "job": name}
+                v.command("job selection: select job",
+                          lambda name=name: drv.select_job(client, name),
+                          context=ctx)
+                selected = v.callable("job selection: read selected job",
+                                      lambda: _selected_job_name(drv, client),
+                                      context=ctx)
+                if selected is not None:
+                    v.compare(f"job selection: confirmed {name}", selected, name)
         finally:
             v.command("job selection: restore",
                       lambda: drv.select_job(client, original),
@@ -480,7 +500,13 @@ def phase_job_selection(drv: Any, v: Validator, client: Any,
 
 
 def phase_settings(drv: Any, v: Validator, client: Any, job_name: str) -> None:
-    """Reversible setting writes -- write current, write alternate, verify, restore."""
+    """Reversible setting writes -- write current, write alternate, verify, restore.
+
+    Asymmetry by design: ``scan_mode`` is READ-ONLY and asserted to be
+    ``xyz``. We never mutate it because workflows assume xyz acquisition.
+    ``sequential_mode`` IS round-tripped (``Line``/``Frame``) because it
+    is a normal per-job knob the driver should be able to flip safely.
+    """
     with v.phase("settings round-trip"):
         _round_trip(
             v, "zoom", job_name,
@@ -496,6 +522,36 @@ def phase_settings(drv: Any, v: Validator, client: Any, job_name: str) -> None:
             candidates=[400, 600, 800, 1000],
         )
         _round_trip(
+            v, "scan_resonant", job_name,
+            read=lambda: _settings(drv, client, job_name)["scanSpeed"][
+                "isResonant"
+            ],
+            write=lambda x: drv.set_scan_resonant(client, job_name, x),
+            candidates=[False, True],
+        )
+        scan_mode = v.callable(
+            "scan_mode: read current",
+            lambda: _settings(drv, client, job_name)["scanMode"],
+            context={"job": job_name},
+        )
+        if scan_mode is not None:
+            v.compare("scan_mode: is xyz", scan_mode, "xyz")
+        _round_trip(
+            v, "sequential_mode", job_name,
+            read=lambda: _settings(drv, client, job_name)["sequentialMode"],
+            write=lambda x: drv.set_sequential_mode(client, job_name, x),
+            candidates=["Line", "Frame"],
+        )
+        _round_trip(
+            v, "scan_field_rotation", job_name,
+            read=lambda: _settings(drv, client, job_name)[
+                "scanFieldRotation"
+            ]["value"],
+            write=lambda x: drv.set_scan_field_rotation(client, job_name, x),
+            candidates=[0.0, 5.0, -5.0],
+            tolerance=0.5,
+        )
+        _round_trip(
             v, "image_format", job_name,
             read=lambda: _settings(drv, client, job_name)["format"],
             write=lambda x: drv.set_image_format(client, job_name, x),
@@ -508,6 +564,172 @@ def phase_settings(drv: Any, v: Validator, client: Any, job_name: str) -> None:
             ],
             write=lambda x: drv.set_frame_accumulation(client, job_name, 0, x),
             candidates=[1, 2, 4],
+        )
+        _round_trip(
+            v, "frame_average", job_name,
+            read=lambda: _active_setting(_settings(drv, client, job_name))[
+                "frameAverage"
+            ],
+            write=lambda x: drv.set_frame_average(client, job_name, 0, x),
+            candidates=[1, 2, 4],
+        )
+        _round_trip(
+            v, "line_accumulation", job_name,
+            read=lambda: _active_setting(_settings(drv, client, job_name))[
+                "lineAccumulation"
+            ],
+            write=lambda x: drv.set_line_accumulation(client, job_name, 0, x),
+            candidates=[1, 2, 4],
+        )
+        _round_trip(
+            v, "line_average", job_name,
+            read=lambda: _active_setting(_settings(drv, client, job_name))[
+                "lineAverage"
+            ],
+            write=lambda x: drv.set_line_average(client, job_name, 0, x),
+            candidates=[1, 2, 4],
+        )
+        _round_trip(
+            v, "pinhole_airy", job_name,
+            read=lambda: _active_setting(_settings(drv, client, job_name))[
+                "pinholeAiry"
+            ]["value"],
+            write=lambda x: drv.set_pinhole_airy(client, job_name, 0, x),
+            candidates=[1.0, 1.2, 0.8],
+            tolerance=0.05,
+        )
+        phase_detector_gain(drv, v, client, job_name)
+
+
+def phase_detector_gain(drv: Any, v: Validator, client: Any,
+                        job_name: str) -> None:
+    """Reversibly test detector gain only when the detector exposes a range.
+
+    The detector readback is not emitted as a separate record because the
+    HyD/fixed-gain skip is the expected outcome on most scopes -- emitting
+    a "read detector" PASS plus a "round-trip" SKIP per detector adds
+    noise to the JSONL without diagnostic value.
+    """
+    try:
+        settings = _settings(drv, client, job_name)
+    except Exception as exc:  # noqa: BLE001
+        v.skip("detector_gain: round-trip",
+               f"cannot read detector settings: {exc}")
+        return
+    setting = _active_setting(settings) if settings else None
+    detectors = (setting or {}).get("activeDetectors") or []
+    if not detectors:
+        v.skip("detector_gain: round-trip", "no active detector in setting 0")
+        return
+
+    detector = detectors[0]
+    gain = detector.get("gain") or {}
+    name = str(detector.get("name") or "")
+    beam_route = detector.get("_beamRoute") or detector.get("beamRoute")
+    current = gain.get("value")
+    lower = gain.get("min", current)
+    upper = gain.get("max", current)
+    if beam_route is None or current is None:
+        v.skip("detector_gain: round-trip", "detector gain readback incomplete")
+        return
+    if "hyd" in name.lower() or lower == upper:
+        v.skip(
+            "detector_gain: round-trip",
+            f"{name or 'detector'} exposes fixed/photon-counting gain; "
+            "not mutating gain",
+        )
+        return
+    target = _bounded_numeric_candidate(
+        float(current), float(lower), float(upper), 1.0)
+    if target is None:
+        v.skip("detector_gain: round-trip", "no alternate gain in range")
+        return
+    _round_trip(
+        v, "detector_gain", job_name,
+        read=lambda: _active_setting(_settings(drv, client, job_name))[
+            "activeDetectors"
+        ][0]["gain"]["value"],
+        write=lambda x: drv.set_detector_gain(
+            client, job_name, 0, beam_route, x),
+        candidates=[target, current],
+        tolerance=0.1,
+    )
+
+
+def phase_z_stack(drv: Any, v: Validator, client: Any, job_name: str) -> None:
+    """Reversible Z-stack setup calls when a restorable stack exists."""
+    with v.phase("z-stack setup round-trip"):
+        settings = v.callable(
+            "z_stack: read start",
+            lambda: _settings(drv, client, job_name),
+            context={"job": job_name},
+        )
+        stack = (settings or {}).get("stack") or {}
+        required = ("begin", "end", "stepSize", "size")
+        if any(stack.get(k) is None for k in required):
+            v.skip(
+                "z_stack: round-trip",
+                "current job has no fully defined z-stack; not safe to restore",
+            )
+            return
+
+        begin = float(stack["begin"])
+        end = float(stack["end"])
+        step = float(stack["stepSize"])
+        size = float(stack["size"])
+        if abs(end - begin) < 4.0:
+            v.skip("z_stack: round-trip", "z-stack range too small to adjust")
+            return
+
+        target_begin = begin + 0.5
+        target_end = end - 0.5
+
+        v.command(
+            "z_stack_definition: write current",
+            lambda: drv.set_z_stack_definition(
+                client, job_name, begin_um=begin, end_um=end),
+            context={"job": job_name, "begin_um": begin, "end_um": end},
+        )
+        try:
+            v.command(
+                "z_stack_definition: write alternate",
+                lambda: drv.set_z_stack_definition(
+                    client, job_name,
+                    begin_um=target_begin, end_um=target_end),
+                context={
+                    "job": job_name,
+                    "begin_um": target_begin,
+                    "end_um": target_end,
+                },
+            )
+            after = _settings(drv, client, job_name).get("stack") or {}
+            v.compare(
+                "z_stack_definition: begin readback",
+                after.get("begin"), target_begin, tolerance=1.0)
+            v.compare(
+                "z_stack_definition: end readback",
+                after.get("end"), target_end, tolerance=1.0)
+        finally:
+            v.command(
+                "z_stack_definition: restore",
+                lambda: drv.set_z_stack_definition(
+                    client, job_name, begin_um=begin, end_um=end),
+                context={"job": job_name, "begin_um": begin, "end_um": end},
+            )
+
+        _round_trip(
+            v, "z_stack_step_size", job_name,
+            read=lambda: _settings(drv, client, job_name)["stack"]["stepSize"],
+            write=lambda x: drv.set_z_stack_step_size(client, job_name, x),
+            candidates=[step + 0.5, step],
+            tolerance=0.5,
+        )
+        _round_trip(
+            v, "z_stack_size", job_name,
+            read=lambda: _settings(drv, client, job_name)["stack"]["size"],
+            write=lambda x: drv.set_z_stack_size(client, job_name, x),
+            candidates=[size + 2.0, size],
+            tolerance=1.5,
         )
 
 
@@ -527,7 +749,17 @@ def _round_trip(v: Validator, name: str, job_name: str, *,
     ctx = {"job": job_name, "current": current, "target": target}
     v.command(f"{name}: write current", lambda: write(current), context=ctx)
     try:
-        v.command(f"{name}: write alternate", lambda: write(target), context=ctx)
+        result = v.command(
+            f"{name}: write alternate", lambda: write(target), context=ctx)
+        if not result or not result.get("success"):
+            return
+        if result.get("confirmed") is False:
+            v.skip(
+                f"{name}: readback",
+                "command was sent but readback did not confirm; "
+                "not adding a duplicate comparison failure",
+            )
+            return
         try:
             actual = read()
         except Exception as exc:  # noqa: BLE001
@@ -836,6 +1068,7 @@ def main(argv: list[str] | None = None) -> int:
             v.skip("phase: xy", "use --allow-xy to enable")
 
         if args.allow_z:
+            phase_z_stack(drv, v, client, job_name)
             phase_z(drv, v, client, job_name, args)
         else:
             v.skip("phase: z", "use --allow-z to enable")

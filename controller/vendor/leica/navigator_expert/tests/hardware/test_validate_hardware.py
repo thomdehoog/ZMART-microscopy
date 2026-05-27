@@ -111,16 +111,41 @@ def test_validate_hardware_full_mock_run(tmp_path):
     assert {
         "stage config: load",
         "stage limits: apply",
-        "job selection: select alternate",
-        "job selection: selected alternate",
+        "job selection: select job",
         "settings: read",
         "zoom: write alternate",
+        "scan_resonant: write alternate",
+        "scan_mode: is xyz",
+        "sequential_mode: write alternate",
+        "scan_field_rotation: write alternate",
         "frame_accumulation: write alternate",
+        "frame_average: write alternate",
+        "line_accumulation: write alternate",
+        "line_average: write alternate",
+        "pinhole_airy: write alternate",
+        "z_stack_definition: write alternate",
+        "z_stack_step_size: write alternate",
+        "z_stack_size: write alternate",
         "xy: move alternate",
         "z: move alternate",
         "objective: switch alternate",
         "acquire: single",
     } <= names
+
+    select_job_records = [
+        record for record in records
+        if record["name"] == "job selection: select job"
+    ]
+    selected_job_records = [
+        record for record in records
+        if record["name"].startswith("job selection: confirmed ")
+    ]
+    assert {record["context"]["job"] for record in select_job_records} == {
+        "HiRes",
+        "Overview",
+    }
+    assert {record["name"].removeprefix("job selection: confirmed ")
+            for record in selected_job_records} == {"HiRes", "Overview"}
 
 
 def test_mock_set_dispatch_table_matches_surface():
