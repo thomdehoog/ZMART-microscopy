@@ -131,6 +131,33 @@ _VALIDATION = {
     "laserIntensity": (0.0, 1.0),
 }
 
+_SET_DISPATCH = {
+    "PyApiSetZoomByJobName": "_set_zoom",
+    "PyApiSetScanSpeedByJobName": "_set_scan_speed",
+    "PyApiSetScannerToResonantByJobName": "_set_resonant",
+    "PyApiSetScanModeByJobName": "_set_scan_mode",
+    "PyApiSetSequentialModeByJobName": "_set_sequential_mode",
+    "PyApiSetScanFieldRotationByJobName": "_set_rotation",
+    "PyApiSetImageSizeByJobName": "_set_image_format",
+    "PyApiSetObjectiveSlotByJobName": "_set_objective",
+    "PyApiSetZStackDefinitionByJobName": "_set_z_stack_definition",
+    "PyApiCommandSetZStackStepSizeByJobName": "_set_z_stack_step_size",
+    "PyApiSetZStackSizeByJobName": "_set_z_stack_size",
+    "PyApiSetFrameAccumulationByJobName": "_set_frame_accumulation",
+    "PyApiSetFrameAverageByJobName": "_set_frame_average",
+    "PyApiSetLineAccumulationByJobName": "_set_line_accumulation",
+    "PyApiSetLineAverageByJobName": "_set_line_average",
+    "PyApiSetPinholeAUByJobName": "_set_pinhole",
+    "PyApiSetDetectorGainByJobName": "_set_detector_gain",
+    "PyApiSetDetectorActiveByJobName": "_set_noop",
+    "PyApiSetLaserIntensityByJobName": "_set_laser_intensity",
+    "PyApiSetLaserShutterByJobName": "_set_noop",
+    "PyApiAddOrRemoveLaserLineByJobName": "_set_noop",
+    "PyApiSetFilterWheelSlotByJobName": "_set_noop",
+    "PyApiSetFilterWheelSpectrumPositionByJobName": "_set_noop",
+    "PyApiMoveZByJobName": "_handle_move_z",
+}
+
 
 # =============================================================================
 # Mock Model classes
@@ -347,34 +374,8 @@ class MockLasxClient:
         self.PyApiMoveHardwareXY.Model.MoveXyMode = _MockEnumMoveXYMode("eMoveXY")
         self.PyApiMoveHardwareXY.Model.Units = _MockEnumUnits("eMicrons")
 
-        # Set commands — route through generic handler
-        set_commands = [
-            "PyApiSetZoomByJobName",
-            "PyApiSetScanSpeedByJobName",
-            "PyApiSetScannerToResonantByJobName",
-            "PyApiSetScanModeByJobName",
-            "PyApiSetSequentialModeByJobName",
-            "PyApiSetScanFieldRotationByJobName",
-            "PyApiSetImageSizeByJobName",
-            "PyApiSetObjectiveSlotByJobName",
-            "PyApiSetZStackDefinitionByJobName",
-            "PyApiCommandSetZStackStepSizeByJobName",
-            "PyApiSetZStackSizeByJobName",
-            "PyApiSetFrameAccumulationByJobName",
-            "PyApiSetFrameAverageByJobName",
-            "PyApiSetLineAccumulationByJobName",
-            "PyApiSetLineAverageByJobName",
-            "PyApiSetPinholeAUByJobName",
-            "PyApiSetDetectorGainByJobName",
-            "PyApiSetDetectorActiveByJobName",
-            "PyApiSetLaserIntensityByJobName",
-            "PyApiSetLaserShutterByJobName",
-            "PyApiAddOrRemoveLaserLineByJobName",
-            "PyApiSetFilterWheelSlotByJobName",
-            "PyApiSetFilterWheelSpectrumPositionByJobName",
-            "PyApiMoveZByJobName",
-        ]
-        for cmd in set_commands:
+        # Set commands route through the explicit dispatch table above.
+        for cmd in _SET_DISPATCH:
             obj = _MockApiObject(cmd, self._make_set_handler(cmd), latency)
             setattr(self, cmd, obj)
 
@@ -537,9 +538,11 @@ class MockLasxClient:
         self._stage_y = y * scale
         self._sync_stage_to_jobs()
 
-    # ── Set command dispatch ──
+    # Set command dispatch
 
     def _make_set_handler(self, cmd_name):
+        handler_name = _SET_DISPATCH[cmd_name]
+
         def handler(model):
             self._echo.clear()
 
@@ -558,53 +561,7 @@ class MockLasxClient:
 
             job = self._jobs[job_name]
 
-            # Route to specific validation and state update
-            if "Zoom" in cmd_name:
-                self._set_zoom(model, job)
-            elif "ScanSpeed" in cmd_name and "Resonant" not in cmd_name:
-                self._set_scan_speed(model, job)
-            elif "Resonant" in cmd_name:
-                self._set_resonant(model, job)
-            elif "ScanMode" in cmd_name:
-                self._set_scan_mode(model, job)
-            elif "SequentialMode" in cmd_name:
-                self._set_sequential_mode(model, job)
-            elif "ScanFieldRotation" in cmd_name:
-                self._set_rotation(model, job)
-            elif "ImageSize" in cmd_name:
-                self._set_image_format(model, job)
-            elif "ObjectiveSlot" in cmd_name:
-                self._set_objective(model, job)
-            elif "ZStackDefinition" in cmd_name:
-                self._set_z_stack_definition(model, job)
-            elif "ZStackStepSize" in cmd_name:
-                self._set_z_stack_step_size(model, job)
-            elif "ZStackSize" in cmd_name:
-                self._set_z_stack_size(model, job)
-            elif "FrameAccumulation" in cmd_name:
-                self._set_frame_accumulation(model, job)
-            elif "FrameAverage" in cmd_name:
-                self._set_frame_average(model, job)
-            elif "LineAccumulation" in cmd_name:
-                self._set_line_accumulation(model, job)
-            elif "LineAverage" in cmd_name:
-                self._set_line_average(model, job)
-            elif "PinholeAU" in cmd_name:
-                self._set_pinhole(model, job)
-            elif "DetectorGain" in cmd_name:
-                self._set_detector_gain(model, job)
-            elif "DetectorActive" in cmd_name:
-                pass  # no validation
-            elif "LaserIntensity" in cmd_name:
-                self._set_laser_intensity(model, job)
-            elif "LaserShutter" in cmd_name:
-                pass  # no validation
-            elif "AddOrRemoveLaserLine" in cmd_name:
-                pass  # no validation
-            elif "FilterWheel" in cmd_name:
-                pass  # no validation
-            elif "MoveZ" in cmd_name:
-                self._handle_move_z(model, job)
+            getattr(self, handler_name)(model, job)
 
             # Keep Model.Settings in sync so the early-exit path in
             # get_job_settings returns fresh data after mutations.
@@ -613,7 +570,11 @@ class MockLasxClient:
 
         return handler
 
-    # ── Validation + state update ──
+    # Validation + state update
+
+    def _set_noop(self, model, job):
+        """Accept commands that the mock exposes but does not mutate."""
+        pass
 
     def _set_zoom(self, model, job):
         v = getattr(model, "ZoomValue", None)

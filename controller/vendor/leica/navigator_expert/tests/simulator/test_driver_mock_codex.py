@@ -13,7 +13,7 @@ import pytest
 
 import navigator_expert.driver as drv
 from navigator_expert.driver.core.utils import parse_tile_geometry
-from mock_lasx_api import MockLasxClient
+from mock_lasx_api import MockLasxClient, _SET_DISPATCH
 
 
 @pytest.fixture
@@ -37,6 +37,34 @@ def _assert_confirmed(result):
     assert result["success"], result
     assert result.get("confirmed") is True, result
     return result
+
+
+class TestMockContract:
+    @pytest.mark.parametrize("command_name, handler_name", sorted(_SET_DISPATCH.items()))
+    def test_set_dispatch_table_matches_mock_surface(self, command_name, handler_name):
+        mock = MockLasxClient(latency=0.0)
+        assert hasattr(mock, command_name)
+        assert callable(getattr(mock, handler_name))
+
+    def test_clients_do_not_share_state(self):
+        first = MockLasxClient(latency=0.0)
+        second = MockLasxClient(latency=0.0)
+
+        _assert_confirmed(drv.set_zoom(first, "HiRes", 7.0))
+
+        second_settings = drv.make_changeable_copy(
+            drv.get_job_settings(second, "HiRes", timeout=0.2)
+        )
+        assert second_settings["zoom"]["current"] == pytest.approx(10.0)
+
+    def test_busy_scanner_rejects_setting_without_retry(self, client):
+        client.set_scanning(1.0)
+
+        result = drv.set_zoom(client, "HiRes", 5.0, max_retries=0)
+
+        assert result["success"] is False
+        assert result["confirmed"] is None
+        assert "being scanned" in result["message"]
 
 
 class TestMockReaders:
@@ -94,6 +122,11 @@ class TestMockCommandRoundTrip:
         assert result["confirmed"] is None
         assert "out of range" in result["message"].lower()
 
+    def test_unknown_job_selection_returns_clean_failure(self, client):
+        result = drv.select_job(client, "Ghost", poll_timeout=0.05)
+        assert result["success"] is False
+        assert result["confirmed"] is False
+
     def test_motion_and_acquire_confirm_against_mock_state(self, client):
         move = _assert_confirmed(drv.move_xy(client, 52000, 31500, unit="um"))
         assert move["position"]["x_um"] == pytest.approx(52000.0)
@@ -111,6 +144,22 @@ class TestMockCommandRoundTrip:
             drv.acquire(client, "HiRes", poll_interval=0.01, start_timeout=1.0)
         )
         assert acquired["timing"]["method"] == "async"
+
+    def test_objective_switch_confirms_against_slot_readback(self, client):
+        hardware = drv.get_hardware_info(client, timeout=0.2)
+
+        _assert_confirmed(
+            drv.set_objective(client, "HiRes", hardware, slot_index=2)
+        )
+        changeable = drv.make_changeable_copy(
+            drv.get_job_settings(client, "HiRes", timeout=0.2)
+        )
+        assert changeable["objective"]["slotIndex"] == 2
+        assert changeable["objective"]["magnification"] == 40
+
+        _assert_confirmed(
+            drv.set_objective(client, "HiRes", hardware, slot_index=3)
+        )
 
     def test_multi_job_protocol_uses_real_driver_stack(self, client):
         steps = [
