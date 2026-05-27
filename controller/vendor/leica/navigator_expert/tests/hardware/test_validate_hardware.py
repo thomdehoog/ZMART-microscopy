@@ -24,6 +24,33 @@ import validate_hardware
 from mock_lasx_api import MockLasxClient, _SET_DISPATCH
 
 
+def test_classify_result_statuses():
+    """Driver result envelopes map to PASS / WARN / FAIL consistently."""
+    assert validate_hardware._classify_result(
+        {"success": True, "confirmed": True}) == "PASS"
+    assert validate_hardware._classify_result(
+        {"success": True}) == "PASS"
+    assert validate_hardware._classify_result(
+        {"success": True, "confirmed": False}) == "WARN"
+    assert validate_hardware._classify_result(
+        {"success": False, "confirmed": True}) == "FAIL"
+
+
+def test_compact_status_includes_driver_timing():
+    """Human status strings should include message and useful timing fields."""
+    status = validate_hardware._compact_status({
+        "message": "Zoom -> 5.0",
+        "timing": {
+            "total_s": 1.23456,
+            "attempts": 2,
+            "confirm_attempts": 3,
+            "method": "async",
+        },
+    })
+
+    assert status == "Zoom -> 5.0; [total=1.235s, att=2, conf=3, m=async]"
+
+
 def test_validate_hardware_full_mock_run(tmp_path):
     """Run the full reversible validation flow against the Python mock."""
     output = tmp_path / "hardware_mock.jsonl"

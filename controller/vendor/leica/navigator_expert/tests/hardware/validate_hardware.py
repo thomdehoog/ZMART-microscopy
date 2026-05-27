@@ -112,7 +112,7 @@ def _now_iso() -> str:
 # --- Validator --------------------------------------------------------------
 
 class Validator:
-    """Runs and records validation checks against simulator or live LAS X."""
+    """Runs and records validation checks against LasxApi or the Python mock."""
 
     def __init__(
         self,
@@ -369,6 +369,7 @@ def _apply_stage_limits(drv: Any, v: Validator, args: argparse.Namespace) -> boo
 
 
 def _set_stage_limits(drv: Any, limits: dict[str, float]) -> bool:
+    # Truthy wrapper so v.callable can record a successful setup step.
     drv.set_stage_limits(**limits)
     return True
 
@@ -429,7 +430,7 @@ def phase_readonly(drv: Any, v: Validator, client: Any,
 
 def phase_job_selection(drv: Any, v: Validator, client: Any,
                         preferred_job: str) -> None:
-    """Reversible job-selection write: select alternate, verify, restore."""
+    """Select an alternate job, verify, then restore the original selection."""
     with v.phase("job selection round-trip"):
         jobs = v.callable("job selection: read jobs", lambda: drv.get_jobs(client))
         if not jobs:
@@ -626,7 +627,7 @@ def phase_acquire(drv: Any, v: Validator, client: Any, job_name: str) -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Hardware validator: simulator + live LAS X, structured JSONL output.",
+        description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--mock", action="store_true",
