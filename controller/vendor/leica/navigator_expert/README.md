@@ -413,7 +413,7 @@ controller/vendor/leica/navigator_expert/
 │   ├── acquisition/         # capture, LAS X files, OME fixes, save chain
 │   ├── stage/               # stage limits, movement, current-state loader
 │   └── experimental/        # LRP mutation helpers without live readback
-└── tests/                   # offline driver unit tests and fixtures
+└── tests/                   # offline driver tests and immutable test data
 
 calibration/vendor/leica/navigator_expert/
 ├── current/                 # promoted measured state: calibration.json, stage.json

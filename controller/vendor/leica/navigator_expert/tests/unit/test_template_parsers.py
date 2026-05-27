@@ -417,10 +417,10 @@ class TestParseMatrixSettings:
 
 
 # =============================================================================
-# Real workflow file tests
+# Real template data tests
 # =============================================================================
 
-TEST_DATA = Path(__file__).resolve().parents[1] / "fixtures" / "templates"
+TEST_DATA = Path(__file__).resolve().parents[1] / "data" / "template_parsing"
 
 
 @pytest.mark.skipif(not TEST_DATA.is_dir(), reason="test data not found")

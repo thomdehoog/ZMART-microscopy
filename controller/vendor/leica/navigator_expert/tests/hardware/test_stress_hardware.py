@@ -83,6 +83,8 @@ def test_stress_hardware_mock_run_records_step_characteristics(tmp_path):
         "2",
         "--seed",
         "123",
+        "--allow-template-roundtrip",
+        "--allow-acquire",
         "--output",
         str(output),
     ])
@@ -93,14 +95,18 @@ def test_stress_hardware_mock_run_records_step_characteristics(tmp_path):
     steps = _stress_steps(records)
     summary = records[-1]
 
-    assert len(steps) == 24
+    assert len(steps) == 26
     assert summary["kind"] == "stress_summary"
     assert summary["context"]["counts"]["FAIL"] == 0
     assert summary["context"]["counts"]["WARN"] == 0
     assert summary["context"]["rounds"] == 12
     assert summary["context"]["cycles"] == 2
+    assert summary["context"]["allow_template_roundtrip"] is True
+    assert summary["context"]["allow_acquire"] is True
     assert "operation_stats" in summary["context"]
     assert "cycle_stats" in summary["context"]
+    assert "template_roundtrip" in summary["context"]["operation_stats"]
+    assert "acquire_once" in summary["context"]["operation_stats"]
 
     first_steps = [step for step in steps if step["round"] == 1]
     assert {step["operation"] for step in first_steps} == {"job_selection"}
@@ -109,11 +115,52 @@ def test_stress_hardware_mock_run_records_step_characteristics(tmp_path):
         assert step["context"]["selected_jobs"] == ["HiRes", "Overview"]
         assert step["context"]["restore_to"] == "HiRes"
 
+    terminal_ops = {step["operation"] for step in steps if step["cycle"] is None}
+    assert terminal_ops == {"template_roundtrip", "acquire_once"}
+    template_step = next(
+        step for step in steps if step["operation"] == "template_roundtrip"
+    )
+    assert template_step["status"] == "PASS"
+    assert template_step["context"]["restore_attempted"] is True
+    assert template_step["context"]["restore_result"]["success"] is True
+    acquire_step = next(step for step in steps if step["operation"] == "acquire_once")
+    assert acquire_step["status"] == "PASS"
+
     for step in steps:
         assert step["seed"] == 123
         assert step["operation"]
         assert step["started_at"]
         assert "op_class" in step["context"]
+
+
+def test_template_roundtrip_restores_after_strip_failure():
+    """A failed strip still triggers restore so the active template is not left stripped."""
+    class FakeDriver:
+        def __init__(self):
+            self.restore_calls = 0
+
+        def strip_template(self, _client, *, save_timeout):
+            assert save_timeout == 120
+            return {"success": False, "total_s": 0.1}
+
+        def restore_template(self, _client):
+            self.restore_calls += 1
+            return {"success": True, "total_s": 0.2}
+
+    args = type("Args", (), {"mock": False})()
+    driver = FakeDriver()
+
+    status, message, timing, _driver_message, context = (
+        stress_hardware.op_template_roundtrip(driver, object(), "HiRes", random.Random(1), args)
+    )
+
+    assert status == "FAIL"
+    assert "strip_template failed" in message
+    assert "restore_template succeeded" in message
+    assert timing == {"restore_s": 0.2}
+    assert driver.restore_calls == 1
+    assert context["restore_attempted"] is True
+    assert context["restore_result"]["success"] is True
 
 
 def test_stress_hardware_seed_reproduces_operation_sequence(tmp_path):
