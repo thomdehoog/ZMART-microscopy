@@ -72,6 +72,14 @@ def test_stage_limit_helpers_report_out_of_bounds_points():
         validate_hardware._z_limit_error(60.0, "galvo", limits) or "")
 
 
+def test_mock_starts_inside_typical_calibrated_envelope():
+    """The Python mock should model a sane stage start, not LAS X's 0,0 quirk."""
+    mock = MockLasxClient(latency=0.0)
+
+    assert mock._stage_x >= 0.001
+    assert mock._stage_y >= 0.001
+
+
 def test_validate_hardware_full_mock_run(tmp_path):
     """Run the full reversible validation flow against the Python mock."""
     output = tmp_path / "hardware_mock.jsonl"
