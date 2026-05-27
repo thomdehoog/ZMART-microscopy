@@ -28,6 +28,7 @@ Usage::
     python -m pytest test_unit.py  # via pytest
 """
 
+import inspect
 import sys
 import time
 import unittest
@@ -560,6 +561,60 @@ class TestRetryBackoff(unittest.TestCase):
         _, kwargs = mock_caf.call_args
         self.assertFalse(kwargs["refire_on_unconfirmed"])
 
+    def test_dispatch_injects_profile_confirm_timeout_when_unbound(self):
+        """Simple setting confirmations get their timeout from the profile."""
+        client = make_client()
+        api_obj = make_api_obj()
+        seen = {}
+
+        def confirm(client, *, timeout=None):
+            seen["client"] = client
+            seen["timeout"] = timeout
+            return {"success": True, "logs": []}
+
+        profile = profiles.CommandProfile(confirm_timeout=5.0)
+
+        with patch.object(commands, 'confirm_and_fire',
+                          return_value={"success": True, "confirmed": True,
+                                        "message": "ok", "timing": {},
+                                        "logs": []}) as mock_caf:
+            commands._dispatch(
+                client, api_obj, "Test", profile,
+                setup_fn=lambda m: None,
+                confirm_fn=confirm)
+
+        confirm_callable = mock_caf.call_args.kwargs["confirm_fn"]
+        confirm_callable()
+        self.assertIs(seen["client"], client)
+        self.assertEqual(seen["timeout"], 5.0)
+
+    def test_dispatch_preserves_wrapper_bound_confirm_timeout(self):
+        """Wrapper-bound polling deadlines win over generic profile timeout."""
+        client = make_client()
+        api_obj = make_api_obj()
+        seen = {}
+
+        def confirm(client, *, timeout=None):
+            seen["client"] = client
+            seen["timeout"] = timeout
+            return {"success": True, "logs": []}
+
+        profile = profiles.CommandProfile(confirm_timeout=5.0)
+
+        with patch.object(commands, 'confirm_and_fire',
+                          return_value={"success": True, "confirmed": True,
+                                        "message": "ok", "timing": {},
+                                        "logs": []}) as mock_caf:
+            commands._dispatch(
+                client, api_obj, "Test", profile,
+                setup_fn=lambda m: None,
+                confirm_fn=partial(confirm, timeout=12.0))
+
+        confirm_callable = mock_caf.call_args.kwargs["confirm_fn"]
+        confirm_callable()
+        self.assertIs(seen["client"], client)
+        self.assertEqual(seen["timeout"], 12.0)
+
     def test_default_setting_and_acquire_profiles_encode_retry_policy(self):
         """Settings are non-fatal if unconfirmed; acquisition fires once."""
         self.assertEqual(profiles.ZOOM.max_confirm_attempts, 3)
@@ -567,9 +622,28 @@ class TestRetryBackoff(unittest.TestCase):
         self.assertTrue(profiles.ZOOM.refire_on_unconfirmed)
         self.assertTrue(profiles.ZOOM.success_on_unconfirmed)
 
+        self.assertTrue(profiles.OBJECTIVE.success_on_unconfirmed)
+
         self.assertEqual(profiles.ACQUIRE.max_confirm_attempts, 1)
         self.assertFalse(profiles.ACQUIRE.refire_on_unconfirmed)
         self.assertFalse(profiles.ACQUIRE.success_on_unconfirmed)
+        self.assertEqual(profiles.ACQUIRE.start_timeout, 15.0)
+
+        signature = inspect.signature(confirmations.confirm_acquire)
+        self.assertEqual(
+            signature.parameters["start_timeout"].default,
+            profiles.ACQUIRE.start_timeout,
+        )
+        self.assertEqual(
+            signature.parameters["heartbeat_interval"].default,
+            profiles.ACQUIRE.heartbeat_interval,
+        )
+        self.assertEqual(
+            signature.parameters["poll_interval"].default,
+            profiles.ACQUIRE.poll_interval,
+        )
+
+        self.assertEqual(profiles.SELECT_JOB.poll_timeout, 5.0)
 
 
 # =============================================================================

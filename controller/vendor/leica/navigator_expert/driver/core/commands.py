@@ -69,6 +69,11 @@ def _profile_value(profile, name, override=None):
     return override if override is not None else getattr(profile, name)
 
 
+def _has_bound_keyword(fn, name):
+    """Return True when a partial already owns a keyword value."""
+    return isinstance(fn, partial) and name in (fn.keywords or {})
+
+
 # =============================================================================
 # Internal helper — uniform backbone call
 # =============================================================================
@@ -114,8 +119,10 @@ def _dispatch(client, api_obj, description, profile, *,
     # Resolve confirm_fn: explicit override > profile default > None
     effective_confirm = confirm_fn if confirm_fn is not None else profile.confirm_fn
 
-    # Inject confirm_timeout from profile into confirm_fn (if set)
-    if effective_confirm is not None and profile.confirm_timeout is not None:
+    # Inject confirm_timeout from profile into simple readback confirmations.
+    # Command wrappers that bind `timeout` explicitly own that polling deadline.
+    if (effective_confirm is not None and profile.confirm_timeout is not None
+            and not _has_bound_keyword(effective_confirm, "timeout")):
         _inner = effective_confirm
         _timeout = profile.confirm_timeout
         effective_confirm = lambda c, _f=_inner, _t=_timeout: _f(c, timeout=_t)

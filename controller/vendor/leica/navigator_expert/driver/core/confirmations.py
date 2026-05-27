@@ -1096,8 +1096,8 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
 # Long-running confirm functions (own their polling loop)
 # =============================================================================
 
-def confirm_acquire(client, *, start_timeout=10.0, heartbeat_interval=30.0,
-                    timeout=None, poll_interval=0.01):
+def confirm_acquire(client, *, start_timeout=15.0, heartbeat_interval=30.0,
+                    timeout=None, poll_interval=0.1):
     """Poll until acquisition completes, or return False if scan never starts.
 
     Pure status-polling function: reads only, never fires. When the scan

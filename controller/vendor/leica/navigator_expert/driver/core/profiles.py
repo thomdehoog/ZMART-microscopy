@@ -194,6 +194,7 @@ IMAGE_FORMAT = _leica_setting_profile(
 OBJECTIVE = CommandProfile(
     confirm_fn=confirm_objective,
     max_confirm_attempts=1,
+    success_on_unconfirmed=True,
 )
 
 
@@ -336,7 +337,6 @@ ACQUIRE_SINGLE_IMAGE = CommandProfile(
 SELECT_JOB = CommandProfile(
     confirm_fn=confirm_select_job,
     max_confirm_attempts=3,
-    confirm_timeout=5.0,
     poll_interval=0.01,
-    poll_timeout=None,
+    poll_timeout=5.0,
 )
