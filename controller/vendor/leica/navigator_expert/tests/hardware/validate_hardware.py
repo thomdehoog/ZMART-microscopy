@@ -380,6 +380,13 @@ def _settings(drv: Any, client: Any, job_name: str) -> dict:
     return drv.make_changeable_copy(drv.get_job_settings(client, job_name))
 
 
+def _selected_job_name(drv: Any, client: Any) -> str | None:
+    """Return the currently selected LAS X job name, if LAS X reports one."""
+    jobs = drv.get_jobs(client)
+    selected = next((j for j in jobs if j.get("IsSelected")), None)
+    return selected["Name"] if selected else None
+
+
 def _pick_alt(current: Any, candidates: list) -> Any | None:
     """Return the first candidate that differs from current, or None."""
     for c in candidates:
@@ -418,6 +425,39 @@ def phase_readonly(drv: Any, v: Validator, client: Any,
                    lambda: _settings(drv, client, name),
                    context={"job": name})
         return name
+
+
+def phase_job_selection(drv: Any, v: Validator, client: Any,
+                        preferred_job: str) -> None:
+    """Reversible job-selection write: select alternate, verify, restore."""
+    with v.phase("job selection round-trip"):
+        jobs = v.callable("job selection: read jobs", lambda: drv.get_jobs(client))
+        if not jobs:
+            v.skip("job selection: round-trip", "no jobs returned")
+            return
+
+        names = [j["Name"] for j in jobs]
+        original = next(
+            (j["Name"] for j in jobs if j.get("IsSelected")), preferred_job)
+        target = preferred_job if preferred_job != original else _pick_alt(
+            original, names)
+        if target is None:
+            v.skip("job selection: round-trip", "need at least two jobs")
+            return
+
+        ctx = {"current": original, "target": target}
+        try:
+            v.command("job selection: select alternate",
+                      lambda: drv.select_job(client, target),
+                      context=ctx)
+            selected = v.callable("job selection: read alternate",
+                                  lambda: _selected_job_name(drv, client))
+            if selected is not None:
+                v.compare("job selection: selected alternate", selected, target)
+        finally:
+            v.command("job selection: restore",
+                      lambda: drv.select_job(client, original),
+                      context={"restore_to": original})
 
 
 def phase_settings(drv: Any, v: Validator, client: Any, job_name: str) -> None:
@@ -733,6 +773,8 @@ def main(argv: list[str] | None = None) -> int:
         if not _confirm_live_write(args):
             log.warning("aborted before live writes")
             return v.exit_code()
+
+        phase_job_selection(drv, v, client, job_name)
 
         if args.skip_settings:
             v.skip("phase: settings", "--skip-settings")
