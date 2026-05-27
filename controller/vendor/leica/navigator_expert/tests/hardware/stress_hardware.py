@@ -8,6 +8,9 @@ setup, laser/filter changes, and detector-gain mutation for fixed/
 photon-counting detectors. On HyD systems the detector-gain operation is
 expected to report SKIP whenever the detector exposes fixed photon-counting
 gain; that skip is part of the stress baseline, not a failed check.
+Template strip/restore and acquisition are deterministic one-shot steps,
+not random operations. Enable them explicitly when they are part of the
+stress run you want to execute.
 
 Use the Python mock for CI and fast refactor checks:
   python stress_hardware.py --mock --rounds 30 --cycles 4 --seed 1
@@ -17,6 +20,9 @@ Use LasxApi for the LAS X simulator or microscope:
 
 Stage and objective movement are opt-in:
   python stress_hardware.py --yes --allow-xy --allow-z --allow-objective
+
+Template and acquisition checks are also opt-in:
+  python stress_hardware.py --yes --allow-template-roundtrip --allow-acquire
 
 Every stress step emits one JSONL record with its operation, selected job,
 seed/cycle/round coordinates, timing, command confirmation, before/target/
@@ -33,12 +39,15 @@ import argparse
 import json
 import logging
 import random
+import shutil
 import statistics
 import sys
+import tempfile
 import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import validate_hardware as vh
 
@@ -113,6 +122,8 @@ class StressRecorder:
                 "exit_code": self.exit_code(),
                 "rounds": args.rounds,
                 "cycles": args.cycles,
+                "allow_template_roundtrip": args.allow_template_roundtrip,
+                "allow_acquire": args.allow_acquire,
                 "operation_stats": _operation_stats(self.records),
                 "cycle_stats": _cycle_stats(self.records),
             },
@@ -255,6 +266,10 @@ def _confirm_live_write(args: argparse.Namespace) -> bool:
         parts.append("Z-galvo moves")
     if args.allow_objective:
         parts.append("objective switches")
+    if args.allow_template_roundtrip:
+        parts.append("template strip/restore")
+    if args.allow_acquire:
+        parts.append("one acquisition")
     sys.stdout.write("LAS X session will receive randomized: ")
     sys.stdout.write(", ".join(parts) + ".\n")
     sys.stdout.write("Type 'yes' to continue: ")
@@ -303,12 +318,68 @@ def _pick_random_alt(rng: random.Random, current: Any, candidates: list[Any]) ->
     return rng.choice(alts)
 
 
+def _test_data_dir() -> Path:
+    return Path(__file__).resolve().parents[1] / "data"
+
+
+def _install_general_workflow(source_dir: Path, templates_dir: Path) -> None:
+    """Install one offline LRP/XML/RGN bundle under driver template filenames."""
+    from navigator_expert.driver.templates.files import (  # noqa: PLC0415
+        TEMPLATE_LRP,
+        TEMPLATE_RGN,
+        TEMPLATE_XML,
+    )
+
+    source_xml = next(source_dir.glob("*.xml"))
+    base = source_xml.stem
+    for suffix, target_name in (
+        (".xml", TEMPLATE_XML),
+        (".rgn", TEMPLATE_RGN),
+        (".lrp", TEMPLATE_LRP),
+    ):
+        shutil.copy2(source_dir / f"{base}{suffix}", templates_dir / target_name)
+
+
+@contextmanager
+def _template_environment(args: argparse.Namespace) -> Iterator[Path | None]:
+    """Provide a mock ScanningTemplates directory when no LAS X is present."""
+    if not args.mock:
+        yield None
+        return
+
+    import navigator_expert.driver.templates.strip_restore as strip_mod  # noqa: PLC0415
+
+    source = _test_data_dir() / "general_workflow"
+    if not source.is_dir():
+        raise FileNotFoundError(f"missing offline workflow data: {source}")
+
+    old_find = strip_mod.find_scanning_templates_dir
+    old_save = strip_mod.save_experiment
+    old_load = strip_mod.load_experiment
+    with tempfile.TemporaryDirectory(prefix="stress_template_") as tmp:
+        templates_dir = Path(tmp)
+        _install_general_workflow(source, templates_dir)
+        strip_mod.find_scanning_templates_dir = lambda: templates_dir
+        strip_mod.save_experiment = (
+            lambda *_args, **_kwargs: {"success": True, "confirmed": True}
+        )
+        strip_mod.load_experiment = (
+            lambda *_args, **_kwargs: {"success": True, "confirmed": True}
+        )
+        try:
+            yield templates_dir
+        finally:
+            strip_mod.find_scanning_templates_dir = old_find
+            strip_mod.save_experiment = old_save
+            strip_mod.load_experiment = old_load
+
+
 def _step(
     recorder: StressRecorder,
     *,
     args: argparse.Namespace,
-    cycle: int,
-    round_index: int,
+    cycle: int | None,
+    round_index: int | None,
     step_index: int,
     operation: str,
     job: str | None,
@@ -721,6 +792,73 @@ def op_objective(
     return status, "; ".join(m for m in messages if m), timing, driver_message, context
 
 
+def op_template_roundtrip(
+    drv: Any,
+    client: Any,
+    _job_name: str,
+    _rng: random.Random,
+    args: argparse.Namespace,
+) -> tuple[str, str, dict[str, Any] | None, str | None, dict[str, Any]]:
+    context: dict[str, Any] = {
+        "op_class": "template_strip_restore",
+        "backend": "mock_data" if args.mock else "lasx_scanning_templates",
+    }
+    status = "PASS"
+    messages: list[str] = []
+    timing: dict[str, Any] | None = None
+    try:
+        with _template_environment(args) as templates_dir:
+            if templates_dir is not None:
+                context["templates_dir"] = str(templates_dir)
+            strip_result = drv.strip_template(client, save_timeout=1 if args.mock else 120)
+            context["strip_result"] = strip_result
+            if strip_result and strip_result.get("success"):
+                timing = {"strip_s": strip_result.get("total_s")}
+            else:
+                status = "FAIL"
+                messages.append("strip_template failed")
+            try:
+                restore_result = drv.restore_template(client)
+            finally:
+                context["restore_attempted"] = True
+            context["restore_result"] = restore_result
+            if not restore_result or not restore_result.get("success"):
+                status = "FAIL"
+                messages.append("restore_template failed")
+            else:
+                if timing is None:
+                    timing = {}
+                timing["restore_s"] = restore_result.get("total_s")
+                if status == "PASS":
+                    messages.append(
+                        "strip/restore ok "
+                        f"fields={restore_result.get('fields')} "
+                        f"items={restore_result.get('items')} "
+                        f"focus={restore_result.get('focus')}"
+                    )
+                else:
+                    messages.append("restore_template succeeded after strip failure")
+    except Exception as exc:  # noqa: BLE001
+        return "FAIL", f"{type(exc).__name__}: {exc}", timing, None, context
+    return status, "; ".join(messages), timing, None, context
+
+
+def op_acquire_once(
+    drv: Any,
+    client: Any,
+    job_name: str,
+    _rng: random.Random,
+    _args: argparse.Namespace,
+) -> tuple[str, str, dict[str, Any] | None, str | None, dict[str, Any]]:
+    status, message, timing, driver_message = _driver_call(
+        lambda: drv.acquire(client, job_name)
+    )
+    return status, message, timing, driver_message, {
+        "op_class": "acquire_once",
+        "job": job_name,
+    }
+
+
 Operation = Callable[
     [Any, Any, str, random.Random, argparse.Namespace],
     tuple[str, str, dict[str, Any] | None, str | None, dict[str, Any]],
@@ -838,7 +976,7 @@ def _run_stress(
     job_name: str,
     recorder: StressRecorder,
     args: argparse.Namespace,
-) -> None:
+) -> int:
     rng = random.Random(args.seed)
     pool = _operation_pool(args)
     random_names = sorted(pool)
@@ -866,6 +1004,43 @@ def _run_stress(
                     drv, client, job_name, rng, args
                 ),
             )
+    return step_index
+
+
+def _run_terminal_steps(
+    drv: Any,
+    client: Any,
+    job_name: str,
+    recorder: StressRecorder,
+    args: argparse.Namespace,
+    *,
+    step_index: int,
+) -> None:
+    rng = random.Random(args.seed)
+    if args.allow_template_roundtrip:
+        step_index += 1
+        _step(
+            recorder,
+            args=args,
+            cycle=None,
+            round_index=None,
+            step_index=step_index,
+            operation="template_roundtrip",
+            job=job_name,
+            run=lambda: op_template_roundtrip(drv, client, job_name, rng, args),
+        )
+    if args.allow_acquire:
+        step_index += 1
+        _step(
+            recorder,
+            args=args,
+            cycle=None,
+            round_index=None,
+            step_index=step_index,
+            operation="acquire_once",
+            job=job_name,
+            run=lambda: op_acquire_once(drv, client, job_name, rng, args),
+        )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -894,6 +1069,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="include reversible Z moves in the random pool")
     parser.add_argument("--allow-objective", action="store_true",
                         help="include reversible objective switches in the random pool")
+    parser.add_argument("--allow-template-roundtrip", action="store_true",
+                        help="run one template strip/restore round-trip after random stress")
+    parser.add_argument("--allow-acquire", action="store_true",
+                        help="run one acquisition after random stress")
     parser.add_argument("--xy-delta-um", type=float, default=25.0)
     parser.add_argument("--z-delta-um", type=float, default=2.0)
     parser.add_argument("--output", default=None,
@@ -988,7 +1167,9 @@ def main(argv: list[str] | None = None) -> int:
             log.warning("aborted before live writes")
             return recorder.exit_code()
 
-        _run_stress(drv, client, job_name, recorder, args)
+        step_index = _run_stress(drv, client, job_name, recorder, args)
+        _run_terminal_steps(
+            drv, client, job_name, recorder, args, step_index=step_index)
     finally:
         recorder.summary(args=args)
 
