@@ -1,0 +1,74 @@
+"""Pytest gate for the hardware validator's mock backend.
+
+The canonical validation flow lives in ``validate_hardware.py`` so the
+same checks can run against the in-process mock, LAS X simulator, or
+real hardware. This pytest file keeps the mock-backed path in the
+regular test suite without duplicating the validator logic.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+_HERE = Path(__file__).resolve().parent
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+
+_HELPERS = _HERE.parent / "helpers"
+if str(_HELPERS) not in sys.path:
+    sys.path.insert(0, str(_HELPERS))
+
+import validate_hardware
+from mock_lasx_api import MockLasxClient, _SET_DISPATCH
+
+
+def test_validate_hardware_full_mock_run(tmp_path):
+    """Run the full reversible validation flow against the Python mock."""
+    output = tmp_path / "hardware_mock.jsonl"
+
+    exit_code = validate_hardware.main([
+        "--mock",
+        "--allow-xy",
+        "--allow-z",
+        "--allow-objective",
+        "--allow-acquire",
+        "--output",
+        str(output),
+    ])
+
+    assert exit_code == 0
+
+    records = [
+        json.loads(line)
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert records
+    assert records[-1]["name"] == "__summary__"
+    assert records[-1]["context"]["counts"]["FAIL"] == 0
+    assert records[-1]["context"]["counts"]["WARN"] == 0
+    assert records[-1]["context"]["counts"]["PASS"] >= 30
+
+    names = {record["name"] for record in records}
+    assert {
+        "stage config: load",
+        "stage limits: apply",
+        "settings: read",
+        "zoom: write alternate",
+        "frame_accumulation: write alternate",
+        "xy: move alternate",
+        "z: move alternate",
+        "objective: switch alternate",
+        "acquire: single",
+    } <= names
+
+
+def test_mock_set_dispatch_table_matches_surface():
+    """The mock's explicit PyApi command table must stay wired."""
+    mock = MockLasxClient(latency=0.0)
+
+    for command_name, handler_name in sorted(_SET_DISPATCH.items()):
+        assert hasattr(mock, command_name), command_name
+        assert callable(getattr(mock, handler_name)), handler_name
