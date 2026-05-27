@@ -328,10 +328,6 @@ def _connect(args: argparse.Namespace, MockClient: type,
     return client
 
 
-def _limit(cli_value: float | None, configured: float) -> float:
-    return configured if cli_value is None else cli_value
-
-
 def _apply_stage_limits(drv: Any, v: Validator, args: argparse.Namespace) -> bool:
     """Apply calibrated safety limits before any movement happens."""
     stage_cfg = v.callable(
@@ -347,14 +343,10 @@ def _apply_stage_limits(drv: Any, v: Validator, args: argparse.Namespace) -> boo
     try:
         lim = stage_cfg["limits_um"]
         limits = dict(
-            x_min=_limit(args.x_min, lim["x"][0]),
-            x_max=_limit(args.x_max, lim["x"][1]),
-            y_min=_limit(args.y_min, lim["y"][0]),
-            y_max=_limit(args.y_max, lim["y"][1]),
-            z_galvo_min=_limit(args.z_galvo_min, lim["z_galvo"][0]),
-            z_galvo_max=_limit(args.z_galvo_max, lim["z_galvo"][1]),
-            z_wide_min=_limit(args.z_wide_min, lim["z_wide"][0]),
-            z_wide_max=_limit(args.z_wide_max, lim["z_wide"][1]),
+            x_min=lim["x"][0], x_max=lim["x"][1],
+            y_min=lim["y"][0], y_max=lim["y"][1],
+            z_galvo_min=lim["z_galvo"][0], z_galvo_max=lim["z_galvo"][1],
+            z_wide_min=lim["z_wide"][0], z_wide_max=lim["z_wide"][1],
         )
     except (KeyError, TypeError, IndexError) as exc:
         v.fail("stage limits: apply", f"invalid stage configuration: {exc}")
@@ -386,6 +378,32 @@ def _selected_job_name(drv: Any, client: Any) -> str | None:
     jobs = drv.get_jobs(client)
     selected = next((j for j in jobs if j.get("IsSelected")), None)
     return selected["Name"] if selected else None
+
+
+def _range_error(value: float, lower: float, upper: float, label: str) -> str | None:
+    """Return an explanatory bounds error, or None when value is in range."""
+    if value < lower or value > upper:
+        return f"{label}={value} outside calibrated limits [{lower}, {upper}]"
+    return None
+
+
+def _xy_limit_error(x_um: float, y_um: float, limits: dict[str, float]) -> str | None:
+    """Return why an XY point is outside the calibrated stage envelope."""
+    return (
+        _range_error(x_um, limits["x_min"], limits["x_max"], "X")
+        or _range_error(y_um, limits["y_min"], limits["y_max"], "Y")
+    )
+
+
+def _z_limit_error(z_um: float, z_mode: str, limits: dict[str, float]) -> str | None:
+    """Return why a Z point is outside the calibrated stage envelope."""
+    if z_mode == "galvo":
+        return _range_error(
+            z_um, limits["z_galvo_min"], limits["z_galvo_max"], "Z galvo")
+    if z_mode == "zwide":
+        return _range_error(
+            z_um, limits["z_wide_min"], limits["z_wide_max"], "Z wide")
+    return f"unknown z_mode {z_mode!r}"
 
 
 def _pick_alt(current: Any, candidates: list) -> Any | None:
@@ -531,6 +549,26 @@ def phase_xy(drv: Any, v: Validator, client: Any,
             return
         x0, y0 = float(start["x_um"]), float(start["y_um"])
         x1, y1 = x0 + args.xy_delta_um, y0 + args.xy_delta_um
+        limits = drv.get_stage_limits()
+        start_error = _xy_limit_error(x0, y0, limits)
+        if start_error:
+            v.fail(
+                "xy: round-trip",
+                f"starting position outside limits: {start_error}. "
+                "Configure LAS X simulator/hardware inside the calibrated "
+                "envelope, or omit --allow-xy.",
+                context={"position": (x0, y0), "limits": limits},
+            )
+            return
+        target_error = _xy_limit_error(x1, y1, limits)
+        if target_error:
+            v.fail(
+                "xy: round-trip",
+                f"target position outside limits: {target_error}. "
+                "Use a smaller --xy-delta-um or reposition the stage.",
+                context={"from": (x0, y0), "to": (x1, y1), "limits": limits},
+            )
+            return
         ctx = {"from": (x0, y0), "to": (x1, y1)}
         try:
             v.command("xy: move alternate",
@@ -562,6 +600,26 @@ def phase_z(drv: Any, v: Validator, client: Any, job_name: str,
         z0_raw = ch.get("zPosition", {}).get("z-galvo")
         z0 = float(z0_raw) if isinstance(z0_raw, (int, float)) else 0.0
         z1 = z0 + args.z_delta_um
+        limits = drv.get_stage_limits()
+        start_error = _z_limit_error(z0, "galvo", limits)
+        if start_error:
+            v.fail(
+                "z: round-trip",
+                f"starting position outside limits: {start_error}. "
+                "Configure LAS X simulator/hardware inside the calibrated "
+                "envelope, or omit --allow-z.",
+                context={"position": z0, "limits": limits},
+            )
+            return
+        target_error = _z_limit_error(z1, "galvo", limits)
+        if target_error:
+            v.fail(
+                "z: round-trip",
+                f"target position outside limits: {target_error}. "
+                "Use a smaller --z-delta-um or reposition Z.",
+                context={"from": z0, "to": z1, "limits": limits},
+            )
+            return
         ctx = {"job": job_name, "from": z0, "to": z1}
         try:
             v.command("z: move alternate",
@@ -659,16 +717,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # Move deltas
     p.add_argument("--xy-delta-um", type=float, default=25.0)
     p.add_argument("--z-delta-um", type=float, default=2.0)
-
-    # Stage limits
-    p.add_argument("--x-min", type=float, default=None)
-    p.add_argument("--x-max", type=float, default=None)
-    p.add_argument("--y-min", type=float, default=None)
-    p.add_argument("--y-max", type=float, default=None)
-    p.add_argument("--z-galvo-min", type=float, default=None)
-    p.add_argument("--z-galvo-max", type=float, default=None)
-    p.add_argument("--z-wide-min", type=float, default=None)
-    p.add_argument("--z-wide-max", type=float, default=None)
 
     # Output + interaction
     p.add_argument("--output", default=None,
