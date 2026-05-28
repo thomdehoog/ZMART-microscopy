@@ -104,7 +104,9 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
 
     # 0.3 -- calibration + stage config + hardware
     calibration = calib.load_calibration()
-    stage_config = drv.load_stage_config()
+    stage_config = drv.load_stage_config(
+        limits_path=drv.default_stage_limits_path()
+    )
     hw = drv.get_hardware_info(client)
     if not hw:
         raise RuntimeError("drv.get_hardware_info returned nothing.")
@@ -122,22 +124,9 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
         raise FileNotFoundError(
             f"Config.analysis_repo does not exist: {analysis_repo}"
         )
-    if str(analysis_repo) not in sys.path:
-        sys.path.insert(0, str(analysis_repo))
+    _put_analysis_repo_first(analysis_repo)
 
-    try:
-        from workflows.target_acquisition.steps.pick_targets import (  # noqa: E402
-            SUPPORTS_NONE_NPICKS,
-        )
-        if not SUPPORTS_NONE_NPICKS:
-            raise RuntimeError
-    except (ImportError, AttributeError, RuntimeError):
-        raise RuntimeError(
-            f"smart-analysis at {analysis_repo} does not support n_picks=None. "
-            f"Update to the latest version."
-        )
-
-    from engine import Engine  # noqa: E402  -- imported after sys.path tweak
+    Engine = _analysis_engine_class(analysis_repo)
 
     engine = Engine()
 
@@ -425,3 +414,43 @@ def _run_smoke_test(engine: Any, timeout_s: float = 30.0) -> None:
         )
     else:
         print(f"[preflight smoke] ok ({len(drained)} result(s) drained)")
+
+
+def _analysis_engine_class(analysis_repo: Path):
+    """Import smart-analysis Engine from the configured analysis repo."""
+    _put_analysis_repo_first(analysis_repo)
+
+    import engine as engine_module  # noqa: E402
+
+    if not _module_file_is_under(engine_module, analysis_repo):
+        found = getattr(engine_module, "__file__", "<unknown>")
+        raise RuntimeError(
+            f"Imported engine from {found}, not from Config.analysis_repo "
+            f"{analysis_repo}."
+        )
+
+    try:
+        return engine_module.Engine
+    except AttributeError as exc:
+        raise RuntimeError(
+            f"smart-analysis engine package at {analysis_repo} has no Engine."
+        ) from exc
+
+
+def _put_analysis_repo_first(analysis_repo: Path) -> None:
+    """Make Config.analysis_repo the first import root for analysis modules."""
+    repo = str(analysis_repo)
+    sys.path[:] = [p for p in sys.path if p != repo]
+    sys.path.insert(0, repo)
+
+
+def _module_file_is_under(module: Any, root: Path) -> bool:
+    """True when a module was loaded from root or one of its children."""
+    filename = getattr(module, "__file__", None)
+    if not filename:
+        return False
+    try:
+        Path(filename).resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return False
+    return True

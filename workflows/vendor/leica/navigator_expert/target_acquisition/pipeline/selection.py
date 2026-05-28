@@ -502,7 +502,7 @@ def _filter_out_of_limits(
     calibration = limits.calibration
     stage_cfg = limits.stage_config
 
-    lim = limits.boundary_limits or {}
+    lim = limits.stage_limits or {}
     x_min = lim.get("x_min")
     x_max = lim.get("x_max")
     y_min = lim.get("y_min")

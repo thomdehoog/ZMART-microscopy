@@ -170,13 +170,13 @@ def _build_default_on_tile_callback(
     )
     hash6 = ctx.run.layout.hash6
     scan_field = ctx.scan_field
-    boundary_limits = ctx.boundary_limits
+    stage_limits = ctx.stage_limits
 
     def _on_tile(event: TileEvent) -> None:
         display_tile(
             event,
             scan_field=scan_field,
-            boundary_limits=boundary_limits,
+            boundary_limits=stage_limits,
             logs_dir=logs_dir,
             live_display=live_display,
             save_png=save_png,

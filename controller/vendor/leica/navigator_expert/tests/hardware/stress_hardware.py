@@ -1171,7 +1171,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--mock-latency", type=float, default=0.0,
                         help="per-command latency for --mock")
     parser.add_argument("--limits-config",
-                        help="limits JSON; default is current limits.json")
+                        help="limits JSON; default is limits/.../current.json")
     parser.add_argument("--rounds", type=int, default=30,
                         help="stress steps per cycle; first step is a job sweep")
     parser.add_argument("--cycles", type=int, default=4,

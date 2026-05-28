@@ -10,9 +10,9 @@ read_scan_field (Step 2): parse the scan field the operator drew,
 
 plot_scan_field: visualise tiles, boundary, and focus markers.
 
-Z-galvo is never commanded by this pipeline; we still pass
-the limits.json z-galvo envelope to drv.set_stage_limits because the
-API requires the values.
+Z-galvo is never commanded by this pipeline; drv.set_stage_limits still
+receives the z-galvo envelope from limits/.../current.json because the
+API requires all axes together.
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def prepare_template(ctx: Context) -> None:
     Limits priority:
       1. Boundary point markers in Navigator Expert (preferred).
          Marker-derived XY is clamped to the physical envelope from
-         limits.json with a printed report of any clamp.
+         limits/.../defaults.json with a printed report of any clamp.
       2. Explicit cfg.stage_x/y_min/max_um (escape hatch -- not
          surfaced in the notebook). Validated against the physical
          envelope; ValueError if any value falls outside.
@@ -92,7 +92,7 @@ def prepare_template(ctx: Context) -> None:
         if g.get("type") == "Point" and "center_um" in g
     ]
 
-    # --- Z limits always from physical envelope (limits.json) ---
+    # --- Z limits always from physical envelope (limits/.../defaults.json) ---
     z_galvo_min, z_galvo_max = stage_cfg["stage_um"]["z_galvo"]
     z_wide_min, z_wide_max = stage_cfg["stage_um"]["z_wide"]
 
@@ -122,35 +122,39 @@ def prepare_template(ctx: Context) -> None:
     else:
         # Defer: apply physical envelope so any intermediate move is
         # still bounded; Step 2 will narrow from the scan field.
-        drv.apply_stage_limits_from_config(stage_cfg)
-        actual = drv.get_stage_limits()
-        ctx.boundary_limits = None
+        actual = _write_and_apply_stage_limits(ctx, stage_cfg["stage_um"])
+        ctx.stage_limits_source = "defaults"
         print(
             "[step 2a] No boundary markers and no cfg XY fallback. "
-            "Applied physical envelope from limits.json:\n"
+            "Applied physical envelope from limits defaults:\n"
             f"  X: {actual['x_min']:.0f} - {actual['x_max']:.0f} um\n"
             f"  Y: {actual['y_min']:.0f} - {actual['y_max']:.0f} um\n"
             f"  z-wide: {actual['z_wide_min']:.0f} - {actual['z_wide_max']:.0f} um\n"
-            "Step 2 will narrow XY using the scan field."
+            "Step 2 will write current limits from the scan field."
         )
         _strip_and_enforce_zwide(ctx)
         return
 
-    drv.set_stage_limits(
-        x_min=x_min, x_max=x_max,
-        y_min=y_min, y_max=y_max,
-        z_galvo_min=z_galvo_min, z_galvo_max=z_galvo_max,
-        z_wide_min=z_wide_min, z_wide_max=z_wide_max,
+    actual = _write_and_apply_stage_limits(
+        ctx,
+        _stage_um_from_bounds(
+            x_min=x_min, x_max=x_max,
+            y_min=y_min, y_max=y_max,
+            z_galvo_min=z_galvo_min, z_galvo_max=z_galvo_max,
+            z_wide_min=z_wide_min, z_wide_max=z_wide_max,
+        ),
     )
-    actual = drv.get_stage_limits()
-    ctx.boundary_limits = actual
+    ctx.stage_limits_source = (
+        "boundary_markers" if boundary_points else "cfg_fallback"
+    )
 
     print(
         f"[step 2a] Stage limits from {source} "
-        f"(envelope from limits.json):\n"
+        f"(bounded by limits defaults; written to limits current):\n"
         f"  X: {actual['x_min']:.0f} - {actual['x_max']:.0f} um\n"
         f"  Y: {actual['y_min']:.0f} - {actual['y_max']:.0f} um\n"
-        f"  z-wide: {z_wide_min:.0f} - {z_wide_max:.0f} um (from limits.json)"
+        f"  z-wide: {z_wide_min:.0f} - {z_wide_max:.0f} um "
+        "(from limits defaults)"
     )
 
     _strip_and_enforce_zwide(ctx)
@@ -216,7 +220,7 @@ def read_scan_field(ctx: Context) -> None:
     n_tiles = sum(len(r["positions"]) for r in tile_positions.values())
 
     # If Step 1 deferred XY limits, narrow from the scan field now
-    if ctx.boundary_limits is None:
+    if ctx.stage_limits_source == "defaults":
         stage_cfg = ctx.stage_config
         z_galvo_min, z_galvo_max = stage_cfg["stage_um"]["z_galvo"]
         z_wide_min, z_wide_max = stage_cfg["stage_um"]["z_wide"]
@@ -237,14 +241,17 @@ def read_scan_field(ctx: Context) -> None:
             x_min, x_max, y_min, y_max, stage_cfg,
         )
 
-        drv.set_stage_limits(
-            x_min=x_min, x_max=x_max,
-            y_min=y_min, y_max=y_max,
-            z_galvo_min=z_galvo_min, z_galvo_max=z_galvo_max,
-            z_wide_min=z_wide_min, z_wide_max=z_wide_max,
+        _write_and_apply_stage_limits(
+            ctx,
+            _stage_um_from_bounds(
+                x_min=x_min, x_max=x_max,
+                y_min=y_min, y_max=y_max,
+                z_galvo_min=z_galvo_min, z_galvo_max=z_galvo_max,
+                z_wide_min=z_wide_min, z_wide_max=z_wide_max,
+            ),
         )
-        ctx.boundary_limits = drv.get_stage_limits()
-        print("[step 2b] Stage limits narrowed from scan field.")
+        ctx.stage_limits_source = "scan_field"
+        print("[step 2b] Stage limits narrowed from scan field and written to limits current.")
 
     ctx.scan_field = {
         "template_data": template_data,
@@ -271,26 +278,22 @@ def plot_stage_envelope(ctx: Context) -> None:
     has drawn a scan field in Navigator Expert.
 
     Envelope source:
-      - If `ctx.boundary_limits` is set (boundary markers or cfg
-        fallback path), draw that. Title says "boundary".
-      - Else (deferred-limits path: no markers, no cfg fallback),
-        re-fetch the physical envelope via `drv.get_stage_limits()`.
-        prepare_template applied stage_cfg's physical limits in that
-        branch; Step 2b will later narrow them from the scan field.
-        Title says "physical envelope".
+      - Draws `ctx.stage_limits`, the active working envelope written
+        to limits/.../current.json and applied through the driver.
+      - If this cell is called before prepare_template, re-fetch the
+        current driver limits as a defensive fallback.
     """
     import matplotlib.pyplot as plt
 
     from .visualize import render_scan_field_panel
 
-    if ctx.boundary_limits is not None:
-        envelope = ctx.boundary_limits
-        title = "Stage envelope (boundary)"
+    if ctx.stage_limits is not None:
+        envelope = ctx.stage_limits
+        source = ctx.stage_limits_source or "current"
+        title = f"Stage envelope ({source})"
     else:
-        # Deferred path. The physical envelope was applied by
-        # prepare_template but not stashed on ctx; re-fetch.
         envelope = drv.get_stage_limits()
-        title = "Stage envelope (physical, no boundary set)"
+        title = "Stage envelope (driver current)"
 
     from .visualize import (
         _FRAME_ASPECT, _FRAME_WIDTH_IN,
@@ -349,7 +352,7 @@ def plot_scan_field(ctx: Context) -> None:
 
     template_data = ctx.scan_field["template_data"]
     tile_positions = ctx.scan_field["tile_positions"]
-    lim = ctx.boundary_limits
+    lim = ctx.stage_limits
 
     fig = plt.figure(
         figsize=(_FRAME_WIDTH_IN, _FRAME_WIDTH_IN / _FRAME_ASPECT),
@@ -605,6 +608,37 @@ def _wait_for_file_stable(
         except OSError:
             pass
         time.sleep(poll_interval)
+
+
+def _stage_um_from_bounds(
+    *,
+    x_min: float,
+    x_max: float,
+    y_min: float,
+    y_max: float,
+    z_galvo_min: float,
+    z_galvo_max: float,
+    z_wide_min: float,
+    z_wide_max: float,
+) -> dict[str, list[float]]:
+    return {
+        "x": [float(x_min), float(x_max)],
+        "y": [float(y_min), float(y_max)],
+        "z_galvo": [float(z_galvo_min), float(z_galvo_max)],
+        "z_wide": [float(z_wide_min), float(z_wide_max)],
+    }
+
+
+def _write_and_apply_stage_limits(
+    ctx: Context,
+    stage_um: dict[str, Any],
+) -> dict:
+    """Write limits current, reload via driver, apply, and return readback."""
+    drv.write_stage_limits_config(stage_um)
+    ctx.stage_config = drv.load_stage_config()
+    drv.apply_stage_limits_from_config(ctx.stage_config)
+    ctx.stage_limits = drv.get_stage_limits()
+    return ctx.stage_limits
 
 
 def _clamp_xy_to_envelope(

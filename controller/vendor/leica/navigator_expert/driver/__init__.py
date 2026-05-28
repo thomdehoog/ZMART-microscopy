@@ -124,7 +124,8 @@ __all__ = [
     "connect_python_client", "require_canonical_scan_orientation",
     "disable_roi_scan",
     "LIMITS_SCHEMA_VERSION", "CALIBRATION_SCHEMA_VERSION",
-    "load_stage_config",
+    "current_stage_limits_path", "default_stage_limits_path",
+    "load_stage_config", "write_stage_limits_config",
     # acquisition (driver-first API)
     "start_run", "acquire_and_save", "RunHandle", "SavedAcquisition",
 ]
@@ -183,7 +184,10 @@ from .stage.limits import (
 from .stage.movement import correct_backlash, move_xy_with_backlash
 from .stage.config import (
     LIMITS_SCHEMA_VERSION, CALIBRATION_SCHEMA_VERSION,
+    current_path as current_stage_limits_path,
+    defaults_path as default_stage_limits_path,
     load as load_stage_config,
+    write_limits as write_stage_limits_config,
 )
 
 # ── templates/ — LRP/XML/RGN file operations ──────────────────────

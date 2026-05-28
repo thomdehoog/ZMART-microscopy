@@ -1,18 +1,28 @@
-"""Load stage safety limits and calibrated backlash parameters.
+"""Load and write Leica stage limit state.
 
-The source files live in
-``calibration/vendor/leica/navigator_expert/current/``:
+Stage limits are configured safety/working limits, not calibration
+measurements. They live beside calibration files because both describe
+the current Leica machine state.
 
-- ``limits.json`` contains hard safety limits under ``stage_um``.
-- ``calibration.json`` contains the measured ``backlash`` block.
+``limits/vendor/leica/navigator_expert/defaults.json`` contains the configured
+physical envelope for the microscope.
 
-The driver API returns ``{"stage_um": ..., "backlash": ...}``, matching
-the current calibration schema.
+``limits/vendor/leica/navigator_expert/current.json`` contains the active
+working envelope. The target-acquisition notebook updates this file from
+boundary markers or scan-field geometry before applying limits.
+
+``current/calibration.json`` contains measured calibration state, including
+the backlash block consumed by motion helpers.
+
+The loader reads ``limits/.../current.json`` by default and never falls back to
+``limits/.../defaults.json``. Resetting current from defaults is an explicit
+operator action.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -29,10 +39,23 @@ _REQUIRED_BACKLASH = (
 )
 
 
-def current_root() -> Path:
-    repo_root = Path(__file__).resolve().parents[6]
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[6]
+
+
+def limits_root() -> Path:
     return (
-        repo_root
+        _repo_root()
+        / "limits"
+        / "vendor"
+        / "leica"
+        / "navigator_expert"
+    )
+
+
+def calibration_current_root() -> Path:
+    return (
+        _repo_root()
         / "calibration"
         / "vendor"
         / "leica"
@@ -41,19 +64,35 @@ def current_root() -> Path:
     )
 
 
-def default_path() -> Path:
+def current_path() -> Path:
     """Path to the current limits config."""
-    return current_root() / "limits.json"
+    return limits_root() / "current.json"
+
+
+def defaults_path() -> Path:
+    """Path to the configured physical-envelope baseline."""
+    return limits_root() / "defaults.json"
 
 
 def default_calibration_path() -> Path:
     """Path to the current calibration config."""
-    return current_root() / "calibration.json"
+    return calibration_current_root() / "calibration.json"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(str(tmp), str(path))
 
 
 def _validate_limits(limits: dict[str, Any], *, path: Path) -> dict[str, list[float]]:
@@ -121,8 +160,10 @@ def load(
     limits_path: str | Path | None = None,
     calibration_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Load the current stage safety limits and calibrated backlash."""
-    selected_limits = Path(limits_path) if limits_path is not None else default_path()
+    """Load active stage limits and calibrated backlash."""
+    selected_limits = (
+        Path(limits_path) if limits_path is not None else current_path()
+    )
     selected_calibration = (
         Path(calibration_path) if calibration_path is not None
         else default_calibration_path()
@@ -135,3 +176,20 @@ def load(
         "stage_um": limits,
         "backlash": backlash,
     }
+
+
+def write_limits(
+    stage_um: dict[str, Any],
+    path: str | Path | None = None,
+) -> Path:
+    """Write a stage limits file after validating the canonical schema."""
+    selected = Path(path) if path is not None else current_path()
+    limits = _validate_limits(stage_um, path=selected)
+    _atomic_write_json(
+        selected,
+        {
+            "schema_version": LIMITS_SCHEMA_VERSION,
+            "stage_um": limits,
+        },
+    )
+    return selected

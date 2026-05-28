@@ -83,7 +83,7 @@ def _make_limits() -> LimitsContext:
     return LimitsContext(
         calibration=minimal_calibration(source_slot=1, target_slot=1),
         stage_config={"stage_um": {"z_wide": (-1e6, 1e6)}},
-        boundary_limits=None,    # no XY box -> all picks survive
+        stage_limits=None,       # no XY box -> all picks survive
         source_slot=1,
         target_slot=1,            # identity translation
     )

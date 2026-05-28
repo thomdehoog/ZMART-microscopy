@@ -850,7 +850,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--mock-latency", type=float, default=0.0,
                    help="per-command latency for --mock (seconds)")
     p.add_argument("--limits-config",
-                   help="limits JSON; default is current limits.json")
+                   help="limits JSON; default is limits/.../current.json")
 
     # Phase gates
     p.add_argument("--read-only", action="store_true",

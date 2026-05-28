@@ -93,7 +93,7 @@ Done:
   `workflows/vendor/leica/navigator_expert/examples/`. Anything
   still useful from the spikes can be pulled from git history.
 - ✅ Moved `smart_microscopy_v2.ipynb` to
-  `workflows/vendor/leica/navigator_expert/target_acquisition/notebook.ipynb` — the
+  `workflows/vendor/leica/navigator_expert/target_acquisition/smart_microscopy_v3.2.ipynb` — the
   notebook lives inside the package as a subfolder, keeping the
   repo root free of notebook clutter (`5b32460` → relocated later
   this session).

@@ -84,7 +84,7 @@ class FocusMap:
             raise RuntimeError("Call read_scan_field before focus_map.plot.")
 
         tile_positions = ctx.scan_field["tile_positions"]
-        lim = ctx.boundary_limits
+        lim = ctx.stage_limits
 
         if not tile_positions:
             print("[focus] No tiles to plot.")

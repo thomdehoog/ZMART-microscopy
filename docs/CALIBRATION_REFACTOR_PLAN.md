@@ -55,9 +55,9 @@ Four concerns motivated the rework:
 
 Listed in priority order. Subsequent decisions inherit from these.
 
-1. **Hard safety = `limits.json`.** Anything the driver refuses to do at
+1. **Hard safety = `limits/.../current.json`.** Anything the driver refuses to do at
    the call site (out-of-range moves, future intensity ceilings, etc.)
-   lives in `limits.json`. The driver enforces these before firing.
+   lives in `limits/.../current.json`. The driver enforces these before firing.
    Limits are *configured*, not measured.
 
 2. **Measured state = `calibration.json`.** Anything determined
@@ -90,8 +90,8 @@ Listed in priority order. Subsequent decisions inherit from these.
 
 7. **Backlash is calibrated, not configured.** Even though it's a
    stage-motion parameter, it's *measured*, so it lives in
-   `calibration.json` next to the other measured state. `limits.json`
-   stays pure safety.
+   `calibration.json` next to the other measured state. `limits/.../current.json`
+   stays pure configured safety.
 
 8. **Migration is explicit, not implicit.** Reading config never mutates
    files. A separate `migrate_current_calibration.py` script (or
@@ -103,13 +103,21 @@ Listed in priority order. Subsequent decisions inherit from these.
 
 ## 3. Target state
 
-### 3.1. File layout (in the vendor's current/ dir)
+### 3.1. File layout
 
 ```
-calibration/vendor/leica/navigator_expert/current/
-+-- calibration.json    optical calibration + backlash; schema v11
-+-- limits.json         safety limits only; schema v1 (renamed from stage.json)
+calibration/vendor/leica/navigator_expert/
++-- current/
+|   +-- calibration.json    optical calibration + backlash; schema v11
+
+limits/vendor/leica/navigator_expert/
++-- defaults.json           configured physical microscope envelope; schema v1
++-- current.json            active working envelope used by the driver; schema v1
 ```
+
+The driver reads `limits/.../current.json` by default. Target acquisition
+starts from `limits/.../defaults.json`, narrows to the run envelope, writes
+`limits/.../current.json`, then applies that through the driver.
 
 ### 3.2. `calibration.json` schema v11
 
@@ -189,7 +197,7 @@ translation_um[2] = v9.offset_z_um + v9.shift_z_um
 
 Reference entry: all four v9 fields are zero, so `translation_um = [0, 0, 0]`.
 
-### 3.4. `limits.json` schema v1
+### 3.4. `limits/.../current.json` schema v1
 
 ```json
 {
@@ -217,11 +225,11 @@ and exposes the current schema directly:
 # driver/stage/config.py
 def load_stage_config(*, limits_path: Path | None = None,
                       calibration_path: Path | None = None) -> dict:
-    """Read limits.json + calibration.json's backlash block.
+    """Read limits current + current/calibration.json's backlash block.
 
     Returns:
         {
-            "stage_um": <from limits.json["stage_um"]>,
+            "stage_um": <from limits/.../current.json["stage_um"]>,
             "backlash": <from calibration.json["backlash"]>,
         }
     """
@@ -377,7 +385,7 @@ schema, it logs "already current" and exits 0.
      If they disagree -> abort with a clear error and write nothing.
 3. Bump `schema_version` to 11; refresh `last_updated` to the migration timestamp.
 4. Atomic-write new `calibration.json`.
-5. Write `limits.json` containing
+5. Write `limits/vendor/leica/navigator_expert/current.json` containing
    `{"schema_version": 1, "stage_um": <old stage.json["limits_um"]>}`
    (note: rename old `limits_um` -> current `stage_um` to match the
    extensibility convention).
@@ -514,7 +522,8 @@ Tasks:
    `adopt_calibration`, `.promotion.log` -> `.adopt.log`.
 6. Update notebooks to write v11 and use "adopt" cell headings.
 7. Update the driver's stage-config loader per section 3.5: read limits from
-   `limits.json`, backlash from `calibration.json["backlash"]`, and
+   `limits/vendor/leica/navigator_expert/current.json`, backlash from
+   `calibration.json["backlash"]`, and
    return the current shape (`{"stage_um": ..., "backlash": ...}`).
 8. Backlash consumer audit per section 3.5: confirm every production caller
    passes `stage_cfg["backlash"]` through, document the function-signature
@@ -530,7 +539,8 @@ Tasks:
     section 4.3.
 13. Run the migration script against the repo's current
     `calibration.json` and commit the resulting v11 `calibration.json`
-    + `limits.json` (and the deletion of `stage.json`) in the same PR
+    + `limits/vendor/leica/navigator_expert/current.json` (and the
+    deletion of `stage.json`) in the same PR
     so reviewers can see the actual data transformation. Git history
     on the migration commit IS the backup; no `.bak` files committed.
 
@@ -550,7 +560,7 @@ Tasks:
 
 Acceptance: same suite as PR #1.
 
-### PR #3 (optional, later) -- `limits.json` extensions
+### PR #3 (optional, later) -- limits schema extensions
 
 Only when a real need surfaces. Don't speculate. Plausible additions
 when the use case arrives:
@@ -627,7 +637,9 @@ These are the decisions explicitly deferred to implementation:
 - Schema v11 in place.
 - Single `calibration.json` (with backlash) at
   `calibration/vendor/leica/navigator_expert/current/calibration.json`.
-- Clean `limits.json` at the sibling path.
+- Clean `limits/vendor/leica/navigator_expert/current.json`.
+- `limits/vendor/leica/navigator_expert/defaults.json` contains the configured
+  physical microscope envelope.
 - `migrate_current_calibration.py` is the only thing that writes the
   schema bump. `load_calibration()` raises on old schemas.
 - `core/adopt.py` (renamed from `core/promotion.py`).
@@ -642,5 +654,5 @@ of translation math; vendor package exports `calibration_path()` /
 `limits_path()`; workflow imports shortened. Same green suites.
 
 **PR #3 (if it lands)** -> at least one new safety category in
-`limits.json` (probably per-objective z) actively prevents a real
+the limits schema (probably per-objective z) actively prevents a real
 misconfiguration the current global-only floor doesn't catch.

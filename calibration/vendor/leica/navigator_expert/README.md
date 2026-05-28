@@ -21,10 +21,19 @@ notebook for each objective pair that the scope should support.
 
 ## Current State
 
-The adopted machine state lives here:
+The adopted calibration state lives here:
 
 - `current/calibration.json` stores adopted optical calibration and backlash.
-- `current/limits.json` stores hard stage safety limits.
+
+Configured stage limits are not calibration measurements. They live in the
+top-level `limits/vendor/leica/navigator_expert/` tree:
+
+- `defaults.json` stores the configured physical microscope envelope.
+- `current.json` stores the active working envelope used by the driver.
+
+Target-acquisition boundary markers define a run-specific sample area inside
+the physical envelope. The notebook writes that active working envelope to
+`limits/vendor/leica/navigator_expert/current.json`.
 
 Notebook sessions should write data, reports, and staging configs under an
 operator-selected sessions root. Those session artifacts are runtime data;
@@ -35,4 +44,5 @@ they are not source files and should not be committed.
 - `core/` contains low-level calibration internals.
 - `notebooks/` contains the operator UI.
 
-Runtime code reads only the adopted files under `calibration/vendor/leica/navigator_expert/current/`.
+Runtime code reads only the adopted files under
+`calibration/vendor/leica/navigator_expert/current/`.
