@@ -55,10 +55,11 @@ Four concerns motivated the rework:
 
 Listed in priority order. Subsequent decisions inherit from these.
 
-1. **Hard safety = `limits/.../current.json`.** Anything the driver refuses to do at
-   the call site (out-of-range moves, future intensity ceilings, etc.)
-   lives in `limits/.../current.json`. The driver enforces these before firing.
-   Limits are *configured*, not measured.
+1. **Hard safety = `limits/.../defaults.json`.** Anything the driver refuses
+   by default (out-of-range moves, future intensity ceilings, etc.) lives in
+   the configured physical envelope. Target acquisition may narrow that
+   envelope for one run and record it in `limits/.../current.json`, but callers
+   must request that file explicitly. Limits are *configured*, not measured.
 
 2. **Measured state = `calibration.json`.** Anything determined
    empirically from the instrument (optical translations between
@@ -90,8 +91,8 @@ Listed in priority order. Subsequent decisions inherit from these.
 
 7. **Backlash is calibrated, not configured.** Even though it's a
    stage-motion parameter, it's *measured*, so it lives in
-   `calibration.json` next to the other measured state. `limits/.../current.json`
-   stays pure configured safety.
+   `calibration.json` next to the other measured state. Limit files stay pure
+   configured safety.
 
 8. **Migration is explicit, not implicit.** Reading config never mutates
    files. A separate `migrate_current_calibration.py` script (or
@@ -112,12 +113,13 @@ calibration/vendor/leica/navigator_expert/
 
 limits/vendor/leica/navigator_expert/
 +-- defaults.json           configured physical microscope envelope; schema v1
-+-- current.json            active working envelope used by the driver; schema v1
++-- current.json            last active working envelope; schema v1
 ```
 
-The driver reads `limits/.../current.json` by default. Target acquisition
-starts from `limits/.../defaults.json`, narrows to the run envelope, writes
-`limits/.../current.json`, then applies that through the driver.
+The driver reads `limits/.../defaults.json` by default. Target acquisition
+starts from that physical envelope, narrows to the run envelope, writes
+`limits/.../current.json` with a `source` field, then explicitly reloads
+`current.json` before applying it.
 
 ### 3.2. `calibration.json` schema v11
 
@@ -202,6 +204,7 @@ Reference entry: all four v9 fields are zero, so `translation_um = [0, 0, 0]`.
 ```json
 {
   "schema_version": 1,
+  "source": "defaults | boundary_markers | cfg_fallback | scan_field | migration",
   "stage_um": {
     "x":       [<x_min>, <x_max>],
     "y":       [<y_min>, <y_max>],
@@ -212,31 +215,33 @@ Reference entry: all four v9 fields are zero, so `translation_um = [0, 0, 0]`.
 ```
 
 Flat schema. The file name already says "limits" -- no need to nest
-under a `"limits"` key. Future extensions (per-objective z, laser
+under a `"limits"` key. `source` is provenance for humans and logs, not a
+runtime branch. Future extensions (per-objective z, laser
 intensity caps, detector gain ceiling, acquisition duration bounds, max
 single-XY step) add as top-level keys when needed.
 
 ### 3.5. Driver stage-config API after the split
 
-After PR #1, the driver stage-config API reads the split current files
-and exposes the current schema directly:
+After PR #1, the driver stage-config API reads the split limits and
+calibration files and exposes the current schema directly:
 
 ```python
 # driver/stage/config.py
 def load_stage_config(*, limits_path: Path | None = None,
                       calibration_path: Path | None = None) -> dict:
-    """Read limits current + current/calibration.json's backlash block.
+    """Read limits + current/calibration.json's backlash block.
 
     Returns:
         {
-            "stage_um": <from limits/.../current.json["stage_um"]>,
+            "stage_um": <from selected limits file["stage_um"]>,
             "backlash": <from calibration.json["backlash"]>,
         }
     """
 ```
 
-No compatibility mapping is kept. Consumers read `stage_cfg["stage_um"]`
-for limits and `stage_cfg["backlash"]` for backlash.
+No compatibility mapping is kept. With no `limits_path`, the driver reads
+`limits/.../defaults.json`. Consumers read `stage_cfg["stage_um"]` for limits
+and `stage_cfg["backlash"]` for backlash.
 
 **Backlash consumer audit (required as part of PR #1):**
 

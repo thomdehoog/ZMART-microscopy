@@ -20,6 +20,7 @@ TARGET_CALIBRATION_SCHEMA = 11
 TARGET_LIMITS_SCHEMA = 1
 SOURCE_CALIBRATION_SCHEMA = 9
 SOURCE_STAGE_SCHEMA = 1
+LIMITS_SOURCE_MIGRATION = "migration"
 
 
 def current_root() -> Path:
@@ -62,6 +63,8 @@ def _is_current_limits(limits_path: Path) -> bool:
     return (
         limits.get("schema_version") == TARGET_LIMITS_SCHEMA
         and isinstance(limits.get("stage_um"), dict)
+        and isinstance(limits.get("source"), str)
+        and bool(limits.get("source"))
     )
 
 
@@ -158,6 +161,7 @@ def build_limits_v1(stage_v1: dict[str, Any]) -> dict[str, Any]:
         )
     return {
         "schema_version": TARGET_LIMITS_SCHEMA,
+        "source": LIMITS_SOURCE_MIGRATION,
         "stage_um": stage_v1["limits_um"],
     }
 

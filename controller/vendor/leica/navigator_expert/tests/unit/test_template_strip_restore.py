@@ -75,3 +75,44 @@ def test_strip_restore_round_trip_preserves_offline_workflow(
     assert not (templates_dir / STRIPPED_XML).exists()
     assert not (templates_dir / STRIPPED_RGN).exists()
     assert not (templates_dir / STRIPPED_LRP).exists()
+
+
+def test_strip_template_in_place_has_no_sidecar_or_restore(
+    general_workflow_data,
+    monkeypatch,
+):
+    """The non-return strip keeps PythonInspect canonical and removes sidecars."""
+    templates_dir = general_workflow_data
+    _install_template_bundle(general_workflow_data, templates_dir)
+
+    monkeypatch.setattr(
+        strip_restore, "find_scanning_templates_dir", lambda: templates_dir)
+    monkeypatch.setattr(
+        strip_restore, "save_experiment",
+        lambda *_args, **_kwargs: {"success": True, "confirmed": True},
+    )
+    monkeypatch.setattr(
+        strip_restore, "load_experiment",
+        lambda *_args, **_kwargs: {"success": True, "confirmed": True},
+    )
+
+    # Stale sidecars from a previous reversible strip must not define
+    # state after the in-place routine takes ownership of the canonical
+    # template.
+    for name in (STRIPPED_XML, STRIPPED_RGN, STRIPPED_LRP):
+        (templates_dir / name).write_text("stale", encoding="utf-8")
+
+    xml_path = templates_dir / TEMPLATE_XML
+    rgn_path = templates_dir / TEMPLATE_RGN
+    original_counts = strip_restore._count_objects(xml_path, rgn_path)
+    assert original_counts[1] > 0
+
+    result = strip_restore.strip_template_in_place(object(), save_timeout=1)
+
+    assert result is not None
+    assert result["success"] is True
+    assert strip_restore._count_objects(xml_path, rgn_path) == (0, 0, 0)
+    assert (templates_dir / TEMPLATE_LRP).is_file()
+    assert not (templates_dir / STRIPPED_XML).exists()
+    assert not (templates_dir / STRIPPED_RGN).exists()
+    assert not (templates_dir / STRIPPED_LRP).exists()

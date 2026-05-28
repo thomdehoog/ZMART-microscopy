@@ -26,7 +26,12 @@ Three file types, three parser groups:
     ``diff_lrp`` compares two parsed LRP structures.
 
 ``parse_template_positions`` is the main entry point that combines
-all parsers into a single result dict.
+all parsers into a single result dict. LAS X may store tile centres in
+``<ScanFieldData>`` or store only a region shape plus grid counts. The
+parser handles both canonical representations. When XML has no
+job-associated tile centres, LAS X per-geometry tile-count tags are
+preferred over global MatrixData counts; MatrixData is a fallback for
+templates without geometry counts.
 
 All functions are pure (no side effects, no API calls except the
 optional ``client`` parameter in ``parse_template_positions`` for
@@ -44,6 +49,12 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from .planning import (
+    has_lasx_tile_count_tags,
+    infer_overlap_pct_from_geometry_counts,
+    plan_tiles_from_geometries,
+)
 
 log = logging.getLogger(__name__)
 
@@ -314,6 +325,146 @@ def parse_acquisition_positions(xml_root, job_tile_sizes, skip_jobs=None):
         regions_out[str(gi)] = region_entry
 
     return regions_out
+
+
+# =============================================================================
+# Tile positions from RGN geometry + MatrixData
+# =============================================================================
+
+def _axis_grid(min_um, max_um, count):
+    """Return evenly spaced coordinates including both bounds."""
+    if count <= 0:
+        return []
+    if count == 1:
+        return [round((min_um + max_um) / 2.0, 4)]
+    step = (max_um - min_um) / (count - 1)
+    return [round(min_um + i * step, 4) for i in range(count)]
+
+
+def _geometry_bbox(geom):
+    """Return ``(x_min, y_min, x_max, y_max)`` for a parsed geometry."""
+    bb = geom.get("bounding_box_um")
+    if bb:
+        return (
+            bb["x_min_um"], bb["y_min_um"],
+            bb["x_max_um"], bb["y_max_um"],
+        )
+
+    vertices = geom.get("vertices_um", [])
+    if not vertices:
+        return None
+    xs = [v["x_um"] for v in vertices]
+    ys = [v["y_um"] for v in vertices]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _region_job_name(geom, job_tile_sizes, default_job_name):
+    """Choose the job label for a geometry-derived region."""
+    candidates = [
+        geom.get("label"),
+        geom.get("tag"),
+        default_job_name,
+        UNASSIGNED_JOB,
+    ]
+    for candidate in candidates:
+        if candidate and candidate in job_tile_sizes:
+            return candidate
+    return default_job_name or UNASSIGNED_JOB
+
+
+def _derive_positions_from_geometry_grid(
+    geometries, matrix_settings, job_tile_sizes, *, default_job_name=None,
+):
+    """Derive tile centres from LAS X region geometry and grid counts.
+
+    Matrix Screener can persist a rectangular scan field as an RGN geometry plus
+    ``MatrixData/CountOfData`` without writing individual
+    ``<ScanFieldData>`` entries. In that shape the RGN/XML pair is the
+    authoritative source: the region geometry gives the envelope and
+    ``ScanFieldsX/Y`` gives the grid cardinality.
+    """
+    count = matrix_settings.get("count") or {}
+    n_cols = count.get("scanFieldsX")
+    n_rows = count.get("scanFieldsY")
+    if not n_cols or not n_rows:
+        return {}
+
+    regions = {}
+    region_index = 0
+    for geom_id, geom in geometries.items():
+        if geom.get("type") != "Rectangle":
+            log.debug(
+                "Skipping non-Rectangle geometry %r (type=%s); only "
+                "Rectangle scan-field derivation is supported",
+                geom_id,
+                geom.get("type"),
+            )
+            continue
+
+        bbox = _geometry_bbox(geom)
+        if bbox is None:
+            continue
+        x_min, y_min, x_max, y_max = bbox
+        xs = _axis_grid(float(x_min), float(x_max), int(n_cols))
+        ys = _axis_grid(float(y_min), float(y_max), int(n_rows))
+        if not xs or not ys:
+            continue
+
+        job_name = _region_job_name(geom, job_tile_sizes, default_job_name)
+        tile_size = job_tile_sizes.get(job_name)
+        half = tile_size / 2.0 if tile_size is not None else 0.0
+
+        positions = []
+        for row, y_um in enumerate(ys):
+            for col, x_um in enumerate(xs):
+                order = row * len(xs) + col
+                entry = {
+                    "acquisition_order": order,
+                    "row": row,
+                    "col": col,
+                    "x_um": x_um,
+                    "y_um": y_um,
+                    "z_um": 0.0,
+                    "scan_order_original": order + 1,
+                    "rotation": matrix_settings.get("fieldRotation"),
+                    "source": "rgn_matrix",
+                }
+                if tile_size is not None:
+                    entry["bounding_box"] = {
+                        "x_min_um": round(x_um - half, 4),
+                        "y_min_um": round(y_um - half, 4),
+                        "x_max_um": round(x_um + half, 4),
+                        "y_max_um": round(y_um + half, 4),
+                    }
+                positions.append(entry)
+
+        region = {
+            "section_x": 0,
+            "section_y": region_index,
+            "region_row": region_index,
+            "region_col": 0,
+            "job_name": job_name,
+            "tile_size_um": round(tile_size, 4) if tile_size is not None else None,
+            "num_tiles": len(positions),
+            "num_rows": len(ys),
+            "num_cols": len(xs),
+            "geometry_id": geom_id,
+            "source": "rgn_matrix",
+            "positions": positions,
+        }
+        if tile_size is not None:
+            ax = [p["x_um"] for p in positions]
+            ay = [p["y_um"] for p in positions]
+            region["region_bounding_box"] = {
+                "x_min_um": round(min(ax) - half, 4),
+                "y_min_um": round(min(ay) - half, 4),
+                "x_max_um": round(max(ax) + half, 4),
+                "y_max_um": round(max(ay) + half, 4),
+            }
+        regions[str(region_index)] = region
+        region_index += 1
+
+    return regions
 
 
 # =============================================================================
@@ -770,6 +921,13 @@ def parse_matrix_settings(xml_root):
         if rot is not None:
             result["fieldRotation"] = rot
 
+    overlap = xml_root.find(".//ArrayFilledRandom/FilledData/"
+                            "MosaicOverlapInPercent")
+    if overlap is not None:
+        value = _to_float(overlap.text)
+        if value is not None:
+            result["mosaicOverlapPct"] = value
+
     return result
 
 
@@ -778,7 +936,8 @@ def parse_matrix_settings(xml_root):
 # =============================================================================
 
 def parse_template_positions(templates_dir, template_base, *,
-                             client=None, tile_size_um=None):
+                             client=None, tile_size_um=None,
+                             default_job_name=None, overlap_pct=None):
     """Parse all position data from a scanning template.
 
     Tile sizes are resolved in priority order:
@@ -796,6 +955,11 @@ def parse_template_positions(templates_dir, template_base, *,
             (e.g. ``"{ScanningTemplate}_PythonInspect"``).
         client: Optional live LAS X CAM client for tile size queries.
         tile_size_um: Optional manual tile size in um.
+        default_job_name: Job to use for geometry-derived scan fields
+            when the XML contains only unassigned placeholders.
+        overlap_pct: Optional manual overlap for geometry-derived scan
+            fields. If omitted, LAS X geometry count labels are used to
+            infer the overlap when possible.
 
     Returns:
         Dict with::
@@ -816,6 +980,8 @@ def parse_template_positions(templates_dir, template_base, *,
     xml_root = ET.parse(xml_path).getroot() if xml_path.is_file() else None
 
     job_names = _get_job_names(lrp_path) if lrp_path.is_file() else []
+    if default_job_name is not None and default_job_name not in job_names:
+        job_names.append(default_job_name)
 
     job_tile_sizes = {}
 
@@ -827,16 +993,13 @@ def parse_template_positions(templates_dir, template_base, *,
         for jn in job_names:
             if jn not in job_tile_sizes:
                 job_tile_sizes[jn] = tile_size_um
+        if default_job_name is not None and default_job_name not in job_tile_sizes:
+            job_tile_sizes[default_job_name] = tile_size_um
         if UNASSIGNED_JOB not in job_tile_sizes:
             job_tile_sizes[UNASSIGNED_JOB] = tile_size_um
 
     if UNASSIGNED_JOB not in job_tile_sizes and job_tile_sizes:
         job_tile_sizes[UNASSIGNED_JOB] = next(iter(job_tile_sizes.values()))
-
-    acquisition_positions = {}
-    if xml_root is not None:
-        acquisition_positions = parse_acquisition_positions(
-            xml_root, job_tile_sizes)
 
     base_grid = parse_base_grid(rgn_path) if rgn_path.is_file() else []
     focus_points, autofocus_points = (
@@ -847,6 +1010,22 @@ def parse_template_positions(templates_dir, template_base, *,
         parse_rgn_tile_colors(rgn_path) if rgn_path.is_file() else {})
     matrix_settings = (
         parse_matrix_settings(xml_root) if xml_root is not None else {})
+
+    acquisition_positions = {}
+    if xml_root is not None:
+        acquisition_positions = parse_acquisition_positions(
+            xml_root, job_tile_sizes)
+    only_unassigned = _only_unassigned_positions(acquisition_positions)
+
+    if not acquisition_positions or only_unassigned:
+        acquisition_positions = _derive_missing_acquisition_positions(
+            geometries,
+            base_grid,
+            matrix_settings,
+            job_tile_sizes,
+            default_job_name=default_job_name,
+            overlap_pct=overlap_pct,
+        )
 
     return {
         "acquisition_positions": acquisition_positions,
@@ -860,6 +1039,90 @@ def parse_template_positions(templates_dir, template_base, *,
             "job_tile_sizes": job_tile_sizes,
         },
     }
+
+
+def _only_unassigned_positions(acquisition_positions):
+    """Return whether parsed XML positions are all unassigned placeholders."""
+    if not acquisition_positions:
+        return False
+    return all(
+        region.get("job_name") == UNASSIGNED_JOB
+        for region in acquisition_positions.values()
+    )
+
+
+def _derive_missing_acquisition_positions(
+    geometries,
+    base_grid,
+    matrix_settings,
+    job_tile_sizes,
+    *,
+    default_job_name,
+    overlap_pct=None,
+):
+    """Derive positions when XML lacks job-associated scan fields."""
+    if default_job_name is not None and has_lasx_tile_count_tags(geometries):
+        return _plan_positions_from_geometries(
+            geometries,
+            base_grid,
+            matrix_settings,
+            job_tile_sizes,
+            default_job_name=default_job_name,
+            overlap_pct=overlap_pct,
+        )
+
+    matrix_positions = _derive_positions_from_geometry_grid(
+        geometries,
+        matrix_settings,
+        job_tile_sizes,
+        default_job_name=default_job_name,
+    )
+    if matrix_positions:
+        return matrix_positions
+
+    if default_job_name is not None:
+        return _plan_positions_from_geometries(
+            geometries,
+            base_grid,
+            matrix_settings,
+            job_tile_sizes,
+            default_job_name=default_job_name,
+            overlap_pct=overlap_pct,
+        )
+    return {}
+
+
+def _plan_positions_from_geometries(
+    geometries,
+    base_grid,
+    matrix_settings,
+    job_tile_sizes,
+    *,
+    default_job_name,
+    overlap_pct=None,
+):
+    """Plan acquisition positions from RGN geometry for one job."""
+    tile_size = job_tile_sizes.get(default_job_name)
+    if tile_size is None and job_tile_sizes:
+        tile_size = next(iter(job_tile_sizes.values()))
+    if tile_size is None:
+        return {}
+
+    fallback_overlap = matrix_settings.get("mosaicOverlapPct", 5.0)
+    overlap = (
+        float(overlap_pct)
+        if overlap_pct is not None
+        else infer_overlap_pct_from_geometry_counts(
+            geometries, tile_size, fallback=fallback_overlap,
+        )
+    )
+    return plan_tiles_from_geometries(
+        geometries,
+        tile_size,
+        base_grid=base_grid,
+        overlap_pct=overlap,
+        job_name=default_job_name,
+    )
 
 
 # =============================================================================

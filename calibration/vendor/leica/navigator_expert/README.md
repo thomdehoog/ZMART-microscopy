@@ -29,7 +29,8 @@ Configured stage limits are not calibration measurements. They live in the
 top-level `limits/vendor/leica/navigator_expert/` tree:
 
 - `defaults.json` stores the configured physical microscope envelope.
-- `current.json` stores the active working envelope used by the driver.
+- `current.json` stores the last active working envelope written by target
+  acquisition, including the source that produced it.
 
 Target-acquisition boundary markers define a run-specific sample area inside
 the physical envelope. The notebook writes that active working envelope to

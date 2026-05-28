@@ -410,6 +410,20 @@ def figsize_for_extent(
     return (long_inches, short) if width_um >= height_um else (short, long_inches)
 
 
+def figure_geometry_for_stage_limits(
+    lim: dict | None,
+) -> tuple[tuple[float, float], float]:
+    """Return figure size and data aspect for a stage-envelope plot."""
+    if not lim:
+        return (_FRAME_WIDTH_IN, _FRAME_WIDTH_IN / _FRAME_ASPECT), _FRAME_ASPECT
+
+    width_um = float(lim["x_max"] - lim["x_min"])
+    height_um = float(lim["y_max"] - lim["y_min"])
+    if width_um <= 0 or height_um <= 0:
+        return (_FRAME_WIDTH_IN, _FRAME_WIDTH_IN / _FRAME_ASPECT), _FRAME_ASPECT
+    return figsize_for_extent(width_um, height_um), width_um / height_um
+
+
 # ─── Live display (during acquisition) ───────────────────────────
 
 

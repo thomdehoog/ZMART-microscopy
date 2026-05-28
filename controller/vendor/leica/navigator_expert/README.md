@@ -423,7 +423,7 @@ calibration/vendor/leica/navigator_expert/
 
 limits/vendor/leica/navigator_expert/
 ├── defaults.json            # configured physical microscope envelope
-└── current.json             # active working envelope used by the driver
+└── current.json             # last active working envelope
 ```
 
 ### Dependency DAG

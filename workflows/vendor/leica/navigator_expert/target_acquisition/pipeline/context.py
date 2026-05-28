@@ -135,7 +135,7 @@ class Context:
     # Defaulted fields (populated during or after preflight):
     current_job: str = ""                     # "" forces first ensure_job_state to run
     stage_limits: dict | None = None          # active working envelope
-    stage_limits_source: str | None = None    # boundary_markers/cfg/scan_field/defaults
+    stage_limits_source: str | None = None    # driver LIMITS_SOURCE_* value
     scan_field: dict | None = None            # set in Step 2
 
     # Preflight telemetry (consumed by summary.json later)
