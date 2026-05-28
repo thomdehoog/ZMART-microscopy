@@ -321,12 +321,7 @@ def run_overview(
             )
 
             try:
-                tx, ty, tz = calib.translate_xyz_between_objectives(
-                    x_um, y_um, zwide_um, ctx.calibration,
-                    from_slot=ctx.source_slot,
-                    to_slot=ctx.source_slot,
-                )
-                acquire(ctx, cfg.acquisition_job, tx, ty, tz)
+                acquire(ctx, cfg.acquisition_job, x_um, y_um, zwide_um)
                 naming = Naming(
                     acquisition_type="overview-scan",
                     hash6=ctx.run.layout.hash6,
