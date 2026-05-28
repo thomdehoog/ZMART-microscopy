@@ -1,6 +1,7 @@
 """Unit tests for the split stage safety/backlash loader."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -59,6 +60,38 @@ def test_load_combines_limits_and_calibrated_backlash(tmp_path):
     }
 
 
+def test_limits_paths_are_separate_from_calibration_state():
+    repo_root = Path(__file__).resolve().parents[6]
+    current_limits = (
+        repo_root
+        / "limits"
+        / "vendor"
+        / "leica"
+        / "navigator_expert"
+        / "current.json"
+    )
+    default_limits = current_limits.with_name("defaults.json")
+    calibration = (
+        repo_root
+        / "calibration"
+        / "vendor"
+        / "leica"
+        / "navigator_expert"
+        / "current"
+        / "calibration.json"
+    )
+
+    assert stage_config.current_path() == current_limits
+    assert stage_config.defaults_path() == default_limits
+    assert stage_config.default_calibration_path() == calibration
+    assert current_limits.exists()
+    assert default_limits.exists()
+    assert calibration.exists()
+    assert json.loads(default_limits.read_text(encoding="utf-8"))[
+        "schema_version"
+    ] == 1
+
+
 def test_load_requires_limits_schema_name(tmp_path):
     legacy_shaped_limits = tmp_path / "limits.json"
     calibration = tmp_path / "calibration.json"
@@ -93,6 +126,31 @@ def test_load_requires_limits_schema_name(tmp_path):
             limits_path=legacy_shaped_limits,
             calibration_path=calibration,
         )
+
+
+def test_write_limits_validates_and_writes_current_shape(tmp_path):
+    path = tmp_path / "current.json"
+
+    written = stage_config.write_limits(
+        {
+            "x": [10, 20],
+            "y": [30, 40],
+            "z_galvo": [-2, 2],
+            "z_wide": [0, 100],
+        },
+        path=path,
+    )
+
+    assert written == path
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "stage_um": {
+            "x": [10.0, 20.0],
+            "y": [30.0, 40.0],
+            "z_galvo": [-2.0, 2.0],
+            "z_wide": [0.0, 100.0],
+        },
+    }
 
 
 def test_load_requires_complete_backlash_block(tmp_path):

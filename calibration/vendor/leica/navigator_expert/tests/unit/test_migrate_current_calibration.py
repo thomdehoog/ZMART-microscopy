@@ -36,7 +36,16 @@ def _copy_current_v9(tmp_path: Path) -> Path:
         # stage fixture from limits/backlash so the migration test still
         # pins the conversion function.
         calibration = json.loads((current / "calibration.json").read_text())
-        limits = json.loads((current / "limits.json").read_text())
+        limits = json.loads(
+            (
+                _repo_root()
+                / "limits"
+                / "vendor"
+                / "leica"
+                / "navigator_expert"
+                / "current.json"
+            ).read_text()
+        )
         (dst / "stage.json").write_text(
             json.dumps({
                 "schema_version": 1,
@@ -56,6 +65,10 @@ def _copy_current_v9(tmp_path: Path) -> Path:
             encoding="utf-8",
         )
     return dst
+
+
+def _limits_path(tmp_path: Path) -> Path:
+    return tmp_path / "limits" / "vendor" / "leica" / "navigator_expert" / "current.json"
 
 
 def _source_v9_fixture() -> dict:
@@ -134,13 +147,14 @@ def test_build_v11_calibration_pins_translation_triples():
 def test_migrate_writes_v11_limits_and_removes_stage_json(tmp_path):
     migration = _load_migration_module()
     root = _copy_current_v9(tmp_path)
+    limits_path = _limits_path(tmp_path)
 
-    result = migration.migrate(root)
+    result = migration.migrate(root, limits_path=limits_path)
 
     assert "Migrated to v11" in result["status"]
     assert not (root / "stage.json").exists()
     calibration = json.loads((root / "calibration.json").read_text())
-    limits = json.loads((root / "limits.json").read_text())
+    limits = json.loads(limits_path.read_text())
     assert calibration["schema_version"] == 11
     assert limits == {
         "schema_version": 1,
@@ -152,13 +166,14 @@ def test_migrate_writes_v11_limits_and_removes_stage_json(tmp_path):
         },
     }
 
-    second = migration.migrate(root)
+    second = migration.migrate(root, limits_path=limits_path)
     assert second["status"] == "already current"
 
 
 def test_migrate_recovers_v11_calibration_missing_limits(tmp_path):
     migration = _load_migration_module()
     root = _copy_current_v9(tmp_path)
+    limits_path = _limits_path(tmp_path)
 
     calibration = migration.build_v11_calibration(
         _source_v9_fixture(),
@@ -170,11 +185,11 @@ def test_migrate_recovers_v11_calibration_missing_limits(tmp_path):
         encoding="utf-8",
     )
 
-    result = migration.migrate(root)
+    result = migration.migrate(root, limits_path=limits_path)
 
     assert "Recovered v11 calibration" in result["status"]
     assert not (root / "stage.json").exists()
-    limits = json.loads((root / "limits.json").read_text())
+    limits = json.loads(limits_path.read_text())
     assert limits["schema_version"] == 1
     assert "stage_um" in limits
 
@@ -182,6 +197,7 @@ def test_migrate_recovers_v11_calibration_missing_limits(tmp_path):
 def test_migrate_v11_missing_limits_without_stage_is_clear(tmp_path):
     migration = _load_migration_module()
     root = _copy_current_v9(tmp_path)
+    limits_path = _limits_path(tmp_path)
 
     calibration = migration.build_v11_calibration(
         _source_v9_fixture(),
@@ -194,5 +210,5 @@ def test_migrate_v11_missing_limits_without_stage_is_clear(tmp_path):
     )
     (root / "stage.json").unlink()
 
-    with pytest.raises(FileNotFoundError, match="limits.json is missing"):
-        migration.migrate(root)
+    with pytest.raises(FileNotFoundError, match="current limits are missing"):
+        migration.migrate(root, limits_path=limits_path)

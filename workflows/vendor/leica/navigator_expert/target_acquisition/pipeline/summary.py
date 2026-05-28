@@ -101,6 +101,10 @@ def write_summary(
             "source_zgalvo_warning": ctx.source_zgalvo_warning,
             "cellpose_env_present": ctx.cellpose_env_present,
         },
+        "stage_limits": {
+            "source": ctx.stage_limits_source,
+            "active": ctx.stage_limits,
+        },
         "overview": {
             "n_tiles_planned": overview.n_tiles_planned,
             "n_tiles_submitted": overview.n_tiles_submitted,
@@ -197,7 +201,7 @@ def plot_results(
         return
 
     tile_positions = ctx.scan_field["tile_positions"]
-    lim = ctx.boundary_limits
+    lim = ctx.stage_limits
 
     fig, ax = plt.subplots(figsize=(_FRAME_WIDTH_IN, 10))
     fig.patch.set_facecolor("white")

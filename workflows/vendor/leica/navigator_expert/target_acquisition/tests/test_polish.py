@@ -13,8 +13,8 @@ revert it:
       Pins that the parameter scales axis padding linearly. A pass
       that hardcoded 0.05 again would fail this test.
 
-  plot_stage_envelope dispatch (boundary set + deferred-fallback)
-      Pins that the function uses ctx.boundary_limits when set and
+  plot_stage_envelope dispatch (stage limits set + driver fallback)
+      Pins that the function uses ctx.stage_limits when set and
       falls back to drv.get_stage_limits() when None. The fallback
       keeps Step 2a working on the deferred-limits path.
 
@@ -131,10 +131,11 @@ def test_render_scan_field_panel_padding_factor_scales_linearly():
 # ─── plot_stage_envelope dispatch ─────────────────────────────────
 
 
-def _envelope_ctx(out_dir: Path, *, boundary_limits):
+def _envelope_ctx(out_dir: Path, *, stage_limits):
     ctx = mock.MagicMock()
     ctx.out_dir = out_dir
-    ctx.boundary_limits = boundary_limits
+    ctx.stage_limits = stage_limits
+    ctx.stage_limits_source = "test" if stage_limits is not None else None
     # plot_stage_envelope saves into logs_dir("initialization") and is
     # @_logged-decorated (tees console output into the same dir) --
     # point logs_dir at the real tmp dir so both savefig and the tee
@@ -143,8 +144,8 @@ def _envelope_ctx(out_dir: Path, *, boundary_limits):
     return ctx
 
 
-def test_plot_stage_envelope_with_boundary(tmp_path, monkeypatch):
-    """Happy path: ctx.boundary_limits set -> drawn directly, no
+def test_plot_stage_envelope_with_stage_limits(tmp_path, monkeypatch):
+    """Happy path: ctx.stage_limits set -> drawn directly, no
     driver fallback call.
     """
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
@@ -152,7 +153,7 @@ def test_plot_stage_envelope_with_boundary(tmp_path, monkeypatch):
     import navigator_expert.driver as drv
 
     boundary = {"x_min": 0.0, "x_max": 1000.0, "y_min": 0.0, "y_max": 800.0}
-    ctx = _envelope_ctx(tmp_path, boundary_limits=boundary)
+    ctx = _envelope_ctx(tmp_path, stage_limits=boundary)
 
     with mock.patch.object(drv, "get_stage_limits") as get_limits:
         plot_stage_envelope(ctx)
@@ -162,7 +163,7 @@ def test_plot_stage_envelope_with_boundary(tmp_path, monkeypatch):
 
 
 def test_plot_stage_envelope_falls_back_to_driver(tmp_path, monkeypatch):
-    """Deferred path: ctx.boundary_limits=None -> drv.get_stage_limits()
+    """Fallback path: ctx.stage_limits=None -> drv.get_stage_limits()
     is called and its return value is used as the envelope. The
     function must not raise on this path.
     """
@@ -170,7 +171,7 @@ def test_plot_stage_envelope_falls_back_to_driver(tmp_path, monkeypatch):
     from pipeline.template import plot_stage_envelope
     import navigator_expert.driver as drv
 
-    ctx = _envelope_ctx(tmp_path, boundary_limits=None)
+    ctx = _envelope_ctx(tmp_path, stage_limits=None)
     physical = {"x_min": -500.0, "x_max": 500.0, "y_min": -400.0, "y_max": 400.0}
 
     with mock.patch.object(drv, "get_stage_limits", return_value=physical) as get_limits:
@@ -181,6 +182,53 @@ def test_plot_stage_envelope_falls_back_to_driver(tmp_path, monkeypatch):
 
 
 # ─── scatter two-layer invariant ─────────────────────────────────
+
+
+def test_stage_limit_update_writes_loads_and_applies_current(monkeypatch):
+    """The workflow updates limits current through the driver before use."""
+    from pipeline import template as template_mod
+
+    ctx = mock.MagicMock()
+    stage_um = {
+        "x": [10.0, 20.0],
+        "y": [30.0, 40.0],
+        "z_galvo": [-2.0, 2.0],
+        "z_wide": [0.0, 100.0],
+    }
+    loaded_cfg = {"stage_um": stage_um, "backlash": {"session_id": "b1"}}
+    active = {
+        "x_min": 10.0, "x_max": 20.0,
+        "y_min": 30.0, "y_max": 40.0,
+        "z_galvo_min": -2.0, "z_galvo_max": 2.0,
+        "z_wide_min": 0.0, "z_wide_max": 100.0,
+    }
+    calls = []
+
+    def _write(payload):
+        calls.append(("write", payload))
+
+    def _load():
+        calls.append(("load", None))
+        return loaded_cfg
+
+    def _apply(cfg):
+        calls.append(("apply", cfg))
+
+    monkeypatch.setattr(template_mod.drv, "write_stage_limits_config", _write)
+    monkeypatch.setattr(template_mod.drv, "load_stage_config", _load)
+    monkeypatch.setattr(template_mod.drv, "apply_stage_limits_from_config", _apply)
+    monkeypatch.setattr(template_mod.drv, "get_stage_limits", lambda: active)
+
+    result = template_mod._write_and_apply_stage_limits(ctx, stage_um)
+
+    assert result == active
+    assert ctx.stage_config == loaded_cfg
+    assert ctx.stage_limits == active
+    assert calls == [
+        ("write", stage_um),
+        ("load", None),
+        ("apply", loaded_cfg),
+    ]
 
 
 def test_scatter_layers_other_then_selected():
@@ -256,7 +304,7 @@ def test_plot_results_skips_picks_without_records(tmp_path, monkeypatch):
                   "positions": [{"row": 0, "col": 0, "x_um": 0.0, "y_um": 0.0}]},
         },
     }
-    ctx.boundary_limits = None
+    ctx.stage_limits = None
     focus_map = mock.MagicMock()
 
     captured: list[dict] = []

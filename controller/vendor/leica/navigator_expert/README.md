@@ -416,10 +416,14 @@ controller/vendor/leica/navigator_expert/
 └── tests/                   # offline driver tests and immutable test data
 
 calibration/vendor/leica/navigator_expert/
-├── current/                 # adopted measured state: calibration.json, limits.json
+├── current/                 # adopted measured state: calibration.json
 ├── core/                    # calibration model + notebook implementation
 ├── notebooks/               # operator calibration notebooks
 └── tests/                   # calibration unit/integration tests
+
+limits/vendor/leica/navigator_expert/
+├── defaults.json            # configured physical microscope envelope
+└── current.json             # active working envelope used by the driver
 ```
 
 ### Dependency DAG

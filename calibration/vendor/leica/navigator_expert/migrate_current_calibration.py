@@ -1,9 +1,10 @@
 """Explicit migration for Leica Navigator Expert current calibration files.
 
 This script converts the current v9 ``calibration.json`` plus v1
-``stage.json`` pair into v11 ``calibration.json`` plus v1
-``limits.json``. Loading calibration data never performs this migration
-implicitly; run this script as an intentional source-tree change.
+``stage.json`` pair into v11 ``current/calibration.json`` plus v1
+``limits/vendor/leica/navigator_expert/current.json``. Loading calibration
+data never performs this migration implicitly; run this script as an
+intentional source-tree change.
 """
 
 from __future__ import annotations
@@ -23,6 +24,15 @@ SOURCE_STAGE_SCHEMA = 1
 
 def current_root() -> Path:
     return Path(__file__).resolve().parent / "current"
+
+
+def limits_root() -> Path:
+    repo_root = Path(__file__).resolve().parents[4]
+    return repo_root / "limits" / "vendor" / "leica" / "navigator_expert"
+
+
+def current_limits_path() -> Path:
+    return limits_root() / "current.json"
 
 
 def now_timestamp() -> str:
@@ -152,21 +162,26 @@ def build_limits_v1(stage_v1: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def migrate(root: Path | None = None) -> dict[str, Path | str]:
+def migrate(
+    root: Path | None = None,
+    limits_path: Path | None = None,
+) -> dict[str, Path | str]:
     """Migrate ``root`` and return paths plus a status string."""
     root = Path(root) if root is not None else current_root()
     calibration_path = root / "calibration.json"
     stage_path = root / "stage.json"
-    limits_path = root / "limits.json"
+    selected_limits_path = (
+        Path(limits_path) if limits_path is not None else current_limits_path()
+    )
 
     calibration = _read_json(calibration_path)
-    if _is_target_state(calibration, limits_path):
+    if _is_target_state(calibration, selected_limits_path):
         if stage_path.exists():
             stage_path.unlink()
         return {
             "status": "already current",
             "calibration_path": calibration_path,
-            "limits_path": limits_path,
+            "limits_path": selected_limits_path,
         }
 
     version = calibration.get("schema_version")
@@ -174,20 +189,20 @@ def migrate(root: Path | None = None) -> dict[str, Path | str]:
         if not stage_path.exists():
             raise FileNotFoundError(
                 "calibration.json is already v"
-                f"{TARGET_CALIBRATION_SCHEMA}, but limits.json is missing "
+                f"{TARGET_CALIBRATION_SCHEMA}, but current limits are missing "
                 f"or invalid and {stage_path} is not available to rebuild it."
             )
         stage = _read_json(stage_path)
         limits = build_limits_v1(stage)
-        _atomic_write_json(limits_path, limits)
+        _atomic_write_json(selected_limits_path, limits)
         stage_path.unlink()
         return {
             "status": (
                 f"Recovered v{TARGET_CALIBRATION_SCHEMA} calibration by "
-                "writing limits.json and removing stage.json."
+                "writing current limits and removing stage.json."
             ),
             "calibration_path": calibration_path,
-            "limits_path": limits_path,
+            "limits_path": selected_limits_path,
         }
 
     if version != SOURCE_CALIBRATION_SCHEMA:
@@ -206,7 +221,7 @@ def migrate(root: Path | None = None) -> dict[str, Path | str]:
     migrated = build_v11_calibration(calibration, stage)
     limits = build_limits_v1(stage)
 
-    _atomic_write_json(limits_path, limits)
+    _atomic_write_json(selected_limits_path, limits)
     _atomic_write_json(calibration_path, migrated)
     stage_path.unlink()
 
@@ -219,7 +234,7 @@ def migrate(root: Path | None = None) -> dict[str, Path | str]:
             f"Reference: slot {ref_slot} ({ref_name})."
         ),
         "calibration_path": calibration_path,
-        "limits_path": limits_path,
+        "limits_path": selected_limits_path,
     }
 
 

@@ -59,6 +59,13 @@ def _build_ctx_like(out_dir: Path, *, scan_field=None):
     ctx.source_zgalvo_um = 0.0
     ctx.source_zgalvo_warning = False
     ctx.cellpose_env_present = True
+    ctx.stage_limits_source = "test"
+    ctx.stage_limits = {
+        "x_min": 0.0, "x_max": 1000.0,
+        "y_min": 0.0, "y_max": 1000.0,
+        "z_galvo_min": -2.0, "z_galvo_max": 2.0,
+        "z_wide_min": 0.0, "z_wide_max": 100.0,
+    }
     from pipeline.context import TargetState
     ctx.target_state = TargetState()
     return ctx
@@ -273,7 +280,7 @@ class TestSelectionJsonStrictness:
         limits = LimitsContext(
             calibration=minimal_calibration(source_slot=1, target_slot=1),
             stage_config={"stage_um": {"z_wide": (-1e6, 1e6)}},
-            boundary_limits=None,
+            stage_limits=None,
             source_slot=1,
             target_slot=1,
         )

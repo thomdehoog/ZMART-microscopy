@@ -70,7 +70,7 @@ class TestBuildDefaultOnTileCallback:
 
         ctx = MagicMock(name="ctx")
         ctx.scan_field = "fake_scan_field_dict"
-        ctx.boundary_limits = "fake_limits_dict"
+        ctx.stage_limits = "fake_limits_dict"
         ctx.run.layout.logs_dir.return_value = Path("/fake/logs")
 
         from pipeline.overview import _build_default_on_tile_callback
