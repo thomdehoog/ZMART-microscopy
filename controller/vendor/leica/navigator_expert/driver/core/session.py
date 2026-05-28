@@ -23,7 +23,9 @@ def connect_python_client(client_name: str = "PythonClient") -> Any:
     Raises ``ConnectionError`` if the connect call returns False, or
     ``RuntimeError`` if the subsequent ping fails.
     """
-    from LasxApi import PYLICamApiConnector as _lasx_api  # type: ignore
+    # LAS X ships as a workstation-only Python/.NET package, so static
+    # analysis on development machines cannot resolve this import.
+    from LasxApi import PYLICamApiConnector as _lasx_api  # type: ignore[import-not-found]
     client = _lasx_api.LasxApiClientPyModel
     if not client.Connect(client_name):
         raise ConnectionError("Cannot connect to LAS X. Is it running?")

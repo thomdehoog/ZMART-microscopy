@@ -434,7 +434,7 @@ def display_tile(
         in batch mode where only the saved PNG matters.
     logs_dir: per-acquisition-type logs/ dir the PNG is saved into.
     hash6: run hash, used to build the canonical PNG name; without it
-        (or without event.position) the legacy R/r/c name is used.
+        (or without event.position) a pick-address name is used.
     save_png: when False, skip fig.savefig even if logs_dir is set.
         With save_png=False and live_display=False the call is no-op
         rendering (figure built and closed without side effects);
@@ -1592,44 +1592,26 @@ def _load_tile_by_key(
 
 class TileNpz(NamedTuple):
     """Result of _load_tile_npz. `position` is the flat tile index
-    ("Position N"); None for a pre-`position` NPZ. A NamedTuple so the
-    field can be added without disturbing index-access callers.
-
-    ``simulated`` is the only dry-run signal here. Older NPZs without
-    ``simulated`` are handled by ``_load_tile_npz``'s load-boundary
-    back-compat -- by the time TileNpz is built, ``simulated`` is
-    authoritative regardless of NPZ vintage."""
+    ("Position N"). ``simulated`` is the only dry-run signal here."""
     image_2d: np.ndarray
     masks: np.ndarray
     tile_id: tuple
-    position: int | None
+    position: int
     simulated: bool = False
 
 
 def _load_tile_npz(path: Path):
     """Load a tile analysis npz. Returns a TileNpz or None.
 
-    Current NPZs carry a ``simulated`` boolean and this loader reads it
-    directly. Older NPZs may carry ``analysis_image_source`` without a
-    ``simulated`` key; in that case, anything other than ``"acquired"``
-    is treated as a mock run. New consumers should read ``simulated``
-    directly.
+    Current NPZs carry explicit ``position`` and ``simulated`` fields.
     """
     try:
         data = np.load(path, allow_pickle=True)
         image_2d = data["image_2d"]
         masks = data["masks"]
         tile_id = tuple(str(x) for x in data["tile_id"])
-        position = (
-            int(data["position"]) if "position" in data.files else None
-        )
-        if "simulated" in data.files:
-            simulated = bool(data["simulated"])
-        elif "analysis_image_source" in data.files:
-            # Older NPZ: derive simulated from the dropped field.
-            simulated = str(data["analysis_image_source"]) != "acquired"
-        else:
-            simulated = False
+        position = int(data["position"])
+        simulated = bool(data["simulated"])
         return TileNpz(image_2d, masks, tile_id, position, simulated)
     except Exception as exc:
         print(f"[visualize] WARNING: skipping {path.name}: {exc}")
@@ -1643,7 +1625,7 @@ def _normalize_tile_key(key: tuple) -> tuple[str, ...]:
 
 def _position_label(position) -> str:
     """Operator-facing 'Position N' fragment. 'Position unknown' for a
-    pick / tile loaded from a pre-`position` NPZ (back-compat)."""
+    failed target or manually constructed record without a position."""
     return (
         f"Position {position}" if position is not None
         else "Position unknown"
@@ -1653,8 +1635,8 @@ def _position_label(position) -> str:
 def _format_tile_label(rid, position) -> str:
     """Operator-facing tile id for figure suptitles:
     "Group 0, Position 41". "Position unknown" when the position is
-    unknown (a pre-`position` NPZ, or pick-less construction). One
-    definition so the wording cannot drift between the renderers."""
+    unknown. One definition so the wording cannot drift between the
+    renderers."""
     return f"Group {rid}, {_position_label(position)}"
 
 
@@ -1666,9 +1648,7 @@ def _position_stem(naming: Naming) -> str:
 
 def _overview_tile_png_name(rid, row, col, position, hash6) -> str:
     """Filename for a live overview-tile PNG: the canonical position
-    stem + `_live` when the run hash and position are known (so it
-    pairs by name with `analysis/{stem}.npz`), else the legacy
-    R/r/c name for a pre-`position` reload."""
+    stem + `_live` when the run hash and position are known."""
     if position is not None and hash6 is not None:
         stem = _position_stem(Naming(
             acquisition_type="overview-scan", hash6=hash6,
@@ -1680,8 +1660,7 @@ def _overview_tile_png_name(rid, row, col, position, hash6) -> str:
 def _target_png_name(record, *, live: bool) -> str:
     """Filename for a target PNG: the target `.ome.tiff` stem (pairs by
     name with `data/{stem}.ome.tiff`), `_live` for the live renderer.
-    Falls back to the legacy R/r/c/l name when the target has no TIFF
-    (a failed target / pick-less render)."""
+    Falls back to a pick-based name when the target has no TIFF."""
     if record.tif_path is not None:
         stem = record.tif_path.name.removesuffix(".ome.tiff")
         return f"{stem}_live.png" if live else f"{stem}.png"

@@ -26,10 +26,9 @@ def acquire(
     """Position the stage for the next acquisition. Does not trigger a frame.
 
     Job transition goes through ensure_job_state (verified + settled).
-    Z-wide first (job-scoped), then XY: with backlash takeup via
-    ``drv.move_xy_with_backlash`` if stage_config["backlash"] is set,
-    plain ``drv.move_xy`` otherwise. The caller then invokes
-    ``drv.acquire_and_save`` to acquire and persist.
+    Z-wide first (job-scoped), then XY with calibrated backlash takeup.
+    The caller then invokes ``drv.acquire_and_save`` to acquire and
+    persist.
     """
     ensure_job_state(ctx, job)
 
@@ -37,14 +36,11 @@ def acquire(
     if not r or not r.get("success"):
         raise RuntimeError(f"move_z({zwide_um}, zwide) failed: {r!r}")
 
-    backlash = ctx.stage_config.get("backlash")
-    if backlash is not None:
-        r = drv.move_xy_with_backlash(
-            ctx.client, x_um, y_um,
-            overshoot_um=backlash.get("overshoot_um", 50.0),
-            settle_ms=backlash.get("settle_ms", 100),
-        )
-    else:
-        r = drv.move_xy(ctx.client, x_um, y_um)
+    backlash = ctx.stage_config["backlash"]
+    r = drv.move_xy_with_backlash(
+        ctx.client, x_um, y_um,
+        overshoot_um=backlash.get("overshoot_um", 50.0),
+        settle_ms=backlash.get("settle_ms", 100),
+    )
     if not r or not r.get("success"):
         raise RuntimeError(f"move_xy({x_um}, {y_um}) failed: {r!r}")

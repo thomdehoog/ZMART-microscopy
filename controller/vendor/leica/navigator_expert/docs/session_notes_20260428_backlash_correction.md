@@ -65,7 +65,7 @@ trajectory. If they do, the "two distinct moves" become "one curved
 move" and you don't get a clean direction reversal — no slack takeup.
 
 A fixed pause guarantees the controller treats them as separate moves.
-100 ms works without polling. If `move_xy_stage` already blocks until
+100 ms works without polling. If `move_xy` already blocks until
 the tolerance is met (it does), the pause is technically belt-and-
 braces — keep it for safety until verified otherwise.
 
@@ -110,9 +110,9 @@ Two new cookbook scripts under
 
 Both differ from their non-backlash siblings only in:
 
-- New `_move_xy_stage_backlash` helper that does pre-position → pause →
+- New `_move_xy_backlash` helper that does pre-position → pause →
   final move
-- Every `drv.move_xy_stage` call routed through the helper
+- Every `drv.move_xy` call routed through the helper
 - Source-image takeup move added before the source acquisition
 - New CLI flags: `--backlash-overshoot-um` (default 50),
   `--backlash-settle-ms` (default 100)

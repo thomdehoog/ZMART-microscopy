@@ -195,7 +195,7 @@ class TestLoadOverviewResultSkipsOldSchema:
     def test_v1_files_excluded_from_picks_and_tile_cell_counts(
         self, tmp_path, capsys,
     ):
-        """v1 NPZs (without schema_version key) must NOT contribute to
+        """NPZs without schema_version must NOT contribute to
         either the picks list or tile_cell_counts. Loader warns per file."""
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir(parents=True)
@@ -223,7 +223,7 @@ class TestLoadOverviewResultSkipsOldSchema:
         assert ov.n_tiles == 1   # v1 file did NOT inflate count
 
         out = capsys.readouterr().out
-        assert "schema v1" in out
+        assert "missing schema_version" in out
 
 
 class TestLoadOverviewResultPopulatesTileCellCounts:
@@ -393,115 +393,14 @@ class TestPositionRoundtripThroughNPZ:
         assert len(ov.all_picks) == 1
         assert ov.all_picks[0].position == 41
 
-    def test_v2_npz_without_position_loads_as_none(self, tmp_path):
-        """Back-compat: a v2 NPZ written before the `position` key
-        existed must load with Pick.position is None, not error."""
-        analysis_dir = tmp_path / "analysis"
-        result = _make_result(
-            tile_id=("0", 0, 0), naming_p=3, picks=[_make_pick(label=1)],
-        )
-        assert _save_tile_with_picks(analysis_dir, result)
-        # Rewrite the NPZ stripped of `position`, simulating a file
-        # written before this change (still schema v2 otherwise).
-        npz_path = list(analysis_dir.glob("*.npz"))[0]
-        with np.load(npz_path, allow_pickle=True) as data:
-            assert "position" in data.files   # the save path writes it
-            kept = {k: data[k] for k in data.files if k != "position"}
-        np.savez_compressed(npz_path, **kept)
-        ov = load_overview_result(analysis_dir)
-        assert len(ov.all_picks) == 1
-        assert ov.all_picks[0].position is None
 
 
-# analysis_image_source load compatibility.
-
-
-class TestLegacyAnalysisImageSourceNpz:
-    """Pin the load-boundary back-compat seam.
-
-    The active codebase no longer writes the ``analysis_image_source``
-    NPZ key and no longer carries the ``simulated`` derivation outside
-    this single load site. Older NPZs on disk still have
-    ``analysis_image_source`` and may lack ``simulated`` -- the
-    visualize.py loader must derive ``simulated`` from the old field so
-    historical runs reload correctly.
-
-    This test pins that derivation. If a future contributor deletes
-    the back-compat branch in ``_load_tile_npz`` thinking it's dead
-    code, this test breaks loudly and names the contract.
-    """
-
-    def _write_legacy_npz(
-        self, path: Path, *, analysis_image_source: str, tile_id=("0", 0, 0),
-    ) -> None:
-        """Write a synthetic historical NPZ carrying just the keys
-        ``_load_tile_npz`` actually reads: ``image_2d``, ``masks``,
-        ``tile_id``, and the legacy ``analysis_image_source`` (the
-        seam under test). The older on-disk shape carried other
-        schema-v2 arrays too; we don't write them here because the
-        test exercises ``_load_tile_npz`` directly, not the
-        ``load_overview_result`` aggregate which would consume the
-        per-cell arrays. Keep the fixture minimal to the assertion
-        surface."""
-        np.savez_compressed(
-            path,
-            image_2d=np.zeros((16, 16), dtype=np.float64),
-            masks=np.zeros((16, 16), dtype=np.int32),
-            tile_id=np.array(tile_id, dtype=str),
-            analysis_image_source=np.array(analysis_image_source),
-        )
-
-    def test_legacy_acquired_derives_simulated_false(self, tmp_path):
-        from pipeline.visualize import _load_tile_npz
-        path = tmp_path / "tile.npz"
-        self._write_legacy_npz(path, analysis_image_source="acquired")
-        loaded = _load_tile_npz(path)
-        assert loaded is not None
-        assert loaded.simulated is False
-
-    def test_legacy_skimage_human_mitosis_derives_simulated_true(self, tmp_path):
-        from pipeline.visualize import _load_tile_npz
-        path = tmp_path / "tile.npz"
-        self._write_legacy_npz(
-            path, analysis_image_source="skimage_human_mitosis",
-        )
-        loaded = _load_tile_npz(path)
-        assert loaded is not None
-        assert loaded.simulated is True
-
-    def test_post_cut_npz_with_simulated_takes_precedence(self, tmp_path):
-        """A post-cut NPZ has ``simulated`` and no
-        ``analysis_image_source``. The loader must read ``simulated``
-        directly without consulting the legacy field. Fixture is
-        intentionally minimal to the assertion surface (see
-        ``_write_legacy_npz``)."""
-        from pipeline.visualize import _load_tile_npz
-        path = tmp_path / "tile.npz"
-        np.savez_compressed(
-            path,
-            image_2d=np.zeros((16, 16), dtype=np.float64),
-            masks=np.zeros((16, 16), dtype=np.int32),
-            tile_id=np.array(("0", 0, 0), dtype=str),
-            simulated=np.bool_(True),
-        )
-        loaded = _load_tile_npz(path)
-        assert loaded is not None
-        assert loaded.simulated is True
-
-
-# ─── analysis_image_source removal -- single-trace structural test ─
-
-
+# analysis_image_source removal -- structural test
 class TestAnalysisImageSourceSingleTrace:
     """Structurally enforce 'one mock mechanism' across the codebase.
 
-    After the cut, the identifier ``analysis_image_source`` may
-    appear as **active Python code** -- a dict key, kwarg, attribute
-    access, name, or type annotation -- in only two places: the
-    load-boundary back-compat read in ``_load_tile_npz`` (the
-    legitimate seam for forward-compatible code) and this test file
-    (which constructs synthetic pre-Plan-2 NPZs to exercise that
-    seam).
+    In the current baseline, the identifier ``analysis_image_source``
+    may appear as active Python code only in this structural test.
 
     A future contributor re-adding the field as a Config attribute,
     a submit-dict key, a TileEvent field, an NPZ writer key, a
@@ -525,11 +424,9 @@ class TestAnalysisImageSourceSingleTrace:
     """
 
     # Files (relative to the target_acquisition root) allowed to mention the
-    # identifier in active code. The set is intentionally tiny -- if
-    # it grows, the cleanup is incomplete.
+    # identifier in active code. Only this structural test is allowed.
     ALLOWLIST = frozenset({
-        "target_acquisition/pipeline/visualize.py",              # back-compat read
-        "target_acquisition/tests/test_overview_persistence.py", # this test file
+        "target_acquisition/tests/test_overview_persistence.py",  # this test file
     })
 
     _TARGET = "analysis_image_source"
@@ -592,7 +489,7 @@ class TestAnalysisImageSourceSingleTrace:
                 )
         return refs
 
-    def test_only_back_compat_seam_and_this_test_use_field(self):
+    def test_only_this_structural_test_uses_field(self):
         notebooks_root = Path(__file__).resolve().parents[2]
         offenders: list[str] = []
         for path in notebooks_root.rglob("*.py"):

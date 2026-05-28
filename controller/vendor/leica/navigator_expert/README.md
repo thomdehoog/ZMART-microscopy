@@ -416,7 +416,7 @@ controller/vendor/leica/navigator_expert/
 └── tests/                   # offline driver tests and immutable test data
 
 calibration/vendor/leica/navigator_expert/
-├── current/                 # promoted measured state: calibration.json, stage.json
+├── current/                 # adopted measured state: calibration.json, limits.json
 ├── core/                    # calibration model + notebook implementation
 ├── notebooks/               # operator calibration notebooks
 └── tests/                   # calibration unit/integration tests
@@ -441,7 +441,7 @@ core.commands          -> core.dispatch, core.profiles, core.confirmations,
 templates/*            -> file/template operations above API readback
 acquisition/*          -> capture, LAS X file arrival, and OME metadata fixes
 stage/*                -> stage safety and backlash-aware movement
-calibration/.../core.model -> promoted calibration state + coordinate transforms
+calibration/.../core.model -> adopted calibration state + coordinate transforms
 ```
 
 ### Two-Layer Backbone

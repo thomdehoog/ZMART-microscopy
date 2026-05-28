@@ -93,7 +93,7 @@ class SelectionResult:
 def load_overview_result(analysis_dir: Path) -> OverviewResult:
     """Reconstruct OverviewResult from disk. Kernel-restart safe.
 
-    Single pass over v2 NPZ files: builds all_picks and tile_cell_counts.
+    Single pass over schema-v2 NPZ files: builds all_picks and tile_cell_counts.
     Empty tiles (cell_labels.shape[0] == 0) contribute (tile_id, 0) to
     tile_cell_counts. Failure lists + acquire-loop counters + completed
     sentinel come from overview_meta.json if present; missing/corrupt
@@ -106,26 +106,24 @@ def load_overview_result(analysis_dir: Path) -> OverviewResult:
         for npz_path in sorted(analysis_dir.glob("*.npz")):
             try:
                 with np.load(npz_path, allow_pickle=True) as data:
-                    version = (
-                        int(data["schema_version"])
-                        if "schema_version" in data.files else 1
-                    )
-                    if version < 2:
+                    if "schema_version" not in data.files:
                         print(
                             f"[load] skipping {npz_path.name} "
-                            f"(schema v{version}, need v2)"
+                            "(missing schema_version)"
+                        )
+                        continue
+                    version = int(data["schema_version"])
+                    if version != 2:
+                        print(
+                            f"[load] skipping {npz_path.name} "
+                            f"(schema v{version}, expected v2)"
                         )
                         continue
                     tile_id_str = tuple(str(x) for x in data["tile_id"])
                     tile_id = (
                         tile_id_str[0], int(tile_id_str[1]), int(tile_id_str[2]),
                     )
-                    # Flat tile index ("Position N"). Additive within
-                    # schema v2 -- a pre-`position` v2 NPZ has no key.
-                    position = (
-                        int(data["position"])
-                        if "position" in data.files else None
-                    )
+                    position = int(data["position"])
                     n = len(data["cell_labels"])
                     tile_cell_counts[tile_id] = n
                     for i in range(n):
@@ -175,18 +173,10 @@ def load_overview_result(analysis_dir: Path) -> OverviewResult:
             completed = bool(meta.get("completed", False))
             n_tiles_planned = int(meta.get("n_tiles_planned", 0))
             n_tiles_submitted = int(meta.get("n_tiles_submitted", 0))
-            # Additive within schema v2; defaults support older meta
-            # files that predate these counters.
-            n_tiles_acquired = int(meta.get("n_tiles_acquired", 0))
-            n_tiles_hijacked = int(meta.get("n_tiles_hijacked", 0))
-            simulated = bool(meta.get("simulated", False))
+            n_tiles_acquired = int(meta["n_tiles_acquired"])
+            n_tiles_hijacked = int(meta["n_tiles_hijacked"])
+            simulated = bool(meta["simulated"])
             mock_image_source = meta.get("mock_image_source", None)
-            if "n_tiles_planned" not in meta or "n_tiles_submitted" not in meta:
-                print(
-                    "[load] WARNING: overview_meta.json predates schema v2 "
-                    "(missing n_tiles_planned/n_tiles_submitted). "
-                    "Summary counters for planned/submitted will be 0."
-                )
         except (json.JSONDecodeError, OSError) as exc:
             print(
                 f"[load] WARNING: overview_meta.json unreadable ({exc}); "

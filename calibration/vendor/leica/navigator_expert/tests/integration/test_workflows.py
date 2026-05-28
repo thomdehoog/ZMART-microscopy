@@ -5,7 +5,7 @@ Covers:
 - SessionPaths creation and folder layout
 - slug + objective_config_name + geometry validation
 - non-square pixel rejection
-- promotion behavior (success, archive, missing source, wrong kind,
+- adoption behavior (success, archive, missing source, wrong kind,
   relative current_path rejection)
 - image_to_stage success path with mocked driver + register_voting
 - weak-vote and D4-residual-failure paths block the staging config
@@ -26,7 +26,7 @@ from calibration.vendor.leica.navigator_expert.core import common as cm
 from calibration.vendor.leica.navigator_expert.core import (
     image_to_stage as wf_i2s,
     objective_pair as wf_obj,
-    promotion as wf_promotion,
+    adopt as wf_adopt,
 )
 
 
@@ -208,14 +208,14 @@ def _patch_driver(monkeypatch, *, pixel_size_um=0.5,
     def _get_xy(client, **kw):
         return {"x_um": pos["x"], "y_um": pos["y"]}
 
-    def _move_xy_stage(client, x, y, unit="um", **kw):
+    def _move_xy(client, x, y, unit="um", **kw):
         pos["x"] = x
         pos["y"] = y
         return {"success": True}
 
     monkeypatch.setattr(wf_i2s.drv, "get_xy", _get_xy)
     monkeypatch.setattr(cm.drv, "get_xy", _get_xy)
-    monkeypatch.setattr(cm.drv, "move_xy_stage", _move_xy_stage)
+    monkeypatch.setattr(cm.drv, "move_xy", _move_xy)
 
     monkeypatch.setattr(
         cm.drv, "get_job_settings",
@@ -362,7 +362,7 @@ def test_image_to_stage_success_writes_config_and_report(monkeypatch, sessions_r
     cfg_path = session.paths.configs_dir / "image_to_stage.json"
     assert cfg_path.is_file()
     payload = json.loads(cfg_path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == cm.SCHEMA_VERSION
+    assert payload["schema_version"] == cm.STAGING_SCHEMA_VERSION
     assert payload["kind"] == "image_to_stage"
     assert payload["image_to_stage"] == [[0.0, -1.0], [1.0, 0.0]]
     assert payload["pixel_size_um"] == 0.5
@@ -472,15 +472,19 @@ def test_report_image_paths_are_session_relative(monkeypatch, sessions_root):
 
 
 # ---------------------------------------------------------------------
-# Promotion
+# Adoption
 # ---------------------------------------------------------------------
 
-def _make_staging_session(sessions_root, kind_payload):
-    sess_id = "promo_sess"
+def _make_staging_session(
+    sessions_root,
+    kind_payload,
+    staging_name="image_to_stage.json",
+):
+    sess_id = "adopt_sess"
     paths = cm.make_session_paths(
         sess_id, "image_to_stage", sessions_root=sessions_root,
     )
-    cfg = paths.configs_dir / "image_to_stage.json"
+    cfg = paths.configs_dir / staging_name
     cm.write_json_atomic(cfg, kind_payload)
 
     class _Stub:
@@ -494,7 +498,7 @@ def _make_staging_session(sessions_root, kind_payload):
 
 def _valid_i2s_payload():
     return {
-        "schema_version": cm.SCHEMA_VERSION,
+        "schema_version": cm.STAGING_SCHEMA_VERSION,
         "kind": "image_to_stage",
         "created_at": "2026-05-22T14:30:00+02:00",
         "reference_objective": "10x",
@@ -504,35 +508,72 @@ def _valid_i2s_payload():
     }
 
 
-def test_promotion_first_promote_writes_current_and_log(sessions_root, current_root):
+def _current_calibration_payload(matrix=None):
+    return {
+        "schema_version": 11,
+        "last_updated": "20260527_120000",
+        "reference_objective_slot": 1,
+        "image_to_stage": {
+            "matrix": (matrix if matrix is not None
+                       else [[1.0, 0.0], [0.0, 1.0]]),
+            "session_id": "existing_i2s",
+        },
+        "objectives": {
+            "1": {
+                "name": "10x",
+                "translation_um": [0.0, 0.0, 0.0],
+                "session_id": "ref",
+            },
+            "2": {
+                "name": "20x",
+                "translation_um": [100.0, 100.0, 10.0],
+                "session_id": "target",
+            },
+        },
+        "backlash": {
+            "approach": "+X+Y",
+            "overshoot_um": 50.0,
+            "settle_ms": 100,
+            "tolerance_um": 20.0,
+            "session_id": None,
+        },
+    }
+
+
+def _seed_current_calibration(current_root, *, matrix=None):
+    current_root.mkdir(parents=True, exist_ok=True)
+    current = current_root / "calibration.json"
+    cm.write_json_atomic(current, _current_calibration_payload(matrix=matrix))
+    return current
+
+
+def test_adoption_updates_current_calibration_and_log(sessions_root, current_root):
+    _seed_current_calibration(current_root)
     session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
-    out = wf_promotion.promote_calibration(
+    out = wf_adopt.adopt_calibration(
         session, "image_to_stage.json", current_root=current_root,
     )
 
-    current = current_root / "image_to_stage.json"
+    current = current_root / "calibration.json"
     assert current.is_file()
-    assert out["archived_previous"] is None
+    assert out["archived_previous"] is not None
+    payload = json.loads(current.read_text(encoding="utf-8"))
+    assert payload["image_to_stage"]["matrix"] == [[0.0, -1.0], [1.0, 0.0]]
+    assert payload["image_to_stage"]["session_id"] == session.session_id
     # Returned paths are absolute strings.
     assert Path(out["current_path"]).is_absolute()
     assert Path(out["source"]).is_absolute()
 
-    log = (current_root / ".promotion.log").read_text(encoding="utf-8")
+    log = (current_root / ".adopt.log").read_text(encoding="utf-8")
     assert "image_to_stage" in log
     assert session.session_id in log
 
 
-def test_promotion_archives_existing_current(sessions_root, current_root):
+def test_adoption_archives_existing_current(sessions_root, current_root):
+    _seed_current_calibration(current_root)
     session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
-    # Seed a pre-existing current file.
-    current_root.mkdir(parents=True, exist_ok=True)
-    current = current_root / "image_to_stage.json"
-    cm.write_json_atomic(current, {
-        **_valid_i2s_payload(),
-        "created_at": "2025-01-01T00:00:00+00:00",
-    })
 
-    out = wf_promotion.promote_calibration(
+    out = wf_adopt.adopt_calibration(
         session, "image_to_stage.json", current_root=current_root,
     )
     assert out["archived_previous"] is not None
@@ -540,10 +581,48 @@ def test_promotion_archives_existing_current(sessions_root, current_root):
     assert archived.is_file()
     assert archived.parent.name == "archive"
     # New current file still in place.
-    assert current.is_file()
+    assert (current_root / "calibration.json").is_file()
 
 
-def test_promotion_missing_staging_raises(sessions_root, current_root):
+def test_adoption_objective_translation_updates_canonical_calibration(
+    sessions_root, current_root,
+):
+    _seed_current_calibration(current_root)
+    payload = {
+        "schema_version": cm.STAGING_SCHEMA_VERSION,
+        "kind": "objective_translation",
+        "created_at": "2026-05-22T15:10:00+02:00",
+        "from_objective": "10x",
+        "to_objective": "20x",
+        "translation_xy_um": [12.0, 17.0],
+        "translation_z_um": 3.0,
+    }
+    session, _ = _make_staging_session(
+        sessions_root, payload, "objective_10x_to_20x.json",
+    )
+
+    wf_adopt.adopt_calibration(
+        session, "objective_10x_to_20x.json", current_root=current_root,
+    )
+
+    current = json.loads(
+        (current_root / "calibration.json").read_text(encoding="utf-8")
+    )
+    assert current["objectives"]["2"]["translation_um"] == [12.0, 17.0, 3.0]
+    assert current["objectives"]["2"]["session_id"] == session.session_id
+
+
+def test_adoption_requires_existing_current_calibration(
+    sessions_root, current_root,
+):
+    session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
+    with pytest.raises(FileNotFoundError, match="calibration"):
+        wf_adopt.adopt_calibration(
+            session, "image_to_stage.json", current_root=current_root,
+        )
+
+
+def test_adoption_missing_staging_raises(sessions_root, current_root):
     sess_id = "missing_sess"
     paths = cm.make_session_paths(
         sess_id, "image_to_stage", sessions_root=sessions_root,
@@ -556,30 +635,31 @@ def test_promotion_missing_staging_raises(sessions_root, current_root):
     s.paths = paths
 
     with pytest.raises(FileNotFoundError):
-        wf_promotion.promote_calibration(
+        wf_adopt.adopt_calibration(
             s, "image_to_stage.json", current_root=current_root,
         )
 
 
-def test_promotion_wrong_kind_rejected(sessions_root, current_root):
+def test_adoption_wrong_kind_rejected(sessions_root, current_root):
     bad = dict(_valid_i2s_payload())
     bad["kind"] = "garbage"
     session, _ = _make_staging_session(sessions_root, bad)
     with pytest.raises(ValueError, match="unsupported kind"):
-        wf_promotion.promote_calibration(
+        wf_adopt.adopt_calibration(
             session, "image_to_stage.json", current_root=current_root,
         )
 
 
-def test_promotion_requires_current_root(sessions_root):
+def test_adoption_requires_current_root(sessions_root):
     session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
     with pytest.raises(TypeError):
-        wf_promotion.promote_calibration(session, "image_to_stage.json")
+        wf_adopt.adopt_calibration(session, "image_to_stage.json")
 
 
-def test_promotion_writes_to_explicit_current_root(sessions_root, current_root):
+def test_adoption_writes_to_explicit_current_root(sessions_root, current_root):
+    _seed_current_calibration(current_root)
     session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
-    out = wf_promotion.promote_calibration(
+    out = wf_adopt.adopt_calibration(
         session, "image_to_stage.json", current_root=current_root,
     )
 
@@ -587,12 +667,12 @@ def test_promotion_writes_to_explicit_current_root(sessions_root, current_root):
     source = Path(out["source"])
     assert source == session.paths.configs_dir / "image_to_stage.json"
 
-    # Current destination, archive dir, and promotion log all live under
+    # Current destination, archive dir, and adoption log all live under
     # the operator-supplied current_root.
     current_path = Path(out["current_path"])
-    assert current_path == current_root.absolute() / "image_to_stage.json"
+    assert current_path == current_root.absolute() / "calibration.json"
     assert (current_root.absolute() / "archive").is_dir()
-    assert (current_root.absolute() / ".promotion.log").is_file()
+    assert (current_root.absolute() / ".adopt.log").is_file()
 
     # Returned paths are absolute strings.
     assert current_path.is_absolute()
@@ -716,35 +796,30 @@ def test_acquire_failure_returns_stage_to_home(monkeypatch, sessions_root):
     assert pos["y"] == home_xy[1]
 
 
-def test_double_promote_creates_counter_archive(sessions_root, current_root):
-    """Promoting twice with the same payload created_at must not lose data.
+def test_double_adopt_creates_counter_archive(sessions_root, current_root):
+    """Repeated adoption with the same current timestamp must not lose data.
 
     Both archived copies should land with deterministic, distinct names.
     """
+    _seed_current_calibration(current_root)
     session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
 
-    # Promote 1: no current file exists yet, no archive.
-    out1 = wf_promotion.promote_calibration(
+    # Adopt 1: current file exists, archive 1.
+    out1 = wf_adopt.adopt_calibration(
         session, "image_to_stage.json", current_root=current_root,
     )
-    assert out1["archived_previous"] is None
+    assert out1["archived_previous"] is not None
+    archive_1 = Path(out1["archived_previous"])
+    assert archive_1.is_file()
 
-    # Promote 2: current file exists, archive 1.
-    out2 = wf_promotion.promote_calibration(
+    # Adopt 2: current file exists with the same last_updated as before;
+    # the counter suffix must kick in so the new archive doesn't
+    # overwrite archive_1.
+    out2 = wf_adopt.adopt_calibration(
         session, "image_to_stage.json", current_root=current_root,
     )
     assert out2["archived_previous"] is not None
-    archive_1 = Path(out2["archived_previous"])
-    assert archive_1.is_file()
-
-    # Promote 3: current file exists with the same created_at as before; the
-    # counter suffix must kick in so the new archive doesn't overwrite
-    # archive_1.
-    out3 = wf_promotion.promote_calibration(
-        session, "image_to_stage.json", current_root=current_root,
-    )
-    assert out3["archived_previous"] is not None
-    archive_2 = Path(out3["archived_previous"])
+    archive_2 = Path(out2["archived_previous"])
     assert archive_2.is_file()
     assert archive_1 != archive_2
     assert archive_1.exists()  # still there, not overwritten
@@ -755,24 +830,24 @@ def test_double_promote_creates_counter_archive(sessions_root, current_root):
     assert len(archived_names) == 2
 
 
-def test_promotion_staging_name_with_separator_rejected(sessions_root, current_root):
+def test_adoption_staging_name_with_separator_rejected(sessions_root, current_root):
     session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
     with pytest.raises(ValueError, match="bare filename"):
-        wf_promotion.promote_calibration(
+        wf_adopt.adopt_calibration(
             session, "sub/image_to_stage.json", current_root=current_root,
         )
     with pytest.raises(ValueError, match="bare filename"):
-        wf_promotion.promote_calibration(
+        wf_adopt.adopt_calibration(
             session, "..\\evil.json", current_root=current_root,
         )
 
 
-def test_promotion_staging_name_prefix_must_match_kind(sessions_root, current_root):
+def test_adoption_staging_name_prefix_must_match_kind(sessions_root, current_root):
     # The file is a valid objective_translation, but the operator passes
-    # the wrong staging_name. Refuse to promote rather than silently
+    # the wrong staging_name. Refuse to adopt rather than silently
     # writing it to the image_to_stage.json slot.
     payload = {
-        "schema_version": cm.SCHEMA_VERSION,
+        "schema_version": cm.STAGING_SCHEMA_VERSION,
         "kind": "objective_translation",
         "created_at": "2026-05-22T15:10:00+02:00",
         "from_objective": "10x",
@@ -784,7 +859,7 @@ def test_promotion_staging_name_prefix_must_match_kind(sessions_root, current_ro
     # The file on disk is named image_to_stage.json (because that's how
     # _make_staging_session writes it), but the kind is objective_translation.
     with pytest.raises(ValueError, match="expects kind"):
-        wf_promotion.promote_calibration(
+        wf_adopt.adopt_calibration(
             session, "image_to_stage.json", current_root=current_root,
         )
 
@@ -792,7 +867,7 @@ def test_promotion_staging_name_prefix_must_match_kind(sessions_root, current_ro
 def test_failed_rerun_removes_stale_staging_config(monkeypatch, sessions_root, current_root):
     # Run 1: success -> writes configs/image_to_stage.json.
     # Run 2 (same session): weak vote -> stale config must be removed,
-    # config_written=False, d4_accepted=None, promote raises.
+    # config_written=False, d4_accepted=None, adopt raises.
     _patch_driver(monkeypatch)
     _install_register_voting(monkeypatch, [
         # Run 1: trusted shifts that produce the "-Y +X" orientation.
@@ -824,7 +899,7 @@ def test_failed_rerun_removes_stale_staging_config(monkeypatch, sessions_root, c
     assert session.config_written is False
 
     with pytest.raises(FileNotFoundError):
-        wf_promotion.promote_calibration(
+        wf_adopt.adopt_calibration(
             session, "image_to_stage.json", current_root=current_root,
         )
 
@@ -832,26 +907,6 @@ def test_failed_rerun_removes_stale_staging_config(monkeypatch, sessions_root, c
 # =====================================================================
 # objective_pair workflow
 # =====================================================================
-
-def _write_current_image_to_stage(current_root, matrix=None,
-                                image_size_px=(64, 64),
-                                pixel_size_um=0.5):
-    """Write a current image_to_stage.json into the operator-supplied current_root."""
-    payload = {
-        "schema_version": cm.SCHEMA_VERSION,
-        "kind": "image_to_stage",
-        "created_at": "2026-05-22T14:30:00+02:00",
-        "reference_objective": "10x",
-        "image_size_px": [int(image_size_px[0]), int(image_size_px[1])],
-        "pixel_size_um": float(pixel_size_um),
-        "image_to_stage": (matrix if matrix is not None
-                           else [[1.0, 0.0], [0.0, 1.0]]),
-    }
-    current_root.mkdir(parents=True, exist_ok=True)
-    out = current_root / "image_to_stage.json"
-    cm.write_json_atomic(out, payload)
-    return out
-
 
 def _patch_objective_driver(
     monkeypatch, *,
@@ -921,7 +976,7 @@ def _patch_objective_driver(
     def _get_xy(client, **kw):
         return {"x_um": state["x"], "y_um": state["y"]}
 
-    def _move_xy_stage(client, x, y, unit="um", **kw):
+    def _move_xy(client, x, y, unit="um", **kw):
         state["x"] = x
         state["y"] = y
         return {"success": True}
@@ -939,7 +994,7 @@ def _patch_objective_driver(
 
     monkeypatch.setattr(wf_obj.drv, "get_xy", _get_xy)
     monkeypatch.setattr(cm.drv, "get_xy", _get_xy)
-    monkeypatch.setattr(cm.drv, "move_xy_stage", _move_xy_stage)
+    monkeypatch.setattr(cm.drv, "move_xy", _move_xy)
     monkeypatch.setattr(cm.drv, "move_z", _move_z)
     monkeypatch.setattr(cm.drv, "read_zwide_um", _read_zwide_um)
     monkeypatch.setattr(wf_obj.drv, "read_zwide_um", _read_zwide_um)
@@ -1039,30 +1094,13 @@ def _install_obj_vote(monkeypatch, vote):
     monkeypatch.setattr(wf_obj, "register_voting", _rv)
 
 
-def _start_objective_session(sessions_root, current_root, *, matrix=None,
-                             image_size_px=(64, 64), pixel_size_um=0.5):
-    """Helper: write current image_to_stage, then start an objective session."""
-    i2s_path = _write_current_image_to_stage(
-        current_root, matrix=matrix, image_size_px=image_size_px,
-        pixel_size_um=pixel_size_um,
-    )
-    return wf_obj.start_session(
-        session_id="obj_sess",
-        job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
-        sessions_root=sessions_root,
-        image_to_stage_path=i2s_path,
-    )
-
-
 def test_objective_pair_missing_image_to_stage_raises(
     monkeypatch, sessions_root, current_root,
 ):
     _patch_objective_driver(monkeypatch)
     # No current config written. start_session must raise with a clear
     # message that points the operator at Notebook 1.
-    missing = current_root / "image_to_stage.json"
+    missing = current_root / "calibration.json"
     with pytest.raises(FileNotFoundError, match="calibrate_image_to_stage"):
         wf_obj.start_session(
             session_id="obj_missing",
@@ -1070,7 +1108,7 @@ def test_objective_pair_missing_image_to_stage_raises(
             from_objective="10x",
             to_objective="20x",
             sessions_root=sessions_root,
-            image_to_stage_path=missing,
+            calibration_path=missing,
         )
 
 
@@ -1083,13 +1121,13 @@ def test_start_session_requires_sessions_root_objective_pair(monkeypatch):
             job_name="Overview",
             from_objective="10x",
             to_objective="20x",
-            image_to_stage_path="ignored.json",
+            calibration_path="ignored.json",
         )
 
 
-def test_objective_pair_requires_explicit_image_to_stage_path(monkeypatch):
-    # The previous API allowed image_to_stage_path=None and inferred
-    # the package current_config path. The new API has no implicit
+def test_objective_pair_requires_explicit_calibration_path(monkeypatch):
+    # The previous API allowed calibration_path=None and inferred
+    # the package current calibration path. The new API has no implicit
     # fallback; omitting it must raise TypeError.
     with pytest.raises(TypeError):
         wf_obj.start_session(
@@ -1101,21 +1139,16 @@ def test_objective_pair_requires_explicit_image_to_stage_path(monkeypatch):
         )
 
 
-def test_objective_pair_override_image_to_stage_path_recorded(
+def test_objective_pair_override_calibration_path_recorded(
     monkeypatch, sessions_root, current_root, tmp_path,
 ):
     # Stage the override file at an arbitrary operator-supplied path.
-    override = tmp_path / "alt_configs" / "alt_image_to_stage.json"
+    override = tmp_path / "alt_configs" / "alt_calibration.json"
     override.parent.mkdir(parents=True, exist_ok=True)
-    cm.write_json_atomic(override, {
-        "schema_version": cm.SCHEMA_VERSION,
-        "kind": "image_to_stage",
-        "created_at": "2026-05-22T14:30:00+02:00",
-        "reference_objective": "10x",
-        "image_size_px": [64, 64],
-        "pixel_size_um": 0.5,
-        "image_to_stage": [[1.0, 0.0], [0.0, 1.0]],
-    })
+    cm.write_json_atomic(
+        override,
+        _current_calibration_payload(matrix=[[1.0, 0.0], [0.0, 1.0]]),
+    )
 
     state = _patch_objective_driver(monkeypatch)
     _install_obj_vote(monkeypatch, {
@@ -1129,9 +1162,9 @@ def test_objective_pair_override_image_to_stage_path_recorded(
         from_objective="10x",
         to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=override,
+        calibration_path=override,
     )
-    assert session.image_to_stage_path == override.absolute()
+    assert session.calibration_path == override.absolute()
 
     session = wf_obj.measure_parfocality_reference(session)
     state["stack_phase"] = "target"
@@ -1145,7 +1178,7 @@ def test_objective_pair_override_image_to_stage_path_recorded(
         .read_text(encoding="utf-8")
     )
     # The report records the exact source we used.
-    assert override.name in report["image_to_stage_file"]
+    assert override.name in report["source_calibration_file"]
     assert summary["config_written"] is True
 
 
@@ -1169,7 +1202,7 @@ def test_objective_pair_z_translation_arithmetic_peak_to_peak(
         "dx_um": 0.0, "dy_um": 0.0,
         "trusted": True, "confidence": 4, "agreeing": ["pcc"],
     })
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     session = wf_obj.start_session(
         session_id="obj_z",
@@ -1177,7 +1210,7 @@ def test_objective_pair_z_translation_arithmetic_peak_to_peak(
         from_objective="10x",
         to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
     assert session.home_z == pytest.approx(99.8)
@@ -1217,14 +1250,14 @@ def test_objective_pair_xy_translation_arithmetic_identity(
         "dx_um": 2.0, "dy_um": -3.0,
         "trusted": True, "confidence": 4, "agreeing": ["pcc"],
     })
-    _write_current_image_to_stage(current_root, matrix=[[1.0, 0.0], [0.0, 1.0]])
+    _seed_current_calibration(current_root, matrix=[[1.0, 0.0], [0.0, 1.0]])
 
     session = wf_obj.start_session(
         session_id="obj_xy_id",
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
     state["stack_phase"] = "target"
@@ -1261,14 +1294,14 @@ def test_objective_pair_weak_xy_vote_blocks_config(monkeypatch, sessions_root, c
         "dx_um": float("nan"), "dy_um": float("nan"),
         "trusted": False, "confidence": 0, "agreeing": [],
     })
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     session = wf_obj.start_session(
         session_id="obj_weak",
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
     state["stack_phase"] = "target"
@@ -1319,7 +1352,7 @@ def test_objective_pair_target_xy_acquire_at_post_switch_xy(
         "dx_um": 0.0, "dy_um": 0.0,
         "trusted": True, "confidence": 4, "agreeing": ["pcc"],
     })
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     # Track the stage XY at the moment of every frame acquire (only
     # ref_xy and target_xy go through acquire_frame; the z-stacks
@@ -1339,7 +1372,7 @@ def test_objective_pair_target_xy_acquire_at_post_switch_xy(
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
     state["stack_phase"] = "target"
@@ -1371,14 +1404,14 @@ def test_objective_pair_parcentricity_reference_moves_to_home(
         "dx_um": 0.0, "dy_um": 0.0,
         "trusted": True, "confidence": 4, "agreeing": ["pcc"],
     })
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     session = wf_obj.start_session(
         session_id="obj_ref_home",
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
     state["stack_phase"] = "target"
@@ -1398,7 +1431,7 @@ def test_objective_pair_parcentricity_reference_moves_to_home(
 def test_objective_pair_failed_rerun_removes_stale_config(monkeypatch, sessions_root, current_root):
     # Run 1: trusted vote -> staging config written.
     # Run 2 (same session): weak vote on the parcentricity step. The
-    # stale staging config must be removed and promotion must raise.
+    # stale staging config must be removed and adoption must raise.
     home_xy = (1000.0, 2000.0)
     xy_post = (1010.0, 2020.0)
     state = _patch_objective_driver(
@@ -1407,7 +1440,7 @@ def test_objective_pair_failed_rerun_removes_stale_config(monkeypatch, sessions_
         home_z=100.0, z_post=94.0,
         ref_focus_z=100.0, target_focus_z=103.0,
     )
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     votes = [
         {"dx_um": 1.0, "dy_um": -2.0, "trusted": True, "confidence": 4,
@@ -1426,7 +1459,7 @@ def test_objective_pair_failed_rerun_removes_stale_config(monkeypatch, sessions_
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
     state["stack_phase"] = "target"
@@ -1447,7 +1480,7 @@ def test_objective_pair_failed_rerun_removes_stale_config(monkeypatch, sessions_
     assert session.config_written is False
 
     with pytest.raises(FileNotFoundError):
-        wf_promotion.promote_calibration(
+        wf_adopt.adopt_calibration(
             session, session.objective_config_name, current_root=current_root,
         )
 
@@ -1478,14 +1511,14 @@ def _full_objective_run(
         "dx_um": 2.0, "dy_um": -3.0,
         "trusted": True, "confidence": 4, "agreeing": ["pcc"],
     })
-    _write_current_image_to_stage(current_root, matrix=[[1.0, 0.0], [0.0, 1.0]])
+    _seed_current_calibration(current_root, matrix=[[1.0, 0.0], [0.0, 1.0]])
 
     session = wf_obj.start_session(
         session_id=session_id,
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
     state["stack_phase"] = "target"
@@ -1532,7 +1565,7 @@ def test_objective_pair_rerun_2a_invalidates_full_pipeline(
         wf_obj.measure_parcentricity_target_and_save(session)
 
     with pytest.raises(FileNotFoundError):
-        wf_promotion.promote_calibration(
+        wf_adopt.adopt_calibration(
             session, session.objective_config_name, current_root=current_root,
         )
 
@@ -1565,7 +1598,7 @@ def test_objective_pair_rerun_2b_invalidates_parcentricity_target(
     assert session.translation_z_um is not None
 
     with pytest.raises(FileNotFoundError):
-        wf_promotion.promote_calibration(
+        wf_adopt.adopt_calibration(
             session, session.objective_config_name, current_root=current_root,
         )
 
@@ -1595,7 +1628,7 @@ def test_objective_pair_rerun_3a_invalidates_parcentricity_target(
     assert session.ref_image is not ref_image_before
 
     with pytest.raises(FileNotFoundError):
-        wf_promotion.promote_calibration(
+        wf_adopt.adopt_calibration(
             session, session.objective_config_name, current_root=current_root,
         )
 
@@ -1620,14 +1653,14 @@ def test_objective_pair_rerun_2b_wipes_target_z_stack_dir(
         "dx_um": 0.0, "dy_um": 0.0,
         "trusted": True, "confidence": 4, "agreeing": ["pcc"],
     })
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     session = wf_obj.start_session(
         session_id="obj_zstack_wipe",
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
 
@@ -1664,7 +1697,7 @@ def test_objective_pair_rerun_2b_wipes_target_z_stack_dir(
 def test_image_to_stage_rerun_with_measure_failure_removes_stale_config(monkeypatch, sessions_root, current_root):
     """Run 1: full success writes config. Run 2: measure() raises
     mid-execution. The stale staging config must be gone BEFORE the
-    exception propagates, so a downstream promote cannot ship the
+    exception propagates, so a downstream adopt cannot ship the
     previous run's matrix.
     """
     boom = RuntimeError("acquire_frame failed")
@@ -1697,7 +1730,7 @@ def test_image_to_stage_rerun_with_measure_failure_removes_stale_config(monkeypa
     assert not cfg.exists()
     assert session.config_written is False
     with pytest.raises(FileNotFoundError):
-        wf_promotion.promote_calibration(
+        wf_adopt.adopt_calibration(
             session, "image_to_stage.json", current_root=current_root,
         )
 
@@ -1726,14 +1759,14 @@ def test_objective_pair_rerun_3b_acquire_failure_removes_stale_config(
         "dx_um": 1.0, "dy_um": -2.0,
         "trusted": True, "confidence": 4, "agreeing": ["pcc"],
     })
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     session = wf_obj.start_session(
         session_id="obj_3b_fail",
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
     state["stack_phase"] = "target"
@@ -1754,7 +1787,7 @@ def test_objective_pair_rerun_3b_acquire_failure_removes_stale_config(
     assert not cfg.exists()
     assert session.config_written is False
     with pytest.raises(FileNotFoundError):
-        wf_promotion.promote_calibration(
+        wf_adopt.adopt_calibration(
             session, session.objective_config_name, current_root=current_root,
         )
 
@@ -1806,14 +1839,14 @@ def test_objective_pair_parfocality_reference_acquires_z_stack(
         "dx_um": 0.0, "dy_um": 0.0,
         "trusted": True, "confidence": 4, "agreeing": ["pcc"],
     })
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     session = wf_obj.start_session(
         session_id="obj_ref_stack",
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
 
@@ -1849,14 +1882,14 @@ def test_objective_pair_z_stack_zoom_independent_of_image_to_stage(
         "dx_um": 0.0, "dy_um": 0.0,
         "trusted": True, "confidence": 4, "agreeing": ["pcc"],
     })
-    _write_current_image_to_stage(current_root, image_size_px=(64, 64), pixel_size_um=0.5)
+    _seed_current_calibration(current_root)
 
     session = wf_obj.start_session(
         session_id="obj_z_zoom",
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     # Both parfocality steps must run without raising despite the
     # zoom difference from image_to_stage.
@@ -1881,14 +1914,14 @@ def test_objective_pair_parcentricity_xy_pixel_size_mismatch_raises(
         "dx_um": 0.0, "dy_um": 0.0,
         "trusted": True, "confidence": 4, "agreeing": ["pcc"],
     })
-    _write_current_image_to_stage(current_root, matrix=[[1.0, 0.0], [0.0, 1.0]])
+    _seed_current_calibration(current_root, matrix=[[1.0, 0.0], [0.0, 1.0]])
 
     session = wf_obj.start_session(
         session_id="obj_xy_pix_mismatch",
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
     state["stack_phase"] = "target"
@@ -1957,14 +1990,14 @@ def test_objective_pair_rerun_2a_wipes_ref_z_stack_dir(monkeypatch, sessions_roo
         "dx_um": 0.0, "dy_um": 0.0,
         "trusted": True, "confidence": 4, "agreeing": ["pcc"],
     })
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     session = wf_obj.start_session(
         session_id="obj_ref_wipe",
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
     ref_dir = session.paths.data_dir / "ref_z_stack"
@@ -2011,66 +2044,62 @@ def test_objective_pair_missing_stack_positions_raises(monkeypatch, sessions_roo
         cm.drv, "make_changeable_copy",
         lambda settings: {"stack": None} if settings else None,
     )
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     session = wf_obj.start_session(
         session_id="obj_missing_pos",
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     with pytest.raises(RuntimeError, match="z-stack"):
         wf_obj.measure_parfocality_reference(session)
 
 
-def test_objective_pair_z_stack_requires_at_least_three_slices(
+def test_objective_pair_z_stack_requires_at_least_five_slices(
     monkeypatch, sessions_root, current_root,
 ):
-    # Case A: metadata reports sections=2 -- workflow must raise.
     state = _patch_objective_driver(
         monkeypatch,
         ref_stack={
-            "begin": 99.0, "end": 100.0, "sections": 2,
+            "begin": 98.5, "end": 101.5, "sections": 4,
             "stepSize": 1.0, "zDrive": "z-wide",
         },
     )
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
     session_a = wf_obj.start_session(
         session_id="obj_min_slices_meta",
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
-    with pytest.raises(RuntimeError, match="at least 3"):
+    with pytest.raises(RuntimeError, match="at least 5"):
         wf_obj.measure_parfocality_reference(session_a)
 
 
-def test_objective_pair_z_stack_override_requires_at_least_three(
+def test_objective_pair_z_stack_override_requires_at_least_five(
     monkeypatch, sessions_root, current_root,
 ):
-    # Case B: operator passes an override list shorter than 3. The
-    # parabolic peak refinement is not meaningful below 3 samples;
-    # the workflow must raise before Brenner analysis.
     state = _patch_objective_driver(
         monkeypatch,
         ref_stack={
-            "begin": 99.0, "end": 100.0, "sections": 2,
+            "begin": 98.5, "end": 101.5, "sections": 4,
             "stepSize": 1.0, "zDrive": "z-wide",
         },
     )
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
     session = wf_obj.start_session(
         session_id="obj_min_slices_override",
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
-    with pytest.raises(ValueError, match="at least 3"):
+    with pytest.raises(ValueError, match="at least 5"):
         wf_obj.measure_parfocality_reference(
-            session, z_positions_um=[99.0, 100.0],
+            session, z_positions_um=[98.5, 99.5, 100.5, 101.5],
         )
 
 
@@ -2096,14 +2125,14 @@ def test_objective_pair_descending_stack_fits_peak_correctly(
         "dx_um": 0.0, "dy_um": 0.0,
         "trusted": True, "confidence": 4, "agreeing": ["pcc"],
     })
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     session = wf_obj.start_session(
         session_id="obj_descending",
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
 
@@ -2203,7 +2232,7 @@ def test_objective_pair_non_finite_brenner_raises(monkeypatch, sessions_root, cu
         monkeypatch,
         ref_focus_z=100.0, target_focus_z=103.0,
     )
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     call_count = {"n": 0}
     real_brenner = wf_obj.brenner
@@ -2222,7 +2251,7 @@ def test_objective_pair_non_finite_brenner_raises(monkeypatch, sessions_root, cu
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     with pytest.raises(RuntimeError, match="non-finite"):
         wf_obj.measure_parfocality_reference(session)
@@ -2240,7 +2269,7 @@ def test_objective_pair_first_slice_artifact_is_dropped(
         monkeypatch,
         ref_focus_z=100.0, target_focus_z=103.0,
     )
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     real_brenner = wf_obj.brenner
     call_count = {"n": 0}
@@ -2259,7 +2288,7 @@ def test_objective_pair_first_slice_artifact_is_dropped(
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
 
@@ -2281,7 +2310,7 @@ def test_objective_pair_last_slice_artifact_is_dropped(
         monkeypatch,
         ref_focus_z=100.0, target_focus_z=103.0,
     )
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     real_brenner = wf_obj.brenner
     call_count = {"n": 0}
@@ -2301,7 +2330,7 @@ def test_objective_pair_last_slice_artifact_is_dropped(
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     session = wf_obj.measure_parfocality_reference(session)
 
@@ -2313,14 +2342,14 @@ def test_objective_pair_brenner_peak_at_stack_edge_raises(
     monkeypatch, sessions_root, current_root,
 ):
     # The operator configures the stack around the focal plane, so a
-    # valid Brenner peak must be inside the stack. After the workflow
-    # drops slice 0 (driver artifact workaround), the new lower edge of
-    # the analysis is slice 1. A spike there still raises.
+    # valid Brenner peak must be inside the fitted interior window.
+    # After the workflow drops slice 0, slice 1 is the lower edge of
+    # that window. A spike there still raises.
     _patch_objective_driver(
         monkeypatch,
         ref_focus_z=100.0, target_focus_z=103.0,
     )
-    _write_current_image_to_stage(current_root)
+    _seed_current_calibration(current_root)
 
     real_brenner = wf_obj.brenner
     call_count = {"n": 0}
@@ -2341,7 +2370,7 @@ def test_objective_pair_brenner_peak_at_stack_edge_raises(
         job_name="Overview",
         from_objective="10x", to_objective="20x",
         sessions_root=sessions_root,
-        image_to_stage_path=current_root / "image_to_stage.json",
+        calibration_path=current_root / "calibration.json",
     )
     with pytest.raises(RuntimeError, match="stack edge"):
         wf_obj.measure_parfocality_reference(session)

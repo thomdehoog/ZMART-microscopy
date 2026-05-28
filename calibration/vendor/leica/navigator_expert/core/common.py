@@ -15,7 +15,7 @@ Path-base convention (used by every workflow's save / save_and_visualize):
 - Report image paths under ``images:`` and ``figures:`` stay
   session-root-relative (e.g. ``"data/<kind>/home.tif"``). A report JSON
   already carries the session_id, so the prefix would be redundant.
-- Summary dicts returned to the notebook and promotion return paths use
+- Summary dicts returned to the notebook and adoption return paths use
   absolute strings; ``sessions_root`` lives outside the package tree so
   there is no meaningful package-relative form.
 """
@@ -40,7 +40,8 @@ import navigator_expert.driver as drv
 
 # -- Constants ---------------------------------------------------------
 
-SCHEMA_VERSION: int = 1
+STAGING_SCHEMA_VERSION: int = 1
+MIN_FOCUS_STACK_SECTIONS: int = 5
 
 
 # -- Dataclasses -------------------------------------------------------
@@ -177,10 +178,10 @@ def move_xy_and_verify(
     settle_s: float = 0.5,
     tolerance_um: float = 0.5,
 ) -> None:
-    result = drv.move_xy_stage(client, x_um, y_um, unit="um",
+    result = drv.move_xy(client, x_um, y_um, unit="um",
                                tolerance=tolerance_um)
     if not result or not result.get("success"):
-        raise RuntimeError(f"move_xy_stage failed: {result}")
+        raise RuntimeError(f"move_xy failed: {result}")
     if settle_s > 0:
         time.sleep(settle_s)
     xy = drv.get_xy(client) or {}
@@ -299,9 +300,10 @@ def read_stack_z_positions(
                 f"override z_positions_um has length {len(override)}, "
                 f"expected {expected_slices} (one per acquired slice)."
             )
-        if len(override) < 3:
+        if len(override) < MIN_FOCUS_STACK_SECTIONS:
             raise ValueError(
-                "z-stack must have at least 3 positions for the parabolic "
+                f"z-stack must have at least {MIN_FOCUS_STACK_SECTIONS} "
+                "positions for the trimmed parabolic "
                 f"peak refinement; override has {len(override)}."
             )
         return [float(z) for z in override]
@@ -365,11 +367,11 @@ def read_stack_z_positions(
             f"{expected_slices} slices returned by acquire_stack. Re-check "
             "the LAS X stack configuration."
         )
-    if sections_int < 3:
+    if sections_int < MIN_FOCUS_STACK_SECTIONS:
         raise RuntimeError(
-            f"z-stack must have at least 3 slices for parabolic peak "
-            f"refinement; LAS X reports sections={sections_int}. Increase "
-            "the stack sections in LAS X."
+            f"z-stack must have at least {MIN_FOCUS_STACK_SECTIONS} slices "
+            "for trimmed parabolic peak refinement; LAS X reports "
+            f"sections={sections_int}. Increase the stack sections in LAS X."
         )
 
     z_drive = stack.get("zDrive")

@@ -1,25 +1,14 @@
 """
-Unit Tests for LASX Driver v6.0.0
-===================================
+Unit tests for the Navigator Expert driver core.
+================================================
 Offline mock-based tests — no hardware required.
 
 Uses unittest.mock to simulate the LAS X API client and verify the
 driver's internal logic: error classification, fire/retry flow,
 confirmation polling, timing instrumentation, and set function wiring.
 
-Updated from v5.0 tests to match v6.0 backbone redesign:
-  - _fire_with_retry replaced by confirm_and_fire (two-layer backbone)
-  - _default_pre_check removed; check_idle in prechecks.py owns polling
-  - pre_check_fn returns {"success": bool, "logs": [...]} (not bool)
-  - confirm_fn returns {"success": bool, "logs": [...]} (not bool)
-  - _make_acquire_confirm/_make_select_job_confirm factories replaced by
-    confirm_acquire/confirm_select_job (own their polling loops)
-  - poll_interval/poll_timeout removed from backbone (confirm functions
-    own their polling internally)
-  - pre_check_timeout/pre_check_heartbeat removed from backbone (live
-    inside check_idle)
-  - timing dict includes confirm_attempts key
-  - result dict includes logs key
+The tests exercise the current dispatch backbone, command profiles,
+confirmation polling, and timing/result envelope contracts.
 
 Usage::
 
@@ -90,7 +79,7 @@ def _idle_pre_check():
 
 
 def _make_v6_timing(**kw):
-    """Helper to build a v6.0 timing dict."""
+    """Helper to build a driver timing dict."""
     d = {"pre_check_s": 0, "setup_s": 0, "fire_s": 0, "check_s": 0,
          "confirm_s": 0, "total_s": 0, "attempts": 1,
          "confirm_attempts": 0, "method": "async"}
@@ -99,7 +88,7 @@ def _make_v6_timing(**kw):
 
 
 def _make_v6_result(success=True, msg="OK", **extra):
-    """Helper to build a v6.0 result dict."""
+    """Helper to build a driver result dict."""
     r = {"success": success, "confirmed": True if success else None,
          "message": msg, "timing": _make_v6_timing(), "logs": []}
     r.update(extra)
@@ -1865,7 +1854,7 @@ class TestCheckIdle(unittest.TestCase):
 
 
 # =============================================================================
-# 18. v6.0 improvements
+# 18. Command envelope consistency
 # =============================================================================
 
 class TestMoveXYConsistency(unittest.TestCase):

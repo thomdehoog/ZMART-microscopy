@@ -3,7 +3,7 @@
 Acquires three frames under the reference objective (home, +X, +Y),
 runs voting registration on each pair, fits a 2x2 stage_to_image
 Jacobian and snaps it to the nearest D4 element. Writes a diagnostic
-report unconditionally; writes a promotable staging config only when
+report unconditionally; writes an adoptable staging config only when
 both votes are trusted AND the D4 fit is within tolerance.
 """
 
@@ -24,7 +24,7 @@ from shared.algorithms import (
 )
 
 from .common import (
-    SCHEMA_VERSION,
+    STAGING_SCHEMA_VERSION,
     SessionPaths,
     acquire_frame_to,
     assert_geometry_matches,
@@ -159,7 +159,7 @@ def measure(session: ImageToStageSession) -> ImageToStageSession:
 
     # Unlink stale staging config and per-step TIFFs BEFORE any driver
     # calls. If measure() then raises mid-execution, the previous run's
-    # promotable artifact is already gone (Section 15 invariant) and
+    # adoptable artifact is already gone (Section 15 invariant) and
     # data_dir's TIFF set matches the new session state at every point.
     _invalidate_staging_config(session)
     for name in _PER_STEP_IMAGES:
@@ -415,7 +415,7 @@ def _print_text_summary(
         print("  Staging config written:")
         print(f"    {config_path}")
         print()
-        print("  Run the promote cell below to copy this to the current config.")
+        print("  Run the adopt cell below to copy this to the current config.")
     else:
         print("  No staging config written.")
         if session.failure_reason:
@@ -534,7 +534,7 @@ def save_and_visualize(session: ImageToStageSession) -> dict:
     out = session.paths.configs_dir / _STAGING_NAME
     if config_written:
         payload = {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": STAGING_SCHEMA_VERSION,
             "kind": KIND,
             "created_at": now_iso(),
             "reference_objective": session.reference_objective,
@@ -578,7 +578,7 @@ def save_and_visualize(session: ImageToStageSession) -> dict:
         status = f"{status} ({session.failure_reason})"
 
     report = {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": STAGING_SCHEMA_VERSION,
         "kind": "image_to_stage_report",
         "created_at": now_iso(),
         "calibration_file": "image_to_stage.json",

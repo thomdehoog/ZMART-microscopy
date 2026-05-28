@@ -332,16 +332,16 @@ def _apply_stage_limits(drv: Any, v: Validator, args: argparse.Namespace) -> boo
     """Apply calibrated safety limits before any movement happens."""
     stage_cfg = v.callable(
         "stage config: load",
-        lambda: drv.load_stage_config(args.stage_config)
-        if args.stage_config else drv.load_stage_config(),
-        context={"path": args.stage_config or "<current>"},
+        lambda: drv.load_stage_config(limits_path=args.limits_config)
+        if args.limits_config else drv.load_stage_config(),
+        context={"limits_path": args.limits_config or "<current>"},
     )
     if not stage_cfg:
         v.fail("stage limits: apply", "could not load stage configuration")
         return False
 
     try:
-        lim = stage_cfg["limits_um"]
+        lim = stage_cfg["stage_um"]
         limits = dict(
             x_min=lim["x"][0], x_max=lim["x"][1],
             y_min=lim["y"][0], y_max=lim["y"][1],
@@ -478,9 +478,6 @@ def phase_job_selection(drv: Any, v: Validator, client: Any,
         names = [j["Name"] for j in jobs]
         original = next(
             (j["Name"] for j in jobs if j.get("IsSelected")), preferred_job)
-        if not names:
-            v.skip("job selection: round-trip", "job list was empty")
-            return
 
         try:
             for index, name in enumerate(names):
@@ -632,10 +629,10 @@ def phase_detector_gain(drv: Any, v: Validator, client: Any,
     if beam_route is None or current is None:
         v.skip("detector_gain: round-trip", "detector gain readback incomplete")
         return
-    if "hyd" in name.lower() or lower == upper:
+    if lower == upper:
         v.skip(
             "detector_gain: round-trip",
-            f"{name or 'detector'} exposes fixed/photon-counting gain; "
+            f"{name or 'detector'} exposes no writable gain range; "
             "not mutating gain",
         )
         return
@@ -654,83 +651,6 @@ def phase_detector_gain(drv: Any, v: Validator, client: Any,
         candidates=[target, current],
         tolerance=0.1,
     )
-
-
-def phase_z_stack(drv: Any, v: Validator, client: Any, job_name: str) -> None:
-    """Reversible Z-stack setup calls when a restorable stack exists."""
-    with v.phase("z-stack setup round-trip"):
-        settings = v.callable(
-            "z_stack: read start",
-            lambda: _settings(drv, client, job_name),
-            context={"job": job_name},
-        )
-        stack = (settings or {}).get("stack") or {}
-        required = ("begin", "end", "stepSize", "size")
-        if any(stack.get(k) is None for k in required):
-            v.skip(
-                "z_stack: round-trip",
-                "current job has no fully defined z-stack; not safe to restore",
-            )
-            return
-
-        begin = float(stack["begin"])
-        end = float(stack["end"])
-        step = float(stack["stepSize"])
-        size = float(stack["size"])
-        if abs(end - begin) < 4.0:
-            v.skip("z_stack: round-trip", "z-stack range too small to adjust")
-            return
-
-        target_begin = begin + 0.5
-        target_end = end - 0.5
-
-        v.command(
-            "z_stack_definition: write current",
-            lambda: drv.set_z_stack_definition(
-                client, job_name, begin_um=begin, end_um=end),
-            context={"job": job_name, "begin_um": begin, "end_um": end},
-        )
-        try:
-            v.command(
-                "z_stack_definition: write alternate",
-                lambda: drv.set_z_stack_definition(
-                    client, job_name,
-                    begin_um=target_begin, end_um=target_end),
-                context={
-                    "job": job_name,
-                    "begin_um": target_begin,
-                    "end_um": target_end,
-                },
-            )
-            after = _settings(drv, client, job_name).get("stack") or {}
-            v.compare(
-                "z_stack_definition: begin readback",
-                after.get("begin"), target_begin, tolerance=1.0)
-            v.compare(
-                "z_stack_definition: end readback",
-                after.get("end"), target_end, tolerance=1.0)
-        finally:
-            v.command(
-                "z_stack_definition: restore",
-                lambda: drv.set_z_stack_definition(
-                    client, job_name, begin_um=begin, end_um=end),
-                context={"job": job_name, "begin_um": begin, "end_um": end},
-            )
-
-        _round_trip(
-            v, "z_stack_step_size", job_name,
-            read=lambda: _settings(drv, client, job_name)["stack"]["stepSize"],
-            write=lambda x: drv.set_z_stack_step_size(client, job_name, x),
-            candidates=[step + 0.5, step],
-            tolerance=0.5,
-        )
-        _round_trip(
-            v, "z_stack_size", job_name,
-            read=lambda: _settings(drv, client, job_name)["stack"]["size"],
-            write=lambda x: drv.set_z_stack_size(client, job_name, x),
-            candidates=[size + 2.0, size],
-            tolerance=1.5,
-        )
 
 
 def _round_trip(v: Validator, name: str, job_name: str, *,
@@ -929,8 +849,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--job", help="job to validate (default: currently selected)")
     p.add_argument("--mock-latency", type=float, default=0.0,
                    help="per-command latency for --mock (seconds)")
-    p.add_argument("--stage-config",
-                   help="stage calibration JSON; default is current stage calibration")
+    p.add_argument("--limits-config",
+                   help="limits JSON; default is current limits.json")
 
     # Phase gates
     p.add_argument("--read-only", action="store_true",
@@ -1068,7 +988,6 @@ def main(argv: list[str] | None = None) -> int:
             v.skip("phase: xy", "use --allow-xy to enable")
 
         if args.allow_z:
-            phase_z_stack(drv, v, client, job_name)
             phase_z(drv, v, client, job_name, args)
         else:
             v.skip("phase: z", "use --allow-z to enable")

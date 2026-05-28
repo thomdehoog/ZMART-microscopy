@@ -1,4 +1,4 @@
-﻿"""Public surface for the target-acquisition pipeline.
+"""Public surface for the target-acquisition pipeline.
 
 The notebook imports only from this package. Re-exports:
 

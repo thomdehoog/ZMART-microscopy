@@ -1,56 +1,54 @@
 {
-  "image_to_stage": [
-    [
-      0.0,
-      -1.0
+  "backlash": {
+    "approach": "+X+Y",
+    "overshoot_um": 50,
+    "session_id": null,
+    "settle_ms": 100,
+    "tolerance_um": 20
+  },
+  "image_to_stage": {
+    "matrix": [
+      [
+        0.0,
+        -1.0
+      ],
+      [
+        1.0,
+        0.0
+      ]
     ],
-    [
-      1.0,
-      0.0
-    ]
-  ],
-  "last_updated": "20260521_175949",
+    "session_id": null
+  },
+  "last_updated": "20260527_152752",
   "objectives": {
     "0": {
       "name": "HC PL APO CS2    40x/1.10 WATER",
-      "offset_xy_um": [
-        -13.940429687503638,
-        11.4306640625
-      ],
-      "offset_z_um": -7.430000000000291,
-      "shift_xy_um": [
+      "session_id": null,
+      "translation_um": [
         -19.69708,
-        32.9913604275696
-      ],
-      "shift_z_um": 10.175871798653134
+        32.9913604275696,
+        2.7458717986528427
+      ]
     },
     "1": {
       "name": "HC PL APO CS2    10x/0.40 DRY",
-      "offset_xy_um": [
+      "session_id": null,
+      "translation_um": [
+        0.0,
         0.0,
         0.0
-      ],
-      "offset_z_um": 0.0,
-      "shift_xy_um": [
-        0.0,
-        0.0
-      ],
-      "shift_z_um": 0.0
+      ]
     },
     "2": {
       "name": "HC PL APO CS2    20x/0.75 DRY",
-      "offset_xy_um": [
-        -7.021484375,
-        21.07421875
-      ],
-      "offset_z_um": -6.109999999999673,
-      "shift_xy_um": [
+      "session_id": null,
+      "translation_um": [
         -6.458369500000001,
-        21.53989335
-      ],
-      "shift_z_um": 2.401066210072713
+        21.53989335,
+        -3.7089337899269594
+      ]
     }
   },
   "reference_objective_slot": 1,
-  "schema_version": 9
+  "schema_version": 11
 }

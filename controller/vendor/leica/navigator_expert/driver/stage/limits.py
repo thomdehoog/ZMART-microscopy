@@ -55,7 +55,7 @@ def apply_stage_limits_from_config(stage_cfg: dict) -> None:
     once at session start so the cookbook and calibration share one
     source of truth.
     """
-    lim = stage_cfg["limits_um"]
+    lim = stage_cfg["stage_um"]
     set_stage_limits(
         x_min=lim["x"][0], x_max=lim["x"][1],
         y_min=lim["y"][0], y_max=lim["y"][1],

@@ -447,7 +447,7 @@ def _integration_ctx(tmp_path, *, simulate: bool):
     ctx = Context(
         cfg=cfg, client=mock.MagicMock(), hw=mock.MagicMock(),
         calibration={"image_to_stage": [[1.0, 0.0], [0.0, 1.0]]},
-        stage_config={"limits_um": {"z_wide": (0.0, 1000.0)}},
+        stage_config={"stage_um": {"z_wide": (0.0, 1000.0)}},
         engine=mock.MagicMock(),
         out_dir=tmp_path, run=SimpleNamespace(layout=layout),
         templates_dir=tmp_path / "templates",

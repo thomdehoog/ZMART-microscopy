@@ -27,7 +27,6 @@ Import restrictions: only ``prechecks``, ``confirmations``, ``errors``,
 
 from dataclasses import dataclass
 
-from .utils import RECEIPT_TIMEOUT, CONFIRM_TIMEOUT  # noqa: F401 — re-exported
 from .confirmations import (
     _confirm_zoom,
     _confirm_scan_speed,

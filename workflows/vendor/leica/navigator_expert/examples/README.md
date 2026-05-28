@@ -25,7 +25,7 @@ All three scripts share the same code shape:
 - A job is currently selected in the LAS X UI.
 - `ImageTransformation = TOPLEFT` in LAS X Advanced Settings.
 - AFC / autofocus OFF; no LAS X modal dialogs.
-- `calibration/vendor/leica/navigator_expert/current/calibration.json` and `calibration/vendor/leica/navigator_expert/current/stage.json` exist. Run the calibration notebooks first and promote the generated config.
+- `calibration/vendor/leica/navigator_expert/current/calibration.json` and `calibration/vendor/leica/navigator_expert/current/limits.json` exist. Run the calibration notebooks first and adopt the generated config.
 
 ## Outputs
 

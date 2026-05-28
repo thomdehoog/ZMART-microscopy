@@ -25,20 +25,15 @@ def _make_npz(
     n_cells: int = 5,
     image_size: tuple[int, int] = (64, 64),
     tile_id: tuple = ("0", 0, 0),
-    position: int | None = None,
+    position: int = 0,
     simulated: bool = False,
 ) -> Path:
     """Write a synthetic post-cut tile analysis npz.
 
-    position: when given, the flat tile index ("Position N") key is
-    written. Omitted by default so the pre-`position` back-compat path
-    stays exercised; pass it to exercise the position-present path.
+    position: flat tile index ("Position N") written to the NPZ.
 
-    simulated: when True, writes the `simulated` key so the
-    visualize loader marks tiles as mock-content. Mirrors the current
-    write path produced by _save_single_tile_analysis. Historical NPZs
-    with `analysis_image_source` are exercised separately in
-    test_overview_persistence.TestLegacyAnalysisImageSourceNpz.
+    simulated: writes the current `simulated` key so the visualize
+    loader marks tiles as acquired or mock-content.
     """
     analysis_dir.mkdir(parents=True, exist_ok=True)
 
@@ -53,10 +48,8 @@ def _make_npz(
 
     dest = analysis_dir / build_position_analysis_name(naming)
     extra: dict = {}
-    if position is not None:
-        extra["position"] = np.int32(position)
-    if simulated:
-        extra["simulated"] = np.bool_(True)
+    extra["position"] = np.int32(position)
+    extra["simulated"] = np.bool_(simulated)
     np.savez_compressed(
         dest,
         image_2d=image_2d,
@@ -576,10 +569,7 @@ class TestPlotOverviewTiles:
         # No error, no output
 
     def test_mock_mode_title_contains_mock(self, tmp_path, monkeypatch):
-        # Post-cut: the "(mock)" title prefix is driven by the
-        # `simulated` NPZ key (written by the hijack flow), not by
-        # the legacy `analysis_image_source` field. Same UX, single
-        # source of truth.
+        # The "(mock)" title prefix is driven by the `simulated` NPZ key.
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
@@ -1098,8 +1088,7 @@ class TestLoadTileNpzWarning:
 
 class TestLoadTileNpzPosition:
     """_load_tile_npz surfaces the flat tile index as TileNpz.position:
-    the integer when the NPZ carries it, None for a pre-`position`
-    NPZ."""
+    the integer written by the current NPZ schema."""
 
     def test_returns_position_when_present(self, tmp_path):
         from pipeline.visualize import _load_tile_npz
@@ -1109,12 +1098,17 @@ class TestLoadTileNpzPosition:
                         tile_id=("0", 0, 0), position=7)
         assert _load_tile_npz(npz).position == 7
 
-    def test_position_is_none_when_absent(self, tmp_path):
+    def test_missing_position_is_invalid(self, tmp_path, capsys):
         from pipeline.visualize import _load_tile_npz
         naming = Naming(acquisition_type="overview-scan",
                         hash6="abc123", g=0, p=0)
         npz = _make_npz(tmp_path / "a", naming=naming, tile_id=("0", 0, 0))
-        assert _load_tile_npz(npz).position is None
+        with np.load(npz, allow_pickle=True) as data:
+            kept = {k: data[k] for k in data.files if k != "position"}
+        np.savez_compressed(npz, **kept)
+
+        assert _load_tile_npz(npz) is None
+        assert "position" in capsys.readouterr().out
 
 
 class TestRenderCropBoundary:
@@ -2128,7 +2122,7 @@ class TestPngNaming:
         assert _overview_tile_png_name(0, 1, 2, 7, "abc123") == f"{stem}_live.png"
 
     def test_overview_tile_png_name_fallback(self):
-        """No position or no hash6 -> legacy R/r/c name, never a wrong
+        """No position or no hash6 -> pick-address name, never a wrong
         canonical stem."""
         from pipeline.visualize import _overview_tile_png_name
         assert _overview_tile_png_name(0, 1, 2, None, "abc123") == \
@@ -2154,7 +2148,7 @@ class TestPngNaming:
         assert _target_png_name(rec, live=True) == f"{stem}_live.png"
 
     def test_target_png_name_fallback_no_tif(self):
-        """A target with no TIFF (failed / pick-less) -> legacy name,
+        """A target with no TIFF (failed / pick-less) -> pick-address name,
         no AttributeError on record.tif_path is None."""
         from pipeline.visualize import _target_png_name
         from pipeline.target import TargetRecord
@@ -2182,7 +2176,7 @@ class TestPngNaming:
         assert (logs / f"{stem}_live.png").exists()
 
     def test_display_target_tif_none_fallback(self, tmp_path, monkeypatch):
-        """display_target with a tif_path-less record still saves (legacy
+        """display_target with a tif_path-less record still saves (pick-address
         name) and does not raise."""
         import matplotlib
         matplotlib.use("Agg")

@@ -1,0 +1,126 @@
+"""Unit tests for the split stage safety/backlash loader."""
+
+import json
+
+import pytest
+
+import navigator_expert.driver.stage.config as stage_config
+
+
+def _write_json(path, payload):
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_load_combines_limits_and_calibrated_backlash(tmp_path):
+    limits = tmp_path / "limits.json"
+    calibration = tmp_path / "calibration.json"
+    _write_json(
+        limits,
+        {
+            "schema_version": 1,
+            "stage_um": {
+                "x": [1, 2],
+                "y": [3, 4],
+                "z_galvo": [-5, 5],
+                "z_wide": [0, 100],
+            },
+        },
+    )
+    _write_json(
+        calibration,
+        {
+            "schema_version": 11,
+            "backlash": {
+                "approach": "+X+Y",
+                "overshoot_um": 50,
+                "settle_ms": 100,
+                "tolerance_um": 20,
+                "session_id": "session-1",
+            },
+        },
+    )
+
+    cfg = stage_config.load(limits_path=limits, calibration_path=calibration)
+
+    assert cfg == {
+        "stage_um": {
+            "x": [1.0, 2.0],
+            "y": [3.0, 4.0],
+            "z_galvo": [-5.0, 5.0],
+            "z_wide": [0.0, 100.0],
+        },
+        "backlash": {
+            "approach": "+X+Y",
+            "overshoot_um": 50.0,
+            "settle_ms": 100,
+            "tolerance_um": 20.0,
+            "session_id": "session-1",
+        },
+    }
+
+
+def test_load_requires_limits_schema_name(tmp_path):
+    legacy_shaped_limits = tmp_path / "limits.json"
+    calibration = tmp_path / "calibration.json"
+    _write_json(
+        legacy_shaped_limits,
+        {
+            "schema_version": 1,
+            "limits_um": {
+                "x": [1000, 130000],
+                "y": [1000, 100000],
+                "z_galvo": [-200, 200],
+                "z_wide": [0, 25000],
+            },
+        },
+    )
+    _write_json(
+        calibration,
+        {
+            "schema_version": 11,
+            "backlash": {
+                "approach": "+X+Y",
+                "overshoot_um": 50,
+                "settle_ms": 100,
+                "tolerance_um": 20,
+                "session_id": "session-1",
+            },
+        },
+    )
+
+    with pytest.raises(ValueError, match="stage_um"):
+        stage_config.load(
+            limits_path=legacy_shaped_limits,
+            calibration_path=calibration,
+        )
+
+
+def test_load_requires_complete_backlash_block(tmp_path):
+    limits = tmp_path / "limits.json"
+    calibration = tmp_path / "calibration.json"
+    _write_json(
+        limits,
+        {
+            "schema_version": 1,
+            "stage_um": {
+                "x": [1, 2],
+                "y": [3, 4],
+                "z_galvo": [-5, 5],
+                "z_wide": [0, 100],
+            },
+        },
+    )
+    _write_json(
+        calibration,
+        {
+            "schema_version": 11,
+            "backlash": {
+                "overshoot_um": 50,
+                "settle_ms": 100,
+                "tolerance_um": 20,
+            },
+        },
+    )
+
+    with pytest.raises(ValueError, match="backlash missing field"):
+        stage_config.load(limits_path=limits, calibration_path=calibration)

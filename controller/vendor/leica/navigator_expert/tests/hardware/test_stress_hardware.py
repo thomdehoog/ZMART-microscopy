@@ -95,7 +95,9 @@ def test_stress_hardware_mock_run_records_step_characteristics(tmp_path):
     steps = _stress_steps(records)
     summary = records[-1]
 
-    assert len(steps) == 27
+    expected_steps = 1 + (summary["context"]["cycles"]
+                          * summary["context"]["rounds"]) + 2
+    assert len(steps) == expected_steps
     assert summary["kind"] == "stress_summary"
     assert summary["context"]["counts"]["FAIL"] == 0
     assert summary["context"]["counts"]["WARN"] == 0

@@ -125,7 +125,7 @@ We will apply this matrix in our parcentricity correction workflow. However, giv
 | 1 | Is the ~90° rotation between stage and image coordinate axes expected and documented for the STELLARIS 8? |
 | 2 | Are scale factors of 97% (X) and 83–85% (Y) within factory specification? |
 | 3 | Is a stage calibration procedure available that could improve these values? |
-| 4 | Is the post-objective-switch settling behaviour (requiring one dummy move before measurements stabilise) expected, and is there a recommended workaround? |
+| 4 | Is the post-objective-switch settling behaviour (requiring one dummy move before measurements stabilise) expected, and is there a recommended procedure? |
 | 5 | Is there a way to independently verify the absolute accuracy of stage displacements — for example, a service-level encoder readback or a recommended procedure using a calibrated reference — so that we can distinguish a genuine stage calibration error from a systematic bias in our image-based measurements? |
 
 ---

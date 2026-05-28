@@ -622,10 +622,10 @@ def op_detector_gain(
     })
     if beam_route is None or current is None:
         return "SKIP", "detector gain readback incomplete", None, None, context
-    if "hyd" in name.lower() or lower == upper:
+    if lower == upper:
         return (
             "SKIP",
-            f"{name or 'detector'} exposes fixed/photon-counting gain; not mutating gain",
+            f"{name or 'detector'} exposes no writable gain range; not mutating gain",
             None,
             None,
             context,
@@ -1170,8 +1170,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--job", help="job used for setting and Z operations")
     parser.add_argument("--mock-latency", type=float, default=0.0,
                         help="per-command latency for --mock")
-    parser.add_argument("--stage-config",
-                        help="stage calibration JSON; default is current calibration")
+    parser.add_argument("--limits-config",
+                        help="limits JSON; default is current limits.json")
     parser.add_argument("--rounds", type=int, default=30,
                         help="stress steps per cycle; first step is a job sweep")
     parser.add_argument("--cycles", type=int, default=4,
@@ -1195,8 +1195,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--strict-confirmation", action="store_true",
                         help="treat WARN as exit 1")
     parser.add_argument("--strict-readback", action="store_true",
-                        help="promote extra post-command readback mismatches "
-                             "from WARN to FAIL")
+                        help="treat extra post-command readback mismatches "
+                             "as FAIL instead of WARN")
     parser.add_argument("--yes", action="store_true",
                         help="skip interactive confirmation before LasxApi writes")
     parser.add_argument("--allow-missing-lasx", action="store_true",
