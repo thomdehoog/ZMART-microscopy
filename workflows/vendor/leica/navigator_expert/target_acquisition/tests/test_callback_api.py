@@ -137,7 +137,7 @@ class TestAcquireTargetsEmptyPicks:
         the queue first, then returned without shutdown, leaving an
         unowned executor.
         """
-        from pipeline.overview import Picks
+        from pipeline.selection import Picks
         from pipeline import target as target_mod
         from pipeline import _save_queue as save_queue_mod
 

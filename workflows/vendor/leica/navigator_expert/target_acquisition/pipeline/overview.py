@@ -12,7 +12,6 @@ Public entry points:
 from __future__ import annotations
 
 import json
-import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,23 +59,6 @@ class Pick:
     # Flat tile index ("Position N") of this pick's overview tile --
     # the overview-scan file index p (= naming_p).
     position: int | None = None
-
-
-@dataclass
-class Picks:
-    items: list[Pick]
-
-    n_picks_raw: int = 0
-    n_picks_removed_duplicate: int = 0
-    n_picks_out_of_limits_xy: int = 0
-    n_picks_out_of_limits_z: int = 0
-
-    removed_picks: list[dict] = field(default_factory=list)
-
-    tile_acquire_failures: list[dict] = field(default_factory=list)
-    engine_failures: list[dict] = field(default_factory=list)
-
-    simulated: bool = False
 
 
 @dataclass
@@ -361,13 +343,13 @@ def run_overview(
                     "tile_zwide_um": zwide_um,
                     "source_pixel_size_um": pixel_size_um,
                     "source_image_size_px": image_size_px,
-                    "image_to_stage": ctx.calibration["image_to_stage"],
+                    "image_to_stage": calib.get_image_to_stage(ctx.calibration),
                     "n_picks": None,
                     "feature": "area",
                     # Engine-ignored provenance keys -- they reach
                     # _fire_on_tile and _save_single_tile_analysis via
                     # result["input"]. The engine itself reads only
-                    # image_path (D1: no per-source branch); a simulate
+                    # image_path; a simulate
                     # run hijacked image_path's content above, so a
                     # plain file read gives the engine the mock pixels.
                     "simulated": cfg.simulate,
@@ -553,7 +535,7 @@ def _process_drained_result(
 
     if tile_id_raw is None:
         # No tile_id => nothing we can save or attribute to a tile.
-        # Still fire the callback for parity with the old behavior.
+        # Still fire the callback so live displays receive the event.
         _fire_on_tile(on_tile, result)
         return
 
@@ -697,110 +679,6 @@ def _write_overview_meta(
         "mock_image_source": mock_image_source,
     }
     (analysis_dir / "overview_meta.json").write_text(json.dumps(meta, indent=2))
-
-
-def _dedup_picks(picks: list[Pick]) -> tuple[list[Pick], list[dict]]:
-    """Deduplicate picks by cell_source_stage_xy_um distance (D5).
-
-    Two picks are duplicates when distance < 0.75 * max(bbox_diag).
-    Keeps the one with higher area; loser goes to removed list.
-    """
-    removed: list[dict] = []
-    surviving: list[Pick] = []
-
-    for pick in sorted(picks, key=lambda p: p.area_px, reverse=True):
-        is_dup = False
-        for winner in surviving:
-            dist = math.hypot(
-                pick.cell_source_stage_xy_um[0] - winner.cell_source_stage_xy_um[0],
-                pick.cell_source_stage_xy_um[1] - winner.cell_source_stage_xy_um[1],
-            )
-            pick_diag = math.hypot(*pick.bbox_um)
-            winner_diag = math.hypot(*winner.bbox_um)
-            threshold = max(pick_diag, winner_diag) * 0.75
-            if dist < threshold:
-                removed.append({
-                    "pick_id": pick.pick_id,
-                    "reason": "duplicate",
-                    "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
-                    "winner_pick_id": winner.pick_id,
-                })
-                is_dup = True
-                break
-        if not is_dup:
-            surviving.append(pick)
-
-    return surviving, removed
-
-
-def _filter_out_of_limits(
-    picks: list[Pick],
-    limits,                       # pipeline.context.LimitsContext (imported lazily to avoid cycle)
-) -> tuple[list[Pick], list[dict], list[dict], list[dict]]:
-    """Filter picks whose target position falls outside stage limits (D6).
-
-    Predicts target XY and Z via the translator (no hardware).
-    Takes a LimitsContext rather than a full Context — selection.py
-    constructs one via ctx.limits_context() so this function doesn't
-    need the LAS X client / engine fields.
-    """
-    calibration = limits.calibration
-    stage_cfg = limits.stage_config
-
-    lim = limits.boundary_limits or {}
-    x_min = lim.get("x_min")
-    x_max = lim.get("x_max")
-    y_min = lim.get("y_min")
-    y_max = lim.get("y_max")
-    z_wide_min, z_wide_max = stage_cfg["stage_um"]["z_wide"]
-
-    has_xy_limits = all(v is not None for v in (x_min, x_max, y_min, y_max))
-
-    surviving: list[Pick] = []
-    removed_xy: list[dict] = []
-    removed_z: list[dict] = []
-    removed_translation: list[dict] = []
-
-    for pick in picks:
-        try:
-            tx, ty, tz = calib.translate_xyz_between_objectives(
-                pick.cell_source_stage_xy_um[0],
-                pick.cell_source_stage_xy_um[1],
-                pick.tile_zwide_um,
-                calibration,
-                from_slot=limits.source_slot,
-                to_slot=limits.target_slot,
-            )
-        except Exception as exc:
-            removed_translation.append({
-                "pick_id": pick.pick_id,
-                "reason": "translation",
-                "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
-                "error": str(exc),
-            })
-            continue
-
-        if has_xy_limits and not (x_min <= tx <= x_max and y_min <= ty <= y_max):
-            removed_xy.append({
-                "pick_id": pick.pick_id,
-                "reason": "xy",
-                "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
-                "target_xy_um": (tx, ty),
-            })
-            continue
-
-        if not (z_wide_min <= tz <= z_wide_max):
-            removed_z.append({
-                "pick_id": pick.pick_id,
-                "reason": "z",
-                "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
-                "target_z_um": tz,
-            })
-            continue
-
-        surviving.append(pick)
-
-    return surviving, removed_xy, removed_z, removed_translation
 
 
 def _save_single_tile_analysis(

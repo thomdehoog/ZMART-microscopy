@@ -10,7 +10,7 @@ read_scan_field (Step 2): parse the scan field the operator drew,
 
 plot_scan_field: visualise tiles, boundary, and focus markers.
 
-Z-galvo is never commanded by this pipeline (D2/D3); we still pass
+Z-galvo is never commanded by this pipeline; we still pass
 the limits.json z-galvo envelope to drv.set_stage_limits because the
 API requires the values.
 """
@@ -677,7 +677,7 @@ def _validate_cfg_xy(cfg: Any, stage_cfg: dict) -> None:
 
 
 def _strip_and_enforce_zwide(ctx: Context) -> None:
-    """Strip the template; best-effort z-wide enforcement (D2)."""
+    """Strip the template and enforce the configured z-wide center."""
     client = ctx.client
 
     if not drv.strip_template(client):

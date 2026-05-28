@@ -82,7 +82,7 @@ def _make_pick(tile_id, label, centroid_rc=(15.0, 15.0), bbox=(10, 10, 20, 20),
 
 def _make_picks(items, **kwargs):
     """Build a Picks container from a list of Pick objects."""
-    from pipeline.overview import Picks
+    from pipeline.selection import Picks
     return Picks(items=items, n_picks_raw=len(items), **kwargs)
 
 
@@ -132,7 +132,7 @@ def _make_target_tif(path: Path, size=(32, 32)):
     return path
 
 
-# ─── Style-token coverage (Bundle D / D6 #5) ─────────────────────
+# ─── Style-token coverage ────────────────────────────────────────
 
 
 class TestStyleTokenCoverage:
@@ -201,7 +201,7 @@ class TestStyleTokenCoverage:
         return src[:begin] + src[end + len(self._END_SENTINEL):]
 
 
-# ─── display_tile flags (Bundle A / A2) ──────────────────────────
+# ─── display_tile flags ──────────────────────────────────────────
 
 
 def _make_tile_event(n_cells: int = 0, *, position=None, simulated: bool = False):
@@ -285,7 +285,7 @@ class TestDisplayTileFlags:
 
 
 class TestDisplayTileSaveQueue:
-    """Bundle A / A4b: per-tile savefig routes through _FigureSaveQueue.
+    """Per-tile savefig routes through _FigureSaveQueue.
 
     Pins three contracts:
       - Callback latency: display_tile returns before the save completes
@@ -405,14 +405,15 @@ class TestDisplayTileSaveQueue:
 
 
 class TestDisplayTargetSaveQueue:
-    """Bundle A / A4b coverage symmetry: pin display_target's queued-
-    save ownership-transfer contract. display_target mirrors
+    """Pin display_target's queued-save ownership-transfer contract.
+
+    display_target mirrors
     display_tile's figure-ownership semantics -- when _save_queue is
     provided and save_png=True, the worker takes ownership and closes
     the figure; the producer's finally must not also close.
 
-    A4b initially shipped only the display_tile close-once test; this
-    closes the documented coverage gap for display_target.
+    This complements the display_tile close-once test with the same
+    figure-ownership contract for display_target.
     """
     def test_closes_figure_exactly_once_on_queued_path(
         self, monkeypatch, tmp_path,
@@ -958,7 +959,7 @@ class TestPlotTargetPairs:
         # No error, no output
 
 
-# ─── Bundle D / D6 remaining tests (#1-#4) ────────────────────────
+# ─── Renderer regression tests ───────────────────────────────────
 
 
 class TestDisplayTilePanelLayout:
@@ -1023,7 +1024,7 @@ class TestDisplayTilePanelLayout:
 
 
 class TestSharedScanFieldRenderer:
-    """D6 #2: render_scan_field_panel produces consistent geometry
+    """render_scan_field_panel produces consistent geometry
     regardless of whether the caller is the Step 3 path (highlight only)
     or the Step 2b/2c path (tile_styles supplied). Catches future
     divergence of the renderer's geometry behavior.
@@ -1068,9 +1069,7 @@ class TestSharedScanFieldRenderer:
 
 
 class TestLoadTileNpzWarning:
-    """D6 #3: _load_tile_npz logs a warning and returns None on a
-    corrupt / unreadable npz, not silently swallowed. Per D5a's
-    log-and-skip pattern.
+    """_load_tile_npz logs a warning and returns None on corrupt input.
     """
     def test_warns_on_unreadable_file(self, tmp_path, capsys):
         from pipeline.visualize import _load_tile_npz
@@ -1112,9 +1111,7 @@ class TestLoadTileNpzPosition:
 
 
 class TestRenderCropBoundary:
-    """D6 #4: _render_crop / _safe_crop_window behavior when the image
-    is smaller than _CROP_SIZE_PX. Per the D4a docstring-honesty fix:
-    smaller images yield a smaller crop (no zero-padding, no exception).
+    """Small images yield a smaller crop, not padding or exceptions.
     """
     def test_image_smaller_than_crop_size_renders_whole_image(self):
         import matplotlib.pyplot as plt

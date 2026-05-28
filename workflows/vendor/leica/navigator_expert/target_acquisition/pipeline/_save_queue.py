@@ -1,9 +1,9 @@
-"""Async figure-save queue (Bundle A / A4).
+"""Async figure-save queue.
 
 Move callback-path fig.savefig() off the synchronous acquisition path
 so per-tile / per-target display callbacks return quickly.
 
-Final Bundle A design:
+Design:
 
 - Used only by the callback-path renderers display_tile and
   display_target. Top-level/batch renderers (display_selection,
@@ -34,7 +34,11 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Callable
 
 
+# Bounded enough to apply backpressure during acquisition, large enough
+# that normal per-tile/per-target figure bursts do not block every frame.
 _DEFAULT_MAX_QUEUED = 16
+# Operator-facing drain limit: long enough for queued PNG writes, short
+# enough that a broken filesystem does not hang notebook shutdown.
 _DEFAULT_SHUTDOWN_TIMEOUT_S = 30.0
 
 

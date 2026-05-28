@@ -201,8 +201,8 @@ def hijack_frame(
     if saved.ndim != 2:
         raise RuntimeError(
             f"multi-plane simulator hijack unsupported; "
-            f"{result.image_path.name} has shape {saved.shape}. v3 jobs "
-            f"are single-plane single-channel overview/target; extend "
+            f"{result.image_path.name} has shape {saved.shape}. Current "
+            f"overview/target jobs are single-plane single-channel; extend "
             f"pipeline/_mock_provider.py for >2D content."
         )
 

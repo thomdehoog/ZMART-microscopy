@@ -124,9 +124,9 @@ class Context:
     calibration: dict
     stage_config: dict
     engine: Any
-    out_dir: Path                             # == run.layout.run_dir; kept for compat
+    out_dir: Path                             # run.layout.run_dir
     run: Any                                  # driver.RunHandle (loosely typed to avoid driver import)
-    templates_dir: Path                       # required after preflight (D9)
+    templates_dir: Path                       # required after preflight
     source_slot: int                          # derived from acquisition_job in preflight
     target_slot: int                          # derived from target_job in preflight
 
@@ -156,7 +156,7 @@ class Context:
         )
 
     def shutdown(self) -> None:
-        """Idempotent shutdown (D20). Safe to call multiple times.
+        """Idempotent shutdown. Safe to call multiple times.
 
         Scope: shuts down the analysis engine only. Does NOT disconnect
         the LAS X client; that resource is connected once per session

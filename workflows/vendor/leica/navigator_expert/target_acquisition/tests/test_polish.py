@@ -208,7 +208,8 @@ def test_plot_results_skips_picks_without_records(tmp_path, monkeypatch):
     survives palette changes.
     """
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
-    from pipeline.overview import Pick, Picks
+    from pipeline.overview import Pick
+    from pipeline.selection import Picks
     from pipeline.summary import plot_results
     from pipeline.target import TargetRecord
 

@@ -1,5 +1,5 @@
 """
-Offline unit tests for the v3 pipeline focus map.
+Offline unit tests for the pipeline focus map.
 
 These tests exercise the mathematical fitting and interpolation paths only.
 They do not call LAS X, move hardware, or require scipy/cellpose.

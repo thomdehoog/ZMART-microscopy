@@ -13,25 +13,14 @@ The notebook imports only from this package. Re-exports:
 
 Modules whose names start with `_` are internal.
 """
-import sys
-from pathlib import Path
-
-_REPO_ROOT = Path(__file__).resolve().parents[6]
-_CONTROLLER_LEICA = _REPO_ROOT / "controller" / "vendor" / "leica"
-for _path in (str(_CONTROLLER_LEICA), str(_REPO_ROOT)):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
-
-del _path
-
 from .connect import connect_lasx
 from .context import Config, Context, LimitsContext, TargetState
 from .focus import FocusMap, build_focus_map
-from .overview import OverviewResult, Pick, Picks, TileEvent, run_overview
+from .overview import OverviewResult, Pick, TileEvent, run_overview
 from .preflight import preflight
 from .selection import (
     MODE_EMPTY, MODE_NO_QUALIFYING, MODE_SPARSE, MODE_THRESHOLD,
-    SelectionResult, load_overview_result, select_targets,
+    Picks, SelectionResult, load_overview_result, select_targets,
 )
 from .summary import write_summary, plot_results, finish
 from .target import TargetRecord, acquire_targets

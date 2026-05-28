@@ -39,8 +39,8 @@ def acquire(
     backlash = ctx.stage_config["backlash"]
     r = drv.move_xy_with_backlash(
         ctx.client, x_um, y_um,
-        overshoot_um=backlash.get("overshoot_um", 50.0),
-        settle_ms=backlash.get("settle_ms", 100),
+        overshoot_um=backlash["overshoot_um"],
+        settle_ms=backlash["settle_ms"],
     )
     if not r or not r.get("success"):
         raise RuntimeError(f"move_xy({x_um}, {y_um}) failed: {r!r}")
