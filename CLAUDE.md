@@ -4,9 +4,9 @@ Microscope automation framework.
 
 ## Structure
 
-- `shared/` - vendor-neutral utilities used by controllers and workflows.
-- `controller/vendor/leica/navigator_expert/` - Leica Navigator Expert package.
-  - `driver/` - LAS X driver, template handling, acquisition save chain, and stage helpers.
+- `shared/` - vendor-neutral utilities used by drivers and workflows.
+- `driver/vendor/leica/navigator_expert/` - Leica Navigator Expert package.
+  - `core/`, `stage/`, `acquisition/`, `templates/`, `positions/` - driver implementation modules.
   - `tests/` - offline driver unit tests and fixtures.
 - `calibration/vendor/leica/navigator_expert/` - Leica calibration notebooks, code, tests, and adopted current state.
 - `workflows/vendor/leica/navigator_expert/` - Leica workflow entry points.
@@ -16,8 +16,8 @@ Microscope automation framework.
 
 ## Leica LAS X Driver
 
-- **Package**: `controller/vendor/leica/navigator_expert/driver/`
-- **API reference**: `controller/vendor/leica/navigator_expert/README.md`
+- **Package**: `driver/vendor/leica/navigator_expert/`
+- **API reference**: `driver/vendor/leica/navigator_expert/README.md`
 - **All commands return** a result dict with `success`, `confirmed`, `message`, `timing`, `logs`
 
 ## Code Quality

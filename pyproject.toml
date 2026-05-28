@@ -31,7 +31,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Example scripts intentionally do `import navigator_expert.driver as drv`
+# Example scripts intentionally do `import navigator_expert as drv`
 # after a sys.path manipulation. Don't flag the resulting import order.
 "workflows/vendor/leica/navigator_expert/examples/*.py" = ["E402"]
 

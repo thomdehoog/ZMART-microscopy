@@ -8,9 +8,9 @@ verification.
 
 ## Subsystems
 
-- **`controller/`** - microscope drivers. Currently only
+- **`driver/`** - microscope drivers. Currently only
   `vendor/leica/navigator_expert/` (Leica STELLARIS via LAS X). Full API
-  reference: `controller/vendor/leica/navigator_expert/README.md`.
+  reference: `driver/vendor/leica/navigator_expert/README.md`.
 - **`calibration/`** - measured optical state: image-to-stage rotation for the
   reference objective, objective translations, and backlash. Operator notebooks
   adopt their results to `current/calibration.json`.

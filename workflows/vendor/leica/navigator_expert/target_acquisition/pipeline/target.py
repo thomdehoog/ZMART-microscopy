@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-import navigator_expert.driver as drv
+import navigator_expert as drv
 from calibration.vendor.leica.navigator_expert.core import model as calib
 
 from .context import Context, TargetState

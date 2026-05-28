@@ -12,8 +12,8 @@ from pathlib import Path
 _HERE = Path(__file__).parent.resolve()
 _REPO_ROOT = _HERE.parents[4]
 
-# navigator_expert.driver needs controller/vendor/leica/ on sys.path
-_VENDOR_LEICA = _REPO_ROOT / "controller" / "vendor" / "leica"
+# navigator_expert needs driver/vendor/leica/ on sys.path
+_VENDOR_LEICA = _REPO_ROOT / "driver" / "vendor" / "leica"
 if str(_VENDOR_LEICA) not in sys.path:
     sys.path.insert(0, str(_VENDOR_LEICA))
 
@@ -21,9 +21,9 @@ if str(_VENDOR_LEICA) not in sys.path:
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-# Pre-load navigator_expert.driver so its package identity is
+# Pre-load navigator_expert so its package identity is
 # established before pipeline modules trigger the same import.
-import navigator_expert.driver  # noqa: E402,F401
+import navigator_expert  # noqa: E402,F401
 
 # pipeline/ is a sibling package to this bootstrap
 if str(_HERE) not in sys.path:

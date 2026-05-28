@@ -470,7 +470,7 @@ class TestAcquireTargetsIntegration:
         acquire_and_save writes a real fake target TIFF that
         hijack_frame can read."""
         from pipeline import target as target_mod
-        import navigator_expert.driver as drv
+        import navigator_expert as drv
 
         monkeypatch.setattr(target_mod, "drv", drv)
         monkeypatch.setattr(

@@ -20,9 +20,9 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-import navigator_expert.driver as drv
+import navigator_expert as drv
 from calibration.vendor.leica.navigator_expert.core import model as calib
-from navigator_expert.driver.core.objectives import validate_slots
+from navigator_expert.core.objectives import validate_slots
 
 from .context import Config, Context
 from ._job_state import ensure_job_state, _read_objective_slot
@@ -157,7 +157,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
                 "drv.find_scanning_templates_dir() returned None. "
                 "LAS X may not be installed/configured for this Windows "
                 "user, or the kernel was launched without inheriting "
-                "APPDATA. See navigator_expert.driver.find_scanning_templates_dir "
+                "APPDATA. See navigator_expert.find_scanning_templates_dir "
                 "for the exact lookup logic."
             )
 

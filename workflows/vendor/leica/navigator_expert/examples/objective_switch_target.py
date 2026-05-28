@@ -97,8 +97,8 @@ from typing import Any, Sequence
 
 # Allow imports from any CWD while this cookbook lives outside the driver tree.
 _REPO_ROOT = Path(__file__).resolve().parents[5]
-_CONTROLLER_LEICA = _REPO_ROOT / "controller" / "vendor" / "leica"
-for _path in (str(_CONTROLLER_LEICA), str(_REPO_ROOT)):
+_DRIVER_LEICA = _REPO_ROOT / "driver" / "vendor" / "leica"
+for _path in (str(_DRIVER_LEICA), str(_REPO_ROOT)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 del _path
@@ -113,9 +113,9 @@ from cellpose import models
 from matplotlib.patches import Rectangle
 from skimage.measure import regionprops
 
-import navigator_expert.driver as drv
+import navigator_expert as drv
 from calibration.vendor.leica.navigator_expert.core import model as calib
-from navigator_expert.driver.core.objectives import validate_slots
+from navigator_expert.core.objectives import validate_slots
 
 
 log = logging.getLogger("objective_switch_stage_targeting")

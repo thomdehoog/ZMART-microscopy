@@ -2,7 +2,7 @@
 
 Three runnable Leica Navigator Expert cookbooks. Each script is a self-contained, top-to-bottom recipe meant to be both a useful tool and a teaching reference for production workflow code.
 
-The scripts also double as on-scope health checks: if you bring the controller to a new microscope, running these in order will exercise the calibration, acquisition, segmentation, ROI-load, galvo-pan, and objective-switch paths against the real instrument.
+The scripts also double as on-scope health checks: if you bring the driver to a new microscope, running these in order will exercise the calibration, acquisition, segmentation, ROI-load, galvo-pan, and objective-switch paths against the real instrument.
 
 | Script | Purpose | Cellpose | Stage move | Galvo pan | Objective switch |
 |---|---|---|---|---|---|

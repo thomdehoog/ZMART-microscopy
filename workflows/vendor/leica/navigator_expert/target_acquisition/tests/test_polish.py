@@ -151,7 +151,7 @@ def test_plot_stage_envelope_with_stage_limits(tmp_path, monkeypatch):
     """
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
     from pipeline.template import plot_stage_envelope
-    import navigator_expert.driver as drv
+    import navigator_expert as drv
 
     boundary = {"x_min": 0.0, "x_max": 1000.0, "y_min": 0.0, "y_max": 800.0}
     ctx = _envelope_ctx(tmp_path, stage_limits=boundary)
@@ -170,7 +170,7 @@ def test_plot_stage_envelope_falls_back_to_driver(tmp_path, monkeypatch):
     """
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
     from pipeline.template import plot_stage_envelope
-    import navigator_expert.driver as drv
+    import navigator_expert as drv
 
     ctx = _envelope_ctx(tmp_path, stage_limits=None)
     physical = {"x_min": -500.0, "x_max": 500.0, "y_min": -400.0, "y_max": 400.0}
@@ -367,7 +367,7 @@ def test_read_scan_field_geometry_without_tiles_explains_lifecycle(
     )
     monkeypatch.setattr(
         template_mod.drv,
-        "parse_template_positions",
+        "parse_scan_positions",
         lambda *a, **k: {
             "geometries": {"g1": {"type": "Rectangle"}},
             "acquisition_positions": {},
@@ -395,7 +395,7 @@ def test_read_scan_field_empty_template_explains_lifecycle(
     )
     monkeypatch.setattr(
         template_mod.drv,
-        "parse_template_positions",
+        "parse_scan_positions",
         lambda *a, **k: {"geometries": {}, "acquisition_positions": {}},
     )
 
@@ -421,7 +421,7 @@ def test_show_template_state_reports_lifecycle_fields(
     )
     monkeypatch.setattr(
         template_mod.drv,
-        "parse_template_positions",
+        "parse_scan_positions",
         lambda *a, **k: {
             "geometries": {"g1": {}, "g2": {}},
             "acquisition_positions": {

@@ -10,7 +10,7 @@ trigger a frame and returns None.
 """
 from __future__ import annotations
 
-import navigator_expert.driver as drv
+import navigator_expert as drv
 
 from .context import Context
 from ._job_state import ensure_job_state

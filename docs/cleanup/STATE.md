@@ -113,7 +113,7 @@ Driver and calibration off-limits, so the dead-code removal in
 `driver/` is now deferred. What remains in Wave B is the test-suite
 cleanup, which only changes import statements in tests:
 
-- `test/test_unit.py` now imports canonical `navigator_expert.driver.core`
+- `test/test_unit.py` now imports canonical `navigator_expert.core`
   modules directly. `test/conftest.py` only sets import paths and no
   longer installs `lasx.*` aliases.
 
@@ -124,7 +124,7 @@ cleanup, which only changes import statements in tests:
 - Phase 5: coverage gap analysis. Run pytest under coverage, commit
   the report to `docs/cleanup/coverage/<date>/`. Expected dark zones:
   `commands.py` (44KB), `confirmations.py` (46KB),
-  `driver/acquisition/files.py`, `driver/templates/parsers.py`, and the large core command/readback modules.
+  `driver/acquisition/files.py`, `driver/positions/parsers.py`, and the large core command/readback modules.
 - Phase 6: targeted unit tests for pure-Python helpers
   (`pick_cell_by_distance_rank`, `measure_landing_error_by_morphology`,
   `_intermediate_zoom_for`, `bbox_to_zoom`, `pixels_to_roi`,
@@ -141,7 +141,7 @@ cleanup, which only changes import statements in tests:
 - Calibration state later moved out of the Leica driver package to
   `calibration/vendor/leica/navigator_expert/current/` on
   `restructure/layered-driver`.
-- Flattening `controller/vendor/leica/navigator_expert/` to
+- Flattening `driver/vendor/leica/navigator_expert/` to
   `src/navigator_expert/`. Multi-day; rewrites every import statement
   in the codebase. Worthwhile but its own dedicated workstream.
 
@@ -213,6 +213,6 @@ issue similar to the startup `get_xy()` race.
   of path resolution, but it does live in calibration code.
 - Pin ruff in a `requirements-dev.txt`, or defer until pre-commit
   setup?
-- Once Wave A is done, the `controller/vendor/leica/navigator_expert/`
+- Once Wave A is done, the `driver/vendor/leica/navigator_expert/`
   layout is the next big visual-mess signal. Decide whether to
   schedule the flatten as Wave C or punt indefinitely.
