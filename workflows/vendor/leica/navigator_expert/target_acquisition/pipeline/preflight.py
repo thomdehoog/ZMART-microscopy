@@ -265,23 +265,18 @@ def _derive_slots(
             f"acquisition_job {cfg.acquisition_job!r} uses slot {source_slot}. "
             f"The AF job must use the same objective as the acquisition job.")
 
-    # Validate calibration has entries for both slots
-    objectives = calibration.get("objectives", {})
+    # Validate calibration has usable translation entries for both slots.
     for slot, job in [(source_slot, cfg.acquisition_job),
                       (target_slot, cfg.target_job)]:
-        if str(slot) not in objectives:
-            available = sorted(int(s) for s in objectives)
+        try:
+            calib.get_translation_um(calibration, slot)
+        except ValueError as exc:
             raise ValueError(
                 f"Job {job!r} uses objective slot {slot}, but the "
-                f"calibration has no entry for that slot. "
-                f"Calibrated slots: {available}. "
-                f"Run the calibration notebooks first and adopt the config.")
-
-    # Dry-run translation to verify calibration completeness
-    calib.translate_xyz_between_objectives(
-        0, 0, 0, calibration,
-        from_slot=source_slot, to_slot=target_slot,
-    )
+                f"calibration entry for that slot is missing or invalid. "
+                f"Run the calibration notebooks first and adopt the config. "
+                f"Details: {exc}"
+            ) from exc
 
     return int(source_slot), int(target_slot)
 
