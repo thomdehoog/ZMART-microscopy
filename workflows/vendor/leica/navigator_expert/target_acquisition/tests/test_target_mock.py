@@ -46,6 +46,7 @@ from shared.output_layout import Naming, build_image_name
 from pipeline._hijack import NonSimulatorFrameError
 from pipeline._mock_provider import build_target_provider
 from pipeline.overview import Pick
+from support import minimal_calibration
 
 
 # ─── Helpers ──────────────────────────────────────────────────────
@@ -446,7 +447,7 @@ def _integration_ctx(tmp_path, *, simulate: bool):
     layout = _make_layout(tmp_path)
     ctx = Context(
         cfg=cfg, client=mock.MagicMock(), hw=mock.MagicMock(),
-        calibration={"image_to_stage": [[1.0, 0.0], [0.0, 1.0]]},
+        calibration=minimal_calibration(source_slot=2, target_slot=1),
         stage_config={"stage_um": {"z_wide": (0.0, 1000.0)}},
         engine=mock.MagicMock(),
         out_dir=tmp_path, run=SimpleNamespace(layout=layout),
@@ -540,7 +541,7 @@ class TestAcquireTargetsIntegration:
         """Build a Picks container with 2 picks at distinct centroids,
         each referencing a (distinct) source overview tile we've
         written."""
-        from pipeline.overview import Picks
+        from pipeline.selection import Picks
         # Two overview tiles, two distinct picks.
         ov_a = np.full((400, 400), 10000, dtype=np.uint16)
         ov_a[100, 200] = 50000     # pick A's centroid
@@ -619,7 +620,7 @@ class TestAcquireTargetsIntegration:
         self._drv_mocks(monkeypatch, tmp_path)
         ctx = _integration_ctx(tmp_path, simulate=False)
         # Picks with simulated=False; one pick is enough.
-        from pipeline.overview import Picks
+        from pipeline.selection import Picks
         pick = _make_pick(
             centroid_col_row_px=(100.0, 100.0),
             source_pixel_size_um=(0.65, 0.65),

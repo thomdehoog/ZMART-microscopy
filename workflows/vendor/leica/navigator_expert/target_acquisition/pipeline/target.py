@@ -16,7 +16,8 @@ import navigator_expert.driver as drv
 from calibration.vendor.leica.navigator_expert.core import model as calib
 
 from .context import Context, TargetState
-from .overview import Pick, Picks, _validate_callback_flags
+from .overview import Pick, _validate_callback_flags
+from .selection import Picks
 from shared.output_layout import Naming
 from ._acquire import acquire
 from ._job_state import ensure_job_state
@@ -167,7 +168,7 @@ def acquire_targets(
             ts.setup_stage = "select_job"
             ensure_job_state(ctx, cfg.target_job)
 
-            # 5.1b -- read target z-galvo for telemetry (D3)
+            # Read target z-galvo for telemetry.
             ts.setup_stage = "read_zgalvo"
             try:
                 settings = drv.get_job_settings(client, cfg.target_job)

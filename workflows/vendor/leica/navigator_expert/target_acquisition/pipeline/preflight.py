@@ -28,7 +28,11 @@ from .context import Config, Context
 from ._job_state import ensure_job_state, _read_objective_slot
 from ._log_capture import capture_console_deferred
 
+# A non-zero source z-galvo is operator-visible drift; warn before target
+# coordinates are derived from the source-objective calibration.
 ZGALVO_WARN_THRESHOLD_UM = 0.5
+# Scope workstation analysis environment. Preflight reports presence only;
+# missing Cellpose is a warning because acquisition can still be configured.
 CELLPOSE_ENV_NAME = "lasxapi_extended"
 
 
@@ -168,7 +172,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
                 "for the exact lookup logic."
             )
 
-        # 0.6d -- optional synchronous smoke test (D9)
+        # Optional synchronous smoke test.
         if cfg.smoke_test_pipeline:
             _run_smoke_test(engine)
 
@@ -230,7 +234,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
         f"  source z-galvo: {source_zgalvo_um:+.3f} um"
         f"{'  [WARN]' if source_zgalvo_warning else ''}\n"
         f"  cellpose env  : "
-        f"{'present' if cellpose_env_present else 'NOT FOUND (ok for v0 stubs)'}"
+        f"{'present' if cellpose_env_present else 'NOT FOUND (analysis disabled)'}"
     )
     return ctx
 
@@ -331,8 +335,8 @@ def _check_cellpose_env_present() -> bool:
     `<root>/envs/<active_env>`, where `<root>/envs/envs/<name>` would
     be looked up wrongly.
 
-    v0 stubs run in the orchestrator env, so a miss is a warning,
-    never an abort.
+    A miss is a warning, never an abort: the operator can still configure
+    and validate the microscope-side run before analysis is available.
     """
     candidates: list[Path] = []
     for var in ("CONDA_ROOT", "CONDA_PREFIX_1"):
@@ -350,8 +354,7 @@ def _check_cellpose_env_present() -> bool:
     warnings.warn(
         f"Conda env '{CELLPOSE_ENV_NAME}' not found under any of: "
         f"{[str(c / 'envs' / CELLPOSE_ENV_NAME) for c in candidates]}. "
-        f"v0 stubs do not need it; create it before wiring real "
-        f"cellpose into segment_tile.",
+        f"create it before running Cellpose-backed segmentation.",
         stacklevel=3,
     )
     return False
@@ -366,10 +369,10 @@ def _run_smoke_test(engine: Any, timeout_s: float = 30.0) -> None:
     (`Config.smoke_test_pipeline=True`), so a hard fail is the right
     posture.
 
-    Failures are cumulative in the Engine and cannot be removed; D19's
-    `failure_count_before` snapshot (taken in Step 4 *after* preflight
-    returns) is what excludes any pre-Step-4 entries from this run's
-    accounting. We print + warn here so the operator sees them.
+    Failures are cumulative in the Engine and cannot be removed.
+    Step 4 takes its own failure-count snapshot after preflight returns,
+    so preflight smoke failures are excluded from this run's accounting.
+    We print + warn here so the operator sees them.
     """
     try:
         engine.submit("overview", {"image_path": "<smoke>"})
@@ -417,7 +420,7 @@ def _run_smoke_test(engine: Any, timeout_s: float = 30.0) -> None:
         warnings.warn(
             f"Smoke test produced {len(failures)} failure(s). "
             f"They are historical and will not be counted in Step 4 "
-            f"(D19's failure_count_before snapshot excludes them).",
+            f"(Step 4 starts from a fresh failure-count snapshot).",
             stacklevel=3,
         )
     else:

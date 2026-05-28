@@ -283,8 +283,8 @@ def build_focus_map(ctx: Context) -> FocusMap:
             backlash = ctx.stage_config["backlash"]
             r = drv.move_xy_with_backlash(
                 client, x_um, y_um,
-                overshoot_um=backlash.get("overshoot_um", 50.0),
-                settle_ms=backlash.get("settle_ms", 100),
+                overshoot_um=backlash["overshoot_um"],
+                settle_ms=backlash["settle_ms"],
             )
             if not r or not r.get("success"):
                 raise RuntimeError(

@@ -17,13 +17,12 @@ import pytest
 from pipeline.overview import (
     OverviewResult,
     Pick,
-    Picks,
     _build_npz_extra_arrays,
     _picks_from_result,
     _save_single_tile_analysis,
     _write_overview_meta,
 )
-from pipeline.selection import load_overview_result
+from pipeline.selection import Picks, load_overview_result
 
 
 def _make_pick(
@@ -418,9 +417,8 @@ class TestAnalysisImageSourceSingleTrace:
 
     Notebook .ipynb files are skipped because their JSON encoding
     produces noisy matches that are operator-controlled, not
-    code-controlled. The v3.1 notebook cleanup is pinned by operator
-    review; smart_microscopy_v3.ipynb is the operator's dirty working
-    copy and explicitly off-limits.
+    code-controlled. The canonical notebook cleanup is pinned by
+    operator review; ad hoc notebook copies are explicitly off-limits.
     """
 
     # Files (relative to the target_acquisition root) allowed to mention the

@@ -4,7 +4,7 @@ Pick cells from a low-magnification overview, re-image each at the high-magnific
 
 1. **Preflight** — establish output directory, capture console logs, fingerprint the run.
 2. **Template** — read the scan field and stage envelope; archive the live LRP and strip non-essential attachments.
-3. **Focus** — build a focus map across the overview tiles via Brenner z-scoring.
+3. **Focus** — run the AF job at focus markers and fit a z-wide surface.
 4. **Overview** — acquire the overview scan; cellpose-segment each tile; populate per-tile cell counts.
 5. **Selection + Target** — operator chooses a selection mode; pipeline switches objective once (via job selection — the job binds the objective) and acquires each pick with per-pick failure isolation.
 6. **Summary** — write `run_summary.json` and the final figures.

@@ -24,8 +24,8 @@ import navigator_expert.driver as drv
 from .context import Config, Context
 from ._job_state import ensure_job_state
 from .focus import FocusMap
-from .overview import OverviewResult, Pick, Picks
-from .selection import SelectionResult
+from .overview import OverviewResult, Pick
+from .selection import Picks, SelectionResult
 from .target import TargetRecord
 
 
@@ -53,10 +53,8 @@ def write_summary(
       - `selection.n_tiles_below_eligible_cutoff` uses post-border
         eligible cell counts (predicate
         `eligible_count < min_cells_for_threshold`, including 0). This
-        replaced an earlier `n_tiles_below_sparse_cutoff` that used raw
-        cellpose counts and excluded raw-empty tiles; there is no
-        machine-readable schema version field, so external consumers of
-        the old name must rename.
+        replaces the previous raw-cell-count variant; the top-level
+        `schema_version` identifies this summary contract.
       - The raw-detection aggregate is intentionally absent from
         run_summary.json. Raw per-tile counts remain in
         `OverviewResult.tile_cell_counts` when overview state is loaded.
@@ -73,6 +71,7 @@ def write_summary(
     config_dict["target_slot"] = ctx.target_slot
 
     summary: dict[str, Any] = {
+        "schema_version": 1,
         "timestamp": ctx.out_dir.name,
         "config": config_dict,
         "source_slot": ctx.source_slot,

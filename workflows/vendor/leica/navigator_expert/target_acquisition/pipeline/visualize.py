@@ -26,10 +26,10 @@ from ._geom import (
     target_fov_window_in_overview,
     visible_target_fov_window,
 )
-from .overview import Picks, TileEvent
+from .overview import TileEvent
 from .target import TargetRecord
 from .selection import (
-    MODE_EMPTY, MODE_NO_QUALIFYING, MODE_SPARSE, MODE_THRESHOLD,
+    MODE_EMPTY, MODE_NO_QUALIFYING, MODE_SPARSE, MODE_THRESHOLD, Picks,
 )
 
 

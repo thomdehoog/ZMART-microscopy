@@ -14,24 +14,43 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from pathlib import Path
+from zipfile import BadZipFile
 
 import numpy as np
 
+from calibration.vendor.leica.navigator_expert.core import model as calib
+
 from .context import LimitsContext
-from .overview import (
-    OverviewResult, Pick, Picks, _dedup_picks, _filter_out_of_limits,
-)
+from .overview import OverviewResult, Pick
 
 
 MODE_THRESHOLD = "threshold"
-MODE_SPARSE = "sparse_fallback"
+MODE_SPARSE = "sparse"
 MODE_NO_QUALIFYING = "no_qualifying"
 MODE_EMPTY = "empty"
 
 
 # ─── Dataclasses ──────────────────────────────────────────────────
+
+
+@dataclass
+class Picks:
+    items: list[Pick]
+
+    n_picks_raw: int = 0
+    n_picks_removed_duplicate: int = 0
+    n_picks_out_of_limits_xy: int = 0
+    n_picks_out_of_limits_z: int = 0
+
+    removed_picks: list[dict] = field(default_factory=list)
+
+    tile_acquire_failures: list[dict] = field(default_factory=list)
+    engine_failures: list[dict] = field(default_factory=list)
+
+    simulated: bool = False
 
 
 @dataclass
@@ -147,7 +166,9 @@ def load_overview_result(analysis_dir: Path) -> OverviewResult:
                                 data["pick_cell_source_stage_xy_um"][i]),
                             position=position,
                         ))
-            except Exception as exc:
+            except (
+                BadZipFile, KeyError, ValueError, OSError, IndexError, TypeError,
+            ) as exc:
                 print(f"[load] WARNING: failed to read {npz_path.name}: {exc}")
                 continue
 
@@ -441,6 +462,100 @@ def select_targets(
     )
 
     return picks, selection
+
+
+def _dedup_picks(picks: list[Pick]) -> tuple[list[Pick], list[dict]]:
+    """Deduplicate picks by source-frame stage distance."""
+    removed: list[dict] = []
+    surviving: list[Pick] = []
+
+    for pick in sorted(picks, key=lambda p: p.area_px, reverse=True):
+        is_dup = False
+        for winner in surviving:
+            dist = math.hypot(
+                pick.cell_source_stage_xy_um[0] - winner.cell_source_stage_xy_um[0],
+                pick.cell_source_stage_xy_um[1] - winner.cell_source_stage_xy_um[1],
+            )
+            pick_diag = math.hypot(*pick.bbox_um)
+            winner_diag = math.hypot(*winner.bbox_um)
+            threshold = max(pick_diag, winner_diag) * 0.75
+            if dist < threshold:
+                removed.append({
+                    "pick_id": pick.pick_id,
+                    "reason": "duplicate",
+                    "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
+                    "winner_pick_id": winner.pick_id,
+                })
+                is_dup = True
+                break
+        if not is_dup:
+            surviving.append(pick)
+
+    return surviving, removed
+
+
+def _filter_out_of_limits(
+    picks: list[Pick],
+    limits: LimitsContext,
+) -> tuple[list[Pick], list[dict], list[dict], list[dict]]:
+    """Filter picks whose translated target position falls outside limits."""
+    calibration = limits.calibration
+    stage_cfg = limits.stage_config
+
+    lim = limits.boundary_limits or {}
+    x_min = lim.get("x_min")
+    x_max = lim.get("x_max")
+    y_min = lim.get("y_min")
+    y_max = lim.get("y_max")
+    z_wide_min, z_wide_max = stage_cfg["stage_um"]["z_wide"]
+
+    has_xy_limits = all(v is not None for v in (x_min, x_max, y_min, y_max))
+
+    surviving: list[Pick] = []
+    removed_xy: list[dict] = []
+    removed_z: list[dict] = []
+    removed_translation: list[dict] = []
+
+    for pick in picks:
+        try:
+            tx, ty, tz = calib.translate_xyz_between_objectives(
+                pick.cell_source_stage_xy_um[0],
+                pick.cell_source_stage_xy_um[1],
+                pick.tile_zwide_um,
+                calibration,
+                from_slot=limits.source_slot,
+                to_slot=limits.target_slot,
+            )
+        except Exception as exc:
+            removed_translation.append({
+                "pick_id": pick.pick_id,
+                "reason": "translation",
+                "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
+                "error": str(exc),
+            })
+            continue
+
+        if has_xy_limits and not (x_min <= tx <= x_max and y_min <= ty <= y_max):
+            removed_xy.append({
+                "pick_id": pick.pick_id,
+                "reason": "xy",
+                "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
+                "target_xy_um": (tx, ty),
+            })
+            continue
+
+        if not (z_wide_min <= tz <= z_wide_max):
+            removed_z.append({
+                "pick_id": pick.pick_id,
+                "reason": "z",
+                "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
+                "target_z_um": tz,
+            })
+            continue
+
+        surviving.append(pick)
+
+    return surviving, removed_xy, removed_z, removed_translation
 
 
 def _compute_near_border_mask(

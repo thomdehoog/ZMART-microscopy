@@ -13,11 +13,12 @@ import numpy as np
 import pytest
 
 from pipeline.context import LimitsContext
-from pipeline.overview import OverviewResult, Pick, Picks
+from pipeline.overview import OverviewResult, Pick
 from pipeline.selection import (
-    MODE_NO_QUALIFYING, MODE_THRESHOLD, SelectionResult, select_targets,
+    MODE_NO_QUALIFYING, MODE_THRESHOLD, Picks, SelectionResult, select_targets,
 )
 from pipeline.summary import write_summary
+from support import minimal_calibration
 
 
 def _build_ctx_like(out_dir: Path, *, scan_field=None):
@@ -166,11 +167,13 @@ class TestSummarySchemaMigration:
         )
         summary = json.loads((tmp_path / "run_summary.json").read_text())
 
-        for expected in ("timestamp", "config", "source_slot", "target_slot",
-                         "scan_field", "focus_map", "preflight", "overview",
-                         "selection", "removed_picks", "target_state",
-                         "picks", "targets"):
+        for expected in ("schema_version", "timestamp", "config",
+                         "source_slot", "target_slot", "scan_field",
+                         "focus_map", "preflight", "overview", "selection",
+                         "removed_picks", "target_state", "picks",
+                         "targets"):
             assert expected in summary, f"top-level key {expected!r} missing"
+        assert summary["schema_version"] == 1
 
     def test_eligible_cutoff_key_is_serialized(self, tmp_path):
         """The schema rename from n_tiles_below_sparse_cutoff to
@@ -215,7 +218,7 @@ class TestSummarySchemaMigration:
         assert summary["overview"]["completed"] is True
 
 
-# ─── JSON strictness (Bundle C / task C1+C4) ──────────────────────
+# ─── JSON strictness ──────────────────────────────────────────────
 
 
 class TestSelectionJsonStrictness:
@@ -234,7 +237,7 @@ class TestSelectionJsonStrictness:
         """
         # Identity translation so picks survive the limits filter.
         monkeypatch.setattr(
-            "pipeline.overview.calib.translate_xyz_between_objectives",
+            "pipeline.selection.calib.translate_xyz_between_objectives",
             lambda x, y, z, calibration, *, from_slot, to_slot: (x, y, z),
         )
 
@@ -268,7 +271,7 @@ class TestSelectionJsonStrictness:
             completed=True,
         )
         limits = LimitsContext(
-            calibration={},
+            calibration=minimal_calibration(source_slot=1, target_slot=1),
             stage_config={"stage_um": {"z_wide": (-1e6, 1e6)}},
             boundary_limits=None,
             source_slot=1,

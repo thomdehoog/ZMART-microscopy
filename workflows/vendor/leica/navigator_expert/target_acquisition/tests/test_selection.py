@@ -10,13 +10,13 @@ import numpy as np
 import pytest
 
 from pipeline.context import LimitsContext
-from pipeline.overview import (
-    OverviewResult, Pick, _filter_out_of_limits,
-)
+from pipeline.overview import OverviewResult, Pick
 from pipeline.selection import (
     MODE_EMPTY, MODE_NO_QUALIFYING, MODE_SPARSE, MODE_THRESHOLD,
-    SelectionResult, load_overview_result, select_targets,
+    SelectionResult, _filter_out_of_limits, load_overview_result,
+    select_targets,
 )
+from support import minimal_calibration
 
 
 def _make_pick(rid="0", row=0, col=0, label=1, *,
@@ -81,7 +81,7 @@ def _make_overview(*, picks: list[Pick], tile_cell_counts: dict | None = None,
 def _make_limits() -> LimitsContext:
     """Permissive limits: nothing falls out by XY/Z."""
     return LimitsContext(
-        calibration={},          # unused once drv is patched
+        calibration=minimal_calibration(source_slot=1, target_slot=1),
         stage_config={"stage_um": {"z_wide": (-1e6, 1e6)}},
         boundary_limits=None,    # no XY box -> all picks survive
         source_slot=1,
@@ -99,7 +99,7 @@ def _patch_translate(monkeypatch):
     _filter_out_of_limits looks it up via `calib.translate_xyz_between_objectives`.
     """
     monkeypatch.setattr(
-        "pipeline.overview.calib.translate_xyz_between_objectives",
+        "pipeline.selection.calib.translate_xyz_between_objectives",
         lambda x, y, z, calibration, *, from_slot, to_slot: (x, y, z),
     )
 
@@ -315,10 +315,8 @@ class TestInputValidation:
     def test_degenerate_image_size_raises_even_when_margin_zero(self):
         """The size-validity contract is unconditional: it does not
         depend on whether the border filter is active. Regression
-        against a Bundle C bug where _compute_near_border_mask short-
-        circuited at border_margin_px == 0 BEFORE running the size
-        check, silently accepting degenerate input when the filter
-        was disabled.
+        coverage for the short-circuit path where border_margin_px == 0
+        could skip the size check and silently accept degenerate input.
         """
         bad_pick = _edge_pick(1, (5, 5, 25, 25), size=(0, 0))
         ov = _make_overview(picks=[bad_pick])
