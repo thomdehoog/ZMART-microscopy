@@ -44,7 +44,7 @@ from typing import Any
 
 import numpy as np
 
-import navigator_expert.driver as drv
+import navigator_expert as drv
 from shared.algorithms import brenner, register_voting
 
 from . import model as calib

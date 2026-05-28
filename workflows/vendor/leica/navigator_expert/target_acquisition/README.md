@@ -15,7 +15,7 @@ Open `smart_microscopy_v3.2.ipynb`. The notebook is the operator UI; implementat
 
 ## Layout
 
-- `_bootstrap.py` — adds `controller/vendor/leica/` and the repo root to `sys.path` so the notebook can import the driver and shared packages.
+- `_bootstrap.py` — adds `driver/vendor/leica/` and the repo root to `sys.path` so the notebook can import the driver and shared packages.
 - `pipeline/` — public surface (`Config`, `Context`, the step functions, visualization helpers) plus internal modules with leading underscore.
 - `tests/` — pipeline unit tests. Run from the repo root with `pytest workflows/vendor/leica/navigator_expert/target_acquisition/tests/`.
 

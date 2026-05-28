@@ -341,7 +341,7 @@ Affected files (~15 string sites + 1 file rename + 1 function rename):
 - `calibration/vendor/leica/navigator_expert/notebooks/calibrate_image_to_stage.ipynb` (cell heading)
 - `calibration/vendor/leica/navigator_expert/notebooks/calibrate_objective_pair.ipynb` (cell heading)
 - `calibration/vendor/leica/navigator_expert/README.md` (several lines)
-- `controller/vendor/leica/navigator_expert/README.md` (architecture comments)
+- `driver/vendor/leica/navigator_expert/README.md` (architecture comments)
 - `CLAUDE.md` (1 line)
 - `README.md` (1 line)
 
@@ -451,24 +451,24 @@ For any PR landing under this plan, run from the repo root:
 
 ```
 # Full driver suite
-python -m pytest controller/vendor/leica/navigator_expert/tests/ -q
+python -m pytest driver/vendor/leica/navigator_expert/tests/ -q
 
 # Full workflow suite
 python -m pytest workflows/vendor/leica/navigator_expert/target_acquisition/tests/ -q
 
 # Hardware validator against the mock (full coverage including risky ops)
-python controller/vendor/leica/navigator_expert/tests/hardware/validate_hardware.py \
+python driver/vendor/leica/navigator_expert/tests/hardware/validate_hardware.py \
     --mock --allow-xy --allow-z --allow-objective --allow-acquire
 
 # Stress runner against the mock (includes template round-trip and acquire terminal steps)
-python controller/vendor/leica/navigator_expert/tests/hardware/stress_hardware.py \
+python driver/vendor/leica/navigator_expert/tests/hardware/stress_hardware.py \
     --mock --rounds 30 --cycles 4 --seed 1 \
     --allow-template-roundtrip --allow-acquire
 
 # Focused gates for the validator and stress runner
 python -m pytest \
-    controller/vendor/leica/navigator_expert/tests/hardware/test_validate_hardware.py \
-    controller/vendor/leica/navigator_expert/tests/hardware/test_stress_hardware.py -q
+    driver/vendor/leica/navigator_expert/tests/hardware/test_validate_hardware.py \
+    driver/vendor/leica/navigator_expert/tests/hardware/test_stress_hardware.py -q
 ```
 
 All commands must return exit 0.

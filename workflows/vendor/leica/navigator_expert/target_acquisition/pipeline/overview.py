@@ -19,7 +19,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-import navigator_expert.driver as drv
+import navigator_expert as drv
 from calibration.vendor.leica.navigator_expert.core import model as calib
 
 from .context import Context

@@ -25,7 +25,7 @@ weren't in the room when it was designed.
   (which builds microscopes from device parts); the mid layer is shaped for
   facility-mode reality, not MMCore-style device assembly.
 - **Backend reference:** branch `try/all-four`. The v6 Leica driver under
-  `controller/vendor/leica/navigator_expert/driver/` is **frozen** — the
+  `driver/vendor/leica/navigator_expert/` is **frozen** — the
   adapter wraps it, never edits it.
 - **v1 scope is deliberately narrow** — see §8.
 
@@ -46,7 +46,7 @@ contract — **the waist** — that workflow imports instead.
 ```
 
 **The one rule:** nothing above the waist imports a vendor package. Workflow
-imports `controller.microscope` and nothing else hardware-related.
+imports `driver.microscope` and nothing else hardware-related.
 
 The waist has two faces: **`Microscope`** (what workflow calls — the 12 methods)
 and **`MicroscopeAdapter`** (the ABC a plug-in implements — the single plug
@@ -222,7 +222,7 @@ one-file-per-call output.
 ## 3. Using it
 
 ```python
-from controller.microscope import Microscope
+from driver.microscope import Microscope
 
 scope = Microscope("leica.navigator_expert")
 scope.initialize()
@@ -303,10 +303,10 @@ The plug-in registry is one line per plug-in (explicit registration, no
 `pkgutil` import-magic):
 
 ```python
-# controller/microscope/__init__.py
+# driver/microscope/__init__.py
 _PLUGINS = {
     "leica.navigator_expert":
-        "controller.vendor.leica.navigator_expert.adapter:NavigatorExpertAdapter",
+        "driver.vendor.leica.navigator_expert.adapter:NavigatorExpertAdapter",
 }
 ```
 
@@ -321,7 +321,7 @@ Target-state sketch for the future mid-layer branch; this is not the
 current `restructure/layered-driver` source tree.
 
 ```
-controller/
+driver/
 ├── microscope/                 ← THE WAIST — vendor-neutral, names no vendor
 │   ├── __init__.py             ← Microscope factory + plug-in registry
 │   ├── microscope.py           ← the 12-method shell + limits guard
@@ -354,10 +354,10 @@ audit of today's workflow (currently at
 | Class | What | Where |
 |-------|------|-------|
 | Covered by a method | `move_xy_with_backlash`, `move_z`, `get_xy` + `read_zwide_um`, `get_job_settings` + `make_changeable_copy`, `acquire_frame`, `select_job`, `set_stage_limits` | the 12 methods |
-| Leica-internal — moves DOWN | `save_experiment`, `strip_template`, `restore_template`, `parse_lrp`, `lrp_*`, `find_scanning_templates_dir`, `parse_template_positions`, `synthesize_tiles` (only if no operator-defined tiles) | `navigator_expert/templates.py` |
+| Leica-internal - moves DOWN | `save_experiment`, `strip_template`, `restore_template`, `find_scanning_templates_dir`, `parse_lrp`, `lrp_*`, `parse_scan_positions` | `navigator_expert/templates/` for template file lifecycle; `navigator_expert/positions/` for scan-position parsing/planning |
 | Adapter session state | `start_run` (lazy, keyed by `experiment`), the resulting `RunHandle`, the last-applied state cache for diffs | inside `NavigatorExpertAdapter` |
 | Not called above the driver in v1 | `acquire_and_save` (deliberately bypassed — adapter calls `acquire_frame` instead so save can stay a separate verb) | n/a |
-| Pure / neutral — stays UP | `translate_xyz_between_objectives`, `load_calibration` | `controller/transform/` + workflow |
+| Pure / neutral — stays UP | `translate_xyz_between_objectives`, `load_calibration` | `driver/transform/` + workflow |
 
 **Three areas of new adapter code:**
 
@@ -373,9 +373,9 @@ audit of today's workflow (currently at
    against `get_hardware_info` for a manually-actuated slot before the LAS X
    call is issued.
 
-2. **LRP template machinery** (`driver/templates/`). Relocated from the workflow
-   tree into the plug-in, driven inside `setstate` /
-   `acquire`.
+2. **LRP/template and position machinery** (`navigator_expert/templates/` and
+   `navigator_expert/positions/`). Template file lifecycle lives under
+   `templates`; scan-position parsing/planning lives under `positions`.
 
 3. **Acquire / save split + `ImageHandle` assembly + run lifecycle.** On first
    `save(...)` for a given `experiment`, the adapter calls `start_run(client,
@@ -396,7 +396,7 @@ audit of today's workflow (currently at
   loader (`stage.config.load(name)`) and returns a `Preset(type=LIMITS,
   fields={"x_min": …, "x_max": …, …})`. Accepted names match the bundles
   defined in the stage config file.
-- `getposition(name)` → resolves via `parse_template_positions(name)` against
+- `getposition(name)` → resolves via `parse_scan_positions(name)` against
   the operator-defined scanning template of that name; if no such template
   exists, the adapter raises `FAILED` rather than synthesising one (synthesis
   is a workflow-side operation, not a hidden adapter fallback).
@@ -407,7 +407,7 @@ audit of today's workflow (currently at
 
 Build on `feat/mid-layer` off `try/all-four`.
 
-- **Phase 1 — build the waist** (`controller/microscope/`). Pure code, no
+- **Phase 1 — build the waist** (`driver/microscope/`). Pure code, no
   hardware. Unit-tested; plus a fake adapter for the import-independence check.
 - **Phase 2 — build `NavigatorExpertAdapter`.** Includes the three areas of
   new code (§6). The state engine is unit-tested against captured real
@@ -415,13 +415,13 @@ Build on `feat/mid-layer` off `try/all-four`.
   `Microscope` on hardware.
 - **Phase 3 — relocate `workflow/`.** Move
   `workflows/vendor/leica/navigator_expert/target_acquisition/pipeline/` to
-  `controller/workflow/`. (3a) Lift pure code and the transform module up;
+  `driver/workflow/`. (3a) Lift pure code and the transform module up;
   swap imports incrementally. (3b) The LRP-machinery move-down is an atomic
   cut-over; the old workflow location stays runnable until the new path passes
   a workflow integration run on hardware.
 - **Phase 4 — enforce.** Import-lint (any tool that checks module imports per
-  package — pick at implementation time): nothing under `controller/workflow/`
-  or `controller/microscope/` imports `controller.vendor.*`.
+  package — pick at implementation time): nothing under `driver/workflow/`
+  or `driver/microscope/` imports `driver.vendor.*`.
 
 **Testing tiers:** waist = unit tests (pure). Adapter = unit tests of the state
 engine against real-data fixtures + hardware runs (mock-vs-real divergence has
@@ -448,7 +448,7 @@ Each is a clean *additive* extension, not a v1 compromise:
   are workflow loops.
 - **`scope.vendor` escape hatch** — *rejected.* Vendor-specific operations live
   inside the adapter. A notebook that genuinely needs vendor-specific behaviour
-  can `from controller.vendor.leica.navigator_expert import …` directly — a
+  can `from driver.vendor.leica.navigator_expert import …` directly — a
   visible, deliberate import, not a hidden path through `scope`.
 - **Rich `Capability` vocabulary** — v1 ships almost none. The set grows when
   the second adapter forces real distinctions (e.g. AFC one-shot vs Definite
@@ -488,14 +488,14 @@ A thin pointer to the body; resolution detail lives in the cited section.
 
 ## 10. Reference
 
-- Frozen backend: `controller/vendor/leica/navigator_expert/driver/`. **Public
+- Frozen backend: `driver/vendor/leica/navigator_expert/`. **Public
   API surface and docstrings live in `driver/__init__.py`**; treat that as the
   authoritative API reference (the package README at
-  `controller/vendor/leica/navigator_expert/README.md`
+  `driver/vendor/leica/navigator_expert/README.md`
   may lag the code).
   Lower-level acquire: `acquire_frame` in `driver/acquisition/capture.py`. Save layer +
   companion-XML sidecar: `shared/output_layout/` and the v6 helper
   `_find_companion_xml` in `driver/acquisition/save.py`.
 - Prior prototype (up-face source): SMART v4, at
-  `Z:/zmbstaff/10374/Protocols_Notes/thom/notes/20260224_thom_SMART/smart/smart_controller/`.
+  `Z:/zmbstaff/10374/Protocols_Notes/thom/notes/20260224_thom_SMART/smart/smart_driver/`.
 - Constraints and off-limits zones: `docs/cleanup/STATE.md`.

@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-import navigator_expert.driver as drv
+import navigator_expert as drv
 from shared.algorithms import (
     D4_RESIDUAL_MAX,
     VOTING_METHODS,

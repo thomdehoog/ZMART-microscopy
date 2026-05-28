@@ -16,9 +16,9 @@ from typing import Any
 
 import numpy as np
 
-import navigator_expert.driver as drv
-from navigator_expert.driver.core.commands import acquire as drv_acquire
-from navigator_expert.driver.templates.files import (
+import navigator_expert as drv
+from navigator_expert.core.commands import acquire as drv_acquire
+from navigator_expert.templates.files import (
     TEMPLATE_BASE,
     TEMPLATE_XML,
 )
@@ -247,7 +247,7 @@ def build_focus_map(ctx: Context) -> FocusMap:
             "drv.save_experiment failed. Cannot read focus positions."
         )
 
-    af_data = drv.parse_template_positions(
+    af_data = drv.parse_scan_positions(
         ctx.templates_dir, TEMPLATE_BASE, client=client,
     )
 

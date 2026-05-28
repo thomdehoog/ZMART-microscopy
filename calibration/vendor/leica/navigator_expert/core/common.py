@@ -32,7 +32,7 @@ from typing import Any
 import numpy as np
 import tifffile
 
-import navigator_expert.driver as drv
+import navigator_expert as drv
 
 # matplotlib is imported lazily inside the plot helpers so test imports
 # (and headless environments) do not pull in a display backend on import.

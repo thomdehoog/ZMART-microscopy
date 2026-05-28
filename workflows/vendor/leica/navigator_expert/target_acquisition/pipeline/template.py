@@ -23,8 +23,8 @@ from typing import Any
 import shutil
 import time
 
-import navigator_expert.driver as drv
-from navigator_expert.driver.templates.files import (
+import navigator_expert as drv
+from navigator_expert.templates.files import (
     TEMPLATE_BASE,
     TEMPLATE_XML,
     TEMPLATE_LRP,
@@ -82,7 +82,7 @@ def prepare_template(ctx: Context) -> None:
             "drv.save_experiment failed (returned None). "
             "Cannot read boundary markers from stale files."
         )
-    parsed = drv.parse_template_positions(
+    parsed = drv.parse_scan_positions(
         ctx.templates_dir, TEMPLATE_BASE, client=client,
     )
     boundary_points = [
@@ -189,7 +189,7 @@ def read_scan_field(ctx: Context) -> None:
             "Cannot read scan field."
         )
 
-    template_data = drv.parse_template_positions(
+    template_data = drv.parse_scan_positions(
         ctx.templates_dir, TEMPLATE_BASE, client=client,
         default_job_name=cfg.acquisition_job,
     )
@@ -287,7 +287,7 @@ def show_template_state(ctx: Context) -> dict[str, Any]:
             "Cannot inspect template state."
         )
 
-    template_data = drv.parse_template_positions(
+    template_data = drv.parse_scan_positions(
         ctx.templates_dir, TEMPLATE_BASE, client=ctx.client,
         default_job_name=ctx.cfg.acquisition_job,
     )

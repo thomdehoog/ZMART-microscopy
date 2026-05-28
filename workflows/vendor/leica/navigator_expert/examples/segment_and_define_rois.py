@@ -79,8 +79,8 @@ from typing import Any, Sequence
 
 # Allow imports from any CWD while this cookbook lives outside the driver tree.
 _REPO_ROOT = Path(__file__).resolve().parents[5]
-_CONTROLLER_LEICA = _REPO_ROOT / "controller" / "vendor" / "leica"
-for _path in (str(_CONTROLLER_LEICA), str(_REPO_ROOT)):
+_DRIVER_LEICA = _REPO_ROOT / "driver" / "vendor" / "leica"
+for _path in (str(_DRIVER_LEICA), str(_REPO_ROOT)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 del _path
@@ -90,8 +90,8 @@ import tifffile
 from cellpose import models
 from skimage.measure import approximate_polygon, find_contours, regionprops
 
-import navigator_expert.driver as drv
-from navigator_expert.driver.experimental.lrp_edits.roi import (
+import navigator_expert as drv
+from navigator_expert.experimental.lrp_edits.roi import (
     ROI_POLYGON,
     argb_color,
     lrp_add_roi,
@@ -101,17 +101,17 @@ from navigator_expert.driver.experimental.lrp_edits.roi import (
     lrp_verify_roi_scan,
     pixels_to_roi,
 )
-from navigator_expert.driver.templates.parsers import (
+from navigator_expert.positions.parsers import (
     get_master_attrs,
     get_rois,
     parse_lrp,
 )
-from navigator_expert.driver.templates.files import (
+from navigator_expert.templates.files import (
     TEMPLATE_XML,
     find_scanning_templates_dir,
     save_experiment,
 )
-from navigator_expert.driver.templates.transaction import apply_lrp_change
+from navigator_expert.templates.transaction import apply_lrp_change
 
 
 log = logging.getLogger("segment_and_define_rois")
