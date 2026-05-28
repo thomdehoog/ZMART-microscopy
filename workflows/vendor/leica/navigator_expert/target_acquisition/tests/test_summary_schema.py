@@ -269,7 +269,7 @@ class TestSelectionJsonStrictness:
         )
         limits = LimitsContext(
             calibration={},
-            stage_config={"limits_um": {"z_wide": (-1e6, 1e6)}},
+            stage_config={"stage_um": {"z_wide": (-1e6, 1e6)}},
             boundary_limits=None,
             source_slot=1,
             target_slot=1,

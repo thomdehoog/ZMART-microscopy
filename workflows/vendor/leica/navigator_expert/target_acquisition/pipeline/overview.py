@@ -58,8 +58,7 @@ class Pick:
     cell_source_stage_xy_um: tuple[float, float]
 
     # Flat tile index ("Position N") of this pick's overview tile --
-    # the overview-scan file index p (= naming_p). None only when the
-    # pick is reconstructed from a pre-`position` NPZ.
+    # the overview-scan file index p (= naming_p).
     position: int | None = None
 
 
@@ -92,10 +91,8 @@ class OverviewResult:
     completed: bool
 
     # Stored counters, not derived. A tile can be
-    # acquired-but-not-hijacked-not-submitted, so the prior derived
-    # n_tiles_acquired = submitted - acquire_failed breaks. These all
-    # default to 0 / [] for back-compat; run_overview /
-    # load_overview_result populate them.
+    # acquired-but-not-hijacked-not-submitted, so n_tiles_acquired
+    # cannot be derived from submitted/acquire_failed.
     n_tiles_acquired: int = 0
     n_tiles_hijacked: int = 0
     hijack_failures: list[dict] = field(default_factory=list)
@@ -131,7 +128,7 @@ class TileEvent:
     tile_id: tuple[str, int, int]
     n_cells: int
     # Flat tile index ("Position N") -- the overview-scan file index p
-    # (= naming_p). None only on a pre-`position` reload.
+    # (= naming_p).
     position: int | None = None
     # True when the saved .ome.tiff's pixels were hijacked with mock
     # content (cfg.simulate). This is the single source of truth for
@@ -760,7 +757,7 @@ def _filter_out_of_limits(
     x_max = lim.get("x_max")
     y_min = lim.get("y_min")
     y_max = lim.get("y_max")
-    z_wide_min, z_wide_max = stage_cfg["limits_um"]["z_wide"]
+    z_wide_min, z_wide_max = stage_cfg["stage_um"]["z_wide"]
 
     has_xy_limits = all(v is not None for v in (x_min, x_max, y_min, y_max))
 
@@ -863,8 +860,7 @@ def _save_single_tile_analysis(
             "position": np.int32(int(naming_p)),
             # True when the saved .ome.tiff's pixels were hijacked
             # with mock content. mock_image_source is the provider name
-            # or "" when not simulating. _load_tile_npz handles older
-            # NPZ files that lack the `simulated` key.
+            # or "" when not simulating.
             "simulated": np.bool_(bool(inp.get("simulated", False))),
             "mock_image_source": np.array(
                 inp.get("mock_image_source") or ""

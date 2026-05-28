@@ -1083,7 +1083,7 @@ def _parse_setting(setting_el):
             vertices = []
             verts_el = rs.find("Vertices")
             if verts_el is not None:
-                # LAS X uses <P> elements; accept <Item> for compat
+                # LAS X exports ROI vertices as child elements with X/Y attrs.
                 for v in verts_el:
                     vd = {}
                     vx = _to_float(v.get("X"))

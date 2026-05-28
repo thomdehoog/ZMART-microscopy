@@ -12,18 +12,18 @@ from navigator_expert.driver.stage import movement as stage_movement
 class TestMoveXyWithBacklash:
     def test_three_call_sequence(self):
         """Overshoot → sleep → final approach. Verifies the order and
-        the exact XY values handed to move_xy_stage."""
+        the exact XY values handed to move_xy."""
         calls = []
 
-        def fake_move_xy_stage(client, x, y, unit="um"):
+        def fake_move_xy(client, x, y, unit="um"):
             calls.append(("move", x, y, unit))
             return {"success": True}
 
         def fake_sleep(s):
             calls.append(("sleep", s))
 
-        with patch.object(stage_movement._commands, "move_xy_stage",
-                          side_effect=fake_move_xy_stage), \
+        with patch.object(stage_movement._commands, "move_xy",
+                          side_effect=fake_move_xy), \
              patch.object(stage_movement.time, "sleep", side_effect=fake_sleep):
             stage_movement.move_xy_with_backlash(
                 client=None, x_um=100.0, y_um=200.0,
@@ -40,11 +40,11 @@ class TestMoveXyWithBacklash:
         """Silent continue after a failed overshoot would image at an
         uncompensated position — the bug backlash exists to prevent.
         Fail loud instead."""
-        def fake_move_xy_stage(client, x, y, unit="um"):
+        def fake_move_xy(client, x, y, unit="um"):
             return {"success": False, "error": "timeout"}
 
-        with patch.object(stage_movement._commands, "move_xy_stage",
-                          side_effect=fake_move_xy_stage), \
+        with patch.object(stage_movement._commands, "move_xy",
+                          side_effect=fake_move_xy), \
              patch.object(stage_movement.time, "sleep"):
             with pytest.raises(RuntimeError, match="backlash overshoot"):
                 stage_movement.move_xy_with_backlash(
@@ -60,11 +60,11 @@ class TestMoveXyWithBacklash:
             {"success": False, "error": "limit"},   # final fails
         ])
 
-        def fake_move_xy_stage(client, x, y, unit="um"):
+        def fake_move_xy(client, x, y, unit="um"):
             return next(results)
 
-        with patch.object(stage_movement._commands, "move_xy_stage",
-                          side_effect=fake_move_xy_stage), \
+        with patch.object(stage_movement._commands, "move_xy",
+                          side_effect=fake_move_xy), \
              patch.object(stage_movement.time, "sleep"):
             with pytest.raises(RuntimeError, match="final approach"):
                 stage_movement.move_xy_with_backlash(
@@ -76,11 +76,11 @@ class TestMoveXyWithBacklash:
         success the same way they would for plain move_xy."""
         results = [{"success": True}, {"success": True, "x_um": 100, "y_um": 200}]
 
-        def fake_move_xy_stage(client, x, y, unit="um"):
+        def fake_move_xy(client, x, y, unit="um"):
             return results.pop(0)
 
-        with patch.object(stage_movement._commands, "move_xy_stage",
-                          side_effect=fake_move_xy_stage), \
+        with patch.object(stage_movement._commands, "move_xy",
+                          side_effect=fake_move_xy), \
              patch.object(stage_movement.time, "sleep"):
             r = stage_movement.move_xy_with_backlash(
                 client=None, x_um=100.0, y_um=200.0,

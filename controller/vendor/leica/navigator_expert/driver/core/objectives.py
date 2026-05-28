@@ -26,20 +26,6 @@ def objective_by_slot(hw_info: dict | None) -> dict[int, dict[str, Any]]:
     return by_slot
 
 
-def objective_summary(obj: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Stable, JSON-safe metadata for one objective entry."""
-    if obj is None:
-        return None
-    return {
-        "slot": obj.get("slotIndex"),
-        "name": str(obj.get("name", "")).strip(),
-        "magnification": obj.get("magnification"),
-        "numerical_aperture": obj.get("numericalAperture"),
-        "immersion": str(obj.get("immersion", "")).strip(),
-        "objective_number": obj.get("objectiveNumber"),
-    }
-
-
 def validate_slots(
     hw_info: dict | None,
     reference_slot: int,

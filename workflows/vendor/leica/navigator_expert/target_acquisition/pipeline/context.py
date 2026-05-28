@@ -26,11 +26,11 @@ class Config:
 
     Stage XY limits come from boundary point markers placed in
     Navigator Expert (preferred); the physical envelope from
-    `stage.json` is used as the safety ceiling. The cfg `stage_*_um`
+    `limits.json` is used as the safety ceiling. The cfg `stage_*_um`
     fields are an opt-in fallback only (escape hatch when LAS X
     markers cannot be used) -- the notebook does not surface them.
 
-    Z-wide limits always come from `stage.json` (the physical
+    Z-wide limits always come from `limits.json` (the physical
     envelope); there is no operator-typed override -- focus behaviour
     is controlled by the focus map in Step 3.
     """
@@ -73,7 +73,7 @@ class Config:
 
     # Stage XY fallback (escape hatch -- prefer LAS X markers).
     # All four must be set together. They are validated against the
-    # physical envelope from stage.json; a ValueError is raised if
+    # physical envelope from limits.json; a ValueError is raised if
     # any value falls outside.
     stage_x_min_um: float | None = None
     stage_x_max_um: float | None = None

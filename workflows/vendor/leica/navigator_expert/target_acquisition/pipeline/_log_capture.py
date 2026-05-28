@@ -129,9 +129,9 @@ def capture_console(log_path: Path | None):
 
 def _log_path_for(ctx, kind: str) -> Path | None:
     """The kind's console-log path ``<kind>/logs/<kind>.log``, or None
-    when it cannot be resolved to a real ``pathlib.Path`` -- e.g. a
-    ``MagicMock`` ctx in a test. The None keeps the decorator a clean
-    no-op there without disabling capture for a real path."""
+    when the context cannot provide a concrete filesystem path. The
+    None keeps the decorator a clean no-op there without disabling
+    capture for a real path."""
     try:
         path = ctx.run.layout.logs_dir(kind) / f"{kind}.log"
     except Exception:
@@ -206,7 +206,7 @@ class _DeferredTee:
     def bind(self, log_path) -> None:
         """Open ``log_path``, flush the buffered output into it under a
         separator, and capture there onward. No-op if already bound or
-        if ``log_path`` is not a real ``pathlib.Path`` (mocked ctx)."""
+        if ``log_path`` is not a concrete filesystem path."""
         with self._lock:
             if (self._file is not None or self._disabled
                     or not isinstance(log_path, Path)):

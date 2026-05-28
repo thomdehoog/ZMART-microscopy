@@ -20,20 +20,13 @@ script should consume that calibration to revisit a feature across
 an objective swap.
 
 The full coordinate model lives in
-``calibration/vendor/leica/navigator_expert/core/model.py`` (v9 schema).
+``calibration/vendor/leica/navigator_expert/core/model.py`` (v11 schema).
 The short version:
 
-    For each non-reference objective ``slot``, calibration stores
-        - ``offset_xy_um`` — stage XY delta the firmware applies on
-                             objective switch (cumulative ref→slot).
-        - ``shift_xy_um``  — optical-axis offset vs reference (XY).
-        - ``offset_z_um``  — z-wide delta the firmware applies on
-                             objective switch (cumulative ref→slot).
-        - ``shift_z_um``   — Brenner-derived z-wide correction
-                             (peak_target − peak_ref − offset_z).
+    For each objective ``slot``, calibration stores one
+    ``translation_um = [dx, dy, dz]`` triple in stage space.
 
-    To map a stage XY + z-wide from one objective's frame to another:
-        x', y', z' = calib.translate_xyz_between_objectives(x, y, z, cfg,
+    To map a stage XY + z-wide from one objective's frame to another:        x', y', z' = calib.translate_xyz_between_objectives(x, y, z, cfg,
                          from_slot=src, to_slot=tgt)
     and absolute-move the stage to (x', y') and z-wide to z'. Z-galvo
     stays at 0 throughout — all focus motion lives on z-wide.
@@ -77,7 +70,7 @@ Operator preconditions
 - ``ImageTransformation = TOPLEFT`` in LAS X Advanced Settings.
 - AFC / autofocus OFF; no LAS X modal dialogs.
 - Stage positioned over a region with cells visible at 10×.
-- ``current/calibration.json`` (v9) and ``current/stage.json`` exist.
+- ``current/calibration.json`` (v11) and ``current/limits.json`` exist.
 
 Usage
 -----
@@ -140,7 +133,7 @@ SOURCE_ZOOM: float = 1.0
 #: Default target FOV = this × the source-cell bounding box (square).
 #: 1.5 leaves visual margin; tighter zoom risks clipping if the cell
 #: lands a few µm off-centre.
-DEFAULT_FOV_BBOX_MARGIN: float = 1.5
+DEFAULT_BBOX_MARGIN: float = 1.5
 
 #: Wait this many seconds after every objective switch. The firmware
 #: needs to settle the wide-focus motor and the parfocal compensation.
@@ -173,9 +166,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                    help="Objective slot used for detection (e.g. 1 for 10x).")
     p.add_argument("--target-slot", type=int, required=True,
                    help="Objective slot used for acquisition (e.g. 2 for 20x).")
-    p.add_argument("--fov-bbox-margin", type=float, default=DEFAULT_FOV_BBOX_MARGIN,
+    p.add_argument("--bbox-margin", type=float, default=DEFAULT_BBOX_MARGIN,
                    help=f"Target-objective FOV = this × cell bounding box "
-                        f"(default: {DEFAULT_FOV_BBOX_MARGIN}).")
+                        f"(default: {DEFAULT_BBOX_MARGIN}).")
     p.add_argument("--pick-rank", type=int, default=0,
                    help="Which cell to target by distance from the source "
                         "image centre: 0=closest, 1=next, … Default: 0.")
@@ -483,7 +476,7 @@ def step_setup(
     print(f"Job:            {args.job}")
     print(f"Source slot:    {args.source_slot}")
     print(f"Target slot:    {args.target_slot}")
-    print(f"FOV margin:     {args.fov_bbox_margin}× bounding box")
+    print(f"BBox margin:    {args.bbox_margin}× bounding box")
     print(f"Pick rank:      {args.pick_rank}")
     print(f"Backlash:       {'on' if not args.no_backlash else 'off'}")
     if args.refine:
@@ -635,7 +628,7 @@ def step_switch_and_position(
     target_base_fov_um = float(base_fov_m[0] * 1e6)
 
     log.info("moving stage to target XY")
-    drv.move_xy_stage(client, target_x, target_y, unit="um")
+    drv.move_xy(client, target_x, target_y, unit="um")
 
     return target_base_fov_um
 
@@ -647,7 +640,7 @@ def step_set_framed_zoom(
     """Set the final framed zoom and report (zoom, target_pixel_size_um)."""
     bbox_w_um, bbox_h_um = bbox_um
     zoom = drv.bbox_to_zoom(bbox_w_um, bbox_h_um, target_base_fov_um,
-                            margin=args.fov_bbox_margin)
+                            margin=args.bbox_margin)
     log.info("framed zoom=%d (base FOV=%.1f um → FOV at zoom=%.1f um)",
              zoom, target_base_fov_um, target_base_fov_um / zoom)
     drv.set_zoom(client, args.job, zoom)
@@ -830,7 +823,7 @@ def step_refine_position(
 
         log.info(
             "refine iter %d: image=(%+.2f, %+.2f) um → "
-            "stage=(%+.2f, %+.2f) um  |Δ|=%.2f um  q=%.3f",
+            "stage=(%+.2f, %+.2f) um  |Î”|=%.2f um  q=%.3f",
             i, dx_um, dy_um, stage_dx, stage_dy, correction_mag, quality,
         )
         iterations.append({
@@ -849,7 +842,7 @@ def step_refine_position(
         cur = drv.get_xy(client)
         if not cur:
             _abort("could not read stage XY between refine iterations.")
-        drv.move_xy_stage(
+        drv.move_xy(
             client, float(cur["x_um"]) + stage_dx, float(cur["y_um"]) + stage_dy,
             unit="um",
         )
@@ -891,8 +884,8 @@ def step_acquire_and_verify(
     landing = measure_landing_error_by_morphology(
         masks, img.shape, source_pick, target_pixel_size_um,
     )
-    if landing.error_magnitude_um is not None:
-        dx, dy = landing.error_um  # type: ignore[misc]
+    if landing.error_magnitude_um is not None and landing.error_um is not None:
+        dx, dy = landing.error_um
         log.info("landing error = (%+.2f, %+.2f) um  magnitude=%.2f um  "
                  "(morphology score=%.3f over %d candidate(s))",
                  dx, dy, landing.error_magnitude_um,
@@ -917,7 +910,7 @@ def step_save_outputs(
     overlay_path = out_dir / "overlay.png"
     save_overlay_png(overlay_path, source_img, target_img, source_pick, landing)
 
-    target_zoom, target_base_fov_um, target_pixel_size_um = target_geom
+    framed_zoom, target_base_fov_um, target_pixel_size_um = target_geom
 
     summary: dict[str, Any] = {
         "timestamp": _now_iso_ts(),
@@ -937,11 +930,10 @@ def step_save_outputs(
         },
         "cell_source_xy_um": list(cell_source_xy_um),
         "cell_target_xy_um": list(target_xyz_um[:2]),
-        "target_zoom": target_zoom,
+        "framed_zoom": framed_zoom,
         "target_base_fov_um": target_base_fov_um,
-        "target_fov_at_zoom_um": target_base_fov_um / target_zoom,
+        "framed_fov_um": target_base_fov_um / framed_zoom,
         "target_pixel_size_um": target_pixel_size_um,
-        "fov_bbox_margin": args.fov_bbox_margin,
         "z_translation": {
             "source_zwide_um": source_pick.zwide_um,
             "target_zwide_um": target_xyz_um[2],
@@ -1005,7 +997,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.refine:
         refine_report = step_refine_position(
             client, args, source_pick, source_img,
-            target_base_fov_um, cfg["image_to_stage"],
+            target_base_fov_um, calib.get_image_to_stage(cfg),
             backlash_params, out_dir,
         )
 
@@ -1025,8 +1017,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         refine_report=refine_report,
     )
 
-    if landing.error_magnitude_um is not None:
-        dx, dy = landing.error_um  # type: ignore[misc]
+    if landing.error_magnitude_um is not None and landing.error_um is not None:
+        dx, dy = landing.error_um
         print(f"\nLanding error: ({dx:+.2f}, {dy:+.2f}) um  "
               f"magnitude={landing.error_magnitude_um:.2f} um")
     else:

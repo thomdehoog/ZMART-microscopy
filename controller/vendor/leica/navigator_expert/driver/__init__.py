@@ -1,6 +1,6 @@
 """
-Navigator Expert Driver v6.0.0
-==============================
+Navigator Expert Driver
+=======================
 Python driver for the Leica STELLARIS confocal microscope via the LAS X
 Python API.
 
@@ -60,7 +60,7 @@ __all__ = [
     "set_pinhole_airy", "set_detector_gain",
     "set_laser_intensity", "set_laser_shutter",
     "set_filter_wheel_slot", "set_filter_wheel_spectrum",
-    "move_xy", "move_xy_stage", "move_galvo_to_pixel",
+    "move_xy", "move_galvo_to_pixel",
     "move_z", "acquire", "acquire_single_image", "select_job",
     # templates
     "find_scanning_templates_dir", "save_experiment", "load_experiment",
@@ -123,7 +123,7 @@ __all__ = [
     # session helpers
     "connect_python_client", "require_canonical_scan_orientation",
     "disable_roi_scan",
-    "STAGE_SCHEMA_VERSION",
+    "LIMITS_SCHEMA_VERSION", "CALIBRATION_SCHEMA_VERSION",
     "load_stage_config",
     # acquisition (driver-first API)
     "start_run", "acquire_and_save", "RunHandle", "SavedAcquisition",
@@ -170,7 +170,7 @@ from .core.commands import (
     set_line_accumulation, set_line_average, set_pinhole_airy,
     set_detector_gain, set_laser_intensity, set_laser_shutter,
     set_filter_wheel_slot, set_filter_wheel_spectrum,
-    move_xy, move_xy_stage, move_galvo_to_pixel, move_z,
+    move_xy, move_galvo_to_pixel, move_z,
     acquire, acquire_single_image, select_job,
 )
 from .core.session import connect_python_client, require_canonical_scan_orientation
@@ -182,7 +182,7 @@ from .stage.limits import (
 )
 from .stage.movement import correct_backlash, move_xy_with_backlash
 from .stage.config import (
-    SCHEMA_VERSION as STAGE_SCHEMA_VERSION,
+    LIMITS_SCHEMA_VERSION, CALIBRATION_SCHEMA_VERSION,
     load as load_stage_config,
 )
 

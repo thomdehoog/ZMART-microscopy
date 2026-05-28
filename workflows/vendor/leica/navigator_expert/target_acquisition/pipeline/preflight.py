@@ -275,7 +275,7 @@ def _derive_slots(
                 f"Job {job!r} uses objective slot {slot}, but the "
                 f"calibration has no entry for that slot. "
                 f"Calibrated slots: {available}. "
-                f"Run the calibration notebooks first and promote the config.")
+                f"Run the calibration notebooks first and adopt the config.")
 
     # Dry-run translation to verify calibration completeness
     calib.translate_xyz_between_objectives(

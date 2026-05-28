@@ -82,7 +82,7 @@ def _make_limits() -> LimitsContext:
     """Permissive limits: nothing falls out by XY/Z."""
     return LimitsContext(
         calibration={},          # unused once drv is patched
-        stage_config={"limits_um": {"z_wide": (-1e6, 1e6)}},
+        stage_config={"stage_um": {"z_wide": (-1e6, 1e6)}},
         boundary_limits=None,    # no XY box -> all picks survive
         source_slot=1,
         target_slot=1,            # identity translation
@@ -456,7 +456,7 @@ class TestLoadOverviewResultFromSelectionModule:
         assert callable(f)
 
     def test_load_overview_picks_is_not_importable(self):
-        """The legacy name was deleted, not retained as a compat helper."""
+        """The deleted helper name is not part of the public module API."""
         from pipeline import selection as sel_mod
         assert not hasattr(sel_mod, "load_overview_picks")
 

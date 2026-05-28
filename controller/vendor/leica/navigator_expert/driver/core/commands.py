@@ -792,7 +792,7 @@ def set_filter_wheel_spectrum(client, job_name, setting_index, beam_route,
 # Stage movement
 # =============================================================================
 
-def move_xy_stage(client, x, y, unit="um", *,
+def move_xy(client, x, y, unit="um", *,
                   max_retries=None, pre_check_timeout=None,
                   tolerance=None):
     """Move XY stage to absolute position.
@@ -862,11 +862,6 @@ def move_xy_stage(client, x, y, unit="um", *,
     r["position"] = {"x": x_um * 1e-6, "y": y_um * 1e-6,
                       "x_um": x_um, "y_um": y_um}
     return r
-
-
-# Backward-compatible alias
-move_xy = move_xy_stage
-
 
 # ── Galvo pan limits ────────────────────────────────────────────────
 _PAN_LIMIT = 0.00775          # max pan value in either axis (objective-

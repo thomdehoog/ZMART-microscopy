@@ -20,10 +20,9 @@ Two primitives for the two physical patterns:
       when you're already at the target and just need to pin the
       slack-state without net displacement.
 
-Parameters for both are stored in
-``calibration/vendor/leica/navigator_expert/current/stage.json``; load
-them with ``stage.config.load`` so all consumers share one source of
-truth.
+Parameters for both come from ``stage.config.load``. Production callers
+should pass ``stage_cfg["backlash"]`` from that loader; the function
+defaults below are last-resort fallbacks, not the source of truth.
 
 See ``docs/session_notes_20260428_backlash_correction.md`` for the
 mechanical analysis behind the recipe.
@@ -69,7 +68,7 @@ def move_xy_with_backlash(client, x_um, y_um, *,
     Returns
     -------
     dict
-        The result of the final ``move_xy_stage`` call (always
+        The result of the final ``move_xy`` call (always
         ``{"success": True, ...}`` — failures of either leg raise).
         Self-contained contract: either the stage is at ``(x_um, y_um)``
         with the slack-state pinned in +X +Y, or this function raises.
@@ -77,7 +76,7 @@ def move_xy_with_backlash(client, x_um, y_um, *,
         uncompensated position — the bug backlash compensation exists
         to prevent.
     """
-    r = _commands.move_xy_stage(
+    r = _commands.move_xy(
         client, x_um - overshoot_um, y_um - overshoot_um, unit="um",
     )
     if not r or not r.get("success"):
@@ -86,7 +85,7 @@ def move_xy_with_backlash(client, x_um, y_um, *,
             f"{y_um - overshoot_um:.2f}) failed: {r}"
         )
     time.sleep(settle_ms / 1000.0)
-    r = _commands.move_xy_stage(client, x_um, y_um, unit="um")
+    r = _commands.move_xy(client, x_um, y_um, unit="um")
     if not r or not r.get("success"):
         raise RuntimeError(
             f"backlash final approach to ({x_um:.2f}, {y_um:.2f}) "
@@ -115,8 +114,12 @@ def correct_backlash(client, *, overshoot_um=50.0, settle_ms=100,
         Pause between overshoot and return. 100 ms keeps the moves
         distinct without polling.
     tolerance_um
-        Pass-through to ``move_xy_stage``. Loose by default; the takeup
+        Pass-through to ``move_xy``. Loose by default; the takeup
         does not need precision.
+
+    The parameter defaults are fallback values only. Production paths
+    should pass calibrated values from ``stage_cfg["backlash"]`` loaded
+    via ``stage.config.load``.
     """
     pos = _readers.get_xy(client)
     if pos is None:
@@ -124,12 +127,12 @@ def correct_backlash(client, *, overshoot_um=50.0, settle_ms=100,
     x, y = float(pos["x_um"]), float(pos["y_um"])
     log.debug("backlash takeup at (%.2f, %.2f) um, overshoot %.1f um",
               x, y, overshoot_um)
-    r = _commands.move_xy_stage(client, x - overshoot_um, y - overshoot_um,
+    r = _commands.move_xy(client, x - overshoot_um, y - overshoot_um,
                                 unit="um", tolerance=tolerance_um)
     if not r or not r.get("success"):
         raise RuntimeError(f"backlash overshoot move failed: {r}")
     time.sleep(settle_ms / 1000.0)
-    r = _commands.move_xy_stage(client, x, y,
+    r = _commands.move_xy(client, x, y,
                                 unit="um", tolerance=tolerance_um)
     if not r or not r.get("success"):
         raise RuntimeError(f"backlash return move failed: {r}")

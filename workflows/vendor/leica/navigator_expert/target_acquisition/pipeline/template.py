@@ -11,7 +11,7 @@ read_scan_field (Step 2): parse the scan field the operator drew,
 plot_scan_field: visualise tiles, boundary, and focus markers.
 
 Z-galvo is never commanded by this pipeline (D2/D3); we still pass
-the stage.json z-galvo envelope to drv.set_stage_limits because the
+the limits.json z-galvo envelope to drv.set_stage_limits because the
 API requires the values.
 """
 from __future__ import annotations
@@ -48,7 +48,7 @@ def prepare_template(ctx: Context) -> None:
     Limits priority:
       1. Boundary point markers in Navigator Expert (preferred).
          Marker-derived XY is clamped to the physical envelope from
-         stage.json with a printed report of any clamp.
+         limits.json with a printed report of any clamp.
       2. Explicit cfg.stage_x/y_min/max_um (escape hatch -- not
          surfaced in the notebook). Validated against the physical
          envelope; ValueError if any value falls outside.
@@ -92,9 +92,9 @@ def prepare_template(ctx: Context) -> None:
         if g.get("type") == "Point" and "center_um" in g
     ]
 
-    # --- Z limits always from physical envelope (stage.json) ---
-    z_galvo_min, z_galvo_max = stage_cfg["limits_um"]["z_galvo"]
-    z_wide_min, z_wide_max = stage_cfg["limits_um"]["z_wide"]
+    # --- Z limits always from physical envelope (limits.json) ---
+    z_galvo_min, z_galvo_max = stage_cfg["stage_um"]["z_galvo"]
+    z_wide_min, z_wide_max = stage_cfg["stage_um"]["z_wide"]
 
     # --- Decide where XY limits come from ---
     if boundary_points:
@@ -127,7 +127,7 @@ def prepare_template(ctx: Context) -> None:
         ctx.boundary_limits = None
         print(
             "[step 2a] No boundary markers and no cfg XY fallback. "
-            "Applied physical envelope from stage.json:\n"
+            "Applied physical envelope from limits.json:\n"
             f"  X: {actual['x_min']:.0f} - {actual['x_max']:.0f} um\n"
             f"  Y: {actual['y_min']:.0f} - {actual['y_max']:.0f} um\n"
             f"  z-wide: {actual['z_wide_min']:.0f} - {actual['z_wide_max']:.0f} um\n"
@@ -147,10 +147,10 @@ def prepare_template(ctx: Context) -> None:
 
     print(
         f"[step 2a] Stage limits from {source} "
-        f"(envelope from stage.json):\n"
+        f"(envelope from limits.json):\n"
         f"  X: {actual['x_min']:.0f} - {actual['x_max']:.0f} um\n"
         f"  Y: {actual['y_min']:.0f} - {actual['y_max']:.0f} um\n"
-        f"  z-wide: {z_wide_min:.0f} - {z_wide_max:.0f} um (from stage.json)"
+        f"  z-wide: {z_wide_min:.0f} - {z_wide_max:.0f} um (from limits.json)"
     )
 
     _strip_and_enforce_zwide(ctx)
@@ -218,8 +218,8 @@ def read_scan_field(ctx: Context) -> None:
     # If Step 1 deferred XY limits, narrow from the scan field now
     if ctx.boundary_limits is None:
         stage_cfg = ctx.stage_config
-        z_galvo_min, z_galvo_max = stage_cfg["limits_um"]["z_galvo"]
-        z_wide_min, z_wide_max = stage_cfg["limits_um"]["z_wide"]
+        z_galvo_min, z_galvo_max = stage_cfg["stage_um"]["z_galvo"]
+        z_wide_min, z_wide_max = stage_cfg["stage_um"]["z_wide"]
 
         tile_xs = [p["x_um"] for r in tile_positions.values()
                    for p in r["positions"]]
@@ -612,8 +612,8 @@ def _clamp_xy_to_envelope(
     stage_cfg: dict,
 ) -> tuple[float, float, float, float]:
     """Clamp marker-derived XY to the physical envelope, print any clamp."""
-    px_min, px_max = stage_cfg["limits_um"]["x"]
-    py_min, py_max = stage_cfg["limits_um"]["y"]
+    px_min, px_max = stage_cfg["stage_um"]["x"]
+    py_min, py_max = stage_cfg["stage_um"]["y"]
 
     if x_min < px_min:
         print(f"[step 2a] X min clamped from {x_min:.0f} to {px_min:.0f} um by stage_config.")
@@ -633,8 +633,8 @@ def _clamp_xy_to_envelope(
             f"After clamping, XY range is degenerate: "
             f"X=[{x_min}, {x_max}], Y=[{y_min}, {y_max}]. "
             f"Markers may be outside the physical envelope "
-            f"(X={stage_cfg['limits_um']['x']}, "
-            f"Y={stage_cfg['limits_um']['y']}). "
+            f"(X={stage_cfg['stage_um']['x']}, "
+            f"Y={stage_cfg['stage_um']['y']}). "
             f"Re-place markers inside the stage range."
         )
     return x_min, x_max, y_min, y_max
@@ -642,8 +642,8 @@ def _clamp_xy_to_envelope(
 
 def _validate_cfg_xy(cfg: Any, stage_cfg: dict) -> None:
     """Hard-fail if explicit cfg XY limits fall outside the physical envelope."""
-    px_min, px_max = stage_cfg["limits_um"]["x"]
-    py_min, py_max = stage_cfg["limits_um"]["y"]
+    px_min, px_max = stage_cfg["stage_um"]["x"]
+    py_min, py_max = stage_cfg["stage_um"]["y"]
     problems: list[str] = []
 
     for name, value, lo, hi in (

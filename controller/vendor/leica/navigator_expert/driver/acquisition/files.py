@@ -99,10 +99,6 @@ def parse_lasx_filename(name):
     return d
 
 
-# (Legacy SMART filename builders and parser deleted 2026-05-11.
-# Canonical naming now lives in shared.output_layout.)
-
-
 # =====================================================================
 # Step 1: Read baseline RelativePathName
 # =====================================================================
@@ -533,11 +529,9 @@ def confirm_arrival(moved_files, *, cleanup_source=True):
     if cleanup_source:
         for d in sorted(source_dirs, key=lambda p: len(p.parts),
                         reverse=True):
-            try:
+            if d.exists() and not any(d.iterdir()):
                 d.rmdir()  # only succeeds if empty
                 log.debug("Removed empty directory: %s", d)
-            except OSError:
-                pass
 
     success = len(errors) == 0 and verified == len(moved_files)
     log.info("Arrival confirmed: %d/%d files, cleaned up %d source files",

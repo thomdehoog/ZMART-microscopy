@@ -15,7 +15,6 @@ from pathlib import Path
 
 from ..core.utils import RECEIPT_TIMEOUT, _make_timing
 from .parsers import parse_lrp
-from .._file_utils import _is_file_locked, _wait_file_stable  # noqa: F401 — re-export
 
 log = logging.getLogger(__name__)
 

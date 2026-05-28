@@ -39,13 +39,12 @@ class TargetRecord:
     failure_stage: str | None = None
     # Flat tile index ("Position N") of the SOURCE overview tile this
     # target came from -- the overview-scan file index p, NOT the
-    # target-acquisition index. None only on a pre-`position` reload.
+    # target-acquisition index.
     source_tile_position: int | None = None
     # Per-record provenance. simulated=True means this target's saved
     # .ome.tiff carries mock pixels under the LAS X simulator's OME
     # envelope; mock_image_source names the provider. Default
-    # False/None preserves back-compat for non-simulate runs and older
-    # reloads.
+    # False/None means the target came from acquired microscope data.
     simulated: bool = False
     mock_image_source: str | None = None
 

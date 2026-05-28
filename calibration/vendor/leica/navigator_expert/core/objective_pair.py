@@ -7,7 +7,7 @@ analyzes what comes back. See CALIBRATION_REF_STACK_UPDATE_PLAN.md.
 
 Five operator steps, each one workflow call:
 
-1. ``start_session`` -- connect, load current ``image_to_stage.json``,
+1. ``start_session`` -- connect, load current ``calibration.json``,
    prepare folders.
 2. ``measure_parfocality_reference`` -- under the reference objective,
    record home XY and home z-wide (diagnostic), trigger the configured
@@ -25,7 +25,7 @@ Five operator steps, each one workflow call:
    switches to the target objective again, acquire at the post-switch
    XY (no return to home XY), register against the reference image,
    compute ``motor_shift_xy`` / ``correction_xy`` / ``translation_xy``,
-   write report unconditionally, write a promotable staging config
+   write report unconditionally, write an adoptable staging config
    only when the registration vote is trusted, and unlink any stale
    staging config when the verdict is negative.
 
@@ -36,7 +36,6 @@ visualization.
 
 from __future__ import annotations
 
-import json
 import math
 import shutil
 from dataclasses import dataclass, field
@@ -48,8 +47,9 @@ import numpy as np
 import navigator_expert.driver as drv
 from shared.algorithms import brenner, register_voting
 
+from . import model as calib
 from .common import (
-    SCHEMA_VERSION,
+    STAGING_SCHEMA_VERSION,
     SessionPaths,
     acquire_frame_to,
     acquire_stack_to,
@@ -77,7 +77,7 @@ class ObjectivePairSession:
     from_objective: str
     to_objective: str
     objective_config_name: str
-    image_to_stage_path: Path
+    calibration_path: Path
     image_to_stage: np.ndarray
     kind: str
     # Recorded when the reference XY image is acquired (Step 4). The
@@ -122,29 +122,12 @@ class ObjectivePairSession:
 def _load_image_to_stage(path: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(
-            f"image_to_stage calibration not found at {path}. "
-            "Run calibrate_image_to_stage.ipynb first and promote, or "
-            "pass an explicit session path."
+            f"calibration not found at {path}. Run "
+            "calibrate_image_to_stage.ipynb first and adopt, or pass an "
+            "explicit calibration path."
         )
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if data.get("schema_version") != SCHEMA_VERSION:
-        raise ValueError(
-            f"{path}: unexpected schema_version "
-            f"{data.get('schema_version')!r}; expected {SCHEMA_VERSION}"
-        )
-    if data.get("kind") != "image_to_stage":
-        raise ValueError(
-            f"{path}: expected kind 'image_to_stage', got {data.get('kind')!r}"
-        )
-    matrix = data.get("image_to_stage")
-    if (not isinstance(matrix, list) or len(matrix) != 2
-            or any(not isinstance(row, list) or len(row) != 2 for row in matrix)):
-        raise ValueError(f"{path}: image_to_stage must be a 2x2 list, got {matrix!r}")
-    # image_size_px and pixel_size_um may be present in legacy configs
-    # but are intentionally ignored: image_to_stage carries only the
-    # X/Y sign, not the rig's pixel size or image format. The
-    # parcentricity step reads pixel size from the current acquisition.
-    return data
+    config = calib.load_calibration(path)
+    return {"image_to_stage": calib.get_image_to_stage(config)}
 
 
 def start_session(
@@ -154,7 +137,7 @@ def start_session(
     from_objective: str,
     to_objective: str,
     sessions_root: str | Path,
-    image_to_stage_path: str | Path,
+    calibration_path: str | Path,
 ) -> ObjectivePairSession:
     kind = f"objective_{slug(from_objective)}_to_{slug(to_objective)}"
     objective_config_name = f"{kind}.json"
@@ -165,8 +148,8 @@ def start_session(
     paths = make_session_paths(session_id, kind, sessions_root)
 
     # absolute(), not resolve(): keep the operator's drive letter intact
-    # for the report's image_to_stage_file field.
-    resolved_path = Path(image_to_stage_path).absolute()
+    # for the report's source_calibration_file field.
+    resolved_path = Path(calibration_path).absolute()
     i2s = _load_image_to_stage(resolved_path)
 
     client = drv.connect_python_client()
@@ -185,7 +168,7 @@ def start_session(
         from_objective=from_objective,
         to_objective=to_objective,
         objective_config_name=objective_config_name,
-        image_to_stage_path=resolved_path,
+        calibration_path=resolved_path,
         image_to_stage=np.asarray(i2s["image_to_stage"], dtype=float),
         kind=kind,
     )
@@ -216,19 +199,56 @@ def _registration_for_report(vote: dict | None) -> dict | None:
     }
 
 
-# The driver's stack readback path consistently delivers slice 0 before
-# its file is fully written: a `21/N files not stable` warning, slice 0
-# returns as sparse hot-pixel noise, Brenner on that slice spikes way
-# above the real focus peak. The per-frame readback path used by
-# image-to-stage does not have this problem -- only stacks. The trailing
-# slice has the same file-stability exposure (commit timing is symmetric
-# in principle, even if the leading slice is the one we have observed
-# breaking). Until the driver fix lands, the parfocality analysis drops
-# the first and last slices before peak fitting. The full stack and
-# scores are kept on the session so the artifact stays visible in
-# reports.
+# Stack edge slices are less reliable for focus fitting than interior
+# slices. On LAS X stacks, slice 0 can arrive before its file is fully
+# stable, and either edge can dominate the Brenner score without
+# representing the true focal plane. Parfocality analysis therefore fits
+# only the interior slices. The full stack and scores stay on the
+# session so edge artifacts remain visible in reports.
 _STACK_LEADING_SLICES_TO_SKIP = 1
 _STACK_TRAILING_SLICES_TO_SKIP = 1
+_MIN_FIT_SAMPLES = 3
+_MIN_STACK_SECTIONS_FOR_FOCUS_FIT = (
+    _STACK_LEADING_SLICES_TO_SKIP
+    + _STACK_TRAILING_SLICES_TO_SKIP
+    + _MIN_FIT_SAMPLES
+)
+
+
+def _uniform_z_step_um(z_values: np.ndarray) -> float:
+    if len(z_values) < 2:
+        raise RuntimeError(
+            "z-stack focus fitting requires at least "
+            f"{_MIN_STACK_SECTIONS_FOR_FOCUS_FIT} sections; got "
+            f"{len(z_values)}."
+        )
+    steps = np.diff(z_values)
+    if not np.allclose(steps, steps[0], rtol=1e-6, atol=1e-6):
+        raise RuntimeError(
+            "z-stack positions are not uniformly spaced; cannot apply "
+            "parabolic focus fitting. Re-check the LAS X z-stack setup."
+        )
+    return float(steps[0])
+
+
+def _fit_focus_z(z_values: np.ndarray, scores: list[float]) -> float:
+    if len(z_values) != len(scores):
+        raise RuntimeError(
+            f"z-stack position count ({len(z_values)}) does not match "
+            f"Brenner score count ({len(scores)})."
+        )
+    if len(z_values) < _MIN_STACK_SECTIONS_FOR_FOCUS_FIT:
+        raise RuntimeError(
+            "z-stack focus fitting requires at least "
+            f"{_MIN_STACK_SECTIONS_FOR_FOCUS_FIT} sections because the "
+            "workflow drops the first and last slices before fitting."
+        )
+
+    step = _uniform_z_step_um(z_values)
+    lead = _STACK_LEADING_SLICES_TO_SKIP
+    trail = _STACK_TRAILING_SLICES_TO_SKIP
+    end = len(z_values) - trail
+    return _parabolic_peak(z_values[lead:end], scores[lead:end], step)
 
 
 def _parabolic_peak(z_values: np.ndarray, scores: list[float],
@@ -284,7 +304,7 @@ def _print_step5_summary(session, summary: dict) -> None:
         print("  Staging config written:")
         print(f"    {summary.get('config_path')}")
         print()
-        print("  Run the promote cell below to copy this to the current config.")
+        print("  Run the adopt cell below to copy this to the current config.")
     else:
         print("  No staging config written.")
         if session.failure_reason:
@@ -297,7 +317,7 @@ def _print_step5_summary(session, summary: dict) -> None:
 #
 # Every upstream rerun in a multi-step pipeline must invalidate the
 # staging config and clear every downstream step that depended on what
-# the rerun changed. Otherwise a stale promotable config can survive a
+# the rerun changed. Otherwise a stale adoptable config can survive a
 # rerun (plan Section 15 invariant). Each helper clears one cell's
 # outputs; each measure_* composes the helpers it needs.
 
@@ -432,18 +452,7 @@ def measure_parfocality_reference(
     session.ref_z_brenner = scores
 
     z_arr = np.asarray(positions, dtype=float)
-    # Signed spacing -- np.linspace preserves descending stacks
-    # (begin > end), in which case z_arr[1] - z_arr[0] is negative.
-    # The parabolic delta must travel along the same sign so the
-    # sub-slice correction moves in the right direction.
-    step = float(z_arr[1] - z_arr[0]) if len(z_arr) > 1 else 1.0
-    lead = _STACK_LEADING_SLICES_TO_SKIP
-    trail = _STACK_TRAILING_SLICES_TO_SKIP
-    focus_z = _parabolic_peak(
-        z_arr[lead:len(z_arr) - trail],
-        scores[lead:len(scores) - trail],
-        step,
-    )
+    focus_z = _fit_focus_z(z_arr, scores)
     session.focus_z_ref_um = focus_z
 
     # The workflow notes the Brenner peak but does not move z-wide.
@@ -522,16 +531,7 @@ def measure_parfocality_target(
     session.target_z_brenner = scores
 
     z_arr = np.asarray(positions, dtype=float)
-    # Signed spacing; see the matching comment in
-    # measure_parfocality_reference.
-    step = float(z_arr[1] - z_arr[0]) if len(z_arr) > 1 else 1.0
-    lead = _STACK_LEADING_SLICES_TO_SKIP
-    trail = _STACK_TRAILING_SLICES_TO_SKIP
-    focus_z = _parabolic_peak(
-        z_arr[lead:len(z_arr) - trail],
-        scores[lead:len(scores) - trail],
-        step,
-    )
+    focus_z = _fit_focus_z(z_arr, scores)
     session.focus_z_target_um = focus_z
     session.correction_z_um = focus_z - z_post
     # Peak-to-peak: translation_z_um = focus_target - focus_ref.
@@ -644,7 +644,7 @@ def measure_parcentricity_target_and_save(
     # Unlink stale staging config BEFORE any driver call. 3b has nine
     # raisable call sites between here and the verdict-mirror block;
     # any of them firing on a rerun would otherwise leave the previous
-    # run's objective config promotable (Section 15 invariant).
+    # run's objective config adoptable (Section 15 invariant).
     _invalidate_staging_config(session)
 
     try:
@@ -747,7 +747,7 @@ def measure_parcentricity_target_and_save(
     config_path: str | None = None
     if config_written:
         payload = {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": STAGING_SCHEMA_VERSION,
             "kind": "objective_translation",
             "created_at": now_iso(),
             "from_objective": session.from_objective,
@@ -781,19 +781,19 @@ def measure_parcentricity_target_and_save(
                 .replace("\\", "/") + "/"
             )
 
-    # image_to_stage_file: record the absolute source we actually used
-    # (current config or override). The operator-supplied path may live
-    # outside the package tree, so the absolute string is the only form
-    # that round-trips meaningfully.
-    i2s_file = str(session.image_to_stage_path)
+    # source_calibration_file: record the absolute source we actually
+    # used (current config or override). The operator-supplied path may
+    # live outside the package tree, so the absolute string is the only
+    # form that round-trips meaningfully.
+    source_calibration_file = str(session.calibration_path)
 
     report = {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": STAGING_SCHEMA_VERSION,
         "kind": "objective_translation_report",
         "created_at": now_iso(),
         "calibration_file": session.objective_config_name,
         "config_written": config_written,
-        "image_to_stage_file": i2s_file,
+        "source_calibration_file": source_calibration_file,
         "from_objective": session.from_objective,
         "to_objective": session.to_objective,
         "home_xy_um": [_f(session.home_xy[0]), _f(session.home_xy[1])],

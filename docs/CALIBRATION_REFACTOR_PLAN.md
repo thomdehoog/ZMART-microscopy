@@ -1,9 +1,10 @@
-﻿# Calibration Refactor Plan
+# Calibration Refactor Plan
 
 **Branch**: `restructure/layered-driver`
 **Drafted**: 2026-05-27
-**Status**: design agreed in a Claude review session; revised after Codex review; not yet implemented
-**Owner**: thom + Claude design pass; awaiting Codex implementation
+**Status**: PR #1 implemented on `restructure/layered-driver`; PR #2 and
+PR #3 remain pending
+**Owner**: thom + Claude design pass; Codex implementation pass for PR #1
 
 This plan covers a coordinated cleanup of the calibration subsystem:
 schema simplification, file naming, vendor-neutral relocation, and the
@@ -209,51 +210,25 @@ single-XY step) add as top-level keys when needed.
 
 ### 3.5. Driver stage-config API after the split
 
-Today the driver exposes:
+After PR #1, the driver stage-config API reads the split current files
+and exposes the current schema directly:
 
 ```python
-# driver/stage/config.py (current)
-def load_stage_config() -> dict:
-    """Read stage.json. Returns {'limits_um': {...}, 'backlash': {...}}."""
-
-# driver/stage/limits.py
-def apply_stage_limits_from_config(stage_cfg: dict) -> None: ...
-
-# driver/acquisition/capture.py
-def _apply_backlash_if_requested(client, backlash_params: dict | None) -> None: ...
-
-# driver/stage/movement.py
-def correct_backlash(client, *, overshoot_um=50.0, settle_ms=100, ...) -> dict: ...
-```
-
-After PR #1, the **external API shape stays the same** so consumers
-need no changes; only the internals change:
-
-```python
-# driver/stage/config.py (after PR #1)
+# driver/stage/config.py
 def load_stage_config(*, limits_path: Path | None = None,
                       calibration_path: Path | None = None) -> dict:
     """Read limits.json + calibration.json's backlash block.
 
-    Returns the legacy shape so existing consumers (apply_stage_limits_*,
-    capture._apply_backlash_*) are unchanged:
-
+    Returns:
         {
-            "limits_um": <from limits.json["stage_um"]>,
-            "backlash":  <from calibration.json["backlash"]>,
+            "stage_um": <from limits.json["stage_um"]>,
+            "backlash": <from calibration.json["backlash"]>,
         }
-
-    Note: limits.json renames v0's `limits_um` to `stage_um` to leave
-    room for future categories (laser caps, etc.). The loader maps
-    `stage_um` -> `limits_um` for back-compat with existing consumers.
     """
 ```
 
-Why preserve the legacy shape: `apply_stage_limits_from_config` reads
-`stage_cfg["limits_um"]`. Capture reads `stage_cfg["backlash"]`.
-Changing the return shape would force a sweep across the validator,
-stress runner, and target_acquisition pipeline. The mapping inside
-`load_stage_config()` keeps that surface stable.
+No compatibility mapping is kept. Consumers read `stage_cfg["stage_um"]`
+for limits and `stage_cfg["backlash"]` for backlash.
 
 **Backlash consumer audit (required as part of PR #1):**
 
@@ -404,9 +379,8 @@ schema, it logs "already current" and exits 0.
 4. Atomic-write new `calibration.json`.
 5. Write `limits.json` containing
    `{"schema_version": 1, "stage_um": <old stage.json["limits_um"]>}`
-   (note: rename `limits_um` -> `stage_um` to match the extensibility
-   convention; `load_stage_config()` maps it back to `limits_um` for
-   consumers, per section 3.5).
+   (note: rename old `limits_um` -> current `stage_um` to match the
+   extensibility convention).
 6. Delete `stage.json`. Git history is the backup -- the migration is
    one commit, so a single `git revert` returns the working tree to v9.
    No `.bak` fossil in the source tree.
@@ -540,9 +514,8 @@ Tasks:
    `adopt_calibration`, `.promotion.log` -> `.adopt.log`.
 6. Update notebooks to write v11 and use "adopt" cell headings.
 7. Update the driver's stage-config loader per section 3.5: read limits from
-   `limits.json`, backlash from `calibration.json["backlash"]`,
-   preserve the legacy return-shape contract (`{"limits_um": ...,
-   "backlash": ...}`).
+   `limits.json`, backlash from `calibration.json["backlash"]`, and
+   return the current shape (`{"stage_um": ..., "backlash": ...}`).
 8. Backlash consumer audit per section 3.5: confirm every production caller
    passes `stage_cfg["backlash"]` through, document the function-signature
    defaults as fallbacks only.

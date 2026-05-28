@@ -40,7 +40,7 @@ The pipeline is one function per step; ``main()`` chains them.
     1. Setup: connect, validate orientation, resolve job, set limits.
     2. Acquire overview at zoom 1 on the currently selected objective.
     3. Cellpose-segment; pick the n-th-closest cell to image centre.
-    4. Choose framed zoom that frames ``--fov-bbox-margin × bbox``.
+    4. Choose framed zoom that frames ``--bbox-margin × bbox``.
     5. Disable ROI scan (otherwise scanner only illuminates the ROI
        region and panning shows nothing — see memory
        ``feedback_roi_scan_before_pan``).
@@ -69,7 +69,7 @@ Usage
 -----
     python galvo_zoom_in.py
     python galvo_zoom_in.py --pick-rank 3
-    python galvo_zoom_in.py --fov-bbox-margin 2.0 --no-restore
+    python galvo_zoom_in.py --bbox-margin 2.0 --no-restore
 """
 
 from __future__ import annotations
@@ -118,7 +118,7 @@ log = logging.getLogger("galvo_zoom_in")
 OVERVIEW_ZOOM: float = 1.0
 
 #: Target FOV = this × the picked cell's bounding box.
-DEFAULT_FOV_BBOX_MARGIN: float = 1.5
+DEFAULT_BBOX_MARGIN: float = 1.5
 
 #: Wait this long between successive zoom/job edits to let LAS X
 #: commit the LRP changes.
@@ -145,9 +145,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--job", default=None,
                    help="LAS X job name. Default: the currently selected job.")
-    p.add_argument("--fov-bbox-margin", type=float, default=DEFAULT_FOV_BBOX_MARGIN,
+    p.add_argument("--bbox-margin", type=float, default=DEFAULT_BBOX_MARGIN,
                    help=f"Target FOV = this × cell bbox "
-                        f"(default: {DEFAULT_FOV_BBOX_MARGIN}).")
+                        f"(default: {DEFAULT_BBOX_MARGIN}).")
     p.add_argument("--pick-rank", type=int, default=0,
                    help="Which cell to target by distance from the overview "
                         "centre: 0=closest, 1=next, ... Default: 0.")
@@ -400,7 +400,7 @@ def step_setup(args: argparse.Namespace) -> tuple[Any, str, dict, Path]:
 
     print(f"Job:            {job}")
     print(f"Pick rank:      {args.pick_rank}")
-    print(f"FOV margin:     {args.fov_bbox_margin}× bounding box")
+    print(f"BBox margin:    {args.bbox_margin}× bounding box")
     print(f"Backlash:       {'on' if not args.no_backlash else 'off'}")
     print(f"Restore on exit:{'no' if args.no_restore else 'yes'}")
     print(f"Output dir:     {out_dir}\n")
@@ -492,7 +492,7 @@ def step_compute_framed_zoom(
 
     bbox_w_um, bbox_h_um = pick.bbox_um
     framed_zoom = drv.bbox_to_zoom(bbox_w_um, bbox_h_um, base_fov_um,
-                                   margin=args.fov_bbox_margin)
+                                   margin=args.bbox_margin)
     log.info("framed zoom = %d (base FOV %.1f um → FOV at zoom %.1f um)",
              framed_zoom, base_fov_um, base_fov_um / framed_zoom)
     return framed_zoom, base_fov_um
@@ -563,8 +563,8 @@ def step_acquire_and_verify(
     landing = measure_landing_error_by_morphology(
         masks, img.shape, pick, framed_pixel_size_um,
     )
-    if landing.error_magnitude_um is not None:
-        dx, dy = landing.error_um  # type: ignore[misc]
+    if landing.error_magnitude_um is not None and landing.error_um is not None:
+        dx, dy = landing.error_um
         log.info("landing error = (%+.2f, %+.2f) um  magnitude=%.2f um  "
                  "(morphology score=%.3f over %d candidate(s))",
                  dx, dy, landing.error_magnitude_um,
@@ -605,7 +605,6 @@ def step_save_outputs(
         "base_fov_um": base_fov_um,
         "framed_fov_um": base_fov_um / framed_zoom,
         "framed_pixel_size_um": framed_pixel_size_um,
-        "fov_bbox_margin": args.fov_bbox_margin,
         "landing": {
             "method": "morphology_match",
             "cells_segmented": landing.cells_segmented,
@@ -672,8 +671,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         overview_img, framed_img, overview_tif, framed_tif, landing,
     )
 
-    if landing.error_magnitude_um is not None:
-        dx, dy = landing.error_um  # type: ignore[misc]
+    if landing.error_magnitude_um is not None and landing.error_um is not None:
+        dx, dy = landing.error_um
         print(f"\nLanding error: ({dx:+.2f}, {dy:+.2f}) um  "
               f"magnitude={landing.error_magnitude_um:.2f} um")
     else:
