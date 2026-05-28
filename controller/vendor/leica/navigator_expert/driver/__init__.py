@@ -65,12 +65,14 @@ __all__ = [
     # templates
     "find_scanning_templates_dir", "save_experiment", "load_experiment",
     "strip_template", "restore_template", "get_template_state",
+    "strip_template_in_place",
     "apply_lrp_change", "reorder_jobs", "save_and_read_lrp",
     # template parsers
     "parse_lrp", "diff_lrp", "parse_template_positions",
     "get_master_attrs", "get_rois",
     "parse_acquisition_positions", "parse_base_grid", "parse_focus_points",
     "parse_rgn_geometries", "parse_rgn_tile_colors", "parse_matrix_settings",
+    "plan_tiles_from_geometries",
     # experimental LRP edits (general)
     "lrp_set_line_average", "lrp_verify_line_average",
     "lrp_set_line_accumulation", "lrp_verify_line_accumulation",
@@ -124,6 +126,9 @@ __all__ = [
     "connect_python_client", "require_canonical_scan_orientation",
     "disable_roi_scan",
     "LIMITS_SCHEMA_VERSION", "CALIBRATION_SCHEMA_VERSION",
+    "LIMITS_SOURCE_DEFAULTS", "LIMITS_SOURCE_BOUNDARY_MARKERS",
+    "LIMITS_SOURCE_CFG_FALLBACK", "LIMITS_SOURCE_SCAN_FIELD",
+    "LIMITS_SOURCE_MIGRATION", "LIMITS_SOURCES",
     "current_stage_limits_path", "default_stage_limits_path",
     "load_stage_config", "write_stage_limits_config",
     # acquisition (driver-first API)
@@ -184,6 +189,9 @@ from .stage.limits import (
 from .stage.movement import correct_backlash, move_xy_with_backlash
 from .stage.config import (
     LIMITS_SCHEMA_VERSION, CALIBRATION_SCHEMA_VERSION,
+    LIMITS_SOURCE_DEFAULTS, LIMITS_SOURCE_BOUNDARY_MARKERS,
+    LIMITS_SOURCE_CFG_FALLBACK, LIMITS_SOURCE_SCAN_FIELD,
+    LIMITS_SOURCE_MIGRATION, LIMITS_SOURCES,
     current_path as current_stage_limits_path,
     defaults_path as default_stage_limits_path,
     load as load_stage_config,
@@ -196,6 +204,7 @@ from .templates.files import (
     get_template_state, save_and_read_lrp,
 )
 from .templates.strip_restore import strip_template, restore_template
+from .templates.strip_restore import strip_template_in_place
 from .templates.transaction import apply_lrp_change, reorder_jobs
 from .templates.parsers import (
     parse_lrp, diff_lrp, parse_template_positions,
@@ -203,6 +212,7 @@ from .templates.parsers import (
     parse_rgn_geometries, parse_rgn_tile_colors, parse_matrix_settings,
     get_master_attrs, get_rois,
 )
+from .templates.planning import plan_tiles_from_geometries
 from .templates.edits.read import lrp_get_pan
 
 # -- acquisition/ - capture, file arrival, and save handling

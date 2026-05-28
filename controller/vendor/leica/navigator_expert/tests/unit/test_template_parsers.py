@@ -5,6 +5,7 @@ Run with:
     python -m pytest controller/vendor/leica/navigator_expert/tests/unit/test_template_parsers.py -v
 """
 
+import math
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -19,7 +20,7 @@ from navigator_expert.driver.templates.parsers import (
     _get_raw_tiles, parse_acquisition_positions,
     parse_base_grid, parse_focus_points,
     parse_rgn_geometries, parse_rgn_tile_colors,
-    parse_matrix_settings,
+    parse_matrix_settings, parse_template_positions,
     UNASSIGNED_JOB,
 )
 
@@ -174,6 +175,268 @@ class TestParseAcquisitionPositions:
         assert regions["0"]["tile_size_um"] is None
         for pos in regions["0"]["positions"]:
             assert "bounding_box" not in pos
+
+
+class TestParseTemplatePositionsFromRgnGrid:
+    def _write_grid_template(self, tmp_path, *, base="PythonInspect",
+                             tag=None):
+        xml = """\
+<ScanningTemplate>
+  <ExperimentData>
+    <Experiment>
+      <ApplicationData>
+        <MatrixData>
+          <CountOfData IsEnabled="true" ScanFieldsX="3" ScanFieldsY="2"
+                       SectionsX="1" SectionsY="1" RegionsX="0" RegionsY="0"
+                       SamplesX="0" SamplesY="0" />
+          <ConfocalData FieldRotation="0" />
+        </MatrixData>
+      </ApplicationData>
+      <ScanFields />
+    </Experiment>
+  </ExperimentData>
+</ScanningTemplate>
+"""
+        rgn = """\
+<StageOverviewRegions>
+  <Regions>
+    <ShapeList>
+      <Items>
+        <Item0>
+          <Type>Rectangle</Type>
+          <Identifier>scan-field-1</Identifier>
+          <Verticies><Items>
+            <Item0><X>0.010</X><Y>0.020</Y></Item0>
+            <Item1><X>0.012</X><Y>0.020</Y></Item1>
+            <Item2><X>0.010</X><Y>0.021</Y></Item2>
+            <Item3><X>0.012</X><Y>0.021</Y></Item3>
+          </Items></Verticies>
+        </Item0>
+      </Items>
+    </ShapeList>
+  </Regions>
+</StageOverviewRegions>
+"""
+        if tag is not None:
+            rgn = rgn.replace(
+                "          <Identifier>scan-field-1</Identifier>",
+                f"          <Tag>{tag}</Tag>\n"
+                "          <Identifier>scan-field-1</Identifier>",
+            )
+        (tmp_path / f"{base}.xml").write_text(xml, encoding="utf-8")
+        (tmp_path / f"{base}.rgn").write_text(rgn, encoding="utf-8")
+        return base
+
+    def test_derives_grid_when_xml_scanfields_are_empty(self, tmp_path):
+        base = self._write_grid_template(tmp_path)
+
+        parsed = parse_template_positions(
+            tmp_path,
+            base,
+            tile_size_um=100.0,
+            default_job_name="Overview",
+        )
+
+        regions = parsed["acquisition_positions"]
+        assert len(regions) == 1
+        region = regions["0"]
+        assert region["source"] == "rgn_matrix"
+        assert region["job_name"] == "Overview"
+        assert region["num_rows"] == 2
+        assert region["num_cols"] == 3
+        assert region["num_tiles"] == 6
+        assert [p["x_um"] for p in region["positions"][:3]] == [
+            10000.0, 11000.0, 12000.0,
+        ]
+        assert [p["y_um"] for p in region["positions"][::3]] == [
+            20000.0, 21000.0,
+        ]
+
+    def test_default_job_name_is_queried_for_tile_size(
+        self, tmp_path, monkeypatch,
+    ):
+        base = self._write_grid_template(tmp_path)
+
+        from navigator_expert.driver.core import readers
+
+        def fake_get_job_settings(_client, job_name):
+            assert job_name == "Overview"
+            return {"imageSize": "1200.0 um x 1200.0 um"}
+
+        monkeypatch.setattr(readers, "get_job_settings", fake_get_job_settings)
+
+        parsed = parse_template_positions(
+            tmp_path,
+            base,
+            client=object(),
+            default_job_name="Overview",
+        )
+
+        region = parsed["acquisition_positions"]["0"]
+        assert region["tile_size_um"] == 1200.0
+        assert "bounding_box" in region["positions"][0]
+
+    def test_geometry_tile_count_wins_over_stale_matrix_grid(self, tmp_path):
+        base = self._write_grid_template(tmp_path, tag="R1 (2)")
+
+        parsed = parse_template_positions(
+            tmp_path,
+            base,
+            tile_size_um=1200.0,
+            default_job_name="Overview",
+        )
+
+        regions = parsed["acquisition_positions"]
+        assert len(regions) == 1
+        region = regions["0"]
+        assert region["source"] == "geometry_plan"
+        assert region["label"] == "R1 (2)"
+        assert region["job_name"] == "Overview"
+        assert region["num_tiles"] == 2
+
+    def test_materialized_xml_positions_win_over_rgn_grid(self, tmp_path):
+        base = "PythonInspect"
+        xml = SAMPLE_XML.replace(
+            "</Experiment>",
+            """
+  <MatrixData>
+    <CountOfData IsEnabled="true" ScanFieldsX="9" ScanFieldsY="9" />
+  </MatrixData>
+</Experiment>
+""",
+        )
+        rgn = SAMPLE_RGN_GEOM
+        (tmp_path / f"{base}.xml").write_text(xml, encoding="utf-8")
+        (tmp_path / f"{base}.rgn").write_text(rgn, encoding="utf-8")
+
+        parsed = parse_template_positions(
+            tmp_path,
+            base,
+            tile_size_um=100.0,
+            default_job_name="Overview",
+        )
+
+        region = parsed["acquisition_positions"]["0"]
+        assert region.get("source") != "rgn_matrix"
+        assert region["num_tiles"] == 2
+
+    def test_materialized_and_grid_spec_representations_match(self, tmp_path):
+        materialized_dir = tmp_path / "materialized"
+        grid_spec_dir = tmp_path / "grid_spec"
+        materialized_dir.mkdir()
+        grid_spec_dir.mkdir()
+        base = "PythonInspect"
+
+        rgn = """\
+<StageOverviewRegions>
+  <Regions>
+    <ShapeList>
+      <Items>
+        <Item0>
+          <Type>Rectangle</Type>
+          <Identifier>same-field</Identifier>
+          <Verticies><Items>
+            <Item0><X>0.010</X><Y>0.020</Y></Item0>
+            <Item1><X>0.012</X><Y>0.020</Y></Item1>
+            <Item2><X>0.010</X><Y>0.021</Y></Item2>
+            <Item3><X>0.012</X><Y>0.021</Y></Item3>
+          </Items></Verticies>
+        </Item0>
+      </Items>
+    </ShapeList>
+  </Regions>
+</StageOverviewRegions>
+"""
+        grid_spec_xml = """\
+<ScanningTemplate>
+  <ExperimentData>
+    <Experiment>
+      <ApplicationData>
+        <MatrixData>
+          <CountOfData IsEnabled="true" ScanFieldsX="3" ScanFieldsY="2" />
+          <ConfocalData FieldRotation="0" />
+        </MatrixData>
+      </ApplicationData>
+      <ScanFields />
+    </Experiment>
+  </ExperimentData>
+</ScanningTemplate>
+"""
+        materialized_xml = """\
+<ScanningTemplate>
+  <ExperimentData>
+    <Experiment>
+      <ApplicationData>
+        <MatrixData>
+          <CountOfData IsEnabled="true" ScanFieldsX="3" ScanFieldsY="2" />
+          <ConfocalData FieldRotation="0" />
+        </MatrixData>
+      </ApplicationData>
+      <ScanFields>
+        <ScanFieldData IsEnabled="true" UniqueID="1" ScanOrder="1" ScanRotationAngle="0">
+          <MainJobData JobName="Overview" JobId="1" />
+          <LogicalData SectionX="0" SectionY="0" FieldX="0" FieldY="0" />
+          <PhysicalData XPosition="10000" YPosition="20000" ZPosition="0" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="2" ScanOrder="2" ScanRotationAngle="0">
+          <MainJobData JobName="Overview" JobId="1" />
+          <LogicalData SectionX="0" SectionY="0" FieldX="1" FieldY="0" />
+          <PhysicalData XPosition="11000" YPosition="20000" ZPosition="0" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="3" ScanOrder="3" ScanRotationAngle="0">
+          <MainJobData JobName="Overview" JobId="1" />
+          <LogicalData SectionX="0" SectionY="0" FieldX="2" FieldY="0" />
+          <PhysicalData XPosition="12000" YPosition="20000" ZPosition="0" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="4" ScanOrder="4" ScanRotationAngle="0">
+          <MainJobData JobName="Overview" JobId="1" />
+          <LogicalData SectionX="0" SectionY="0" FieldX="0" FieldY="1" />
+          <PhysicalData XPosition="10000" YPosition="21000" ZPosition="0" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="5" ScanOrder="5" ScanRotationAngle="0">
+          <MainJobData JobName="Overview" JobId="1" />
+          <LogicalData SectionX="0" SectionY="0" FieldX="1" FieldY="1" />
+          <PhysicalData XPosition="11000" YPosition="21000" ZPosition="0" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="6" ScanOrder="6" ScanRotationAngle="0">
+          <MainJobData JobName="Overview" JobId="1" />
+          <LogicalData SectionX="0" SectionY="0" FieldX="2" FieldY="1" />
+          <PhysicalData XPosition="12000" YPosition="21000" ZPosition="0" />
+        </ScanFieldData>
+      </ScanFields>
+    </Experiment>
+  </ExperimentData>
+</ScanningTemplate>
+"""
+        (materialized_dir / f"{base}.xml").write_text(
+            materialized_xml, encoding="utf-8")
+        (grid_spec_dir / f"{base}.xml").write_text(
+            grid_spec_xml, encoding="utf-8")
+        for folder in (materialized_dir, grid_spec_dir):
+            (folder / f"{base}.rgn").write_text(rgn, encoding="utf-8")
+
+        materialized = parse_template_positions(
+            materialized_dir,
+            base,
+            tile_size_um=100.0,
+            default_job_name="Overview",
+        )
+        grid_spec = parse_template_positions(
+            grid_spec_dir,
+            base,
+            tile_size_um=100.0,
+            default_job_name="Overview",
+        )
+
+        materialized_positions = [
+            (p["x_um"], p["y_um"])
+            for p in materialized["acquisition_positions"]["0"]["positions"]
+        ]
+        grid_spec_positions = [
+            (p["x_um"], p["y_um"])
+            for p in grid_spec["acquisition_positions"]["0"]["positions"]
+        ]
+        assert materialized_positions == grid_spec_positions
 
 
 # ── Base grid from RGN ──────────────────────────────────────────────────
@@ -421,6 +684,9 @@ class TestParseMatrixSettings:
 # =============================================================================
 
 TEST_DATA = Path(__file__).resolve().parents[1] / "data" / "template_parsing"
+GENERAL_WORKFLOW_DATA = (
+    Path(__file__).resolve().parents[1] / "data" / "general_workflow"
+)
 
 
 @pytest.mark.skipif(not TEST_DATA.is_dir(), reason="test data not found")
@@ -454,3 +720,74 @@ class TestRealWorkflowFiles:
         xml_root = ET.parse(tdir / (base + ".xml")).getroot()
         ms = parse_matrix_settings(xml_root)
         assert "count" in ms or "carrier" in ms
+
+
+@pytest.mark.skipif(not GENERAL_WORKFLOW_DATA.is_dir(),
+                    reason="general workflow test data not found")
+class TestGeneralWorkflowGridSpec:
+    def test_geometry_tile_count_tag_wins_over_stale_matrix_count(self):
+        parsed = parse_template_positions(
+            GENERAL_WORKFLOW_DATA,
+            "{ScanningTemplate}test_hardware_workflow",
+            tile_size_um=1200.0,
+            default_job_name="Overview",
+        )
+
+        regions = parsed["acquisition_positions"]
+        assert len(regions) == 1
+        region = regions["0"]
+        assert region["source"] == "geometry_plan"
+        assert region["label"] == "R1 (15)"
+        assert region["job_name"] == "Overview"
+        assert region["num_tiles"] == 15
+
+
+def _tile_centers(parsed):
+    centers = []
+    for region in parsed["acquisition_positions"].values():
+        centers.extend(
+            (position["x_um"], position["y_um"])
+            for position in region["positions"]
+        )
+    return sorted(centers)
+
+
+def _assert_centers_close(actual, expected, *, tolerance_um=0.05):
+    assert len(actual) == len(expected)
+    for got, want in zip(actual, expected):
+        assert math.hypot(got[0] - want[0], got[1] - want[1]) <= tolerance_um
+
+
+@pytest.mark.skipif(not TEST_DATA.is_dir(), reason="test data not found")
+class TestAssociatedAndUnassociatedRepresentations:
+    @pytest.mark.parametrize(
+        ("unassociated", "associated"),
+        [
+            ("_ScanningTemplate_test2", "_ScanningTemplate_test3"),
+            ("_ScanningTemplate_test4", "_ScanningTemplate_test5"),
+        ],
+    )
+    def test_unassociated_geometry_matches_associated_tile_materialization(
+        self, unassociated, associated,
+    ):
+        """Same RGN geometry should parse like the associated XML ground truth."""
+        inferred = parse_template_positions(
+            TEST_DATA,
+            unassociated,
+            tile_size_um=1550.0,
+            default_job_name="Overview",
+        )
+        ground_truth = parse_template_positions(
+            TEST_DATA,
+            associated,
+            tile_size_um=1550.0,
+            default_job_name="Overview",
+        )
+
+        assert {r["job_name"] for r in inferred["acquisition_positions"].values()} == {
+            "Overview",
+        }
+        _assert_centers_close(
+            _tile_centers(inferred),
+            _tile_centers(ground_truth),
+        )

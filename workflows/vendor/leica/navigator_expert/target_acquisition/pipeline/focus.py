@@ -73,8 +73,8 @@ class FocusMap:
         from matplotlib.patches import PathPatch
 
         from .visualize import (
-            TileStyle, render_scan_field_panel,
-            _FRAME_ASPECT, _FRAME_WIDTH_IN,
+            TileStyle, figure_geometry_for_stage_limits,
+            render_scan_field_panel,
             _FIELD_LEFT, _FIELD_BOTTOM, _FIELD_WIDTH, _FIELD_HEIGHT,
             _FIELD_CBAR_EXTRA_IN,
             _FONT_FIGURE_TITLE, _COLOR_INK_PRIMARY, _TITLE_PAD,
@@ -90,10 +90,10 @@ class FocusMap:
             print("[focus] No tiles to plot.")
             return
 
-        field_h = _FRAME_WIDTH_IN / _FRAME_ASPECT
+        (field_w, field_h), frame_aspect = figure_geometry_for_stage_limits(lim)
         total_h = field_h + _FIELD_CBAR_EXTRA_IN
         s = field_h / total_h
-        fig = plt.figure(figsize=(_FRAME_WIDTH_IN, total_h))
+        fig = plt.figure(figsize=(field_w, total_h))
         top_margin = (1 - _FIELD_BOTTOM - _FIELD_HEIGHT) * s
         field_bottom = 1 - top_margin - _FIELD_HEIGHT * s
         ax = fig.add_axes([_FIELD_LEFT, field_bottom,
@@ -124,7 +124,7 @@ class FocusMap:
 
         rc = render_scan_field_panel(
             ax, ctx.scan_field, lim, tile_styles=tile_styles,
-            padding_factor=0.12, frame_aspect=_FRAME_ASPECT,
+            padding_factor=0.12, frame_aspect=frame_aspect,
         )
 
         if not rc.tile_bounds:

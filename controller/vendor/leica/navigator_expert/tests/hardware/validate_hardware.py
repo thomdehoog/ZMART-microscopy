@@ -334,7 +334,7 @@ def _apply_stage_limits(drv: Any, v: Validator, args: argparse.Namespace) -> boo
         "stage config: load",
         lambda: drv.load_stage_config(limits_path=args.limits_config)
         if args.limits_config else drv.load_stage_config(),
-        context={"limits_path": args.limits_config or "<current>"},
+        context={"limits_path": args.limits_config or "<defaults>"},
     )
     if not stage_cfg:
         v.fail("stage limits: apply", "could not load stage configuration")
@@ -850,7 +850,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--mock-latency", type=float, default=0.0,
                    help="per-command latency for --mock (seconds)")
     p.add_argument("--limits-config",
-                   help="limits JSON; default is limits/.../current.json")
+                   help="limits JSON; default is limits/.../defaults.json")
 
     # Phase gates
     p.add_argument("--read-only", action="store_true",

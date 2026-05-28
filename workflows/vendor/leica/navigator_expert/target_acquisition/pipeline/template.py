@@ -1,17 +1,18 @@
-"""template.py -- Stage limits, strip, z-wide, scan field.
+"""template.py -- Stage limits, strip, scan field.
 
-prepare_template (Step 1): read boundary markers, set XY + Z stage
-  limits, strip the template (removes markers), enforce z-wide.
-  All before the operator draws the scan field.
+prepare_template (Step 2a): read boundary markers, set XY + Z stage
+  limits, and strip the template in place (removes markers). All
+  before the operator draws the scan field.
 
-read_scan_field (Step 2): parse the scan field the operator drew,
-  synthesize tiles if geometry-only, narrow limits if Step 1
-  deferred, populate ctx.scan_field.
+read_scan_field (Step 2b): parse the scan field the operator drew,
+  accepting either materialized XML tile positions or the LAS X
+  RGN-geometry + MatrixData grid specification, narrow limits if
+  prepare_template deferred, populate ctx.scan_field.
 
 plot_scan_field: visualise tiles, boundary, and focus markers.
 
 Z-galvo is never commanded by this pipeline; drv.set_stage_limits still
-receives the z-galvo envelope from limits/.../current.json because the
+receives the z-galvo envelope from limits/.../defaults.json because the
 API requires all axes together.
 """
 from __future__ import annotations
@@ -28,8 +29,6 @@ from navigator_expert.driver.templates.files import (
     TEMPLATE_XML,
     TEMPLATE_LRP,
     TEMPLATE_RGN,
-    STRIPPED_BASE,
-    STRIPPED_LRP,
     get_template_state,
 )
 
@@ -39,11 +38,11 @@ from ._log_capture import _logged
 
 @_logged("initialization")
 def prepare_template(ctx: Context) -> None:
-    """Step 1: limits, strip, enforce z-wide.
+    """Step 2a: limits and in-place strip.
 
     Sets stage limits, strips the template (removing boundary markers),
-    and enforces z-wide on every job. All before the operator draws
-    the scan field in Navigator Expert.
+    and keeps the canonical PythonInspect experiment loaded. All
+    before the operator draws the scan field in Navigator Expert.
 
     Limits priority:
       1. Boundary point markers in Navigator Expert (preferred).
@@ -122,8 +121,12 @@ def prepare_template(ctx: Context) -> None:
     else:
         # Defer: apply physical envelope so any intermediate move is
         # still bounded; Step 2 will narrow from the scan field.
-        actual = _write_and_apply_stage_limits(ctx, stage_cfg["stage_um"])
-        ctx.stage_limits_source = "defaults"
+        ctx.stage_limits_source = drv.LIMITS_SOURCE_DEFAULTS
+        actual = _write_and_apply_stage_limits(
+            ctx,
+            stage_cfg["stage_um"],
+            source=ctx.stage_limits_source,
+        )
         print(
             "[step 2a] No boundary markers and no cfg XY fallback. "
             "Applied physical envelope from limits defaults:\n"
@@ -132,9 +135,13 @@ def prepare_template(ctx: Context) -> None:
             f"  z-wide: {actual['z_wide_min']:.0f} - {actual['z_wide_max']:.0f} um\n"
             "Step 2 will write current limits from the scan field."
         )
-        _strip_and_enforce_zwide(ctx)
+        _strip_template_for_editing(ctx)
         return
 
+    ctx.stage_limits_source = (
+        drv.LIMITS_SOURCE_BOUNDARY_MARKERS
+        if boundary_points else drv.LIMITS_SOURCE_CFG_FALLBACK
+    )
     actual = _write_and_apply_stage_limits(
         ctx,
         _stage_um_from_bounds(
@@ -143,9 +150,7 @@ def prepare_template(ctx: Context) -> None:
             z_galvo_min=z_galvo_min, z_galvo_max=z_galvo_max,
             z_wide_min=z_wide_min, z_wide_max=z_wide_max,
         ),
-    )
-    ctx.stage_limits_source = (
-        "boundary_markers" if boundary_points else "cfg_fallback"
+        source=ctx.stage_limits_source,
     )
 
     print(
@@ -157,17 +162,20 @@ def prepare_template(ctx: Context) -> None:
         "(from limits defaults)"
     )
 
-    _strip_and_enforce_zwide(ctx)
+    _strip_template_for_editing(ctx)
 
 
 @_logged("initialization")
 def read_scan_field(ctx: Context) -> None:
-    """Step 2: parse the scan field, populate ctx.scan_field.
+    """Step 2b: parse the scan field, populate ctx.scan_field.
 
-    The operator draws the scan field in Navigator Expert after Step 1
-    strips the template. This function saves the current experiment,
-    parses tile positions (synthesizing from geometries if needed),
-    and optionally narrows stage limits if Step 1 deferred them.
+    The operator draws the scan field in Navigator Expert after
+    prepare_template strips the template. This function saves the
+    current experiment, parses tile positions from the driver, and
+    optionally narrows stage limits if prepare_template deferred them.
+    The driver accepts both LAS X representations: materialized XML
+    ``ScanFieldData`` entries and RGN geometry with MatrixData grid
+    counts.
     """
     client = ctx.client
     cfg = ctx.cfg
@@ -183,44 +191,36 @@ def read_scan_field(ctx: Context) -> None:
 
     template_data = drv.parse_template_positions(
         ctx.templates_dir, TEMPLATE_BASE, client=client,
+        default_job_name=cfg.acquisition_job,
     )
 
     tile_positions = template_data.get("acquisition_positions", {})
 
     if not tile_positions and template_data.get("geometries"):
-        from navigator_expert.driver.templates.parsers import (
-            _tile_size_from_image_size_str,
+        raise RuntimeError(
+            "Template has geometries but no tile positions.\n\n"
+            "The driver could not derive positions from either XML "
+            "ScanFieldData or RGN geometry plus MatrixData grid counts.\n\n"
+            "Fix: in Navigator Expert, draw after prepare_template on "
+            "the currently loaded PythonInspect experiment, make sure "
+            "the scan-field grid count is set, save the experiment, then "
+            "re-run read_scan_field(ctx)."
         )
-        settings = drv.get_job_settings(client, cfg.acquisition_job)
-        tile_size_um = None
-        if settings:
-            tile_size_um = _tile_size_from_image_size_str(
-                settings.get("imageSize", ""),
-            )
-        if tile_size_um:
-            raise RuntimeError(
-                "Template has geometries but no pre-computed tile positions. "
-                "Tile synthesis (synthesize_tiles) was removed as experimental. "
-                "Use LAS X to generate tile positions from the geometry, then "
-                "re-run the pipeline."
-            )
-        else:
-            raise RuntimeError(
-                "No tile positions found and tile size could not be "
-                "determined from the job settings. Draw a scan field "
-                "in Navigator Expert and re-run."
-            )
 
     if not tile_positions:
         raise RuntimeError(
-            "No tile positions found. Draw a scan field in "
-            "Navigator Expert and re-run this cell."
+            "No tile positions or geometries found in the template.\n\n"
+            "Draw after prepare_template on the currently loaded PythonInspect "
+            "experiment, set the scan-field grid, then re-run "
+            "read_scan_field(ctx).\n\n"
+            "If you drew the scan field before prepare_template, it was "
+            "stripped. Redraw it now."
         )
 
     n_tiles = sum(len(r["positions"]) for r in tile_positions.values())
 
-    # If Step 1 deferred XY limits, narrow from the scan field now
-    if ctx.stage_limits_source == "defaults":
+    # If prepare_template deferred XY limits, narrow from the scan field now.
+    if ctx.stage_limits_source == drv.LIMITS_SOURCE_DEFAULTS:
         stage_cfg = ctx.stage_config
         z_galvo_min, z_galvo_max = stage_cfg["stage_um"]["z_galvo"]
         z_wide_min, z_wide_max = stage_cfg["stage_um"]["z_wide"]
@@ -249,8 +249,9 @@ def read_scan_field(ctx: Context) -> None:
                 z_galvo_min=z_galvo_min, z_galvo_max=z_galvo_max,
                 z_wide_min=z_wide_min, z_wide_max=z_wide_max,
             ),
+            source=drv.LIMITS_SOURCE_SCAN_FIELD,
         )
-        ctx.stage_limits_source = "scan_field"
+        ctx.stage_limits_source = drv.LIMITS_SOURCE_SCAN_FIELD
         print("[step 2b] Stage limits narrowed from scan field and written to limits current.")
 
     ctx.scan_field = {
@@ -268,10 +269,53 @@ def read_scan_field(ctx: Context) -> None:
 
 
 @_logged("initialization")
+def show_template_state(ctx: Context) -> dict[str, Any]:
+    """Inspect the active template lifecycle state for Step 2 debugging.
+
+    This is diagnostic only: it saves the active LAS X experiment so
+    the parser sees the current on-disk template, then reports whether
+    the template is stripped, how many geometries exist, and how many
+    tile positions the driver can parse from XML or derive from the
+    RGN/MatrixData specification.
+    """
+    save_result = drv.save_experiment(
+        ctx.client, TEMPLATE_XML, ctx.templates_dir, timeout=60,
+    )
+    if save_result is None:
+        raise RuntimeError(
+            "drv.save_experiment failed (returned None). "
+            "Cannot inspect template state."
+        )
+
+    template_data = drv.parse_template_positions(
+        ctx.templates_dir, TEMPLATE_BASE, client=ctx.client,
+        default_job_name=ctx.cfg.acquisition_job,
+    )
+    geometries = template_data.get("geometries", {})
+    tile_positions = template_data.get("acquisition_positions", {})
+    n_geometries = len(geometries)
+    n_tile_positions = sum(
+        len(region.get("positions", []))
+        for region in tile_positions.values()
+    )
+    state = get_template_state(ctx.templates_dir)
+
+    report = {
+        "state": state,
+        "geometries": n_geometries,
+        "tile_positions": n_tile_positions,
+    }
+    print(f"[template] state: {state}")
+    print(f"[template] geometries: {n_geometries}")
+    print(f"[template] tile positions: {n_tile_positions}")
+    return report
+
+
+@_logged("initialization")
 def plot_stage_envelope(ctx: Context) -> None:
     """Step 2a visual: stage-envelope rectangle.
 
-    Draws an empty 16:9 figure with the current stage envelope as a
+    Draws an empty figure sized from the current stage envelope with a
     dashed rectangle, using the same axes style as plot_scan_field
     (inverted-y, no ticks, gray spines). No tiles, no focus markers,
     no legend -- this fires after prepare_template, before the operator
@@ -296,21 +340,20 @@ def plot_stage_envelope(ctx: Context) -> None:
         title = "Stage envelope (driver current)"
 
     from .visualize import (
-        _FRAME_ASPECT, _FRAME_WIDTH_IN,
+        figure_geometry_for_stage_limits,
         _FIELD_LEFT, _FIELD_BOTTOM, _FIELD_WIDTH, _FIELD_HEIGHT,
         _FONT_FIGURE_TITLE, _COLOR_INK_PRIMARY, _TITLE_PAD,
     )
 
-    fig = plt.figure(
-        figsize=(_FRAME_WIDTH_IN, _FRAME_WIDTH_IN / _FRAME_ASPECT),
-    )
+    figsize, frame_aspect = figure_geometry_for_stage_limits(envelope)
+    fig = plt.figure(figsize=figsize)
     ax = fig.add_axes([_FIELD_LEFT, _FIELD_BOTTOM,
                        _FIELD_WIDTH, _FIELD_HEIGHT])
     fig.patch.set_facecolor("white")
 
     render_scan_field_panel(
         ax, {"tile_positions": {}, "n_tiles": 0}, envelope,
-        padding_factor=0.12, frame_aspect=_FRAME_ASPECT,
+        padding_factor=0.12, frame_aspect=frame_aspect,
     )
 
     ax.set_title(title, fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
@@ -341,8 +384,8 @@ def plot_scan_field(ctx: Context) -> None:
     import matplotlib.pyplot as plt
 
     from .visualize import (
-        TileStyle, render_scan_field_panel,
-        _FRAME_ASPECT, _FRAME_WIDTH_IN, _pad_limits_to_aspect,
+        TileStyle, figure_geometry_for_stage_limits, render_scan_field_panel,
+        _pad_limits_to_aspect,
         _FIELD_LEFT, _FIELD_BOTTOM, _FIELD_WIDTH, _FIELD_HEIGHT,
         _FONT_FIGURE_TITLE, _COLOR_INK_PRIMARY, _TITLE_PAD,
     )
@@ -354,9 +397,8 @@ def plot_scan_field(ctx: Context) -> None:
     tile_positions = ctx.scan_field["tile_positions"]
     lim = ctx.stage_limits
 
-    fig = plt.figure(
-        figsize=(_FRAME_WIDTH_IN, _FRAME_WIDTH_IN / _FRAME_ASPECT),
-    )
+    figsize, frame_aspect = figure_geometry_for_stage_limits(lim)
+    fig = plt.figure(figsize=figsize)
     ax = fig.add_axes([_FIELD_LEFT, _FIELD_BOTTOM,
                        _FIELD_WIDTH, _FIELD_HEIGHT])
     fig.patch.set_facecolor("white")
@@ -400,7 +442,7 @@ def plot_scan_field(ctx: Context) -> None:
     # upper-right legend.
     rc = render_scan_field_panel(
         ax, ctx.scan_field, lim, tile_styles=tile_styles,
-        padding_factor=0.12, frame_aspect=_FRAME_ASPECT,
+        padding_factor=0.12, frame_aspect=frame_aspect,
     )
     if lim:
         ax.plot([], [], ls=(0, (4, 3)), color="#A5ACB4",
@@ -457,7 +499,7 @@ def plot_scan_field(ctx: Context) -> None:
             ax.set_xlim(new_xlo, new_xhi)
         if (new_ytop, new_ybot) != (y_top, y_bot):
             ax.set_ylim(new_ybot, new_ytop)  # restore inverted orientation
-        _pad_limits_to_aspect(ax, _FRAME_ASPECT)
+        _pad_limits_to_aspect(ax, frame_aspect)
 
     ax.set_title("Scan Field", fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
                  color=_COLOR_INK_PRIMARY, pad=_TITLE_PAD)
@@ -490,9 +532,9 @@ def archive_and_strip(ctx: Context) -> None:
     for xml / lrp / rgn to settle on disk (the driver only confirms one
     file per save -- xml / lrp / rgn complete on different schedules),
     copies all three into ``run.layout.metadata_dir("initialization")``,
-    then calls ``drv.strip_template`` -- the *final* strip. Step 3 and
-    Step 5 no longer strip-or-restore; LAS X stays on the stripped
-    template through the rest of the run.
+    then calls ``drv.strip_template_in_place`` -- the *final* strip.
+    Step 3 and Step 5 no longer strip-or-restore; LAS X stays on the
+    stripped canonical template through the rest of the run.
     """
     client = ctx.client
     templates_dir = ctx.templates_dir
@@ -528,9 +570,8 @@ def archive_and_strip(ctx: Context) -> None:
         for p in (src_xml, src_lrp, src_rgn)
     }
 
-    # Confirm on the LRP because the driver flags LRP as the
-    # late-updating file under the modify-lrp save path; XML and RGN
-    # are then verified independently below.
+    # Confirm on the LRP because LAS X may finish writing XML/RGN/LRP
+    # on different schedules; XML and RGN are verified independently below.
     save_result = drv.save_experiment(
         client, TEMPLATE_XML, templates_dir,
         timeout=60, confirm_path=str(src_lrp),
@@ -562,8 +603,10 @@ def archive_and_strip(ctx: Context) -> None:
     print(f"[step 2d] Archived {len(archived)} pipeline file(s) to "
           f"{archive_dir}: {', '.join(archived)}")
 
-    if not drv.strip_template(client):
-        raise RuntimeError("drv.strip_template failed in archive_and_strip.")
+    if not drv.strip_template_in_place(client):
+        raise RuntimeError(
+            "drv.strip_template_in_place failed in archive_and_strip."
+        )
     print("[step 2d] Template stripped. Scan field and markers will not "
           "be restored.")
 
@@ -632,10 +675,14 @@ def _stage_um_from_bounds(
 def _write_and_apply_stage_limits(
     ctx: Context,
     stage_um: dict[str, Any],
+    *,
+    source: str,
 ) -> dict:
     """Write limits current, reload via driver, apply, and return readback."""
-    drv.write_stage_limits_config(stage_um)
-    ctx.stage_config = drv.load_stage_config()
+    drv.write_stage_limits_config(stage_um, source=source)
+    ctx.stage_config = drv.load_stage_config(
+        limits_path=drv.current_stage_limits_path()
+    )
     drv.apply_stage_limits_from_config(ctx.stage_config)
     ctx.stage_limits = drv.get_stage_limits()
     return ctx.stage_limits
@@ -710,25 +757,8 @@ def _validate_cfg_xy(cfg: Any, stage_cfg: dict) -> None:
         )
 
 
-def _strip_and_enforce_zwide(ctx: Context) -> None:
-    """Strip the template and enforce the configured z-wide center."""
-    client = ctx.client
-
-    if not drv.strip_template(client):
-        raise RuntimeError("drv.strip_template returned a falsy result.")
-
-    lrp_path = ctx.templates_dir / STRIPPED_LRP
-    if not lrp_path.exists():
-        print("[step 2a] Template stripped. Skipped z-wide enforcement "
-              "(stripped LRP not found on disk).")
-        return
-
-    try:
-        parsed = drv.parse_lrp(lrp_path)
-        for name in parsed["jobs"]:
-            drv.lrp_set_z_use_mode(lrp_path, "z-wide", name)
-        drv.load_experiment(client, STRIPPED_BASE)
-        print("[step 2a] Template stripped and z-wide enforced on every job.")
-    except Exception as exc:
-        print(f"[step 2a] Template stripped. z-wide enforcement failed "
-              f"({exc}); set z-wide manually in LAS X.")
+def _strip_template_for_editing(ctx: Context) -> None:
+    """Strip the canonical template in place for the operator's next edit."""
+    if not drv.strip_template_in_place(ctx.client):
+        raise RuntimeError("drv.strip_template_in_place returned a falsy result.")
+    print("[step 2a] Template stripped in place.")

@@ -36,6 +36,7 @@ from unittest import mock
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import pytest
 
 
 # ─── TileStyle.alpha behavior ─────────────────────────────────────
@@ -184,6 +185,111 @@ def test_plot_stage_envelope_falls_back_to_driver(tmp_path, monkeypatch):
 # ─── scatter two-layer invariant ─────────────────────────────────
 
 
+def test_plot_scan_field_uses_portrait_stage_limit_aspect(tmp_path, monkeypatch):
+    """A portrait stage envelope should produce a portrait Step 2b figure."""
+    monkeypatch.setattr(plt, "show", lambda *a, **k: None)
+    from pipeline.template import plot_scan_field
+
+    created_sizes = []
+    original_figure = plt.figure
+
+    def _capture_figure(*args, **kwargs):
+        fig = original_figure(*args, **kwargs)
+        created_sizes.append(tuple(fig.get_size_inches()))
+        return fig
+
+    monkeypatch.setattr(plt, "figure", _capture_figure)
+
+    ctx = _envelope_ctx(
+        tmp_path,
+        stage_limits={
+            "x_min": 0.0,
+            "x_max": 12000.0,
+            "y_min": 0.0,
+            "y_max": 18000.0,
+        },
+    )
+    ctx.scan_field = {
+        "template_data": {
+            "visualization_data": {"tile_colors": {}},
+            "focus_points": [],
+            "autofocus_points": [],
+        },
+        "tile_positions": {
+            "0": {
+                "job_name": "Overview",
+                "tile_size_um": 1000.0,
+                "positions": [
+                    {"row": 0, "col": 0, "x_um": 5000.0, "y_um": 8000.0},
+                ],
+            },
+        },
+        "n_tiles": 1,
+    }
+
+    try:
+        plot_scan_field(ctx)
+        assert created_sizes
+        width, height = created_sizes[0]
+        assert height > width
+    finally:
+        plt.close("all")
+
+
+def test_focus_map_uses_portrait_stage_limit_aspect(tmp_path, monkeypatch):
+    """Step 2c uses the same stage-envelope aspect as Steps 2a/2b."""
+    monkeypatch.setattr(plt, "show", lambda *a, **k: None)
+    from pipeline.focus import FocusMap
+    import numpy as np
+
+    created_sizes = []
+    original_figure = plt.figure
+
+    def _capture_figure(*args, **kwargs):
+        fig = original_figure(*args, **kwargs)
+        created_sizes.append(tuple(fig.get_size_inches()))
+        return fig
+
+    monkeypatch.setattr(plt, "figure", _capture_figure)
+
+    ctx = _envelope_ctx(
+        tmp_path,
+        stage_limits={
+            "x_min": 0.0,
+            "x_max": 12000.0,
+            "y_min": 0.0,
+            "y_max": 18000.0,
+        },
+    )
+    ctx.scan_field = {
+        "tile_positions": {
+            "0": {
+                "job_name": "Overview",
+                "tile_size_um": 1000.0,
+                "positions": [
+                    {"row": 0, "col": 0, "x_um": 5000.0, "y_um": 8000.0},
+                ],
+            },
+        },
+        "n_tiles": 1,
+    }
+    focus_map = FocusMap(
+        model="constant",
+        coeffs=np.array([0.0, 0.0, 42.0]),
+        origin_xy_um=(0.0, 0.0),
+        measured=[{"x_um": 5000.0, "y_um": 8000.0, "zwide_um": 42.0}],
+        residuals_um=np.array([0.0]),
+    )
+
+    try:
+        focus_map.plot(ctx)
+        assert created_sizes
+        width, height = created_sizes[0]
+        assert height > width
+    finally:
+        plt.close("all")
+
+
 def test_stage_limit_update_writes_loads_and_applies_current(monkeypatch):
     """The workflow updates limits current through the driver before use."""
     from pipeline import template as template_mod
@@ -204,11 +310,11 @@ def test_stage_limit_update_writes_loads_and_applies_current(monkeypatch):
     }
     calls = []
 
-    def _write(payload):
-        calls.append(("write", payload))
+    def _write(payload, *, source):
+        calls.append(("write", payload, source))
 
-    def _load():
-        calls.append(("load", None))
+    def _load(*, limits_path=None):
+        calls.append(("load", limits_path))
         return loaded_cfg
 
     def _apply(cfg):
@@ -219,16 +325,124 @@ def test_stage_limit_update_writes_loads_and_applies_current(monkeypatch):
     monkeypatch.setattr(template_mod.drv, "apply_stage_limits_from_config", _apply)
     monkeypatch.setattr(template_mod.drv, "get_stage_limits", lambda: active)
 
-    result = template_mod._write_and_apply_stage_limits(ctx, stage_um)
+    current_path = object()
+    monkeypatch.setattr(
+        template_mod.drv,
+        "current_stage_limits_path",
+        lambda: current_path,
+    )
+
+    result = template_mod._write_and_apply_stage_limits(
+        ctx,
+        stage_um,
+        source=template_mod.drv.LIMITS_SOURCE_CFG_FALLBACK,
+    )
 
     assert result == active
     assert ctx.stage_config == loaded_cfg
     assert ctx.stage_limits == active
     assert calls == [
-        ("write", stage_um),
-        ("load", None),
+        ("write", stage_um, template_mod.drv.LIMITS_SOURCE_CFG_FALLBACK),
+        ("load", current_path),
         ("apply", loaded_cfg),
     ]
+
+
+def _template_ctx(tmp_path: Path):
+    ctx = mock.MagicMock()
+    ctx.client = object()
+    ctx.templates_dir = tmp_path
+    return ctx
+
+
+def test_read_scan_field_geometry_without_tiles_explains_lifecycle(
+    tmp_path, monkeypatch,
+):
+    """A geometry without grid counts still needs an operator action."""
+    from pipeline import template as template_mod
+
+    ctx = _template_ctx(tmp_path)
+    monkeypatch.setattr(
+        template_mod.drv, "save_experiment", lambda *a, **k: {"success": True},
+    )
+    monkeypatch.setattr(
+        template_mod.drv,
+        "parse_template_positions",
+        lambda *a, **k: {
+            "geometries": {"g1": {"type": "Rectangle"}},
+            "acquisition_positions": {},
+        },
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        template_mod.read_scan_field(ctx)
+
+    message = str(excinfo.value).lower()
+    assert "no tile positions" in message
+    assert "matrixdata grid counts" in message
+    assert "scan-field grid count is set" in message
+
+
+def test_read_scan_field_empty_template_explains_lifecycle(
+    tmp_path, monkeypatch,
+):
+    """An empty template points the operator to the same Step 2 action."""
+    from pipeline import template as template_mod
+
+    ctx = _template_ctx(tmp_path)
+    monkeypatch.setattr(
+        template_mod.drv, "save_experiment", lambda *a, **k: {"success": True},
+    )
+    monkeypatch.setattr(
+        template_mod.drv,
+        "parse_template_positions",
+        lambda *a, **k: {"geometries": {}, "acquisition_positions": {}},
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        template_mod.read_scan_field(ctx)
+
+    message = str(excinfo.value).lower()
+    assert "no tile positions" in message
+    assert "draw after prepare_template" in message
+    assert "set the scan-field grid" in message
+
+
+def test_show_template_state_reports_lifecycle_fields(
+    tmp_path, monkeypatch, capsys,
+):
+    """show_template_state is a diagnostic view, not a parser fallback."""
+    from pipeline import show_template_state
+    from pipeline import template as template_mod
+
+    ctx = _template_ctx(tmp_path)
+    monkeypatch.setattr(
+        template_mod.drv, "save_experiment", lambda *a, **k: {"success": True},
+    )
+    monkeypatch.setattr(
+        template_mod.drv,
+        "parse_template_positions",
+        lambda *a, **k: {
+            "geometries": {"g1": {}, "g2": {}},
+            "acquisition_positions": {
+                "r1": {"positions": [{"row": 0}, {"row": 1}]},
+                "r2": {"positions": [{"row": 0}]},
+            },
+        },
+    )
+    monkeypatch.setattr(template_mod, "get_template_state", lambda _p: "stripped")
+
+    report = show_template_state(ctx)
+    out = capsys.readouterr().out
+
+    assert report == {
+        "state": "stripped",
+        "geometries": 2,
+        "tile_positions": 3,
+    }
+    assert "[template] state: stripped" in out
+    assert "[template] geometries: 2" in out
+    assert "[template] tile positions: 3" in out
 
 
 def test_scatter_layers_other_then_selected():

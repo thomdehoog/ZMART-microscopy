@@ -36,6 +36,10 @@ def _copy_current_v9(tmp_path: Path) -> Path:
         # stage fixture from limits/backlash so the migration test still
         # pins the conversion function.
         calibration = json.loads((current / "calibration.json").read_text())
+        # Rebuild the v9 fixture from the configured physical envelope,
+        # not from limits/current.json. Target-acquisition is allowed to
+        # narrow current.json during notebook runs; migration tests need
+        # the stable reset baseline.
         limits = json.loads(
             (
                 _repo_root()
@@ -43,7 +47,7 @@ def _copy_current_v9(tmp_path: Path) -> Path:
                 / "vendor"
                 / "leica"
                 / "navigator_expert"
-                / "current.json"
+                / "defaults.json"
             ).read_text()
         )
         (dst / "stage.json").write_text(
@@ -158,6 +162,7 @@ def test_migrate_writes_v11_limits_and_removes_stage_json(tmp_path):
     assert calibration["schema_version"] == 11
     assert limits == {
         "schema_version": 1,
+        "source": "migration",
         "stage_um": {
             "x": [1000, 130000],
             "y": [1000, 100000],
@@ -191,6 +196,7 @@ def test_migrate_recovers_v11_calibration_missing_limits(tmp_path):
     assert not (root / "stage.json").exists()
     limits = json.loads(limits_path.read_text())
     assert limits["schema_version"] == 1
+    assert limits["source"] == "migration"
     assert "stage_um" in limits
 
 

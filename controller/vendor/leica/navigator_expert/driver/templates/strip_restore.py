@@ -165,6 +165,97 @@ def strip_template(client, *, save_timeout=120):
     }
 
 
+def strip_template_in_place(client, *, save_timeout=120):
+    """Strip the canonical PythonInspect template and keep it loaded.
+
+    Unlike ``strip_template``, this does not create or load a
+    ``_stripped`` sidecar and has no matching restore step. It is the
+    correct operation when the workflow has already consumed the
+    marker objects and wants the operator to continue editing the same
+    canonical template name.
+
+    Returns:
+        Result dict with ``templates_dir`` and original object counts,
+        or None on failure.
+    """
+    templates_dir = find_scanning_templates_dir()
+    if templates_dir is None:
+        log.error("Cannot find ScanningTemplates directory")
+        return None
+
+    xml_path = templates_dir / TEMPLATE_XML
+    rgn_path = templates_dir / TEMPLATE_RGN
+    lrp_path = templates_dir / TEMPLATE_LRP
+
+    t0 = time.perf_counter()
+
+    log.info("Saving current experiment before in-place strip...")
+    r = save_experiment(client, TEMPLATE_XML, templates_dir,
+                        timeout=save_timeout, confirm_path=rgn_path)
+    if r is None:
+        log.error("Initial save failed; aborting in-place strip")
+        return None
+
+    fields, items, focus = _count_objects(xml_path, rgn_path)
+    log.info("Saved: %d fields, %d items, %d focus points",
+             fields, items, focus)
+
+    log.info("Stripping canonical template files in place...")
+    tmp_xml = xml_path.with_suffix(xml_path.suffix + ".tmp")
+    tmp_rgn = rgn_path.with_suffix(rgn_path.suffix + ".tmp")
+    _strip_xml(xml_path, tmp_xml)
+    _strip_rgn(rgn_path, tmp_rgn)
+    tmp_xml.replace(xml_path)
+    tmp_rgn.replace(rgn_path)
+
+    # This routine owns the canonical no-sidecar workflow. Remove stale
+    # sidecar files so get_template_state reflects the canonical files.
+    for path in (
+        templates_dir / STRIPPED_XML,
+        templates_dir / STRIPPED_RGN,
+        templates_dir / STRIPPED_LRP,
+    ):
+        path.unlink(missing_ok=True)
+
+    if not lrp_path.is_file():
+        log.error("Missing LRP after in-place strip: %s", lrp_path)
+        return None
+
+    log.info("Loading stripped canonical template...")
+    r = load_experiment(client, TEMPLATE_XML)
+    if r is None:
+        log.error("Failed to load stripped canonical template")
+        return None
+
+    log.info("Confirming in-place strip via save...")
+    r = save_experiment(client, TEMPLATE_XML, templates_dir,
+                        timeout=save_timeout, confirm_path=rgn_path)
+    if r is None:
+        log.error("Confirm-save of stripped canonical template failed")
+        return None
+
+    sf, si, fp = _count_objects(xml_path, rgn_path)
+    if sf > 0 or si > 0 or fp > 0:
+        log.error("Canonical template still has objects after strip: "
+                  "%d fields, %d items, %d focus", sf, si, fp)
+        return None
+
+    total_t = time.perf_counter() - t0
+    log.info("In-place strip complete in %.1fs", total_t)
+
+    return {
+        "success": True,
+        "templates_dir": str(templates_dir),
+        "original_fields": fields,
+        "original_items": items,
+        "original_focus": focus,
+        "fields": sf,
+        "items": si,
+        "focus": fp,
+        "total_s": total_t,
+    }
+
+
 # =============================================================================
 # Restore template
 # =============================================================================

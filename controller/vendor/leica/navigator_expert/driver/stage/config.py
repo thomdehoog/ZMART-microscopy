@@ -7,16 +7,16 @@ the current Leica machine state.
 ``limits/vendor/leica/navigator_expert/defaults.json`` contains the configured
 physical envelope for the microscope.
 
-``limits/vendor/leica/navigator_expert/current.json`` contains the active
+``limits/vendor/leica/navigator_expert/current.json`` records the active
 working envelope. The target-acquisition notebook updates this file from
-boundary markers or scan-field geometry before applying limits.
+boundary markers or scan-field geometry, then explicitly reloads it before
+applying limits.
 
 ``current/calibration.json`` contains measured calibration state, including
 the backlash block consumed by motion helpers.
 
-The loader reads ``limits/.../current.json`` by default and never falls back to
-``limits/.../defaults.json``. Resetting current from defaults is an explicit
-operator action.
+The loader reads ``limits/.../defaults.json`` by default. Any caller that
+wants the active workflow envelope must pass ``current_path()`` explicitly.
 """
 
 from __future__ import annotations
@@ -28,6 +28,18 @@ from typing import Any
 
 LIMITS_SCHEMA_VERSION = 1
 CALIBRATION_SCHEMA_VERSION = 11
+LIMITS_SOURCE_DEFAULTS = "defaults"
+LIMITS_SOURCE_BOUNDARY_MARKERS = "boundary_markers"
+LIMITS_SOURCE_CFG_FALLBACK = "cfg_fallback"
+LIMITS_SOURCE_SCAN_FIELD = "scan_field"
+LIMITS_SOURCE_MIGRATION = "migration"
+LIMITS_SOURCES = frozenset({
+    LIMITS_SOURCE_DEFAULTS,
+    LIMITS_SOURCE_BOUNDARY_MARKERS,
+    LIMITS_SOURCE_CFG_FALLBACK,
+    LIMITS_SOURCE_SCAN_FIELD,
+    LIMITS_SOURCE_MIGRATION,
+})
 
 _REQUIRED_AXES = ("x", "y", "z_galvo", "z_wide")
 _REQUIRED_BACKLASH = (
@@ -114,6 +126,19 @@ def _validate_limits(limits: dict[str, Any], *, path: Path) -> dict[str, list[fl
     return out
 
 
+def _validate_source(source: Any, *, path: Path | None = None) -> str:
+    if not isinstance(source, str) or not source:
+        where = f"{path} " if path is not None else ""
+        raise ValueError(f"{where}source must be a non-empty string")
+    if source not in LIMITS_SOURCES:
+        where = f"{path} " if path is not None else ""
+        allowed = ", ".join(sorted(LIMITS_SOURCES))
+        raise ValueError(
+            f"{where}source {source!r} is not one of: {allowed}"
+        )
+    return source
+
+
 def _validate_backlash(
     backlash: dict[str, Any],
     *,
@@ -140,6 +165,7 @@ def _read_limits(path: Path) -> dict[str, list[float]]:
         )
     if "stage_um" not in payload:
         raise ValueError(f"{path} missing stage_um section")
+    _validate_source(payload.get("source"), path=path)
     return _validate_limits(payload["stage_um"], path=path)
 
 
@@ -160,9 +186,14 @@ def load(
     limits_path: str | Path | None = None,
     calibration_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Load active stage limits and calibrated backlash."""
+    """Load stage limits and calibrated backlash.
+
+    Without an explicit ``limits_path``, this reads the configured physical
+    envelope from ``defaults.json``. Use ``current_path()`` explicitly for the
+    active target-acquisition working envelope.
+    """
     selected_limits = (
-        Path(limits_path) if limits_path is not None else current_path()
+        Path(limits_path) if limits_path is not None else defaults_path()
     )
     selected_calibration = (
         Path(calibration_path) if calibration_path is not None
@@ -180,15 +211,19 @@ def load(
 
 def write_limits(
     stage_um: dict[str, Any],
+    *,
+    source: str,
     path: str | Path | None = None,
 ) -> Path:
     """Write a stage limits file after validating the canonical schema."""
+    source = _validate_source(source)
     selected = Path(path) if path is not None else current_path()
     limits = _validate_limits(stage_um, path=selected)
     _atomic_write_json(
         selected,
         {
             "schema_version": LIMITS_SCHEMA_VERSION,
+            "source": source,
             "stage_um": limits,
         },
     )

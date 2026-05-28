@@ -29,7 +29,12 @@ from .parsers import (
     parse_rgn_tile_colors,
     parse_template_positions,
 )
-from .strip_restore import restore_template, strip_template
+from .planning import plan_tiles_from_geometries
+from .strip_restore import (
+    restore_template,
+    strip_template,
+    strip_template_in_place,
+)
 from .transaction import apply_lrp_change, reorder_jobs
 
 __all__ = [
@@ -57,9 +62,11 @@ __all__ = [
     "parse_rgn_geometries",
     "parse_rgn_tile_colors",
     "parse_template_positions",
+    "plan_tiles_from_geometries",
     "reorder_jobs",
     "restore_template",
     "save_and_read_lrp",
     "save_experiment",
     "strip_template",
+    "strip_template_in_place",
 ]

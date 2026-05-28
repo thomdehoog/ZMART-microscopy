@@ -11,6 +11,7 @@ Dependency direction:
 import logging
 import os
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from ..core.utils import RECEIPT_TIMEOUT, _make_timing
@@ -68,9 +69,11 @@ def get_template_state(templates_dir=None):
     """Determine the current template state from files on disk.
 
     Returns:
-        ``"fresh"`` — no ``_PythonInspect`` files exist yet.
-        ``"unstripped"`` — original files exist and are current.
-        ``"stripped"`` — stripped files exist and are newer than original.
+        ``"fresh"`` when no canonical ``_PythonInspect`` files exist.
+        ``"unstripped"`` when the canonical files contain scan fields,
+        region objects, or focus points.
+        ``"stripped"`` when the active sidecar is newer than the
+        canonical XML, or when the canonical files contain no objects.
     """
     if templates_dir is None:
         templates_dir = find_scanning_templates_dir()
@@ -79,15 +82,43 @@ def get_template_state(templates_dir=None):
 
     templates_dir = Path(templates_dir)
     xml_path = templates_dir / TEMPLATE_XML
+    rgn_path = templates_dir / TEMPLATE_RGN
     stripped_xml = templates_dir / STRIPPED_XML
 
     if not xml_path.is_file():
         return "fresh"
     if not stripped_xml.is_file():
-        return "unstripped"
+        return (
+            "unstripped"
+            if _template_has_objects(xml_path, rgn_path)
+            else "stripped"
+        )
     if stripped_xml.stat().st_mtime > xml_path.stat().st_mtime:
         return "stripped"
-    return "unstripped"
+    return (
+        "unstripped"
+        if _template_has_objects(xml_path, rgn_path)
+        else "stripped"
+    )
+
+
+def _template_has_objects(xml_path, rgn_path):
+    """Return True when a canonical template contains operator objects."""
+    try:
+        xml_text = Path(xml_path).read_text(encoding="utf-8")
+    except OSError:
+        xml_text = ""
+    fields = xml_text.count("<ScanFieldData")
+
+    items = focus = 0
+    try:
+        root = ET.parse(rgn_path).getroot()
+        items = len(root.findall(".//ShapeList/Items/*"))
+        focus = len(root.findall(".//FocusMap/*"))
+    except (OSError, ET.ParseError):
+        pass
+
+    return fields > 0 or items > 0 or focus > 0
 
 
 # =============================================================================
