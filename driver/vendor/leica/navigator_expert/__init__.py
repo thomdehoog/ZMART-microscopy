@@ -6,7 +6,7 @@ Package layout::
     - core/         raw LAS X commands, readers, confirmations, profiles
     - templates/    LAS X template file I/O, strip/restore, transactions
     - positions/    XML/RGN/LRP parsing and tile-position planning
-    - acquisition/  capture, LAS X file arrival, OME fixes, acquire-and-save
+    - acquisition/  acquire-only capture, LAS X file export, OME fixes, save
     - stage/        stage limits, backlash-aware movement, stage config
     - experimental/ LRP mutation helpers without live-state readback
 """
@@ -58,7 +58,7 @@ __all__ = [
     "set_laser_intensity", "set_laser_shutter",
     "set_filter_wheel_slot", "set_filter_wheel_spectrum",
     "move_xy", "move_galvo_to_pixel",
-    "move_z", "acquire", "acquire_single_image", "select_job",
+    "move_z", "acquire", "select_job",
     # templates
     "find_scanning_templates_dir", "save_experiment", "load_experiment",
     "strip_template", "restore_template", "get_template_state",
@@ -115,10 +115,7 @@ __all__ = [
     "lrp_set_z_stack_size", "lrp_verify_z_stack_size",
     # acquisition file handling
     "read_relative_path", "parse_lasx_filename",
-    "detect_new_files", "wait_all_stable", "validate_files",
-    "confirm_arrival",
-    # high-level acquire-and-load
-    "acquire_frame", "acquire_stack",
+    "wait_all_stable",
     # session helpers
     "connect_python_client", "require_canonical_scan_orientation",
     "disable_roi_scan",
@@ -128,8 +125,9 @@ __all__ = [
     "LIMITS_SOURCE_MIGRATION", "LIMITS_SOURCES",
     "current_stage_limits_path", "default_stage_limits_path",
     "load_stage_config", "write_stage_limits_config",
-    # acquisition (driver-first API)
-    "start_run", "acquire_and_save", "RunHandle", "SavedAcquisition",
+    # acquisition workflow
+    "AcquisitionResult", "PlaneIndex", "PositionIndex",
+    "SavedAcquisition", "save",
 ]
 
 # -- shared self-bootstrap
@@ -174,7 +172,7 @@ from .core.commands import (
     set_detector_gain, set_laser_intensity, set_laser_shutter,
     set_filter_wheel_slot, set_filter_wheel_spectrum,
     move_xy, move_galvo_to_pixel, move_z,
-    acquire, acquire_single_image, select_job,
+    select_job,
 )
 from .core.session import connect_python_client, require_canonical_scan_orientation
 
@@ -220,12 +218,11 @@ from .acquisition.ome import (
 )
 from .acquisition.files import (
     read_relative_path, parse_lasx_filename,
-    detect_new_files, wait_all_stable, validate_files, confirm_arrival,
+    wait_all_stable,
 )
-from .acquisition.capture import acquire_frame, acquire_stack
-from .acquisition.save import (
-    RunHandle, SavedAcquisition, acquire_and_save, start_run,
-)
+from .acquisition.capture import AcquisitionResult, acquire
+from .acquisition.product import PlaneIndex, PositionIndex, SavedAcquisition
+from .acquisition.save import save
 
 # -- experimental/lrp_edits/ - LRP mutation helpers
 from .experimental.lrp_edits.general import (

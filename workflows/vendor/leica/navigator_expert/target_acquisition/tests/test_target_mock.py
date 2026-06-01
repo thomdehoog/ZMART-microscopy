@@ -54,19 +54,15 @@ from support import minimal_calibration
 
 def _make_layout(tmp_dir: Path, *, hash6: str = "abcdef") -> SimpleNamespace:
     """Layout stub matching the LayoutPlan surface the provider needs:
-    ``hash6``, ``data_dir(kind)``, ``metadata_dir(kind)``. The provider
-    reads only ``data_dir("overview-scan")`` and ``hash6``."""
-    data_root = tmp_dir / "data"
-    meta_root = tmp_dir / "metadata"
-    data_root.mkdir(parents=True, exist_ok=True)
-    meta_root.mkdir(parents=True, exist_ok=True)
-    # The provider does layout.data_dir(kind) -- separate per-kind
-    # subdirs match the real LayoutPlan layout.
-    (data_root / "overview-scan").mkdir(parents=True, exist_ok=True)
+    ``hash6``, ``run_dir``, ``data_dir(kind)``, ``metadata_dir(kind)``.
+    The directory shape matches LayoutPlan: run/kind/data/metadata."""
+    run_dir = tmp_dir
+    (run_dir / "overview-scan" / "data").mkdir(parents=True, exist_ok=True)
     return SimpleNamespace(
         hash6=hash6,
-        data_dir=lambda kind: data_root / kind,
-        metadata_dir=lambda kind: meta_root / kind,
+        run_dir=run_dir,
+        data_dir=lambda kind: run_dir / kind / "data",
+        metadata_dir=lambda kind: run_dir / kind / "data" / "metadata",
     )
 
 
@@ -467,7 +463,7 @@ class TestAcquireTargetsIntegration:
 
     def _drv_mocks(self, monkeypatch, tmp_path):
         """Patch out all driver calls acquire_targets makes.
-        acquire_and_save writes a real fake target TIFF that
+        save writes a real fake target TIFF that
         hijack_frame can read."""
         from pipeline import target as target_mod
         import navigator_expert as drv
@@ -497,14 +493,17 @@ class TestAcquireTargetsIntegration:
         monkeypatch.setattr(target_mod, "acquire",
                             lambda ctx, job, x, y, z: None)
 
-        # acquire_and_save: write a real fake target TIFF + companion
-        # XML that hijack_frame can read and the SystemTypeName guard
-        # will accept (SIMULATOR).
+        # acquire/save: write a real fake target TIFF + companion XML
+        # that hijack_frame can read and the SystemTypeName guard will
+        # accept (SIMULATOR).
         from shared.output_layout import build_xml_name
 
-        def _fake_acquire_and_save(client, run, job, naming, lineage=None):
-            data_dir = run.layout.data_dir("target-acquisition")
-            meta_dir = run.layout.metadata_dir("target-acquisition")
+        def _fake_driver_acquire(client, job):
+            return SimpleNamespace(job=job, command_result={"success": True})
+
+        def _fake_save(client, acq, output_root, naming, lineage=None):
+            data_dir = Path(output_root) / "target-acquisition" / "data"
+            meta_dir = data_dir / "metadata"
             data_dir.mkdir(parents=True, exist_ok=True)
             meta_dir.mkdir(parents=True, exist_ok=True)
             image_path = data_dir / build_image_name(naming)
@@ -531,11 +530,13 @@ class TestAcquireTargetsIntegration:
                 b'</OME>'
             )
             return SimpleNamespace(
-                image=np.zeros((64, 64), dtype=np.uint16),
-                image_path=image_path, naming=naming,
+                image_paths={drv.PlaneIndex(t=0, z=0, c=0): image_path},
+                xml_paths={drv.PositionIndex(t=0, v=0): xml_path},
+                naming=naming,
             )
 
-        monkeypatch.setattr(drv, "acquire_and_save", _fake_acquire_and_save)
+        monkeypatch.setattr(drv, "acquire", _fake_driver_acquire)
+        monkeypatch.setattr(drv, "save", _fake_save)
 
     def _two_picks(self, tmp_path, layout):
         """Build a Picks container with 2 picks at distinct centroids,

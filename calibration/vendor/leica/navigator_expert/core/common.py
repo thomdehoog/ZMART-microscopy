@@ -33,6 +33,7 @@ import numpy as np
 import tifffile
 
 import navigator_expert as drv
+from shared.output_layout import Naming, run_hash
 
 # matplotlib is imported lazily inside the plot helpers so test imports
 # (and headless environments) do not pull in a display backend on import.
@@ -228,15 +229,17 @@ def acquire_frame_to(session: Any, name: str) -> np.ndarray:
     ``name`` may contain forward slashes to create subdirectories (e.g.
     ``target_z_stack/z_003``).
     """
-    img, exported_path = drv.acquire_frame(
-        session.client, session.job_name,
-        backlash_params=session.stage_cfg["backlash"],
+    saved = _capture_for_calibration(
+        session,
+        acquisition_type="calibration-frame",
     )
+    img = _single_plane_image(saved, context=name)
     out = session.paths.data_dir / f"{name}.tif"
     out.parent.mkdir(parents=True, exist_ok=True)
     tifffile.imwrite(out, img)
     rel = str(out.relative_to(session.paths.session_dir)).replace("\\", "/")
     session.raw_files[name] = rel
+    _idx, exported_path = next(iter(saved.image_paths.items()))
     session.exported_files[name] = str(exported_path)
     return img
 
@@ -246,17 +249,17 @@ def acquire_stack_to(session: Any, dirname: str) -> np.ndarray:
 
     The workflow never configures the stack (range, step, sections,
     direction). It only triggers the acquisition that the operator has
-    already set up in LAS X and persists what comes back. ``drv.acquire_stack``
-    returns shape ``(slices, H, W)``; anything else is a hard error.
+    already set up in LAS X and persists what comes back. The saved
+    image must have shape ``(slices, H, W)``; anything else is a hard error.
 
     Slices land in ``session.paths.data_dir / dirname / z_<index>.tif``
     and are tracked under session-root-relative ``raw_files`` keys.
     """
-    stack = drv.acquire_stack(
-        session.client, session.job_name,
-        backlash_params=session.stage_cfg["backlash"],
+    saved = _capture_for_calibration(
+        session,
+        acquisition_type="calibration-stack",
     )
-    arr = np.asarray(stack)
+    arr = _stack_from_saved_planes(saved, context=dirname)
     if arr.ndim != 3:
         raise ValueError(
             f"acquire_stack expected 3-D (slices, H, W); got shape "
@@ -272,6 +275,66 @@ def acquire_stack_to(session: Any, dirname: str) -> np.ndarray:
             slice_path.relative_to(session.paths.session_dir)
         ).replace("\\", "/")
         session.raw_files[f"{dirname}/z_{i:03d}"] = rel
+    session.exported_files[dirname] = ";".join(
+        str(p) for _idx, p in sorted(saved.image_paths.items())
+    )
+    return arr
+
+
+def _capture_for_calibration(
+    session: Any,
+    *,
+    acquisition_type: str,
+):
+    """Use the public driver acquire/save workflow for calibration captures."""
+    p = len(session.exported_files)
+    naming = Naming(
+        acquisition_type=acquisition_type,
+        hash6=run_hash(),
+        p=p,
+    )
+    acq = drv.acquire(session.client, session.job_name)
+    return drv.save(
+        session.client,
+        acq,
+        session.paths.session_dir / "driver-save",
+        naming,
+    )
+
+
+def _single_plane_image(saved: Any, *, context: str) -> np.ndarray:
+    if len(saved.image_paths) != 1:
+        raise ValueError(
+            f"{context} expected one saved plane; got "
+            f"{len(saved.image_paths)}"
+        )
+    _idx, path = next(iter(saved.image_paths.items()))
+    img = np.asarray(tifffile.imread(path))
+    if img.ndim == 3 and img.shape[0] == 1:
+        img = img[0]
+    if img.ndim != 2:
+        raise ValueError(
+            f"{context} expected 2-D image; got shape {img.shape!r}"
+        )
+    return img
+
+
+def _stack_from_saved_planes(saved: Any, *, context: str) -> np.ndarray:
+    if not saved.image_paths:
+        raise ValueError(f"{context} saved no image planes")
+    channels = sorted({idx.c for idx in saved.image_paths})
+    times = sorted({idx.t for idx in saved.image_paths})
+    if len(channels) != 1 or len(times) != 1:
+        raise ValueError(
+            f"{context} expected one channel and one timepoint; "
+            f"got channels={channels}, times={times}"
+        )
+    planes = [
+        (idx.z, path)
+        for idx, path in saved.image_paths.items()
+        if idx.c == channels[0] and idx.t == times[0]
+    ]
+    arr = np.asarray([tifffile.imread(path) for _z, path in sorted(planes)])
     return arr
 
 

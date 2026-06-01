@@ -2002,13 +2002,13 @@ class TestMakeLogEntry(unittest.TestCase):
 
 
 # =============================================================================
-# 21. acquire_single_image wiring
+# 21. low-level acquire_single_image command wiring
 # =============================================================================
 
 class TestAcquireSingleImage(unittest.TestCase):
 
     def test_uses_correct_api_object(self):
-        """acquire_single_image fires PyApiAcquireSingleImage, not PyApiAcquireJob."""
+        """commands.acquire_single_image fires PyApiAcquireSingleImage, not PyApiAcquireJob."""
         captured = {}
         def mock_fire(client, api_obj, description, **kw):
             captured["api_obj"] = api_obj
@@ -2017,7 +2017,7 @@ class TestAcquireSingleImage(unittest.TestCase):
             return _make_v6_result(msg=description)
         client = make_client()
         with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
-            r = drv.acquire_single_image(client)
+            r = commands.acquire_single_image(client)
         self.assertIs(captured["api_obj"], client.PyApiAcquireSingleImage)
 
     def test_no_setup_fn(self):
@@ -2027,7 +2027,7 @@ class TestAcquireSingleImage(unittest.TestCase):
             captured["kwargs"] = kw
             return _make_v6_result(msg=description)
         with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
-            drv.acquire_single_image(make_client())
+            commands.acquire_single_image(make_client())
         self.assertIsNone(captured["kwargs"].get("setup_fn"))
 
     def test_provides_confirm_fn(self):
@@ -2036,7 +2036,7 @@ class TestAcquireSingleImage(unittest.TestCase):
             captured["kwargs"] = kw
             return _make_v6_result(msg=description)
         with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
-            drv.acquire_single_image(make_client())
+            commands.acquire_single_image(make_client())
         self.assertIsNotNone(captured["kwargs"].get("confirm_fn"))
 
     def test_description_contains_single_image(self):
@@ -2045,7 +2045,7 @@ class TestAcquireSingleImage(unittest.TestCase):
             captured["description"] = description
             return _make_v6_result(msg=description)
         with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
-            drv.acquire_single_image(make_client())
+            commands.acquire_single_image(make_client())
         self.assertIn("SingleImage", captured["description"])
 
     def test_single_image_acquisition_fires_once(self):
@@ -2054,7 +2054,7 @@ class TestAcquireSingleImage(unittest.TestCase):
             captured["kwargs"] = kw
             return _make_v6_result(msg=description)
         with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire):
-            drv.acquire_single_image(make_client())
+            commands.acquire_single_image(make_client())
         self.assertEqual(captured["kwargs"].get("max_confirm_attempts"), 1)
         self.assertFalse(captured["kwargs"].get("refire_on_unconfirmed"))
 
@@ -2070,9 +2070,9 @@ class TestAcquireSingleImage(unittest.TestCase):
             return _make_v6_result(msg=description)
         client = make_client()
         with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire_single):
-            drv.acquire_single_image(client)
+            commands.acquire_single_image(client)
         with patch.object(commands, 'confirm_and_fire', side_effect=mock_fire_acquire):
-            drv.acquire(client, "J")
+            commands.acquire(client, "J")
         self.assertIsNot(captured_single["api_obj"],
                          captured_acquire["api_obj"])
 

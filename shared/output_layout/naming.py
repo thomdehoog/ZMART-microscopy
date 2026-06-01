@@ -123,6 +123,21 @@ def build_xml_name(n: Naming) -> str:
     )
 
 
+def acquisition_dir(output_root: Path | str, kind: str) -> Path:
+    """Canonical acquisition-kind directory under a run root."""
+    return Path(output_root) / kind
+
+
+def acquisition_data_dir(output_root: Path | str, kind: str) -> Path:
+    """Canonical data directory for one acquisition kind."""
+    return acquisition_dir(output_root, kind) / "data"
+
+
+def acquisition_metadata_dir(output_root: Path | str, kind: str) -> Path:
+    """Canonical metadata directory for one acquisition kind."""
+    return acquisition_data_dir(output_root, kind) / "metadata"
+
+
 def build_position_analysis_name(n: Naming) -> str:
     """Per-position analysis artifact. Same slots as XML (k,m,g,p,t,v), .npz extension."""
     return (
@@ -173,13 +188,13 @@ class LayoutPlan:
         return self.output_root / f"{self.experiment}_{self.hash6}"
 
     def acquisition_dir(self, kind: str) -> Path:
-        return self.run_dir / kind
+        return acquisition_dir(self.run_dir, kind)
 
     def data_dir(self, kind: str) -> Path:
-        return self.acquisition_dir(kind) / "data"
+        return acquisition_data_dir(self.run_dir, kind)
 
     def metadata_dir(self, kind: str) -> Path:
-        return self.data_dir(kind) / "metadata"
+        return acquisition_metadata_dir(self.run_dir, kind)
 
     def analysis_dir(self, kind: str) -> Path:
         return self.acquisition_dir(kind) / "analysis"

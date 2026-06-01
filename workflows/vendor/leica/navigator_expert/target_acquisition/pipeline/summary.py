@@ -1,7 +1,7 @@
 """summary.py -- Step 6: write run_summary.json, plot results, cleanup.
 
 The driver owns `summary.json` (canonical per-acquisition append log,
-one record per acquire_and_save call, written incrementally). This
+one record per save call, written incrementally). This
 module owns `run_summary.json` -- the rich workflow-level aggregate
 written once at end-of-run: operator config, focus map, scan field,
 preflight telemetry, overview stats, picks, target records.
@@ -167,7 +167,7 @@ def write_summary(
     summary["targets"] = [_serialize_target(r, ctx.out_dir) for r in records]
 
     # `summary.json` is owned by the driver (canonical per-acquisition append
-    # log; written by acquire_and_save). This workflow-level aggregate goes
+    # log; written by save). This workflow-level aggregate goes
     # to a separate file at run_dir top level.
     # allow_nan=False: defense-in-depth. select_targets() coerces the
     # empty-eligible threshold to the 0.0 sentinel so the known NaN path

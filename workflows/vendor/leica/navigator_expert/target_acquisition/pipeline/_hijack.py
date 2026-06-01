@@ -1,6 +1,6 @@
 """Per-frame simulation-mode pixel hijack.
 
-After ``acquire_and_save`` returns a canonical ``.ome.tiff``, the
+After ``save`` returns a canonical ``.ome.tiff``, the
 workflow calls ``hijack_frame(...)`` to overwrite that file's pixels
 with mock content. The overwrite is gated by a per-frame allowlist on
 the saved companion ``.ome.xml``'s ``SystemTypeName`` -- read from the
@@ -138,8 +138,9 @@ def hijack_frame(
     Parameters
     ----------
     result
-        ``SavedAcquisition`` from ``drv.acquire_and_save`` (carries
-        ``image_path`` and ``naming``).
+        Workflow-selected single-plane result (carries ``image_path`` and
+        ``naming``). The driver ``SavedAcquisition`` manifest must be
+        reduced by the workflow before pixel hijacking.
     kind
         The acquisition kind -- ``"overview-scan"`` or
         ``"target-acquisition"``. Used to locate the companion XML
@@ -168,10 +169,10 @@ def hijack_frame(
     # NOT use the driver's _find_companion_xml (that resolves LAS X
     # source filenames, not canonical pipeline names).
     #
-    # Timing: this call is synchronous with respect to acquire_and_save
+    # Timing: this call is synchronous with respect to save
     # -- driver/acquisition/save.py calls _save_atomic(image, xml) which
     # copies both to .tmp + size-validates + os.replaces both before
-    # acquire_and_save returns at line 190. By the time we get here the
+    # save returns. By the time we get here the
     # canonical-named XML is on disk. No retry
     # needed; a missing-file read here would be a genuine bug, not a
     # race.

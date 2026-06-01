@@ -16,11 +16,14 @@ Covers:
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pytest
+import tifffile
 
 from calibration.vendor.leica.navigator_expert.core import common as cm
 from calibration.vendor.leica.navigator_expert.core import (
@@ -28,6 +31,7 @@ from calibration.vendor.leica.navigator_expert.core import (
     objective_pair as wf_obj,
     adopt as wf_adopt,
 )
+from shared.output_layout import build_image_name
 
 
 # ---------------------------------------------------------------------
@@ -236,17 +240,23 @@ def _patch_driver(monkeypatch, *, pixel_size_um=0.5,
     side_effects = list(acquire_side_effects or [])
     call_count = {"n": 0}
 
-    def _acquire_frame(client, job, **kw):
+    def _acquire(client, job, **kw):
+        return SimpleNamespace(job=job, command_result={"success": True})
+
+    def _save(client, acq, output_root, naming, **kw):
         idx = call_count["n"]
         call_count["n"] += 1
         if idx < len(side_effects) and side_effects[idx] is not None:
             effect = side_effects[idx]
             if isinstance(effect, Exception):
                 raise effect
-            return effect, Path("C:/fake/export.tif")
-        return img_template.copy(), Path("C:/fake/export.tif")
+            image = effect
+        else:
+            image = img_template.copy()
+        return _saved_manifest(output_root, naming, image)
 
-    monkeypatch.setattr(cm.drv, "acquire_frame", _acquire_frame)
+    monkeypatch.setattr(cm.drv, "acquire", _acquire)
+    monkeypatch.setattr(cm.drv, "save", _save)
     return pos
 
 
@@ -266,6 +276,35 @@ def _trusted(dx_um, dy_um):
         "trusted": True, "confidence": 4,
         "agreeing": ["pcc", "masked_pcc", "ncc", "orb"],
     }
+
+
+def _write_saved_image(output_root, naming, image):
+    image_path = Path(output_root) / build_image_name(naming)
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    tifffile.imwrite(image_path, np.asarray(image))
+    return image_path
+
+
+def _saved_manifest(output_root, naming, image):
+    arr = np.asarray(image)
+    if arr.ndim == 3:
+        image_paths = {}
+        for z, plane in enumerate(arr):
+            plane_naming = replace(naming, z=z)
+            image_paths[cm.drv.PlaneIndex(t=0, z=z, c=0)] = (
+                _write_saved_image(output_root, plane_naming, plane)
+            )
+    else:
+        image_paths = {
+            cm.drv.PlaneIndex(t=0, z=0, c=0): _write_saved_image(
+                output_root, naming, arr
+            )
+        }
+    return SimpleNamespace(
+        image_paths=image_paths,
+        xml_paths={cm.drv.PositionIndex(t=0, v=0): Path(output_root) / "mock.ome.xml"},
+        naming=naming,
+    )
 
 
 def _untrusted():
@@ -1036,6 +1075,45 @@ def _patch_objective_driver(
     frame_side_effects = list(acquire_side_effects or [])
     frame_count = {"n": 0}
 
+    def _acquire(client, job, **kw):
+        return SimpleNamespace(job=job, command_result={"success": True})
+
+    def _save(client, acq, output_root, naming, **kw):
+        if naming.acquisition_type == "calibration-stack":
+            idx = stack_count["n"]
+            stack_count["n"] += 1
+            if (idx < len(stack_effects)
+                    and stack_effects[idx] is not None):
+                effect = stack_effects[idx]
+                if isinstance(effect, Exception):
+                    raise effect
+                image = np.asarray(effect)
+            else:
+                meta = state[f"{state['stack_phase']}_stack"]
+                n = int(meta["sections"])
+                begin = float(meta["begin"])
+                end = float(meta["end"])
+                positions = np.linspace(begin, end, n)
+                h, w = image_shape
+                image = np.zeros((n, h, w), dtype=np.float32)
+                for i, z in enumerate(positions):
+                    image[i] = float(z)
+        else:
+            idx = frame_count["n"]
+            frame_count["n"] += 1
+            if (idx < len(frame_side_effects)
+                    and frame_side_effects[idx] is not None):
+                effect = frame_side_effects[idx]
+                if isinstance(effect, Exception):
+                    raise effect
+                image = effect
+            else:
+                image = img_template.copy()
+        return _saved_manifest(output_root, naming, image)
+
+    monkeypatch.setattr(cm.drv, "acquire", _acquire)
+    monkeypatch.setattr(cm.drv, "save", _save)
+
     def _acquire_frame(client, job, **kw):
         idx = frame_count["n"]
         frame_count["n"] += 1
@@ -1046,8 +1124,6 @@ def _patch_objective_driver(
                 raise effect
             return effect, Path("C:/fake/export.tif")
         return img_template.copy(), Path("C:/fake/export.tif")
-
-    monkeypatch.setattr(cm.drv, "acquire_frame", _acquire_frame)
 
     stack_effects = list(stack_side_effects or [])
     stack_count = {"n": 0}
@@ -1071,8 +1147,6 @@ def _patch_objective_driver(
         for i, z in enumerate(positions):
             arr[i] = float(z)
         return arr
-
-    monkeypatch.setattr(cm.drv, "acquire_stack", _acquire_stack)
 
     def _brenner(img):
         # Slices are filled with the absolute z position by the
@@ -1354,18 +1428,19 @@ def test_objective_pair_target_xy_acquire_at_post_switch_xy(
     })
     _seed_current_calibration(current_root)
 
-    # Track the stage XY at the moment of every frame acquire (only
-    # ref_xy and target_xy go through acquire_frame; the z-stacks
-    # use acquire_stack and are not relevant here).
+    # Track the stage XY at the moment every frame save is requested
+    # (only ref_xy and target_xy use calibration-frame; the z-stacks
+    # use calibration-stack and are not relevant here).
     acquire_positions: list[tuple[float, float]] = []
 
-    real_acquire = cm.drv.acquire_frame
+    real_save = cm.drv.save
 
-    def _tracking_acquire(client, job, **kw):
-        acquire_positions.append((state["x"], state["y"]))
-        return real_acquire(client, job, **kw)
+    def _tracking_save(client, acq, output_root, naming, **kw):
+        if naming.acquisition_type == "calibration-frame":
+            acquire_positions.append((state["x"], state["y"]))
+        return real_save(client, acq, output_root, naming, **kw)
 
-    monkeypatch.setattr(cm.drv, "acquire_frame", _tracking_acquire)
+    monkeypatch.setattr(cm.drv, "save", _tracking_save)
 
     session = wf_obj.start_session(
         session_id="obj_postswitch",

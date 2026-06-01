@@ -24,6 +24,7 @@ from ._job_state import ensure_job_state
 from ._log_capture import _logged
 from ._hijack import hijack_frame, NonSimulatorFrameError
 from ._mock_provider import build_target_provider
+from ._saved import require_single_plane
 
 
 @dataclass
@@ -254,12 +255,14 @@ def acquire_targets(
                     "label": label,
                     "cell_source_stage_xy_um": list(pick.cell_source_stage_xy_um),
                 }
-                result = drv.acquire_and_save(
-                    ctx.client, ctx.run, cfg.target_job, naming,
+                acq = drv.acquire(ctx.client, cfg.target_job)
+                result = drv.save(
+                    ctx.client, acq, ctx.run.layout.run_dir, naming,
                     lineage=lineage,
                 )
-                tif_path = result.image_path
-                stage = "save"  # save succeeded inside acquire_and_save
+                plane = require_single_plane(result, context="target-acquisition")
+                tif_path = plane.image_path
+                stage = "save"
 
                 if cfg.simulate:
                     # NonSimulatorFrameError propagates past the per-pick
@@ -278,7 +281,7 @@ def acquire_targets(
                         layout=ctx.run.layout,
                     )
                     hijack_frame(
-                        result, kind="target-acquisition",
+                        plane, kind="target-acquisition",
                         layout=ctx.run.layout, provider=target_provider,
                     )
                     stage = "save"  # hijack complete; back to terminal

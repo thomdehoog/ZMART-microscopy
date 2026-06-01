@@ -24,8 +24,10 @@ import sys
 # Mimic an example-script entry point: only leica/ on sys.path.
 sys.path.insert(0, r"{leica}")
 import navigator_expert as drv
-assert drv.acquire_and_save is not None
-assert drv.start_run is not None
+assert drv.acquire is not None
+assert drv.save is not None
+assert drv.AcquisitionResult is not None
+assert drv.SavedAcquisition is not None
 print("bootstrap-ok")
 """
 
