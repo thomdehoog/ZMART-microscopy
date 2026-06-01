@@ -104,6 +104,7 @@ from matplotlib.patches import Rectangle
 from skimage.measure import regionprops
 
 import navigator_expert as drv
+from _acquire_save import acquire_saved_frame
 
 
 log = logging.getLogger("galvo_zoom_in")
@@ -431,7 +432,9 @@ def step_acquire_overview(
              geometry.pixel_size_um, geometry.fov_um)
 
     log.info("acquiring overview frame")
-    img, _ = drv.acquire_frame(client, job, backlash_params=backlash_params)
+    img, _ = acquire_saved_frame(
+        drv, client, job, out_dir, acquisition_type="galvo-overview",
+    )
     overview_tif = out_dir / "overview.tif"
     tifffile.imwrite(str(overview_tif), img)
     log.info("overview image %s saved → %s", img.shape, overview_tif.name)
@@ -542,7 +545,9 @@ def step_acquire_and_verify(
     Returns (framed_image, framed_tif_path, framed_pixel_size_um, landing).
     """
     log.info("acquiring framed frame")
-    img, _ = drv.acquire_frame(client, job, backlash_params=backlash_params)
+    img, _ = acquire_saved_frame(
+        drv, client, job, out_dir, acquisition_type="galvo-framed",
+    )
     framed_tif = out_dir / "framed.tif"
     tifffile.imwrite(str(framed_tif), img)
     log.info("framed image %s saved → %s", img.shape, framed_tif.name)

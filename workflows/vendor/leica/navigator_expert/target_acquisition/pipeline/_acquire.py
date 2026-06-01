@@ -1,7 +1,7 @@
 """Stage-positioning helper for Steps 4 and 5.
 
-This module owns motion only -- the driver's ``acquire_and_save``
-triggers the frame and persists it under the canonical layout. The
+This module owns motion only -- the driver's ``acquire`` + ``save``
+pair triggers the frame and persists it under the canonical layout. The
 pipeline positions the stage before each driver call.
 
 ``acquire`` verifies job state, moves z-wide, then moves XY (with
@@ -27,8 +27,8 @@ def acquire(
 
     Job transition goes through ensure_job_state (verified + settled).
     Z-wide first (job-scoped), then XY with calibrated backlash takeup.
-    The caller then invokes ``drv.acquire_and_save`` to acquire and
-    persist.
+    The caller then invokes ``drv.acquire`` and ``drv.save`` to acquire
+    and persist.
     """
     ensure_job_state(ctx, job)
 

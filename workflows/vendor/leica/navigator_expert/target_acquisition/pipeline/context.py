@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from shared.output_layout import LayoutPlan
+
 
 @dataclass(frozen=True)
 class Config:
@@ -58,7 +60,7 @@ class Config:
     # rendered -- they're once-per-run setup figures.
     visualize: bool = True
 
-    # Simulation mode: when True, after each acquire_and_save
+    # Simulation mode: when True, after each acquire()+save() pair
     # the saved canonical .ome.tiff's pixels are overwritten with mock
     # content (matched shape/dtype) -- gated by the per-frame
     # SystemTypeName=="SIMULATOR" allowlist (see pipeline/_hijack.py).
@@ -110,6 +112,17 @@ class TargetState:
     drift_warning: bool = False
 
 
+@dataclass(frozen=True)
+class WorkflowRun:
+    """Workflow-owned run layout.
+
+    The driver no longer has ``start_run``; the workflow creates the run
+    directory and passes ``layout.run_dir`` into ``drv.save``.
+    """
+
+    layout: LayoutPlan
+
+
 @dataclass
 class Context:
     """Mutable runtime state that pipeline helpers update in place.
@@ -127,7 +140,7 @@ class Context:
     stage_config: dict
     engine: Any
     out_dir: Path                             # run.layout.run_dir
-    run: Any                                  # driver.RunHandle (loosely typed to avoid driver import)
+    run: WorkflowRun                          # workflow-owned layout handle
     templates_dir: Path                       # required after preflight
     source_slot: int                          # derived from acquisition_job in preflight
     target_slot: int                          # derived from target_job in preflight

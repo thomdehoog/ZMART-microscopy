@@ -30,6 +30,7 @@ from ._job_state import ensure_job_state
 from ._log_capture import _logged
 from ._hijack import hijack_frame, NonSimulatorFrameError
 from ._mock_provider import get_provider
+from ._saved import require_single_plane
 
 
 # ─── Dataclasses ──────────────────────────────────────────────────
@@ -309,15 +310,17 @@ def run_overview(
                     hash6=ctx.run.layout.hash6,
                     g=int(rid), p=i,
                 )
-                result = drv.acquire_and_save(
-                    ctx.client, ctx.run, cfg.acquisition_job, naming,
+                acq = drv.acquire(ctx.client, cfg.acquisition_job)
+                result = drv.save(
+                    ctx.client, acq, ctx.run.layout.run_dir, naming,
                 )
+                plane = require_single_plane(result, context="overview-scan")
                 n_tiles_acquired += 1
 
                 if cfg.simulate:
                     try:
                         hijack_frame(
-                            result, kind="overview-scan",
+                            plane, kind="overview-scan",
                             layout=ctx.run.layout, provider=provider,
                         )
                         n_tiles_hijacked += 1
@@ -336,7 +339,7 @@ def run_overview(
                         continue
 
                 engine.submit("overview", {
-                    "image_path": str(result.image_path),
+                    "image_path": str(plane.image_path),
                     "tile_id": tile_id,
                     "naming_p": i,
                     "tile_stage_xy_um": (x_um, y_um),

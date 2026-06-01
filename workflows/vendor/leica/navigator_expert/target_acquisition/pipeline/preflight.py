@@ -23,8 +23,9 @@ from typing import Any
 import navigator_expert as drv
 from calibration.vendor.leica.navigator_expert.core import model as calib
 from navigator_expert.core.objectives import validate_slots
+from shared.output_layout import build_layout
 
-from .context import Config, Context
+from .context import Config, Context, WorkflowRun
 from ._job_state import ensure_job_state, _read_objective_slot
 from ._log_capture import capture_console_deferred
 
@@ -165,9 +166,18 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
         if cfg.smoke_test_pipeline:
             _run_smoke_test(engine)
 
-        # 0.7 -- run dir (driver derives output_root = media_path / "smart")
-        run = drv.start_run(client, cfg.experiment)
-        out_dir = run.layout.run_dir
+        # 0.7 -- run dir. The workflow owns the run layout; driver save()
+        # receives this run directory as output_root.
+        settings = drv.get_lasx_settings()
+        media_path = (
+            settings.get("export", {}).get("media_path")
+            if settings else None
+        )
+        if not media_path:
+            raise RuntimeError("LAS X settings missing export/media_path")
+        layout = build_layout(Path(media_path) / "smart", cfg.experiment)
+        run = WorkflowRun(layout=layout)
+        out_dir = layout.run_dir
         _cap.bind(
             run.layout.logs_dir("initialization") / "initialization.log"
         )

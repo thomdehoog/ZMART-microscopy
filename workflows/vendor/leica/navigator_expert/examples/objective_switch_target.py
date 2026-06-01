@@ -114,6 +114,7 @@ from matplotlib.patches import Rectangle
 from skimage.measure import regionprops
 
 import navigator_expert as drv
+from _acquire_save import acquire_saved_frame
 from calibration.vendor.leica.navigator_expert.core import model as calib
 from navigator_expert.core.objectives import validate_slots
 
@@ -514,7 +515,9 @@ def step_acquire_source(
              geometry.pixel_size_um, geometry.fov_um, src_zwide_um)
 
     log.info("acquiring source frame")
-    img, lasx_path = drv.acquire_frame(client, args.job, backlash_params=backlash_params)
+    img, lasx_path = acquire_saved_frame(
+        drv, client, args.job, out_dir, acquisition_type="objective-source",
+    )
     src_tif = out_dir / "source.tif"
     tifffile.imwrite(str(src_tif), img)
     log.info("source image %s saved → %s", img.shape, src_tif.name)
@@ -770,8 +773,9 @@ def step_refine_position(
 
     iterations: list[dict[str, Any]] = []
     for i in range(args.refine_iterations):
-        img, _ = drv.acquire_frame(
-            client, args.job, backlash_params=backlash_params,
+        img, _ = acquire_saved_frame(
+            drv, client, args.job, out_dir,
+            acquisition_type="objective-refine",
         )
         tifffile.imwrite(str(out_dir / f"refine_{i:02d}.tif"), img)
 
@@ -866,7 +870,9 @@ def step_acquire_and_verify(
     Returns (target_image, target_tif_path, landing_result).
     """
     log.info("acquiring target frame")
-    img, lasx_path = drv.acquire_frame(client, args.job, backlash_params=backlash_params)
+    img, lasx_path = acquire_saved_frame(
+        drv, client, args.job, out_dir, acquisition_type="objective-target",
+    )
     tgt_tif = out_dir / "target.tif"
     tifffile.imwrite(str(tgt_tif), img)
     log.info("target image %s saved → %s", img.shape, tgt_tif.name)

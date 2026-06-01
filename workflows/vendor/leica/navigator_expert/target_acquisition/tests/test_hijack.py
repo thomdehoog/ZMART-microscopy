@@ -117,9 +117,10 @@ def _build_result(tmp_dir: Path, system_type: str, *,
                   shape=(16, 16), dtype=np.uint16):
     """Build a (layout, result) pair for a fake one-tile acquisition.
 
-    Returns a SimpleNamespace shaped like SavedAcquisition (image,
-    image_path, naming) plus a layout stub whose metadata_dir() points
-    at tmp_dir/metadata so the companion XML resolves there.
+    Returns a SimpleNamespace shaped like the workflow-selected
+    single-plane result (image, image_path, naming) plus a layout stub
+    whose metadata_dir() points at tmp_dir/metadata so the companion XML
+    resolves there.
     """
     naming = Naming(
         acquisition_type="overview-scan",

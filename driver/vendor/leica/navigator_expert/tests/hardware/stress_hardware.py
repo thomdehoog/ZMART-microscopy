@@ -962,7 +962,7 @@ def op_acquire_once(
     _args: argparse.Namespace,
 ) -> tuple[str, str, dict[str, Any] | None, str | None, dict[str, Any]]:
     status, message, timing, driver_message = _driver_call(
-        lambda: drv.acquire(client, job_name)
+        lambda: drv.acquire(client, job_name).command_result
     )
     return status, message, timing, driver_message, {
         "op_class": "acquire_once",

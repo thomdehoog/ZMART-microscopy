@@ -91,6 +91,7 @@ from cellpose import models
 from skimage.measure import approximate_polygon, find_contours, regionprops
 
 import navigator_expert as drv
+from _acquire_save import acquire_saved_frame
 from navigator_expert.experimental.lrp_edits.roi import (
     ROI_POLYGON,
     argb_color,
@@ -406,9 +407,10 @@ def step_load_image(
         drv.set_zoom(client, job, 1.0)
         time.sleep(0.5)
         log.info("acquiring image")
-        img, path = drv.acquire_frame(
-            client, job, channel=args.channel,
-            backlash_params=backlash_params,
+        img, path = acquire_saved_frame(
+            drv, client, job, out_dir,
+            acquisition_type="roi-source",
+            c=args.channel,
         )
         log.info("acquired %s (%s)", path.name, img.shape)
         local_tif = out_dir / "source.tif"

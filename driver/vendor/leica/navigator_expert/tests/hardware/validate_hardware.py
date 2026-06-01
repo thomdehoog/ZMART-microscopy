@@ -829,8 +829,11 @@ def phase_objective(drv: Any, v: Validator, client: Any, job_name: str) -> None:
 def phase_acquire(drv: Any, v: Validator, client: Any, job_name: str) -> None:
     """One acquisition through the driver."""
     with v.phase("acquire"):
-        v.command("acquire: single", lambda: drv.acquire(client, job_name),
-                  context={"job": job_name})
+        v.command(
+            "acquire: job",
+            lambda: drv.acquire(client, job_name).command_result,
+            context={"job": job_name},
+        )
 
 
 # --- CLI + output -----------------------------------------------------------
