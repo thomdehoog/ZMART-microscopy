@@ -313,6 +313,7 @@ def run_overview(
                 acq = drv.acquire(ctx.client, cfg.acquisition_job)
                 result = drv.save(
                     ctx.client, acq, ctx.run.layout.run_dir, naming,
+                    exporter=cfg.save_exporter,
                 )
                 plane = require_single_plane(result, context="overview-scan")
                 n_tiles_acquired += 1

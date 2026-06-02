@@ -61,6 +61,35 @@ def _shutdown_prior_ctx_if_any() -> None:
             print(f"[preflight] prior ctx.shutdown() raised: {exc}")
 
 
+def _smart_base_for_exporter(cfg: Config) -> Path:
+    """Return the folder that receives SMART run directories."""
+    if cfg.smart_output_root is not None:
+        return Path(cfg.smart_output_root)
+    exporter = cfg.save_exporter
+    if exporter == "navigator_expert":
+        settings = drv.get_lasx_settings()
+        media_path = (
+            settings.get("export", {}).get("media_path")
+            if settings else None
+        )
+        if not media_path:
+            raise RuntimeError("LAS X settings missing export/media_path")
+        return Path(media_path) / "smart"
+    if exporter == "lasx_native_autosave":
+        if not drv.native_autosave_enabled():
+            raise RuntimeError(
+                "Config.save_exporter='lasx_native_autosave' but LAS X "
+                "native AutoSave is not enabled in the active StartUp "
+                "configuration."
+            )
+        base = drv.native_autosave_base_folder()
+        return Path(base).parent / "smart"
+    raise ValueError(
+        f"Unknown save_exporter {exporter!r}. Expected 'navigator_expert' "
+        "or 'lasx_native_autosave'."
+    )
+
+
 def preflight(cfg: Config, client: Any) -> Context:
     """Step 0: prepare the world for the pipeline.
 
@@ -168,14 +197,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
 
         # 0.7 -- run dir. The workflow owns the run layout; driver save()
         # receives this run directory as output_root.
-        settings = drv.get_lasx_settings()
-        media_path = (
-            settings.get("export", {}).get("media_path")
-            if settings else None
-        )
-        if not media_path:
-            raise RuntimeError("LAS X settings missing export/media_path")
-        layout = build_layout(Path(media_path) / "smart", cfg.experiment)
+        layout = build_layout(_smart_base_for_exporter(cfg), cfg.experiment)
         run = WorkflowRun(layout=layout)
         out_dir = layout.run_dir
         _cap.bind(

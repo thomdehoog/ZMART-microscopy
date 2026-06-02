@@ -128,3 +128,88 @@ def test_shutdown_prior_ctx_clears_slot_even_when_shutdown_raises(monkeypatch):
 
     prior.shutdown.assert_called_once_with()
     assert mod._LAST_CTX is None
+
+
+def _cfg(
+    tmp_path,
+    *,
+    save_exporter="navigator_expert",
+    smart_output_root=None,
+):
+    from pipeline.context import Config
+
+    return Config(
+        acquisition_job="Overview",
+        target_job="HiRes",
+        af_job="AF Job",
+        analysis_repo=tmp_path / "smart-analysis",
+        experiment="test",
+        save_exporter=save_exporter,
+        smart_output_root=smart_output_root,
+    )
+
+
+def test_smart_base_for_navigator_expert_uses_media_path(monkeypatch, tmp_path):
+    mod = _preflight_module()
+    media_path = tmp_path / "navigator-export"
+    monkeypatch.setattr(
+        mod.drv,
+        "get_lasx_settings",
+        lambda: {"export": {"media_path": str(media_path)}},
+    )
+
+    assert mod._smart_base_for_exporter(_cfg(tmp_path)) == media_path / "smart"
+
+
+def test_smart_base_for_native_autosave_is_next_to_autosave_root(
+    monkeypatch,
+    tmp_path,
+):
+    mod = _preflight_module()
+    autosave_root = tmp_path / "lasx_probes" / "test"
+    monkeypatch.setattr(
+        mod.drv,
+        "native_autosave_base_folder",
+        lambda: autosave_root,
+    )
+    monkeypatch.setattr(mod.drv, "native_autosave_enabled", lambda: True)
+
+    assert (
+        mod._smart_base_for_exporter(
+            _cfg(tmp_path, save_exporter="lasx_native_autosave")
+        )
+        == autosave_root.parent / "smart"
+    )
+
+
+def test_smart_base_rejects_unknown_save_exporter(tmp_path):
+    mod = _preflight_module()
+
+    with pytest.raises(ValueError, match="Unknown save_exporter"):
+        mod._smart_base_for_exporter(_cfg(tmp_path, save_exporter="unknown"))
+
+
+def test_smart_base_native_autosave_requires_enabled(monkeypatch, tmp_path):
+    mod = _preflight_module()
+    monkeypatch.setattr(mod.drv, "native_autosave_enabled", lambda: False)
+
+    with pytest.raises(RuntimeError, match="native AutoSave is not enabled"):
+        mod._smart_base_for_exporter(
+            _cfg(tmp_path, save_exporter="lasx_native_autosave")
+        )
+
+
+def test_smart_base_manual_override_wins(tmp_path):
+    mod = _preflight_module()
+    manual = tmp_path / "manual-smart-root"
+
+    assert (
+        mod._smart_base_for_exporter(
+            _cfg(
+                tmp_path,
+                save_exporter="lasx_native_autosave",
+                smart_output_root=manual,
+            )
+        )
+        == manual
+    )

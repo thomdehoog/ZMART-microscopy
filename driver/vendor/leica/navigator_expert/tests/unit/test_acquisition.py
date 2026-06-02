@@ -9,15 +9,15 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import navigator_expert as drv
 import numpy as np
 import pytest
 import tifffile
-
-import navigator_expert as drv
-from navigator_expert.acquisition import capture
-from navigator_expert.acquisition import materialize
+from navigator_expert.acquisition import capture, materialize
 from navigator_expert.acquisition import navigator_expert_export as exporter
+from navigator_expert.acquisition import ome_canonical
 from navigator_expert.acquisition import save as acquisition
+
 from shared.output_layout import (
     Naming,
     build_image_name,
@@ -34,6 +34,38 @@ def naming() -> Naming:
         g=1,
         p=3,
     )
+
+
+def _metadata() -> drv.AcquisitionMetadata:
+    return drv.AcquisitionMetadata(
+        size_x=16,
+        size_y=16,
+        size_t=1,
+        size_z=1,
+        size_c=1,
+        pixel_type="uint8",
+        physical_size_x_um=1.0,
+        physical_size_y_um=1.0,
+        channels=(drv.ChannelMetadata(index=0, name="C0"),),
+    )
+
+
+def _job_settings(
+    *,
+    pixel_size: str = "2.27 um x 2.28 um",
+    stack: dict | None = None,
+) -> dict:
+    return {
+        "zoom": {},
+        "scanSpeed": {},
+        "activeSettings": [],
+        "scanMode": "xyz" if stack is not None else "xy",
+        "imageSize": "1160 um x 1160 um",
+        "pixelSize": pixel_size,
+        "format": "512 x 512",
+        "xyStage": {},
+        "stack": stack,
+    }
 
 
 @pytest.fixture
@@ -180,6 +212,108 @@ class TestAcquire:
 
         read_relative_path.assert_not_called()
         persist.assert_not_called()
+
+
+class TestCanonicalPhysicalMetadataAuthority:
+    def test_job_settings_override_vendor_physical_sizes(self):
+        metadata = replace(
+            _metadata(),
+            physical_size_x_um=9.0,
+            physical_size_y_um=9.0,
+            physical_size_z_um=1.606305,
+        )
+        settings = _job_settings(
+            stack={"begin": -0.0, "end": 4.82, "sections": 3},
+        )
+
+        with patch.object(
+            ome_canonical._readers,
+            "get_job_settings",
+            return_value=settings,
+        ):
+            out = ome_canonical.metadata_with_job_physical_sizes(
+                metadata,
+                "client",
+                "Overview",
+            )
+
+        assert out.physical_size_x_um == pytest.approx(2.27)
+        assert out.physical_size_y_um == pytest.approx(2.28)
+        assert out.physical_size_z_um == pytest.approx(2.41)
+
+    def test_z_spacing_uses_raw_stack_when_normalized_stack_is_partial(self):
+        metadata = replace(_metadata(), physical_size_z_um=1.0)
+        settings = _job_settings(
+            stack={"begin": 95.0, "end": 105.0, "sections": 3},
+        )
+
+        with patch.object(
+            ome_canonical._readers,
+            "get_job_settings",
+            return_value=settings,
+        ), patch.object(
+            ome_canonical._core_settings,
+            "make_changeable_copy",
+            return_value={
+                "stack": {"begin": 95.0, "end": None, "sections": None}
+            },
+        ):
+            out = ome_canonical.metadata_with_job_physical_sizes(
+                metadata,
+                "client",
+                "Overview",
+            )
+
+        assert out.physical_size_z_um == pytest.approx(5.0)
+
+    def test_single_section_stack_overrides_vendor_z_to_none(self):
+        metadata = replace(_metadata(), physical_size_z_um=1.0)
+        settings = _job_settings(
+            stack={"begin": 10.0, "end": 10.0, "sections": 1},
+        )
+
+        with patch.object(
+            ome_canonical._readers,
+            "get_job_settings",
+            return_value=settings,
+        ):
+            out = ome_canonical.metadata_with_job_physical_sizes(
+                metadata,
+                "client",
+                "Overview",
+            )
+
+        assert out.physical_size_z_um is None
+
+    def test_job_settings_read_timeout_falls_back_to_vendor_metadata(self):
+        metadata = replace(
+            _metadata(),
+            physical_size_x_um=9.0,
+            physical_size_y_um=9.0,
+            physical_size_z_um=9.0,
+        )
+
+        def _slow_settings(*_args, **_kwargs):
+            time.sleep(0.2)
+            return _job_settings(
+                stack={"begin": 0.0, "end": 4.0, "sections": 3},
+            )
+
+        with patch.object(
+            ome_canonical._readers,
+            "get_job_settings",
+            side_effect=_slow_settings,
+        ):
+            start = time.perf_counter()
+            out = ome_canonical.metadata_with_job_physical_sizes(
+                metadata,
+                "client",
+                "Overview",
+                read_timeout_s=0.01,
+            )
+
+        assert time.perf_counter() - start < 0.15
+        assert out == metadata
 
 
 class TestSave:
@@ -431,7 +565,7 @@ class TestSave:
             with pytest.raises(RuntimeError, match="OME-TIFF validation"):
                 drv.save(None, successful_acq, tmp_path / "run_000001", naming)
 
-    def test_fix_ome_attempts_repair(
+    def test_save_generates_canonical_ome_and_preserves_source(
         self,
         tmp_path,
         naming,
@@ -444,51 +578,38 @@ class TestSave:
             / "image--L0000--J08--E00--X00--Y00--T0000--Z00--C00.ome.tif"
         )
         xml_path = metadata_dir / "image--L0000--J08--E00--T0000.ome.xml"
-        image_path.write_bytes(b"image")
-        xml_path.write_bytes(b"<xml/>")
+        tifffile.imwrite(
+            str(image_path),
+            np.zeros((16, 16), dtype=np.uint8),
+            description='<OME><Laser Wavelength="0"/></OME>',
+        )
+        source_before = image_path.read_bytes()
+        xml_path.write_bytes(b'<OME><Laser Wavelength="0"/></OME>')
         exported = exporter.ExportedAcquisition(
             media_path=tmp_path,
             source_dir=source_dir,
             positions=[
                 exporter.ExportedPosition(
                     t=0,
-                    xml=drv.XmlSource(path=xml_path),
                     planes={
                         drv.PlaneIndex(t=0, z=0, c=0):
                         drv.PlaneSource(path=image_path)
                     },
                 )
             ],
+            metadata=_metadata(),
             method="test",
+            vendor_metadata_sources=(
+                drv.VendorMetadataSource(name="source.ome.xml", path=xml_path),
+            ),
         )
-        check_results = [
-            {
-                "path": "x",
-                "corrupted": True,
-                "violations": ["bad"],
-                "error": None,
-            },
-            {
-                "path": "x",
-                "corrupted": False,
-                "violations": [],
-                "error": None,
-            },
-        ]
         with patch.object(
             materialize._ome,
-            "check_ome_tiff",
-            side_effect=check_results,
-        ), patch.object(
+            "fix_ome_tiff",
+        ) as fix_ome_tiff, patch.object(
             materialize._ome,
-            "check_ome_xml_file",
-            return_value={
-                "path": "x",
-                "corrupted": False,
-                "violations": [],
-                "error": None,
-            },
-        ), patch.object(materialize._ome, "fix_ome_tiff") as fix_ome:
+            "fix_ome_xml_file",
+        ) as fix_ome_xml_file:
             acquisition._persist_export(
                 exported,
                 tmp_path / "out",
@@ -497,10 +618,79 @@ class TestSave:
                 fix_ome=True,
                 cleanup_source=False,
             )
-        fix_ome.assert_called_once()
-        repaired_path = fix_ome.call_args.args[0]
-        assert repaired_path != image_path
-        assert repaired_path.name.endswith(".tmp")
+
+        out_img = next((tmp_path / "out" / "overview-scan" / "data").glob("*.ome.tiff"))
+        out_xml = next(
+            (tmp_path / "out" / "overview-scan" / "data" / "metadata").glob("*.ome.xml")
+        )
+        assert image_path.read_bytes() == source_before
+        assert b'Wavelength="0"' not in out_img.read_bytes()
+        assert b'Wavelength="0"' not in out_xml.read_bytes()
+        assert fix_ome_tiff.call_count == 0
+        assert fix_ome_xml_file.call_count == 0
+
+    def test_canonical_output_references_canonical_filenames(
+        self,
+        patched_export,
+        successful_acq,
+        tmp_path,
+        naming,
+    ):
+        saved = drv.save(None, successful_acq, tmp_path / "run_000001", naming)
+
+        xml = next(iter(saved.xml_paths.values())).read_text(encoding="utf-8")
+        for image_path in saved.image_paths.values():
+            assert f'FileName="{image_path.name}"' in xml
+        assert "image--L0000" not in xml
+
+    def test_canonical_output_is_valid_under_ome_types(
+        self,
+        patched_export,
+        successful_acq,
+        tmp_path,
+        naming,
+    ):
+        from ome_types import from_tiff, from_xml
+
+        saved = drv.save(None, successful_acq, tmp_path / "run_000001", naming)
+
+        for image_path in saved.image_paths.values():
+            from_tiff(str(image_path), validate=True)
+        for xml_path in saved.xml_paths.values():
+            from_xml(xml_path.read_text(encoding="utf-8"), validate=True)
+
+    def test_canonical_output_preserves_pixels(
+        self,
+        patched_export,
+        successful_acq,
+        tmp_path,
+        naming,
+    ):
+        saved = drv.save(None, successful_acq, tmp_path / "run_000001", naming)
+
+        for idx, src in patched_export["plane_paths"].items():
+            assert np.array_equal(
+                tifffile.imread(str(src)),
+                tifffile.imread(str(saved.image_paths[idx])),
+            )
+
+    def test_vendor_metadata_is_preserved_as_provenance(
+        self,
+        patched_export,
+        successful_acq,
+        tmp_path,
+        naming,
+    ):
+        output_root = tmp_path / "run_000001"
+        drv.save(None, successful_acq, output_root, naming)
+        summary = json.loads((output_root / "summary.json").read_text())
+        rec = summary["acquisitions"][0]
+
+        assert rec["canonical_metadata"] is True
+        assert rec["vendor_metadata"]
+        for item in rec["vendor_metadata"]:
+            assert (output_root / item["path"]).is_file()
+            assert item["sha256"]
 
     def test_repeated_save_replaces_summary_record(
         self,
@@ -814,20 +1004,22 @@ class TestHelpers:
         monkeypatch,
     ):
         src_img = tmp_path / "src.ome.tif"
-        src_img.write_bytes(b"image-bytes")
+        tifffile.imwrite(str(src_img), np.zeros((16, 16), dtype=np.uint8))
         dest_img = tmp_path / "dest" / "out.ome.tiff"
         dest_img.parent.mkdir()
 
-        def failing_copy2(src, dst, *args, **kwargs):
-            Path(str(dst)).write_bytes(b"partial")
+        def failing_imwrite(path, *args, **kwargs):
+            Path(str(path)).write_bytes(b"partial")
             raise OSError("simulated disk full")
 
-        monkeypatch.setattr(materialize.shutil, "copy2", failing_copy2)
+        monkeypatch.setattr(tifffile, "imwrite", failing_imwrite)
 
         with pytest.raises(OSError, match="simulated disk full"):
             materialize.save_image_source_atomic(
                 drv.PlaneSource(path=src_img),
                 dest_img,
+                metadata=_metadata(),
+                index=drv.PlaneIndex(t=0, z=0, c=0),
             )
 
         assert not dest_img.exists()
@@ -835,13 +1027,14 @@ class TestHelpers:
 
     def test_exported_acquisition_source_files_are_deduplicated(self, tmp_path):
         tiff = tmp_path / "native.ome.tif"
+        xml = tmp_path / "source.ome.xml"
+        xml.write_bytes(b"<OME/>")
         exported = exporter.ExportedAcquisition(
             media_path=tmp_path,
             source_dir=tmp_path,
             positions=[
                 exporter.ExportedPosition(
                     t=0,
-                    xml=drv.XmlSource(path=tiff, embedded=True),
                     planes={
                         drv.PlaneIndex(t=0, z=0, c=0):
                         drv.PlaneSource(path=tiff, page_index=0),
@@ -850,12 +1043,23 @@ class TestHelpers:
                     },
                 )
             ],
+            metadata=drv.AcquisitionMetadata(
+                size_x=8,
+                size_y=8,
+                size_t=1,
+                size_z=1,
+                size_c=2,
+                pixel_type="uint8",
+            ),
             method="test",
+            vendor_metadata_sources=(
+                drv.VendorMetadataSource(name="source.ome.xml", path=xml),
+            ),
         )
 
         assert exported.image_files == [tiff]
-        assert exported.xml_files == [tiff]
-        assert exported.source_files == [tiff]
+        assert exported.metadata_files == [xml]
+        assert exported.source_files == [tiff, xml]
 
 
 def test_old_public_workflow_helpers_are_not_exported():

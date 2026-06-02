@@ -127,8 +127,10 @@ __all__ = [
     "load_stage_config", "write_stage_limits_config",
     # acquisition workflow
     "AcquisitionResult", "PlaneIndex", "PositionIndex",
-    "PlaneSource", "XmlSource",
-    "SavedAcquisition", "save",
+    "PlaneSource", "ChannelMetadata", "AcquisitionMetadata",
+    "VendorMetadataSource",
+    "SavedAcquisition", "native_autosave_base_folder",
+    "native_autosave_enabled", "save",
 ]
 
 # -- shared self-bootstrap
@@ -223,7 +225,11 @@ from .acquisition.files import (
 )
 from .acquisition.capture import AcquisitionResult, acquire
 from .acquisition.product import (
-    PlaneIndex, PlaneSource, PositionIndex, SavedAcquisition, XmlSource,
+    AcquisitionMetadata, ChannelMetadata, PlaneIndex, PlaneSource,
+    PositionIndex, SavedAcquisition, VendorMetadataSource,
+)
+from .acquisition.lasx_native_autosave import (
+    native_autosave_base_folder, native_autosave_enabled,
 )
 from .acquisition.save import save
 

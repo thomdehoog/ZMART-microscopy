@@ -46,7 +46,7 @@ class Config:
 
     # Paths + run identity
     analysis_repo: Path
-    experiment: str               # operator-typed; output_root is derived as media_path/smart by driver
+    experiment: str               # operator-typed; output_root is derived from the save exporter
 
     # Optional behaviour flags (defaults)
     settle_after_job_switch_s: float = 3.0
@@ -83,6 +83,14 @@ class Config:
     stage_x_max_um: float | None = None
     stage_y_min_um: float | None = None
     stage_y_max_um: float | None = None
+
+    # Save source. ``navigator_expert`` stores SMART output under
+    # <Navigator MediaPath>/smart; ``lasx_native_autosave`` stores it beside
+    # the native AutoSave base folder. If set, ``smart_output_root`` is the
+    # exact folder that receives <experiment>_<hash6> run directories; no
+    # extra "smart" suffix is added.
+    save_exporter: str = "navigator_expert"
+    smart_output_root: Path | None = None
 
 
 @dataclass(frozen=True)

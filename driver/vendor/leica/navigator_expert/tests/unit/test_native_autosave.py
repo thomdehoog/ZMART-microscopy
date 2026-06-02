@@ -8,16 +8,15 @@ import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import navigator_expert as drv
 import numpy as np
 import pytest
 import tifffile
-
-import navigator_expert as drv
-from navigator_expert.acquisition import capture
+from navigator_expert.acquisition import capture, materialize
 from navigator_expert.acquisition import lasx_native_autosave as native
-from navigator_expert.acquisition import materialize
 from navigator_expert.acquisition import navigator_expert_export as exporter
 from navigator_expert.acquisition import save as acquisition
+
 from shared.output_layout import Naming
 
 
@@ -45,9 +44,9 @@ def _native_lcf(tmp_path: Path, root: Path) -> Path:
     path = tmp_path / "UserDataNavigatorExpert.lcf"
     path.write_text(
         (
-            '<Config AutoSaveBaseFolder="{root}" DoUseAutoSave="True" '
+            f'<Config AutoSaveBaseFolder="{str(root)}" DoUseAutoSave="True" '
             'DoStoreInSeparateFolders="True" />'
-        ).format(root=str(root)),
+        ),
         encoding="utf-8",
     )
     return path
@@ -114,8 +113,10 @@ class TestCollectNativeAutoSave:
         assert exported.source_exporter == "lasx_native_autosave"
         assert exported.cleanup_source_supported is False
         assert exported.image_files == [tiff]
-        assert exported.xml_files == [tiff]
-        assert exported.source_files == [tiff]
+        assert any(src.data for src in exported.vendor_metadata_sources)
+        assert exported.metadata.size_t == 2
+        assert exported.metadata.size_z == 2
+        assert exported.metadata.size_c == 3
         assert [pos.t for pos in exported.positions] == [0, 1]
         wait_all_stable.assert_called_once_with(
             [tiff],
@@ -124,7 +125,6 @@ class TestCollectNativeAutoSave:
 
         with tifffile.TiffFile(str(tiff)) as tif:
             for pos in exported.positions:
-                assert pos.xml == drv.XmlSource(path=tiff, embedded=True)
                 for idx, source in pos.planes.items():
                     assert source.path == tiff
                     assert source.page_index is not None
@@ -214,6 +214,30 @@ class TestCollectNativeAutoSave:
 
         assert exported.image_files == [tiff]
 
+    def test_vendor_metadata_keeps_current_xlif_not_stale_project_history(
+        self,
+        tmp_path,
+    ):
+        root = tmp_path / "native-root"
+        project = _native_project(root)
+        metadata = project / "Metadata"
+        (metadata / "Overview001.xlif").write_text(
+            "<Old />",
+            encoding="utf-8",
+        )
+        current_xlif = metadata / "Overview002.xlif"
+        current_xlif.write_text("<Current />", encoding="utf-8")
+        tiff = _write_native_ome_tiff(project / "Overview002.ome.tif", _native_data())
+
+        sources = native._vendor_metadata_sources(project, tiff)
+        source_names = {src.name for src in sources}
+
+        assert "source_embedded.ome.xml" in source_names
+        assert "Project001.xlef" in source_names
+        assert "metadata_Overview002.xlif" in source_names
+        assert "metadata_IOManagerConfiguation.xlif" in source_names
+        assert "metadata_Overview001.xlif" not in source_names
+
     def test_bad_native_axes_fail_closed(self, tmp_path):
         tiff = tmp_path / "bad.ome.tif"
         tifffile.imwrite(
@@ -241,9 +265,14 @@ class TestNativeSave:
             media_path=root,
             source_dir=project,
             positions=native._positions_from_native_tiff(tiff),
+            metadata=native._metadata_from_native_tiff(
+                tiff,
+                native._positions_from_native_tiff(tiff),
+            ),
             method="test",
             source_exporter="lasx_native_autosave",
             cleanup_source_supported=False,
+            vendor_metadata_sources=native._vendor_metadata_sources(project, tiff),
         )
 
         collect = Mock(return_value=exported)
@@ -268,12 +297,15 @@ class TestNativeSave:
             assert arr[0, 0] == 100 * idx.t + 10 * idx.z + idx.c
         for xml_path in saved.xml_paths.values():
             assert b"<OME" in xml_path.read_bytes()
+            assert b"Overview001.ome.tif" not in xml_path.read_bytes()
 
         summary = json.loads((tmp_path / "run_000001" / "summary.json").read_text())
         assert len(summary["acquisitions"]) == 12
         assert {r["source_exporter"] for r in summary["acquisitions"]} == {
             "lasx_native_autosave"
         }
+        assert all(r["canonical_metadata"] is True for r in summary["acquisitions"])
+        assert all(r["vendor_metadata"] for r in summary["acquisitions"])
 
     def test_cleanup_source_rejected_for_native_project_container(
         self,
@@ -289,9 +321,14 @@ class TestNativeSave:
             media_path=root,
             source_dir=project,
             positions=native._positions_from_native_tiff(tiff),
+            metadata=native._metadata_from_native_tiff(
+                tiff,
+                native._positions_from_native_tiff(tiff),
+            ),
             method="test",
             source_exporter="lasx_native_autosave",
             cleanup_source_supported=False,
+            vendor_metadata_sources=native._vendor_metadata_sources(project, tiff),
         )
 
         monkeypatch.setitem(
@@ -327,9 +364,10 @@ class TestNativeSave:
 
         assert b"<OME" in raw
 
-    def test_embedded_ome_xml_repair_hits_copy_not_source(self, tmp_path):
+    def test_embedded_ome_xml_preserved_as_vendor_metadata(self, tmp_path):
         tiff = tmp_path / "native.ome.tif"
-        xml_dest = tmp_path / "out.ome.xml"
+        vendor_dest = tmp_path / "vendor" / "source_embedded.ome.xml"
+        vendor_dest.parent.mkdir()
         embedded = (
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<OME><Instrument><LightSource ID="LightSource:499nm">'
@@ -342,12 +380,13 @@ class TestNativeSave:
         )
         source_before = tiff.read_bytes()
 
-        materialize.save_xml_source_atomic(
-            drv.XmlSource(path=tiff, embedded=True),
-            xml_dest,
-            fix_ome=True,
+        materialize.save_vendor_metadata_atomic(
+            drv.VendorMetadataSource(
+                name="source_embedded.ome.xml",
+                data=materialize.extract_embedded_ome_xml(tiff),
+            ),
+            vendor_dest,
         )
 
         assert tiff.read_bytes() == source_before
-        assert b'Wavelength="499"' in xml_dest.read_bytes()
-        assert b'Wavelength="0"' not in xml_dest.read_bytes()
+        assert b'Wavelength="0"' in vendor_dest.read_bytes()
