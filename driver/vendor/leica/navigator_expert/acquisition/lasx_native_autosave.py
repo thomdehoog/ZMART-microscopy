@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from . import files as _files
+from . import ome_canonical as _canonical
 from .capture import AcquisitionResult
 from .navigator_expert_export import (
     DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S,
@@ -29,7 +30,7 @@ from .product import (
     ExportedPosition,
     PlaneIndex,
     PlaneSource,
-    XmlSource,
+    VendorMetadataSource,
 )
 
 _PROJECT_CONFIG_NAME = "IOManagerConfiguation.xlif"
@@ -87,16 +88,40 @@ def collect_lasx_native_autosave(
 
     project_dir = _project_dir_for(anchor, base)
     positions = _positions_from_native_tiff(anchor)
+    metadata = _metadata_from_native_tiff(anchor, positions)
+    metadata = _canonical.metadata_with_job_physical_sizes(
+        metadata,
+        client,
+        acq.job,
+    )
 
     return ExportedAcquisition(
         media_path=base,
         source_dir=project_dir,
         positions=positions,
+        metadata=metadata,
         method=f"lasx_native_autosave:{method}",
         relative_path=_relative_or_none(anchor, base),
         source_exporter="lasx_native_autosave",
         cleanup_source_supported=False,
+        vendor_metadata_sources=_vendor_metadata_sources(project_dir, anchor),
     )
+
+
+def native_autosave_base_folder(
+    *,
+    lcf_path: str | Path | None = None,
+) -> Path:
+    """Return the configured LAS X native AutoSave base folder."""
+    return _read_native_autosave_config(lcf_path=lcf_path).base_folder
+
+
+def native_autosave_enabled(
+    *,
+    lcf_path: str | Path | None = None,
+) -> bool:
+    """Return whether LAS X native AutoSave is enabled in the active config."""
+    return _read_native_autosave_config(lcf_path=lcf_path).use_autosave
 
 
 def _read_native_autosave_config(
@@ -229,7 +254,6 @@ def _positions_from_native_tiff(tiff_path: Path) -> list[ExportedPosition]:
         positions.append(
             ExportedPosition(
                 t=t,
-                xml=XmlSource(path=tiff_path, embedded=True),
                 planes={
                     idx: src
                     for idx, src in sorted(planes.items())
@@ -300,6 +324,72 @@ def _plane_sources_from_tiff(tiff_path: Path) -> dict[PlaneIndex, PlaneSource]:
         return planes
 
 
+def _metadata_from_native_tiff(
+    tiff_path: Path,
+    positions: list[ExportedPosition],
+):
+    try:
+        import tifffile
+    except ImportError as e:
+        raise RuntimeError("tifffile is required for native AutoSave") from e
+
+    all_indices = [idx for pos in positions for idx in pos.planes]
+    if not all_indices:
+        raise RuntimeError("Native AutoSave export has no planes")
+    with tifffile.TiffFile(str(tiff_path)) as tif:
+        series = tif.series[0]
+        shape = tuple(int(x) for x in series.shape)
+        axes = str(series.axes)
+        size_y = shape[axes.index("Y")]
+        size_x = shape[axes.index("X")]
+        dtype = str(series.dtype)
+        xml = _canonical.extract_embedded_ome_xml(tiff_path)
+    return _canonical.metadata_from_ome_xml(
+        xml,
+        size_x=size_x,
+        size_y=size_y,
+        size_t=max(idx.t for idx in all_indices) + 1,
+        size_z=max(idx.z for idx in all_indices) + 1,
+        size_c=max(idx.c for idx in all_indices) + 1,
+        pixel_type=_canonical.pixel_type_from_dtype(dtype),
+    )
+
+
+def _vendor_metadata_sources(
+    project_dir: Path,
+    tiff_path: Path,
+) -> tuple[VendorMetadataSource, ...]:
+    sources = [
+        VendorMetadataSource(
+            name="source_embedded.ome.xml",
+            data=_canonical.extract_embedded_ome_xml(tiff_path),
+        )
+    ]
+    for p in sorted(project_dir.glob("*.xlef")):
+        sources.append(VendorMetadataSource(name=p.name, path=p))
+    metadata_dir = project_dir / "Metadata"
+    acquisition_stem = _native_image_stem(tiff_path)
+    metadata_paths = [
+        metadata_dir / f"{acquisition_stem}.xlif",
+        metadata_dir / _PROJECT_CONFIG_NAME,
+    ]
+    seen: set[Path] = set()
+    for p in metadata_paths:
+        if p in seen or not p.is_file():
+            continue
+        seen.add(p)
+        sources.append(VendorMetadataSource(name=f"metadata_{p.name}", path=p))
+    return tuple(sources)
+
+
+def _native_image_stem(path: Path) -> str:
+    name = path.name
+    for suffix in (".ome.tiff", ".ome.tif"):
+        if name.lower().endswith(suffix):
+            return name[: -len(suffix)]
+    return path.stem
+
+
 def _validate_axes(axes: str) -> None:
     if axes.count("Y") != 1 or axes.count("X") != 1:
         raise RuntimeError(f"Unsupported native AutoSave axes '{axes}': need X/Y")
@@ -361,7 +451,7 @@ def _ravel_index(coords: list[int], shape: list[int]) -> int:
     if not coords:
         return 0
     offset = 0
-    for coord, size in zip(coords, shape):
+    for coord, size in zip(coords, shape, strict=True):
         if coord < 0 or coord >= size:
             raise RuntimeError(
                 f"Native AutoSave coordinate {coords} out of range for {shape}"

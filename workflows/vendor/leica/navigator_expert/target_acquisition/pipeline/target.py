@@ -258,7 +258,7 @@ def acquire_targets(
                 acq = drv.acquire(ctx.client, cfg.target_job)
                 result = drv.save(
                     ctx.client, acq, ctx.run.layout.run_dir, naming,
-                    lineage=lineage,
+                    lineage=lineage, exporter=cfg.save_exporter,
                 )
                 plane = require_single_plane(result, context="target-acquisition")
                 tif_path = plane.image_path

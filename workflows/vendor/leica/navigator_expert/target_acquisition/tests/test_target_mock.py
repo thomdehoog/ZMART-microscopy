@@ -501,7 +501,7 @@ class TestAcquireTargetsIntegration:
         def _fake_driver_acquire(client, job):
             return SimpleNamespace(job=job, command_result={"success": True})
 
-        def _fake_save(client, acq, output_root, naming, lineage=None):
+        def _fake_save(client, acq, output_root, naming, lineage=None, **kw):
             data_dir = Path(output_root) / "target-acquisition" / "data"
             meta_dir = data_dir / "metadata"
             data_dir.mkdir(parents=True, exist_ok=True)

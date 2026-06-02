@@ -11,6 +11,7 @@ lives in dedicated collector modules; OME checks live in ``ome``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -18,27 +19,29 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from . import materialize as _materialize
-from .capture import AcquisitionResult
-from .navigator_expert_export import (
-    DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S,
-    DEFAULT_EXPORT_COMPLETION_TIMEOUT_S,
-    DEFAULT_FILE_STABILITY_TIMEOUT_S,
-    collect_navigator_expert_export,
-)
-from .lasx_native_autosave import collect_lasx_native_autosave
-from .product import (
-    ExportedAcquisition,
-    PlaneIndex,
-    PositionIndex,
-    SavedAcquisition,
-)
 from shared.output_layout import (
     Naming,
     acquisition_data_dir,
     acquisition_metadata_dir,
     build_image_name,
     build_xml_name,
+)
+
+from . import materialize as _materialize
+from . import ome_canonical as _canonical
+from .capture import AcquisitionResult
+from .lasx_native_autosave import collect_lasx_native_autosave
+from .navigator_expert_export import (
+    DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S,
+    DEFAULT_EXPORT_COMPLETION_TIMEOUT_S,
+    DEFAULT_FILE_STABILITY_TIMEOUT_S,
+    collect_navigator_expert_export,
+)
+from .product import (
+    ExportedAcquisition,
+    PlaneIndex,
+    PositionIndex,
+    SavedAcquisition,
 )
 
 log = logging.getLogger(__name__)
@@ -69,8 +72,7 @@ def save(
 
     The chosen source exporter produces a writer-agnostic
     ``ExportedAcquisition``. This function persists that product into
-    the flat OME-TIFF/XML workflow layout. Known Leica OME metadata
-    violations are repaired by default before persistence.
+    the flat SMART OME-TIFF/XML workflow layout.
     """
     try:
         collect = _EXPORTERS[exporter]
@@ -118,6 +120,7 @@ def _persist_export(
 
     image_paths: dict[PlaneIndex, Path] = {}
     xml_paths: dict[PositionIndex, Path] = {}
+    vendor_records = _persist_vendor_metadata(exported, output_root, naming)
 
     for pos in exported.positions:
         xml_naming = replace(naming, t=pos.t)
@@ -126,7 +129,17 @@ def _persist_export(
             / build_xml_name(xml_naming)
         )
         xml_dest.parent.mkdir(parents=True, exist_ok=True)
-        _materialize.save_xml_source_atomic(pos.xml, xml_dest, fix_ome=fix_ome)
+
+        plane_names = {
+            idx: build_image_name(replace(naming, t=idx.t, z=idx.z, c=idx.c))
+            for idx in sorted(pos.planes)
+        }
+        companion = _canonical.companion_xml(
+            exported.metadata,
+            image_name=xml_dest.name,
+            plane_filenames=plane_names,
+        )
+        _materialize.save_xml_bytes_atomic(companion, xml_dest, fix_ome=fix_ome)
         xml_paths[PositionIndex(t=pos.t, v=naming.v)] = xml_dest
 
         for idx, image_src in sorted(pos.planes.items()):
@@ -145,6 +158,8 @@ def _persist_export(
             _materialize.save_image_source_atomic(
                 image_src,
                 image_dest,
+                metadata=exported.metadata,
+                index=idx,
                 fix_ome=fix_ome,
             )
             image_paths[idx] = image_dest
@@ -155,6 +170,10 @@ def _persist_export(
                 "xml_path": _rel_posix(xml_dest, output_root),
                 "source": _rel_posix(image_src.path, exported.media_path),
                 "source_exporter": exported.source_exporter,
+                "canonical_metadata": True,
+                "vendor_metadata": vendor_records,
+                "physical_size_um": _physical_size_record(exported.metadata),
+                "channel": _channel_record(exported.metadata, idx.c),
                 "lineage": lineage,
             }
             _append_summary_atomic(output_root / "summary.json", record)
@@ -171,6 +190,38 @@ def _persist_export(
         xml_paths=xml_paths,
         naming=naming,
     )
+
+
+def _persist_vendor_metadata(
+    exported: ExportedAcquisition,
+    output_root: Path,
+    naming: Naming,
+) -> list[dict]:
+    if not exported.vendor_metadata_sources:
+        return []
+    vendor_dir = (
+        acquisition_metadata_dir(output_root, naming.acquisition_type)
+        / "vendor"
+        / _safe_component(exported.source_exporter)
+    )
+    vendor_dir.mkdir(parents=True, exist_ok=True)
+
+    records = []
+    used_names: set[str] = set()
+    for i, source in enumerate(exported.vendor_metadata_sources):
+        name = _unique_vendor_name(_safe_component(source.name), used_names, i)
+        dest = vendor_dir / name
+        _materialize.save_vendor_metadata_atomic(source, dest)
+        records.append({
+            "path": _rel_posix(dest, output_root),
+            "sha256": _sha256(dest),
+            "source": (
+                _rel_posix(source.path, exported.media_path)
+                if source.path is not None else None
+            ),
+        })
+    return records
+
 
 def _write_summary_atomic(summary_path: Path, data: dict) -> None:
     summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -221,3 +272,56 @@ def _naming_to_dict(n: Naming) -> dict:
         "c": n.c,
         "z": n.z,
     }
+
+
+def _physical_size_record(metadata) -> dict:
+    return {
+        "x": metadata.physical_size_x_um,
+        "y": metadata.physical_size_y_um,
+        "z": metadata.physical_size_z_um,
+        "unit": "um",
+    }
+
+
+def _channel_record(metadata, c: int) -> dict:
+    channel = metadata.channel(c)
+    return {
+        "index": channel.index,
+        "name": channel.name,
+        "color": channel.color,
+        "wavelength_nm": channel.wavelength_nm,
+    }
+
+
+def _safe_component(value: str) -> str:
+    out = []
+    for ch in value:
+        if ch.isalnum() or ch in {".", "-", "_"}:
+            out.append(ch)
+        else:
+            out.append("_")
+    cleaned = "".join(out).strip("._")
+    return cleaned or "metadata"
+
+
+def _unique_vendor_name(name: str, used: set[str], index: int) -> str:
+    if name not in used:
+        used.add(name)
+        return name
+    path = Path(name)
+    stem = path.stem or "metadata"
+    suffix = path.suffix
+    candidate = f"{stem}_{index:03d}{suffix}"
+    while candidate in used:
+        index += 1
+        candidate = f"{stem}_{index:03d}{suffix}"
+    used.add(candidate)
+    return candidate
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()

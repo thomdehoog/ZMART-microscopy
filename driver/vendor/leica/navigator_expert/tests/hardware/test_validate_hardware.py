@@ -126,7 +126,7 @@ def test_validate_hardware_full_mock_run(tmp_path):
         "xy: move alternate",
         "z: move alternate",
         "objective: switch alternate",
-        "acquire: single",
+        "acquire: job",
     } <= names
 
     select_job_records = [

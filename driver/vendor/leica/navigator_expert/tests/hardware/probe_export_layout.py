@@ -39,8 +39,8 @@ if str(_LEICA) not in sys.path:
 
 import navigator_expert as drv  # noqa: E402
 from navigator_expert.acquisition.navigator_expert_export import (  # noqa: E402
-    collect_navigator_expert_export,
     _find_companion_xml,
+    collect_navigator_expert_export,
 )
 
 
@@ -78,11 +78,11 @@ def probe_job(client, job):
           f"finished={acq.finished_at:.3f}")
 
     exported = collect_navigator_expert_export(client, acq)
-    waited_xml = {Path(p).resolve() for p in exported.xml_files}
+    waited_xml = {Path(p).resolve() for p in exported.metadata_files}
     print(f"method     : {exported.method}")
     print(f"source_dir : {exported.source_dir}")
     print(f"images     : {len(exported.image_files)}   "
-          f"xml (waited): {len(exported.xml_files)}")
+          f"metadata (waited): {len(exported.metadata_files)}")
 
     print("\nRaw source listing:")
     for p in sorted(exported.source_dir.iterdir()):
@@ -97,7 +97,9 @@ def probe_job(client, job):
     print("\nPer-image:")
     for img in sorted(exported.image_files):
         d = drv.parse_lasx_filename(img.name) or {}
-        cset.add(d.get("C")); zset.add(d.get("Z")); tset.add(d.get("T"))
+        cset.add(d.get("C"))
+        zset.add(d.get("Z"))
+        tset.add(d.get("T"))
         companion = None
         if d:
             acq_view = type(

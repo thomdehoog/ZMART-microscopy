@@ -44,23 +44,51 @@ class PlaneSource:
 
 
 @dataclass(frozen=True)
-class XmlSource:
-    """Source for one canonical companion XML.
+class ChannelMetadata:
+    """Minimal reusable channel metadata for canonical SMART OME."""
 
-    ``embedded=False`` means *path* is a standalone XML file.
-    ``embedded=True`` means the XML comes from TIFF tag 270 in *path*.
-    """
+    index: int
+    name: str | None = None
+    color: int | None = None
+    wavelength_nm: float | None = None
 
-    path: Path
-    embedded: bool = False
+
+@dataclass(frozen=True)
+class AcquisitionMetadata:
+    """Common denominator needed to write valid, reusable SMART OME."""
+
+    size_x: int
+    size_y: int
+    size_t: int
+    size_z: int
+    size_c: int
+    pixel_type: str
+    physical_size_x_um: float | None = None
+    physical_size_y_um: float | None = None
+    physical_size_z_um: float | None = None
+    channels: tuple[ChannelMetadata, ...] = ()
+
+    def channel(self, index: int) -> ChannelMetadata:
+        for channel in self.channels:
+            if channel.index == index:
+                return channel
+        return ChannelMetadata(index=index)
+
+
+@dataclass(frozen=True)
+class VendorMetadataSource:
+    """Raw vendor metadata preserved as provenance, not output truth."""
+
+    name: str
+    path: Path | None = None
+    data: bytes | None = None
 
 
 @dataclass(frozen=True)
 class ExportedPosition:
-    """One exported position/timepoint: shared XML plus plane sources."""
+    """One exported timepoint: canonical plane sources."""
 
     t: int
-    xml: XmlSource
     planes: dict[PlaneIndex, PlaneSource]
 
 
@@ -71,10 +99,12 @@ class ExportedAcquisition:
     media_path: Path
     source_dir: Path
     positions: list[ExportedPosition]
+    metadata: AcquisitionMetadata
     method: str
     relative_path: str | None = None
     source_exporter: str = "navigator_expert_exporter"
     cleanup_source_supported: bool = True
+    vendor_metadata_sources: tuple[VendorMetadataSource, ...] = ()
 
     @property
     def image_files(self) -> list[Path]:
@@ -85,12 +115,15 @@ class ExportedAcquisition:
         ))
 
     @property
-    def xml_files(self) -> list[Path]:
-        return list(dict.fromkeys(pos.xml.path for pos in self.positions))
+    def metadata_files(self) -> list[Path]:
+        return list(dict.fromkeys(
+            src.path for src in self.vendor_metadata_sources
+            if src.path is not None
+        ))
 
     @property
     def source_files(self) -> list[Path]:
-        return list(dict.fromkeys([*self.image_files, *self.xml_files]))
+        return list(dict.fromkeys([*self.image_files, *self.metadata_files]))
 
 
 @dataclass(frozen=True)

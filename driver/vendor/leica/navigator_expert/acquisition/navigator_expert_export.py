@@ -10,24 +10,31 @@ from __future__ import annotations
 
 import time
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from ..core import readers as _readers
 from . import files as _files
+from . import ome_canonical as _canonical
 from .capture import AcquisitionResult
 from .product import (
     ExportedAcquisition,
     ExportedPosition,
     PlaneIndex,
     PlaneSource,
-    XmlSource,
+    VendorMetadataSource,
 )
 
-
-DEFAULT_FILE_STABILITY_TIMEOUT_S = 30
+DEFAULT_FILE_STABILITY_TIMEOUT_S = 120
 DEFAULT_EXPORT_COMPLETION_TIMEOUT_S = 5.0
 DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S = 0.5
+
+
+@dataclass(frozen=True)
+class _CollectedExport:
+    positions: list[ExportedPosition]
+    xml_paths: list[Path]
 
 
 def collect_navigator_expert_export(
@@ -62,6 +69,7 @@ def collect_navigator_expert_export(
     )
     if detected is None:
         detected = _detect_from_mtime(
+            client,
             media_path,
             acq,
             timeout=mtime_poll_timeout,
@@ -116,17 +124,19 @@ def _detect_from_relative_path(
             if full_path.is_file() and _is_from_acquisition(full_path, acq):
                 parsed = _files.parse_lasx_filename(full_path.name)
                 if parsed is not None:
-                    positions = _collect_positions(
+                    collected = _collect_positions(
                         full_path.parent,
                         parsed,
                         acq,
                         timeout=completion_timeout,
                         poll_interval=completion_poll_interval,
                     )
-                    return ExportedAcquisition(
+                    return _exported_acquisition(
+                        client=client,
+                        acq=acq,
                         media_path=media_path,
                         source_dir=full_path.parent,
-                        positions=positions,
+                        collected=collected,
                         method="relative_path",
                         relative_path=rel,
                     )
@@ -135,6 +145,7 @@ def _detect_from_relative_path(
 
 
 def _detect_from_mtime(
+    client: Any,
     media_path: Path,
     acq: AcquisitionResult,
     *,
@@ -149,17 +160,19 @@ def _detect_from_mtime(
             f"(scanned {media_path})"
         )
     source_dir, parsed = found
-    positions = _collect_positions(
+    collected = _collect_positions(
         source_dir,
         parsed,
         acq,
         timeout=completion_timeout,
         poll_interval=completion_poll_interval,
     )
-    return ExportedAcquisition(
+    return _exported_acquisition(
+        client=client,
+        acq=acq,
         media_path=media_path,
         source_dir=source_dir,
-        positions=positions,
+        collected=collected,
         method="mtime",
     )
 
@@ -202,7 +215,7 @@ def _collect_positions(
     *,
     timeout: float = DEFAULT_EXPORT_COMPLETION_TIMEOUT_S,
     poll_interval: float = DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S,
-) -> list[ExportedPosition]:
+) -> _CollectedExport:
     deadline = time.perf_counter() + timeout
     last_error: _IncompleteExport | None = None
 
@@ -224,7 +237,7 @@ def _collect_positions_once(
     source_dir: Path,
     ref_parsed: dict,
     acq: AcquisitionResult,
-) -> list[ExportedPosition]:
+) -> _CollectedExport:
     target_j = ref_parsed.get("J")
     target_l = ref_parsed.get("L")
     target_e = ref_parsed.get("E")
@@ -299,18 +312,95 @@ def _collect_positions_once(
             )
 
     positions = []
+    xml_paths = []
     for t in sorted(by_t):
         planes = by_t[t]
         xml_path, expected = xml_by_t[t]
         _validate_complete_grid(t, planes, expected=expected)
+        xml_paths.append(xml_path)
         positions.append(
             ExportedPosition(
                 t=t,
-                xml=XmlSource(path=xml_path),
                 planes=planes,
             )
         )
-    return positions
+    return _CollectedExport(positions=positions, xml_paths=xml_paths)
+
+
+def _exported_acquisition(
+    *,
+    client: Any,
+    acq: AcquisitionResult,
+    media_path: Path,
+    source_dir: Path,
+    collected: _CollectedExport,
+    method: str,
+    relative_path: str | None = None,
+) -> ExportedAcquisition:
+    metadata = _metadata_from_collected(collected)
+    metadata = _canonical.metadata_with_job_physical_sizes(
+        metadata,
+        client,
+        acq.job,
+    )
+    return ExportedAcquisition(
+        media_path=media_path,
+        source_dir=source_dir,
+        positions=collected.positions,
+        metadata=metadata,
+        method=method,
+        relative_path=relative_path,
+        source_exporter="navigator_expert_exporter",
+        vendor_metadata_sources=tuple(
+            VendorMetadataSource(
+                name=f"source_t{pos.t:05d}.ome.xml",
+                path=xml_path,
+            )
+            for pos, xml_path in zip(
+                collected.positions,
+                collected.xml_paths,
+                strict=True,
+            )
+        ),
+    )
+
+
+def _metadata_from_collected(collected: _CollectedExport):
+    all_indices = [
+        idx for pos in collected.positions for idx in pos.planes
+    ]
+    if not all_indices:
+        raise RuntimeError("Navigator Expert export has no planes")
+    first_source = collected.positions[0].planes[sorted(collected.positions[0].planes)[0]]
+    size_y, size_x, pixel_type = _plane_shape_and_type(first_source.path)
+    size_t = max(idx.t for idx in all_indices) + 1
+    size_z = max(idx.z for idx in all_indices) + 1
+    size_c = max(idx.c for idx in all_indices) + 1
+    xml = collected.xml_paths[0].read_bytes()
+    metadata = _canonical.metadata_from_ome_xml(
+        xml,
+        size_x=size_x,
+        size_y=size_y,
+        size_t=size_t,
+        size_z=size_z,
+        size_c=size_c,
+        pixel_type=pixel_type,
+    )
+    return metadata
+
+
+def _plane_shape_and_type(path: Path) -> tuple[int, int, str]:
+    try:
+        import tifffile
+    except ImportError as e:
+        raise RuntimeError("tifffile is required for Navigator Expert export") from e
+
+    arr = tifffile.imread(str(path))
+    if arr.ndim != 2:
+        raise RuntimeError(
+            f"Expected Navigator Expert source plane to be 2-D, got {arr.shape}: {path}"
+        )
+    return int(arr.shape[0]), int(arr.shape[1]), _canonical.pixel_type_from_dtype(str(arr.dtype))
 
 
 def _validate_complete_grid(
