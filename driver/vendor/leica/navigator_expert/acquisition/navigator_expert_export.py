@@ -16,7 +16,13 @@ from typing import Any
 from ..core import readers as _readers
 from . import files as _files
 from .capture import AcquisitionResult
-from .product import ExportedAcquisition, ExportedPosition, PlaneIndex
+from .product import (
+    ExportedAcquisition,
+    ExportedPosition,
+    PlaneIndex,
+    PlaneSource,
+    XmlSource,
+)
 
 
 DEFAULT_FILE_STABILITY_TIMEOUT_S = 30
@@ -63,7 +69,7 @@ def collect_navigator_expert_export(
             completion_poll_interval=export_completion_poll_interval,
         )
 
-    files = list(detected.image_files) + list(detected.xml_files)
+    files = detected.source_files
     if not files:
         raise RuntimeError("Navigator Expert export produced no files")
     stability = _files.wait_all_stable(
@@ -254,13 +260,13 @@ def _collect_positions_once(
             "define an explicit product mapping before saving this export."
         )
 
-    by_t: dict[int, dict[PlaneIndex, Path]] = {}
+    by_t: dict[int, dict[PlaneIndex, PlaneSource]] = {}
     for p, parsed in fresh:
         idx = PlaneIndex(t=parsed["T"], z=parsed["Z"], c=parsed["C"])
         planes = by_t.setdefault(idx.t, {})
         if idx in planes:
             raise RuntimeError(f"duplicate LAS X plane index {idx}: {p}")
-        planes[idx] = p
+        planes[idx] = PlaneSource(path=p)
 
     xml_by_t: dict[int, tuple[Path, tuple[int, int, int] | None]] = {}
     for t in sorted(by_t):
@@ -300,7 +306,7 @@ def _collect_positions_once(
         positions.append(
             ExportedPosition(
                 t=t,
-                xml_path=xml_path,
+                xml=XmlSource(path=xml_path),
                 planes=planes,
             )
         )
@@ -309,7 +315,7 @@ def _collect_positions_once(
 
 def _validate_complete_grid(
     t: int,
-    planes: dict[PlaneIndex, Path],
+    planes: dict[PlaneIndex, PlaneSource],
     *,
     expected: tuple[int, int, int] | None,
 ) -> None:

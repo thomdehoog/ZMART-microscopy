@@ -127,6 +127,7 @@ __all__ = [
     "load_stage_config", "write_stage_limits_config",
     # acquisition workflow
     "AcquisitionResult", "PlaneIndex", "PositionIndex",
+    "PlaneSource", "XmlSource",
     "SavedAcquisition", "save",
 ]
 
@@ -221,7 +222,9 @@ from .acquisition.files import (
     wait_all_stable,
 )
 from .acquisition.capture import AcquisitionResult, acquire
-from .acquisition.product import PlaneIndex, PositionIndex, SavedAcquisition
+from .acquisition.product import (
+    PlaneIndex, PlaneSource, PositionIndex, SavedAcquisition, XmlSource,
+)
 from .acquisition.save import save
 
 # -- experimental/lrp_edits/ - LRP mutation helpers
