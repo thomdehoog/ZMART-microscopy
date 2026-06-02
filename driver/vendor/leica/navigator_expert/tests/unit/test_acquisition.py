@@ -7,7 +7,7 @@ import os
 import time
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
@@ -15,6 +15,7 @@ import tifffile
 
 import navigator_expert as drv
 from navigator_expert.acquisition import capture
+from navigator_expert.acquisition import materialize
 from navigator_expert.acquisition import navigator_expert_export as exporter
 from navigator_expert.acquisition import save as acquisition
 from shared.output_layout import (
@@ -116,11 +117,11 @@ def patched_export(fake_lasx_export):
         "wait_all_stable",
         return_value={"success": True},
     ) as wait_all_stable, patch.object(
-        acquisition._ome,
+        materialize._ome,
         "check_ome_tiff",
         return_value=healthy,
     ), patch.object(
-        acquisition._ome,
+        materialize._ome,
         "check_ome_xml_file",
         return_value=healthy,
     ) as check_ome_xml_file:
@@ -239,21 +240,19 @@ class TestSave:
         successful_acq,
         tmp_path,
         naming,
+        monkeypatch,
     ):
-        with patch.object(
-            acquisition,
-            "collect_navigator_expert_export",
-        ) as collect:
-            collect.side_effect = RuntimeError("stop after kwargs")
-            with pytest.raises(RuntimeError, match="stop after kwargs"):
-                drv.save(
-                    None,
-                    successful_acq,
-                    tmp_path / "run_000001",
-                    naming,
-                    export_completion_timeout_s=12.0,
-                    export_completion_poll_interval_s=0.25,
-                )
+        collect = Mock(side_effect=RuntimeError("stop after kwargs"))
+        monkeypatch.setitem(acquisition._EXPORTERS, "navigator_expert", collect)
+        with pytest.raises(RuntimeError, match="stop after kwargs"):
+            drv.save(
+                None,
+                successful_acq,
+                tmp_path / "run_000001",
+                naming,
+                export_completion_timeout_s=12.0,
+                export_completion_poll_interval_s=0.25,
+            )
 
         assert collect.call_args.kwargs["export_completion_timeout"] == 12.0
         assert (
@@ -344,6 +343,21 @@ class TestSave:
                 channel=0,
             )
 
+    def test_unknown_exporter_raises_clear_error(
+        self,
+        successful_acq,
+        tmp_path,
+        naming,
+    ):
+        with pytest.raises(ValueError, match="Unknown LAS X save exporter"):
+            drv.save(
+                None,
+                successful_acq,
+                tmp_path / "run_000001",
+                naming,
+                exporter="missing",
+            )
+
     def test_save_persists_flat_z_planes_separately(
         self,
         patched_export,
@@ -405,7 +419,7 @@ class TestSave:
         naming,
     ):
         with patch.object(
-            acquisition._ome,
+            materialize._ome,
             "check_ome_tiff",
             return_value={
                 "path": "x",
@@ -438,8 +452,11 @@ class TestSave:
             positions=[
                 exporter.ExportedPosition(
                     t=0,
-                    xml_path=xml_path,
-                    planes={drv.PlaneIndex(t=0, z=0, c=0): image_path},
+                    xml=drv.XmlSource(path=xml_path),
+                    planes={
+                        drv.PlaneIndex(t=0, z=0, c=0):
+                        drv.PlaneSource(path=image_path)
+                    },
                 )
             ],
             method="test",
@@ -459,11 +476,11 @@ class TestSave:
             },
         ]
         with patch.object(
-            acquisition._ome,
+            materialize._ome,
             "check_ome_tiff",
             side_effect=check_results,
         ), patch.object(
-            acquisition._ome,
+            materialize._ome,
             "check_ome_xml_file",
             return_value={
                 "path": "x",
@@ -471,7 +488,7 @@ class TestSave:
                 "violations": [],
                 "error": None,
             },
-        ), patch.object(acquisition._ome, "fix_ome_tiff") as fix_ome:
+        ), patch.object(materialize._ome, "fix_ome_tiff") as fix_ome:
             acquisition._persist_export(
                 exported,
                 tmp_path / "out",
@@ -745,17 +762,17 @@ class TestCollectNavigatorExpertExport:
 
 class TestHelpers:
     def test_ome_ok_is_strict_about_contract_shape(self):
-        assert acquisition._ome_ok(
+        assert materialize.ome_ok(
             {"path": "x", "corrupted": False, "violations": [], "error": None}
         ) is True
-        assert acquisition._ome_ok(
+        assert materialize.ome_ok(
             {"path": "x", "corrupted": True, "violations": ["bad"], "error": None}
         ) is False
-        assert acquisition._ome_ok(
+        assert materialize.ome_ok(
             {"path": "x", "corrupted": False, "violations": [], "error": "I/O"}
         ) is False
         with pytest.raises(KeyError):
-            acquisition._ome_ok({"success": True})
+            materialize.ome_ok({"success": True})
 
     def test_find_companion_xml_with_repeat_suffix(self, tmp_path):
         experiment_dir = tmp_path / "experiment--demo"
@@ -778,30 +795,6 @@ class TestHelpers:
         )
         assert exporter._find_companion_xml(experiment_dir, parsed, 0, acq) == xml_path
 
-    def test_save_atomic_cleans_tmp_on_copy_failure(self, tmp_path, monkeypatch):
-        src_img = tmp_path / "src.ome.tif"
-        src_xml = tmp_path / "src.ome.xml"
-        src_img.write_bytes(b"image-bytes")
-        src_xml.write_bytes(b"<xml/>")
-        dest_img = tmp_path / "dest" / "out.ome.tiff"
-        dest_xml = tmp_path / "dest" / "metadata" / "out.ome.xml"
-        dest_img.parent.mkdir()
-        dest_xml.parent.mkdir(parents=True)
-
-        def failing_copy2(src, dst, *args, **kwargs):
-            Path(str(dst)).write_bytes(b"partial")
-            raise OSError("simulated disk full")
-
-        monkeypatch.setattr(acquisition.shutil, "copy2", failing_copy2)
-
-        with pytest.raises(OSError, match="simulated disk full"):
-            acquisition._save_atomic(src_img, dest_img, src_xml, dest_xml)
-
-        assert not dest_img.exists()
-        assert not dest_xml.exists()
-        assert list(dest_img.parent.glob("*.tmp")) == []
-        assert list(dest_xml.parent.glob("*.tmp")) == []
-
     def test_append_summary_creates_file_and_replaces_same_image_path(self, tmp_path):
         summary = tmp_path / "summary.json"
         acquisition._append_summary_atomic(
@@ -814,6 +807,55 @@ class TestHelpers:
         )
         data = json.loads(summary.read_text())
         assert data["acquisitions"] == [{"image_path": "a/b.tif", "v": 2}]
+
+    def test_image_source_materialization_cleans_tmp_on_copy_failure(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        src_img = tmp_path / "src.ome.tif"
+        src_img.write_bytes(b"image-bytes")
+        dest_img = tmp_path / "dest" / "out.ome.tiff"
+        dest_img.parent.mkdir()
+
+        def failing_copy2(src, dst, *args, **kwargs):
+            Path(str(dst)).write_bytes(b"partial")
+            raise OSError("simulated disk full")
+
+        monkeypatch.setattr(materialize.shutil, "copy2", failing_copy2)
+
+        with pytest.raises(OSError, match="simulated disk full"):
+            materialize.save_image_source_atomic(
+                drv.PlaneSource(path=src_img),
+                dest_img,
+            )
+
+        assert not dest_img.exists()
+        assert list(dest_img.parent.glob("*.tmp")) == []
+
+    def test_exported_acquisition_source_files_are_deduplicated(self, tmp_path):
+        tiff = tmp_path / "native.ome.tif"
+        exported = exporter.ExportedAcquisition(
+            media_path=tmp_path,
+            source_dir=tmp_path,
+            positions=[
+                exporter.ExportedPosition(
+                    t=0,
+                    xml=drv.XmlSource(path=tiff, embedded=True),
+                    planes={
+                        drv.PlaneIndex(t=0, z=0, c=0):
+                        drv.PlaneSource(path=tiff, page_index=0),
+                        drv.PlaneIndex(t=0, z=0, c=1):
+                        drv.PlaneSource(path=tiff, page_index=1),
+                    },
+                )
+            ],
+            method="test",
+        )
+
+        assert exported.image_files == [tiff]
+        assert exported.xml_files == [tiff]
+        assert exported.source_files == [tiff]
 
 
 def test_old_public_workflow_helpers_are_not_exported():

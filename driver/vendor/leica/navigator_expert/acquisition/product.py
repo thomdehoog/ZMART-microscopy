@@ -1,7 +1,8 @@
 """Neutral acquisition product contracts shared by save exporters.
 
-``Exported*`` types are exporter -> save inputs. ``SavedAcquisition`` is
-the save -> caller output manifest.
+``Exported*`` types are exporter -> save inputs and are writer-agnostic.
+``SavedAcquisition`` is the current flat OME-TIFF/XML save -> caller
+output manifest.
 """
 
 from __future__ import annotations
@@ -30,12 +31,37 @@ class PositionIndex:
 
 
 @dataclass(frozen=True)
+class PlaneSource:
+    """Source for one canonical image plane.
+
+    ``page_index=None`` means the source path is already a single-plane
+    image file and can be copied as a whole. An integer page index means
+    the plane must be materialized from that page in a multipage TIFF.
+    """
+
+    path: Path
+    page_index: int | None = None
+
+
+@dataclass(frozen=True)
+class XmlSource:
+    """Source for one canonical companion XML.
+
+    ``embedded=False`` means *path* is a standalone XML file.
+    ``embedded=True`` means the XML comes from TIFF tag 270 in *path*.
+    """
+
+    path: Path
+    embedded: bool = False
+
+
+@dataclass(frozen=True)
 class ExportedPosition:
-    """One exported position/timepoint: shared XML plus flat planes."""
+    """One exported position/timepoint: shared XML plus plane sources."""
 
     t: int
-    xml_path: Path
-    planes: dict[PlaneIndex, Path]
+    xml: XmlSource
+    planes: dict[PlaneIndex, PlaneSource]
 
 
 @dataclass(frozen=True)
@@ -47,18 +73,24 @@ class ExportedAcquisition:
     positions: list[ExportedPosition]
     method: str
     relative_path: str | None = None
+    source_exporter: str = "navigator_expert_exporter"
+    cleanup_source_supported: bool = True
 
     @property
     def image_files(self) -> list[Path]:
-        return [
-            p
+        return list(dict.fromkeys(
+            src.path
             for pos in self.positions
-            for _idx, p in sorted(pos.planes.items())
-        ]
+            for _idx, src in sorted(pos.planes.items())
+        ))
 
     @property
     def xml_files(self) -> list[Path]:
-        return list(dict.fromkeys(pos.xml_path for pos in self.positions))
+        return list(dict.fromkeys(pos.xml.path for pos in self.positions))
+
+    @property
+    def source_files(self) -> list[Path]:
+        return list(dict.fromkeys([*self.image_files, *self.xml_files]))
 
 
 @dataclass(frozen=True)
