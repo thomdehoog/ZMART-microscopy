@@ -232,6 +232,11 @@ inherit a passive status-reader profile that prefers log rescue. The safety
 mechanism is still poll-until-expected-match using diagnostic readings, but the
 backend for command confirmation is API.
 
+Persisted or foundational correctness artifacts also pin API. Calibration
+geometry and canonical OME physical metadata are not command-control reads, but
+a stale value silently persists a wrong artifact. Treat them as authoritative
+reads, not passive status reads.
+
 The confirmation layer owns:
 
 - expected target
@@ -394,7 +399,8 @@ Default behavior must remain API-only until the profile is explicitly changed.
 Start by routing only readers with clear trustworthiness rules. Keep ping
 API-only. Keep pending-dialog log-only. Command-control reads stay pinned to
 API: prechecks, early-exit checks, command-parameterizing reads,
-confirmations, and post-write readbacks.
+confirmations, and post-write readbacks. Artifact-producing reads also stay
+pinned to API: calibration geometry and canonical OME physical metadata.
 
 ### Step 4: Update Confirmation / Readback
 
@@ -428,6 +434,8 @@ Add focused tests for routing behavior:
   waits for a trustworthy post-command reading that matches the expected state.
 - command-control reads pin API mode: prechecks, early-exit command guards,
   command-parameterizing reads, confirmations, and post-write readbacks.
+- artifact-producing reads pin API mode: calibration geometry and canonical
+  OME physical metadata.
 - ping remains API-only.
 - pending dialog remains log-only.
 
@@ -451,6 +459,7 @@ xy_mode = "both"
 
 Use command-control reads only through API-pinned prechecks, early exits,
 command-parameterizing reads, confirmations, or post-write readbacks.
+Use persisted/foundational artifact reads through API-pinned helpers.
 
 Do not enable `both` mode for cold job settings until its behavior is validated
 in the workflow that uses it.

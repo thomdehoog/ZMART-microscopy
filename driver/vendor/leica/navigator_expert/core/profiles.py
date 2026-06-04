@@ -75,8 +75,11 @@ class StateReaderProfile:
     These modes are defaults for cold/status reads. Reads that decide command
     control flow - prechecks, early exits, command-parameterizing reads,
     confirmations, and post-write readbacks - must use the gated confirmation
-    path, or explicitly pin API. A fresh-by-age log value must never decide
-    whether a command fires, how it is parameterized, or whether it confirms.
+    path, or explicitly pin API. Reads that produce persisted or foundational
+    correctness artifacts, such as calibration geometry or canonical OME
+    physical metadata, must also pin API. A fresh-by-age log value must never
+    decide whether a command fires, how it is parameterized, whether it
+    confirms, or what metadata/calibration is persisted.
     """
 
     both_log_grace_s: float = 0.25

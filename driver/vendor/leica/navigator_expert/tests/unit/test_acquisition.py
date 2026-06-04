@@ -230,13 +230,14 @@ class TestCanonicalPhysicalMetadataAuthority:
             ome_canonical._readers,
             "get_job_settings",
             return_value=settings,
-        ):
+        ) as read_settings:
             out = ome_canonical.metadata_with_job_physical_sizes(
                 metadata,
                 "client",
                 "Overview",
             )
 
+        assert read_settings.call_args.kwargs["mode"] == "api"
         assert out.physical_size_x_um == pytest.approx(2.27)
         assert out.physical_size_y_um == pytest.approx(2.28)
         assert out.physical_size_z_um == pytest.approx(2.41)
