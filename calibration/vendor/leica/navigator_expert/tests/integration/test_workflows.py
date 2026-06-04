@@ -144,6 +144,30 @@ def test_read_job_geometry_rejects_non_square_pixels(monkeypatch):
         cm.read_job_geometry(client=object(), job_name="Overview")
 
 
+def test_read_job_geometry_pins_api_mode(monkeypatch):
+    calls = []
+
+    def _get_job_settings(client, job_name, **kwargs):
+        calls.append((job_name, kwargs))
+        return {"some": "settings"}
+
+    monkeypatch.setattr(cm.drv, "get_job_settings", _get_job_settings)
+    monkeypatch.setattr(
+        cm.drv,
+        "parse_tile_geometry",
+        lambda settings: {
+            "pixel_w_um": 0.5,
+            "pixel_h_um": 0.5,
+            "pixels_x": 512,
+            "pixels_y": 512,
+        },
+    )
+
+    cm.read_job_geometry(client=object(), job_name="Overview")
+
+    assert calls[0][1]["mode"] == "api"
+
+
 def test_read_job_geometry_uses_image_shape_when_provided(monkeypatch):
     monkeypatch.setattr(
         cm.drv, "get_job_settings", lambda *a, **k: {"some": "settings"},
@@ -2258,6 +2282,38 @@ def test_read_stack_z_positions_falls_back_on_partial_normalized(monkeypatch):
     assert len(positions) == 11
     assert positions[0] == pytest.approx(95.0)
     assert positions[-1] == pytest.approx(105.0)
+
+
+def test_read_stack_z_positions_pins_api_mode(monkeypatch):
+    calls = []
+    full_raw = {
+        "stack": {
+            "begin": 0.0,
+            "end": 4.0,
+            "sections": 5,
+            "zDrive": "z-wide",
+        },
+    }
+
+    def _get_job_settings(client, job_name, **kwargs):
+        calls.append((job_name, kwargs))
+        return full_raw
+
+    monkeypatch.setattr(cm.drv, "get_job_settings", _get_job_settings)
+    monkeypatch.setattr(
+        cm.drv,
+        "make_changeable_copy",
+        lambda settings: {"stack": dict(settings["stack"])}
+        if settings else None,
+    )
+
+    cm.read_stack_z_positions(
+        client=object(),
+        job_name="Overview",
+        expected_slices=5,
+    )
+
+    assert calls[0][1]["mode"] == "api"
 
 
 def test_read_stack_z_positions_ignores_rounded_step_size(monkeypatch):

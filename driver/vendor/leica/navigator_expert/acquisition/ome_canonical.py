@@ -351,6 +351,7 @@ def _read_job_settings_bounded(
             result["settings"] = _readers.get_job_settings(
                 client,
                 job_name,
+                mode="api",
                 timeout=JOB_SETTINGS_API_TIMEOUT_S,
                 poll_interval=0.01,
                 max_retries=1,
