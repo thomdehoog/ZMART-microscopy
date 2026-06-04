@@ -118,7 +118,8 @@ __all__ = [
     "read_relative_path", "parse_lasx_filename",
     "wait_all_stable",
     # session helpers
-    "connect_python_client", "require_canonical_scan_orientation",
+    "connect_python_client", "configure_lasx_api_delay",
+    "require_canonical_scan_orientation",
     "disable_roi_scan",
     "LIMITS_SCHEMA_VERSION", "CALIBRATION_SCHEMA_VERSION",
     "LIMITS_SOURCE_DEFAULTS", "LIMITS_SOURCE_BOUNDARY_MARKERS",
@@ -179,7 +180,10 @@ from .core.commands import (
     move_xy, move_galvo_to_pixel, move_z,
     select_job,
 )
-from .core.session import connect_python_client, require_canonical_scan_orientation
+from .core.session import (
+    connect_python_client, configure_lasx_api_delay,
+    require_canonical_scan_orientation,
+)
 
 # -- stage/ - stage safety + movement
 from .stage.limits import (

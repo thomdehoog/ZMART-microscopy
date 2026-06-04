@@ -313,7 +313,6 @@ def _connect(args: argparse.Namespace, MockClient: type,
         log.info("client | python in-process mock | latency=%.4fs",
                  args.mock_latency)
         return MockClient(latency=args.mock_latency)
-    log.info("client | LasxApi (LAS X simulator or microscope)")
     try:
         import LasxApi.PYLICamApiConnector as lasx_api  # noqa: PLC0415
     except (ImportError, ModuleNotFoundError) as exc:
@@ -328,6 +327,17 @@ def _connect(args: argparse.Namespace, MockClient: type,
     if not ok:
         log.error("Connect returned False (LAS X reachable but refused the client name)")
         return None
+    try:
+        from navigator_expert.core.session import configure_lasx_api_delay  # noqa: PLC0415
+
+        applied_delay_ms = configure_lasx_api_delay(lasx_api, args.api_delay_ms)
+    except RuntimeError as exc:
+        log.error("%s", exc)
+        return None
+    log.info(
+        "client | LasxApi (LAS X simulator or microscope) | api_delay_ms=%s",
+        "profile-disabled" if applied_delay_ms is None else applied_delay_ms,
+    )
     return client
 
 
@@ -1047,6 +1057,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--job", help="job to validate (default: currently selected)")
     p.add_argument("--mock-latency", type=float, default=0.0,
                    help="per-command latency for --mock (seconds)")
+    p.add_argument("--api-delay-ms", type=int,
+                   help="override profiles.LASX_API.delay_ms for LasxApi")
     p.add_argument("--limits-config",
                    help="limits JSON; default is limits/.../defaults.json")
 

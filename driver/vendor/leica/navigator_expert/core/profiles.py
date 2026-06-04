@@ -116,6 +116,21 @@ STATE_READERS = StateReaderProfile()
 
 
 @dataclass(frozen=True)
+class LasxApiProfile:
+    """Connection-level LAS X API settings.
+
+    ``DelayInMilliseconds`` is Leica's client-side pacing knob. Keeping it in
+    the profile makes the default explicit and keeps hardware-specific API
+    timing out of scripts and workflows.
+    """
+
+    delay_ms: Optional[int] = 250
+
+
+LASX_API = LasxApiProfile()
+
+
+@dataclass(frozen=True)
 class CommandProfile:
     """Complete recipe for a single command's backbone behaviour.
 
