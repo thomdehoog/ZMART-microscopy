@@ -327,7 +327,13 @@ class TestSave:
     ):
         output_root = tmp_path / "run_000001"
 
-        result = drv.save(None, successful_acq, output_root, naming)
+        result = drv.save(
+            None,
+            successful_acq,
+            output_root,
+            naming,
+            exporter="navigator_expert",
+        )
 
         expected_image = (
             output_root / "overview-scan" / "data" / build_image_name(naming)
@@ -367,7 +373,13 @@ class TestSave:
         naming,
     ):
         with patch.object(capture._commands, "acquire") as command:
-            drv.save(None, successful_acq, tmp_path / "run_000001", naming)
+            drv.save(
+                None,
+                successful_acq,
+                tmp_path / "run_000001",
+                naming,
+                exporter="navigator_expert",
+            )
         command.assert_not_called()
 
     def test_save_plumbs_export_completion_timeout(
@@ -378,7 +390,7 @@ class TestSave:
         monkeypatch,
     ):
         collect = Mock(side_effect=RuntimeError("stop after kwargs"))
-        monkeypatch.setitem(acquisition._EXPORTERS, "navigator_expert", collect)
+        monkeypatch.setitem(acquisition._EXPORTERS, "lasx_native_autosave", collect)
         with pytest.raises(RuntimeError, match="stop after kwargs"):
             drv.save(
                 None,
@@ -401,7 +413,13 @@ class TestSave:
         tmp_path,
         naming,
     ):
-        drv.save(None, successful_acq, tmp_path / "run_000001", naming)
+        drv.save(
+            None,
+            successful_acq,
+            tmp_path / "run_000001",
+            naming,
+            exporter="navigator_expert",
+        )
         waited = patched_export["wait_all_stable"].call_args.args[0]
         for image_path in patched_export["image_paths"]:
             assert image_path in waited
@@ -417,7 +435,14 @@ class TestSave:
     ):
         lineage = {"source_tile_rid": 1, "row": 2, "col": 3}
         output_root = tmp_path / "run_000001"
-        drv.save(None, successful_acq, output_root, naming, lineage=lineage)
+        drv.save(
+            None,
+            successful_acq,
+            output_root,
+            naming,
+            lineage=lineage,
+            exporter="navigator_expert",
+        )
         summary = json.loads((output_root / "summary.json").read_text())
         assert summary["acquisitions"][0]["lineage"] == lineage
 
@@ -434,6 +459,7 @@ class TestSave:
             tmp_path / "run_000001",
             naming,
             cleanup_source=True,
+            exporter="navigator_expert",
         )
         assert all(not p.is_file() for p in patched_export["image_paths"])
         assert not patched_export["xml_path"].is_file()
@@ -447,7 +473,13 @@ class TestSave:
     ):
         naming = replace(naming, v=5)
 
-        saved = drv.save(None, successful_acq, tmp_path / "run_000001", naming)
+        saved = drv.save(
+            None,
+            successful_acq,
+            tmp_path / "run_000001",
+            naming,
+            exporter="navigator_expert",
+        )
 
         assert saved.xml_paths == {
             drv.PositionIndex(t=0, v=5):
@@ -500,7 +532,13 @@ class TestSave:
         tmp_path,
         naming,
     ):
-        saved = drv.save(None, successful_acq, tmp_path / "run_000001", naming)
+        saved = drv.save(
+            None,
+            successful_acq,
+            tmp_path / "run_000001",
+            naming,
+            exporter="navigator_expert",
+        )
         z0 = saved.image_paths[drv.PlaneIndex(t=0, z=0, c=0)]
         z1 = saved.image_paths[drv.PlaneIndex(t=0, z=1, c=0)]
         assert z0 != z1
@@ -522,7 +560,13 @@ class TestSave:
             p=10,
         )
 
-        saved = drv.save(None, successful_acq, tmp_path / "run_000001", naming)
+        saved = drv.save(
+            None,
+            successful_acq,
+            tmp_path / "run_000001",
+            naming,
+            exporter="navigator_expert",
+        )
 
         for idx, path in saved.image_paths.items():
             parsed = parse_image_name(path.name)
@@ -544,7 +588,13 @@ class TestSave:
     ):
         patched_export["xml_path"].unlink()
         with pytest.raises(RuntimeError, match="OME-XML companion not found"):
-            drv.save(None, successful_acq, tmp_path / "run_000001", naming)
+            drv.save(
+                None,
+                successful_acq,
+                tmp_path / "run_000001",
+                naming,
+                exporter="navigator_expert",
+            )
 
     def test_corrupt_ome_tiff_raises(
         self,
@@ -564,7 +614,13 @@ class TestSave:
             },
         ):
             with pytest.raises(RuntimeError, match="OME-TIFF validation"):
-                drv.save(None, successful_acq, tmp_path / "run_000001", naming)
+                drv.save(
+                    None,
+                    successful_acq,
+                    tmp_path / "run_000001",
+                    naming,
+                    exporter="navigator_expert",
+                )
 
     def test_save_generates_canonical_ome_and_preserves_source(
         self,
@@ -637,7 +693,13 @@ class TestSave:
         tmp_path,
         naming,
     ):
-        saved = drv.save(None, successful_acq, tmp_path / "run_000001", naming)
+        saved = drv.save(
+            None,
+            successful_acq,
+            tmp_path / "run_000001",
+            naming,
+            exporter="navigator_expert",
+        )
 
         xml = next(iter(saved.xml_paths.values())).read_text(encoding="utf-8")
         for image_path in saved.image_paths.values():
@@ -653,7 +715,13 @@ class TestSave:
     ):
         from ome_types import from_tiff, from_xml
 
-        saved = drv.save(None, successful_acq, tmp_path / "run_000001", naming)
+        saved = drv.save(
+            None,
+            successful_acq,
+            tmp_path / "run_000001",
+            naming,
+            exporter="navigator_expert",
+        )
 
         for image_path in saved.image_paths.values():
             from_tiff(str(image_path), validate=True)
@@ -667,7 +735,13 @@ class TestSave:
         tmp_path,
         naming,
     ):
-        saved = drv.save(None, successful_acq, tmp_path / "run_000001", naming)
+        saved = drv.save(
+            None,
+            successful_acq,
+            tmp_path / "run_000001",
+            naming,
+            exporter="navigator_expert",
+        )
 
         for idx, src in patched_export["plane_paths"].items():
             assert np.array_equal(
@@ -683,7 +757,13 @@ class TestSave:
         naming,
     ):
         output_root = tmp_path / "run_000001"
-        drv.save(None, successful_acq, output_root, naming)
+        drv.save(
+            None,
+            successful_acq,
+            output_root,
+            naming,
+            exporter="navigator_expert",
+        )
         summary = json.loads((output_root / "summary.json").read_text())
         rec = summary["acquisitions"][0]
 
@@ -701,8 +781,20 @@ class TestSave:
         naming,
     ):
         output_root = tmp_path / "run_000001"
-        drv.save(None, successful_acq, output_root, naming)
-        drv.save(None, successful_acq, output_root, naming)
+        drv.save(
+            None,
+            successful_acq,
+            output_root,
+            naming,
+            exporter="navigator_expert",
+        )
+        drv.save(
+            None,
+            successful_acq,
+            output_root,
+            naming,
+            exporter="navigator_expert",
+        )
         summary = json.loads((output_root / "summary.json").read_text())
         assert len(summary["acquisitions"]) == 4
 

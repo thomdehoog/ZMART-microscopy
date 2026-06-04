@@ -66,7 +66,7 @@ def save(
     export_completion_poll_interval_s: float = (
         DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S
     ),
-    exporter: str = "navigator_expert",
+    exporter: str = "lasx_native_autosave",
 ) -> SavedAcquisition:
     """Persist the files produced for *acq* into *output_root*.
 
