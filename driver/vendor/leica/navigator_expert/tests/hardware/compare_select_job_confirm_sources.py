@@ -20,6 +20,7 @@ Useful variants:
 
   python compare_select_job_confirm_sources.py --yes --runs 10 --read-only
   python compare_select_job_confirm_sources.py --yes --runs 10 --prime-log-select-cluster
+  python compare_select_job_confirm_sources.py --yes --runs 10 --api-delay-ms 0
   python compare_select_job_confirm_sources.py --yes --runs 10 --validator-arg=--allow-xy
 
 ``--mock`` can smoke-test the subprocess/summary harness, but it cannot
@@ -169,6 +170,8 @@ def _build_validator_command(
         command.append("--yes")
     if args.read_only:
         command.append("--read-only")
+    if args.api_delay_ms is not None:
+        command.extend(["--api-delay-ms", str(args.api_delay_ms)])
     command.extend(["--select-job-confirm-source", source])
     if source == "log" and args.prime_log_select_cluster:
         command.append("--prime-log-select-cluster")
@@ -379,6 +382,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="run validator against the Python mock backend")
     parser.add_argument("--read-only", action="store_true",
                         help="pass --read-only to validate_hardware.py")
+    parser.add_argument("--api-delay-ms", type=int,
+                        help="override profiles.LASX_API.delay_ms in each "
+                             "validate_hardware.py pass")
     parser.add_argument("--output-dir", default=str(HERE),
                         help="directory for per-run JSONL and summary JSON")
     parser.add_argument("--stamp", default=None,

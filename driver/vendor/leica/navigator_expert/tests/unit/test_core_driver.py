@@ -36,6 +36,7 @@ from navigator_expert.core import confirmations
 from navigator_expert.core import commands
 from navigator_expert.core import prechecks
 from navigator_expert.core import profiles
+from navigator_expert.core import session
 
 
 # =============================================================================
@@ -76,6 +77,51 @@ def make_api_obj():
 def _idle_pre_check():
     """Trivial pre-check that always succeeds (scanner idle)."""
     return {"success": True, "logs": []}
+
+
+class TestLasxApiSessionProfile(unittest.TestCase):
+    def test_configure_lasx_api_delay_uses_profile_value(self):
+        class FakeLasxApi:
+            class PyApiClient:
+                DelayInMilliseconds = 0
+
+        profile = profiles.LasxApiProfile(delay_ms=123)
+        with patch.object(profiles, "LASX_API", profile):
+            applied = session.configure_lasx_api_delay(FakeLasxApi)
+
+        self.assertEqual(applied, 123)
+        self.assertEqual(FakeLasxApi.PyApiClient.DelayInMilliseconds, 123)
+
+    def test_configure_lasx_api_delay_accepts_explicit_override(self):
+        class FakeLasxApi:
+            class PyApiClient:
+                DelayInMilliseconds = 0
+
+        applied = session.configure_lasx_api_delay(FakeLasxApi, delay_ms=0)
+
+        self.assertEqual(applied, 0)
+        self.assertEqual(FakeLasxApi.PyApiClient.DelayInMilliseconds, 0)
+
+    def test_configure_lasx_api_delay_supports_connector_module_shape(self):
+        class FakeConnector:
+            class LasxApiClientPyModel:
+                class PyApiClient:
+                    DelayInMilliseconds = 0
+
+        applied = session.configure_lasx_api_delay(FakeConnector, delay_ms=250)
+
+        self.assertEqual(applied, 250)
+        self.assertEqual(
+            FakeConnector.LasxApiClientPyModel.PyApiClient.DelayInMilliseconds,
+            250,
+        )
+
+    def test_configure_lasx_api_delay_fails_when_property_missing(self):
+        class FakeLasxApi:
+            pass
+
+        with self.assertRaisesRegex(RuntimeError, "PyApiClient"):
+            session.configure_lasx_api_delay(FakeLasxApi, delay_ms=250)
 
 
 def _make_v6_timing(**kw):

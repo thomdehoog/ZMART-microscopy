@@ -13,12 +13,54 @@ from typing import Any
 from .. import state_readers as _readers
 
 
-def connect_python_client(client_name: str = "PythonClient") -> Any:
+def _profile_api_delay_ms() -> int | None:
+    """Return the configured Leica API delay from the active profile."""
+    from . import profiles
+
+    return profiles.LASX_API.delay_ms
+
+
+def configure_lasx_api_delay(lasx_api_module: Any,
+                             delay_ms: int | None = None) -> int | None:
+    """Set Leica's ``PyApiClient.DelayInMilliseconds`` pacing knob.
+
+    ``delay_ms=None`` means "use the current profile value." A profile value
+    of ``None`` disables explicit configuration.
+
+    Returns the applied value, or ``None`` when disabled.
+    """
+    if delay_ms is None:
+        delay_ms = _profile_api_delay_ms()
+    if delay_ms is None:
+        return None
+
+    pyapi_client = getattr(lasx_api_module, "PyApiClient", None)
+    if pyapi_client is None:
+        client_model = getattr(lasx_api_module, "LasxApiClientPyModel", None)
+        pyapi_client = getattr(client_model, "PyApiClient", None)
+    if pyapi_client is None:
+        raise RuntimeError(
+            "LasxApi.PyApiClient is unavailable; cannot configure "
+            "DelayInMilliseconds"
+        )
+
+    try:
+        pyapi_client.DelayInMilliseconds = int(delay_ms)
+    except Exception as exc:  # noqa: BLE001 - .NET interop exceptions vary
+        raise RuntimeError(
+            "Could not set LasxApi.PyApiClient.DelayInMilliseconds"
+        ) from exc
+    return int(delay_ms)
+
+
+def connect_python_client(client_name: str = "PythonClient",
+                          api_delay_ms: int | None = None) -> Any:
     """Open the LAS X API client and verify it responds to ``ping``.
 
     The ``LasxApi`` import lives at the call site so the package
     itself stays import-safe offline. Pass a custom ``client_name`` if
-    multiple python clients need to coexist.
+    multiple python clients need to coexist. ``api_delay_ms`` overrides the
+    profile's ``LASX_API.delay_ms`` for this connection attempt.
 
     Raises ``ConnectionError`` if the connect call returns False, or
     ``RuntimeError`` if the subsequent ping fails.
@@ -29,6 +71,7 @@ def connect_python_client(client_name: str = "PythonClient") -> Any:
     client = _lasx_api.LasxApiClientPyModel
     if not client.Connect(client_name):
         raise ConnectionError("Cannot connect to LAS X. Is it running?")
+    configure_lasx_api_delay(_lasx_api, api_delay_ms)
 
     if not _readers.ping(client):
         raise RuntimeError("LAS X ping failed.")
