@@ -136,10 +136,10 @@ __all__ = [
 ]
 
 # -- package self-bootstrap
-# navigator_expert depends on shared.output_layout at the repository root and
-# the vendored Leica CAM API runtime in driver/vendor/leica/LasxApi. Callers
-# usually put driver/vendor/leica/ on sys.path; adding both roots here keeps the
-# layout resilient for subprocesses and scripts that import the driver first.
+# navigator_expert depends on shared.output_layout at the repository root.
+# Callers usually put driver/vendor/leica/ on sys.path; adding both roots here
+# keeps the layout resilient for subprocesses and scripts that import the driver
+# first.
 import sys as _sys
 from pathlib import Path as _Path
 _here = _Path(__file__).resolve()

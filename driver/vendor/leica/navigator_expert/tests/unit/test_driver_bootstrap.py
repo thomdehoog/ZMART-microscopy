@@ -24,13 +24,12 @@ import sys
 # Mimic an example-script entry point: only leica/ on sys.path.
 sys.path.insert(0, r"{leica}")
 import navigator_expert as drv
-import LasxApi.PYLICamApiConnector as lasx_api
+from navigator_expert.core import lasx_runtime
 assert drv.acquire is not None
 assert drv.save is not None
 assert drv.AcquisitionResult is not None
 assert drv.SavedAcquisition is not None
-assert lasx_api.__version__ == "1.0.108.0"
-assert r"{leica}" in lasx_api.__file__
+assert lasx_runtime.REQUIRED_DLLS
 print("bootstrap-ok")
 """
 
@@ -64,3 +63,21 @@ def test_driver_self_bootstrap_with_only_leica_on_path(tmp_path):
         f"subprocess failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
     assert "bootstrap-ok" in result.stdout
+
+
+def test_lasx_runtime_load_smoke_when_installed():
+    """Load the installed LAS X runtime when available.
+
+    Bare dev/CI machines can import the loader but cannot load LAS X assemblies;
+    hardware validation covers the required installed-runtime path.
+    """
+    from navigator_expert.core import lasx_runtime
+
+    try:
+        runtime = lasx_runtime.load_lasx_api_runtime()
+    except (ImportError, ModuleNotFoundError, RuntimeError) as exc:
+        pytest.skip(f"LAS X CAM API runtime unavailable: {exc}")
+
+    assert runtime.LasxApiClientPyModel is not None
+    assert runtime.__version__
+    assert runtime.__file__.endswith("PYLICamApiConnector.dll")

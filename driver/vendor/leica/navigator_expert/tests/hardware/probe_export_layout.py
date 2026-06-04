@@ -46,8 +46,9 @@ from navigator_expert.acquisition.navigator_expert_export import (  # noqa: E402
 
 def _connect():
     """Connect a Python CAM client (mirrors the working scratch pattern)."""
-    import LasxApi.PYLICamApiConnector as lasx_api
+    from navigator_expert.core.lasx_runtime import load_lasx_api_runtime
 
+    lasx_api = load_lasx_api_runtime()
     client = lasx_api.LasxApiClientPyModel
     print("Connect:", client.Connect("PythonClient"))
     return client
