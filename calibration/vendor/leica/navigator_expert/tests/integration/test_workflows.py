@@ -1025,7 +1025,7 @@ def _patch_objective_driver(
             state["zwide"] = float(z)
         return {"success": True}
 
-    def _read_zwide_um(client, job_name):
+    def _read_zwide_um(client, job_name, **kw):
         # Returns the most recently commanded z-wide. Tests set
         # state["zwide"] = z_post before measure_parfocality_target to
         # simulate the firmware's post-switch z-wide reading.
