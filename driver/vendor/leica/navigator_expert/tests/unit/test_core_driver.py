@@ -1922,6 +1922,36 @@ class TestCheckIdle(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertIsInstance(result["logs"], list)
 
+    def test_check_idle_pins_api_mode(self):
+        prior = profiles.STATE_READERS
+        calls = []
+
+        def mock_status(client, **kwargs):
+            calls.append(kwargs)
+            return "eScanIdle"
+
+        profiles.STATE_READERS = profiles.StateReaderProfile(scan_status_mode="both")
+        try:
+            with patch.object(readers, 'get_scan_status', side_effect=mock_status):
+                result = prechecks.check_idle(None, timeout=5.0)
+        finally:
+            profiles.STATE_READERS = prior
+
+        self.assertTrue(result["success"])
+        self.assertEqual(calls[0]["mode"], "api")
+
+    def test_check_idle_treats_none_as_not_idle(self):
+        values = [None, "eScanIdle"]
+
+        def mock_status(client, **_kwargs):
+            return values.pop(0)
+
+        with patch.object(readers, 'get_scan_status', side_effect=mock_status), \
+             patch('time.sleep'):
+            result = prechecks.check_idle(None, timeout=None)
+
+        self.assertTrue(result["success"])
+
     def test_timeout_returns_failure(self):
         with patch.object(readers, 'get_scan_status', return_value="eScanRunning"), \
              patch('time.sleep'):
@@ -2073,6 +2103,72 @@ class TestConfirmSelectJob(unittest.TestCase):
                 None, job_name="HiRes", timeout=0.01,
                 poll_interval=0.001)
         self.assertFalse(result["success"])
+
+
+    def test_select_job_early_exit_pins_api_mode(self):
+        client = make_client()
+        client.PyApiSelectJobByName = make_api_obj()
+        calls = []
+
+        def fake_get_jobs(client, **kwargs):
+            calls.append(kwargs)
+            # A stale log would claim Overview is selected. The API says it is
+            # not, so select_job must dispatch instead of early-exiting.
+            if kwargs.get("mode") != "api":
+                return [{"Name": "Overview", "IsSelected": True}]
+            return [
+                {"Name": "AF Job", "IsSelected": True},
+                {"Name": "Overview", "IsSelected": False},
+            ]
+
+        dispatched = {"success": True, "confirmed": True, "message": "sent"}
+        with patch.object(commands._readers, 'get_jobs', side_effect=fake_get_jobs), \
+             patch.object(commands, '_dispatch', return_value=dispatched) as dispatch_mock:
+            result = commands.select_job(client, "Overview")
+
+        self.assertEqual(result, dispatched)
+        self.assertEqual(calls[0]["mode"], "api")
+        dispatch_mock.assert_called_once()
+
+
+class TestCommandReaderSafety(unittest.TestCase):
+    def test_move_galvo_to_pixel_pins_parameter_reads_to_api(self):
+        client = make_client()
+        calls = {"selected": [], "settings": [], "base_fov": []}
+
+        def fake_get_selected_job(client, **kwargs):
+            calls["selected"].append(kwargs)
+            return {"Name": "Overview"}
+
+        def fake_get_job_settings(client, job_name, **kwargs):
+            calls["settings"].append((job_name, kwargs))
+            return {"settings": "raw"}
+
+        def fake_get_base_fov(client, job_name, **kwargs):
+            calls["base_fov"].append((job_name, kwargs))
+            return (0.000512, 0.000512)
+
+        def fake_apply_lrp_change(client, template_xml, edit_fn):
+            return {"success": True}
+
+        with patch.object(readers, "get_selected_job",
+                          side_effect=fake_get_selected_job), \
+             patch.object(readers, "get_job_settings",
+                          side_effect=fake_get_job_settings), \
+             patch.object(readers, "get_base_fov",
+                          side_effect=fake_get_base_fov), \
+             patch("navigator_expert.core.utils.parse_tile_geometry",
+                   return_value={"pixel_w_um": 1.0, "pixels_x": 512}), \
+             patch("navigator_expert.experimental.lrp_edits.roi.galvo_pan_for_pixel",
+                   return_value=(0.0, 0.0)), \
+             patch("navigator_expert.templates.transaction.apply_lrp_change",
+                   side_effect=fake_apply_lrp_change):
+            result = commands.move_galvo_to_pixel(client, 10, 20)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(calls["selected"][0]["mode"], "api")
+        self.assertEqual(calls["settings"][0][1]["mode"], "api")
+        self.assertEqual(calls["base_fov"][0][1]["mode"], "api")
 
 
 # =============================================================================

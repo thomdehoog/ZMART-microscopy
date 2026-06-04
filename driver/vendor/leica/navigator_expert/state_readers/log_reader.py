@@ -6,7 +6,7 @@ Reads LAS X state from the hardware log (``lcsCommand.log``, written by
 freeze for seconds while a modal dialog blocks its channel; the log keeps
 flowing, so a log read never hangs.
 
-This is a **fresh-state probe, not a drop-in reader**. The log records the
+This is a **fresh-state probe, not an authoritative command reader**. The log records the
 *last value dumped* for each datum, so it is byte-accurate for state LAS X
 is actively dumping (current XY, the active job) and can be silently stale
 for state that changed without that job being re-dumped. Every datum
@@ -19,14 +19,18 @@ Not provided here on purpose: ``ping`` (log mtime is not liveness — keep it
 on the API) and any API fallback (that would re-introduce the hang path).
 ``get_scan_status`` maps the numeric ``AcquisitionState`` to a state string.
 
+The routed public reader layer may use this module for passive ``log`` or
+``both`` reads, and dispatch uses it as a dialog diagnostic when the CAM API is
+blocked. Command-control reads should pin the API backend instead.
+
 Parameters live in ``core.profiles.LOG_READER`` - no hardcoded values in the
 read paths.
 
 Dependency direction:
     - Imports: stdlib, ``utils`` (parse_tile_geometry), ``settings``
-      (make_changeable_copy), ``readers`` (get_lasx_settings re-export).
-    - Imported by: tests / the side-by-side validator. NOT wired into the
-      production read path (deferred until validated on hardware).
+      (make_changeable_copy).
+    - Imported by: ``state_readers.router``, dispatch diagnostics, tests, and
+      hardware validators.
 """
 
 import json
@@ -38,7 +42,6 @@ from datetime import datetime
 
 from ..core.utils import parse_tile_geometry
 from ..core.settings import make_changeable_copy
-from .api_reader import get_lasx_settings  # disk-based, backend-independent
 
 log = logging.getLogger(__name__)
 

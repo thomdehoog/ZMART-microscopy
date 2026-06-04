@@ -29,6 +29,7 @@ Outputs:
 
 Usage:
   python validate_hardware.py --yes                        # LAS X (sim or live)
+  python validate_hardware.py --yes --state-reader-mode both
   python validate_hardware.py --yes --allow-xy             # + stage round-trip
   python validate_hardware.py --yes --allow-xy --allow-acquire
   python validate_hardware.py --output results.jsonl       # capture structured
@@ -382,6 +383,8 @@ def _selected_job_name(
 ) -> str | None:
     """Return the currently selected LAS X job name, if LAS X reports one."""
     jobs = drv.get_jobs(client, mode=mode)
+    if not jobs:
+        return None
     selected = next((j for j in jobs if j.get("IsSelected")), None)
     return selected["Name"] if selected else None
 
@@ -453,13 +456,20 @@ def phase_readonly(drv: Any, v: Validator, client: Any,
         v.callable("get_xy", lambda: drv.get_xy(client))
 
         if not jobs:
-            v.skip("job: resolve", "no jobs returned")
+            msg = "no jobs returned"
+            if args.state_reader_mode in {"log", "both"}:
+                v.fail("job: resolve", f"{msg} with --state-reader-mode {args.state_reader_mode}")
+            else:
+                v.skip("job: resolve", msg)
             return None
         names = [j["Name"] for j in jobs]
         if args.job:
             if args.job not in names:
-                v.skip("job: resolve",
-                       f"requested {args.job!r} not in {names!r}")
+                msg = f"requested {args.job!r} not in {names!r}"
+                if args.state_reader_mode in {"log", "both"}:
+                    v.fail("job: resolve", msg)
+                else:
+                    v.skip("job: resolve", msg)
                 return None
             name = args.job
         else:
@@ -900,6 +910,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="record SKIP instead of FAIL when LasxApi cannot connect")
     p.add_argument("--log-level", default="INFO",
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    p.add_argument("--state-reader-mode",
+                   choices=["api", "log", "both"],
+                   help="override all profile-routed passive state readers")
 
     return p.parse_args(argv)
 
@@ -947,6 +960,22 @@ def _configure_logging(level: str, jsonl_to_stdout: bool) -> logging.Logger:
     return log
 
 
+def _apply_state_reader_mode(mode: str | None, log: logging.Logger) -> None:
+    """Override all profile-routed passive state readers for this run."""
+    if mode is None:
+        return
+    from navigator_expert.core import profiles  # noqa: PLC0415
+
+    profiles.STATE_READERS = profiles.StateReaderProfile(
+        xy_mode=mode,
+        job_settings_mode=mode,
+        jobs_mode=mode,
+        hardware_info_mode=mode,
+        scan_status_mode=mode,
+    )
+    log.info("state-reader mode override: %s", mode)
+
+
 # --- Main -------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
@@ -955,6 +984,7 @@ def main(argv: list[str] | None = None) -> int:
                              jsonl_to_stdout=(args.output == "-"))
     sink = _make_sink(args.output, log)
     drv, MockClient = _bootstrap()
+    _apply_state_reader_mode(args.state_reader_mode, log)
 
     v = Validator(
         sink=sink, log=log,
@@ -963,10 +993,11 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     log.info("=== smart-microscopy hardware validator ===")
-    log.info("client=%s job=%s read_only=%s",
+    log.info("client=%s job=%s read_only=%s state_reader_mode=%s",
              "python-mock" if args.mock else "LasxApi (sim or scope)",
              args.job or "<selected>",
-             args.read_only)
+             args.read_only,
+             args.state_reader_mode or "<profile>")
 
     try:
         client = _connect(args, MockClient, log)

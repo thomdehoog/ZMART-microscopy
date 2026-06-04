@@ -48,7 +48,10 @@ def check_idle(client, *, timeout, heartbeat=30.0):
     last_heartbeat = t0
 
     while True:
-        status = _readers.get_scan_status(client)
+        # Idle is a command-safety precondition, not a passive status display.
+        # Pin API so log/both profile modes cannot let a stale log value gate a
+        # command. Unknown/None is treated as not idle.
+        status = _readers.get_scan_status(client, mode="api") or "Unknown"
 
         if "Idle" in status:
             return {"success": True, "logs": logs}

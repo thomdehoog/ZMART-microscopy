@@ -66,18 +66,17 @@ class LogReaderProfile:
     msgbox_log_path: str = r"C:\ProgramData\Leica Microsystems\LAS X\MatrixScreener.log"
     current_window_s: float = 180.0
     max_age_s: Optional[float] = None
-    poll_timeout: float = 2.0
-    poll_interval: float = 0.05
 
 
 @dataclass(frozen=True)
 class StateReaderProfile:
     """Profile-controlled backend selection for passive state reads.
 
-    These modes are defaults for cold/status reads. Command confirmations and
-    post-write readbacks must use the gated confirmation path, or explicitly
-    pin API, so a fresh-by-age log value from before the command cannot confirm
-    a just-issued write.
+    These modes are defaults for cold/status reads. Reads that decide command
+    control flow - prechecks, early exits, command-parameterizing reads,
+    confirmations, and post-write readbacks - must use the gated confirmation
+    path, or explicitly pin API. A fresh-by-age log value must never decide
+    whether a command fires, how it is parameterized, or whether it confirms.
     """
 
     both_log_grace_s: float = 0.25
