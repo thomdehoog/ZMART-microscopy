@@ -681,6 +681,60 @@ class TestConfirmation(unittest.TestCase):
         self.assertFalse(r["confirmed"])
         self.assertIn("unconfirmed", r["message"])
 
+    def test_unconfirmed_command_reports_post_command_dialog(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        confirm_fn = MagicMock(return_value={"success": False, "logs": []})
+        snapshot = MagicMock(
+            pending_dialog="Please turn turret manually",
+            pending_dialog_ts=time.time() + 10.0,
+        )
+
+        with patch.object(errors, '_check_api_error', return_value=None), \
+             patch.object(dispatch._log_reader, "parse_log", return_value=snapshot):
+            r = dispatch.confirm_and_fire(
+                client,
+                api_obj,
+                "Objective -> slot 1",
+                confirm_fn=confirm_fn,
+                max_retries=0,
+                max_confirm_attempts=1,
+                pre_check_fn=_idle_pre_check,
+            )
+
+        self.assertFalse(r["confirmed"])
+        self.assertTrue(any(
+            "LAS X dialog appears open" in entry["msg"]
+            for entry in r["logs"]
+        ))
+
+    def test_unconfirmed_command_ignores_pre_command_dialog(self):
+        client = make_client()
+        api_obj = make_api_obj()
+        confirm_fn = MagicMock(return_value={"success": False, "logs": []})
+        snapshot = MagicMock(
+            pending_dialog="Old dialog",
+            pending_dialog_ts=0.0,
+        )
+
+        with patch.object(errors, '_check_api_error', return_value=None), \
+             patch.object(dispatch._log_reader, "parse_log", return_value=snapshot):
+            r = dispatch.confirm_and_fire(
+                client,
+                api_obj,
+                "Objective -> slot 1",
+                confirm_fn=confirm_fn,
+                max_retries=0,
+                max_confirm_attempts=1,
+                pre_check_fn=_idle_pre_check,
+            )
+
+        self.assertFalse(r["confirmed"])
+        self.assertFalse(any(
+            "LAS X dialog appears open" in entry["msg"]
+            for entry in r["logs"]
+        ))
+
     def test_confirm_succeeds_on_retry(self):
         """Confirm fails first, correction re-fires, then confirm succeeds."""
         client = make_client()
@@ -901,6 +955,39 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._mock_readback({"scanSpeed": {"isResonant": True}}):
             self.assertTrue(confirmations._confirm_scan_resonant(None, "J", True)["success"])
             self.assertFalse(confirmations._confirm_scan_resonant(None, "J", False)["success"])
+
+    def test_setting_confirm_pins_api_even_when_profile_is_both(self):
+        prior = profiles.STATE_READERS
+        profiles.STATE_READERS = profiles.StateReaderProfile(job_settings_mode="both")
+        calls = []
+
+        def fake_get_job_settings(client, job_name, **kwargs):
+            calls.append(kwargs)
+            return readers.Reading(
+                value={
+                    "zoom": {"current": 1.0},
+                    "scanSpeed": {"value": 400, "isResonant": True},
+                    "activeSettings": [{}],
+                },
+                source="api",
+                observed_at=time.time() + 1.0,
+                age_s=0.0,
+            )
+
+        try:
+            with patch.object(
+                confirmations._readers,
+                "get_job_settings",
+                side_effect=fake_get_job_settings,
+            ):
+                result = confirmations._confirm_scan_resonant(
+                    object(), "J", True, timeout=0.01, poll_interval=0.001)
+        finally:
+            profiles.STATE_READERS = prior
+
+        self.assertTrue(result["success"])
+        self.assertEqual(calls[0]["mode"], "api")
+        self.assertTrue(calls[0]["diagnostics"])
 
     def test_confirm_scan_mode(self):
         with self._mock_readback({"scanMode": "xyz"}):

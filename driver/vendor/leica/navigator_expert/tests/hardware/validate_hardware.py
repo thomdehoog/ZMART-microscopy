@@ -368,14 +368,20 @@ def _set_stage_limits(drv: Any, limits: dict[str, float]) -> bool:
 
 # --- Driver helpers ---------------------------------------------------------
 
-def _settings(drv: Any, client: Any, job_name: str) -> dict:
+def _settings(drv: Any, client: Any, job_name: str, *, mode: str | None = None) -> dict:
     """Read + parse current job settings (changeable copy)."""
-    return drv.make_changeable_copy(drv.get_job_settings(client, job_name))
+    return drv.make_changeable_copy(
+        drv.get_job_settings(client, job_name, mode=mode))
 
 
-def _selected_job_name(drv: Any, client: Any) -> str | None:
+def _selected_job_name(
+    drv: Any,
+    client: Any,
+    *,
+    mode: str | None = None,
+) -> str | None:
     """Return the currently selected LAS X job name, if LAS X reports one."""
-    jobs = drv.get_jobs(client)
+    jobs = drv.get_jobs(client, mode=mode)
     selected = next((j for j in jobs if j.get("IsSelected")), None)
     return selected["Name"] if selected else None
 
@@ -486,7 +492,8 @@ def phase_job_selection(drv: Any, v: Validator, client: Any,
                           lambda name=name: drv.select_job(client, name),
                           context=ctx)
                 selected = v.callable("job selection: read selected job",
-                                      lambda: _selected_job_name(drv, client),
+                                      lambda: _selected_job_name(
+                                          drv, client, mode="api"),
                                       context=ctx)
                 if selected is not None:
                     v.compare(f"job selection: confirmed {name}", selected, name)
@@ -504,23 +511,26 @@ def phase_settings(drv: Any, v: Validator, client: Any, job_name: str) -> None:
     ``sequential_mode`` IS round-tripped (``Line``/``Frame``) because it
     is a normal per-job knob the driver should be able to flip safely.
     """
+    def api_settings() -> dict:
+        return _settings(drv, client, job_name, mode="api")
+
     with v.phase("settings round-trip"):
         _round_trip(
             v, "zoom", job_name,
-            read=lambda: _settings(drv, client, job_name)["zoom"]["current"],
+            read=lambda: api_settings()["zoom"]["current"],
             write=lambda x: drv.set_zoom(client, job_name, x),
             candidates=[5.0, 10.0, 2.0, 1.0],
             tolerance=0.1,
         )
         _round_trip(
             v, "scan_speed", job_name,
-            read=lambda: _settings(drv, client, job_name)["scanSpeed"]["value"],
+            read=lambda: api_settings()["scanSpeed"]["value"],
             write=lambda x: drv.set_scan_speed(client, job_name, x),
             candidates=[400, 600, 800, 1000],
         )
         _round_trip(
             v, "scan_resonant", job_name,
-            read=lambda: _settings(drv, client, job_name)["scanSpeed"][
+            read=lambda: api_settings()["scanSpeed"][
                 "isResonant"
             ],
             write=lambda x: drv.set_scan_resonant(client, job_name, x),
@@ -528,20 +538,20 @@ def phase_settings(drv: Any, v: Validator, client: Any, job_name: str) -> None:
         )
         scan_mode = v.callable(
             "scan_mode: read current",
-            lambda: _settings(drv, client, job_name)["scanMode"],
+            lambda: api_settings()["scanMode"],
             context={"job": job_name},
         )
         if scan_mode is not None:
             v.compare("scan_mode: is xyz", scan_mode, "xyz")
         _round_trip(
             v, "sequential_mode", job_name,
-            read=lambda: _settings(drv, client, job_name)["sequentialMode"],
+            read=lambda: api_settings()["sequentialMode"],
             write=lambda x: drv.set_sequential_mode(client, job_name, x),
             candidates=["Line", "Frame"],
         )
         _round_trip(
             v, "scan_field_rotation", job_name,
-            read=lambda: _settings(drv, client, job_name)[
+            read=lambda: api_settings()[
                 "scanFieldRotation"
             ]["value"],
             write=lambda x: drv.set_scan_field_rotation(client, job_name, x),
@@ -550,13 +560,13 @@ def phase_settings(drv: Any, v: Validator, client: Any, job_name: str) -> None:
         )
         _round_trip(
             v, "image_format", job_name,
-            read=lambda: _settings(drv, client, job_name)["format"],
+            read=lambda: api_settings()["format"],
             write=lambda x: drv.set_image_format(client, job_name, x),
             candidates=["512 x 512", "1024 x 1024"],
         )
         _round_trip(
             v, "frame_accumulation", job_name,
-            read=lambda: _settings(drv, client, job_name)["activeSettings"][0][
+            read=lambda: api_settings()["activeSettings"][0][
                 "frameAccumulation"
             ],
             write=lambda x: drv.set_frame_accumulation(client, job_name, 0, x),
@@ -564,7 +574,7 @@ def phase_settings(drv: Any, v: Validator, client: Any, job_name: str) -> None:
         )
         _round_trip(
             v, "frame_average", job_name,
-            read=lambda: _active_setting(_settings(drv, client, job_name))[
+            read=lambda: _active_setting(api_settings())[
                 "frameAverage"
             ],
             write=lambda x: drv.set_frame_average(client, job_name, 0, x),
@@ -572,7 +582,7 @@ def phase_settings(drv: Any, v: Validator, client: Any, job_name: str) -> None:
         )
         _round_trip(
             v, "line_accumulation", job_name,
-            read=lambda: _active_setting(_settings(drv, client, job_name))[
+            read=lambda: _active_setting(api_settings())[
                 "lineAccumulation"
             ],
             write=lambda x: drv.set_line_accumulation(client, job_name, 0, x),
@@ -580,7 +590,7 @@ def phase_settings(drv: Any, v: Validator, client: Any, job_name: str) -> None:
         )
         _round_trip(
             v, "line_average", job_name,
-            read=lambda: _active_setting(_settings(drv, client, job_name))[
+            read=lambda: _active_setting(api_settings())[
                 "lineAverage"
             ],
             write=lambda x: drv.set_line_average(client, job_name, 0, x),
@@ -588,7 +598,7 @@ def phase_settings(drv: Any, v: Validator, client: Any, job_name: str) -> None:
         )
         _round_trip(
             v, "pinhole_airy", job_name,
-            read=lambda: _active_setting(_settings(drv, client, job_name))[
+            read=lambda: _active_setting(api_settings())[
                 "pinholeAiry"
             ]["value"],
             write=lambda x: drv.set_pinhole_airy(client, job_name, 0, x),
@@ -608,7 +618,7 @@ def phase_detector_gain(drv: Any, v: Validator, client: Any,
     noise to the JSONL without diagnostic value.
     """
     try:
-        settings = _settings(drv, client, job_name)
+        settings = _settings(drv, client, job_name, mode="api")
     except Exception as exc:  # noqa: BLE001
         v.skip("detector_gain: round-trip",
                f"cannot read detector settings: {exc}")
@@ -643,7 +653,8 @@ def phase_detector_gain(drv: Any, v: Validator, client: Any,
         return
     _round_trip(
         v, "detector_gain", job_name,
-        read=lambda: _active_setting(_settings(drv, client, job_name))[
+        read=lambda: _active_setting(_settings(
+            drv, client, job_name, mode="api"))[
             "activeDetectors"
         ][0]["gain"]["value"],
         write=lambda x: drv.set_detector_gain(
@@ -726,7 +737,10 @@ def phase_xy(drv: Any, v: Validator, client: Any,
             v.command("xy: move alternate",
                       lambda: drv.move_xy(client, x1, y1, unit="um"),
                       context=ctx)
-            end = v.callable("xy: read alternate", lambda: drv.get_xy(client))
+            end = v.callable(
+                "xy: read alternate",
+                lambda: drv.get_xy(client, mode="api"),
+            )
             if end is None:
                 v.skip("xy: readback", "get_xy returned None after move")
             else:
@@ -780,7 +794,7 @@ def phase_z(drv: Any, v: Validator, client: Any, job_name: str,
                       context=ctx)
             after_settings = v.callable(
                 "z: read alternate",
-                lambda: _settings(drv, client, job_name),
+                lambda: _settings(drv, client, job_name, mode="api"),
                 context={"job": job_name},
             )
             after = after_settings.get("zPosition", {}) if after_settings else {}

@@ -63,7 +63,7 @@ def ensure_job_state(ctx: Context, job: str) -> None:
         # post-settle contradiction as a warning only; the objective
         # slot check above remains the hard job-binding guard.
         try:
-            jobs = drv.get_jobs(ctx.client)
+            jobs = drv.get_jobs(ctx.client, mode="api")
         except Exception:
             jobs = None
         if jobs:
@@ -97,7 +97,7 @@ def _expected_slot(ctx: Context, job: str) -> int:
 
 def _read_objective_slot(client, job: str) -> int:
     """Read objective slot from job settings with defensive parsing."""
-    settings = drv.get_job_settings(client, job)
+    settings = drv.get_job_settings(client, job, mode="api")
     if not settings:
         raise RuntimeError(
             f"get_job_settings({job!r}) returned nothing.")

@@ -185,7 +185,7 @@ def move_xy_and_verify(
         raise RuntimeError(f"move_xy failed: {result}")
     if settle_s > 0:
         time.sleep(settle_s)
-    xy = drv.get_xy(client) or {}
+    xy = drv.get_xy(client, mode="api") or {}
     if ("x_um" not in xy) or ("y_um" not in xy):
         raise RuntimeError(f"get_xy returned no readback: {xy}")
     if (abs(xy["x_um"] - x_um) > tolerance_um
@@ -207,7 +207,7 @@ def move_zwide_and_verify(
                         tolerance=tolerance_um)
     if not result or not result.get("success"):
         raise RuntimeError(f"move_z zwide failed: {result}")
-    actual = drv.read_zwide_um(client, job_name)
+    actual = drv.read_zwide_um(client, job_name, mode="api")
     if abs(actual - z_um) > tolerance_um:
         raise RuntimeError(
             f"z-wide readback outside tolerance: "

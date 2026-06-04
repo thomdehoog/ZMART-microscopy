@@ -34,13 +34,15 @@ delivery. ``_await_echo_result`` polls the echo model after transport
 delivery, waiting for LAS X to finish processing before the error
 check reads the echo fields.
 
-Import restrictions: only ``errors``, ``utils``, and stdlib. Nothing from
-``commands``, ``profiles``, ``prechecks``, or ``confirmations``.
+Import restrictions: only ``errors``, ``utils``, ``state_readers.log_reader``,
+and stdlib. Nothing from ``commands``, ``profiles``, ``prechecks``, or
+``confirmations``.
 """
 
 import logging
 import time
 
+from ..state_readers import log_reader as _log_reader
 from .errors import _default_error_check
 from .utils import _make_timing, _make_log_entry, RECEIPT_TIMEOUT
 
@@ -59,6 +61,33 @@ def _confirmation_detail(result):
     if not details:
         return ""
     return f"; last_confirmation={details!r}"
+
+
+def _dialog_warning_since(command_started_at, description):
+    """Return a post-command LAS X dialog warning, if the log can prove one.
+
+    Diagnostic only: this helper is called only on failure/unconfirmed paths,
+    and log-reader failures must never add another command failure mode.
+    """
+    try:
+        snapshot = _log_reader.parse_log()
+        text = snapshot.pending_dialog
+        observed_at = snapshot.pending_dialog_ts
+    except Exception:  # noqa: BLE001
+        log.debug("dialog diagnostic failed", exc_info=True)
+        return None
+    if not text or observed_at is None or observed_at < command_started_at:
+        return None
+    return f"{description} | LAS X dialog appears open: {text}"
+
+
+def _append_dialog_warning(logs, command_started_at, description):
+    msg = _dialog_warning_since(command_started_at, description)
+    if msg is None:
+        return ""
+    log.warning(msg)
+    logs.append(_make_log_entry("warning", msg))
+    return f"; dialog={msg!r}"
 
 
 # =============================================================================
@@ -416,6 +445,7 @@ def confirm_and_fire(client, api_obj, description, *,
         failed, None if confirm_fn was not provided or the command
         failed before reaching confirmation.
     """
+    command_started_at = time.time()
     t_wall_start = time.perf_counter()
     t_confirm_total = 0.0
     all_logs = []
@@ -440,10 +470,12 @@ def confirm_and_fire(client, api_obj, description, *,
     fb_timing = fb["timing"]
 
     if not fb["success"]:
+        dialog_detail = _append_dialog_warning(
+            all_logs, command_started_at, description)
         return {
             "success": False,
             "confirmed": None,
-            "message": fb["message"],
+            "message": f"{fb['message']}{dialog_detail}",
             "timing": _make_timing(
                 pre_check_s=fb_timing["pre_check_s"],
                 setup_s=fb_timing["setup_s"],
@@ -586,7 +618,10 @@ def confirm_and_fire(client, api_obj, description, *,
                 return {
                     "success": False,
                     "confirmed": False,
-                    "message": fb["message"],
+                    "message": (
+                        f"{fb['message']}"
+                        f"{_append_dialog_warning(all_logs, command_started_at, description)}"
+                    ),
                     "timing": _make_timing(
                         pre_check_s=acc_pre,
                         setup_s=acc_setup,
@@ -608,6 +643,7 @@ def confirm_and_fire(client, api_obj, description, *,
         f"state readback did not confirm the requested value"
         f"{_confirmation_detail(last_confirm_result)}"
     )
+    msg += _append_dialog_warning(all_logs, command_started_at, description)
     log.warning("%s (%.3fs)", msg, time.perf_counter() - t_wall_start)
     all_logs.append(_make_log_entry("warning", msg))
     return {

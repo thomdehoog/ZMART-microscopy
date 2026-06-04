@@ -72,7 +72,13 @@ class LogReaderProfile:
 
 @dataclass(frozen=True)
 class StateReaderProfile:
-    """Profile-controlled backend selection for state reads."""
+    """Profile-controlled backend selection for passive state reads.
+
+    These modes are defaults for cold/status reads. Command confirmations and
+    post-write readbacks must use the gated confirmation path, or explicitly
+    pin API, so a fresh-by-age log value from before the command cannot confirm
+    a just-issued write.
+    """
 
     both_log_grace_s: float = 0.25
 
