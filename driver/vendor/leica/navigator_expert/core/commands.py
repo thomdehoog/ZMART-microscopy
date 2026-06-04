@@ -58,7 +58,7 @@ from .confirmations import (
     confirm_acquire, confirm_select_job,
 )
 from ..stage.limits import _check_xy_limits, _check_z_limits
-from . import readers as _readers
+from .. import state_readers as _readers
 from .utils import _hw_get, parse_format, _make_timing
 
 log = logging.getLogger(__name__)
@@ -893,7 +893,7 @@ def move_galvo_to_pixel(client, px, py, *,
     exceed the angular limit (``_PAN_LIMIT``); the caller should stage-move
     closer first.
     """
-    from .readers import get_selected_job, get_base_fov, get_job_settings
+    from ..state_readers import get_selected_job, get_base_fov, get_job_settings
     from ..templates.files import TEMPLATE_XML
     from ..templates.transaction import apply_lrp_change
     from ..experimental.lrp_edits.scan import lrp_set_pan, lrp_get_pan

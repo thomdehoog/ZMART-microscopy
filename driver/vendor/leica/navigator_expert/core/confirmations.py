@@ -32,7 +32,7 @@ import logging
 import math
 import time
 
-from . import readers as _readers
+from .. import state_readers as _readers
 from .errors import _check_api_error, _is_transient_error
 from .settings import make_changeable_copy
 from .utils import _make_log_entry, CONFIRM_TIMEOUT
@@ -44,12 +44,45 @@ log = logging.getLogger(__name__)
 # Readback helper
 # =============================================================================
 
-def _readback(client, job_name):
+def _readback(client, job_name, *, observed_after=None):
     """Read job settings and return changeable copy, or None on failure."""
-    raw = _readers.get_job_settings(client, job_name, timeout=CONFIRM_TIMEOUT)
-    if raw is None:
+    reading = _readers.get_job_settings(
+        client,
+        job_name,
+        timeout=CONFIRM_TIMEOUT,
+        mode="api",
+        diagnostics=True,
+    )
+    if reading is None:
         return None
+    if hasattr(reading, "value"):
+        if reading.value is None:
+            return None
+        if (observed_after is not None and reading.observed_at is not None
+                and reading.observed_at <= observed_after):
+            return None
+        raw = reading.value
+    else:
+        raw = reading
     return make_changeable_copy(raw)
+
+
+def _reading_value_after(reading, observed_after):
+    """Return a diagnostic reading's value only if it is post-start.
+
+    Tests sometimes patch routed readers with their old plain return shape; those
+    values are accepted here so the tests can stay focused on confirmation logic.
+    Real routed readers return ``Reading`` and get the timestamp gate.
+    """
+    if reading is None:
+        return None
+    if not hasattr(reading, "value"):
+        return reading
+    if reading.value is None or reading.observed_at is None:
+        return None
+    if reading.observed_at <= observed_after:
+        return None
+    return reading.value
 
 
 # =============================================================================
@@ -1064,12 +1097,16 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=20.0,
     if timeout is None:
         timeout = CONFIRM_TIMEOUT
     logs = []
+    observed_after = time.time()
     t_start = time.perf_counter()
     deadline = t_start + timeout
     last_position = None
 
     while time.perf_counter() < deadline:
-        pos = _readers.get_xy(client)
+        pos = _reading_value_after(
+            _readers.get_xy(client, mode="api", diagnostics=True),
+            observed_after,
+        )
         if pos is not None:
             last_position = pos
             dx = abs(pos["x_um"] - target_x_um)
@@ -1123,6 +1160,7 @@ def confirm_acquire(client, *, start_timeout=15.0, heartbeat_interval=30.0,
         {"success": bool, "logs": [...]}
     """
     logs = []
+    observed_after = time.time()
     t_start = time.perf_counter()
     last_heartbeat = t_start
     saw_scanning = False
@@ -1133,7 +1171,10 @@ def confirm_acquire(client, *, start_timeout=15.0, heartbeat_interval=30.0,
     deadline = t_start + (timeout if timeout is not None else 1e9)
 
     while time.perf_counter() < deadline:
-        status = _readers.get_scan_status(client)
+        status = _reading_value_after(
+            _readers.get_scan_status(client, mode="api", diagnostics=True),
+            observed_after,
+        ) or "Unknown"
         elapsed = time.perf_counter() - t_start
 
         if "Idle" not in status:
@@ -1198,11 +1239,15 @@ def confirm_select_job(client, *, job_name, timeout=None,
     if timeout is None:
         timeout = CONFIRM_TIMEOUT
     logs = []
+    observed_after = time.time()
     t_start = time.perf_counter()
     deadline = t_start + timeout
 
     while time.perf_counter() < deadline:
-        jobs = _readers.get_jobs(client)
+        jobs = _reading_value_after(
+            _readers.get_jobs(client, mode="api", diagnostics=True),
+            observed_after,
+        )
         if jobs:
             for j in jobs:
                 if j.get("Name") == job_name and j.get("IsSelected"):

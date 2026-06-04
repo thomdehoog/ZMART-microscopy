@@ -13,7 +13,7 @@ from pathlib import Path
 from threading import Event, Thread
 from typing import Any
 
-from ..core import readers as _readers
+from .. import state_readers as _readers
 from ..core import settings as _core_settings
 from ..core import utils as _core_utils
 from . import ome as _ome

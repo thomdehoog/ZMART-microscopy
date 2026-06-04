@@ -257,7 +257,7 @@ class TestParseTemplatePositionsFromRgnGrid:
     ):
         base = self._write_grid_template(tmp_path)
 
-        from navigator_expert.core import readers
+        from navigator_expert import state_readers as readers
 
         def fake_get_job_settings(_client, job_name):
             assert job_name == "Overview"

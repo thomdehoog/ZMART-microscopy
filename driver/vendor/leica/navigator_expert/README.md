@@ -434,14 +434,18 @@ Strict hierarchy with no circular imports:
 core.utils             -> stdlib only
 core.errors            -> core.utils
 stage.limits           -> stdlib only
-core.readers           -> stdlib only
+state_readers.api_reader -> core.utils, stdlib
+state_readers.log_reader -> state_readers.api_reader, core.settings,
+                            core.utils, core.profiles, stdlib
+state_readers.router     -> state_readers.api_reader,
+                            state_readers.log_reader, core.profiles, stdlib
 core.settings          -> core.utils
-core.prechecks         -> core.readers, core.utils
-core.confirmations     -> core.readers, core.settings, core.utils
+core.prechecks         -> state_readers, core.utils
+core.confirmations     -> state_readers, core.settings, core.utils
 core.dispatch          -> core.errors, core.utils
 core.profiles          -> core.prechecks, core.confirmations, core.errors
 core.commands          -> core.dispatch, core.profiles, core.confirmations,
-                          core.readers, core.utils, stage.limits
+                          state_readers, core.utils, stage.limits
 templates/*            -> file/template operations above API readback
 acquisition/*          -> capture, LAS X file arrival, and OME metadata fixes
 stage/*                -> stage safety and backlash-aware movement

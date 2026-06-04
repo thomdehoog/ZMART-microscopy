@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import readers as _readers
+from .. import state_readers as _readers
 
 
 def connect_python_client(client_name: str = "PythonClient") -> Any:

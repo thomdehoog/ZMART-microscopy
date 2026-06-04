@@ -26,6 +26,7 @@ Import restrictions: only ``prechecks``, ``confirmations``, ``errors``,
 """
 
 from dataclasses import dataclass
+from typing import Optional
 
 from .confirmations import (
     _confirm_zoom,
@@ -55,6 +56,49 @@ from .confirmations import (
     confirm_select_job,
 )
 from .errors import _default_error_check
+
+
+@dataclass(frozen=True)
+class LogReaderProfile:
+    """Low-level LAS X log-reader paths and freshness defaults."""
+
+    lcs_log_path: str = r"C:\ProgramData\Leica Microsystems\LAS X\lcsCommand.log"
+    msgbox_log_path: str = r"C:\ProgramData\Leica Microsystems\LAS X\MatrixScreener.log"
+    current_window_s: float = 180.0
+    max_age_s: Optional[float] = None
+    poll_timeout: float = 2.0
+    poll_interval: float = 0.05
+
+
+@dataclass(frozen=True)
+class StateReaderProfile:
+    """Profile-controlled backend selection for state reads."""
+
+    both_log_grace_s: float = 0.25
+
+    xy_mode: str = "api"
+    xy_log_max_age_s: float = 1.0
+    xy_timeout_s: float = 2.0
+
+    job_settings_mode: str = "api"
+    job_settings_log_max_age_s: float = 2.0
+    job_settings_timeout_s: float = 2.0
+
+    jobs_mode: str = "api"
+    jobs_log_max_age_s: float = 2.0
+    jobs_timeout_s: float = 2.0
+
+    hardware_info_mode: str = "api"
+    hardware_info_log_max_age_s: float = 2.0
+    hardware_info_timeout_s: float = 2.0
+
+    scan_status_mode: str = "api"
+    scan_status_log_max_age_s: float = 0.5
+    scan_status_timeout_s: float = 2.0
+
+
+LOG_READER = LogReaderProfile()
+STATE_READERS = StateReaderProfile()
 
 
 @dataclass(frozen=True)

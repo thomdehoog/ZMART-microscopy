@@ -32,7 +32,7 @@ import logging
 import time
 
 from ..core import commands as _commands
-from ..core import readers as _readers
+from .. import state_readers as _readers
 
 log = logging.getLogger(__name__)
 

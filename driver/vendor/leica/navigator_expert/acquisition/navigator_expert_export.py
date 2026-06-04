@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..core import readers as _readers
+from .. import state_readers as _readers
 from . import files as _files
 from . import ome_canonical as _canonical
 from .capture import AcquisitionResult
