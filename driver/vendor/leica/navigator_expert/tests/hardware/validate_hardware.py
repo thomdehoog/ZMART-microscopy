@@ -314,9 +314,13 @@ def _connect(args: argparse.Namespace, MockClient: type,
                  args.mock_latency)
         return MockClient(latency=args.mock_latency)
     try:
-        import LasxApi.PYLICamApiConnector as lasx_api  # noqa: PLC0415
-    except (ImportError, ModuleNotFoundError) as exc:
-        log.error("LasxApi import failed: %s", exc)
+        from navigator_expert.core.lasx_runtime import (  # noqa: PLC0415
+            load_lasx_api_runtime,
+        )
+
+        lasx_api = load_lasx_api_runtime()
+    except (ImportError, ModuleNotFoundError, RuntimeError) as exc:
+        log.error("LasxApi runtime load failed: %s", exc)
         return None
     client = lasx_api.LasxApiClientPyModel
     try:
@@ -335,7 +339,10 @@ def _connect(args: argparse.Namespace, MockClient: type,
         log.error("%s", exc)
         return None
     log.info(
-        "client | LasxApi (LAS X simulator or microscope) | api_delay_ms=%s",
+        "client | LasxApi (LAS X simulator or microscope) | "
+        "runtime=%s | version=%s | api_delay_ms=%s",
+        getattr(lasx_api, "base_path", "unknown"),
+        getattr(lasx_api, "__version__", "unknown"),
         "profile-disabled" if applied_delay_ms is None else applied_delay_ms,
     )
     return client

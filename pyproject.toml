@@ -11,8 +11,6 @@ extend-exclude = [
     # driver lint baseline.
     "calibration/vendor/leica/navigator_expert/notebooks",
     "calibration/vendor/leica/navigator_expert/sessions",
-    # Vendored Leica-generated Python/.NET runtime; lint driver code, not this.
-    "driver/vendor/leica/LasxApi",
 ]
 
 [tool.ruff.lint]

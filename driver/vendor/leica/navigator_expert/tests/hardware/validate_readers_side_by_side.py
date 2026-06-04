@@ -346,7 +346,9 @@ def main(argv=None):
         profiles.LOG_READER = profiles.LogReaderProfile(
             lcs_log_path=args.log_path)
 
-    import LasxApi.PYLICamApiConnector as lasx_api
+    from navigator_expert.core.lasx_runtime import load_lasx_api_runtime
+
+    lasx_api = load_lasx_api_runtime()
     client = lasx_api.LasxApiClientPyModel
     print("Connect:", client.Connect(args.client_name))
 

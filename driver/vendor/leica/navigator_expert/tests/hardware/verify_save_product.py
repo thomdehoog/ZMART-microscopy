@@ -40,8 +40,9 @@ from shared.output_layout import Naming, run_hash, parse_image_name  # noqa: E40
 
 
 def _connect():
-    import LasxApi.PYLICamApiConnector as lasx_api
+    from navigator_expert.core.lasx_runtime import load_lasx_api_runtime
 
+    lasx_api = load_lasx_api_runtime()
     client = lasx_api.LasxApiClientPyModel
     print("Connect:", client.Connect("PythonClient"))
     return client

@@ -121,10 +121,14 @@ class LasxApiProfile:
 
     ``DelayInMilliseconds`` is Leica's client-side pacing knob. Keeping it in
     the profile makes the default explicit and keeps hardware-specific API
-    timing out of scripts and workflows.
+    timing out of scripts and workflows. ``runtime_root`` is the LAS X-installed
+    NavigatorExpert add-in directory that contains the CAM API assemblies.
     """
 
     delay_ms: Optional[int] = 250
+    runtime_root: str = (
+        r"C:\Program Files\Leica Microsystems CMS GmbH\LAS X\AddIns\NavigatorExpert"
+    )
 
 
 LASX_API = LasxApiProfile()
