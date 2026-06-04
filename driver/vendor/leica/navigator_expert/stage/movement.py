@@ -121,7 +121,9 @@ def correct_backlash(client, *, overshoot_um=50.0, settle_ms=100,
     should pass calibrated values from ``stage_cfg["backlash"]`` loaded
     via ``stage.config.load``.
     """
-    pos = _readers.get_xy(client)
+    # This read parameterizes the two corrective moves below, so bypass the
+    # passive reader profile and use the authoritative API path.
+    pos = _readers.get_xy(client, mode="api")
     if pos is None:
         raise RuntimeError("backlash takeup: could not read XY")
     x, y = float(pos["x_um"]), float(pos["y_um"])

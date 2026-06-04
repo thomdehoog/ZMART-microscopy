@@ -19,9 +19,13 @@ if str(_HERE) not in sys.path:
 _HELPERS = _HERE.parent / "helpers"
 if str(_HELPERS) not in sys.path:
     sys.path.insert(0, str(_HELPERS))
+_LEICA_ROOT = _HERE.parents[2]
+if str(_LEICA_ROOT) not in sys.path:
+    sys.path.insert(0, str(_LEICA_ROOT))
 
 import validate_hardware
 from mock_lasx_api import MockLasxClient, _SET_DISPATCH
+from navigator_expert.core import profiles
 
 
 def test_classify_result_statuses():
@@ -143,6 +147,57 @@ def test_validate_hardware_full_mock_run(tmp_path):
     }
     assert {record["name"].removeprefix("job selection: confirmed ")
             for record in selected_job_records} == {"HiRes", "Overview"}
+
+
+def test_state_reader_mode_argument_overrides_profile(tmp_path):
+    output = tmp_path / "reader_mode.jsonl"
+    prior = profiles.STATE_READERS
+    try:
+        exit_code = validate_hardware.main([
+            "--mock",
+            "--read-only",
+            "--state-reader-mode",
+            "api",
+            "--output",
+            str(output),
+        ])
+        assert exit_code == 0
+        assert profiles.STATE_READERS.xy_mode == "api"
+        assert profiles.STATE_READERS.job_settings_mode == "api"
+    finally:
+        profiles.STATE_READERS = prior
+
+
+def test_explicit_log_mode_fails_when_no_jobs():
+    class DummyDrv:
+        @staticmethod
+        def ping(_client): return True
+
+        @staticmethod
+        def get_scan_status(_client): return "eScanIdle"
+
+        @staticmethod
+        def get_jobs(_client): return None
+
+        @staticmethod
+        def get_hardware_info(_client): return {"ok": True}
+
+        @staticmethod
+        def get_xy(_client): return {"x_um": 1.0, "y_um": 1.0}
+
+    records = []
+    validator = validate_hardware.Validator(
+        sink=records.append,
+        log=validate_hardware._configure_logging("ERROR", jsonl_to_stdout=False),
+    )
+    args = validate_hardware.parse_args(["--state-reader-mode", "log"])
+
+    job = validate_hardware.phase_readonly(DummyDrv, validator, object(), args)
+
+    assert job is None
+    assert validator.exit_code() == 1
+    assert records[-1].name == "job: resolve"
+    assert records[-1].status == "FAIL"
 
 
 def test_mock_set_dispatch_table_matches_surface():

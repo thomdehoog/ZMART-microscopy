@@ -223,10 +223,14 @@ semantics.
 
 ## Confirmation Layer
 
-Confirmations pin API mode explicitly. They are read-backs of a command sent on
-the API/write channel, so they should not inherit a status-reader profile that
-prefers log rescue. The safety mechanism is still poll-until-expected-match
-using diagnostic readings, but the backend for command confirmation is API.
+Command-control reads pin API mode explicitly. That includes prechecks, early
+exits that decide whether a command fires, confirmations, and post-write
+readbacks. It also includes reads that parameterize a later command, such as
+the selected job/FOV reads used for galvo pan and the current XY read used for
+backlash correction. These reads are part of the API/write channel and must not
+inherit a passive status-reader profile that prefers log rescue. The safety
+mechanism is still poll-until-expected-match using diagnostic readings, but the
+backend for command confirmation is API.
 
 The confirmation layer owns:
 
@@ -388,9 +392,9 @@ Implement routed public readers in `state_readers/router.py`.
 Default behavior must remain API-only until the profile is explicitly changed.
 
 Start by routing only readers with clear trustworthiness rules. Keep ping
-API-only. Keep pending-dialog log-only. Command confirmations stay pinned to
-API. Keep scan/idle API by default unless the caller-side transition check is
-implemented.
+API-only. Keep pending-dialog log-only. Command-control reads stay pinned to
+API: prechecks, early-exit checks, command-parameterizing reads,
+confirmations, and post-write readbacks.
 
 ### Step 4: Update Confirmation / Readback
 
@@ -422,6 +426,8 @@ Add focused tests for routing behavior:
 - `diagnostics=True` returns `Reading`.
 - confirmation/readback code rejects trustworthy-but-pre-command readings and
   waits for a trustworthy post-command reading that matches the expected state.
+- command-control reads pin API mode: prechecks, early-exit command guards,
+  command-parameterizing reads, confirmations, and post-write readbacks.
 - ping remains API-only.
 - pending dialog remains log-only.
 
@@ -432,18 +438,19 @@ Keep existing API reader behavior tests passing after the move.
 Initial production profile:
 
 ```python
-xy_reader_mode = "api"
-job_settings_reader_mode = "api"
-scan_status_reader_mode = "api"
+xy_mode = "api"
+job_settings_mode = "api"
+scan_status_mode = "api"
 ```
 
 First optional concurrent reader:
 
 ```python
-xy_reader_mode = "both"
+xy_mode = "both"
 ```
 
-Use confirmation reads only through the poll-until-expected-match layer.
+Use command-control reads only through API-pinned prechecks, early exits,
+command-parameterizing reads, confirmations, or post-write readbacks.
 
 Do not enable `both` mode for cold job settings until its behavior is validated
 in the workflow that uses it.

@@ -901,7 +901,9 @@ def move_galvo_to_pixel(client, px, py, *,
     from .utils import pan_scale_um_from_base_fov, parse_tile_geometry
 
     if job_name is None:
-        sel = get_selected_job(client)
+        # These reads parameterize the command that follows, so they use the
+        # authoritative API path rather than the passive reader profile.
+        sel = get_selected_job(client, mode="api")
         job_name = sel.get("Name") if sel else None
     if not job_name:
         return {"success": False, "pan": None, "delta_pan": None,
@@ -909,11 +911,13 @@ def move_galvo_to_pixel(client, px, py, *,
                 "message": "No job name provided and no job selected"}
 
     if pixel_size_um is None or image_size is None:
-        geo = parse_tile_geometry(get_job_settings(client, job_name) or {})
+        geo = parse_tile_geometry(
+            get_job_settings(client, job_name, mode="api") or {}
+        )
         pixel_size_um = pixel_size_um if pixel_size_um is not None else float(geo["pixel_w_um"])
         image_size = image_size if image_size is not None else int(geo["pixels_x"])
 
-    base_fov_m = get_base_fov(client, job_name)
+    base_fov_m = get_base_fov(client, job_name, mode="api")
     if not base_fov_m:
         return {"success": False, "pan": None, "delta_pan": None,
                 "pan_scale_um": None,
@@ -1148,9 +1152,11 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
     """
     t0 = time.perf_counter()
 
-    # Phase A: check if already selected (early exit)
+    # Phase A: check if already selected (early exit). This gates whether the
+    # command fires, so it must use the authoritative API reader rather than a
+    # profile-routed passive reader.
     try:
-        jobs = _readers.get_jobs(client)
+        jobs = _readers.get_jobs(client, mode="api")
         if jobs:
             for j in jobs:
                 if j.get("Name") == job_name and j.get("IsSelected"):

@@ -87,3 +87,36 @@ class TestMoveXyWithBacklash:
             )
 
         assert r == {"success": True, "x_um": 100, "y_um": 200}
+
+
+class TestCorrectBacklash:
+    def test_current_position_read_pins_api_mode(self):
+        """The current XY read parameterizes moves, so it must bypass routing."""
+        get_xy_calls = []
+        move_calls = []
+
+        def fake_get_xy(client, **kwargs):
+            get_xy_calls.append(kwargs)
+            return {"x_um": 100.0, "y_um": 200.0}
+
+        def fake_move_xy(client, x, y, unit="um", tolerance=None):
+            move_calls.append((x, y, unit, tolerance))
+            return {"success": True}
+
+        with patch.object(stage_movement._readers, "get_xy",
+                          side_effect=fake_get_xy), \
+             patch.object(stage_movement._commands, "move_xy",
+                          side_effect=fake_move_xy), \
+             patch.object(stage_movement.time, "sleep"):
+            stage_movement.correct_backlash(
+                client=None,
+                overshoot_um=50.0,
+                settle_ms=100,
+                tolerance_um=20.0,
+            )
+
+        assert get_xy_calls[0]["mode"] == "api"
+        assert move_calls == [
+            (50.0, 150.0, "um", 20.0),
+            (100.0, 200.0, "um", 20.0),
+        ]
