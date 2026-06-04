@@ -74,6 +74,34 @@ def _has_bound_keyword(fn, name):
     return isinstance(fn, partial) and name in (fn.keywords or {})
 
 
+def _prime_selected_job_log_cluster(client, jobs):
+    """Best-effort ATL job-cluster priming for log-backed select confirmation.
+
+    LAS X writes complete ATL job blocks when each job's settings are queried.
+    The log confirmation uses those blocks as a job-name mapping table, then
+    gates the changing selected-element event by command timestamp.
+    """
+    try:
+        from . import profiles as _profiles
+        profile = _profiles.STATE_READERS
+    except Exception:  # pragma: no cover - defensive profile import
+        return
+    if (
+        profile.selected_job_confirm_source != "log"
+        or not profile.selected_job_log_prime_cluster
+    ):
+        return
+    for job in jobs or []:
+        name = job.get("Name") if isinstance(job, dict) else None
+        if not name:
+            continue
+        try:
+            _readers.get_job_settings(client, name, mode="api")
+        except Exception:
+            log.debug("Could not prime log job cluster for %r", name,
+                      exc_info=True)
+
+
 # =============================================================================
 # Internal helper - uniform backbone call
 # =============================================================================
@@ -1167,6 +1195,7 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
                         "timing": _make_timing(total_s=elapsed, attempts=0),
                         "logs": [],
                     }
+            _prime_selected_job_log_cluster(client, jobs)
     except Exception:
         log.debug("Could not check current job selection before select_job")
 
@@ -1176,6 +1205,7 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
     def setup(m):
         m.JobName = job_name
 
+    command_started_at = time.time()
     return _dispatch(
         client, api_obj, f"SelectJob '{job_name}'", SELECT_JOB,
         setup_fn=setup,
@@ -1184,5 +1214,6 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
             timeout=_profile_value(SELECT_JOB, "poll_timeout", poll_timeout),
             poll_interval=_profile_value(
                 SELECT_JOB, "poll_interval", poll_interval),
+            command_started_at=command_started_at,
         ),
     )

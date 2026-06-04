@@ -23,9 +23,8 @@ failed window causes a re-fire.
 ``_make_select_job_confirm`` factories are eliminated. Confirm functions
 that need polling own their loop; all state is local.
 
-Import restrictions: only ``readers``, ``settings``, ``prechecks``,
-``utils``, and stdlib. Nothing from ``core``, ``commands``, or
-``profiles``.
+Import restrictions: only ``state_readers``, ``settings``, ``prechecks``,
+``utils``, ``profiles``, and stdlib. Nothing from ``commands``.
 """
 
 import logging
@@ -33,11 +32,18 @@ import math
 import time
 
 from .. import state_readers as _readers
+from ..state_readers import log_wait
 from .errors import _check_api_error, _is_transient_error
 from .settings import make_changeable_copy
 from .utils import _make_log_entry, CONFIRM_TIMEOUT
 
 log = logging.getLogger(__name__)
+
+
+def _state_reader_profile():
+    """Return the current state-reader profile without importing at module load."""
+    from . import profiles
+    return profiles.STATE_READERS
 
 
 # =============================================================================
@@ -1224,7 +1230,7 @@ def confirm_acquire(client, *, start_timeout=15.0, heartbeat_interval=30.0,
 
 
 def confirm_select_job(client, *, job_name, timeout=None,
-                       poll_interval=0.01):
+                       poll_interval=0.01, command_started_at=None):
     """Poll until the specified job is selected, or until timeout.
 
     Args:
@@ -1232,6 +1238,9 @@ def confirm_select_job(client, *, job_name, timeout=None,
         job_name: Name of the job expected to become selected.
         timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
         poll_interval: Seconds between get_jobs polls.
+        command_started_at: Wall-clock timestamp captured before the select
+            command was fired. Required when the profile selects log-backed
+            confirmation.
 
     Returns:
         {"success": bool, "logs": [...]}
@@ -1239,9 +1248,64 @@ def confirm_select_job(client, *, job_name, timeout=None,
     if timeout is None:
         timeout = CONFIRM_TIMEOUT
     logs = []
-    observed_after = time.time()
+    observed_after = command_started_at if command_started_at is not None else time.time()
     t_start = time.perf_counter()
     deadline = t_start + timeout
+    log_result = None
+
+    profile = _state_reader_profile()
+    source = getattr(profile, "selected_job_confirm_source", "api")
+    if source == "log":
+        if command_started_at is None:
+            msg = "Log-backed job confirmation requires command_started_at"
+            log.warning(msg)
+            logs.append(_make_log_entry("warning", msg))
+            return {"success": False, "logs": logs, "source": "log"}
+        log_timeout = min(
+            profile.selected_job_log_confirm_timeout_s,
+            max(0.0, timeout),
+        )
+        log_result = log_wait.wait_for_selected_job_log(
+            job_name,
+            command_started_at=command_started_at,
+            timeout_s=log_timeout,
+            poll_interval_s=profile.selected_job_log_poll_interval_s,
+            max_age_s=profile.selected_job_log_cluster_max_age_s,
+        )
+        if log_result.success:
+            msg = (
+                f"Job '{job_name}' confirmed from LAS X log "
+                f"({log_result.elapsed_s * 1000:.0f}ms, "
+                f"attempts={log_result.attempts})"
+            )
+            log.info(msg)
+            logs.append(_make_log_entry("info", msg))
+            return {
+                "success": True,
+                "logs": logs,
+                "source": "log",
+                "log_elapsed_s": log_result.elapsed_s,
+                "log_diagnostics": log_result.diagnostics,
+            }
+        msg = (
+            f"Log-backed job selection timeout after {log_timeout:.1f}s "
+            f"for '{job_name}'"
+        )
+        log.warning(msg)
+        logs.append(_make_log_entry("warning", msg))
+        return {
+            "success": False,
+            "logs": logs,
+            "source": "log",
+            "log_reason": log_result.reason,
+            "log_diagnostics": log_result.diagnostics,
+        }
+
+    if source != "api":
+        msg = f"Unknown selected-job confirmation source {source!r}"
+        log.warning(msg)
+        logs.append(_make_log_entry("warning", msg))
+        return {"success": False, "logs": logs, "source": source}
 
     while time.perf_counter() < deadline:
         jobs = _reading_value_after(
@@ -1258,4 +1322,4 @@ def confirm_select_job(client, *, job_name, timeout=None,
     msg = f"Job selection timeout after {timeout:.1f}s for '{job_name}'"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    return {"success": False, "logs": logs, "source": "api"}

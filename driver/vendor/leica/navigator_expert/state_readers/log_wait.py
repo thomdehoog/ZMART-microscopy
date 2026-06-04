@@ -1,8 +1,8 @@
-"""Log-backed polling helpers for measured state-transition experiments.
+"""Log-backed polling helpers for selected state transitions.
 
 The low-level log reader stays a single-snapshot parser. Helpers in this
 module poll those snapshots for a caller-owned expected condition. They are
-not wired into production command confirmation.
+used narrowly by selected production confirmations and hardware validators.
 """
 
 from __future__ import annotations
@@ -59,7 +59,10 @@ def wait_for_selected_job_log(
         profile.selected_job_log_poll_interval_s
         if poll_interval_s is None else poll_interval_s
     )
-    max_age_s = profile.jobs_log_max_age_s if max_age_s is None else max_age_s
+    max_age_s = (
+        profile.selected_job_log_cluster_max_age_s
+        if max_age_s is None else max_age_s
+    )
     parse_fn = log_reader.parse_log if parse_fn is None else parse_fn
     sleep_fn = time.sleep if sleep_fn is None else sleep_fn
     monotonic_fn = time.monotonic if monotonic_fn is None else monotonic_fn

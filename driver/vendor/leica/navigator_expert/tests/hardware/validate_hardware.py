@@ -30,6 +30,8 @@ Outputs:
 Usage:
   python validate_hardware.py --yes                        # LAS X (sim or live)
   python validate_hardware.py --yes --state-reader-mode both
+  python validate_hardware.py --yes --select-job-confirm-source log
+  python validate_hardware.py --yes --select-job-confirm-source log --prime-log-select-cluster
   python validate_hardware.py --yes --allow-xy             # + stage round-trip
   python validate_hardware.py --yes --allow-xy --allow-acquire
   python validate_hardware.py --output results.jsonl       # capture structured
@@ -54,7 +56,7 @@ import logging
 import sys
 import time
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -653,7 +655,29 @@ def phase_job_selection(drv: Any, v: Validator, client: Any,
                                           drv, client, mode="api"),
                                       context=ctx)
                 if selected is not None:
-                    v.compare(f"job selection: confirmed {name}", selected, name)
+                    if (
+                        (
+                            args.select_job_confirm_source == "log"
+                            or args.enable_log_select_confirm
+                        )
+                        and command_result
+                        and command_result.get("success")
+                        and selected != name
+                    ):
+                        v._emit(Record(
+                            name=f"job selection: API lag after log-confirmed {name}",
+                            status="WARN",
+                            started_at=_now_iso(),
+                            elapsed_s=0.0,
+                            message=(
+                                f"log confirmed {name!r}; immediate API "
+                                f"read returned {selected!r}"
+                            ),
+                            context={**ctx, "expected": name, "api_selected": selected},
+                        ))
+                    else:
+                        v.compare(
+                            f"job selection: confirmed {name}", selected, name)
         finally:
             v.command("job selection: restore",
                       lambda: drv.select_job(client, original),
@@ -1060,6 +1084,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--state-reader-mode",
                    choices=["api", "log", "both"],
                    help="override all profile-routed passive state readers")
+    p.add_argument("--select-job-confirm-source",
+                   choices=["api", "log"],
+                   help="override selected-job confirmation source")
+    p.add_argument("--enable-log-select-confirm",
+                   dest="enable_log_select_confirm",
+                   action="store_true",
+                   help="deprecated alias for --select-job-confirm-source log")
+    p.add_argument("--prime-log-select-cluster", action="store_true",
+                   help="query all job settings before select_job so LAS X "
+                        "dumps a complete ATL job-name cluster to the log")
+    p.add_argument("--log-select-confirm-timeout-s",
+                   dest="log_select_confirm_timeout_s",
+                   type=float,
+                   help="log confirmation window before API fallback")
+    p.add_argument("--log-select-cluster-max-age-s", type=float,
+                   help="max age for the log job-name cluster; default uses "
+                        "the log reader current-window rule")
 
     return p.parse_args(argv)
 
@@ -1123,6 +1164,44 @@ def _apply_state_reader_mode(mode: str | None, log: logging.Logger) -> None:
     log.info("state-reader mode override: %s", mode)
 
 
+def _apply_log_select_confirmation(args: argparse.Namespace,
+                                   log: logging.Logger) -> None:
+    """Apply validator-only opt-in settings for production select confirmation."""
+    source = args.select_job_confirm_source
+    if args.enable_log_select_confirm:
+        source = "log"
+    if not (
+        source is not None
+        or args.log_select_confirm_timeout_s is not None
+        or args.log_select_cluster_max_age_s is not None
+        or args.prime_log_select_cluster
+    ):
+        return
+    from navigator_expert.core import profiles  # noqa: PLC0415
+
+    updates = {
+        "selected_job_confirm_source": source or "api",
+        "selected_job_log_prime_cluster": args.prime_log_select_cluster,
+    }
+    if args.log_select_confirm_timeout_s is not None:
+        updates["selected_job_log_confirm_timeout_s"] = (
+            args.log_select_confirm_timeout_s
+        )
+    if args.log_select_cluster_max_age_s is not None:
+        updates["selected_job_log_cluster_max_age_s"] = (
+            args.log_select_cluster_max_age_s
+        )
+    profiles.STATE_READERS = replace(profiles.STATE_READERS, **updates)
+    log.info(
+        "select-job confirmation source=%s prime_cluster=%s "
+        "timeout=%s cluster_max_age=%s",
+        profiles.STATE_READERS.selected_job_confirm_source,
+        profiles.STATE_READERS.selected_job_log_prime_cluster,
+        profiles.STATE_READERS.selected_job_log_confirm_timeout_s,
+        profiles.STATE_READERS.selected_job_log_cluster_max_age_s,
+    )
+
+
 # --- Main -------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
@@ -1132,6 +1211,7 @@ def main(argv: list[str] | None = None) -> int:
     sink = _make_sink(args.output, log)
     drv, MockClient = _bootstrap()
     _apply_state_reader_mode(args.state_reader_mode, log)
+    _apply_log_select_confirmation(args, log)
 
     v = Validator(
         sink=sink, log=log,
