@@ -47,7 +47,7 @@ def move_xy_with_backlash(client, x_um, y_um, *,
     direction pins the leadscrew slack the same way across acquisitions,
     so positions are repeatable regardless of where the stage came from.
 
-    Use this for "move to target with backlash compensation built in" —
+    Use this for "move to target with backlash compensation built in" -
     one fewer move than ``correct_backlash`` at a known target. For
     post-move takeup at the *current* stage position (no displacement),
     use ``correct_backlash`` instead.
@@ -69,11 +69,11 @@ def move_xy_with_backlash(client, x_um, y_um, *,
     -------
     dict
         The result of the final ``move_xy`` call (always
-        ``{"success": True, ...}`` — failures of either leg raise).
+        ``{"success": True, ...}`` - failures of either leg raise).
         Self-contained contract: either the stage is at ``(x_um, y_um)``
         with the slack-state pinned in +X +Y, or this function raises.
         Silently continuing after a partial move would image at an
-        uncompensated position — the bug backlash compensation exists
+        uncompensated position - the bug backlash compensation exists
         to prevent.
     """
     r = _commands.move_xy(

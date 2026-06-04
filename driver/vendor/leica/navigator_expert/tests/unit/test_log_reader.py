@@ -256,6 +256,15 @@ class TestLogReader(unittest.TestCase):
         self.assertIn("turn turret", L.get_pending_dialog(s) or "")
         self.assertAlmostEqual(L.ages(s)["dialog"], 30, delta=1)
 
+    def test_parse_msgbox_log_reads_dialog_without_lcs_log(self):
+        opn = f"{ts(0)} 0001 Info DbTracer 'MessageBox : Dialog only'"
+        s = L.parse_msgbox_log(
+            msgbox_path=self._write_msgbox([opn]),
+            now=(BASE + timedelta(seconds=5)).timestamp(),
+        )
+        self.assertIn("Dialog only", L.get_pending_dialog(s) or "")
+        self.assertIsNone(s.xy)
+
 
 if __name__ == "__main__":
     unittest.main()

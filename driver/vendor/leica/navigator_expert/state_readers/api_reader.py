@@ -19,13 +19,13 @@ Using ``UpdateAwaitReceipt`` on ``PyApiCommand`` is cheap (1-4 ms) and
 prevents commands from being silently dropped when dispatched in rapid
 succession (e.g. during ``confirm_move_xy``).
 
-``get_lasx_settings`` is the exception — it reads the Navigator Expert
+``get_lasx_settings`` is the exception: it reads the Navigator Expert
 XML configuration file directly from disk (no API round-trip).
 
 These functions do NOT modify microscope state.
 
 Dependency direction:
-    - Imports: utils (parse_tile_geometry), stdlib (json, logging, os, time, xml).
+    - Imports: derived readers, stdlib (json, logging, os, time, xml).
     - Imported by: ``prechecks`` (scan status polling), ``confirmations``
       (readback via ``get_job_settings`` and ``get_xy``),
       ``commands`` (early-exit checks, post-processing readbacks),
@@ -39,7 +39,8 @@ import os
 import time
 import xml.etree.ElementTree as ET
 
-from ..core.utils import RECEIPT_TIMEOUT, parse_tile_geometry
+from ..core.utils import RECEIPT_TIMEOUT
+from . import derived
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ def ping(client):
         receipt = client.PyApiPing.UpdateAwaitReceipt(RECEIPT_TIMEOUT)
         if receipt:
             return True
-        # Transport failure — try fallback
+        # Transport failure: try fallback
     except Exception:
         pass
     # Fallback: try reading scan status
@@ -88,7 +89,7 @@ def get_job_settings(client, job_name, timeout=1.0, poll_interval=0.01,
     Uses the dual-dispatch pattern: commits the JobName parameter on
     the dedicated API object, then fires GetJobSettingsByName via the
     command channel and polls until data arrives.  Retries the full
-    commit→flush→fire→poll cycle up to *max_retries* times.
+    commit->flush->fire->poll cycle up to *max_retries* times.
     """
     for attempt in range(1, max_retries + 1):
         try:
@@ -114,7 +115,7 @@ def get_job_settings(client, job_name, timeout=1.0, poll_interval=0.01,
                 if raw is not None:
                     parsed = json.loads(raw) if isinstance(raw, str) else raw
                     # LAS X occasionally returns a populated dict whose
-                    # geometry fields are blank — happens right after a
+                    # geometry fields are blank - happens right after a
                     # zoom or format change while the engine is still
                     # repopulating. Treat that the same as None and let
                     # the retry loop wait for the real values.
@@ -228,7 +229,7 @@ def read_zwide_um(client, job_name):
     Parses the ``zPosition.z-wide`` field from
     :func:`get_job_settings` (after :func:`make_changeable_copy` has
     flattened the API JSON). Raises ``RuntimeError`` if the readback
-    is unavailable — almost always means the job is not selected or
+    is unavailable: almost always means the job is not selected or
     the LAS X version doesn't expose Z readback in this shape.
     """
     from ..core.settings import make_changeable_copy
@@ -238,7 +239,7 @@ def read_zwide_um(client, job_name):
     ch = make_changeable_copy(settings)
     if not ch or "zPosition" not in ch:
         raise RuntimeError(
-            "zPosition not in job settings — LAS X version mismatch?"
+            "zPosition not in job settings - LAS X version mismatch?"
         )
     val = ch["zPosition"].get("z-wide")
     if val is None:
@@ -290,12 +291,7 @@ def get_job_by_name(client, job_name, **kwargs):
     Convenience wrapper around get_jobs(). All keyword arguments are
     forwarded to get_jobs().
     """
-    jobs = get_jobs(client, **kwargs)
-    if jobs:
-        for j in jobs:
-            if j.get("Name") == job_name:
-                return j
-    return None
+    return derived.job_by_name(get_jobs(client, **kwargs), job_name)
 
 
 def get_selected_job(client, **kwargs):
@@ -304,12 +300,7 @@ def get_selected_job(client, **kwargs):
     Convenience wrapper around get_jobs(). All keyword arguments are
     forwarded to get_jobs().
     """
-    jobs = get_jobs(client, **kwargs)
-    if jobs:
-        for j in jobs:
-            if j.get("IsSelected"):
-                return j
-    return None
+    return derived.selected_job(get_jobs(client, **kwargs))
 
 
 def get_fov(client, job_name, **kwargs):
@@ -329,12 +320,10 @@ def get_fov(client, job_name, **kwargs):
     if not settings:
         log.error("get_fov: no settings for job '%s'", job_name)
         return None
-    try:
-        geo = parse_tile_geometry(settings)
-        return (geo["tile_w_um"] * 1e-6, geo["tile_h_um"] * 1e-6)
-    except (ValueError, KeyError) as e:
-        log.error("get_fov: cannot parse FOV for '%s': %s", job_name, e)
-        return None
+    value = derived.fov_from_settings(settings)
+    if value is None:
+        log.error("get_fov: cannot parse FOV for '%s'", job_name)
+    return value
 
 
 
@@ -343,7 +332,7 @@ def get_base_fov(client, job_name, **kwargs):
 
     Reads the current FOV and zoom from the API, then scales back to
     zoom 1.  This is a fundamental property of the objective and scan
-    configuration — it does not change with zoom.
+    configuration; it does not change with zoom.
 
     Args:
         client: Live LAS X CAM client.
@@ -357,18 +346,10 @@ def get_base_fov(client, job_name, **kwargs):
     if not settings:
         log.error("get_base_fov: no settings for job '%s'", job_name)
         return None
-    try:
-        geo = parse_tile_geometry(settings)
-        zoom_info = settings.get("zoom", {})
-        current_zoom = float(zoom_info.get("current", 1))
-        if current_zoom < 1:
-            current_zoom = 1
-        w_m = geo["tile_w_um"] * 1e-6 * current_zoom
-        h_m = geo["tile_h_um"] * 1e-6 * current_zoom
-        return (w_m, h_m)
-    except (ValueError, KeyError) as e:
-        log.error("get_base_fov: cannot parse FOV for '%s': %s", job_name, e)
-        return None
+    value = derived.base_fov_from_settings(settings)
+    if value is None:
+        log.error("get_base_fov: cannot parse FOV for '%s'", job_name)
+    return value
 
 
 # =============================================================================
@@ -399,17 +380,6 @@ def _xml_bool(parent, tag, default=False):
     return val.lower() == "true"
 
 
-def _xml_float(parent, tag, default=0.0):
-    """Get float from child element text."""
-    val = _xml_text(parent, tag)
-    if val is None:
-        return default
-    try:
-        return float(val)
-    except ValueError:
-        return default
-
-
 def _xml_int(parent, tag, default=0):
     """Get int from child element text."""
     val = _xml_text(parent, tag)
@@ -424,9 +394,8 @@ def _xml_int(parent, tag, default=0):
 def get_lasx_settings(settings_path=None):
     """Read LAS X MatrixScreener / Navigator Expert settings from disk.
 
-    Parses the XML settings file that backs the Navigator Expert GUI
-    (General Settings, Carrier Settings, Rare Event Settings, Advanced
-    Settings tabs).
+    Only parses the sections consumed by the driver: data export,
+    export formats, and image orientation.
 
     Args:
         settings_path: Override path to the XML file. None uses the
@@ -444,55 +413,8 @@ def get_lasx_settings(settings_path=None):
     root = tree.getroot()
 
     nav = root.find("SettingsNavigatorExpert")
-    stage_ov = root.find("SettingsStageOverview")
-    general = root.find("SettingsGeneral")
-
     result = {}
 
-    # ── General Settings ────────────────────────────────────────────
-    if general is not None:
-        result["general"] = {
-            "delete_logs_older_than_days": _xml_int(general, "DeleteLogFilesOlderThanTheLastDays", 5),
-            "enable_last_used_z": _xml_bool(general, "EnableLastUsedZPositionInMeter"),
-            "last_used_z_m": _xml_float(general, "LastUsedZPositionInMeter"),
-            "sync_focus_on_job_switch": _xml_bool(general, "EnableSynchronizeFocusDuringJobSwitchInDefinition"),
-        }
-
-    # ── Recent Files ────────────────────────────────────────────────
-    recent = root.find("SettingsRecentFiles/Files")
-    if recent is not None:
-        result["recent_files"] = [
-            el.text.strip() for el in recent.findall("string")
-            if el.text and el.text.strip()
-        ]
-
-    # ── Standard Viewer ──────────────────────────────────────────────
-    std_viewer = root.find("SettingsStandardViewer")
-    if std_viewer is not None:
-        result["standard_viewer"] = {
-            "override_enabled": _xml_bool(std_viewer, "OverrideIsEnabled"),
-            "swap_xy": _xml_bool(std_viewer, "SwapXY"),
-            "invert_x": _xml_bool(std_viewer, "InvertX"),
-            "invert_y": _xml_bool(std_viewer, "InvertY"),
-        }
-
-    # ── Carrier / Stage Overview ────────────────────────────────────
-    if stage_ov is not None:
-        result["carrier"] = {
-            "show_in_gui": _xml_bool(stage_ov, "ShowInGUI"),
-            "carrier_offset_x_um": _xml_float(stage_ov, "CarrierShiftX"),
-            "carrier_offset_y_um": _xml_float(stage_ov, "CarrierShiftY"),
-            "stage_offset_x_um": _xml_float(stage_ov, "StageOverViewOffSetX"),
-            "stage_offset_y_um": _xml_float(stage_ov, "StageOverViewOffSetY"),
-            "carrier_opacity": _xml_float(stage_ov, "CarrierOpacity"),
-            "image_opacity": _xml_float(stage_ov, "ImageOpacity"),
-            "overlap_x_pct": _xml_float(stage_ov, "OverlapX"),
-            "overlap_y_pct": _xml_float(stage_ov, "OverlapY"),
-            "scan_rotation_angle": _xml_float(stage_ov, "ScanRotationAngle"),
-            "show_label": _xml_bool(stage_ov, "ShowLabel"),
-        }
-
-    # ── Data Export ─────────────────────────────────────────────────
     if nav is not None:
         exporter = nav.find("SettingsDataExporter")
         if exporter is not None:
@@ -504,7 +426,6 @@ def get_lasx_settings(settings_path=None):
                 "save_lif_in_folder": _xml_bool(exporter, "SaveLIFInExperimentFolder"),
             }
 
-        # ── Export Formats ──────────────────────────────────────────
         fmt = nav.find("ExportFileFormats")
         if fmt is not None:
             result["export_formats"] = {
@@ -525,71 +446,11 @@ def get_lasx_settings(settings_path=None):
                 "compression_value": _xml_int(fmt, "ImageCompressionValue"),
             }
 
-        # ── CAM ─────────────────────────────────────────────────────
-        cam = nav.find("SettingsCAM")
-        if cam is not None:
-            result["cam"] = {
-                "enabled": _xml_bool(cam, "EnableCAM"),
-                "client_name": _xml_text(cam, "ClientName"),
-                "level2": _xml_bool(cam, "CanDoCamLevel2"),
-            }
-
-        # ── Stage Configuration ─────────────────────────────────────
-        stage_cfg = nav.find("SettingsStageConfiguration")
-        if stage_cfg is not None:
-            result["stage_config"] = {
-                "enabled": stage_cfg.get("IsEnabled", "false").lower() == "true",
-                "invert_x": _xml_bool(stage_cfg, "InvertXMovement"),
-                "invert_y": _xml_bool(stage_cfg, "InvertYMovement"),
-                "flip_x": _xml_bool(stage_cfg, "FlipX"),
-                "flip_y": _xml_bool(stage_cfg, "FlipY"),
-                "swap_xy": _xml_bool(stage_cfg, "SwapXY"),
-                "custom_tile_scan": _xml_bool(stage_cfg, "CustomTileScanSettings"),
-            }
-
-        # ── Rare Event Settings ─────────────────────────────────────
-        rare = nav.find("SettingsRareEvent")
-        if rare is not None:
-            result["rare_event"] = {
-                "invert_x": _xml_bool(rare, "RareEventInvertX"),
-                "invert_y": _xml_bool(rare, "RareEventInvertY"),
-                "swap_xy": _xml_bool(rare, "RareEventSwapXY"),
-                "enable_dx_dy_offset": _xml_bool(rare, "EnableDxDyOffset"),
-                "dx_offset": _xml_float(rare, "DxOffset"),
-                "dy_offset": _xml_float(rare, "DyOffset"),
-                "max_per_image": _xml_int(rare, "MaximalRareEventsPerImage"),
-                "detection_limit_per_image": _xml_int(rare, "DetectionLimitPerImage"),
-                "shuffle": _xml_bool(rare, "IsRareEventListRandomlyShuffled"),
-                "enable_test_images": _xml_bool(rare, "EnableTestImage"),
-                "enable_single_test_image": _xml_bool(rare, "EnableSingleTestImages"),
-                "test_image_path": _xml_text(rare, "TestImagePath"),
-                "enable_random_test_images": _xml_bool(rare, "EnableRandomTestImages"),
-                "random_image_folder": _xml_text(rare, "TestRandomImageFolderPath"),
-                "aivia_workflows_path": _xml_text(rare, "AiviaWorkflowsPath"),
-            }
-
-        # ── Image Export Orientation ────────────────────────────────
         img_exp = nav.find("SettingsExportedImage")
         if img_exp is not None:
             result["image_orientation"] = {
                 "enable_transform": _xml_bool(img_exp, "EnableImageTransformation"),
                 "transformation": _xml_text(img_exp, "ImageTransformation", "RIGHTTOP"),
-            }
-
-        # ── Skip Box ────────────────────────────────────────────────
-        skip = nav.find("SettingsSkipBox")
-        if skip is not None:
-            result["skip_box"] = {
-                "show_at_end_of_loop": _xml_bool(skip, "UseSkipBoxInTheEndOfLoopScan"),
-                "auto_close": _xml_bool(skip, "EnableAutoCloseSkipBox"),
-                "auto_close_ms": _xml_int(skip, "TimeUntilSkipboxWillAutoClosedInmilliseconds", 4000),
-            }
-
-        # ── Fast Scan ───────────────────────────────────────────────
-        fast = nav.find("SettingsFastScan")
-        if fast is not None:
-            result["fast_scan"] = {
-                "enabled": _xml_bool(fast, "EnableFastScanMode"),
             }
 
     return result

@@ -1,7 +1,7 @@
 """
 Unit tests for the Navigator Expert driver core.
 ================================================
-Offline mock-based tests — no hardware required.
+Offline mock-based tests - no hardware required.
 
 Uses unittest.mock to simulate the LAS X API client and verify the
 driver's internal logic: error classification, fire/retry flow,
@@ -39,7 +39,7 @@ from navigator_expert.core import profiles
 
 
 # =============================================================================
-# Helpers — mock factory
+# Helpers - mock factory
 # =============================================================================
 
 def make_echo(has_error=False, error="", result_code=1):
@@ -192,7 +192,7 @@ class TestDefaultErrorCheck(unittest.TestCase):
 
 
 # =============================================================================
-# 3. confirm_and_fire — core flow
+# 3. confirm_and_fire - core flow
 # =============================================================================
 
 class TestConfirmAndFire(unittest.TestCase):
@@ -340,7 +340,7 @@ class TestConfirmAndFire(unittest.TestCase):
 
 
 # =============================================================================
-# 3b. Retry backoff — escalating and fixed delays
+# 3b. Retry backoff - escalating and fixed delays
 # =============================================================================
 
 class TestRetryBackoff(unittest.TestCase):
@@ -369,8 +369,8 @@ class TestRetryBackoff(unittest.TestCase):
         """Escalating: first retry immediate, then 1s, 2s, 4s.
 
         With max_retries=4: 5 attempts total, 4 retries.
-        Attempt 0→1: immediate (no sleep).
-        Attempts 1→2, 2→3, 3→4: sleep with escalation.
+        Attempt 0->1: immediate (no sleep).
+        Attempts 1->2, 2->3, 3->4: sleep with escalation.
         Last attempt (4) has no retry, so no sleep.
         """
         client = make_client()
@@ -434,7 +434,7 @@ class TestRetryBackoff(unittest.TestCase):
         self.assertEqual(sleep_calls, [])
 
     def test_first_retry_always_immediate(self):
-        """First retry (attempt 0 → 1) never sleeps, regardless of settings."""
+        """First retry (attempt 0 -> 1) never sleeps, regardless of settings."""
         client = make_client()
         api_obj = make_api_obj()
         call_count = [0]
@@ -461,10 +461,10 @@ class TestRetryBackoff(unittest.TestCase):
         self.assertTrue(r["success"])
         self.assertEqual(r["attempts"], 2)
         self.assertEqual(sleep_calls, [],
-                         "First retry should be immediate — no sleep")
+                         "First retry should be immediate - no sleep")
 
     def test_backoff_with_custom_base(self):
-        """Custom base delay: 0.5s → escalating 0s, 0.5s, 1.0s."""
+        """Custom base delay: 0.5s -> escalating 0s, 0.5s, 1.0s."""
         client = make_client()
         api_obj = make_api_obj()
         sleep_calls = []
@@ -484,7 +484,7 @@ class TestRetryBackoff(unittest.TestCase):
         self.assertEqual(sleep_calls, [0.5, 1.0, 2.0])
 
     def test_permanent_error_no_backoff_sleep(self):
-        """Permanent errors exit immediately — no backoff sleep."""
+        """Permanent errors exit immediately - no backoff sleep."""
         client = make_client()
         api_obj = make_api_obj()
         sleep_calls = []
@@ -691,7 +691,7 @@ class TestConfirmation(unittest.TestCase):
         )
 
         with patch.object(errors, '_check_api_error', return_value=None), \
-             patch.object(dispatch._log_reader, "parse_log", return_value=snapshot):
+             patch.object(dispatch._log_reader, "parse_msgbox_log", return_value=snapshot):
             r = dispatch.confirm_and_fire(
                 client,
                 api_obj,
@@ -703,6 +703,7 @@ class TestConfirmation(unittest.TestCase):
             )
 
         self.assertFalse(r["confirmed"])
+        self.assertIn("LAS X dialog appears open", r["message"])
         self.assertTrue(any(
             "LAS X dialog appears open" in entry["msg"]
             for entry in r["logs"]
@@ -718,7 +719,7 @@ class TestConfirmation(unittest.TestCase):
         )
 
         with patch.object(errors, '_check_api_error', return_value=None), \
-             patch.object(dispatch._log_reader, "parse_log", return_value=snapshot):
+             patch.object(dispatch._log_reader, "parse_msgbox_log", return_value=snapshot):
             r = dispatch.confirm_and_fire(
                 client,
                 api_obj,
@@ -1128,8 +1129,8 @@ class TestConfirmFunctions(unittest.TestCase):
                 None, "J", begin_um=-5.0, end_um=None, timeout=1)["success"])
 
     def test_confirm_z_stack_definition_quantised(self):
-        """begin=-5, end=5, step=3 → raw size=10, centre=0.
-        Quantised: n=3→size=9, n=4→size=12.
+        """begin=-5, end=5, step=3 -> raw size=10, centre=0.
+        Quantised: n=3->size=9, n=4->size=12.
         Candidates: (-4.5, 4.5) and (-6, 6).
         Actual (-4.5, 4.5) should match."""
         with self._mock_readback({"stack": {"begin": -4.5, "end": 4.5,
@@ -1393,7 +1394,7 @@ class TestSetFunctionWiring(unittest.TestCase):
         self.assertEqual(info["model"].SetBegin, 0)  # reset
 
     def test_set_z_stack_definition_zero_begin(self):
-        """begin_um=0.0 is a valid z-position — must not be treated as None."""
+        """begin_um=0.0 is a valid z-position - must not be treated as None."""
         info, _ = self._run_set(drv.set_z_stack_definition, None, "J",
                                 begin_um=0.0, end_um=10.0)
         self.assertEqual(info["model"].SetBegin, 1)
@@ -2061,7 +2062,7 @@ class TestReadbackCacheRemoved(unittest.TestCase):
 class TestConfirmAcquire(unittest.TestCase):
 
     def test_idle_without_scanning_returns_failure(self):
-        """Always idle, never saw scanning → failure (start_timeout)."""
+        """Always idle, never saw scanning -> failure (start_timeout)."""
         with patch.object(readers, 'get_scan_status', return_value="eScanIdle"), \
              patch.object(confirmations, '_check_api_error', return_value=None), \
              patch('time.sleep'):
@@ -2070,7 +2071,7 @@ class TestConfirmAcquire(unittest.TestCase):
         self.assertFalse(result["success"])
 
     def test_scanning_then_idle(self):
-        """Non-idle then idle → success (saw scanning)."""
+        """Non-idle then idle -> success (saw scanning)."""
         call_count = [0]
         def mock_status(client, **_kwargs):
             call_count[0] += 1
@@ -2085,7 +2086,7 @@ class TestConfirmAcquire(unittest.TestCase):
 class TestConfirmSelectJob(unittest.TestCase):
 
     def test_selected_after_settle(self):
-        """Job is selected on first poll → success."""
+        """Job is selected on first poll -> success."""
         jobs = [{"Name": "HiRes", "IsSelected": True}]
         with patch.object(readers, 'get_jobs', return_value=jobs), \
              patch('time.sleep'):
@@ -2095,7 +2096,7 @@ class TestConfirmSelectJob(unittest.TestCase):
         self.assertTrue(result["success"])
 
     def test_timeout_returns_failure(self):
-        """Job never becomes selected → failure."""
+        """Job never becomes selected -> failure."""
         jobs = [{"Name": "Other", "IsSelected": True}]
         with patch.object(readers, 'get_jobs', return_value=jobs), \
              patch('time.sleep'):

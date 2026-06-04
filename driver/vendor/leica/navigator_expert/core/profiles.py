@@ -1,7 +1,7 @@
 """
 Per-command profiles.
 =====================
-Every command has a ``CommandProfile`` that is its complete recipe — all
+Every command has a ``CommandProfile`` that is its complete recipe - all
 pluggable callables and all retry/confirm settings in one place. Adding
 a new command means adding a profile and a command function. Tuning a
 command means editing its profile. Nothing else needs to change.
@@ -11,15 +11,15 @@ hardware sessions, but their default tolerances, polling intervals, and
 retry ceilings live here. This keeps machine-sensitive tuning out of
 the wrapper logic.
 
-All four callable fields follow the same rule: ``callable(client) → result``.
+All four callable fields follow the same rule: ``callable(client) -> result``.
 Extra parameters are pre-bound with ``partial`` at profile definition
-time. The command function always binds ``client`` via lambda — the same
+time. The command function always binds ``client`` via lambda - the same
 pattern for every field, no exceptions.
 
 **Two patterns cover all cases:**
 
-    Pattern A — callable needs extra parameters: use partial to pre-bind.
-    Pattern B — callable takes only client: assign directly.
+    Pattern A - callable needs extra parameters: use partial to pre-bind.
+    Pattern B - callable takes only client: assign directly.
 
 Import restrictions: only ``prechecks``, ``confirmations``, ``errors``,
 ``utils``, and stdlib. Nothing from ``dispatch`` or ``commands``.
@@ -114,19 +114,19 @@ class CommandProfile:
     """Complete recipe for a single command's backbone behaviour.
 
     Each field is either a callable or a tuning parameter. Callables
-    follow the contract ``callable(client) → result dict``. Extra
+    follow the contract ``callable(client) -> result dict``. Extra
     parameters are pre-bound with ``partial``. The command function
     binds ``client`` via lambda at call time.
 
     Attributes:
-        pre_check_fn: Pre-flight check. ``callable(client) → result``.
+        pre_check_fn: Pre-flight check. ``callable(client) -> result``.
             None to skip.
-        error_check_fn: Post-fire error check. ``callable(client) → result``.
+        error_check_fn: Post-fire error check. ``callable(client) -> result``.
             Defaults to ``_default_error_check``.
-        confirm_fn: Readback confirmation. ``callable(client) → result``.
-            None to skip confirmation. Declarative only — commands always
+        confirm_fn: Readback confirmation. ``callable(client) -> result``.
+            None to skip confirmation. Declarative only - commands always
             override this with a target-bound partial at call time.
-        correct_fn: Custom correction strategy. ``callable(client) → result``.
+        correct_fn: Custom correction strategy. ``callable(client) -> result``.
             None uses built-in idle correction. Stubbed for future use.
         max_retries: Transient error retries inside the fire block.
         max_confirm_attempts: Confirm wrapper re-attempt ceiling.

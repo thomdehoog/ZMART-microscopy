@@ -6,12 +6,12 @@ select) route through ``confirm_and_fire``.
 
 Two-layer architecture:
 
-    **Fire block** (inner, ``_fire_block``) — steps 1-4:
-        pre_check → setup → fire → error_check.
+    **Fire block** (inner, ``_fire_block``) - steps 1-4:
+        pre_check -> setup -> fire -> error_check.
         Retries on transient errors internally, up to ``max_retries``.
         Returns success or failure.
 
-    **Confirm wrapper** (outer, ``confirm_and_fire``) — calls the fire
+    **Confirm wrapper** (outer, ``confirm_and_fire``) - calls the fire
         block, then runs ``confirm_fn`` to verify the result. If
         confirmation fails, the wrapper can run corrective actions
         (idle-check + re-fire) and re-attempt. This is a flat loop,
@@ -22,7 +22,7 @@ Two ceilings, both explicit:
     - ``max_confirm_attempts`` controls how many times the confirm wrapper
       can re-run the cycle.
 
-The backbone is dumb — it owns pipeline order, retry ceilings, and
+The backbone is dumb - it owns pipeline order, retry ceilings, and
 timing. It does not know about zoom, objectives, stages, or Z-drives.
 It does not poll for hardware state. It calls zero-arg callables and
 acts on their result dicts. The only sleeping it does is backoff delay
@@ -70,7 +70,7 @@ def _dialog_warning_since(command_started_at, description):
     and log-reader failures must never add another command failure mode.
     """
     try:
-        snapshot = _log_reader.parse_log()
+        snapshot = _log_reader.parse_msgbox_log()
         text = snapshot.pending_dialog
         observed_at = snapshot.pending_dialog_ts
     except Exception:  # noqa: BLE001
@@ -152,12 +152,12 @@ def _await_echo_result(client, timeout=1.0, poll_interval=0.01):
         try:
             result_code = int(client.PyApiCommandEcho.Model.Result)
         except Exception:
-            result_code = 0  # Unreadable → treat as not settled
+            result_code = 0  # Unreadable -> treat as not settled
 
         try:
             has_error = bool(client.PyApiCommandEcho.Model.HasError)
         except Exception:
-            has_error = False  # Unreadable → treat as not settled
+            has_error = False  # Unreadable -> treat as not settled
 
         if result_code != 0 or has_error:
             return True
@@ -169,7 +169,7 @@ def _await_echo_result(client, timeout=1.0, poll_interval=0.01):
 
 
 # =============================================================================
-# Fire block — steps 1-4 with transient retry
+# Fire block - steps 1-4 with transient retry
 # =============================================================================
 
 def _fire_block(client, api_obj, description, *,
@@ -185,10 +185,10 @@ def _fire_block(client, api_obj, description, *,
     """Execute the four-step fire pipeline with transient retry.
 
     Steps:
-        1. Pre-check — call ``pre_check_fn()`` (zero-arg, returns result dict).
-        2. Setup — call ``setup_fn(api_obj.Model)`` to write parameters.
-        3. Fire — clear echo, ``_fire_with_receipt(api_obj)``.
-        4. Error check — call ``error_check_fn()`` (zero-arg, returns result dict).
+        1. Pre-check - call ``pre_check_fn()`` (zero-arg, returns result dict).
+        2. Setup - call ``setup_fn(api_obj.Model)`` to write parameters.
+        3. Fire - clear echo, ``_fire_with_receipt(api_obj)``.
+        4. Error check - call ``error_check_fn()`` (zero-arg, returns result dict).
 
     Steps 1-4 repeat on transient API errors, up to ``max_retries`` + 1
     total attempts. Pre-check functions own their own polling internally.
@@ -200,9 +200,9 @@ def _fire_block(client, api_obj, description, *,
         description: Human-readable label for logging.
         setup_fn: Callable(model) that writes parameters to api_obj.Model.
             None to skip setup.
-        pre_check_fn: Zero-arg callable → result dict with "success" and
+        pre_check_fn: Zero-arg callable -> result dict with "success" and
             "logs". None to skip step 1.
-        error_check_fn: Zero-arg callable → result dict with "success",
+        error_check_fn: Zero-arg callable -> result dict with "success",
             "error", "transient", and "logs". None defaults to
             ``_default_error_check``.
         max_retries: Max retries after the first attempt. Total attempts =
@@ -325,7 +325,7 @@ def _fire_block(client, api_obj, description, *,
         all_logs.extend(err_result.get("logs", []))
 
         if err_result["success"]:
-            # No API error — fire block succeeded
+            # No API error - fire block succeeded
             break
 
         error_msg = err_result.get("error", "")
@@ -374,7 +374,7 @@ def _fire_block(client, api_obj, description, *,
 
 
 # =============================================================================
-# Confirm wrapper — outer layer with correction loop
+# Confirm wrapper - outer layer with correction loop
 # =============================================================================
 
 def confirm_and_fire(client, api_obj, description, *,
@@ -412,12 +412,12 @@ def confirm_and_fire(client, api_obj, description, *,
         api_obj: Resolved API object.
         description: Human-readable label for logging.
         setup_fn: Callable(model) that writes parameters to api_obj.Model.
-        pre_check_fn: Zero-arg callable → result dict. None to skip.
-        error_check_fn: Zero-arg callable → error result dict. None
+        pre_check_fn: Zero-arg callable -> result dict. None to skip.
+        error_check_fn: Zero-arg callable -> error result dict. None
             defaults to ``_default_error_check``.
-        confirm_fn: Zero-arg callable → result dict. None to skip
+        confirm_fn: Zero-arg callable -> result dict. None to skip
             confirmation entirely.
-        correct_fn: Zero-arg callable → result dict. None uses built-in
+        correct_fn: Zero-arg callable -> result dict. None uses built-in
             idle correction. Stubbed for future custom correction.
         max_retries: Transient error retries inside the fire block.
         max_confirm_attempts: How many times the confirm wrapper can
@@ -557,7 +557,7 @@ def confirm_and_fire(client, api_obj, description, *,
                 "logs": all_logs,
             }
 
-        # Confirmation failed — attempt correction if not last attempt
+        # Confirmation failed - attempt correction if not last attempt
         if ca < max_confirm_attempts - 1:
             if not refire_on_unconfirmed:
                 msg = (
@@ -570,7 +570,7 @@ def confirm_and_fire(client, api_obj, description, *,
                 continue
 
             if correct_fn is not None:
-                # Custom correction — result success is not checked because
+                # Custom correction - result success is not checked because
                 # the re-fire + re-confirm cycle determines the outcome.
                 # Correction time is tracked in confirm_s (part of the
                 # confirm attempt cycle).
@@ -614,7 +614,7 @@ def confirm_and_fire(client, api_obj, description, *,
             acc_check += fb["timing"]["check_s"]
 
             if not fb["success"]:
-                # Re-fire failed — give up
+                # Re-fire failed - give up
                 return {
                     "success": False,
                     "confirmed": False,
@@ -643,13 +643,15 @@ def confirm_and_fire(client, api_obj, description, *,
         f"state readback did not confirm the requested value"
         f"{_confirmation_detail(last_confirm_result)}"
     )
-    msg += _append_dialog_warning(all_logs, command_started_at, description)
-    log.warning("%s (%.3fs)", msg, time.perf_counter() - t_wall_start)
+    dialog_detail = _append_dialog_warning(
+        all_logs, command_started_at, description)
+    log.warning("%s%s (%.3fs)", msg, dialog_detail,
+                time.perf_counter() - t_wall_start)
     all_logs.append(_make_log_entry("warning", msg))
     return {
         "success": success_on_unconfirmed,
         "confirmed": False,
-        "message": f"{description} (readback unconfirmed)",
+        "message": f"{description} (readback unconfirmed){dialog_detail}",
         "timing": _make_timing(
             pre_check_s=acc_pre,
             setup_s=acc_setup,
