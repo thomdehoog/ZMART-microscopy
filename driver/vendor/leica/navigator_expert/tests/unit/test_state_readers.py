@@ -4,6 +4,7 @@ import sys
 import threading
 import time
 import unittest
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -230,6 +231,50 @@ class TestStateReaders(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(calls[0]["mode"], "api")
         self.assertTrue(calls[0]["diagnostics"])
+
+    def test_get_lasx_settings_returns_consumed_sections_only(self):
+        xml = """<Root>
+          <SettingsGeneral>
+            <DeleteLogFilesOlderThanTheLastDays>5</DeleteLogFilesOlderThanTheLastDays>
+          </SettingsGeneral>
+          <SettingsNavigatorExpert>
+            <SettingsDataExporter>
+              <MediaPath>C:\\data</MediaPath>
+              <ExportDataAutomatically>true</ExportDataAutomatically>
+              <DeleteExportedExperiments>false</DeleteExportedExperiments>
+              <UseAutoSave>false</UseAutoSave>
+              <SaveLIFInExperimentFolder>true</SaveLIFInExperimentFolder>
+            </SettingsDataExporter>
+            <ExportFileFormats>
+              <AsOmeTifFile>true</AsOmeTifFile>
+              <AsMultiPageOmeTifFile>false</AsMultiPageOmeTifFile>
+              <AsMultiPageTifFile>false</AsMultiPageTifFile>
+              <EnableImageCompression>false</EnableImageCompression>
+              <ImageCompressionValue>0</ImageCompressionValue>
+            </ExportFileFormats>
+            <SettingsExportedImage>
+              <EnableImageTransformation>true</EnableImageTransformation>
+              <ImageTransformation>RIGHTTOP</ImageTransformation>
+            </SettingsExportedImage>
+          </SettingsNavigatorExpert>
+        </Root>"""
+        with tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False) as fh:
+            fh.write(xml)
+            path = fh.name
+        self.addCleanup(lambda: Path(path).unlink(missing_ok=True))
+
+        settings = state_readers.get_lasx_settings(settings_path=path)
+
+        self.assertEqual(
+            set(settings),
+            {"export", "export_formats", "image_orientation"},
+        )
+        self.assertEqual(settings["export"]["media_path"], "C:\\data")
+        self.assertTrue(settings["export_formats"]["ome_tif"])
+        self.assertEqual(
+            settings["image_orientation"]["transformation"],
+            "RIGHTTOP",
+        )
 
 
 if __name__ == "__main__":

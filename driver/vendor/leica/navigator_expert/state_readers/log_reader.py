@@ -12,10 +12,10 @@ is actively dumping (current XY, the active job) and can be silently stale
 for state that changed without that job being re-dumped. Every datum
 carries the timestamp of its log line; callers inspect freshness via
 :func:`ages` (including per-job settings age). Ambiguous state (duplicate
-job names, unmappable selection) fails closed to ``None`` — never a wrong
+job names, unmappable selection) fails closed to ``None`` - never a wrong
 value.
 
-Not provided here on purpose: ``ping`` (log mtime is not liveness — keep it
+Not provided here on purpose: ``ping`` (log mtime is not liveness - keep it
 on the API) and any API fallback (that would re-introduce the hang path).
 ``get_scan_status`` maps the numeric ``AcquisitionState`` to a state string.
 
@@ -27,7 +27,7 @@ Parameters live in ``core.profiles.LOG_READER`` - no hardcoded values in the
 read paths.
 
 Dependency direction:
-    - Imports: stdlib, ``utils`` (parse_tile_geometry), ``settings``
+    - Imports: stdlib, shared ``derived`` helpers, ``settings``
       (make_changeable_copy).
     - Imported by: ``state_readers.router``, dispatch diagnostics, tests, and
       hardware validators.
@@ -40,8 +40,8 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from ..core.utils import parse_tile_geometry
 from ..core.settings import make_changeable_copy
+from . import derived
 
 log = logging.getLogger(__name__)
 
@@ -160,6 +160,19 @@ def parse_log(lcs_path=None, msgbox_path=None, now=None, lines=None):
         except (ValueError, AttributeError):
             continue  # tolerate a malformed/partial line
 
+    _read_msgbox_state(snap, msgbox_path)
+    return snap
+
+
+def parse_msgbox_log(msgbox_path=None, now=None):
+    """Parse only the NavigatorExpert log entries used for scan/dialog state."""
+    profile = _profile()
+    snap = Snapshot(now=now if now is not None else time.time())
+    _read_msgbox_state(snap, msgbox_path or profile.msgbox_log_path)
+    return snap
+
+
+def _read_msgbox_state(snap, msgbox_path):
     # scan status + modal-dialog state live in the NavigatorExpert log.
     # Dialog open/close is decided by LINE ORDER (not timestamps, which can tie).
     dialog_open, dialog_text, dialog_ts = False, None, None
@@ -183,8 +196,6 @@ def parse_log(lcs_path=None, msgbox_path=None, now=None, lines=None):
     if dialog_open:
         snap.pending_dialog = dialog_text
         snap.pending_dialog_ts = dialog_ts
-
-    return snap
 
 
 # =============================================================================
@@ -220,7 +231,7 @@ def _current_blocks(s, apply_max_age=True, *, max_age_s=None):
     latest, ambiguous = {}, set()
     for name, hits in by_name.items():
         if len(hits) >= 2:
-            ambiguous.add(name)            # fail closed — don't pick one
+            ambiguous.add(name)            # fail closed - don't pick one
         latest[name] = max(hits, key=lambda h: (h[2] is not None, h[2] or 0))
     return latest, ambiguous
 
@@ -261,7 +272,7 @@ def ages(snapshot=None):
 
 
 # =============================================================================
-# Readers (API-shaped values; None when stale/ambiguous/absent — never wrong)
+# Readers (API-shaped values; None when stale/ambiguous/absent - never wrong)
 # =============================================================================
 
 def get_xy(snapshot=None, *, max_age_s=None):
@@ -294,7 +305,7 @@ def _block_id_int(bid):
 
 def get_jobs(snapshot=None, *, max_age_s=None):
     """Jobs present in the *current* dump cluster, with selection. Note: this is
-    a passive list — a job not (re)dumped this session is absent, so the list can
+    a passive list - a job not (re)dumped this session is absent, so the list can
     be shorter than the API's. `IsSelected` is None unless selection can be mapped
     safely. Honors `max_age_s` (stale blocks are dropped)."""
     s = snapshot or parse_log()
@@ -306,7 +317,7 @@ def get_jobs(snapshot=None, *, max_age_s=None):
                if ids_ok else list(latest.items()))
     # SetCurrentSelectedElementID is a 1-based index into the FULL job sequence.
     # Mapping it onto the current cluster is only safe when the cluster is the
-    # complete job list — otherwise a partial re-dump shifts positions and we'd
+    # complete job list - otherwise a partial re-dump shifts positions and we'd
     # return the wrong job. Require every observed job name to be current; else
     # fail closed (IsSelected = None).
     all_names = {j.get("jobName") for (j, _t) in s.atl_by_block.values() if j.get("jobName")}
@@ -322,20 +333,14 @@ def get_jobs(snapshot=None, *, max_age_s=None):
 
 
 def get_selected_job(snapshot=None, *, max_age_s=None):
-    jobs = get_jobs(snapshot, max_age_s=max_age_s)
-    if not jobs:
-        return None
-    sel = [j for j in jobs if j.get("IsSelected") is True]
-    return sel[0] if len(sel) == 1 else None
+    return derived.selected_job(get_jobs(snapshot, max_age_s=max_age_s))
 
 
 def get_job_by_name(job_name, snapshot=None, *, max_age_s=None):
-    jobs = get_jobs(snapshot, max_age_s=max_age_s)
-    if jobs:
-        for j in jobs:
-            if j.get("Name") == job_name:
-                return j
-    return None
+    return derived.job_by_name(
+        get_jobs(snapshot, max_age_s=max_age_s),
+        job_name,
+    )
 
 
 def get_hardware_info(snapshot=None, *, max_age_s=None):
@@ -358,7 +363,7 @@ def get_scan_status(snapshot=None, *, max_age_s=None):
 def get_pending_dialog(snapshot=None):
     """Text of an open modal dialog (e.g. the manual-turret box) that is
     blocking the CAM API right now, or None. Lets a caller explain an API
-    hang instead of timing out blindly — the API can't report this because
+    hang instead of timing out blindly - the API can't report this because
     it is the thing being blocked.
 
     Freshness caveat: detection is by line order (an unmatched ``MessageBox :``
@@ -372,31 +377,19 @@ def get_pending_dialog(snapshot=None):
 
 
 def get_fov(job_name, snapshot=None, *, max_age_s=None):
-    settings = get_job_settings(job_name, snapshot, max_age_s=max_age_s)
-    if not settings:
-        return None
-    try:
-        geo = parse_tile_geometry(settings)
-        return (geo["tile_w_um"] * 1e-6, geo["tile_h_um"] * 1e-6)
-    except (ValueError, KeyError):
-        return None
+    return derived.fov_from_settings(
+        get_job_settings(job_name, snapshot, max_age_s=max_age_s)
+    )
 
 
 def get_base_fov(job_name, snapshot=None, *, max_age_s=None):
-    settings = get_job_settings(job_name, snapshot, max_age_s=max_age_s)
-    if not settings:
-        return None
-    try:
-        geo = parse_tile_geometry(settings)
-        zoom = float((settings.get("zoom") or {}).get("current", 1) or 1)
-        zoom = zoom if zoom >= 1 else 1
-        return (geo["tile_w_um"] * 1e-6 * zoom, geo["tile_h_um"] * 1e-6 * zoom)
-    except (ValueError, KeyError):
-        return None
+    return derived.base_fov_from_settings(
+        get_job_settings(job_name, snapshot, max_age_s=max_age_s)
+    )
 
 
 def read_zwide_um(job_name, snapshot=None, *, max_age_s=None):
-    """Live z-wide (µm) for *job_name*. Raises RuntimeError if unavailable —
+    """Live z-wide (µm) for *job_name*. Raises RuntimeError if unavailable -
     parity with the API reader."""
     settings = get_job_settings(job_name, snapshot, max_age_s=max_age_s)
     if not settings:

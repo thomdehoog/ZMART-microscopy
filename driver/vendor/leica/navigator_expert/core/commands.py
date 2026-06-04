@@ -4,15 +4,15 @@ Command wrappers.
 Public ``set_*``, ``move_*``, ``acquire``, and ``select_job`` functions.
 Each wrapper follows a three-phase pattern:
 
-    **Phase A** — Pre-checks: input validation, limit checks, enum
+    **Phase A** - Pre-checks: input validation, limit checks, enum
         resolution, early-exit optimizations. Stays in the wrapper.
-    **Phase B** — Backbone: calls ``confirm_and_fire`` with the command's
+    **Phase B** - Backbone: calls ``confirm_and_fire`` with the command's
         profile. Replaces all bespoke dispatch code.
-    **Phase C** — Post-processing: attach extra data to the result dict
+    **Phase C** - Post-processing: attach extra data to the result dict
         (e.g. ``move_xy`` attaches position readback).
 
 Every command unpacks its profile and binds ``client`` via lambda.
-The binding pattern is identical across all commands — no exceptions::
+The binding pattern is identical across all commands - no exceptions::
 
     pre_check_fn  = lambda: profile.pre_check_fn(client)
     error_check_fn = lambda: profile.error_check_fn(client)
@@ -75,7 +75,7 @@ def _has_bound_keyword(fn, name):
 
 
 # =============================================================================
-# Internal helper — uniform backbone call
+# Internal helper - uniform backbone call
 # =============================================================================
 
 def _dispatch(client, api_obj, description, profile, *,
@@ -159,7 +159,7 @@ def _dispatch(client, api_obj, description, profile, *,
 
 
 # =============================================================================
-# Set functions — Job-level
+# Set functions - Job-level
 # =============================================================================
 
 def set_zoom(client, job_name, value, *,
@@ -349,7 +349,7 @@ def _resolve_objective(hw_info, slot_index=None, name=None, magnification=None):
     """
     objectives = _hw_get(
         _hw_get(hw_info, "Microscope", {}), "objectives", [])
-    # Filter out empty turret slots (objectiveNumber 0) — sending these to
+    # Filter out empty turret slots (objectiveNumber 0) - sending these to
     # LAS X can trigger modal error dialogs that block the whole application.
     real = [o for o in objectives if _hw_get(o, "objectiveNumber", 0) != 0]
 
@@ -409,7 +409,7 @@ def set_objective(client, job_name, hw_info, slot_index=None, name=None,
 
 
 # =============================================================================
-# Set functions — Z-Stack
+# Set functions - Z-Stack
 # =============================================================================
 
 def set_z_stack_definition(client, job_name, begin_um=None, end_um=None,
@@ -515,7 +515,7 @@ def set_z_stack_size(client, job_name, size_um, *,
 
 
 # =============================================================================
-# Set functions — Per-setting
+# Set functions - Per-setting
 # =============================================================================
 
 def set_frame_accumulation(client, job_name, setting_index, value, *,
@@ -629,7 +629,7 @@ def set_pinhole_airy(client, job_name, setting_index, value, *,
 
 
 # =============================================================================
-# Set functions — Detector
+# Set functions - Detector
 # =============================================================================
 
 def set_detector_gain(client, job_name, setting_index, beam_route, value, *,
@@ -660,7 +660,7 @@ def set_detector_gain(client, job_name, setting_index, beam_route, value, *,
 
 
 # =============================================================================
-# Set functions — Laser
+# Set functions - Laser
 # =============================================================================
 
 def set_laser_intensity(client, job_name, setting_index, beam_route,
@@ -719,7 +719,7 @@ def set_laser_shutter(client, job_name, setting_index, beam_route, activate,
 
 
 # =============================================================================
-# Set functions — Filter Wheel
+# Set functions - Filter Wheel
 # =============================================================================
 
 def set_filter_wheel_slot(client, job_name, setting_index, beam_route,
@@ -858,7 +858,7 @@ def move_xy(client, x, y, unit="um", *,
         max_retries=max_retries, pre_check_timeout=pre_check_timeout,
     )
 
-    # Target position (not a readback — check r["confirmed"] for verification status)
+    # Target position (not a readback - check r["confirmed"] for verification status)
     r["position"] = {"x": x_um * 1e-6, "y": y_um * 1e-6,
                       "x_um": x_um, "y_um": y_um}
     return r
@@ -875,7 +875,7 @@ def move_galvo_to_pixel(client, px, py, *,
 
     The primary galvo navigation primitive: take a pixel coordinate from
     whatever image is currently loaded and pan there. No stage XY round-trip,
-    no calibration matrix — pan is image-frame, derived from documented LAS X
+    no calibration matrix - pan is image-frame, derived from documented LAS X
     invariants (see ``galvo_pan_for_pixel``). The stage does not move.
 
     The pan is composed *atomically* with whatever pan was previously written
@@ -946,7 +946,7 @@ def move_galvo_to_pixel(client, px, py, *,
     try:
         # Use the default confirm_delays from apply_lrp_change rather
         # than a shortened tuple. A shorter retry budget runs out when
-        # LAS X is slow late in a long session — the ROI cookbook with
+        # LAS X is slow late in a long session - the ROI cookbook with
         # the default budget keeps working in those same conditions.
         r = apply_lrp_change(client, TEMPLATE_XML, _edit)
     except RuntimeError as e:
@@ -973,7 +973,7 @@ def move_z(client, job_name, z, unit="um", z_mode="galvo", *,
         job_name: Target job.
         z: Target position (can be negative).
         unit: 'um', 'mm', or 'm'.
-        z_mode: Drive type — 'galvo' or 'zwide'.
+        z_mode: Drive type - 'galvo' or 'zwide'.
         tolerance: Position confirmation tolerance in micrometers.
     """
     ZMODE_MAP = {"galvo": "eUseGalvo", "zwide": "eUseZWide"}
@@ -1091,7 +1091,7 @@ def acquire_single_image(client, poll_interval=None, poll_timeout=None,
                          pre_check_timeout=None):
     """Acquire a single image using the currently selected job settings.
 
-    Unlike ``acquire``, this does not take a job name — it fires
+    Unlike ``acquire``, this does not take a job name - it fires
     ``PyApiAcquireSingleImage`` which captures with whatever settings
     are currently active in LAS X.
 

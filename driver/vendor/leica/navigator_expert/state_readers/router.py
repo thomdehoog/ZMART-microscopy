@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from . import api_reader, log_reader
+from . import api_reader, derived, log_reader
 
 log = logging.getLogger(__name__)
 
@@ -423,12 +423,8 @@ def get_job_by_name(client, job_name, *, mode=None, diagnostics=False, **kwargs)
         diagnostics=True,
         **kwargs,
     )
-    value = None
-    if jobs_reading is not None and jobs_reading.value:
-        for job in jobs_reading.value:
-            if job.get("Name") == job_name:
-                value = job
-                break
+    value = None if jobs_reading is None else derived.job_by_name(
+        jobs_reading.value, job_name)
     reading = _derive(jobs_reading, value)
     return _plain_or_diagnostic(reading, diagnostics)
 
@@ -440,14 +436,8 @@ def get_selected_job(client, *, mode=None, diagnostics=False, **kwargs):
         diagnostics=True,
         **kwargs,
     )
-    value = None
-    if jobs_reading is not None and jobs_reading.value:
-        selected = [
-            job for job in jobs_reading.value
-            if job.get("IsSelected") is True
-        ]
-        if len(selected) == 1:
-            value = selected[0]
+    value = None if jobs_reading is None else derived.selected_job(
+        jobs_reading.value)
     reading = _derive(jobs_reading, value)
     return _plain_or_diagnostic(reading, diagnostics)
 
@@ -460,14 +450,8 @@ def get_fov(client, job_name, *, mode=None, diagnostics=False, **kwargs):
         diagnostics=True,
         **kwargs,
     )
-    value = None
-    if settings_reading is not None and settings_reading.value:
-        try:
-            from ..core.utils import parse_tile_geometry
-            geo = parse_tile_geometry(settings_reading.value)
-            value = (geo["tile_w_um"] * 1e-6, geo["tile_h_um"] * 1e-6)
-        except (KeyError, ValueError):
-            value = None
+    value = None if settings_reading is None else derived.fov_from_settings(
+        settings_reading.value)
     reading = _derive(settings_reading, value)
     return _plain_or_diagnostic(reading, diagnostics)
 
@@ -480,21 +464,8 @@ def get_base_fov(client, job_name, *, mode=None, diagnostics=False, **kwargs):
         diagnostics=True,
         **kwargs,
     )
-    value = None
-    if settings_reading is not None and settings_reading.value:
-        try:
-            from ..core.utils import parse_tile_geometry
-            geo = parse_tile_geometry(settings_reading.value)
-            zoom_info = settings_reading.value.get("zoom", {})
-            current_zoom = float(zoom_info.get("current", 1))
-            if current_zoom < 1:
-                current_zoom = 1
-            value = (
-                geo["tile_w_um"] * 1e-6 * current_zoom,
-                geo["tile_h_um"] * 1e-6 * current_zoom,
-            )
-        except (KeyError, TypeError, ValueError):
-            value = None
+    value = None if settings_reading is None else derived.base_fov_from_settings(
+        settings_reading.value)
     reading = _derive(settings_reading, value)
     return _plain_or_diagnostic(reading, diagnostics)
 
@@ -504,7 +475,7 @@ def get_lasx_settings(settings_path=None):
 
 
 def get_pending_dialog(*, diagnostics=False):
-    snapshot = log_reader.parse_log()
+    snapshot = log_reader.parse_msgbox_log()
     value = log_reader.get_pending_dialog(snapshot)
     age_s = _age_for_snapshot(snapshot, age_key="dialog")
     observed_at = None if age_s is None else snapshot.now - age_s
