@@ -95,6 +95,10 @@ class StateReaderProfile:
     jobs_mode: str = "log"
     jobs_log_max_age_s: float = 2.0
     jobs_timeout_s: float = 2.0
+
+    selected_job_mode: str = "log"
+    selected_job_log_max_age_s: float = 2.0
+    selected_job_timeout_s: float = 2.0
     selected_job_confirm_source: str = "api"
     selected_job_log_prime_cluster: bool = False
     selected_job_log_confirm_timeout_s: float = 2.0

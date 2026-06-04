@@ -187,6 +187,25 @@ class TestStateReaders(unittest.TestCase):
             self.assertEqual(state_readers.get_jobs(object()), jobs)
         log_jobs.assert_called_once_with(snapshot, max_age_s=2.0)
 
+    def test_selected_job_log_route_is_independent_from_job_list_route(self):
+        profiles.STATE_READERS = profiles.StateReaderProfile(
+            jobs_mode="log",
+            jobs_log_max_age_s=2.0,
+            selected_job_mode="log",
+            selected_job_log_max_age_s=2.0,
+        )
+        snapshot = SimpleNamespace(now=100.0)
+        selected = {"Name": "Overview", "IsSelected": True}
+        ages = {"jobs": {}, "job_list": 30.0, "current_block": 0.3}
+        with patch.object(router.log_reader, "parse_log", return_value=snapshot), \
+             patch.object(router.log_reader, "get_jobs", return_value=None) as log_jobs, \
+             patch.object(router.log_reader, "get_selected_job",
+                          return_value=selected) as log_selected, \
+             patch.object(router.log_reader, "ages", return_value=ages):
+            self.assertEqual(state_readers.get_selected_job(object()), selected)
+        log_jobs.assert_not_called()
+        log_selected.assert_called_once_with(snapshot, max_age_s=2.0)
+
     def test_confirmation_rejects_pre_command_reading(self):
         old = state_readers.Reading(
             value=[{"Name": "Overview", "IsSelected": True}],

@@ -90,6 +90,8 @@ def test_validate_hardware_full_mock_run(tmp_path):
 
     exit_code = validate_hardware.main([
         "--mock",
+        "--state-reader-mode",
+        "api",
         "--allow-xy",
         "--allow-z",
         "--allow-objective",
@@ -164,6 +166,7 @@ def test_state_reader_mode_argument_overrides_profile(tmp_path):
         assert exit_code == 0
         assert profiles.STATE_READERS.xy_mode == "api"
         assert profiles.STATE_READERS.job_settings_mode == "api"
+        assert profiles.STATE_READERS.selected_job_mode == "api"
     finally:
         profiles.STATE_READERS = prior
 

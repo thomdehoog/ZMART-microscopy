@@ -2270,6 +2270,23 @@ class TestConfirmSelectJob(unittest.TestCase):
         self.assertEqual(calls[0]["mode"], "api")
         dispatch_mock.assert_called_once()
 
+    def test_select_job_log_confirmation_does_not_api_early_exit(self):
+        client = make_client()
+        client.PyApiSelectJobByName = make_api_obj()
+        profile = profiles.StateReaderProfile(
+            selected_job_confirm_source="log",
+        )
+        jobs = [{"Name": "Overview", "IsSelected": True}]
+        dispatched = {"success": True, "confirmed": True, "message": "sent"}
+        with patch.object(profiles, "STATE_READERS", profile), \
+             patch.object(commands._readers, 'get_jobs', return_value=jobs), \
+             patch.object(commands, '_dispatch', return_value=dispatched) as dispatch_mock:
+            result = commands.select_job(client, "Overview")
+
+        self.assertTrue(result["success"])
+        self.assertIn("logs", result)
+        dispatch_mock.assert_called_once()
+
     def test_select_job_primes_log_cluster_when_profile_enables_it(self):
         client = make_client()
         client.PyApiSelectJobByName = make_api_obj()

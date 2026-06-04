@@ -1177,6 +1177,7 @@ def _apply_state_reader_mode(mode: str | None, log: logging.Logger) -> None:
         xy_mode=mode,
         job_settings_mode=mode,
         jobs_mode=mode,
+        selected_job_mode=mode,
         hardware_info_mode=mode,
         scan_status_mode=mode,
     )
