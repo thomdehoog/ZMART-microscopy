@@ -2105,6 +2105,99 @@ class TestConfirmSelectJob(unittest.TestCase):
                 poll_interval=0.001)
         self.assertFalse(result["success"])
 
+    def test_select_job_log_confirmation_is_off_by_default(self):
+        jobs = [{"Name": "HiRes", "IsSelected": True}]
+        with patch.object(confirmations.log_wait, "wait_for_selected_job_log") as log_wait_mock, \
+             patch.object(readers, 'get_jobs', return_value=jobs), \
+             patch('time.sleep'):
+            result = confirmations.confirm_select_job(
+                None, job_name="HiRes", timeout=1.0,
+                poll_interval=0.001, command_started_at=100.0)
+
+        self.assertTrue(result["success"])
+        log_wait_mock.assert_not_called()
+
+    def test_select_job_can_confirm_from_log_when_profile_enables_it(self):
+        profile = profiles.StateReaderProfile(
+            selected_job_confirm_source="log",
+            selected_job_log_confirm_timeout_s=0.25,
+        )
+        log_result = confirmations.log_wait.LogPollResult(
+            success=True,
+            value="HiRes",
+            matched_at=101.0,
+            elapsed_s=0.02,
+            attempts=1,
+            reason="matched",
+            diagnostics={},
+        )
+        with patch.object(profiles, "STATE_READERS", profile), \
+             patch.object(confirmations.log_wait, "wait_for_selected_job_log",
+                          return_value=log_result) as log_wait_mock, \
+             patch.object(readers, 'get_jobs') as api_jobs:
+            result = confirmations.confirm_select_job(
+                None, job_name="HiRes", timeout=1.0,
+                poll_interval=0.001, command_started_at=100.0)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "log")
+        api_jobs.assert_not_called()
+        log_wait_mock.assert_called_once()
+
+    def test_select_job_log_confirmation_does_not_trust_api_as_oracle(self):
+        profile = profiles.StateReaderProfile(
+            selected_job_confirm_source="log",
+            selected_job_log_confirm_timeout_s=0.25,
+        )
+        log_result = confirmations.log_wait.LogPollResult(
+            success=True,
+            value="HiRes",
+            matched_at=101.0,
+            elapsed_s=0.02,
+            attempts=1,
+            reason="matched",
+            diagnostics={},
+        )
+        jobs = [{"Name": "AF Job", "IsSelected": True}]
+        with patch.object(profiles, "STATE_READERS", profile), \
+             patch.object(confirmations.log_wait, "wait_for_selected_job_log",
+                          return_value=log_result), \
+             patch.object(readers, 'get_jobs', return_value=jobs) as api_jobs:
+            result = confirmations.confirm_select_job(
+                None, job_name="HiRes", timeout=0.01,
+                poll_interval=0.001, command_started_at=100.0)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "log")
+        api_jobs.assert_not_called()
+
+    def test_select_job_log_confirmation_fails_closed_when_log_misses(self):
+        profile = profiles.StateReaderProfile(
+            selected_job_confirm_source="log",
+            selected_job_log_confirm_timeout_s=0.25,
+        )
+        log_result = confirmations.log_wait.LogPollResult(
+            success=False,
+            value=None,
+            matched_at=None,
+            elapsed_s=0.25,
+            attempts=3,
+            reason="timeout",
+            diagnostics={"last_reason": "no_jobs"},
+        )
+        with patch.object(profiles, "STATE_READERS", profile), \
+             patch.object(confirmations.log_wait, "wait_for_selected_job_log",
+                          return_value=log_result) as log_wait_mock, \
+             patch.object(readers, 'get_jobs') as api_jobs:
+            result = confirmations.confirm_select_job(
+                None, job_name="HiRes", timeout=1.0,
+                poll_interval=0.001, command_started_at=100.0)
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["source"], "log")
+        api_jobs.assert_not_called()
+        log_wait_mock.assert_called_once()
+
 
     def test_select_job_early_exit_pins_api_mode(self):
         client = make_client()
@@ -2130,6 +2223,41 @@ class TestConfirmSelectJob(unittest.TestCase):
         self.assertEqual(result, dispatched)
         self.assertEqual(calls[0]["mode"], "api")
         dispatch_mock.assert_called_once()
+
+    def test_select_job_primes_log_cluster_when_profile_enables_it(self):
+        client = make_client()
+        client.PyApiSelectJobByName = make_api_obj()
+        profile = profiles.StateReaderProfile(
+            selected_job_confirm_source="log",
+            selected_job_log_prime_cluster=True,
+        )
+        jobs = [
+            {"Name": "AF Job", "IsSelected": True},
+            {"Name": "Overview", "IsSelected": False},
+            {"Name": "HiRes", "IsSelected": False},
+        ]
+        settings_calls = []
+
+        def fake_get_job_settings(client, job_name, **kwargs):
+            settings_calls.append((job_name, kwargs))
+            return {"jobName": job_name}
+
+        dispatched = {"success": True, "confirmed": True, "message": "sent"}
+        with patch.object(profiles, "STATE_READERS", profile), \
+             patch.object(commands._readers, 'get_jobs', return_value=jobs), \
+             patch.object(commands._readers, 'get_job_settings',
+                          side_effect=fake_get_job_settings), \
+             patch.object(commands, '_dispatch', return_value=dispatched) as dispatch_mock:
+            result = commands.select_job(client, "Overview")
+
+        self.assertEqual(result, dispatched)
+        self.assertEqual(
+            [name for name, _kwargs in settings_calls],
+            ["AF Job", "Overview", "HiRes"],
+        )
+        self.assertTrue(all(kwargs["mode"] == "api" for _n, kwargs in settings_calls))
+        confirm_fn = dispatch_mock.call_args.kwargs["confirm_fn"]
+        self.assertIn("command_started_at", confirm_fn.keywords)
 
 
 class TestCommandReaderSafety(unittest.TestCase):
