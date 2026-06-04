@@ -75,7 +75,7 @@ readback reveals the clamp. See ``feedback_pan_then_zoom_clamps.md``.
 Use ``get_fov()`` from ``readers`` to query the FOV in metres,
 then size shapes as a fraction of it::
 
-    from ...core.readers import get_fov
+    from ...state_readers import get_fov
     from .roi import make_star, lrp_add_roi, um
 
     fov_w, fov_h = get_fov(client, "HiRes")   # e.g. (2.9e-5, 2.9e-5)

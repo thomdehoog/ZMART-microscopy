@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 import navigator_expert as drv
 from navigator_expert.core import dispatch
 from navigator_expert.core import errors
-from navigator_expert.core import readers
+from navigator_expert import state_readers as readers
 from navigator_expert.core import confirmations
 from navigator_expert.core import commands
 from navigator_expert.core import prechecks
@@ -1844,7 +1844,7 @@ class TestCheckIdle(unittest.TestCase):
 
     def test_none_timeout_waits_until_idle(self):
         call_count = [0]
-        def mock_status(client):
+        def mock_status(client, **_kwargs):
             call_count[0] += 1
             return "eScanIdle" if call_count[0] > 3 else "eScanRunning"
         with patch.object(readers, 'get_scan_status', side_effect=mock_status), \
@@ -1955,7 +1955,7 @@ class TestConfirmAcquire(unittest.TestCase):
     def test_scanning_then_idle(self):
         """Non-idle then idle → success (saw scanning)."""
         call_count = [0]
-        def mock_status(client):
+        def mock_status(client, **_kwargs):
             call_count[0] += 1
             return "eScanStarted" if call_count[0] <= 2 else "eScanIdle"
         with patch.object(readers, 'get_scan_status', side_effect=mock_status), \

@@ -18,7 +18,7 @@ from ``core``, ``commands``, ``profiles``, or ``confirmations``.
 import logging
 import time
 
-from . import readers as _readers
+from .. import state_readers as _readers
 from .utils import _make_log_entry
 
 log = logging.getLogger(__name__)

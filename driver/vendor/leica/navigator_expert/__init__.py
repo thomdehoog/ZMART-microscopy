@@ -30,10 +30,11 @@ __all__ = [
     "apply_stage_limits_from_config",
     "_check_xy_limits", "_check_z_limits",
     # readers
+    "Reading",
     "get_scan_status", "ping", "get_job_settings", "get_hardware_info",
     "get_xy", "read_zwide_um",
     "get_jobs", "get_job_by_name", "get_selected_job",
-    "get_fov", "get_base_fov", "get_lasx_settings",
+    "get_fov", "get_base_fov", "get_lasx_settings", "get_pending_dialog",
     # OME metadata checks/fixes
     "extract_wavelength_from_id",
     "check_ome_xml_bytes", "check_ome_tiff", "check_ome_xml_file",
@@ -157,10 +158,11 @@ from .core.errors import (
     _is_transient_error, _check_api_error, _default_error_check,
     _PERMANENT_PATTERNS, _TRANSIENT_PATTERNS,
 )
-from .core.readers import (
+from .state_readers import (
+    Reading,
     get_scan_status, ping, get_job_settings, get_hardware_info,
     get_xy, read_zwide_um, get_jobs, get_job_by_name, get_selected_job,
-    get_fov, get_base_fov, get_lasx_settings,
+    get_fov, get_base_fov, get_lasx_settings, get_pending_dialog,
 )
 from .core.settings import make_changeable_copy
 from .core.prechecks import check_idle
