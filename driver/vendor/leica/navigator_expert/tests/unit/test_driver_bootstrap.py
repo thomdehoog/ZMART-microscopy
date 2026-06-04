@@ -24,10 +24,13 @@ import sys
 # Mimic an example-script entry point: only leica/ on sys.path.
 sys.path.insert(0, r"{leica}")
 import navigator_expert as drv
+import LasxApi.PYLICamApiConnector as lasx_api
 assert drv.acquire is not None
 assert drv.save is not None
 assert drv.AcquisitionResult is not None
 assert drv.SavedAcquisition is not None
+assert lasx_api.__version__ == "1.0.108.0"
+assert r"{leica}" in lasx_api.__file__
 print("bootstrap-ok")
 """
 
