@@ -89,7 +89,7 @@ class Config:
     # the native AutoSave base folder. If set, ``smart_output_root`` is the
     # exact folder that receives <experiment>_<hash6> run directories; no
     # extra "smart" suffix is added.
-    save_exporter: str = "navigator_expert"
+    save_exporter: str = "lasx_native_autosave"
     smart_output_root: Path | None = None
 
 

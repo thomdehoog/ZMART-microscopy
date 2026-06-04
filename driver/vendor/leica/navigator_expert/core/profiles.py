@@ -84,15 +84,15 @@ class StateReaderProfile:
 
     both_log_grace_s: float = 0.25
 
-    xy_mode: str = "api"
+    xy_mode: str = "log"
     xy_log_max_age_s: float = 1.0
     xy_timeout_s: float = 2.0
 
-    job_settings_mode: str = "api"
+    job_settings_mode: str = "log"
     job_settings_log_max_age_s: float = 2.0
     job_settings_timeout_s: float = 2.0
 
-    jobs_mode: str = "api"
+    jobs_mode: str = "log"
     jobs_log_max_age_s: float = 2.0
     jobs_timeout_s: float = 2.0
     selected_job_confirm_source: str = "api"
@@ -102,11 +102,11 @@ class StateReaderProfile:
     selected_job_log_poll_interval_s: float = 0.1
     selected_job_log_cluster_max_age_s: Optional[float] = None
 
-    hardware_info_mode: str = "api"
+    hardware_info_mode: str = "log"
     hardware_info_log_max_age_s: float = 2.0
     hardware_info_timeout_s: float = 2.0
 
-    scan_status_mode: str = "api"
+    scan_status_mode: str = "log"
     scan_status_log_max_age_s: float = 0.5
     scan_status_timeout_s: float = 2.0
 

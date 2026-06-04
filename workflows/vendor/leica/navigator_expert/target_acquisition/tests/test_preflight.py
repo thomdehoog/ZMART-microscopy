@@ -133,7 +133,7 @@ def test_shutdown_prior_ctx_clears_slot_even_when_shutdown_raises(monkeypatch):
 def _cfg(
     tmp_path,
     *,
-    save_exporter="navigator_expert",
+    save_exporter="lasx_native_autosave",
     smart_output_root=None,
 ):
     from pipeline.context import Config
@@ -158,7 +158,12 @@ def test_smart_base_for_navigator_expert_uses_media_path(monkeypatch, tmp_path):
         lambda: {"export": {"media_path": str(media_path)}},
     )
 
-    assert mod._smart_base_for_exporter(_cfg(tmp_path)) == media_path / "smart"
+    assert (
+        mod._smart_base_for_exporter(
+            _cfg(tmp_path, save_exporter="navigator_expert")
+        )
+        == media_path / "smart"
+    )
 
 
 def test_smart_base_for_native_autosave_is_next_to_autosave_root(
@@ -176,7 +181,7 @@ def test_smart_base_for_native_autosave_is_next_to_autosave_root(
 
     assert (
         mod._smart_base_for_exporter(
-            _cfg(tmp_path, save_exporter="lasx_native_autosave")
+            _cfg(tmp_path)
         )
         == autosave_root.parent / "smart"
     )
@@ -195,7 +200,7 @@ def test_smart_base_native_autosave_requires_enabled(monkeypatch, tmp_path):
 
     with pytest.raises(RuntimeError, match="native AutoSave is not enabled"):
         mod._smart_base_for_exporter(
-            _cfg(tmp_path, save_exporter="lasx_native_autosave")
+            _cfg(tmp_path)
         )
 
 

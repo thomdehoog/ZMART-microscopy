@@ -23,21 +23,28 @@ class TestStateReaders(unittest.TestCase):
     def tearDown(self):
         profiles.STATE_READERS = self._state_profile
 
-    def test_default_xy_uses_api(self):
+    def test_default_xy_uses_log(self):
         expected = {"x_um": 1.0, "y_um": 2.0}
-        with patch.object(router.api_reader, "get_xy", return_value=expected) as api, \
-             patch.object(router.log_reader, "parse_log") as parse_log:
+        snapshot = SimpleNamespace(now=1000.0)
+        with patch.object(router.api_reader, "get_xy") as api, \
+             patch.object(router.log_reader, "parse_log", return_value=snapshot) as parse_log, \
+             patch.object(router.log_reader, "get_xy", return_value=expected) as log_xy, \
+             patch.object(router.log_reader, "ages", return_value={"xy": 0.2}):
             self.assertEqual(state_readers.get_xy(object()), expected)
-        api.assert_called_once()
-        parse_log.assert_not_called()
+        api.assert_not_called()
+        parse_log.assert_called_once()
+        log_xy.assert_called_once_with(snapshot, max_age_s=1.0)
 
     def test_diagnostics_returns_reading(self):
         expected = {"x_um": 1.0, "y_um": 2.0}
-        with patch.object(router.api_reader, "get_xy", return_value=expected):
+        snapshot = SimpleNamespace(now=1000.0)
+        with patch.object(router.log_reader, "parse_log", return_value=snapshot), \
+             patch.object(router.log_reader, "get_xy", return_value=expected), \
+             patch.object(router.log_reader, "ages", return_value={"xy": 0.2}):
             reading = state_readers.get_xy(object(), diagnostics=True)
         self.assertIsInstance(reading, state_readers.Reading)
         self.assertEqual(reading.value, expected)
-        self.assertEqual(reading.source, "api")
+        self.assertEqual(reading.source, "log")
         self.assertIsNotNone(reading.observed_at)
 
     def test_log_mode_returns_fresh_log_value(self):
