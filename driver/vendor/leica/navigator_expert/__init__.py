@@ -135,18 +135,20 @@ __all__ = [
     "native_autosave_enabled", "save",
 ]
 
-# -- shared self-bootstrap
-# Package infrastructure: navigator_expert depends on shared.output_layout,
-# which lives at the repository root. Callers that put only
-# driver/vendor/leica/ on sys.path would otherwise get ModuleNotFoundError
-# when the driver imports shared. Adding the repository root once here keeps
-# the dependency invisible to callers. Idempotent.
+# -- package self-bootstrap
+# navigator_expert depends on shared.output_layout at the repository root and
+# the vendored Leica CAM API runtime in driver/vendor/leica/LasxApi. Callers
+# usually put driver/vendor/leica/ on sys.path; adding both roots here keeps the
+# layout resilient for subprocesses and scripts that import the driver first.
 import sys as _sys
 from pathlib import Path as _Path
-_repo_root = str(_Path(__file__).resolve().parents[4])
-if _repo_root not in _sys.path:
-    _sys.path.insert(0, _repo_root)
-del _sys, _Path, _repo_root
+_here = _Path(__file__).resolve()
+_leica_root = str(_here.parents[1])
+_repo_root = str(_here.parents[4])
+for _path in (_repo_root, _leica_root):
+    if _path not in _sys.path:
+        _sys.path.insert(0, _path)
+del _sys, _Path, _here, _leica_root, _repo_root, _path
 
 # -- core/ - raw LAS X command/readback mechanics
 from .core.utils import (
