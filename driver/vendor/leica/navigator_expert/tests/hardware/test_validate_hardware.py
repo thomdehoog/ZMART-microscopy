@@ -177,7 +177,7 @@ def test_explicit_log_mode_fails_when_no_jobs():
         def get_scan_status(_client): return "eScanIdle"
 
         @staticmethod
-        def get_jobs(_client): return None
+        def get_jobs(_client, **_kwargs): return None
 
         @staticmethod
         def get_hardware_info(_client): return {"ok": True}
@@ -196,8 +196,8 @@ def test_explicit_log_mode_fails_when_no_jobs():
 
     assert job is None
     assert validator.exit_code() == 1
-    assert records[-1].name == "job: resolve"
-    assert records[-1].status == "FAIL"
+    resolve = next(r for r in records if r.name == "job: resolve")
+    assert resolve.status == "FAIL"
 
 
 def test_mock_set_dispatch_table_matches_surface():

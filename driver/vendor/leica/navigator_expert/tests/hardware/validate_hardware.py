@@ -369,6 +369,19 @@ def _set_stage_limits(drv: Any, limits: dict[str, float]) -> bool:
 
 # --- Driver helpers ---------------------------------------------------------
 
+def _api_control_jobs_for_log_experiment(
+    drv: Any,
+    v: Validator,
+    client: Any,
+) -> list[dict] | None:
+    """Read API jobs as validator control input for log-only experiments."""
+    return v.callable(
+        "job: resolve api control for log experiment",
+        lambda: drv.get_jobs(client, mode="api"),
+        context={"purpose": "drive log selected-job poll"},
+    )
+
+
 def _settings(drv: Any, client: Any, job_name: str, *, mode: str | None = None) -> dict:
     """Read + parse current job settings (changeable copy)."""
     return drv.make_changeable_copy(
@@ -387,6 +400,98 @@ def _selected_job_name(
         return None
     selected = next((j for j in jobs if j.get("IsSelected")), None)
     return selected["Name"] if selected else None
+
+
+def _job_objective_signature(drv: Any, client: Any, job_name: str) -> tuple | None:
+    """Best-effort objective identity for ordering validator job switches."""
+    try:
+        settings = _settings(drv, client, job_name, mode="api")
+    except Exception:  # noqa: BLE001 - validator ordering hint only
+        return None
+    objective = settings.get("objective") or {}
+    return (objective.get("slotIndex"), objective.get("name"))
+
+
+def _job_selection_order(
+    drv: Any,
+    client: Any,
+    names: list[str],
+    original: str,
+) -> list[str]:
+    """Prefer a real same-objective switch before objective-changing jobs."""
+    if len(names) <= 1:
+        return names
+    original = original if original in names else names[0]
+    original_sig = _job_objective_signature(drv, client, original)
+    same_objective = []
+    other_objective = []
+    for name in names:
+        if name == original:
+            continue
+        if _job_objective_signature(drv, client, name) == original_sig:
+            same_objective.append(name)
+        else:
+            other_objective.append(name)
+    return same_objective + other_objective + [original]
+
+
+def _record_log_selected_job_poll(
+    v: Validator,
+    target_job: str,
+    command_started_at: float,
+    api_select_elapsed_s: float | None,
+    context: dict,
+) -> None:
+    """Record the experimental log-only selected-job wait."""
+    from navigator_expert.state_readers.log_wait import (  # noqa: PLC0415
+        wait_for_selected_job_log,
+    )
+
+    started_at = _now_iso()
+    result = wait_for_selected_job_log(
+        target_job,
+        command_started_at,
+    )
+    last_reason = result.diagnostics.get("last_reason", result.reason)
+    log_event_delta_s = None
+    selected_ts = result.diagnostics.get("selected_ts")
+    if selected_ts is not None:
+        log_event_delta_s = selected_ts - command_started_at
+    log_delta = (
+        "n/a" if log_event_delta_s is None
+        else f"{log_event_delta_s:.3f}s"
+    )
+    api_elapsed = (
+        "n/a" if api_select_elapsed_s is None
+        else f"{api_select_elapsed_s:.3f}s"
+    )
+    message = (
+        f"{result.reason}; last_reason={last_reason}; "
+        f"value={result.value!r}; "
+        f"log_event_delta={log_delta}; api_select_elapsed={api_elapsed}; "
+        f"attempts={result.attempts}"
+    )
+    v._emit(Record(
+        name=f"job selection: log poll confirmed {target_job}",
+        status="PASS" if result.success else "FAIL",
+        started_at=started_at,
+        elapsed_s=result.elapsed_s,
+        message=message,
+        context={
+            **context,
+            "log_poll": {
+                "success": result.success,
+                "value": result.value,
+                "matched_at": result.matched_at,
+                "attempts": result.attempts,
+                "reason": result.reason,
+                "api_select_elapsed_s": api_select_elapsed_s,
+                "log_event_delta_s": log_event_delta_s,
+                "poll_elapsed_s": result.elapsed_s,
+                "diagnostics": result.diagnostics,
+            },
+        },
+    ))
 
 
 def _range_error(value: float, lower: float, upper: float, label: str) -> str | None:
@@ -459,18 +564,34 @@ def phase_readonly(drv: Any, v: Validator, client: Any,
             msg = "no jobs returned"
             if args.state_reader_mode in {"log", "both"}:
                 v.fail("job: resolve", f"{msg} with --state-reader-mode {args.state_reader_mode}")
+                if args.state_reader_mode == "log" and not args.read_only:
+                    jobs = _api_control_jobs_for_log_experiment(drv, v, client)
+                    if not jobs:
+                        return None
+                else:
+                    return None
             else:
                 v.skip("job: resolve", msg)
-            return None
+                return None
         names = [j["Name"] for j in jobs]
         if args.job:
             if args.job not in names:
                 msg = f"requested {args.job!r} not in {names!r}"
                 if args.state_reader_mode in {"log", "both"}:
                     v.fail("job: resolve", msg)
+                    if args.state_reader_mode == "log" and not args.read_only:
+                        jobs = _api_control_jobs_for_log_experiment(
+                            drv, v, client)
+                        if not jobs:
+                            return None
+                        names = [j["Name"] for j in jobs]
+                        if args.job not in names:
+                            return None
+                    else:
+                        return None
                 else:
                     v.skip("job: resolve", msg)
-                return None
+                    return None
             name = args.job
         else:
             sel = next((j for j in jobs if j.get("IsSelected")), None)
@@ -483,10 +604,15 @@ def phase_readonly(drv: Any, v: Validator, client: Any,
 
 
 def phase_job_selection(drv: Any, v: Validator, client: Any,
-                        preferred_job: str) -> None:
+                        preferred_job: str, args: argparse.Namespace) -> None:
     """Select every reported job once, verify each, then restore original."""
     with v.phase("job selection round-trip"):
-        jobs = v.callable("job selection: read jobs", lambda: drv.get_jobs(client))
+        job_read_mode = "api" if args.state_reader_mode == "log" else None
+        jobs = v.callable(
+            "job selection: read jobs",
+            lambda: drv.get_jobs(client, mode=job_read_mode),
+            context={"mode": job_read_mode or "profile"},
+        )
         if not jobs:
             v.skip("job selection: round-trip", "no jobs returned")
             return
@@ -494,13 +620,34 @@ def phase_job_selection(drv: Any, v: Validator, client: Any,
         names = [j["Name"] for j in jobs]
         original = next(
             (j["Name"] for j in jobs if j.get("IsSelected")), preferred_job)
+        ordered_names = _job_selection_order(drv, client, names, original)
 
         try:
-            for index, name in enumerate(names):
-                ctx = {"index": index, "count": len(names), "job": name}
-                v.command("job selection: select job",
-                          lambda name=name: drv.select_job(client, name),
-                          context=ctx)
+            for index, name in enumerate(ordered_names):
+                ctx = {
+                    "index": index,
+                    "count": len(ordered_names),
+                    "job": name,
+                    "job_order": ordered_names,
+                }
+                command_started_at = time.time()
+                command_result = v.command(
+                    "job selection: select job",
+                    lambda name=name: drv.select_job(client, name),
+                    context=ctx,
+                )
+                api_select_elapsed_s = (
+                    None if command_result is None
+                    else (command_result.get("timing") or {}).get("total_s")
+                )
+                if args.state_reader_mode == "log":
+                    _record_log_selected_job_poll(
+                        v,
+                        name,
+                        command_started_at,
+                        api_select_elapsed_s,
+                        ctx,
+                    )
                 selected = v.callable("job selection: read selected job",
                                       lambda: _selected_job_name(
                                           drv, client, mode="api"),
@@ -1023,7 +1170,7 @@ def main(argv: list[str] | None = None) -> int:
             log.warning("aborted before live writes")
             return v.exit_code()
 
-        phase_job_selection(drv, v, client, job_name)
+        phase_job_selection(drv, v, client, job_name, args)
 
         if args.skip_settings:
             v.skip("phase: settings", "--skip-settings")
