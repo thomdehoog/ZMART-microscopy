@@ -163,7 +163,7 @@ def phase_readonly(client, results):
     if dlg:
         print(f"  !! modal dialog OPEN (CAM API is blocked): {dlg!r}")
 
-    axy, alat, _ = _timed(lambda: drv.get_xy(client))
+    axy, alat, _ = _timed(lambda: drv.get_xy(client, mode="api"))
     lxy = L.get_xy(snap)
     if axy is None and lxy is not None:
         _row(results, "get_xy", True, f"API HANG ({alat:.0f}ms) -> log delivered "
@@ -174,7 +174,7 @@ def phase_readonly(client, results):
         _row(results, "get_xy", ok, f"api={alat:.0f}ms" + (f" log_age={ag['xy']:.0f}s" if ag['xy'] else ""),
              hang=alat > API_HANG_MS, latency=alat)
 
-    ajobs, alat, _ = _timed(lambda: drv.get_jobs(client))
+    ajobs, alat, _ = _timed(lambda: drv.get_jobs(client, mode="api"))
     ljobs = L.get_jobs(snap)
     an = sorted(j["Name"] for j in (ajobs or []))
     ln = sorted(j["Name"] for j in (ljobs or []))
@@ -184,19 +184,19 @@ def phase_readonly(client, results):
          hang=alat > API_HANG_MS)
     _row(results, "get_selected_job", asel == lsel, f"api={asel} log={lsel}")
 
-    astat = drv.get_scan_status(client)
+    astat = drv.get_scan_status(client, mode="api")
     lstat = L.get_scan_status(snap)
     _row(results, "get_scan_status (idle-sense)", ("Idle" in str(astat)) == ("Idle" in str(lstat)),
          f"api={astat!r} log={lstat!r}" + (f" log_age={ag['scan_status']:.0f}s" if ag['scan_status'] else ""))
 
-    ahw, _, _ = _timed(lambda: drv.get_hardware_info(client))
+    ahw, _, _ = _timed(lambda: drv.get_hardware_info(client, mode="api"))
     lhw = L.get_hardware_info(snap)
     hw_ok = bool(ahw) and bool(lhw) and (ahw.get("Microscope", {}).get("name")
                                          == lhw.get("Microscope", {}).get("name"))
     _row(results, "get_hardware_info (Microscope.name)", hw_ok)
 
     for job in (ln or an):
-        araw = drv.get_job_settings(client, job)
+        araw = drv.get_job_settings(client, job, mode="api")
         lraw = L.get_job_settings(job, snap)
         af, lf = contract_fields(araw), contract_fields(lraw)
         jage = ag["jobs"].get(job)
@@ -211,11 +211,11 @@ def phase_readonly(client, results):
         _row(results, f"settings[{job}] ({len(keys)} fields)", not diffs,
              (f"log_age={jage:.0f}s" if jage is not None else "")
              + ("" if not diffs else f"  DIFFS {[(k, af.get(k), lf.get(k)) for k in diffs]}"))
-        afov, lfov = drv.get_fov(client, job), L.get_fov(job, snap)
+        afov, lfov = drv.get_fov(client, job, mode="api"), L.get_fov(job, snap)
         _row(results, f"get_fov[{job}]", bool(afov and lfov and _eq(afov[0] * 1e6, lfov[0] * 1e6, 0.5)),
              f"api={afov} log={lfov}")
         try:
-            az = drv.read_zwide_um(client, job)
+            az = drv.read_zwide_um(client, job, mode="api")
         except Exception as e:  # noqa: BLE001
             az = f"<{e}>"
         try:
@@ -275,7 +275,7 @@ def phase_changes(client, job, results):
          lambda ch: ((ch.get("activeSettings") or [{}])[0].get("pinholeAiry") or {}).get("value")),
     ]
     for name, cands, tol, setfn, readfn in specs:
-        cur_ch = _ch(drv.get_job_settings(client, job))
+        cur_ch = _ch(drv.get_job_settings(client, job, mode="api"))
         if cur_ch is None:
             _row(results, f"change[{name}]", False, "cannot read current")
             continue
@@ -286,7 +286,7 @@ def phase_changes(client, job, results):
             continue
 
         def api_read():
-            raw = drv.get_job_settings(client, job)
+            raw = drv.get_job_settings(client, job, mode="api")
             return readfn(_ch(raw)) if raw else None
 
         def log_read():
@@ -310,13 +310,13 @@ def phase_changes(client, job, results):
 
 def phase_select(client, results):
     print("\n=== SELECT-JOB round trip (gated; may pop the objective dialog) ===")
-    names = [j["Name"] for j in (drv.get_jobs(client) or [])]
-    original = (drv.get_selected_job(client) or {}).get("Name")
+    names = [j["Name"] for j in (drv.get_jobs(client, mode="api") or [])]
+    original = (drv.get_selected_job(client, mode="api") or {}).get("Name")
     try:
         for n in names:
             drv.select_job(client, n)
             api_ms, log_ms, _ = _poll_both(
-                lambda: (drv.get_selected_job(client) or {}).get("Name"),
+                lambda: (drv.get_selected_job(client, mode="api") or {}).get("Name"),
                 lambda: (L.get_selected_job() or {}).get("Name"),
                 n, None,
                 profiles.LOG_READER.poll_timeout + 1.0,
@@ -356,8 +356,8 @@ def main(argv=None):
     phase_readonly(client, results)
 
     if not args.read_only and args.yes:
-        sel = drv.get_selected_job(client)
-        job = args.job or (sel["Name"] if sel else (drv.get_jobs(client) or [{}])[0].get("Name"))
+        sel = drv.get_selected_job(client, mode="api")
+        job = args.job or (sel["Name"] if sel else (drv.get_jobs(client, mode="api") or [{}])[0].get("Name"))
         phase_changes(client, job, results)
         if args.allow_job_switch:
             phase_select(client, results)

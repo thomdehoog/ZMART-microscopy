@@ -19,10 +19,22 @@ def _job(block_id, name):
     }
 
 
-def _snapshot(*, now, selected=None, selected_ts=None, jobs=()):
+def _snapshot(
+    *,
+    now,
+    selected=None,
+    selected_ts=None,
+    jobs=(),
+    current_block_name=None,
+    current_block_id=None,
+    current_block_ts=None,
+):
     snap = log_reader.Snapshot(now=now)
     snap.selected_element = selected
     snap.selected_ts = selected_ts
+    snap.current_block_name = current_block_name
+    snap.current_block_id = current_block_id
+    snap.current_block_ts = current_block_ts
     for block_id, name, ts in jobs:
         snap.atl_by_block[str(block_id)] = (_job(block_id, name), ts)
     return snap
@@ -128,6 +140,32 @@ class TestLogWait(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(result.diagnostics["last_reason"], "partial_job_cluster")
         self.assertTrue(result.diagnostics["selected_after_command"])
+
+    def test_selected_job_poll_accepts_fresh_current_block_without_job_cluster(self):
+        snap = _snapshot(
+            now=3705.0,
+            current_block_name="Overview",
+            current_block_id=6,
+            current_block_ts=3701.0,
+            jobs=[
+                (1, "AF Job", 0.0),
+                (2, "Overview", 0.0),
+                (3, "HiRes", 0.0),
+            ],
+        )
+
+        result = wait_for_selected_job_log(
+            "Overview",
+            command_started_at=3700.0,
+            timeout_s=0.0,
+            max_age_s=60.0,
+            parse_fn=lambda: snap,
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.value, "Overview")
+        self.assertEqual(result.matched_at, 3701.0)
+        self.assertEqual(result.diagnostics["current_block_name"], "Overview")
 
     def test_selected_job_poll_uses_profile_defaults(self):
         profiles.STATE_READERS = profiles.StateReaderProfile(

@@ -63,6 +63,37 @@ def sel_line(offset, element):
             f"ElementID=\"{element}\" Origin=\"NavigatorExpert\"/>'")
 
 
+def matrix_jobs_line(offset):
+    return (
+        f"{ts(offset)} Result of command Scanner GetMatrixCollectionPatternInfo "
+        "'<Result IsValidRequest=\"1\">"
+        "<Block><BlockId>4</BlockId><BlockType>1</BlockType>"
+        "<BlockName>AF Job</BlockName><ContainsCameraSetting>0</ContainsCameraSetting>"
+        "<ContainsWizardJob>0</ContainsWizardJob><IsAutoFocusOnStart>1</IsAutoFocusOnStart>"
+        "<AutoFocusConfig><Range>0.000080</Range><AutoFocusUseFixSliceNumber>1</AutoFocusUseFixSliceNumber>"
+        "<AutoFocusFixSliceCount>87</AutoFocusFixSliceCount></AutoFocusConfig>"
+        "<ScanMode>xyz</ScanMode></Block>"
+        "<Block><BlockId>6</BlockId><BlockType>1</BlockType>"
+        "<BlockName>Overview</BlockName><ContainsCameraSetting>0</ContainsCameraSetting>"
+        "<ContainsWizardJob>0</ContainsWizardJob><IsAutoFocusOnStart>0</IsAutoFocusOnStart>"
+        "<ScanMode>xyz</ScanMode></Block>"
+        "<Block><BlockId>8</BlockId><BlockType>1</BlockType>"
+        "<BlockName>HiRes</BlockName><ContainsCameraSetting>0</ContainsCameraSetting>"
+        "<ContainsWizardJob>0</ContainsWizardJob><IsAutoFocusOnStart>0</IsAutoFocusOnStart>"
+        "<ScanMode>xyz</ScanMode></Block>"
+        "</Result>'"
+    )
+
+
+def current_block_lines(offset, name, block_id):
+    return [
+        f"{ts(offset)} 0001 Info LCSCom.Tree.Root.Acquire.ATL.CurrentBlock "
+        f"'Entry(822) CurrentBlock/Name = {name} '",
+        f"{ts(offset)} 0001 Info LCSCom.Tree.Root.Acquire.ATL.CurrentBlock "
+        f"'Entry(823) CurrentBlock/BlockID = {block_id} '",
+    ]
+
+
 def hw_line(offset):
     return (f"{ts(offset)} Result of command Scanner GetConfocalHardwareInfoAsJson "
             f"'<Result Error=\"\">{json.dumps({'Microscope': {'name': 'DM Manual-6'}})}''")
@@ -118,6 +149,67 @@ class TestLogReader(unittest.TestCase):
         s = parse([atl_line(0, 10, "A"), atl_line(0, 11, "B"), atl_line(0, 12, "C"),
                    sel_line(1, 2)])
         self.assertEqual([j["Name"] for j in L.get_jobs(s) if j["IsSelected"]], ["B"])
+
+    def test_matrix_collection_pattern_info_supplies_full_job_list(self):
+        s = parse([matrix_jobs_line(0), atl_line(1, 6, "Overview"), sel_line(2, 2)])
+        jobs = L.get_jobs(s)
+        self.assertEqual([j["Name"] for j in jobs], ["AF Job", "Overview", "HiRes"])
+        self.assertEqual([j["Name"] for j in jobs if j["IsSelected"]], ["Overview"])
+        self.assertTrue(jobs[0]["IsAutofocus"])
+        self.assertEqual(jobs[0]["FocusSliceCount"], 87)
+        self.assertIsNotNone(L.get_job_settings("Overview", s))
+        self.assertIsNone(L.get_job_settings("AF Job", s))
+
+    def test_matrix_job_list_honors_max_age(self):
+        s = parse([matrix_jobs_line(0)], now=(BASE + timedelta(seconds=600)).timestamp())
+        self.assertIsNotNone(L.get_jobs(s))
+        self.assertIsNone(L.get_jobs(s, max_age_s=60.0))
+
+    def test_current_block_can_mark_matrix_job_selection(self):
+        msgbox = self._write_msgbox(current_block_lines(2, "Overview", 6))
+        s = L.parse_log(
+            lines=[matrix_jobs_line(0)],
+            msgbox_path=msgbox,
+            now=(BASE + timedelta(seconds=5)).timestamp(),
+        )
+        self.assertEqual(
+            [j["Name"] for j in L.get_jobs(s) if j["IsSelected"]],
+            ["Overview"],
+        )
+
+    def test_current_block_takes_precedence_over_selected_element_command(self):
+        msgbox = self._write_msgbox(current_block_lines(3, "Overview", 6))
+        s = L.parse_log(
+            lines=[matrix_jobs_line(0), sel_line(2, 3)],
+            msgbox_path=msgbox,
+            now=(BASE + timedelta(seconds=5)).timestamp(),
+        )
+        self.assertEqual(
+            [j["Name"] for j in L.get_jobs(s) if j["IsSelected"]],
+            ["Overview"],
+        )
+
+    def test_selected_job_uses_fresh_current_block_when_job_list_is_stale(self):
+        msgbox = self._write_msgbox(current_block_lines(120, "Overview", 6))
+        s = L.parse_log(
+            lines=[matrix_jobs_line(0)],
+            msgbox_path=msgbox,
+            now=(BASE + timedelta(seconds=125)).timestamp(),
+        )
+        self.assertIsNone(L.get_jobs(s, max_age_s=30.0))
+        self.assertEqual(
+            L.get_selected_job(s, max_age_s=30.0),
+            {"Name": "Overview", "IsSelected": True, "ID": 6},
+        )
+
+    def test_selected_job_current_block_honors_max_age(self):
+        msgbox = self._write_msgbox(current_block_lines(30, "Overview", 6))
+        s = L.parse_log(
+            lines=[],
+            msgbox_path=msgbox,
+            now=(BASE + timedelta(seconds=125)).timestamp(),
+        )
+        self.assertIsNone(L.get_selected_job(s, max_age_s=30.0))
 
     def test_ambiguous_selection_unknown(self):
         s = parse([atl_line(0, 10, "A"), atl_line(0, 11, "B"), atl_line(0, 12, "C"),

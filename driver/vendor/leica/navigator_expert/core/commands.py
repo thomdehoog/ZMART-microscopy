@@ -74,6 +74,11 @@ def _has_bound_keyword(fn, name):
     return isinstance(fn, partial) and name in (fn.keywords or {})
 
 
+def _state_reader_profile():
+    from . import profiles as _profiles
+    return _profiles.STATE_READERS
+
+
 def _prime_selected_job_log_cluster(client, jobs):
     """Best-effort ATL job-cluster priming for log-backed select confirmation.
 
@@ -82,8 +87,7 @@ def _prime_selected_job_log_cluster(client, jobs):
     gates the changing selected-element event by command timestamp.
     """
     try:
-        from . import profiles as _profiles
-        profile = _profiles.STATE_READERS
+        profile = _state_reader_profile()
     except Exception:  # pragma: no cover - defensive profile import
         return
     if (
@@ -100,6 +104,20 @@ def _prime_selected_job_log_cluster(client, jobs):
         except Exception:
             log.debug("Could not prime log job cluster for %r", name,
                       exc_info=True)
+
+
+def _selected_job_name_from_log(profile):
+    """Fresh selected-job name from LAS X logs, or None when unavailable."""
+    try:
+        from ..state_readers import log_reader as _log_reader
+        max_age_s = profile.selected_job_log_cluster_max_age_s
+        if max_age_s is None:
+            max_age_s = profile.selected_job_log_max_age_s
+        selected = _log_reader.get_selected_job(max_age_s=max_age_s)
+    except Exception:
+        log.debug("Could not read selected job from LAS X log", exc_info=True)
+        return None
+    return selected.get("Name") if selected else None
 
 
 # =============================================================================
@@ -1179,25 +1197,56 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
         poll_interval: Seconds between get_jobs polls.
     """
     t0 = time.perf_counter()
+    state_profile = _state_reader_profile()
+    confirm_source = state_profile.selected_job_confirm_source
+    api_selected = False
 
-    # Phase A: check if already selected (early exit). This gates whether the
-    # command fires, so it must use the authoritative API reader rather than a
-    # profile-routed passive reader.
-    try:
-        jobs = _readers.get_jobs(client, mode="api")
-        if jobs:
-            for j in jobs:
-                if j.get("Name") == job_name and j.get("IsSelected"):
-                    elapsed = time.perf_counter() - t0
-                    return {
-                        "success": True, "confirmed": True,
-                        "message": f"'{job_name}' already selected",
-                        "timing": _make_timing(total_s=elapsed, attempts=0),
-                        "logs": [],
-                    }
+    # Phase A: "already selected" early-exit. A single reader family owns this
+    # decision, matching the confirmation source - we never let one source gate
+    # the command while another confirms it.
+    if confirm_source == "log":
+        # Log is authoritative for applied selection. A no-op re-select emits no
+        # new CurrentBlock event, so the early-exit must come from log state.
+        if _selected_job_name_from_log(state_profile) == job_name:
+            elapsed = time.perf_counter() - t0
+            return {
+                "success": True, "confirmed": True,
+                "message": f"'{job_name}' already selected",
+                "timing": _make_timing(total_s=elapsed, attempts=0),
+                "logs": [{
+                    "level": "info",
+                    "msg": "selected job already confirmed from LAS X log",
+                }],
+            }
+        # In log mode the API selected-job readback is NOT used to gate the
+        # command (it can be stale on some LAS X versions). It is consulted only
+        # to enumerate jobs for cluster priming and to annotate a disagreement.
+        try:
+            jobs = _readers.get_jobs(client, mode="api")
+            if jobs:
+                for j in jobs:
+                    if j.get("Name") == job_name and j.get("IsSelected"):
+                        api_selected = True
+                        break
             _prime_selected_job_log_cluster(client, jobs)
-    except Exception:
-        log.debug("Could not check current job selection before select_job")
+        except Exception:
+            log.debug("Could not enumerate/prime jobs before log-confirmed "
+                      "select_job")
+    else:  # confirm_source == "api": API pre-check gates the command.
+        try:
+            jobs = _readers.get_jobs(client, mode="api")
+            if jobs:
+                for j in jobs:
+                    if j.get("Name") == job_name and j.get("IsSelected"):
+                        elapsed = time.perf_counter() - t0
+                        return {
+                            "success": True, "confirmed": True,
+                            "message": f"'{job_name}' already selected",
+                            "timing": _make_timing(total_s=elapsed, attempts=0),
+                            "logs": [],
+                        }
+        except Exception:
+            log.debug("Could not check current job selection before select_job")
 
     # Phase B: backbone
     api_obj = client.PyApiSelectJobByName
@@ -1206,7 +1255,7 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
         m.JobName = job_name
 
     command_started_at = time.time()
-    return _dispatch(
+    result = _dispatch(
         client, api_obj, f"SelectJob '{job_name}'", SELECT_JOB,
         setup_fn=setup,
         confirm_fn=partial(
@@ -1217,3 +1266,12 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
             command_started_at=command_started_at,
         ),
     )
+    if api_selected:
+        result.setdefault("logs", []).append({
+            "level": "info",
+            "msg": (
+                "API reported target already selected before SelectJob, "
+                "but log confirmation mode still fired the command"
+            ),
+        })
+    return result

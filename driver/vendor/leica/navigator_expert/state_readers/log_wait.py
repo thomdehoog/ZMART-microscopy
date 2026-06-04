@@ -107,7 +107,7 @@ def wait_for_selected_job_log(
             return LogPollResult(
                 success=True,
                 value=last_diag.get("selected_job_name"),
-                matched_at=last_diag.get("selected_ts"),
+                matched_at=last_diag.get("matched_ts"),
                 elapsed_s=monotonic_fn() - started,
                 attempts=attempts,
                 reason="matched",
@@ -145,6 +145,14 @@ def _selected_job_reason(
     selected_after = (
         selected_ts is not None and selected_ts > command_started_at
     )
+    current_block_name = snapshot.current_block_name
+    current_block_ts = snapshot.current_block_ts
+    current_block_after = (
+        current_block_ts is not None and current_block_ts > command_started_at
+    )
+    current_block_fresh = not log_reader._too_old(
+        current_block_ts, snapshot.now, max_age_s=max_age_s
+    )
     cluster = _cluster_diagnostics(snapshot, max_age_s=max_age_s)
     diagnostics = {
         "target_job": target_job,
@@ -153,10 +161,28 @@ def _selected_job_reason(
         "selected_ts": selected_ts,
         "selected_after_command": selected_after,
         "selected_job_name": selected_name,
+        "current_block_name": current_block_name,
+        "current_block_id": snapshot.current_block_id,
+        "current_block_ts": current_block_ts,
+        "current_block_after_command": current_block_after,
+        "current_block_fresh": current_block_fresh,
+        "matched_ts": selected_ts,
         "jobs_count": 0 if jobs is None else len(jobs),
         "job_names": [] if jobs is None else [j.get("Name") for j in jobs],
         **cluster,
     }
+
+    if (
+        current_block_name is not None
+        and current_block_ts is not None
+        and current_block_after
+        and current_block_fresh
+    ):
+        diagnostics["selected_job_name"] = current_block_name
+        diagnostics["matched_ts"] = current_block_ts
+        if current_block_name == target_job:
+            return "matched", diagnostics
+        return "selected_other_job", diagnostics
 
     if snapshot.selected_element is None:
         return "no_selected_element", diagnostics

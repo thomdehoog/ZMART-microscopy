@@ -106,10 +106,25 @@ def _age_for_snapshot(snapshot, *, age_key=None, job_name=None):
             age for age in (ages.get("jobs") or {}).values()
             if age is not None
         ]
+        job_list_age = ages.get("job_list")
+        if job_list_age is not None:
+            values.append(job_list_age)
         selected_age = ages.get("selected")
         if selected_age is not None:
             values.append(selected_age)
+        current_block_age = ages.get("current_block")
+        if current_block_age is not None:
+            values.append(current_block_age)
         return max(values) if values else None
+    if age_key == "selected_job":
+        values = [
+            age for age in (
+                ages.get("current_block"),
+                ages.get("selected"),
+            )
+            if age is not None
+        ]
+        return min(values) if values else None
     return ages.get(age_key)
 
 
@@ -430,15 +445,20 @@ def get_job_by_name(client, job_name, *, mode=None, diagnostics=False, **kwargs)
 
 
 def get_selected_job(client, *, mode=None, diagnostics=False, **kwargs):
-    jobs_reading = get_jobs(
-        client,
-        mode=mode,
-        diagnostics=True,
-        **kwargs,
+    profile = _profile()
+    reading = _route_read(
+        _mode(mode, "selected_job_mode"),
+        api_fn=lambda: api_reader.get_selected_job(client, **kwargs),
+        log_fn=lambda: _snapshot_read(
+            lambda snapshot: log_reader.get_selected_job(
+                snapshot,
+                max_age_s=profile.selected_job_log_max_age_s,
+            ),
+            age_key="selected_job",
+        ),
+        timeout_s=profile.selected_job_timeout_s,
+        api_key=_client_api_key(client),
     )
-    value = None if jobs_reading is None else derived.selected_job(
-        jobs_reading.value)
-    reading = _derive(jobs_reading, value)
     return _plain_or_diagnostic(reading, diagnostics)
 
 
