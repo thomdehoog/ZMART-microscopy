@@ -88,3 +88,60 @@ Note: the routed (gated) `mode="log"` reads above return `None` on an idle scope
 because of the freshness gates; the side-by-side log column uses an un-gated
 snapshot, so it shows parity when the log is fresh. Both views are in
 `SESSION_SUMMARY_20260605.md` and `SELECTED_JOB_LOG_READER_FIX_20260605.md`.
+
+## Event-driven vs passive: why polling can't beat data freshness
+
+Hardware test: `tests/hardware/move_xy_pattern_api_vs_log.py` moves the stage
+around a 5000 um square for two laps (move -> confirm -> move -> confirm) and
+reads the position back in api and log mode at each stop.
+
+Both / api readback (8 moves):
+- API: 8/8 exact (+/-0 um), ~12 ms each.
+- LOG: 5-6/8 returned the exact position; the rest `None`. Never wrong.
+
+Log-only readback, polling for a fresh value:
+- When fresh, log lands on the FIRST poll (`tries=1`, ~330 ms), exact position.
+- When the line has aged past the 1.0 s `xy` gate, polling does NOT recover it:
+  with `--log-poll-s 8` the failing stop re-parsed the log **21 times over 8.0 s
+  and still returned `None`**.
+
+### The rule
+
+The log reader is **passive**: a poll only re-parses the file, it does not issue
+any command, so it cannot make a fresh `GetStageHwPosition` line appear. The only
+fresh XY line comes from the move's own confirmation (an API read). Once that line
+ages past the gate and nothing re-queries position, no amount of polling helps -
+each iteration finds the same too-old line.
+
+Outcome is therefore **binary**: a read is either fresh-immediately (`tries=1`) or
+it polls to timeout and returns `None`. Nothing lands "after 3 s of polling",
+because no fresh event arrives mid-poll on a settled stage.
+
+| | Fresh log lines during the poll? | Longer poll helps? |
+|---|---|---|
+| Job-switch confirmation | yes - the command emits a new `CurrentBlock` event | **yes** |
+| Passive read (settled stage) | no - nothing re-queries the datum | **no** |
+
+### Practical guidance per datum
+
+- **Position / passive state (XY, scan status, hardware info):** use **API** - it
+  actively queries, always fresh, ~12 ms. Log is only an opportunistic echo
+  (correct when fresh, `None` otherwise, ~330 ms; not made reliable by polling).
+- **Selected job after a switch:** use **log** confirmation - the switch writes a
+  fresh `CurrentBlock` event, so polling lands on it (and API is stale here).
+
+To get log-XY to return a value you must read before the gate expires (smaller
+pause), re-trigger the query (== just use API), or loosen the gate (risky for a
+fast-moving value). Do NOT "fix" it with a longer poll - the wall is data
+freshness, not poll duration.
+
+Test usage:
+
+```powershell
+$py = "C:\ProgramData\MinicondaZMB\envs\smart_lasx_runtime\python.exe"
+& $py driver/vendor/leica/navigator_expert/tests/hardware/move_xy_pattern_api_vs_log.py `
+  --delta-um 5000 --laps 2 --pause-s 0.8 --readback both
+# log-only with a long poll window (demonstrates polling can't beat freshness):
+& $py driver/vendor/leica/navigator_expert/tests/hardware/move_xy_pattern_api_vs_log.py `
+  --readback log --log-poll-s 8
+```
