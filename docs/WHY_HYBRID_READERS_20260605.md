@@ -186,4 +186,77 @@ measured.
 4. Add an incremental log tail-parser so racing everywhere is cheap.
 5. Re-run the side-by-side and the switch-timing comparison under `hybrid` to
    confirm it is correct in every quadrant of the Section 2 table.
+
+## 11. Low-level implementation notes (start here next session)
+
+### The race primitive already exists
+
+`state_readers/router.py` -> `_log_rescue_concurrent(api_fn, log_fn, trust_api,
+trust_log, timeout_s, log_grace_s, api_key)` (used by `mode="both"`) is the
+concurrent "both at once" mechanism:
+
+- Runs `log_fn` in a thread always; runs `api_fn` in a thread only if the client
+  is not already mid-API-read.
+- Threads push results into a `queue.Queue`; the main loop races them to a
+  deadline.
+- Returns the log reading the moment `trust_log` accepts it (log-preferred), else
+  holds a trusted API reading through a `log_grace_s` window, else fail-closed
+  `None`.
+
+Two safety rails it already provides, which the hybrid MUST keep:
+
+1. **API-in-flight serialization** (`_claim_api_read` / `_API_IN_FLIGHT` /
+   `_client_api_key`): the CAM API is not safe to call twice concurrently on one
+   client. Only one API read may be in flight; if the API is busy, the race runs
+   **log-only**. The log path is a file read, so log + API use different
+   resources (file vs CAM socket) and truly run in parallel - but two API reads
+   cannot overlap.
+2. **Trust predicates** (`trust_api`, `trust_log`): the winner must be trustworthy
+   (fresh), not merely first. This is the freshness arbiter (Section 4).
+
+### What to change for the hybrid (passive reads)
+
+- Replace the hardcoded log-preference with a **per-datum `prefer`** parameter
+  (Section 7): log-preferred for `get_selected_job`; API-preferred for `get_xy` /
+  `get_scan_status` / `get_hardware_info`.
+- On a both-trusted disagreement, resolve by per-datum source-of-truth and
+  **emit conflict telemetry** (the `API lag` event) - do not bury it.
+
+### What to add (confirmation race - the biggest win, NEW code)
+
+A sibling primitive for *post-command confirmation* that polls both sources
+concurrently until a predicate holds; first to observe it wins:
+
 ```
+confirm_selected_job(target, command_started_at t0, timeout_s):
+    q = Queue()
+    spawn api-poll: loop: if get_selected_job(api)==target and ts>t0: q.put(("api",ts)); stop
+                          sleep(interval)
+    spawn log-poll: loop: if CurrentBlock(log)==target and ts>t0:    q.put(("log",ts)); stop
+                          sleep(interval)
+    winner = q.get(timeout=timeout_s)   # first to notice the committed change
+    cancel the other; return winner or "unconfirmed"
+```
+
+Guards that must carry over from this session:
+- **observed-after-`t0`**: only a post-command observation confirms (a stale
+  pre-command `CurrentBlock` once matched at -74 s when state leaked across runs).
+- **API serialization**: the api-poll respects `_API_IN_FLIGHT`.
+- **timeout sized for the physical change**: same-objective switch ~0.2 s, but an
+  objective-changing switch needs several seconds (turret + parfocal) - size the
+  confirm timeout to cover it (open item).
+
+Expected: selected-job confirmation returns in ~0.2 s (log wins; API never
+converges), with zero pre-selection of source, immune to an API hang.
+
+### Files / entry points for next session
+
+- `state_readers/router.py`: `_route_read`, `_log_rescue_concurrent`,
+  `_claim_api_read`, `_trust_present` / `_trust_status`, the per-datum `get_*`
+  routers.
+- `core/profiles.py`: `LOG_READER` gates + `STATE_READERS` modes; add the
+  `prefer`/hybrid policy here.
+- `state_readers/log_wait.py`: `wait_for_selected_job_log` (the existing
+  single-source log poll) - the confirmation race generalizes this to dual-source.
+- `core/commands.py` `select_job` and `confirmations.confirm_select_job`: wire the
+  confirmation race in behind a flag.
