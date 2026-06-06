@@ -87,6 +87,19 @@ def _make_companion_xml(system_type: str) -> bytes:
     return body.encode("utf-8")
 
 
+def _make_companion_xml_without_system_type() -> bytes:
+    """Build a valid minimal companion .ome.xml without SystemTypeName."""
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
+        '<Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYCZT" '
+        'Type="uint16" SizeX="16" SizeY="16" SizeC="1" SizeZ="1" '
+        'SizeT="1"/></Image>'
+        '</OME>'
+    )
+    return body.encode("utf-8")
+
+
 def _make_image_description(system_type: str) -> str:
     """tag-270 OME-XML that includes the inline OriginalMetadata line so
     the hijack's per-frame guard could (in principle) read either the
@@ -154,6 +167,27 @@ def _constant_provider(value: int):
     return _p
 
 
+def _write_native_autosave_vendor_system_type(
+    metadata_dir: Path,
+    system_type: str,
+    *,
+    name: str = "metadata_Overview001.xlif",
+) -> Path:
+    vendor_dir = metadata_dir / "vendor" / "lasx_native_autosave"
+    vendor_dir.mkdir(parents=True, exist_ok=True)
+    path = vendor_dir / name
+    path.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Metadata>'
+        f'<Attachment Name="HardwareSetting" SystemTypeName="{system_type}">'
+        '<ATLConfocalSettingDefinition SystemSerialNumber="TEST" />'
+        '</Attachment>'
+        '</Metadata>',
+        encoding="utf-8",
+    )
+    return path
+
+
 # ─── Guard: positive allowlist ────────────────────────────────────
 
 
@@ -208,6 +242,65 @@ class TestGuardRejectsNonSimulator:
         with pytest.raises(NonSimulatorFrameError):
             hijack_frame(result, kind="overview-scan",
                          layout=layout, provider=_constant_provider(42))
+        assert result.image_path.read_bytes() == original_bytes
+
+
+class TestNativeAutoSaveVendorFallback:
+    def test_accepts_vendor_simulator_when_companion_lacks_systemtype(
+        self, tmp_path,
+    ):
+        """Native AutoSave canonical XML lacks Leica OriginalMetadata, but
+        copied vendor XLIF can still prove the frame is from the simulator."""
+        layout, result = _build_result(tmp_path, "SIMULATOR")
+        metadata_dir = layout.metadata_dir("overview-scan")
+        xml_path = metadata_dir / build_xml_name(result.naming)
+        xml_path.write_bytes(_make_companion_xml_without_system_type())
+        _write_native_autosave_vendor_system_type(metadata_dir, "SIMULATOR")
+
+        hijack_frame(
+            result, kind="overview-scan",
+            layout=layout, provider=_constant_provider(42),
+        )
+
+        new_arr = tifffile.imread(result.image_path)
+        assert new_arr.min() == 42
+        assert new_arr.max() == 42
+
+    def test_rejects_vendor_real_instrument_when_companion_lacks_systemtype(
+        self, tmp_path,
+    ):
+        layout, result = _build_result(tmp_path, "SIMULATOR")
+        metadata_dir = layout.metadata_dir("overview-scan")
+        xml_path = metadata_dir / build_xml_name(result.naming)
+        xml_path.write_bytes(_make_companion_xml_without_system_type())
+        _write_native_autosave_vendor_system_type(metadata_dir, "STELLARIS 8")
+        original_bytes = result.image_path.read_bytes()
+
+        with pytest.raises(NonSimulatorFrameError):
+            hijack_frame(
+                result, kind="overview-scan",
+                layout=layout, provider=_constant_provider(42),
+            )
+        assert result.image_path.read_bytes() == original_bytes
+
+    def test_rejects_conflicting_vendor_system_types(self, tmp_path):
+        layout, result = _build_result(tmp_path, "SIMULATOR")
+        metadata_dir = layout.metadata_dir("overview-scan")
+        xml_path = metadata_dir / build_xml_name(result.naming)
+        xml_path.write_bytes(_make_companion_xml_without_system_type())
+        _write_native_autosave_vendor_system_type(
+            metadata_dir, "SIMULATOR", name="metadata_A.xlif",
+        )
+        _write_native_autosave_vendor_system_type(
+            metadata_dir, "STELLARIS 8", name="metadata_B.xlif",
+        )
+        original_bytes = result.image_path.read_bytes()
+
+        with pytest.raises(NonSimulatorFrameError):
+            hijack_frame(
+                result, kind="overview-scan",
+                layout=layout, provider=_constant_provider(42),
+            )
         assert result.image_path.read_bytes() == original_bytes
 
 
