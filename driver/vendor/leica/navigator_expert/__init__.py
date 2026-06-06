@@ -132,7 +132,8 @@ __all__ = [
     "PlaneSource", "ChannelMetadata", "AcquisitionMetadata",
     "VendorMetadataSource",
     "SavedAcquisition", "native_autosave_base_folder",
-    "native_autosave_enabled", "save",
+    "native_autosave_enabled", "active_save_exporter",
+    "save_source_root", "save",
 ]
 
 # -- package self-bootstrap
@@ -239,7 +240,7 @@ from .acquisition.product import (
 from .acquisition.lasx_native_autosave import (
     native_autosave_base_folder, native_autosave_enabled,
 )
-from .acquisition.save import save
+from .acquisition.save import active_save_exporter, save_source_root, save
 
 # -- experimental/lrp_edits/ - LRP mutation helpers
 from .experimental.lrp_edits.general import (

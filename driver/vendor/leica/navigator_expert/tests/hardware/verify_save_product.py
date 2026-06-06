@@ -25,6 +25,7 @@ adjust the two getattr lines if Codex named them differently.
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -72,16 +73,67 @@ def _fresh_source_files(media_path: Path, since: float) -> dict[Path, str]:
     return out
 
 
+def _save_source_roots(exporter: str) -> list[Path]:
+    return [drv.save_source_root(exporter)]
+
+
+def _source_snapshot(roots: list[Path]) -> dict[Path, str]:
+    out: dict[Path, str] = {}
+    suffixes = (".ome.tif", ".ome.tiff", ".ome.xml", ".xlef", ".xlif")
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for p in root.rglob("*"):
+            if p.is_file() and p.name.lower().endswith(suffixes):
+                out[p.resolve()] = _sha(p)
+    return out
+
+
+def _summary_source_files(out_root: Path, roots: list[Path]) -> tuple[set[Path], list[str]]:
+    summary = out_root / "summary.json"
+    if not summary.is_file():
+        return set(), ["summary.json missing"]
+    data = json.loads(summary.read_text(encoding="utf-8"))
+    rels = []
+    for record in data.get("acquisitions", []):
+        if record.get("source"):
+            rels.append(record["source"])
+        for vendor in record.get("vendor_metadata", []):
+            if vendor.get("source"):
+                rels.append(vendor["source"])
+
+    files: set[Path] = set()
+    missing: list[str] = []
+    for rel in rels:
+        raw = Path(rel)
+        candidates = [raw] if raw.is_absolute() else [root / rel for root in roots]
+        for candidate in candidates:
+            if candidate.is_file():
+                files.add(candidate.resolve())
+                break
+        else:
+            missing.append(rel)
+    return files, missing
+
+
 def _planes_from_source(files) -> tuple[set, set]:
     """(C, Z, T) tuples + distinct T from source image filenames."""
     czt, ts = set(), set()
     for p in files:
-        if not p.name.endswith(".ome.tif"):
+        if not p.name.lower().endswith((".ome.tif", ".ome.tiff")):
             continue
         d = drv.parse_lasx_filename(p.name) or {}
         if d.get("C") is not None:
             czt.add((d["C"], d["Z"], d["T"]))
             ts.add(d["T"])
+            continue
+        from navigator_expert.acquisition.lasx_native_autosave import (
+            _plane_sources_from_tiff,
+        )
+
+        for idx in _plane_sources_from_tiff(p):
+            czt.add((idx.c, idx.z, idx.t))
+            ts.add(idx.t)
     return czt, ts
 
 
@@ -91,16 +143,25 @@ def main(argv) -> None:
     if not job:
         print("No job selected and none given.")
         return
-    media = Path(drv.get_lasx_settings()["export"]["media_path"])
+    exporter = drv.active_save_exporter()
+    source_roots = _save_source_roots(exporter)
 
     acq = drv.acquire(client, job)
-    src = _fresh_source_files(media, acq.started_at)
-    src_czt, src_t = _planes_from_source(src)
-    print(f"job={job}  source planes={len(src_czt)}  distinct T={len(src_t)}")
+    before_sources = _source_snapshot(source_roots)
 
     out_root = Path(tempfile.mkdtemp(prefix="verify_save_"))
     naming = Naming(acquisition_type="verify-save", hash6=run_hash(), p=0)
-    saved = drv.save(client, acq, out_root, naming)
+    saved = drv.save(client, acq, out_root, naming, exporter=exporter)
+    source_files, missing_sources = _summary_source_files(out_root, source_roots)
+    source_images = {
+        p: before_sources.get(p)
+        for p in source_files
+        if p.name.lower().endswith((".ome.tif", ".ome.tiff"))
+    }
+    if not source_images and source_roots:
+        source_images = _fresh_source_files(source_roots[0], acq.started_at)
+    src_czt, src_t = _planes_from_source(source_images)
+    print(f"job={job}  source planes={len(src_czt)}  distinct T={len(src_t)}")
 
     data = out_root / "verify-save" / "data"
     meta = data / "metadata"
@@ -119,11 +180,16 @@ def main(argv) -> None:
     img_paths = getattr(saved, "image_paths", None)
     xml_paths = getattr(saved, "xml_paths", None)
     source_unchanged = (
-        all(p.exists() for p in src)
-        and all(_sha(p) == h for p, h in src.items())
+        not missing_sources
+        and bool(source_files)
+        and all(p in before_sources for p in source_files)
+        and all(p.exists() for p in source_files)
+        and all(_sha(p) == before_sources[p] for p in source_files)
     )
 
     print("\nChecks:")
+    check("summary source files resolved",
+          not missing_sources, ", ".join(missing_sources[:3]))
     check("one data/ file per source plane",
           len(out_imgs) == len(src_czt), f"{len(out_imgs)} vs {len(src_czt)}")
     check("output (c,z,t) == source (C,Z,T)", out_czt == src_czt)

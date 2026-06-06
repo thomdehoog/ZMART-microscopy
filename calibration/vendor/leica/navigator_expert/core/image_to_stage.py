@@ -103,7 +103,7 @@ def start_session(
         limits_path=drv.default_stage_limits_path()
     )
     drv.apply_stage_limits_from_config(stage_cfg)
-    hw = drv.get_hardware_info(client)
+    hw = drv.get_hardware_info(client, mode="api")
     if hw is None:
         raise RuntimeError("get_hardware_info returned None; LAS X unreachable")
 
@@ -167,7 +167,7 @@ def measure(session: ImageToStageSession) -> ImageToStageSession:
     for name in _PER_STEP_IMAGES:
         (session.paths.data_dir / f"{name}.tif").unlink(missing_ok=True)
 
-    xy = drv.get_xy(session.client) or {}
+    xy = drv.get_xy(session.client, mode="api") or {}
     if "x_um" not in xy or "y_um" not in xy:
         raise RuntimeError(f"get_xy returned no readback: {xy}")
     home_x, home_y = float(xy["x_um"]), float(xy["y_um"])

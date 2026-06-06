@@ -146,7 +146,7 @@ def _get_tile_sizes_from_api(client, job_names):
 
     sizes = {}
     for jn in job_names:
-        settings = get_job_settings(client, jn)
+        settings = get_job_settings(client, jn, mode="api")
         if settings and "imageSize" in settings:
             ts = _tile_size_from_image_size_str(settings["imageSize"])
             if ts is not None:

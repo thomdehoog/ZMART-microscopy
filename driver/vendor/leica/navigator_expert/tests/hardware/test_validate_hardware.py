@@ -90,8 +90,6 @@ def test_validate_hardware_full_mock_run(tmp_path):
 
     exit_code = validate_hardware.main([
         "--mock",
-        "--state-reader-mode",
-        "api",
         "--allow-xy",
         "--allow-z",
         "--allow-objective",

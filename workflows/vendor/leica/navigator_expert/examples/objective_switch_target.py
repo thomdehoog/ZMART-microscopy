@@ -282,7 +282,7 @@ def _now_iso_ts() -> str:
 
 def read_frame_geometry(client: Any, job: str) -> FrameGeometry:
     """Pixel size and image extent for the currently-active acquisition."""
-    settings = drv.get_job_settings(client, job) or {}
+    settings = drv.get_job_settings(client, job, mode="api") or {}
     geo = drv.parse_tile_geometry(settings)
     return FrameGeometry(
         pixel_size_um=float(geo["pixel_w_um"]),
@@ -463,7 +463,7 @@ def step_setup(
     client = drv.connect_python_client()
     drv.require_canonical_scan_orientation()
 
-    hw = drv.get_hardware_info(client)
+    hw = drv.get_hardware_info(client, mode="api")
     if not hw:
         _abort("Could not read hardware info.", 2)
     validate_slots(hw, args.source_slot, [args.target_slot])
@@ -503,7 +503,7 @@ def step_acquire_source(
     drv.set_zoom(client, args.job, SOURCE_ZOOM)
     time.sleep(SETTLE_AFTER_LAS_X_EDIT_S)
 
-    stage = drv.get_xy(client)
+    stage = drv.get_xy(client, mode="api")
     if not stage:
         _abort("Could not read XY after source switch.")
     src_stage_xy_um = (float(stage["x_um"]), float(stage["y_um"]))
@@ -649,7 +649,7 @@ def step_set_framed_zoom(
     drv.set_zoom(client, args.job, zoom)
 
     target_pixel_size_um = (target_base_fov_um / zoom) / drv.parse_tile_geometry(
-        drv.get_job_settings(client, args.job) or {}
+        drv.get_job_settings(client, args.job, mode="api") or {}
     )["pixels_x"]
     return zoom, float(target_pixel_size_um)
 
@@ -843,7 +843,7 @@ def step_refine_position(
             log.info("refine: converged after %d iteration(s)", i + 1)
             break
 
-        cur = drv.get_xy(client)
+        cur = drv.get_xy(client, mode="api")
         if not cur:
             _abort("could not read stage XY between refine iterations.")
         drv.move_xy(

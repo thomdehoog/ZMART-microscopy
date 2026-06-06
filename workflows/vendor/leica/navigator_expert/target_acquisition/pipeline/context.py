@@ -24,6 +24,12 @@ from typing import Any
 from shared.output_layout import LayoutPlan
 
 
+def _profile_save_exporter() -> str:
+    from navigator_expert.core import profiles
+
+    return profiles.ACQUISITION.save_exporter
+
+
 @dataclass(frozen=True)
 class Config:
     """Operator inputs -- constructed once in the notebook config cell.
@@ -89,7 +95,7 @@ class Config:
     # the native AutoSave base folder. If set, ``smart_output_root`` is the
     # exact folder that receives <experiment>_<hash6> run directories; no
     # extra "smart" suffix is added.
-    save_exporter: str = "lasx_native_autosave"
+    save_exporter: str = field(default_factory=_profile_save_exporter)
     smart_output_root: Path | None = None
 
 

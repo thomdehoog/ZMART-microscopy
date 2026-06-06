@@ -476,7 +476,7 @@ class TestAcquireTargetsIntegration:
 
         # Job settings → minimal parse_tile_geometry output.
         monkeypatch.setattr(drv, "get_job_settings",
-                            lambda c, j: {"_": "stub"})
+                            lambda c, j, **_kwargs: {"_": "stub"})
         monkeypatch.setattr(drv, "parse_tile_geometry",
                             lambda s: {
                                 "pixel_w_um": 0.13, "pixel_h_um": 0.13,

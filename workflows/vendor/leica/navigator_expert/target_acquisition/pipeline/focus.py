@@ -291,7 +291,7 @@ def build_focus_map(ctx: Context) -> FocusMap:
                     f"move_xy({x_um}, {y_um}) failed: {r!r}"
                 )
             drv_acquire(client, cfg.af_job)
-            settings = drv.get_job_settings(client, cfg.af_job)
+            settings = drv.get_job_settings(client, cfg.af_job, mode="api")
             ch = drv.make_changeable_copy(settings)
             zwide_um = float(ch["zPosition"]["z-wide"])
             measured.append({**fp, "zwide_um": zwide_um})
