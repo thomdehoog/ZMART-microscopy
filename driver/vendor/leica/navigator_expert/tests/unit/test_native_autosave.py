@@ -16,6 +16,7 @@ from navigator_expert.acquisition import capture, materialize
 from navigator_expert.acquisition import lasx_native_autosave as native
 from navigator_expert.acquisition import navigator_expert_export as exporter
 from navigator_expert.acquisition import save as acquisition
+from navigator_expert.core import profiles
 
 from shared.output_layout import Naming
 
@@ -251,6 +252,75 @@ class TestCollectNativeAutoSave:
 
 
 class TestNativeSave:
+    def test_default_save_source_root_uses_native_autosave_base(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        root = tmp_path / "native-root"
+        monkeypatch.setattr(acquisition, "native_autosave_enabled", lambda: True)
+        monkeypatch.setattr(
+            acquisition,
+            "native_autosave_base_folder",
+            lambda: root,
+        )
+        monkeypatch.setattr(
+            profiles,
+            "ACQUISITION",
+            profiles.AcquisitionProfile(save_exporter="lasx_native_autosave"),
+        )
+
+        assert drv.save_source_root() == root
+
+    def test_active_save_exporter_uses_profile(self, monkeypatch):
+        monkeypatch.setattr(
+            profiles,
+            "ACQUISITION",
+            profiles.AcquisitionProfile(save_exporter="navigator_expert"),
+        )
+
+        assert drv.active_save_exporter() == "navigator_expert"
+        assert drv.active_save_exporter("lasx_native_autosave") == (
+            "lasx_native_autosave"
+        )
+
+    def test_save_source_root_uses_navigator_media_path(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        media_path = tmp_path / "navigator-export"
+        monkeypatch.setattr(
+            exporter._readers,
+            "get_lasx_settings",
+            lambda: {"export": {"media_path": str(media_path)}},
+        )
+
+        assert drv.save_source_root("navigator_expert") == media_path
+
+    def test_save_source_root_requires_native_autosave_enabled(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(acquisition, "native_autosave_enabled", lambda: False)
+
+        with pytest.raises(RuntimeError, match="native AutoSave is not enabled"):
+            drv.save_source_root("lasx_native_autosave")
+
+    def test_save_source_root_rejects_unknown_exporter(self):
+        with pytest.raises(ValueError, match="Unknown LAS X save exporter"):
+            drv.save_source_root("unknown")
+
+    def test_save_source_root_rejects_unknown_profile_exporter(self, monkeypatch):
+        monkeypatch.setattr(
+            profiles,
+            "ACQUISITION",
+            profiles.AcquisitionProfile(save_exporter="unknown"),
+        )
+
+        with pytest.raises(ValueError, match="Unknown LAS X save exporter"):
+            drv.save_source_root()
+
     def test_save_materializes_native_multipage_tiff_to_flat_output(
         self,
         tmp_path,

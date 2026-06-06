@@ -57,7 +57,7 @@ def collect_navigator_expert_export(
     the configured MediaPath for Leica OME-TIFF exports newer than
     ``acq.started_at``.
     """
-    media_path = _media_path()
+    media_path = navigator_expert_media_path()
     detected = _detect_from_relative_path(
         client,
         media_path,
@@ -92,7 +92,8 @@ def collect_navigator_expert_export(
     return detected
 
 
-def _media_path() -> Path:
+def navigator_expert_media_path() -> Path:
+    """Return the Navigator Expert exporter media path."""
     settings = _readers.get_lasx_settings()
     if not settings or "export" not in settings:
         raise RuntimeError(
@@ -104,6 +105,9 @@ def _media_path() -> Path:
     if not media_path:
         raise RuntimeError("LAS X settings missing export/media_path.")
     return Path(media_path)
+
+
+_media_path = navigator_expert_media_path
 
 
 def _detect_from_relative_path(

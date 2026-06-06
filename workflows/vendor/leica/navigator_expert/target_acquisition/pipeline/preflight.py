@@ -67,23 +67,9 @@ def _smart_base_for_exporter(cfg: Config) -> Path:
         return Path(cfg.smart_output_root)
     exporter = cfg.save_exporter
     if exporter == "navigator_expert":
-        settings = drv.get_lasx_settings()
-        media_path = (
-            settings.get("export", {}).get("media_path")
-            if settings else None
-        )
-        if not media_path:
-            raise RuntimeError("LAS X settings missing export/media_path")
-        return Path(media_path) / "smart"
+        return drv.save_source_root(exporter) / "smart"
     if exporter == "lasx_native_autosave":
-        if not drv.native_autosave_enabled():
-            raise RuntimeError(
-                "Config.save_exporter='lasx_native_autosave' but LAS X "
-                "native AutoSave is not enabled in the active StartUp "
-                "configuration."
-            )
-        base = drv.native_autosave_base_folder()
-        return Path(base).parent / "smart"
+        return drv.save_source_root(exporter).parent / "smart"
     raise ValueError(
         f"Unknown save_exporter {exporter!r}. Expected 'navigator_expert' "
         "or 'lasx_native_autosave'."
@@ -137,7 +123,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
     stage_config = drv.load_stage_config(
         limits_path=drv.default_stage_limits_path()
     )
-    hw = drv.get_hardware_info(client)
+    hw = drv.get_hardware_info(client, mode="api")
     if not hw:
         raise RuntimeError("drv.get_hardware_info returned nothing.")
 
@@ -323,7 +309,7 @@ def _ensure_cam_api_mode(client: Any) -> None:
 def _read_source_zgalvo(client: Any, job: str) -> tuple[float, bool]:
     """Read z-galvo from the active job's settings; warn if non-zero."""
     try:
-        settings = drv.get_job_settings(client, job)
+        settings = drv.get_job_settings(client, job, mode="api")
         ch = drv.make_changeable_copy(settings)
         zgalvo_um = float(ch["zPosition"]["z-galvo"])
     except Exception as exc:

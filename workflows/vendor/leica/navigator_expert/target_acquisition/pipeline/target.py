@@ -172,7 +172,7 @@ def acquire_targets(
             # Read target z-galvo for telemetry.
             ts.setup_stage = "read_zgalvo"
             try:
-                settings = drv.get_job_settings(client, cfg.target_job)
+                settings = drv.get_job_settings(client, cfg.target_job, mode="api")
                 ch = drv.make_changeable_copy(settings)
                 ts.post_switch_zgalvo_um = float(ch["zPosition"]["z-galvo"])
                 ts.drift_um = (
@@ -235,7 +235,11 @@ def acquire_targets(
                 )
 
                 stage = "geometry"
-                target_settings = drv.get_job_settings(client, cfg.target_job)
+                target_settings = drv.get_job_settings(
+                    client,
+                    cfg.target_job,
+                    mode="api",
+                )
                 target_geo = drv.parse_tile_geometry(target_settings)
                 target_pixel_size_um = float(target_geo["pixel_w_um"])
 

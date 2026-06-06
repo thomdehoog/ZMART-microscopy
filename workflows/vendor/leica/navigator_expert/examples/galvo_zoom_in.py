@@ -237,7 +237,7 @@ def _now_iso_ts() -> str:
 def resolve_job(client: Any, override: str | None) -> str:
     if override:
         return override
-    selected = drv.get_selected_job(client) or {}
+    selected = drv.get_selected_job(client, mode="api") or {}
     name = selected.get("Name")
     if not name:
         _abort("No job selected in LAS X. Pass --job or select one in the UI.")
@@ -247,7 +247,7 @@ def resolve_job(client: Any, override: str | None) -> str:
 
 
 def read_frame_geometry(client: Any, job: str) -> FrameGeometry:
-    settings = drv.get_job_settings(client, job) or {}
+    settings = drv.get_job_settings(client, job, mode="api") or {}
     geo = drv.parse_tile_geometry(settings)
     return FrameGeometry(
         pixel_size_um=float(geo["pixel_w_um"]),
@@ -421,7 +421,7 @@ def step_acquire_overview(
     time.sleep(SETTLE_AFTER_LAS_X_EDIT_S)
     drv.reset_pan(client, job)
 
-    stage = drv.get_xy(client)
+    stage = drv.get_xy(client, mode="api")
     if not stage:
         _abort("Could not read stage XY.")
     stage_xy_um = (float(stage["x_um"]), float(stage["y_um"]))

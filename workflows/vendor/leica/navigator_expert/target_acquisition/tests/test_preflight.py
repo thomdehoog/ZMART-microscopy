@@ -133,20 +133,22 @@ def test_shutdown_prior_ctx_clears_slot_even_when_shutdown_raises(monkeypatch):
 def _cfg(
     tmp_path,
     *,
-    save_exporter="lasx_native_autosave",
+    save_exporter=None,
     smart_output_root=None,
 ):
     from pipeline.context import Config
 
-    return Config(
-        acquisition_job="Overview",
-        target_job="HiRes",
-        af_job="AF Job",
-        analysis_repo=tmp_path / "smart-analysis",
-        experiment="test",
-        save_exporter=save_exporter,
-        smart_output_root=smart_output_root,
-    )
+    kwargs = {
+        "acquisition_job": "Overview",
+        "target_job": "HiRes",
+        "af_job": "AF Job",
+        "analysis_repo": tmp_path / "smart-analysis",
+        "experiment": "test",
+        "smart_output_root": smart_output_root,
+    }
+    if save_exporter is not None:
+        kwargs["save_exporter"] = save_exporter
+    return Config(**kwargs)
 
 
 def test_smart_base_for_navigator_expert_uses_media_path(monkeypatch, tmp_path):
@@ -154,8 +156,8 @@ def test_smart_base_for_navigator_expert_uses_media_path(monkeypatch, tmp_path):
     media_path = tmp_path / "navigator-export"
     monkeypatch.setattr(
         mod.drv,
-        "get_lasx_settings",
-        lambda: {"export": {"media_path": str(media_path)}},
+        "save_source_root",
+        lambda exporter: media_path,
     )
 
     assert (
@@ -166,6 +168,18 @@ def test_smart_base_for_navigator_expert_uses_media_path(monkeypatch, tmp_path):
     )
 
 
+def test_config_default_save_exporter_comes_from_profile(monkeypatch, tmp_path):
+    from navigator_expert.core import profiles
+
+    monkeypatch.setattr(
+        profiles,
+        "ACQUISITION",
+        profiles.AcquisitionProfile(save_exporter="navigator_expert"),
+    )
+
+    assert _cfg(tmp_path).save_exporter == "navigator_expert"
+
+
 def test_smart_base_for_native_autosave_is_next_to_autosave_root(
     monkeypatch,
     tmp_path,
@@ -174,10 +188,9 @@ def test_smart_base_for_native_autosave_is_next_to_autosave_root(
     autosave_root = tmp_path / "lasx_probes" / "test"
     monkeypatch.setattr(
         mod.drv,
-        "native_autosave_base_folder",
-        lambda: autosave_root,
+        "save_source_root",
+        lambda exporter: autosave_root,
     )
-    monkeypatch.setattr(mod.drv, "native_autosave_enabled", lambda: True)
 
     assert (
         mod._smart_base_for_exporter(
@@ -196,7 +209,10 @@ def test_smart_base_rejects_unknown_save_exporter(tmp_path):
 
 def test_smart_base_native_autosave_requires_enabled(monkeypatch, tmp_path):
     mod = _preflight_module()
-    monkeypatch.setattr(mod.drv, "native_autosave_enabled", lambda: False)
+    def fail(_exporter):
+        raise RuntimeError("native AutoSave is not enabled")
+
+    monkeypatch.setattr(mod.drv, "save_source_root", fail)
 
     with pytest.raises(RuntimeError, match="native AutoSave is not enabled"):
         mod._smart_base_for_exporter(

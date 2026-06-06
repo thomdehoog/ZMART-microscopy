@@ -1170,6 +1170,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--job", help="job used for setting and Z operations")
     parser.add_argument("--mock-latency", type=float, default=0.0,
                         help="per-command latency for --mock")
+    parser.add_argument("--api-delay-ms", type=int,
+                        help="override profiles.LASX_API.delay_ms for LasxApi")
     parser.add_argument("--limits-config",
                         help="limits JSON; default is limits/.../defaults.json")
     parser.add_argument("--rounds", type=int, default=30,

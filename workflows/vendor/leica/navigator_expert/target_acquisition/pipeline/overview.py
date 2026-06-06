@@ -269,7 +269,7 @@ def run_overview(
     try:
         ensure_job_state(ctx, cfg.acquisition_job)
 
-        settings = drv.get_job_settings(client, cfg.acquisition_job)
+        settings = drv.get_job_settings(client, cfg.acquisition_job, mode="api")
         geo = drv.parse_tile_geometry(settings)
         pixel_size_um = (float(geo["pixel_w_um"]), float(geo["pixel_h_um"]))
         image_size_px = (int(geo["pixels_x"]), int(geo["pixels_y"]))
