@@ -2163,87 +2163,9 @@ class TestConfirmSelectJob(unittest.TestCase):
         self.assertTrue(result["success"])
         log_wait_mock.assert_not_called()
 
-    def test_select_job_can_confirm_from_log_when_profile_enables_it(self):
-        profile = profiles.StateReaderProfile(
-            selected_job_confirm_source="log",
-            selected_job_log_confirm_timeout_s=0.25,
-        )
-        log_result = confirmations.log_wait.LogPollResult(
-            success=True,
-            value="HiRes",
-            matched_at=101.0,
-            elapsed_s=0.02,
-            attempts=1,
-            reason="matched",
-            diagnostics={},
-        )
-        with patch.object(profiles, "STATE_READERS", profile), \
-             patch.object(confirmations.log_wait, "wait_for_selected_job_log",
-                          return_value=log_result) as log_wait_mock, \
-             patch.object(readers, 'get_jobs') as api_jobs:
-            result = confirmations.confirm_select_job(
-                None, job_name="HiRes", timeout=1.0,
-                poll_interval=0.001, command_started_at=100.0)
-
-        self.assertTrue(result["success"])
-        self.assertEqual(result["source"], "log")
-        api_jobs.assert_not_called()
-        log_wait_mock.assert_called_once()
-
-    def test_select_job_log_confirmation_does_not_trust_api_as_oracle(self):
-        profile = profiles.StateReaderProfile(
-            selected_job_confirm_source="log",
-            selected_job_log_confirm_timeout_s=0.25,
-        )
-        log_result = confirmations.log_wait.LogPollResult(
-            success=True,
-            value="HiRes",
-            matched_at=101.0,
-            elapsed_s=0.02,
-            attempts=1,
-            reason="matched",
-            diagnostics={},
-        )
-        jobs = [{"Name": "AF Job", "IsSelected": True}]
-        with patch.object(profiles, "STATE_READERS", profile), \
-             patch.object(confirmations.log_wait, "wait_for_selected_job_log",
-                          return_value=log_result), \
-             patch.object(readers, 'get_jobs', return_value=jobs) as api_jobs:
-            result = confirmations.confirm_select_job(
-                None, job_name="HiRes", timeout=0.01,
-                poll_interval=0.001, command_started_at=100.0)
-
-        self.assertTrue(result["success"])
-        self.assertEqual(result["source"], "log")
-        api_jobs.assert_not_called()
-
-    def test_select_job_log_confirmation_fails_closed_when_log_misses(self):
-        profile = profiles.StateReaderProfile(
-            selected_job_confirm_source="log",
-            selected_job_log_confirm_timeout_s=0.25,
-        )
-        log_result = confirmations.log_wait.LogPollResult(
-            success=False,
-            value=None,
-            matched_at=None,
-            elapsed_s=0.25,
-            attempts=3,
-            reason="timeout",
-            diagnostics={"last_reason": "no_jobs"},
-        )
-        with patch.object(profiles, "STATE_READERS", profile), \
-             patch.object(confirmations.log_wait, "wait_for_selected_job_log",
-                          return_value=log_result) as log_wait_mock, \
-             patch.object(readers, 'get_jobs') as api_jobs:
-            result = confirmations.confirm_select_job(
-                None, job_name="HiRes", timeout=1.0,
-                poll_interval=0.001, command_started_at=100.0)
-
-        self.assertFalse(result["success"])
-        self.assertEqual(result["source"], "log")
-        api_jobs.assert_not_called()
-        log_wait_mock.assert_called_once()
-
+    # Log-source and hybrid confirmation behavior is covered by
+    # tests/unit/test_select_job_confirm.py against the one policy point
+    # (confirmations.select_job_confirm_legs).
 
     def test_select_job_early_exit_pins_api_mode(self):
         client = make_client()
@@ -2319,8 +2241,12 @@ class TestConfirmSelectJob(unittest.TestCase):
             ["AF Job", "Overview", "HiRes"],
         )
         self.assertTrue(all(kwargs["mode"] == "api" for _n, kwargs in settings_calls))
-        confirm_fn = dispatch_mock.call_args.kwargs["confirm_fn"]
-        self.assertIn("command_started_at", confirm_fn.keywords)
+        # In log mode the api leg is absent; the log leg carries the
+        # command anchor as its second positional binding.
+        self.assertIsNone(dispatch_mock.call_args.kwargs["confirm_fn"])
+        log_leg = dispatch_mock.call_args.kwargs["log_confirm_fn"]
+        self.assertIsNotNone(log_leg)
+        self.assertIsInstance(log_leg.args[1], float)
 
 
 class TestCommandReaderSafety(unittest.TestCase):

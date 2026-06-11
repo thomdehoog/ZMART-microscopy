@@ -53,7 +53,6 @@ from .confirmations import (
     confirm_move_xy,
     confirm_move_z,
     confirm_acquire,
-    confirm_select_job,
 )
 from .errors import _default_error_check
 
@@ -99,7 +98,13 @@ class StateReaderProfile:
     selected_job_mode: str = "api"
     selected_job_log_max_age_s: float = 2.0
     selected_job_timeout_s: float = 2.0
+    # Selected-job confirmation source: "api" | "log" | "hybrid".
+    # hybrid races the api leg (transition-admissible: a stale API readback
+    # cannot witness a transition to a target it already read pre-command)
+    # against the log leg (post-command CurrentBlock event); the race is
+    # bounded by ``selected_job_hybrid_budget_s`` inside one confirm attempt.
     selected_job_confirm_source: str = "api"
+    selected_job_hybrid_budget_s: float = 6.0
     selected_job_log_prime_cluster: bool = False
     selected_job_log_confirm_timeout_s: float = 2.0
     selected_job_log_poll_timeout_s: float = 5.0
@@ -443,7 +448,10 @@ ACQUIRE_SINGLE_IMAGE = CommandProfile(
 )
 
 SELECT_JOB = CommandProfile(
-    confirm_fn=confirm_select_job,
+    # select_job's confirmation legs are built per call by
+    # confirmations.select_job_confirm_legs (api / log / hybrid policy from
+    # StateReaderProfile.selected_job_confirm_source), not by this profile.
+    confirm_fn=None,
     max_confirm_attempts=3,
     poll_interval=0.01,
     poll_timeout=5.0,
