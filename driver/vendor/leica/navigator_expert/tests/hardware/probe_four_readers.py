@@ -4,7 +4,7 @@ The four paths are:
 
   1. ``api``: routed passive reader pinned to the CAM API;
   2. ``log``: routed passive reader pinned to LAS X logs;
-  3. ``both``: existing mixed passive reader that races API/log;
+  3. ``hybrid``: existing mixed passive reader that races API/log;
   4. ``change_wait``: alternating API/log change detector with per-source
      baselines.
 
@@ -13,8 +13,8 @@ two rounds of job changes and a 10-position XY pattern by default. Every step
 records command timing, reader timing, values, source/age metadata, and error
 messages to JSONL while also printing a compact console table.
 
-Each write step ends with passive api/log/both reads for diagnostics. On a slow
-real CAM API, the final passive ``both`` read from one step can briefly hold the
+Each write step ends with passive api/log/hybrid reads for diagnostics. On a slow
+real CAM API, the final passive ``hybrid`` read from one step can briefly hold the
 shared API in-flight claim, so the next ``change_wait`` baseline may report an
 ``api_in_flight`` API leg and run log-only. That is expected fail-closed probe
 contention, not by itself a reader failure.
@@ -45,7 +45,7 @@ import navigator_expert as drv
 from navigator_expert import state_readers
 
 HERE = Path(__file__).resolve().parent
-PASSIVE_MODES = ("api", "log", "both")
+PASSIVE_MODES = ("api", "log", "hybrid")
 
 
 def _stamp() -> str:
@@ -329,7 +329,7 @@ def phase_read_only(
     output: Path,
     job_name: str | None,
 ) -> None:
-    print("\n=== READ-ONLY: api / log / both / change_wait baseline ===")
+    print("\n=== READ-ONLY: api / log / hybrid / change_wait baseline ===")
     for datum in ("selected_job", "xy", "jobs", "scan_status", "hardware_info"):
         reads = _read_all_passive(client, datum, job_name=job_name)
         baseline = (
@@ -521,7 +521,7 @@ def _print_job_step(record: dict[str, Any]) -> None:
         f"cw_ms={float(cw.get('elapsed_s') or 0) * 1000:.0f} "
         f"agree={','.join(agreeing) or 'none'} "
         f"api={selected.get('api')!r} log={selected.get('log')!r} "
-        f"both={selected.get('both')!r}"
+        f"hybrid={selected.get('hybrid')!r}"
     )
     if command.get("error") or cw.get("error"):
         print(f"    errors command={command.get('error')} cw={cw.get('error')}")

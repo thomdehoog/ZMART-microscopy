@@ -82,7 +82,7 @@ class StateReaderProfile:
     confirms, or what metadata/calibration is persisted.
     """
 
-    both_log_grace_s: float = 0.25
+    hybrid_log_grace_s: float = 0.25
 
     xy_mode: str = "api"
     xy_log_max_age_s: float = 1.0

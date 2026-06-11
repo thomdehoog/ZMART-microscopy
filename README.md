@@ -56,7 +56,7 @@ right**:
   passive state.
 
 So `driver/.../state_readers/` routes each read across both backends
-(profile-controlled: `api`, `log`, or `both` — all default `api`, never a stale
+(profile-controlled: `api`, `log`, or `hybrid` — all default `api`, never a stale
 guess). On top of that, `state_readers/change_wait.py` answers the question a
 feedback workflow actually asks after a command — *did the state visibly
 change?* — by alternating API and log reads until one source differs from its
