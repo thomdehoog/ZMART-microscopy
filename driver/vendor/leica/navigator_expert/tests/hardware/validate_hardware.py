@@ -55,12 +55,12 @@ import json
 import logging
 import sys
 import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterator
-
+from typing import Any
 
 # --- Record + classification ------------------------------------------------
 
@@ -1132,10 +1132,14 @@ def _confirm_live_write(args: argparse.Namespace) -> bool:
     if args.read_only or args.yes or args.mock:
         return True
     parts = ["reversible setting writes"]
-    if args.allow_xy: parts.append("XY move")
-    if args.allow_z: parts.append("Z move")
-    if args.allow_objective: parts.append("objective switch")
-    if args.allow_acquire: parts.append("one acquire")
+    if args.allow_xy:
+        parts.append("XY move")
+    if args.allow_z:
+        parts.append("Z move")
+    if args.allow_objective:
+        parts.append("objective switch")
+    if args.allow_acquire:
+        parts.append("one acquire")
     sys.stdout.write("LAS X session will receive: " + ", ".join(parts) + ".\n")
     sys.stdout.write("Type 'yes' to continue: ")
     sys.stdout.flush()
@@ -1215,7 +1219,10 @@ def _apply_log_select_confirmation(args: argparse.Namespace,
     from navigator_expert.core import profiles  # noqa: PLC0415
 
     updates = {
-        "selected_job_confirm_source": source or "api",
+        "selected_job_confirm_source": (
+            source if source is not None
+            else profiles.STATE_READERS.selected_job_confirm_source
+        ),
         "selected_job_log_prime_cluster": args.prime_log_select_cluster,
     }
     if args.log_select_confirm_timeout_s is not None:

@@ -119,6 +119,16 @@ fails closed after three bounded attempts. Zero wrong confirmations. On
 the real scope the same restore early-exits from fresh log state (see the
 log-confirm run in READER_VALIDATION_REAL_SCOPE_20260611.md).
 
+The no-op log physics were force-probed in
+`tests/hardware/noop_select_job_log_probe_20260611_215425.jsonl`: three
+forced re-selects of the already-selected `Overview` job were accepted by
+LAS X, but emitted no fresh selected-job or `CurrentBlock` log event. The
+`selected_ts` and `current_block_ts` values were byte-identical across all
+three attempts, and `log_wait` timed out with `selected_before_command`.
+That makes the fail-closed restore a measured simulator behavior, not a
+parser gap; accepting old post-fire log evidence would reopen the stale
+API false-confirmation hazard.
+
 probe_four_readers gate column: 4/4 job changes (change_wait api wins,
 281 ms), 6/6 XY (deltas 0-13.4 um within the 20 um quantization
 tolerance), per-reader agreement reported without being judged.

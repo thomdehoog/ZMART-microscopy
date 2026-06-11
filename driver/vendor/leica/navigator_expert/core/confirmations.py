@@ -35,10 +35,11 @@ import time
 from functools import partial
 
 from .. import state_readers as _readers
-from ..state_readers import log_wait, router as _router
+from ..state_readers import log_wait
+from ..state_readers import router as _router
 from .errors import _check_api_error, _is_transient_error
 from .settings import make_changeable_copy
-from .utils import _make_log_entry, CONFIRM_TIMEOUT
+from .utils import CONFIRM_TIMEOUT, _make_log_entry
 
 log = logging.getLogger(__name__)
 
@@ -88,59 +89,77 @@ def race_confirmations(api_leg=None, log_leg=None, *, label="",
     if budget_s is None:
         raise ValueError("a dual-leg confirmation race requires budget_s")
 
+    def _failed_outcome(level, msg):
+        return {"success": False, "logs": [_make_log_entry(level, msg)]}
+
+    def _outcome_from_api_reading(reading):
+        if reading.error is not None:
+            return _failed_outcome(
+                "warning",
+                f"{label} | api confirmation leg raised: "
+                f"{type(reading.error).__name__}: {reading.error}",
+            )
+        if not isinstance(reading.value, dict):
+            return _failed_outcome(
+                "warning",
+                f"{label} | api confirmation leg returned "
+                f"{type(reading.value).__name__}, expected dict",
+            )
+        return reading.value
+
     def run_race():
-        results = queue.Queue()
+        log_results = queue.Queue()
+        api_results = _router._fire_api_read(api_leg, api_key)
 
-        def run_leg(tag, leg, claim_key):
-            claimed = False
+        def run_log_leg():
             try:
-                if claim_key is not None:
-                    claimed = _router._claim_api_read(claim_key)
-                    if not claimed:
-                        results.put((tag, {"success": False, "logs": [
-                            _make_log_entry(
-                                "info",
-                                f"{label} | {tag} confirmation leg skipped: "
-                                "api read in flight"),
-                        ]}))
-                        return
-                try:
-                    outcome = leg()
-                except Exception as exc:
-                    outcome = {"success": False, "logs": [
-                        _make_log_entry(
-                            "warning",
-                            f"{label} | {tag} confirmation leg raised: "
-                            f"{type(exc).__name__}: {exc}"),
-                    ]}
-                results.put((tag, outcome))
-            finally:
-                if claimed:
-                    _router._release_api_read(claim_key)
+                outcome = log_leg()
+            except Exception as exc:
+                outcome = _failed_outcome(
+                    "warning",
+                    f"{label} | log confirmation leg raised: "
+                    f"{type(exc).__name__}: {exc}",
+                )
+            log_results.put(outcome)
 
         threading.Thread(
-            target=run_leg, args=("api", api_leg, api_key),
-            name="lasx-confirm-api", daemon=True).start()
-        threading.Thread(
-            target=run_leg, args=("log", log_leg, None),
+            target=run_log_leg,
             name="lasx-confirm-log", daemon=True).start()
 
         started = time.monotonic()
         deadline = started + budget_s
         outcomes = {}
+        if api_results is None:
+            outcomes["api"] = _failed_outcome(
+                "info",
+                f"{label} | api confirmation leg skipped: api read in flight",
+            )
         winner = None
         while len(outcomes) < 2:
-            wait_s = deadline - time.monotonic()
-            if wait_s <= 0:
+            now = time.monotonic()
+            if now >= deadline:
                 break
-            try:
-                tag, outcome = results.get(timeout=wait_s)
-            except queue.Empty:
-                break
-            outcomes[tag] = outcome
-            if outcome.get("success"):
-                winner = tag
-                break
+            if "api" not in outcomes and api_results is not None:
+                try:
+                    reading = api_results.get_nowait()
+                except queue.Empty:
+                    pass
+                else:
+                    outcomes["api"] = _outcome_from_api_reading(reading)
+                    if outcomes["api"].get("success"):
+                        winner = "api"
+                        break
+            if "log" not in outcomes:
+                try:
+                    outcomes["log"] = log_results.get_nowait()
+                except queue.Empty:
+                    pass
+                else:
+                    if outcomes["log"].get("success"):
+                        winner = "log"
+                        break
+            if len(outcomes) < 2:
+                time.sleep(min(0.005, max(0.0, deadline - now)))
 
         elapsed = time.monotonic() - started
         logs = []
@@ -664,8 +683,10 @@ def _confirm_laser_intensity(client, job_name, si, beam_route, line_index,
         ch = _readback(client, job_name)
         if ch is not None:
             try:
-                las = next(l for l in ch["activeSettings"][si]["activeLaserLines"]
-                           if l["_beamRoute"] == beam_route and l["_lineIndex"] == line_index)
+                las = next(
+                    line for line in ch["activeSettings"][si]["activeLaserLines"]
+                    if line["_beamRoute"] == beam_route
+                    and line["_lineIndex"] == line_index)
                 actual = las["intensity"]["value"]
                 if abs(actual - target) < tolerance:
                     return {"success": True, "logs": logs}
@@ -1152,8 +1173,9 @@ def _confirm_laser_shutter(client, job_name, si, beam_route, target,
         ch = _readback(client, job_name)
         if ch is not None:
             try:
-                las = next(l for l in ch["activeSettings"][si]["activeLaserLines"]
-                           if l["_beamRoute"] == beam_route)
+                las = next(
+                    line for line in ch["activeSettings"][si]["activeLaserLines"]
+                    if line["_beamRoute"] == beam_route)
                 actual = las["shutterOpen"]
                 if actual == target:
                     return {"success": True, "logs": logs}
@@ -1364,7 +1386,8 @@ def confirm_acquire(client, *, start_timeout=15.0, heartbeat_interval=30.0,
 
 def confirm_select_job(client, *, job_name, timeout=None,
                        poll_interval=0.01, command_started_at=None,
-                       inadmissible_baseline=None):
+                       inadmissible_baseline=None,
+                       require_transition_witness=False):
     """API confirmation leg: poll until *job_name* is selected, or timeout.
 
     Args:
@@ -1381,6 +1404,9 @@ def confirm_select_job(client, *, job_name, timeout=None,
             inadmissible and only log evidence may confirm (the A->B->A
             restore case). ``None`` (pure api mode) keeps today's exact
             semantics: the poll is the only evidence.
+        require_transition_witness: Hybrid-only guard. When true, the API leg
+            must have a valid non-target pre-command baseline before it may
+            poll for the target.
 
     Returns:
         {"success": bool, "logs": [...]}
@@ -1388,7 +1414,20 @@ def confirm_select_job(client, *, job_name, timeout=None,
     if timeout is None:
         timeout = CONFIRM_TIMEOUT
     logs = []
-    if inadmissible_baseline is not None and inadmissible_baseline == job_name:
+    if require_transition_witness and inadmissible_baseline is None:
+        msg = (
+            f"SelectJob '{job_name}' | api leg inadmissible: no valid "
+            "pre-command API baseline (no transition witness)"
+        )
+        log.info(msg)
+        logs.append(_make_log_entry("info", msg))
+        return {
+            "success": False,
+            "logs": logs,
+            "source": "api",
+            "reason": "inadmissible_no_baseline",
+        }
+    if require_transition_witness and inadmissible_baseline == job_name:
         msg = (
             f"SelectJob '{job_name}' | api leg inadmissible: API already "
             "read the target before the command (no transition witness)"
@@ -1509,22 +1548,68 @@ def select_job_confirm_legs(job_name, *, command_started_at,
             command_started_at=command_started_at,
             inadmissible_baseline=(
                 api_baseline_name if source == "hybrid" else None),
+            require_transition_witness=(source == "hybrid"),
         )
     if source in ("log", "hybrid"):
         log_leg = partial(
             _confirm_select_job_log, job_name, command_started_at,
             timeout=timeout)
     if api_confirm is not None and log_leg is not None:
-        budget_s = profile.selected_job_hybrid_budget_s
+        effective_timeout = CONFIRM_TIMEOUT if timeout is None else timeout
+        budget_s = min(
+            profile.selected_job_hybrid_budget_s,
+            max(0.0, effective_timeout),
+        )
     return api_confirm, log_leg, budget_s
 
 
+def _bounded_api_read(client, fn, *, timeout_s):
+    """Run a pre-command API read through the shared in-flight cap."""
+    api_queue = _router._fire_api_read(fn, _router._client_api_key(client))
+    if api_queue is None:
+        return None, "api_in_flight"
+    try:
+        reading = api_queue.get(timeout=timeout_s)
+    except queue.Empty:
+        return None, "api_timeout"
+    if reading.error is not None:
+        return None, f"api_error:{type(reading.error).__name__}"
+    return reading.value, "ok"
+
+
+def _selected_job_api_jobs(client, profile):
+    jobs, reason = _bounded_api_read(
+        client,
+        lambda: _router.api_reader.get_jobs(
+            client,
+            timeout=profile.jobs_timeout_s,
+            max_retries=1,
+        ),
+        timeout_s=profile.jobs_timeout_s,
+    )
+    if not jobs:
+        return None, reason if reason != "ok" else "api_no_jobs"
+    return jobs, "ok"
+
+
+def _selected_job_api_baseline(client, profile):
+    jobs, reason = _selected_job_api_jobs(client, profile)
+    if not jobs:
+        return None, None, reason
+    selected = None
+    for job in jobs:
+        if job.get("IsSelected"):
+            selected = job.get("Name")
+            break
+    return selected, jobs, "ok" if selected else "api_no_selected_job"
+
+
 def _prime_selected_job_log_cluster(client, jobs):
-    """Best-effort ATL job-cluster priming for log-backed select confirmation.
+    """Best-effort ATL job-cluster priming for log-backed confirmation.
 
     LAS X writes complete ATL job blocks when each job's settings are queried.
-    The log confirmation uses those blocks as a job-name mapping table, then
-    gates the changing selected-element event by command timestamp.
+    This is explicit API-assisted log priming: it generates log evidence, but
+    the confirmation decision still gates only on post-command log content.
     """
     profile = _state_reader_profile()
     if (
@@ -1537,7 +1622,16 @@ def _prime_selected_job_log_cluster(client, jobs):
         if not name:
             continue
         try:
-            _readers.get_job_settings(client, name, mode="api")
+            _bounded_api_read(
+                client,
+                lambda n=name: _router.api_reader.get_job_settings(
+                    client,
+                    n,
+                    timeout=profile.job_settings_timeout_s,
+                    max_retries=1,
+                ),
+                timeout_s=profile.job_settings_timeout_s,
+            )
         except Exception:
             log.debug("Could not prime log job cluster for %r", name,
                       exc_info=True)
@@ -1578,7 +1672,11 @@ def prepare_select_job(client, job_name):
     """
     profile = _state_reader_profile()
     source = profile.selected_job_confirm_source
-    context = {"api_baseline_name": None, "api_said_selected": False}
+    context = {
+        "api_baseline_name": None,
+        "api_baseline_reason": "not_attempted",
+        "api_said_selected": False,
+    }
 
     if source == "api":
         try:
@@ -1608,13 +1706,25 @@ def prepare_select_job(client, job_name):
             "logs": [_make_log_entry(
                 "info", "selected job already confirmed from LAS X log")],
         }, context
+    if source == "log":
+        try:
+            if profile.selected_job_log_prime_cluster:
+                jobs, reason = _selected_job_api_jobs(client, profile)
+                if jobs is not None:
+                    _prime_selected_job_log_cluster(client, jobs)
+                else:
+                    log.debug("Could not enumerate jobs before log priming: %s",
+                              reason)
+        except Exception:
+            log.debug("Could not prime jobs before log-backed select_job",
+                      exc_info=True)
+        return None, context
     try:
-        jobs = _readers.get_jobs(client, mode="api")
-        for j in jobs or []:
-            if j.get("IsSelected"):
-                context["api_baseline_name"] = j.get("Name")
-                break
-        _prime_selected_job_log_cluster(client, jobs)
+        name, jobs, reason = _selected_job_api_baseline(client, profile)
+        context["api_baseline_name"] = name
+        context["api_baseline_reason"] = reason
+        if jobs is not None:
+            _prime_selected_job_log_cluster(client, jobs)
     except Exception:
         log.debug("Could not enumerate/prime jobs before select_job",
                   exc_info=True)
