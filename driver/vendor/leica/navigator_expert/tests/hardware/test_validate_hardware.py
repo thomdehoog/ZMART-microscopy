@@ -128,11 +128,17 @@ def test_validate_hardware_full_mock_run(tmp_path):
         "line_accumulation: write alternate",
         "line_average: write alternate",
         "pinhole_airy: write alternate",
-        "xy: move alternate",
+        "xy: move 01",
         "z: move alternate",
         "objective: switch alternate",
         "acquire: job",
     } <= names
+    xy_moves = [
+        record for record in records
+        if record["name"].startswith("xy: move ")
+    ]
+    assert len(xy_moves) == 10
+    assert {record["context"]["index"] for record in xy_moves} == set(range(1, 11))
 
     select_job_records = [
         record for record in records
