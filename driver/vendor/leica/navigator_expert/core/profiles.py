@@ -26,6 +26,7 @@ Import restrictions: only ``prechecks``, ``confirmations``, ``errors``,
 """
 
 from dataclasses import dataclass
+from functools import partial
 from typing import Optional
 
 from .confirmations import (
@@ -55,6 +56,7 @@ from .confirmations import (
     confirm_acquire,
 )
 from .errors import _default_error_check
+from .prechecks import check_idle
 
 
 @dataclass(frozen=True)
@@ -309,6 +311,7 @@ IMAGE_FORMAT = _leica_setting_profile(
 )
 
 OBJECTIVE = CommandProfile(
+    pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_objective,
     max_confirm_attempts=1,
     confirm_timeout=10.0,
@@ -405,6 +408,7 @@ FILTER_WHEEL_SPECTRUM = _leica_setting_profile(
 # =============================================================================
 
 MOVE_XY = CommandProfile(
+    pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_move_xy,
     error_check_fn=None,
     max_confirm_attempts=3,
@@ -416,6 +420,7 @@ MOVE_XY = CommandProfile(
 )
 
 MOVE_Z = CommandProfile(
+    pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_move_z,
     max_confirm_attempts=1,
     confirm_tolerance=1.0,
@@ -427,6 +432,7 @@ MOVE_Z = CommandProfile(
 # =============================================================================
 
 ACQUIRE = CommandProfile(
+    pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_acquire,
     error_check_fn=None,
     max_confirm_attempts=1,
@@ -440,6 +446,7 @@ ACQUIRE = CommandProfile(
 )
 
 ACQUIRE_SINGLE_IMAGE = CommandProfile(
+    pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_acquire,
     error_check_fn=None,
     max_confirm_attempts=1,
@@ -453,6 +460,7 @@ ACQUIRE_SINGLE_IMAGE = CommandProfile(
 )
 
 SELECT_JOB = CommandProfile(
+    pre_check_fn=partial(check_idle, timeout=None),
     # select_job's confirmation legs are built per call by
     # confirmations.select_job_confirm_legs (api / log / hybrid policy from
     # StateReaderProfile.selected_job_confirm_source), not by this profile.
