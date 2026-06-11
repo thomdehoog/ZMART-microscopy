@@ -472,10 +472,12 @@ def _record_log_selected_job_poll(
         command_started_at,
     )
     last_reason = result.diagnostics.get("last_reason", result.reason)
+    # Anchor the event delta to the timestamp the gate actually matched on
+    # (CurrentBlock), not the SetCurrentSelectedElementID intent echo - a
+    # leftover pre-command echo once produced a misleading negative delta.
     log_event_delta_s = None
-    selected_ts = result.diagnostics.get("selected_ts")
-    if selected_ts is not None:
-        log_event_delta_s = selected_ts - command_started_at
+    if result.matched_at is not None:
+        log_event_delta_s = result.matched_at - command_started_at
     log_delta = (
         "n/a" if log_event_delta_s is None
         else f"{log_event_delta_s:.3f}s"
@@ -1104,8 +1106,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    choices=["api", "log", "hybrid"],
                    help="override all profile-routed passive state readers")
     p.add_argument("--select-job-confirm-source",
-                   choices=["api", "log"],
-                   help="override selected-job confirmation source")
+                   choices=["api", "log", "hybrid"],
+                   help="override selected-job confirmation source; when "
+                        "omitted, --state-reader-mode implies it")
     p.add_argument("--enable-log-select-confirm",
                    dest="enable_log_select_confirm",
                    action="store_true",
@@ -1190,6 +1193,12 @@ def _apply_log_select_confirmation(args: argparse.Namespace,
     source = args.select_job_confirm_source
     if args.enable_log_select_confirm:
         source = "log"
+    if source is None and args.state_reader_mode is not None:
+        # A validator run that advertises a reader mode must not silently
+        # grade select_job with a different confirmation source.
+        source = args.state_reader_mode
+        log.info("select-job confirmation source implied by "
+                 "--state-reader-mode: %s", source)
     if not (
         source is not None
         or args.log_select_confirm_timeout_s is not None

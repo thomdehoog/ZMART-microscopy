@@ -357,3 +357,18 @@ The 2026-06-05 selected-job log-confirm fix reproduced on the real scope on 2026
 Recommendation:
 
 For this LAS X version (`1.0.108.0`), selected-job confirmation should default to the log `CurrentBlock` path rather than API readback. The validator should also make `--state-reader-mode log` imply `--select-job-confirm-source log`, or at least warn loudly when log reader mode is paired with API selected-job confirmation. API/BOTH remain better choices for general passive reads and XY validation because LOG mode still has gaps for read-only job resolution and XY start state.
+
+## Addendum (2026-06-11, late): hybrid implemented
+
+Following this validation, the reader stack was consolidated on branch
+`fable5_tryout`: "both" renamed to "hybrid"; one per-datum capability
+table; one confirmation race wrapper for every command; selected-job
+confirmation source now accepts api | log | hybrid, where hybrid races the
+transition-admissible API leg against the log CurrentBlock leg - the
+configuration error this report originally documented (mode log graded by
+the API confirm) can no longer happen, because the validator implies the
+confirm source from --state-reader-mode unless overridden. The
+log_event_delta metric now anchors to the matched CurrentBlock timestamp
+(the -0.623 s value above was the intent-echo anchoring artifact).
+Simulator/real-scope matrix results for the hybrid confirm are recorded in
+READER_VALIDATION_SIMULATOR_20260611.md and follow-up runs.

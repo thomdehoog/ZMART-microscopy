@@ -260,3 +260,15 @@ converges), with zero pre-selection of source, immune to an API hang.
   single-source log poll) - the confirmation race generalizes this to dual-source.
 - `core/commands.py` `select_job` and `confirmations.confirm_select_job`: wire the
   confirmation race in behind a flag.
+
+## Addendum (2026-06-11): implemented
+
+The design above shipped on branch `fable5_tryout`: mode "both" was hard-
+renamed to "hybrid"; per-datum legs live in one capability table
+(`state_readers/capabilities.py`); every command confirmation routes
+through one race wrapper (`confirmations.race_confirmations`, single-leg =
+identity); selected-job gained the hybrid target-gated race with the
+transition-admissibility rule on the API leg (Section 3's race, hardened
+against stale-readback-equals-target). The confirmation race generalizes
+`mode="both"` from "fallback" to first-admissible-evidence, as Section 8
+proposed.
