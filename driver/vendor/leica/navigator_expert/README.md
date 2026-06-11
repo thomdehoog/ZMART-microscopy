@@ -170,7 +170,7 @@ the command profile in `driver/core/profiles.py`.
 
 `get_xy` returns positions in both meters (`x`, `y`) and micrometers (`x_um`, `y_um`).
 
-Read-only functions route through `state_readers/` (API, log, or both -
+Read-only functions route through `state_readers/` (api, log, or hybrid -
 profile-controlled, default API). Pass `diagnostics=True` for a
 source-tagged `Reading` with timestamps.
 

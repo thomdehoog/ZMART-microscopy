@@ -29,7 +29,7 @@ Outputs:
 
 Usage:
   python validate_hardware.py --yes                        # LAS X (sim or live)
-  python validate_hardware.py --yes --state-reader-mode both
+  python validate_hardware.py --yes --state-reader-mode hybrid
   python validate_hardware.py --yes --select-job-confirm-source log
   python validate_hardware.py --yes --select-job-confirm-source log --prime-log-select-cluster
   python validate_hardware.py --yes --allow-xy             # + stage round-trip
@@ -581,7 +581,7 @@ def phase_readonly(drv: Any, v: Validator, client: Any,
 
         if not jobs:
             msg = "no jobs returned"
-            if args.state_reader_mode in {"log", "both"}:
+            if args.state_reader_mode in {"log", "hybrid"}:
                 v.fail("job: resolve", f"{msg} with --state-reader-mode {args.state_reader_mode}")
                 if args.state_reader_mode == "log" and not args.read_only:
                     jobs = _api_control_jobs_for_log_experiment(drv, v, client)
@@ -596,7 +596,7 @@ def phase_readonly(drv: Any, v: Validator, client: Any,
         if args.job:
             if args.job not in names:
                 msg = f"requested {args.job!r} not in {names!r}"
-                if args.state_reader_mode in {"log", "both"}:
+                if args.state_reader_mode in {"log", "hybrid"}:
                     v.fail("job: resolve", msg)
                     if args.state_reader_mode == "log" and not args.read_only:
                         jobs = _api_control_jobs_for_log_experiment(
@@ -1101,7 +1101,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--log-level", default="INFO",
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     p.add_argument("--state-reader-mode",
-                   choices=["api", "log", "both"],
+                   choices=["api", "log", "hybrid"],
                    help="override all profile-routed passive state readers")
     p.add_argument("--select-job-confirm-source",
                    choices=["api", "log"],

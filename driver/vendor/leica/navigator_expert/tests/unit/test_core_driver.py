@@ -1005,7 +1005,7 @@ class TestConfirmFunctions(unittest.TestCase):
 
     def test_setting_confirm_pins_api_even_when_profile_is_both(self):
         prior = profiles.STATE_READERS
-        profiles.STATE_READERS = profiles.StateReaderProfile(job_settings_mode="both")
+        profiles.STATE_READERS = profiles.StateReaderProfile(job_settings_mode="hybrid")
         calls = []
 
         def fake_get_job_settings(client, job_name, **kwargs):
@@ -1977,7 +1977,7 @@ class TestCheckIdle(unittest.TestCase):
             calls.append(kwargs)
             return "eScanIdle"
 
-        profiles.STATE_READERS = profiles.StateReaderProfile(scan_status_mode="both")
+        profiles.STATE_READERS = profiles.StateReaderProfile(scan_status_mode="hybrid")
         try:
             with patch.object(readers, 'get_scan_status', side_effect=mock_status):
                 result = prechecks.check_idle(None, timeout=5.0)

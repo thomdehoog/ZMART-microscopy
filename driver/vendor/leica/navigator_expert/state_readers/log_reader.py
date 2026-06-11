@@ -42,7 +42,7 @@ on the API) and any API fallback (that would re-introduce the hang path).
 ``get_scan_status`` maps the numeric ``AcquisitionState`` to a state string.
 
 The routed public reader layer may use this module for passive ``log`` or
-``both`` reads, and dispatch uses it as a dialog diagnostic when the CAM API is
+``hybrid`` reads, and dispatch uses it as a dialog diagnostic when the CAM API is
 blocked. Command-control reads should pin the API backend instead.
 
 Parameters live in ``core.profiles.LOG_READER`` - no hardcoded values in the

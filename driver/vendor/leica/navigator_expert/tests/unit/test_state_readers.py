@@ -73,9 +73,9 @@ class TestStateReaders(unittest.TestCase):
              patch.object(router.log_reader, "ages", return_value={"xy": 5.0}):
             self.assertIsNone(state_readers.get_xy(object()))
 
-    def test_both_returns_log_when_api_hangs(self):
+    def test_hybrid_returns_log_when_api_hangs(self):
         profiles.STATE_READERS = profiles.StateReaderProfile(
-            xy_mode="both",
+            xy_mode="hybrid",
             xy_log_max_age_s=1.0,
             xy_timeout_s=1.0,
         )
@@ -94,12 +94,12 @@ class TestStateReaders(unittest.TestCase):
         self.assertEqual(reading.source, "log")
         self.assertEqual(reading.value, expected)
 
-    def test_both_prefers_fresh_log_over_faster_api(self):
+    def test_hybrid_prefers_fresh_log_over_faster_api(self):
         profiles.STATE_READERS = profiles.StateReaderProfile(
-            xy_mode="both",
+            xy_mode="hybrid",
             xy_log_max_age_s=1.0,
             xy_timeout_s=1.0,
-            both_log_grace_s=0.25,
+            hybrid_log_grace_s=0.25,
         )
         snapshot = SimpleNamespace(now=100.0)
         api_value = {"x_um": 100.0, "y_um": 200.0}
@@ -117,9 +117,9 @@ class TestStateReaders(unittest.TestCase):
         self.assertEqual(reading.source, "log")
         self.assertEqual(reading.value, log_value)
 
-    def test_both_ignores_untrustworthy_log_and_returns_api(self):
+    def test_hybrid_ignores_untrustworthy_log_and_returns_api(self):
         profiles.STATE_READERS = profiles.StateReaderProfile(
-            xy_mode="both",
+            xy_mode="hybrid",
             xy_log_max_age_s=1.0,
             xy_timeout_s=1.0,
         )
@@ -133,9 +133,9 @@ class TestStateReaders(unittest.TestCase):
         self.assertEqual(reading.source, "api")
         self.assertEqual(reading.value, expected)
 
-    def test_both_does_not_start_second_api_read_while_one_is_pending(self):
+    def test_hybrid_does_not_start_second_api_read_while_one_is_pending(self):
         profiles.STATE_READERS = profiles.StateReaderProfile(
-            xy_mode="both",
+            xy_mode="hybrid",
             xy_log_max_age_s=1.0,
             xy_timeout_s=1.0,
         )
@@ -235,7 +235,7 @@ class TestStateReaders(unittest.TestCase):
         self.assertTrue(result["success"])
 
     def test_confirm_select_job_pins_api_mode(self):
-        profiles.STATE_READERS = profiles.StateReaderProfile(jobs_mode="both")
+        profiles.STATE_READERS = profiles.StateReaderProfile(jobs_mode="hybrid")
         calls = []
 
         def fake_get_jobs(client, **kwargs):

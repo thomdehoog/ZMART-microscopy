@@ -152,14 +152,14 @@ def _route_read(
     if mode == "log":
         reading = log_fn()
         return reading if trust_log(reading) else None
-    if mode == "both":
+    if mode == "hybrid":
         return _log_rescue_concurrent(
             api_fn=api_fn,
             log_fn=log_fn,
             trust_api=trust_api,
             trust_log=trust_log,
             timeout_s=timeout_s,
-            log_grace_s=_profile().both_log_grace_s,
+            log_grace_s=_profile().hybrid_log_grace_s,
             api_key=api_key,
         )
     raise ValueError(f"unknown state-reader mode {mode!r}")
