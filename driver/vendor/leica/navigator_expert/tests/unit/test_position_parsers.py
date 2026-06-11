@@ -259,8 +259,9 @@ class TestParseTemplatePositionsFromRgnGrid:
 
         from navigator_expert import state_readers as readers
 
-        def fake_get_job_settings(_client, job_name):
+        def fake_get_job_settings(_client, job_name, *, mode=None):
             assert job_name == "Overview"
+            assert mode == "api"
             return {"imageSize": "1200.0 um x 1200.0 um"}
 
         monkeypatch.setattr(readers, "get_job_settings", fake_get_job_settings)

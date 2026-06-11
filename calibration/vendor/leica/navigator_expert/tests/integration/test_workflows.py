@@ -228,7 +228,7 @@ def _patch_driver(monkeypatch, *, pixel_size_um=0.5,
         wf_i2s.drv, "apply_stage_limits_from_config", lambda cfg: None,
     )
     monkeypatch.setattr(
-        wf_i2s.drv, "get_hardware_info", lambda client: {"ok": True},
+        wf_i2s.drv, "get_hardware_info", lambda client, **kw: {"ok": True},
     )
 
     pos = {"x": home_xy[0], "y": home_xy[1]}
@@ -1015,7 +1015,7 @@ def _patch_objective_driver(
         wf_obj.drv, "apply_stage_limits_from_config", lambda cfg: None,
     )
     monkeypatch.setattr(
-        wf_obj.drv, "get_hardware_info", lambda client: {"ok": True},
+        wf_obj.drv, "get_hardware_info", lambda client, **kw: {"ok": True},
     )
 
     default_ref = {
