@@ -1193,7 +1193,13 @@ def _apply_log_select_confirmation(args: argparse.Namespace,
     source = args.select_job_confirm_source
     if args.enable_log_select_confirm:
         source = "log"
-    if source is None and args.state_reader_mode is not None:
+    if source is None and args.mock:
+        # The Python mock has no LAS X log stream, so log evidence cannot
+        # exist and a hybrid race would only ever time out on no-ops.
+        source = "api"
+        log.info("select-job confirmation source pinned to api for --mock "
+                 "(the mock backend has no log stream)")
+    elif source is None and args.state_reader_mode is not None:
         # A validator run that advertises a reader mode must not silently
         # grade select_job with a different confirmation source.
         source = args.state_reader_mode
