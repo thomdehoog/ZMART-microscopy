@@ -1,5 +1,11 @@
-"""Profile-routed LAS X state readers."""
+﻿"""Profile-routed LAS X state readers."""
 
+from .change_wait import (
+    ChangeBaseline,
+    ChangeWaitResult,
+    read_change_baseline,
+    wait_for_change,
+)
 from .router import (
     Reading,
     get_scan_status,
@@ -18,6 +24,10 @@ from .router import (
 )
 
 __all__ = [
+    "ChangeBaseline",
+    "ChangeWaitResult",
+    "read_change_baseline",
+    "wait_for_change",
     "Reading",
     "get_scan_status",
     "ping",

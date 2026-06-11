@@ -170,6 +170,27 @@ the command profile in `driver/core/profiles.py`.
 
 `get_xy` returns positions in both meters (`x`, `y`) and micrometers (`x_um`, `y_um`).
 
+Read-only functions route through `state_readers/` (API, log, or both -
+profile-controlled, default API). Pass `diagnostics=True` for a
+source-tagged `Reading` with timestamps.
+
+### Change Detection
+
+`state_readers.change_wait` answers "did the state visibly change after my
+command?" by alternating API and log reads until one source differs from
+its own pre-command baseline (fail-closed `unconfirmed` on timeout; target
+tolerance is reported, never enforced). Tunables live in
+`profiles.STATE_READERS` (`change_wait_*`).
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `read_change_baseline` | `(client, datum)` | `ChangeBaseline` (per-source pre-command readings) |
+| `wait_for_change` | `(client, datum, baseline, target=None, tolerance=None)` | `ChangeWaitResult` |
+
+`datum` is `"selected_job"` or `"xy"`. Capture the baseline BEFORE firing
+the command. See `tests/hardware/probe_change_wait.py` for live usage and
+`docs/READER_VALIDATION_SIMULATOR_20260611.md` for measured behavior.
+
 ### Job-Level Settings
 
 | Function | Key Parameters | Notes |
