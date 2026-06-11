@@ -32,7 +32,7 @@ Usage:
   python validate_hardware.py --yes --state-reader-mode hybrid
   python validate_hardware.py --yes --select-job-confirm-source log
   python validate_hardware.py --yes --select-job-confirm-source log --prime-log-select-cluster
-  python validate_hardware.py --yes --allow-xy             # + stage round-trip
+  python validate_hardware.py --yes --allow-xy             # + 10-position XY pattern
   python validate_hardware.py --yes --allow-xy --allow-acquire
   python validate_hardware.py --output results.jsonl       # capture structured
   python validate_hardware.py --output -                   # stream JSONL to stdout
@@ -53,6 +53,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import sys
 import time
 from collections.abc import Callable, Iterator
@@ -583,6 +584,37 @@ def _xy_limit_error(x_um: float, y_um: float, limits: dict[str, float]) -> str |
     )
 
 
+def _xy_pattern_positions(
+    start: tuple[float, float],
+    limits: dict[str, float],
+    *,
+    count: int,
+    radius_um: float,
+) -> list[tuple[float, float]]:
+    """Bounded circular XY validation pattern around the current stage point."""
+    x0, y0 = start
+    x_min, x_max = float(limits["x_min"]), float(limits["x_max"])
+    y_min, y_max = float(limits["y_min"]), float(limits["y_max"])
+    margin_um = 5.0
+    radius = min(
+        abs(float(radius_um)),
+        max(0.0, x0 - x_min - margin_um),
+        max(0.0, x_max - x0 - margin_um),
+        max(0.0, y0 - y_min - margin_um),
+        max(0.0, y_max - y0 - margin_um),
+    )
+    if radius < 1.0:
+        return []
+    positions = []
+    for index in range(count):
+        angle = 2.0 * math.pi * index / count
+        positions.append((
+            round(x0 + radius * math.cos(angle), 3),
+            round(y0 + radius * math.sin(angle), 3),
+        ))
+    return positions
+
+
 def _z_limit_error(z_um: float, z_mode: str, limits: dict[str, float]) -> str | None:
     """Return why a Z point is outside the calibrated stage envelope."""
     if z_mode == "galvo":
@@ -935,52 +967,96 @@ def _round_trip(v: Validator, name: str, job_name: str, *,
 
 def phase_xy(drv: Any, v: Validator, client: Any,
              args: argparse.Namespace) -> None:
-    """Stage XY round-trip."""
-    with v.phase("xy round-trip"):
-        start = v.callable("xy: read start", lambda: drv.get_xy(client))
+    """Stage XY pattern plus restore."""
+    with v.phase("xy 10-position pattern"):
+        start = v.callable(
+            "xy: read start",
+            lambda: drv.get_xy(client, mode="api"),
+            context={"mode": "api", "purpose": "stage-safety-anchor"},
+        )
         if start is None:
-            v.skip("xy: round-trip", "get_xy returned None")
+            v.skip("xy: pattern", "get_xy returned None")
             return
         x0, y0 = float(start["x_um"]), float(start["y_um"])
-        x1, y1 = x0 + args.xy_delta_um, y0 + args.xy_delta_um
         limits = drv.get_stage_limits()
         start_error = _xy_limit_error(x0, y0, limits)
         if start_error:
             v.fail(
-                "xy: round-trip",
+                "xy: pattern",
                 f"starting position outside limits: {start_error}. "
                 "Configure LAS X simulator/hardware inside the calibrated "
                 "envelope, or omit --allow-xy.",
                 context={"position": (x0, y0), "limits": limits},
             )
             return
-        target_error = _xy_limit_error(x1, y1, limits)
-        if target_error:
+        targets = _xy_pattern_positions(
+            (x0, y0),
+            limits,
+            count=args.xy_positions,
+            radius_um=args.xy_delta_um,
+        )
+        if not targets:
             v.fail(
-                "xy: round-trip",
-                f"target position outside limits: {target_error}. "
-                "Use a smaller --xy-delta-um or reposition the stage.",
-                context={"from": (x0, y0), "to": (x1, y1), "limits": limits},
+                "xy: pattern",
+                "not enough room for a bounded XY pattern around the current "
+                "stage position. Use a smaller --xy-delta-um or reposition "
+                "the stage away from calibrated limits.",
+                context={
+                    "from": (x0, y0),
+                    "positions": args.xy_positions,
+                    "radius_um": args.xy_delta_um,
+                    "limits": limits,
+                },
             )
             return
-        ctx = {"from": (x0, y0), "to": (x1, y1)}
         try:
-            v.command("xy: move alternate",
-                      lambda: drv.move_xy(client, x1, y1, unit="um"),
-                      context=ctx)
-            end = v.callable(
-                "xy: read alternate",
-                lambda: drv.get_xy(client, mode="api"),
-            )
-            if end is None:
-                v.skip("xy: readback", "get_xy returned None after move")
-            else:
-                v.compare("xy: x readback", end["x_um"], x1, tolerance=20.0)
-                v.compare("xy: y readback", end["y_um"], y1, tolerance=20.0)
+            for index, (x_um, y_um) in enumerate(targets, 1):
+                label = f"{index:02d}"
+                ctx = {
+                    "index": index,
+                    "count": len(targets),
+                    "from": (x0, y0),
+                    "to": (x_um, y_um),
+                    "radius_um": args.xy_delta_um,
+                }
+                result = v.command(
+                    f"xy: move {label}",
+                    lambda x=x_um, y=y_um: drv.move_xy(
+                        client, x, y, unit="um"),
+                    context=ctx,
+                )
+                if not result or not result.get("success"):
+                    break
+                end = v.callable(
+                    f"xy: read {label}",
+                    lambda: drv.get_xy(client, mode="api"),
+                    context=ctx,
+                )
+                if end is None:
+                    v.skip(
+                        f"xy: readback {label}",
+                        "get_xy returned None after move",
+                    )
+                else:
+                    v.compare(
+                        f"xy: x readback {label}",
+                        end["x_um"],
+                        x_um,
+                        tolerance=20.0,
+                    )
+                    v.compare(
+                        f"xy: y readback {label}",
+                        end["y_um"],
+                        y_um,
+                        tolerance=20.0,
+                    )
         finally:
             v.command("xy: restore",
                       lambda: drv.move_xy(client, x0, y0, unit="um"),
-                      context={"restore_to": (x0, y0)})
+                      context={
+                          "restore_to": (x0, y0),
+                          "positions": len(targets),
+                      })
 
 
 def phase_z(drv: Any, v: Validator, client: Any, job_name: str,
@@ -1108,7 +1184,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--skip-settings", action="store_true",
                    help="skip reversible setting writes")
     p.add_argument("--allow-xy", action="store_true",
-                   help="enable XY stage round-trip")
+                   help="enable XY stage validation pattern")
     p.add_argument("--allow-z", action="store_true",
                    help="enable Z galvo round-trip")
     p.add_argument("--allow-objective", action="store_true",
@@ -1118,6 +1194,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # Move deltas
     p.add_argument("--xy-delta-um", type=float, default=25.0)
+    p.add_argument("--xy-positions", type=int, default=10,
+                   help="number of XY stage targets for --allow-xy")
     p.add_argument("--z-delta-um", type=float, default=2.0)
 
     # Output + interaction
@@ -1155,7 +1233,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="max age for the log job-name cluster; default uses "
                         "the log reader current-window rule")
 
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.xy_positions < 1:
+        p.error("--xy-positions must be >= 1")
+    return args
 
 
 def _confirm_live_write(args: argparse.Namespace) -> bool:
@@ -1164,7 +1245,7 @@ def _confirm_live_write(args: argparse.Namespace) -> bool:
         return True
     parts = ["reversible setting writes"]
     if args.allow_xy:
-        parts.append("XY move")
+        parts.append(f"{args.xy_positions} XY moves")
     if args.allow_z:
         parts.append("Z move")
     if args.allow_objective:
