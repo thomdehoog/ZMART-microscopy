@@ -2202,15 +2202,16 @@ class TestConfirmSelectJob(unittest.TestCase):
         profile = profiles.StateReaderProfile(
             selected_job_confirm_source="log",
         )
-        jobs = [{"Name": "Overview", "IsSelected": True}]
         dispatched = {"success": True, "confirmed": True, "message": "sent"}
         with patch.object(profiles, "STATE_READERS", profile), \
-             patch.object(commands._readers, 'get_jobs', return_value=jobs), \
+             patch.object(confirmations, "_selected_job_name_from_log",
+                          return_value=None), \
+             patch.object(commands._readers, 'get_jobs') as get_jobs, \
              patch.object(commands, '_dispatch', return_value=dispatched) as dispatch_mock:
             result = commands.select_job(client, "Overview")
 
-        self.assertTrue(result["success"])
-        self.assertIn("logs", result)
+        self.assertEqual(result, dispatched)
+        get_jobs.assert_not_called()
         dispatch_mock.assert_called_once()
 
     def test_select_job_primes_log_cluster_when_profile_enables_it(self):
@@ -2225,28 +2226,32 @@ class TestConfirmSelectJob(unittest.TestCase):
             {"Name": "Overview", "IsSelected": False},
             {"Name": "HiRes", "IsSelected": False},
         ]
-        settings_calls = []
+        bounded_calls = []
 
-        def fake_get_job_settings(client, job_name, **kwargs):
-            settings_calls.append((job_name, kwargs))
-            return {"jobName": job_name}
+        def fake_api_jobs(client, profile):
+            return jobs, "ok"
+
+        def fake_bounded(client, fn, *, timeout_s):
+            bounded_calls.append(timeout_s)
+            return {"jobName": f"job-{len(bounded_calls)}"}, "ok"
 
         dispatched = {"success": True, "confirmed": True, "message": "sent"}
         with patch.object(profiles, "STATE_READERS", profile), \
-             patch.object(commands._readers, 'get_jobs', return_value=jobs), \
-             patch.object(commands._readers, 'get_job_settings',
-                          side_effect=fake_get_job_settings), \
+             patch.object(confirmations, "_selected_job_name_from_log",
+                          return_value=None), \
+             patch.object(confirmations, "_selected_job_api_jobs",
+                          side_effect=fake_api_jobs), \
+             patch.object(confirmations, "_bounded_api_read",
+                          side_effect=fake_bounded), \
              patch.object(commands, '_dispatch', return_value=dispatched) as dispatch_mock:
             result = commands.select_job(client, "Overview")
 
         self.assertEqual(result, dispatched)
-        self.assertEqual(
-            [name for name, _kwargs in settings_calls],
-            ["AF Job", "Overview", "HiRes"],
-        )
-        self.assertTrue(all(kwargs["mode"] == "api" for _n, kwargs in settings_calls))
-        # In log mode the api leg is absent; the log leg carries the
-        # command anchor as its second positional binding.
+        self.assertEqual(bounded_calls, [
+            profile.job_settings_timeout_s,
+            profile.job_settings_timeout_s,
+            profile.job_settings_timeout_s,
+        ])
         self.assertIsNone(dispatch_mock.call_args.kwargs["confirm_fn"])
         log_leg = dispatch_mock.call_args.kwargs["log_confirm_fn"]
         self.assertIsNotNone(log_leg)

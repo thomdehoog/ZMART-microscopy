@@ -13,6 +13,7 @@ with the admissibility gate on the api leg.
 """
 
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -82,6 +83,40 @@ class TestHybridAdmissibility(SelectJobCase):
         api_jobs.assert_not_called()  # an inadmissible leg never polls
         self.assertFalse(result["success"])
 
+    def test_missing_api_baseline_cannot_confirm_in_hybrid(self):
+        """Hybrid API evidence must prove a transition. If the pre-command
+        API baseline was unavailable, an API readback equal to the target is
+        not admissible evidence."""
+        self._use(
+            selected_job_confirm_source="hybrid",
+            selected_job_hybrid_budget_s=1.0,
+            selected_job_log_confirm_timeout_s=0.05,
+        )
+        api_leg, log_leg, budget = confirmations.select_job_confirm_legs(
+            "AF Job",
+            command_started_at=100.0,
+            timeout=0.5,
+            api_baseline_name=None,
+        )
+        stale_jobs = [{"Name": "AF Job", "IsSelected": True}]
+        with patch.object(readers, "get_jobs",
+                          return_value=stale_jobs) as api_jobs, \
+             patch.object(confirmations.log_wait, "wait_for_selected_job_log",
+                          return_value=_poll_result(False, reason="timeout")):
+            api_outcome = api_leg(None)
+            race = confirmations.race_confirmations(
+                api_leg=lambda: api_leg(None),
+                log_leg=log_leg,
+                label="SelectJob 'AF Job'",
+                budget_s=budget,
+            )
+            result = race()
+
+        self.assertFalse(api_outcome["success"])
+        self.assertEqual(api_outcome["reason"], "inadmissible_no_baseline")
+        api_jobs.assert_not_called()
+        self.assertFalse(result["success"])
+
     def test_log_wins_while_api_stale(self):
         self._use(
             selected_job_confirm_source="hybrid",
@@ -106,6 +141,9 @@ class TestHybridAdmissibility(SelectJobCase):
                 budget_s=budget,
             )
             result = race()
+            # The race returns as soon as the log wins; keep the fake API
+            # installed until the stale API leg finishes its bounded timeout.
+            time.sleep(0.35)
 
         self.assertTrue(result["success"])
         messages = [entry["msg"] for entry in result["logs"]]
@@ -213,6 +251,21 @@ class TestLegsBuilder(SelectJobCase):
         self.assertIsNotNone(log_leg)
         self.assertEqual(budget, 4.5)
 
+    def test_hybrid_budget_is_capped_by_confirm_timeout(self):
+        self._use(
+            selected_job_confirm_source="hybrid",
+            selected_job_hybrid_budget_s=6.0,
+        )
+        api_leg, log_leg, budget = confirmations.select_job_confirm_legs(
+            "HiRes",
+            command_started_at=100.0,
+            api_baseline_name="Overview",
+            timeout=5.0,
+        )
+        self.assertIsNotNone(api_leg)
+        self.assertIsNotNone(log_leg)
+        self.assertEqual(budget, 5.0)
+
     def test_unknown_source_raises_before_firing(self):
         self._use(selected_job_confirm_source="nonsense")
         with self.assertRaises(ValueError):
@@ -254,9 +307,10 @@ class TestPrepareSelectJob(SelectJobCase):
         real command, and the baseline records the inadmissibility."""
         self._use(selected_job_confirm_source="hybrid")
         jobs = [{"Name": "AF Job", "IsSelected": True}]
-        with patch.object(readers, "get_jobs", return_value=jobs), \
-             patch.object(confirmations, "_selected_job_name_from_log",
-                          return_value=None):
+        with patch.object(confirmations, "_selected_job_name_from_log",
+                          return_value=None), \
+             patch.object(confirmations, "_selected_job_api_baseline",
+                          return_value=("AF Job", jobs, "ok")):
             noop, context = confirmations.prepare_select_job(None, "AF Job")
         self.assertIsNone(noop)  # fires despite api==target
         self.assertEqual(context["api_baseline_name"], "AF Job")
@@ -279,6 +333,19 @@ class TestPrepareSelectJob(SelectJobCase):
                           return_value="AF Job"):
             noop, _ = confirmations.prepare_select_job(None, "AF Job")
         self.assertIsNotNone(noop)
+
+    def test_log_source_does_not_touch_api_when_log_has_no_noop(self):
+        self._use(selected_job_confirm_source="log")
+        with patch.object(confirmations, "_selected_job_name_from_log",
+                          return_value=None), \
+             patch.object(readers, "get_jobs") as api_jobs, \
+             patch.object(readers, "get_job_settings") as api_settings:
+            noop, context = confirmations.prepare_select_job(None, "AF Job")
+
+        self.assertIsNone(noop)
+        self.assertEqual(context["api_baseline_reason"], "not_attempted")
+        api_jobs.assert_not_called()
+        api_settings.assert_not_called()
 
 
 if __name__ == "__main__":
