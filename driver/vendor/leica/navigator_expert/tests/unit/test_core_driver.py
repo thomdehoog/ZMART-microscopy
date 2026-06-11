@@ -2170,6 +2170,9 @@ class TestConfirmSelectJob(unittest.TestCase):
     def test_select_job_early_exit_pins_api_mode(self):
         client = make_client()
         client.PyApiSelectJobByName = make_api_obj()
+        profile = profiles.StateReaderProfile(
+            selected_job_confirm_source="api",
+        )
         calls = []
 
         def fake_get_jobs(client, **kwargs):
@@ -2184,7 +2187,8 @@ class TestConfirmSelectJob(unittest.TestCase):
             ]
 
         dispatched = {"success": True, "confirmed": True, "message": "sent"}
-        with patch.object(commands._readers, 'get_jobs', side_effect=fake_get_jobs), \
+        with patch.object(profiles, "STATE_READERS", profile), \
+             patch.object(commands._readers, 'get_jobs', side_effect=fake_get_jobs), \
              patch.object(commands, '_dispatch', return_value=dispatched) as dispatch_mock:
             result = commands.select_job(client, "Overview")
 

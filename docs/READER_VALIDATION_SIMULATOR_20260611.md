@@ -98,3 +98,30 @@ XY freshness. XY is weak for BOTH sources in opposite ways - which is why
   selected-job and the API to win XY.
 - `log` mode remains unsuitable as a blanket default (job-list resolution
   gap); unchanged conclusion from `WHY_HYBRID_READERS_20260605.md`.
+
+## Addendum (2026-06-11, late): three-family gate on the simulator
+
+After the hybrid consolidation (mode rename, capability table, one
+confirmation race, selected-job hybrid confirm), the full validator ran in
+all three families with the confirm source implied by the mode:
+
+| mode | pass | warn | fail | skip | notes |
+|---|---|---|---|---|---|
+| api    | 82 | 0 | 0 | 1 | clean baseline |
+| log    | 73 | 0 | 5 | 2 | fail-closed; sim CurrentBlock cannot confirm switches (known parked item) |
+| hybrid | 81 | 0 | 1 | 1 | all real switches confirmed via the api leg |
+
+The single hybrid FAIL is the documented no-op edge, demonstrated live:
+the end-of-run restore targets the already-selected job; on the simulator
+the stale log cannot prove the no-op, the command fires, the api leg is
+correctly inadmissible (pre-command baseline == target), and the race
+fails closed after three bounded attempts. Zero wrong confirmations. On
+the real scope the same restore early-exits from fresh log state (see the
+log-confirm run in READER_VALIDATION_REAL_SCOPE_20260611.md).
+
+probe_four_readers gate column: 4/4 job changes (change_wait api wins,
+281 ms), 6/6 XY (deltas 0-13.4 um within the 20 um quantization
+tolerance), per-reader agreement reported without being judged.
+
+On this evidence ``selected_job_confirm_source`` defaults to ``hybrid``.
+Remaining live check: one hybrid validator run on the real scope.

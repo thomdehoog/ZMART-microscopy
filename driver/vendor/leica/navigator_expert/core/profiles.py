@@ -103,7 +103,12 @@ class StateReaderProfile:
     # cannot witness a transition to a target it already read pre-command)
     # against the log leg (post-command CurrentBlock event); the race is
     # bounded by ``selected_job_hybrid_budget_s`` inside one confirm attempt.
-    selected_job_confirm_source: str = "api"
+    # Default hybrid: the api confirm is measured-wrong on the real scope
+    # (stale 15 s+, wrong job) and log-only is insufficient on the
+    # simulator; hybrid fits both without environment detection. Validated
+    # 2026-06-11 (simulator matrix + real-scope log-confirm run; see
+    # docs/READER_VALIDATION_*_20260611.md).
+    selected_job_confirm_source: str = "hybrid"
     selected_job_hybrid_budget_s: float = 6.0
     selected_job_log_prime_cluster: bool = False
     selected_job_log_confirm_timeout_s: float = 2.0

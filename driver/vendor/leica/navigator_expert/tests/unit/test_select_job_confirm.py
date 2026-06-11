@@ -141,6 +141,16 @@ class TestHybridAdmissibility(SelectJobCase):
         self.assertTrue(any("confirmed by api leg" in m for m in messages))
 
 
+class TestDefaultPolicy(unittest.TestCase):
+    def test_selected_job_confirmation_defaults_to_hybrid(self):
+        """The api confirm is measured-wrong on the real scope and log-only
+        is insufficient on the simulator; hybrid is the one default that
+        fits both without environment detection (validated 2026-06-11)."""
+        profile = profiles.StateReaderProfile()
+        self.assertEqual(profile.selected_job_confirm_source, "hybrid")
+        self.assertEqual(profile.selected_job_hybrid_budget_s, 6.0)
+
+
 class TestLegsBuilder(SelectJobCase):
     def test_api_source_has_no_admissibility_gate(self):
         """Pure api mode keeps today's exact semantics: the API poll is the
