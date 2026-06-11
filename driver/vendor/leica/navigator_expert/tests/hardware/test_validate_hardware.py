@@ -5,6 +5,7 @@ same checks can run against the in-process mock, LAS X simulator, or
 real hardware. This pytest file keeps the mock-backed path in the
 regular test suite without duplicating the validator logic.
 """
+# ruff: noqa: E402,I001
 
 from __future__ import annotations
 
@@ -199,6 +200,74 @@ def test_explicit_log_mode_fails_when_no_jobs():
     assert validator.exit_code() == 1
     resolve = next(r for r in records if r.name == "job: resolve")
     assert resolve.status == "FAIL"
+
+
+def test_selected_job_api_lag_after_log_confirm_is_warn():
+    records = []
+    validator = validate_hardware.Validator(
+        sink=records.append,
+        log=validate_hardware._configure_logging("ERROR", jsonl_to_stdout=False),
+    )
+    command_result = {
+        "success": True,
+        "confirmed": True,
+        "logs": [
+            {
+                "level": "info",
+                "msg": "SelectJob 'HiRes' | confirmed by log leg (0.578s)",
+            },
+        ],
+    }
+
+    validate_hardware._record_selected_job_postcheck(
+        validator,
+        command_result,
+        {"job": "HiRes"},
+        "HiRes",
+        "AF Job",
+    )
+
+    assert validator.exit_code() == 0
+    assert len(records) == 1
+    record = records[0]
+    assert record.status == "WARN"
+    assert record.name == "job selection: API lag after log-confirmed HiRes"
+    assert record.context["expected"] == "HiRes"
+    assert record.context["api_selected"] == "AF Job"
+    assert record.context["confirmation_evidence"] == "log"
+
+
+def test_selected_job_api_mismatch_without_log_confirm_stays_fail():
+    records = []
+    validator = validate_hardware.Validator(
+        sink=records.append,
+        log=validate_hardware._configure_logging("ERROR", jsonl_to_stdout=False),
+    )
+    command_result = {
+        "success": True,
+        "confirmed": True,
+        "logs": [
+            {
+                "level": "info",
+                "msg": "SelectJob 'HiRes' | confirmed by api leg (0.100s)",
+            },
+        ],
+    }
+
+    validate_hardware._record_selected_job_postcheck(
+        validator,
+        command_result,
+        {"job": "HiRes"},
+        "HiRes",
+        "AF Job",
+    )
+
+    assert validator.exit_code() == 1
+    assert len(records) == 1
+    record = records[0]
+    assert record.status == "FAIL"
+    assert record.name == "job selection: confirmed HiRes"
+    assert record.message == "expected='HiRes' actual='AF Job'"
 
 
 def test_mock_set_dispatch_table_matches_surface():

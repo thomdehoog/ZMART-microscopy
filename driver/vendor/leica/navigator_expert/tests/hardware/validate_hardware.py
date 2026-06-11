@@ -421,6 +421,59 @@ def _selected_job_name(
     return selected["Name"] if selected else None
 
 
+def _select_job_confirmed_by_log(command_result: dict | None) -> bool:
+    """Whether select_job already proved the target from log evidence."""
+    if not command_result or not command_result.get("success"):
+        return False
+    if command_result.get("confirmed") is False:
+        return False
+    for entry in command_result.get("logs") or []:
+        msg = entry.get("msg", "")
+        if (
+            "confirmed by log leg" in msg
+            or "confirmed from LAS X log" in msg
+            or "already confirmed from LAS X log" in msg
+        ):
+            return True
+    return False
+
+
+def _record_selected_job_postcheck(
+    v: Validator,
+    command_result: dict | None,
+    context: dict,
+    expected: str,
+    api_selected: str | None,
+) -> None:
+    """Record passive API readback after select_job without overriding proof.
+
+    The command result is the verdict. If the command already confirmed from
+    log evidence, an immediate API disagreement is the expected stale-readback
+    diagnostic on the real scope and must not turn the validator red.
+    """
+    if api_selected is None:
+        return
+    if api_selected != expected and _select_job_confirmed_by_log(command_result):
+        v._emit(Record(
+            name=f"job selection: API lag after log-confirmed {expected}",
+            status="WARN",
+            started_at=_now_iso(),
+            elapsed_s=0.0,
+            message=(
+                f"log confirmed {expected!r}; immediate API read returned "
+                f"{api_selected!r}"
+            ),
+            context={
+                **context,
+                "expected": expected,
+                "api_selected": api_selected,
+                "confirmation_evidence": "log",
+            },
+        ))
+        return
+    v.compare(f"job selection: confirmed {expected}", api_selected, expected)
+
+
 def _job_objective_signature(drv: Any, client: Any, job_name: str) -> tuple | None:
     """Best-effort objective identity for ordering validator job switches."""
     try:
@@ -673,30 +726,8 @@ def phase_job_selection(drv: Any, v: Validator, client: Any,
                                       lambda: _selected_job_name(
                                           drv, client, mode="api"),
                                       context=ctx)
-                if selected is not None:
-                    if (
-                        (
-                            args.select_job_confirm_source == "log"
-                            or args.enable_log_select_confirm
-                        )
-                        and command_result
-                        and command_result.get("success")
-                        and selected != name
-                    ):
-                        v._emit(Record(
-                            name=f"job selection: API lag after log-confirmed {name}",
-                            status="WARN",
-                            started_at=_now_iso(),
-                            elapsed_s=0.0,
-                            message=(
-                                f"log confirmed {name!r}; immediate API "
-                                f"read returned {selected!r}"
-                            ),
-                            context={**ctx, "expected": name, "api_selected": selected},
-                        ))
-                    else:
-                        v.compare(
-                            f"job selection: confirmed {name}", selected, name)
+                _record_selected_job_postcheck(
+                    v, command_result, ctx, name, selected)
         finally:
             v.command("job selection: restore",
                       lambda: drv.select_job(client, original),
