@@ -190,7 +190,7 @@ tolerance is reported, never enforced). Tunables live in
 `datum` is `"selected_job"` or `"xy"`. Capture the baseline BEFORE firing
 the command, after any previous API readback you rely on has converged; the
 API leg has no independent event timestamp, while the log leg rejects lines
-older than the baseline. See `tests/hardware/probe_change_wait.py` for live
+older than the baseline. See `tests/hardware/probe_four_readers.py` for live
 usage and `docs/READER_VALIDATION_SIMULATOR_20260611.md` for measured
 behavior.
 

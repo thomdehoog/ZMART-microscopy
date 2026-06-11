@@ -1,10 +1,11 @@
 """Unit tests for routed state readers."""
 
+import dataclasses
 import sys
+import tempfile
 import threading
 import time
 import unittest
-import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -13,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from navigator_expert import state_readers
 from navigator_expert.core import confirmations, profiles
-from navigator_expert.state_readers import router
+from navigator_expert.state_readers import capabilities, router
 
 
 class TestStateReaders(unittest.TestCase):
@@ -303,6 +304,53 @@ class TestStateReaders(unittest.TestCase):
             settings["image_orientation"]["transformation"],
             "RIGHTTOP",
         )
+
+
+class TestMissingLegs(unittest.TestCase):
+    """A family asked for a leg the datum lacks fails closed with a
+    recorded ``UnsupportedSource`` reason; hybrid degrades to the legs
+    that exist."""
+
+    def test_api_mode_without_api_leg_fails_closed_with_reason(self):
+        log_only = dataclasses.replace(capabilities.spec("xy"), api_fn=None)
+        with patch.dict(capabilities.DATUMS, {"xy": log_only}):
+            reading = state_readers.get_xy(
+                object(), mode="api", diagnostics=True)
+            self.assertIsNone(reading.value)
+            self.assertIsInstance(
+                reading.error, capabilities.UnsupportedSource)
+            self.assertIn("no api leg", str(reading.error))
+            # the plain-value contract fails closed to None
+            self.assertIsNone(state_readers.get_xy(object(), mode="api"))
+
+    def test_hybrid_degrades_to_log_when_api_leg_missing(self):
+        log_only = dataclasses.replace(capabilities.spec("xy"), api_fn=None)
+        snapshot = SimpleNamespace(now=100.0)
+        expected = {"x_um": 3.0, "y_um": 4.0}
+        with patch.dict(capabilities.DATUMS, {"xy": log_only}), \
+             patch.object(router.log_reader, "parse_log",
+                          return_value=snapshot), \
+             patch.object(router.log_reader, "get_xy",
+                          return_value=expected), \
+             patch.object(router.log_reader, "ages",
+                          return_value={"xy": 0.1}):
+            reading = state_readers.get_xy(
+                object(), mode="hybrid", diagnostics=True)
+        self.assertEqual(reading.source, "log")
+        self.assertEqual(reading.value, expected)
+
+    def test_hybrid_degrades_to_api_when_log_leg_missing(self):
+        api_only = dataclasses.replace(capabilities.spec("xy"), log_fn=None)
+        expected = {"x_um": 7.0, "y_um": 8.0}
+        with patch.dict(capabilities.DATUMS, {"xy": api_only}), \
+             patch.object(router.api_reader, "get_xy",
+                          return_value=expected), \
+             patch.object(router.log_reader, "parse_log") as parse_log:
+            reading = state_readers.get_xy(
+                object(), mode="hybrid", diagnostics=True)
+        self.assertEqual(reading.source, "api")
+        self.assertEqual(reading.value, expected)
+        parse_log.assert_not_called()
 
 
 if __name__ == "__main__":
