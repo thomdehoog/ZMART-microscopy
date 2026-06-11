@@ -188,8 +188,11 @@ tolerance is reported, never enforced). Tunables live in
 | `wait_for_change` | `(client, datum, baseline, target=None, tolerance=None)` | `ChangeWaitResult` |
 
 `datum` is `"selected_job"` or `"xy"`. Capture the baseline BEFORE firing
-the command. See `tests/hardware/probe_change_wait.py` for live usage and
-`docs/READER_VALIDATION_SIMULATOR_20260611.md` for measured behavior.
+the command, after any previous API readback you rely on has converged; the
+API leg has no independent event timestamp, while the log leg rejects lines
+older than the baseline. See `tests/hardware/probe_change_wait.py` for live
+usage and `docs/READER_VALIDATION_SIMULATOR_20260611.md` for measured
+behavior.
 
 ### Job-Level Settings
 

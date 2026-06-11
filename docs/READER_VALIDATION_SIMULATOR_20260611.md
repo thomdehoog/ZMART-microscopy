@@ -51,7 +51,7 @@ designed.
 
 - Conflicts were *reported, not buried* in 5/6 runs: at win time the other
   source still showed the pre-change value (`sources_agree=false`).
-- The stale-log guard fired live (`observed_before_baseline`): a days-old
+- The stale-log guard fired live (`observed_before_log_boundary`): a days-old
   XY log echo from a previous session could not signal a change.
 - XY moves landed 5 um off target (20 um stage quantization) - reported
   via `target_delta`, within the 20 um tolerance, and correctly NOT
@@ -75,11 +75,13 @@ CurrentBlock lands in ~0.2 s. Even this simulator run shows the API's lag
 flavor: the post-move XY readback returned the previous quantized position
 (65520 vs 65525 requested) - "fresh by call-time" is not "true by data".
 
-The change-wait reader is deliberately source-agnostic, which makes both
-lag patterns safe:
+The change-wait reader is deliberately source-agnostic: API/log disagreement
+alone never confirms a change, and the result exposes disagreements instead of
+burying them. The safety boundary is:
 
-- a stale API keeps reporting the OLD value and therefore never falsely
-  confirms a change (per-source baselines make staleness self-canceling);
+- a source that keeps reporting its own baseline value cannot confirm a change;
+- the API leg has no independent event timestamp, so its baseline is only
+  trustworthy after any previous API readback has converged;
 - a lagging log line older than the baseline is rejected by timestamp;
 - every disagreement is surfaced (`sources_agree`, `last_reasons`,
   per-observation `trace`).

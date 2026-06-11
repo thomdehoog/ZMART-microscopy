@@ -9,20 +9,23 @@ against a running LAS X (simulator or scope) in three phases:
 
 The command itself runs on the production path (with its own confirmation);
 the probe then measures how the change-wait reader saw the transition. For
-the log source the log-line timestamp dates the event itself, so the
-"noticed after fire" latency is exact even though the wait starts after the
-command returned. No production code or profiles are modified.
+the log source the log-line timestamp dates the event itself; for the API
+source the timestamp is API-call completion, so "noticed after fire" includes
+the command's confirmation time plus the post-command probe read. No
+production code or profiles are modified.
 
 Simulator note: the simulated stage moves in 20 um increments, so XY deltas
-must be multiples of 20 and the reported tolerance should be >= 20.
+that are multiples of 20 make target deltas easier to interpret.
 
 Do NOT generalize per-source winner statistics across environments. On the
 simulator the LCS log flushes lazily, so the API tends to win; on the real
 scope the API selected-job readback is the stale one (wrong job for 15 s+)
 while the log CurrentBlock lands in ~0.2 s, so the log wins. The reader is
-deliberately source-agnostic: a stale API keeps reporting the OLD value and
-simply never confirms - it cannot falsely win - and every disagreement is
-reported via ``sources_agree``/``last_reasons``.
+deliberately source-agnostic: API/log disagreement alone never confirms a
+change, and every disagreement is reported via
+``sources_agree``/``last_reasons``. The API leg still depends on a baseline
+captured after any previous API readback has converged, because API reads
+have no independent event timestamp.
 
 Usage:
   python probe_change_wait.py --yes                  # 3 switches, 3 moves
@@ -110,7 +113,9 @@ def phase_select_job(client, records, output, job_a, job_b, runs):
         fired_at = time.time()
         command = drv.select_job(client, target)
         result = state_readers.wait_for_change(
-            client, "selected_job", baseline, target=target)
+            client, "selected_job", baseline,
+            target=target,
+            command_started_at=fired_at)
         _emit(records, output, {
             "phase": "select_job",
             "run": run,
@@ -141,7 +146,8 @@ def phase_move_xy(client, records, output, delta_um, tolerance_um, runs):
             command = drv.move_xy(client, tx, ty, unit="um")
             result = state_readers.wait_for_change(
                 client, "xy", baseline,
-                target=(tx, ty), tolerance=tolerance_um)
+                target=(tx, ty), tolerance=tolerance_um,
+                command_started_at=fired_at)
             _emit(records, output, {
                 "phase": "move_xy",
                 "run": run,
@@ -210,9 +216,6 @@ def main(argv=None):
     p.add_argument("--output", default=None, help="JSONL output path")
     args = p.parse_args(argv)
 
-    if args.delta_um % 20:
-        raise SystemExit("--delta-um must be a multiple of 20 (simulator "
-                         "stage increment)")
     if not args.read_only and not args.yes:
         raise SystemExit("job switches and XY moves are reversible writes; "
                          "pass --yes to confirm (or --read-only)")

@@ -31,7 +31,7 @@ from navigator_expert.core import profiles
 from navigator_expert.state_readers import change_wait, router
 
 
-def _snapshot(now, *, block=None, block_ts=None):
+def _snapshot(now, *, block=None, block_ts=None, xy=None, xy_ts=None):
     return SimpleNamespace(
         now=now,
         current_block_name=block,
@@ -39,6 +39,8 @@ def _snapshot(now, *, block=None, block_ts=None):
         current_block_id=None,
         selected_element=None,
         selected_ts=None,
+        xy=xy,
+        xy_ts=xy_ts,
     )
 
 
@@ -70,7 +72,7 @@ class TestProfileDefaults(unittest.TestCase):
         self.assertEqual(profile.change_wait_timeout_s, 10.0)
         self.assertEqual(profile.change_wait_loop_interval_s, 0.1)
         self.assertEqual(profile.change_wait_api_retry_interval_s, 0.25)
-        self.assertEqual(profile.change_wait_min_delta, 0.0)
+        self.assertEqual(profile.change_wait_xy_min_delta_um, 0.5)
         self.assertEqual(profile.change_wait_baseline_api_timeout_s, 2.0)
 
 
@@ -78,13 +80,11 @@ class TestReadBaseline(ChangeWaitTestCase):
     def test_captures_both_sources(self):
         api_value = {"x_um": 100.0, "y_um": 200.0}
         log_value = {"x_um": 100.0, "y_um": 200.0}
-        snapshot = _snapshot(1000.0)
+        snapshot = _snapshot(1000.0, xy_ts=999.5)
         with patch.object(change_wait.api_reader, "get_xy",
                           return_value=api_value), \
              patch.object(change_wait.log_reader, "get_xy",
-                          return_value=log_value), \
-             patch.object(change_wait.log_reader, "ages",
-                          return_value={"xy": 0.5}):
+                           return_value=log_value):
             baseline = change_wait.read_change_baseline(
                 self.client, "xy", parse_fn=lambda: snapshot)
         self.assertEqual(baseline.datum, "xy")
@@ -187,7 +187,236 @@ class TestWaitForChangeSelectedJob(ChangeWaitTestCase):
         self.assertEqual(result.outcome, "unconfirmed")
         self.assertEqual(result.reason, "timeout")
         self.assertEqual(
-            result.diagnostics["last_reasons"]["log"], "observed_before_baseline")
+            result.diagnostics["last_reasons"]["log"],
+            "observed_before_log_boundary",
+        )
+
+    def test_command_started_at_rejects_log_event_between_baseline_and_fire(self):
+        baseline_time = time.time()
+        command_started_at = baseline_time + 0.5
+        between_time = baseline_time + 0.2
+        baseline = change_wait.ChangeBaseline(
+            datum="selected_job",
+            taken_at=baseline_time,
+            api=None,
+            log=router.Reading(
+                value={"Name": "Overview"}, source="log",
+                observed_at=baseline_time - 0.1, age_s=0.1),
+            diagnostics={},
+        )
+
+        with patch.object(change_wait.api_reader, "get_selected_job",
+                          return_value=None):
+            result = change_wait.wait_for_change(
+                self.client, "selected_job", baseline,
+                command_started_at=command_started_at,
+                parse_fn=lambda: _snapshot(
+                    time.time(), block="HiRes", block_ts=between_time))
+
+        self.assertFalse(result.success)
+        self.assertEqual(
+            result.diagnostics["last_reasons"]["log"],
+            "observed_before_log_boundary",
+        )
+        self.assertEqual(
+            result.diagnostics["baseline"]["log_boundary"],
+            command_started_at,
+        )
+
+    def test_early_command_started_at_cannot_weaken_log_boundary(self):
+        baseline_time = time.time()
+        command_started_at = baseline_time - 0.5
+        after_command_before_baseline = baseline_time - 0.2
+        baseline = change_wait.ChangeBaseline(
+            datum="selected_job",
+            taken_at=baseline_time,
+            api=None,
+            log=router.Reading(
+                value={"Name": "Overview"}, source="log",
+                observed_at=baseline_time - 1.0, age_s=1.0),
+            diagnostics={},
+        )
+
+        with patch.object(change_wait.api_reader, "get_selected_job",
+                          return_value=None):
+            result = change_wait.wait_for_change(
+                self.client, "selected_job", baseline,
+                command_started_at=command_started_at,
+                parse_fn=lambda: _snapshot(
+                    time.time(),
+                    block="HiRes",
+                    block_ts=after_command_before_baseline,
+                ),
+            )
+
+        self.assertFalse(result.success)
+        self.assertEqual(
+            result.diagnostics["last_reasons"]["log"],
+            "observed_before_log_boundary",
+        )
+        self.assertEqual(
+            result.diagnostics["baseline"]["log_boundary"],
+            baseline_time,
+        )
+
+    def test_sources_agree_ignores_stale_log_observation(self):
+        baseline_time = time.time()
+        baseline = change_wait.ChangeBaseline(
+            datum="selected_job",
+            taken_at=baseline_time,
+            api=router.Reading(
+                value={"Name": "Overview"}, source="api",
+                observed_at=baseline_time, age_s=0.0),
+            log=router.Reading(
+                value={"Name": "Overview"}, source="log",
+                observed_at=baseline_time - 1.0, age_s=1.0),
+            diagnostics={},
+        )
+
+        def api_selected(_client):
+            time.sleep(0.03)
+            return {"Name": "HiRes"}
+
+        def parse_fn():
+            return _snapshot(
+                time.time(),
+                block="HiRes",
+                block_ts=baseline_time - 0.5,
+            )
+
+        with patch.object(change_wait.api_reader, "get_selected_job",
+                          side_effect=api_selected):
+            result = change_wait.wait_for_change(
+                self.client, "selected_job", baseline,
+                target="HiRes", parse_fn=parse_fn)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.source, "api")
+        self.assertIsNone(result.sources_agree)
+        self.assertEqual(
+            result.diagnostics["last_reasons"]["log"],
+            "observed_before_log_boundary",
+        )
+
+    def test_cross_source_disagreement_alone_never_confirms(self):
+        baseline_time = time.time()
+        baseline = change_wait.ChangeBaseline(
+            datum="selected_job",
+            taken_at=baseline_time,
+            api=router.Reading(
+                value={"Name": "Overview"}, source="api",
+                observed_at=baseline_time, age_s=0.0),
+            log=router.Reading(
+                value={"Name": "HiRes"}, source="log",
+                observed_at=baseline_time + 0.01, age_s=0.0),
+            diagnostics={},
+        )
+
+        with patch.object(change_wait.api_reader, "get_selected_job",
+                          return_value={"Name": "Overview"}):
+            result = change_wait.wait_for_change(
+                self.client, "selected_job", baseline,
+                parse_fn=lambda: _snapshot(
+                    time.time(), block="HiRes",
+                    block_ts=baseline_time + 0.02))
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.outcome, "unconfirmed")
+        self.assertEqual(result.diagnostics["last_reasons"]["api"], "unchanged")
+        self.assertEqual(result.diagnostics["last_reasons"]["log"], "unchanged")
+
+    def test_unknown_and_empty_selected_jobs_never_confirm(self):
+        readings = iter([
+            {"Name": "Unknown"},
+            {"Name": ""},
+            {"Name": "Overview"},
+        ])
+
+        def api_selected(_client):
+            try:
+                return next(readings)
+            except StopIteration:
+                return {"Name": "Overview"}
+
+        baseline = change_wait.ChangeBaseline(
+            datum="selected_job",
+            taken_at=time.time(),
+            api=router.Reading(
+                value={"Name": "Overview"}, source="api",
+                observed_at=time.time(), age_s=0.0),
+            log=None,
+            diagnostics={},
+        )
+
+        with patch.object(change_wait.api_reader, "get_selected_job",
+                          side_effect=api_selected):
+            result = change_wait.wait_for_change(
+                self.client, "selected_job", baseline,
+                parse_fn=lambda: _snapshot(time.time()))
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.outcome, "unconfirmed")
+
+    def test_api_lag_then_converge_is_known_limitation(self):
+        baseline_time = time.time()
+        # API baseline is stale from a previous A->B command. If it converges
+        # to B while we are waiting for a later B->C command, the API leg has
+        # no event timestamp that lets this reader distinguish old convergence
+        # from the current command's effect.
+        baseline = change_wait.ChangeBaseline(
+            datum="selected_job",
+            taken_at=baseline_time,
+            api=router.Reading(
+                value={"Name": "A"}, source="api",
+                observed_at=baseline_time, age_s=0.0),
+            log=router.Reading(
+                value={"Name": "B"}, source="log",
+                observed_at=baseline_time - 0.1, age_s=0.1),
+            diagnostics={},
+        )
+
+        def api_selected(_client):
+            time.sleep(0.03)
+            return {"Name": "B"}
+
+        with patch.object(change_wait.api_reader, "get_selected_job",
+                          side_effect=api_selected):
+            result = change_wait.wait_for_change(
+                self.client, "selected_job", baseline,
+                target="C",
+                parse_fn=lambda: _snapshot(
+                    time.time(), block="B",
+                    block_ts=baseline_time + 0.01))
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.source, "api")
+        self.assertFalse(result.matches_target)
+        self.assertTrue(result.sources_agree)
+
+    def test_wrong_baseline_datum_is_rejected_immediately(self):
+        baseline = change_wait.ChangeBaseline(
+            datum="xy", taken_at=time.time(), api=None, log=None,
+            diagnostics={})
+        with self.assertRaises(ValueError):
+            change_wait.wait_for_change(
+                self.client, "selected_job", baseline,
+                parse_fn=lambda: _snapshot(time.time()))
+
+    def test_malformed_target_is_rejected_before_reads(self):
+        baseline = change_wait.ChangeBaseline(
+            datum="xy", taken_at=time.time(),
+            api=router.Reading(
+                value={"x_um": 1.0, "y_um": 2.0}, source="api",
+                observed_at=time.time(), age_s=0.0),
+            log=None,
+            diagnostics={})
+        with patch.object(change_wait.api_reader, "get_xy") as api:
+            with self.assertRaises(ValueError):
+                change_wait.wait_for_change(
+                    self.client, "xy", baseline,
+                    target=("not-a-number", 2.0),
+                    parse_fn=lambda: _snapshot(time.time()))
+        api.assert_not_called()
 
 
 class TestWaitForChangeXY(ChangeWaitTestCase):
@@ -236,6 +465,34 @@ class TestWaitForChangeXY(ChangeWaitTestCase):
         self.assertFalse(result.within_tolerance)  # ... but honestly reported
         self.assertAlmostEqual(result.target_delta, 350.0)
 
+    def test_log_xy_change_can_win(self):
+        baseline_time = time.time()
+        baseline = change_wait.ChangeBaseline(
+            datum="xy",
+            taken_at=baseline_time,
+            api=None,
+            log=router.Reading(
+                value={"x_um": 100.0, "y_um": 200.0}, source="log",
+                observed_at=baseline_time - 0.1, age_s=0.1),
+            diagnostics={},
+        )
+        moved = {"x_um": 102.0, "y_um": 200.0}
+
+        with patch.object(change_wait.api_reader, "get_xy",
+                          return_value=None), \
+             patch.object(change_wait.log_reader, "get_xy",
+                          return_value=moved):
+            result = change_wait.wait_for_change(
+                self.client, "xy", baseline,
+                target=(102.0, 200.0), tolerance=0.2,
+                parse_fn=lambda: _snapshot(
+                    time.time(), xy_ts=baseline_time + 0.1))
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.source, "log")
+        self.assertEqual(result.value, moved)
+        self.assertTrue(result.within_tolerance)
+
     def test_none_nan_and_unchanged_values_never_confirm(self):
         readings = iter([
             None,
@@ -262,7 +519,7 @@ class TestWaitForChangeXY(ChangeWaitTestCase):
         self.assertEqual(result.outcome, "unconfirmed")
 
     def test_min_delta_filters_jitter(self):
-        profiles.STATE_READERS = _fast_profile(change_wait_min_delta=0.5)
+        profiles.STATE_READERS = _fast_profile(change_wait_xy_min_delta_um=0.5)
         jitter = {"x_um": 100.2, "y_um": 200.0}  # within min_delta
         with patch.object(change_wait.api_reader, "get_xy",
                           return_value=jitter), \

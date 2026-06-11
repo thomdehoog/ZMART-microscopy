@@ -20,7 +20,10 @@ Safety rules carried over from the routed readers (see
   the wait to log-only; it never freezes the loop.
 - Change is judged per source against that source's own baseline. Cross-source
   comparison only feeds the ``sources_agree`` report - representation and lag
-  differences between API and log must not fabricate a change.
+  differences between API and log must not fabricate a change by themselves.
+  The API has no independent event timestamp, so callers that rely on the API
+  leg must capture the baseline after any previous command's API readback has
+  converged.
 - A log observation counts only when its log timestamp is newer than the
   baseline; a differing value on a pre-baseline line is leaked state.
 - ``None`` / NaN / empty / ``"Unknown"`` values are never a change.
@@ -35,8 +38,8 @@ import math
 import queue
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
 
 from . import api_reader, log_reader, router
 
@@ -47,8 +50,8 @@ class ChangeBaseline:
 
     datum: str
     taken_at: float
-    api: Optional[router.Reading]
-    log: Optional[router.Reading]
+    api: router.Reading | None
+    log: router.Reading | None
     diagnostics: dict
 
 
@@ -79,6 +82,7 @@ class _DatumSpec:
     api_fn: Callable                   # (client) -> raw value
     log_fn: Callable                   # (snapshot) -> (raw value, observed_at)
     key_fn: Callable                   # (raw value) -> comparable key or None
+    numeric: bool = False
 
 
 def _profile():
@@ -109,20 +113,16 @@ def _xy_key(value):
 
 def _log_selected_job(snapshot):
     # CurrentBlock is the measured fast-and-correct selection signal
-    # (~0.2 s after a switch); the mapped selected-element is the fallback.
+    # (~0.2 s after a switch). SetCurrentSelectedElementID is an intent echo,
+    # not applied state, so it is deliberately not used for change detection.
     if snapshot.current_block_name:
         return {"Name": snapshot.current_block_name}, snapshot.current_block_ts
-    selected = log_reader.get_selected_job(snapshot, max_age_s=None)
-    name = selected.get("Name") if selected else None
-    if not name:
-        return None, None
-    return {"Name": name}, snapshot.selected_ts
+    return None, None
 
 
 def _log_xy(snapshot):
     value = log_reader.get_xy(snapshot, max_age_s=None)
-    age_s = log_reader.ages(snapshot).get("xy")
-    observed_at = None if age_s is None else snapshot.now - age_s
+    observed_at = None if value is None else snapshot.xy_ts
     return value, observed_at
 
 
@@ -136,6 +136,7 @@ _DATUMS = {
         api_fn=lambda client: api_reader.get_xy(client),
         log_fn=_log_xy,
         key_fn=_xy_key,
+        numeric=True,
     ),
 }
 
@@ -155,6 +156,37 @@ def _key_delta(key, other):
             and len(key) == len(other):
         return max(abs(a - b) for a, b in zip(key, other, strict=True))
     return None if key == other else math.inf
+
+
+def _change_delta(spec, profile, override):
+    if override is not None:
+        return override
+    if spec.numeric:
+        return profile.change_wait_xy_min_delta_um
+    return 0.0
+
+
+def _target_key(datum, target):
+    if target is None:
+        return None
+    if datum == "xy":
+        if not isinstance(target, (tuple, list)) or len(target) != 2:
+            raise ValueError("xy change-wait target must be a 2-item sequence")
+        try:
+            key = tuple(float(c) for c in target)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "xy change-wait target must contain finite numbers") from exc
+        if any(math.isnan(c) or math.isinf(c) for c in key):
+            raise ValueError(
+                "xy change-wait target must contain finite numbers")
+        return key
+    if datum == "selected_job":
+        if not isinstance(target, str) or not target.strip() or target == "Unknown":
+            raise ValueError(
+                "selected_job change-wait target must be a non-empty name")
+        return target
+    raise ValueError(f"unknown change-wait datum {datum!r}")
 
 
 def _log_reading(spec, parse_fn):
@@ -260,6 +292,7 @@ def wait_for_change(
     *,
     target=None,
     tolerance=None,
+    command_started_at=None,
     timeout_s=None,
     loop_interval_s=None,
     api_retry_interval_s=None,
@@ -272,9 +305,14 @@ def wait_for_change(
     Without an explicit *baseline* one is captured at entry; that only
     detects changes that happen AFTER this call, so callers should normally
     pass a ``read_change_baseline`` result taken before their command fired.
+    When provided, ``command_started_at`` is the wall-clock timestamp captured
+    immediately before firing the command. The log leg rejects observations at
+    or before the later of baseline capture and command start, so a bad caller
+    timestamp cannot weaken the stale-log guard.
     """
     spec = _spec(datum)
     profile = _profile()
+    target_key = _target_key(datum, target)
     timeout_s = (
         profile.change_wait_timeout_s if timeout_s is None else timeout_s)
     loop_interval_s = (
@@ -285,13 +323,18 @@ def wait_for_change(
         profile.change_wait_api_retry_interval_s
         if api_retry_interval_s is None else api_retry_interval_s
     )
-    min_delta = (
-        profile.change_wait_min_delta if min_delta is None else min_delta)
+    min_delta = _change_delta(spec, profile, min_delta)
     parse_fn = log_reader.parse_log if parse_fn is None else parse_fn
     sleep_fn = time.sleep if sleep_fn is None else sleep_fn
 
     if baseline is None:
         baseline = read_change_baseline(client, datum, parse_fn=parse_fn)
+    if baseline.datum != datum:
+        raise ValueError(
+            f"baseline datum {baseline.datum!r} does not match {datum!r}")
+    log_boundary = baseline.taken_at
+    if command_started_at is not None:
+        log_boundary = max(log_boundary, command_started_at)
 
     api_key = router._client_api_key(client)
     baseline_keys = {
@@ -308,6 +351,7 @@ def wait_for_change(
     api_skips = 0
     trace = []
     last_valid = {}
+    last_current = {}
     last_reasons = {"api": "not_attempted", "log": "not_attempted"}
 
     def evaluate(source, reading):
@@ -341,9 +385,14 @@ def wait_for_change(
             if reading.observed_at is None:
                 last_reasons[source] = "no_timestamp"
                 return False
-            if reading.observed_at <= baseline.taken_at:
-                last_reasons[source] = "observed_before_baseline"
+            if reading.observed_at <= log_boundary:
+                last_reasons[source] = "observed_before_log_boundary"
                 return False
+        last_current[source] = {
+            "key": key,
+            "value": reading.value,
+            "observed_at": reading.observed_at,
+        }
         delta = _key_delta(key, baseline_keys[source])
         if delta is None or delta <= min_delta:
             last_reasons[source] = "unchanged"
@@ -394,11 +443,14 @@ def wait_for_change(
         },
         "baseline": {
             "taken_at": baseline.taken_at,
+            "command_started_at": command_started_at,
+            "log_boundary": log_boundary,
             "api_key": baseline_keys["api"],
             "log_key": baseline_keys["log"],
             **baseline.diagnostics,
         },
         "last_valid": last_valid,
+        "last_current": last_current,
         "last_reasons": dict(last_reasons),
         "api_skips": api_skips,
         "api_pending_at_exit": api_queue is not None,
@@ -426,26 +478,26 @@ def wait_for_change(
     source, reading = winner
     key = spec.key_fn(reading.value)
     other = "log" if source == "api" else "api"
-    other_key = last_valid.get(other, {}).get("key")
+    other_key = last_current.get(other, {}).get("key")
     if other_key is None:
         sources_agree = None
     else:
+        agreement_delta = tolerance if spec.numeric and tolerance is not None else min_delta
         delta = _key_delta(key, other_key)
-        sources_agree = delta is None or delta <= min_delta
+        sources_agree = delta is None or delta <= agreement_delta
 
     matches_target = None
     within_tolerance = None
     target_delta = None
-    if target is not None:
-        if isinstance(target, (tuple, list)):
-            target_key = tuple(float(c) for c in target)
-            target_delta = _key_delta(key, target_key)
+    if target_key is not None:
+        target_delta = _key_delta(key, target_key)
+        if spec.numeric:
             if tolerance is not None:
                 within_tolerance = (
                     target_delta is not None and target_delta <= tolerance)
                 matches_target = within_tolerance
         else:
-            matches_target = _key_delta(key, target) is None
+            matches_target = target_delta is None
 
     return ChangeWaitResult(
         success=True,

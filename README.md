@@ -61,8 +61,11 @@ guess). On top of that, `state_readers/change_wait.py` answers the question a
 feedback workflow actually asks after a command — *did the state visibly
 change?* — by alternating API and log reads until one source differs from its
 own pre-command baseline, or a timeout returns `unconfirmed`. It is
-source-agnostic by construction: a stale source keeps reporting its old value
-and simply never wins, and every API/log disagreement is reported, not hidden.
+source-agnostic by construction: API/log disagreement alone never confirms a
+change, and every disagreement is reported, not hidden. Because the API has no
+independent event timestamp, API-backed change detection assumes the baseline
+was captured after any previous API readback had converged; log observations are
+additionally rejected when their own timestamps predate the baseline.
 Measured behavior is written up in
 [`docs/READER_VALIDATION_SIMULATOR_20260611.md`](docs/READER_VALIDATION_SIMULATOR_20260611.md).
 
