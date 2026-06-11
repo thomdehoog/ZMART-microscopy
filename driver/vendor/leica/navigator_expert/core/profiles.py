@@ -116,13 +116,13 @@ class StateReaderProfile:
 
     # change-wait reader (state_readers.change_wait): alternating API/log
     # polling that accepts the first per-source observation differing from
-    # that source's own pre-command baseline. ``min_delta`` is the numeric
-    # inequality threshold (0.0 = any difference counts); target tolerance
-    # is reported by the result, never enforced.
+    # that source's own pre-command baseline. ``xy_min_delta_um`` filters
+    # settled-stage encoder jitter; target tolerance is reported by the
+    # result, never enforced.
     change_wait_timeout_s: float = 10.0
     change_wait_loop_interval_s: float = 0.1
     change_wait_api_retry_interval_s: float = 0.25
-    change_wait_min_delta: float = 0.0
+    change_wait_xy_min_delta_um: float = 0.5
     change_wait_baseline_api_timeout_s: float = 2.0
 
 
