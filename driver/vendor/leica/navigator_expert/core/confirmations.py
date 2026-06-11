@@ -29,10 +29,12 @@ Import restrictions: only ``state_readers``, ``settings``, ``prechecks``,
 
 import logging
 import math
+import queue
+import threading
 import time
 
 from .. import state_readers as _readers
-from ..state_readers import log_wait
+from ..state_readers import log_wait, router as _router
 from .errors import _check_api_error, _is_transient_error
 from .settings import make_changeable_copy
 from .utils import _make_log_entry, CONFIRM_TIMEOUT
@@ -44,6 +46,136 @@ def _state_reader_profile():
     """Return the current state-reader profile without importing at module load."""
     from . import profiles
     return profiles.STATE_READERS
+
+
+# =============================================================================
+# Confirmation race - the one mechanism every command confirms through
+# =============================================================================
+
+def race_confirmations(api_leg=None, log_leg=None, *, label="",
+                       budget_s=None, api_key=None):
+    """Compose confirmation legs into one dispatch-compatible callable.
+
+    Every command's confirmation routes through here. A single leg passes
+    through UNCHANGED - the returned callable is the leg itself, so the
+    dispatch contract (``() -> {"success": bool, "logs": [...]}``) and the
+    behavior of every existing single-leg confirmation are bit-identical.
+
+    With two legs, the race returns as soon as the first leg confirms.
+    Legs must be target-gated and fail closed on their own; the race adds
+    no judgement of its own - it only arbitrates *which admissible evidence
+    arrived first* and reports the outcome:
+
+    - the winning leg and elapsed time (result ``logs[]``),
+    - a WARNING (driver log + ``logs[]``) when the other leg had already
+      failed - source disagreement is surfaced, never hidden,
+    - abandonment of a still-pending leg (the CAM read is non-cancellable,
+      so abandonment, not cancellation, is the honest option; the in-flight
+      cap keeps an abandoned api leg from being overlapped),
+    - fail-closed ``success=False`` when no leg confirms or ``budget_s``
+      expires. ``budget_s`` is mandatory for a dual-leg race and must fit
+      inside one dispatcher confirm attempt.
+
+    The api leg holds the in-flight API claim for its duration when
+    *api_key* is given; if another API read is already in flight, the api
+    leg is skipped (log-only race) rather than overlapped.
+    """
+    if log_leg is None:
+        return api_leg
+    if api_leg is None:
+        return log_leg
+    if budget_s is None:
+        raise ValueError("a dual-leg confirmation race requires budget_s")
+
+    def run_race():
+        results = queue.Queue()
+
+        def run_leg(tag, leg, claim_key):
+            claimed = False
+            try:
+                if claim_key is not None:
+                    claimed = _router._claim_api_read(claim_key)
+                    if not claimed:
+                        results.put((tag, {"success": False, "logs": [
+                            _make_log_entry(
+                                "info",
+                                f"{label} | {tag} confirmation leg skipped: "
+                                "api read in flight"),
+                        ]}))
+                        return
+                try:
+                    outcome = leg()
+                except Exception as exc:
+                    outcome = {"success": False, "logs": [
+                        _make_log_entry(
+                            "warning",
+                            f"{label} | {tag} confirmation leg raised: "
+                            f"{type(exc).__name__}: {exc}"),
+                    ]}
+                results.put((tag, outcome))
+            finally:
+                if claimed:
+                    _router._release_api_read(claim_key)
+
+        threading.Thread(
+            target=run_leg, args=("api", api_leg, api_key),
+            name="lasx-confirm-api", daemon=True).start()
+        threading.Thread(
+            target=run_leg, args=("log", log_leg, None),
+            name="lasx-confirm-log", daemon=True).start()
+
+        started = time.monotonic()
+        deadline = started + budget_s
+        outcomes = {}
+        winner = None
+        while len(outcomes) < 2:
+            wait_s = deadline - time.monotonic()
+            if wait_s <= 0:
+                break
+            try:
+                tag, outcome = results.get(timeout=wait_s)
+            except queue.Empty:
+                break
+            outcomes[tag] = outcome
+            if outcome.get("success"):
+                winner = tag
+                break
+
+        elapsed = time.monotonic() - started
+        logs = []
+        for tag in ("api", "log"):
+            if tag in outcomes:
+                logs.extend(outcomes[tag].get("logs", []))
+
+        if winner is not None:
+            loser = "log" if winner == "api" else "api"
+            logs.append(_make_log_entry(
+                "info",
+                f"{label} | confirmed by {winner} leg ({elapsed:.3f}s)"))
+            if loser in outcomes:
+                msg = (f"{label} | {loser} leg had not confirmed when the "
+                       f"{winner} leg confirmed")
+                log.warning(msg)
+                logs.append(_make_log_entry("warning", msg))
+            else:
+                logs.append(_make_log_entry(
+                    "info",
+                    f"{label} | {loser} leg still pending at win; abandoned"))
+            return {"success": True, "logs": logs}
+
+        if len(outcomes) < 2:
+            pending = [t for t in ("api", "log") if t not in outcomes]
+            msg = (f"{label} | confirmation race budget {budget_s:.1f}s "
+                   f"exhausted; still pending: {', '.join(pending)}")
+            log.warning(msg)
+            logs.append(_make_log_entry("warning", msg))
+        else:
+            logs.append(_make_log_entry(
+                "info",
+                f"{label} | no confirmation leg confirmed ({elapsed:.3f}s)"))
+        return {"success": False, "logs": logs}
+
+    return run_race
 
 
 # =============================================================================

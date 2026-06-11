@@ -56,6 +56,7 @@ from .confirmations import (
     _confirm_filter_wheel_slot, _confirm_filter_wheel_spectrum,
     confirm_move_xy, confirm_move_z,
     confirm_acquire, confirm_select_job,
+    race_confirmations,
 )
 from ..stage.limits import _check_xy_limits, _check_z_limits
 from .. import state_readers as _readers
@@ -126,6 +127,7 @@ def _selected_job_name_from_log(profile):
 
 def _dispatch(client, api_obj, description, profile, *,
               setup_fn, confirm_fn=None,
+              log_confirm_fn=None, confirm_race_budget_s=None,
               max_retries=None, retry_backoff=None, retry_escalate=None,
               max_confirm_attempts=None, pre_check_timeout=None):
     """Call confirm_and_fire with a profile's settings.
@@ -133,7 +135,12 @@ def _dispatch(client, api_obj, description, profile, *,
     This is the single internal helper that all command wrappers call.
     It binds ``client`` into each profile callable via lambda, producing
     the zero-arg callables that the backbone expects. The binding
-    pattern is identical for every command.
+    pattern is identical for every command. Every confirmation routes
+    through ``confirmations.race_confirmations``: with only the api leg
+    (the normal case) that is an identity pass-through; commands that
+    also have log evidence pass ``log_confirm_fn`` and the confirmation
+    becomes a target-gated race with ``confirm_race_budget_s`` as its
+    wall-clock bound (required, must fit inside one confirm attempt).
 
     Args:
         client: LAS X API client.
@@ -182,14 +189,26 @@ def _dispatch(client, api_obj, description, profile, *,
     else:
         pre_check_fn = None
 
+    api_confirm_leg = (
+        (lambda: effective_confirm(client)) if effective_confirm else None)
+    final_confirm_fn = race_confirmations(
+        api_leg=api_confirm_leg,
+        log_leg=log_confirm_fn,
+        label=description,
+        budget_s=confirm_race_budget_s,
+        api_key=(
+            _readers.router._client_api_key(client)
+            if log_confirm_fn is not None else None
+        ),
+    )
+
     return confirm_and_fire(
         client, api_obj, description,
         setup_fn=setup_fn,
         pre_check_fn=pre_check_fn,
         error_check_fn=(lambda: profile.error_check_fn(client))
                         if profile.error_check_fn else None,
-        confirm_fn=(lambda: effective_confirm(client))
-                    if effective_confirm else None,
+        confirm_fn=final_confirm_fn,
         correct_fn=(lambda: profile.correct_fn(client))
                     if profile.correct_fn else None,
         max_retries=max_retries if max_retries is not None else profile.max_retries,
