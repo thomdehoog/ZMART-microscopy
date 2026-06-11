@@ -508,11 +508,11 @@ def _print_job_step(record: dict[str, Any]) -> None:
     agreeing = [
         mode for mode in PASSIVE_MODES if selected.get(mode) == record["target"]
     ]
-    ok = (
-        command.get("success") is True
-        and cw.get("success") is True
-        and bool(agreeing)
-    )
+    # The command result and change detection grade the step. Passive-reader
+    # agreement is reported, never judged: right after a real switch the
+    # passive readers can all lag (API stale, log fail-closed), and that is
+    # expected behavior, not a failed step.
+    ok = command.get("success") is True and cw.get("success") is True
     marker = "OK " if ok else "XX "
     print(
         f"{marker}job step={record['step']:02d} round={record['round']} "

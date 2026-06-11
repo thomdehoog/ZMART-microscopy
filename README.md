@@ -55,19 +55,26 @@ right**:
   ~0.2 s, but it is empty on an idle scope and cannot be polled to freshness for
   passive state.
 
-So `driver/.../state_readers/` routes each read across both backends
-(profile-controlled: `api`, `log`, or `hybrid` — all default `api`, never a stale
-guess). On top of that, `state_readers/change_wait.py` answers the question a
-feedback workflow actually asks after a command — *did the state visibly
-change?* — by alternating API and log reads until one source differs from its
-own pre-command baseline, or a timeout returns `unconfirmed`. It is
-source-agnostic by construction: API/log disagreement alone never confirms a
-change, and every disagreement is reported, not hidden. Because the API has no
-independent event timestamp, API-backed change detection assumes the baseline
-was captured after any previous API readback had converged; log observations are
-additionally rejected when their own timestamps predate the baseline.
+So the readers come in three families — `api`, `log`, and `hybrid` — declared
+per datum in one capability table (`state_readers/capabilities.py`). Three
+questions get three mechanisms, each with a single implementation:
+
+- *What is the state now?* — the routed passive readers (`state_readers`);
+  `hybrid` races both legs, and a missing leg degrades with a recorded reason.
+- *Did my command reach its target?* — every command confirms through one
+  race wrapper; most commands carry API evidence only, while selected-job
+  races the API leg against the log's applied-selection event. The race
+  accepts the first **admissible** evidence, never the first response: a
+  stale API readback that already showed the target before the command
+  cannot witness a transition and never confirms. Source disagreements are
+  reported, never hidden.
+- *Did anything visibly change?* (diagnostics) — `state_readers/change_wait.py`,
+  per-source change detection against pre-command baselines, with target
+  tolerance reported but never enforced.
+
 Measured behavior is written up in
-[`docs/READER_VALIDATION_SIMULATOR_20260611.md`](docs/READER_VALIDATION_SIMULATOR_20260611.md).
+[`docs/READER_VALIDATION_SIMULATOR_20260611.md`](docs/READER_VALIDATION_SIMULATOR_20260611.md)
+and [`docs/READER_VALIDATION_REAL_SCOPE_20260611.md`](docs/READER_VALIDATION_REAL_SCOPE_20260611.md).
 
 ## Getting started
 

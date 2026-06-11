@@ -171,8 +171,21 @@ the command profile in `driver/core/profiles.py`.
 `get_xy` returns positions in both meters (`x`, `y`) and micrometers (`x_um`, `y_um`).
 
 Read-only functions route through `state_readers/` (api, log, or hybrid -
-profile-controlled, default API). Pass `diagnostics=True` for a
-source-tagged `Reading` with timestamps.
+profile-controlled, default API). Which legs a datum offers is declared once
+in `state_readers/capabilities.py`; hybrid degrades to the legs that exist.
+Pass `diagnostics=True` for a source-tagged `Reading` with timestamps.
+
+### Confirmation Race
+
+Every command confirmation routes through one wrapper
+(`confirmations.race_confirmations`). Single-leg confirmations (most
+commands) pass through unchanged. Selected-job supports
+`StateReaderProfile.selected_job_confirm_source = "api" | "log" | "hybrid"`:
+hybrid races the API poll against the log's post-command `CurrentBlock`
+event, first **admissible** evidence wins - an API readback that already
+showed the target before the command cannot witness a transition and never
+confirms (the stale-readback restore case). Winner, per-leg timings, and
+source disagreements land in the result `logs[]` and the driver log.
 
 ### Change Detection
 
