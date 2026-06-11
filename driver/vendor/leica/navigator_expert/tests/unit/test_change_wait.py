@@ -28,7 +28,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from navigator_expert.core import profiles
-from navigator_expert.state_readers import change_wait, router
+from navigator_expert.state_readers import capabilities, change_wait, router
 
 
 def _snapshot(now, *, block=None, block_ts=None, xy=None, xy_ts=None):
@@ -81,7 +81,7 @@ class TestReadBaseline(ChangeWaitTestCase):
         api_value = {"x_um": 100.0, "y_um": 200.0}
         log_value = {"x_um": 100.0, "y_um": 200.0}
         snapshot = _snapshot(1000.0, xy_ts=999.5)
-        with patch.object(change_wait.api_reader, "get_xy",
+        with patch.object(capabilities.api_reader, "get_xy",
                           return_value=api_value), \
              patch.object(change_wait.log_reader, "get_xy",
                            return_value=log_value):
@@ -102,7 +102,7 @@ class TestReadBaseline(ChangeWaitTestCase):
             return {"x_um": 1.0, "y_um": 2.0}
 
         snapshot = _snapshot(1000.0)
-        with patch.object(change_wait.api_reader, "get_xy",
+        with patch.object(capabilities.api_reader, "get_xy",
                           side_effect=hung_api), \
              patch.object(change_wait.log_reader, "get_xy",
                           return_value={"x_um": 3.0, "y_um": 4.0}), \
@@ -125,7 +125,7 @@ class TestReadBaseline(ChangeWaitTestCase):
 class TestWaitForChangeSelectedJob(ChangeWaitTestCase):
     def test_log_change_wins_and_conflict_with_stale_api_is_reported(self):
         baseline_ts = time.time() - 5.0
-        with patch.object(change_wait.api_reader, "get_selected_job",
+        with patch.object(capabilities.api_reader, "get_selected_job",
                           return_value={"Name": "Overview"}):
             baseline = change_wait.read_change_baseline(
                 self.client, "selected_job",
@@ -141,7 +141,7 @@ class TestWaitForChangeSelectedJob(ChangeWaitTestCase):
                 return _snapshot(now, block="Overview", block_ts=baseline_ts)
             return _snapshot(now, block="HiRes", block_ts=now)
 
-        with patch.object(change_wait.api_reader, "get_selected_job",
+        with patch.object(capabilities.api_reader, "get_selected_job",
                           return_value={"Name": "Overview"}):
             result = change_wait.wait_for_change(
                 self.client, "selected_job", baseline,
@@ -179,7 +179,7 @@ class TestWaitForChangeSelectedJob(ChangeWaitTestCase):
             return _snapshot(
                 time.time(), block="HiRes", block_ts=stale_ts - 10.0)
 
-        with patch.object(change_wait.api_reader, "get_selected_job",
+        with patch.object(capabilities.api_reader, "get_selected_job",
                           return_value=None):
             result = change_wait.wait_for_change(
                 self.client, "selected_job", baseline, parse_fn=parse_fn)
@@ -205,7 +205,7 @@ class TestWaitForChangeSelectedJob(ChangeWaitTestCase):
             diagnostics={},
         )
 
-        with patch.object(change_wait.api_reader, "get_selected_job",
+        with patch.object(capabilities.api_reader, "get_selected_job",
                           return_value=None):
             result = change_wait.wait_for_change(
                 self.client, "selected_job", baseline,
@@ -237,7 +237,7 @@ class TestWaitForChangeSelectedJob(ChangeWaitTestCase):
             diagnostics={},
         )
 
-        with patch.object(change_wait.api_reader, "get_selected_job",
+        with patch.object(capabilities.api_reader, "get_selected_job",
                           return_value=None):
             result = change_wait.wait_for_change(
                 self.client, "selected_job", baseline,
@@ -284,7 +284,7 @@ class TestWaitForChangeSelectedJob(ChangeWaitTestCase):
                 block_ts=baseline_time - 0.5,
             )
 
-        with patch.object(change_wait.api_reader, "get_selected_job",
+        with patch.object(capabilities.api_reader, "get_selected_job",
                           side_effect=api_selected):
             result = change_wait.wait_for_change(
                 self.client, "selected_job", baseline,
@@ -312,7 +312,7 @@ class TestWaitForChangeSelectedJob(ChangeWaitTestCase):
             diagnostics={},
         )
 
-        with patch.object(change_wait.api_reader, "get_selected_job",
+        with patch.object(capabilities.api_reader, "get_selected_job",
                           return_value={"Name": "Overview"}):
             result = change_wait.wait_for_change(
                 self.client, "selected_job", baseline,
@@ -348,7 +348,7 @@ class TestWaitForChangeSelectedJob(ChangeWaitTestCase):
             diagnostics={},
         )
 
-        with patch.object(change_wait.api_reader, "get_selected_job",
+        with patch.object(capabilities.api_reader, "get_selected_job",
                           side_effect=api_selected):
             result = change_wait.wait_for_change(
                 self.client, "selected_job", baseline,
@@ -379,7 +379,7 @@ class TestWaitForChangeSelectedJob(ChangeWaitTestCase):
             time.sleep(0.03)
             return {"Name": "B"}
 
-        with patch.object(change_wait.api_reader, "get_selected_job",
+        with patch.object(capabilities.api_reader, "get_selected_job",
                           side_effect=api_selected):
             result = change_wait.wait_for_change(
                 self.client, "selected_job", baseline,
@@ -410,7 +410,7 @@ class TestWaitForChangeSelectedJob(ChangeWaitTestCase):
                 observed_at=time.time(), age_s=0.0),
             log=None,
             diagnostics={})
-        with patch.object(change_wait.api_reader, "get_xy") as api:
+        with patch.object(capabilities.api_reader, "get_xy") as api:
             with self.assertRaises(ValueError):
                 change_wait.wait_for_change(
                     self.client, "xy", baseline,
@@ -433,7 +433,7 @@ class TestWaitForChangeXY(ChangeWaitTestCase):
 
     def test_api_change_wins_when_log_is_silent(self):
         moved = {"x_um": 150.0, "y_um": 200.0}
-        with patch.object(change_wait.api_reader, "get_xy",
+        with patch.object(capabilities.api_reader, "get_xy",
                           return_value=moved), \
              patch.object(change_wait.log_reader, "get_xy",
                           return_value=None), \
@@ -451,7 +451,7 @@ class TestWaitForChangeXY(ChangeWaitTestCase):
 
     def test_tolerance_is_reported_not_enforced(self):
         moved = {"x_um": 150.0, "y_um": 200.0}
-        with patch.object(change_wait.api_reader, "get_xy",
+        with patch.object(capabilities.api_reader, "get_xy",
                           return_value=moved), \
              patch.object(change_wait.log_reader, "get_xy",
                           return_value=None), \
@@ -478,7 +478,7 @@ class TestWaitForChangeXY(ChangeWaitTestCase):
         )
         moved = {"x_um": 102.0, "y_um": 200.0}
 
-        with patch.object(change_wait.api_reader, "get_xy",
+        with patch.object(capabilities.api_reader, "get_xy",
                           return_value=None), \
              patch.object(change_wait.log_reader, "get_xy",
                           return_value=moved):
@@ -506,7 +506,7 @@ class TestWaitForChangeXY(ChangeWaitTestCase):
             except StopIteration:
                 return {"x_um": 100.0, "y_um": 200.0}
 
-        with patch.object(change_wait.api_reader, "get_xy",
+        with patch.object(capabilities.api_reader, "get_xy",
                           side_effect=api_xy), \
              patch.object(change_wait.log_reader, "get_xy",
                           return_value=None), \
@@ -521,7 +521,7 @@ class TestWaitForChangeXY(ChangeWaitTestCase):
     def test_min_delta_filters_jitter(self):
         profiles.STATE_READERS = _fast_profile(change_wait_xy_min_delta_um=0.5)
         jitter = {"x_um": 100.2, "y_um": 200.0}  # within min_delta
-        with patch.object(change_wait.api_reader, "get_xy",
+        with patch.object(capabilities.api_reader, "get_xy",
                           return_value=jitter), \
              patch.object(change_wait.log_reader, "get_xy",
                           return_value=None), \
@@ -536,7 +536,7 @@ class TestWaitForChangeXY(ChangeWaitTestCase):
         baseline = change_wait.ChangeBaseline(
             datum="xy", taken_at=time.time(), api=None, log=None,
             diagnostics={})
-        with patch.object(change_wait.api_reader, "get_xy",
+        with patch.object(capabilities.api_reader, "get_xy",
                           return_value={"x_um": 999.0, "y_um": 999.0}), \
              patch.object(change_wait.log_reader, "get_xy",
                           return_value=None), \
@@ -578,7 +578,7 @@ class TestHangImmunity(ChangeWaitTestCase):
                 return _snapshot(now, block="Overview", block_ts=baseline_ts)
             return _snapshot(now, block="HiRes", block_ts=now)
 
-        with patch.object(change_wait.api_reader, "get_selected_job",
+        with patch.object(capabilities.api_reader, "get_selected_job",
                           side_effect=hung_api):
             started = time.monotonic()
             result = change_wait.wait_for_change(
@@ -601,7 +601,7 @@ class TestHangImmunity(ChangeWaitTestCase):
                 value={"x_um": 1.0, "y_um": 2.0}, source="api",
                 observed_at=time.time(), age_s=0.0),
             log=None, diagnostics={})
-        with patch.object(change_wait.api_reader, "get_xy",
+        with patch.object(capabilities.api_reader, "get_xy",
                           return_value={"x_um": 9.0, "y_um": 9.0}) as api, \
              patch.object(change_wait.log_reader, "get_xy",
                           return_value=None), \
@@ -625,7 +625,7 @@ class TestTimeoutAndReporting(ChangeWaitTestCase):
                 value={"x_um": 1.0, "y_um": 2.0}, source="api",
                 observed_at=time.time(), age_s=0.0),
             log=None, diagnostics={})
-        with patch.object(change_wait.api_reader, "get_xy",
+        with patch.object(capabilities.api_reader, "get_xy",
                           return_value={"x_um": 1.0, "y_um": 2.0}), \
              patch.object(change_wait.log_reader, "get_xy",
                           return_value=None), \
@@ -656,7 +656,7 @@ class TestTimeoutAndReporting(ChangeWaitTestCase):
         baseline = change_wait.ChangeBaseline(
             datum="xy", taken_at=time.time(), api=None, log=None,
             diagnostics={})
-        with patch.object(change_wait.api_reader, "get_xy",
+        with patch.object(capabilities.api_reader, "get_xy",
                           return_value=None), \
              patch.object(change_wait.log_reader, "get_xy",
                           return_value=None), \

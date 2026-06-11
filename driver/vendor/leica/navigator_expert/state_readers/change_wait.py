@@ -34,14 +34,11 @@ All default tunables live in ``profiles.STATE_READERS`` (``change_wait_*``).
 
 from __future__ import annotations
 
-import math
 import queue
-import threading
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 
-from . import api_reader, log_reader, router
+from . import capabilities, log_reader, router
 
 
 @dataclass(frozen=True)
@@ -75,124 +72,23 @@ class ChangeWaitResult:
     diagnostics: dict
 
 
-@dataclass(frozen=True)
-class _DatumSpec:
-    """How one datum is read and compared across both sources."""
-
-    api_fn: Callable                   # (client) -> raw value
-    log_fn: Callable                   # (snapshot) -> (raw value, observed_at)
-    key_fn: Callable                   # (raw value) -> comparable key or None
-    numeric: bool = False
-
-
 def _profile():
     from ..core import profiles
     return profiles.STATE_READERS
 
 
-def _selected_job_key(value):
-    if not isinstance(value, dict):
-        return None
-    name = value.get("Name")
-    if not isinstance(name, str) or not name.strip() or name == "Unknown":
-        return None
-    return name
-
-
-def _xy_key(value):
-    if not isinstance(value, dict):
-        return None
-    try:
-        key = (float(value["x_um"]), float(value["y_um"]))
-    except (KeyError, TypeError, ValueError):
-        return None
-    if any(math.isnan(c) or math.isinf(c) for c in key):
-        return None
-    return key
-
-
-def _log_selected_job(snapshot):
-    # CurrentBlock is the measured fast-and-correct selection signal
-    # (~0.2 s after a switch). SetCurrentSelectedElementID is an intent echo,
-    # not applied state, so it is deliberately not used for change detection.
-    if snapshot.current_block_name:
-        return {"Name": snapshot.current_block_name}, snapshot.current_block_ts
-    return None, None
-
-
-def _log_xy(snapshot):
-    value = log_reader.get_xy(snapshot, max_age_s=None)
-    observed_at = None if value is None else snapshot.xy_ts
-    return value, observed_at
-
-
-_DATUMS = {
-    "selected_job": _DatumSpec(
-        api_fn=lambda client: api_reader.get_selected_job(client),
-        log_fn=_log_selected_job,
-        key_fn=_selected_job_key,
-    ),
-    "xy": _DatumSpec(
-        api_fn=lambda client: api_reader.get_xy(client),
-        log_fn=_log_xy,
-        key_fn=_xy_key,
-        numeric=True,
-    ),
-}
-
-
-def _spec(datum):
-    spec = _DATUMS.get(datum)
-    if spec is None:
-        raise ValueError(
-            f"unknown change-wait datum {datum!r}; known: {sorted(_DATUMS)}")
-    return spec
-
-
-def _key_delta(key, other):
-    """Distance between two keys: max component delta for numeric tuples,
-    ``None`` for equal discrete keys, ``inf`` for differing discrete keys."""
-    if isinstance(key, tuple) and isinstance(other, tuple) \
-            and len(key) == len(other):
-        return max(abs(a - b) for a, b in zip(key, other, strict=True))
-    return None if key == other else math.inf
-
-
 def _change_delta(spec, profile, override):
     if override is not None:
         return override
-    if spec.numeric:
-        return profile.change_wait_xy_min_delta_um
-    return 0.0
-
-
-def _target_key(datum, target):
-    if target is None:
-        return None
-    if datum == "xy":
-        if not isinstance(target, (tuple, list)) or len(target) != 2:
-            raise ValueError("xy change-wait target must be a 2-item sequence")
-        try:
-            key = tuple(float(c) for c in target)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "xy change-wait target must contain finite numbers") from exc
-        if any(math.isnan(c) or math.isinf(c) for c in key):
-            raise ValueError(
-                "xy change-wait target must contain finite numbers")
-        return key
-    if datum == "selected_job":
-        if not isinstance(target, str) or not target.strip() or target == "Unknown":
-            raise ValueError(
-                "selected_job change-wait target must be a non-empty name")
-        return target
-    raise ValueError(f"unknown change-wait datum {datum!r}")
+    if spec.min_delta_attr is None:
+        return 0.0
+    return getattr(profile, spec.min_delta_attr)
 
 
 def _log_reading(spec, parse_fn):
     try:
         snapshot = parse_fn()
-        value, observed_at = spec.log_fn(snapshot)
+        value, observed_at = spec.evidence_log_fn(snapshot)
         age_s = (
             None if observed_at is None
             else max(0.0, snapshot.now - observed_at)
@@ -204,29 +100,6 @@ def _log_reading(spec, parse_fn):
         return router.Reading(
             value=None, source="log",
             observed_at=None, age_s=None, error=exc)
-
-
-def _fire_api_read(fn, api_key):
-    """Start one capped API read; return its result queue, or ``None`` when
-    another read is already in flight on this client.
-
-    The worker thread holds the in-flight claim until the CAM call actually
-    returns, even if the caller stops waiting - a hung read must keep
-    blocking further API attempts on this client, not pile up threads.
-    """
-    if not router._claim_api_read(api_key):
-        return None
-    results = queue.Queue()
-
-    def run():
-        try:
-            results.put(router._api_read(fn))
-        finally:
-            router._release_api_read(api_key)
-
-    threading.Thread(
-        target=run, name="lasx-change-wait-api", daemon=True).start()
-    return results
 
 
 def _validated(reading, key_fn):
@@ -248,7 +121,7 @@ def read_change_baseline(client, datum, *, parse_fn=None, api_timeout_s=None):
     signal a change later (fail closed); the reason is recorded in
     ``diagnostics``.
     """
-    spec = _spec(datum)
+    spec = capabilities.change_spec(datum)
     profile = _profile()
     api_timeout_s = (
         profile.change_wait_baseline_api_timeout_s
@@ -257,7 +130,7 @@ def read_change_baseline(client, datum, *, parse_fn=None, api_timeout_s=None):
     parse_fn = log_reader.parse_log if parse_fn is None else parse_fn
     taken_at = time.time()
 
-    api_queue = _fire_api_read(
+    api_queue = router._fire_api_read(
         lambda: spec.api_fn(client), router._client_api_key(client))
     if api_queue is None:
         api_reading, api_reason = None, "api_in_flight"
@@ -310,9 +183,9 @@ def wait_for_change(
     or before the later of baseline capture and command start, so a bad caller
     timestamp cannot weaken the stale-log guard.
     """
-    spec = _spec(datum)
+    spec = capabilities.change_spec(datum)
     profile = _profile()
-    target_key = _target_key(datum, target)
+    target_key = None if target is None else spec.target_fn(target)
     timeout_s = (
         profile.change_wait_timeout_s if timeout_s is None else timeout_s)
     loop_interval_s = (
@@ -393,7 +266,7 @@ def wait_for_change(
             "value": reading.value,
             "observed_at": reading.observed_at,
         }
-        delta = _key_delta(key, baseline_keys[source])
+        delta = capabilities.key_delta(key, baseline_keys[source])
         if delta is None or delta <= min_delta:
             last_reasons[source] = "unchanged"
             return False
@@ -405,7 +278,8 @@ def wait_for_change(
     while True:
         now = time.monotonic()
         if api_queue is None and now >= api_due_at:
-            api_queue = _fire_api_read(lambda: spec.api_fn(client), api_key)
+            api_queue = router._fire_api_read(
+                lambda: spec.api_fn(client), api_key)
             if api_queue is not None:
                 api_attempts += 1
             else:
@@ -483,14 +357,14 @@ def wait_for_change(
         sources_agree = None
     else:
         agreement_delta = tolerance if spec.numeric and tolerance is not None else min_delta
-        delta = _key_delta(key, other_key)
+        delta = capabilities.key_delta(key, other_key)
         sources_agree = delta is None or delta <= agreement_delta
 
     matches_target = None
     within_tolerance = None
     target_delta = None
     if target_key is not None:
-        target_delta = _key_delta(key, target_key)
+        target_delta = capabilities.key_delta(key, target_key)
         if spec.numeric:
             if tolerance is not None:
                 within_tolerance = (
