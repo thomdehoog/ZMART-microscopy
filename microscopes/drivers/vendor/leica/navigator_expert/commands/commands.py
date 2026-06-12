@@ -32,6 +32,7 @@ import time
 from functools import partial
 
 from .. import state_readers as _readers
+from ..runtime.errors import _check_api_error, _is_transient_error
 from ..runtime.profiles import (
     ACQUIRE,
     ACQUIRE_SINGLE_IMAGE,
@@ -60,7 +61,7 @@ from ..runtime.profiles import (
     Z_STACK_STEP_SIZE,
     ZOOM,
 )
-from ..runtime.utils import _hw_get, _make_timing, parse_format
+from ..runtime.utils import _hw_get, _make_log_entry, _make_timing, parse_format
 from ..stage.limits import _check_xy_limits, _check_z_limits
 from .confirmations import (
     _confirm_detector_gain,
@@ -127,6 +128,7 @@ def _dispatch(
     retry_escalate=None,
     max_confirm_attempts=None,
     pre_check_timeout=None,
+    error_check_fn=None,
 ):
     """Call confirm_and_fire with a profile's settings.
 
@@ -163,6 +165,8 @@ def _dispatch(
             uses the profile's pre_check_fn as-is. When provided,
             replaces the profile's pre_check_fn with a fresh
             ``check_idle`` using this timeout.
+        error_check_fn: Override for the profile's API echo error check.
+            Use only for command-specific LAS X echo semantics.
 
     Returns:
         Result dict from confirm_and_fire.
@@ -196,6 +200,7 @@ def _dispatch(
     else:
         pre_check_fn = None
 
+    effective_error_check = error_check_fn if error_check_fn is not None else profile.error_check_fn
     api_confirm_leg = (lambda: effective_confirm(client)) if effective_confirm else None
     final_confirm_fn = race_confirmations(
         api_leg=api_confirm_leg,
@@ -211,7 +216,7 @@ def _dispatch(
         description,
         setup_fn=setup_fn,
         pre_check_fn=pre_check_fn,
-        error_check_fn=(lambda: profile.error_check_fn(client)) if profile.error_check_fn else None,
+        error_check_fn=(lambda: effective_error_check(client)) if effective_error_check else None,
         confirm_fn=final_confirm_fn,
         correct_fn=(lambda: profile.correct_fn(client)) if profile.correct_fn else None,
         max_retries=max_retries if max_retries is not None else profile.max_retries,
@@ -226,6 +231,40 @@ def _dispatch(
         fire_async=profile.fire_async,
         success_on_unconfirmed=profile.success_on_unconfirmed,
     )
+
+
+_SCAN_RESONANT_NO_CHANGE = "desired state does not differ from the current state"
+
+
+def _scan_resonant_error_check(client, *, job_name, target, timeout=None):
+    """Accept LAS X's resonant no-change echo only when readback agrees."""
+    logs = []
+    err = _check_api_error(client)
+
+    if err is None:
+        return {"success": True, "error": None, "transient": None, "logs": logs}
+
+    error_msg = err.get("error", "")
+    details = err.get("details", {})
+    if _SCAN_RESONANT_NO_CHANGE in error_msg.lower():
+        confirmed = _confirm_scan_resonant(client, job_name, target, timeout=timeout)
+        logs.extend(confirmed.get("logs", []))
+        if confirmed.get("success"):
+            msg = f"Resonant -> {target} already matched; accepting LAS X no-change response"
+            logs.append(_make_log_entry("info", msg))
+            return {"success": True, "error": None, "transient": None, "logs": logs}
+
+    transient = _is_transient_error(error_msg)
+    log_msg = f"API error: {error_msg}"
+    if details:
+        log_msg += f" | details: {details}"
+    logs.append(_make_log_entry("warning" if transient else "error", log_msg))
+    return {
+        "success": False,
+        "error": error_msg,
+        "transient": transient,
+        "logs": logs,
+    }
 
 
 # =============================================================================
@@ -302,6 +341,12 @@ def set_scan_resonant(client, job_name, enable, *, max_retries=None, pre_check_t
         SCAN_RESONANT,
         setup_fn=setup,
         confirm_fn=partial(_confirm_scan_resonant, job_name=job_name, target=enable),
+        error_check_fn=partial(
+            _scan_resonant_error_check,
+            job_name=job_name,
+            target=enable,
+            timeout=SCAN_RESONANT.confirm_timeout,
+        ),
         max_retries=max_retries,
         pre_check_timeout=pre_check_timeout,
     )
