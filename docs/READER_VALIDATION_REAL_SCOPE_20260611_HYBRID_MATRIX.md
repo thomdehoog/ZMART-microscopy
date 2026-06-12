@@ -152,3 +152,134 @@ Recommended default policy:
 - For selected-job command confirmation, allow the log `CurrentBlock` leg to win over stale/pending API.
 - Keep API-backed paths available for XY, Z, objective, hardware info, and general readback where LOG has gaps.
 - Update the validator grading logic so the post-command `job selection: confirmed <job>` check uses the same selected-job truth source as the command confirmation, or records API disagreement as diagnostic WARN rather than FAIL after a log/hybrid-confirmed switch.
+
+## 10-XY Revalidation After `80dbfd9`
+
+Date/time: 2026-06-11 23:35-23:39 Europe/Berlin.
+
+Operator context: this was again run on the stated physical Leica STELLARIS microscope session, not the simulator, after confirmation that stage/objective/acquire operations were safe. The validator banner still reports `LasxApi (LAS X simulator or microscope)`, so the real-hardware status rests on LAS X session state and operator confirmation.
+
+Preflight:
+
+- Branch/worktree: `fable5_tryout`, with unrelated workflow/notebook edits and prior JSONL artifacts left untouched.
+- Latest commit: `80dbfd9 Exercise ten XY positions in hardware validator`.
+- Recent commits also included `2a9afc3 Grade selected-job validation from confirming evidence` and `ee16387 Record real-scope hybrid reader matrix`.
+- No code was changed and no commit was made during this revalidation.
+
+### Commands Run
+
+```powershell
+& 'C:\ProgramData\MinicondaZMB\envs\lasxapi_extended\python.exe' `
+  'Z:\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\smart-microscopy\driver\vendor\leica\navigator_expert\tests\hardware\validate_hardware.py' `
+  --yes --allow-xy --allow-z --allow-objective --allow-acquire `
+  --state-reader-mode api --show-driver-log `
+  --output 'Z:\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\smart-microscopy\driver\vendor\leica\navigator_expert\tests\hardware\validate_hardware_20260611_real_api_10xy.jsonl'
+
+& 'C:\ProgramData\MinicondaZMB\envs\lasxapi_extended\python.exe' `
+  'Z:\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\smart-microscopy\driver\vendor\leica\navigator_expert\tests\hardware\validate_hardware.py' `
+  --yes --allow-xy --allow-z --allow-objective --allow-acquire `
+  --state-reader-mode log --show-driver-log `
+  --output 'Z:\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\smart-microscopy\driver\vendor\leica\navigator_expert\tests\hardware\validate_hardware_20260611_real_log_10xy.jsonl'
+
+& 'C:\ProgramData\MinicondaZMB\envs\lasxapi_extended\python.exe' `
+  'Z:\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\smart-microscopy\driver\vendor\leica\navigator_expert\tests\hardware\validate_hardware.py' `
+  --yes --allow-xy --allow-z --allow-objective --allow-acquire `
+  --state-reader-mode hybrid --show-driver-log `
+  --output 'Z:\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\smart-microscopy\driver\vendor\leica\navigator_expert\tests\hardware\validate_hardware_20260611_real_hybrid_10xy.jsonl'
+```
+
+No mode was rerun. API and LOG returned validation failures, but not because LAS X was temporarily busy or because the command transport failed. HYBRID returned exit code 0.
+
+### JSONL Files
+
+- API: `driver/vendor/leica/navigator_expert/tests/hardware/validate_hardware_20260611_real_api_10xy.jsonl`
+- LOG: `driver/vendor/leica/navigator_expert/tests/hardware/validate_hardware_20260611_real_log_10xy.jsonl`
+- HYBRID: `driver/vendor/leica/navigator_expert/tests/hardware/validate_hardware_20260611_real_hybrid_10xy.jsonl`
+
+### Summary Counts
+
+| Mode | PASS | WARN | FAIL | SKIP | Exit | XY Moves |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `api` | 116 | 1 | 4 | 1 | 1 | 10 |
+| `log` | 113 | 1 | 9 | 1 | 1 | 10 |
+| `hybrid` | 120 | 2 | 0 | 0 | 0 | 10 |
+
+All three modes executed the 10-position XY pattern. Every XY move and readback passed within the `20 um` tolerance, and each run restored XY to `(32100.1806640625, 28427.36328125) um`.
+
+### Selected-Job Evidence
+
+| Mode | Target | Result | Winning / Attempted Source | Interpretation |
+| --- | --- | --- | --- | --- |
+| API | `Overview` | FAIL | API attempted, timed out after three 5 s polls; `last_confirmation={'source': 'api'}` | Reproduces known stale API selected-job behavior on the real scope. |
+| API | `HiRes` | FAIL | API attempted, timed out after three 5 s polls; `last_confirmation={'source': 'api'}` | Reproduces known stale API selected-job behavior on the real scope. |
+| API | `AF Job` | PASS | Already selected no-op | No real transition needed. |
+| LOG | `Overview` | FAIL | LOG timed out; diagnostics saw selected element 2 after command, but `current_block_name=HiRes` and `last_reason=selected_other_job` | LOG-only did not produce fresh post-command `CurrentBlock` evidence for this transition in this run. |
+| LOG | `HiRes` | FAIL | LOG timed out; diagnostics saw selected element 3 after command, but `current_block_name=Overview` and `last_reason=selected_other_job` | LOG-only did not produce fresh post-command `CurrentBlock` evidence for this transition in this run. |
+| LOG | `AF Job` | FAIL | LOG timed out; selected/current block evidence was still `HiRes` before or outside the command window | LOG-only failed this real transition in this run. Final restore later log-confirmed `AF Job`. |
+| HYBRID | `Overview` | PASS | LOG leg after an initial log timeout/race-budget exhaustion; `confirmed by log leg (0.312s)` on the successful attempt; API was still pending | HYBRID accepted admissible fresh log evidence and did not accept stale API. |
+| HYBRID | `HiRes` | PASS | LOG leg; `confirmed by log leg (0.750s)`; API still pending and abandoned | HYBRID accepted admissible fresh log evidence and did not accept stale API. |
+| HYBRID | `AF Job` | PASS | LOG leg after one fail-closed unconfirmed attempt; `confirmed by log leg (1.625s)`; API had not confirmed | HYBRID accepted admissible fresh log evidence after retry and did not produce a wrong confirmation. |
+
+HYBRID produced useful disagreement warnings:
+
+- `job selection: API lag after log-confirmed Overview -- log confirmed 'Overview'; immediate API read returned 'AF Job'`
+- `job selection: API lag after log-confirmed HiRes -- log confirmed 'HiRes'; immediate API read returned 'AF Job'`
+
+These are diagnostic warnings, not failures. They show stale API readback while the log leg supplied admissible selected-job evidence.
+
+### Failures And Interpretation
+
+API failures:
+
+- `job selection: select job` for `Overview`: API selected-job readback did not confirm after 3 attempts and about `16.765 s`. Known source limitation.
+- `job selection: confirmed Overview`: expected `Overview`, actual `AF Job`. Same stale API limitation.
+- `job selection: select job` for `HiRes`: API selected-job readback did not confirm after 3 attempts and about `15.188 s`. Known source limitation.
+- `job selection: confirmed HiRes`: expected `HiRes`, actual `AF Job`. Same stale API limitation.
+
+API warning/skip:
+
+- `sequential_mode: write alternate` to `Line` was unconfirmed after about `15.219 s`; the duplicate readback comparison was skipped. The setting restored to `Frame`.
+
+LOG failures:
+
+- `job: resolve`: no jobs returned with `--state-reader-mode log`; validator used API control jobs for the write experiment.
+- `job selection: select job` for `Overview`: log confirmation timed out; diagnostics showed selected element for `Overview`, but no fresh target `CurrentBlock`; classified as a LOG-only selected-job confirmation failure in this run.
+- `job selection: log poll confirmed Overview`: timeout, value `HiRes`, `last_reason=selected_other_job`.
+- `job selection: confirmed Overview`: expected `Overview`, actual `AF Job`.
+- `job selection: select job` for `HiRes`: log confirmation timed out; diagnostics showed selected element for `HiRes`, but no fresh target `CurrentBlock`.
+- `job selection: log poll confirmed HiRes`: timeout, value `Overview`, `last_reason=selected_other_job`.
+- `job selection: confirmed HiRes`: expected `HiRes`, actual `AF Job`.
+- `job selection: select job` for `AF Job`: log confirmation timed out; evidence remained `HiRes` or before the command window.
+- `job selection: log poll confirmed AF Job`: timeout, value `HiRes`, `last_reason=selected_other_job`.
+
+LOG warning/skip:
+
+- `sequential_mode: write alternate` to `Line` was unconfirmed after about `15.193 s`; readback comparison was skipped. Restore to `Frame` passed.
+
+HYBRID failures:
+
+- None.
+
+HYBRID warnings:
+
+- API lag warnings for `Overview` and `HiRes`, both after log-confirmed switches. These are correct diagnostics and not wrong confirmations.
+
+### Motion, Objective, And Acquire
+
+| Mode | Z | Objective | Acquire |
+| --- | --- | --- | --- |
+| API | PASS. Z moved to `2.0 um`, readback passed, restored to `0.0 um`. | PASS. Switched to `HC PL APO CS2    10x/0.40 DRY` and restored to `HC PL APO CS2    40x/1.10 WATER`. | PASS, `AF Job`, about `0.204 s`. |
+| LOG | PASS. Z moved from `-7.43 um` to `-5.43 um`, readback passed, restored to `-7.43 um`. | Only `objective: read hardware` and `objective: read start` were recorded as PASS; no switch or skip record was emitted. | PASS, `AF Job`, about `18.897 s`. |
+| HYBRID | PASS. Z moved from `-7.43 um` to `-5.43 um`, readback passed, restored to `-7.43 um`. | PASS. Switched to `HC PL APO CS2    40x/1.10 WATER` and restored to `HC PL APO CS2    10x/0.40 DRY`. | PASS, `AF Job`, about `0.204 s`. |
+
+No objective dialog/blocking failure was recorded. HYBRID objective switching was slow but passed: switch about `7.277 s`, restore about `7.476 s`.
+
+### Updated Conclusion
+
+For the post-`80dbfd9` validator on this real microscope:
+
+- `api`: rejected for selected-job confirmation because stale API selected-job behavior reproduced. Accepted for the 10 XY moves, Z, objective, and acquire in this run.
+- `log`: rejected as a standalone default. It performed the 10 API-safety XY moves and Z/acquire successfully, but log-only selected-job confirmation failed for `Overview`, `HiRes`, and `AF Job` in this run, and startup job resolution still failed.
+- `hybrid`: accepted as ready for the default selected-job confirmation policy on this microscope. It completed with zero FAIL records, executed all 10 XY moves, restored XY/Z/objective, passed acquisition, treated stale API as diagnostic WARN, and confirmed real selected-job transitions through admissible log evidence. There were zero wrong confirmations.
+
+Recommended policy remains: use HYBRID by default for selected-job confirmation on this LAS X version, keep API-backed reads for XY safety and general state where log has gaps, and keep API/log disagreement warnings visible rather than suppressing them.
