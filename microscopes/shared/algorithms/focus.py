@@ -26,7 +26,7 @@ def brenner(img: np.ndarray) -> float:
     """Brenner gradient sharpness score for one image (scalar)."""
     f = img.astype(np.float64)
     dx = f[:, 2:] - f[:, :-2]
-    return float((dx ** 2).mean())
+    return float((dx**2).mean())
 
 
 def subpixel_peak(scores: list[float] | np.ndarray, peak: int) -> float:

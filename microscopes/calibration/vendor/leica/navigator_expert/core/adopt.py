@@ -19,8 +19,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from .common import STAGING_SCHEMA_VERSION, now_iso
 from . import model as calibration_model
+from .common import STAGING_SCHEMA_VERSION, now_iso
 
 _VALID_KINDS = {"image_to_stage", "objective_translation"}
 _STAMP_SAFE = re.compile(r"[^0-9A-Za-z._-]+")
@@ -54,9 +54,7 @@ def _validate_staging_name(staging_name: str) -> None:
         or os.sep in staging_name
         or ".." in Path(staging_name).parts
     ):
-        raise ValueError(
-            f"staging_name must be a bare filename, got {staging_name!r}"
-        )
+        raise ValueError(f"staging_name must be a bare filename, got {staging_name!r}")
 
 
 def _calibration_path(current_root: Path) -> Path:
@@ -116,18 +114,19 @@ def _objective_slot_for_label(config: dict[str, Any], label: str) -> int:
         if target == norm or _contains_ordered_tokens(tokens, target_tokens):
             matches.append(int(slot))
     if len(matches) != 1:
-        raise ValueError(
-            f"objective label {label!r} matched slots {matches}; expected one"
-        )
+        raise ValueError(f"objective label {label!r} matched slots {matches}; expected one")
     return matches[0]
 
 
-def _apply_staging_payload(config: dict[str, Any], data: dict[str, Any],
-                           *, session_id: str) -> None:
+def _apply_staging_payload(
+    config: dict[str, Any], data: dict[str, Any], *, session_id: str
+) -> None:
     kind = data["kind"]
     if kind == "image_to_stage":
         calibration_model.set_image_to_stage(
-            config, data["image_to_stage"], session_id=session_id,
+            config,
+            data["image_to_stage"],
+            session_id=session_id,
         )
         return
 
@@ -193,8 +192,7 @@ def adopt_calibration(
     kind = data.get("kind")
     if kind not in _VALID_KINDS:
         raise ValueError(
-            f"staging config has unsupported kind {kind!r}; "
-            f"expected one of {sorted(_VALID_KINDS)}"
+            f"staging config has unsupported kind {kind!r}; expected one of {sorted(_VALID_KINDS)}"
         )
     expected = _expected_kind_for(staging_name)
     if expected is not None and kind != expected:
@@ -217,9 +215,7 @@ def adopt_calibration(
     try:
         archive_dir.mkdir(exist_ok=True)
     except OSError as exc:
-        raise RuntimeError(
-            f"cannot create archive directory {archive_dir}: {exc}"
-        ) from exc
+        raise RuntimeError(f"cannot create archive directory {archive_dir}: {exc}") from exc
 
     config = calibration_model.load_calibration(resolved_current)
     _apply_staging_payload(

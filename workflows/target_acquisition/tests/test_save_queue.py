@@ -5,14 +5,13 @@ worker's save_fn is a closure that waits on a threading.Event the
 test controls. Backpressure is verified by counting completed saves
 relative to controlled releases.
 """
+
 from __future__ import annotations
 
 import threading
 
 import pytest
-
 from pipeline._save_queue import _FigureSaveQueue
-
 
 # Generous timeout for Event.wait calls -- any blocking longer than
 # this represents a real deadlock, not a slow CI.
@@ -77,9 +76,9 @@ class TestFigureSaveQueueBackpressure:
         submitted_third = threading.Event()
 
         def producer():
-            q.submit(gated_save)   # slot 1: queued, semaphore acquired
-            q.submit(gated_save)   # slot 2: queued, semaphore acquired
-            q.submit(gated_save)   # slot 3: BLOCKS on semaphore.acquire
+            q.submit(gated_save)  # slot 1: queued, semaphore acquired
+            q.submit(gated_save)  # slot 2: queued, semaphore acquired
+            q.submit(gated_save)  # slot 3: BLOCKS on semaphore.acquire
             submitted_third.set()
 
         producer_thread = threading.Thread(target=producer)
@@ -140,4 +139,4 @@ class TestFigureSaveQueueLifecycle:
         own the queue and may end up double-shutting on error paths)."""
         q = _FigureSaveQueue()
         q.shutdown()
-        q.shutdown()   # must not raise
+        q.shutdown()  # must not raise

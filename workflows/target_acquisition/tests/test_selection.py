@@ -4,23 +4,28 @@ load_overview_result re-homing, LimitsContext-typed filter signature.
 Display tests (display_selection) and example-crops are covered in
 test_visualize.py; this file is unit-level.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from pipeline.context import LimitsContext
 from pipeline.overview import OverviewResult, Pick
 from pipeline.selection import (
-    MODE_EMPTY, MODE_NO_QUALIFYING, MODE_SPARSE, MODE_THRESHOLD,
-    SelectionResult, _filter_out_of_limits, load_overview_result,
+    MODE_EMPTY,
+    MODE_NO_QUALIFYING,
+    MODE_SPARSE,
+    MODE_THRESHOLD,
+    _filter_out_of_limits,
+    load_overview_result,
     select_targets,
 )
 from support import minimal_calibration
 
 
-def _make_pick(rid="0", row=0, col=0, label=1, *,
-               area=100, intensity=50.0, x_um=10.0, y_um=20.0) -> Pick:
+def _make_pick(
+    rid="0", row=0, col=0, label=1, *, area=100, intensity=50.0, x_um=10.0, y_um=20.0
+) -> Pick:
     return Pick(
         pick_id=(rid, row, col, label),
         tile_stage_xy_um=(x_um, y_um),
@@ -59,8 +64,13 @@ def _edge_pick(label, bbox, *, size=(2048, 2048)) -> Pick:
     )
 
 
-def _make_overview(*, picks: list[Pick], tile_cell_counts: dict | None = None,
-                   n_planned: int = 0, n_submitted: int = 0) -> OverviewResult:
+def _make_overview(
+    *,
+    picks: list[Pick],
+    tile_cell_counts: dict | None = None,
+    n_planned: int = 0,
+    n_submitted: int = 0,
+) -> OverviewResult:
     if tile_cell_counts is None:
         tile_cell_counts = {}
         for p in picks:
@@ -83,9 +93,9 @@ def _make_limits() -> LimitsContext:
     return LimitsContext(
         calibration=minimal_calibration(source_slot=1, target_slot=1),
         stage_config={"stage_um": {"z_wide": (-1e6, 1e6)}},
-        stage_limits=None,       # no XY box -> all picks survive
+        stage_limits=None,  # no XY box -> all picks survive
         source_slot=1,
-        target_slot=1,            # identity translation
+        target_slot=1,  # identity translation
     )
 
 
@@ -110,14 +120,13 @@ def _patch_translate(monkeypatch):
 class TestSelectTargets:
     def test_global_mode_threshold_when_qualifying_cells_exist(self):
         # 12 cells, all above median area & intensity get selected
-        picks = [_make_pick(label=i, area=100 + i * 10, intensity=50.0 + i)
-                 for i in range(1, 13)]
+        picks = [_make_pick(label=i, area=100 + i * 10, intensity=50.0 + i) for i in range(1, 13)]
         ov = _make_overview(picks=picks)
         _, sel = select_targets(ov, _make_limits(), n_per_tile=4, seed=42)
 
         assert sel.mode == MODE_THRESHOLD
         assert sel.n_total == 12
-        assert sel.n_qualifying > 0   # median split -> roughly half qualify
+        assert sel.n_qualifying > 0  # median split -> roughly half qualify
         assert sel.area_threshold_auto is True
         assert sel.intensity_threshold_auto is True
 
@@ -132,11 +141,13 @@ class TestSelectTargets:
 
     def test_global_mode_sparse_when_below_cutoff(self):
         # 5 cells globally with min_cells_for_threshold=10 -> SPARSE
-        picks = [_make_pick(label=i, area=100, intensity=50.0)
-                 for i in range(1, 6)]
+        picks = [_make_pick(label=i, area=100, intensity=50.0) for i in range(1, 6)]
         ov = _make_overview(picks=picks)
         _, sel = select_targets(
-            ov, _make_limits(), n_per_tile=4, min_cells_for_threshold=10,
+            ov,
+            _make_limits(),
+            n_per_tile=4,
+            min_cells_for_threshold=10,
         )
 
         assert sel.mode == MODE_SPARSE
@@ -145,26 +156,27 @@ class TestSelectTargets:
 
     def test_global_mode_no_qualifying_returns_zero_picks_no_fallback(self):
         # 15 cells, threshold override puts everyone below -> NO_QUALIFYING
-        picks = [_make_pick(label=i, area=100, intensity=50.0)
-                 for i in range(1, 16)]
+        picks = [_make_pick(label=i, area=100, intensity=50.0) for i in range(1, 16)]
         ov = _make_overview(picks=picks)
         result_picks, sel = select_targets(
-            ov, _make_limits(),
-            area_threshold=999999, intensity_threshold=999999,
+            ov,
+            _make_limits(),
+            area_threshold=999999,
+            intensity_threshold=999999,
         )
 
         assert sel.mode == MODE_NO_QUALIFYING
         assert sel.n_qualifying == 0
         assert sel.n_final == 0
-        assert result_picks.items == []   # NO random fallback
+        assert result_picks.items == []  # NO random fallback
 
     def test_override_one_threshold_sets_auto_flag_per_axis(self):
-        picks = [_make_pick(label=i, area=100 + i, intensity=50.0 + i)
-                 for i in range(1, 13)]
+        picks = [_make_pick(label=i, area=100 + i, intensity=50.0 + i) for i in range(1, 13)]
         ov = _make_overview(picks=picks)
         _, sel = select_targets(
-            ov, _make_limits(),
-            area_threshold=105,   # override
+            ov,
+            _make_limits(),
+            area_threshold=105,  # override
             # intensity_threshold left None -> auto
         )
 
@@ -175,8 +187,7 @@ class TestSelectTargets:
     def test_seed_zero_does_not_collide_with_auto(self):
         # seed=0 must produce reproducible-but-distinct seed material from
         # the seed=None ("auto") case
-        picks = [_make_pick(label=i, area=200, intensity=100.0)
-                 for i in range(1, 13)]
+        picks = [_make_pick(label=i, area=200, intensity=100.0) for i in range(1, 13)]
         ov = _make_overview(picks=picks)
         _, sel_zero = select_targets(ov, _make_limits(), seed=0)
         _, sel_auto = select_targets(ov, _make_limits(), seed=None)
@@ -186,8 +197,7 @@ class TestSelectTargets:
         assert sel_zero.seed_material != sel_auto.seed_material
 
     def test_per_stage_counts_sum_correctly(self):
-        picks = [_make_pick(label=i, area=200, intensity=100.0)
-                 for i in range(1, 13)]
+        picks = [_make_pick(label=i, area=200, intensity=100.0) for i in range(1, 13)]
         ov = _make_overview(picks=picks)
         _, sel = select_targets(ov, _make_limits(), n_per_tile=4, seed=1)
 
@@ -202,9 +212,10 @@ class TestSelectTargets:
         assert sel.n_selected_pre_dedup <= sel.n_qualifying
 
     def test_selected_pick_ids_use_full_pick_id_tuple(self):
-        picks = [_make_pick(rid="2", row=3, col=4, label=i,
-                            area=200, intensity=100.0)
-                 for i in range(1, 13)]
+        picks = [
+            _make_pick(rid="2", row=3, col=4, label=i, area=200, intensity=100.0)
+            for i in range(1, 13)
+        ]
         ov = _make_overview(picks=picks)
         _, sel = select_targets(ov, _make_limits(), seed=1)
 
@@ -223,10 +234,9 @@ class TestBorderMarginFilter:
         return _edge_pick(label, bbox)
 
     def test_cells_touching_top_edge_excluded(self):
-        picks = (
-            [self._edge_pick(i, (10, 500, 30, 520)) for i in range(1, 6)]
-            + [self._edge_pick(i, (500, 500, 520, 520)) for i in range(6, 16)]
-        )
+        picks = [self._edge_pick(i, (10, 500, 30, 520)) for i in range(1, 6)] + [
+            self._edge_pick(i, (500, 500, 520, 520)) for i in range(6, 16)
+        ]
         ov = _make_overview(picks=picks)
         _, sel = select_targets(ov, _make_limits(), border_margin_px=64)
         assert sel.n_near_border == 5
@@ -242,10 +252,9 @@ class TestBorderMarginFilter:
         edge. Prevents a future 'tightening' from breaking the disable
         path.
         """
-        picks = (
-            [self._edge_pick(i, (10, 500, 30, 520)) for i in range(1, 6)]
-            + [self._edge_pick(i, (500, 500, 520, 520)) for i in range(6, 16)]
-        )
+        picks = [self._edge_pick(i, (10, 500, 30, 520)) for i in range(1, 6)] + [
+            self._edge_pick(i, (500, 500, 520, 520)) for i in range(6, 16)
+        ]
         ov = _make_overview(picks=picks)
         # Must not raise: 0 is the documented disable sentinel.
         _, sel = select_targets(ov, _make_limits(), border_margin_px=0)
@@ -271,15 +280,14 @@ class TestBorderMarginFilter:
         """
         # width=2048, margin=64 -> threshold at x1=1984.
         # 12 picks total to keep the threshold-mode path active.
-        boundary = self._edge_pick(1, (500, 500, 520, 1984))   # x1 == 1984
-        one_past = self._edge_pick(2, (500, 500, 520, 1985))   # x1 == 1985
-        middles = [self._edge_pick(i, (500, 500, 520, 520))
-                   for i in range(3, 13)]
+        boundary = self._edge_pick(1, (500, 500, 520, 1984))  # x1 == 1984
+        one_past = self._edge_pick(2, (500, 500, 520, 1985))  # x1 == 1985
+        middles = [self._edge_pick(i, (500, 500, 520, 520)) for i in range(3, 13)]
         ov = _make_overview(picks=[boundary, one_past, *middles])
         _, sel = select_targets(ov, _make_limits(), border_margin_px=64)
 
-        assert not sel.near_border_mask[0]    # boundary kept
-        assert sel.near_border_mask[1]        # one-past excluded
+        assert not sel.near_border_mask[0]  # boundary kept
+        assert sel.near_border_mask[1]  # one-past excluded
         assert not sel.near_border_mask[2:].any()
         assert sel.n_near_border == 1
 
@@ -292,8 +300,7 @@ class TestInputValidation:
         """Negative border_margin_px is rejected at the function boundary;
         zero is the explicit disable sentinel, so the predicate is < 0.
         """
-        picks = [_make_pick(label=i, area=200, intensity=100.0)
-                 for i in range(1, 5)]
+        picks = [_make_pick(label=i, area=200, intensity=100.0) for i in range(1, 5)]
         ov = _make_overview(picks=picks)
         with pytest.raises(ValueError, match=r"border_margin_px must be >= 0"):
             select_targets(ov, _make_limits(), border_margin_px=-1)
@@ -308,7 +315,8 @@ class TestInputValidation:
             bad_pick = _edge_pick(1, (5, 5, 25, 25), size=bad_size)
             ov = _make_overview(picks=[bad_pick])
             with pytest.raises(
-                ValueError, match=r"invalid source_image_size_px",
+                ValueError,
+                match=r"invalid source_image_size_px",
             ):
                 select_targets(ov, _make_limits(), border_margin_px=64)
 
@@ -321,7 +329,8 @@ class TestInputValidation:
         bad_pick = _edge_pick(1, (5, 5, 25, 25), size=(0, 0))
         ov = _make_overview(picks=[bad_pick])
         with pytest.raises(
-            ValueError, match=r"invalid source_image_size_px",
+            ValueError,
+            match=r"invalid source_image_size_px",
         ):
             select_targets(ov, _make_limits(), border_margin_px=0)
 
@@ -341,8 +350,10 @@ class TestEligibleEdgeCases:
         middles = [_edge_pick(i, (500, 500, 520, 520)) for i in range(13, 18)]
         ov = _make_overview(picks=[*corners, *middles])
         _, sel = select_targets(
-            ov, _make_limits(),
-            border_margin_px=64, min_cells_for_threshold=10,
+            ov,
+            _make_limits(),
+            border_margin_px=64,
+            min_cells_for_threshold=10,
         )
 
         assert sel.n_total == 17
@@ -351,6 +362,7 @@ class TestEligibleEdgeCases:
         assert sel.n_qualifying == 5
         # Scalar finite check (file-strict JSON pinned by all-near-border test)
         import math
+
         assert math.isfinite(sel.area_threshold)
         assert math.isfinite(sel.intensity_threshold)
 
@@ -359,8 +371,7 @@ class TestEligibleEdgeCases:
         n_eligible == 0 -> MODE_NO_QUALIFYING with 0.0 sentinels (no
         np.median([]) -> NaN contamination).
         """
-        picks = [_make_pick(label=i, area=200, intensity=100.0)
-                 for i in range(1, 16)]
+        picks = [_make_pick(label=i, area=200, intensity=100.0) for i in range(1, 16)]
         ov = _make_overview(picks=picks)
         _, sel = select_targets(ov, _make_limits(), border_margin_px=2000)
 
@@ -369,6 +380,7 @@ class TestEligibleEdgeCases:
         assert sel.area_threshold == 0.0
         assert sel.intensity_threshold == 0.0
         import math
+
         assert math.isfinite(sel.area_threshold)
         assert math.isfinite(sel.intensity_threshold)
 
@@ -381,8 +393,10 @@ class TestEligibleEdgeCases:
         middles = [_edge_pick(i, (500, 500, 520, 520)) for i in range(6, 9)]
         ov = _make_overview(picks=[*corners, *middles])
         _, sel = select_targets(
-            ov, _make_limits(),
-            border_margin_px=64, min_cells_for_threshold=10,
+            ov,
+            _make_limits(),
+            border_margin_px=64,
+            min_cells_for_threshold=10,
         )
 
         # 8 total, 5 near-border, 3 eligible -> sparse (3 < 10)
@@ -406,20 +420,25 @@ class TestSparseAndEmptyCounters:
         # Tile A: 30 picks (eligible=30); Tile B: 5 picks (eligible=5);
         # Tile C: 0 picks (eligible=0). All bbox=(990,990,1010,1010), so
         # none are near border in a 2048x2048 image -> eligible == raw.
-        picks = (
-            [_make_pick(rid="0", row=0, col=0, label=i, area=200, intensity=100.0)
-             for i in range(1, 31)]
-            + [_make_pick(rid="0", row=0, col=1, label=i, area=200, intensity=100.0)
-               for i in range(1, 6)]
-        )
+        picks = [
+            _make_pick(rid="0", row=0, col=0, label=i, area=200, intensity=100.0)
+            for i in range(1, 31)
+        ] + [
+            _make_pick(rid="0", row=0, col=1, label=i, area=200, intensity=100.0)
+            for i in range(1, 6)
+        ]
         tile_counts = {("0", 0, 0): 30, ("0", 0, 1): 5, ("0", 0, 2): 0}
         ov = _make_overview(picks=picks, tile_cell_counts=tile_counts)
 
         _, sel = select_targets(
-            ov, _make_limits(), n_per_tile=4, min_cells_for_threshold=10, seed=1,
+            ov,
+            _make_limits(),
+            n_per_tile=4,
+            min_cells_for_threshold=10,
+            seed=1,
         )
 
-        assert sel.mode == MODE_THRESHOLD   # 35 cells total >= 10
+        assert sel.mode == MODE_THRESHOLD  # 35 cells total >= 10
         # Tile B (5 eligible < 10) AND tile C (0 eligible < 10) both count.
         assert sel.n_tiles_below_eligible_cutoff == 2
         # n_tiles_empty still tracks raw-empty only.
@@ -434,11 +453,13 @@ class TestFilterOutOfLimitsTakesLimitsContext:
         """Construct LimitsContext directly; _filter_out_of_limits accepts it."""
         limits = _make_limits()
         # In the permissive setup all picks survive
-        picks = [_make_pick(rid="0", row=0, col=0, label=i, area=200,
-                            intensity=100.0)
-                 for i in range(1, 5)]
+        picks = [
+            _make_pick(rid="0", row=0, col=0, label=i, area=200, intensity=100.0)
+            for i in range(1, 5)
+        ]
         surviving, removed_xy, removed_z, removed_xlat = _filter_out_of_limits(
-            picks, limits,
+            picks,
+            limits,
         )
         assert len(surviving) == 4
         assert removed_xy == [] and removed_z == [] and removed_xlat == []
@@ -451,11 +472,13 @@ class TestLoadOverviewResultFromSelectionModule:
     def test_import_path_is_selection(self):
         """load_overview_result lives in pipeline.selection, no underscore."""
         from pipeline.selection import load_overview_result as f
+
         assert callable(f)
 
     def test_load_overview_picks_is_not_importable(self):
         """The deleted helper name is not part of the public module API."""
         from pipeline import selection as sel_mod
+
         assert not hasattr(sel_mod, "load_overview_picks")
 
 
@@ -468,7 +491,8 @@ class TestKernelRestartSelectionLoadsFromDisk:
         load_overview_result + select_targets. The test does NOT import or
         call run_overview anywhere."""
         from pipeline.overview import (
-            _build_npz_extra_arrays, _save_single_tile_analysis,
+            _build_npz_extra_arrays,
+            _save_single_tile_analysis,
             _write_overview_meta,
         )
 
@@ -476,15 +500,15 @@ class TestKernelRestartSelectionLoadsFromDisk:
         analysis_dir.mkdir(parents=True)
 
         # Tile A: 12 picks (above threshold), Tile B: 0 cells, Tile C: 5 picks
-        a_picks = [_make_pick(rid="0", row=0, col=0, label=i,
-                              area=300 + i, intensity=200.0 + i)
-                   for i in range(1, 13)]
-        c_picks = [_make_pick(rid="0", row=0, col=2, label=i,
-                              area=300, intensity=200.0)
-                   for i in range(1, 6)]
-        for tile_id, picks in [(("0", 0, 0), a_picks),
-                               (("0", 0, 1), []),
-                               (("0", 0, 2), c_picks)]:
+        a_picks = [
+            _make_pick(rid="0", row=0, col=0, label=i, area=300 + i, intensity=200.0 + i)
+            for i in range(1, 13)
+        ]
+        c_picks = [
+            _make_pick(rid="0", row=0, col=2, label=i, area=300, intensity=200.0)
+            for i in range(1, 6)
+        ]
+        for tile_id, picks in [(("0", 0, 0), a_picks), (("0", 0, 1), []), (("0", 0, 2), c_picks)]:
             result = {
                 "input": {
                     "tile_id": tile_id,
@@ -510,16 +534,18 @@ class TestKernelRestartSelectionLoadsFromDisk:
                             "area_px": p.area_px,
                             "eccentricity": p.eccentricity,
                             "mean_intensity": p.mean_intensity,
-                            "cell_source_stage_xy_um":
-                                list(p.cell_source_stage_xy_um),
+                            "cell_source_stage_xy_um": list(p.cell_source_stage_xy_um),
                         }
                         for p in picks
                     ],
                 },
             }
             from pipeline.overview import _picks_from_result
+
             assert _save_single_tile_analysis(
-                result, analysis_dir, hash6="abc123",
+                result,
+                analysis_dir,
+                hash6="abc123",
                 acquisition_type="overview-scan",
                 extra_arrays=_build_npz_extra_arrays(_picks_from_result(result)),
             )
@@ -537,19 +563,24 @@ class TestKernelRestartSelectionLoadsFromDisk:
         # === Simulate the selection cell, no prior run_overview ===
         overview = load_overview_result(analysis_dir)
         picks, selection = select_targets(
-            overview, _make_limits(),
-            n_per_tile=4, min_cells_for_threshold=10, seed=42,
+            overview,
+            _make_limits(),
+            n_per_tile=4,
+            min_cells_for_threshold=10,
+            seed=42,
         )
 
         assert overview.completed is True
         assert overview.n_tiles == 3
         assert overview.n_tiles_empty == 1
         assert overview.tile_cell_counts == {
-            ("0", 0, 0): 12, ("0", 0, 1): 0, ("0", 0, 2): 5,
+            ("0", 0, 0): 12,
+            ("0", 0, 1): 0,
+            ("0", 0, 2): 5,
         }
         # 12 + 5 = 17 cells, >= 10, so MODE_THRESHOLD
         assert selection.mode == MODE_THRESHOLD
         # Tile B (0 eligible < 10) AND tile C (5 eligible < 10) both count.
         assert selection.n_tiles_below_eligible_cutoff == 2
         assert selection.n_tiles_empty == 1
-        assert selection.n_final > 0   # selection produced picks
+        assert selection.n_final > 0  # selection produced picks

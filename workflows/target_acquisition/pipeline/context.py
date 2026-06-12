@@ -15,6 +15,7 @@
 - `TargetState` records what happened during Step 5 (objective switch,
   post-switch z-galvo readback, drift) for the run summary.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -52,7 +53,7 @@ class Config:
 
     # Paths + run identity
     analysis_repo: Path
-    experiment: str               # operator-typed; output_root is derived from the save exporter
+    experiment: str  # operator-typed; output_root is derived from the save exporter
 
     # Optional behaviour flags (defaults)
     settle_after_job_switch_s: float = 3.0
@@ -107,6 +108,7 @@ class LimitsContext:
     typed dependency without taking a full Context (which holds LAS X
     client, engine, etc.). Tests construct one directly.
     """
+
     calibration: dict
     stage_config: dict
     stage_limits: dict | None
@@ -117,6 +119,7 @@ class LimitsContext:
 @dataclass
 class TargetState:
     """Run state for Step 5. Explicit model of what happened."""
+
     started: bool = False
     setup_stage: str | None = None
     setup_error: str | None = None
@@ -153,17 +156,17 @@ class Context:
     calibration: dict
     stage_config: dict
     engine: Any
-    out_dir: Path                             # run.layout.run_dir
-    run: WorkflowRun                          # workflow-owned layout handle
-    templates_dir: Path                       # required after preflight
-    source_slot: int                          # derived from acquisition_job in preflight
-    target_slot: int                          # derived from target_job in preflight
+    out_dir: Path  # run.layout.run_dir
+    run: WorkflowRun  # workflow-owned layout handle
+    templates_dir: Path  # required after preflight
+    source_slot: int  # derived from acquisition_job in preflight
+    target_slot: int  # derived from target_job in preflight
 
     # Defaulted fields (populated during or after preflight):
-    current_job: str = ""                     # "" forces first ensure_job_state to run
-    stage_limits: dict | None = None          # active working envelope
-    stage_limits_source: str | None = None    # driver LIMITS_SOURCE_* value
-    scan_field: dict | None = None            # set in Step 2
+    current_job: str = ""  # "" forces first ensure_job_state to run
+    stage_limits: dict | None = None  # active working envelope
+    stage_limits_source: str | None = None  # driver LIMITS_SOURCE_* value
+    scan_field: dict | None = None  # set in Step 2
 
     # Preflight telemetry (consumed by summary.json later)
     source_zgalvo_um: float = 0.0

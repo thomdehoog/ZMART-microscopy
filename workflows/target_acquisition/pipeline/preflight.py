@@ -10,6 +10,7 @@ _LAST_CTX reference holds the most recently returned ctx. On a second
 call, the prior ctx is shut down before the new run begins, so the
 operator can re-execute Cell 3 without a globals() guard.
 """
+
 from __future__ import annotations
 
 import atexit
@@ -25,9 +26,9 @@ from calibration.vendor.leica.navigator_expert.core import model as calib
 from navigator_expert.commands.objectives import validate_slots
 from shared.output_layout import build_layout
 
-from .context import Config, Context, WorkflowRun
-from ._job_state import ensure_job_state, _read_objective_slot
+from ._job_state import _read_objective_slot, ensure_job_state
 from ._log_capture import capture_console_deferred
+from .context import Config, Context, WorkflowRun
 
 # A non-zero source z-galvo is operator-visible drift; warn before target
 # coordinates are derived from the source-objective calibration.
@@ -120,9 +121,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
 
     # 0.3 -- calibration + stage config + hardware
     calibration = calib.load_calibration()
-    stage_config = drv.load_stage_config(
-        limits_path=drv.default_stage_limits_path()
-    )
+    stage_config = drv.load_stage_config(limits_path=drv.default_stage_limits_path())
     hw = drv.get_hardware_info(client, mode="api")
     if not hw:
         raise RuntimeError("drv.get_hardware_info returned nothing.")
@@ -137,9 +136,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
     # 0.5 -- boot engine (sys.path tweak so smart-analysis is importable)
     analysis_repo = Path(cfg.analysis_repo)
     if not analysis_repo.exists():
-        raise FileNotFoundError(
-            f"Config.analysis_repo does not exist: {analysis_repo}"
-        )
+        raise FileNotFoundError(f"Config.analysis_repo does not exist: {analysis_repo}")
     _put_analysis_repo_first(analysis_repo)
 
     Engine = _analysis_engine_class(analysis_repo)
@@ -149,11 +146,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
     try:
         # 0.6a -- register overview pipeline
         overview_yaml = (
-            analysis_repo
-            / "workflows"
-            / "target_acquisition"
-            / "pipelines"
-            / "overview.yaml"
+            analysis_repo / "workflows" / "target_acquisition" / "pipelines" / "overview.yaml"
         )
         if not overview_yaml.exists():
             raise FileNotFoundError(
@@ -186,9 +179,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
         layout = build_layout(_smart_base_for_exporter(cfg), cfg.experiment)
         run = WorkflowRun(layout=layout)
         out_dir = layout.run_dir
-        _cap.bind(
-            run.layout.logs_dir("initialization") / "initialization.log"
-        )
+        _cap.bind(run.layout.logs_dir("initialization") / "initialization.log")
 
         # 0.8 -- construct Context (current_job="" forces ensure_job_state to run)
         ctx = Context(
@@ -210,9 +201,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
         ensure_job_state(ctx, cfg.acquisition_job)
 
         # 0.10 -- read source z-galvo (AFTER job is ensured)
-        source_zgalvo_um, source_zgalvo_warning = _read_source_zgalvo(
-            client, cfg.acquisition_job
-        )
+        source_zgalvo_um, source_zgalvo_warning = _read_source_zgalvo(client, cfg.acquisition_job)
         ctx.source_zgalvo_um = source_zgalvo_um
         ctx.source_zgalvo_warning = source_zgalvo_warning
 
@@ -252,7 +241,9 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
 
 
 def _derive_slots(
-    client: Any, cfg: Config, calibration: dict,
+    client: Any,
+    cfg: Config,
+    calibration: dict,
 ) -> tuple[int, int]:
     """Read each job's objective slot from LAS X, validate against calibration."""
 
@@ -260,11 +251,13 @@ def _derive_slots(
     if cfg.acquisition_job == cfg.target_job:
         raise ValueError(
             f"acquisition_job and target_job are both {cfg.acquisition_job!r}. "
-            f"They must be different jobs with different objectives.")
+            f"They must be different jobs with different objectives."
+        )
     if cfg.af_job == cfg.target_job:
         raise ValueError(
             f"af_job and target_job are both {cfg.target_job!r}. "
-            f"The AF job must use the source objective, not the target.")
+            f"The AF job must use the source objective, not the target."
+        )
 
     source_slot = _read_objective_slot(client, cfg.acquisition_job)
     target_slot = _read_objective_slot(client, cfg.target_job)
@@ -274,11 +267,11 @@ def _derive_slots(
         raise RuntimeError(
             f"af_job {cfg.af_job!r} uses objective slot {af_slot}, but "
             f"acquisition_job {cfg.acquisition_job!r} uses slot {source_slot}. "
-            f"The AF job must use the same objective as the acquisition job.")
+            f"The AF job must use the same objective as the acquisition job."
+        )
 
     # Validate calibration has usable translation entries for both slots.
-    for slot, job in [(source_slot, cfg.acquisition_job),
-                      (target_slot, cfg.target_job)]:
+    for slot, job in [(source_slot, cfg.acquisition_job), (target_slot, cfg.target_job)]:
         try:
             calib.get_translation_um(calibration, slot)
         except ValueError as exc:
@@ -443,8 +436,7 @@ def _analysis_engine_class(analysis_repo: Path):
     if not _module_file_is_under(engine_module, analysis_repo):
         found = getattr(engine_module, "__file__", "<unknown>")
         raise RuntimeError(
-            f"Imported engine from {found}, not from Config.analysis_repo "
-            f"{analysis_repo}."
+            f"Imported engine from {found}, not from Config.analysis_repo {analysis_repo}."
         )
 
     try:

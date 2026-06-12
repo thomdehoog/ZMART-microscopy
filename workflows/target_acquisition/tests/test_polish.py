@@ -28,16 +28,17 @@ revert it:
       in the "acquired" category, so the on-field marker count never
       exceeds len(records).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 from unittest import mock
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pytest
-
 
 # ─── TileStyle.alpha behavior ─────────────────────────────────────
 
@@ -124,8 +125,7 @@ def test_render_scan_field_panel_padding_factor_scales_linearly():
     assert padding_default > 0
     ratio = padding_wide / padding_default
     assert abs(ratio - 4.0) < 1e-6, (
-        f"padding_factor must scale linearly: 0.20 / 0.05 = 4x. "
-        f"Got ratio={ratio:.3f}."
+        f"padding_factor must scale linearly: 0.20 / 0.05 = 4x. Got ratio={ratio:.3f}."
     )
 
 
@@ -150,8 +150,8 @@ def test_plot_stage_envelope_with_stage_limits(tmp_path, monkeypatch):
     driver fallback call.
     """
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
-    from pipeline.template import plot_stage_envelope
     import navigator_expert as drv
+    from pipeline.template import plot_stage_envelope
 
     boundary = {"x_min": 0.0, "x_max": 1000.0, "y_min": 0.0, "y_max": 800.0}
     ctx = _envelope_ctx(tmp_path, stage_limits=boundary)
@@ -169,8 +169,8 @@ def test_plot_stage_envelope_falls_back_to_driver(tmp_path, monkeypatch):
     function must not raise on this path.
     """
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
-    from pipeline.template import plot_stage_envelope
     import navigator_expert as drv
+    from pipeline.template import plot_stage_envelope
 
     ctx = _envelope_ctx(tmp_path, stage_limits=None)
     physical = {"x_min": -500.0, "x_max": 500.0, "y_min": -400.0, "y_max": 400.0}
@@ -239,8 +239,8 @@ def test_plot_scan_field_uses_portrait_stage_limit_aspect(tmp_path, monkeypatch)
 def test_focus_map_uses_portrait_stage_limit_aspect(tmp_path, monkeypatch):
     """Step 2c uses the same stage-envelope aspect as Steps 2a/2b."""
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
-    from pipeline.focus import FocusMap
     import numpy as np
+    from pipeline.focus import FocusMap
 
     created_sizes = []
     original_figure = plt.figure
@@ -303,10 +303,14 @@ def test_stage_limit_update_writes_loads_and_applies_current(monkeypatch):
     }
     loaded_cfg = {"stage_um": stage_um, "backlash": {"session_id": "b1"}}
     active = {
-        "x_min": 10.0, "x_max": 20.0,
-        "y_min": 30.0, "y_max": 40.0,
-        "z_galvo_min": -2.0, "z_galvo_max": 2.0,
-        "z_wide_min": 0.0, "z_wide_max": 100.0,
+        "x_min": 10.0,
+        "x_max": 20.0,
+        "y_min": 30.0,
+        "y_max": 40.0,
+        "z_galvo_min": -2.0,
+        "z_galvo_max": 2.0,
+        "z_wide_min": 0.0,
+        "z_wide_max": 100.0,
     }
     calls = []
 
@@ -356,14 +360,17 @@ def _template_ctx(tmp_path: Path):
 
 
 def test_read_scan_field_geometry_without_tiles_explains_lifecycle(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ):
     """A geometry without grid counts still needs an operator action."""
     from pipeline import template as template_mod
 
     ctx = _template_ctx(tmp_path)
     monkeypatch.setattr(
-        template_mod.drv, "save_experiment", lambda *a, **k: {"success": True},
+        template_mod.drv,
+        "save_experiment",
+        lambda *a, **k: {"success": True},
     )
     monkeypatch.setattr(
         template_mod.drv,
@@ -384,14 +391,17 @@ def test_read_scan_field_geometry_without_tiles_explains_lifecycle(
 
 
 def test_read_scan_field_empty_template_explains_lifecycle(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ):
     """An empty template points the operator to the same Step 2 action."""
     from pipeline import template as template_mod
 
     ctx = _template_ctx(tmp_path)
     monkeypatch.setattr(
-        template_mod.drv, "save_experiment", lambda *a, **k: {"success": True},
+        template_mod.drv,
+        "save_experiment",
+        lambda *a, **k: {"success": True},
     )
     monkeypatch.setattr(
         template_mod.drv,
@@ -409,7 +419,9 @@ def test_read_scan_field_empty_template_explains_lifecycle(
 
 
 def test_show_template_state_reports_lifecycle_fields(
-    tmp_path, monkeypatch, capsys,
+    tmp_path,
+    monkeypatch,
+    capsys,
 ):
     """show_template_state is a diagnostic view, not a parser fallback."""
     from pipeline import show_template_state
@@ -417,7 +429,9 @@ def test_show_template_state_reports_lifecycle_fields(
 
     ctx = _template_ctx(tmp_path)
     monkeypatch.setattr(
-        template_mod.drv, "save_experiment", lambda *a, **k: {"success": True},
+        template_mod.drv,
+        "save_experiment",
+        lambda *a, **k: {"success": True},
     )
     monkeypatch.setattr(
         template_mod.drv,
@@ -501,7 +515,6 @@ def test_plot_results_skips_picks_without_records(tmp_path, monkeypatch):
             source_zwide_um=0.0,
             target_stage_xy_um=(10.0, 0.0),
             target_zwide_um=0.0,
-
             target_pixel_size_um=0.5,
             tif_path=None,
             success=True,
@@ -514,8 +527,10 @@ def test_plot_results_skips_picks_without_records(tmp_path, monkeypatch):
     ctx.scan_field = {
         "n_tiles": 1,
         "tile_positions": {
-            "0": {"tile_size_um": 100.0,
-                  "positions": [{"row": 0, "col": 0, "x_um": 0.0, "y_um": 0.0}]},
+            "0": {
+                "tile_size_um": 100.0,
+                "positions": [{"row": 0, "col": 0, "x_um": 0.0, "y_um": 0.0}],
+            },
         },
     }
     ctx.stage_limits = None
@@ -534,8 +549,7 @@ def test_plot_results_skips_picks_without_records(tmp_path, monkeypatch):
     # plot_results uses label=f"{key} ({n})", e.g. "acquired (1)".
     # Match by prefix so the test doesn't couple to the count.
     acquired_calls = [
-        c for c in captured
-        if isinstance(c["label"], str) and c["label"].startswith("acquired")
+        c for c in captured if isinstance(c["label"], str) and c["label"].startswith("acquired")
     ]
     assert acquired_calls, "expected at least one 'acquired' scatter call"
     n_acquired = sum(len(c["x"]) for c in acquired_calls)

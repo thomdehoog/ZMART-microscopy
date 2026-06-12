@@ -47,7 +47,6 @@ from skimage.measure import ransac
 from skimage.registration import phase_cross_correlation
 from skimage.transform import EuclideanTransform
 
-
 # ──────────────────────────────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────────────────────────────
@@ -55,10 +54,14 @@ from skimage.transform import EuclideanTransform
 #: All eight D4 reflections / rotations. ``classify_d4`` snaps a
 #: fitted 2×2 matrix to the nearest of these.
 D4_ELEMENTS = {
-    "+X +Y": [[+1, 0], [0, +1]], "+X -Y": [[+1, 0], [0, -1]],
-    "-X +Y": [[-1, 0], [0, +1]], "-X -Y": [[-1, 0], [0, -1]],
-    "+Y +X": [[0, +1], [+1, 0]], "+Y -X": [[0, +1], [-1, 0]],
-    "-Y +X": [[0, -1], [+1, 0]], "-Y -X": [[0, -1], [-1, 0]],
+    "+X +Y": [[+1, 0], [0, +1]],
+    "+X -Y": [[+1, 0], [0, -1]],
+    "-X +Y": [[-1, 0], [0, +1]],
+    "-X -Y": [[-1, 0], [0, -1]],
+    "+Y +X": [[0, +1], [+1, 0]],
+    "+Y -X": [[0, +1], [-1, 0]],
+    "-Y +X": [[0, -1], [+1, 0]],
+    "-Y -X": [[0, -1], [-1, 0]],
 }
 
 #: Maximum acceptable Frobenius distance from the fitted matrix to its
@@ -108,37 +111,44 @@ def _finite_median(values, *, default: float = 0.0) -> float:
 # ──────────────────────────────────────────────────────────────────────
 
 
-def pcc(ref: np.ndarray, tgt: np.ndarray, pixel_um: float,
-        mask_pct: float = MASK_PCT_DEFAULT) -> tuple[float, float, float]:
+def pcc(
+    ref: np.ndarray, tgt: np.ndarray, pixel_um: float, mask_pct: float = MASK_PCT_DEFAULT
+) -> tuple[float, float, float]:
     """Phase cross-correlation, unmasked. Quality = ``1 - error``."""
     shift, error, _ = phase_cross_correlation(
-        ref.astype(np.float64), tgt.astype(np.float64), upsample_factor=100,
+        ref.astype(np.float64),
+        tgt.astype(np.float64),
+        upsample_factor=100,
     )
     dy_px, dx_px = -shift[0], -shift[1]
     return dx_px * pixel_um, dy_px * pixel_um, 1.0 - float(error)
 
 
-def masked_pcc(ref: np.ndarray, tgt: np.ndarray, pixel_um: float,
-               mask_pct: float = MASK_PCT_DEFAULT) -> tuple[float, float, float]:
+def masked_pcc(
+    ref: np.ndarray, tgt: np.ndarray, pixel_um: float, mask_pct: float = MASK_PCT_DEFAULT
+) -> tuple[float, float, float]:
     """PCC with intensity-percentile foreground masks (Padfield 2012)."""
     ref_mask = ref > np.percentile(ref, mask_pct)
     tgt_mask = tgt > np.percentile(tgt, mask_pct)
     shift, error, _ = phase_cross_correlation(
-        ref.astype(np.float64), tgt.astype(np.float64),
+        ref.astype(np.float64),
+        tgt.astype(np.float64),
         upsample_factor=100,
-        reference_mask=ref_mask, moving_mask=tgt_mask,
+        reference_mask=ref_mask,
+        moving_mask=tgt_mask,
     )
     dy_px, dx_px = -shift[0], -shift[1]
     return dx_px * pixel_um, dy_px * pixel_um, 1.0 - float(error)
 
 
-def ncc(ref: np.ndarray, tgt: np.ndarray, pixel_um: float,
-        mask_pct: float = MASK_PCT_DEFAULT) -> tuple[float, float, float]:
+def ncc(
+    ref: np.ndarray, tgt: np.ndarray, pixel_um: float, mask_pct: float = MASK_PCT_DEFAULT
+) -> tuple[float, float, float]:
     """Normalised cross-correlation. Centre crop of TGT vs full REF."""
     ref8 = _to_uint8(ref)
     tgt8 = _to_uint8(tgt)
     h, w = tgt8.shape
-    template = tgt8[h // 4: 3 * h // 4, w // 4: 3 * w // 4]
+    template = tgt8[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4]
     result = cv2.matchTemplate(ref8, template, cv2.TM_CCOEFF_NORMED)
     _, max_val, _, max_loc = cv2.minMaxLoc(result)
     dx_px = max_loc[0] + template.shape[1] / 2.0 - w / 2.0
@@ -146,8 +156,9 @@ def ncc(ref: np.ndarray, tgt: np.ndarray, pixel_um: float,
     return -dx_px * pixel_um, -dy_px * pixel_um, float(max_val)
 
 
-def orb_ransac(ref: np.ndarray, tgt: np.ndarray, pixel_um: float,
-               mask_pct: float = MASK_PCT_DEFAULT) -> tuple[float, float, float]:
+def orb_ransac(
+    ref: np.ndarray, tgt: np.ndarray, pixel_um: float, mask_pct: float = MASK_PCT_DEFAULT
+) -> tuple[float, float, float]:
     """ORB descriptors + RANSAC EuclideanTransform. Quality = inlier ratio."""
     ref_n = _to_uint8(ref)
     tgt_n = _to_uint8(tgt)
@@ -159,8 +170,7 @@ def orb_ransac(ref: np.ndarray, tgt: np.ndarray, pixel_um: float,
         kp_tgt, desc_tgt = orb.keypoints, orb.descriptors
     except Exception:
         return float("nan"), float("nan"), 0.0
-    if (desc_ref is None or desc_tgt is None
-            or len(desc_ref) < 3 or len(desc_tgt) < 3):
+    if desc_ref is None or desc_tgt is None or len(desc_ref) < 3 or len(desc_tgt) < 3:
         return float("nan"), float("nan"), 0.0
     matches = match_descriptors(desc_ref, desc_tgt, cross_check=True)
     if len(matches) < 3:
@@ -168,8 +178,11 @@ def orb_ransac(ref: np.ndarray, tgt: np.ndarray, pixel_um: float,
     src = kp_tgt[matches[:, 1]]
     dst = kp_ref[matches[:, 0]]
     model, inliers = ransac(
-        (src, dst), EuclideanTransform, min_samples=3,
-        residual_threshold=5, max_trials=1000,
+        (src, dst),
+        EuclideanTransform,
+        min_samples=3,
+        residual_threshold=5,
+        max_trials=1000,
     )
     if model is None or inliers is None:
         return float("nan"), float("nan"), 0.0
@@ -192,7 +205,10 @@ VOTING_METHODS: tuple[tuple[str, callable], ...] = (
 
 
 def register_voting(
-    ref: np.ndarray, tgt: np.ndarray, pixel_um: float, *,
+    ref: np.ndarray,
+    tgt: np.ndarray,
+    pixel_um: float,
+    *,
     mask_pct: float = MASK_PCT_DEFAULT,
     tolerance_um: float = VOTING_TOLERANCE_UM,
     min_agree: int = VOTING_MIN_AGREE,
@@ -226,10 +242,7 @@ def register_voting(
 
     best_cluster: list = []
     for _, dxi, dyi, _ in valid:
-        cluster = [
-            v for v in valid
-            if (v[1] - dxi) ** 2 + (v[2] - dyi) ** 2 <= tolerance_um ** 2
-        ]
+        cluster = [v for v in valid if (v[1] - dxi) ** 2 + (v[2] - dyi) ** 2 <= tolerance_um**2]
         if len(cluster) > len(best_cluster):
             best_cluster = cluster
 
@@ -259,7 +272,9 @@ def register_voting(
 
 
 def register_phase(
-    ref: np.ndarray, tgt: np.ndarray, pixel_um: float,
+    ref: np.ndarray,
+    tgt: np.ndarray,
+    pixel_um: float,
 ) -> tuple[float, float]:
     """Phase cross-correlation, returns ``(dx_um, dy_um)``.
 
@@ -268,7 +283,9 @@ def register_phase(
     that changes to one don't silently break the other.
     """
     shift, _, _ = phase_cross_correlation(
-        ref.astype(np.float64), tgt.astype(np.float64), upsample_factor=100,
+        ref.astype(np.float64),
+        tgt.astype(np.float64),
+        upsample_factor=100,
     )
     dy_px, dx_px = -shift[0], -shift[1]
     return dx_px * pixel_um, dy_px * pixel_um
@@ -291,7 +308,10 @@ def _resample(img: np.ndarray, src_um: float, dst_um: float) -> np.ndarray:
 
 
 def _crop_around(
-    img: np.ndarray, centre_col: float, centre_row: float, half_size_px: int,
+    img: np.ndarray,
+    centre_col: float,
+    centre_row: float,
+    half_size_px: int,
 ) -> tuple[np.ndarray, tuple[int, int, int, int]]:
     """Crop ``img`` around ``(centre_col, centre_row)`` by ±half_size,
     clipped at edges. Returns ``(crop, (left, top, right, bottom))``."""
@@ -349,10 +369,15 @@ def prepare_pair(
         intermediate_centre_row = ih / 2.0
 
     src_crop, src_bbox = _crop_around(
-        source_img, source_cell_col, source_cell_row, src_half_px,
+        source_img,
+        source_cell_col,
+        source_cell_row,
+        src_half_px,
     )
     int_crop, int_bbox = _crop_around(
-        intermediate_img, intermediate_centre_col, intermediate_centre_row,
+        intermediate_img,
+        intermediate_centre_col,
+        intermediate_centre_row,
         int_half_px,
     )
 
@@ -384,10 +409,12 @@ def prepare_pair(
         "pixel_um": float(common_pixel_um),
         "common_fov_um": float(common_fov_um),
         "source_cell_in_ref_px": (
-            float(cell_col_in_ref), float(cell_row_in_ref),
+            float(cell_col_in_ref),
+            float(cell_row_in_ref),
         ),
         "intermediate_centre_in_tgt_px": (
-            float(centre_col_in_tgt), float(centre_row_in_tgt),
+            float(centre_col_in_tgt),
+            float(centre_row_in_tgt),
         ),
     }
 

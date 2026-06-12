@@ -6,25 +6,26 @@ stage XY into the target frame using the calibration, moves, acquires,
 saves. Failures are isolated per pick; one bad target does not abort the
 run. Each result becomes a `TargetRecord` for the run summary.
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 import navigator_expert as drv
 from calibration.vendor.leica.navigator_expert.core import model as calib
+from shared.output_layout import Naming
 
+from ._acquire import acquire
+from ._hijack import NonSimulatorFrameError, hijack_frame
+from ._job_state import ensure_job_state
+from ._log_capture import _logged
+from ._mock_provider import build_target_provider
+from ._saved import require_single_plane
 from .context import Context, TargetState
 from .overview import Pick, _validate_callback_flags
 from .selection import Picks
-from shared.output_layout import Naming
-from ._acquire import acquire
-from ._job_state import ensure_job_state
-from ._log_capture import _logged
-from ._hijack import hijack_frame, NonSimulatorFrameError
-from ._mock_provider import build_target_provider
-from ._saved import require_single_plane
 
 
 @dataclass
@@ -56,10 +57,7 @@ def _position_label(position) -> str:
 
     A one-line twin of pipeline.visualize._position_label -- target.py
     cannot import from visualize.py at module top (import cycle)."""
-    return (
-        f"Position {position}" if position is not None
-        else "Position unknown"
-    )
+    return f"Position {position}" if position is not None else "Position unknown"
 
 
 def _build_default_on_target_callback(
@@ -68,7 +66,7 @@ def _build_default_on_target_callback(
     live_display: bool,
     save_png: bool,
     save_queue: object = None,
-) -> Callable[[Pick, "TargetRecord"], None]:
+) -> Callable[[Pick, TargetRecord], None]:
     """Build the default per-target callback when the operator hasn't
     supplied an explicit on_target. display_target is imported LOCALLY
     here because pipeline.visualize imports TargetRecord at module top;
@@ -84,15 +82,14 @@ def _build_default_on_target_callback(
     from .visualize import display_target
 
     analysis_dir = ctx.run.layout.analysis_dir("overview-scan")
-    logs_dir = (
-        ctx.run.layout.logs_dir("target-acquisition")
-        if save_png else None
-    )
+    logs_dir = ctx.run.layout.logs_dir("target-acquisition") if save_png else None
     tile_cache: dict = {}
 
-    def _on_target(pick: Pick, record: "TargetRecord") -> None:
+    def _on_target(pick: Pick, record: TargetRecord) -> None:
         display_target(
-            pick, record, analysis_dir,
+            pick,
+            record,
+            analysis_dir,
             logs_dir=logs_dir,
             tile_cache=tile_cache,
             live_display=live_display,
@@ -110,7 +107,7 @@ def acquire_targets(
     *,
     live_display: bool = True,
     save_png: bool = True,
-    on_target: Callable[[Pick, "TargetRecord"], None] | None = None,
+    on_target: Callable[[Pick, TargetRecord], None] | None = None,
 ) -> list[TargetRecord]:
     """Step 5: switch objective, translate picks, acquire each target.
 
@@ -129,7 +126,10 @@ def acquire_targets(
       - all three off: silent acquisition (no per-target rendering).
     """
     _validate_callback_flags(
-        on_target, live_display, save_png, callback_param="on_target",
+        on_target,
+        live_display,
+        save_png,
+        callback_param="on_target",
     )
 
     cfg = ctx.cfg
@@ -152,6 +152,7 @@ def acquire_targets(
     save_queue = None
     if on_target is None and save_png:
         from ._save_queue import _FigureSaveQueue
+
         save_queue = _FigureSaveQueue(name="target-savefig")
     if on_target is None and (live_display or save_png):
         on_target = _build_default_on_target_callback(
@@ -175,19 +176,18 @@ def acquire_targets(
                 settings = drv.get_job_settings(client, cfg.target_job, mode="api")
                 ch = drv.make_changeable_copy(settings)
                 ts.post_switch_zgalvo_um = float(ch["zPosition"]["z-galvo"])
-                ts.drift_um = (
-                    ts.post_switch_zgalvo_um - ctx.source_zgalvo_um)
+                ts.drift_um = ts.post_switch_zgalvo_um - ctx.source_zgalvo_um
                 ts.drift_warning = abs(ts.drift_um) > 0.5
                 if ts.drift_warning:
                     print(
                         f"[step 5] WARNING: z-galvo drift = "
                         f"{ts.drift_um:+.3f} um "
                         f"(source={ctx.source_zgalvo_um:+.3f}, "
-                        f"target={ts.post_switch_zgalvo_um:+.3f})")
+                        f"target={ts.post_switch_zgalvo_um:+.3f})"
+                    )
             except Exception as exc:
                 ts.zgalvo_read_error = str(exc)
-                print(f"[step 5] WARNING: could not read target z-galvo: "
-                      f"{exc}")
+                print(f"[step 5] WARNING: could not read target z-galvo: {exc}")
 
             ts.setup_stage = None  # setup complete
 
@@ -198,12 +198,10 @@ def acquire_targets(
         # 5.3 -- sort picks by source XY (deterministic order)
         sorted_picks = sorted(
             picks.items,
-            key=lambda p: (p.cell_source_stage_xy_um[0],
-                           p.cell_source_stage_xy_um[1]),
+            key=lambda p: (p.cell_source_stage_xy_um[0], p.cell_source_stage_xy_um[1]),
         )
 
-        print(f"[step 5] {len(sorted_picks)} picks to acquire at "
-              f"slot {ctx.target_slot}")
+        print(f"[step 5] {len(sorted_picks)} picks to acquire at slot {ctx.target_slot}")
 
         records: list[TargetRecord] = []
 
@@ -215,7 +213,8 @@ def acquire_targets(
                 f"label {label}  "
                 f"src=({pick.cell_source_stage_xy_um[0]:.0f}, "
                 f"{pick.cell_source_stage_xy_um[1]:.0f})",
-                end="", flush=True,
+                end="",
+                flush=True,
             )
 
             # Track partial state so failures preserve what succeeded
@@ -249,7 +248,8 @@ def acquire_targets(
                 naming = Naming(
                     acquisition_type="target-acquisition",
                     hash6=ctx.run.layout.hash6,
-                    g=int(rid), p=i,
+                    g=int(rid),
+                    p=i,
                 )
                 lineage = {
                     "source_tile_rid": rid,
@@ -261,8 +261,12 @@ def acquire_targets(
                 }
                 acq = drv.acquire(ctx.client, cfg.target_job)
                 result = drv.save(
-                    ctx.client, acq, ctx.run.layout.run_dir, naming,
-                    lineage=lineage, exporter=cfg.save_exporter,
+                    ctx.client,
+                    acq,
+                    ctx.run.layout.run_dir,
+                    naming,
+                    lineage=lineage,
+                    exporter=cfg.save_exporter,
                 )
                 plane = require_single_plane(result, context="target-acquisition")
                 tif_path = plane.image_path
@@ -285,8 +289,10 @@ def acquire_targets(
                         layout=ctx.run.layout,
                     )
                     hijack_frame(
-                        plane, kind="target-acquisition",
-                        layout=ctx.run.layout, provider=target_provider,
+                        plane,
+                        kind="target-acquisition",
+                        layout=ctx.run.layout,
+                        provider=target_provider,
                     )
                     stage = "save"  # hijack complete; back to terminal
 
@@ -319,26 +325,28 @@ def acquire_targets(
                 # simulator-mismatch and the run hard-aborts mid-list.
                 raise
             except Exception as exc:
-                records.append(TargetRecord(
-                    pick_id=pick.pick_id,
-                    cell_source_stage_xy_um=pick.cell_source_stage_xy_um,
-                    source_zwide_um=pick.tile_zwide_um,
-                    target_stage_xy_um=(tx, ty) if tx is not None else None,
-                    target_zwide_um=tz,
-                    target_pixel_size_um=target_pixel_size_um,
-                    # A hijack failure means the .ome.tiff was saved
-                    # but its pixels were NOT replaced with mock content.
-                    # Hide the path so downstream consumers don't pick
-                    # up the simulator-content file as if it were a
-                    # successful (mock) acquisition.
-                    tif_path=None if stage == "hijack" else tif_path,
-                    success=False,
-                    error=str(exc),
-                    failure_stage=stage,
-                    source_tile_position=pick.position,
-                    simulated=cfg.simulate,
-                    mock_image_source=cfg.mock_image_source,
-                ))
+                records.append(
+                    TargetRecord(
+                        pick_id=pick.pick_id,
+                        cell_source_stage_xy_um=pick.cell_source_stage_xy_um,
+                        source_zwide_um=pick.tile_zwide_um,
+                        target_stage_xy_um=(tx, ty) if tx is not None else None,
+                        target_zwide_um=tz,
+                        target_pixel_size_um=target_pixel_size_um,
+                        # A hijack failure means the .ome.tiff was saved
+                        # but its pixels were NOT replaced with mock content.
+                        # Hide the path so downstream consumers don't pick
+                        # up the simulator-content file as if it were a
+                        # successful (mock) acquisition.
+                        tif_path=None if stage == "hijack" else tif_path,
+                        success=False,
+                        error=str(exc),
+                        failure_stage=stage,
+                        source_tile_position=pick.position,
+                        simulated=cfg.simulate,
+                        mock_image_source=cfg.mock_image_source,
+                    )
+                )
                 print(f"  FAIL@{stage} ({exc})")
 
         ok = sum(1 for r in records if r.success)

@@ -16,22 +16,20 @@ mock); these tests exercise the crop helper in isolation. If a
 future contributor changes the helper signature, these tests fail
 loud and tell them exactly which property broke.
 """
+
 from __future__ import annotations
 
-import math
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
 import pytest
-
 from pipeline._geom import (
     crop_overview_at_target_fov,
     target_fov_window_in_overview,
     visible_target_fov_window,
 )
-
 
 # ─── Helpers ──────────────────────────────────────────────────────
 
@@ -81,7 +79,7 @@ class TestTargetFovWindow:
         x0, y0, w, h = target_fov_window_in_overview(
             centroid_col_row_px=(512.0, 512.0),
             source_pixel_size_um=0.65,
-            target_shape_px=(100, 200),       # H=100, W=200
+            target_shape_px=(100, 200),  # H=100, W=200
             target_pixel_size_um=0.13,
         )
         # H window = 100 * 0.13 / 0.65 = 20; W window = 40.
@@ -119,26 +117,40 @@ class TestTargetFovWindow:
 class TestVisibleTargetFovWindow:
     def test_fully_inside(self):
         assert visible_target_fov_window(
-            window=(10, 20, 30, 40), image_shape=(100, 120),
+            window=(10, 20, 30, 40),
+            image_shape=(100, 120),
         ) == (10, 20, 40, 60)
 
     def test_partial(self):
         assert visible_target_fov_window(
-            window=(-5, -7, 120, 90), image_shape=(80, 100),
+            window=(-5, -7, 120, 90),
+            image_shape=(80, 100),
         ) == (0, 0, 100, 80)
 
     def test_returns_none_when_empty(self):
-        assert visible_target_fov_window(
-            window=(-50, 10, 20, 20), image_shape=(100, 100),
-        ) is None
+        assert (
+            visible_target_fov_window(
+                window=(-50, 10, 20, 20),
+                image_shape=(100, 100),
+            )
+            is None
+        )
 
     def test_returns_none_when_zero_area(self):
-        assert visible_target_fov_window(
-            window=(10, 10, 0, 20), image_shape=(100, 100),
-        ) is None
-        assert visible_target_fov_window(
-            window=(10, 10, 20, 0), image_shape=(100, 100),
-        ) is None
+        assert (
+            visible_target_fov_window(
+                window=(10, 10, 0, 20),
+                image_shape=(100, 100),
+            )
+            is None
+        )
+        assert (
+            visible_target_fov_window(
+                window=(10, 10, 20, 0),
+                image_shape=(100, 100),
+            )
+            is None
+        )
 
 
 # ─── crop math ────────────────────────────────────────────────────
@@ -153,7 +165,7 @@ class TestCropMath:
             overview,
             centroid_col_row_px=(256.0, 256.0),
             source_pixel_size_um=0.65,
-            target_shape_px=(200, 200),       # (H, W)
+            target_shape_px=(200, 200),  # (H, W)
             target_pixel_size_um=0.13,
         )
         # FOV = 200 * 0.13 = 26 µm; in overview px = 26 / 0.65 = 40.
@@ -163,10 +175,10 @@ class TestCropMath:
         """Unique marker at the centroid in the overview must land at
         the centre of the crop, ±1 px for rounding."""
         overview = _uniform((400, 400))
-        overview[50, 120] = 60000           # [row, col] = [cy, cx]
+        overview[50, 120] = 60000  # [row, col] = [cy, cx]
         crop = crop_overview_at_target_fov(
             overview,
-            centroid_col_row_px=(120.0, 50.0),   # (cx, cy)
+            centroid_col_row_px=(120.0, 50.0),  # (cx, cy)
             source_pixel_size_um=1.0,
             target_shape_px=(80, 80),
             target_pixel_size_um=0.25,
@@ -184,7 +196,7 @@ class TestCropMath:
             overview,
             centroid_col_row_px=(512.0, 512.0),
             source_pixel_size_um=0.65,
-            target_shape_px=(100, 200),       # H=100, W=200
+            target_shape_px=(100, 200),  # H=100, W=200
             target_pixel_size_um=0.13,
         )
         # H crop = 100 * 0.13 / 0.65 = 20; W crop = 200 * 0.13 / 0.65 = 40.
@@ -230,7 +242,7 @@ class TestEdgePadding:
         bounds. The out-of-bounds region must be filled with the
         overview's median intensity, not clipped or zeroed."""
         overview = np.full((400, 400), 30000, dtype=np.uint16)
-        overview[2, 2] = 60000                       # cell centre
+        overview[2, 2] = 60000  # cell centre
         crop = crop_overview_at_target_fov(
             overview,
             centroid_col_row_px=(2.0, 2.0),
@@ -291,16 +303,20 @@ class TestNoDriftAgainstCallers:
             return tmp_dir / "data" / kind
 
         return SimpleNamespace(
-            hash6=hash6, data_dir=_data_dir,
+            hash6=hash6,
+            data_dir=_data_dir,
             metadata_dir=lambda kind: tmp_dir / "metadata" / kind,
         )
 
     def _write_overview(self, layout, image, *, g=0, p=0):
         import tifffile
         from shared.output_layout import Naming, build_image_name
+
         naming = Naming(
-            acquisition_type="overview-scan", hash6=layout.hash6,
-            g=g, p=p,
+            acquisition_type="overview-scan",
+            hash6=layout.hash6,
+            g=g,
+            p=p,
         )
         path = layout.data_dir("overview-scan") / build_image_name(naming)
         tifffile.imwrite(path, image, photometric="minisblack")
@@ -308,6 +324,7 @@ class TestNoDriftAgainstCallers:
 
     def _make_pick(self, *, centroid, position=0):
         from pipeline.overview import Pick
+
         cx, cy = centroid
         return Pick(
             pick_id=("0", 0, 0, 1),
@@ -316,21 +333,24 @@ class TestNoDriftAgainstCallers:
             source_pixel_size_um=(0.65, 0.65),
             source_image_size_px=(400, 400),
             centroid_col_row_px=(cx, cy),
-            bbox_px=(0, 0, 10, 10), bbox_um=(0.0, 0.0),
-            area_px=100, eccentricity=0.0, mean_intensity=0.0,
+            bbox_px=(0, 0, 10, 10),
+            bbox_um=(0.0, 0.0),
+            area_px=100,
+            eccentricity=0.0,
+            mean_intensity=0.0,
             cell_source_stage_xy_um=(0.0, 0.0),
             position=position,
         )
 
     def _make_target_record(self, *, target_pixel_size_um=0.13):
         from pipeline.target import TargetRecord
+
         return TargetRecord(
             pick_id=("0", 0, 0, 1),
             cell_source_stage_xy_um=(0.0, 0.0),
             source_zwide_um=0.0,
             target_stage_xy_um=(0.0, 0.0),
             target_zwide_um=0.0,
-
             target_pixel_size_um=target_pixel_size_um,
             tif_path=None,
             success=True,
@@ -339,21 +359,29 @@ class TestNoDriftAgainstCallers:
 
     def _dummy_naming(self):
         from shared.output_layout import Naming
+
         return Naming(
             acquisition_type="target-acquisition",
-            hash6="abcdef", g=0, p=0,
+            hash6="abcdef",
+            g=0,
+            p=0,
         )
 
     # Output-equality pins.
 
-    @pytest.mark.parametrize("centroid", [
-        (200.0, 200.0),     # centred
-        (120.0, 50.0),      # asymmetric -- fails any (col, row) swap
-        (5.0, 5.0),         # near low-low corner (edge padding)
-        (395.0, 395.0),     # near high-high corner (edge padding)
-    ])
+    @pytest.mark.parametrize(
+        "centroid",
+        [
+            (200.0, 200.0),  # centred
+            (120.0, 50.0),  # asymmetric -- fails any (col, row) swap
+            (5.0, 5.0),  # near low-low corner (edge padding)
+            (395.0, 395.0),  # near high-high corner (edge padding)
+        ],
+    )
     def test_visualize_centroid_crop_equals_helper_output(
-        self, tmp_path, centroid,
+        self,
+        tmp_path,
+        centroid,
     ):
         """Visualize's centre-panel crop MUST go through the shared
         helper on the normal (target-acquired) path. Calls the
@@ -371,13 +399,16 @@ class TestNoDriftAgainstCallers:
         overview = np.full((400, 400), 10000, dtype=np.uint16)
         cy, cx = int(centroid[1]), int(centroid[0])
         if 0 <= cy < 400 and 0 <= cx < 400:
-            overview[cy, cx] = 50000      # asymmetric sentinel
+            overview[cy, cx] = 50000  # asymmetric sentinel
         pick = self._make_pick(centroid=centroid)
         record = self._make_target_record(target_pixel_size_um=0.13)
         target_img = np.zeros((200, 200), dtype=np.uint16)
 
         via_visualize = _centroid_crop_at_target_fov(
-            overview, pick, record, target_img,
+            overview,
+            pick,
+            record,
+            target_img,
         )
         via_helper = crop_overview_at_target_fov(
             overview,
@@ -401,12 +432,14 @@ class TestNoDriftAgainstCallers:
 
         layout = self._make_layout(tmp_path)
         overview = np.full((400, 400), 10000, dtype=np.uint16)
-        overview[50, 120] = 50000     # [cy=50, cx=120] sentinel
+        overview[50, 120] = 50000  # [cy=50, cx=120] sentinel
         self._write_overview(layout, overview)
 
         pick = self._make_pick(centroid=(120.0, 50.0), position=0)
         provider = build_target_provider(
-            pick=pick, target_pixel_size_um=0.13, layout=layout,
+            pick=pick,
+            target_pixel_size_um=0.13,
+            layout=layout,
         )
 
         # Identity resize: provider output == crop output. Need a
@@ -418,7 +451,9 @@ class TestNoDriftAgainstCallers:
             side_effect=lambda crop, shape, **k: crop,
         ):
             via_provider = provider(
-                (40, 40), np.uint16, naming=self._dummy_naming(),
+                (40, 40),
+                np.uint16,
+                naming=self._dummy_naming(),
             )
 
         via_helper = crop_overview_at_target_fov(
@@ -433,7 +468,8 @@ class TestNoDriftAgainstCallers:
     # Call-args structural pin.
 
     def test_both_call_sites_invoke_helper_with_same_primitives(
-        self, tmp_path,
+        self,
+        tmp_path,
     ):
         """Spy on the helper symbol as imported by each module.
         Assert both call sites delegate to it (the spy fires)
@@ -445,8 +481,8 @@ class TestNoDriftAgainstCallers:
         contributor copy-pasting the crop math locally (producing
         identical output by coincidence) would still fail this test.
         """
-        from pipeline.visualize import _centroid_crop_at_target_fov
         from pipeline._mock_provider import build_target_provider
+        from pipeline.visualize import _centroid_crop_at_target_fov
 
         layout = self._make_layout(tmp_path)
         overview = np.full((400, 400), 10000, dtype=np.uint16)
@@ -468,7 +504,10 @@ class TestNoDriftAgainstCallers:
             return_value=sentinel,
         ) as viz_spy:
             _centroid_crop_at_target_fov(
-                overview, pick, record, target_img,
+                overview,
+                pick,
+                record,
+                target_img,
             )
         assert viz_spy.call_count == 1, (
             "visualize must delegate to the shared helper "
@@ -480,15 +519,20 @@ class TestNoDriftAgainstCallers:
         # build_target_provider returns a closure; calling it
         # invokes the helper. Stub resize to no-op so we don't
         # need a shape-matching sentinel.
-        with mock.patch(
-            "pipeline._mock_provider.crop_overview_at_target_fov",
-            return_value=sentinel,
-        ) as hijack_spy, mock.patch(
-            "skimage.transform.resize",
-            side_effect=lambda crop, shape, **k: crop,
+        with (
+            mock.patch(
+                "pipeline._mock_provider.crop_overview_at_target_fov",
+                return_value=sentinel,
+            ) as hijack_spy,
+            mock.patch(
+                "skimage.transform.resize",
+                side_effect=lambda crop, shape, **k: crop,
+            ),
         ):
             provider = build_target_provider(
-                pick=pick, target_pixel_size_um=0.13, layout=layout,
+                pick=pick,
+                target_pixel_size_um=0.13,
+                layout=layout,
             )
             provider(target_shape, np.uint16, naming=self._dummy_naming())
         assert hijack_spy.call_count == 1, (

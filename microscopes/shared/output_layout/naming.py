@@ -55,9 +55,7 @@ def run_hash(start_time: float | None = None) -> str:
     t = start_time if start_time is not None else time.time()
     n = int(t - EPOCH)
     if n < 0:
-        raise ValueError(
-            f"start_time {t} is before convention epoch {EPOCH} (2026-01-01 UTC)"
-        )
+        raise ValueError(f"start_time {t} is before convention epoch {EPOCH} (2026-01-01 UTC)")
     if n == 0:
         return "0" * _HASH_LEN
     digits: list[str] = []
@@ -90,8 +88,7 @@ class Naming:
     def __post_init__(self) -> None:
         if not _ACQUISITION_TYPE_RE.match(self.acquisition_type):
             raise ValueError(
-                f"acquisition_type must be kebab-case lowercase, "
-                f"got: {self.acquisition_type!r}"
+                f"acquisition_type must be kebab-case lowercase, got: {self.acquisition_type!r}"
             )
         if len(self.acquisition_type) > MAX_ACQUISITION_TYPE_LEN:
             raise ValueError(
@@ -100,9 +97,7 @@ class Naming:
                 f"{self.acquisition_type!r}"
             )
         if not _HASH_RE.match(self.hash6):
-            raise ValueError(
-                f"hash6 must be 6 base36 chars (0-9, a-z), got: {self.hash6!r}"
-            )
+            raise ValueError(f"hash6 must be 6 base36 chars (0-9, a-z), got: {self.hash6!r}")
 
 
 def build_image_name(n: Naming) -> str:
@@ -220,13 +215,10 @@ def build_layout(
         raise ValueError("experiment must be non-empty")
     if len(experiment) > MAX_EXPERIMENT_LEN:
         raise ValueError(
-            f"experiment too long ({len(experiment)} > {MAX_EXPERIMENT_LEN}): "
-            f"{experiment!r}"
+            f"experiment too long ({len(experiment)} > {MAX_EXPERIMENT_LEN}): {experiment!r}"
         )
     if not _EXPERIMENT_RE.match(experiment):
-        raise ValueError(
-            f"experiment must match [a-zA-Z0-9_-]+, got: {experiment!r}"
-        )
+        raise ValueError(f"experiment must match [a-zA-Z0-9_-]+, got: {experiment!r}")
 
     output_root = Path(output_root)
     output_root.mkdir(parents=True, exist_ok=True)

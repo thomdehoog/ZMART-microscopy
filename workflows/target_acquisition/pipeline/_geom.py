@@ -30,6 +30,7 @@ they showed different windows. Sharing structurally closes that
 drift class -- the rectangle on the left panel reflects exactly
 the same window the centre panel's crop is taken from.
 """
+
 from __future__ import annotations
 
 import math
@@ -218,12 +219,13 @@ def crop_overview_at_target_fov(
     # window is outside the overview's bounds. Build the padded crop
     # in one allocation; copy in the in-bounds portion.
     pad = int(np.median(overview))
-    xs = max(0, x0); ys = max(0, y0)
-    xe = min(W_ov, x0 + w); ye = min(H_ov, y0 + h)
+    xs = max(0, x0)
+    ys = max(0, y0)
+    xe = min(W_ov, x0 + w)
+    ye = min(H_ov, y0 + h)
     crop = np.full((h, w), pad, dtype=overview.dtype)
     if xs < xe and ys < ye:
         dst_y0 = ys - y0
         dst_x0 = xs - x0
-        crop[dst_y0:dst_y0 + (ye - ys),
-             dst_x0:dst_x0 + (xe - xs)] = overview[ys:ye, xs:xe]
+        crop[dst_y0 : dst_y0 + (ye - ys), dst_x0 : dst_x0 + (xe - xs)] = overview[ys:ye, xs:xe]
     return crop

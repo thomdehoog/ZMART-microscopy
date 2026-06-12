@@ -8,6 +8,6 @@ Keep vendor-specific implementations in sibling folders such as `driver/`,
 useful across microscope backends.
 
 This layer is still under construction. The current production-tested path is
-the Leica Navigator Expert driver under `microscopes/driver/vendor/leica/`.
+the Leica Navigator Expert driver under `microscopes/drivers/vendor/leica/`.
 
 See `DESIGN.md` for the intended boundary and acceptance bar.

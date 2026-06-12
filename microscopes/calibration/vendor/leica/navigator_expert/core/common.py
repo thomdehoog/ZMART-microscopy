@@ -24,15 +24,14 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import navigator_expert as drv
 import numpy as np
 import tifffile
-
-import navigator_expert as drv
 from shared.output_layout import Naming, run_hash
 
 # matplotlib is imported lazily inside the plot helpers so test imports
@@ -46,6 +45,7 @@ MIN_FOCUS_STACK_SECTIONS: int = 5
 
 
 # -- Dataclasses -------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class SessionPaths:
@@ -67,18 +67,13 @@ class ImageGeometry:
 
 # -- Path / naming helpers ---------------------------------------------
 
+
 def slug(value: str) -> str:
     """Filesystem-safe objective label.
 
     '10x' -> '10x', '100x oil' -> '100x_oil', '0.5x' -> '0p5x'.
     """
-    return (
-        value.strip()
-        .replace(" ", "_")
-        .replace("/", "_")
-        .replace("\\", "_")
-        .replace(".", "p")
-    )
+    return value.strip().replace(" ", "_").replace("/", "_").replace("\\", "_").replace(".", "p")
 
 
 def objective_config_name(from_objective: str, to_objective: str) -> str:
@@ -102,18 +97,16 @@ def make_session_paths(
         notebooks_dir=session_dir / "notebooks",
         data_dir=session_dir / "data" / kind,
     )
-    for p in (paths.configs_dir, paths.reports_dir,
-              paths.notebooks_dir, paths.data_dir):
+    for p in (paths.configs_dir, paths.reports_dir, paths.notebooks_dir, paths.data_dir):
         try:
             p.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            raise RuntimeError(
-                f"cannot create calibration session directory {p}: {exc}"
-            ) from exc
+            raise RuntimeError(f"cannot create calibration session directory {p}: {exc}") from exc
     return paths
 
 
 # -- Job geometry ------------------------------------------------------
+
 
 def read_job_geometry(
     client: Any,
@@ -163,15 +156,14 @@ def assert_geometry_matches(
             f"{context}: image size mismatch "
             f"({tuple(actual.image_size_px)} vs {tuple(expected_size_px)})"
         )
-    if not np.isclose(actual.pixel_size_um, expected_pixel_size_um,
-                      rtol=0, atol=1e-9):
+    if not np.isclose(actual.pixel_size_um, expected_pixel_size_um, rtol=0, atol=1e-9):
         raise ValueError(
-            f"{context}: pixel size mismatch "
-            f"({actual.pixel_size_um} vs {expected_pixel_size_um})"
+            f"{context}: pixel size mismatch ({actual.pixel_size_um} vs {expected_pixel_size_um})"
         )
 
 
 # -- Move helpers ------------------------------------------------------
+
 
 def move_xy_and_verify(
     client: Any,
@@ -181,8 +173,7 @@ def move_xy_and_verify(
     settle_s: float = 0.5,
     tolerance_um: float = 0.5,
 ) -> None:
-    result = drv.move_xy(client, x_um, y_um, unit="um",
-                               tolerance=tolerance_um)
+    result = drv.move_xy(client, x_um, y_um, unit="um", tolerance=tolerance_um)
     if not result or not result.get("success"):
         raise RuntimeError(f"move_xy failed: {result}")
     if settle_s > 0:
@@ -190,8 +181,7 @@ def move_xy_and_verify(
     xy = drv.get_xy(client, mode="api") or {}
     if ("x_um" not in xy) or ("y_um" not in xy):
         raise RuntimeError(f"get_xy returned no readback: {xy}")
-    if (abs(xy["x_um"] - x_um) > tolerance_um
-            or abs(xy["y_um"] - y_um) > tolerance_um):
+    if abs(xy["x_um"] - x_um) > tolerance_um or abs(xy["y_um"] - y_um) > tolerance_um:
         raise RuntimeError(
             f"stage readback outside tolerance: requested "
             f"({x_um}, {y_um}), got ({xy['x_um']}, {xy['y_um']})"
@@ -205,16 +195,12 @@ def move_zwide_and_verify(
     *,
     tolerance_um: float = 1.0,
 ) -> None:
-    result = drv.move_z(client, job_name, z_um, unit="um", z_mode="zwide",
-                        tolerance=tolerance_um)
+    result = drv.move_z(client, job_name, z_um, unit="um", z_mode="zwide", tolerance=tolerance_um)
     if not result or not result.get("success"):
         raise RuntimeError(f"move_z zwide failed: {result}")
     actual = drv.read_zwide_um(client, job_name, mode="api")
     if abs(actual - z_um) > tolerance_um:
-        raise RuntimeError(
-            f"z-wide readback outside tolerance: "
-            f"requested {z_um}, got {actual}"
-        )
+        raise RuntimeError(f"z-wide readback outside tolerance: requested {z_um}, got {actual}")
 
 
 def zero_z_galvo(client: Any, job_name: str) -> None:
@@ -224,6 +210,7 @@ def zero_z_galvo(client: Any, job_name: str) -> None:
 
 
 # -- Acquisition helper ------------------------------------------------
+
 
 def acquire_frame_to(session: Any, name: str) -> np.ndarray:
     """Acquire one frame, save into ``session.paths.data_dir``, track paths.
@@ -273,9 +260,7 @@ def acquire_stack_to(session: Any, dirname: str) -> np.ndarray:
     for i in range(arr.shape[0]):
         slice_path = out_dir / f"z_{i:03d}.tif"
         tifffile.imwrite(slice_path, arr[i])
-        rel = str(
-            slice_path.relative_to(session.paths.session_dir)
-        ).replace("\\", "/")
+        rel = str(slice_path.relative_to(session.paths.session_dir)).replace("\\", "/")
         session.raw_files[f"{dirname}/z_{i:03d}"] = rel
     session.exported_files[dirname] = ";".join(
         str(p) for _idx, p in sorted(saved.image_paths.items())
@@ -306,18 +291,13 @@ def _capture_for_calibration(
 
 def _single_plane_image(saved: Any, *, context: str) -> np.ndarray:
     if len(saved.image_paths) != 1:
-        raise ValueError(
-            f"{context} expected one saved plane; got "
-            f"{len(saved.image_paths)}"
-        )
+        raise ValueError(f"{context} expected one saved plane; got {len(saved.image_paths)}")
     _idx, path = next(iter(saved.image_paths.items()))
     img = np.asarray(tifffile.imread(path))
     if img.ndim == 3 and img.shape[0] == 1:
         img = img[0]
     if img.ndim != 2:
-        raise ValueError(
-            f"{context} expected 2-D image; got shape {img.shape!r}"
-        )
+        raise ValueError(f"{context} expected 2-D image; got shape {img.shape!r}")
     return img
 
 
@@ -424,9 +404,7 @@ def read_stack_z_positions(
     try:
         sections_int = int(sections)
     except (TypeError, ValueError) as exc:
-        raise RuntimeError(
-            f"z-stack sections {sections!r} is not an integer."
-        ) from exc
+        raise RuntimeError(f"z-stack sections {sections!r} is not an integer.") from exc
 
     if sections_int != expected_slices:
         raise RuntimeError(
@@ -462,6 +440,7 @@ def read_stack_z_positions(
 
 # -- JSON I/O ----------------------------------------------------------
 
+
 def write_json_atomic(path: Path, payload: dict) -> None:
     """Atomic JSON write. ``allow_nan=False`` so NaN/inf never reach disk."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -478,6 +457,7 @@ def now_iso() -> str:
 
 
 # -- Visualization helpers --------------------------------------------
+
 
 def plot_overlay(
     ref: np.ndarray,
@@ -502,9 +482,9 @@ def plot_overlay(
     h = max(r.shape[0], t.shape[0])
     w = max(r.shape[1], t.shape[1])
     rgb = np.zeros((h, w, 3), dtype=np.float64)
-    rgb[:r.shape[0], :r.shape[1], 0] = r          # magenta = R + B
-    rgb[:r.shape[0], :r.shape[1], 2] = r
-    rgb[:t.shape[0], :t.shape[1], 1] = t          # green
+    rgb[: r.shape[0], : r.shape[1], 0] = r  # magenta = R + B
+    rgb[: r.shape[0], : r.shape[1], 2] = r
+    rgb[: t.shape[0], : t.shape[1], 1] = t  # green
     rgb = np.clip(rgb, 0.0, 1.0)
 
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -513,20 +493,14 @@ def plot_overlay(
     # shift_um may be a 2-tuple of floats, or a 2-tuple containing
     # None when registration was untrusted; skip the annotation in
     # that case rather than format-erroring.
-    has_shift = (
-        shift_um is not None
-        and shift_um[0] is not None
-        and shift_um[1] is not None
-    )
+    has_shift = shift_um is not None and shift_um[0] is not None and shift_um[1] is not None
     if has_shift and pixel_size_um is not None:
         subtitle += (
             f"\nimage shift: ({shift_um[0]:+.2f}, {shift_um[1]:+.2f}) um"
             f"  (pixel_size_um={pixel_size_um:g})"
         )
     elif has_shift:
-        subtitle += (
-            f"\nimage shift: ({shift_um[0]:+.2f}, {shift_um[1]:+.2f}) um"
-        )
+        subtitle += f"\nimage shift: ({shift_um[0]:+.2f}, {shift_um[1]:+.2f}) um"
     ax.set_title(subtitle)
     ax.set_axis_off()
     fig.tight_layout()
@@ -543,8 +517,7 @@ def plot_brenner_curve(
 
     fig, ax = plt.subplots(figsize=(6, 4))
     ax.plot(z_positions_um, scores, marker="o")
-    ax.axvline(peak_z_um, color="red", linestyle="--",
-               label=f"peak z = {peak_z_um:.3f} um")
+    ax.axvline(peak_z_um, color="red", linestyle="--", label=f"peak z = {peak_z_um:.3f} um")
     ax.set_xlabel("z-wide (um, absolute)")
     ax.set_ylabel("Brenner score")
     ax.set_title("Parfocality Brenner curve")
@@ -559,6 +532,7 @@ def plot_brenner_curve(
 # driver call, never modify session state, and never write JSON or
 # staging configs. PNG output is the caller's responsibility (Step 3's
 # save path); the helpers only return Figure objects.
+
 
 def shift_image_no_wrap(
     image: np.ndarray,
@@ -623,29 +597,33 @@ def compute_d4_candidate_residuals(
         try:
             inv = np.linalg.inv(c)
         except np.linalg.LinAlgError:
-            rows.append({
-                "label": label,
-                "candidate": c,
-                "pred_plus_x_um": None,
-                "pred_plus_y_um": None,
-                "residual_plus_x_um": float("inf"),
-                "residual_plus_y_um": float("inf"),
-                "residual_um": float("inf"),
-            })
+            rows.append(
+                {
+                    "label": label,
+                    "candidate": c,
+                    "pred_plus_x_um": None,
+                    "pred_plus_y_um": None,
+                    "residual_plus_x_um": float("inf"),
+                    "residual_plus_y_um": float("inf"),
+                    "residual_um": float("inf"),
+                }
+            )
             continue
         pred_x = -inv @ stage_plus_x
         pred_y = -inv @ stage_plus_y
         rx = float(np.linalg.norm(measured_x - pred_x))
         ry = float(np.linalg.norm(measured_y - pred_y))
-        rows.append({
-            "label": label,
-            "candidate": c,
-            "pred_plus_x_um": (float(pred_x[0]), float(pred_x[1])),
-            "pred_plus_y_um": (float(pred_y[0]), float(pred_y[1])),
-            "residual_plus_x_um": rx,
-            "residual_plus_y_um": ry,
-            "residual_um": float(np.hypot(rx, ry)),
-        })
+        rows.append(
+            {
+                "label": label,
+                "candidate": c,
+                "pred_plus_x_um": (float(pred_x[0]), float(pred_x[1])),
+                "pred_plus_y_um": (float(pred_y[0]), float(pred_y[1])),
+                "residual_plus_x_um": rx,
+                "residual_plus_y_um": ry,
+                "residual_um": float(np.hypot(rx, ry)),
+            }
+        )
     return rows
 
 
@@ -667,7 +645,10 @@ def plot_raw_triplet(
 
     fig, axes = plt.subplots(1, 3, figsize=(12, 4))
     for ax, img, label in zip(
-        axes, (home, plus_x, plus_y), ("home", "+X", "+Y"),
+        axes,
+        (home, plus_x, plus_y),
+        ("home", "+X", "+Y"),
+        strict=False,
     ):
         ax.imshow(_norm(img), cmap="gray", origin="upper")
         ax.set_title(label)
@@ -678,7 +659,10 @@ def plot_raw_triplet(
 
 
 ROTATION_LABELS_IN_DISPLAY_ORDER: tuple[str, ...] = (
-    "+X +Y", "-Y +X", "-X -Y", "+Y -X",
+    "+X +Y",
+    "-Y +X",
+    "-X -Y",
+    "+Y -X",
 )
 
 
@@ -741,9 +725,9 @@ def plot_d4_candidates(
         h = max(home_norm.shape[0], moved_norm.shape[0])
         w = max(home_norm.shape[1], moved_norm.shape[1])
         rgb = np.zeros((h, w, 3), dtype=np.float64)
-        rgb[:home_norm.shape[0], :home_norm.shape[1], 0] = home_norm
-        rgb[:home_norm.shape[0], :home_norm.shape[1], 2] = home_norm
-        rgb[:moved_norm.shape[0], :moved_norm.shape[1], 1] = moved_norm
+        rgb[: home_norm.shape[0], : home_norm.shape[1], 0] = home_norm
+        rgb[: home_norm.shape[0], : home_norm.shape[1], 2] = home_norm
+        rgb[: moved_norm.shape[0], : moved_norm.shape[1], 1] = moved_norm
         return np.clip(rgb, 0.0, 1.0)
 
     def _finite_pair(t) -> bool:
@@ -764,26 +748,24 @@ def plot_d4_candidates(
     all_rows = compute_d4_candidate_residuals(
         measured_plus_x_um=(
             (float(measured_plus_x_um[0]), float(measured_plus_x_um[1]))
-            if measured_x_known else (0.0, 0.0)
+            if measured_x_known
+            else (0.0, 0.0)
         ),
         measured_plus_y_um=(
             (float(measured_plus_y_um[0]), float(measured_plus_y_um[1]))
-            if measured_y_known else (0.0, 0.0)
+            if measured_y_known
+            else (0.0, 0.0)
         ),
         stage_move_um=stage_move_um,
     )
     by_label = {r["label"]: r for r in all_rows}
-    rotation_rows = [
-        by_label[lbl] for lbl in ROTATION_LABELS_IN_DISPLAY_ORDER
-    ]
+    rotation_rows = [by_label[lbl] for lbl in ROTATION_LABELS_IN_DISPLAY_ORDER]
 
     home_norm = _norm(home)
     plus_x_norm = _norm(plus_x)
     plus_y_norm = _norm(plus_y)
 
-    show_winner = (
-        _is_rotation_label(selected_label) and (d4_accepted is True)
-    )
+    show_winner = _is_rotation_label(selected_label) and (d4_accepted is True)
 
     n_cols = len(rotation_rows)
     fig = plt.figure(figsize=(12, 6))
@@ -815,19 +797,26 @@ def plot_d4_candidates(
         dx_px_x = -pred_x[0] / pixel_size_um
         dy_px_x = -pred_x[1] / pixel_size_um
         corrected_x = shift_image_no_wrap(
-            plus_x_norm, dx_px=dx_px_x, dy_px=dy_px_x,
+            plus_x_norm,
+            dx_px=dx_px_x,
+            dy_px=dy_px_x,
         )
         dx_px_y = -pred_y[0] / pixel_size_um
         dy_px_y = -pred_y[1] / pixel_size_um
         corrected_y = shift_image_no_wrap(
-            plus_y_norm, dx_px=dx_px_y, dy_px=dy_px_y,
+            plus_y_norm,
+            dx_px=dx_px_y,
+            dy_px=dy_px_y,
         )
 
         axes = sub.subplots(
-            2, 1,
+            2,
+            1,
             gridspec_kw={
-                "top": 0.75, "bottom": 0.02,
-                "left": 0.06, "right": 0.98,
+                "top": 0.75,
+                "bottom": 0.02,
+                "left": 0.06,
+                "right": 0.98,
                 "hspace": 0.04,
             },
         )
@@ -845,14 +834,8 @@ def plot_d4_candidates(
 
     # Compose the global suptitle from workflow state. One line; do
     # not append residuals -- those live in each tile title.
-    is_reflection_reason = (
-        failure_reason is not None
-        and "reflection-free" in failure_reason
-    )
-    is_singular_reason = (
-        failure_reason is not None
-        and "singular" in failure_reason
-    )
+    is_reflection_reason = failure_reason is not None and "reflection-free" in failure_reason
+    is_singular_reason = failure_reason is not None and "singular" in failure_reason
     if show_winner:
         suptitle = f"Winner: {selected_label} (rotation)"
     elif is_reflection_reason:

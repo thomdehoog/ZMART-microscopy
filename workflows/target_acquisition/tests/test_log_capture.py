@@ -1,4 +1,5 @@
 """Tests for pipeline._log_capture -- per-kind console-log capture."""
+
 from __future__ import annotations
 
 import io
@@ -8,11 +9,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from shared.output_layout import build_layout
 from pipeline._log_capture import (
-    _Tee, _log_path_for, _logged,
-    capture_console, capture_console_deferred,
+    _log_path_for,
+    _logged,
+    _Tee,
+    capture_console,
+    capture_console_deferred,
 )
+from shared.output_layout import build_layout
 
 
 def _ctx_with_layout(tmp_path):
@@ -28,8 +32,7 @@ class TestCaptureConsole:
             print("hello-tee")
         text = log.read_text()
         assert "hello-tee" in text
-        assert re.search(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| hello-tee$",
-                         text, re.MULTILINE)
+        assert re.search(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| hello-tee$", text, re.MULTILINE)
         assert "hello-tee" in capsys.readouterr().out
 
     def test_stdout_restored_on_exit(self, tmp_path):
@@ -53,9 +56,9 @@ class TestCaptureConsole:
     def test_none_is_noop(self, tmp_path):
         before = sys.stdout
         with capture_console(None):
-            assert sys.stdout is before          # no stdout swap
+            assert sys.stdout is before  # no stdout swap
             print("x")
-        assert list(tmp_path.iterdir()) == []    # no file created
+        assert list(tmp_path.iterdir()) == []  # no file created
 
     def test_append_and_separator(self, tmp_path):
         log = tmp_path / "overview-scan.log"
@@ -70,13 +73,13 @@ class TestCaptureConsole:
     def test_reentrancy_guard_no_double_write(self, tmp_path):
         log = tmp_path / "k.log"
         with capture_console(log):
-            with capture_console(log):           # same path -> inner no-ops
+            with capture_console(log):  # same path -> inner no-ops
                 print("once")
         assert log.read_text().count("once") == 1
 
     def test_getattr_passthrough(self):
         orig = io.StringIO()
-        orig.custom_marker = "xyz"               # type: ignore[attr-defined]
+        orig.custom_marker = "xyz"  # type: ignore[attr-defined]
         tee = _Tee(orig, io.StringIO())
         assert tee.custom_marker == "xyz"
 
@@ -84,7 +87,7 @@ class TestCaptureConsole:
         f = io.StringIO()
         tee = _Tee(io.StringIO(), f)
         f.close()
-        tee.write("after close")                 # must not raise
+        tee.write("after close")  # must not raise
 
     def test_open_failure_is_best_effort(self, tmp_path, capsys):
         # tmp_path is a directory, so open(..., "a") raises OSError --
@@ -124,7 +127,7 @@ class TestLoggedDecorator:
 
         ctx = _ctx_with_layout(tmp_path)
         assert step(ctx) == 42
-        assert step.__name__ == "step"           # functools.wraps
+        assert step.__name__ == "step"  # functools.wraps
         assert step.__doc__ == "my docstring"
         log = ctx.run.layout.logs_dir("overview-scan") / "overview-scan.log"
         assert "step-ran" in log.read_text()
@@ -135,7 +138,7 @@ class TestLoggedDecorator:
             print("ran")
             return "ok"
 
-        assert step(MagicMock()) == "ok"         # no capture, no crash
+        assert step(MagicMock()) == "ok"  # no capture, no crash
 
     def test_ctx_arg_index_for_method(self, tmp_path):
         @_logged("initialization", ctx_arg=1)
@@ -156,7 +159,7 @@ class TestDeferredCapture:
             cap.bind(log)
             print("after-bind")
         text = log.read_text()
-        assert "before-bind" in text             # buffered, then flushed
+        assert "before-bind" in text  # buffered, then flushed
         assert "after-bind" in text
         assert "capture.start | kind=initialization" in text
 
@@ -167,7 +170,7 @@ class TestDeferredCapture:
 
     def test_bind_ignores_non_path(self, tmp_path):
         with capture_console_deferred() as cap:
-            cap.bind(MagicMock())                # mock path -> no-op, no crash
+            cap.bind(MagicMock())  # mock path -> no-op, no crash
             print("x")
         assert not any(tmp_path.rglob("*.log"))
 
@@ -189,6 +192,6 @@ class TestDeferredCapture:
         log = tmp_path / "init" / "initialization.log"
         with capture_console_deferred() as cap:
             cap.bind(log)
-            with capture_console(log):           # same path -> inner no-ops
+            with capture_console(log):  # same path -> inner no-ops
                 print("once-only")
         assert log.read_text().count("once-only") == 1

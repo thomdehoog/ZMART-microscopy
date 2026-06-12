@@ -3,6 +3,7 @@
 n_picks_* fields move from `summary["overview"]` to `summary["selection"]`.
 Other top-level keys must be preserved.
 """
+
 from __future__ import annotations
 
 import json
@@ -10,12 +11,14 @@ from pathlib import Path
 from unittest import mock
 
 import numpy as np
-import pytest
-
 from pipeline.context import LimitsContext
 from pipeline.overview import OverviewResult, Pick
 from pipeline.selection import (
-    MODE_NO_QUALIFYING, MODE_THRESHOLD, Picks, SelectionResult, select_targets,
+    MODE_NO_QUALIFYING,
+    MODE_THRESHOLD,
+    Picks,
+    SelectionResult,
+    select_targets,
 )
 from pipeline.summary import write_summary
 from support import minimal_calibration
@@ -39,6 +42,7 @@ def _build_ctx_like(out_dir: Path, *, scan_field=None):
     cfg.stage_y_max_um = None
     # asdict() walks fields via __dataclass_fields__, so use a real Config
     from pipeline.context import Config
+
     cfg = Config(
         acquisition_job="Overview",
         target_job="HiRes",
@@ -61,12 +65,17 @@ def _build_ctx_like(out_dir: Path, *, scan_field=None):
     ctx.cellpose_env_present = True
     ctx.stage_limits_source = "test"
     ctx.stage_limits = {
-        "x_min": 0.0, "x_max": 1000.0,
-        "y_min": 0.0, "y_max": 1000.0,
-        "z_galvo_min": -2.0, "z_galvo_max": 2.0,
-        "z_wide_min": 0.0, "z_wide_max": 100.0,
+        "x_min": 0.0,
+        "x_max": 1000.0,
+        "y_min": 0.0,
+        "y_max": 1000.0,
+        "z_galvo_min": -2.0,
+        "z_galvo_max": 2.0,
+        "z_wide_min": 0.0,
+        "z_wide_max": 100.0,
     }
     from pipeline.context import TargetState
+
     ctx.target_state = TargetState()
     return ctx
 
@@ -145,16 +154,23 @@ class TestSummarySchemaMigration:
     def test_pick_fields_moved_from_overview_to_selection(self, tmp_path):
         ctx = _build_ctx_like(tmp_path)
         write_summary(
-            ctx, _make_focus_map(),
-            _make_overview_result(), _make_picks(), _make_selection(),
+            ctx,
+            _make_focus_map(),
+            _make_overview_result(),
+            _make_picks(),
+            _make_selection(),
             records=[],
         )
         summary = json.loads((tmp_path / "run_summary.json").read_text())
 
         # overview block no longer has n_picks_* keys
-        for stale in ("n_picks_raw", "n_picks_removed_duplicate",
-                      "n_picks_out_of_limits_xy", "n_picks_out_of_limits_z",
-                      "n_picks_final"):
+        for stale in (
+            "n_picks_raw",
+            "n_picks_removed_duplicate",
+            "n_picks_out_of_limits_xy",
+            "n_picks_out_of_limits_z",
+            "n_picks_final",
+        ):
             assert stale not in summary["overview"], (
                 f"{stale} should have moved to summary['selection']"
             )
@@ -168,17 +184,31 @@ class TestSummarySchemaMigration:
     def test_top_level_keys_preserved(self, tmp_path):
         ctx = _build_ctx_like(tmp_path)
         write_summary(
-            ctx, _make_focus_map(),
-            _make_overview_result(), _make_picks(), _make_selection(),
+            ctx,
+            _make_focus_map(),
+            _make_overview_result(),
+            _make_picks(),
+            _make_selection(),
             records=[],
         )
         summary = json.loads((tmp_path / "run_summary.json").read_text())
 
-        for expected in ("schema_version", "timestamp", "config",
-                         "source_slot", "target_slot", "scan_field",
-                         "focus_map", "preflight", "overview", "selection",
-                         "removed_picks", "target_state", "picks",
-                         "targets"):
+        for expected in (
+            "schema_version",
+            "timestamp",
+            "config",
+            "source_slot",
+            "target_slot",
+            "scan_field",
+            "focus_map",
+            "preflight",
+            "overview",
+            "selection",
+            "removed_picks",
+            "target_state",
+            "picks",
+            "targets",
+        ):
             assert expected in summary, f"top-level key {expected!r} missing"
         assert summary["schema_version"] == 1
 
@@ -190,8 +220,11 @@ class TestSummarySchemaMigration:
         """
         ctx = _build_ctx_like(tmp_path)
         write_summary(
-            ctx, _make_focus_map(),
-            _make_overview_result(), _make_picks(), _make_selection(),
+            ctx,
+            _make_focus_map(),
+            _make_overview_result(),
+            _make_picks(),
+            _make_selection(),
             records=[],
         )
         summary = json.loads((tmp_path / "run_summary.json").read_text())
@@ -212,15 +245,18 @@ class TestSummarySchemaMigration:
         # n_tiles_submitted (2) - len(tile_acquire_failures) (1) = 1.
         # The test isn't about agreement; it's about NOT pulling from n_tiles.
         write_summary(
-            ctx, _make_focus_map(),
-            overview, _make_picks(), _make_selection(),
+            ctx,
+            _make_focus_map(),
+            overview,
+            _make_picks(),
+            _make_selection(),
             records=[],
         )
         summary = json.loads((tmp_path / "run_summary.json").read_text())
 
         assert summary["overview"]["n_tiles_planned"] == 3
         assert summary["overview"]["n_tiles_submitted"] == 2
-        assert summary["overview"]["n_tiles_acquired"] == 1   # submitted - acquire_failed
+        assert summary["overview"]["n_tiles_acquired"] == 1  # submitted - acquire_failed
         assert summary["overview"]["n_tiles_acquire_failed"] == 1
         assert summary["overview"]["completed"] is True
 
@@ -230,7 +266,9 @@ class TestSummarySchemaMigration:
 
 class TestSelectionJsonStrictness:
     def test_all_near_border_produces_json_strict_safe_thresholds(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         """All cells near-border -> n_eligible == 0 -> MODE_NO_QUALIFYING
         with 0.0 sentinel thresholds. Drive the full write_summary path
@@ -286,7 +324,8 @@ class TestSelectionJsonStrictness:
         )
 
         sel_picks, selection = select_targets(
-            overview, limits,
+            overview,
+            limits,
             border_margin_px=64,
             min_cells_for_threshold=10,
         )
@@ -301,14 +340,16 @@ class TestSelectionJsonStrictness:
         # End-to-end: write to disk, strict-parse the on-disk artifact.
         ctx = _build_ctx_like(tmp_path)
         out_path = write_summary(
-            ctx, _make_focus_map(), overview, sel_picks, selection,
+            ctx,
+            _make_focus_map(),
+            overview,
+            sel_picks,
+            selection,
             records=[],
         )
 
         def _reject_nonrfc(token):
-            raise ValueError(
-                f"non-RFC JSON token in {out_path.name}: {token!r}"
-            )
+            raise ValueError(f"non-RFC JSON token in {out_path.name}: {token!r}")
 
         text = out_path.read_text()
         summary = json.loads(text, parse_constant=_reject_nonrfc)

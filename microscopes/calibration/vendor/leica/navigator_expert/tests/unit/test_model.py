@@ -12,6 +12,7 @@ def _repo_root() -> Path:
 def _load_calibration_module():
     sys.path.insert(0, str(_repo_root()))
     import calibration.vendor.leica.navigator_expert.core.model as calibration
+
     return calibration
 
 
@@ -76,12 +77,19 @@ def test_translate_xy_uses_translation_xy():
     cfg = _config()
 
     target_xy = cal.translate_xy_between_objectives(
-        100.0, 200.0, cfg, from_slot=1, to_slot=2,
+        100.0,
+        200.0,
+        cfg,
+        from_slot=1,
+        to_slot=2,
     )
     assert target_xy == (94.0, 213.0)
 
     source_xy = cal.translate_xy_between_objectives(
-        *target_xy, cfg, from_slot=2, to_slot=1,
+        *target_xy,
+        cfg,
+        from_slot=2,
+        to_slot=1,
     )
     assert source_xy == (100.0, 200.0)
 
@@ -91,12 +99,18 @@ def test_translate_z_uses_translation_z():
     cfg = _config()
 
     z_target = cal.translate_z_between_objectives(
-        500.0, cfg, from_slot=1, to_slot=2,
+        500.0,
+        cfg,
+        from_slot=1,
+        to_slot=2,
     )
     assert z_target == 377.0
 
     z_back = cal.translate_z_between_objectives(
-        z_target, cfg, from_slot=2, to_slot=1,
+        z_target,
+        cfg,
+        from_slot=2,
+        to_slot=1,
     )
     assert z_back == 500.0
 
@@ -104,7 +118,12 @@ def test_translate_z_uses_translation_z():
 def test_translate_xyz_combines_xy_and_z():
     cal = _load_calibration_module()
     x, y, z = cal.translate_xyz_between_objectives(
-        100.0, 200.0, 500.0, _config(), from_slot=1, to_slot=2,
+        100.0,
+        200.0,
+        500.0,
+        _config(),
+        from_slot=1,
+        to_slot=2,
     )
     assert (x, y, z) == (94.0, 213.0, 377.0)
 
@@ -121,7 +140,8 @@ def test_set_reference_reorigins_all_translations():
 def test_pixel_to_stage_uses_image_to_stage_matrix():
     cal = _load_calibration_module()
     xy = cal.pixel_to_stage_xy_um(
-        60, 40,
+        60,
+        40,
         stage_xy_um=(100.0, 200.0),
         pixel_size_um=1.0,
         image_size=100,
@@ -148,7 +168,10 @@ def test_update_objective_writes_only_passed_fields():
     cal = _load_calibration_module()
     cfg = {"objectives": {}}
     cal.update_objective(
-        cfg, 2, name="tgt", translation_um=(9.5, -8.5, 1.25),
+        cfg,
+        2,
+        name="tgt",
+        translation_um=(9.5, -8.5, 1.25),
     )
     assert cfg["objectives"]["2"] == {
         "name": "tgt",

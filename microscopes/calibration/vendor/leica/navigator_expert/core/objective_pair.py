@@ -42,9 +42,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 import navigator_expert as drv
+import numpy as np
 from shared.algorithms import brenner, register_voting
 
 from . import model as calib
@@ -119,6 +118,7 @@ class ObjectivePairSession:
 # start_session
 # ---------------------------------------------------------------------
 
+
 def _load_image_to_stage(path: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(
@@ -153,9 +153,7 @@ def start_session(
     i2s = _load_image_to_stage(resolved_path)
 
     client = drv.connect_python_client()
-    stage_cfg = drv.load_stage_config(
-        limits_path=drv.default_stage_limits_path()
-    )
+    stage_cfg = drv.load_stage_config(limits_path=drv.default_stage_limits_path())
     drv.apply_stage_limits_from_config(stage_cfg)
     hw = drv.get_hardware_info(client, mode="api")
     if hw is None:
@@ -179,6 +177,7 @@ def start_session(
 # ---------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------
+
 
 def _f(v: Any) -> float | None:
     """Coerce to float; map None / NaN / inf to None for strict JSON."""
@@ -211,9 +210,7 @@ _STACK_LEADING_SLICES_TO_SKIP = 1
 _STACK_TRAILING_SLICES_TO_SKIP = 1
 _MIN_FIT_SAMPLES = 3
 _MIN_STACK_SECTIONS_FOR_FOCUS_FIT = (
-    _STACK_LEADING_SLICES_TO_SKIP
-    + _STACK_TRAILING_SLICES_TO_SKIP
-    + _MIN_FIT_SAMPLES
+    _STACK_LEADING_SLICES_TO_SKIP + _STACK_TRAILING_SLICES_TO_SKIP + _MIN_FIT_SAMPLES
 )
 
 
@@ -253,8 +250,7 @@ def _fit_focus_z(z_values: np.ndarray, scores: list[float]) -> float:
     return _parabolic_peak(z_values[lead:end], scores[lead:end], step)
 
 
-def _parabolic_peak(z_values: np.ndarray, scores: list[float],
-                    z_step_um: float) -> float:
+def _parabolic_peak(z_values: np.ndarray, scores: list[float], z_step_um: float) -> float:
     i_peak = int(np.argmax(scores))
     n = len(z_values)
     if i_peak == 0 or i_peak == n - 1:
@@ -271,7 +267,7 @@ def _parabolic_peak(z_values: np.ndarray, scores: list[float],
             "stack is not centered on the focal plane. Refocus and re-run."
         )
     s0, s1, s2 = scores[i_peak - 1], scores[i_peak], scores[i_peak + 1]
-    denom = (s0 - 2.0 * s1 + s2)
+    denom = s0 - 2.0 * s1 + s2
     if abs(denom) > 1e-12:
         delta = 0.5 * (s0 - s2) / denom
         return float(z_values[i_peak] + delta * z_step_um)
@@ -323,6 +319,7 @@ def _print_step5_summary(session, summary: dict) -> None:
 # rerun (plan Section 15 invariant). Each helper clears one cell's
 # outputs; each measure_* composes the helpers it needs.
 
+
 def _invalidate_staging_config(session: ObjectivePairSession) -> None:
     out = session.paths.configs_dir / session.objective_config_name
     if out.exists():
@@ -345,7 +342,9 @@ def _clear_parcentricity_target(session: ObjectivePairSession) -> None:
 
 
 def _clear_parfocality_target(
-    session: ObjectivePairSession, *, wipe_disk: bool,
+    session: ObjectivePairSession,
+    *,
+    wipe_disk: bool,
 ) -> None:
     session.z_post = None
     session.focus_z_target_um = None
@@ -366,7 +365,8 @@ def _clear_parfocality_target(
         # not an archive of every rerun. A smaller z-range rerun would
         # otherwise leave higher-index TIFFs from the previous run.
         shutil.rmtree(
-            session.paths.data_dir / "target_z_stack", ignore_errors=True,
+            session.paths.data_dir / "target_z_stack",
+            ignore_errors=True,
         )
 
 
@@ -379,7 +379,9 @@ def _clear_parcentricity_ref(session: ObjectivePairSession) -> None:
 
 
 def _clear_parfocality_reference(
-    session: ObjectivePairSession, *, wipe_disk: bool,
+    session: ObjectivePairSession,
+    *,
+    wipe_disk: bool,
 ) -> None:
     session.ref_z_stack = None
     session.ref_z_positions_um = None
@@ -393,13 +395,15 @@ def _clear_parfocality_reference(
             del session.exported_files[key]
     if wipe_disk:
         shutil.rmtree(
-            session.paths.data_dir / "ref_z_stack", ignore_errors=True,
+            session.paths.data_dir / "ref_z_stack",
+            ignore_errors=True,
         )
 
 
 # ---------------------------------------------------------------------
 # measure_parfocality_reference
 # ---------------------------------------------------------------------
+
 
 def measure_parfocality_reference(
     session: ObjectivePairSession,
@@ -438,7 +442,8 @@ def measure_parfocality_reference(
     session.ref_z_stack = stack
 
     positions = read_stack_z_positions(
-        session.client, session.job_name,
+        session.client,
+        session.job_name,
         expected_slices=int(stack.shape[0]),
         override=z_positions_um,
     )
@@ -465,6 +470,7 @@ def measure_parfocality_reference(
         display(fig)
     try:
         import matplotlib.pyplot as _plt
+
         _plt.close(fig)
     except Exception:
         pass
@@ -481,6 +487,7 @@ def measure_parfocality_reference(
 # measure_parfocality_target
 # ---------------------------------------------------------------------
 
+
 def measure_parfocality_target(
     session: ObjectivePairSession,
     *,
@@ -488,8 +495,7 @@ def measure_parfocality_target(
 ) -> ObjectivePairSession:
     if session.focus_z_ref_um is None:
         raise RuntimeError(
-            "measure_parfocality_reference must run before "
-            "measure_parfocality_target"
+            "measure_parfocality_reference must run before measure_parfocality_target"
         )
 
     # A 2b rerun changes translation_z_um (which 3b uses to park
@@ -517,7 +523,8 @@ def measure_parfocality_target(
     session.target_z_stack = stack
 
     positions = read_stack_z_positions(
-        session.client, session.job_name,
+        session.client,
+        session.job_name,
         expected_slices=int(stack.shape[0]),
         override=z_positions_um,
     )
@@ -548,15 +555,13 @@ def measure_parfocality_target(
         display(fig)
     try:
         import matplotlib.pyplot as _plt
+
         _plt.close(fig)
     except Exception:
         pass
 
     print(f"Target focus: z = {focus_z:.2f} um")
-    print(
-        f"  z translation: {session.translation_z_um:+.2f} um  "
-        f"(target - reference)"
-    )
+    print(f"  z translation: {session.translation_z_um:+.2f} um  (target - reference)")
     print(f"    motor shift: {session.motor_shift_z_um:+.2f} um")
     print(f"    correction:  {session.correction_z_um:+.2f} um")
     return session
@@ -566,13 +571,13 @@ def measure_parfocality_target(
 # measure_parcentricity_reference
 # ---------------------------------------------------------------------
 
+
 def measure_parcentricity_reference(
     session: ObjectivePairSession,
 ) -> ObjectivePairSession:
     if session.home_xy is None or session.focus_z_ref_um is None:
         raise RuntimeError(
-            "measure_parfocality_reference must run before "
-            "measure_parcentricity_reference"
+            "measure_parfocality_reference must run before measure_parcentricity_reference"
         )
 
     # A 3a rerun replaces ref_image, against which 3b registers. The
@@ -587,7 +592,9 @@ def measure_parcentricity_reference(
     # Park z-wide at the reference Brenner focus (measured in Step 2)
     # so the XY image is acquired at the best ref-objective focus.
     move_zwide_and_verify(
-        session.client, session.job_name, session.focus_z_ref_um,
+        session.client,
+        session.job_name,
+        session.focus_z_ref_um,
     )
 
     ref_image = acquire_frame_to(session, "ref_xy")
@@ -599,10 +606,7 @@ def measure_parcentricity_reference(
     geom = read_job_geometry(session.client, session.job_name, ref_image)
     session.ref_xy_pixel_size_um = float(geom.pixel_size_um)
 
-    print(
-        f"Reference XY image acquired.  "
-        f"pixel size = {session.ref_xy_pixel_size_um:.4f} um"
-    )
+    print(f"Reference XY image acquired.  pixel size = {session.ref_xy_pixel_size_um:.4f} um")
     return session
 
 
@@ -610,24 +614,21 @@ def measure_parcentricity_reference(
 # measure_parcentricity_target_and_save
 # ---------------------------------------------------------------------
 
+
 def measure_parcentricity_target_and_save(
     session: ObjectivePairSession,
 ) -> dict:
     if session.home_xy is None or session.focus_z_ref_um is None:
         raise RuntimeError(
-            "measure_parfocality_reference must run before "
-            "measure_parcentricity_target_and_save"
+            "measure_parfocality_reference must run before measure_parcentricity_target_and_save"
         )
     if session.ref_image is None:
         raise RuntimeError(
-            "measure_parcentricity_reference must run before "
-            "measure_parcentricity_target_and_save"
+            "measure_parcentricity_reference must run before measure_parcentricity_target_and_save"
         )
-    if (session.focus_z_target_um is None
-            or session.translation_z_um is None):
+    if session.focus_z_target_um is None or session.translation_z_um is None:
         raise RuntimeError(
-            "measure_parfocality_target must run before "
-            "measure_parcentricity_target_and_save"
+            "measure_parfocality_target must run before measure_parcentricity_target_and_save"
         )
 
     # Reset this step's outputs.
@@ -668,7 +669,9 @@ def measure_parcentricity_target_and_save(
     # Park z-wide at the target Brenner focus (measured in Step 3) so
     # the XY image is acquired at the best target-objective focus.
     move_zwide_and_verify(
-        session.client, session.job_name, session.focus_z_target_um,
+        session.client,
+        session.job_name,
+        session.focus_z_target_um,
     )
 
     # IMPORTANT: do NOT return to home_xy. We measure at the post-switch
@@ -689,10 +692,9 @@ def measure_parcentricity_target_and_save(
         )
     geom = read_job_geometry(session.client, session.job_name, target_image)
     target_pixel_size = float(geom.pixel_size_um)
-    if (session.ref_xy_pixel_size_um is None
-            or not np.isclose(
-                target_pixel_size, session.ref_xy_pixel_size_um,
-                rtol=0, atol=1e-9)):
+    if session.ref_xy_pixel_size_um is None or not np.isclose(
+        target_pixel_size, session.ref_xy_pixel_size_um, rtol=0, atol=1e-9
+    ):
         raise ValueError(
             f"target XY pixel size {target_pixel_size} um does not match "
             f"reference pixel size {session.ref_xy_pixel_size_um} um. "
@@ -701,7 +703,8 @@ def measure_parcentricity_target_and_save(
     pixel_size_um = session.ref_xy_pixel_size_um
 
     vote = register_voting(
-        session.ref_image, target_image,
+        session.ref_image,
+        target_image,
         pixel_size_um,
     )
     session.registration = vote
@@ -709,30 +712,28 @@ def measure_parcentricity_target_and_save(
     config_written = False
     if vote.get("trusted"):
         image_shift = np.array(
-            [float(vote["dx_um"]), float(vote["dy_um"])], dtype=float,
+            [float(vote["dx_um"]), float(vote["dy_um"])],
+            dtype=float,
         )
         correction_xy = session.image_to_stage @ image_shift
-        translation_xy = (
-            np.asarray(session.motor_shift_xy_um, dtype=float) + correction_xy
-        )
+        translation_xy = np.asarray(session.motor_shift_xy_um, dtype=float) + correction_xy
         session.correction_xy_um = (
-            float(correction_xy[0]), float(correction_xy[1]),
+            float(correction_xy[0]),
+            float(correction_xy[1]),
         )
         session.translation_xy_um = (
-            float(translation_xy[0]), float(translation_xy[1]),
+            float(translation_xy[0]),
+            float(translation_xy[1]),
         )
         config_written = True
     else:
         session.failure_reason = "voting registration not trusted"
 
-    overlay_shift = (
-        (float(vote["dx_um"]), float(vote["dy_um"]))
-        if vote.get("trusted") else None
-    )
+    overlay_shift = (float(vote["dx_um"]), float(vote["dy_um"])) if vote.get("trusted") else None
     fig = plot_overlay(
-        session.ref_image, target_image,
-        f"objective {session.from_objective} -> {session.to_objective}: "
-        "ref vs target XY",
+        session.ref_image,
+        target_image,
+        f"objective {session.from_objective} -> {session.to_objective}: ref vs target XY",
         shift_um=overlay_shift,
         pixel_size_um=pixel_size_um,
     )
@@ -740,6 +741,7 @@ def measure_parcentricity_target_and_save(
         display(fig)
     try:
         import matplotlib.pyplot as _plt
+
         _plt.close(fig)
     except Exception:
         pass
@@ -779,8 +781,7 @@ def measure_parcentricity_target_and_save(
         z_dir = session.paths.data_dir / dirname
         if z_dir.exists():
             images[dirname] = (
-                str(z_dir.relative_to(session.paths.session_dir))
-                .replace("\\", "/") + "/"
+                str(z_dir.relative_to(session.paths.session_dir)).replace("\\", "/") + "/"
             )
 
     # source_calibration_file: record the absolute source we actually
@@ -804,33 +805,30 @@ def measure_parcentricity_target_and_save(
         "xy_post_um": [_f(session.xy_post[0]), _f(session.xy_post[1])],
         "z_post_um": _f(session.z_post),
         "focus_z_target_um": _f(session.focus_z_target_um),
-        "motor_shift_xy_um": [_f(session.motor_shift_xy_um[0]),
-                              _f(session.motor_shift_xy_um[1])],
+        "motor_shift_xy_um": [_f(session.motor_shift_xy_um[0]), _f(session.motor_shift_xy_um[1])],
         "motor_shift_z_um": _f(session.motor_shift_z_um),
         "correction_xy_um": (
             [_f(session.correction_xy_um[0]), _f(session.correction_xy_um[1])]
-            if session.correction_xy_um is not None else None
+            if session.correction_xy_um is not None
+            else None
         ),
         "correction_z_um": _f(session.correction_z_um),
         "translation_xy_um": (
             [_f(session.translation_xy_um[0]), _f(session.translation_xy_um[1])]
-            if session.translation_xy_um is not None else None
+            if session.translation_xy_um is not None
+            else None
         ),
         "translation_z_um": _f(session.translation_z_um),
         "registration": _registration_for_report(vote),
         "brenner_ref": {
             "peak_z_um": _f(session.focus_z_ref_um),
             "scores": [_f(s) for s in (session.ref_z_brenner or [])],
-            "z_positions_um": [
-                _f(z) for z in (session.ref_z_positions_um or [])
-            ],
+            "z_positions_um": [_f(z) for z in (session.ref_z_positions_um or [])],
         },
         "brenner_target": {
             "peak_z_um": _f(session.focus_z_target_um),
             "scores": [_f(s) for s in (session.target_z_brenner or [])],
-            "z_positions_um": [
-                _f(z) for z in (session.target_z_positions_um or [])
-            ],
+            "z_positions_um": [_f(z) for z in (session.target_z_positions_um or [])],
         },
         "images": images,
     }
@@ -850,17 +848,18 @@ def measure_parcentricity_target_and_save(
         "report_path": str(report_out),
         "from_objective": session.from_objective,
         "to_objective": session.to_objective,
-        "motor_shift_xy_um": [_f(session.motor_shift_xy_um[0]),
-                              _f(session.motor_shift_xy_um[1])],
+        "motor_shift_xy_um": [_f(session.motor_shift_xy_um[0]), _f(session.motor_shift_xy_um[1])],
         "motor_shift_z_um": _f(session.motor_shift_z_um),
         "correction_xy_um": (
             [_f(session.correction_xy_um[0]), _f(session.correction_xy_um[1])]
-            if session.correction_xy_um is not None else None
+            if session.correction_xy_um is not None
+            else None
         ),
         "correction_z_um": _f(session.correction_z_um),
         "translation_xy_um": (
             [_f(session.translation_xy_um[0]), _f(session.translation_xy_um[1])]
-            if session.translation_xy_um is not None else None
+            if session.translation_xy_um is not None
+            else None
         ),
         "translation_z_um": _f(session.translation_z_um),
         "focus_z_ref_um": _f(session.focus_z_ref_um),

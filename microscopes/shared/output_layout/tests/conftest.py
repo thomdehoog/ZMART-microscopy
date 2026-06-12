@@ -1,4 +1,5 @@
 """Add repo root to sys.path so `from shared.output_layout import ...` resolves."""
+
 import sys
 from pathlib import Path
 

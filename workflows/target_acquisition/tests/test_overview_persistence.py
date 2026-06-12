@@ -4,31 +4,34 @@ These tests exercise the persistence layer in isolation -- no hardware,
 no full run_overview. The same-kernel == load_overview_result invariant
 is enforced at the building-block level here.
 """
+
 from __future__ import annotations
 
 import ast
-import json
 from pathlib import Path
-from unittest import mock
 
 import numpy as np
 import pytest
-
 from pipeline.overview import (
-    OverviewResult,
     Pick,
     _build_npz_extra_arrays,
     _picks_from_result,
     _save_single_tile_analysis,
     _write_overview_meta,
 )
-from pipeline.selection import Picks, load_overview_result
+from pipeline.selection import load_overview_result
 
 
 def _make_pick(
-    rid="0", row=0, col=0, label=1,
+    rid="0",
+    row=0,
+    col=0,
+    label=1,
     *,
-    area=42, intensity=100.0, x_um=10.0, y_um=20.0,
+    area=42,
+    intensity=100.0,
+    x_um=10.0,
+    y_um=20.0,
 ) -> Pick:
     return Pick(
         pick_id=(rid, row, col, label),
@@ -101,7 +104,8 @@ def _save_tile_with_picks(
     analysis_dir.mkdir(parents=True, exist_ok=True)
     tile_picks = _picks_from_result(result)
     return _save_single_tile_analysis(
-        result, analysis_dir,
+        result,
+        analysis_dir,
         hash6=hash6,
         acquisition_type="overview-scan",
         extra_arrays=_build_npz_extra_arrays(tile_picks),
@@ -142,7 +146,7 @@ class TestPicksRoundtripThroughNPZ:
         # Full reconstruction via load_overview_result
         ov = load_overview_result(analysis_dir)
         assert len(ov.all_picks) == 3
-        for orig, loaded in zip(picks, ov.all_picks):
+        for orig, loaded in zip(picks, ov.all_picks, strict=False):
             assert orig.pick_id == loaded.pick_id
             assert orig.tile_stage_xy_um == loaded.tile_stage_xy_um
             assert orig.bbox_px == loaded.bbox_px
@@ -192,7 +196,9 @@ class TestEmptyTileNPZHasCorrectShapes:
 
 class TestLoadOverviewResultSkipsOldSchema:
     def test_v1_files_excluded_from_picks_and_tile_cell_counts(
-        self, tmp_path, capsys,
+        self,
+        tmp_path,
+        capsys,
     ):
         """NPZs without schema_version must NOT contribute to
         either the picks list or tile_cell_counts. Loader warns per file."""
@@ -209,7 +215,8 @@ class TestLoadOverviewResultSkipsOldSchema:
 
         # v2 NPZ with 1 pick
         result = _make_result(
-            tile_id=("0", 1, 1), naming_p=1,
+            tile_id=("0", 1, 1),
+            naming_p=1,
             picks=[_make_pick(rid="0", row=1, col=1, label=5)],
         )
         assert _save_tile_with_picks(analysis_dir, result)
@@ -219,7 +226,7 @@ class TestLoadOverviewResultSkipsOldSchema:
         assert len(ov.all_picks) == 1
         assert ov.all_picks[0].pick_id == ("0", 1, 1, 5)
         assert ov.tile_cell_counts == {("0", 1, 1): 1}
-        assert ov.n_tiles == 1   # v1 file did NOT inflate count
+        assert ov.n_tiles == 1  # v1 file did NOT inflate count
 
         out = capsys.readouterr().out
         assert "missing schema_version" in out
@@ -231,16 +238,19 @@ class TestLoadOverviewResultPopulatesTileCellCounts:
         # tile A: 5 picks
         a_picks = [_make_pick(rid="0", row=0, col=0, label=i) for i in range(1, 6)]
         _save_tile_with_picks(
-            analysis_dir, _make_result(tile_id=("0", 0, 0), naming_p=0, picks=a_picks),
+            analysis_dir,
+            _make_result(tile_id=("0", 0, 0), naming_p=0, picks=a_picks),
         )
         # tile B: 0 picks
         _save_tile_with_picks(
-            analysis_dir, _make_result(tile_id=("0", 0, 1), naming_p=1, picks=[]),
+            analysis_dir,
+            _make_result(tile_id=("0", 0, 1), naming_p=1, picks=[]),
         )
         # tile C: 12 picks
         c_picks = [_make_pick(rid="0", row=1, col=0, label=i) for i in range(1, 13)]
         _save_tile_with_picks(
-            analysis_dir, _make_result(tile_id=("0", 1, 0), naming_p=2, picks=c_picks),
+            analysis_dir,
+            _make_result(tile_id=("0", 1, 0), naming_p=2, picks=c_picks),
         )
 
         ov = load_overview_result(analysis_dir)
@@ -298,7 +308,8 @@ class TestOverviewMetaCorruptJsonTolerated:
 
         # Write a valid v2 NPZ
         result = _make_result(
-            tile_id=("0", 0, 0), naming_p=0,
+            tile_id=("0", 0, 0),
+            naming_p=0,
             picks=[_make_pick(rid="0", row=0, col=0, label=1)],
         )
         _save_tile_with_picks(analysis_dir, result)
@@ -324,7 +335,8 @@ class TestOverviewMetaMissingMarkedIncomplete:
     def test_missing_meta_warns_and_loads_npz_only(self, tmp_path, capsys):
         analysis_dir = tmp_path / "analysis"
         result = _make_result(
-            tile_id=("0", 0, 0), naming_p=0,
+            tile_id=("0", 0, 0),
+            naming_p=0,
             picks=[_make_pick(rid="0", row=0, col=0, label=1)],
         )
         _save_tile_with_picks(analysis_dir, result)
@@ -376,7 +388,8 @@ class TestPositionRoundtripThroughNPZ:
 
     def test_picks_from_result_carries_naming_p(self):
         result = _make_result(
-            tile_id=("0", 0, 0), naming_p=7,
+            tile_id=("0", 0, 0),
+            naming_p=7,
             picks=[_make_pick(label=1), _make_pick(label=2)],
         )
         picks = _picks_from_result(result)
@@ -385,13 +398,14 @@ class TestPositionRoundtripThroughNPZ:
     def test_position_round_trips_npz_to_load_overview_result(self, tmp_path):
         analysis_dir = tmp_path / "analysis"
         result = _make_result(
-            tile_id=("0", 0, 0), naming_p=41, picks=[_make_pick(label=1)],
+            tile_id=("0", 0, 0),
+            naming_p=41,
+            picks=[_make_pick(label=1)],
         )
         assert _save_tile_with_picks(analysis_dir, result)
         ov = load_overview_result(analysis_dir)
         assert len(ov.all_picks) == 1
         assert ov.all_picks[0].position == 41
-
 
 
 # analysis_image_source removal -- structural test
@@ -423,9 +437,11 @@ class TestAnalysisImageSourceSingleTrace:
 
     # Files (relative to the target_acquisition root) allowed to mention the
     # identifier in active code. Only this structural test is allowed.
-    ALLOWLIST = frozenset({
-        "target_acquisition/tests/test_overview_persistence.py",  # this test file
-    })
+    ALLOWLIST = frozenset(
+        {
+            "target_acquisition/tests/test_overview_persistence.py",  # this test file
+        }
+    )
 
     _TARGET = "analysis_image_source"
 
@@ -436,14 +452,17 @@ class TestAnalysisImageSourceSingleTrace:
         Constant)."""
         ids: set[int] = set()
         for scope in [tree] + [
-            n for n in ast.walk(tree)
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
-                              ast.ClassDef, ast.Module))
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module))
         ]:
             body = getattr(scope, "body", None)
-            if (body and isinstance(body[0], ast.Expr)
-                    and isinstance(body[0].value, ast.Constant)
-                    and isinstance(body[0].value.value, str)):
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
                 ids.add(id(body[0].value))
         return ids
 
@@ -477,14 +496,13 @@ class TestAnalysisImageSourceSingleTrace:
                 refs.append(f"line {node.lineno}: kwarg `{cls._TARGET}=`")
             elif isinstance(node, ast.arg) and node.arg == cls._TARGET:
                 refs.append(f"line {node.lineno}: parameter `{cls._TARGET}`")
-            elif (isinstance(node, ast.Constant)
-                  and isinstance(node.value, str)
-                  and cls._TARGET in node.value
-                  and id(node) not in docstrings):
-                refs.append(
-                    f"line {node.lineno}: string literal "
-                    f"{node.value!r}"
-                )
+            elif (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and cls._TARGET in node.value
+                and id(node) not in docstrings
+            ):
+                refs.append(f"line {node.lineno}: string literal {node.value!r}")
         return refs
 
     def test_only_this_structural_test_uses_field(self):
@@ -506,7 +524,7 @@ class TestAnalysisImageSourceSingleTrace:
             f"Found additional code references:\n\n"
             + "\n\n".join(offenders)
             + "\n\nThe hijack (cfg.simulate) is the single dry-run "
-              "mechanism. Comments and docstrings explaining the "
-              "removal are fine -- this test ignores them. Do not "
-              "re-introduce the field as active code."
+            "mechanism. Comments and docstrings explaining the "
+            "removal are fine -- this test ignores them. Do not "
+            "re-introduce the field as active code."
         )

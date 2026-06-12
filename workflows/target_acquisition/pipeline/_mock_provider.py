@@ -34,12 +34,13 @@ missing source overview file for the target provider) raise as
 ``RuntimeError``/``OSError`` -- per-tile, never
 ``NonSimulatorFrameError``.
 """
+
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
-
 from shared.output_layout import Naming, build_image_name
 
 from ._geom import crop_overview_at_target_fov
@@ -50,13 +51,15 @@ def get_provider(name: str) -> Callable:
     if name == "skimage_human_mitosis":
         return _skimage_human_mitosis
     raise ValueError(
-        f"Unknown mock_image_source: {name!r}. "
-        f"Known providers: skimage_human_mitosis."
+        f"Unknown mock_image_source: {name!r}. Known providers: skimage_human_mitosis."
     )
 
 
 def _skimage_human_mitosis(
-    shape: tuple, dtype, *, naming,
+    shape: tuple,
+    dtype,
+    *,
+    naming,
 ) -> np.ndarray:
     """Tile skimage's human_mitosis() image by (g, p), cropped to
     `shape` and cast to `dtype`. Deterministic from (naming.g, naming.p).
@@ -65,7 +68,7 @@ def _skimage_human_mitosis(
     # is actually selected.
     from skimage.data import human_mitosis
 
-    src = human_mitosis()                    # uint8, typically 512x512
+    src = human_mitosis()  # uint8, typically 512x512
     sh, sw = src.shape
     th, tw = shape[:2]
     g, p = int(naming.g), int(naming.p)
@@ -75,7 +78,7 @@ def _skimage_human_mitosis(
     # only "different tiles get different content".
     y0 = ((g * 41 + p * 17) * th) % max(1, sh - th + 1) if sh > th else 0
     x0 = ((g * 73 + p * 29) * tw) % max(1, sw - tw + 1) if sw > tw else 0
-    tile = src[y0:y0 + th, x0:x0 + tw]
+    tile = src[y0 : y0 + th, x0 : x0 + tw]
 
     # If the source is smaller than the target in either dim, repeat.
     if tile.shape[0] < th or tile.shape[1] < tw:
@@ -161,10 +164,7 @@ def build_target_provider(
             g=int(pick.pick_id[0]),
             p=int(pick.position),
         )
-        overview_path = (
-            layout.data_dir("overview-scan")
-            / build_image_name(overview_naming)
-        )
+        overview_path = layout.data_dir("overview-scan") / build_image_name(overview_naming)
 
         # Lazy: tifffile + skimage.transform are both lazy-imported so
         # the cost is paid only when simulation mode actually fires.
@@ -215,9 +215,11 @@ def build_target_provider(
         # preserve_range=True keeps intensity values in their original
         # numeric range rather than skimage's default [0, 1].
         mock = resize(
-            crop, (int(shape[0]), int(shape[1])),
+            crop,
+            (int(shape[0]), int(shape[1])),
             order=0,
-            preserve_range=True, anti_aliasing=False,
+            preserve_range=True,
+            anti_aliasing=False,
         )
         return mock.astype(dtype)
 

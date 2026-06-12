@@ -69,9 +69,8 @@ def _is_current_limits(limits_path: Path) -> bool:
 
 
 def _is_target_state(calibration: dict[str, Any], limits_path: Path) -> bool:
-    return (
-        calibration.get("schema_version") == TARGET_CALIBRATION_SCHEMA
-        and _is_current_limits(limits_path)
+    return calibration.get("schema_version") == TARGET_CALIBRATION_SCHEMA and _is_current_limits(
+        limits_path
     )
 
 
@@ -91,10 +90,7 @@ def _reference_slot_from_data(calibration: dict[str, Any]) -> int:
         if all(float(v) == 0.0 for v in value):
             refs.append(int(slot))
     if len(refs) != 1:
-        raise ValueError(
-            "expected exactly one zero-translation reference slot, "
-            f"found {refs}"
-        )
+        raise ValueError(f"expected exactly one zero-translation reference slot, found {refs}")
     return refs[0]
 
 
@@ -112,8 +108,7 @@ def build_v11_calibration(
         )
     if stage_v1.get("schema_version") != SOURCE_STAGE_SCHEMA:
         raise ValueError(
-            f"expected stage schema v{SOURCE_STAGE_SCHEMA}, got "
-            f"{stage_v1.get('schema_version')!r}"
+            f"expected stage schema v{SOURCE_STAGE_SCHEMA}, got {stage_v1.get('schema_version')!r}"
         )
     if "limits_um" not in stage_v1 or "backlash" not in stage_v1:
         raise ValueError("stage.json must contain limits_um and backlash")
@@ -129,9 +124,7 @@ def build_v11_calibration(
     payload = {
         "schema_version": TARGET_CALIBRATION_SCHEMA,
         "last_updated": timestamp or now_timestamp(),
-        "reference_objective_slot": int(
-            calibration_v9["reference_objective_slot"]
-        ),
+        "reference_objective_slot": int(calibration_v9["reference_objective_slot"]),
         "image_to_stage": {
             "matrix": calibration_v9["image_to_stage"],
             "session_id": None,
@@ -156,8 +149,7 @@ def build_limits_v1(stage_v1: dict[str, Any]) -> dict[str, Any]:
     """Build the limits payload from legacy stage.json."""
     if stage_v1.get("schema_version") != SOURCE_STAGE_SCHEMA:
         raise ValueError(
-            f"expected stage schema v{SOURCE_STAGE_SCHEMA}, got "
-            f"{stage_v1.get('schema_version')!r}"
+            f"expected stage schema v{SOURCE_STAGE_SCHEMA}, got {stage_v1.get('schema_version')!r}"
         )
     return {
         "schema_version": TARGET_LIMITS_SCHEMA,
@@ -174,9 +166,7 @@ def migrate(
     root = Path(root) if root is not None else current_root()
     calibration_path = root / "calibration.json"
     stage_path = root / "stage.json"
-    selected_limits_path = (
-        Path(limits_path) if limits_path is not None else current_limits_path()
-    )
+    selected_limits_path = Path(limits_path) if limits_path is not None else current_limits_path()
 
     calibration = _read_json(calibration_path)
     if _is_target_state(calibration, selected_limits_path):
@@ -217,8 +207,7 @@ def migrate(
         )
     if not stage_path.exists():
         raise FileNotFoundError(
-            f"cannot migrate calibration schema v{SOURCE_CALIBRATION_SCHEMA}: "
-            f"missing {stage_path}"
+            f"cannot migrate calibration schema v{SOURCE_CALIBRATION_SCHEMA}: missing {stage_path}"
         )
 
     stage = _read_json(stage_path)

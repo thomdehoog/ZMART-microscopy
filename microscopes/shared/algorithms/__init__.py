@@ -26,20 +26,30 @@ from .registration import (
     orb_ransac,
     pcc,
     prepare_pair,
-    register_voting,
     register_phase,
+    register_voting,
 )
 
 __all__ = [
     # registration — sign convention
-    "D4_ELEMENTS", "D4_RESIDUAL_MAX", "classify_d4",
+    "D4_ELEMENTS",
+    "D4_RESIDUAL_MAX",
+    "classify_d4",
     # registration — methods + voting
-    "VOTING_METHODS", "VOTING_MIN_AGREE", "VOTING_TOLERANCE_UM",
+    "VOTING_METHODS",
+    "VOTING_MIN_AGREE",
+    "VOTING_TOLERANCE_UM",
     "MASK_PCT_DEFAULT",
-    "pcc", "masked_pcc", "ncc", "orb_ransac",
-    "register_voting", "register_phase",
+    "pcc",
+    "masked_pcc",
+    "ncc",
+    "orb_ransac",
+    "register_voting",
+    "register_phase",
     # registration — pair preparation for cross-magnification voting
     "prepare_pair",
     # focus
-    "brenner", "brenner_focus", "subpixel_peak",
+    "brenner",
+    "brenner_focus",
+    "subpixel_peak",
 ]

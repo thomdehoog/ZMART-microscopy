@@ -39,7 +39,7 @@ driver, calibration, limits, or workflow folders.
 The current repository already has the pieces this layer should eventually
 connect:
 
-- `microscopes/driver/vendor/leica/navigator_expert/` contains the tested Leica
+- `microscopes/drivers/vendor/leica/navigator_expert/` contains the tested Leica
   integration.
 - `microscopes/calibration/` contains microscope-specific calibration logic.
 - `microscopes/limits/` contains safety-limit data and helpers.

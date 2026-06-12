@@ -15,7 +15,7 @@ extend-exclude = [
 
 [tool.ruff.lint]
 # Conservative starter set. Add rule families incrementally as the
-# baseline shrinks. ruff check is report-only by default — pass --fix
+# baseline shrinks. ruff check is report-only by default; pass --fix
 # explicitly to apply autofixes.
 select = [
     "E",   # pycodestyle errors

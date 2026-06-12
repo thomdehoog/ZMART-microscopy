@@ -1,95 +1,81 @@
 # SMART Microscopy
 
-Implementations for smart microscopy: microscope integrations that put the instrument
-under programmatic control, and workflows that use that control to analyze data and
-make acquisition decisions during an experiment rather than after it.
+This repository contains implementations for smart microscopy: microscope
+integrations that put an instrument under programmatic control, and workflows
+that use that control to analyze data and make acquisition decisions during an
+experiment.
 
-The repository has two roots:
+The repository has two main roots:
 
-- `microscopes/` — everything that talks to a microscope: vendor drivers, calibration,
-  safety limits, and shared microscope-facing utilities.
-- `workflows/` — the smart-microscopy workflows built on that control. The first (and
-  currently only) one is `workflows/target_acquisition/`: acquire an overview, select
-  targets by analysis, re-acquire them at high resolution.
+- `microscopes/` contains microscope-facing code: vendor drivers, calibration,
+  safety limits, shared utilities, and the microscope-agnostic layer.
+- `workflows/` contains smart-microscopy workflows. The current workflow is
+  `workflows/target_acquisition/`.
 
 ```text
 microscopes/
-  driver/vendor/leica/navigator_expert/   Leica LAS X driver (commands, state readers,
-                                          scan fields, acquisition, stage)
-  calibration/vendor/leica/...            objective-pair and image-to-stage calibration
-  limits/                                 stage safety envelopes
-  shared/                                 focus/registration algorithms, output naming
-  microscope_agnostic_layer/              reserved for cross-vendor abstractions
-  docs/                                   design notes and validation reports (see index)
+  drivers/vendor/leica/navigator_expert/   Leica LAS X Navigator Expert driver
+  calibration/vendor/leica/...             Leica calibration notebooks and code
+  limits/                                  safety-limit data and helpers
+  shared/                                  vendor-independent utilities
+  microscope_agnostic_layer/               cross-vendor layer, under construction
 workflows/
-  target_acquisition/                     operator notebook + pipeline + tests
+  target_acquisition/                      operator notebook, pipeline, tests
 ```
 
-## Status and scope
+## Current Status
 
-The **Leica Navigator Expert driver is the production-tested path**: it runs against
-the LAS X simulator and a real Leica STELLARIS, and its behavior is backed by committed
-validation evidence (below). The microscope-agnostic layer is intentionally empty —
-code moves there only once it is genuinely useful across vendors.
+The Leica Navigator Expert driver is the production-tested path. It has been
+validated against the LAS X simulator and a real Leica STELLARIS. The
+microscope-agnostic layer is still under construction; workflow code currently
+uses the Leica driver path directly through local bootstrap modules.
 
-The repository is not yet pip-installable; imports are wired through small
-`_bootstrap.py` shims next to the notebooks and pipelines.
+The repository is source-checkout based for now, not pip-installable.
 
-## Reading microscope state: api / log / hybrid
+## State Readers
 
-LAS X state can be read through three reader families:
+The Leica driver exposes three reader families:
 
-- `api` — the CAM/PyAPI readback;
-- `log` — a passive mirror built from LAS X log files;
-- `hybrid` — both, raced per confirmation, where the **first admissible evidence
-  wins** (a stale API readback that already showed the target before the command
-  cannot confirm that command).
+- `api`: CAM/PyAPI readback only.
+- `log`: LAS X log-derived state only.
+- `hybrid`: both sources participate where available; command confirmation
+  accepts the first admissible evidence.
 
-Hybrid is the default for selected-job confirmation because measurement showed each
-single source failing differently: on the real scope's 10-position XY validation,
-hybrid passed with zero failures while api-only and log-only each failed in
-environment-specific ways. The full matrices are in
-[`microscopes/docs/`](microscopes/docs/README.md):
+Hybrid is the default for selected-job confirmation. This is deliberate: API
+and log can each fail differently, so the driver treats source disagreement as
+diagnostic evidence instead of silently hiding it.
 
-- [simulator validation](microscopes/docs/READER_VALIDATION_SIMULATOR_20260611.md)
-- [real-scope validation](microscopes/docs/READER_VALIDATION_REAL_SCOPE_20260611.md)
-- [real-scope 10-XY hybrid matrix](microscopes/docs/READER_VALIDATION_REAL_SCOPE_20260611_HYBRID_MATRIX.md)
-- [design rationale](microscopes/docs/WHY_HYBRID_READERS_20260605.md)
+## Getting Started
 
-## Getting started
+Use a Python environment that can import the LAS X Python API runtime and the
+scientific Python dependencies used by the workflow. In this source checkout,
+the notebook and hardware tools use small `_bootstrap.py` modules to add the
+local driver and workflow packages to `sys.path`.
 
-1. Set up the Python environment that can talk to LAS X — see
-   [`microscopes/docs/MINIMAL_LASX_PYTHON_ENV.md`](microscopes/docs/MINIMAL_LASX_PYTHON_ENV.md).
-2. Calibrate the rig with the notebooks in
-   `microscopes/calibration/vendor/leica/navigator_expert/notebooks/`
-   (image-to-stage orientation, then the objective pair).
-3. Run a workflow — e.g. target acquisition from its operator notebook
-   `workflows/target_acquisition/smart_microscopy_v3.2.ipynb`: markdown steps with
-   thin calls into `workflows/target_acquisition/pipeline/`.
+Typical path through the repo:
 
-## Testing
+1. Review or update calibration under
+   `microscopes/calibration/vendor/leica/navigator_expert/`.
+2. Run the Leica driver validator against the simulator or microscope.
+3. Run the target-acquisition workflow from
+   `workflows/target_acquisition/smart_microscopy_v3.2.ipynb`.
 
-The offline suite needs no microscope and no LAS X installation:
+## Tests
+
+Offline tests need no microscope and no LAS X installation:
 
 ```powershell
-python -m pytest -q microscopes/driver/vendor/leica/navigator_expert/tests/unit
+python -m pytest -q microscopes/drivers/vendor/leica/navigator_expert/tests/unit
+python -m pytest -q microscopes/drivers/vendor/leica/navigator_expert/tests/hardware
 python -m pytest -q workflows/target_acquisition/tests
 python -m pytest -q microscopes/calibration/vendor/leica/navigator_expert/tests microscopes/shared/output_layout/tests
 ```
 
-Live validation against the simulator or a real microscope is explicit and
-safe-by-default — nothing moves hardware without opt-in flags:
+Live validation is explicit and safe by default. Hardware-moving sections only
+run when their `--allow-*` flags are present:
 
 ```powershell
-python microscopes/driver/vendor/leica/navigator_expert/tests/hardware/validate_hardware.py --yes --allow-xy --allow-z --allow-objective --allow-acquire
+python microscopes/drivers/vendor/leica/navigator_expert/tests/hardware/validate_hardware.py --yes --allow-xy --allow-z --allow-objective --allow-acquire --state-reader-mode hybrid
 ```
 
-Omit any `--allow-*` flag to keep that subsystem untouched; without `--yes` the
-validator asks interactively before live writes, and `--read-only` skips writes
-entirely. Validator runs write JSONL records; the curated evidence referenced by the
-validation reports is tracked, all other runtime output is git-ignored.
-
-## Documentation
-
-Design notes, validation reports, and active plans are indexed in
-[`microscopes/docs/README.md`](microscopes/docs/README.md).
+Validator JSONL outputs are runtime artifacts and are ignored by default.
