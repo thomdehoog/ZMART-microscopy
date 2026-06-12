@@ -1,4 +1,4 @@
-﻿"""Alternating API/log change-wait reader.
+"""Alternating API/log change-wait reader.
 
 ``wait_for_change`` answers one question after a command was fired: *did the
 state visibly change?* It alternates the CAM API and the LAS X log until one
@@ -10,7 +10,7 @@ changed reading means the move started, not that it reached the target. The
 optional ``target``/``tolerance`` are therefore reported on the result
 (``matches_target`` / ``within_tolerance`` / ``target_delta``) and never gate
 acceptance. Callers that must gate on a target keep using the confirmation
-layer (``core/confirmations.py``).
+layer (``commands/confirmations.py``).
 
 Safety rules carried over from the routed readers (see
 ``docs/WHY_HYBRID_READERS_20260605.md``):
@@ -73,7 +73,7 @@ class ChangeWaitResult:
 
 
 def _profile():
-    from ..core import profiles
+    from ..runtime import profiles
     return profiles.STATE_READERS
 
 

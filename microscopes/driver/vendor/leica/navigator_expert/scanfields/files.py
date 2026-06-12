@@ -4,7 +4,7 @@ Save/load experiments, locate the ScanningTemplates directory,
 detect template state, and define the canonical filename constants.
 
 Dependency direction:
-    - Imports: ``..core.utils``, ``.parsers``, ``_file_utils``,
+    - Imports: ``..runtime.utils``, ``.parsers``, ``_file_utils``,
       stdlib.
     - Imported by: ``strip_restore``, ``transaction``, ``__init__`` (re-export).
 """
@@ -15,7 +15,7 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from ..core.utils import RECEIPT_TIMEOUT, _make_timing
+from ..runtime.utils import RECEIPT_TIMEOUT, _make_timing
 from .parsers import parse_lrp
 
 log = logging.getLogger(__name__)

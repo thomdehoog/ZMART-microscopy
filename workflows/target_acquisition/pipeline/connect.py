@@ -23,6 +23,6 @@ def connect_lasx(role: str = "PythonClient") -> Any:
         client = connect_lasx()
         ctx = preflight(cfg, client)
     """
-    from navigator_expert.core.session import connect_python_client
+    from navigator_expert.runtime.session import connect_python_client
 
     return connect_python_client(client_name=role)

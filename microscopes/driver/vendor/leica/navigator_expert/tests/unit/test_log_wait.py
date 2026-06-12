@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from navigator_expert.core import profiles
+from navigator_expert.runtime import profiles
 from navigator_expert.state_readers import log_reader
 from navigator_expert.state_readers.log_wait import wait_for_selected_job_log
 

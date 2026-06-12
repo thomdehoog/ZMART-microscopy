@@ -34,17 +34,16 @@ delivery. ``_await_echo_result`` polls the echo model after transport
 delivery, waiting for LAS X to finish processing before the error
 check reads the echo fields.
 
-Import restrictions: only ``errors``, ``utils``, ``state_readers.log_reader``,
-and stdlib. Nothing from ``commands``, ``profiles``, ``prechecks``, or
-``confirmations``.
+Import restrictions: only runtime errors/utilities, ``state_readers.log_reader``,
+and stdlib. Nothing from command wrappers, profiles, prechecks, or confirmations.
 """
 
 import logging
 import time
 
 from ..state_readers import log_reader as _log_reader
-from .errors import _default_error_check
-from .utils import _make_timing, _make_log_entry, RECEIPT_TIMEOUT
+from ..runtime.errors import _default_error_check
+from ..runtime.utils import _make_timing, _make_log_entry, RECEIPT_TIMEOUT
 
 log = logging.getLogger(__name__)
 

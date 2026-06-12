@@ -23,8 +23,8 @@ failed window causes a re-fire.
 ``_make_select_job_confirm`` factories are eliminated. Confirm functions
 that need polling own their loop; all state is local.
 
-Import restrictions: only ``state_readers``, ``settings``, ``prechecks``,
-``utils``, ``profiles``, and stdlib. Nothing from ``commands``.
+Import restrictions: only ``state_readers``, command settings, runtime
+utilities/profiles, and stdlib. Nothing from command wrappers.
 """
 
 import logging
@@ -37,16 +37,16 @@ from functools import partial
 from .. import state_readers as _readers
 from ..state_readers import log_wait
 from ..state_readers import router as _router
-from .errors import _check_api_error, _is_transient_error
+from ..runtime.errors import _check_api_error, _is_transient_error
 from .settings import make_changeable_copy
-from .utils import CONFIRM_TIMEOUT, _make_log_entry
+from ..runtime.utils import CONFIRM_TIMEOUT, _make_log_entry
 
 log = logging.getLogger(__name__)
 
 
 def _state_reader_profile():
     """Return the current state-reader profile without importing at module load."""
-    from . import profiles
+    from ..runtime import profiles
     return profiles.STATE_READERS
 
 

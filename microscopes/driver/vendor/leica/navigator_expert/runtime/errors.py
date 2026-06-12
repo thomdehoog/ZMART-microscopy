@@ -13,8 +13,8 @@ Two responsibilities, both related to post-fire error handling:
    ``_default_error_check`` wraps this into the structured result dict
    that the fire block expects from any ``error_check_fn``.
 
-Import restrictions: only ``utils`` and stdlib. Nothing from ``core``,
-``commands``, ``profiles``, ``prechecks``, or ``confirmations``.
+Import restrictions: only runtime utilities and stdlib. Nothing from commands,
+profiles, prechecks, or confirmations.
 """
 
 import logging

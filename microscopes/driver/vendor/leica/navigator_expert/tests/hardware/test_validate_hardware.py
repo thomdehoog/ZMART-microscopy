@@ -26,7 +26,7 @@ if str(_LEICA_ROOT) not in sys.path:
 
 import validate_hardware
 from mock_lasx_api import MockLasxClient, _SET_DISPATCH
-from navigator_expert.core import profiles
+from navigator_expert.runtime import profiles
 
 
 def test_classify_result_statuses():

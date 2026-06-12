@@ -2,7 +2,7 @@
 
 This is a narrow integration check for the production acquisition path:
 
-1. Resolve the active save exporter from ``core.profiles.ACQUISITION``.
+1. Resolve the active save exporter from ``runtime.profiles.ACQUISITION``.
 2. Let that save mode discover its own source root.
 3. Acquire and save two p-indexed "tiles" into a throwaway SMART output root.
 4. Switch jobs between the two acquisitions.

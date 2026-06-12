@@ -23,7 +23,7 @@ Dependency direction:
       ``__init__`` (re-export).
 """
 
-from .utils import _safe_float
+from ..runtime.utils import _safe_float
 
 # =============================================================================
 # make_changeable_copy

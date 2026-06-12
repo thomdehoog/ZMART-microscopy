@@ -25,7 +25,7 @@ from shared.output_layout import LayoutPlan
 
 
 def _profile_save_exporter() -> str:
-    from navigator_expert.core import profiles
+    from navigator_expert.runtime import profiles
 
     return profiles.ACQUISITION.save_exporter
 

@@ -36,7 +36,7 @@ class Reading:
 
 
 def _profile():
-    from ..core import profiles
+    from ..runtime import profiles
     return profiles.STATE_READERS
 
 
@@ -368,7 +368,7 @@ def read_zwide_um(client, job_name, *, mode=None):
     settings = get_job_settings(client, job_name, mode=mode)
     if not settings:
         raise RuntimeError(f"could not read job settings for '{job_name}'")
-    from ..core.settings import make_changeable_copy
+    from ..commands.settings import make_changeable_copy
     ch = make_changeable_copy(settings)
     if not ch or "zPosition" not in ch:
         raise RuntimeError(

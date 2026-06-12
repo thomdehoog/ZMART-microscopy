@@ -21,7 +21,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from navigator_expert import state_readers as readers
-from navigator_expert.core import confirmations, profiles
+from navigator_expert.commands import confirmations
+from navigator_expert.runtime import profiles
 from navigator_expert.state_readers import log_wait
 
 

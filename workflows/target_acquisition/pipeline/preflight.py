@@ -22,7 +22,7 @@ from typing import Any
 
 import navigator_expert as drv
 from calibration.vendor.leica.navigator_expert.core import model as calib
-from navigator_expert.core.objectives import validate_slots
+from navigator_expert.commands.objectives import validate_slots
 from shared.output_layout import build_layout
 
 from .context import Config, Context, WorkflowRun

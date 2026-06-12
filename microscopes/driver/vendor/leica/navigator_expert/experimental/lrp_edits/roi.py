@@ -693,7 +693,7 @@ def roi_translation_to_pan(translation_x_m, translation_y_m, *,
     **PAN_SCALE is objective-dependent**: um-per-pan-unit scales with
     the objective's base FOV via
     ``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``
-    (see ``driver/core/utils.py`` and :func:`pan_scale_um_from_base_fov`).
+    (see ``driver/runtime/utils.py`` and :func:`pan_scale_um_from_base_fov`).
     ``pan_scale_um`` is required — the caller must resolve it from the
     current objective's base FOV.
 
@@ -848,7 +848,7 @@ def roi_to_pan_zoom(roi, fov_at_zoom1_um, margin=1.15):
     Internally resolves the objective-dependent ``pan_scale_um`` from
     ``fov_at_zoom1_um`` via :func:`pan_scale_um_from_base_fov`
     (``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``,
-    see ``driver/core/utils.py``). Callers that already pass the correct base
+    see ``driver/runtime/utils.py``). Callers that already pass the correct base
     FOV (e.g. from :func:`get_base_fov`) get correct pan values on any
     objective — no caller changes needed after the PAN_SCALE refactor.
 
@@ -861,7 +861,7 @@ def roi_to_pan_zoom(roi, fov_at_zoom1_um, margin=1.15):
     Returns:
         ``(pan_x, pan_y, zoom)`` tuple.
     """
-    from ...core.utils import pan_scale_um_from_base_fov
+    from ...runtime.utils import pan_scale_um_from_base_fov
     pan_scale_um = pan_scale_um_from_base_fov(fov_at_zoom1_um)
     geo = roi_geometry(roi)
     eff_tx, eff_ty = geo["effective_translation_m"]

@@ -14,8 +14,8 @@ from threading import Event, Thread
 from typing import Any
 
 from .. import state_readers as _readers
-from ..core import settings as _core_settings
-from ..core import utils as _core_utils
+from ..commands import settings as _core_settings
+from ..runtime import utils as _core_utils
 from . import ome as _ome
 from .product import AcquisitionMetadata, ChannelMetadata, PlaneIndex
 

@@ -148,7 +148,7 @@ else:
 ## API Reference
 
 Most command functions accept these optional overrides. `None` means use
-the command profile in `driver/core/profiles.py`.
+the command profile in `runtime/profiles.py`.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -444,7 +444,9 @@ The backbone has two retry ceilings:
 microscopes/driver/vendor/leica/navigator_expert/
 +-- README.md
 +-- __init__.py          # public facade for LAS X driver commands
-+-- core/                # commands, readers, confirmations, profiles
++-- commands/            # command wrappers, dispatch, confirmations, settings
++-- runtime/             # profiles, errors, session helpers, shared utilities
++-- state_readers/       # API/log/hybrid passive readers and evidence rules
 +-- scanfields/          # scan-field files, parsing, planning, strip/restore
 +-- acquisition/         # capture, LAS X files, OME fixes, save chain
 +-- stage/               # stage limits, movement, current-state loader
@@ -467,30 +469,27 @@ microscopes/limits/vendor/leica/navigator_expert/
 Strict hierarchy with no circular imports:
 
 ```
-core.utils             -> stdlib only
-core.errors            -> core.utils
-stage.limits           -> stdlib only
-state_readers.api_reader -> core.utils, stdlib
-state_readers.log_reader -> state_readers.api_reader, core.settings,
-                            core.utils, core.profiles, stdlib
-state_readers.router     -> state_readers.api_reader,
-                            state_readers.log_reader, core.profiles, stdlib
-core.settings          -> core.utils
-core.prechecks         -> state_readers, core.utils
-core.confirmations     -> state_readers, core.settings, core.utils
-core.dispatch          -> core.errors, core.utils
-core.profiles          -> core.prechecks, core.confirmations, core.errors
-core.commands          -> core.dispatch, core.profiles, core.confirmations,
-                          state_readers, core.utils, stage.limits
-scanfields/*           -> scan-field file operations above API readback
-acquisition/*          -> capture, LAS X file arrival, and OME metadata fixes
-stage/*                -> stage safety and backlash-aware movement
+runtime.utils               -> stdlib only
+runtime.errors              -> runtime.utils
+commands.settings           -> runtime.utils
+commands.prechecks          -> state_readers, runtime.utils
+commands.confirmations      -> state_readers, commands.settings, runtime.utils
+commands.dispatch           -> runtime.errors, runtime.utils, state_readers.log_reader
+runtime.profiles            -> commands.prechecks, commands.confirmations,
+                               runtime.errors
+commands.commands           -> commands.dispatch, runtime.profiles,
+                               commands.confirmations, state_readers,
+                               runtime.utils, stage.limits
+state_readers.*             -> API/log/hybrid readers, capabilities, log waits
+scanfields/*                -> scan-field file operations above API readback
+acquisition/*               -> capture, LAS X file arrival, and OME metadata fixes
+stage/*                     -> stage safety and backlash-aware movement
 calibration/.../core.model -> adopted calibration state + coordinate transforms
 ```
 
 ### Two-Layer Backbone
 
-All commands route through `confirm_and_fire` in `driver/core/dispatch.py`:
+All commands route through `confirm_and_fire` in `commands/dispatch.py`:
 
 ```
 confirm_and_fire (outer wrapper)
@@ -536,7 +535,7 @@ class CommandProfile:
     success_on_unconfirmed: bool = False       # Non-fatal exhausted readback
 ```
 
-Profiles are defined in `driver/core/profiles.py`. Tolerances, polling intervals, confirmation windows, and acquisition fire-once policy live there rather than being hardcoded in command wrappers.
+Profiles are defined in `runtime/profiles.py`. Tolerances, polling intervals, confirmation windows, and acquisition fire-once policy live there rather than being hardcoded in command wrappers.
 
 ---
 
@@ -546,7 +545,7 @@ Adding a new command requires changes to four files, following the same pattern 
 
 ### Step 1: Write a Confirm Function
 
-In `driver/core/confirmations.py`, add a readback function that checks whether the value was applied. If readback is not possible for the command, skip this step.
+In `commands/confirmations.py`, add a readback function that checks whether the value was applied. If readback is not possible for the command, skip this step.
 
 ```python
 # confirmations.py
@@ -570,12 +569,12 @@ The contract: `_confirm_X(client, ...) -> {"success": bool, "logs": [...]}`.
 
 ### Step 2: Create a CommandProfile
 
-In `profiles.py`, import the confirm function and create a profile:
+In `runtime/profiles.py`, import the confirm function and create a profile:
 
 ```python
-# profiles.py
+# runtime/profiles.py
 
-from .confirmations import _confirm_my_param
+from ..commands.confirmations import _confirm_my_param
 
 MY_PARAM = _leica_setting_profile(_confirm_my_param)
 ```
@@ -587,7 +586,7 @@ In `commands.py`, write the public function using the three-phase pattern:
 ```python
 # commands.py
 
-from .profiles import MY_PARAM
+from ..runtime.profiles import MY_PARAM
 from .confirmations import _confirm_my_param
 
 def set_my_param(client, job_name, setting_index, value, *,
@@ -624,7 +623,7 @@ In `__init__.py`, add to `__all__` and add the import:
 "set_my_param",
 
 # Add import:
-from .commands import set_my_param
+from .commands.commands import set_my_param
 ```
 
 ### Notes

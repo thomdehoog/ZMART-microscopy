@@ -39,7 +39,7 @@ import os
 import time
 import xml.etree.ElementTree as ET
 
-from ..core.utils import RECEIPT_TIMEOUT
+from ..runtime.utils import RECEIPT_TIMEOUT
 from . import derived
 
 log = logging.getLogger(__name__)
@@ -232,7 +232,7 @@ def read_zwide_um(client, job_name):
     is unavailable: almost always means the job is not selected or
     the LAS X version doesn't expose Z readback in this shape.
     """
-    from ..core.settings import make_changeable_copy
+    from ..commands.settings import make_changeable_copy
     settings = get_job_settings(client, job_name)
     if not settings:
         raise RuntimeError(f"could not read job settings for '{job_name}'")

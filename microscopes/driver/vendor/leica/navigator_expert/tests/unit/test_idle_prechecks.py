@@ -14,7 +14,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from navigator_expert.core import prechecks, profiles
+from navigator_expert.commands import prechecks
+from navigator_expert.runtime import profiles
 
 IDLE_GUARDED = [
     "MOVE_XY", "MOVE_Z", "OBJECTIVE",

@@ -1,6 +1,6 @@
 """Unit tests for the confirmation race wrapper.
 
-Contract under test (``core/confirmations.race_confirmations``):
+Contract under test (``commands/confirmations.race_confirmations``):
 
 - Single-leg confirmations pass through UNCHANGED - the wrapper returns the
   leg itself, so existing command behavior is bit-identical (the dispatch
@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from navigator_expert.core import confirmations
+from navigator_expert.commands import confirmations
 from navigator_expert.state_readers import router
 
 

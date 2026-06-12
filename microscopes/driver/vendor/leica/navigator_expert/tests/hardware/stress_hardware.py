@@ -1239,7 +1239,7 @@ def main(argv: list[str] | None = None) -> int:
         # The Python mock has no LAS X log stream, so log evidence cannot
         # exist; pin selected-job confirmation to the api leg.
         from dataclasses import replace  # noqa: PLC0415
-        from navigator_expert.core import profiles  # noqa: PLC0415
+        from navigator_expert.runtime import profiles  # noqa: PLC0415
         profiles.STATE_READERS = replace(
             profiles.STATE_READERS, selected_job_confirm_source="api")
         log.info("mock backend: selected-job confirmation pinned to api "

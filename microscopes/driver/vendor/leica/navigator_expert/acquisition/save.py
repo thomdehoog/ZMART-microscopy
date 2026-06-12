@@ -61,7 +61,7 @@ def active_save_exporter(exporter: str | None = None) -> str:
     """Return the explicit exporter or the active profile's save exporter."""
     if exporter is not None:
         return exporter
-    from ..core import profiles
+    from ..runtime import profiles
 
     return profiles.ACQUISITION.save_exporter
 
@@ -72,7 +72,7 @@ def save_source_root(exporter: str | None = None) -> Path:
     ``navigator_expert`` sources come from the Navigator Expert exporter
     media path. ``lasx_native_autosave`` sources come from the native
     AutoSave base folder in the active LAS X StartUp configuration.
-    ``exporter=None`` means use ``core.profiles.ACQUISITION.save_exporter``.
+    ``exporter=None`` means use ``runtime.profiles.ACQUISITION.save_exporter``.
     """
     exporter = active_save_exporter(exporter)
     _collector_for_exporter(exporter)
@@ -109,7 +109,7 @@ def save(
     The chosen source exporter produces a writer-agnostic
     ``ExportedAcquisition``. This function persists that product into
     the flat SMART OME-TIFF/XML workflow layout. ``exporter=None`` means
-    use ``core.profiles.ACQUISITION.save_exporter``.
+    use ``runtime.profiles.ACQUISITION.save_exporter``.
     """
     exporter = active_save_exporter(exporter)
     collect = _collector_for_exporter(exporter)

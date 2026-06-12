@@ -1,4 +1,4 @@
-﻿"""Unit tests for the alternating API/log change-wait reader.
+"""Unit tests for the alternating API/log change-wait reader.
 
 Contract under test (see ``state_readers/change_wait.py``):
 
@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from navigator_expert.core import profiles
+from navigator_expert.runtime import profiles
 from navigator_expert.state_readers import capabilities, change_wait, router
 
 

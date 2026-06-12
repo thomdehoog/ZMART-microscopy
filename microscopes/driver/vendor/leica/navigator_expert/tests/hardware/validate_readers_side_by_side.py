@@ -34,9 +34,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # vendor/leica
 
 import navigator_expert as drv
-from navigator_expert.core import profiles
-from navigator_expert.core.settings import make_changeable_copy
-from navigator_expert.core.utils import parse_tile_geometry
+from navigator_expert.runtime import profiles
+from navigator_expert.commands.settings import make_changeable_copy
+from navigator_expert.runtime.utils import parse_tile_geometry
 from navigator_expert.state_readers import log_reader as L
 
 API_HANG_MS = 1500.0  # an API read slower than this is treated as a dialog-hang
@@ -346,7 +346,7 @@ def main(argv=None):
         profiles.LOG_READER = profiles.LogReaderProfile(
             lcs_log_path=args.log_path)
 
-    from navigator_expert.core.lasx_runtime import load_lasx_api_runtime
+    from navigator_expert.runtime.lasx_runtime import load_lasx_api_runtime
 
     lasx_api = load_lasx_api_runtime()
     client = lasx_api.LasxApiClientPyModel

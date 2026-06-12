@@ -45,7 +45,7 @@ The routed public reader layer may use this module for passive ``log`` or
 ``hybrid`` reads, and dispatch uses it as a dialog diagnostic when the CAM API is
 blocked. Command-control reads should pin the API backend instead.
 
-Parameters live in ``core.profiles.LOG_READER`` - no hardcoded values in the
+Parameters live in ``runtime.profiles.LOG_READER`` - no hardcoded values in the
 read paths.
 
 Dependency direction:
@@ -63,7 +63,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from ..core.settings import make_changeable_copy
+from ..commands.settings import make_changeable_copy
 from . import derived
 
 log = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ log = logging.getLogger(__name__)
 
 def _profile():
     """Return the active low-level log-reader profile."""
-    from ..core import profiles
+    from ..runtime import profiles
     return profiles.LOG_READER
 
 

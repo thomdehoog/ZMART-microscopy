@@ -28,7 +28,7 @@ class LogPollResult:
 
 
 def _profile():
-    from ..core import profiles
+    from ..runtime import profiles
     return profiles.STATE_READERS
 
 
