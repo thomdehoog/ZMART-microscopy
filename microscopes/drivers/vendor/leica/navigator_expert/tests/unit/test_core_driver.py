@@ -1493,6 +1493,26 @@ class TestConfirmFunctions(unittest.TestCase):
 
 
 class TestSetFunctionWiring(unittest.TestCase):
+    def _resonant_no_change_client(self):
+        class Echo:
+            Result = 2
+            HasError = True
+            Error = (
+                "CamCommandSetScannerToResonantByJobName: "
+                "the desired state does not differ from the current state"
+            )
+            Description = ""
+            ErrorDescription = ""
+            Message = ""
+            ErrorMessage = ""
+            Warning = ""
+            Info = ""
+            Details = ""
+
+        client = MagicMock()
+        client.PyApiCommandEcho.Model = Echo()
+        return client
+
     def _run_set(self, set_fn, *args, **kwargs):
         """Run a set function with confirm_and_fire mocked.
 
@@ -1537,6 +1557,35 @@ class TestSetFunctionWiring(unittest.TestCase):
         info, _ = self._run_set(drv.set_scan_resonant, None, "HiRes", True)
         self.assertIs(info["api_obj"], info["client"].PyApiSetScannerToResonantByJobName)
         self.assertEqual(info["model"].EnableResonant, True)
+
+    def test_scan_resonant_no_change_error_accepted_when_readback_matches(self):
+        client = self._resonant_no_change_client()
+        with patch.object(
+            commands,
+            "_confirm_scan_resonant",
+            return_value={"success": True, "logs": []},
+        ) as confirm:
+            result = commands._scan_resonant_error_check(
+                client, job_name="HiRes", target=False, timeout=0.1
+            )
+
+        self.assertTrue(result["success"])
+        self.assertIsNone(result["error"])
+        confirm.assert_called_once_with(client, "HiRes", False, timeout=0.1)
+
+    def test_scan_resonant_no_change_error_fails_when_readback_disagrees(self):
+        client = self._resonant_no_change_client()
+        with patch.object(
+            commands,
+            "_confirm_scan_resonant",
+            return_value={"success": False, "logs": []},
+        ):
+            result = commands._scan_resonant_error_check(
+                client, job_name="HiRes", target=False, timeout=0.1
+            )
+
+        self.assertFalse(result["success"])
+        self.assertIn("desired state does not differ", result["error"])
 
     def test_set_scan_mode_model(self):
         info, _ = self._run_set(drv.set_scan_mode, None, "HiRes", "xyz")
