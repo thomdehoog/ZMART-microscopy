@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from navigator_expert.core import lasx_runtime, profiles
+from navigator_expert.runtime import lasx_runtime, profiles
 
 
 class TestLasxRuntime(unittest.TestCase):

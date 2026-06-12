@@ -4,7 +4,9 @@
 Package layout::
 
     navigator_expert/
-    - core/         raw LAS X commands, readers, confirmations, profiles
+    - commands/     command wrappers, dispatch, confirmation logic
+    - runtime/      profiles, session helpers, errors, shared utilities
+    - state_readers/ API/log/hybrid state readers
     - scanfields/   LAS X scan-field files, parsing, planning, strip/restore
     - acquisition/  acquire-only capture, LAS X file export, OME fixes, save
     - stage/        stage limits, backlash-aware movement, stage config
@@ -46,7 +48,7 @@ __all__ = [
     "check_idle",
     # confirmations (public readback helper only; _confirm_* are private)
     "_readback",
-    # core
+    # runtime/dispatch
     "confirm_and_fire", "_fire_with_receipt",
     # commands
     "set_zoom", "set_scan_speed", "set_scan_resonant", "set_scan_mode",
@@ -151,14 +153,14 @@ for _path in (_microscopes_root, _leica_root):
         _sys.path.insert(0, _path)
 del _sys, _Path, _here, _leica_root, _microscopes_root, _path
 
-# -- core/ - raw LAS X command/readback mechanics
-from .core.utils import (
+# -- runtime/ + commands/ - shared runtime helpers and command mechanics
+from .runtime.utils import (
     _safe_float, _hw_get, parse_format, format_to_str,
     _make_timing, _make_log_entry, parse_tile_geometry,
     RECEIPT_TIMEOUT, CONFIRM_TIMEOUT,
     PAN_LIMIT, GALVO_FIELD_FRACTION, pan_scale_um_from_base_fov,
 )
-from .core.errors import (
+from .runtime.errors import (
     _is_transient_error, _check_api_error, _default_error_check,
     _PERMANENT_PATTERNS, _TRANSIENT_PATTERNS,
 )
@@ -168,11 +170,11 @@ from .state_readers import (
     get_xy, read_zwide_um, get_jobs, get_job_by_name, get_selected_job,
     get_fov, get_base_fov, get_lasx_settings, get_pending_dialog,
 )
-from .core.settings import make_changeable_copy
-from .core.prechecks import check_idle
-from .core.confirmations import _readback
-from .core.dispatch import _fire_with_receipt, confirm_and_fire
-from .core.commands import (
+from .commands.settings import make_changeable_copy
+from .commands.prechecks import check_idle
+from .commands.confirmations import _readback
+from .commands.dispatch import _fire_with_receipt, confirm_and_fire
+from .commands.commands import (
     set_zoom, set_scan_speed, set_scan_resonant, set_scan_mode,
     set_sequential_mode, set_scan_field_rotation, set_image_format,
     set_objective, set_z_stack_definition, set_z_stack_step_size,
@@ -183,7 +185,7 @@ from .core.commands import (
     move_xy, move_galvo_to_pixel, move_z,
     select_job,
 )
-from .core.session import (
+from .runtime.session import (
     connect_python_client, configure_lasx_api_delay,
     require_canonical_scan_orientation,
 )

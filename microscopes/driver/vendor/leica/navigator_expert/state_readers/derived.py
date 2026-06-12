@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..core.utils import parse_tile_geometry
+from ..runtime.utils import parse_tile_geometry
 
 
 def job_by_name(jobs, job_name):

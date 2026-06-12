@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from ..core import commands as _commands
+from ..commands import commands as _commands
 
 
 @dataclass(frozen=True)

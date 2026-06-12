@@ -29,14 +29,14 @@ from functools import partial
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import navigator_expert as drv
-from navigator_expert.core import dispatch
-from navigator_expert.core import errors
+from navigator_expert.commands import dispatch
+from navigator_expert.runtime import errors
 from navigator_expert import state_readers as readers
-from navigator_expert.core import confirmations
-from navigator_expert.core import commands
-from navigator_expert.core import prechecks
-from navigator_expert.core import profiles
-from navigator_expert.core import session
+from navigator_expert.commands import confirmations
+from navigator_expert.commands import commands
+from navigator_expert.commands import prechecks
+from navigator_expert.runtime import profiles
+from navigator_expert.runtime import session
 
 
 # =============================================================================
@@ -423,7 +423,7 @@ class TestRetryBackoff(unittest.TestCase):
         api_obj = make_api_obj()
         sleep_calls = []
 
-        with patch('navigator_expert.core.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
+        with patch('navigator_expert.commands.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
              patch.object(dispatch, '_fire_with_receipt', return_value=True), \
              patch.object(dispatch, '_await_echo_result', return_value=True):
             r = dispatch._fire_block(
@@ -445,7 +445,7 @@ class TestRetryBackoff(unittest.TestCase):
         api_obj = make_api_obj()
         sleep_calls = []
 
-        with patch('navigator_expert.core.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
+        with patch('navigator_expert.commands.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
              patch.object(dispatch, '_fire_with_receipt', return_value=True), \
              patch.object(dispatch, '_await_echo_result', return_value=True):
             r = dispatch._fire_block(
@@ -466,7 +466,7 @@ class TestRetryBackoff(unittest.TestCase):
         api_obj = make_api_obj()
         sleep_calls = []
 
-        with patch('navigator_expert.core.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
+        with patch('navigator_expert.commands.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
              patch.object(dispatch, '_fire_with_receipt', return_value=True), \
              patch.object(dispatch, '_await_echo_result', return_value=True):
             r = dispatch._fire_block(
@@ -493,7 +493,7 @@ class TestRetryBackoff(unittest.TestCase):
                         "error": "busy", "logs": []}
             return {"success": True, "logs": []}
 
-        with patch('navigator_expert.core.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
+        with patch('navigator_expert.commands.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
              patch.object(dispatch, '_fire_with_receipt', return_value=True), \
              patch.object(dispatch, '_await_echo_result', return_value=True):
             r = dispatch._fire_block(
@@ -515,7 +515,7 @@ class TestRetryBackoff(unittest.TestCase):
         api_obj = make_api_obj()
         sleep_calls = []
 
-        with patch('navigator_expert.core.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
+        with patch('navigator_expert.commands.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
              patch.object(dispatch, '_fire_with_receipt', return_value=True), \
              patch.object(dispatch, '_await_echo_result', return_value=True):
             r = dispatch._fire_block(
@@ -535,7 +535,7 @@ class TestRetryBackoff(unittest.TestCase):
         api_obj = make_api_obj()
         sleep_calls = []
 
-        with patch('navigator_expert.core.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
+        with patch('navigator_expert.commands.dispatch.time.sleep', side_effect=lambda s: sleep_calls.append(s)), \
              patch.object(dispatch, '_fire_with_receipt', return_value=True), \
              patch.object(dispatch, '_await_echo_result', return_value=True):
             r = dispatch._fire_block(
@@ -555,7 +555,7 @@ class TestRetryBackoff(unittest.TestCase):
         client = make_client()
         api_obj = make_api_obj()
 
-        from navigator_expert.core.profiles import CommandProfile
+        from navigator_expert.runtime.profiles import CommandProfile
         profile = CommandProfile(
             retry_backoff=2.0,
             retry_escalate=True,
@@ -580,7 +580,7 @@ class TestRetryBackoff(unittest.TestCase):
         client = make_client()
         api_obj = make_api_obj()
 
-        from navigator_expert.core.profiles import CommandProfile
+        from navigator_expert.runtime.profiles import CommandProfile
         profile = CommandProfile(
             refire_on_unconfirmed=False,
         )
@@ -2284,7 +2284,7 @@ class TestCommandReaderSafety(unittest.TestCase):
                           side_effect=fake_get_job_settings), \
              patch.object(readers, "get_base_fov",
                           side_effect=fake_get_base_fov), \
-             patch("navigator_expert.core.utils.parse_tile_geometry",
+             patch("navigator_expert.runtime.utils.parse_tile_geometry",
                    return_value={"pixel_w_um": 1.0, "pixels_x": 512}), \
              patch("navigator_expert.experimental.lrp_edits.roi.galvo_pan_for_pixel",
                    return_value=(0.0, 0.0)), \

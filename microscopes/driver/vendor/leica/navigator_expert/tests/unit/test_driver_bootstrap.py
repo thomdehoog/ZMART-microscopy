@@ -23,7 +23,7 @@ import sys
 # Mimic an example-script entry point: only leica/ on sys.path.
 sys.path.insert(0, r"{leica}")
 import navigator_expert as drv
-from navigator_expert.core import lasx_runtime
+from navigator_expert.runtime import lasx_runtime
 assert drv.acquire is not None
 assert drv.save is not None
 assert drv.AcquisitionResult is not None
@@ -71,7 +71,7 @@ def test_lasx_runtime_load_smoke_when_installed():
     Bare dev/CI machines can import the loader but cannot load LAS X assemblies;
     hardware validation covers the required installed-runtime path.
     """
-    from navigator_expert.core import lasx_runtime
+    from navigator_expert.runtime import lasx_runtime
 
     try:
         runtime = lasx_runtime.load_lasx_api_runtime()

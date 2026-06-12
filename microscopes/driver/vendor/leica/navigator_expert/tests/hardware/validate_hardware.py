@@ -315,7 +315,7 @@ def _connect(args: argparse.Namespace, MockClient: type,
                  args.mock_latency)
         return MockClient(latency=args.mock_latency)
     try:
-        from navigator_expert.core.lasx_runtime import (  # noqa: PLC0415
+        from navigator_expert.runtime.lasx_runtime import (  # noqa: PLC0415
             load_lasx_api_runtime,
         )
 
@@ -333,7 +333,7 @@ def _connect(args: argparse.Namespace, MockClient: type,
         log.error("Connect returned False (LAS X reachable but refused the client name)")
         return None
     try:
-        from navigator_expert.core.session import configure_lasx_api_delay  # noqa: PLC0415
+        from navigator_expert.runtime.session import configure_lasx_api_delay  # noqa: PLC0415
 
         applied_delay_ms = configure_lasx_api_delay(lasx_api, args.api_delay_ms)
     except RuntimeError as exc:
@@ -1290,7 +1290,7 @@ def _apply_state_reader_mode(mode: str | None, log: logging.Logger) -> None:
     """Override all profile-routed passive state readers for this run."""
     if mode is None:
         return
-    from navigator_expert.core import profiles  # noqa: PLC0415
+    from navigator_expert.runtime import profiles  # noqa: PLC0415
 
     profiles.STATE_READERS = profiles.StateReaderProfile(
         xy_mode=mode,
@@ -1328,7 +1328,7 @@ def _apply_log_select_confirmation(args: argparse.Namespace,
         or args.prime_log_select_cluster
     ):
         return
-    from navigator_expert.core import profiles  # noqa: PLC0415
+    from navigator_expert.runtime import profiles  # noqa: PLC0415
 
     updates = {
         "selected_job_confirm_source": (

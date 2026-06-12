@@ -31,7 +31,7 @@ mechanical analysis behind the recipe.
 import logging
 import time
 
-from ..core import commands as _commands
+from ..commands import commands as _commands
 from .. import state_readers as _readers
 
 log = logging.getLogger(__name__)

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from navigator_expert.core import profiles
+from navigator_expert.runtime import profiles
 
 
 def _load_validator():

@@ -21,15 +21,15 @@ pattern for every field, no exceptions.
     Pattern A - callable needs extra parameters: use partial to pre-bind.
     Pattern B - callable takes only client: assign directly.
 
-Import restrictions: only ``prechecks``, ``confirmations``, ``errors``,
-``utils``, and stdlib. Nothing from ``dispatch`` or ``commands``.
+Import restrictions: command prechecks/confirmations, runtime errors/utilities,
+and stdlib. Nothing from dispatch or command wrappers.
 """
 
 from dataclasses import dataclass
 from functools import partial
 from typing import Optional
 
-from .confirmations import (
+from ..commands.confirmations import (
     _confirm_zoom,
     _confirm_scan_speed,
     _confirm_scan_resonant,
@@ -56,7 +56,7 @@ from .confirmations import (
     confirm_acquire,
 )
 from .errors import _default_error_check
-from .prechecks import check_idle
+from ..commands.prechecks import check_idle
 
 
 @dataclass(frozen=True)

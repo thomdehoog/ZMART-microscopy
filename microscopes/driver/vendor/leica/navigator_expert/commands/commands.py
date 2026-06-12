@@ -22,9 +22,9 @@ Numeric command tuning comes from ``profiles.py``. Wrapper keyword
 arguments are explicit overrides for tests and unusual hardware runs;
 ``None`` means "use the profile".
 
-Import restrictions: only ``dispatch``, ``profiles``, ``errors``, ``limits``,
-``readers``, ``confirmations``, ``prechecks``, and ``utils``. The ``prechecks`` import
-is used in ``_dispatch`` for the ``pre_check_timeout`` override.
+Import restrictions: only command helpers, runtime profiles/utilities, limits,
+readers, and confirmations. The ``prechecks`` import is used in ``_dispatch``
+for the ``pre_check_timeout`` override.
 """
 
 import logging
@@ -33,7 +33,7 @@ from functools import partial
 
 from .prechecks import check_idle
 from .dispatch import confirm_and_fire
-from .profiles import (
+from ..runtime.profiles import (
     ZOOM, SCAN_SPEED, SCAN_RESONANT, SCAN_MODE, SEQUENTIAL_MODE,
     SCAN_FIELD_ROTATION, IMAGE_FORMAT, OBJECTIVE,
     Z_STACK_DEFINITION, Z_STACK_STEP_SIZE, Z_STACK_SIZE,
@@ -61,7 +61,7 @@ from .confirmations import (
 )
 from ..stage.limits import _check_xy_limits, _check_z_limits
 from .. import state_readers as _readers
-from .utils import _hw_get, parse_format, _make_timing
+from ..runtime.utils import _hw_get, parse_format, _make_timing
 
 log = logging.getLogger(__name__)
 
@@ -918,7 +918,7 @@ def move_galvo_to_pixel(client, px, py, *,
     from ..scanfields.transaction import apply_lrp_change
     from ..experimental.lrp_edits.scan import lrp_set_pan, lrp_get_pan
     from ..experimental.lrp_edits.roi import galvo_pan_for_pixel
-    from .utils import pan_scale_um_from_base_fov, parse_tile_geometry
+    from ..runtime.utils import pan_scale_um_from_base_fov, parse_tile_geometry
 
     if job_name is None:
         # These reads parameterize the command that follows, so they use the
