@@ -3,6 +3,7 @@
 All tests use synthetic npz files and mock images on disk.
 No hardware, no engine, no ctx.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -11,9 +12,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import numpy as np
-
 from shared.output_layout.naming import Naming, build_position_analysis_name
-
 
 # ─── Fixtures ────────────────────────────────────────────────────
 
@@ -44,7 +43,7 @@ def _make_npz(
     for label in range(1, n_cells + 1):
         r = (label * 10) % (image_size[0] - cell_size)
         c = (label * 12) % (image_size[1] - cell_size)
-        masks[r:r + cell_size, c:c + cell_size] = label
+        masks[r : r + cell_size, c : c + cell_size] = label
 
     dest = analysis_dir / build_position_analysis_name(naming)
     extra: dict = {}
@@ -60,10 +59,12 @@ def _make_npz(
     return dest
 
 
-def _make_pick(tile_id, label, centroid_rc=(15.0, 15.0), bbox=(10, 10, 20, 20),
-               cell_xy=(1005.0, 2005.0)):
+def _make_pick(
+    tile_id, label, centroid_rc=(15.0, 15.0), bbox=(10, 10, 20, 20), cell_xy=(1005.0, 2005.0)
+):
     """Build a minimal Pick-like object with the fields visualize.py needs."""
     from pipeline.overview import Pick
+
     return Pick(
         pick_id=(str(tile_id[0]), int(tile_id[1]), int(tile_id[2]), label),
         tile_stage_xy_um=(1000.0, 2000.0),
@@ -83,6 +84,7 @@ def _make_pick(tile_id, label, centroid_rc=(15.0, 15.0), bbox=(10, 10, 20, 20),
 def _make_picks(items, **kwargs):
     """Build a Picks container from a list of Pick objects."""
     from pipeline.selection import Picks
+
     return Picks(items=items, n_picks_raw=len(items), **kwargs)
 
 
@@ -91,7 +93,7 @@ def _make_selection(n_cells, n_selected, tile_id=("0", 0, 0)):
 
     Module-level so the classify tests and the display tests share it.
     """
-    from pipeline.selection import SelectionResult, MODE_THRESHOLD
+    from pipeline.selection import MODE_THRESHOLD, SelectionResult
 
     picks = [_make_pick(tile_id, label=i + 1) for i in range(n_selected)]
     return SelectionResult(
@@ -126,6 +128,7 @@ def _make_selection(n_cells, n_selected, tile_id=("0", 0, 0)):
 def _make_target_tif(path: Path, size=(32, 32)):
     """Write a synthetic target TIFF."""
     import tifffile
+
     path.parent.mkdir(parents=True, exist_ok=True)
     image = np.random.default_rng(99).integers(0, 255, size, dtype=np.uint16)
     tifffile.imwrite(str(path), image)
@@ -148,6 +151,7 @@ class TestStyleTokenCoverage:
     like 'fontsize=<size>' (not a literal integer) to avoid
     false-positives.
     """
+
     _BEGIN_SENTINEL = "# BEGIN VISUALIZE STYLE TOKENS"
     _END_SENTINEL = "# END VISUALIZE STYLE TOKENS"
     _HEX_COLOR_RE = re.compile(r"#[0-9A-Fa-f]{6}\b")
@@ -155,6 +159,7 @@ class TestStyleTokenCoverage:
 
     def _read_source(self) -> str:
         import pipeline.visualize as viz_mod
+
         return inspect.getsource(viz_mod)
 
     def test_exactly_one_begin_and_one_end_sentinel(self):
@@ -198,7 +203,7 @@ class TestStyleTokenCoverage:
     def _strip_style_block(self, src: str) -> str:
         begin = src.index(self._BEGIN_SENTINEL)
         end = src.index(self._END_SENTINEL)
-        return src[:begin] + src[end + len(self._END_SENTINEL):]
+        return src[:begin] + src[end + len(self._END_SENTINEL) :]
 
 
 # ─── display_tile flags ──────────────────────────────────────────
@@ -212,6 +217,7 @@ def _make_tile_event(n_cells: int = 0, *, position=None, simulated: bool = False
     to a real-run event otherwise.
     """
     from pipeline.overview import TileEvent
+
     return TileEvent(
         image_2d=np.zeros((8, 8)),
         masks=np.zeros((8, 8), dtype=np.int32),
@@ -228,13 +234,13 @@ def _make_target_record(*, tif_path=None, success: bool = True):
     its "N/A" placeholders without touching tile npz files.
     """
     from pipeline.target import TargetRecord
+
     return TargetRecord(
         pick_id=("0", 0, 0, 1),
         cell_source_stage_xy_um=(1005.0, 2005.0),
         source_zwide_um=100.0,
         target_stage_xy_um=(1005.0, 2005.0),
         target_zwide_um=100.0,
-
         target_pixel_size_um=0.25,
         tif_path=tif_path,
         success=success,
@@ -249,10 +255,12 @@ class TestDisplayTileFlags:
         figure. The figure is still saved when save_png=True.
         """
         import IPython.display as ipy_display
+
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
 
         from pipeline.visualize import display_tile
+
         display_tile(
             _make_tile_event(),
             logs_dir=tmp_path,
@@ -269,10 +277,12 @@ class TestDisplayTileFlags:
         when logs_dir is set; the inline display still fires.
         """
         import IPython.display as ipy_display
+
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
 
         from pipeline.visualize import display_tile
+
         display_tile(
             _make_tile_event(),
             logs_dir=tmp_path,
@@ -294,14 +304,18 @@ class TestDisplayTileSaveQueue:
       - Close exactly once on the queued path (worker takes ownership of
         plt.close; producer's finally must not double-close).
     """
+
     def test_callback_returns_promptly_when_save_queue_worker_is_gated(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """With the worker blocked, display_tile returns immediately --
         it submits to the queue and proceeds without waiting for savefig.
         Event-gated, no time.sleep.
         """
         import threading
+
         import IPython.display as ipy_display
         from pipeline._save_queue import _FigureSaveQueue
         from pipeline.visualize import display_tile
@@ -334,14 +348,16 @@ class TestDisplayTileSaveQueue:
         assert list(tmp_path.glob("live_tile_R*.png"))
 
     def test_closes_figure_exactly_once_on_sync_path(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """No _save_queue, save_png=False: figure is built on the
         producer thread and closed by its finally block. plt.close
         must be called exactly once for that figure.
         """
-        import matplotlib.pyplot as plt
         import IPython.display as ipy_display
+        import matplotlib.pyplot as plt
 
         monkeypatch.setattr(ipy_display, "display", MagicMock())
 
@@ -355,6 +371,7 @@ class TestDisplayTileSaveQueue:
         monkeypatch.setattr(plt, "close", counting_close)
 
         from pipeline.visualize import display_tile
+
         display_tile(
             _make_tile_event(),
             save_png=False,
@@ -365,14 +382,16 @@ class TestDisplayTileSaveQueue:
         assert len(close_calls) == 1
 
     def test_closes_figure_exactly_once_on_queued_path(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """With _save_queue, ownership transfers to the worker. The
         worker calls plt.close after savefig; the producer's finally
         must NOT also close (no double-close).
         """
-        import matplotlib.pyplot as plt
         import IPython.display as ipy_display
+        import matplotlib.pyplot as plt
 
         monkeypatch.setattr(ipy_display, "display", MagicMock())
 
@@ -415,15 +434,18 @@ class TestDisplayTargetSaveQueue:
     This complements the display_tile close-once test with the same
     figure-ownership contract for display_target.
     """
+
     def test_closes_figure_exactly_once_on_queued_path(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """display_target with _save_queue + save_png=True transfers
         figure ownership to the worker. The worker calls plt.close once
         after savefig; the producer's finally must not also close.
         """
-        import matplotlib.pyplot as plt
         import IPython.display as ipy_display
+        import matplotlib.pyplot as plt
 
         monkeypatch.setattr(ipy_display, "display", MagicMock())
 
@@ -445,7 +467,7 @@ class TestDisplayTargetSaveQueue:
 
         with _FigureSaveQueue() as queue:
             display_target(
-                pick=None,                       # falls back to "N/A" panels
+                pick=None,  # falls back to "N/A" panels
                 record=_make_target_record(),
                 analysis_dir=analysis_dir,
                 logs_dir=logs_dir,
@@ -467,16 +489,18 @@ class TestDisplayTargetFlags:
         skips display(). save_png still produces the PNG.
         """
         import IPython.display as ipy_display
+
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
 
         from pipeline.visualize import display_target
+
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
         logs_dir = tmp_path / "logs"
 
         display_target(
-            pick=None,                          # falls back to "N/A" panels
+            pick=None,  # falls back to "N/A" panels
             record=_make_target_record(),
             analysis_dir=analysis_dir,
             logs_dir=logs_dir,
@@ -492,10 +516,12 @@ class TestDisplayTargetFlags:
         when logs_dir is provided. The inline display still fires.
         """
         import IPython.display as ipy_display
+
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
 
         from pipeline.visualize import display_target
+
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
         logs_dir = tmp_path / "logs"
@@ -522,6 +548,7 @@ class TestDisplayTargetFlags:
 class TestPlotOverviewTiles:
     def test_renders_triptych_for_each_tile(self, tmp_path):
         import matplotlib
+
         matplotlib.use("Agg")
         from pipeline.visualize import plot_overview_tiles
 
@@ -531,10 +558,12 @@ class TestPlotOverviewTiles:
         _make_npz(analysis_dir, naming=n0, tile_id=("0", 0, 0))
         _make_npz(analysis_dir, naming=n1, tile_id=("0", 0, 1))
 
-        picks = _make_picks([
-            _make_pick(("0", 0, 0), label=1),
-            _make_pick(("0", 0, 1), label=2),
-        ])
+        picks = _make_picks(
+            [
+                _make_pick(("0", 0, 0), label=1),
+                _make_pick(("0", 0, 1), label=2),
+            ]
+        )
 
         logs_dir = tmp_path / "logs"
         plot_overview_tiles(analysis_dir, picks, logs_dir=logs_dir)
@@ -544,6 +573,7 @@ class TestPlotOverviewTiles:
 
     def test_zero_pick_tile_renders(self, tmp_path):
         import matplotlib
+
         matplotlib.use("Agg")
         from pipeline.visualize import plot_overview_tiles
 
@@ -559,6 +589,7 @@ class TestPlotOverviewTiles:
 
     def test_missing_npz_skipped(self, tmp_path):
         import matplotlib
+
         matplotlib.use("Agg")
         from pipeline.visualize import plot_overview_tiles
 
@@ -572,21 +603,23 @@ class TestPlotOverviewTiles:
     def test_mock_mode_title_contains_mock(self, tmp_path, monkeypatch):
         # The "(mock)" title prefix is driven by the `simulated` NPZ key.
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from pipeline.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
-        _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0),
-                  simulated=True)
+        _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0), simulated=True)
 
         captured_titles = []
         _orig_close = plt.close
+
         def _spy_close(fig):
-            if hasattr(fig, '_suptitle') and fig._suptitle is not None:
+            if hasattr(fig, "_suptitle") and fig._suptitle is not None:
                 captured_titles.append(fig._suptitle.get_text())
             _orig_close(fig)
+
         monkeypatch.setattr(plt, "close", _spy_close)
 
         picks = _make_picks([])
@@ -597,6 +630,7 @@ class TestPlotOverviewTiles:
 
     def test_creates_logs_dir(self, tmp_path):
         import matplotlib
+
         matplotlib.use("Agg")
         from pipeline.visualize import plot_overview_tiles
 
@@ -607,13 +641,13 @@ class TestPlotOverviewTiles:
         logs_dir = tmp_path / "deep" / "nested" / "logs"
         assert not logs_dir.exists()
 
-        plot_overview_tiles(analysis_dir, _make_picks([]),
-                           logs_dir=logs_dir)
+        plot_overview_tiles(analysis_dir, _make_picks([]), logs_dir=logs_dir)
         assert logs_dir.exists()
 
     def test_picked_labels_from_pick_id(self, tmp_path):
         """Verify that pick_id[3] is used as the label for the red overlay."""
         import matplotlib
+
         matplotlib.use("Agg")
         from pipeline.visualize import _picked_overlay
 
@@ -623,6 +657,7 @@ class TestPlotOverviewTiles:
         masks[30:40, 30:40] = 7
 
         import matplotlib.pyplot as plt
+
         fig, ax = plt.subplots()
         _picked_overlay(ax, image_2d, masks, [3])
 
@@ -630,21 +665,21 @@ class TestPlotOverviewTiles:
         images = ax.get_images()
         overlay = images[-1].get_array()
         # Red channel should be nonzero in label-3 region
-        assert overlay[15, 15, 0] > 0   # label 3 area
+        assert overlay[15, 15, 0] > 0  # label 3 area
         assert overlay[35, 35, 0] == 0  # label 7 area (not picked)
         plt.close("all")
 
     def test_picked_overlay_rendered_end_to_end(self, tmp_path, monkeypatch):
         """Integration: picks with (str, int, int) tile_key match all-str npz tile_id."""
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from pipeline.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
-        _make_npz(analysis_dir, naming=naming, n_cells=3,
-                  tile_id=("0", 0, 0), image_size=(64, 64))
+        _make_npz(analysis_dir, naming=naming, n_cells=3, tile_id=("0", 0, 0), image_size=(64, 64))
 
         # pick_id is (str, int, int, int) — mixed types, must still match
         pick = _make_pick(("0", 0, 0), label=1)
@@ -652,6 +687,7 @@ class TestPlotOverviewTiles:
 
         captured = []
         _orig_close = plt.close
+
         def _spy(fig):
             ax_right = fig.axes[2]
             images = ax_right.get_images()
@@ -659,6 +695,7 @@ class TestPlotOverviewTiles:
                 overlay = images[-1].get_array()
                 captured.append(overlay[:, :, 0].sum())
             _orig_close(fig)
+
         monkeypatch.setattr(plt, "close", _spy)
 
         plot_overview_tiles(analysis_dir, picks)
@@ -673,13 +710,13 @@ class TestPlotOverviewTiles:
 class TestCentroidCropAtTargetFov:
     def _make_rec(self, target_pixel_size_um=0.25):
         from pipeline.target import TargetRecord
+
         return TargetRecord(
             pick_id=("0", 0, 0, 1),
             cell_source_stage_xy_um=(0.0, 0.0),
             source_zwide_um=0.0,
             target_stage_xy_um=None,
             target_zwide_um=None,
-
             target_pixel_size_um=target_pixel_size_um,
             tif_path=None,
             success=True,
@@ -688,13 +725,12 @@ class TestCentroidCropAtTargetFov:
 
     def test_center_crop_correct_size(self):
         from pipeline.visualize import _centroid_crop_at_target_fov
+
         image = np.zeros((100, 100))
         # target: 20x20 px at 0.25 um/px = 5x5 um FOV
         # source: 0.5 um/px → crop = 5/0.5 = 10x10 px
         target_img = np.zeros((20, 20))
-        pick = _make_pick(("0", 0, 0), label=1,
-                          centroid_rc=(50.0, 50.0),
-                          bbox=(45, 45, 55, 55))
+        pick = _make_pick(("0", 0, 0), label=1, centroid_rc=(50.0, 50.0), bbox=(45, 45, 55, 55))
         rec = self._make_rec(target_pixel_size_um=0.25)
 
         crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
@@ -702,12 +738,11 @@ class TestCentroidCropAtTargetFov:
 
     def test_center_crop_centered_on_centroid(self):
         from pipeline.visualize import _centroid_crop_at_target_fov
+
         image = np.arange(10000).reshape(100, 100).astype(float)
         target_img = np.zeros((20, 20))
         # centroid at (col=60, row=40)
-        pick = _make_pick(("0", 0, 0), label=1,
-                          centroid_rc=(60.0, 40.0),
-                          bbox=(35, 55, 45, 65))
+        pick = _make_pick(("0", 0, 0), label=1, centroid_rc=(60.0, 40.0), bbox=(35, 55, 45, 65))
         rec = self._make_rec(target_pixel_size_um=0.25)
 
         crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
@@ -718,12 +753,11 @@ class TestCentroidCropAtTargetFov:
 
     def test_corner_clamp_shifts_window(self):
         from pipeline.visualize import _centroid_crop_at_target_fov
+
         image = np.zeros((100, 100))
         target_img = np.zeros((20, 20))
         # centroid near top-left corner — crop would go negative
-        pick = _make_pick(("0", 0, 0), label=1,
-                          centroid_rc=(2.0, 2.0),
-                          bbox=(0, 0, 5, 5))
+        pick = _make_pick(("0", 0, 0), label=1, centroid_rc=(2.0, 2.0), bbox=(0, 0, 5, 5))
         rec = self._make_rec(target_pixel_size_um=0.25)
 
         crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
@@ -732,12 +766,11 @@ class TestCentroidCropAtTargetFov:
 
     def test_bottom_right_clamp(self):
         from pipeline.visualize import _centroid_crop_at_target_fov
+
         image = np.zeros((100, 100))
         target_img = np.zeros((20, 20))
         # centroid near bottom-right corner
-        pick = _make_pick(("0", 0, 0), label=1,
-                          centroid_rc=(98.0, 98.0),
-                          bbox=(93, 93, 100, 100))
+        pick = _make_pick(("0", 0, 0), label=1, centroid_rc=(98.0, 98.0), bbox=(93, 93, 100, 100))
         rec = self._make_rec(target_pixel_size_um=0.25)
 
         crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
@@ -745,10 +778,9 @@ class TestCentroidCropAtTargetFov:
 
     def test_fallback_to_bbox_when_no_target(self):
         from pipeline.visualize import _centroid_crop_at_target_fov
+
         image = np.zeros((100, 100))
-        pick = _make_pick(("0", 0, 0), label=1,
-                          centroid_rc=(50.0, 50.0),
-                          bbox=(40, 42, 60, 58))
+        pick = _make_pick(("0", 0, 0), label=1, centroid_rc=(50.0, 50.0), bbox=(40, 42, 60, 58))
         rec = self._make_rec(target_pixel_size_um=None)
 
         crop = _centroid_crop_at_target_fov(image, pick, rec, None)
@@ -758,13 +790,12 @@ class TestCentroidCropAtTargetFov:
     def test_col_row_mapping(self):
         """Verify col maps to x-axis and row maps to y-axis."""
         from pipeline.visualize import _centroid_crop_at_target_fov
+
         image = np.zeros((200, 300))
         image[50, 150] = 1.0  # marker at row=50, col=150
         target_img = np.zeros((4, 4))
         # centroid at (col=150, row=50) → crop should contain the marker
-        pick = _make_pick(("0", 0, 0), label=1,
-                          centroid_rc=(150.0, 50.0),
-                          bbox=(48, 148, 52, 152))
+        pick = _make_pick(("0", 0, 0), label=1, centroid_rc=(150.0, 50.0), bbox=(48, 148, 52, 152))
         rec = self._make_rec(target_pixel_size_um=0.25)
 
         crop = _centroid_crop_at_target_fov(image, pick, rec, target_img)
@@ -792,22 +823,25 @@ class TestStep5PanelInterpolation:
 
     def test_centre_panel_imshow_uses_nearest(self):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from pipeline.visualize import _render_target_crop_panel
         from pipeline.target import TargetRecord
+        from pipeline.visualize import _render_target_crop_panel
 
         image = np.zeros((100, 100), dtype=np.uint16)
         target_img = np.zeros((20, 20), dtype=np.uint16)
-        pick = _make_pick(("0", 0, 0), label=1,
-                          centroid_rc=(50.0, 50.0),
-                          bbox=(45, 45, 55, 55))
+        pick = _make_pick(("0", 0, 0), label=1, centroid_rc=(50.0, 50.0), bbox=(45, 45, 55, 55))
         rec = TargetRecord(
             pick_id=("0", 0, 0, 1),
-            cell_source_stage_xy_um=(0.0, 0.0), source_zwide_um=0.0,
-            target_stage_xy_um=(0.0, 0.0), target_zwide_um=0.0,
+            cell_source_stage_xy_um=(0.0, 0.0),
+            source_zwide_um=0.0,
+            target_stage_xy_um=(0.0, 0.0),
+            target_zwide_um=0.0,
             target_pixel_size_um=0.25,
-            tif_path=None, success=True, error=None,
+            tif_path=None,
+            success=True,
+            error=None,
         )
         tile_data = (image, np.zeros_like(image, dtype=np.int32))
 
@@ -826,6 +860,7 @@ class TestStep5PanelInterpolation:
 
     def test_right_panel_imshow_uses_nearest(self):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from pipeline.visualize import _render_highres_target_panel
@@ -852,26 +887,31 @@ class TestStep5PanelInterpolation:
 class TestEnsure2D:
     def test_2d_passthrough(self):
         from pipeline.visualize import _ensure_2d
+
         img = np.zeros((64, 64))
         assert _ensure_2d(img).shape == (64, 64)
 
     def test_3d_first_plane(self):
         from pipeline.visualize import _ensure_2d
+
         img = np.zeros((5, 64, 64))
         assert _ensure_2d(img).shape == (64, 64)
 
     def test_3d_channel_last(self):
         from pipeline.visualize import _ensure_2d
+
         img = np.zeros((64, 64, 3))
         assert _ensure_2d(img).shape == (64, 64)
 
     def test_4d_tczyx_style(self):
         from pipeline.visualize import _ensure_2d
+
         img = np.zeros((2, 3, 64, 64))
         assert _ensure_2d(img).shape == (64, 64)
 
     def test_4d_channel_last(self):
         from pipeline.visualize import _ensure_2d
+
         img = np.zeros((5, 64, 64, 3))
         result = _ensure_2d(img)
         assert result.shape == (64, 64)
@@ -883,9 +923,10 @@ class TestEnsure2D:
 class TestPlotTargetPairs:
     def test_renders_pairs_for_successful_targets(self, tmp_path):
         import matplotlib
+
         matplotlib.use("Agg")
-        from pipeline.visualize import plot_target_pairs
         from pipeline.target import TargetRecord
+        from pipeline.visualize import plot_target_pairs
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
@@ -895,30 +936,31 @@ class TestPlotTargetPairs:
         picks = _make_picks([pick])
 
         target_tif = _make_target_tif(tmp_path / "target" / "target.tif")
-        records = [TargetRecord(
-            pick_id=("0", 0, 0, 1),
-            cell_source_stage_xy_um=(1005.0, 2005.0),
-            source_zwide_um=100.0,
-            target_stage_xy_um=(2000.0, 3000.0),
-            target_zwide_um=100.0,
-
-            target_pixel_size_um=0.1,
-            tif_path=target_tif,
-            success=True,
-            error=None,
-        )]
+        records = [
+            TargetRecord(
+                pick_id=("0", 0, 0, 1),
+                cell_source_stage_xy_um=(1005.0, 2005.0),
+                source_zwide_um=100.0,
+                target_stage_xy_um=(2000.0, 3000.0),
+                target_zwide_um=100.0,
+                target_pixel_size_um=0.1,
+                tif_path=target_tif,
+                success=True,
+                error=None,
+            )
+        ]
 
         logs_dir = tmp_path / "logs"
-        plot_target_pairs(analysis_dir, picks, records,
-                          logs_dir=logs_dir)
+        plot_target_pairs(analysis_dir, picks, records, logs_dir=logs_dir)
 
         assert len(list(logs_dir.glob("*.png"))) == 1
 
     def test_skips_failed_targets(self, tmp_path):
         import matplotlib
+
         matplotlib.use("Agg")
-        from pipeline.visualize import plot_target_pairs
         from pipeline.target import TargetRecord
+        from pipeline.visualize import plot_target_pairs
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
@@ -927,28 +969,29 @@ class TestPlotTargetPairs:
         pick = _make_pick(("0", 0, 0), label=1)
         picks = _make_picks([pick])
 
-        records = [TargetRecord(
-            pick_id=("0", 0, 0, 1),
-            cell_source_stage_xy_um=(1005.0, 2005.0),
-            source_zwide_um=100.0,
-            target_stage_xy_um=None,
-            target_zwide_um=None,
-
-            target_pixel_size_um=None,
-            tif_path=None,
-            success=False,
-            error="translate failed",
-            failure_stage="translate",
-        )]
+        records = [
+            TargetRecord(
+                pick_id=("0", 0, 0, 1),
+                cell_source_stage_xy_um=(1005.0, 2005.0),
+                source_zwide_um=100.0,
+                target_stage_xy_um=None,
+                target_zwide_um=None,
+                target_pixel_size_um=None,
+                tif_path=None,
+                success=False,
+                error="translate failed",
+                failure_stage="translate",
+            )
+        ]
 
         logs_dir = tmp_path / "logs"
-        plot_target_pairs(analysis_dir, picks, records,
-                          logs_dir=logs_dir)
+        plot_target_pairs(analysis_dir, picks, records, logs_dir=logs_dir)
 
         assert len(list(logs_dir.glob("*.png"))) == 0
 
     def test_no_successful_targets(self, tmp_path):
         import matplotlib
+
         matplotlib.use("Agg")
         from pipeline.visualize import plot_target_pairs
 
@@ -976,16 +1019,23 @@ class TestDisplayTilePanelLayout:
 
     @staticmethod
     def _scan_field(n_cols, n_rows):
-        return {"tile_positions": {"0": {
-            "job_name": "Overview", "tile_size_um": 100,
-            "positions": [
-                {"row": r, "col": c, "x_um": c * 100, "y_um": r * 100}
-                for r in range(n_rows) for c in range(n_cols)
-            ],
-        }}}
+        return {
+            "tile_positions": {
+                "0": {
+                    "job_name": "Overview",
+                    "tile_size_um": 100,
+                    "positions": [
+                        {"row": r, "col": c, "x_um": c * 100, "y_um": r * 100}
+                        for r in range(n_rows)
+                        for c in range(n_cols)
+                    ],
+                }
+            }
+        }
 
     def _cell_widths(self, monkeypatch, scan_field):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from pipeline.visualize import display_tile
@@ -996,25 +1046,24 @@ class TestDisplayTilePanelLayout:
         def spy(fig=None):
             if fig is not None and len(getattr(fig, "axes", [])) == 3:
                 fig.canvas.draw()
-                widths.extend(
-                    ax.get_position(original=True).width for ax in fig.axes
-                )
+                widths.extend(ax.get_position(original=True).width for ax in fig.axes)
             real_close(fig) if fig is not None else real_close()
 
         monkeypatch.setattr(plt, "close", spy)
         monkeypatch.setattr(
-            "IPython.display.display", lambda *a, **kw: None,
+            "IPython.display.display",
+            lambda *a, **kw: None,
         )
-        display_tile(_make_tile_event(), scan_field=scan_field,
-                     live_display=False, save_png=False)
+        display_tile(_make_tile_event(), scan_field=scan_field, live_display=False, save_png=False)
         return widths
 
     def test_panels_get_equal_cells(self, monkeypatch):
         for label, (cols, rows) in (
-            ("square", (3, 3)), ("wide", (10, 1)), ("tall", (1, 8)),
+            ("square", (3, 3)),
+            ("wide", (10, 1)),
+            ("tall", (1, 8)),
         ):
-            widths = self._cell_widths(
-                monkeypatch, self._scan_field(cols, rows))
+            widths = self._cell_widths(monkeypatch, self._scan_field(cols, rows))
             assert len(widths) == 3, f"{label}: expected 3 panels"
             assert max(widths) - min(widths) < 1e-3, (
                 f"{label} field: the three panel cells must be equal "
@@ -1029,9 +1078,10 @@ class TestSharedScanFieldRenderer:
     or the Step 2b/2c path (tile_styles supplied). Catches future
     divergence of the renderer's geometry behavior.
     """
+
     def test_context_matches_across_call_styles(self):
         import matplotlib.pyplot as plt
-        from pipeline.visualize import render_scan_field_panel, TileStyle
+        from pipeline.visualize import TileStyle, render_scan_field_panel
 
         scan_field = {
             "tile_positions": {
@@ -1047,7 +1097,10 @@ class TestSharedScanFieldRenderer:
 
         fig1, ax1 = plt.subplots()
         rc1 = render_scan_field_panel(
-            ax1, scan_field, None, highlight_tile_id=("0", 0, 0),
+            ax1,
+            scan_field,
+            None,
+            highlight_tile_id=("0", 0, 0),
         )
         plt.close(fig1)
 
@@ -1057,7 +1110,10 @@ class TestSharedScanFieldRenderer:
         }
         fig2, ax2 = plt.subplots()
         rc2 = render_scan_field_panel(
-            ax2, scan_field, None, tile_styles=styles,
+            ax2,
+            scan_field,
+            None,
+            tile_styles=styles,
         )
         plt.close(fig2)
 
@@ -1069,8 +1125,8 @@ class TestSharedScanFieldRenderer:
 
 
 class TestLoadTileNpzWarning:
-    """_load_tile_npz logs a warning and returns None on corrupt input.
-    """
+    """_load_tile_npz logs a warning and returns None on corrupt input."""
+
     def test_warns_on_unreadable_file(self, tmp_path, capsys):
         from pipeline.visualize import _load_tile_npz
 
@@ -1091,16 +1147,15 @@ class TestLoadTileNpzPosition:
 
     def test_returns_position_when_present(self, tmp_path):
         from pipeline.visualize import _load_tile_npz
-        naming = Naming(acquisition_type="overview-scan",
-                        hash6="abc123", g=0, p=7)
-        npz = _make_npz(tmp_path / "a", naming=naming,
-                        tile_id=("0", 0, 0), position=7)
+
+        naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=7)
+        npz = _make_npz(tmp_path / "a", naming=naming, tile_id=("0", 0, 0), position=7)
         assert _load_tile_npz(npz).position == 7
 
     def test_missing_position_is_invalid(self, tmp_path, capsys):
         from pipeline.visualize import _load_tile_npz
-        naming = Naming(acquisition_type="overview-scan",
-                        hash6="abc123", g=0, p=0)
+
+        naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
         npz = _make_npz(tmp_path / "a", naming=naming, tile_id=("0", 0, 0))
         with np.load(npz, allow_pickle=True) as data:
             kept = {k: data[k] for k in data.files if k != "position"}
@@ -1111,8 +1166,8 @@ class TestLoadTileNpzPosition:
 
 
 class TestRenderCropBoundary:
-    """Small images yield a smaller crop, not padding or exceptions.
-    """
+    """Small images yield a smaller crop, not padding or exceptions."""
+
     def test_image_smaller_than_crop_size_renders_whole_image(self):
         import matplotlib.pyplot as plt
         from matplotlib.patches import Rectangle
@@ -1125,12 +1180,16 @@ class TestRenderCropBoundary:
 
         pick = Pick(
             pick_id=("0", 0, 0, 1),
-            tile_stage_xy_um=(0.0, 0.0), tile_zwide_um=0.5,
+            tile_stage_xy_um=(0.0, 0.0),
+            tile_zwide_um=0.5,
             source_pixel_size_um=(0.65, 0.65),
             source_image_size_px=(32, 32),
             centroid_col_row_px=(16.0, 16.0),
-            bbox_px=(10, 10, 20, 20), bbox_um=(13.0, 13.0),
-            area_px=100, eccentricity=0.5, mean_intensity=100.0,
+            bbox_px=(10, 10, 20, 20),
+            bbox_um=(13.0, 13.0),
+            area_px=100,
+            eccentricity=0.5,
+            mean_intensity=100.0,
             cell_source_stage_xy_um=(0.5, 0.5),
         )
 
@@ -1138,14 +1197,10 @@ class TestRenderCropBoundary:
         try:
             _render_crop(ax, 1, pick, img, Rectangle)
             images = ax.get_images()
-            assert len(images) == 1, (
-                "expected exactly one imshow on the crop axes"
-            )
+            assert len(images) == 1, "expected exactly one imshow on the crop axes"
             displayed = images[0].get_array()
             # Whole image is shown (smaller-than-_CROP_SIZE_PX path).
-            assert displayed.shape == (32, 32), (
-                f"expected 32x32 fallback, got {displayed.shape}"
-            )
+            assert displayed.shape == (32, 32), f"expected 32x32 fallback, got {displayed.shape}"
         finally:
             plt.close(fig)
 
@@ -1191,23 +1246,32 @@ class TestClassifyCellsForScatter:
 
 class TestDisplaySelectionCropStrip:
     def test_mixed_key_pick_renders_crop_not_placeholder(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         """Regression: pick_id has (str, int, int, int) but npz tile_id
         is all-string. display_selection must normalize before lookup."""
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        from pipeline.selection import MODE_THRESHOLD, SelectionResult
         from pipeline.visualize import display_selection
-        from pipeline.selection import SelectionResult, MODE_THRESHOLD
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(
-            acquisition_type="overview-scan", hash6="abc123", g=0, p=0,
+            acquisition_type="overview-scan",
+            hash6="abc123",
+            g=0,
+            p=0,
         )
         _make_npz(
-            analysis_dir, naming=naming, n_cells=3,
-            tile_id=("0", 0, 0), image_size=(64, 64),
+            analysis_dir,
+            naming=naming,
+            n_cells=3,
+            tile_id=("0", 0, 0),
+            image_size=(64, 64),
         )
 
         tile_id = ("0", 0, 0)
@@ -1251,14 +1315,13 @@ class TestDisplaySelectionCropStrip:
 
         monkeypatch.setattr(plt, "close", _spy)
         monkeypatch.setattr(
-            "IPython.display.display", lambda *a, **kw: None,
+            "IPython.display.display",
+            lambda *a, **kw: None,
         )
 
         display_selection(selection, analysis_dir)
 
-        assert crop_has_image, (
-            "Crop axes should render an image, not 'image unavailable'"
-        )
+        assert crop_has_image, "Crop axes should render an image, not 'image unavailable'"
 
 
 # ─── render_scan_field_panel frame_aspect padding ─────────────────
@@ -1272,8 +1335,7 @@ class TestFrameAspectPadding:
                     "tile_size_um": min(width_um, height_um),
                     "positions": [
                         {"x_um": 0.0, "y_um": 0.0, "row": 0, "col": 0},
-                        {"x_um": width_um, "y_um": height_um,
-                         "row": 0, "col": 1},
+                        {"x_um": width_um, "y_um": height_um, "row": 0, "col": 1},
                     ],
                 },
             },
@@ -1281,6 +1343,7 @@ class TestFrameAspectPadding:
 
     def test_square_field_padded_to_16_9(self):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from pipeline.visualize import render_scan_field_panel
@@ -1288,7 +1351,9 @@ class TestFrameAspectPadding:
         fig, ax = plt.subplots(figsize=(14, 7.875))
         try:
             render_scan_field_panel(
-                ax, self._make_scan_field(1000, 1000), None,
+                ax,
+                self._make_scan_field(1000, 1000),
+                None,
                 frame_aspect=16 / 9,
             )
             xl = ax.get_xlim()
@@ -1296,14 +1361,13 @@ class TestFrameAspectPadding:
             x_range = abs(xl[1] - xl[0])
             y_range = abs(yl[1] - yl[0])
             ratio = x_range / y_range
-            assert abs(ratio - 16 / 9) < 0.01, (
-                f"Expected 16:9 ratio, got {ratio:.3f}"
-            )
+            assert abs(ratio - 16 / 9) < 0.01, f"Expected 16:9 ratio, got {ratio:.3f}"
         finally:
             plt.close(fig)
 
     def test_wide_field_padded_to_16_9(self):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from pipeline.visualize import render_scan_field_panel
@@ -1311,7 +1375,9 @@ class TestFrameAspectPadding:
         fig, ax = plt.subplots(figsize=(14, 7.875))
         try:
             render_scan_field_panel(
-                ax, self._make_scan_field(3000, 1000), None,
+                ax,
+                self._make_scan_field(3000, 1000),
+                None,
                 frame_aspect=16 / 9,
             )
             xl = ax.get_xlim()
@@ -1319,22 +1385,23 @@ class TestFrameAspectPadding:
             x_range = abs(xl[1] - xl[0])
             y_range = abs(yl[1] - yl[0])
             ratio = x_range / y_range
-            assert abs(ratio - 16 / 9) < 0.01, (
-                f"Expected 16:9 ratio, got {ratio:.3f}"
-            )
+            assert abs(ratio - 16 / 9) < 0.01, f"Expected 16:9 ratio, got {ratio:.3f}"
         finally:
             plt.close(fig)
 
     def test_no_frame_aspect_preserves_natural_extent(self):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from pipeline.visualize import render_scan_field_panel
 
         fig, ax = plt.subplots(figsize=(14, 7.875))
         try:
-            rc = render_scan_field_panel(
-                ax, self._make_scan_field(1000, 1000), None,
+            render_scan_field_panel(
+                ax,
+                self._make_scan_field(1000, 1000),
+                None,
             )
             xl = ax.get_xlim()
             yl = ax.get_ylim()
@@ -1342,14 +1409,14 @@ class TestFrameAspectPadding:
             y_range = abs(yl[1] - yl[0])
             ratio = x_range / y_range
             assert abs(ratio - 1.0) < 0.01, (
-                f"Square field without frame_aspect should stay ~1:1, "
-                f"got {ratio:.3f}"
+                f"Square field without frame_aspect should stay ~1:1, got {ratio:.3f}"
             )
         finally:
             plt.close(fig)
 
     def test_context_extents_updated_after_padding(self):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from pipeline.visualize import render_scan_field_panel
@@ -1357,7 +1424,9 @@ class TestFrameAspectPadding:
         fig, ax = plt.subplots(figsize=(14, 7.875))
         try:
             rc = render_scan_field_panel(
-                ax, self._make_scan_field(1000, 1000), None,
+                ax,
+                self._make_scan_field(1000, 1000),
+                None,
                 frame_aspect=16 / 9,
             )
             ctx_x_range = rc.extent_x[1] - rc.extent_x[0]
@@ -1396,113 +1465,132 @@ class TestFigureWidth:
 
         monkeypatch.setattr(plt, "close", spy)
         monkeypatch.setattr(
-            "IPython.display.display", lambda *a, **kw: None,
+            "IPython.display.display",
+            lambda *a, **kw: None,
         )
         call()
         return seen
 
     def test_display_tile_is_14_wide(self, monkeypatch):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from pipeline.visualize import display_tile, _FRAME_WIDTH_IN
+        from pipeline.visualize import _FRAME_WIDTH_IN, display_tile
 
-        scan_field = {"tile_positions": {"0": {
-            "job_name": "Overview", "tile_size_um": 100,
-            "positions": [{"row": 0, "col": 0, "x_um": 0, "y_um": 0}]}}}
+        scan_field = {
+            "tile_positions": {
+                "0": {
+                    "job_name": "Overview",
+                    "tile_size_um": 100,
+                    "positions": [{"row": 0, "col": 0, "x_um": 0, "y_um": 0}],
+                }
+            }
+        }
         widths = self._widths(
-            plt, monkeypatch,
+            plt,
+            monkeypatch,
             lambda: display_tile(
-                _make_tile_event(), scan_field=scan_field,
-                live_display=False, save_png=False),
+                _make_tile_event(), scan_field=scan_field, live_display=False, save_png=False
+            ),
         )
         assert widths == [_FRAME_WIDTH_IN]
 
     def test_display_selection_is_14_wide(self, tmp_path, monkeypatch):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from pipeline.visualize import display_selection, _FRAME_WIDTH_IN
+        from pipeline.visualize import _FRAME_WIDTH_IN, display_selection
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(
-            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
-        _make_npz(analysis_dir, naming=naming, n_cells=6,
-                  tile_id=("0", 0, 0), image_size=(160, 160))
+        naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        _make_npz(
+            analysis_dir, naming=naming, n_cells=6, tile_id=("0", 0, 0), image_size=(160, 160)
+        )
 
         sel = _make_selection(n_cells=8, n_selected=6)
         assert self._widths(
-            plt, monkeypatch,
+            plt,
+            monkeypatch,
             lambda: display_selection(sel, analysis_dir),
         ) == [_FRAME_WIDTH_IN]
 
         sel0 = _make_selection(n_cells=4, n_selected=0)
         assert self._widths(
-            plt, monkeypatch,
+            plt,
+            monkeypatch,
             lambda: display_selection(sel0, analysis_dir),
         ) == [_FRAME_WIDTH_IN]
 
     def test_plot_overview_tiles_is_14_wide(self, tmp_path, monkeypatch):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from pipeline.visualize import plot_overview_tiles, _FRAME_WIDTH_IN
+        from pipeline.visualize import _FRAME_WIDTH_IN, plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(
-            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
         _make_npz(analysis_dir, naming=naming, n_cells=3, tile_id=("0", 0, 0))
         picks = _make_picks([_make_pick(("0", 0, 0), label=1)])
         widths = self._widths(
-            plt, monkeypatch,
+            plt,
+            monkeypatch,
             lambda: plot_overview_tiles(analysis_dir, picks),
         )
         assert widths and all(w == _FRAME_WIDTH_IN for w in widths)
 
     def test_display_target_is_14_wide(self, tmp_path, monkeypatch):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from pipeline.visualize import display_target, _FRAME_WIDTH_IN
+        from pipeline.visualize import _FRAME_WIDTH_IN, display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
         widths = self._widths(
-            plt, monkeypatch,
+            plt,
+            monkeypatch,
             lambda: display_target(
-                pick=None, record=_make_target_record(),
+                pick=None,
+                record=_make_target_record(),
                 analysis_dir=analysis_dir,
-                live_display=False, save_png=False),
+                live_display=False,
+                save_png=False,
+            ),
         )
         assert widths == [_FRAME_WIDTH_IN]
 
     def test_plot_target_pairs_is_14_wide(self, tmp_path, monkeypatch):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from pipeline.visualize import plot_target_pairs, _FRAME_WIDTH_IN
         from pipeline.target import TargetRecord
+        from pipeline.visualize import _FRAME_WIDTH_IN, plot_target_pairs
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(
-            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
-        picks = _make_picks([_make_pick(("0", 0, 0), label=1,
-                                        bbox=(10, 10, 20, 20))])
-        records = [TargetRecord(
-            pick_id=("0", 0, 0, 1),
-            cell_source_stage_xy_um=(1005.0, 2005.0),
-            source_zwide_um=100.0,
-            target_stage_xy_um=(2000.0, 3000.0),
-            target_zwide_um=100.0,
-
-            target_pixel_size_um=0.1,
-            tif_path=_make_target_tif(tmp_path / "t" / "target.tif"),
-            success=True,
-            error=None,
-        )]
+        picks = _make_picks([_make_pick(("0", 0, 0), label=1, bbox=(10, 10, 20, 20))])
+        records = [
+            TargetRecord(
+                pick_id=("0", 0, 0, 1),
+                cell_source_stage_xy_um=(1005.0, 2005.0),
+                source_zwide_um=100.0,
+                target_stage_xy_um=(2000.0, 3000.0),
+                target_zwide_um=100.0,
+                target_pixel_size_um=0.1,
+                tif_path=_make_target_tif(tmp_path / "t" / "target.tif"),
+                success=True,
+                error=None,
+            )
+        ]
         widths = self._widths(
-            plt, monkeypatch,
+            plt,
+            monkeypatch,
             lambda: plot_target_pairs(analysis_dir, picks, records),
         )
         assert widths and all(w == _FRAME_WIDTH_IN for w in widths)
@@ -1519,8 +1607,13 @@ class TestNoHardcodedFigureWidth:
 
     def test_no_numeric_figsize_width_in_figure_modules(self):
         import importlib
-        for modname in ("pipeline.visualize", "pipeline.template",
-                        "pipeline.focus", "pipeline.summary"):
+
+        for modname in (
+            "pipeline.visualize",
+            "pipeline.template",
+            "pipeline.focus",
+            "pipeline.summary",
+        ):
             src = inspect.getsource(importlib.import_module(modname))
             hits = self._NUMERIC_FIGSIZE.findall(src)
             assert not hits, (
@@ -1535,13 +1628,13 @@ class TestSelectionCropRow:
 
     def test_six_equal_square_crops_in_one_row(self):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from matplotlib.gridspec import GridSpec
         from pipeline.visualize import _build_selection_figure_layout
 
-        fig, _, crop_axes, _ = _build_selection_figure_layout(
-            True, plt, GridSpec)
+        fig, _, crop_axes, _ = _build_selection_figure_layout(True, plt, GridSpec)
         try:
             assert len(crop_axes) == 6
             fig_w, fig_h = fig.get_size_inches()
@@ -1554,8 +1647,7 @@ class TestSelectionCropRow:
             for w_in, h_in in sizes:
                 assert abs(w_in - h_in) < 0.05, "crop axes must be square"
                 assert abs(w_in - sizes[0][0]) < 0.05, "crops must be equal"
-            assert sizes[0][0] > 1.5, (
-                f"crop should be a readable size, got {sizes[0][0]:.2f} in")
+            assert sizes[0][0] > 1.5, f"crop should be a readable size, got {sizes[0][0]:.2f} in"
         finally:
             plt.close(fig)
 
@@ -1571,15 +1663,16 @@ class TestScatterCropAnnotations:
 
     def test_one_numbered_badge_per_shown_crop(self, tmp_path, monkeypatch):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from pipeline.visualize import display_selection
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(
-            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
-        _make_npz(analysis_dir, naming=naming, n_cells=6,
-                  tile_id=("0", 0, 0), image_size=(160, 160))
+        naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        _make_npz(
+            analysis_dir, naming=naming, n_cells=6, tile_id=("0", 0, 0), image_size=(160, 160)
+        )
         sel = _make_selection(n_cells=8, n_selected=4)
 
         gids: list = []
@@ -1588,27 +1681,27 @@ class TestScatterCropAnnotations:
         def spy(fig=None):
             if fig is not None and hasattr(fig, "findobj"):
                 gids.extend(
-                    o.get_gid() for o in fig.findobj()
-                    if o.get_gid()
-                    and o.get_gid().startswith("crop-annot-")
+                    o.get_gid()
+                    for o in fig.findobj()
+                    if o.get_gid() and o.get_gid().startswith("crop-annot-")
                 )
             real_close(fig) if fig is not None else real_close()
 
         monkeypatch.setattr(plt, "close", spy)
         monkeypatch.setattr(
-            "IPython.display.display", lambda *a, **kw: None,
+            "IPython.display.display",
+            lambda *a, **kw: None,
         )
         display_selection(sel, analysis_dir)
 
         # sorted(gids) -- not sorted(set(gids)) -- so a duplicated
         # badge (same gid drawn twice) fails instead of being masked.
         assert sorted(gids) == [
-            "crop-annot-1", "crop-annot-2",
-            "crop-annot-3", "crop-annot-4",
-        ], (
-            f"expected exactly one numbered badge per shown crop (4), "
-            f"got {sorted(gids)}"
-        )
+            "crop-annot-1",
+            "crop-annot-2",
+            "crop-annot-3",
+            "crop-annot-4",
+        ], f"expected exactly one numbered badge per shown crop (4), got {sorted(gids)}"
 
 
 # ─── _pick_example_crops: spatial spread ──────────────────────────
@@ -1621,18 +1714,18 @@ class TestPickExampleCrops:
 
     def test_returns_all_when_at_most_n(self):
         from pipeline.visualize import _pick_example_crops
+
         picks = [_make_pick(("0", 0, 0), label=i + 1) for i in range(4)]
         chosen = _pick_example_crops(picks, n=6)
         # sorted-list equality catches a dropped pick AND a duplicated
         # one (length + content), not just the count.
-        assert (sorted(p.pick_id for p in chosen)
-                == sorted(p.pick_id for p in picks)), (
-            "with <= n picks the strip must show every pick exactly "
-            "once -- no drops, no duplicates"
+        assert sorted(p.pick_id for p in chosen) == sorted(p.pick_id for p in picks), (
+            "with <= n picks the strip must show every pick exactly once -- no drops, no duplicates"
         )
 
     def test_non_positive_n_returns_empty(self):
         from pipeline.visualize import _pick_example_crops
+
         picks = [_make_pick(("0", 0, 0), label=i + 1) for i in range(5)]
         assert _pick_example_crops(picks, n=0) == []
 
@@ -1640,29 +1733,34 @@ class TestPickExampleCrops:
         from pipeline.visualize import _pick_example_crops
 
         # Six distinct stage locations, each with a co-located twin.
-        spots = [(0.0, 0.0), (1000.0, 0.0), (0.0, 1000.0),
-                 (1000.0, 1000.0), (500.0, 500.0), (2000.0, 2000.0)]
+        spots = [
+            (0.0, 0.0),
+            (1000.0, 0.0),
+            (0.0, 1000.0),
+            (1000.0, 1000.0),
+            (500.0, 500.0),
+            (2000.0, 2000.0),
+        ]
         picks, label = [], 1
         for x, y in spots:
-            for _ in range(2):                  # the spot + its twin
-                picks.append(_make_pick(("0", 0, 0), label=label,
-                                        cell_xy=(x, y)))
+            for _ in range(2):  # the spot + its twin
+                picks.append(_make_pick(("0", 0, 0), label=label, cell_xy=(x, y)))
                 label += 1
 
         chosen = _pick_example_crops(picks, n=6)
         locs = {p.cell_source_stage_xy_um for p in chosen}
         assert len(chosen) == 6
         assert len(locs) == 6, (
-            f"the 6 crops must sit at 6 distinct locations, never "
-            f"co-located; got {sorted(locs)}"
+            f"the 6 crops must sit at 6 distinct locations, never co-located; got {sorted(locs)}"
         )
 
     def test_deterministic(self):
         from pipeline.visualize import _pick_example_crops
+
         picks = [
-            _make_pick(("0", 0, 0), label=i + 1,
-                       cell_xy=(float(i * 137 % 900),
-                                float(i * 53 % 700)))
+            _make_pick(
+                ("0", 0, 0), label=i + 1, cell_xy=(float(i * 137 % 900), float(i * 53 % 700))
+            )
             for i in range(15)
         ]
         first = [p.pick_id for p in _pick_example_crops(picks, n=6)]
@@ -1673,8 +1771,9 @@ class TestPickExampleCrops:
         """<= n branch: crops come back largest-area-first so the
         strip / badge 1..N numbering reads top-down on the scatter."""
         from pipeline.visualize import _pick_example_crops
+
         picks = [_make_pick(("0", 0, 0), label=i + 1) for i in range(4)]
-        for p, area in zip(picks, [100, 400, 200, 300]):
+        for p, area in zip(picks, [100, 400, 200, 300], strict=False):
             p.area_px = area
         chosen = _pick_example_crops(picks, n=6)
         assert [p.area_px for p in chosen] == [400, 300, 200, 100]
@@ -1683,13 +1782,15 @@ class TestPickExampleCrops:
         """FPS branch (> n picks): the returned six are also ordered
         largest-area-first."""
         from pipeline.visualize import _pick_example_crops
+
         picks = [
-            _make_pick(("0", 0, 0), label=i + 1,
-                       cell_xy=(float(i * 137 % 900), float(i * 53 % 700)))
+            _make_pick(
+                ("0", 0, 0), label=i + 1, cell_xy=(float(i * 137 % 900), float(i * 53 % 700))
+            )
             for i in range(15)
         ]
         for i, p in enumerate(picks):
-            p.area_px = i * 10          # distinct areas
+            p.area_px = i * 10  # distinct areas
         areas = [p.area_px for p in _pick_example_crops(picks, n=6)]
         assert areas == sorted(areas, reverse=True)
 
@@ -1698,6 +1799,7 @@ class TestPickExampleCrops:
         the (-area_px, mean_intensity) key. area_px is integer-valued
         so this tie is reachable."""
         from pipeline.visualize import _pick_example_crops
+
         a = _make_pick(("0", 0, 0), label=1)
         b = _make_pick(("0", 0, 0), label=2)
         a.area_px = b.area_px = 500
@@ -1717,11 +1819,13 @@ class TestTileLabelWording:
 
     def test_format_tile_label(self):
         from pipeline.visualize import _format_tile_label
+
         assert _format_tile_label(0, 41) == "Group 0, Position 41"
         assert _format_tile_label(0, None) == "Group 0, Position unknown"
 
     def test_position_label(self):
         from pipeline.visualize import _position_label
+
         assert _position_label(0) == "Position 0"
         assert _position_label(41) == "Position 41"
         assert _position_label(None) == "Position unknown"
@@ -1729,8 +1833,9 @@ class TestTileLabelWording:
     def test_target_position_label_twin_matches_visualize(self):
         """target.py carries a one-line twin of _position_label to dodge
         an import cycle -- pin that it has not drifted."""
-        from pipeline.visualize import _position_label as viz
         from pipeline.target import _position_label as tgt
+        from pipeline.visualize import _position_label as viz
+
         for v in (0, 41, None):
             assert viz(v) == tgt(v)
 
@@ -1741,10 +1846,8 @@ class TestTileLabelWording:
         import importlib
         import inspect
 
-        template_src = inspect.getsource(
-            importlib.import_module("pipeline.template"))
-        overview_src = inspect.getsource(
-            importlib.import_module("pipeline.overview"))
+        template_src = inspect.getsource(importlib.import_module("pipeline.template"))
+        overview_src = inspect.getsource(importlib.import_module("pipeline.overview"))
 
         assert "region(s)" not in template_src
         assert "Region {rid}" not in template_src
@@ -1771,47 +1874,47 @@ class TestTargetZoomCallout:
 
         def spy(fig=None):
             if fig is not None and hasattr(fig, "artists"):
-                seen.append(sum(isinstance(a, ConnectionPatch)
-                                for a in fig.artists))
+                seen.append(sum(isinstance(a, ConnectionPatch) for a in fig.artists))
             real_close(fig) if fig is not None else real_close()
 
         monkeypatch.setattr(plt, "close", spy)
-        monkeypatch.setattr(
-            "IPython.display.display", lambda *a, **kw: None)
+        monkeypatch.setattr("IPython.display.display", lambda *a, **kw: None)
         call()
         return seen
 
     def test_two_lines_when_rect_is_drawn(self, tmp_path, monkeypatch):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from pipeline.visualize import display_target
         from pipeline.target import TargetRecord
+        from pipeline.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(
-            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
         pick = _make_pick(("0", 0, 0), label=1)
         rec = TargetRecord(
             pick_id=("0", 0, 0, 1),
             cell_source_stage_xy_um=(1005.0, 2005.0),
-            source_zwide_um=100.0, target_stage_xy_um=(2000.0, 3000.0),
+            source_zwide_um=100.0,
+            target_stage_xy_um=(2000.0, 3000.0),
             target_zwide_um=100.0,
             target_pixel_size_um=0.1,
             tif_path=_make_target_tif(tmp_path / "t" / "target.tif"),
-            success=True, error=None,
+            success=True,
+            error=None,
         )
         seen = self._connection_count(
-            plt, monkeypatch,
-            lambda: display_target(pick, rec, analysis_dir,
-                                   live_display=False, save_png=False),
+            plt,
+            monkeypatch,
+            lambda: display_target(pick, rec, analysis_dir, live_display=False, save_png=False),
         )
-        assert seen == [2], (
-            f"expected the 2-line zoom callout, got {seen}")
+        assert seen == [2], f"expected the 2-line zoom callout, got {seen}"
 
     def test_no_lines_without_a_pick(self, tmp_path, monkeypatch):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from pipeline.visualize import display_target
@@ -1819,15 +1922,17 @@ class TestTargetZoomCallout:
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
         seen = self._connection_count(
-            plt, monkeypatch,
+            plt,
+            monkeypatch,
             lambda: display_target(
-                pick=None, record=_make_target_record(),
+                pick=None,
+                record=_make_target_record(),
                 analysis_dir=analysis_dir,
-                live_display=False, save_png=False),
+                live_display=False,
+                save_png=False,
+            ),
         )
-        assert seen == [0], (
-            f"no rectangle is drawn without a pick, so no callout; "
-            f"got {seen}")
+        assert seen == [0], f"no rectangle is drawn without a pick, so no callout; got {seen}"
 
 
 # ─── Step 5 crop-panel border ─────────────────────────────────────
@@ -1846,20 +1951,25 @@ class TestTargetMultiCueRendering:
         target_pixel_size_um=0.5,
     ):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from pipeline.visualize import display_target
         from pipeline.target import TargetRecord
+        from pipeline.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(
-            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
         _make_npz(
-            analysis_dir, naming=naming, tile_id=("0", 0, 0),
+            analysis_dir,
+            naming=naming,
+            tile_id=("0", 0, 0),
             image_size=image_size,
         )
         pick = _make_pick(
-            ("0", 0, 0), label=1, centroid_rc=centroid, bbox=bbox,
+            ("0", 0, 0),
+            label=1,
+            centroid_rc=centroid,
+            bbox=bbox,
         )
         rec = TargetRecord(
             pick_id=("0", 0, 0, 1),
@@ -1867,10 +1977,10 @@ class TestTargetMultiCueRendering:
             source_zwide_um=100.0,
             target_stage_xy_um=(2000.0, 3000.0),
             target_zwide_um=100.0,
-
             target_pixel_size_um=target_pixel_size_um,
             tif_path=_make_target_tif(
-                tmp_path / "t" / "target.tif", size=target_size,
+                tmp_path / "t" / "target.tif",
+                size=target_size,
             ),
             success=True,
             error=None,
@@ -1885,10 +1995,13 @@ class TestTargetMultiCueRendering:
             real_close(fig) if fig is not None else real_close()
 
         monkeypatch.setattr(plt, "close", spy)
-        monkeypatch.setattr(
-            "IPython.display.display", lambda *a, **kw: None)
+        monkeypatch.setattr("IPython.display.display", lambda *a, **kw: None)
         display_target(
-            pick, rec, analysis_dir, live_display=False, save_png=False,
+            pick,
+            rec,
+            analysis_dir,
+            live_display=False,
+            save_png=False,
         )
         assert captured, "display_target did not create a figure"
         return captured[-1], pick
@@ -1900,10 +2013,13 @@ class TestTargetMultiCueRendering:
         return hits[0]
 
     def test_left_panel_axis_limits_pinned_at_zoom_one_x(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         fig, _ = self._render(
-            tmp_path, monkeypatch,
+            tmp_path,
+            monkeypatch,
             centroid=(32.0, 32.0),
             target_size=(64, 64),
             target_pixel_size_um=0.5,
@@ -1913,10 +2029,13 @@ class TestTargetMultiCueRendering:
         assert tuple(ax.get_ylim()) == (64.0, 0.0)
 
     def test_visible_clipped_rectangle_when_fov_exceeds_tile(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         fig, _ = self._render(
-            tmp_path, monkeypatch,
+            tmp_path,
+            monkeypatch,
             centroid=(15.0, 15.0),
             target_size=(64, 64),
             target_pixel_size_um=0.5,
@@ -1926,19 +2045,20 @@ class TestTargetMultiCueRendering:
         assert (rect.get_width(), rect.get_height()) == (47, 47)
 
     def test_no_callout_lines_when_fov_does_not_intersect(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         from matplotlib.patches import ConnectionPatch
 
         fig, _ = self._render(
-            tmp_path, monkeypatch,
+            tmp_path,
+            monkeypatch,
             centroid=(-20.0, -20.0),
             target_size=(8, 8),
             target_pixel_size_um=0.5,
         )
-        assert not [
-            a for a in fig.artists if isinstance(a, ConnectionPatch)
-        ]
+        assert not [a for a in fig.artists if isinstance(a, ConnectionPatch)]
 
 
 class TestTargetCropBorder:
@@ -1952,49 +2072,47 @@ class TestTargetCropBorder:
 
         def spy(fig=None):
             if fig is not None and hasattr(fig, "findobj"):
-                seen.append(sum(
-                    1 for o in fig.findobj()
-                    if o.get_gid() == "target-crop-border"
-                ))
+                seen.append(sum(1 for o in fig.findobj() if o.get_gid() == "target-crop-border"))
             real_close(fig) if fig is not None else real_close()
 
         monkeypatch.setattr(plt, "close", spy)
-        monkeypatch.setattr(
-            "IPython.display.display", lambda *a, **kw: None)
+        monkeypatch.setattr("IPython.display.display", lambda *a, **kw: None)
         call()
         return seen
 
     def test_border_drawn_with_pick_and_tile(self, tmp_path, monkeypatch):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from pipeline.visualize import display_target
         from pipeline.target import TargetRecord
+        from pipeline.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(
-            acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
+        naming = Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=0)
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
         pick = _make_pick(("0", 0, 0), label=1)
         rec = TargetRecord(
             pick_id=("0", 0, 0, 1),
             cell_source_stage_xy_um=(1005.0, 2005.0),
-            source_zwide_um=100.0, target_stage_xy_um=(2000.0, 3000.0),
+            source_zwide_um=100.0,
+            target_stage_xy_um=(2000.0, 3000.0),
             target_zwide_um=100.0,
             target_pixel_size_um=0.1,
             tif_path=_make_target_tif(tmp_path / "t" / "target.tif"),
-            success=True, error=None,
+            success=True,
+            error=None,
         )
         seen = self._border_count(
-            plt, monkeypatch,
-            lambda: display_target(pick, rec, analysis_dir,
-                                   live_display=False, save_png=False),
+            plt,
+            monkeypatch,
+            lambda: display_target(pick, rec, analysis_dir, live_display=False, save_png=False),
         )
-        assert seen == [1], (
-            f"expected one crop-panel border, got {seen}")
+        assert seen == [1], f"expected one crop-panel border, got {seen}"
 
     def test_no_border_without_a_pick(self, tmp_path, monkeypatch):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from pipeline.visualize import display_target
@@ -2002,14 +2120,17 @@ class TestTargetCropBorder:
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
         seen = self._border_count(
-            plt, monkeypatch,
+            plt,
+            monkeypatch,
             lambda: display_target(
-                pick=None, record=_make_target_record(),
+                pick=None,
+                record=_make_target_record(),
                 analysis_dir=analysis_dir,
-                live_display=False, save_png=False),
+                live_display=False,
+                save_png=False,
+            ),
         )
-        assert seen == [0], (
-            f"no FOV rectangle without a pick, so no border; got {seen}")
+        assert seen == [0], f"no FOV rectangle without a pick, so no border; got {seen}"
 
 
 # ─── Step 5 suptitle carries the source overview tile position ─────
@@ -2030,17 +2151,17 @@ class TestTargetSuptitlePosition:
             real_close(fig) if fig is not None else real_close()
 
         monkeypatch.setattr(plt, "close", spy)
-        monkeypatch.setattr(
-            "IPython.display.display", lambda *a, **kw: None)
+        monkeypatch.setattr("IPython.display.display", lambda *a, **kw: None)
         call()
         return seen
 
     def test_suptitle_uses_source_tile_position(self, tmp_path, monkeypatch):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from pipeline.visualize import display_target
         from pipeline.target import TargetRecord
+        from pipeline.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -2049,16 +2170,21 @@ class TestTargetSuptitlePosition:
         rec = TargetRecord(
             pick_id=("0", 0, 0, 3),
             cell_source_stage_xy_um=(1005.0, 2005.0),
-            source_zwide_um=100.0, target_stage_xy_um=(2000.0, 3000.0),
+            source_zwide_um=100.0,
+            target_stage_xy_um=(2000.0, 3000.0),
             target_zwide_um=100.0,
-            target_pixel_size_um=0.1, tif_path=None,
-            success=True, error=None, source_tile_position=41,
+            target_pixel_size_um=0.1,
+            tif_path=None,
+            success=True,
+            error=None,
+            source_tile_position=41,
         )
         seen = self._suptitle(
-            plt, monkeypatch,
-            lambda: display_target(pick=None, record=rec,
-                                   analysis_dir=analysis_dir,
-                                   live_display=False, save_png=False),
+            plt,
+            monkeypatch,
+            lambda: display_target(
+                pick=None, record=rec, analysis_dir=analysis_dir, live_display=False, save_png=False
+            ),
         )
         assert len(seen) == 1
         assert "Position 41" in seen[0], seen
@@ -2066,6 +2192,7 @@ class TestTargetSuptitlePosition:
 
     def test_suptitle_position_unknown_when_none(self, tmp_path, monkeypatch):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from pipeline.visualize import display_target
@@ -2073,11 +2200,15 @@ class TestTargetSuptitlePosition:
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
         seen = self._suptitle(
-            plt, monkeypatch,
+            plt,
+            monkeypatch,
             lambda: display_target(
-                pick=None, record=_make_target_record(),
+                pick=None,
+                record=_make_target_record(),
                 analysis_dir=analysis_dir,
-                live_display=False, save_png=False),
+                live_display=False,
+                save_png=False,
+            ),
         )
         assert len(seen) == 1
         assert "Position unknown" in seen[0], seen
@@ -2085,17 +2216,24 @@ class TestTargetSuptitlePosition:
     def test_serialize_target_includes_source_tile_position(self, tmp_path):
         from pipeline.summary import _serialize_target
         from pipeline.target import TargetRecord
+
         rec = TargetRecord(
-            pick_id=("0", 0, 0, 3), cell_source_stage_xy_um=(1.0, 2.0),
-            source_zwide_um=0.0, target_stage_xy_um=None,
+            pick_id=("0", 0, 0, 3),
+            cell_source_stage_xy_um=(1.0, 2.0),
+            source_zwide_um=0.0,
+            target_stage_xy_um=None,
             target_zwide_um=None,
-            target_pixel_size_um=None, tif_path=None,
-            success=False, error="x", source_tile_position=41,
+            target_pixel_size_um=None,
+            tif_path=None,
+            success=False,
+            error="x",
+            source_tile_position=41,
         )
         assert _serialize_target(rec, tmp_path)["source_tile_position"] == 41
 
     def test_serialize_pick_includes_position(self):
         from pipeline.summary import _serialize_pick
+
         pick = _make_pick(("0", 0, 0), label=1)
         pick.position = 7
         assert _serialize_pick(pick)["position"] == 7
@@ -2114,31 +2252,35 @@ class TestPngNaming:
     def test_overview_tile_png_name_canonical(self):
         from pipeline.visualize import _overview_tile_png_name, _position_stem
         from shared.output_layout.naming import Naming
-        stem = _position_stem(Naming(
-            acquisition_type="overview-scan", hash6="abc123", g=0, p=7))
+
+        stem = _position_stem(Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=7))
         assert _overview_tile_png_name(0, 1, 2, 7, "abc123") == f"{stem}_live.png"
 
     def test_overview_tile_png_name_fallback(self):
         """No position or no hash6 -> pick-address name, never a wrong
         canonical stem."""
         from pipeline.visualize import _overview_tile_png_name
-        assert _overview_tile_png_name(0, 1, 2, None, "abc123") == \
-            "live_tile_R0_r1c2.png"
-        assert _overview_tile_png_name(0, 1, 2, 7, None) == \
-            "live_tile_R0_r1c2.png"
+
+        assert _overview_tile_png_name(0, 1, 2, None, "abc123") == "live_tile_R0_r1c2.png"
+        assert _overview_tile_png_name(0, 1, 2, 7, None) == "live_tile_R0_r1c2.png"
 
     def test_target_png_name_canonical(self, tmp_path):
-        from pipeline.visualize import _target_png_name
         from pipeline.target import TargetRecord
+        from pipeline.visualize import _target_png_name
+
         tif = tmp_path / (
-            "target-acquisition_abc123_k00000_m00000_g00000_p00003"
-            "_t00000_v00_c00_z00000.ome.tiff")
+            "target-acquisition_abc123_k00000_m00000_g00000_p00003_t00000_v00_c00_z00000.ome.tiff"
+        )
         rec = TargetRecord(
-            pick_id=("0", 0, 0, 1), cell_source_stage_xy_um=(1.0, 2.0),
-            source_zwide_um=0.0, target_stage_xy_um=None,
+            pick_id=("0", 0, 0, 1),
+            cell_source_stage_xy_um=(1.0, 2.0),
+            source_zwide_um=0.0,
+            target_stage_xy_um=None,
             target_zwide_um=None,
-            target_pixel_size_um=None, tif_path=tif,
-            success=True, error=None,
+            target_pixel_size_um=None,
+            tif_path=tif,
+            success=True,
+            error=None,
         )
         stem = tif.name.removesuffix(".ome.tiff")
         assert _target_png_name(rec, live=False) == f"{stem}.png"
@@ -2147,35 +2289,46 @@ class TestPngNaming:
     def test_target_png_name_fallback_no_tif(self):
         """A target with no TIFF (failed / pick-less) -> pick-address name,
         no AttributeError on record.tif_path is None."""
-        from pipeline.visualize import _target_png_name
         from pipeline.target import TargetRecord
+        from pipeline.visualize import _target_png_name
+
         rec = TargetRecord(
-            pick_id=("0", 1, 2, 5), cell_source_stage_xy_um=(1.0, 2.0),
-            source_zwide_um=0.0, target_stage_xy_um=None,
+            pick_id=("0", 1, 2, 5),
+            cell_source_stage_xy_um=(1.0, 2.0),
+            source_zwide_um=0.0,
+            target_stage_xy_um=None,
             target_zwide_um=None,
-            target_pixel_size_um=None, tif_path=None,
-            success=False, error="x",
+            target_pixel_size_um=None,
+            tif_path=None,
+            success=False,
+            error="x",
         )
         assert _target_png_name(rec, live=True) == "live_target_R0_r1c2_l5.png"
 
     def test_display_tile_writes_canonical_name(self, tmp_path, monkeypatch):
         import matplotlib
+
         matplotlib.use("Agg")
         monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
-        from pipeline.visualize import display_tile, _position_stem
+        from pipeline.visualize import _position_stem, display_tile
         from shared.output_layout.naming import Naming
 
         logs = tmp_path / "logs"
-        display_tile(_make_tile_event(position=7), logs_dir=logs,
-                     hash6="abc123", live_display=False, save_png=True)
-        stem = _position_stem(Naming(
-            acquisition_type="overview-scan", hash6="abc123", g=0, p=7))
+        display_tile(
+            _make_tile_event(position=7),
+            logs_dir=logs,
+            hash6="abc123",
+            live_display=False,
+            save_png=True,
+        )
+        stem = _position_stem(Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=7))
         assert (logs / f"{stem}_live.png").exists()
 
     def test_display_target_tif_none_fallback(self, tmp_path, monkeypatch):
         """display_target with a tif_path-less record still saves (pick-address
         name) and does not raise."""
         import matplotlib
+
         matplotlib.use("Agg")
         monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
         from pipeline.visualize import display_target
@@ -2183,7 +2336,12 @@ class TestPngNaming:
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
         logs = tmp_path / "logs"
-        display_target(pick=None, record=_make_target_record(),
-                       analysis_dir=analysis_dir, logs_dir=logs,
-                       live_display=False, save_png=True)
+        display_target(
+            pick=None,
+            record=_make_target_record(),
+            analysis_dir=analysis_dir,
+            logs_dir=logs,
+            live_display=False,
+            save_png=True,
+        )
         assert (logs / "live_target_R0_r0c0_l1.png").exists()

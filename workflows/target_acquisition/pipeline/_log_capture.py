@@ -10,6 +10,7 @@ local timestamp so hardware runs can be reconstructed after the fact.
 ``run_summary.json`` remains the canonical structured run record; these
 logs are the chronological narrative.
 """
+
 from __future__ import annotations
 
 import functools
@@ -18,7 +19,6 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-
 
 # Log paths with a capture currently active. Re-entrancy guard: a
 # nested capture_console on the same path no-ops, so a line is never
@@ -111,8 +111,7 @@ def capture_console(log_path: Path | None):
     except OSError as exc:
         # Logging is observational -- a locked or unwritable logs/ dir
         # must never block the pipeline. Fall back to no capture.
-        print(f"[logcapture] WARNING: console log disabled "
-              f"({log_path}): {exc}")
+        print(f"[logcapture] WARNING: console log disabled ({log_path}): {exc}")
         yield
         return
     _active_paths.add(log_path)
@@ -151,6 +150,7 @@ def _logged(kind: str, *, ctx_arg: int = 0):
     ``kwargs['ctx']``. ``functools.wraps`` keeps the wrapped name /
     docstring / signature -- these functions are notebook-facing.
     """
+
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
@@ -160,7 +160,9 @@ def _logged(kind: str, *, ctx_arg: int = 0):
             path = _log_path_for(ctx, kind) if ctx is not None else None
             with capture_console(path):
                 return fn(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
@@ -208,8 +210,7 @@ class _DeferredTee:
         separator, and capture there onward. No-op if already bound or
         if ``log_path`` is not a concrete filesystem path."""
         with self._lock:
-            if (self._file is not None or self._disabled
-                    or not isinstance(log_path, Path)):
+            if self._file is not None or self._disabled or not isinstance(log_path, Path):
                 return
             try:
                 log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -221,8 +222,7 @@ class _DeferredTee:
                 # straight to the real stdout (not via print, which
                 # would re-enter this locked tee).
                 self._original.write(
-                    f"[logcapture] WARNING: console log disabled "
-                    f"({log_path}): {exc}\n"
+                    f"[logcapture] WARNING: console log disabled ({log_path}): {exc}\n"
                 )
                 self._buffer = []
                 self._disabled = True

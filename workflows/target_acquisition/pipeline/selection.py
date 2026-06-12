@@ -10,6 +10,7 @@ counter, not a mode. MODE_NO_QUALIFYING returns zero picks (no random
 fallback) -- operator sees the empty intersection in display_selection
 and adjusts.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -20,12 +21,10 @@ from pathlib import Path
 from zipfile import BadZipFile
 
 import numpy as np
-
 from calibration.vendor.leica.navigator_expert.core import model as calib
 
 from .context import LimitsContext
 from .overview import OverviewResult, Pick
-
 
 MODE_THRESHOLD = "threshold"
 MODE_SPARSE = "sparse"
@@ -126,48 +125,55 @@ def load_overview_result(analysis_dir: Path) -> OverviewResult:
             try:
                 with np.load(npz_path, allow_pickle=True) as data:
                     if "schema_version" not in data.files:
-                        print(
-                            f"[load] skipping {npz_path.name} "
-                            "(missing schema_version)"
-                        )
+                        print(f"[load] skipping {npz_path.name} (missing schema_version)")
                         continue
                     version = int(data["schema_version"])
                     if version != 2:
-                        print(
-                            f"[load] skipping {npz_path.name} "
-                            f"(schema v{version}, expected v2)"
-                        )
+                        print(f"[load] skipping {npz_path.name} (schema v{version}, expected v2)")
                         continue
                     tile_id_str = tuple(str(x) for x in data["tile_id"])
                     tile_id = (
-                        tile_id_str[0], int(tile_id_str[1]), int(tile_id_str[2]),
+                        tile_id_str[0],
+                        int(tile_id_str[1]),
+                        int(tile_id_str[2]),
                     )
                     position = int(data["position"])
                     n = len(data["cell_labels"])
                     tile_cell_counts[tile_id] = n
                     for i in range(n):
-                        all_picks.append(Pick(
-                            pick_id=(
-                                tile_id[0], tile_id[1], tile_id[2],
-                                int(data["cell_labels"][i]),
-                            ),
-                            tile_stage_xy_um=tuple(data["pick_tile_stage_xy_um"][i]),
-                            tile_zwide_um=float(data["pick_tile_zwide_um"][i]),
-                            source_pixel_size_um=tuple(data["pick_source_pixel_size_um"][i]),
-                            source_image_size_px=tuple(
-                                int(x) for x in data["pick_source_image_size_px"][i]),
-                            centroid_col_row_px=tuple(data["pick_centroid_col_row_px"][i]),
-                            bbox_px=tuple(int(x) for x in data["pick_bbox_px"][i]),
-                            bbox_um=tuple(data["pick_bbox_um"][i]),
-                            area_px=int(data["cell_area_px"][i]),
-                            eccentricity=float(data["pick_eccentricity"][i]),
-                            mean_intensity=float(data["cell_mean_intensity"][i]),
-                            cell_source_stage_xy_um=tuple(
-                                data["pick_cell_source_stage_xy_um"][i]),
-                            position=position,
-                        ))
+                        all_picks.append(
+                            Pick(
+                                pick_id=(
+                                    tile_id[0],
+                                    tile_id[1],
+                                    tile_id[2],
+                                    int(data["cell_labels"][i]),
+                                ),
+                                tile_stage_xy_um=tuple(data["pick_tile_stage_xy_um"][i]),
+                                tile_zwide_um=float(data["pick_tile_zwide_um"][i]),
+                                source_pixel_size_um=tuple(data["pick_source_pixel_size_um"][i]),
+                                source_image_size_px=tuple(
+                                    int(x) for x in data["pick_source_image_size_px"][i]
+                                ),
+                                centroid_col_row_px=tuple(data["pick_centroid_col_row_px"][i]),
+                                bbox_px=tuple(int(x) for x in data["pick_bbox_px"][i]),
+                                bbox_um=tuple(data["pick_bbox_um"][i]),
+                                area_px=int(data["cell_area_px"][i]),
+                                eccentricity=float(data["pick_eccentricity"][i]),
+                                mean_intensity=float(data["cell_mean_intensity"][i]),
+                                cell_source_stage_xy_um=tuple(
+                                    data["pick_cell_source_stage_xy_um"][i]
+                                ),
+                                position=position,
+                            )
+                        )
             except (
-                BadZipFile, KeyError, ValueError, OSError, IndexError, TypeError,
+                BadZipFile,
+                KeyError,
+                ValueError,
+                OSError,
+                IndexError,
+                TypeError,
             ) as exc:
                 print(f"[load] WARNING: failed to read {npz_path.name}: {exc}")
                 continue
@@ -271,9 +277,7 @@ def select_targets(
     the empty intersection in display_selection and adjusts.
     """
     if border_margin_px < 0:
-        raise ValueError(
-            f"border_margin_px must be >= 0, got {border_margin_px}"
-        )
+        raise ValueError(f"border_margin_px must be >= 0, got {border_margin_px}")
 
     all_picks = overview.all_picks
     tile_cell_counts = overview.tile_cell_counts
@@ -283,14 +287,14 @@ def select_targets(
     n_total = len(all_picks)
     areas = np.array([p.area_px for p in all_picks], dtype=np.float64)
     intensities = np.array(
-        [p.mean_intensity for p in all_picks], dtype=np.float64,
+        [p.mean_intensity for p in all_picks],
+        dtype=np.float64,
     )
     labels = np.array(
-        [p.pick_id[3] for p in all_picks], dtype=np.int64,
+        [p.pick_id[3] for p in all_picks],
+        dtype=np.int64,
     )
-    cell_tile_ids = [
-        (p.pick_id[0], p.pick_id[1], p.pick_id[2]) for p in all_picks
-    ]
+    cell_tile_ids = [(p.pick_id[0], p.pick_id[1], p.pick_id[2]) for p in all_picks]
 
     # Border-distance mask. Excluded from qualifying; preserved for display.
     near_border_mask = _compute_near_border_mask(all_picks, border_margin_px)
@@ -303,14 +307,13 @@ def select_targets(
     eligible_per_tile: dict[tuple[str, int, int], int] = {
         tile_id: 0 for tile_id in tile_cell_counts
     }
-    for pick, is_border in zip(all_picks, near_border_mask):
+    for pick, is_border in zip(all_picks, near_border_mask, strict=False):
         if not is_border:
             tile_key = (pick.pick_id[0], pick.pick_id[1], pick.pick_id[2])
             if tile_key in eligible_per_tile:
                 eligible_per_tile[tile_key] += 1
     n_tiles_below_eligible_cutoff = sum(
-        1 for count in eligible_per_tile.values()
-        if count < min_cells_for_threshold
+        1 for count in eligible_per_tile.values() if count < min_cells_for_threshold
     )
 
     area_threshold_auto = area_threshold is None
@@ -319,9 +322,7 @@ def select_targets(
     if n_total == 0:
         mode = MODE_EMPTY
         area_t = 0.0 if area_threshold_auto else float(area_threshold)
-        intensity_t = (
-            0.0 if intensity_threshold_auto else float(intensity_threshold)
-        )
+        intensity_t = 0.0 if intensity_threshold_auto else float(intensity_threshold)
         qualifying_mask = np.zeros(0, dtype=bool)
     elif n_eligible == 0:
         # All cells are near-border. np.median([]) would return NaN and
@@ -330,9 +331,7 @@ def select_targets(
         # in display_selection and reduces border_margin_px or re-acquires.
         mode = MODE_NO_QUALIFYING
         area_t = 0.0 if area_threshold_auto else float(area_threshold)
-        intensity_t = (
-            0.0 if intensity_threshold_auto else float(intensity_threshold)
-        )
+        intensity_t = 0.0 if intensity_threshold_auto else float(intensity_threshold)
         qualifying_mask = np.zeros(n_total, dtype=bool)
     elif n_eligible < min_cells_for_threshold:
         # Gate on n_eligible (not n_total): we never compute statistics on
@@ -340,9 +339,7 @@ def select_targets(
         # must match the population the median would be computed on.
         mode = MODE_SPARSE
         area_t = 0.0 if area_threshold_auto else float(area_threshold)
-        intensity_t = (
-            0.0 if intensity_threshold_auto else float(intensity_threshold)
-        )
+        intensity_t = 0.0 if intensity_threshold_auto else float(intensity_threshold)
         qualifying_mask = np.ones(n_total, dtype=bool) & ~near_border_mask
     else:
         # Compute thresholds on non-border cells only — border cells have
@@ -351,16 +348,14 @@ def select_targets(
         non_border_areas = areas[~near_border_mask]
         non_border_intensities = intensities[~near_border_mask]
         area_t = (
-            float(np.median(non_border_areas)) if area_threshold_auto
-            else float(area_threshold)
+            float(np.median(non_border_areas)) if area_threshold_auto else float(area_threshold)
         )
         intensity_t = (
-            float(np.median(non_border_intensities)) if intensity_threshold_auto
+            float(np.median(non_border_intensities))
+            if intensity_threshold_auto
             else float(intensity_threshold)
         )
-        qualifying_mask = (
-            (areas >= area_t) & (intensities >= intensity_t) & ~near_border_mask
-        )
+        qualifying_mask = (areas >= area_t) & (intensities >= intensity_t) & ~near_border_mask
         mode = MODE_THRESHOLD
 
     n_qualifying = int(qualifying_mask.sum())
@@ -381,7 +376,7 @@ def select_targets(
     if mode in (MODE_THRESHOLD, MODE_SPARSE) and n_qualifying > 0:
         # Group qualifying picks by tile_id, preserving input order
         groups: dict[tuple[str, int, int], list[Pick]] = {}
-        for pick, q in zip(all_picks, qualifying_mask):
+        for pick, q in zip(all_picks, qualifying_mask, strict=False):
             if not q:
                 continue
             key = (pick.pick_id[0], pick.pick_id[1], pick.pick_id[2])
@@ -391,7 +386,8 @@ def select_targets(
             rid, row, col = tile_id
             material = f"{seed_str}_{rid}_{row}_{col}"
             rng_seed = int.from_bytes(
-                hashlib.sha256(material.encode()).digest()[:8], "big",
+                hashlib.sha256(material.encode()).digest()[:8],
+                "big",
             )
             rng = np.random.default_rng(rng_seed)
             k = min(n_per_tile, len(group))
@@ -406,7 +402,8 @@ def select_targets(
     # Dedup + filter
     deduped, removed_dup = _dedup_picks(pre_dedup_picks)
     final, removed_xy, removed_z, removed_xlat = _filter_out_of_limits(
-        deduped, limits,
+        deduped,
+        limits,
     )
 
     picks = Picks(
@@ -480,12 +477,14 @@ def _dedup_picks(picks: list[Pick]) -> tuple[list[Pick], list[dict]]:
             winner_diag = math.hypot(*winner.bbox_um)
             threshold = max(pick_diag, winner_diag) * 0.75
             if dist < threshold:
-                removed.append({
-                    "pick_id": pick.pick_id,
-                    "reason": "duplicate",
-                    "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
-                    "winner_pick_id": winner.pick_id,
-                })
+                removed.append(
+                    {
+                        "pick_id": pick.pick_id,
+                        "reason": "duplicate",
+                        "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
+                        "winner_pick_id": winner.pick_id,
+                    }
+                )
                 is_dup = True
                 break
         if not is_dup:
@@ -527,30 +526,36 @@ def _filter_out_of_limits(
                 to_slot=limits.target_slot,
             )
         except Exception as exc:
-            removed_translation.append({
-                "pick_id": pick.pick_id,
-                "reason": "translation",
-                "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
-                "error": str(exc),
-            })
+            removed_translation.append(
+                {
+                    "pick_id": pick.pick_id,
+                    "reason": "translation",
+                    "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
+                    "error": str(exc),
+                }
+            )
             continue
 
         if has_xy_limits and not (x_min <= tx <= x_max and y_min <= ty <= y_max):
-            removed_xy.append({
-                "pick_id": pick.pick_id,
-                "reason": "xy",
-                "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
-                "target_xy_um": (tx, ty),
-            })
+            removed_xy.append(
+                {
+                    "pick_id": pick.pick_id,
+                    "reason": "xy",
+                    "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
+                    "target_xy_um": (tx, ty),
+                }
+            )
             continue
 
         if not (z_wide_min <= tz <= z_wide_max):
-            removed_z.append({
-                "pick_id": pick.pick_id,
-                "reason": "z",
-                "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
-                "target_z_um": tz,
-            })
+            removed_z.append(
+                {
+                    "pick_id": pick.pick_id,
+                    "reason": "z",
+                    "cell_source_stage_xy_um": pick.cell_source_stage_xy_um,
+                    "target_z_um": tz,
+                }
+            )
             continue
 
         surviving.append(pick)
@@ -559,7 +564,8 @@ def _filter_out_of_limits(
 
 
 def _compute_near_border_mask(
-    all_picks: list[Pick], border_margin_px: int,
+    all_picks: list[Pick],
+    border_margin_px: int,
 ) -> np.ndarray:
     """True for picks whose bbox is within border_margin_px of any tile edge.
 
@@ -579,8 +585,7 @@ def _compute_near_border_mask(
         width, height = p.source_image_size_px
         if width <= 0 or height <= 0:
             raise ValueError(
-                f"Pick {p.pick_id} has invalid source_image_size_px="
-                f"{p.source_image_size_px}"
+                f"Pick {p.pick_id} has invalid source_image_size_px={p.source_image_size_px}"
             )
 
     if border_margin_px <= 0 or not all_picks:
@@ -589,9 +594,11 @@ def _compute_near_border_mask(
     for i, p in enumerate(all_picks):
         y0, x0, y1, x1 = p.bbox_px
         width, height = p.source_image_size_px
-        if (x0 < border_margin_px
-                or y0 < border_margin_px
-                or x1 > width - border_margin_px
-                or y1 > height - border_margin_px):
+        if (
+            x0 < border_margin_px
+            or y0 < border_margin_px
+            or x1 > width - border_margin_px
+            or y1 > height - border_margin_px
+        ):
             mask[i] = True
     return mask

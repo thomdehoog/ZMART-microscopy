@@ -10,6 +10,7 @@ write_summary: serialize the full pipeline state into run_summary.json.
 plot_results: overview-frame plot with pick markers by category.
 finish: restore source job (optional) and shutdown the engine.
 """
+
 from __future__ import annotations
 
 import json
@@ -19,11 +20,9 @@ from typing import Any
 
 import numpy as np
 
-import navigator_expert as drv
-
-from .context import Config, Context
 from ._figsave import save_figure
 from ._job_state import ensure_job_state
+from .context import Config, Context
 from .focus import FocusMap
 from .overview import OverviewResult, Pick
 from .selection import Picks, SelectionResult
@@ -88,14 +87,15 @@ def write_summary(
             "n_markers": len(focus_map.measured),
             "z_range_um": float(zs.max() - zs.min()) if len(zs) else 0.0,
             "tilt_x_deg": float(np.degrees(np.arctan(focus_map.coeffs[0])))
-            if focus_map.model == "plane" else None,
+            if focus_map.model == "plane"
+            else None,
             "tilt_y_deg": float(np.degrees(np.arctan(focus_map.coeffs[1])))
-            if focus_map.model == "plane" else None,
+            if focus_map.model == "plane"
+            else None,
             "max_residual_um": float(np.max(np.abs(focus_map.residuals_um)))
-            if len(focus_map.residuals_um) else 0.0,
-            "zwide_at_focus_markers_um": [
-                m["zwide_um"] for m in focus_map.measured
-            ],
+            if len(focus_map.residuals_um)
+            else 0.0,
+            "zwide_at_focus_markers_um": [m["zwide_um"] for m in focus_map.measured],
         },
         "preflight": {
             "source_zgalvo_um": ctx.source_zgalvo_um,
@@ -137,8 +137,7 @@ def write_summary(
             "n_removed_out_of_limits_z": selection.n_removed_out_of_limits_z,
             "n_removed_translation": selection.n_removed_translation,
             "n_final": selection.n_final,
-            "n_tiles_below_eligible_cutoff":
-                selection.n_tiles_below_eligible_cutoff,
+            "n_tiles_below_eligible_cutoff": selection.n_tiles_below_eligible_cutoff,
             "n_tiles_empty": selection.n_tiles_empty,
             "area_threshold": selection.area_threshold,
             "intensity_threshold": selection.intensity_threshold,
@@ -176,9 +175,7 @@ def write_summary(
     # raise at write time rather than emit a non-RFC "NaN" / "Infinity"
     # token to disk.
     out_path = ctx.out_dir / "run_summary.json"
-    out_path.write_text(
-        json.dumps(summary, indent=2, default=_json_default, allow_nan=False)
-    )
+    out_path.write_text(json.dumps(summary, indent=2, default=_json_default, allow_nan=False))
     print(f"[step 6] Saved {out_path}")
     return out_path
 
@@ -194,7 +191,10 @@ def plot_results(
     import matplotlib.pyplot as plt
 
     from .visualize import (
-        _FRAME_WIDTH_IN, _FONT_FIGURE_TITLE, _COLOR_INK_PRIMARY, _TITLE_PAD,
+        _COLOR_INK_PRIMARY,
+        _FONT_FIGURE_TITLE,
+        _FRAME_WIDTH_IN,
+        _TITLE_PAD,
     )
 
     if ctx.scan_field is None:
@@ -211,30 +211,41 @@ def plot_results(
     all_x, all_y = [], []
 
     # Draw tiles
-    for rid, region in tile_positions.items():
+    for _rid, region in tile_positions.items():
         ts = region.get("tile_size_um")
         if ts is None:
             continue
         half = ts / 2
         for pos in region["positions"]:
             cx, cy = pos["x_um"], pos["y_um"]
-            ax.add_patch(patches.Rectangle(
-                (cx - half, cy - half), ts, ts,
-                linewidth=0.4, edgecolor="#cccccc",
-                facecolor="#f0f0f0", zorder=1,
-            ))
+            ax.add_patch(
+                patches.Rectangle(
+                    (cx - half, cy - half),
+                    ts,
+                    ts,
+                    linewidth=0.4,
+                    edgecolor="#cccccc",
+                    facecolor="#f0f0f0",
+                    zorder=1,
+                )
+            )
             all_x.extend([cx - half, cx + half])
             all_y.extend([cy - half, cy + half])
 
     # Boundary
     if lim:
-        ax.add_patch(patches.Rectangle(
-            (lim["x_min"], lim["y_min"]),
-            lim["x_max"] - lim["x_min"],
-            lim["y_max"] - lim["y_min"],
-            linewidth=1.0, edgecolor="#aaaaaa", facecolor="none",
-            linestyle=(0, (5, 4)), zorder=2,
-        ))
+        ax.add_patch(
+            patches.Rectangle(
+                (lim["x_min"], lim["y_min"]),
+                lim["x_max"] - lim["x_min"],
+                lim["y_max"] - lim["y_min"],
+                linewidth=1.0,
+                edgecolor="#aaaaaa",
+                facecolor="none",
+                linestyle=(0, (5, 4)),
+                zorder=2,
+            )
+        )
         all_x.extend([lim["x_min"], lim["x_max"]])
         all_y.extend([lim["y_min"], lim["y_max"]])
 
@@ -286,9 +297,13 @@ def plot_results(
         xs = [p[0] for p in pts]
         ys = [p[1] for p in pts]
         ax.scatter(
-            xs, ys,
-            c=cat["color"], marker=cat["marker"],
-            s=30, zorder=10, label=f"{label} ({len(pts)})",
+            xs,
+            ys,
+            c=cat["color"],
+            marker=cat["marker"],
+            s=30,
+            zorder=10,
+            label=f"{label} ({len(pts)})",
         )
         all_x.extend(xs)
         all_y.extend(ys)
@@ -311,13 +326,15 @@ def plot_results(
     ok = sum(1 for r in records if r.success)
     total = len(records)
     ax.set_title(
-        f"Results  ({ok}/{total} acquired, "
-        f"{picks.n_picks_raw} raw picks)",
-        fontsize=_FONT_FIGURE_TITLE, fontweight="bold",
-        color=_COLOR_INK_PRIMARY, pad=_TITLE_PAD,
+        f"Results  ({ok}/{total} acquired, {picks.n_picks_raw} raw picks)",
+        fontsize=_FONT_FIGURE_TITLE,
+        fontweight="bold",
+        color=_COLOR_INK_PRIMARY,
+        pad=_TITLE_PAD,
     )
-    ax.legend(loc="upper right", fontsize=9, facecolor="white",
-              edgecolor="#cccccc", labelcolor="#444444")
+    ax.legend(
+        loc="upper right", fontsize=9, facecolor="white", edgecolor="#cccccc", labelcolor="#444444"
+    )
     plt.tight_layout()
 
     out_path = ctx.out_dir / "results.png"
@@ -375,12 +392,10 @@ def _serialize_target(rec: TargetRecord, out_dir: Path) -> dict:
         "pick_id": list(rec.pick_id),
         "cell_source_stage_xy_um": list(rec.cell_source_stage_xy_um),
         "source_zwide_um": rec.source_zwide_um,
-        "target_stage_xy_um": list(rec.target_stage_xy_um)
-        if rec.target_stage_xy_um else None,
+        "target_stage_xy_um": list(rec.target_stage_xy_um) if rec.target_stage_xy_um else None,
         "target_zwide_um": rec.target_zwide_um,
         "target_pixel_size_um": rec.target_pixel_size_um,
-        "tif_path": str(rec.tif_path.relative_to(out_dir))
-        if rec.tif_path else None,
+        "tif_path": str(rec.tif_path.relative_to(out_dir)) if rec.tif_path else None,
         "success": rec.success,
         "error": rec.error,
         "failure_stage": rec.failure_stage,

@@ -9,6 +9,7 @@ These helpers are tested in isolation; run_overview / acquire_targets
 themselves require heavy LAS X / engine mocking and stay covered by
 existing integration paths.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,26 +17,29 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 # ─── Mutex (_validate_callback_flags) ─────────────────────────────
 
 
 class TestValidateCallbackFlags:
     def test_raises_when_on_tile_with_live_display_true(self):
         from pipeline.overview import _validate_callback_flags
+
         with pytest.raises(ValueError, match=r"Cannot pass on_tile"):
             _validate_callback_flags(
                 lambda e: None,
-                live_display=True, save_png=False,
+                live_display=True,
+                save_png=False,
                 callback_param="on_tile",
             )
 
     def test_raises_when_on_tile_with_save_png_true(self):
         from pipeline.overview import _validate_callback_flags
+
         with pytest.raises(ValueError, match=r"Cannot pass on_tile"):
             _validate_callback_flags(
                 lambda e: None,
-                live_display=False, save_png=True,
+                live_display=False,
+                save_png=True,
                 callback_param="on_tile",
             )
 
@@ -44,10 +48,12 @@ class TestValidateCallbackFlags:
         on_target wording for the acquire_targets path.
         """
         from pipeline.overview import _validate_callback_flags
+
         with pytest.raises(ValueError, match=r"Cannot pass on_target"):
             _validate_callback_flags(
                 lambda p, r: None,
-                live_display=True, save_png=False,
+                live_display=True,
+                save_png=False,
                 callback_param="on_target",
             )
 
@@ -66,6 +72,7 @@ class TestBuildDefaultOnTileCallback:
         # _build_default_on_tile_callback resolves to this patched ref.
         fake_display_tile = MagicMock(name="display_tile")
         import pipeline.visualize as viz_mod
+
         monkeypatch.setattr(viz_mod, "display_tile", fake_display_tile)
 
         ctx = MagicMock(name="ctx")
@@ -76,7 +83,9 @@ class TestBuildDefaultOnTileCallback:
         from pipeline.overview import _build_default_on_tile_callback
 
         callback = _build_default_on_tile_callback(
-            ctx, live_display=True, save_png=False,
+            ctx,
+            live_display=True,
+            save_png=False,
         )
         event = MagicMock(name="tile_event")
         callback(event)
@@ -85,11 +94,11 @@ class TestBuildDefaultOnTileCallback:
             event,
             scan_field="fake_scan_field_dict",
             boundary_limits="fake_limits_dict",
-            logs_dir=None,             # save_png=False -> no logs dir
+            logs_dir=None,  # save_png=False -> no logs dir
             live_display=True,
             save_png=False,
             hash6=ctx.run.layout.hash6,
-            _save_queue=None,          # factory called with no queue
+            _save_queue=None,  # factory called with no queue
         )
 
 
@@ -101,6 +110,7 @@ class TestBuildDefaultOnTargetCallback:
         """
         fake_display_target = MagicMock(name="display_target")
         import pipeline.visualize as viz_mod
+
         monkeypatch.setattr(viz_mod, "display_target", fake_display_target)
 
         ctx = MagicMock(name="ctx")
@@ -110,7 +120,9 @@ class TestBuildDefaultOnTargetCallback:
         from pipeline.target import _build_default_on_target_callback
 
         callback = _build_default_on_target_callback(
-            ctx, live_display=False, save_png=True,
+            ctx,
+            live_display=False,
+            save_png=True,
         )
         pick = MagicMock(name="pick")
         record = MagicMock(name="record")
@@ -121,7 +133,7 @@ class TestBuildDefaultOnTargetCallback:
         assert kwargs["logs_dir"] == Path("/fake/logs")
         assert kwargs["live_display"] is False
         assert kwargs["save_png"] is True
-        assert kwargs["tile_cache"] == {}   # fresh cache, populated by callback
+        assert kwargs["tile_cache"] == {}  # fresh cache, populated by callback
 
         # Second invocation reuses the same cache dict instance.
         callback(pick, record)
@@ -137,9 +149,9 @@ class TestAcquireTargetsEmptyPicks:
         the queue first, then returned without shutdown, leaving an
         unowned executor.
         """
-        from pipeline.selection import Picks
-        from pipeline import target as target_mod
         from pipeline import _save_queue as save_queue_mod
+        from pipeline import target as target_mod
+        from pipeline.selection import Picks
 
         construct_count = {"n": 0}
         real_init = save_queue_mod._FigureSaveQueue.__init__
@@ -149,7 +161,9 @@ class TestAcquireTargetsEmptyPicks:
             real_init(self, *args, **kwargs)
 
         monkeypatch.setattr(
-            save_queue_mod._FigureSaveQueue, "__init__", counting_init,
+            save_queue_mod._FigureSaveQueue,
+            "__init__",
+            counting_init,
         )
 
         ctx = MagicMock(name="ctx")

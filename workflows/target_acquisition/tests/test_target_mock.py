@@ -32,6 +32,7 @@ target provider has something to read from. Pixel sizes are scalar
 end-to-end (the rest of the pipeline does the same); non-square
 images are exercised, non-square pixels are out of scope.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -41,13 +42,11 @@ from unittest import mock
 import numpy as np
 import pytest
 import tifffile
-
-from shared.output_layout import Naming, build_image_name
 from pipeline._hijack import NonSimulatorFrameError
 from pipeline._mock_provider import build_target_provider
 from pipeline.overview import Pick
+from shared.output_layout import Naming, build_image_name
 from support import minimal_calibration
-
 
 # ─── Helpers ──────────────────────────────────────────────────────
 
@@ -78,7 +77,8 @@ def _write_overview_file(
     naming = Naming(
         acquisition_type="overview-scan",
         hash6=layout.hash6,
-        g=g, p=p,
+        g=g,
+        p=p,
     )
     path = layout.data_dir("overview-scan") / build_image_name(naming)
     tifffile.imwrite(path, image, photometric="minisblack")
@@ -122,7 +122,9 @@ def _dummy_naming() -> Naming:
     provider. Tests pass this stub."""
     return Naming(
         acquisition_type="target-acquisition",
-        hash6="abcdef", g=0, p=0,
+        hash6="abcdef",
+        g=0,
+        p=0,
     )
 
 
@@ -146,7 +148,9 @@ class TestTargetProviderMath:
             source_image_size_px=(512, 512),
         )
         provider = build_target_provider(
-            pick=pick, target_pixel_size_um=0.13, layout=layout,
+            pick=pick,
+            target_pixel_size_um=0.13,
+            layout=layout,
         )
         # If the provider correctly crops 40x40 from the overview and
         # resamples to 200x200, the output shape is 200x200 regardless
@@ -184,7 +188,9 @@ class TestTargetProviderMath:
             source_image_size_px=(400, 400),
         )
         provider = build_target_provider(
-            pick=pick, target_pixel_size_um=0.25, layout=layout,
+            pick=pick,
+            target_pixel_size_um=0.25,
+            layout=layout,
         )
         # Target: 0.25 µm/px, 80x80 -> FOV 20x20 µm -> crop 20x20
         # overview px. Centred on (cx=120, cy=50), crop is
@@ -212,7 +218,9 @@ class TestTargetProviderMath:
         _write_overview_file(layout, overview)
         pick = _make_pick(centroid_col_row_px=(256.0, 256.0))
         provider = build_target_provider(
-            pick=pick, target_pixel_size_um=0.13, layout=layout,
+            pick=pick,
+            target_pixel_size_um=0.13,
+            layout=layout,
         )
         # Non-square target: 200 tall, 100 wide.
         out = provider((200, 100), np.uint16, naming=_dummy_naming())
@@ -227,7 +235,9 @@ class TestTargetProviderMath:
         _write_overview_file(layout, overview)
         pick = _make_pick(centroid_col_row_px=(64.0, 64.0))
         provider = build_target_provider(
-            pick=pick, target_pixel_size_um=0.13, layout=layout,
+            pick=pick,
+            target_pixel_size_um=0.13,
+            layout=layout,
         )
         out = provider((64, 64), np.uint16, naming=_dummy_naming())
         assert out.dtype == np.uint16
@@ -250,7 +260,9 @@ class TestTargetProviderMath:
             source_image_size_px=(400, 400),
         )
         provider = build_target_provider(
-            pick=pick, target_pixel_size_um=0.25, layout=layout,
+            pick=pick,
+            target_pixel_size_um=0.25,
+            layout=layout,
         )
         # Same geometry as test_centroid_lands_at_target_center: crop
         # is 20x20 centred on (cx=2, cy=2), so requested crop window
@@ -277,7 +289,9 @@ class TestTargetProviderErrors:
         # Pick references position=7, but no overview file was written.
         pick = _make_pick(centroid_col_row_px=(100.0, 100.0), position=7)
         provider = build_target_provider(
-            pick=pick, target_pixel_size_um=0.13, layout=layout,
+            pick=pick,
+            target_pixel_size_um=0.13,
+            layout=layout,
         )
         with pytest.raises(Exception) as exc_info:
             provider((128, 128), np.uint16, naming=_dummy_naming())
@@ -295,7 +309,9 @@ class TestTargetProviderErrors:
         layout = _make_layout(tmp_path)
         pick = _make_pick(centroid_col_row_px=(100.0, 100.0), position=None)
         provider = build_target_provider(
-            pick=pick, target_pixel_size_um=0.13, layout=layout,
+            pick=pick,
+            target_pixel_size_um=0.13,
+            layout=layout,
         )
         with pytest.raises(RuntimeError, match="position"):
             provider((128, 128), np.uint16, naming=_dummy_naming())
@@ -320,7 +336,9 @@ class TestTargetProviderErrors:
             source_image_size_px=(64, 64),
         )
         provider = build_target_provider(
-            pick=pick, target_pixel_size_um=0.13, layout=layout,
+            pick=pick,
+            target_pixel_size_um=0.13,
+            layout=layout,
         )
         # The shared geometry helper raises ValueError (more honest
         # for "bad input shape") rather than RuntimeError; either
@@ -361,7 +379,9 @@ class TestTargetMockHonestResolution:
             source_image_size_px=(64, 64),
         )
         provider = build_target_provider(
-            pick=pick, target_pixel_size_um=0.13, layout=layout,
+            pick=pick,
+            target_pixel_size_um=0.13,
+            layout=layout,
         )
 
         # The lazy `from skimage.transform import resize` inside the
@@ -395,8 +415,7 @@ class TestTargetMockHonestResolution:
         # so any interpolation across pixels is visible. 8x8 overview;
         # crop will be ~4x4 (target 8x8 at 1x zoom would be 8x8, so we
         # need target larger than source for upsampling).
-        overview = (np.arange(64, dtype=np.uint16).reshape(8, 8)
-                    * 1000)
+        overview = np.arange(64, dtype=np.uint16).reshape(8, 8) * 1000
         _write_overview_file(layout, overview)
         pick = _make_pick(
             centroid_col_row_px=(4.0, 4.0),
@@ -405,7 +424,9 @@ class TestTargetMockHonestResolution:
         )
         provider = build_target_provider(
             # 2x zoom: target 8x8 covers same FOV as 4x4 overview pixels.
-            pick=pick, target_pixel_size_um=0.5, layout=layout,
+            pick=pick,
+            target_pixel_size_um=0.5,
+            layout=layout,
         )
         out = provider((8, 8), np.uint16, naming=_dummy_naming())
 
@@ -415,7 +436,7 @@ class TestTargetMockHonestResolution:
         # different values in the block.
         for r in range(0, 8, 2):
             for c in range(0, 8, 2):
-                block = out[r:r+2, c:c+2]
+                block = out[r : r + 2, c : c + 2]
                 assert len(set(block.flatten().tolist())) == 1, (
                     f"2x2 block at ({r},{c}) has multiple distinct "
                     f"values {block.tolist()} -- nearest-neighbour "
@@ -433,8 +454,11 @@ def _integration_ctx(tmp_path, *, simulate: bool):
     are patched at the module level in the test; this helper only
     sets up the data structures."""
     from pipeline.context import Config, Context, TargetState
+
     cfg = Config(
-        acquisition_job="Overview", target_job="HiRes", af_job="AF",
+        acquisition_job="Overview",
+        target_job="HiRes",
+        af_job="AF",
         analysis_repo=Path("/fake"),
         experiment="t",
         simulate=simulate,
@@ -442,13 +466,17 @@ def _integration_ctx(tmp_path, *, simulate: bool):
     )
     layout = _make_layout(tmp_path)
     ctx = Context(
-        cfg=cfg, client=mock.MagicMock(), hw=mock.MagicMock(),
+        cfg=cfg,
+        client=mock.MagicMock(),
+        hw=mock.MagicMock(),
         calibration=minimal_calibration(source_slot=2, target_slot=1),
         stage_config={"stage_um": {"z_wide": (0.0, 1000.0)}},
         engine=mock.MagicMock(),
-        out_dir=tmp_path, run=SimpleNamespace(layout=layout),
+        out_dir=tmp_path,
+        run=SimpleNamespace(layout=layout),
         templates_dir=tmp_path / "templates",
-        source_slot=2, target_slot=1,
+        source_slot=2,
+        target_slot=1,
         target_state=TargetState(),
     )
     return ctx
@@ -465,8 +493,8 @@ class TestAcquireTargetsIntegration:
         """Patch out all driver calls acquire_targets makes.
         save writes a real fake target TIFF that
         hijack_frame can read."""
-        from pipeline import target as target_mod
         import navigator_expert as drv
+        from pipeline import target as target_mod
 
         monkeypatch.setattr(target_mod, "drv", drv)
         monkeypatch.setattr(
@@ -475,23 +503,24 @@ class TestAcquireTargetsIntegration:
         )
 
         # Job settings → minimal parse_tile_geometry output.
-        monkeypatch.setattr(drv, "get_job_settings",
-                            lambda c, j, **_kwargs: {"_": "stub"})
-        monkeypatch.setattr(drv, "parse_tile_geometry",
-                            lambda s: {
-                                "pixel_w_um": 0.13, "pixel_h_um": 0.13,
-                                "pixels_x": 64, "pixels_y": 64,
-                            })
-        monkeypatch.setattr(drv, "make_changeable_copy",
-                            lambda s: {"zPosition": {"z-galvo": 0.0}})
+        monkeypatch.setattr(drv, "get_job_settings", lambda c, j, **_kwargs: {"_": "stub"})
+        monkeypatch.setattr(
+            drv,
+            "parse_tile_geometry",
+            lambda s: {
+                "pixel_w_um": 0.13,
+                "pixel_h_um": 0.13,
+                "pixels_x": 64,
+                "pixels_y": 64,
+            },
+        )
+        monkeypatch.setattr(drv, "make_changeable_copy", lambda s: {"zPosition": {"z-galvo": 0.0}})
 
         # ensure_job_state: silent noop.
-        monkeypatch.setattr(target_mod, "ensure_job_state",
-                            lambda ctx, job: None)
+        monkeypatch.setattr(target_mod, "ensure_job_state", lambda ctx, job: None)
         # acquire(): also a noop (driver call). Patch the module-level
         # import in target.py.
-        monkeypatch.setattr(target_mod, "acquire",
-                            lambda ctx, job, x, y, z: None)
+        monkeypatch.setattr(target_mod, "acquire", lambda ctx, job, x, y, z: None)
 
         # acquire/save: write a real fake target TIFF + companion XML
         # that hijack_frame can read and the SystemTypeName guard will
@@ -510,24 +539,26 @@ class TestAcquireTargetsIntegration:
             xml_path = meta_dir / build_xml_name(naming)
             # 64x64 placeholder target frame.
             tifffile.imwrite(
-                image_path, np.zeros((64, 64), dtype=np.uint16),
+                image_path,
+                np.zeros((64, 64), dtype=np.uint16),
                 description=(
                     '<?xml version="1.0"?>'
                     '<OME xmlns="http://example.org/o">'
-                    '<OriginalMetadata '
+                    "<OriginalMetadata "
                     'Name="Data - Image - Attachment - SystemTypeName" '
                     'Value="SIMULATOR"/>'
-                    '</OME>'
+                    "</OME>"
                 ),
-                ome=False, photometric="minisblack",
+                ome=False,
+                photometric="minisblack",
             )
             xml_path.write_bytes(
                 b'<?xml version="1.0"?>'
                 b'<OME xmlns="http://example.org/o">'
-                b'<OriginalMetadata '
+                b"<OriginalMetadata "
                 b'Name="Data - Image - Attachment - SystemTypeName" '
                 b'Value="SIMULATOR"/>'
-                b'</OME>'
+                b"</OME>"
             )
             return SimpleNamespace(
                 image_paths={drv.PlaneIndex(t=0, z=0, c=0): image_path},
@@ -543,29 +574,34 @@ class TestAcquireTargetsIntegration:
         each referencing a (distinct) source overview tile we've
         written."""
         from pipeline.selection import Picks
+
         # Two overview tiles, two distinct picks.
         ov_a = np.full((400, 400), 10000, dtype=np.uint16)
-        ov_a[100, 200] = 50000     # pick A's centroid
+        ov_a[100, 200] = 50000  # pick A's centroid
         ov_b = np.full((400, 400), 20000, dtype=np.uint16)
-        ov_b[50, 50] = 60000       # pick B's centroid
+        ov_b[50, 50] = 60000  # pick B's centroid
         _write_overview_file(layout, ov_a, g=0, p=0)
         _write_overview_file(layout, ov_b, g=0, p=1)
         picks_a = _make_pick(
             centroid_col_row_px=(200.0, 100.0),
             source_pixel_size_um=(0.65, 0.65),
             source_image_size_px=(400, 400),
-            position=0, label=1,
+            position=0,
+            label=1,
         )
         picks_b = _make_pick(
             centroid_col_row_px=(50.0, 50.0),
             source_pixel_size_um=(0.65, 0.65),
             source_image_size_px=(400, 400),
-            position=1, label=2,
+            position=1,
+            label=2,
         )
         return Picks(items=[picks_a, picks_b], simulated=True)
 
     def test_acquire_targets_uses_per_pick_target_provider_on_simulate(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         """The integration test: simulate=True yields N hijack_frame
         calls, each with a different provider closure. Catches the
@@ -578,6 +614,7 @@ class TestAcquireTargetsIntegration:
 
         # Spy on hijack_frame: capture the provider arg per call.
         from pipeline import target as target_mod
+
         seen_providers = []
         real_hijack = target_mod.hijack_frame
 
@@ -588,19 +625,21 @@ class TestAcquireTargetsIntegration:
         monkeypatch.setattr(target_mod, "hijack_frame", _spy)
 
         from pipeline.target import acquire_targets
+
         records = acquire_targets(
-            ctx, picks,
-            live_display=False, save_png=False, on_target=None,
+            ctx,
+            picks,
+            live_display=False,
+            save_png=False,
+            on_target=None,
         )
 
         assert len(records) == 2
         assert all(r.success for r in records), (
-            f"expected both records to succeed; got "
-            f"{[(r.success, r.error) for r in records]}"
+            f"expected both records to succeed; got {[(r.success, r.error) for r in records]}"
         )
         assert len(seen_providers) == 2, (
-            f"expected 2 hijack_frame calls (one per pick); "
-            f"got {len(seen_providers)}"
+            f"expected 2 hijack_frame calls (one per pick); got {len(seen_providers)}"
         )
         # Distinct closure objects -- each pick gets its own provider.
         # `is not` rather than `!=` because closures don't compare by
@@ -612,7 +651,9 @@ class TestAcquireTargetsIntegration:
         )
 
     def test_acquire_targets_does_not_build_target_provider_when_simulate_is_false(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         """Real-hardware regression: simulate=False must not build
         the target provider OR call hijack_frame. If it does, the
@@ -622,6 +663,7 @@ class TestAcquireTargetsIntegration:
         ctx = _integration_ctx(tmp_path, simulate=False)
         # Picks with simulated=False; one pick is enough.
         from pipeline.selection import Picks
+
         pick = _make_pick(
             centroid_col_row_px=(100.0, 100.0),
             source_pixel_size_um=(0.65, 0.65),
@@ -632,8 +674,8 @@ class TestAcquireTargetsIntegration:
 
         # Sentinel: any call to build_target_provider or hijack_frame
         # on a non-simulate run is a regression.
-        from pipeline import target as target_mod
         from pipeline import _mock_provider as mp_mod
+        from pipeline import target as target_mod
 
         def _build_sentinel(*args, **kwargs):
             raise AssertionError(
@@ -650,15 +692,21 @@ class TestAcquireTargetsIntegration:
         monkeypatch.setattr(mp_mod, "build_target_provider", _build_sentinel)
         # Patch the name target.py imported into its namespace.
         monkeypatch.setattr(
-            target_mod, "build_target_provider", _build_sentinel,
+            target_mod,
+            "build_target_provider",
+            _build_sentinel,
             raising=False,
         )
         monkeypatch.setattr(target_mod, "hijack_frame", _hijack_sentinel)
 
         from pipeline.target import acquire_targets
+
         records = acquire_targets(
-            ctx, picks,
-            live_display=False, save_png=False, on_target=None,
+            ctx,
+            picks,
+            live_display=False,
+            save_png=False,
+            on_target=None,
         )
         # The acquisition ran (no sentinel raised) and produced one
         # successful record. No hijack, no provider, real-hardware path

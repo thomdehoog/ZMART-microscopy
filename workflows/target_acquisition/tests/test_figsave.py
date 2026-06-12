@@ -4,10 +4,11 @@ Every figure-save site in the pipeline routes through save_figure, so
 pinning the helper pins the behavior everywhere: the operator gets a
 quick-look PNG and vector copies to open in Affinity / Illustrator.
 """
+
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
 from pipeline._figsave import save_figure
 
 

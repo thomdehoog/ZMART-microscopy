@@ -109,10 +109,12 @@ class TestFocusMapSplineInterpolation(unittest.TestCase):
         self.assertEqual(interp.last_xy.shape, (gx.size, 2))
         np.testing.assert_allclose(
             interp.last_xy,
-            np.column_stack([
-                ((gx - 100.0) / 10.0).ravel(),
-                ((gy - 200.0) / 10.0).ravel(),
-            ]),
+            np.column_stack(
+                [
+                    ((gx - 100.0) / 10.0).ravel(),
+                    ((gy - 200.0) / 10.0).ravel(),
+                ]
+            ),
         )
 
     def test_spline_interpolate_scalar_is_float_compatible(self):

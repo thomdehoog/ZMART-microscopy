@@ -1,4 +1,5 @@
 """Unit tests for preflight analysis-repo import handling."""
+
 from __future__ import annotations
 
 import sys
@@ -13,24 +14,24 @@ def _install_fake_analysis_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "smart-analysis"
     engine_pkg = repo / "engine"
     engine_pkg.mkdir(parents=True)
-    (engine_pkg / "__init__.py").write_text(
-        "class Engine:\n"
-        "    pass\n"
-    )
+    (engine_pkg / "__init__.py").write_text("class Engine:\n    pass\n")
     return repo
 
 
 def _preflight_module():
     import pipeline.preflight  # noqa: F401  -- ensure submodule is loaded
+
     return sys.modules["pipeline.preflight"]
 
 
 @pytest.fixture(autouse=True)
 def _isolate_analysis_imports():
     """Keep tests independent from cached analysis-package modules."""
+
     def _scrub():
         for name in [
-            n for n in list(sys.modules)
+            n
+            for n in list(sys.modules)
             if (
                 n == "workflows"
                 or n.startswith("workflows.")
@@ -161,9 +162,7 @@ def test_smart_base_for_navigator_expert_uses_media_path(monkeypatch, tmp_path):
     )
 
     assert (
-        mod._smart_base_for_exporter(
-            _cfg(tmp_path, save_exporter="navigator_expert")
-        )
+        mod._smart_base_for_exporter(_cfg(tmp_path, save_exporter="navigator_expert"))
         == media_path / "smart"
     )
 
@@ -192,12 +191,7 @@ def test_smart_base_for_native_autosave_is_next_to_autosave_root(
         lambda exporter: autosave_root,
     )
 
-    assert (
-        mod._smart_base_for_exporter(
-            _cfg(tmp_path)
-        )
-        == autosave_root.parent / "smart"
-    )
+    assert mod._smart_base_for_exporter(_cfg(tmp_path)) == autosave_root.parent / "smart"
 
 
 def test_smart_base_rejects_unknown_save_exporter(tmp_path):
@@ -209,15 +203,14 @@ def test_smart_base_rejects_unknown_save_exporter(tmp_path):
 
 def test_smart_base_native_autosave_requires_enabled(monkeypatch, tmp_path):
     mod = _preflight_module()
+
     def fail(_exporter):
         raise RuntimeError("native AutoSave is not enabled")
 
     monkeypatch.setattr(mod.drv, "save_source_root", fail)
 
     with pytest.raises(RuntimeError, match="native AutoSave is not enabled"):
-        mod._smart_base_for_exporter(
-            _cfg(tmp_path)
-        )
+        mod._smart_base_for_exporter(_cfg(tmp_path))
 
 
 def test_smart_base_manual_override_wins(tmp_path):

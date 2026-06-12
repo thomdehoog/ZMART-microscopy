@@ -8,6 +8,7 @@ as a raster; the overlays, axes, and text stay vector.)
 Callers pass the ``.png`` path they already build; the siblings are
 written alongside it with the suffix swapped.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

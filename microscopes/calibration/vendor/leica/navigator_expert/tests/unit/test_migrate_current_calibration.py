@@ -13,18 +13,12 @@ def _repo_root() -> Path:
 def _load_migration_module():
     sys.path.insert(0, str(_repo_root()))
     import calibration.vendor.leica.navigator_expert.migrate_current_calibration as migration
+
     return migration
 
 
 def _copy_current_v9(tmp_path: Path) -> Path:
-    current = (
-        _repo_root()
-        / "calibration"
-        / "vendor"
-        / "leica"
-        / "navigator_expert"
-        / "current"
-    )
+    current = _repo_root() / "calibration" / "vendor" / "leica" / "navigator_expert" / "current"
     dst = tmp_path / "current"
     dst.mkdir()
     shutil.copy2(current / "calibration.json", dst / "calibration.json")
@@ -42,23 +36,19 @@ def _copy_current_v9(tmp_path: Path) -> Path:
         # the stable reset baseline.
         limits = json.loads(
             (
-                _repo_root()
-                / "limits"
-                / "vendor"
-                / "leica"
-                / "navigator_expert"
-                / "defaults.json"
+                _repo_root() / "limits" / "vendor" / "leica" / "navigator_expert" / "defaults.json"
             ).read_text()
         )
         (dst / "stage.json").write_text(
-            json.dumps({
-                "schema_version": 1,
-                "limits_um": limits["stage_um"],
-                "backlash": {
-                    k: v for k, v in calibration["backlash"].items()
-                    if k != "session_id"
-                },
-            }),
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "limits_um": limits["stage_um"],
+                    "backlash": {
+                        k: v for k, v in calibration["backlash"].items() if k != "session_id"
+                    },
+                }
+            ),
             encoding="utf-8",
         )
         # Convert repo v11 back to the v9 fixture values pinned below.
@@ -125,7 +115,9 @@ def test_build_v11_calibration_pins_translation_triples():
         },
     }
     migrated = migration.build_v11_calibration(
-        _source_v9_fixture(), stage, timestamp="20260527_120000",
+        _source_v9_fixture(),
+        stage,
+        timestamp="20260527_120000",
     )
 
     assert migrated["schema_version"] == 11

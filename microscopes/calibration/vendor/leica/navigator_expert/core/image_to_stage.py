@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 import navigator_expert as drv
+import numpy as np
 from shared.algorithms import (
     D4_RESIDUAL_MAX,
     VOTING_METHODS,
@@ -38,13 +38,12 @@ from .common import (
     write_json_atomic,
 )
 
-
 KIND = "image_to_stage"
 _STAGING_NAME = "image_to_stage.json"
 _PER_STEP_IMAGES = ("home", "plus_x", "plus_y")
 
 
-def _invalidate_staging_config(session: "ImageToStageSession") -> None:
+def _invalidate_staging_config(session: ImageToStageSession) -> None:
     """Unlink the staging config and reset config_written.
 
     Mirrors objective_pair._invalidate_staging_config so a mid-measure
@@ -99,9 +98,7 @@ def start_session(
     paths = make_session_paths(session_id, KIND, sessions_root)
 
     client = drv.connect_python_client()
-    stage_cfg = drv.load_stage_config(
-        limits_path=drv.default_stage_limits_path()
-    )
+    stage_cfg = drv.load_stage_config(limits_path=drv.default_stage_limits_path())
     drv.apply_stage_limits_from_config(stage_cfg)
     hw = drv.get_hardware_info(client, mode="api")
     if hw is None:
@@ -134,7 +131,9 @@ def _acquire_and_validate(
         session.pixel_size_um = float(geom.pixel_size_um)
     else:
         assert_geometry_matches(
-            geom, expected_size_px, expected_pixel_size_um,
+            geom,
+            expected_size_px,
+            expected_pixel_size_um,
             context=f"{name} image",
         )
     return img
@@ -175,38 +174,50 @@ def measure(session: ImageToStageSession) -> ImageToStageSession:
 
     try:
         img_home = _acquire_and_validate(
-            session, "home",
-            expected_size_px=None, expected_pixel_size_um=None,
+            session,
+            "home",
+            expected_size_px=None,
+            expected_pixel_size_um=None,
         )
         expected_size = session.image_size_px
         expected_pixel = session.pixel_size_um
 
         move_xy_and_verify(
-            session.client, home_x + session.stage_move_um, home_y,
+            session.client,
+            home_x + session.stage_move_um,
+            home_y,
             settle_s=session.settle_s,
         )
         img_plus_x = _acquire_and_validate(
-            session, "plus_x",
+            session,
+            "plus_x",
             expected_size_px=expected_size,
             expected_pixel_size_um=expected_pixel,
         )
 
         move_xy_and_verify(
-            session.client, home_x, home_y,
+            session.client,
+            home_x,
+            home_y,
             settle_s=session.settle_s,
         )
         move_xy_and_verify(
-            session.client, home_x, home_y + session.stage_move_um,
+            session.client,
+            home_x,
+            home_y + session.stage_move_um,
             settle_s=session.settle_s,
         )
         img_plus_y = _acquire_and_validate(
-            session, "plus_y",
+            session,
+            "plus_y",
             expected_size_px=expected_size,
             expected_pixel_size_um=expected_pixel,
         )
 
         move_xy_and_verify(
-            session.client, home_x, home_y,
+            session.client,
+            home_x,
+            home_y,
             settle_s=session.settle_s,
         )
     except Exception:
@@ -215,7 +226,9 @@ def measure(session: ImageToStageSession) -> ImageToStageSession:
         # exception is what the caller sees.
         try:
             move_xy_and_verify(
-                session.client, home_x, home_y,
+                session.client,
+                home_x,
+                home_y,
                 settle_s=session.settle_s,
             )
         except Exception:
@@ -233,10 +246,12 @@ def measure(session: ImageToStageSession) -> ImageToStageSession:
         return session
 
     stage_move = session.stage_move_um
-    M_stage_to_image = np.array([
-        [vote_x["dx_um"] / stage_move, vote_y["dx_um"] / stage_move],
-        [vote_x["dy_um"] / stage_move, vote_y["dy_um"] / stage_move],
-    ])
+    M_stage_to_image = np.array(
+        [
+            [vote_x["dx_um"] / stage_move, vote_y["dx_um"] / stage_move],
+            [vote_x["dy_um"] / stage_move, vote_y["dy_um"] / stage_move],
+        ]
+    )
     try:
         fitted = -np.linalg.inv(M_stage_to_image)
     except np.linalg.LinAlgError as exc:
@@ -245,8 +260,7 @@ def measure(session: ImageToStageSession) -> ImageToStageSession:
         # never produced a result, leave it None. d4_accepted stays
         # None (distinct from "evaluated and rejected").
         session.failure_reason = (
-            f"singular stage_to_image matrix ({exc}); "
-            "collinear or zero voting shifts"
+            f"singular stage_to_image matrix ({exc}); collinear or zero voting shifts"
         )
         return session
 
@@ -266,8 +280,7 @@ def measure(session: ImageToStageSession) -> ImageToStageSession:
     if det < 0.0:
         session.d4_accepted = False
         session.failure_reason = (
-            "reflection candidate selected; this workflow assumes a "
-            "reflection-free optical path"
+            "reflection candidate selected; this workflow assumes a reflection-free optical path"
         )
     elif residual > D4_RESIDUAL_MAX:
         session.d4_accepted = False
@@ -338,8 +351,12 @@ def _geometry_for_label(label: str | None, snapped) -> str:
 
 
 def _operator_status_header(
-    *, config_written: bool, failure_reason: str | None,
-    trusted_x: bool, trusted_y: bool, d4_accepted: bool | None,
+    *,
+    config_written: bool,
+    failure_reason: str | None,
+    trusted_x: bool,
+    trusted_y: bool,
+    d4_accepted: bool | None,
 ) -> str:
     if config_written:
         return "OK"
@@ -357,7 +374,7 @@ def _operator_status_header(
 
 
 def _print_text_summary(
-    session: "ImageToStageSession",
+    session: ImageToStageSession,
     *,
     config_path: str | None,
 ) -> None:
@@ -378,7 +395,8 @@ def _print_text_summary(
     header = _operator_status_header(
         config_written=config_written,
         failure_reason=session.failure_reason,
-        trusted_x=trusted_x, trusted_y=trusted_y,
+        trusted_x=trusted_x,
+        trusted_y=trusted_y,
         d4_accepted=session.d4_accepted,
     )
 
@@ -402,9 +420,7 @@ def _print_text_summary(
         f"+X {state_x} ({conf_x}/{n_methods}),  "
         f"+Y {state_y} ({conf_y}/{n_methods})"
     )
-    orientation_label_field = (
-        "Orientation winner:  " if config_written else "Orientation:         "
-    )
+    orientation_label_field = "Orientation winner:  " if config_written else "Orientation:         "
     print(f"  {orientation_label_field} {orientation_line}")
     if session.residual_from_d4 is not None:
         print(
@@ -454,13 +470,9 @@ def save_and_visualize(session: ImageToStageSession) -> dict:
         try:
             fig.savefig(out_png, dpi=120)
         except Exception as exc:
-            raise RuntimeError(
-                f"failed to write diagnostic PNG {out_png}: {exc}"
-            ) from exc
+            raise RuntimeError(f"failed to write diagnostic PNG {out_png}: {exc}") from exc
         # Report `figures:` paths stay session-root-relative.
-        rel = str(
-            out_png.relative_to(session.paths.session_dir)
-        ).replace("\\", "/")
+        rel = str(out_png.relative_to(session.paths.session_dir)).replace("\\", "/")
         figure_records.append((key, rel, fig))
 
     if home is not None and plus_x is not None and plus_y is not None:
@@ -468,7 +480,9 @@ def save_and_visualize(session: ImageToStageSession) -> dict:
             "raw_triplet",
             "image_to_stage_raw_triplet.png",
             plot_raw_triplet(
-                home, plus_x, plus_y,
+                home,
+                plus_x,
+                plus_y,
                 title="image_to_stage raw triplet",
             ),
         )
@@ -477,7 +491,8 @@ def save_and_visualize(session: ImageToStageSession) -> dict:
             "overlay_home_plus_x",
             "image_to_stage_overlay_home_plus_x.png",
             plot_overlay(
-                home, plus_x,
+                home,
+                plus_x,
                 "image_to_stage: home vs. +X",
                 shift_um=_overlay_shift_for_vote(vote_x),
                 pixel_size_um=session.pixel_size_um,
@@ -488,19 +503,26 @@ def save_and_visualize(session: ImageToStageSession) -> dict:
             "overlay_home_plus_y",
             "image_to_stage_overlay_home_plus_y.png",
             plot_overlay(
-                home, plus_y,
+                home,
+                plus_y,
                 "image_to_stage: home vs. +Y",
                 shift_um=_overlay_shift_for_vote(vote_y),
                 pixel_size_um=session.pixel_size_um,
             ),
         )
-    if (home is not None and plus_x is not None and plus_y is not None
-            and session.pixel_size_um is not None):
+    if (
+        home is not None
+        and plus_x is not None
+        and plus_y is not None
+        and session.pixel_size_um is not None
+    ):
         _save_and_register(
             "d4_candidates",
             "image_to_stage_d4_candidates.png",
             plot_d4_candidates(
-                home, plus_x, plus_y,
+                home,
+                plus_x,
+                plus_y,
                 stage_move_um=float(session.stage_move_um),
                 pixel_size_um=float(session.pixel_size_um),
                 measured_plus_x_um=(vote_x.get("dx_um"), vote_x.get("dy_um")),
@@ -540,8 +562,7 @@ def save_and_visualize(session: ImageToStageSession) -> dict:
             "kind": KIND,
             "created_at": now_iso(),
             "reference_objective": session.reference_objective,
-            "image_size_px": [int(session.image_size_px[0]),
-                              int(session.image_size_px[1])],
+            "image_size_px": [int(session.image_size_px[0]), int(session.image_size_px[1])],
             "pixel_size_um": float(session.pixel_size_um),
             "image_to_stage": session.image_to_stage,
         }
@@ -567,8 +588,7 @@ def save_and_visualize(session: ImageToStageSession) -> dict:
         status = "OK -- staging config written"
     elif not (trusted_x and trusted_y):
         status = "WEAK VOTE -- report only, no staging config"
-    elif (session.failure_reason
-            and "reflection-free" in session.failure_reason):
+    elif session.failure_reason and "reflection-free" in session.failure_reason:
         status = "REFLECTION REJECTED -- report only, no staging config"
     elif d4_accepted is False:
         status = "D4 RESIDUAL TOO HIGH -- report only, no staging config"
@@ -591,11 +611,11 @@ def save_and_visualize(session: ImageToStageSession) -> dict:
         "stage_move_um": float(session.stage_move_um),
         "image_size_px": (
             [int(session.image_size_px[0]), int(session.image_size_px[1])]
-            if session.image_size_px is not None else None
+            if session.image_size_px is not None
+            else None
         ),
         "pixel_size_um": (
-            float(session.pixel_size_um)
-            if session.pixel_size_um is not None else None
+            float(session.pixel_size_um) if session.pixel_size_um is not None else None
         ),
         "images": {k: session.raw_files[k] for k in session.raw_files},
         "registrations": {

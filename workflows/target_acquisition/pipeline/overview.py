@@ -9,29 +9,29 @@ Public entry points:
     lists + tile_cell_counts + acquire-loop counters + completion sentinel).
   - Selection now lives in pipeline.selection (select_targets + load_overview_result).
 """
+
 from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
-
-import numpy as np
+from typing import Any
 
 import navigator_expert as drv
+import numpy as np
 from calibration.vendor.leica.navigator_expert.core import model as calib
-
-from .context import Context
-from .focus import FocusMap
 from shared.output_layout import Naming, build_position_analysis_name
+
 from ._acquire import acquire
+from ._hijack import NonSimulatorFrameError, hijack_frame
 from ._job_state import ensure_job_state
 from ._log_capture import _logged
-from ._hijack import hijack_frame, NonSimulatorFrameError
 from ._mock_provider import get_provider
 from ._saved import require_single_plane
-
+from .context import Context
+from .focus import FocusMap
 
 # ─── Dataclasses ──────────────────────────────────────────────────
 
@@ -106,6 +106,7 @@ class TileEvent:
     once from `masks.max()` so the callback doesn't have to. Selection
     no longer happens during overview.
     """
+
     image_2d: np.ndarray
     masks: np.ndarray
     tile_id: tuple[str, int, int]
@@ -166,9 +167,7 @@ def _build_default_on_tile_callback(
     """
     from .visualize import display_tile
 
-    logs_dir = (
-        ctx.run.layout.logs_dir("overview-scan") if save_png else None
-    )
+    logs_dir = ctx.run.layout.logs_dir("overview-scan") if save_png else None
     hash6 = ctx.run.layout.hash6
     scan_field = ctx.scan_field
     stage_limits = ctx.stage_limits
@@ -223,7 +222,10 @@ def run_overview(
       - all three off: silent acquisition (no per-tile rendering or save).
     """
     _validate_callback_flags(
-        on_tile, live_display, save_png, callback_param="on_tile",
+        on_tile,
+        live_display,
+        save_png,
+        callback_param="on_tile",
     )
     # Async PNG save queue. Owned by run_overview when we build the
     # default callback AND will save (save_png=True). Otherwise None
@@ -231,6 +233,7 @@ def run_overview(
     save_queue = None
     if on_tile is None and save_png:
         from ._save_queue import _FigureSaveQueue
+
         save_queue = _FigureSaveQueue(name="overview-savefig")
     if on_tile is None and (live_display or save_png):
         on_tile = _build_default_on_tile_callback(
@@ -278,9 +281,7 @@ def run_overview(
         n_tiles_planned = len(sequence)
         print(f"[step 3] {n_tiles_planned} tiles in snake order")
 
-        failure_count_before = len(
-            engine.status("overview").get("failures", [])
-        )
+        failure_count_before = len(engine.status("overview").get("failures", []))
 
         analysis_dir_ready = False
         try:
@@ -300,7 +301,8 @@ def run_overview(
                 f"[{i + 1}/{n_tiles_planned}] "
                 f"Group {rid}, Position {i}  "
                 f"x={x_um:.0f} y={y_um:.0f} z={zwide_um:.2f}",
-                end="", flush=True,
+                end="",
+                flush=True,
             )
 
             try:
@@ -308,11 +310,15 @@ def run_overview(
                 naming = Naming(
                     acquisition_type="overview-scan",
                     hash6=ctx.run.layout.hash6,
-                    g=int(rid), p=i,
+                    g=int(rid),
+                    p=i,
                 )
                 acq = drv.acquire(ctx.client, cfg.acquisition_job)
                 result = drv.save(
-                    ctx.client, acq, ctx.run.layout.run_dir, naming,
+                    ctx.client,
+                    acq,
+                    ctx.run.layout.run_dir,
+                    naming,
                     exporter=cfg.save_exporter,
                 )
                 plane = require_single_plane(result, context="overview-scan")
@@ -321,8 +327,10 @@ def run_overview(
                 if cfg.simulate:
                     try:
                         hijack_frame(
-                            plane, kind="overview-scan",
-                            layout=ctx.run.layout, provider=provider,
+                            plane,
+                            kind="overview-scan",
+                            layout=ctx.run.layout,
+                            provider=provider,
                         )
                         n_tiles_hijacked += 1
                     except NonSimulatorFrameError:
@@ -333,51 +341,65 @@ def run_overview(
                         # more real-hardware frames.
                         raise
                     except Exception as exc:
-                        hijack_failures.append({
-                            "tile_id": tile_id, "error": str(exc),
-                        })
+                        hijack_failures.append(
+                            {
+                                "tile_id": tile_id,
+                                "error": str(exc),
+                            }
+                        )
                         print(f"  HIJACK-FAIL ({exc})")
                         continue
 
-                engine.submit("overview", {
-                    "image_path": str(plane.image_path),
-                    "tile_id": tile_id,
-                    "naming_p": i,
-                    "tile_stage_xy_um": (x_um, y_um),
-                    "tile_zwide_um": zwide_um,
-                    "source_pixel_size_um": pixel_size_um,
-                    "source_image_size_px": image_size_px,
-                    "image_to_stage": calib.get_image_to_stage(ctx.calibration),
-                    "n_picks": None,
-                    "feature": "area",
-                    # Engine-ignored provenance keys -- they reach
-                    # _fire_on_tile and _save_single_tile_analysis via
-                    # result["input"]. The engine itself reads only
-                    # image_path; a simulate
-                    # run hijacked image_path's content above, so a
-                    # plain file read gives the engine the mock pixels.
-                    "simulated": cfg.simulate,
-                    "mock_image_source": cfg.mock_image_source,
-                })
+                engine.submit(
+                    "overview",
+                    {
+                        "image_path": str(plane.image_path),
+                        "tile_id": tile_id,
+                        "naming_p": i,
+                        "tile_stage_xy_um": (x_um, y_um),
+                        "tile_zwide_um": zwide_um,
+                        "source_pixel_size_um": pixel_size_um,
+                        "source_image_size_px": image_size_px,
+                        "image_to_stage": calib.get_image_to_stage(ctx.calibration),
+                        "n_picks": None,
+                        "feature": "area",
+                        # Engine-ignored provenance keys -- they reach
+                        # _fire_on_tile and _save_single_tile_analysis via
+                        # result["input"]. The engine itself reads only
+                        # image_path; a simulate
+                        # run hijacked image_path's content above, so a
+                        # plain file read gives the engine the mock pixels.
+                        "simulated": cfg.simulate,
+                        "mock_image_source": cfg.mock_image_source,
+                    },
+                )
                 n_tiles_submitted += 1
-                print(f"  ok")
+                print("  ok")
             except NonSimulatorFrameError:
                 # Announced inside the inner try; re-raise here so the
                 # outer finally writes meta with completed=False and
                 # the exception surfaces to the caller (run-fatal).
                 raise
             except Exception as exc:
-                tile_acquire_failures.append({
-                    "tile_id": tile_id, "error": str(exc),
-                })
+                tile_acquire_failures.append(
+                    {
+                        "tile_id": tile_id,
+                        "error": str(exc),
+                    }
+                )
                 print(f"  FAIL ({exc})")
                 continue
 
             # Opportunistic drain
             for r in engine.results("overview"):
                 _process_drained_result(
-                    r, ctx, analysis_dir, analysis_dir_ready,
-                    all_picks, tile_cell_counts, npz_save_failures,
+                    r,
+                    ctx,
+                    analysis_dir,
+                    analysis_dir_ready,
+                    all_picks,
+                    tile_cell_counts,
+                    npz_save_failures,
                     on_tile,
                 )
                 n_results += 1
@@ -388,8 +410,13 @@ def run_overview(
             s = engine.status("overview")
             for r in engine.results("overview"):
                 _process_drained_result(
-                    r, ctx, analysis_dir, analysis_dir_ready,
-                    all_picks, tile_cell_counts, npz_save_failures,
+                    r,
+                    ctx,
+                    analysis_dir,
+                    analysis_dir_ready,
+                    all_picks,
+                    tile_cell_counts,
+                    npz_save_failures,
                     on_tile,
                 )
                 n_results += 1
@@ -477,13 +504,15 @@ def _build_snake_sequence(
             if i % 2 == 1:
                 row_tiles = row_tiles[::-1]
             for p in row_tiles:
-                sequence.append({
-                    "region": str(rid),
-                    "row": p["row"],
-                    "col": p["col"],
-                    "x_um": p["x_um"],
-                    "y_um": p["y_um"],
-                })
+                sequence.append(
+                    {
+                        "region": str(rid),
+                        "row": p["row"],
+                        "col": p["col"],
+                        "x_um": p["x_um"],
+                        "y_um": p["y_um"],
+                    }
+                )
     return sequence
 
 
@@ -497,21 +526,23 @@ def _picks_from_result(result: dict) -> list[Pick]:
     pick_data = result.get("pick_targets", {}).get("picks", [])
     position = result.get("input", {}).get("naming_p")
     for pd in pick_data:
-        picks.append(Pick(
-            pick_id=tuple(pd["pick_id"]),
-            tile_stage_xy_um=tuple(pd["tile_stage_xy_um"]),
-            tile_zwide_um=pd["tile_zwide_um"],
-            source_pixel_size_um=tuple(pd["source_pixel_size_um"]),
-            source_image_size_px=tuple(pd["source_image_size_px"]),
-            centroid_col_row_px=tuple(pd["centroid_col_row_px"]),
-            bbox_px=tuple(pd["bbox_px"]),
-            bbox_um=tuple(pd["bbox_um"]),
-            area_px=pd["area_px"],
-            eccentricity=pd["eccentricity"],
-            mean_intensity=pd["mean_intensity"],
-            cell_source_stage_xy_um=tuple(pd["cell_source_stage_xy_um"]),
-            position=position,
-        ))
+        picks.append(
+            Pick(
+                pick_id=tuple(pd["pick_id"]),
+                tile_stage_xy_um=tuple(pd["tile_stage_xy_um"]),
+                tile_zwide_um=pd["tile_zwide_um"],
+                source_pixel_size_um=tuple(pd["source_pixel_size_um"]),
+                source_image_size_px=tuple(pd["source_image_size_px"]),
+                centroid_col_row_px=tuple(pd["centroid_col_row_px"]),
+                bbox_px=tuple(pd["bbox_px"]),
+                bbox_um=tuple(pd["bbox_um"]),
+                area_px=pd["area_px"],
+                eccentricity=pd["eccentricity"],
+                mean_intensity=pd["mean_intensity"],
+                cell_source_stage_xy_um=tuple(pd["cell_source_stage_xy_um"]),
+                position=position,
+            )
+        )
     return picks
 
 
@@ -548,7 +579,8 @@ def _process_drained_result(
     if analysis_dir_ready:
         extra_arrays = _build_npz_extra_arrays(tile_picks)
         if _save_single_tile_analysis(
-            result, analysis_dir,
+            result,
+            analysis_dir,
             hash6=ctx.run.layout.hash6,
             acquisition_type="overview-scan",
             extra_arrays=extra_arrays,
@@ -556,24 +588,31 @@ def _process_drained_result(
             tile_cell_counts[tile_id] = len(tile_picks)
             all_picks.extend(tile_picks)
         else:
-            npz_save_failures.append({
-                "tile_id": list(tile_id),
-                "reason": "save_returned_false",
-            })
+            npz_save_failures.append(
+                {
+                    "tile_id": list(tile_id),
+                    "reason": "save_returned_false",
+                }
+            )
     else:
         # Without a writable analysis_dir there's nowhere to persist —
         # record as save failure to preserve the same-kernel==restart
         # invariant (load_overview_result would see no NPZ either).
-        npz_save_failures.append({
-            "tile_id": list(tile_id),
-            "reason": "analysis_dir_unavailable",
-        })
+        npz_save_failures.append(
+            {
+                "tile_id": list(tile_id),
+                "reason": "analysis_dir_unavailable",
+            }
+        )
 
     _fire_on_tile(on_tile, result)
 
 
 def _array_from_field(
-    values: list, *, shape_suffix: tuple = (), dtype=np.float64,
+    values: list,
+    *,
+    shape_suffix: tuple = (),
+    dtype=np.float64,
 ) -> np.ndarray:
     """Construct array preserving per-element shape even when values is empty.
 
@@ -599,41 +638,40 @@ def _build_npz_extra_arrays(tile_picks: list[Pick]) -> dict[str, Any]:
     """
     return {
         "schema_version": np.int32(2),
-
         # Cell-level metrics (scatter plot)
-        "cell_labels": _array_from_field(
-            [p.pick_id[3] for p in tile_picks], dtype=np.int32),
-        "cell_area_px": _array_from_field(
-            [p.area_px for p in tile_picks], dtype=np.int32),
+        "cell_labels": _array_from_field([p.pick_id[3] for p in tile_picks], dtype=np.int32),
+        "cell_area_px": _array_from_field([p.area_px for p in tile_picks], dtype=np.int32),
         "cell_mean_intensity": _array_from_field(
-            [p.mean_intensity for p in tile_picks], dtype=np.float64),
-
+            [p.mean_intensity for p in tile_picks], dtype=np.float64
+        ),
         # Full Pick reconstruction
         "pick_tile_stage_xy_um": _array_from_field(
-            [p.tile_stage_xy_um for p in tile_picks],
-            shape_suffix=(2,), dtype=np.float64),
+            [p.tile_stage_xy_um for p in tile_picks], shape_suffix=(2,), dtype=np.float64
+        ),
         "pick_tile_zwide_um": _array_from_field(
-            [p.tile_zwide_um for p in tile_picks], dtype=np.float64),
+            [p.tile_zwide_um for p in tile_picks], dtype=np.float64
+        ),
         "pick_source_pixel_size_um": _array_from_field(
-            [p.source_pixel_size_um for p in tile_picks],
-            shape_suffix=(2,), dtype=np.float64),
+            [p.source_pixel_size_um for p in tile_picks], shape_suffix=(2,), dtype=np.float64
+        ),
         "pick_source_image_size_px": _array_from_field(
-            [p.source_image_size_px for p in tile_picks],
-            shape_suffix=(2,), dtype=np.int32),
+            [p.source_image_size_px for p in tile_picks], shape_suffix=(2,), dtype=np.int32
+        ),
         "pick_centroid_col_row_px": _array_from_field(
-            [p.centroid_col_row_px for p in tile_picks],
-            shape_suffix=(2,), dtype=np.float64),
+            [p.centroid_col_row_px for p in tile_picks], shape_suffix=(2,), dtype=np.float64
+        ),
         "pick_bbox_px": _array_from_field(
-            [p.bbox_px for p in tile_picks],
-            shape_suffix=(4,), dtype=np.int32),
+            [p.bbox_px for p in tile_picks], shape_suffix=(4,), dtype=np.int32
+        ),
         "pick_bbox_um": _array_from_field(
-            [p.bbox_um for p in tile_picks],
-            shape_suffix=(2,), dtype=np.float64),
+            [p.bbox_um for p in tile_picks], shape_suffix=(2,), dtype=np.float64
+        ),
         "pick_eccentricity": _array_from_field(
-            [p.eccentricity for p in tile_picks], dtype=np.float64),
+            [p.eccentricity for p in tile_picks], dtype=np.float64
+        ),
         "pick_cell_source_stage_xy_um": _array_from_field(
-            [p.cell_source_stage_xy_um for p in tile_picks],
-            shape_suffix=(2,), dtype=np.float64),
+            [p.cell_source_stage_xy_um for p in tile_picks], shape_suffix=(2,), dtype=np.float64
+        ),
     }
 
 
@@ -707,16 +745,19 @@ def _save_single_tile_analysis(
 
         if masks is None or image_2d is None or tile_id is None:
             tid = inp.get("tile_id", "?")
-            missing = [k for k, v in [("masks", masks),
-                       ("image_2d", image_2d), ("tile_id", tile_id)]
-                       if v is None]
-            print(f"[step 3] WARNING: missing {', '.join(missing)} "
-                  f"for tile {tid}, skipping analysis save")
+            missing = [
+                k
+                for k, v in [("masks", masks), ("image_2d", image_2d), ("tile_id", tile_id)]
+                if v is None
+            ]
+            print(
+                f"[step 3] WARNING: missing {', '.join(missing)} "
+                f"for tile {tid}, skipping analysis save"
+            )
             return False
 
         if naming_p is None:
-            print(f"[step 3] WARNING: missing naming_p for tile "
-                  f"{tile_id}, skipping analysis save")
+            print(f"[step 3] WARNING: missing naming_p for tile {tile_id}, skipping analysis save")
             return False
 
         rid = tile_id[0]
@@ -739,9 +780,7 @@ def _save_single_tile_analysis(
             # with mock content. mock_image_source is the provider name
             # or "" when not simulating.
             "simulated": np.bool_(bool(inp.get("simulated", False))),
-            "mock_image_source": np.array(
-                inp.get("mock_image_source") or ""
-            ),
+            "mock_image_source": np.array(inp.get("mock_image_source") or ""),
         }
         if extra_arrays:
             # Invariant: cell_labels[i] <-> cell_area_px[i] <-> ...
@@ -750,8 +789,7 @@ def _save_single_tile_analysis(
         return True
     except Exception as exc:
         tid = result.get("input", {}).get("tile_id", "?")
-        print(f"[step 3] WARNING: could not save tile analysis "
-              f"for {tid}: {exc}")
+        print(f"[step 3] WARNING: could not save tile analysis for {tid}: {exc}")
         return False
 
 
@@ -778,16 +816,17 @@ def _fire_on_tile(
         n_cells = 0
 
     try:
-        on_tile(TileEvent(
-            image_2d=image_2d,
-            masks=masks,
-            tile_id=tuple(tile_id),
-            n_cells=n_cells,
-            position=inp.get("naming_p"),
-            simulated=bool(inp.get("simulated", False)),
-            mock_image_source=inp.get("mock_image_source"),
-        ))
+        on_tile(
+            TileEvent(
+                image_2d=image_2d,
+                masks=masks,
+                tile_id=tuple(tile_id),
+                n_cells=n_cells,
+                position=inp.get("naming_p"),
+                simulated=bool(inp.get("simulated", False)),
+                mock_image_source=inp.get("mock_image_source"),
+            )
+        )
     except Exception as exc:
         tid = tile_id
-        print(f"[step 3] WARNING: on_tile callback failed for "
-              f"{tid}: {exc}")
+        print(f"[step 3] WARNING: on_tile callback failed for {tid}: {exc}")

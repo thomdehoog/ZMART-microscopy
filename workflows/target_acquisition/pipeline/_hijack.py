@@ -54,20 +54,18 @@ loop records it and continues rather than producing 100 silent
 shape-mismatch hijack failures. Extending to multi-plane support is
 a `pipeline/_mock_provider.py` change, not a guard change.
 """
+
 from __future__ import annotations
 
 import os
 import tempfile
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
-
-import tifffile
 
 import navigator_expert.acquisition.ome as ome_tiff
-
+import tifffile
 from shared.output_layout import build_xml_name
-
 
 # Descendant-XPath for ``OriginalMetadata`` across any namespace. LAS X
 # actually places these elements inside a ``<CustomAttributes>`` block
@@ -219,7 +217,7 @@ def hijack_frame(
         )
 
     # OME-preserving pixel overwrite.
-    saved = tifffile.imread(result.image_path)        # closes its own handle
+    saved = tifffile.imread(result.image_path)  # closes its own handle
     with tifffile.TiffFile(result.image_path) as tif:  # explicit -- no leak
         desc = tif.pages[0].description
 
@@ -260,9 +258,10 @@ def hijack_frame(
 
     try:
         tifffile.imwrite(
-            tmp_path, mock,
+            tmp_path,
+            mock,
             description=desc,
-            ome=False,                       # preserve existing OME XML
+            ome=False,  # preserve existing OME XML
             photometric="minisblack",
         )
         # Tag-270 byte-equality is the load-bearing assertion: a
@@ -272,8 +271,7 @@ def hijack_frame(
             new_desc = tif.pages[0].description
         if new_desc != desc:
             raise RuntimeError(
-                f"hijack would corrupt OME description on "
-                f"{result.image_path.name} -- aborting"
+                f"hijack would corrupt OME description on {result.image_path.name} -- aborting"
             )
         chk = ome_tiff.check_ome_tiff(str(tmp_path))
         # check_ome_tiff returns {corrupted: bool, error: str|None, ...}
@@ -298,7 +296,7 @@ def hijack_frame(
             )
 
         os.replace(tmp_path, result.image_path)
-        tmp_path = None                      # owned by destination now
+        tmp_path = None  # owned by destination now
     finally:
         if tmp_path is not None:
             try:

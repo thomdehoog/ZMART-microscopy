@@ -8,6 +8,7 @@ This module exists so the operator notebook can ask for "connect" in
 two lines without leaking LAS X runtime loading details into operator code.
 The driver-side LAS X bindings stay encapsulated here.
 """
+
 from __future__ import annotations
 
 from typing import Any

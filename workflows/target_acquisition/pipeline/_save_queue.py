@@ -27,12 +27,12 @@ Design:
 - Context-manager support: `with _FigureSaveQueue() as q: ...` drains
   on exit.
 """
+
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
-from typing import Callable
-
 
 # Bounded enough to apply backpressure during acquisition, large enough
 # that normal per-tile/per-target figure bursts do not block every frame.
@@ -58,11 +58,10 @@ class _FigureSaveQueue:
         name: str = "figsave",
     ) -> None:
         if max_queued < 1:
-            raise ValueError(
-                f"max_queued must be >= 1, got {max_queued}"
-            )
+            raise ValueError(f"max_queued must be >= 1, got {max_queued}")
         self._executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix=name,
+            max_workers=1,
+            thread_name_prefix=name,
         )
         self._semaphore = threading.BoundedSemaphore(max_queued)
         self._futures: list[Future] = []
@@ -77,9 +76,7 @@ class _FigureSaveQueue:
         caught inside the worker and logged; they do not propagate.
         """
         if self._closed:
-            raise RuntimeError(
-                f"_FigureSaveQueue({self._name!r}) is closed; cannot submit."
-            )
+            raise RuntimeError(f"_FigureSaveQueue({self._name!r}) is closed; cannot submit.")
         # Block until the worker has drained at least one slot. With
         # max_workers=1 this is also the natural backpressure point.
         self._semaphore.acquire()
@@ -90,10 +87,7 @@ class _FigureSaveQueue:
         try:
             save_fn()
         except Exception as exc:
-            print(
-                f"[{self._name}] WARNING: save failed "
-                f"({label or 'unlabeled'}): {exc}"
-            )
+            print(f"[{self._name}] WARNING: save failed ({label or 'unlabeled'}): {exc}")
         finally:
             self._semaphore.release()
 
@@ -109,9 +103,7 @@ class _FigureSaveQueue:
             except Exception as exc:
                 # _run already swallows save_fn exceptions; this branch
                 # catches TimeoutError or executor-internal failures.
-                print(
-                    f"[{self._name}] WARNING: drain wait failed: {exc}"
-                )
+                print(f"[{self._name}] WARNING: drain wait failed: {exc}")
 
     def shutdown(
         self,
@@ -140,7 +132,7 @@ class _FigureSaveQueue:
 
     # ─── context manager ──────────────────────────────────────────
 
-    def __enter__(self) -> "_FigureSaveQueue":
+    def __enter__(self) -> _FigureSaveQueue:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

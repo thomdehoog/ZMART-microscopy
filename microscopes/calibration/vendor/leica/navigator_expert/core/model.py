@@ -19,8 +19,7 @@ from typing import Any
 
 SCHEMA_VERSION = 11
 MIGRATION_COMMAND = (
-    "python -m calibration.vendor.leica.navigator_expert."
-    "migrate_current_calibration"
+    "python -m calibration.vendor.leica.navigator_expert.migrate_current_calibration"
 )
 
 
@@ -93,9 +92,7 @@ def validate_calibration(config: dict[str, Any]) -> None:
         get_translation_um(config, int(slot))
         for key in ("name", "session_id"):
             if key not in entry:
-                raise ValueError(
-                    f"calibration objective {slot!r} missing field: {key!r}"
-                )
+                raise ValueError(f"calibration objective {slot!r} missing field: {key!r}")
 
     backlash = _require_block(config, "backlash")
     for key in (
@@ -173,18 +170,14 @@ def update_objective(
     entry = objectives.get(key)
     if entry is None:
         if name is None:
-            raise ValueError(
-                f"cannot create objective slot {slot} without a name"
-            )
+            raise ValueError(f"cannot create objective slot {slot} without a name")
         entry = {}
         objectives[key] = entry
     if name is not None:
         entry["name"] = name
     if translation_um is not None:
         if len(translation_um) != 3:
-            raise ValueError(
-                f"translation_um must have 3 values, got {translation_um!r}"
-            )
+            raise ValueError(f"translation_um must have 3 values, got {translation_um!r}")
         entry["translation_um"] = [
             float(translation_um[0]),
             float(translation_um[1]),
@@ -199,8 +192,7 @@ def get_image_to_stage(config: dict[str, Any]) -> list[list[float]]:
     block = config.get("image_to_stage")
     if not isinstance(block, dict):
         raise ValueError(
-            "calibration config is missing v11 image_to_stage block "
-            "with matrix/session_id"
+            "calibration config is missing v11 image_to_stage block with matrix/session_id"
         )
     matrix = block.get("matrix")
     if matrix is None:
@@ -217,9 +209,7 @@ def _entry(config: dict[str, Any], slot: int) -> dict[str, Any]:
     entry = (config.get("objectives") or {}).get(str(int(slot)))
     if entry is None:
         available = sorted(int(s) for s in config.get("objectives", {}))
-        raise ValueError(
-            f"No calibration entry for slot {slot}. Available: {available}"
-        )
+        raise ValueError(f"No calibration entry for slot {slot}. Available: {available}")
     return entry
 
 
@@ -232,9 +222,7 @@ def get_translation_um(config: dict[str, Any], slot: int) -> tuple[float, float,
             "notebooks and adopt the config."
         )
     if len(value) != 3:
-        raise ValueError(
-            f"Slot {slot} translation_um must have 3 values, got {value!r}"
-        )
+        raise ValueError(f"Slot {slot} translation_um must have 3 values, got {value!r}")
     return float(value[0]), float(value[1]), float(value[2])
 
 
@@ -253,9 +241,7 @@ def get_reference_slot_from_data(config: dict[str, Any]) -> int:
             "translation_um == [0, 0, 0]"
         )
     if len(refs) > 1:
-        raise ValueError(
-            f"calibration config has multiple zero-translation references: {refs}"
-        )
+        raise ValueError(f"calibration config has multiple zero-translation references: {refs}")
     return refs[0]
 
 
@@ -267,8 +253,7 @@ def get_reference_slot(config: dict[str, Any]) -> int:
     derived = get_reference_slot_from_data(config)
     if cached != derived:
         raise ValueError(
-            f"reference_objective_slot={cached} disagrees with "
-            f"zero-translation slot {derived}"
+            f"reference_objective_slot={cached} disagrees with zero-translation slot {derived}"
         )
     return cached
 
@@ -330,10 +315,17 @@ def translate_xyz_between_objectives(
 ) -> tuple[float, float, float]:
     """Translate full stage coordinates between objective frames."""
     x_t, y_t = translate_xy_between_objectives(
-        x_um, y_um, config, from_slot=from_slot, to_slot=to_slot,
+        x_um,
+        y_um,
+        config,
+        from_slot=from_slot,
+        to_slot=to_slot,
     )
     z_t = translate_z_between_objectives(
-        z_um, config, from_slot=from_slot, to_slot=to_slot,
+        z_um,
+        config,
+        from_slot=from_slot,
+        to_slot=to_slot,
     )
     return x_t, y_t, z_t
 
@@ -346,7 +338,9 @@ def reference_to_objective_command_xy(
 ) -> tuple[float, float]:
     """Translate a reference-frame XY to a command under ``target_slot``."""
     return translate_xy_between_objectives(
-        x_ref_um, y_ref_um, config,
+        x_ref_um,
+        y_ref_um,
+        config,
         from_slot=get_reference_slot(config),
         to_slot=target_slot,
     )

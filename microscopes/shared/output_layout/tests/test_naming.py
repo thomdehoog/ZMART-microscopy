@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from shared.output_layout.naming import (
     EPOCH,
     MAX_ACQUISITION_TYPE_LEN,
@@ -18,8 +17,8 @@ from shared.output_layout.naming import (
     run_hash,
 )
 
-
 # --- run_hash ----------------------------------------------------------------
+
 
 class TestRunHash:
     def test_epoch_returns_all_zeros(self):
@@ -51,6 +50,7 @@ class TestRunHash:
 
 
 # --- Naming validation -------------------------------------------------------
+
 
 class TestNaming:
     def test_valid_kebab_case(self):
@@ -114,37 +114,48 @@ class TestNaming:
 
 # --- build_image_name / build_xml_name --------------------------------------
 
+
 class TestBuildNames:
     def test_image_name_all_zero(self):
         n = Naming(acquisition_type="overview-scan", hash6="0a3k7m")
         assert build_image_name(n) == (
-            "overview-scan_0a3k7m_k00000_m00000_g00000_p00000"
-            "_t00000_v00_c00_z00000.ome.tiff"
+            "overview-scan_0a3k7m_k00000_m00000_g00000_p00000_t00000_v00_c00_z00000.ome.tiff"
         )
 
     def test_image_name_with_values(self):
         n = Naming(
-            acquisition_type="target-acquisition", hash6="bf2x91",
-            k=1, m=47, g=2, p=123, t=5, v=1, c=2, z=10,
+            acquisition_type="target-acquisition",
+            hash6="bf2x91",
+            k=1,
+            m=47,
+            g=2,
+            p=123,
+            t=5,
+            v=1,
+            c=2,
+            z=10,
         )
         assert build_image_name(n) == (
-            "target-acquisition_bf2x91_k00001_m00047_g00002_p00123"
-            "_t00005_v01_c02_z00010.ome.tiff"
+            "target-acquisition_bf2x91_k00001_m00047_g00002_p00123_t00005_v01_c02_z00010.ome.tiff"
         )
 
     def test_xml_omits_c_and_z(self):
-        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m",
-                   c=5, z=42)
+        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m", c=5, z=42)
         xml = build_xml_name(n)
-        assert xml == (
-            "overview-scan_0a3k7m_k00000_m00000_g00000_p00000"
-            "_t00000_v00.ome.xml"
-        )
+        assert xml == ("overview-scan_0a3k7m_k00000_m00000_g00000_p00000_t00000_v00.ome.xml")
 
     def test_max_widths_fit(self):
         n = Naming(
-            acquisition_type="a" * MAX_ACQUISITION_TYPE_LEN, hash6="zzzzzz",
-            k=99999, m=99999, g=99999, p=99999, t=99999, v=99, c=99, z=99999,
+            acquisition_type="a" * MAX_ACQUISITION_TYPE_LEN,
+            hash6="zzzzzz",
+            k=99999,
+            m=99999,
+            g=99999,
+            p=99999,
+            t=99999,
+            v=99,
+            c=99,
+            z=99999,
         )
         # Sanity: the literal max filename is well under 255-char component limit
         assert len(build_image_name(n)) < 255
@@ -152,27 +163,31 @@ class TestBuildNames:
 
 # --- build_position_analysis_name -------------------------------------------
 
+
 class TestBuildPositionAnalysisName:
     def test_all_zero(self):
         n = Naming(acquisition_type="overview-scan", hash6="0a3k7m")
         assert build_position_analysis_name(n) == (
-            "overview-scan_0a3k7m_k00000_m00000_g00000_p00000"
-            "_t00000_v00.npz"
+            "overview-scan_0a3k7m_k00000_m00000_g00000_p00000_t00000_v00.npz"
         )
 
     def test_with_values(self):
         n = Naming(
-            acquisition_type="overview-scan", hash6="bf2x91",
-            g=2, p=123, t=5, v=1, c=7, z=42,
+            acquisition_type="overview-scan",
+            hash6="bf2x91",
+            g=2,
+            p=123,
+            t=5,
+            v=1,
+            c=7,
+            z=42,
         )
         assert build_position_analysis_name(n) == (
-            "overview-scan_bf2x91_k00000_m00000_g00002_p00123"
-            "_t00005_v01.npz"
+            "overview-scan_bf2x91_k00000_m00000_g00002_p00123_t00005_v01.npz"
         )
 
     def test_c_and_z_omitted(self):
-        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m",
-                   c=99, z=99999)
+        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m", c=99, z=99999)
         name = build_position_analysis_name(n)
         assert "_c" not in name
         assert "_z" not in name
@@ -180,8 +195,16 @@ class TestBuildPositionAnalysisName:
 
     def test_same_slots_as_xml(self):
         n = Naming(
-            acquisition_type="target-acquisition", hash6="abc123",
-            k=1, m=2, g=3, p=4, t=5, v=6, c=7, z=8,
+            acquisition_type="target-acquisition",
+            hash6="abc123",
+            k=1,
+            m=2,
+            g=3,
+            p=4,
+            t=5,
+            v=6,
+            c=7,
+            z=8,
         )
         xml = build_xml_name(n)
         npz = build_position_analysis_name(n)
@@ -195,11 +218,20 @@ class TestBuildPositionAnalysisName:
 
 # --- parse_image_name -------------------------------------------------------
 
+
 class TestParseImageName:
     def test_round_trip_with_values(self):
         n = Naming(
-            acquisition_type="target-acquisition", hash6="bf2x91",
-            k=1, m=47, g=2, p=123, t=5, v=1, c=2, z=10,
+            acquisition_type="target-acquisition",
+            hash6="bf2x91",
+            k=1,
+            m=47,
+            g=2,
+            p=123,
+            t=5,
+            v=1,
+            c=2,
+            z=10,
         )
         assert parse_image_name(build_image_name(n)) == n
 
@@ -213,8 +245,16 @@ class TestParseImageName:
 
     def test_round_trip_at_max_values(self):
         n = Naming(
-            acquisition_type="overview-scan", hash6="zzzzzz",
-            k=99999, m=99999, g=99999, p=99999, t=99999, v=99, c=99, z=99999,
+            acquisition_type="overview-scan",
+            hash6="zzzzzz",
+            k=99999,
+            m=99999,
+            g=99999,
+            p=99999,
+            t=99999,
+            v=99,
+            c=99,
+            z=99999,
         )
         assert parse_image_name(build_image_name(n)) == n
 
@@ -223,8 +263,7 @@ class TestParseImageName:
 
     def test_rejects_missing_slot(self):
         # missing _z[NNNNN]
-        bad = ("overview-scan_0a3k7m_k00000_m00000_g00000_p00000"
-               "_t00000_v00_c00.ome.tiff")
+        bad = "overview-scan_0a3k7m_k00000_m00000_g00000_p00000_t00000_v00_c00.ome.tiff"
         assert parse_image_name(bad) is None
 
     def test_rejects_wrong_extension(self):
@@ -237,17 +276,19 @@ class TestParseImageName:
         assert parse_image_name(build_xml_name(n)) is None
 
     def test_rejects_underscore_in_acquisition_type(self):
-        bad = ("over_scan_0a3k7m_k00000_m00000_g00000_p00000"
-               "_t00000_v00_c00_z00000.ome.tiff")
+        bad = "over_scan_0a3k7m_k00000_m00000_g00000_p00000_t00000_v00_c00_z00000.ome.tiff"
         assert parse_image_name(bad) is None
 
 
 # --- LayoutPlan helpers -----------------------------------------------------
 
+
 class TestLayoutPlan:
     def test_run_dir(self, tmp_path):
         layout = LayoutPlan(
-            output_root=tmp_path, experiment="exp", hash6="0a3k7m",
+            output_root=tmp_path,
+            experiment="exp",
+            hash6="0a3k7m",
             start_time_utc=EPOCH + 1000,
         )
         assert layout.run_dir == tmp_path / "exp_0a3k7m"
@@ -268,11 +309,11 @@ class TestLayoutPlan:
         # "initialization" is a kind like any other -- acquisition_dir
         # takes any string, so logs_dir does too.
         layout = LayoutPlan(tmp_path, "exp", "0a3k7m", EPOCH + 1000)
-        assert layout.logs_dir("initialization") == (
-            layout.run_dir / "initialization" / "logs")
+        assert layout.logs_dir("initialization") == (layout.run_dir / "initialization" / "logs")
 
 
 # --- build_layout (atomic mkdir + collision bump) ---------------------------
+
 
 class TestBuildLayout:
     def test_creates_run_dir(self, tmp_path):

@@ -8,12 +8,13 @@ pipeline positions the stage before each driver call.
 backlash takeup via the driver primitive if configured). It does not
 trigger a frame and returns None.
 """
+
 from __future__ import annotations
 
 import navigator_expert as drv
 
-from .context import Context
 from ._job_state import ensure_job_state
+from .context import Context
 
 
 def acquire(
@@ -38,7 +39,9 @@ def acquire(
 
     backlash = ctx.stage_config["backlash"]
     r = drv.move_xy_with_backlash(
-        ctx.client, x_um, y_um,
+        ctx.client,
+        x_um,
+        y_um,
         overshoot_um=backlash["overshoot_um"],
         settle_ms=backlash["settle_ms"],
     )

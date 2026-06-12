@@ -1,9 +1,10 @@
 """Add required paths so workflow, driver, and shared imports resolve."""
+
 import sys
 from pathlib import Path
 
 _TARGET_ACQ = Path(__file__).resolve().parents[1]  # .../target_acquisition/
-_REPO_ROOT = _TARGET_ACQ.parents[1]                # .../smart-microscopy/
+_REPO_ROOT = _TARGET_ACQ.parents[1]  # .../smart-microscopy/
 _MICROSCOPES_ROOT = _REPO_ROOT / "microscopes"
 _VENDOR_LEICA = _MICROSCOPES_ROOT / "driver" / "vendor" / "leica"
 

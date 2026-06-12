@@ -4,6 +4,7 @@ connect_lasx() owns the LAS X CAM API connect handshake so the operator
 notebook can ask for "connect" in one call without leaking runtime loading
 details into operator code.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
