@@ -1,102 +1,64 @@
-# SMART — adaptive feedback microscopy
+# SMART Microscopy
 
-SMART picks cells from a low-magnification overview and re-images each one at
-high magnification across an objective switch, fully unattended. You scan a
-well at 10x, the pipeline segments the cells, maps each one through the
-objective-change geometry, and drives the microscope back to acquire every
-target at 20x (or higher). Segmentation is Cellpose; the optical-frame
-transforms come from a measured calibration; the microscope itself is a Leica
-STELLARIS driven through LAS X.
+This repository contains a collection of implementations for smart microscopy:
+microscope integrations, shared microscope-facing utilities, and workflows that
+use those pieces to automate experiments.
 
-The hard part is not the imaging — it is trusting what the instrument reports
-back between steps. This repository is built around making each automated move
-**verifiable**: every command confirms its own effect before the workflow
-continues, and the state readers are designed to fail closed rather than act on
-a stale value.
+The repository is organized around two main folders:
 
-## Why this exists
+- `microscopes/` contains code and configuration that talks to microscopes.
+  It holds vendor integrations, drivers, calibration data, safety limits,
+  shared microscope-facing utilities, and the `microscope_agnostic_layer/`.
+  That agnostic layer is still under construction. The Leica Navigator Expert
+  driver is the current working implementation, and it has been tested on the
+  LAS X simulator and the real Leica STELLARIS microscope.
+- `workflows/` contains smart-microscopy workflows. The main workflow is
+  `workflows/target_acquisition/`.
 
-Smart/adaptive microscopy is usually bespoke scripting glued to a vendor API.
-That breaks the moment the API lags, hangs on a modal dialog, or hands back a
-confidently-wrong value — all of which the Leica CAM API does in practice. SMART
-treats the instrument as an unreliable narrator: commands are wrapped with retry
-and readback-confirmation, machine-specific tuning lives in profiles rather than
-scattered constants, and operator notebooks stay thin (markdown plus a few-line
-call) so the logic is reviewable in the package, not buried in a cell.
+## Layout
 
-## Repository layout
+```text
+microscopes/
+  calibration/
+  driver/
+  limits/
+  microscope_agnostic_layer/
+  shared/
+  docs/
+workflows/
+  target_acquisition/
+```
 
-- **`driver/`** — microscope drivers. Currently `vendor/leica/navigator_expert/`
-  (Leica STELLARIS via LAS X). Every command returns a result dict with
-  `success`, `confirmed`, `message`, `timing`, and `logs`. Full API reference:
-  [`driver/vendor/leica/navigator_expert/README.md`](driver/vendor/leica/navigator_expert/README.md).
-- **`calibration/`** — measured optical state: image-to-stage rotation for the
-  reference objective, objective translations, and backlash. Operator notebooks
-  adopt their results into `current/calibration.json`.
-- **`limits/`** — configured Leica stage envelopes. `defaults.json` is the
-  physical envelope and safe default; `current.json` is the last active working
-  envelope written by target acquisition.
-- **`workflows/`** — operator-facing automation built on the driver and
-  calibration. `target_acquisition/` is the main pipeline; `examples/` are short
-  cookbook scripts for on-scope checks.
-- **`shared/`** — vendor-neutral primitives: `algorithms/` (focus scoring,
-  registration) and `output_layout/` (canonical run-directory layout).
-- **`docs/`** — design plans, measured-result write-ups, and cleanup history.
+The Leica driver lives at:
 
-## State readers — the design idea worth knowing
+`microscopes/driver/vendor/leica/navigator_expert/`
 
-LAS X exposes its state two ways, and **each one is wrong in places the other is
-right**:
+The target-acquisition workflow lives at:
 
-- the **CAM API** is fast and fresh for actively-queried values (XY, scan
-  status), but its selected-job readback can stay stale for 15 s+ on this LAS X
-  version, and it can hang on a modal dialog;
-- the **LAS X log** never hangs (it is a file read) and reflects job switches in
-  ~0.2 s, but it is empty on an idle scope and cannot be polled to freshness for
-  passive state.
+`workflows/target_acquisition/`
 
-So the readers come in three families — `api`, `log`, and `hybrid` — declared
-per datum in one capability table (`state_readers/capabilities.py`). Three
-questions get three mechanisms, each with a single implementation:
+## Current Status
 
-- *What is the state now?* — the routed passive readers (`state_readers`);
-  `hybrid` races both legs, and a missing leg degrades with a recorded reason.
-- *Did my command reach its target?* — every command confirms through one
-  race wrapper; most commands carry API evidence only, while selected-job
-  races the API leg against the log's applied-selection event. The race
-  accepts the first **admissible** evidence, never the first response: a
-  stale API readback that already showed the target before the command
-  cannot witness a transition and never confirms. Source disagreements are
-  reported, never hidden.
-- *Did anything visibly change?* (diagnostics) — `state_readers/change_wait.py`,
-  per-source change detection against pre-command baselines, with target
-  tolerance reported but never enforced.
+The Leica Navigator Expert stack is the production-tested path today. It
+includes API, log, and hybrid reader modes for LAS X state, with hybrid
+selected-job confirmation validated on both simulator and real hardware.
 
-Measured behavior is written up in
-[`docs/READER_VALIDATION_SIMULATOR_20260611.md`](docs/READER_VALIDATION_SIMULATOR_20260611.md)
-and [`docs/READER_VALIDATION_REAL_SCOPE_20260611.md`](docs/READER_VALIDATION_REAL_SCOPE_20260611.md).
+The microscope-agnostic layer is intentionally not treated as production-ready
+yet. Code should move there only when it is useful across microscope backends
+and has a clear interface for workflows.
 
-## Getting started
+## Getting Started
 
-1. Activate the conda env: `lasxapi_extended` (Cellpose-dependent steps use
-   `dino3_test`).
-2. Run the calibration notebooks in
-   `calibration/vendor/leica/navigator_expert/notebooks/`: image-to-stage first,
-   then objective-pair for each supported objective pair. Adopt each result into
-   `current/calibration.json`.
-3. Run the target-acquisition notebook:
-   `workflows/vendor/leica/navigator_expert/target_acquisition/smart_microscopy_v3.2.ipynb`.
+1. Activate the conda environment used for LAS X work:
+   `lasxapi_extended`.
+2. Run Leica calibration notebooks from:
+   `microscopes/calibration/vendor/leica/navigator_expert/notebooks/`.
+3. Run the target-acquisition workflow from:
+   `workflows/target_acquisition/`.
+4. Validate the Leica driver on the simulator or microscope with:
 
-New to a STELLARIS/LAS X setup? Point LAS X at its **simulator** first and run
-`driver/vendor/leica/navigator_expert/tests/hardware/validate_hardware.py --yes`
-— it exercises the full command surface (reversible writes only by default) and
-prints a pass/fail line per check.
+```powershell
+python microscopes/driver/vendor/leica/navigator_expert/tests/hardware/validate_hardware.py --yes
+```
 
-## Conventions
-
-- Operator notebooks stay thin. Logic lives in the package beside the notebook.
-- Machine-specific tuning (tolerances, timeouts, poll intervals) lives in
-  `core/profiles.py`, not in workflow code.
-- Runtime artifacts write to operator-selected output roots under
-  `media_path/smart/…`. They are not source files and must not be committed.
-- See [`CLAUDE.md`](CLAUDE.md) for repository-wide code-style guidance.
+Detailed design notes and validation reports are in `microscopes/docs/`.
