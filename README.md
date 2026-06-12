@@ -1,15 +1,16 @@
 # SMART Microscopy
 
-Automation for smart-microscopy experiments: an overview scan is acquired, analyzed,
-and used to select targets, which are then re-acquired at high resolution — without an
-operator driving the microscope between steps.
+Implementations for smart microscopy: microscope integrations that put the instrument
+under programmatic control, and workflows that use that control to analyze data and
+make acquisition decisions during an experiment rather than after it.
 
 The repository has two roots:
 
 - `microscopes/` — everything that talks to a microscope: vendor drivers, calibration,
   safety limits, and shared microscope-facing utilities.
-- `workflows/` — the experiment workflows built on top. The main one is
-  `workflows/target_acquisition/`.
+- `workflows/` — the smart-microscopy workflows built on that control. The first (and
+  currently only) one is `workflows/target_acquisition/`: acquire an overview, select
+  targets by analysis, re-acquire them at high resolution.
 
 ```text
 microscopes/
@@ -62,8 +63,8 @@ environment-specific ways. The full matrices are in
 2. Calibrate the rig with the notebooks in
    `microscopes/calibration/vendor/leica/navigator_expert/notebooks/`
    (image-to-stage orientation, then the objective pair).
-3. Run an experiment from the operator notebook
-   `workflows/target_acquisition/smart_microscopy_v3.2.ipynb` — markdown steps with
+3. Run a workflow — e.g. target acquisition from its operator notebook
+   `workflows/target_acquisition/smart_microscopy_v3.2.ipynb`: markdown steps with
    thin calls into `workflows/target_acquisition/pipeline/`.
 
 ## Testing
