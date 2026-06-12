@@ -439,6 +439,41 @@ def _select_job_confirmed_by_log(command_result: dict | None) -> bool:
     return False
 
 
+def _needs_select_job_restore(
+    original: str,
+    last_target: str | None,
+    last_result: dict | None,
+) -> bool:
+    """Whether the validator still needs to restore the original job.
+
+    The job round-trip order already ends with the original job. If that final
+    select was explicitly confirmed, firing a second restore is a forced no-op.
+    Some LAS X environments emit no post-command evidence for no-op re-selects,
+    so the validator should not report that redundant command as a failure.
+    """
+    if last_target != original:
+        return True
+    if not isinstance(last_result, dict):
+        return True
+    return not (
+        bool(last_result.get("success"))
+        and last_result.get("confirmed") is True
+    )
+
+
+def _job_selection_read_mode(state_reader_mode: str | None) -> str | None:
+    """Reader mode used only to enumerate job-switch candidates.
+
+    Log-backed job state can prove a selected job, but it is not a complete job
+    catalog on all LAS X environments. The validator therefore enumerates
+    candidates through the API when the selected-job confirmation source is log
+    or hybrid; the confirmation itself still uses the requested reader family.
+    """
+    if state_reader_mode in {"log", "hybrid"}:
+        return "api"
+    return None
+
+
 def _record_selected_job_postcheck(
     v: Validator,
     command_result: dict | None,
@@ -713,7 +748,7 @@ def phase_job_selection(drv: Any, v: Validator, client: Any,
                         preferred_job: str, args: argparse.Namespace) -> None:
     """Select every reported job once, verify each, then restore original."""
     with v.phase("job selection round-trip"):
-        job_read_mode = "api" if args.state_reader_mode == "log" else None
+        job_read_mode = _job_selection_read_mode(args.state_reader_mode)
         jobs = v.callable(
             "job selection: read jobs",
             lambda: drv.get_jobs(client, mode=job_read_mode),
@@ -727,6 +762,8 @@ def phase_job_selection(drv: Any, v: Validator, client: Any,
         original = next(
             (j["Name"] for j in jobs if j.get("IsSelected")), preferred_job)
         ordered_names = _job_selection_order(drv, client, names, original)
+        last_target: str | None = None
+        last_result: dict | None = None
 
         try:
             for index, name in enumerate(ordered_names):
@@ -742,6 +779,8 @@ def phase_job_selection(drv: Any, v: Validator, client: Any,
                     lambda name=name: drv.select_job(client, name),
                     context=ctx,
                 )
+                last_target = name
+                last_result = command_result
                 api_select_elapsed_s = (
                     None if command_result is None
                     else (command_result.get("timing") or {}).get("total_s")
@@ -761,9 +800,13 @@ def phase_job_selection(drv: Any, v: Validator, client: Any,
                 _record_selected_job_postcheck(
                     v, command_result, ctx, name, selected)
         finally:
-            v.command("job selection: restore",
-                      lambda: drv.select_job(client, original),
-                      context={"restore_to": original})
+            if _needs_select_job_restore(original, last_target, last_result):
+                v.command("job selection: restore",
+                          lambda: drv.select_job(client, original),
+                          context={"restore_to": original})
+            else:
+                v.skip("job selection: restore",
+                       f"{original!r} already confirmed by round-trip")
 
 
 def phase_settings(drv: Any, v: Validator, client: Any, job_name: str) -> None:

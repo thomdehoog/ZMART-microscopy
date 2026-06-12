@@ -276,6 +276,37 @@ def test_selected_job_api_mismatch_without_log_confirm_stays_fail():
     assert record.message == "expected='HiRes' actual='AF Job'"
 
 
+def test_job_restore_is_skipped_only_after_confirmed_original():
+    """The validator should not force a no-op restore after a proved restore."""
+    assert not validate_hardware._needs_select_job_restore(
+        "Overview",
+        "Overview",
+        {"success": True, "confirmed": True},
+    )
+    assert validate_hardware._needs_select_job_restore(
+        "Overview",
+        "Overview",
+        {"success": True, "confirmed": False},
+    )
+    assert validate_hardware._needs_select_job_restore(
+        "Overview",
+        "Overview",
+        {"success": False, "confirmed": True},
+    )
+    assert validate_hardware._needs_select_job_restore(
+        "Overview",
+        "HiRes",
+        {"success": True, "confirmed": True},
+    )
+
+
+def test_job_selection_candidate_enumeration_uses_api_when_log_participates():
+    """Candidate discovery must not depend on an incomplete log job catalog."""
+    assert validate_hardware._job_selection_read_mode("api") is None
+    assert validate_hardware._job_selection_read_mode("log") == "api"
+    assert validate_hardware._job_selection_read_mode("hybrid") == "api"
+
+
 def test_mock_set_dispatch_table_matches_surface():
     """The mock's explicit PyApi command table must stay wired."""
     mock = MockLasxClient(latency=0.0)
