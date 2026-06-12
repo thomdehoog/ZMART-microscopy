@@ -171,6 +171,35 @@ Main issues:
 
 Decision: do a test cleanup branch after artifact hygiene, not before.
 
+### 6. GitHub Publication State
+
+**The repository is already public** (anonymous API probe returns HTTP 200 for
+`github.com/thomdehoog/smart-microscopy`), and the public default branch is wrong:
+
+- `origin/main` points at `399cdf6` ("Initial commit: Manufacturer-agnostic Python
+  tools for adaptive feedback microscopy") - a history with **no merge base** with
+  `fable5_tryout`. A visitor who clicks the repo link today lands on obsolete content,
+  not the validated driver.
+- Ten stale remote branches are publicly visible alongside `fable5_tryout` and
+  `main`: `clean-refactor`, `cleanup/wave-2`, `dev`, `feat/visualize-refactor`,
+  `feat/workflow-api-polish`, `fix/selection-correctness`, `notebook/post-A`,
+  `refactor`, `restructure/layered-driver`, `state-readers-refactor`.
+- The operator notebook with committed outputs (including local `C:\Users\...` paths)
+  is therefore already public on `origin/fable5_tryout`. Nothing in it is sensitive
+  beyond local path names, and git history retains old blobs regardless - stripping
+  outputs going forward is still the right move, but treat the current outputs as
+  already published rather than as a secret to protect.
+
+This is independent of the cleanup branch and more urgent than any of it, because it
+is what the public sees **today**. Resolution options (owner decision #7 below):
+
+- replace `main` with this history: `git push origin fable5_tryout:main --force-with-lease`
+  (the histories are disjoint, so this is a replace either way), keep `main` as default; or
+- set the GitHub default branch to `fable5_tryout` (Settings -> Branches) and delete or
+  archive the old `main`;
+- then prune the stale remote branches (`git push origin --delete <branch>` for each
+  that no longer matters - work is preserved in local clones and reflogs).
+
 ## Decisions For The Owner
 
 These are the things that should not be decided silently by an implementation session.
@@ -181,6 +210,13 @@ These are the things that should not be decided silently by an implementation se
 4. **`experimental/lrp_edits`:** rename because it is effectively public API, or leave for now?
 5. **Packaging:** add minimal `[project]` metadata now, or defer until after the conference?
 6. **Calibration lint fix:** approve the one-line `Path` import in calibration code.
+7. **Public default branch:** replace `origin/main` with this history, or switch the
+   GitHub default branch to `fable5_tryout`? And which of the 10 stale remote branches
+   get pruned? (See "GitHub Publication State" above - the repo is public today and
+   the default branch shows obsolete content.)
+
+Raw review drafts stay local-only. The durable artifact in the repo is this synthesis,
+not process transcripts.
 
 ## Recommended Cleanup Branch
 
@@ -241,6 +277,13 @@ python -m pytest -q microscopes/driver/vendor/leica/navigator_expert/tests/unit
 python -m pytest -q workflows/target_acquisition/tests
 ```
 
+End-state requirement: by the time the cleanup branch is presented, the **bare
+configured command `ruff check .` must exit 0** - either by also auto-fixing the
+mechanical test findings (import order and unused imports are safe to fix before the
+test moves; they do not conflict with later file relocation), or by narrowing the lint
+scope in `pyproject.toml` and saying so in the README. A scoped-but-passing gate is
+honest; a configured-but-failing one is what a visitor will find in the first minute.
+
 ### Commit 4 - Docs Index And Archive
 
 Purpose: make the docs navigable for a conference visitor.
@@ -275,6 +318,53 @@ First moves:
 - split large workflow visualization tests.
 
 Every commit should run the relevant subset and preserve behavior.
+
+### Commit 7 - API Naming: `experimental/` -> `lrp_edits/` (if decision #4 approves)
+
+Purpose: stop shipping public API from a path named `experimental/`.
+
+The `lrp_*` helpers are re-exported in the driver's public `__all__`
+(`navigator_expert/__init__.py:248-293`) and documented in the package docstring -
+they are production API with experimental framing. Move-only rename of
+`experimental/lrp_edits/` to `lrp_edits/` (or fold into `scanfields/`), update imports
+and the `__init__.py:13` docstring line, no behavior change.
+
+Verification: full driver unit suite.
+
+### Commit 8 - Workflow Robustness (small, test-first, optional before conference)
+
+Purpose: fix the three operational gaps the deep review found in the workflow pipeline.
+Each is small but behavior-adjacent, so write the failing test first:
+
+- `pipeline/overview.py:777` - bind the swallowed exception (`except Exception as exc:`)
+  and persist its message in the per-tile failure record;
+- `pipeline/focus.py:399` - persist the focus-coverage warning into `run_summary.json`
+  (e.g. `focus_map.coverage_warning`) instead of print-only; this **adds a key to the
+  workflow output schema**, so update `test_summary_schema.py` deliberately;
+- `pipeline/preflight.py:437-456` - validate/import the analysis engine **before** the
+  run directory is created and atexit registered, so a missing engine fails fast
+  without side effects.
+
+Verification: `python -m pytest -q workflows/target_acquisition/tests`.
+
+### Commit 9 - Packaging Metadata (if decision #5 approves)
+
+Purpose: minimal respectable packaging story.
+
+- `[project]`: name, version, `requires-python = ">=3.10"`, dependencies from
+  `MINIMAL_LASX_PYTHON_ENV.md` (pythonnet, numpy, tifffile, ome-types, ...);
+- `[build-system]` block;
+- `[tool.pytest.ini_options]` with testpaths;
+- the `_bootstrap.py` shims remain the operational import path - packaging metadata
+  documents the project, it does not have to replace the bootstraps yet.
+
+## Publication Steps (not commits - remote operations, after owner decision #7)
+
+1. Make this history the public default: either push `fable5_tryout` over `main`
+   (`--force-with-lease`; the histories are disjoint) or flip the GitHub default branch.
+2. Prune the stale remote branches that should not be part of the public face.
+3. Verify the landing page: README renders as intended, default branch is the
+   validated one, branch list is short.
 
 ## What Not To Touch In Cleanup
 
@@ -311,6 +401,11 @@ Proceed with a cleanup branch. Keep it mechanical and reviewable:
 2. notebook output cleanup;
 3. lint baseline;
 4. docs index/archive;
-5. test organization.
+5. test organization;
+6. `experimental/` rename, workflow robustness, packaging (decision-gated, commits 7-9).
+
+In parallel - and more urgent than any of it, because the repo is **already public**:
+resolve owner decision #7 and execute the Publication Steps. Until the default branch
+points at this history, every in-branch cleanup is invisible to a visitor.
 
 The core reader/driver implementation should be left alone. It is the strongest part of the branch.

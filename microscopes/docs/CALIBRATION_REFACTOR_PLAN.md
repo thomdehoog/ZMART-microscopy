@@ -1,11 +1,5 @@
 # Calibration Refactor Plan
 
-**Branch**: `restructure/layered-driver`
-**Drafted**: 2026-05-27
-**Status**: PR #1 implemented on `restructure/layered-driver`; PR #2 and
-PR #3 remain pending
-**Owner**: thom + Claude design pass; Codex implementation pass for PR #1
-
 This plan covers a coordinated cleanup of the calibration subsystem:
 schema simplification, file naming, vendor-neutral relocation, and the
 `promotion` -> `adopt` rename. The pieces are interrelated -- done
@@ -585,7 +579,7 @@ boundary (same shape as the existing stage-limit check).
 
 These are the decisions explicitly deferred to implementation:
 
-1. **`docs/MIDLAYER_PLAN.md` alignment.** The mid-layer plan was
+1. **`microscope_agnostic_layer/DESIGN.md` alignment.** The agnostic-layer design was
    reviewed 2026-05-19 with 4 open decisions. Before starting PR #2 in
    particular, confirm none of those decisions conflict with the
    `shared/calibration/` layout proposed here. If the mid-layer plan
@@ -630,7 +624,7 @@ These are the decisions explicitly deferred to implementation:
 - LRP/pan/ROI calibration (unrelated subsystem).
 - Pixel-size scaling calibration (constants in `driver/core/utils.py`;
   separate concern).
-- `MIDLAYER_PLAN.md` itself (that's the bigger vendor-neutral-waist
+- `microscope_agnostic_layer/DESIGN.md` itself (that's the bigger vendor-neutral-waist
   plan; this refactor is one slice of it).
 
 ---

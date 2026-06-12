@@ -40,16 +40,19 @@ The main pain points are:
 1. **One test answers one question.**  
    If a file tests dispatch, it should not also test scan-field parsing or workflow output naming.
 
-2. **Separate offline contract tests from live hardware evidence.**  
+2. **No count-padding tests.**
+   Keep tests only when they pin behavior, an invariant, an error path, or a documented hardware finding. Do not add placeholder tests, shape-only tests, or tests that merely encode implementation noise.
+
+3. **Separate offline contract tests from live hardware evidence.**
    Offline tests should be deterministic and run on every machine. Live hardware validators should be explicit tools with JSONL output, not mixed into ordinary unit-test discovery.
 
-3. **Do not hide measured hardware behavior.**  
+4. **Do not hide measured hardware behavior.**
    API/log/hybrid disagreements are important evidence. Preserve curated JSONLs and reports, but do not let every local run pollute `git status`.
 
-4. **Prefer shared fixtures over clever mocks.**  
+5. **Prefer shared fixtures over clever mocks.**
    The mock LAS X client and sample JSONL/driver result records should live in one support location per package.
 
-5. **Refactor tests before broad lint cleanup.**  
+6. **Refactor tests before broad lint cleanup.**
    Moving test boundaries first makes lint fixes less noisy and reduces duplicate cleanup.
 
 ## Proposed Final Layout
