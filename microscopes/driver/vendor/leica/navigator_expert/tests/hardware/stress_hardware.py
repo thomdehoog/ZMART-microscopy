@@ -335,7 +335,7 @@ def _test_data_dir() -> Path:
 
 def _install_general_workflow(source_dir: Path, templates_dir: Path) -> None:
     """Install one offline LRP/XML/RGN bundle under driver template filenames."""
-    from navigator_expert.templates.files import (  # noqa: PLC0415
+    from navigator_expert.scanfields.files import (  # noqa: PLC0415
         TEMPLATE_LRP,
         TEMPLATE_RGN,
         TEMPLATE_XML,
@@ -365,7 +365,7 @@ def _workflow_environment(args: argparse.Namespace) -> Iterator[WorkflowBundle]:
         )
         return
 
-    import navigator_expert.templates.strip_restore as strip_mod  # noqa: PLC0415
+    import navigator_expert.scanfields.strip_restore as strip_mod  # noqa: PLC0415
 
     old_find = strip_mod.find_scanning_templates_dir
     old_save = strip_mod.save_experiment
@@ -817,14 +817,14 @@ def op_load_general_workflow(
     args: argparse.Namespace,
 ) -> tuple[str, str, dict[str, Any] | None, str | None, dict[str, Any]]:
     """Install and load the committed workflow bundle before stress starts."""
-    from navigator_expert.templates.files import (  # noqa: PLC0415
+    from navigator_expert.scanfields.files import (  # noqa: PLC0415
         TEMPLATE_RGN,
         TEMPLATE_XML,
         find_scanning_templates_dir,
         load_experiment,
         save_experiment,
     )
-    from navigator_expert.templates.strip_restore import _count_objects  # noqa: PLC0415
+    from navigator_expert.scanfields.strip_restore import _count_objects  # noqa: PLC0415
 
     started = time.perf_counter()
     context: dict[str, Any] = {

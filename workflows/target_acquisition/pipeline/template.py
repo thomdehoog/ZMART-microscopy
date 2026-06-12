@@ -24,7 +24,7 @@ import shutil
 import time
 
 import navigator_expert as drv
-from navigator_expert.templates.files import (
+from navigator_expert.scanfields.files import (
     TEMPLATE_BASE,
     TEMPLATE_XML,
     TEMPLATE_LRP,

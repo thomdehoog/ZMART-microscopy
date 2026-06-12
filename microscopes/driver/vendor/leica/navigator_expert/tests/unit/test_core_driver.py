@@ -2288,7 +2288,7 @@ class TestCommandReaderSafety(unittest.TestCase):
                    return_value={"pixel_w_um": 1.0, "pixels_x": 512}), \
              patch("navigator_expert.experimental.lrp_edits.roi.galvo_pan_for_pixel",
                    return_value=(0.0, 0.0)), \
-             patch("navigator_expert.templates.transaction.apply_lrp_change",
+             patch("navigator_expert.scanfields.transaction.apply_lrp_change",
                    side_effect=fake_apply_lrp_change):
             result = commands.move_galvo_to_pixel(client, 10, 20)
 

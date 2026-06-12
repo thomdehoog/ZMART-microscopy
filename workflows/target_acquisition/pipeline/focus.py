@@ -18,7 +18,7 @@ import numpy as np
 
 import navigator_expert as drv
 from navigator_expert.core.commands import acquire as drv_acquire
-from navigator_expert.templates.files import (
+from navigator_expert.scanfields.files import (
     TEMPLATE_BASE,
     TEMPLATE_XML,
 )

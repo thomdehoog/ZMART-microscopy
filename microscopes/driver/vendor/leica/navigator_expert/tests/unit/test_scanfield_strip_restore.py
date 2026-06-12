@@ -1,11 +1,11 @@
-"""Offline strip/restore smoke test for Leica template bundles."""
+"""Offline strip/restore smoke test for Leica scan-field bundles."""
 
 from __future__ import annotations
 
 import shutil
 
-from navigator_expert.templates import strip_restore
-from navigator_expert.templates.files import (
+from navigator_expert.scanfields import strip_restore
+from navigator_expert.scanfields.files import (
     STRIPPED_LRP,
     STRIPPED_RGN,
     STRIPPED_XML,
