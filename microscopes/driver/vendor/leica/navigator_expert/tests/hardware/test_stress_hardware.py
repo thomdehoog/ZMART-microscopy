@@ -183,7 +183,7 @@ def test_template_roundtrip_restores_after_strip_failure():
 
 def test_general_workflow_load_live_path_copies_loads_and_confirms(monkeypatch, tmp_path):
     """Live setup copies repo data, loads it, then confirm-saves the canonical name."""
-    from navigator_expert.templates import files as template_files
+    from navigator_expert.scanfields import files as template_files
 
     source = tmp_path / "source"
     templates = tmp_path / "ScanningTemplates"

@@ -102,7 +102,7 @@ from ._primitives import (
     _set_job_attr,
     _verify_job_attr,
 )
-from ...positions.parsers import parse_lrp
+from ...scanfields.parsers import parse_lrp
 
 log = logging.getLogger(__name__)
 
@@ -172,8 +172,8 @@ def disable_roi_scan(client, job_name):
     polygons, so a panned-but-still-roi-scanning frame appears black
     where the cells used to be. Verifies the change before returning.
     """
-    from ...templates.files import TEMPLATE_XML
-    from ...templates.transaction import apply_lrp_change
+    from ...scanfields.files import TEMPLATE_XML
+    from ...scanfields.transaction import apply_lrp_change
     apply_lrp_change(
         client, TEMPLATE_XML,
         lambda p: lrp_enable_roi_scan(p, False, job_name),

@@ -32,7 +32,7 @@ if str(_TARGET_ACQ) not in sys.path:
 
 TEST_DATA = Path(__file__).resolve().parent / "data"
 GENERAL_WORKFLOW_DATA = TEST_DATA / "general_workflow"
-POSITION_PARSING_DATA = TEST_DATA / "position_parsing"
+SCANFIELD_PARSING_DATA = TEST_DATA / "scanfield_parsing"
 
 
 @pytest.fixture

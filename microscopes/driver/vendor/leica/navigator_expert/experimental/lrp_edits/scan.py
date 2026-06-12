@@ -310,8 +310,8 @@ def reset_pan(client, job_name):
     the final step of a cookbook so a subsequent run starts from a known
     state. Verifies the change before returning.
     """
-    from ...templates.files import TEMPLATE_XML
-    from ...templates.transaction import apply_lrp_change
+    from ...scanfields.files import TEMPLATE_XML
+    from ...scanfields.transaction import apply_lrp_change
     apply_lrp_change(
         client, TEMPLATE_XML,
         lambda p: lrp_set_pan(p, 0.0, 0.0, job_name),

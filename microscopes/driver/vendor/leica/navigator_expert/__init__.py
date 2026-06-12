@@ -5,8 +5,7 @@ Package layout::
 
     navigator_expert/
     - core/         raw LAS X commands, readers, confirmations, profiles
-    - templates/    LAS X template file I/O, strip/restore, transactions
-    - positions/    XML/RGN/LRP parsing and tile-position planning
+    - scanfields/   LAS X scan-field files, parsing, planning, strip/restore
     - acquisition/  acquire-only capture, LAS X file export, OME fixes, save
     - stage/        stage limits, backlash-aware movement, stage config
     - experimental/ LRP mutation helpers without live-state readback
@@ -61,7 +60,7 @@ __all__ = [
     "set_filter_wheel_slot", "set_filter_wheel_spectrum",
     "move_xy", "move_galvo_to_pixel",
     "move_z", "acquire", "select_job",
-    # templates
+    # scan fields
     "find_scanning_templates_dir", "save_experiment", "load_experiment",
     "strip_template", "restore_template", "get_template_state",
     "strip_template_in_place",
@@ -206,21 +205,21 @@ from .stage.config import (
     write_limits as write_stage_limits_config,
 )
 
-# -- templates/ - LAS X template file operations
-from .templates.files import (
+# -- scanfields/ - LAS X scan-field file operations and parsing
+from .scanfields.files import (
     find_scanning_templates_dir, save_experiment, load_experiment,
     get_template_state, save_and_read_lrp,
 )
-from .templates.strip_restore import strip_template, restore_template
-from .templates.strip_restore import strip_template_in_place
-from .templates.transaction import apply_lrp_change, reorder_jobs
-from .positions.parsers import (
+from .scanfields.strip_restore import strip_template, restore_template
+from .scanfields.strip_restore import strip_template_in_place
+from .scanfields.transaction import apply_lrp_change, reorder_jobs
+from .scanfields.parsers import (
     parse_lrp, diff_lrp, parse_scan_positions,
     parse_acquisition_positions, parse_base_grid, parse_focus_points,
     parse_rgn_geometries, parse_rgn_tile_colors, parse_matrix_settings,
     get_master_attrs, get_rois,
 )
-from .positions.planning import plan_tiles_from_geometries
+from .scanfields.planning import plan_tiles_from_geometries
 
 # -- acquisition/ - capture, file arrival, and save handling
 from .acquisition.ome import (

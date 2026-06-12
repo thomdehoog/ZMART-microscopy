@@ -1,5 +1,5 @@
 """
-Unit tests for scan-position parsers (no LAS X connection needed).
+Unit tests for scan-field parsers (no LAS X connection needed).
 =================================================================
 Run with:
     python -m pytest driver/vendor/leica/navigator_expert/tests/unit/test_position_parsers.py -v
@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from navigator_expert.positions.parsers import (
+from navigator_expert.scanfields.parsers import (
     _to_float, _to_int,
     _parse_size_string, _tile_size_from_image_size_str,
     _get_raw_tiles, parse_acquisition_positions,
@@ -684,7 +684,7 @@ class TestParseMatrixSettings:
 # Real template data tests
 # =============================================================================
 
-TEST_DATA = Path(__file__).resolve().parents[1] / "data" / "position_parsing"
+TEST_DATA = Path(__file__).resolve().parents[1] / "data" / "scanfield_parsing"
 GENERAL_WORKFLOW_DATA = (
     Path(__file__).resolve().parents[1] / "data" / "general_workflow"
 )

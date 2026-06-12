@@ -445,8 +445,7 @@ microscopes/driver/vendor/leica/navigator_expert/
 +-- README.md
 +-- __init__.py          # public facade for LAS X driver commands
 +-- core/                # commands, readers, confirmations, profiles
-+-- templates/           # template file I/O, strip/restore, transactions
-+-- positions/           # XML/RGN/LRP parsing and tile-position planning
++-- scanfields/          # scan-field files, parsing, planning, strip/restore
 +-- acquisition/         # capture, LAS X files, OME fixes, save chain
 +-- stage/               # stage limits, movement, current-state loader
 +-- experimental/        # LRP mutation helpers without live readback
@@ -483,7 +482,7 @@ core.dispatch          -> core.errors, core.utils
 core.profiles          -> core.prechecks, core.confirmations, core.errors
 core.commands          -> core.dispatch, core.profiles, core.confirmations,
                           state_readers, core.utils, stage.limits
-templates/*            -> file/template operations above API readback
+scanfields/*           -> scan-field file operations above API readback
 acquisition/*          -> capture, LAS X file arrival, and OME metadata fixes
 stage/*                -> stage safety and backlash-aware movement
 calibration/.../core.model -> adopted calibration state + coordinate transforms

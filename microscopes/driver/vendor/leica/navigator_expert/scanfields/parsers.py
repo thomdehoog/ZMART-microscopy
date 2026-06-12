@@ -1,6 +1,6 @@
 """
-Scanning position parsers.
-===========================
+Scan-field parsers.
+===================
 Parse LAS X scanning template files (.xml, .rgn, .lrp) into
 structured Python dicts.
 

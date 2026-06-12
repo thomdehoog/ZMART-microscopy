@@ -1,10 +1,10 @@
-"""Template file I/O and constants.
+"""Scan-field file I/O and constants.
 
 Save/load experiments, locate the ScanningTemplates directory,
 detect template state, and define the canonical filename constants.
 
 Dependency direction:
-    - Imports: ``..core.utils``, ``..positions.parsers``, ``_file_utils``,
+    - Imports: ``..core.utils``, ``.parsers``, ``_file_utils``,
       stdlib.
     - Imported by: ``strip_restore``, ``transaction``, ``__init__`` (re-export).
 """
@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from ..core.utils import RECEIPT_TIMEOUT, _make_timing
-from ..positions.parsers import parse_lrp
+from .parsers import parse_lrp
 
 log = logging.getLogger(__name__)
 
