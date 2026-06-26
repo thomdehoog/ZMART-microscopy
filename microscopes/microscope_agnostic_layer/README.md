@@ -46,7 +46,91 @@ mic.export_data(options=Dict)
 mic.disconnect()
 ```
 
-The rest of this page explains each step.
+Most steps follow the same rhythm: **discover, then apply.** You ask the
+microscope what it offers with a `get_*` call — each option comes with its
+allowed values and the one that is currently active — and then you pass your
+choice back to the matching call. Leave an option out and the driver simply uses
+its active default, so the short form always works.
+
+1. **Discover and connect.** `available_microscopes()` reads the registry and
+   returns what you can connect to as `{vendor: [(microscope, api), ...]}` —
+   nothing is opened, no hardware is touched. `connect_to_microscope()` then
+   selects that driver and opens the session. From this point on, `mic` *is* that
+   microscope; it does not yet know which objectives or stages the instrument has
+   — only the live connection can report those, which is the next step.
+
+   ```python
+   mic.available_microscopes()   # {"leica": [("stellaris5-01", "navigator-expert")]}
+   mic.connect_to_microscope(vendor="leica", microscope="stellaris5-01", api="navigator-expert")
+   ```
+
+2. **Define the coordinate system.** A position like `(10, 20, 5)` is meaningless
+   until you say *in what frame* — that depends on the objective you look through
+   and the stage that moves. `get_coordinate_system()` shows the available
+   objectives and stage types (each as `options` plus the `active` one), and
+   `set_coordinate_system()` fixes the ones you want. From then on coordinates are
+   unambiguous: the driver applies the objective offsets so a given point keeps
+   the same address no matter which objective or actuator you use.
+
+   ```python
+   mic.get_coordinate_system()
+   # {"objective": {"options": ["10x", "20x", "40x"], "active": "10x"}, "stage_types": {...}}
+   mic.set_coordinate_system(objective="10x", stage_type="motoric")
+   ```
+
+3. **State and procedures.** A *state* is a snapshot of the instrument's settings
+   that you can capture now and reactivate later; a *procedure* is a named job the
+   driver knows how to run. Both are opaque dictionaries — the layer carries them,
+   only the driver understands them. `get_state()` / `get_procedure()` read one,
+   and `set_state()` / `set_procedure()` send it back.
+
+   ```python
+   prescan = mic.get_state()                 # {"immutable": {...}, "mutable": {...}}
+   prescan["mutable"]["laser_power"] = 2.0
+   mic.set_state(prescan)                     # reactivate it later
+   ```
+
+4. **Stage movements.** `get_initial_positions()` returns the list of positions to
+   visit (captured at connect). `get_xyz()` and `set_xyz()` read and move in the
+   canonical (motoric) coordinate system; the optional `stage_types` argument
+   chooses which actuator realizes each axis (e.g. the piezo for fine Z), without
+   changing the coordinates you give.
+
+   ```python
+   positions = mic.get_initial_positions()
+   mic.set_xyz(10, 20, 5, stage_types={"z": "piezo"})   # Z via the piezo
+   ```
+
+5. **Acquire.** `get_acquisitions_options()` shows the acquisition settings the
+   instrument supports — for example `backlash_correction`, which settles the
+   stage the right way before the shutter opens so the image lands at the true
+   position. `acquire(options=...)` captures one dataset with the settings you
+   choose; anything you omit uses the active default.
+
+   ```python
+   mic.get_acquisitions_options()   # {"backlash_correction": {"options": [True, False], "active": True}}
+   mic.acquire(options={"backlash_correction": True})
+   ```
+
+6. **Export the data.** `get_export_data_options()` shows the available output
+   `format` and `procedure`; `export_data(options=...)` writes the result. The
+   options may also carry free `name` / `position` context for the filename and
+   embedded metadata. Omit `format` / `procedure` and the driver uses its active
+   default.
+
+   ```python
+   mic.get_export_data_options()    # {"format": {...}, "procedure": {...}}
+   mic.export_data(options={"format": "ome-zarr", "name": "well_A1"})
+   ```
+
+7. **Session.** `disconnect()` closes the session when you are finished. It is
+   optional — only some drivers need an explicit teardown.
+
+   ```python
+   mic.disconnect()
+   ```
+
+The sections below walk each step in depth.
 
 ## Connect
 
