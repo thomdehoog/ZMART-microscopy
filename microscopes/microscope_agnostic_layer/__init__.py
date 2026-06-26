@@ -20,7 +20,7 @@ Two ways to drive a microscope, both giving ``mic.<call>()``:
 Requires the microscopes/ source root on sys.path.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
-University of Zurich (thom.dehoog@zmb.uzh.ch).
+University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 """
 
 __author__ = "Thom de Hoog"

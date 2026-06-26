@@ -13,6 +13,9 @@ Driver contract used by the registry:
   - every other operation takes that handle as its first argument
 
 Each function below is what an entry in the registry's ops table points at.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
+University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 """
 
 from __future__ import annotations

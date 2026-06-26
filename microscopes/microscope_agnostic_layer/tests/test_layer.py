@@ -1,4 +1,8 @@
-"""Tests for the microscope-agnostic layer against the mock driver."""
+"""Tests for the microscope-agnostic layer against the mock driver.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
+University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
+"""
 
 from __future__ import annotations
 

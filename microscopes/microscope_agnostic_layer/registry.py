@@ -8,6 +8,9 @@ available_microscopes() lists what is registered without connecting to anything.
 Real vendor drivers register here (see the Leica example below, to be filled in
 once its adapter exists). Test-only integrations, like the mock, register
 themselves from the test side, so no test code is imported into production.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
+University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 """
 
 from __future__ import annotations
@@ -87,9 +90,10 @@ def available_microscopes() -> dict[str, list[tuple[str, str]]]:
     """List what you can connect to, without connecting to anything.
 
     This is pre-connect discovery: it reports the registered drivers from the
-    registry (eventually the drivers/vendor/microscope/api tree). The objectives
-    and stages a given instrument offers are a separate, post-connect discovery -
-    they come from the driver and appear in ``session.capabilities``.
+    registry. The objectives and stages a given instrument offers are a separate,
+    post-connect discovery -- they come from the driver and are exposed through
+    the session's ``get_*`` methods (``get_coordinate_system``,
+    ``get_acquisitions_options``, ``get_export_data_options``).
 
     Returns:
         ``{vendor: [(microscope, api), ...]}`` for every registered driver.
