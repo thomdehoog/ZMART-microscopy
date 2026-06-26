@@ -15,13 +15,13 @@ Everything you can call:
 ```python
 from microscope_agnostic_layer import available_microscopes, connect_to_microscope
 
-# Discover available microscope, return a dictionary
+# 1) Discover available microscope
 available_microscopes()                       
 
-# Connect to a microscope
+# 2) Connect to a microscope
 mic = connect_to_microscope(vendor, microscope=None, api=None, client=None, password=None)
 
-# Coordinate system: discover, then set
+# 3) 
 mic.get_coordinate_system()                   # available objectives and stage types
 mic.set_coordinate_system(objective=None, stage_type=None)
 
