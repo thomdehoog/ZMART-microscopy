@@ -2,6 +2,9 @@
 
 The mock is a test-only integration, so it is wired into the registry here --
 production registry.py never imports it.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
+University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 """
 
 import sys

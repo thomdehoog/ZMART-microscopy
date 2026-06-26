@@ -33,6 +33,9 @@ Typical use:
     frame = mic.acquire()                  # options from get_acquisitions_options()
     mic.export_data(options={"format": "ome-zarr", "name": "well_A1"})
     mic.disconnect()                       # optional teardown when finished
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
+University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 """
 
 from __future__ import annotations
