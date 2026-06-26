@@ -2,7 +2,7 @@
 
 It exercises the full agnostic contract so the layer can be tested
 offline, and it shows the shape a real driver implements: it receives context
-(objective, stage frame, actuator) and does the work the layer does not -
+(objective, stage coordinate system, actuator) and does the work the layer does not -
 applying the objective offset, settling before capture, and owning the
 mutable/immutable state boundary.
 
@@ -20,8 +20,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-# Objective parcentricity offsets in motoric-frame micrometres, relative to the
-# 10x baseline. A real driver reads these from calibration.
+# Objective parcentricity offsets in micrometres, in the motoric coordinate
+# system, relative to the 10x baseline. A real driver reads these from calibration.
 _OBJECTIVE_OFFSETS: dict[str, tuple[float, float]] = {
     "10x": (0.0, 0.0),
     "20x": (1.5, -0.8),
@@ -37,10 +37,10 @@ class MockHandle:
     mutable settings (reactivatable) and the immutable identity (fingerprint).
     """
 
-    objective: str
-    stage_type: str
+    objective: str = "10x"
+    stage_type: str = "motoric"
 
-    # canonical position in the motoric frame
+    # canonical position in the motoric coordinate system
     x: float = 0.0
     y: float = 0.0
     z: float = 0.0
@@ -64,17 +64,15 @@ def connect(
     api: str,
     client: str | None,
     password: str | None,
-    objective: str,
-    stage_type: str,
 ) -> MockHandle:
     """Open a session and capture initial positions.
 
-    Validates the requested objective (a real driver would also validate the api
-    and authenticate with ``client``/``password``).
+    The objective and stage coordinate system are discoverable via ``capabilities`` and set
+    afterwards with ``set_coordinate_system``; the handle starts at the driver's defaults. A
+    real driver would also validate the api and authenticate with
+    ``client``/``password``.
     """
-    if objective not in _OBJECTIVE_OFFSETS:
-        raise ValueError(f"unknown objective {objective!r}")
-    handle = MockHandle(objective=objective, stage_type=stage_type)
+    handle = MockHandle()
 
     # Capture the positions to visit at connect, available to the workflow. A
     # real driver would derive these from a holder layout or a prescan result.
@@ -84,6 +82,23 @@ def connect(
         {"x": 0.0, "y": 120.0, "z": 0.0},
     ]
     return handle
+
+
+def set_coordinate_system(
+    handle: MockHandle, *, objective: str | None = None, stage_type: str | None = None
+) -> None:
+    """Set the reference objective and/or stage coordinate system from the discovered options.
+
+    Validates the objective; a real driver would also move to the objective and
+    pick up its calibration. The layer refreshes capabilities afterwards.
+    """
+    if objective is not None:
+        if objective not in _OBJECTIVE_OFFSETS:
+            raise ValueError(f"unknown objective {objective!r}")
+        handle.objective = objective
+
+    if stage_type is not None:
+        handle.stage_type = stage_type
 
 
 def disconnect(handle: MockHandle) -> None:
@@ -111,7 +126,7 @@ def capabilities(handle: MockHandle) -> dict:
 
 
 def _resolve_stages(handle: MockHandle, stages: dict | None) -> dict[str, str]:
-    """Per-axis actuator choice, defaulting unspecified axes to the active frame."""
+    """Per-axis actuator choice, defaulting unspecified axes to the active coordinate system."""
     chosen = {"x": handle.stage_type, "y": handle.stage_type, "z": handle.stage_type}
     if stages:
         chosen.update(stages)
@@ -130,9 +145,9 @@ def get_xyz(handle: MockHandle, *, stages: dict | None = None) -> dict:
 def set_xyz(
     handle: MockHandle, x: float, y: float, z: float, *, stages: dict | None = None
 ) -> None:
-    """Realize an absolute motoric-frame target, applying the objective offset.
+    """Realize an absolute target in the motoric coordinate system, applying the offset.
 
-    The target is in the motoric frame; the chosen actuator (``stages``) realizes
+    The target is in the motoric coordinate system; the chosen actuator (``stages``) realizes
     it. Applying the objective offset is the driver's responsibility, not the
     layer's. The mock folds the offset straight into the stored position to make
     that ownership visible in tests; a real driver would instead apply it when
@@ -241,6 +256,7 @@ def register_mock() -> None:
         ops={
             "connect": connect,
             "capabilities": capabilities,
+            "set_coordinate_system": set_coordinate_system,
             "get_xyz": get_xyz,
             "set_xyz": set_xyz,
             "acquire": acquire,
@@ -255,7 +271,5 @@ def register_mock() -> None:
         defaults={
             "microscope": "mock-scope",
             "api": "mock-api",
-            "objective": "10x",
-            "stage_type": "motoric",
         },
     )

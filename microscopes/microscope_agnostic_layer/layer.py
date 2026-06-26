@@ -9,8 +9,8 @@ and returns whatever the driver hands back; the driver does the work. Two things
 serve that single aim:
 
   - It provides the driver with context. connect() establishes the session
-    context - vendor, microscope, api, reference objective, stage frame - and
-    every later call forwards it to the driver.
+    context (vendor, microscope, api) and the coordinate system (set from the
+    discovered objective and stage via set_coordinate_system), and forwards it to the driver.
 
   - It keeps the surface easy. Set the context once, get good defaults and
     discoverable options, then issue short, domain-level calls.
@@ -29,11 +29,13 @@ The methods come in two styles:
 
 Typical use:
 
-    from microscope_agnostic_layer import connect
+    from microscope_agnostic_layer import available, connect
 
+    available()                            # what can I connect to?
     mic = connect(vendor="leica", microscope="stellaris5-01")
-    print(mic.capabilities["objective"])   # discover what is available
-    mic.set_xyz(10.0, 20.0, 5.0)           # absolute, in the motoric frame
+    mic.capabilities                       # what objectives / stages does it have?
+    mic.set_coordinate_system(objective="10x", stage_type="motoric")  # set the coordinate system
+    mic.set_xyz(10.0, 20.0, 5.0)           # absolute, in the motoric coordinate system
     frame = mic.acquire(backlash_correction=True)
     mic.save(format="ome-zarr", name="well_A1")
     mic.disconnect()                       # optional teardown when finished
@@ -61,8 +63,9 @@ class Session:
         default the layer uses when a call omits the choice; ``options`` is the
         vocabulary callers read and pass back as arguments.
     ``context``
-        What the layer feeds the driver on every call: ``vendor``,
-        ``microscope``, ``api``, ``objective``, ``stage_type``.
+        How the driver was selected: ``vendor``, ``microscope``, ``api``. The
+        coordinate system (objective + stage) lives in ``capabilities`` and is set
+        with :meth:`set_coordinate_system`.
 
     Call :meth:`disconnect` when finished if the driver needs teardown.
     """
@@ -94,24 +97,42 @@ class Session:
         except (KeyError, TypeError):
             raise ValueError(f"driver advertises no {axis!r} capability to default") from None
 
+    # --- coordinate system ---------------------------------------------------
+
+    def set_coordinate_system(
+        self, objective: str | None = None, stage_type: str | None = None
+    ) -> None:
+        """Set the coordinate system from the discovered options.
+
+        "Absolute" coordinates only mean something against a coordinate system.
+        After connect you read the available objectives and stages from
+        :attr:`capabilities`, then fix the coordinate system here: ``objective``
+        is the optical reference (the driver applies offsets between objectives)
+        and ``stage_type`` the default actuator the canonical axes resolve to.
+        Either may be omitted to leave it as the driver reports it. The driver
+        validates the choice, and the capabilities are refreshed afterwards.
+        """
+        self._ops["set_coordinate_system"](self._handle, objective=objective, stage_type=stage_type)
+        self.capabilities = self._ops["capabilities"](self._handle)
+
     # --- standardized: typed params, structured results ---------------------
 
     def get_xyz(self, stages: dict | None = None) -> dict:
         """Read the current stage position.
 
         Returns a per-axis mapping ``{axis: {"value", "stage", "unit"}}`` in the
-        canonical (motoric) frame. ``stages`` optionally selects which actuator
+        canonical (motoric) coordinate system. ``stages`` optionally selects which actuator
         to read per axis (e.g. ``{"z": "piezo"}``); axes left unspecified use the
-        active frame. The driver produces the reading.
+        active coordinate system. The driver produces the reading.
         """
         return self._ops["get_xyz"](self._handle, stages=stages)
 
     def set_xyz(self, x: float, y: float, z: float, stages: dict | None = None) -> None:
-        """Move to an absolute target in the canonical (motoric) frame.
+        """Move to an absolute target in the canonical (motoric) coordinate system.
 
         ``x``/``y``/``z`` are always given in the motoric coordinate system;
         ``stages`` selects the actuator that realizes the move per axis (``None``
-        -> the active frame). The driver applies the objective offset and the
+        -> the active coordinate system). The driver applies the objective offset and the
         actuator transform -- that calibration math is never the layer's job.
         """
         self._ops["set_xyz"](self._handle, x, y, z, stages=stages)
@@ -200,14 +221,15 @@ def connect(
     api: str | None = None,
     client: str | None = None,
     password: str | None = None,
-    objective: str | None = None,
-    stage_type: str | None = None,
 ) -> Session:
     """Resolve a driver, open the session, discover capabilities, return it.
 
     This is the connector: it selects the driver, opens and authenticates the
-    session, fixes the coordinate-frame context (reference objective + stage
-    frame), and discovers the capability menu -- all in one call.
+    session, and discovers the capability menu. It does *not* set the coordinate
+    system -- the available objectives and stages are only known after connecting,
+    so you pick them from ``session.capabilities`` and apply them with
+    :meth:`Session.set_coordinate_system`. Use :func:`available` first to see what you can
+    connect to.
 
     Args:
         vendor: Picks the driver, e.g. ``"leica"``.
@@ -216,9 +238,6 @@ def connect(
         client: Client/session identity passed to the driver, if it needs one.
         password: Auth secret. Has no default -- pass it explicitly, or resolve
             it from a secret store upstream. Never baked into the registry.
-        objective: Reference objective defining the coordinate frame; falls back
-            to the vendor default when omitted.
-        stage_type: Reference actuator frame; falls back to the vendor default.
 
     Returns:
         A connected :class:`Session`.
@@ -229,17 +248,15 @@ def connect(
 
     Example::
 
-        mic = connect(vendor="mock")          # all defaults
+        mic = connect(vendor="mock")          # microscope/api from vendor defaults
         mic = connect(vendor="leica", microscope="stellaris5-01", api="pyapi")
     """
-    ops, context = resolve(vendor, microscope, api, objective=objective, stage_type=stage_type)
+    ops, context = resolve(vendor, microscope, api)
     handle = ops["connect"](
         microscope=context["microscope"],
         api=context["api"],
         client=client,
         password=password,
-        objective=context["objective"],
-        stage_type=context["stage_type"],
     )
     capabilities = ops["capabilities"](handle)
     return Session(ops, handle, capabilities, context)

@@ -2,7 +2,8 @@
 
 A driver registers an ops table - a mapping of operation name to driver callable
 - for a (vendor, microscope, api) triple, plus the vendor's defaults. connect()
-calls resolve() to look one up.
+calls resolve() to look one up, and available() lists what is registered without
+connecting to anything.
 
 Real vendor drivers register here (see the Leica example below, to be filled in
 once its adapter exists). Test-only integrations, like the mock, register
@@ -17,10 +18,11 @@ from __future__ import annotations
 from typing import Any
 
 # Every driver ops table must provide a callable for each of these operations.
-# ``disconnect`` is optional.
+# disconnect is optional.
 OPS: tuple[str, ...] = (
     "connect",
     "capabilities",
+    "set_coordinate_system",
     "get_xyz",
     "set_xyz",
     "acquire",
@@ -47,24 +49,23 @@ def register(
     """Wire a driver's ops table into the registry under one triple.
 
     Args:
-        vendor: Vendor key, e.g. ``"leica"``.
+        vendor: Vendor key, e.g. "leica".
         microscope: Instrument id under that vendor.
         api: Backend/transport for that instrument.
-        ops: Operation name -> driver callable. Must cover every name in
-            :data:`OPS`; ``disconnect`` may also be supplied and is optional.
-        defaults: Vendor-level fallbacks for ``microscope``/``api``/
-            ``objective``/``stage_type`` when a caller omits them.
+        ops: Operation name -> driver callable. Must cover every name in OPS;
+            disconnect may also be supplied and is optional.
+        defaults: Vendor-level fallbacks for microscope/api when a caller omits
+            them.
 
     Raises:
-        ValueError: If ``ops`` is missing any required operation.
+        ValueError: If ops is missing any required operation.
 
     Example::
 
         register(
             "leica", "stellaris5-01", "navigator-expert",
-            ops={"connect": ..., "capabilities": ..., "get_xyz": ..., ...},
-            defaults={"microscope": "stellaris5-01", "api": "navigator-expert",
-                      "objective": "10x", "stage_type": "motoric"},
+            ops={"connect": ..., "capabilities": ..., "set_coordinate_system": ..., ...},
+            defaults={"microscope": "stellaris5-01", "api": "navigator-expert"},
         )
     """
     missing = [name for name in OPS if name not in ops]
@@ -81,28 +82,39 @@ def register(
 #     register(
 #         "leica", "stellaris5-<id>", "navigator-expert",
 #         ops=OPS_TABLE,
-#         defaults={"microscope": "stellaris5-<id>", "api": "navigator-expert",
-#                   "objective": "10x", "stage_type": "motoric"},
+#         defaults={"microscope": "stellaris5-<id>", "api": "navigator-expert"},
 #     )
+
+
+def available() -> dict[str, list[tuple[str, str]]]:
+    """List what you can connect to, without connecting to anything.
+
+    This is pre-connect discovery: it reports the registered drivers from the
+    registry (eventually the drivers/vendor/microscope/api tree). The objectives
+    and stages a given instrument offers are a separate, post-connect discovery -
+    they come from the driver and appear in ``session.capabilities``.
+
+    Returns:
+        ``{vendor: [(microscope, api), ...]}`` for every registered driver.
+    """
+    return {vendor: sorted(entry["drivers"]) for vendor, entry in REGISTRY.items()}
 
 
 def resolve(
     vendor: str,
     microscope: str | None = None,
     api: str | None = None,
-    *,
-    objective: str | None = None,
-    stage_type: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """Look up the ops table and build the session context.
 
-    ``microscope``/``api``/``objective``/``stage_type`` fall back to the
-    vendor's registered defaults when omitted.
+    ``microscope``/``api`` fall back to the vendor's registered defaults when
+    omitted.
 
     Returns:
         A ``(ops, context)`` pair. ``ops`` is the resolved operation table;
-        ``context`` is ``{vendor, microscope, api, objective, stage_type}``,
-        which :func:`connect` feeds to the driver.
+        ``context`` is ``{vendor, microscope, api}``. The coordinate system
+        (objective + stage) is not set here - it is discovered after connect and
+        applied with ``Session.set_coordinate_system``.
 
     Raises:
         ValueError: If the vendor is unknown, or no driver is registered for the
@@ -126,11 +138,5 @@ def resolve(
             f"known (microscope, api): {known}"
         ) from None
 
-    context = {
-        "vendor": vendor,
-        "microscope": microscope,
-        "api": api,
-        "objective": objective or defaults["objective"],
-        "stage_type": stage_type or defaults["stage_type"],
-    }
+    context = {"vendor": vendor, "microscope": microscope, "api": api}
     return ops, context
