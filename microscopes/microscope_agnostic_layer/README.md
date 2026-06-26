@@ -16,7 +16,7 @@ Everything you can call:
 from microscope_agnostic_layer as mic
 
 # Connect to the microscopes
-mic.available_microscopes()                       # {vendor: [(microscope, api), ...]}
+mic.available_microscopes()                       
 mic.connect_to_microscope(vendor=String, microscope=String, api=String, client=String, password=String)
 
 # Define the coordinate system
