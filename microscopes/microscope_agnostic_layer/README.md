@@ -15,34 +15,34 @@ Everything you can call:
 ```python
 import microscope_agnostic_layer as mic
 
-# Discover and connect
-mic.available_microscopes()                   # {vendor: [(microscope, api), ...]}
+# 1) Discover and connect
+mic.available_microscopes()                 
 mic.connect_to_microscope(vendor=String, microscope=String, api=String, client=String, password=String)
 
-# Define the coordinate system
-mic.get_coordinate_system()                   # available objectives and stage types
+# 2) Define the coordinate system
+mic.get_coordinate_system()                   
 mic.set_coordinate_system(objective=String, stage_type=String)
 
-# Capture and activate the instrument state and procedures
+# 3) Capture and activate the instrument state and procedures
 mic.get_state()
 mic.set_state(Dict)
 mic.get_procedure()
 mic.set_procedure(Dict)
 
-# Handle stage movements
+# 4) Handle stage movements
 mic.get_initial_positions()
 mic.get_xyz()
 mic.set_xyz(x, y, z, stage_types=Dict)
 
-# Acquire
+# 5) Acquire
 mic.get_acquisitions_options()
 mic.acquire(options=Dict)
 
-# Export the data
+# 6) Export the data
 mic.get_export_data_options()
 mic.export_data(options=Dict)
 
-# Session
+# 7) And session
 mic.disconnect()
 ```
 
