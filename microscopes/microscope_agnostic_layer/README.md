@@ -3,92 +3,56 @@
 One small, consistent interface for driving a microscope from a smart-microscopy
 workflow. You discover what's there, connect, and issue plain commands —
 `set_xyz`, `acquire`, `save`. The same workflow runs on any microscope that has a
-driver; your code never imports a vendor's API.
+driver; your code never imports a vendor's API. The layer stays deliberately thin. 
+It holds the session's context and forwards your intent to the driver; the driver does the real work. 
 
-The layer stays deliberately thin. It holds the session's context and forwards
-your intent to the driver; the driver does the real work. Nothing clever happens
-in between — and that is the point.
+## Import the Microscope-Agnostic Layer
 
-## At a glance
+from microscope_agnostic_layer import available_microscopes, connect_to_microscope
 
-```python
-from microscope_agnostic_layer import available, connect
+**Connect to a microscope.** Pick a vendor, microscope, and api, and open the session:
 
-available()                       # what's out there?
-mic = connect(vendor="leica", microscope="stellaris5-01", api="navigator-expert")
-
-mic.set_coordinate_system(objective="10x", stage_type="motoric")
-
-mic.set_xyz(10.0, 20.0, 5.0)
-mic.acquire(backlash_correction=True)
-mic.save(format="ome-zarr", name="well_A1")
-
-mic.disconnect()
-```
-
-That is the whole shape of it. The rest of this page explains each step.
-
-## Connecting
-
-Two questions, answered at two different moments.
-
-**What can I connect to?** Ask before you connect. `available()` reads the
-registry and returns the microscopes it knows about — no hardware touched:
+Ask before you connect. `available_microscopes()` reads the
+registry and returns the microscopes it knows about:
 
 ```python
-available()
+available_microscopes()
 # {"leica": [("stellaris5-01", "navigator-expert")]}
 ```
 
-**Then connect.** Pick a vendor, microscope, and api, and open the session:
+Connect to a vendor, microscope and api
 
 ```python
-mic = connect(vendor="leica", microscope="stellaris5-01", api="navigator-expert")
+mic = connect_to_microscope(vendor="leica", microscope="stellaris5-01", api="navigator-expert")
 ```
 
-`connect` selects the driver and opens the session — nothing more. It does not
-yet know which objectives or stages this instrument has; only the live connection
-can tell you that.
+**Setup the coordinate system**
 
-## The coordinate system
+A position like `(10, 20, 5)` means nothing until we define our reference coordinate
+system for the rest of the session. Before setting this up discover which objectives and stage are available
 
-A position like `(10, 20, 5)` means nothing until you say *in what coordinate
-system*. That depends on the objective you view through and the stage you move —
-and you can only learn the available ones from the connected instrument. So you
-set the coordinate system right after connecting:
+```python
+mic.get_coordinate_system()
+```
+
+Then select the prefered objective system
 
 ```python
 mic.set_coordinate_system(objective="10x", stage_type="motoric")
 ```
 
-From here on, coordinates are unambiguous, because three things stay cleanly
-separated:
-
-- **What you speak in** — always the motoric stage's coordinate system, the one
-  canonical space.
-- **What moves you** — motoric, piezo, or galvo, chosen per axis. Using the piezo
-  for fine Z does not change the coordinates you give; it just realizes them.
-- **What you see through** — the objective. Switching it shifts the optics, not
-  your coordinates; the driver applies the offset so a point keeps its address.
+From here on, coordinates are unambiguous. We always use the coordinates corresponding to the reference coordinate system. 
+Even if different stage types or objectives are used, the translation to the reference coordinates system is done by the driver.
+You can still define which stage_types you want to 
 
 ```python
-mic.set_xyz(10, 20, 5, stages={"z": "piezo"})   # Z via the piezo, X and Y as they are
+# Move the a position in the reference coorid
+mic.set_xyz(10, 20, 5, stage_types={x="motoric", y="motoric", z="galvo"})  
 ```
 
-## Capabilities: the menu
+## Capture presets
 
-Once connected, `mic.capabilities` is the instrument's menu. Each selectable
-setting lists its `options` and the one that is `active`:
 
-```python
-mic.capabilities["objective"]
-# {"options": ["10x", "20x", "40x"], "active": "10x"}
-```
-
-This is the single source of truth, and it sets the rhythm of the whole API:
-**read an option, pass it back.** Anything you can choose — a stage, a save
-format, the objective — you discover here and hand straight back as an argument.
-Leave the argument out and the layer uses whatever is `active`.
 
 ## Acquiring and saving
 
