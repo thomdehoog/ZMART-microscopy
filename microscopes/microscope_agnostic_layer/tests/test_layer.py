@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from microscope_agnostic_layer import connect
+from microscope_agnostic_layer import available, connect
 
 
 @pytest.fixture
@@ -13,12 +13,17 @@ def mic():
     session.disconnect()
 
 
+class TestAvailable:
+    def test_lists_registered_drivers(self):
+        catalog = available()
+        assert ("mock-scope", "mock-api") in catalog["mock"]
+
+
 class TestConnect:
     def test_defaults_resolve(self, mic):
+        assert mic.context["vendor"] == "mock"
         assert mic.context["microscope"] == "mock-scope"
         assert mic.context["api"] == "mock-api"
-        assert mic.context["objective"] == "10x"
-        assert mic.context["stage_type"] == "motoric"
 
     def test_capabilities_discovered(self, mic):
         caps = mic.capabilities
@@ -42,8 +47,8 @@ class TestCoordinates:
         assert (pos["x"]["value"], pos["y"]["value"], pos["z"]["value"]) == (10, 20, 5)
         assert pos["x"]["unit"] == "um"
 
-    def test_objective_offset_applied_by_driver(self):
-        mic = connect(vendor="mock", objective="20x")
+    def test_objective_offset_applied_by_driver(self, mic):
+        mic.set_coordinate_system(objective="20x")
         mic.set_xyz(0, 0, 0)
         pos = mic.get_xyz()
         assert pos["x"]["value"] == 1.5
@@ -52,7 +57,21 @@ class TestCoordinates:
     def test_stage_selector_reported_back(self, mic):
         pos = mic.get_xyz(stages={"z": "piezo"})
         assert pos["z"]["stage"] == "piezo"
-        assert pos["x"]["stage"] == "motoric"  # untouched axes use the active frame
+        assert pos["x"]["stage"] == "motoric"  # untouched axes use the active coordinate system
+
+
+class TestFrame:
+    def test_default_coordinate_system_is_active_in_capabilities(self, mic):
+        assert mic.capabilities["objective"]["active"] == "10x"
+        assert mic.capabilities["stages"]["x"]["active"] == "motoric"
+
+    def test_set_coordinate_system_updates_active_objective(self, mic):
+        mic.set_coordinate_system(objective="20x")
+        assert mic.capabilities["objective"]["active"] == "20x"
+
+    def test_set_coordinate_system_unknown_objective_raises(self, mic):
+        with pytest.raises(ValueError, match="unknown objective"):
+            mic.set_coordinate_system(objective="999x")
 
 
 class TestAcquireSave:

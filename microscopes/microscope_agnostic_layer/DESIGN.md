@@ -17,7 +17,7 @@ and returns what the driver gives back; the driver does the work. Two things
 serve that single aim:
 
 - **Provide the driver with context.** It holds the session context set up at
-  connect time — reference objective, coordinate frame, available actuators and
+  connect time — reference objective, coordinate system, available actuators and
   which are active — and feeds that context to the driver on every call, so the
   driver is never missing what it needs to interpret a command.
 - **Keep the surface easy.** Set context once, get good defaults and discoverable
@@ -44,26 +44,35 @@ math, what is mutable vs immutable).
 
 ## The Connector
 
-`initialize()` is the **connector**: the single entry point that selects the
-driver, opens the session, authenticates, and establishes the coordinate-frame
-context. It returns a connected session handle that exposes the operations.
+Discovery comes in two phases, because the two kinds of "what's available" live
+in different places:
+
+- **Pre-connect — what can I connect to?** `available()` lists the registered
+  drivers as `{vendor: [(microscope, api), ...]}`, straight from the registry,
+  without connecting. The objectives and stages of any one instrument are *not*
+  known here.
+- **Post-connect — what does this instrument have?** Only after connecting does
+  the driver report its objectives, stages, save formats, … as
+  `session.capabilities`.
+
+`connect()` is the **connector**: it selects the driver, opens the session, and
+authenticates. It does *not* set the coordinate system (see Coordinate System).
 
 ```python
+available()        # {vendor: [(microscope, api), ...]}  — no connection
+
 connect(
     vendor,        # selects the driver, e.g. "leica"
-    microscope,    # which instrument, e.g. "stellaris"
-    api,           # which backend/transport, e.g. "pyapi"
+    microscope,    # which instrument, e.g. "stellaris"    (vendor default if omitted)
+    api,           # which backend/transport, e.g. "pyapi" (vendor default if omitted)
     client,        # client/session identity
-    password,      # auth                                    (no baked-in default)
-    objective,     # reference objective, e.g. "10x"     ┐  define the absolute
-    stage_type,    # reference actuator frame            ┘  coordinate frame
+    password,      # auth                                  (no baked-in default)
 )  # -> session
 ```
 
-Defaults are data-driven: a per-vendor profile supplies the common
-`microscope` / `api` / `client` / `objective` / `stage_type` values, and caller
-arguments are merged over it. The common path is therefore short, e.g.
-`connect()` or `connect(vendor="leica")`.
+Defaults are data-driven: a per-vendor profile supplies the common `microscope` /
+`api`, and caller arguments are merged over it. The common path is short, e.g.
+`connect(vendor="leica")`.
 
 The connector discovers all **standardized** selectable options once, at connect
 time, and exposes them on the session as **options + current selection**.
@@ -89,16 +98,20 @@ This single structure is the one source of truth, and it drives the whole usage
 pattern: **discover at init, put it back at call.** `active` is the default the
 layer uses when the caller specifies nothing; `options` is the legal vocabulary
 the caller reads and then passes straight back as an argument (the `stages`
-selector on `get/setXYZ`, `format`/`procedure` on `save`, the objective, …). One
-round-trip, one vocabulary.
+selector on `get/setXYZ`, `format`/`procedure` on `save`, `objective`/`stage_type`
+for `set_coordinate_system`, …). One round-trip, one vocabulary.
 
 ## Coordinate System
 
-This is the one concern the connector context is built to nail down. "Absolute
-coordinates" only mean something once a reference frame is fixed, so the layer
-pins three normally-conflated things apart:
+This is the one concern the coordinate-system setup is built to nail down.
+"Absolute coordinates" only mean something once a reference coordinate system is
+fixed. You fix it *after* connecting — once the driver has reported the available
+objectives and stages — with `set_coordinate_system(objective=..., stage_type=...)`,
+drawing both values from `capabilities` (until then the driver's active selection
+holds, and either argument may be omitted to keep it). The layer pins three
+normally-conflated things apart:
 
-- **The coordinate system you *speak* in** — always the motoric-stage frame. The
+- **The coordinate system you *speak* in** — always the motoric-stage coordinate system. The
   single canonical absolute space. Galvo and piezo positions map into it.
 - **The actuator that *executes* the move** — motoric, piezo, or galvo. Choosing
   the galvo does not change the coordinates you give; the galvo just realizes the
@@ -111,8 +124,8 @@ The win: the same physical point has the **same coordinates** regardless of whic
 actuator moves you there or which objective you are under.
 
 ```python
-session.getXYZ()                            # positions, per active frame
-session.setXYZ(x, y, z)                      # target in the motoric frame
+session.getXYZ()                            # positions, per active coordinate system
+session.setXYZ(x, y, z)                      # target in the motoric coordinate system
 session.setXYZ(x, y, z, stages={"z": "piezo"})  # realize Z via piezo; others default to active
 ```
 
@@ -120,7 +133,7 @@ The `stages` selector draws its keys/values from `capabilities["stages"]`. The
 layer does **not** compute anything here: converting a motoric-frame target into a
 galvo/piezo native command and applying the objective offset is **calibration
 math owned by the driver**. The layer only carries the intent — *target in the
-motoric frame, realize via this actuator, active objective is this* — down to the
+motoric coordinate system, realize via this actuator, active objective is this* — down to the
 driver.
 
 ## Methods
@@ -140,7 +153,9 @@ The two tiers therefore do not differ in behavior, only in **payload shape**:
 
 **Standardized** — identical signature and semantics across every vendor:
 
-- `getXYZ()` / `setXYZ()` — absolute positioning in the reference frame
+- `set_coordinate_system(objective=None, stage_type=None)` — fix the coordinate
+  system after connect, from the discovered options (see Coordinate System).
+- `getXYZ()` / `setXYZ()` — absolute positioning in the reference coordinate system
   (see Coordinate System).
 - `acquire(backlash_correction=True)` — acquire data and return a structured
   result. Kept simple. `backlash_correction` is acquisition-time intent: before
@@ -287,8 +302,9 @@ implementation:
 - **`stages` granularity:** per-axis `{"x","y","z"}` (assumed) vs. grouped.
 - **`getXYZ` return:** all stages by default, narrowable with a selector
   (assumed) vs. selector required.
-- **Objective switching:** fixed per session, change = reconnect (assumed) vs.
-  live-compensated within a session.
+- **Objective switching:** `set_coordinate_system` can re-fix the reference
+  objective within a session; whether a real driver switches the physical
+  objective and re-calibrates live, or requires a reconnect, is driver-specific.
 - **Connector teardown:** the session exposes an explicit `disconnect()`; whether
   any driver actually needs teardown is left to the driver.
 - **Shared vs per-instance driver code:** the `vendor/microscope/api` tree assumes
