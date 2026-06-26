@@ -147,3 +147,20 @@ class TestFlexibleDicts:
         assert isinstance(positions, list)
         assert len(positions) == 3
         assert positions[0] == {"x": 0.0, "y": 0.0, "z": 0.0}
+
+
+class TestModuleStyle:
+    def test_module_delegates_to_active_microscope(self):
+        import microscope_agnostic_layer as m
+
+        m.connect_to_microscope(vendor="mock")
+        m.set_coordinate_system(objective="20x")
+        assert m.get_coordinate_system()["objective"]["active"] == "20x"
+        m.disconnect()
+
+    def test_unknown_attribute_raises(self):
+        import microscope_agnostic_layer as m
+
+        missing = "definitely_not_a_method"
+        with pytest.raises(AttributeError):
+            getattr(m, missing)
