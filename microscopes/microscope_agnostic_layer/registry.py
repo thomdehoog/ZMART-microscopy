@@ -8,9 +8,6 @@ available_microscopes() lists what is registered without connecting to anything.
 Real vendor drivers register here (see the Leica example below, to be filled in
 once its adapter exists). Test-only integrations, like the mock, register
 themselves from the test side, so no test code is imported into production.
-
-Per DESIGN.md the driver tree will be drivers/vendor/microscope/api and this
-registry will mirror it.
 """
 
 from __future__ import annotations
