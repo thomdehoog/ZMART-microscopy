@@ -8,20 +8,26 @@ hardware-tested; this layer is not yet the production API used by the workflow.
 
 ## Charter
 
-The layer exists to do two things, and only these two:
+The layer has **one aim**: provide a simplified abstraction over microscope
+drivers, with no unnecessary complication, that workflows can build on. Nothing
+more.
 
-1. **Provide the driver with context.** It holds the session context set up at
-   connect time — reference objective, coordinate frame, available actuators and
-   which are active — and feeds that context to the driver on every call, so the
-   driver is never missing what it needs to interpret a command.
-2. **Make the microscope easy to drive.** Set context once, get good defaults
-   and discoverable options, then issue short domain-level calls. The user asks
-   the session what is available instead of memorizing vendor strings.
+It earns its keep by being boring — it forwards intent and context to the driver
+and returns what the driver gives back; the driver does the work. Two things
+serve that single aim:
 
-The layer is *thin* not because it is dumb, but because context-provision and
-ergonomics are its entire job. Anything that requires knowing vendor semantics
+- **Provide the driver with context.** It holds the session context set up at
+  connect time — reference objective, coordinate frame, available actuators and
+  which are active — and feeds that context to the driver on every call, so the
+  driver is never missing what it needs to interpret a command.
+- **Keep the surface easy.** Set context once, get good defaults and discoverable
+  options, then issue short domain-level calls. The user asks the session what is
+  available instead of memorizing vendor strings.
+
+The layer is *thin* not because it is dumb, but because a simplified, stable
+abstraction is the whole point. Anything that requires knowing vendor semantics
 lives **below** it (driver, calibration); anything that decides *what to do*
-lives **above** it (workflows, guards, limits).
+lives **above** it (workflows, guards, limits) — built on this surface.
 
 ```text
 workflows / guards / limits      decide WHAT to do        (the smart part)
@@ -275,8 +281,7 @@ Decisions reached in design discussion but not yet confirmed against an
 implementation:
 
 - **Connector output:** returns a session handle (assumed) vs. the connector
-  *is* the handle. Returns-handle pairs better with `disconnect()` / `with`-block
-  teardown.
+  *is* the handle. Returns-handle pairs naturally with an explicit `disconnect()`.
 - **`password` resolution:** `None` default, resolved from env/secret (assumed) —
   never a baked-in credential.
 - **`stages` granularity:** per-axis `{"x","y","z"}` (assumed) vs. grouped.
@@ -284,8 +289,8 @@ implementation:
   (assumed) vs. selector required.
 - **Objective switching:** fixed per session, change = reconnect (assumed) vs.
   live-compensated within a session.
-- **Connector teardown:** whether the connector also owns `disconnect()` /
-  context-manager lifetime.
+- **Connector teardown:** the session exposes an explicit `disconnect()`; whether
+  any driver actually needs teardown is left to the driver.
 - **Shared vs per-instance driver code:** the `vendor/microscope/api` tree assumes
   *shared* control code with *thin* per-instance leaves (profile data only). If a
   microscope ever needs genuinely different control logic, that becomes a shared
