@@ -52,8 +52,9 @@ in different places:
   without connecting. The objectives and stages of any one instrument are *not*
   known here.
 - **Post-connect — what does this instrument have?** Only after connecting does
-  the driver report its objectives, stages, save formats, … as
-  `session.capabilities`.
+  the driver report its objectives, stages, acquisition and export options, …
+  which the session exposes through focused `get_*` methods
+  (`get_coordinate_system`, `get_acquisitions_options`, `get_export_data_options`).
 
 `connect_to_microscope()` is the **connector**: it selects the driver, opens the session, and
 authenticates. It does *not* set the coordinate system (see Coordinate System).
@@ -75,22 +76,24 @@ Defaults are data-driven: a per-vendor profile supplies the common `microscope` 
 `connect_to_microscope(vendor="leica")`.
 
 The connector discovers all **standardized** selectable options once, at connect
-time, and exposes them on the session as **options + current selection**.
-Discovery of these is centralized here — nothing standardized is probed lazily
-per call. (Flexible dicts are *not* part of this menu — see Methods; they are
-fetched live by their `get` method.)
+time. They are *not* a public attribute — the session exposes them through
+focused `get_*` methods. Discovery is centralized here; nothing standardized is
+probed lazily per call. (Flexible dicts are *not* part of this menu — see Methods;
+they are fetched live by their `get` method.)
 
 ```python
-session.capabilities == {
+# the driver's full menu, reached via get_coordinate_system(),
+# get_acquisitions_options(), get_export_data_options()
+{
     "objective": {"options": ["10x", "20x", "40x"], "active": "10x"},
     "stage_types": {
         "x": {"options": ["motoric"],           "active": "motoric"},
         "y": {"options": ["motoric"],           "active": "motoric"},
         "z": {"options": ["motoric", "piezo"],  "active": "motoric"},
     },
-    "save_format":    {"options": ["ome-tiff", "ome-zarr"], "active": "ome-tiff"},
-    "save_procedure": {"options": [...],                    "active": ...},
-    # ... same shape for api, etc.
+    "acquisitions": {"backlash_correction": {"options": [True, False], "active": True}},
+    "export_data":  {"format":    {"options": ["ome-tiff", "ome-zarr"], "active": "ome-tiff"},
+                     "procedure": {"options": ["direct", "tiled"],      "active": "direct"}},
 }
 ```
 
@@ -98,8 +101,9 @@ This single structure is the one source of truth, and it drives the whole usage
 pattern: **discover at init, put it back at call.** `active` is the default the
 layer uses when the caller specifies nothing; `options` is the legal vocabulary
 the caller reads and then passes straight back as an argument (the `stage_types`
-selector on `get/setXYZ`, `format`/`procedure` on `save`, `objective`/`stage_type`
-for `set_coordinate_system`, …). One round-trip, one vocabulary.
+selector on `get/setXYZ`, the `options` dict on `acquire`/`export_data`,
+`objective`/`stage_type` for `set_coordinate_system`, …). One round-trip, one
+vocabulary — and omitted options fall back to `active`, filled by the driver.
 
 ## Coordinate System
 
@@ -158,21 +162,19 @@ The two tiers therefore do not differ in behavior, only in **payload shape**:
   them, after connect (see Coordinate System).
 - `getXYZ()` / `setXYZ()` — absolute positioning in the reference coordinate system
   (see Coordinate System).
-- `acquire(backlash_correction=True)` — acquire data and return a structured
-  result. Kept simple. `backlash_correction` is acquisition-time intent: before
-  the capture, the stage must settle via the right approach so the image is taken
-  at the true position. It is an *acquisition* concern, not a move concern —
-  `setXYZ` has no backlash notion. The driver runs the settle routine; the layer
-  only passes the flag. Default on (trustworthy captures); turn off for speed.
-- `save(format=..., procedure=..., name=None, position=None)` — persist the
-  structured result. Kept simple. It has two selectable axes, both discoverable:
-  `format` selects the output container (e.g. `"ome-tiff"`, `"ome-zarr"`) and
-  `procedure` selects the saving procedure (how it writes — e.g. direct, tiled,
-  compressed, target store). Each is drawn from a capability dict
-  (`capabilities["save_format"]`, `capabilities["save_procedure"]`, options +
-  active default), so omitting either uses the active one. `name` / `position`
-  are optional context for the filename and embedded position/metadata — supplied
-  when the workflow wants control over output naming, defaulted otherwise.
+- `get_acquisitions_options()` / `acquire(options=None)` — discover the
+  acquisition options, then acquire and return a structured result. `options` is
+  a dict of acquisition settings (e.g. `backlash_correction`: settle via the
+  right approach before the capture so the image is taken at the true position —
+  an *acquisition* concern, not a move one; `setXYZ` has no backlash notion). The
+  layer passes `options` through untouched; the **driver** fills any omitted
+  setting from its `active` default.
+- `get_export_data_options()` / `export_data(options=None)` — discover the export
+  options, then persist the result. `options` may set the discoverable `format`
+  (output container, e.g. `"ome-tiff"` / `"ome-zarr"`) and `procedure` (how it
+  writes — e.g. direct, tiled), plus free `name` / `position` context for the
+  filename and embedded metadata. The driver fills any omitted `format` /
+  `procedure` from its `active` default.
 
 **Flexible** — pure send/receive conduits over **dictionaries**. The dicts are
 opaque to the layer and meaningful only to the driver: `get` receives a dict from
@@ -243,16 +245,16 @@ it: a wrong name or drifted argument is caught statically, not at runtime.
 class Microscope(Protocol):          # the agnostic contract
     capabilities: dict
     def setXYZ(self, x, y, z, stage_types=None) -> None: ...
-    def acquire(self, backlash_correction=True) -> "Result": ...
-    def save(self, format=None, procedure=None, name=None, position=None): ...
+    def acquire(self, options=None) -> "Result": ...
+    def export_data(self, options=None): ...
     def getState(self) -> dict: ...
     # ...
 
 class LeicaNavigatorAdapter:         # per-method wiring + where context meets the driver
     def setXYZ(self, x, y, z, stage_types=None):
         self._drv.move_absolute(x, y, z, stage_types)
-    def acquire(self, backlash_correction=True):
-        return self._drv.snap(settle=backlash_correction)
+    def acquire(self, options=None):
+        return self._drv.snap(settle=(options or {}).get("backlash_correction", True))
 ```
 
 The agnostic `setXYZ` does not look anything up — it *is* `adapter.setXYZ`. A

@@ -25,11 +25,10 @@ class TestConnect:
         assert mic.context["microscope"] == "mock-scope"
         assert mic.context["api"] == "mock-api"
 
-    def test_capabilities_discovered(self, mic):
-        caps = mic.capabilities
-        assert caps["objective"]["active"] == "10x"
-        assert "ome-zarr" in caps["save_format"]["options"]
-        assert caps["stage_types"]["z"]["options"] == ["motoric", "piezo"]
+    def test_option_menus_discovered(self, mic):
+        assert mic.get_coordinate_system()["objective"]["active"] == "10x"
+        assert "ome-zarr" in mic.get_export_data_options()["format"]["options"]
+        assert mic.get_acquisitions_options()["backlash_correction"]["active"] is True
 
     def test_unknown_vendor(self):
         with pytest.raises(ValueError, match="unknown vendor"):
@@ -66,42 +65,51 @@ class TestCoordinateSystem:
         assert cs["objective"]["active"] == "10x"
         assert cs["stage_types"]["x"]["options"] == ["motoric", "galvo"]
 
-    def test_default_is_active_in_capabilities(self, mic):
-        assert mic.capabilities["objective"]["active"] == "10x"
-        assert mic.capabilities["stage_types"]["x"]["active"] == "motoric"
+    def test_default_is_active(self, mic):
+        cs = mic.get_coordinate_system()
+        assert cs["objective"]["active"] == "10x"
+        assert cs["stage_types"]["x"]["active"] == "motoric"
 
     def test_set_updates_active_objective(self, mic):
         mic.set_coordinate_system(objective="20x")
-        assert mic.capabilities["objective"]["active"] == "20x"
+        assert mic.get_coordinate_system()["objective"]["active"] == "20x"
 
     def test_set_unknown_objective_raises(self, mic):
         with pytest.raises(ValueError, match="unknown objective"):
             mic.set_coordinate_system(objective="999x")
 
 
-class TestAcquireSave:
+class TestAcquireExport:
     def test_acquire_backlash_default_on(self, mic):
         assert mic.acquire()["settle"] == "backlash-corrected"
 
     def test_acquire_backlash_off(self, mic):
-        assert mic.acquire(backlash_correction=False)["settle"] == "direct"
+        assert mic.acquire(options={"backlash_correction": False})["settle"] == "direct"
 
-    def test_save_defaults_to_active(self, mic):
+    def test_acquisition_options_discovered(self, mic):
+        assert mic.get_acquisitions_options()["backlash_correction"]["active"] is True
+
+    def test_export_defaults_to_active(self, mic):
         mic.acquire()
-        out = mic.save()
+        out = mic.export_data()
         assert out["format"] == "ome-tiff"
         assert out["procedure"] == "direct"
 
-    def test_save_override(self, mic):
+    def test_export_override(self, mic):
         mic.acquire()
-        out = mic.save(format="ome-zarr", procedure="tiled", name="well_A1")
+        out = mic.export_data(
+            options={"format": "ome-zarr", "procedure": "tiled", "name": "well_A1"}
+        )
         assert out["format"] == "ome-zarr"
         assert out["procedure"] == "tiled"
         assert out["name"] == "well_A1"
 
-    def test_save_without_acquire_raises(self, mic):
+    def test_export_options_discovered(self, mic):
+        assert "ome-zarr" in mic.get_export_data_options()["format"]["options"]
+
+    def test_export_without_acquire_raises(self, mic):
         with pytest.raises(RuntimeError):
-            mic.save()
+            mic.export_data()
 
 
 class TestState:

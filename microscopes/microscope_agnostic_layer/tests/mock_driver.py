@@ -18,7 +18,6 @@ Each function below is what an entry in the registry's ops table points at.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 # Objective parcentricity offsets in micrometres, in the motoric coordinate
 # system, relative to the 10x baseline. A real driver reads these from calibration.
@@ -120,9 +119,22 @@ def capabilities(handle: MockHandle) -> dict:
             "y": {"options": ["motoric", "galvo"], "active": handle.stage_type},
             "z": {"options": ["motoric", "piezo"], "active": handle.stage_type},
         },
-        "save_format": {"options": ["ome-tiff", "ome-zarr"], "active": "ome-tiff"},
-        "save_procedure": {"options": ["direct", "tiled"], "active": "direct"},
+        "acquisitions": {
+            "backlash_correction": {"options": [True, False], "active": True},
+        },
+        "export_data": {
+            "format": {"options": ["ome-tiff", "ome-zarr"], "active": "ome-tiff"},
+            "procedure": {"options": ["direct", "tiled"], "active": "direct"},
+        },
     }
+
+
+def _with_defaults(handle: MockHandle, section: str, options: dict | None) -> dict:
+    """Fill omitted options from the section's active defaults (driver-side)."""
+    resolved = {name: spec["active"] for name, spec in capabilities(handle)[section].items()}
+    if options:
+        resolved.update(options)
+    return resolved
 
 
 def _resolve_stage_types(handle: MockHandle, stage_types: dict | None) -> dict[str, str]:
@@ -161,13 +173,15 @@ def set_xyz(
     handle.x, handle.y, handle.z = x + off_x, y + off_y, z
 
 
-def acquire(handle: MockHandle, *, backlash_correction: bool = True) -> dict:
-    """Capture a frame, settling per ``backlash_correction`` before the capture.
+def acquire(handle: MockHandle, *, options: dict | None = None) -> dict:
+    """Capture a frame, settling per ``options["backlash_correction"]``.
 
-    Records the settle mode in the returned frame so tests can confirm the
-    acquisition-time intent reached the driver.
+    The driver fills omitted options from its active defaults (the layer passes
+    ``options`` through untouched). The settle mode is recorded in the returned
+    frame so tests can confirm the option reached the driver.
     """
-    settle = "backlash-corrected" if backlash_correction else "direct"
+    options = _with_defaults(handle, "acquisitions", options)
+    settle = "backlash-corrected" if options["backlash_correction"] else "direct"
     frame = {
         "pixels": [[0, 1], [1, 0]],
         "position": {"x": handle.x, "y": handle.y, "z": handle.z},
@@ -178,26 +192,21 @@ def acquire(handle: MockHandle, *, backlash_correction: bool = True) -> dict:
     return frame
 
 
-def save(
-    handle: MockHandle,
-    *,
-    format: str,
-    procedure: str,
-    name: str | None,
-    position: Any,
-) -> dict:
-    """Return a save record for the acquired frames.
+def export_data(handle: MockHandle, *, options: dict | None = None) -> dict:
+    """Return an export record for the acquired frames.
 
-    Raises if nothing has been acquired yet. ``format``/``procedure`` arrive
-    already resolved to concrete values by the layer.
+    Raises if nothing has been acquired yet. The driver fills omitted
+    ``format``/``procedure`` from its active defaults; ``name``/``position`` are
+    free per-call context.
     """
     if not handle.acquired:
-        raise RuntimeError("nothing acquired to save")
+        raise RuntimeError("nothing acquired to export")
+    options = _with_defaults(handle, "export_data", options)
     return {
-        "format": format,
-        "procedure": procedure,
-        "name": name or "untitled",
-        "position": position,
+        "format": options["format"],
+        "procedure": options["procedure"],
+        "name": options.get("name") or "untitled",
+        "position": options.get("position"),
         "frames": len(handle.acquired),
     }
 
@@ -261,7 +270,7 @@ def register_mock() -> None:
             "get_xyz": get_xyz,
             "set_xyz": set_xyz,
             "acquire": acquire,
-            "save": save,
+            "export_data": export_data,
             "get_state": get_state,
             "set_state": set_state,
             "get_procedure": get_procedure,
