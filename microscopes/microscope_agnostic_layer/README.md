@@ -1,241 +1,192 @@
 # Microscope-Agnostic Layer
 
-A simplified, vendor-neutral surface that smart-microscopy workflows build on.
-Its one aim is to give workflows a stable abstraction over microscope drivers,
-with no unnecessary complication. It earns its keep by being boring: every call
-forwards your intent and the session context to the driver and returns what the
-driver gives back. The layer never moves a stage, computes an offset, or
-interprets a payload — the driver does the work, the layer carries the context.
+One small, consistent interface for driving a microscope from a smart-microscopy
+workflow. You discover what's there, connect, and issue plain commands —
+`set_xyz`, `acquire`, `save`. The same workflow runs on any microscope that has a
+driver; your code never imports a vendor's API.
 
-```
-workflows / guards / limits      decide WHAT to do        (the smart part)
-─────────────────────────────────────────────────────────────────────────
-agnostic layer = CONTEXT          this package: one easy, discoverable surface
-─────────────────────────────────────────────────────────────────────────
-vendor drivers + calibration      do the work, USING the context
-```
+The layer stays deliberately thin. It holds the session's context and forwards
+your intent to the driver; the driver does the real work. Nothing clever happens
+in between — and that is the point.
 
-This package is two files plus a test integration:
-
-| File | Role |
-|------|------|
-| `layer.py` | the workflow-facing surface: `connect()` + the `Session` methods |
-| `registry.py` | points each operation at a driver's functions; `available()` |
-| `tests/mock_driver.py` | a hardware-free reference driver used by the tests and the example |
-
-See `DESIGN.md` for the full design rationale, boundaries, and acceptance bar.
-
-> Status: the layer is implemented and exercised end to end against the bundled
-> mock driver. No production vendor adapter is wired in yet — the Leica adapter
-> registers here once it exists.
-
-## Quick start
-
-The flow has three phases: **discover what you can connect to**, **connect**, then
-**discover what the instrument has and set the coordinate system**. After that you
-drive it.
+## At a glance
 
 ```python
 from microscope_agnostic_layer import available, connect
 
-available()                       # {vendor: [(microscope, api), ...]}  — no connection
-
+available()                       # what's out there?
 mic = connect(vendor="leica", microscope="stellaris5-01", api="navigator-expert")
 
-mic.capabilities                  # what objectives / stages / formats does it have?
 mic.set_coordinate_system(objective="10x", stage_type="motoric")
 
-mic.set_xyz(10.0, 20.0, 5.0)                      # absolute, motoric coordinate system
-frame = mic.acquire(backlash_correction=True)
+mic.set_xyz(10.0, 20.0, 5.0)
+mic.acquire(backlash_correction=True)
 mic.save(format="ome-zarr", name="well_A1")
 
-mic.disconnect()                  # optional teardown when finished
+mic.disconnect()
 ```
 
-A runnable, explained version of a full prescan/target experiment is in
-`example_experiment.ipynb` (it uses the bundled mock, so it runs with no
-hardware).
+That is the whole shape of it. The rest of this page explains each step.
 
-## Concepts
+## Connecting
 
-### Discovery comes in two phases
+Two questions, answered at two different moments.
 
-The two kinds of "what's available" live in different places:
-
-- **Pre-connect — what can I connect to?** `available()` reads the registry and
-  returns `{vendor: [(microscope, api), ...]}`. No connection is made.
-- **Post-connect — what does this instrument have?** Only after connecting does
-  the driver report its objectives, stages, save formats, etc., as
-  `session.capabilities`.
-
-### Capabilities: options + active
-
-`session.capabilities` is the menu the driver advertises. For each selectable
-axis it gives the available `options` and the currently `active` one:
+**What can I connect to?** Ask before you connect. `available()` reads the
+registry and returns the microscopes it knows about — no hardware touched:
 
 ```python
-session.capabilities == {
-    "objective": {"options": ["10x", "20x", "40x"], "active": "10x"},
-    "stages": {
-        "x": {"options": ["motoric", "galvo"],  "active": "motoric"},
-        "y": {"options": ["motoric", "galvo"],  "active": "motoric"},
-        "z": {"options": ["motoric", "piezo"],  "active": "motoric"},
-    },
-    "save_format":    {"options": ["ome-tiff", "ome-zarr"], "active": "ome-tiff"},
-    "save_procedure": {"options": ["direct", "tiled"],      "active": "direct"},
-}
+available()
+# {"leica": [("stellaris5-01", "navigator-expert")]}
 ```
 
-This is the single source of truth, and it drives the whole usage pattern:
-**discover, then put it back.** You read an `option` here and pass the same value
-straight back as an argument (a stage for `set_xyz`, a `format` for `save`, an
-`objective` for `set_coordinate_system`). Omit the argument and the layer uses
-`active`.
+**Then connect.** Pick a vendor, microscope, and api, and open the session:
 
-### The coordinate system
+```python
+mic = connect(vendor="leica", microscope="stellaris5-01", api="navigator-expert")
+```
 
-"Absolute" coordinates only mean something once a reference coordinate system is
-fixed — which is why you set it *after* connecting, from the discovered options.
-The layer keeps three normally-conflated things apart:
+`connect` selects the driver and opens the session — nothing more. It does not
+yet know which objectives or stages this instrument has; only the live connection
+can tell you that.
 
-- **The coordinate system you speak in** — always the motoric-stage system, the
-  single canonical absolute space.
-- **The actuator that executes the move** — motoric, piezo, or galvo, chosen per
-  axis with the `stages` argument. Choosing the galvo doesn't change the
-  coordinates you give; it just realizes them within its range.
-- **The objective you see through** — each carries a known offset; the reference
-  objective is the baseline. A feature's absolute coordinate stays the same
-  whichever actuator moves you there or whichever objective you're under.
+## The coordinate system
 
-The driver owns the calibration math (offsets, actuator transforms); the layer
-only carries the intent.
+A position like `(10, 20, 5)` means nothing until you say *in what coordinate
+system*. That depends on the objective you view through and the stage you move —
+and you can only learn the available ones from the connected instrument. So you
+set the coordinate system right after connecting:
 
-### Two method styles
+```python
+mic.set_coordinate_system(objective="10x", stage_type="motoric")
+```
 
-Every method is send/receive. They differ only in payload shape:
+From here on, coordinates are unambiguous, because three things stay cleanly
+separated:
 
-- **Standardized** — specific, typed parameters and structured results
-  (`set_xyz`, `acquire`, `save`, …). The layer commits to the signature.
-- **Flexible** — a single opaque **dict** in and out (`get_state`/`set_state`,
-  `get_procedure`/`set_procedure`, `get_initial_positions`). The driver owns the
-  shape; the layer interprets nothing.
+- **What you speak in** — always the motoric stage's coordinate system, the one
+  canonical space.
+- **What moves you** — motoric, piezo, or galvo, chosen per axis. Using the piezo
+  for fine Z does not change the coordinates you give; it just realizes them.
+- **What you see through** — the objective. Switching it shifts the optics, not
+  your coordinates; the driver applies the offset so a point keeps its address.
 
-## API reference
+```python
+mic.set_xyz(10, 20, 5, stages={"z": "piezo"})   # Z via the piezo, X and Y as they are
+```
 
-### Module functions
+## Capabilities: the menu
 
-- `available() -> {vendor: [(microscope, api), ...]}`
-  Pre-connect discovery of registered drivers. No connection.
-- `connect(vendor, microscope=None, api=None, client=None, password=None) -> Session`
-  Select the driver, open and authenticate the session, discover capabilities.
-  `microscope`/`api` fall back to the vendor defaults. `password` has no default —
-  pass it explicitly or resolve it from a secret upstream. Does **not** set the
-  coordinate system.
+Once connected, `mic.capabilities` is the instrument's menu. Each selectable
+setting lists its `options` and the one that is `active`:
 
-### `Session` attributes
+```python
+mic.capabilities["objective"]
+# {"options": ["10x", "20x", "40x"], "active": "10x"}
+```
 
-- `capabilities` — the options/active menu discovered at connect (refreshed when
-  you call `set_coordinate_system`).
-- `context` — how the driver was selected: `{vendor, microscope, api}`.
+This is the single source of truth, and it sets the rhythm of the whole API:
+**read an option, pass it back.** Anything you can choose — a stage, a save
+format, the objective — you discover here and hand straight back as an argument.
+Leave the argument out and the layer uses whatever is `active`.
 
-### `Session` methods
+## Acquiring and saving
 
-Coordinate system:
+```python
+mic.acquire(backlash_correction=True)
+mic.save(format="ome-zarr", procedure="tiled", name="well_A1")
+```
+
+`acquire` captures one dataset. `backlash_correction` (on by default) tells the
+driver to settle the stage the right way *before* the shutter opens, so the image
+lands at the true position — turn it off only when you want speed over certainty.
+
+`save` writes the result. `format` and `procedure` are both drawn from
+`capabilities`; omit them to use the active ones. `name` and `position` are
+optional hints for the filename and embedded metadata.
+
+## States and procedures
+
+Some things do not standardize across vendors — an instrument's full settings, a
+named acquisition job. The layer passes these as opaque dictionaries: it carries
+them, the driver understands them.
+
+A **state** is a snapshot you can put back later:
+
+```python
+prescan = mic.get_state()                 # capture
+prescan["mutable"]["laser_power"] = 2.0   # adjust the settable part
+mic.set_state(prescan)                    # reactivate
+```
+
+A state has an `immutable` part (a fingerprint the driver checks, so you cannot
+restore settings from a different instrument) and a `mutable` part (what actually
+gets reapplied). The layer never looks inside — the driver owns the meaning.
+
+Procedures work the same way through `get_procedure` / `set_procedure`, and
+`get_initial_positions()` returns the positions captured at connect for your
+workflow to visit.
+
+## A full experiment
+
+`example_experiment.ipynb` walks a complete prescan/target run end to end:
+connect, set the coordinate system, capture both states, get the positions, then
+move, acquire, and save across all of them. It uses the bundled mock driver, so
+it runs with no hardware — open it and step through.
+
+## Reference
+
+**Module**
+
+- `available()` — registered microscopes, as `{vendor: [(microscope, api), ...]}`.
+  No connection made.
+- `connect(vendor, microscope=None, api=None, client=None, password=None)` — open
+  a session. `microscope` and `api` fall back to the vendor defaults; `password`
+  is never stored.
+
+**Session — attributes**
+
+- `capabilities` — the options/active menu (refreshed by `set_coordinate_system`).
+- `context` — `{vendor, microscope, api}`.
+
+**Session — methods**
 
 - `set_coordinate_system(objective=None, stage_type=None)`
-  Fix the coordinate system from discovered options. Either may be omitted to
-  keep the driver's active choice. The driver validates and the capabilities are
-  refreshed.
+- `get_xyz(stages=None)` · `set_xyz(x, y, z, stages=None)`
+- `acquire(backlash_correction=True)`
+- `save(format=None, procedure=None, name=None, position=None)`
+- `get_state()` · `set_state(state)`
+- `get_procedure()` · `set_procedure(procedure)`
+- `get_initial_positions()`
+- `disconnect()`
 
-Standardized (typed params, structured results):
+## Adding a microscope
 
-- `get_xyz(stages=None) -> dict`
-  Read position per axis as `{axis: {"value", "stage", "unit"}}`. `stages`
-  optionally selects which actuator to read per axis.
-- `set_xyz(x, y, z, stages=None)`
-  Move to an absolute target in the motoric coordinate system. `stages` selects
-  the actuator per axis (e.g. `{"z": "piezo"}`); unspecified axes use the active
-  one.
-- `acquire(backlash_correction=True) -> dict`
-  Acquire one dataset. `backlash_correction` tells the driver to settle via the
-  right approach before the capture (an acquisition concern, not a move concern).
-- `save(format=None, procedure=None, name=None, position=None) -> dict`
-  Persist the last acquisition. `format`/`procedure` default to the active
-  discovered options; `name`/`position` are optional filename/metadata context.
-
-Flexible (opaque dicts, send/receive only):
-
-- `get_state() -> dict` / `set_state(state)`
-  Capture and reactivate instrument state. The dict has an `immutable` part
-  (a fingerprint the driver validates) and a `mutable` part (what gets reapplied).
-  The driver owns the boundary.
-- `get_procedure() -> dict` / `set_procedure(procedure)`
-  Receive / send a vendor procedure dict. What it means (run, define, stage) is
-  encoded in the dict and acted on by the driver.
-- `get_initial_positions() -> list[dict]`
-  The positions captured at connect, for the workflow to visit.
-
-Lifecycle:
-
-- `disconnect()` — close the session if the driver provides teardown.
-
-## Adding a driver
-
-A driver is a set of plain functions plus a registration. Each function takes the
-driver's opaque handle as its first argument; `connect` returns that handle. The
-ops table maps every operation in `registry.OPS` to one of these functions:
+A driver is a set of plain functions — one per operation — registered under a
+`(vendor, microscope, api)` name:
 
 ```python
 from microscope_agnostic_layer.registry import register
 
 register(
     "leica", "stellaris5-01", "navigator-expert",
-    ops={
-        "connect": ...,         # (*, microscope, api, client, password) -> handle
-        "capabilities": ...,    # (handle) -> {axis: {"options", "active"}}
-        "set_coordinate_system": ...,
-        "get_xyz": ..., "set_xyz": ...,
-        "acquire": ..., "save": ...,
-        "get_state": ..., "set_state": ...,
-        "get_procedure": ..., "set_procedure": ...,
-        "get_initial_positions": ...,
-        "disconnect": ...,      # optional
-    },
+    ops={"connect": ..., "capabilities": ..., "set_coordinate_system": ...,
+         "get_xyz": ..., "set_xyz": ..., "acquire": ..., "save": ...,
+         "get_state": ..., "set_state": ..., "get_procedure": ...,
+         "set_procedure": ..., "get_initial_positions": ...},
     defaults={"microscope": "stellaris5-01", "api": "navigator-expert"},
 )
 ```
 
-Real vendor drivers register in `registry.py`. Test-only integrations register
-from the test side (see `tests/conftest.py`), so no test code is imported into
-production. `tests/mock_driver.py` is a complete, readable reference
-implementation of the driver contract.
-
-Per `DESIGN.md`, the driver tree will be organized as
-`drivers/vendor/microscope/api`, with shared control code and thin per-instance
-leaves; this registry will mirror it.
-
-## Example
-
-```bash
-# from this folder, with the mock driver (no hardware):
-jupyter notebook example_experiment.ipynb
-```
-
-The notebook walks the full flow — connect, set the coordinate system, select
-prescan/target states, get positions, then run set_xyz/acquire/save over every
-position — with markdown explaining each step.
+Each function takes the driver's handle as its first argument.
+`tests/mock_driver.py` is a complete, readable reference implementation, and
+`DESIGN.md` covers the full contract and the planned
+`drivers/vendor/microscope/api` layout.
 
 ## Tests
-
-Offline, no hardware or LAS X install required:
 
 ```bash
 python -m pytest microscopes/microscope_agnostic_layer/tests
 ```
 
-Lint/format (matches the repo's ruff baseline):
-
-```bash
-ruff check microscopes/microscope_agnostic_layer
-ruff format --check microscopes/microscope_agnostic_layer
-```
+The test suite and the example notebook both run offline against the mock driver.
