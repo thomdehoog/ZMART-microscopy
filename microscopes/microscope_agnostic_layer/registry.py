@@ -1,14 +1,14 @@
 """Driver registry: the one place that points the agnostic layer at drivers.
 
-A driver registers an ops table -- a mapping of operation name -> driver
-callable -- for a ``(vendor, microscope, api)`` triple, plus the vendor's
-defaults. ``connect()`` calls ``resolve()`` to look one up.
+A driver registers an ops table - a mapping of operation name to driver callable
+- for a (vendor, microscope, api) triple, plus the vendor's defaults. connect()
+calls resolve() to look one up.
 
 Real vendor drivers register here (see the Leica example below, to be filled in
-once its adapter exists). Test-only integrations -- like the mock -- register
+once its adapter exists). Test-only integrations, like the mock, register
 themselves from the test side, so no test code is imported into production.
 
-Per DESIGN.md the driver tree will be ``drivers/vendor/microscope/api`` and this
+Per DESIGN.md the driver tree will be drivers/vendor/microscope/api and this
 registry will mirror it.
 """
 

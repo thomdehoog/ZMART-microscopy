@@ -1,35 +1,45 @@
-"""Microscope-agnostic orchestrator -- the single workflow-facing surface.
+"""Microscope-agnostic layer: the single workflow-facing surface.
 
-The layer exists to do two things, and only these (see ``DESIGN.md``):
+The one aim of this layer is to provide a simplified abstraction over microscope
+drivers, with no unnecessary complication, that workflows can build on. Nothing
+more (see DESIGN.md).
 
-* **Provide the driver with context.** ``connect()`` establishes the session
-  context -- vendor, microscope, api, reference objective, stage frame -- and
-  every subsequent call forwards that context to the driver.
-* **Make the microscope easy to drive.** Set context once, get good defaults and
-  discoverable options, then issue short, domain-level calls.
+It earns its keep by being boring. It forwards intent and context to the driver
+and returns whatever the driver hands back; the driver does the work. Two things
+serve that single aim:
 
-Every method is *send/receive*: the orchestrator forwards intent and context to
-the bound driver function and returns whatever the driver hands back. It never
-moves a stage, computes an offset, or interprets a payload -- the driver does the
-work, the layer carries the context.
+  - It provides the driver with context. connect() establishes the session
+    context - vendor, microscope, api, reference objective, stage frame - and
+    every later call forwards it to the driver.
 
-Standardized methods (``get_xyz``/``set_xyz``/``acquire``/``save``) take typed
-parameters and return structured results. Flexible methods
-(``get_state``/``set_state``/``get_procedure``/``set_procedure``/
-``get_initial_positions``) pass opaque dictionaries straight through.
+  - It keeps the surface easy. Set the context once, get good defaults and
+    discoverable options, then issue short, domain-level calls.
 
-Example::
+Every method is send/receive: the layer never moves a stage, computes an
+offset, or interprets a payload - it just provides the clean surface to build
+on, and the driver does the work.
+
+The methods come in two styles:
+
+  - Standardized (get_xyz, set_xyz, acquire, save) take specific typed
+    parameters and return structured results.
+
+  - Flexible (get_state, set_state, get_procedure, set_procedure,
+    get_initial_positions) pass opaque dictionaries straight through.
+
+Typical use:
 
     from microscope_agnostic_layer import connect
 
-    with connect(vendor="leica", microscope="stellaris5-01") as mic:
-        print(mic.capabilities["objective"])   # discover what's available
-        mic.set_xyz(10.0, 20.0, 5.0)           # absolute, in the motoric frame
-        frame = mic.acquire(backlash_correction=True)
-        mic.save(format="ome-zarr", name="well_A1")
+    mic = connect(vendor="leica", microscope="stellaris5-01")
+    print(mic.capabilities["objective"])   # discover what is available
+    mic.set_xyz(10.0, 20.0, 5.0)           # absolute, in the motoric frame
+    frame = mic.acquire(backlash_correction=True)
+    mic.save(format="ome-zarr", name="well_A1")
+    mic.disconnect()                       # optional teardown when finished
 
-Method names follow the design's operations in PEP 8 snake_case
-(``getXYZ`` -> ``get_xyz``, ``setState`` -> ``set_state``, ...).
+Method names follow the design's operations in snake_case (getXYZ -> get_xyz,
+setState -> set_state, and so on).
 """
 
 from __future__ import annotations
@@ -54,10 +64,7 @@ class Session:
         What the layer feeds the driver on every call: ``vendor``,
         ``microscope``, ``api``, ``objective``, ``stage_type``.
 
-    Use it as a context manager to guarantee teardown::
-
-        with connect(vendor="mock") as mic:
-            ...
+    Call :meth:`disconnect` when finished if the driver needs teardown.
     """
 
     def __init__(
@@ -67,8 +74,12 @@ class Session:
         capabilities: dict[str, Any],
         context: dict[str, str],
     ) -> None:
-        self._ops = ops  # operation name -> bound driver callable
-        self._handle = handle  # opaque driver connection/state
+        # operation name -> bound driver callable
+        self._ops = ops
+
+        # opaque driver connection/state
+        self._handle = handle
+
         self.capabilities = capabilities
         self.context = context
 
@@ -181,12 +192,6 @@ class Session:
         disconnect = self._ops.get("disconnect")
         if disconnect is not None:
             disconnect(self._handle)
-
-    def __enter__(self) -> Session:
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self.disconnect()
 
 
 def connect(

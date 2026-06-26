@@ -1,16 +1,16 @@
-"""Mock microscope integration -- a reference driver with no hardware.
+"""Mock microscope integration: a reference driver with no hardware.
 
-It exercises the full agnostic contract so the orchestrator can be tested
+It exercises the full agnostic contract so the layer can be tested
 offline, and it shows the shape a real driver implements: it receives context
-(objective, stage frame, actuator) and does the work the layer does not --
-applying the objective offset, settling before capture, owning the
+(objective, stage frame, actuator) and does the work the layer does not -
+applying the objective offset, settling before capture, and owning the
 mutable/immutable state boundary.
 
 Driver contract used by the registry:
 
-* ``connect(**ctx) -> handle`` opens a session and returns an opaque handle.
-* every other operation takes that handle as its first argument.
-* ``capabilities(handle) -> dict`` reports options + active selection.
+  - connect(**ctx) -> handle    opens a session, returns an opaque handle
+  - capabilities(handle) -> dict reports options + active selection
+  - every other operation takes that handle as its first argument
 
 Each function below is what an entry in the registry's ops table points at.
 """
@@ -39,18 +39,23 @@ class MockHandle:
 
     objective: str
     stage_type: str
-    x: float = 0.0  # canonical position in the motoric frame
+
+    # canonical position in the motoric frame
+    x: float = 0.0
     y: float = 0.0
     z: float = 0.0
+
     connected: bool = True
     acquired: list[dict] = field(default_factory=list)
+
     # mutable instrument settings (captured and reactivated)
     laser_power: float = 5.0
     gain: float = 1.0
+
     # immutable identity
     serial: str = "MOCK-0001"
     procedure: dict = field(default_factory=lambda: {"name": "default", "steps": []})
-    initial: dict = field(default_factory=dict)
+    initial: list[dict] = field(default_factory=list)
 
 
 def connect(
@@ -70,8 +75,14 @@ def connect(
     if objective not in _OBJECTIVE_OFFSETS:
         raise ValueError(f"unknown objective {objective!r}")
     handle = MockHandle(objective=objective, stage_type=stage_type)
-    # Capture initial positions at connect, available for later reactivation.
-    handle.initial = {"x": handle.x, "y": handle.y, "z": handle.z}
+
+    # Capture the positions to visit at connect, available to the workflow. A
+    # real driver would derive these from a holder layout or a prescan result.
+    handle.initial = [
+        {"x": 0.0, "y": 0.0, "z": 0.0},
+        {"x": 120.0, "y": 0.0, "z": 0.0},
+        {"x": 0.0, "y": 120.0, "z": 0.0},
+    ]
     return handle
 
 
@@ -83,7 +94,7 @@ def disconnect(handle: MockHandle) -> None:
 def capabilities(handle: MockHandle) -> dict:
     """Report the selectable options and the active selection, discovered here.
 
-    Each axis is ``{"options": [...], "active": ...}``. The orchestrator reuses
+    Each axis is ``{"options": [...], "active": ...}``. The layer reuses
     these identifiers as the legal vocabulary for ``stages`` / ``format`` /
     ``procedure`` arguments.
     """
@@ -127,7 +138,9 @@ def set_xyz(
     that ownership visible in tests; a real driver would instead apply it when
     commanding the actuator and keep the canonical value unchanged.
     """
-    _resolve_stages(handle, stages)  # actuator selection (no-op in the mock)
+    # actuator selection (no-op in the mock)
+    _resolve_stages(handle, stages)
+
     off_x, off_y = _OBJECTIVE_OFFSETS[handle.objective]
     handle.x, handle.y, handle.z = x + off_x, y + off_y, z
 
@@ -160,7 +173,7 @@ def save(
     """Return a save record for the acquired frames.
 
     Raises if nothing has been acquired yet. ``format``/``procedure`` arrive
-    already resolved to concrete values by the orchestrator.
+    already resolved to concrete values by the layer.
     """
     if not handle.acquired:
         raise RuntimeError("nothing acquired to save")
@@ -208,6 +221,41 @@ def set_procedure(handle: MockHandle, procedure: dict) -> None:
     handle.procedure = dict(procedure)
 
 
-def get_initial_positions(handle: MockHandle) -> dict:
-    """Return a copy of the positions captured at connect."""
-    return dict(handle.initial)
+def get_initial_positions(handle: MockHandle) -> list[dict]:
+    """Return copies of the positions captured at connect."""
+    return [dict(pos) for pos in handle.initial]
+
+
+def register_mock() -> None:
+    """Register this mock driver into the agnostic layer's registry.
+
+    Shared by the test suite (conftest) and the runnable example so the wiring
+    lives in one place.
+    """
+    from microscope_agnostic_layer.registry import register
+
+    register(
+        "mock",
+        "mock-scope",
+        "mock-api",
+        ops={
+            "connect": connect,
+            "capabilities": capabilities,
+            "get_xyz": get_xyz,
+            "set_xyz": set_xyz,
+            "acquire": acquire,
+            "save": save,
+            "get_state": get_state,
+            "set_state": set_state,
+            "get_procedure": get_procedure,
+            "set_procedure": set_procedure,
+            "get_initial_positions": get_initial_positions,
+            "disconnect": disconnect,
+        },
+        defaults={
+            "microscope": "mock-scope",
+            "api": "mock-api",
+            "objective": "10x",
+            "stage_type": "motoric",
+        },
+    )

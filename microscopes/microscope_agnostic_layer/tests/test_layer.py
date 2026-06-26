@@ -1,4 +1,4 @@
-"""Tests for the microscope-agnostic orchestrator against the mock driver."""
+"""Tests for the microscope-agnostic layer against the mock driver."""
 
 from __future__ import annotations
 
@@ -8,8 +8,9 @@ from microscope_agnostic_layer import connect
 
 @pytest.fixture
 def mic():
-    with connect(vendor="mock") as session:
-        yield session
+    session = connect(vendor="mock")
+    yield session
+    session.disconnect()
 
 
 class TestConnect:
@@ -42,11 +43,11 @@ class TestCoordinates:
         assert pos["x"]["unit"] == "um"
 
     def test_objective_offset_applied_by_driver(self):
-        with connect(vendor="mock", objective="20x") as mic:
-            mic.set_xyz(0, 0, 0)
-            pos = mic.get_xyz()
-            assert pos["x"]["value"] == 1.5
-            assert pos["y"]["value"] == -0.8
+        mic = connect(vendor="mock", objective="20x")
+        mic.set_xyz(0, 0, 0)
+        pos = mic.get_xyz()
+        assert pos["x"]["value"] == 1.5
+        assert pos["y"]["value"] == -0.8
 
     def test_stage_selector_reported_back(self, mic):
         pos = mic.get_xyz(stages={"z": "piezo"})
@@ -110,4 +111,7 @@ class TestFlexibleDicts:
         assert mic.get_procedure() == {"name": "zstack", "steps": [1, 2, 3]}
 
     def test_initial_positions(self, mic):
-        assert mic.get_initial_positions() == {"x": 0.0, "y": 0.0, "z": 0.0}
+        positions = mic.get_initial_positions()
+        assert isinstance(positions, list)
+        assert len(positions) == 3
+        assert positions[0] == {"x": 0.0, "y": 0.0, "z": 0.0}
