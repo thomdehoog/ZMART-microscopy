@@ -8,9 +8,10 @@ It earns its keep by being boring. It forwards intent and context to the driver
 and returns whatever the driver hands back; the driver does the work. Two things
 serve that single aim:
 
-  - It provides the driver with context. connect() establishes the session
-    context (vendor, microscope, api) and the coordinate system (set from the
-    discovered objective and stage via set_coordinate_system), and forwards it to the driver.
+  - It provides the driver with context. connect_to_microscope() establishes the
+    session context (vendor, microscope, api) and the coordinate system (set from
+    the discovered objective and stage via set_coordinate_system), and forwards it
+    to the driver.
 
   - It keeps the surface easy. Set the context once, get good defaults and
     discoverable options, then issue short, domain-level calls.
@@ -29,12 +30,12 @@ The methods come in two styles:
 
 Typical use:
 
-    from microscope_agnostic_layer import available, connect
+    from microscope_agnostic_layer import available_microscopes, connect_to_microscope
 
-    available()                            # what can I connect to?
-    mic = connect(vendor="leica", microscope="stellaris5-01")
-    mic.capabilities                       # what objectives / stages does it have?
-    mic.set_coordinate_system(objective="10x", stage_type="motoric")  # set the coordinate system
+    available_microscopes()                # what can I connect to?
+    mic = connect_to_microscope(vendor="leica", microscope="stellaris5-01")
+    mic.get_coordinate_system()            # which objectives / stages are available?
+    mic.set_coordinate_system(objective="10x", stage_type="motoric")
     mic.set_xyz(10.0, 20.0, 5.0)           # absolute, in the motoric coordinate system
     frame = mic.acquire(backlash_correction=True)
     mic.save(format="ome-zarr", name="well_A1")
@@ -99,6 +100,18 @@ class Session:
 
     # --- coordinate system ---------------------------------------------------
 
+    def get_coordinate_system(self) -> dict:
+        """The objective and stage options that define the coordinate system.
+
+        A focused view of :attr:`capabilities` -- the available objectives and
+        stage types, each as ``options`` + ``active`` -- so you can choose before
+        calling :meth:`set_coordinate_system`.
+        """
+        return {
+            "objective": self.capabilities["objective"],
+            "stage_types": self.capabilities["stage_types"],
+        }
+
     def set_coordinate_system(
         self, objective: str | None = None, stage_type: str | None = None
     ) -> None:
@@ -117,25 +130,25 @@ class Session:
 
     # --- standardized: typed params, structured results ---------------------
 
-    def get_xyz(self, stages: dict | None = None) -> dict:
+    def get_xyz(self, stage_types: dict | None = None) -> dict:
         """Read the current stage position.
 
         Returns a per-axis mapping ``{axis: {"value", "stage", "unit"}}`` in the
-        canonical (motoric) coordinate system. ``stages`` optionally selects which actuator
-        to read per axis (e.g. ``{"z": "piezo"}``); axes left unspecified use the
-        active coordinate system. The driver produces the reading.
+        canonical (motoric) coordinate system. ``stage_types`` optionally selects
+        which actuator to read per axis (e.g. ``{"z": "piezo"}``); axes left
+        unspecified use the active one. The driver produces the reading.
         """
-        return self._ops["get_xyz"](self._handle, stages=stages)
+        return self._ops["get_xyz"](self._handle, stage_types=stage_types)
 
-    def set_xyz(self, x: float, y: float, z: float, stages: dict | None = None) -> None:
+    def set_xyz(self, x: float, y: float, z: float, stage_types: dict | None = None) -> None:
         """Move to an absolute target in the canonical (motoric) coordinate system.
 
         ``x``/``y``/``z`` are always given in the motoric coordinate system;
-        ``stages`` selects the actuator that realizes the move per axis (``None``
-        -> the active coordinate system). The driver applies the objective offset and the
-        actuator transform -- that calibration math is never the layer's job.
+        ``stage_types`` selects the actuator that realizes the move per axis
+        (``None`` -> the active one). The driver applies the objective offset and
+        the actuator transform -- that calibration math is never the layer's job.
         """
-        self._ops["set_xyz"](self._handle, x, y, z, stages=stages)
+        self._ops["set_xyz"](self._handle, x, y, z, stage_types=stage_types)
 
     def acquire(self, backlash_correction: bool = True) -> dict:
         """Acquire one dataset and return the driver's structured result.
@@ -215,7 +228,7 @@ class Session:
             disconnect(self._handle)
 
 
-def connect(
+def connect_to_microscope(
     vendor: str,
     microscope: str | None = None,
     api: str | None = None,
@@ -227,9 +240,9 @@ def connect(
     This is the connector: it selects the driver, opens and authenticates the
     session, and discovers the capability menu. It does *not* set the coordinate
     system -- the available objectives and stages are only known after connecting,
-    so you pick them from ``session.capabilities`` and apply them with
-    :meth:`Session.set_coordinate_system`. Use :func:`available` first to see what you can
-    connect to.
+    so you pick them from ``session.get_coordinate_system()`` and apply them with
+    :meth:`Session.set_coordinate_system`. Use :func:`available_microscopes` first
+    to see what you can connect to.
 
     Args:
         vendor: Picks the driver, e.g. ``"leica"``.
@@ -248,8 +261,8 @@ def connect(
 
     Example::
 
-        mic = connect(vendor="mock")          # microscope/api from vendor defaults
-        mic = connect(vendor="leica", microscope="stellaris5-01", api="pyapi")
+        mic = connect_to_microscope(vendor="mock")   # microscope/api from defaults
+        mic = connect_to_microscope(vendor="leica", microscope="stellaris5-01", api="pyapi")
     """
     ops, context = resolve(vendor, microscope, api)
     handle = ops["connect"](

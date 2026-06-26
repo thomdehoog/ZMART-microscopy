@@ -1,60 +1,105 @@
 # Microscope-Agnostic Layer
 
 One small, consistent interface for driving a microscope from a smart-microscopy
-workflow. You discover what's there, connect, and issue plain commands —
-`set_xyz`, `acquire`, `save`. The same workflow runs on any microscope that has a
-driver; your code never imports a vendor's API. The layer stays deliberately thin. 
-It holds the session's context and forwards your intent to the driver; the driver does the real work. 
+workflow. You discover what is there, connect, and issue plain commands. The same
+workflow runs on any microscope that has a driver; your code never imports a
+vendor's API.
 
-## Import the Microscope-Agnostic Layer
+The layer stays deliberately thin. It holds the session's context and forwards
+your intent to the driver; the driver does the real work.
 
+## Overview of functionalities
+
+Everything you can call:
+
+```python
 from microscope_agnostic_layer import available_microscopes, connect_to_microscope
 
-**Connect to a microscope.** Pick a vendor, microscope, and api, and open the session:
+# Discover, then connect
+available_microscopes()                       # {vendor: [(microscope, api), ...]}
+mic = connect_to_microscope(vendor, microscope=None, api=None, client=None, password=None)
 
-Ask before you connect. `available_microscopes()` reads the
-registry and returns the microscopes it knows about:
+# Coordinate system: discover, then set
+mic.get_coordinate_system()                   # available objectives and stage types
+mic.set_coordinate_system(objective=None, stage_type=None)
+
+# Move, acquire, save
+mic.get_xyz(stage_types=None)
+mic.set_xyz(x, y, z, stage_types=None)
+mic.acquire(backlash_correction=True)
+mic.save(format=None, procedure=None, name=None, position=None)
+
+# Instrument state and procedures (opaque dicts the driver owns)
+mic.get_state()
+mic.set_state(state)
+mic.get_procedure()
+mic.set_procedure(procedure)
+mic.get_initial_positions()
+
+# Session
+mic.capabilities                              # full options/active menu
+mic.disconnect()
+```
+
+The rest of this page explains each step.
+
+## Connect
+
+Two questions, answered at two different moments.
+
+**What can I connect to?** `available_microscopes()` reads the registry and
+returns the microscopes it knows about — no hardware touched:
 
 ```python
 available_microscopes()
 # {"leica": [("stellaris5-01", "navigator-expert")]}
 ```
 
-Connect to a vendor, microscope and api
+**Then connect.** Pick a vendor, microscope, and api, and open the session:
 
 ```python
 mic = connect_to_microscope(vendor="leica", microscope="stellaris5-01", api="navigator-expert")
 ```
 
-**Setup the coordinate system**
+`connect_to_microscope` selects the driver and opens the session — nothing more.
+It does not yet know which objectives or stages this instrument has; only the
+live connection can tell you that.
 
-A position like `(10, 20, 5)` means nothing until we define our reference coordinate
-system for the rest of the session. Before setting this up discover which objectives and stage are available
+## Set the coordinate system
+
+A position like `(10, 20, 5)` means nothing until you say *in what coordinate
+system*. That depends on the objective you view through and the stage you move —
+and you can only learn the available ones from the connected instrument. So you
+discover them, then choose:
 
 ```python
 mic.get_coordinate_system()
-```
+# {"objective":   {"options": ["10x", "20x", "40x"], "active": "10x"},
+#  "stage_types": {"x": {"options": ["motoric", "galvo"], "active": "motoric"},
+#                  "y": {"options": ["motoric", "galvo"], "active": "motoric"},
+#                  "z": {"options": ["motoric", "piezo"], "active": "motoric"}}}
 
-Then select the prefered objective system
-
-```python
 mic.set_coordinate_system(objective="10x", stage_type="motoric")
 ```
 
-From here on, coordinates are unambiguous. We always use the coordinates corresponding to the reference coordinate system. 
-Even if different stage types or objectives are used, the translation to the reference coordinates system is done by the driver.
-You can still define which stage_types you want to 
+The stage names (`motoric`, `galvo`, `piezo`, …) are whatever the driver defines,
+not a fixed set — you read the `options` and pass one back.
+
+From here on, coordinates are unambiguous, because three things stay cleanly
+separated:
+
+- **What you speak in** — always the motoric stage's coordinate system, the one
+  canonical space.
+- **What moves you** — the stage type, chosen per axis. Using the piezo for fine
+  Z does not change the coordinates you give; it just realizes them.
+- **What you see through** — the objective. Switching it shifts the optics, not
+  your coordinates; the driver applies the offset so a point keeps its address.
 
 ```python
-# Move the a position in the reference coorid
-mic.set_xyz(10, 20, 5, stage_types={x="motoric", y="motoric", z="galvo"})  
+mic.set_xyz(10, 20, 5, stage_types={"z": "piezo"})   # Z via the piezo, X and Y as they are
 ```
 
-## Capture presets
-
-
-
-## Acquiring and saving
+## Acquire and save
 
 ```python
 mic.acquire(backlash_correction=True)
@@ -97,32 +142,6 @@ workflow to visit.
 connect, set the coordinate system, capture both states, get the positions, then
 move, acquire, and save across all of them. It uses the bundled mock driver, so
 it runs with no hardware — open it and step through.
-
-## Reference
-
-**Module**
-
-- `available()` — registered microscopes, as `{vendor: [(microscope, api), ...]}`.
-  No connection made.
-- `connect(vendor, microscope=None, api=None, client=None, password=None)` — open
-  a session. `microscope` and `api` fall back to the vendor defaults; `password`
-  is never stored.
-
-**Session — attributes**
-
-- `capabilities` — the options/active menu (refreshed by `set_coordinate_system`).
-- `context` — `{vendor, microscope, api}`.
-
-**Session — methods**
-
-- `set_coordinate_system(objective=None, stage_type=None)`
-- `get_xyz(stages=None)` · `set_xyz(x, y, z, stages=None)`
-- `acquire(backlash_correction=True)`
-- `save(format=None, procedure=None, name=None, position=None)`
-- `get_state()` · `set_state(state)`
-- `get_procedure()` · `set_procedure(procedure)`
-- `get_initial_positions()`
-- `disconnect()`
 
 ## Adding a microscope
 
