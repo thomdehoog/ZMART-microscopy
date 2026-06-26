@@ -13,11 +13,11 @@ your intent to the driver; the driver does the real work.
 Everything you can call:
 
 ```python
-from microscope_agnostic_layer import available_microscopes, connect_to_microscope
+from microscope_agnostic_layer as mic
 
 # Connect to the microscopes
-available_microscopes()                       # {vendor: [(microscope, api), ...]}
-mic = connect_to_microscope(vendor=String, microscope=String, api=String, client=String, password=String)
+mic.available_microscopes()                       # {vendor: [(microscope, api), ...]}
+mic.connect_to_microscope(vendor=String, microscope=String, api=String, client=String, password=String)
 
 # Define the coordinate system
 mic.get_coordinate_system()                   # available objectives and stage types
