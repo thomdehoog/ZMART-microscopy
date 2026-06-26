@@ -16,11 +16,11 @@ Everything you can call:
 import microscope_agnostic_layer as mic
 
 # 1) Discover and connect
-mic.available_microscopes()                 
+mic.available_microscopes()
 mic.connect_to_microscope(vendor=String, microscope=String, api=String, client=String, password=String)
 
 # 2) Define the coordinate system
-mic.get_coordinate_system()                   
+mic.get_coordinate_system()
 mic.set_coordinate_system(objective=String, stage_type=String)
 
 # 3) Capture and activate the instrument state and procedures
@@ -48,9 +48,9 @@ mic.disconnect()
 
 Most steps follow the same rhythm: **discover, then apply.** You ask the
 microscope what it offers with a `get_*` call — each option comes with its
-allowed values and the one that is currently active — and then you pass your
-choice back to the matching call. Leave an option out and the driver simply uses
-its active default, so the short form always works.
+allowed values and the one that is currently active — then pass your choice back
+to the matching call. Leave an option out and the driver uses its active default,
+so the short form always works.
 
 1. **Discover and connect.** `available_microscopes()` reads the registry and
    returns what you can connect to as `{vendor: [(microscope, api), ...]}` —
@@ -65,12 +65,10 @@ its active default, so the short form always works.
    ```
 
 2. **Define the coordinate system.** A position like `(10, 20, 5)` is meaningless
-   until you say *in what frame* — that depends on the objective you look through
-   and the stage that moves. `get_coordinate_system()` shows the available
-   objectives and stage types (each as `options` plus the `active` one), and
-   `set_coordinate_system()` fixes the ones you want. From then on coordinates are
-   unambiguous: the driver applies the objective offsets so a given point keeps
-   the same address no matter which objective or actuator you use.
+   until you fix the frame — which objective you look through and which stage
+   moves. Discover the choices (each as `options` plus the `active` one), then set
+   them. The stage names (`motoric`, `galvo`, `piezo`, …) are whatever the driver
+   defines, not a fixed set — you read the options and pass one back.
 
    ```python
    mic.get_coordinate_system()
@@ -78,11 +76,23 @@ its active default, so the short form always works.
    mic.set_coordinate_system(objective="10x", stage_type="motoric")
    ```
 
-3. **State and procedures.** A *state* is a snapshot of the instrument's settings
-   that you can capture now and reactivate later; a *procedure* is a named job the
-   driver knows how to run. Both are opaque dictionaries — the layer carries them,
-   only the driver understands them. `get_state()` / `get_procedure()` read one,
-   and `set_state()` / `set_procedure()` send it back.
+   From then on, three things stay cleanly separated, so a point keeps the same
+   address no matter how you reach it:
+
+   - **What you speak in** — always the motoric stage's coordinate system, the one
+     canonical space.
+   - **What moves you** — the stage type, chosen per axis; using the piezo for fine
+     Z does not change the coordinates you give, it just realizes them.
+   - **What you see through** — the objective; switching it shifts the optics, not
+     your coordinates, because the driver applies the offset.
+
+3. **Capture and activate state and procedures.** A *state* is a snapshot of the
+   instrument's settings you can capture now and reactivate later; a *procedure* is
+   a named job the driver knows how to run. Both are opaque dictionaries the layer
+   carries and only the driver understands. A state has an `immutable` part (a
+   fingerprint the driver checks, so you cannot restore settings captured on a
+   different instrument) and a `mutable` part (what actually gets reapplied) — the
+   layer never looks inside.
 
    ```python
    prescan = mic.get_state()                 # {"immutable": {...}, "mutable": {...}}
@@ -90,7 +100,7 @@ its active default, so the short form always works.
    mic.set_state(prescan)                     # reactivate it later
    ```
 
-4. **Stage movements.** `get_initial_positions()` returns the list of positions to
+4. **Handle stage movements.** `get_initial_positions()` returns the positions to
    visit (captured at connect). `get_xyz()` and `set_xyz()` read and move in the
    canonical (motoric) coordinate system; the optional `stage_types` argument
    chooses which actuator realizes each axis (e.g. the piezo for fine Z), without
@@ -129,104 +139,6 @@ its active default, so the short form always works.
    ```python
    mic.disconnect()
    ```
-
-The sections below walk each step in depth.
-
-## Connect
-
-Two questions, answered at two different moments.
-
-**What can I connect to?** `available_microscopes()` reads the registry and
-returns the microscopes it knows about — no hardware touched:
-
-```python
-available_microscopes()
-# {"leica": [("stellaris5-01", "navigator-expert")]}
-```
-
-**Then connect.** Pick a vendor, microscope, and api, and open the session:
-
-```python
-mic = connect_to_microscope(vendor="leica", microscope="stellaris5-01", api="navigator-expert")
-```
-
-`connect_to_microscope` selects the driver and opens the session — nothing more.
-It does not yet know which objectives or stages this instrument has; only the
-live connection can tell you that.
-
-## Set the coordinate system
-
-A position like `(10, 20, 5)` means nothing until you say *in what coordinate
-system*. That depends on the objective you view through and the stage you move —
-and you can only learn the available ones from the connected instrument. So you
-discover them, then choose:
-
-```python
-mic.get_coordinate_system()
-# {"objective":   {"options": ["10x", "20x", "40x"], "active": "10x"},
-#  "stage_types": {"x": {"options": ["motoric", "galvo"], "active": "motoric"},
-#                  "y": {"options": ["motoric", "galvo"], "active": "motoric"},
-#                  "z": {"options": ["motoric", "piezo"], "active": "motoric"}}}
-
-mic.set_coordinate_system(objective="10x", stage_type="motoric")
-```
-
-The stage names (`motoric`, `galvo`, `piezo`, …) are whatever the driver defines,
-not a fixed set — you read the `options` and pass one back.
-
-From here on, coordinates are unambiguous, because three things stay cleanly
-separated:
-
-- **What you speak in** — always the motoric stage's coordinate system, the one
-  canonical space.
-- **What moves you** — the stage type, chosen per axis. Using the piezo for fine
-  Z does not change the coordinates you give; it just realizes them.
-- **What you see through** — the objective. Switching it shifts the optics, not
-  your coordinates; the driver applies the offset so a point keeps its address.
-
-```python
-mic.set_xyz(10, 20, 5, stage_types={"z": "piezo"})   # Z via the piezo, X and Y as they are
-```
-
-## Acquire and export
-
-```python
-mic.get_acquisitions_options()   # {"backlash_correction": {"options": [True, False], "active": True}}
-mic.acquire(options={"backlash_correction": True})
-
-mic.get_export_data_options()    # {"format": {...}, "procedure": {...}}
-mic.export_data(options={"format": "ome-zarr", "procedure": "tiled", "name": "well_A1"})
-```
-
-`acquire` captures one dataset. `options` selects acquisition settings discovered
-via `get_acquisitions_options` — e.g. `backlash_correction`, which settles the
-stage before the shutter opens so the image lands at the true position.
-
-`export_data` writes the result. `options` may set the discovered `format` /
-`procedure` plus free `name` / `position` hints. Omit any option and the driver
-fills it from its active default.
-
-## States and procedures
-
-Some things do not standardize across vendors — an instrument's full settings, a
-named acquisition job. The layer passes these as opaque dictionaries: it carries
-them, the driver understands them.
-
-A **state** is a snapshot you can put back later:
-
-```python
-prescan = mic.get_state()                 # capture
-prescan["mutable"]["laser_power"] = 2.0   # adjust the settable part
-mic.set_state(prescan)                    # reactivate
-```
-
-A state has an `immutable` part (a fingerprint the driver checks, so you cannot
-restore settings from a different instrument) and a `mutable` part (what actually
-gets reapplied). The layer never looks inside — the driver owns the meaning.
-
-Procedures work the same way through `get_procedure` / `set_procedure`, and
-`get_initial_positions()` returns the positions captured at connect for your
-workflow to visit.
 
 ## A full experiment
 
