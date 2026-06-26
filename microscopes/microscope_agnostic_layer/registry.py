@@ -1,9 +1,9 @@
 """Driver registry: the one place that points the agnostic layer at drivers.
 
 A driver registers an ops table - a mapping of operation name to driver callable
-- for a (vendor, microscope, api) triple, plus the vendor's defaults. connect()
-calls resolve() to look one up, and available() lists what is registered without
-connecting to anything.
+- for a (vendor, microscope, api) triple, plus the vendor's defaults.
+connect_to_microscope() calls resolve() to look one up, and
+available_microscopes() lists what is registered without connecting to anything.
 
 Real vendor drivers register here (see the Leica example below, to be filled in
 once its adapter exists). Test-only integrations, like the mock, register
@@ -86,7 +86,7 @@ def register(
 #     )
 
 
-def available() -> dict[str, list[tuple[str, str]]]:
+def available_microscopes() -> dict[str, list[tuple[str, str]]]:
     """List what you can connect to, without connecting to anything.
 
     This is pre-connect discovery: it reports the registered drivers from the

@@ -115,7 +115,7 @@ def capabilities(handle: MockHandle) -> dict:
     """
     return {
         "objective": {"options": list(_OBJECTIVE_OFFSETS), "active": handle.objective},
-        "stages": {
+        "stage_types": {
             "x": {"options": ["motoric", "galvo"], "active": handle.stage_type},
             "y": {"options": ["motoric", "galvo"], "active": handle.stage_type},
             "z": {"options": ["motoric", "piezo"], "active": handle.stage_type},
@@ -125,17 +125,17 @@ def capabilities(handle: MockHandle) -> dict:
     }
 
 
-def _resolve_stages(handle: MockHandle, stages: dict | None) -> dict[str, str]:
-    """Per-axis actuator choice, defaulting unspecified axes to the active coordinate system."""
+def _resolve_stage_types(handle: MockHandle, stage_types: dict | None) -> dict[str, str]:
+    """Per-axis actuator choice, defaulting unspecified axes to the active one."""
     chosen = {"x": handle.stage_type, "y": handle.stage_type, "z": handle.stage_type}
-    if stages:
-        chosen.update(stages)
+    if stage_types:
+        chosen.update(stage_types)
     return chosen
 
 
-def get_xyz(handle: MockHandle, *, stages: dict | None = None) -> dict:
+def get_xyz(handle: MockHandle, *, stage_types: dict | None = None) -> dict:
     """Report the canonical position per axis with its actuator and unit."""
-    chosen = _resolve_stages(handle, stages)
+    chosen = _resolve_stage_types(handle, stage_types)
     return {
         axis: {"value": getattr(handle, axis), "stage": chosen[axis], "unit": "um"}
         for axis in ("x", "y", "z")
@@ -143,18 +143,19 @@ def get_xyz(handle: MockHandle, *, stages: dict | None = None) -> dict:
 
 
 def set_xyz(
-    handle: MockHandle, x: float, y: float, z: float, *, stages: dict | None = None
+    handle: MockHandle, x: float, y: float, z: float, *, stage_types: dict | None = None
 ) -> None:
     """Realize an absolute target in the motoric coordinate system, applying the offset.
 
-    The target is in the motoric coordinate system; the chosen actuator (``stages``) realizes
-    it. Applying the objective offset is the driver's responsibility, not the
-    layer's. The mock folds the offset straight into the stored position to make
-    that ownership visible in tests; a real driver would instead apply it when
-    commanding the actuator and keep the canonical value unchanged.
+    The target is in the motoric coordinate system; the chosen actuator
+    (``stage_types``) realizes it. Applying the objective offset is the driver's
+    responsibility, not the layer's. The mock folds the offset straight into the
+    stored position to make that ownership visible in tests; a real driver would
+    instead apply it when commanding the actuator and keep the canonical value
+    unchanged.
     """
     # actuator selection (no-op in the mock)
-    _resolve_stages(handle, stages)
+    _resolve_stage_types(handle, stage_types)
 
     off_x, off_y = _OBJECTIVE_OFFSETS[handle.objective]
     handle.x, handle.y, handle.z = x + off_x, y + off_y, z
