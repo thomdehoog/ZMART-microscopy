@@ -203,3 +203,14 @@ python -m pytest microscopes/microscope_agnostic_layer/tests
 ```
 
 The test suite and the example notebook both run offline against the mock driver.
+
+## Author
+
+Thom de Hoog — Center for Microscopy and Image Analysis (ZMB), University of
+Zurich. Contact: thom.dehoog@zmb.uzh.ch or thomdehoog@gmail.com.
+
+## License
+
+Released under the MIT License — see [LICENSE](../../LICENSE). You are free to
+use, modify, and redistribute it; please keep the copyright notice and credit
+the author.
