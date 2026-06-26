@@ -15,26 +15,28 @@ Everything you can call:
 ```python
 from microscope_agnostic_layer import available_microscopes, connect_to_microscope
 
-# Discover, then connect
+# Connect to the microscopes
 available_microscopes()                       # {vendor: [(microscope, api), ...]}
 mic = connect_to_microscope(vendor, microscope=None, api=None, client=None, password=None)
 
-# Coordinate system: discover, then set
+# Define the coordinate system
 mic.get_coordinate_system()                   # available objectives and stage types
 mic.set_coordinate_system(objective=None, stage_type=None)
 
-# Move, acquire, save
-mic.get_xyz(stage_types=None)
-mic.set_xyz(x, y, z, stage_types=None)
-mic.acquire(backlash_correction=True)
-mic.save(format=None, procedure=None, name=None, position=None)
-
-# Instrument state and procedures (opaque dicts the driver owns)
+# Capture and activate the instrument state and procedures
 mic.get_state()
 mic.set_state(state)
 mic.get_procedure()
 mic.set_procedure(procedure)
+
+# Capture and move the stages
 mic.get_initial_positions()
+mic.get_xyz(stage_types=None)
+mic.set_xyz(x, y, z, stage_types=None)
+
+# Acquire and save
+mic.acquire(backlash_correction=True)
+mic.save(format=None, procedure=None, name=None, position=None)
 
 # Session
 mic.capabilities                              # full options/active menu
