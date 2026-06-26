@@ -29,7 +29,7 @@ mic.connect_to_microscope(vendor=String, microscope=String, api=String, client=S
 mic.get_coordinate_system()
 mic.set_coordinate_system(objective=String, stage_type=String)
 
-# 3) Capture and activate the instrument state and procedures
+# 3) Capture and reapply the instrument state and procedures
 mic.get_state()
 mic.set_state(Dict)
 mic.get_procedure()
@@ -48,7 +48,7 @@ mic.acquire(options=Dict)
 mic.get_export_data_options()
 mic.export_data(options=Dict)
 
-# 7) And session
+# 7) Close the session
 mic.disconnect()
 ```
 
@@ -191,7 +191,8 @@ register(
 )
 ```
 
-Each function takes the driver's handle as its first argument.
+Each function except `connect` takes the driver's handle as its first argument;
+`connect` opens the session and returns that handle.
 `tests/mock_driver.py` is a complete, readable reference implementation.
 
 ## Tests
