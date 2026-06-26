@@ -26,7 +26,7 @@ OPS: tuple[str, ...] = (
     "get_xyz",
     "set_xyz",
     "acquire",
-    "save",
+    "export_data",
     "get_state",
     "set_state",
     "get_procedure",

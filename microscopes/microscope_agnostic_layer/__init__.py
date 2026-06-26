@@ -11,7 +11,7 @@ it to the driver, and is easy to drive. See DESIGN.md for the contract.
     mic.set_coordinate_system(objective="10x", stage_type="motoric")
     mic.set_xyz(10, 20, 5)
     frame = mic.acquire()
-    mic.save(format="ome-zarr", name="well_A1")
+    mic.export_data(options={"format": "ome-zarr", "name": "well_A1"})
 
 Import convention: requires the microscopes/ source root on sys.path.
 """

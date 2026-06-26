@@ -13,20 +13,13 @@ serve that single aim:
     the discovered objective and stage via set_coordinate_system), and forwards it
     to the driver.
 
-  - It keeps the surface easy. Set the context once, get good defaults and
-    discoverable options, then issue short, domain-level calls.
+  - It keeps the surface easy. Each concern is discover-then-apply: read the
+    available options with a get_* call, then pass your choices back to the
+    matching apply call. Omitted options fall back to the driver's active default.
 
-Every method is send/receive: the layer never moves a stage, computes an
-offset, or interprets a payload - it just provides the clean surface to build
-on, and the driver does the work.
-
-The methods come in two styles:
-
-  - Standardized (get_xyz, set_xyz, acquire, save) take specific typed
-    parameters and return structured results.
-
-  - Flexible (get_state, set_state, get_procedure, set_procedure,
-    get_initial_positions) pass opaque dictionaries straight through.
+Every method is send/receive: the layer never moves a stage, computes an offset,
+or interprets a payload - it just provides the clean surface to build on, and the
+driver does the work.
 
 Typical use:
 
@@ -37,12 +30,9 @@ Typical use:
     mic.get_coordinate_system()            # which objectives / stages are available?
     mic.set_coordinate_system(objective="10x", stage_type="motoric")
     mic.set_xyz(10.0, 20.0, 5.0)           # absolute, in the motoric coordinate system
-    frame = mic.acquire(backlash_correction=True)
-    mic.save(format="ome-zarr", name="well_A1")
+    frame = mic.acquire()                  # options from get_acquisitions_options()
+    mic.export_data(options={"format": "ome-zarr", "name": "well_A1"})
     mic.disconnect()                       # optional teardown when finished
-
-Method names follow the design's operations in snake_case (getXYZ -> get_xyz,
-setState -> set_state, and so on).
 """
 
 from __future__ import annotations
@@ -53,22 +43,18 @@ from .registry import resolve
 
 
 class Session:
-    """A connected microscope, returned by :func:`connect`.
+    """A connected microscope, returned by :func:`connect_to_microscope`.
 
-    The session is send/receive only. It holds two public attributes:
+    Send/receive only. Each concern is discover-then-apply: read the available
+    options with a ``get_*`` call, then pass your choices back to the matching
+    apply call. The discoverable menus are the coordinate system
+    (:meth:`get_coordinate_system`), acquisition
+    (:meth:`get_acquisitions_options`) and export
+    (:meth:`get_export_data_options`).
 
-    ``capabilities``
-        The menu discovered at connect, as ``{axis: {"options": [...],
-        "active": ...}}`` -- the single source of truth for selectable options
-        (objective, stages, save format, save procedure). ``active`` is the
-        default the layer uses when a call omits the choice; ``options`` is the
-        vocabulary callers read and pass back as arguments.
-    ``context``
-        How the driver was selected: ``vendor``, ``microscope``, ``api``. The
-        coordinate system (objective + stage) lives in ``capabilities`` and is set
-        with :meth:`set_coordinate_system`.
-
-    Call :meth:`disconnect` when finished if the driver needs teardown.
+    The only public attribute is ``context`` -- how the driver was selected:
+    ``vendor``, ``microscope``, ``api``. Call :meth:`disconnect` when finished if
+    the driver needs teardown.
     """
 
     def __init__(
@@ -84,51 +70,42 @@ class Session:
         # opaque driver connection/state
         self._handle = handle
 
-        self.capabilities = capabilities
+        # the full options/active menu the driver reports, exposed through the
+        # focused get_* methods rather than as a public attribute
+        self._capabilities = capabilities
+
         self.context = context
 
-    def _active(self, axis: str) -> str:
-        """Return the ``active`` option for a selectable capability.
-
-        Raises a clear error if the driver advertises no such capability, rather
-        than letting a bare ``KeyError`` escape from a default lookup.
-        """
-        try:
-            return self.capabilities[axis]["active"]
-        except (KeyError, TypeError):
-            raise ValueError(f"driver advertises no {axis!r} capability to default") from None
-
-    # --- coordinate system ---------------------------------------------------
+    # --- coordinate system --------------------------------------------------
 
     def get_coordinate_system(self) -> dict:
-        """The objective and stage options that define the coordinate system.
+        """The available objectives and stage types, each as ``options`` + ``active``.
 
-        A focused view of :attr:`capabilities` -- the available objectives and
-        stage types, each as ``options`` + ``active`` -- so you can choose before
-        calling :meth:`set_coordinate_system`.
+        Read this before :meth:`set_coordinate_system` to see what you can choose.
         """
         return {
-            "objective": self.capabilities["objective"],
-            "stage_types": self.capabilities["stage_types"],
+            "objective": self._capabilities["objective"],
+            "stage_types": self._capabilities["stage_types"],
         }
 
     def set_coordinate_system(
         self, objective: str | None = None, stage_type: str | None = None
     ) -> None:
-        """Set the coordinate system from the discovered options.
+        """Fix the coordinate system from the discovered options.
 
-        "Absolute" coordinates only mean something against a coordinate system.
-        After connect you read the available objectives and stages from
-        :attr:`capabilities`, then fix the coordinate system here: ``objective``
-        is the optical reference (the driver applies offsets between objectives)
-        and ``stage_type`` the default actuator the canonical axes resolve to.
-        Either may be omitted to leave it as the driver reports it. The driver
-        validates the choice, and the capabilities are refreshed afterwards.
+        ``objective`` is the optical reference (the driver applies offsets between
+        objectives) and ``stage_type`` the default actuator the canonical axes
+        resolve to. Either may be omitted to keep the driver's current choice. The
+        driver validates, and the discoverable options are refreshed afterwards.
         """
         self._ops["set_coordinate_system"](self._handle, objective=objective, stage_type=stage_type)
-        self.capabilities = self._ops["capabilities"](self._handle)
+        self._capabilities = self._ops["capabilities"](self._handle)
 
-    # --- standardized: typed params, structured results ---------------------
+    # --- movement -----------------------------------------------------------
+
+    def get_initial_positions(self) -> list:
+        """The positions captured at connect, for the workflow to visit (list of dicts)."""
+        return self._ops["get_initial_positions"](self._handle)
 
     def get_xyz(self, stage_types: dict | None = None) -> dict:
         """Read the current stage position.
@@ -150,39 +127,49 @@ class Session:
         """
         self._ops["set_xyz"](self._handle, x, y, z, stage_types=stage_types)
 
-    def acquire(self, backlash_correction: bool = True) -> dict:
+    # --- acquire ------------------------------------------------------------
+
+    def get_acquisitions_options(self) -> dict:
+        """The acquisition options the driver offers, each as ``options`` + ``active``.
+
+        For example ``{"backlash_correction": {"options": [True, False],
+        "active": True}}``. Pass chosen values back through :meth:`acquire`.
+        """
+        return self._capabilities["acquisitions"]
+
+    def acquire(self, options: dict | None = None) -> dict:
         """Acquire one dataset and return the driver's structured result.
 
-        ``backlash_correction`` (default ``True``) is acquisition-time intent: it
-        tells the driver to settle the stage via the correct approach *before*
-        the capture, so the image is taken at the true position. It is an
-        acquisition concern, not a move concern -- ``set_xyz`` has no backlash
-        notion. Turn it off to trade trustworthiness for speed.
+        ``options`` selects acquisition settings discovered via
+        :meth:`get_acquisitions_options`; pass it through untouched -- the driver
+        fills any omitted option from its active default. For example
+        ``backlash_correction`` settles the stage via the right approach *before*
+        the capture, so the image is taken at the true position.
         """
-        return self._ops["acquire"](self._handle, backlash_correction=backlash_correction)
+        return self._ops["acquire"](self._handle, options=options)
 
-    def save(
-        self,
-        format: str | None = None,
-        procedure: str | None = None,
-        name: str | None = None,
-        position: Any = None,
-    ) -> dict:
-        """Persist the most recent acquisition.
+    # --- export -------------------------------------------------------------
 
-        ``format`` (e.g. ``"ome-tiff"`` / ``"ome-zarr"``) and ``procedure`` (how
-        it writes -- e.g. direct, tiled) are the two selectable axes; when
-        omitted, each defaults to the option discovered as ``active`` at connect.
-        ``name`` and ``position`` are optional context for the output filename
-        and embedded metadata.
+    def get_export_data_options(self) -> dict:
+        """The export options the driver offers, each as ``options`` + ``active``.
+
+        For example ``format`` and ``procedure``. ``name`` and ``position`` are
+        free per-call context, not discovered here. Pass choices through
+        :meth:`export_data`.
         """
-        fmt = format or self._active("save_format")
-        proc = procedure or self._active("save_procedure")
-        return self._ops["save"](
-            self._handle, format=fmt, procedure=proc, name=name, position=position
-        )
+        return self._capabilities["export_data"]
 
-    # --- flexible: opaque dicts, send/receive only --------------------------
+    def export_data(self, options: dict | None = None) -> dict:
+        """Export the most recent acquisition.
+
+        ``options`` may set the discovered ``format`` / ``procedure`` plus free
+        ``name`` / ``position`` context for the output filename and embedded
+        metadata. Pass it through untouched -- the driver fills any omitted
+        ``format`` / ``procedure`` from its active default.
+        """
+        return self._ops["export_data"](self._handle, options=options)
+
+    # --- state and procedures: opaque dicts, send/receive only --------------
 
     def get_state(self) -> dict:
         """Capture instrument state as an opaque dict.
@@ -215,10 +202,6 @@ class Session:
         """
         self._ops["set_procedure"](self._handle, procedure)
 
-    def get_initial_positions(self) -> dict:
-        """Receive the positions captured at connect, for reactivation (dict)."""
-        return self._ops["get_initial_positions"](self._handle)
-
     # --- lifecycle ----------------------------------------------------------
 
     def disconnect(self) -> None:
@@ -235,12 +218,12 @@ def connect_to_microscope(
     client: str | None = None,
     password: str | None = None,
 ) -> Session:
-    """Resolve a driver, open the session, discover capabilities, return it.
+    """Resolve a driver, open the session, discover its options, return it.
 
     This is the connector: it selects the driver, opens and authenticates the
-    session, and discovers the capability menu. It does *not* set the coordinate
+    session, and discovers the option menus. It does *not* set the coordinate
     system -- the available objectives and stages are only known after connecting,
-    so you pick them from ``session.get_coordinate_system()`` and apply them with
+    so you read them from ``session.get_coordinate_system()`` and apply them with
     :meth:`Session.set_coordinate_system`. Use :func:`available_microscopes` first
     to see what you can connect to.
 

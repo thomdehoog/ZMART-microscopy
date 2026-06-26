@@ -32,18 +32,17 @@ mic.set_procedure(Dict)
 # Handle stage movements
 mic.get_initial_positions()
 mic.get_xyz()
-mic.set_xyz(cord:{x, y, z}, stage_types=Dict)
+mic.set_xyz(x, y, z, stage_types=Dict)
 
 # Acquire
-mic.get_acquistions_options()
-mic.acquire(options=dict)
+mic.get_acquisitions_options()
+mic.acquire(options=Dict)
 
 # Export the data
 mic.get_export_data_options()
 mic.export_data(options=Dict)
 
 # Session
-mic.capabilities                              # full options/active menu (Why do we need this?)
 mic.disconnect()
 ```
 
@@ -105,20 +104,23 @@ separated:
 mic.set_xyz(10, 20, 5, stage_types={"z": "piezo"})   # Z via the piezo, X and Y as they are
 ```
 
-## Acquire and save
+## Acquire and export
 
 ```python
-mic.acquire(backlash_correction=True)
-mic.save(format="ome-zarr", procedure="tiled", name="well_A1")
+mic.get_acquisitions_options()   # {"backlash_correction": {"options": [True, False], "active": True}}
+mic.acquire(options={"backlash_correction": True})
+
+mic.get_export_data_options()    # {"format": {...}, "procedure": {...}}
+mic.export_data(options={"format": "ome-zarr", "procedure": "tiled", "name": "well_A1"})
 ```
 
-`acquire` captures one dataset. `backlash_correction` (on by default) tells the
-driver to settle the stage the right way *before* the shutter opens, so the image
-lands at the true position — turn it off only when you want speed over certainty.
+`acquire` captures one dataset. `options` selects acquisition settings discovered
+via `get_acquisitions_options` — e.g. `backlash_correction`, which settles the
+stage before the shutter opens so the image lands at the true position.
 
-`save` writes the result. `format` and `procedure` are both drawn from
-`capabilities`; omit them to use the active ones. `name` and `position` are
-optional hints for the filename and embedded metadata.
+`export_data` writes the result. `options` may set the discovered `format` /
+`procedure` plus free `name` / `position` hints. Omit any option and the driver
+fills it from its active default.
 
 ## States and procedures
 
@@ -146,7 +148,7 @@ workflow to visit.
 
 `example_experiment.ipynb` walks a complete prescan/target run end to end:
 connect, set the coordinate system, capture both states, get the positions, then
-move, acquire, and save across all of them. It uses the bundled mock driver, so
+move, acquire, and export across all of them. It uses the bundled mock driver, so
 it runs with no hardware — open it and step through.
 
 ## Adding a microscope
@@ -160,7 +162,7 @@ from microscope_agnostic_layer.registry import register
 register(
     "leica", "stellaris5-01", "navigator-expert",
     ops={"connect": ..., "capabilities": ..., "set_coordinate_system": ...,
-         "get_xyz": ..., "set_xyz": ..., "acquire": ..., "save": ...,
+         "get_xyz": ..., "set_xyz": ..., "acquire": ..., "export_data": ...,
          "get_state": ..., "set_state": ..., "get_procedure": ...,
          "set_procedure": ..., "get_initial_positions": ...},
     defaults={"microscope": "stellaris5-01", "api": "navigator-expert"},
