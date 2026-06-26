@@ -192,9 +192,7 @@ register(
 ```
 
 Each function takes the driver's handle as its first argument.
-`tests/mock_driver.py` is a complete, readable reference implementation, and
-`DESIGN.md` covers the full contract and the planned
-`drivers/vendor/microscope/api` layout.
+`tests/mock_driver.py` is a complete, readable reference implementation.
 
 ## Tests
 

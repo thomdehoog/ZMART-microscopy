@@ -17,7 +17,7 @@ Two ways to drive a microscope, both giving ``mic.<call>()``:
     mic = connect_to_microscope(vendor="mock")
     mic.acquire()
 
-See DESIGN.md for the contract. Requires the microscopes/ source root on sys.path.
+Requires the microscopes/ source root on sys.path.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch).

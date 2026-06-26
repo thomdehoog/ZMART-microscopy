@@ -2,7 +2,7 @@
 
 The one aim of this layer is to provide a simplified abstraction over microscope
 drivers, with no unnecessary complication, that workflows can build on. Nothing
-more (see DESIGN.md).
+more.
 
 It earns its keep by being boring. It forwards intent and context to the driver
 and returns whatever the driver hands back; the driver does the work. Two things
