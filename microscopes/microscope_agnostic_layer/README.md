@@ -17,29 +17,33 @@ from microscope_agnostic_layer import available_microscopes, connect_to_microsco
 
 # Connect to the microscopes
 available_microscopes()                       # {vendor: [(microscope, api), ...]}
-mic = connect_to_microscope(vendor, microscope=None, api=None, client=None, password=None)
+mic = connect_to_microscope(vendor=String, microscope=String, api=String, client=String, password=String)
 
 # Define the coordinate system
 mic.get_coordinate_system()                   # available objectives and stage types
-mic.set_coordinate_system(objective=None, stage_type=None)
+mic.set_coordinate_system(objective=String, stage_type=String)
 
 # Capture and activate the instrument state and procedures
 mic.get_state()
-mic.set_state(state)
+mic.set_state(Dict)
 mic.get_procedure()
-mic.set_procedure(procedure)
+mic.set_procedure(Dict)
 
-# Capture and move the stages
+# Handle stage movements
 mic.get_initial_positions()
-mic.get_xyz(stage_types=None)
-mic.set_xyz(x, y, z, stage_types=None)
+mic.get_xyz()
+mic.set_xyz(cord:{x, y, z}, stage_types=Dict)
 
-# Acquire and save
-mic.acquire(backlash_correction=True)
-mic.save(format=None, procedure=None, name=None, position=None)
+# Acquire
+mic.get_acquistions_options()
+mic.acquire(options=dict)
+
+# Export the data
+mic.get_export_data_options()
+mic.export_data(options=Dict)
 
 # Session
-mic.capabilities                              # full options/active menu
+mic.capabilities                              # full options/active menu (Why do we need this?)
 mic.disconnect()
 ```
 
