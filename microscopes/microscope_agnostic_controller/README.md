@@ -94,7 +94,16 @@ prescan["mutable"]["laser_power"] = 2.0
 mac.set_state(prescan)                     # reapply it later
 ```
 
-### 3. Move the stage
+### 3. Get additional context
+
+`get_context()` returns whatever extra read-only context the driver provides — for
+example the initial positions captured at connect.
+
+```python
+mac.get_context()["initial_positions"]     # [{"x": 0.0, "y": 0.0, "z": 0.0}, ...]
+```
+
+### 4. Move the stage
 
 `get_xyz()` and `set_xyz()` read and set the position in the canonical (motoric)
 coordinate system. The optional `with_stage_types` argument chooses which actuator
@@ -105,7 +114,7 @@ coordinates you give.
 mac.set_xyz(10, 20, 5, with_stage_types={"z": "piezo"})   # Z via the piezo
 ```
 
-### 4. Acquire (captures and saves)
+### 5. Acquire (captures and saves)
 
 `get_acquisition_options()` lists the acquisition and saving settings the
 instrument supports — for example `backlash_correction` (settles the stage before
@@ -120,7 +129,7 @@ mac.get_acquisition_options()
 mac.acquire(acquisition_type="prescan", position_label="A1", options={"format": "ome-zarr"})
 ```
 
-### 5. Run a procedure
+### 6. Run a procedure
 
 `get_procedures()` lists the named jobs the driver offers (e.g. hardware
 autofocus); `set_procedure()` runs one. Procedures are opaque dicts the driver
@@ -129,15 +138,6 @@ interprets.
 ```python
 mac.get_procedures()                       # {"autofocus": {...}, ...}
 mac.set_procedure({"name": "autofocus"})
-```
-
-### 6. Get additional context
-
-`get_context()` returns whatever extra read-only context the driver provides — for
-example the initial positions captured at connect.
-
-```python
-mac.get_context()["initial_positions"]     # [{"x": 0.0, "y": 0.0, "z": 0.0}, ...]
 ```
 
 ### 7. Close the session
