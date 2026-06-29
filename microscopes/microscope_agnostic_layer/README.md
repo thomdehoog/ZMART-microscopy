@@ -23,7 +23,7 @@ import agnostic_microscope_controller as amc
 
 # 1) Discover microscopes and connect
 amc.get_instruments()
-amc.set_instrument(instrument=Dict, reference_stage=String, reference_objective=String)  #vendor=String, microscope=String, api=String, client=String, password=String
+amc.set_instrument(instrument=Dict, reference_stage=String, reference_objective=String)
 
 # 2) Capture and set instrument state
 amc.get_state()
