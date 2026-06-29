@@ -18,7 +18,7 @@ microscopes/
   calibration/vendor/leica/...             Leica calibration notebooks and code
   limits/                                  safety-limit data and helpers
   shared/                                  vendor-independent utilities
-  microscope_agnostic_layer/               cross-vendor layer, under construction
+  microscope_agnostic_controller/          cross-vendor controller (see its README)
 workflows/
   target_acquisition/                      operator notebook, pipeline, tests
 ```
