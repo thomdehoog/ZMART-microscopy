@@ -120,6 +120,6 @@ def resolve(instrument: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]
         entry = REGISTRY[key]
     except KeyError:
         raise ValueError(
-            f"no driver registered for {dict(zip(IDENTITY, key))}; known: {sorted(REGISTRY)}"
+            f"no driver registered for {dict(zip(IDENTITY, key, strict=True))}; known: {sorted(REGISTRY)}"
         ) from None
     return entry["ops"], connection
