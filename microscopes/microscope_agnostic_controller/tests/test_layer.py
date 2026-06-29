@@ -38,7 +38,7 @@ class TestSetInstrument:
             set_instrument({"vendor": "nope", "microscope": "x", "api": "y"})
 
 
-class TestCoordinates:
+class TestFrame:
     def test_set_get_roundtrip(self, mic):
         rec = mic.set_xyz(10, 20, 5)
         assert rec["position"] == {"x": 10, "y": 20, "z": 5}
