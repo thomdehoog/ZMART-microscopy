@@ -23,8 +23,8 @@ import microscope_agnostic_controller as mac
 mac.get_instruments()
 mac.set_instrument(instrument=Dict)
 
-# 2) Set the origin of the frame
-mac.set_origin(x=0, y=0, z=0)
+# 2) Set the origin of the frame (current position becomes 0, 0, 0)
+mac.set_origin()
 
 # 3) Discover actuators, then read or move the position in the frame
 mac.get_actuators()
@@ -77,11 +77,10 @@ mac.set_instrument(instrument)
 
 ### 2. Set the origin of the frame
 
-A position only means something against a frame. `set_origin()` sets the frame
-origin at the current position (or `set_origin(x, y, z)` declares the current
-position as a known point). From then on, every position is micrometers in that
-frame -- the single canonical reference. The objective and the actuator are
-hardware the driver maps onto, not part of what a position means:
+A position only means something against a frame. `set_origin()` tells the driver
+the current position is, for our purposes, (0, 0, 0). From then on, every position
+is micrometers in that frame -- the single canonical reference. The objective and
+the actuator are hardware the driver maps onto, not part of what a position means:
 
 ```python
 mac.set_origin()                    # (0, 0, 0) is here now
