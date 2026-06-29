@@ -21,7 +21,7 @@ Everything you can call:
 ```python
 import agnostic_microscope_controller as amc
 
-# 1) Discover microscopes and connect
+# 1) Get available intruments and select one
 amc.get_instruments()
 amc.set_instrument(instrument=Dict, reference_stage=String, reference_objective=String)
 
@@ -41,8 +41,8 @@ amc.acquire(acquisition_type=String, position_label=String, options=Dict)
 amc.get_procedures()
 amc.set_procedure(Dict)
 
-# 7) Get additional context
-amc.get_context
+# 7) Get additional context (e.g. initial positions)
+amc.get_context() 
 
 # 8) Close the session
 amc.disconnect()
