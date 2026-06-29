@@ -19,21 +19,21 @@ Everything you can call:
 ```python
 import microscope_agnostic_controller as mac
 
-# 1) Get the available instruments, connect, and set the frame (zero the origin)
+# 1) Get the available instruments and connect to one
 mac.get_instruments()
 mac.set_instrument(instrument=Dict)
+
+# 2) Set the origin of the frame
 mac.set_origin(x=0, y=0, z=0)
 
-# 2) Capture and reapply instrument state
-mac.get_state()
-mac.set_state(Dict)
-
-# 3) Get additional context the driver provides (e.g. initial positions)
-mac.get_context()
-
-# 4) Move to a position (in the frame)
+# 3) Discover actuators, then read or move the position in the frame
+mac.get_actuators()
 mac.get_xyz()
 mac.set_xyz(x, y, z, with_actuators=Dict)
+
+# 4) Capture and reapply instrument state
+mac.get_state()
+mac.set_state(Dict)
 
 # 5) Acquire data (captures and saves) with the current state and position
 mac.get_acquisition_options()
@@ -43,7 +43,10 @@ mac.acquire(acquisition_type=String, position_label=String, options=Dict)
 mac.get_procedures()
 mac.set_procedure(Dict)
 
-# 7) Close the session
+# 7) Get additional context the driver provides (e.g. initial positions)
+mac.get_context()
+
+# 8) Close the session
 mac.disconnect()
 ```
 
@@ -55,16 +58,14 @@ you want to change.
 
 ## The workflow, step by step
 
-### 1. Get instruments, connect, and zero
+### 1. Get instruments and connect
 
 `get_instruments()` lists what you can connect to, with no hardware touched. Each
 entry is a `connection` dict -- the `vendor` / `microscope` / `api` identity the
 registry keys on, plus any driver-specific params (client name, api delay, host,
 ...). You can edit it before connecting (e.g. drop in a credential); the
 controller forwards it to the driver's `connect` untouched. `set_instrument()`
-opens the session, then `set_origin()` sets the frame origin at the current
-position (or `set_origin(x, y, z)` declares the current position as a known point
-in the frame). After this, every `mac` call goes to that microscope.
+opens the session. After this, every `mac` call goes to that microscope.
 
 ```python
 instrument = mac.get_instruments()[0]
@@ -72,21 +73,39 @@ instrument = mac.get_instruments()[0]
 #  "client": "PythonClient", "api_delay_ms": 250}
 
 mac.set_instrument(instrument)
+```
+
+### 2. Set the origin of the frame
+
+A position only means something against a frame. `set_origin()` sets the frame
+origin at the current position (or `set_origin(x, y, z)` declares the current
+position as a known point). From then on, every position is micrometers in that
+frame -- the single canonical reference. The objective and the actuator are
+hardware the driver maps onto, not part of what a position means:
+
+```python
 mac.set_origin()                    # (0, 0, 0) is here now
 ```
 
-The frame is the whole coordinate system: micrometers from the origin you set.
-The objective and the actuator are hardware the driver maps onto, not part of
-what a position in the frame means:
-
-- **Frame** — micrometers from the origin; the single canonical reference every
-  position is given in.
+- **Frame** — micrometers from the origin; the one canonical reference.
 - **Actuator** — chosen per axis (`with_actuators`); using the piezo for fine Z
   does not change the coordinates you give, only which actuator moves to them.
 - **Objective** — switching it moves the optics, not your coordinates; the driver
   applies the offset.
 
-### 2. Capture and reapply state
+### 3. Move to a position in the frame
+
+`get_actuators()` lists the actuator options each axis offers. `get_xyz()` and
+`set_xyz()` read and set the position in micrometers, relative to the origin. The
+optional `with_actuators` argument chooses which actuator moves each axis (for
+example, the piezo for fine Z) without changing the coordinates you give.
+
+```python
+mac.get_actuators()                 # {"x": ["motoric"], "z": ["motoric", "galvo", "piezo"]}
+mac.set_xyz(10, 20, 5, with_actuators={"z": "piezo"})   # Z via the piezo
+```
+
+### 4. Capture and reapply state
 
 A *state* is a snapshot of the instrument's settings you can capture now and
 reapply later. It is an opaque dict the driver owns: an `immutable` fingerprint
@@ -97,26 +116,6 @@ reapply later. It is an opaque dict the driver owns: an `immutable` fingerprint
 prescan = mac.get_state()                 # {"immutable": {...}, "mutable": {...}}
 prescan["mutable"]["laser_power"] = 2.0
 mac.set_state(prescan)                     # reapply it later
-```
-
-### 3. Get additional context
-
-`get_context()` returns whatever extra read-only context the driver provides — for
-example the initial positions captured at connect.
-
-```python
-mac.get_context()["initial_positions"]     # [{"x": 0.0, "y": 0.0, "z": 0.0}, ...]
-```
-
-### 4. Move to a position
-
-`get_xyz()` and `set_xyz()` read and set the position in micrometers, relative to
-the origin. The optional `with_actuators` argument chooses which actuator moves
-each axis (for example, the piezo for fine Z) without changing the coordinates you
-give.
-
-```python
-mac.set_xyz(10, 20, 5, with_actuators={"z": "piezo"})   # Z via the piezo
 ```
 
 ### 5. Acquire (captures and saves)
@@ -145,7 +144,16 @@ mac.get_procedures()                       # {"autofocus": {...}, ...}
 mac.set_procedure({"name": "autofocus"})
 ```
 
-### 7. Close the session
+### 7. Get additional context
+
+`get_context()` returns whatever extra read-only context the driver provides — for
+example the initial positions captured at connect.
+
+```python
+mac.get_context()["initial_positions"]     # [{"x": 0.0, "y": 0.0, "z": 0.0}, ...]
+```
+
+### 8. Close the session
 
 ```python
 mac.disconnect()
@@ -171,7 +179,7 @@ register(
     {"vendor": "leica", "microscope": "stellaris5-01", "api": "navigator-expert",
      "client": "PythonClient", "api_delay_ms": 250},
     ops={"connect": ..., "acquisition_options": ..., "set_origin": ...,
-         "get_xyz": ..., "set_xyz": ..., "acquire": ...,
+         "get_actuators": ..., "get_xyz": ..., "set_xyz": ..., "acquire": ...,
          "get_state": ..., "set_state": ..., "get_procedures": ...,
          "set_procedure": ..., "get_context": ...},
 )

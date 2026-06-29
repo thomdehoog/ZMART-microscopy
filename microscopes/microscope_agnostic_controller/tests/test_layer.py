@@ -58,6 +58,9 @@ class TestFrame:
         mic.set_origin(x=100, y=0, z=0)  # current position now reads (100, 0, 0)
         assert mic.get_xyz()["x"]["value"] == 100
 
+    def test_get_actuators_lists_options(self, mic):
+        assert mic.get_actuators()["z"] == ["motoric", "galvo", "piezo"]
+
     def test_actuator_selector_reported_back(self, mic):
         pos = mic.get_xyz(with_actuators={"z": "piezo"})
         assert pos["z"]["actuator"] == "piezo"
@@ -129,7 +132,6 @@ class TestContext:
         assert len(ctx["initial_positions"]) == 3
         assert ctx["initial_positions"][0] == {"x": 0.0, "y": 0.0, "z": 0.0}
         assert ctx["serial"] == "MOCK-0001"
-        assert ctx["actuators"]["z"] == ["motoric", "galvo", "piezo"]
 
 
 class TestModuleStyle:

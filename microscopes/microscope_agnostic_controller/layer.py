@@ -85,6 +85,13 @@ class Session:
 
     # --- movement -----------------------------------------------------------
 
+    def get_actuators(self) -> dict:
+        """The actuator options each axis offers, e.g. ``{"z": ["motoric", "piezo"]}``.
+
+        Pass a choice back as ``with_actuators`` on :meth:`get_xyz` / :meth:`set_xyz`.
+        """
+        return self._ops["get_actuators"](self._handle)
+
     def get_xyz(self, with_actuators: dict | None = None) -> dict:
         """Read the current position per axis, in the frame (micrometers).
 
