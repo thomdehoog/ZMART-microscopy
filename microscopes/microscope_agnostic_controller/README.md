@@ -19,9 +19,10 @@ Everything you can call:
 ```python
 import microscope_agnostic_controller as mac
 
-# 1) Get the available instruments and select one (with its reference frame)
+# 1) Get the available instruments, connect to one, and zero the coordinates
 mac.get_instruments()
-mac.set_instrument(instrument=Dict, reference_actuators=Dict, reference_objective=String)
+mac.set_instrument(instrument=Dict)
+mac.set_origin(x=0, y=0, z=0)
 
 # 2) Capture and reapply instrument state
 mac.get_state()
@@ -54,43 +55,34 @@ you want to change.
 
 ## The workflow, step by step
 
-### 1. Get instruments and connect
+### 1. Get instruments, connect, and zero
 
 `get_instruments()` lists what you can connect to, with no hardware touched. Each
-entry has exactly three keys -- a `connection` dict (forwarded untouched to the
-driver at connect), the instrument's `objectives` list, and its `actuators`
-(a per-axis dict of the actuator options each axis offers) -- so you can choose a
-reference objective and per-axis reference actuators. `set_instrument()` then opens
-the session and fixes that reference frame in one step. After this, every `mac`
-call goes to that microscope.
+entry is a `connection` dict -- the `vendor` / `microscope` / `api` identity the
+registry keys on, plus any driver-specific params (client name, api delay, host,
+...). You can edit it before connecting (e.g. drop in a credential); the
+controller forwards it to the driver's `connect` untouched. `set_instrument()`
+opens the session, then `set_origin()` zeros the coordinates at the current
+position (or `set_origin(x, y, z)` declares the current position as a known
+coordinate). After this, every `mac` call goes to that microscope.
 
 ```python
-mac.get_instruments()
-# [{"connection": {"vendor": "leica", "microscope": "stellaris5-01",
-#                  "api": "navigator-expert", "client": "PythonClient", "api_delay_ms": 250},
-#   "objectives": ["10x", "20x", "40x"],
-#   "actuators": {"x": ["motoric"], "y": ["motoric"], "z": ["z-galvo", "z-wide"]}}]
-
 instrument = mac.get_instruments()[0]
-mac.set_instrument(
-    instrument,
-    reference_actuators={"x": "motoric", "y": "motoric", "z": "z-wide"},
-    reference_objective="10x",
-)
+# {"vendor": "leica", "microscope": "stellaris5-01", "api": "navigator-expert",
+#  "client": "PythonClient", "api_delay_ms": 250}
+
+mac.set_instrument(instrument)
+mac.set_origin()                    # (0, 0, 0) is here now
 ```
 
-The `connection` dict carries the `vendor` / `microscope` / `api` identity the
-registry keys on, plus any driver-specific connect params (client name, api
-delay, host, ...). You can edit it before connecting (e.g. drop in a credential);
-the controller forwards it to the driver's `connect` untouched.
+Coordinates are always micrometers relative to the origin -- that is the whole
+coordinate system. The objective and the actuator are hardware the driver maps
+onto, not part of what a coordinate means:
 
-The reference frame keeps three things separate, so a point keeps the same
-coordinates no matter how you reach it:
-
-- **Coordinate system** — you always give coordinates in the motoric stage's
-  space, the single canonical frame.
-- **Actuator** — chosen per axis; using the piezo for fine Z does not change the
-  coordinates you give, only which actuator moves to them.
+- **Coordinate system** — micrometers from the origin you set; the single
+  canonical frame.
+- **Actuator** — chosen per axis (`with_actuators`); using the piezo for fine Z
+  does not change the coordinates you give, only which actuator moves to them.
 - **Objective** — switching it moves the optics, not your coordinates; the driver
   applies the offset.
 
@@ -170,7 +162,7 @@ and step through the cells.
 
 A driver is a set of functions — one per operation — registered under a
 `connection` dict (which carries the `vendor` / `microscope` / `api` identity plus
-any connect params), with the objective and stage options it offers:
+any connect params):
 
 ```python
 from microscope_agnostic_controller.registry import register
@@ -178,12 +170,10 @@ from microscope_agnostic_controller.registry import register
 register(
     {"vendor": "leica", "microscope": "stellaris5-01", "api": "navigator-expert",
      "client": "PythonClient", "api_delay_ms": 250},
-    ops={"connect": ..., "acquisition_options": ..., "set_coordinate_system": ...,
+    ops={"connect": ..., "acquisition_options": ..., "set_origin": ...,
          "get_xyz": ..., "set_xyz": ..., "acquire": ...,
          "get_state": ..., "set_state": ..., "get_procedures": ...,
          "set_procedure": ..., "get_context": ...},
-    objectives=["10x", "20x", "40x"],
-    actuators={"x": ["motoric"], "y": ["motoric"], "z": ["z-galvo", "z-wide"]},
 )
 ```
 
