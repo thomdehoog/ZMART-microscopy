@@ -1,4 +1,4 @@
-name: Tests
+name: Microscope Agnostic Controller
 
 on:
   push:
@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  agnostic-layer:
-    name: agnostic layer / ${{ matrix.os }} / Python ${{ matrix.python-version }}
+  tests:
+    name: tests / ${{ matrix.os }} / Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -26,13 +26,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install pytest
-        # The agnostic layer is pure-stdlib and the repo is not a pip package,
-        # so the mock suite needs only pytest. conftest.py puts microscopes/ on
-        # sys.path, so no install of the package itself is required.
+        # The controller is pure-stdlib and the repo is not a pip package, so the
+        # mock suite needs only pytest. conftest.py puts microscopes/ on sys.path.
         run: pip install pytest
 
       - name: Run the mock test suite
-        # Only the agnostic-layer mock suite runs in CI: it is fully offline and
-        # hardware-free. The driver/calibration suites need LAS X + a microscope
-        # and cannot run on GitHub runners.
-        run: python -m pytest microscopes/microscope_agnostic_layer/tests --tb=short
+        # Only the controller's mock suite runs in CI: it is fully offline and
+        # hardware-free. Driver/calibration suites need LAS X + a microscope.
+        run: python -m pytest microscopes/microscope_agnostic_controller/tests --tb=short
