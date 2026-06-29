@@ -23,6 +23,7 @@ Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 """
 
+__version__ = "0.1.0"
 __author__ = "Thom de Hoog"
 __email__ = "thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com"
 __affiliation__ = "Center for Microscopy and Image Analysis (ZMB), University of Zurich"
@@ -53,4 +54,8 @@ def __getattr__(name: str):
     # Delegate unknown attributes (acquire, set_xyz, …) to the active microscope.
     if _active is not None and hasattr(_active, name):
         return getattr(_active, name)
+    if _active is None and not name.startswith("_"):
+        raise AttributeError(
+            f"no active microscope - call set_instrument(...) before mac.{name}(...)"
+        )
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
