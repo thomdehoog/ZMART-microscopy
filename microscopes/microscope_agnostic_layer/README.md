@@ -1,4 +1,4 @@
-# Microscope-Agnostic Layer
+# Agnostic Microscope Controller
 
 [![tests](https://github.com/thomdehoog/smart-microscopy/actions/workflows/tests.yml/badge.svg?branch=microscope-agnostic-layer)](https://github.com/thomdehoog/smart-microscopy/actions/workflows/tests.yml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
@@ -8,42 +8,42 @@
 
 One small, consistent interface for driving a microscope from a smart-microscopy
 workflow. You discover what is there, connect, and issue plain commands. The same
-workflow runs on any microscope that has a driver; your code never imports a
-vendor's API.
+workflow runs on any microscope that has a driver build for it. 
+The driver interacts with the api from the microscope. 
 
-The layer stays deliberately thin. It holds the session's context and forwards
-your intent to the driver; the driver does the real work.
+This controller stays simple and provides the user experience.
+Easy to understand for human and ai agents
 
 ## Overview of functionalities
 
 Everything you can call:
 
 ```python
-import agnostic_microscope as mic
+import agnostic_microscope_controller as amc
 
 # 1) Discover microscopes and connect
-mic.get_instruments()
-mic.set_instrument(vendor=String, microscope=String, api=String, client=String, password=String, reference_stage=String, reference_objective=String)
+amc.get_instruments()
+amc.set_instrument(instrument=Dict, reference_stage=String, reference_objective=String)  #vendor=String, microscope=String, api=String, client=String, password=String
 
 # 2) Capture and set instrument state
-mic.get_state()
-mic.set_state(Dict)
+amc.get_state()
+amc.set_state(Dict)
 
 # 3) Handle stage movements
-mic.get_positions()
-mic.get_xyz()
-mic.set_xyz(x, y, z, with_stage_types=Dict)
+amc.get_positions()
+amc.get_xyz()
+amc.set_xyz(x, y, z, with_stage_types=Dict)
 
 # 5) Acquire data with the current state and position
-mic.get_acquisitions_options()
-mic.acquire(acquisition_type=String, position_label=String, options=Dict)
+amc.get_acquisitions_options()
+amc.acquire(acquisition_type=String, position_label=String, options=Dict)
 
 # 6) Run a procedure specific to the microscope (e.g. hardware autofocus)
-mic.get_procedure()
-mic.set_procedure(Dict)
+amc.get_procedure()
+amc.set_procedure(Dict)
 
 # 7) Close the session
-mic.disconnect()
+amc.disconnect()
 ```
 
 Most steps follow the same pattern: **discover, then apply.** Call a `get_*`
