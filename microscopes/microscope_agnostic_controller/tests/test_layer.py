@@ -54,9 +54,7 @@ class TestSetInstrument:
     def test_unknown_actuator_raises(self):
         inst = get_instruments()[0]
         with pytest.raises(ValueError, match="unknown actuator"):
-            set_instrument(
-                inst, reference_actuators={"z": "hovercraft"}, reference_objective="10x"
-            )
+            set_instrument(inst, reference_actuators={"z": "hovercraft"}, reference_objective="10x")
 
 
 class TestCoordinates:
