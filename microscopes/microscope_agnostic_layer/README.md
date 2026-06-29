@@ -30,7 +30,6 @@ amc.get_state()
 amc.set_state(Dict)
 
 # 3) Handle stage movements
-amc.get_positions()
 amc.get_xyz()
 amc.set_xyz(x, y, z, with_stage_types=Dict)
 
@@ -39,10 +38,13 @@ amc.get_acquisitions_options()
 amc.acquire(acquisition_type=String, position_label=String, options=Dict)
 
 # 6) Run a procedure specific to the microscope (e.g. hardware autofocus)
-amc.get_procedure()
+amc.get_procedures()
 amc.set_procedure(Dict)
 
-# 7) Close the session
+# 7) Get additional context
+amc.get_context
+
+# 8) Close the session
 amc.disconnect()
 ```
 
