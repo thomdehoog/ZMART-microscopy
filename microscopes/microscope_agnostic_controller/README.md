@@ -27,20 +27,20 @@ mac.set_instrument(instrument=Dict, reference_stage=String, reference_objective=
 mac.get_state()
 mac.set_state(Dict)
 
-# 3) Move the stage
+# 3) Get additional context the driver provides (e.g. initial positions)
+mac.get_context()
+
+# 4) Move the stage
 mac.get_xyz()
 mac.set_xyz(x, y, z, with_stage_types=Dict)
 
-# 4) Acquire data (captures and saves) with the current state and position
+# 5) Acquire data (captures and saves) with the current state and position
 mac.get_acquisition_options()
 mac.acquire(acquisition_type=String, position_label=String, options=Dict)
 
-# 5) Run a procedure specific to the microscope (e.g. hardware autofocus)
+# 6) Run a procedure specific to the microscope (e.g. hardware autofocus)
 mac.get_procedures()
 mac.set_procedure(Dict)
-
-# 6) Get additional context the driver provides (e.g. initial positions)
-mac.get_context()
 
 # 7) Close the session
 mac.disconnect()
