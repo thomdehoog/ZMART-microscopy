@@ -7,14 +7,18 @@ to use it, both giving ``mac.<call>()``:
     import microscope_agnostic_controller as mac
 
     instruments = mac.get_instruments()
-    mac.set_instrument(instruments[0], reference_stage="motoric", reference_objective="10x")
+    mac.set_instrument(instruments[0],
+                       reference_actuators={"x": "motoric", "y": "motoric", "z": "motoric"},
+                       reference_objective="10x")
     mac.set_xyz(10, 20, 5)
     mac.acquire(acquisition_type="prescan", position_label="A1")
     mac.disconnect()
 
     # or hold the session object explicitly (needed for >1 microscope at once)
     from microscope_agnostic_controller import set_instrument
-    mic = set_instrument(instrument, reference_stage="motoric", reference_objective="10x")
+    mic = set_instrument(instrument,
+                         reference_actuators={"x": "motoric", "y": "motoric", "z": "motoric"},
+                         reference_objective="10x")
     mic.acquire(acquisition_type="prescan", position_label="A1")
 
 Requires the microscopes/ source root on sys.path.

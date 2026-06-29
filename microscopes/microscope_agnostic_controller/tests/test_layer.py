@@ -9,45 +9,54 @@ from __future__ import annotations
 import pytest
 from microscope_agnostic_controller import get_instruments, set_instrument
 
+# Reference actuators for the mock: motoric on every axis.
+MOTORIC = {"x": "motoric", "y": "motoric", "z": "motoric"}
+
 
 @pytest.fixture
 def mic():
     instrument = get_instruments()[0]
-    session = set_instrument(instrument, reference_stage="motoric", reference_objective="10x")
+    session = set_instrument(instrument, reference_actuators=MOTORIC, reference_objective="10x")
     yield session
     session.disconnect()
 
 
 class TestInstruments:
     def test_lists_with_options(self):
-        inst = next(i for i in get_instruments() if i["vendor"] == "mock")
-        assert inst["microscope"] == "mock-scope"
-        assert inst["api"] == "mock-api"
-        assert "10x" in inst["objective_options"]
-        assert "motoric" in inst["stage_options"]
+        inst = next(i for i in get_instruments() if i["connection"]["vendor"] == "mock")
+        assert inst["connection"]["microscope"] == "mock-scope"
+        assert inst["connection"]["api"] == "mock-api"
+        assert "10x" in inst["objectives"]
+        assert "motoric" in inst["actuators"]["x"]
 
 
 class TestSetInstrument:
     def test_context_resolves(self, mic):
         assert mic.context == {"vendor": "mock", "microscope": "mock-scope", "api": "mock-api"}
 
+    def test_connection_reaches_driver(self, mic):
+        # the variable connection dict is forwarded untouched to the driver's connect()
+        assert mic.get_context()["client"] == "mock-client"
+
     def test_unknown_vendor_raises(self):
-        with pytest.raises(ValueError, match="unknown vendor"):
+        with pytest.raises(ValueError, match="no driver registered"):
             set_instrument(
-                {"vendor": "nope", "microscope": "x", "api": "y"},
-                reference_stage="motoric",
+                {"connection": {"vendor": "nope", "microscope": "x", "api": "y"}},
+                reference_actuators=MOTORIC,
                 reference_objective="10x",
             )
 
     def test_unknown_objective_raises(self):
         inst = get_instruments()[0]
         with pytest.raises(ValueError, match="unknown objective"):
-            set_instrument(inst, reference_stage="motoric", reference_objective="999x")
+            set_instrument(inst, reference_actuators=MOTORIC, reference_objective="999x")
 
-    def test_unknown_stage_raises(self):
+    def test_unknown_actuator_raises(self):
         inst = get_instruments()[0]
-        with pytest.raises(ValueError, match="unknown stage"):
-            set_instrument(inst, reference_stage="hovercraft", reference_objective="10x")
+        with pytest.raises(ValueError, match="unknown actuator"):
+            set_instrument(
+                inst, reference_actuators={"z": "hovercraft"}, reference_objective="10x"
+            )
 
 
 class TestCoordinates:
@@ -59,17 +68,22 @@ class TestCoordinates:
 
     def test_objective_offset_applied_by_driver(self):
         inst = get_instruments()[0]
-        mic = set_instrument(inst, reference_stage="motoric", reference_objective="20x")
+        mic = set_instrument(inst, reference_actuators=MOTORIC, reference_objective="20x")
         mic.set_xyz(0, 0, 0)
         pos = mic.get_xyz()
         assert pos["x"]["value"] == 1.5
         assert pos["y"]["value"] == -0.8
         mic.disconnect()
 
-    def test_stage_selector_reported_back(self, mic):
-        pos = mic.get_xyz(with_stage_types={"z": "piezo"})
-        assert pos["z"]["stage"] == "piezo"
-        assert pos["x"]["stage"] == "motoric"  # untouched axes use the active one
+    def test_actuator_selector_reported_back(self, mic):
+        pos = mic.get_xyz(with_actuators={"z": "piezo"})
+        assert pos["z"]["actuator"] == "piezo"
+        assert pos["x"]["actuator"] == "motoric"  # untouched axes use the reference one
+
+    def test_set_xyz_returns_driver_record(self, mic):
+        rec = mic.set_xyz(10, 20, 5)
+        assert rec["position"] == {"x": 10, "y": 20, "z": 5}  # 10x: no offset
+        assert rec["actuators"]["z"] == "motoric"
 
 
 class TestAcquire:
@@ -145,7 +159,7 @@ class TestModuleStyle:
         import microscope_agnostic_controller as m
 
         inst = m.get_instruments()[0]
-        m.set_instrument(inst, reference_stage="motoric", reference_objective="20x")
+        m.set_instrument(inst, reference_actuators=MOTORIC, reference_objective="20x")
         m.set_xyz(0, 0, 0)
         assert m.get_xyz()["x"]["value"] == 1.5
         m.disconnect()

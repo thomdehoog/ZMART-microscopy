@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .registry import resolve
+from .registry import IDENTITY, resolve
 
 
 class Session:
@@ -73,24 +73,25 @@ class Session:
 
     # --- movement -----------------------------------------------------------
 
-    def get_xyz(self, with_stage_types: dict | None = None) -> dict:
+    def get_xyz(self, with_actuators: dict | None = None) -> dict:
         """Read the current position per axis, in the canonical (motoric) frame.
 
-        Coordinates are micrometers. ``with_stage_types`` optionally selects which
+        Coordinates are micrometers. ``with_actuators`` optionally selects which
         actuator to read per axis (e.g. ``{"z": "piezo"}``); axes left unspecified
-        use the active one.
+        use the reference one.
         """
-        return self._ops["get_xyz"](self._handle, with_stage_types=with_stage_types)
+        return self._ops["get_xyz"](self._handle, with_actuators=with_actuators)
 
-    def set_xyz(self, x: float, y: float, z: float, with_stage_types: dict | None = None) -> None:
+    def set_xyz(self, x: float, y: float, z: float, with_actuators: dict | None = None):
         """Move to an absolute target in the canonical (motoric) coordinate system.
 
-        Coordinates are micrometers. ``with_stage_types`` selects the actuator
-        that realizes the move per axis (``None`` -> the active one). The driver
+        Returns whatever the driver reports (e.g. a move record / confirmation).
+        Coordinates are micrometers. ``with_actuators`` selects the actuator
+        that realizes the move per axis (``None`` -> the reference one). The driver
         applies the objective offset and the actuator transform -- that
         calibration is never the controller's job.
         """
-        self._ops["set_xyz"](self._handle, x, y, z, with_stage_types=with_stage_types)
+        return self._ops["set_xyz"](self._handle, x, y, z, with_actuators=with_actuators)
 
     # --- acquire (captures and saves) ---------------------------------------
 
@@ -143,23 +144,27 @@ class Session:
 
 def set_instrument(
     instrument: dict[str, Any],
-    reference_stage: str,
+    reference_actuators: dict[str, str],
     reference_objective: str,
 ) -> Session:
     """Select an instrument, open the session, and fix the coordinate system.
 
     ``instrument`` is one of the dicts from :func:`get_instruments`.
-    ``reference_stage`` and ``reference_objective`` are chosen from that dict's
-    ``stage_options`` / ``objective_options``; they fix the reference frame in
-    which ``set_xyz`` coordinates are given. This is the connector: it resolves
-    the driver, opens the session, and sets the frame (the driver validates the
-    choices). Option menus are not cached here -- ``get_*`` calls forward to the
-    driver live.
+    ``reference_actuators`` (a per-axis dict, e.g. ``{"x": "motoric", "z":
+    "z-wide"}``) and ``reference_objective`` are chosen from that dict's
+    ``actuators`` / ``objectives``; they fix the reference frame in which
+    ``set_xyz`` coordinates are given. This is the connector: it resolves the
+    driver, forwards the instrument's ``connection`` dict to the driver's
+    ``connect``, and sets the frame (the driver validates the choices). Option
+    menus are not cached here -- ``get_*`` calls forward to the driver live.
 
     Returns a connected :class:`Session`. Raises ``ValueError`` if the instrument
-    is unknown or the reference objective/stage is not supported.
+    is unknown or a reference objective/actuator is not supported.
     """
-    ops, context = resolve(instrument)
-    handle = ops["connect"](microscope=context["microscope"], api=context["api"])
-    ops["set_coordinate_system"](handle, objective=reference_objective, stage_type=reference_stage)
+    ops, connection = resolve(instrument)
+    handle = ops["connect"](connection)
+    ops["set_coordinate_system"](
+        handle, objective=reference_objective, actuators=reference_actuators
+    )
+    context = {key: connection[key] for key in IDENTITY}
     return Session(ops, handle, context)
