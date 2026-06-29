@@ -1,12 +1,12 @@
 """Mock microscope integration: a reference driver with no hardware.
 
 It exercises the full controller contract so the package can be tested offline,
-and it shows the shape a real driver implements: it receives context (objective,
-stage, actuator) and does the work the controller does not -- applying the
-objective offset, settling before capture, saving, and owning the
-mutable/immutable state boundary.
+and it shows the shape a real driver implements: it receives the connection dict,
+owns the coordinate origin (user coordinates are micrometers relative to it), and
+does the work the controller does not -- settling before capture, saving, and
+owning the mutable/immutable state boundary.
 
-Driver contract used by the registry: ``connect(**ctx) -> handle`` opens a
+Driver contract used by the registry: ``connect(connection) -> handle`` opens a
 session and returns an opaque handle; every other operation takes that handle as
 its first argument.
 
@@ -18,16 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# Objective parcentricity offsets in micrometres, in the motoric coordinate
-# system, relative to the 10x baseline. A real driver reads these from calibration.
-_OBJECTIVE_OFFSETS: dict[str, tuple[float, float]] = {
-    "10x": (0.0, 0.0),
-    "20x": (1.5, -0.8),
-    "40x": (2.1, 0.4),
-}
-
-# Actuators this instrument exposes per axis (declared at registration so they
-# are discoverable before connecting). Z has more than one; X/Y are stage-only.
+# Per-axis actuator options this instrument exposes (driver-defined).
 _ACTUATORS: dict[str, list[str]] = {
     "x": ["motoric"],
     "y": ["motoric"],
@@ -37,42 +28,48 @@ _ACTUATORS: dict[str, list[str]] = {
 
 @dataclass
 class MockHandle:
-    """In-memory instrument state standing in for a live connection."""
+    """In-memory instrument state standing in for a live connection.
 
-    objective: str = "10x"
+    Stores the raw motoric position (um) and the origin; user coordinates are raw
+    minus origin. The driver owns that arithmetic.
+    """
 
-    # reference actuator per axis, fixed at set_coordinate_system
-    actuators: dict[str, str] = field(
-        default_factory=lambda: {"x": "motoric", "y": "motoric", "z": "motoric"}
-    )
-
-    # connection params the driver picked up at connect (proves they flowed through)
-    client: str | None = None
-
-    # canonical position in the motoric coordinate system
+    # raw motoric position, micrometers
     x: float = 0.0
     y: float = 0.0
     z: float = 0.0
 
+    # coordinate origin (the raw position that reads as zero)
+    origin_x: float = 0.0
+    origin_y: float = 0.0
+    origin_z: float = 0.0
+
+    # active actuator per axis
+    actuators: dict = field(
+        default_factory=lambda: {"x": "motoric", "y": "motoric", "z": "motoric"}
+    )
+
     connected: bool = True
     acquired: list[dict] = field(default_factory=list)
 
-    # mutable instrument settings (captured and reapplied)
+    # mutable instrument settings
     laser_power: float = 5.0
     gain: float = 1.0
 
-    # immutable identity
+    # immutable identity / metadata
     serial: str = "MOCK-0001"
+    objective: str = "10x"
+    client: str | None = None
     initial: list[dict] = field(default_factory=list)
     last_procedure: dict = field(default_factory=dict)
 
 
 def connect(connection: dict):
-    """Open a session and capture initial positions.
+    """Open a session and capture the initial positions.
 
-    Receives the whole variable connection dict; a real driver would validate
-    the api and authenticate with e.g. ``connection["client"]`` /
-    ``connection["password"]``.
+    Receives the whole variable connection dict; a real driver would validate the
+    api and authenticate with e.g. ``connection["client"]`` / credentials. The
+    origin defaults to the current position (zero), so ``set_xyz`` works at once.
     """
     handle = MockHandle()
     handle.client = connection.get("client")
@@ -84,25 +81,12 @@ def connect(connection: dict):
     return handle
 
 
-def set_coordinate_system(
-    handle: MockHandle, *, objective: str | None = None, actuators: dict | None = None
-) -> None:
-    """Fix the reference objective and/or per-axis actuators, validating the choices.
-
-    ``actuators`` is a per-axis dict (e.g. ``{"x": "motoric", "z": "piezo"}``);
-    each choice must be one this instrument exposes for that axis. A real driver
-    would also move to the objective and pick up its calibration.
-    """
-    if objective is not None:
-        if objective not in _OBJECTIVE_OFFSETS:
-            raise ValueError(f"unknown objective {objective!r}")
-        handle.objective = objective
-
-    if actuators is not None:
-        for axis, actuator in actuators.items():
-            if axis not in _ACTUATORS or actuator not in _ACTUATORS[axis]:
-                raise ValueError(f"unknown actuator {actuator!r} for axis {axis!r}")
-            handle.actuators[axis] = actuator
+def set_origin(handle: MockHandle, *, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> dict:
+    """Make the current position read as (x, y, z). Defaults to re-zeroing here."""
+    handle.origin_x = handle.x - x
+    handle.origin_y = handle.y - y
+    handle.origin_z = handle.z - z
+    return {"origin": {"x": handle.origin_x, "y": handle.origin_y, "z": handle.origin_z}}
 
 
 def disconnect(handle: MockHandle) -> None:
@@ -131,18 +115,31 @@ def _with_defaults(handle: MockHandle, options: dict | None) -> dict:
 
 
 def _resolve_actuators(handle: MockHandle, with_actuators: dict | None) -> dict[str, str]:
-    """Per-axis actuator choice, defaulting unspecified axes to the reference one."""
+    """Per-axis actuator choice, validated and defaulting to the active one."""
     chosen = dict(handle.actuators)
     if with_actuators:
+        for axis, actuator in with_actuators.items():
+            if axis not in _ACTUATORS or actuator not in _ACTUATORS[axis]:
+                raise ValueError(f"unknown actuator {actuator!r} for axis {axis!r}")
         chosen.update(with_actuators)
     return chosen
 
 
-def get_xyz(handle: MockHandle, *, with_actuators: dict | None = None) -> dict:
-    """Report the canonical position per axis with its actuator and unit."""
-    chosen = _resolve_actuators(handle, with_actuators)
+def _user_position(handle: MockHandle) -> dict[str, float]:
+    """Raw position minus origin -- the coordinates the workflow sees."""
     return {
-        axis: {"value": getattr(handle, axis), "actuator": chosen[axis], "unit": "um"}
+        "x": handle.x - handle.origin_x,
+        "y": handle.y - handle.origin_y,
+        "z": handle.z - handle.origin_z,
+    }
+
+
+def get_xyz(handle: MockHandle, *, with_actuators: dict | None = None) -> dict:
+    """Report the position per axis (um, relative to origin) with its actuator."""
+    chosen = _resolve_actuators(handle, with_actuators)
+    user = _user_position(handle)
+    return {
+        axis: {"value": user[axis], "actuator": chosen[axis], "unit": "um"}
         for axis in ("x", "y", "z")
     }
 
@@ -150,21 +147,16 @@ def get_xyz(handle: MockHandle, *, with_actuators: dict | None = None) -> dict:
 def set_xyz(
     handle: MockHandle, x: float, y: float, z: float, *, with_actuators: dict | None = None
 ) -> dict:
-    """Realize an absolute target in the motoric coordinate system, applying the offset.
+    """Move to an absolute target (um, relative to origin); return a move record.
 
-    The chosen actuators (``with_actuators``) realize the move. The mock folds
-    the objective offset into the stored position to make that ownership visible
-    in tests; a real driver would apply it when commanding the actuator. Returns a
-    move record (realized position + per-axis actuator), the way a real driver
-    reports move confirmation.
+    The chosen actuators realize the move. Mapping user coordinates to the raw
+    position via the origin is the driver's arithmetic, not the controller's.
     """
     chosen = _resolve_actuators(handle, with_actuators)
-    off_x, off_y = _OBJECTIVE_OFFSETS[handle.objective]
-    handle.x, handle.y, handle.z = x + off_x, y + off_y, z
-    return {
-        "position": {"x": handle.x, "y": handle.y, "z": handle.z},
-        "actuators": chosen,
-    }
+    handle.x = handle.origin_x + x
+    handle.y = handle.origin_y + y
+    handle.z = handle.origin_z + z
+    return {"position": {"x": x, "y": y, "z": z}, "actuators": chosen}
 
 
 def acquire(
@@ -185,8 +177,7 @@ def acquire(
         "format": options["format"],
         "procedure": options["procedure"],
         "settle": settle,
-        "position": {"x": handle.x, "y": handle.y, "z": handle.z},
-        "objective": handle.objective,
+        "position": _user_position(handle),
     }
     handle.acquired.append(record)
     return record
@@ -201,7 +192,7 @@ def get_state(handle: MockHandle) -> dict:
 
 
 def set_state(handle: MockHandle, state: dict) -> dict:
-    """Validate the immutable fingerprint, apply the mutable settings, report what was applied."""
+    """Validate the immutable fingerprint, apply mutable settings, report what stuck."""
     immutable = state.get("immutable", {})
     if immutable.get("serial", handle.serial) != handle.serial:
         raise ValueError("state captured on a different instrument")
@@ -225,9 +216,9 @@ def get_procedures(handle: MockHandle) -> dict:
 
 
 def set_procedure(handle: MockHandle, procedure: dict) -> dict:
-    """Run a procedure and report it ran (the mock records the last one run)."""
+    """Run a procedure (the mock records it) and report what ran."""
     handle.last_procedure = dict(procedure)
-    return {"ran": handle.last_procedure}
+    return {"ran": dict(procedure)}
 
 
 def get_context(handle: MockHandle) -> dict:
@@ -236,8 +227,8 @@ def get_context(handle: MockHandle) -> dict:
         "initial_positions": [dict(pos) for pos in handle.initial],
         "serial": handle.serial,
         "objective": handle.objective,
-        "actuators": dict(handle.actuators),
         "client": handle.client,
+        "actuators": _ACTUATORS,
     }
 
 
@@ -250,16 +241,11 @@ def register_mock() -> None:
     from microscope_agnostic_controller.registry import register
 
     register(
-        {
-            "vendor": "mock",
-            "microscope": "mock-scope",
-            "api": "mock-api",
-            "client": "mock-client",
-        },
+        {"vendor": "mock", "microscope": "mock-scope", "api": "mock-api", "client": "mock-client"},
         ops={
             "connect": connect,
             "acquisition_options": acquisition_options,
-            "set_coordinate_system": set_coordinate_system,
+            "set_origin": set_origin,
             "get_xyz": get_xyz,
             "set_xyz": set_xyz,
             "acquire": acquire,
@@ -270,6 +256,4 @@ def register_mock() -> None:
             "get_context": get_context,
             "disconnect": disconnect,
         },
-        objectives=list(_OBJECTIVE_OFFSETS),
-        actuators=_ACTUATORS,
     )

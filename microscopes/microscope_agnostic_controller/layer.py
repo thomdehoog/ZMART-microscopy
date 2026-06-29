@@ -42,6 +42,18 @@ class Session:
 
         self.context = context
 
+    # --- coordinate origin --------------------------------------------------
+
+    def set_origin(self, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> dict:
+        """Define the coordinate origin: the current position now reads (x, y, z).
+
+        Coordinates are always micrometers; the origin is the only thing to set.
+        Defaults to (0, 0, 0) -- re-zero here. The driver owns the origin (it is
+        just another driver-side offset), so the controller never does the math.
+        Returns whatever the driver reports.
+        """
+        return self._ops["set_origin"](self._handle, x=x, y=y, z=z)
+
     # --- state and procedures: opaque dicts the driver owns -----------------
 
     def get_state(self) -> dict:
@@ -142,29 +154,20 @@ class Session:
             disconnect(self._handle)
 
 
-def set_instrument(
-    instrument: dict[str, Any],
-    reference_actuators: dict[str, str],
-    reference_objective: str,
-) -> Session:
-    """Select an instrument, open the session, and fix the coordinate system.
+def set_instrument(instrument: dict[str, Any]) -> Session:
+    """Select an instrument and open the session.
 
-    ``instrument`` is one of the dicts from :func:`get_instruments`.
-    ``reference_actuators`` (a per-axis dict, e.g. ``{"x": "motoric", "z":
-    "z-wide"}``) and ``reference_objective`` are chosen from that dict's
-    ``actuators`` / ``objectives``; they fix the reference frame in which
-    ``set_xyz`` coordinates are given. This is the connector: it resolves the
-    driver, forwards the instrument's ``connection`` dict to the driver's
-    ``connect``, and sets the frame (the driver validates the choices). Option
-    menus are not cached here -- ``get_*`` calls forward to the driver live.
+    ``instrument`` is one of the connection dicts from :func:`get_instruments`.
+    This is the connector: it resolves the driver and forwards the connection
+    dict to the driver's ``connect`` untouched. There is no reference frame to
+    set -- coordinates are always micrometers; set the origin with
+    :meth:`Session.set_origin` (the driver defaults it to the current position at
+    connect). Option menus are not cached here -- ``get_*`` calls forward live.
 
     Returns a connected :class:`Session`. Raises ``ValueError`` if the instrument
-    is unknown or a reference objective/actuator is not supported.
+    identity matches no registered driver.
     """
     ops, connection = resolve(instrument)
     handle = ops["connect"](connection)
-    ops["set_coordinate_system"](
-        handle, objective=reference_objective, actuators=reference_actuators
-    )
     context = {key: connection[key] for key in IDENTITY}
     return Session(ops, handle, context)
