@@ -89,6 +89,11 @@ def set_origin(handle: MockHandle, *, x: float = 0.0, y: float = 0.0, z: float =
     return {"origin": {"x": handle.origin_x, "y": handle.origin_y, "z": handle.origin_z}}
 
 
+def get_actuators(handle: MockHandle) -> dict:
+    """The actuator options each axis offers (driver-defined)."""
+    return {axis: list(opts) for axis, opts in _ACTUATORS.items()}
+
+
 def disconnect(handle: MockHandle) -> None:
     """Mark the handle disconnected (no real resource to release)."""
     handle.connected = False
@@ -228,7 +233,6 @@ def get_context(handle: MockHandle) -> dict:
         "serial": handle.serial,
         "objective": handle.objective,
         "client": handle.client,
-        "actuators": _ACTUATORS,
     }
 
 
@@ -246,6 +250,7 @@ def register_mock() -> None:
             "connect": connect,
             "acquisition_options": acquisition_options,
             "set_origin": set_origin,
+            "get_actuators": get_actuators,
             "get_xyz": get_xyz,
             "set_xyz": set_xyz,
             "acquire": acquire,

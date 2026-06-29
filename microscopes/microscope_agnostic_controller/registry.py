@@ -28,6 +28,7 @@ OPS: tuple[str, ...] = (
     "connect",
     "acquisition_options",
     "set_origin",
+    "get_actuators",
     "get_xyz",
     "set_xyz",
     "acquire",
