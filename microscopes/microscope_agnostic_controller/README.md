@@ -21,7 +21,7 @@ import microscope_agnostic_controller as mac
 
 # 1) Get the available instruments and select one (with its reference frame)
 mac.get_instruments()
-mac.set_instrument(instrument=Dict, reference_stage=String, reference_objective=String)
+mac.set_instrument(instrument=Dict, reference_actuators=Dict, reference_objective=String)
 
 # 2) Capture and reapply instrument state
 mac.get_state()
@@ -32,7 +32,7 @@ mac.get_context()
 
 # 4) Move the stage
 mac.get_xyz()
-mac.set_xyz(x, y, z, with_stage_types=Dict)
+mac.set_xyz(x, y, z, with_actuators=Dict)
 
 # 5) Acquire data (captures and saves) with the current state and position
 mac.get_acquisition_options()
@@ -57,26 +57,39 @@ you want to change.
 ### 1. Get instruments and connect
 
 `get_instruments()` lists what you can connect to, with no hardware touched. Each
-entry is the dict you pass straight to `set_instrument`, and it carries the
-instrument's `objective_options` and `stage_options` so you can choose a reference
-objective and stage. `set_instrument()` then opens the session and fixes that
-reference frame in one step. After this, every `mac` call goes to that microscope.
+entry has exactly three keys -- a `connection` dict (forwarded untouched to the
+driver at connect), the instrument's `objectives` list, and its `actuators`
+(a per-axis dict of the actuator options each axis offers) -- so you can choose a
+reference objective and per-axis reference actuators. `set_instrument()` then opens
+the session and fixes that reference frame in one step. After this, every `mac`
+call goes to that microscope.
 
 ```python
 mac.get_instruments()
-# [{"vendor": "leica", "microscope": "stellaris5-01", "api": "navigator-expert",
-#   "objective_options": ["10x", "20x", "40x"], "stage_options": ["motoric", "galvo", "piezo"]}]
+# [{"connection": {"vendor": "leica", "microscope": "stellaris5-01",
+#                  "api": "navigator-expert", "client": "PythonClient", "api_delay_ms": 250},
+#   "objectives": ["10x", "20x", "40x"],
+#   "actuators": {"x": ["motoric"], "y": ["motoric"], "z": ["z-galvo", "z-wide"]}}]
 
 instrument = mac.get_instruments()[0]
-mac.set_instrument(instrument, reference_stage="motoric", reference_objective="10x")
+mac.set_instrument(
+    instrument,
+    reference_actuators={"x": "motoric", "y": "motoric", "z": "z-wide"},
+    reference_objective="10x",
+)
 ```
+
+The `connection` dict carries the `vendor` / `microscope` / `api` identity the
+registry keys on, plus any driver-specific connect params (client name, api
+delay, host, ...). You can edit it before connecting (e.g. drop in a credential);
+the controller forwards it to the driver's `connect` untouched.
 
 The reference frame keeps three things separate, so a point keeps the same
 coordinates no matter how you reach it:
 
 - **Coordinate system** — you always give coordinates in the motoric stage's
   space, the single canonical frame.
-- **Stage type** — chosen per axis; using the piezo for fine Z does not change the
+- **Actuator** — chosen per axis; using the piezo for fine Z does not change the
   coordinates you give, only which actuator moves to them.
 - **Objective** — switching it moves the optics, not your coordinates; the driver
   applies the offset.
@@ -106,12 +119,12 @@ mac.get_context()["initial_positions"]     # [{"x": 0.0, "y": 0.0, "z": 0.0}, ..
 ### 4. Move the stage
 
 `get_xyz()` and `set_xyz()` read and set the position in the canonical (motoric)
-coordinate system. The optional `with_stage_types` argument chooses which actuator
+coordinate system. The optional `with_actuators` argument chooses which actuator
 moves each axis (for example, the piezo for fine Z) without changing the
 coordinates you give.
 
 ```python
-mac.set_xyz(10, 20, 5, with_stage_types={"z": "piezo"})   # Z via the piezo
+mac.set_xyz(10, 20, 5, with_actuators={"z": "piezo"})   # Z via the piezo
 ```
 
 ### 5. Acquire (captures and saves)
@@ -156,25 +169,27 @@ and step through the cells.
 ## Adding a microscope
 
 A driver is a set of functions — one per operation — registered under a
-`(vendor, microscope, api)` name, with the objective and stage options it offers:
+`connection` dict (which carries the `vendor` / `microscope` / `api` identity plus
+any connect params), with the objective and stage options it offers:
 
 ```python
 from microscope_agnostic_controller.registry import register
 
 register(
-    "leica", "stellaris5-01", "navigator-expert",
+    {"vendor": "leica", "microscope": "stellaris5-01", "api": "navigator-expert",
+     "client": "PythonClient", "api_delay_ms": 250},
     ops={"connect": ..., "acquisition_options": ..., "set_coordinate_system": ...,
          "get_xyz": ..., "set_xyz": ..., "acquire": ...,
          "get_state": ..., "set_state": ..., "get_procedures": ...,
          "set_procedure": ..., "get_context": ...},
-    objective_options=["10x", "20x", "40x"],
-    stage_options=["motoric", "galvo", "piezo"],
+    objectives=["10x", "20x", "40x"],
+    actuators={"x": ["motoric"], "y": ["motoric"], "z": ["z-galvo", "z-wide"]},
 )
 ```
 
-Each function except `connect` takes the driver's handle as its first argument;
-`connect` opens the session and returns that handle. `tests/mock_driver.py` is a
-complete, readable reference implementation.
+`connect` receives the whole `connection` dict and returns the driver handle;
+every other function takes that handle as its first argument. `tests/mock_driver.py`
+is a complete, readable reference implementation.
 
 ## Tests
 

@@ -26,9 +26,13 @@ _OBJECTIVE_OFFSETS: dict[str, tuple[float, float]] = {
     "40x": (2.1, 0.4),
 }
 
-# Stage types this instrument exposes (declared at registration so they are
-# discoverable before connecting).
-_STAGE_OPTIONS: list[str] = ["motoric", "galvo", "piezo"]
+# Actuators this instrument exposes per axis (declared at registration so they
+# are discoverable before connecting). Z has more than one; X/Y are stage-only.
+_ACTUATORS: dict[str, list[str]] = {
+    "x": ["motoric"],
+    "y": ["motoric"],
+    "z": ["motoric", "galvo", "piezo"],
+}
 
 
 @dataclass
@@ -36,7 +40,14 @@ class MockHandle:
     """In-memory instrument state standing in for a live connection."""
 
     objective: str = "10x"
-    stage_type: str = "motoric"
+
+    # reference actuator per axis, fixed at set_coordinate_system
+    actuators: dict[str, str] = field(
+        default_factory=lambda: {"x": "motoric", "y": "motoric", "z": "motoric"}
+    )
+
+    # connection params the driver picked up at connect (proves they flowed through)
+    client: str | None = None
 
     # canonical position in the motoric coordinate system
     x: float = 0.0
@@ -56,13 +67,15 @@ class MockHandle:
     last_procedure: dict = field(default_factory=dict)
 
 
-def connect(*, microscope: str, api: str, client: str | None = None, password: str | None = None):
+def connect(connection: dict):
     """Open a session and capture initial positions.
 
-    A real driver would also validate the api and authenticate with
-    ``client`` / ``password``.
+    Receives the whole variable connection dict; a real driver would validate
+    the api and authenticate with e.g. ``connection["client"]`` /
+    ``connection["password"]``.
     """
     handle = MockHandle()
+    handle.client = connection.get("client")
     handle.initial = [
         {"x": 0.0, "y": 0.0, "z": 0.0},
         {"x": 120.0, "y": 0.0, "z": 0.0},
@@ -72,21 +85,24 @@ def connect(*, microscope: str, api: str, client: str | None = None, password: s
 
 
 def set_coordinate_system(
-    handle: MockHandle, *, objective: str | None = None, stage_type: str | None = None
+    handle: MockHandle, *, objective: str | None = None, actuators: dict | None = None
 ) -> None:
-    """Fix the reference objective and/or stage, validating the choices.
+    """Fix the reference objective and/or per-axis actuators, validating the choices.
 
-    A real driver would also move to the objective and pick up its calibration.
+    ``actuators`` is a per-axis dict (e.g. ``{"x": "motoric", "z": "piezo"}``);
+    each choice must be one this instrument exposes for that axis. A real driver
+    would also move to the objective and pick up its calibration.
     """
     if objective is not None:
         if objective not in _OBJECTIVE_OFFSETS:
             raise ValueError(f"unknown objective {objective!r}")
         handle.objective = objective
 
-    if stage_type is not None:
-        if stage_type not in _STAGE_OPTIONS:
-            raise ValueError(f"unknown stage {stage_type!r}")
-        handle.stage_type = stage_type
+    if actuators is not None:
+        for axis, actuator in actuators.items():
+            if axis not in _ACTUATORS or actuator not in _ACTUATORS[axis]:
+                raise ValueError(f"unknown actuator {actuator!r} for axis {axis!r}")
+            handle.actuators[axis] = actuator
 
 
 def disconnect(handle: MockHandle) -> None:
@@ -114,35 +130,41 @@ def _with_defaults(handle: MockHandle, options: dict | None) -> dict:
     return resolved
 
 
-def _resolve_stage_types(handle: MockHandle, with_stage_types: dict | None) -> dict[str, str]:
-    """Per-axis actuator choice, defaulting unspecified axes to the active one."""
-    chosen = {"x": handle.stage_type, "y": handle.stage_type, "z": handle.stage_type}
-    if with_stage_types:
-        chosen.update(with_stage_types)
+def _resolve_actuators(handle: MockHandle, with_actuators: dict | None) -> dict[str, str]:
+    """Per-axis actuator choice, defaulting unspecified axes to the reference one."""
+    chosen = dict(handle.actuators)
+    if with_actuators:
+        chosen.update(with_actuators)
     return chosen
 
 
-def get_xyz(handle: MockHandle, *, with_stage_types: dict | None = None) -> dict:
+def get_xyz(handle: MockHandle, *, with_actuators: dict | None = None) -> dict:
     """Report the canonical position per axis with its actuator and unit."""
-    chosen = _resolve_stage_types(handle, with_stage_types)
+    chosen = _resolve_actuators(handle, with_actuators)
     return {
-        axis: {"value": getattr(handle, axis), "stage": chosen[axis], "unit": "um"}
+        axis: {"value": getattr(handle, axis), "actuator": chosen[axis], "unit": "um"}
         for axis in ("x", "y", "z")
     }
 
 
 def set_xyz(
-    handle: MockHandle, x: float, y: float, z: float, *, with_stage_types: dict | None = None
-) -> None:
+    handle: MockHandle, x: float, y: float, z: float, *, with_actuators: dict | None = None
+) -> dict:
     """Realize an absolute target in the motoric coordinate system, applying the offset.
 
-    The chosen actuator (``with_stage_types``) realizes the move. The mock folds
+    The chosen actuators (``with_actuators``) realize the move. The mock folds
     the objective offset into the stored position to make that ownership visible
-    in tests; a real driver would apply it when commanding the actuator.
+    in tests; a real driver would apply it when commanding the actuator. Returns a
+    move record (realized position + per-axis actuator), the way a real driver
+    reports move confirmation.
     """
-    _resolve_stage_types(handle, with_stage_types)  # actuator selection (no-op in the mock)
+    chosen = _resolve_actuators(handle, with_actuators)
     off_x, off_y = _OBJECTIVE_OFFSETS[handle.objective]
     handle.x, handle.y, handle.z = x + off_x, y + off_y, z
+    return {
+        "position": {"x": handle.x, "y": handle.y, "z": handle.z},
+        "actuators": chosen,
+    }
 
 
 def acquire(
@@ -214,7 +236,8 @@ def get_context(handle: MockHandle) -> dict:
         "initial_positions": [dict(pos) for pos in handle.initial],
         "serial": handle.serial,
         "objective": handle.objective,
-        "stage_type": handle.stage_type,
+        "actuators": dict(handle.actuators),
+        "client": handle.client,
     }
 
 
@@ -227,9 +250,12 @@ def register_mock() -> None:
     from microscope_agnostic_controller.registry import register
 
     register(
-        "mock",
-        "mock-scope",
-        "mock-api",
+        {
+            "vendor": "mock",
+            "microscope": "mock-scope",
+            "api": "mock-api",
+            "client": "mock-client",
+        },
         ops={
             "connect": connect,
             "acquisition_options": acquisition_options,
@@ -244,6 +270,6 @@ def register_mock() -> None:
             "get_context": get_context,
             "disconnect": disconnect,
         },
-        objective_options=list(_OBJECTIVE_OFFSETS),
-        stage_options=_STAGE_OPTIONS,
+        objectives=list(_OBJECTIVE_OFFSETS),
+        actuators=_ACTUATORS,
     )
