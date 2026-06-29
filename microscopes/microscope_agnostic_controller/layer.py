@@ -42,12 +42,12 @@ class Session:
 
         self.context = context
 
-    # --- coordinate origin --------------------------------------------------
+    # --- the frame (its origin) ---------------------------------------------
 
     def set_origin(self, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> dict:
-        """Define the coordinate origin: the current position now reads (x, y, z).
+        """Set the frame origin: the current position now reads (x, y, z).
 
-        Coordinates are always micrometers; the origin is the only thing to set.
+        The frame is just micrometers from this origin -- the only thing to set.
         Defaults to (0, 0, 0) -- re-zero here. The driver owns the origin (it is
         just another driver-side offset), so the controller never does the math.
         Returns whatever the driver reports.
@@ -86,19 +86,19 @@ class Session:
     # --- movement -----------------------------------------------------------
 
     def get_xyz(self, with_actuators: dict | None = None) -> dict:
-        """Read the current position per axis, in the canonical (motoric) frame.
+        """Read the current position per axis, in the frame (micrometers).
 
-        Coordinates are micrometers. ``with_actuators`` optionally selects which
+        ``with_actuators`` optionally selects which
         actuator to read per axis (e.g. ``{"z": "piezo"}``); axes left unspecified
         use the reference one.
         """
         return self._ops["get_xyz"](self._handle, with_actuators=with_actuators)
 
     def set_xyz(self, x: float, y: float, z: float, with_actuators: dict | None = None):
-        """Move to an absolute target in the canonical (motoric) coordinate system.
+        """Move to an absolute target in the frame (micrometers from the origin).
 
         Returns whatever the driver reports (e.g. a move record / confirmation).
-        Coordinates are micrometers. ``with_actuators`` selects the actuator
+        ``with_actuators`` selects the actuator
         that realizes the move per axis (``None`` -> the reference one). The driver
         applies the objective offset and the actuator transform -- that
         calibration is never the controller's job.
@@ -159,8 +159,8 @@ def set_instrument(instrument: dict[str, Any]) -> Session:
 
     ``instrument`` is one of the connection dicts from :func:`get_instruments`.
     This is the connector: it resolves the driver and forwards the connection
-    dict to the driver's ``connect`` untouched. There is no reference frame to
-    set -- coordinates are always micrometers; set the origin with
+    dict to the driver's ``connect`` untouched. There is no reference to declare
+    up front; the frame is just micrometers from an origin you set with
     :meth:`Session.set_origin` (the driver defaults it to the current position at
     connect). Option menus are not cached here -- ``get_*`` calls forward live.
 

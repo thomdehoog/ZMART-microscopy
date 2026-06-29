@@ -7,7 +7,7 @@
 [![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/thomdehoog/smart-microscopy/actions/workflows/microscope-agnostic-controller.yml)
 
 One small, consistent interface for driving a microscope from a workflow. You
-pick an instrument, set a reference frame, and issue plain commands. The same
+pick an instrument, set the frame, and issue plain commands. The same
 workflow runs on any microscope that has a driver; your code never imports a
 vendor's API — the driver talks to the microscope's own API, the controller stays
 a thin, easy surface for humans and AI agents alike.
@@ -19,7 +19,7 @@ Everything you can call:
 ```python
 import microscope_agnostic_controller as mac
 
-# 1) Get the available instruments, connect to one, and zero the coordinates
+# 1) Get the available instruments, connect, and set the frame (zero the origin)
 mac.get_instruments()
 mac.set_instrument(instrument=Dict)
 mac.set_origin(x=0, y=0, z=0)
@@ -31,7 +31,7 @@ mac.set_state(Dict)
 # 3) Get additional context the driver provides (e.g. initial positions)
 mac.get_context()
 
-# 4) Move the stage
+# 4) Move to a position (in the frame)
 mac.get_xyz()
 mac.set_xyz(x, y, z, with_actuators=Dict)
 
@@ -62,9 +62,9 @@ entry is a `connection` dict -- the `vendor` / `microscope` / `api` identity the
 registry keys on, plus any driver-specific params (client name, api delay, host,
 ...). You can edit it before connecting (e.g. drop in a credential); the
 controller forwards it to the driver's `connect` untouched. `set_instrument()`
-opens the session, then `set_origin()` zeros the coordinates at the current
-position (or `set_origin(x, y, z)` declares the current position as a known
-coordinate). After this, every `mac` call goes to that microscope.
+opens the session, then `set_origin()` sets the frame origin at the current
+position (or `set_origin(x, y, z)` declares the current position as a known point
+in the frame). After this, every `mac` call goes to that microscope.
 
 ```python
 instrument = mac.get_instruments()[0]
@@ -75,12 +75,12 @@ mac.set_instrument(instrument)
 mac.set_origin()                    # (0, 0, 0) is here now
 ```
 
-Coordinates are always micrometers relative to the origin -- that is the whole
-coordinate system. The objective and the actuator are hardware the driver maps
-onto, not part of what a coordinate means:
+The frame is the whole coordinate system: micrometers from the origin you set.
+The objective and the actuator are hardware the driver maps onto, not part of
+what a position in the frame means:
 
-- **Coordinate system** — micrometers from the origin you set; the single
-  canonical frame.
+- **Frame** — micrometers from the origin; the single canonical reference every
+  position is given in.
 - **Actuator** — chosen per axis (`with_actuators`); using the piezo for fine Z
   does not change the coordinates you give, only which actuator moves to them.
 - **Objective** — switching it moves the optics, not your coordinates; the driver
@@ -108,12 +108,12 @@ example the initial positions captured at connect.
 mac.get_context()["initial_positions"]     # [{"x": 0.0, "y": 0.0, "z": 0.0}, ...]
 ```
 
-### 4. Move the stage
+### 4. Move to a position
 
-`get_xyz()` and `set_xyz()` read and set the position in the canonical (motoric)
-coordinate system. The optional `with_actuators` argument chooses which actuator
-moves each axis (for example, the piezo for fine Z) without changing the
-coordinates you give.
+`get_xyz()` and `set_xyz()` read and set the position in micrometers, relative to
+the origin. The optional `with_actuators` argument chooses which actuator moves
+each axis (for example, the piezo for fine Z) without changing the coordinates you
+give.
 
 ```python
 mac.set_xyz(10, 20, 5, with_actuators={"z": "piezo"})   # Z via the piezo
@@ -122,8 +122,8 @@ mac.set_xyz(10, 20, 5, with_actuators={"z": "piezo"})   # Z via the piezo
 ### 5. Acquire (captures and saves)
 
 `get_acquisition_options()` lists the acquisition and saving settings the
-instrument supports — for example `backlash_correction` (settles the stage before
-the image is captured), `format`, and `procedure`. `acquire()` captures one
+instrument supports — for example `backlash_correction` (settles the actuators
+before the image is captured), `format`, and `procedure`. `acquire()` captures one
 dataset and saves it in one call: `acquisition_type` is the kind of scan,
 `position_label` names the output file, and `options` carries the settings. Omit a
 setting and the driver uses its active default.

@@ -2,8 +2,8 @@
 
 It exercises the full controller contract so the package can be tested offline,
 and it shows the shape a real driver implements: it receives the connection dict,
-owns the coordinate origin (user coordinates are micrometers relative to it), and
-does the work the controller does not -- settling before capture, saving, and
+owns the frame origin (user coordinates are micrometers from it), and does the
+work the controller does not -- settling before capture, saving, and
 owning the mutable/immutable state boundary.
 
 Driver contract used by the registry: ``connect(connection) -> handle`` opens a
@@ -39,7 +39,7 @@ class MockHandle:
     y: float = 0.0
     z: float = 0.0
 
-    # coordinate origin (the raw position that reads as zero)
+    # frame origin (the raw position that reads as zero)
     origin_x: float = 0.0
     origin_y: float = 0.0
     origin_z: float = 0.0
