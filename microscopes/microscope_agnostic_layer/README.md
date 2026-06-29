@@ -19,34 +19,28 @@ your intent to the driver; the driver does the real work.
 Everything you can call:
 
 ```python
-import microscope_agnostic_layer as mic
+import agnostic_microscope as mic
 
-# 1) Discover and connect
-mic.available_microscopes()
-mic.connect_to_microscope(vendor=String, microscope=String, api=String, client=String, password=String)
+# 1) Discover microscopes and connect
+mic.get_instruments()
+mic.set_instrument(vendor=String, microscope=String, api=String, client=String, password=String, reference_stage=String, reference_objective=String)
 
-# 2) Define the coordinate system
-mic.get_coordinate_system()
-mic.set_coordinate_system(objective=String, stage_type=String)
-
-# 3) Capture and reapply the instrument state and procedures
+# 2) Capture and set instrument state
 mic.get_state()
 mic.set_state(Dict)
+
+# 3) Handle stage movements
+mic.get_positions()
+mic.get_xyz()
+mic.set_xyz(x, y, z, with_stage_types=Dict)
+
+# 5) Acquire data with the current state and position
+mic.get_acquisitions_options()
+mic.acquire(acquisition_type=String, position_label=String, options=Dict)
+
+# 6) Run a procedure specific to the microscope (e.g. hardware autofocus)
 mic.get_procedure()
 mic.set_procedure(Dict)
-
-# 4) Handle stage movements
-mic.get_initial_positions()
-mic.get_xyz()
-mic.set_xyz(x, y, z, stage_types=Dict)
-
-# 5) Acquire
-mic.get_acquisitions_options()
-mic.acquire(options=Dict)
-
-# 6) Export the data
-mic.get_export_data_options()
-mic.export_data(options=Dict)
 
 # 7) Close the session
 mic.disconnect()
