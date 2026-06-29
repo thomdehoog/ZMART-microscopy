@@ -163,7 +163,7 @@ from microscope_agnostic_controller.registry import register
 
 register(
     "leica", "stellaris5-01", "navigator-expert",
-    ops={"connect": ..., "capabilities": ..., "set_coordinate_system": ...,
+    ops={"connect": ..., "acquisition_options": ..., "set_coordinate_system": ...,
          "get_xyz": ..., "set_xyz": ..., "acquire": ...,
          "get_state": ..., "set_state": ..., "get_procedures": ...,
          "set_procedure": ..., "get_context": ...},

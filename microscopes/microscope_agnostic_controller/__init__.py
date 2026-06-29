@@ -46,8 +46,13 @@ def set_instrument(*args, **kwargs) -> Session:
     microscope without holding the object.
     """
     global _active
-    _active = _set_instrument(*args, **kwargs)
-    return _active
+    new = _set_instrument(*args, **kwargs)
+    # Resolve the new session first; only then tear down the previous active one,
+    # so a failed set_instrument never disconnects a working session.
+    if _active is not None and _active is not new:
+        _active.disconnect()
+    _active = new
+    return new
 
 
 def __getattr__(name: str):

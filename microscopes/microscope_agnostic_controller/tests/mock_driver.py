@@ -94,20 +94,21 @@ def disconnect(handle: MockHandle) -> None:
     handle.connected = False
 
 
-def capabilities(handle: MockHandle) -> dict:
-    """Post-connect option menus. Here, the acquisition + saving options."""
+def acquisition_options(handle: MockHandle) -> dict:
+    """The acquisition + saving options this instrument offers (options + active).
+
+    Driver-owned and answered on demand; the controller caches nothing.
+    """
     return {
-        "acquisition_options": {
-            "backlash_correction": {"options": [True, False], "active": True},
-            "format": {"options": ["ome-tiff", "ome-zarr"], "active": "ome-tiff"},
-            "procedure": {"options": ["direct", "tiled"], "active": "direct"},
-        },
+        "backlash_correction": {"options": [True, False], "active": True},
+        "format": {"options": ["ome-tiff", "ome-zarr"], "active": "ome-tiff"},
+        "procedure": {"options": ["direct", "tiled"], "active": "direct"},
     }
 
 
-def _with_defaults(handle: MockHandle, section: str, options: dict | None) -> dict:
-    """Fill omitted options from the section's active defaults (driver-side)."""
-    resolved = {name: spec["active"] for name, spec in capabilities(handle)[section].items()}
+def _with_defaults(handle: MockHandle, options: dict | None) -> dict:
+    """Fill omitted options from the active defaults (driver-side)."""
+    resolved = {name: spec["active"] for name, spec in acquisition_options(handle).items()}
     if options:
         resolved.update(options)
     return resolved
@@ -153,7 +154,7 @@ def acquire(
     The driver fills omitted options (acquisition + saving) from its active
     defaults. Captures and saves in one step -- there is no separate export.
     """
-    options = _with_defaults(handle, "acquisition_options", options)
+    options = _with_defaults(handle, options)
     settle = "backlash-corrected" if options["backlash_correction"] else "direct"
     record = {
         "acquisition_type": acquisition_type,
@@ -177,16 +178,20 @@ def get_state(handle: MockHandle) -> dict:
     }
 
 
-def set_state(handle: MockHandle, state: dict) -> None:
-    """Validate the immutable fingerprint, then apply only the mutable settings."""
+def set_state(handle: MockHandle, state: dict) -> dict:
+    """Validate the immutable fingerprint, apply the mutable settings, report what was applied."""
     immutable = state.get("immutable", {})
     if immutable.get("serial", handle.serial) != handle.serial:
         raise ValueError("state captured on a different instrument")
     mutable = state.get("mutable", {})
+    applied = {}
     if "laser_power" in mutable:
         handle.laser_power = mutable["laser_power"]
+        applied["laser_power"] = handle.laser_power
     if "gain" in mutable:
         handle.gain = mutable["gain"]
+        applied["gain"] = handle.gain
+    return {"applied": applied}
 
 
 def get_procedures(handle: MockHandle) -> dict:
@@ -197,9 +202,10 @@ def get_procedures(handle: MockHandle) -> dict:
     }
 
 
-def set_procedure(handle: MockHandle, procedure: dict) -> None:
-    """Run a procedure (the mock just records the last one run)."""
+def set_procedure(handle: MockHandle, procedure: dict) -> dict:
+    """Run a procedure and report it ran (the mock records the last one run)."""
     handle.last_procedure = dict(procedure)
+    return {"ran": handle.last_procedure}
 
 
 def get_context(handle: MockHandle) -> dict:
@@ -226,7 +232,7 @@ def register_mock() -> None:
         "mock-api",
         ops={
             "connect": connect,
-            "capabilities": capabilities,
+            "acquisition_options": acquisition_options,
             "set_coordinate_system": set_coordinate_system,
             "get_xyz": get_xyz,
             "set_xyz": set_xyz,

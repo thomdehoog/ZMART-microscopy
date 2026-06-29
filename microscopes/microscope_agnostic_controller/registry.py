@@ -22,7 +22,7 @@ from typing import Any
 # disconnect is optional.
 OPS: tuple[str, ...] = (
     "connect",
-    "capabilities",
+    "acquisition_options",
     "set_coordinate_system",
     "get_xyz",
     "set_xyz",
