@@ -111,6 +111,10 @@ class TestState:
         mic.set_state(original)
         assert mic.get_state()["mutable"]["laser_power"] == original["mutable"]["laser_power"]
 
+    def test_set_state_returns_driver_record(self, mic):
+        result = mic.set_state({"mutable": {"laser_power": 7.0}})
+        assert result["applied"]["laser_power"] == 7.0
+
     def test_immutable_mismatch_rejected(self, mic):
         with pytest.raises(ValueError, match="different instrument"):
             mic.set_state({"immutable": {"serial": "OTHER"}, "mutable": {}})
@@ -122,6 +126,10 @@ class TestProcedures:
 
     def test_set_procedure_runs(self, mic):
         mic.set_procedure({"name": "autofocus"})  # records last_procedure, no error
+
+    def test_set_procedure_returns_driver_record(self, mic):
+        result = mic.set_procedure({"name": "autofocus"})
+        assert result["ran"]["name"] == "autofocus"
 
 
 class TestContext:

@@ -32,7 +32,6 @@ class Session:
         self,
         ops: dict[str, Any],
         handle: Any,
-        capabilities: dict[str, Any],
         context: dict[str, str],
     ) -> None:
         # operation name -> bound driver callable
@@ -40,10 +39,6 @@ class Session:
 
         # opaque driver connection/state
         self._handle = handle
-
-        # post-connect option menus reported by the driver (e.g. acquisition
-        # options), exposed through the focused get_* methods
-        self._capabilities = capabilities
 
         self.context = context
 
@@ -58,34 +53,42 @@ class Session:
         """
         return self._ops["get_state"](self._handle)
 
-    def set_state(self, state: dict) -> None:
-        """Reapply captured state. The driver applies only what it deems mutable."""
-        self._ops["set_state"](self._handle, state)
+    def set_state(self, state: dict):
+        """Reapply captured state; return whatever the driver reports.
+
+        The driver applies only what it deems mutable.
+        """
+        return self._ops["set_state"](self._handle, state)
 
     def get_procedures(self) -> dict:
         """The named procedures the driver offers (e.g. hardware autofocus)."""
         return self._ops["get_procedures"](self._handle)
 
-    def set_procedure(self, procedure: dict) -> None:
-        """Run a procedure. Its meaning is encoded in the dict and run by the driver."""
-        self._ops["set_procedure"](self._handle, procedure)
+    def set_procedure(self, procedure: dict):
+        """Run a procedure; return whatever the driver reports.
+
+        Its meaning is encoded in the dict and run by the driver.
+        """
+        return self._ops["set_procedure"](self._handle, procedure)
 
     # --- movement -----------------------------------------------------------
 
     def get_xyz(self, with_stage_types: dict | None = None) -> dict:
         """Read the current position per axis, in the canonical (motoric) frame.
 
-        ``with_stage_types`` optionally selects which actuator to read per axis
-        (e.g. ``{"z": "piezo"}``); axes left unspecified use the active one.
+        Coordinates are micrometers. ``with_stage_types`` optionally selects which
+        actuator to read per axis (e.g. ``{"z": "piezo"}``); axes left unspecified
+        use the active one.
         """
         return self._ops["get_xyz"](self._handle, with_stage_types=with_stage_types)
 
     def set_xyz(self, x: float, y: float, z: float, with_stage_types: dict | None = None) -> None:
         """Move to an absolute target in the canonical (motoric) coordinate system.
 
-        ``with_stage_types`` selects the actuator that realizes the move per axis
-        (``None`` -> the active one). The driver applies the objective offset and
-        the actuator transform -- that calibration is never the controller's job.
+        Coordinates are micrometers. ``with_stage_types`` selects the actuator
+        that realizes the move per axis (``None`` -> the active one). The driver
+        applies the objective offset and the actuator transform -- that
+        calibration is never the controller's job.
         """
         self._ops["set_xyz"](self._handle, x, y, z, with_stage_types=with_stage_types)
 
@@ -94,11 +97,12 @@ class Session:
     def get_acquisition_options(self) -> dict:
         """The acquisition + saving options the driver offers (options + active).
 
-        Includes both acquisition settings (e.g. ``backlash_correction``) and
-        saving settings (e.g. ``format``, ``procedure``), since :meth:`acquire`
+        Forwarded live to the driver on every call -- the controller caches
+        nothing. Includes both acquisition settings (e.g. ``backlash_correction``)
+        and saving settings (e.g. ``format``, ``procedure``), since :meth:`acquire`
         captures and saves in one step.
         """
-        return self._capabilities["acquisition_options"]
+        return self._ops["acquisition_options"](self._handle)
 
     def acquire(
         self,
@@ -148,8 +152,9 @@ def set_instrument(
     ``reference_stage`` and ``reference_objective`` are chosen from that dict's
     ``stage_options`` / ``objective_options``; they fix the reference frame in
     which ``set_xyz`` coordinates are given. This is the connector: it resolves
-    the driver, opens the session, sets the frame (the driver validates the
-    choices), and discovers the post-connect option menus.
+    the driver, opens the session, and sets the frame (the driver validates the
+    choices). Option menus are not cached here -- ``get_*`` calls forward to the
+    driver live.
 
     Returns a connected :class:`Session`. Raises ``ValueError`` if the instrument
     is unknown or the reference objective/stage is not supported.
@@ -157,5 +162,4 @@ def set_instrument(
     ops, context = resolve(instrument)
     handle = ops["connect"](microscope=context["microscope"], api=context["api"])
     ops["set_coordinate_system"](handle, objective=reference_objective, stage_type=reference_stage)
-    capabilities = ops["capabilities"](handle)
-    return Session(ops, handle, capabilities, context)
+    return Session(ops, handle, context)
