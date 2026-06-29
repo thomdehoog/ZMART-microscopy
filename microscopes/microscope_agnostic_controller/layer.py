@@ -44,15 +44,15 @@ class Session:
 
     # --- the frame (its origin) ---------------------------------------------
 
-    def set_origin(self, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> dict:
-        """Set the frame origin: the current position now reads (x, y, z).
+    def set_origin(self) -> dict:
+        """Set the frame origin: the current position is now (0, 0, 0).
 
-        The frame is just micrometers from this origin -- the only thing to set.
-        Defaults to (0, 0, 0) -- re-zero here. The driver owns the origin (it is
-        just another driver-side offset), so the controller never does the math.
+        A command to the driver that, for our purposes, here is zero -- every
+        position is then micrometers from this point. The driver owns the origin
+        (just another driver-side offset), so the controller never does the math.
         Returns whatever the driver reports.
         """
-        return self._ops["set_origin"](self._handle, x=x, y=y, z=z)
+        return self._ops["set_origin"](self._handle)
 
     # --- state and procedures: opaque dicts the driver owns -----------------
 

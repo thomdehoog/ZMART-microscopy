@@ -47,16 +47,11 @@ class TestFrame:
         assert (pos["x"]["value"], pos["y"]["value"], pos["z"]["value"]) == (10, 20, 5)
         assert pos["x"]["unit"] == "um"
 
-    def test_set_origin_rezeros_here(self, mic):
+    def test_set_origin_zeros_here(self, mic):
         mic.set_xyz(10, 20, 5)
         mic.set_origin()  # current position becomes (0, 0, 0)
         pos = mic.get_xyz()
         assert (pos["x"]["value"], pos["y"]["value"], pos["z"]["value"]) == (0, 0, 0)
-
-    def test_set_origin_declares_coordinate(self, mic):
-        mic.set_xyz(10, 20, 5)
-        mic.set_origin(x=100, y=0, z=0)  # current position now reads (100, 0, 0)
-        assert mic.get_xyz()["x"]["value"] == 100
 
     def test_get_actuators_lists_options(self, mic):
         assert mic.get_actuators()["z"] == ["motoric", "galvo", "piezo"]
@@ -131,7 +126,6 @@ class TestContext:
         ctx = mic.get_context()
         assert len(ctx["initial_positions"]) == 3
         assert ctx["initial_positions"][0] == {"x": 0.0, "y": 0.0, "z": 0.0}
-        assert ctx["serial"] == "MOCK-0001"
 
 
 class TestModuleStyle:

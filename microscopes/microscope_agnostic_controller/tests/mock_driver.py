@@ -49,19 +49,14 @@ class MockHandle:
         default_factory=lambda: {"x": "motoric", "y": "motoric", "z": "motoric"}
     )
 
-    connected: bool = True
-    acquired: list[dict] = field(default_factory=list)
-
     # mutable instrument settings
     laser_power: float = 5.0
     gain: float = 1.0
 
-    # immutable identity / metadata
+    # immutable identity, plus connection info filled at connect
     serial: str = "MOCK-0001"
-    objective: str = "10x"
     client: str | None = None
     initial: list[dict] = field(default_factory=list)
-    last_procedure: dict = field(default_factory=dict)
 
 
 def connect(connection: dict):
@@ -81,22 +76,17 @@ def connect(connection: dict):
     return handle
 
 
-def set_origin(handle: MockHandle, *, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> dict:
-    """Make the current position read as (x, y, z). Defaults to re-zeroing here."""
-    handle.origin_x = handle.x - x
-    handle.origin_y = handle.y - y
-    handle.origin_z = handle.z - z
+def set_origin(handle: MockHandle) -> dict:
+    """Mark the current position as the origin -- it now reads (0, 0, 0)."""
+    handle.origin_x = handle.x
+    handle.origin_y = handle.y
+    handle.origin_z = handle.z
     return {"origin": {"x": handle.origin_x, "y": handle.origin_y, "z": handle.origin_z}}
 
 
 def get_actuators(handle: MockHandle) -> dict:
     """The actuator options each axis offers (driver-defined)."""
     return {axis: list(opts) for axis, opts in _ACTUATORS.items()}
-
-
-def disconnect(handle: MockHandle) -> None:
-    """Mark the handle disconnected (no real resource to release)."""
-    handle.connected = False
 
 
 def acquisition_options(handle: MockHandle) -> dict:
@@ -184,14 +174,13 @@ def acquire(
         "settle": settle,
         "position": _user_position(handle),
     }
-    handle.acquired.append(record)
     return record
 
 
 def get_state(handle: MockHandle) -> dict:
     """Return the opaque state: immutable identity + mutable settings."""
     return {
-        "immutable": {"serial": handle.serial, "objective": handle.objective},
+        "immutable": {"serial": handle.serial},
         "mutable": {"laser_power": handle.laser_power, "gain": handle.gain},
     }
 
@@ -221,8 +210,7 @@ def get_procedures(handle: MockHandle) -> dict:
 
 
 def set_procedure(handle: MockHandle, procedure: dict) -> dict:
-    """Run a procedure (the mock records it) and report what ran."""
-    handle.last_procedure = dict(procedure)
+    """Run a procedure and report what ran."""
     return {"ran": dict(procedure)}
 
 
@@ -230,8 +218,6 @@ def get_context(handle: MockHandle) -> dict:
     """Whatever extra context the driver chooses to expose."""
     return {
         "initial_positions": [dict(pos) for pos in handle.initial],
-        "serial": handle.serial,
-        "objective": handle.objective,
         "client": handle.client,
     }
 
@@ -259,6 +245,5 @@ def register_mock() -> None:
             "get_procedures": get_procedures,
             "set_procedure": set_procedure,
             "get_context": get_context,
-            "disconnect": disconnect,
         },
     )
