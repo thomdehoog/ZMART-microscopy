@@ -5,13 +5,25 @@
 #     python -m pip install -r requirements-dev.txt
 #     python run_ci.py
 #
-# NOTE: pythonnet / the LAS X CAM runtime are deliberately NOT here -- they are
-# only needed for the live @hardware tests on a microscope PC, not the offline
-# suite. The offline suite runs anywhere (Linux/macOS CI included).
+# Every heavy dependency below is a *traced* transitive import of the offline
+# suite, not a guess -- the comment says which code reaches it. NOTE: pythonnet /
+# the LAS X CAM runtime are deliberately absent; they are only needed for the
+# live @hardware tests on a microscope PC. The offline suite runs anywhere
+# (Linux/macOS CI included).
+
+# Tooling.
 pytest>=8
 pytest-cov>=5
 ruff>=0.6
+
+# Core numerics + imaging IO (driver acquisition, scanfield parsing, save()).
 numpy>=1.24
 scipy>=1.10
 tifffile>=2024.1
 pillow>=10
+ome-types>=0.5            # OME-XML validation in tests/unit/test_acquisition.py
+
+# Calibration subsystem (lives inside the driver) + shared.algorithms.
+matplotlib>=3.7          # calibration report figures (calibration/tests)
+scikit-image>=0.21       # shared.algorithms.registration: ORB/RANSAC/phase-corr
+opencv-python-headless>=4.8  # cv2 in shared.algorithms.registration; headless for CI

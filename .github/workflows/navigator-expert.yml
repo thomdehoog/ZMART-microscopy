@@ -29,6 +29,8 @@ jobs:
   offline:
     name: offline (${{ matrix.os }}, py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    env:
+      MPLBACKEND: Agg # headless matplotlib for the calibration plot tests
     strategy:
       fail-fast: false
       matrix:
