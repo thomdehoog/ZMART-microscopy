@@ -23,7 +23,7 @@ import microscope_agnostic_controller as mac
 mac.get_instruments()
 mac.set_instrument(instrument=Dict)
 
-# 2) Set the origin of the frame (current position becomes 0, 0, 0)
+# 2) Set the origin point of the frame (current position becomes 0, 0, 0)
 mac.set_origin()
 
 # 3) Discover actuators, then read or move the position in the frame
