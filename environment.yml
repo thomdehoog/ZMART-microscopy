@@ -1,0 +1,27 @@
+# Conda environment for SMART Microscopy (Windows + LAS X).
+#
+# Every package comes from conda-forge; the conda `defaults` channel is never
+# used (`nodefaults` strips it even if the base config adds it implicitly).
+#
+# Build:  conda env create -f environment.yml      (or: python build_env.py)
+# Update: conda env update -f environment.yml --prune
+name: smart-microscopy
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  # --- interpreter ---
+  - python=3.11
+  # --- compute core (registration, focusing, image I/O, calibration) ---
+  - numpy>=1.24
+  - scipy>=1.10
+  - scikit-image>=0.22      # registration: ORB, RANSAC, phase_cross_correlation
+  - opencv>=4.8             # registration: cv2 feature matching
+  - tifffile>=2024.1        # read/write OME-TIFF image data
+  # --- live LAS X API (Python <-> .NET bridge) ---
+  # The LAS X CAM API DLLs ship with LAS X and load from the install dir;
+  # only the bridge itself is a package.
+  - pythonnet>=3.0
+  # Optional: diagnostic plots / visualization (lazy-imported; not required
+  # for API / registration / focusing). Uncomment to enable the plot paths.
+  # - matplotlib>=3.7
