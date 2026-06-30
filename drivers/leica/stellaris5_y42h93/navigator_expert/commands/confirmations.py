@@ -23,6 +23,13 @@ failed window causes a re-fire.
 ``_make_select_job_confirm`` factories are eliminated. Confirm functions
 that need polling own their loop; all state is local.
 
+**Table-driven confirms.** Every per-setting confirm that is just the same
+poll loop differing only by readback path, comparator, and tolerance is a
+thin wrapper over ``_confirm_readback`` bound to one row of
+``confirm_specs.CONFIRM_SPECS``. Confirms with extra behaviour (z-stack
+quantisation, the zoom last-actual report, the image-format string target,
+objective/move/acquire) keep their own bespoke loops below.
+
 Import restrictions: only ``readers``, command settings, runtime
 utilities/profiles, and stdlib. Nothing from command wrappers.
 """
@@ -37,6 +44,7 @@ from .. import readers as _readers
 from ..commands.errors import _check_api_error, _is_transient_error
 from ..utils import CONFIRM_TIMEOUT, _make_log_entry
 from ..readers import router as _router
+from .confirm_specs import CONFIRM_SPECS
 from .settings import make_changeable_copy
 
 log = logging.getLogger(__name__)
@@ -240,6 +248,97 @@ def _reading_value_after(reading, observed_after):
 
 
 # =============================================================================
+# Generic readback confirmation — the shared per-setting poll loop
+# =============================================================================
+
+
+def _confirm_readback(
+    client,
+    job_name,
+    target,
+    *,
+    extract,
+    label,
+    compare,
+    errors,
+    tolerance=None,
+    timeout=None,
+    poll_interval=0.01,
+):
+    """Poll a job-settings readback until one value matches ``target``.
+
+    This is the shared skeleton behind every pure per-setting confirm: the
+    timeout default, the ``t_start``/``deadline`` window, the ``_readback``
+    poll, the nested extraction, the comparison, the per-poll DEBUG line, the
+    swallowed extraction errors, the sleep, and the single timeout WARNING +
+    ``success=False`` dict. The four things that vary between settings are
+    passed in from ``confirm_specs.CONFIRM_SPECS``:
+
+    Args:
+        client: The connected LAS X API client.
+        job_name: Target job name.
+        target: Expected value.
+        extract: ``callable(ch) -> actual`` pulling the value from the
+            readback dict (binds the setting's selectors, e.g. ``si``).
+        label: Display name used verbatim in the DEBUG and timeout messages.
+        compare: ``callable(actual, target, tolerance) -> bool`` — exact or
+            absolute-tolerance.
+        errors: Exception tuple to swallow during extraction/comparison.
+        tolerance: Acceptable deviation (ignored by exact comparators).
+        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
+        poll_interval: Seconds between readback polls.
+
+    Returns:
+        {"success": bool, "logs": [...]}
+    """
+    if timeout is None:
+        timeout = CONFIRM_TIMEOUT
+    logs = []
+    t_start = time.perf_counter()
+    deadline = t_start + timeout
+
+    while time.perf_counter() < deadline:
+        ch = _readback(client, job_name)
+        if ch is not None:
+            try:
+                actual = extract(ch)
+                if compare(actual, target, tolerance):
+                    return {"success": True, "logs": logs}
+                log.debug("%s confirm: target=%s actual=%s", label, target, actual)
+            except errors:
+                pass
+        time.sleep(poll_interval)
+
+    msg = f"{label} timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
+    log.warning(msg)
+    logs.append(_make_log_entry("warning", msg))
+    return {"success": False, "logs": logs}
+
+
+def _run_spec(
+    name, client, job_name, target, *, tolerance=None, timeout=None, poll_interval=0.01, **params
+):
+    """Run ``_confirm_readback`` against one ``CONFIRM_SPECS`` row.
+
+    ``params`` carries the setting's runtime selectors (si / beam_route /
+    line_index / fw_type) which the descriptor's extractor reads.
+    """
+    spec = CONFIRM_SPECS[name]
+    return _confirm_readback(
+        client,
+        job_name,
+        target,
+        extract=lambda ch: spec.extract(ch, params),
+        label=spec.label,
+        compare=spec.compare,
+        errors=spec.errors,
+        tolerance=tolerance,
+        timeout=timeout,
+        poll_interval=poll_interval,
+    )
+
+
+# =============================================================================
 # Confirm functions — approximate match (tolerance parameter)
 # =============================================================================
 
@@ -346,41 +445,16 @@ def _confirm_zoom(client, job_name, target, tolerance=0.1, timeout=None, poll_in
 def _confirm_scan_field_rotation(
     client, job_name, target, tolerance=0.5, timeout=None, poll_interval=0.01
 ):
-    """Poll until scan field rotation matches target within tolerance (degrees).
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        target: Expected rotation angle in degrees.
-        tolerance: Acceptable deviation in degrees.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                actual = ch["scanFieldRotation"]["value"]
-                if abs(actual - target) < tolerance:
-                    return {"success": True, "logs": logs}
-                log.debug("ScanFieldRotation confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"ScanFieldRotation timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until scan field rotation matches target within tolerance (degrees)."""
+    return _run_spec(
+        "scan_field_rotation",
+        client,
+        job_name,
+        target,
+        tolerance=tolerance,
+        timeout=timeout,
+        poll_interval=poll_interval,
+    )
 
 
 def _quantised_candidates(centre, raw_size, step):
@@ -592,89 +666,34 @@ def _confirm_z_stack_size(
 def _confirm_pinhole_airy(
     client, job_name, si, target, tolerance=0.05, timeout=None, poll_interval=0.01
 ):
-    """Poll until pinhole size matches within tolerance (Airy units).
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        si: Setting index.
-        target: Expected pinhole size in Airy units.
-        tolerance: Acceptable deviation.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                actual = ch["activeSettings"][si]["pinholeAiry"]["value"]
-                if abs(actual - target) < tolerance:
-                    return {"success": True, "logs": logs}
-                log.debug("PinholeAiry confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError, IndexError):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"PinholeAiry timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until pinhole size matches within tolerance (Airy units)."""
+    return _run_spec(
+        "pinhole_airy",
+        client,
+        job_name,
+        target,
+        tolerance=tolerance,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        si=si,
+    )
 
 
 def _confirm_detector_gain(
     client, job_name, si, beam_route, target, tolerance=1.0, timeout=None, poll_interval=0.01
 ):
-    """Poll until detector gain matches within tolerance.
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        si: Setting index.
-        beam_route: Beam route identifier for the detector.
-        target: Expected gain value.
-        tolerance: Acceptable deviation.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                det = next(
-                    d
-                    for d in ch["activeSettings"][si]["activeDetectors"]
-                    if d["_beamRoute"] == beam_route
-                )
-                actual = det["gain"]["value"]
-                if abs(actual - target) < tolerance:
-                    return {"success": True, "logs": logs}
-                log.debug("DetectorGain confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError, IndexError, StopIteration):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"DetectorGain timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until detector gain matches within tolerance."""
+    return _run_spec(
+        "detector_gain",
+        client,
+        job_name,
+        target,
+        tolerance=tolerance,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        si=si,
+        beam_route=beam_route,
+    )
 
 
 def _confirm_laser_intensity(
@@ -688,99 +707,37 @@ def _confirm_laser_intensity(
     timeout=None,
     poll_interval=0.01,
 ):
-    """Poll until laser intensity matches within tolerance (fraction).
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        si: Setting index.
-        beam_route: Beam route identifier.
-        line_index: Laser line index.
-        target: Expected intensity (0.0-1.0).
-        tolerance: Acceptable deviation.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                las = next(
-                    line
-                    for line in ch["activeSettings"][si]["activeLaserLines"]
-                    if line["_beamRoute"] == beam_route and line["_lineIndex"] == line_index
-                )
-                actual = las["intensity"]["value"]
-                if abs(actual - target) < tolerance:
-                    return {"success": True, "logs": logs}
-                log.debug("LaserIntensity confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError, IndexError, StopIteration):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"LaserIntensity timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until laser intensity matches within tolerance (fraction)."""
+    return _run_spec(
+        "laser_intensity",
+        client,
+        job_name,
+        target,
+        tolerance=tolerance,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        si=si,
+        beam_route=beam_route,
+        line_index=line_index,
+    )
 
 
 def _confirm_filter_wheel_spectrum(
     client, job_name, si, beam_route, fw_type, target, tolerance=1, timeout=None, poll_interval=0.01
 ):
-    """Poll until filter wheel spectrum position matches within tolerance (nm).
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        si: Setting index.
-        beam_route: Beam route identifier.
-        fw_type: Filter wheel type string.
-        target: Expected spectrum position in nm.
-        tolerance: Acceptable deviation in nm.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                fw = next(
-                    f
-                    for f in ch["activeSettings"][si]["filterWheels"]
-                    if f["_beamRoute"] == beam_route and f.get("type") == fw_type
-                )
-                actual = fw["spectrumPosition"]
-                if abs(actual - target) < tolerance:
-                    return {"success": True, "logs": logs}
-                log.debug("FilterWheelSpectrum confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError, IndexError, StopIteration):
-                pass
-        time.sleep(poll_interval)
-
-    msg = (
-        f"FilterWheelSpectrum timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
+    """Poll until filter wheel spectrum position matches within tolerance (nm)."""
+    return _run_spec(
+        "filter_wheel_spectrum",
+        client,
+        job_name,
+        target,
+        tolerance=tolerance,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        si=si,
+        beam_route=beam_route,
+        fw_type=fw_type,
     )
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
 
 
 # =============================================================================
@@ -789,114 +746,24 @@ def _confirm_filter_wheel_spectrum(
 
 
 def _confirm_scan_speed(client, job_name, target, timeout=None, poll_interval=0.01):
-    """Poll until scan speed matches exactly (discrete integer).
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        target: Expected scan speed value.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                actual = ch["scanSpeed"]["value"]
-                if actual == target:
-                    return {"success": True, "logs": logs}
-                log.debug("ScanSpeed confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"ScanSpeed timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until scan speed matches exactly (discrete integer)."""
+    return _run_spec(
+        "scan_speed", client, job_name, target, timeout=timeout, poll_interval=poll_interval
+    )
 
 
 def _confirm_scan_resonant(client, job_name, target, timeout=None, poll_interval=0.01):
-    """Poll until resonant scanner state matches exactly.
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        target: Expected resonant state (bool).
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                actual = ch["scanSpeed"]["isResonant"]
-                if actual == target:
-                    return {"success": True, "logs": logs}
-                log.debug("ScanResonant confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"ScanResonant timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until resonant scanner state matches exactly."""
+    return _run_spec(
+        "scan_resonant", client, job_name, target, timeout=timeout, poll_interval=poll_interval
+    )
 
 
 def _confirm_scan_mode(client, job_name, target, timeout=None, poll_interval=0.01):
-    """Poll until scan mode matches exactly (enum string).
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        target: Expected scan mode string (e.g. "xyz").
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                actual = ch["scanMode"]
-                if actual == target:
-                    return {"success": True, "logs": logs}
-                log.debug("ScanMode confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"ScanMode timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until scan mode matches exactly (enum string)."""
+    return _run_spec(
+        "scan_mode", client, job_name, target, timeout=timeout, poll_interval=poll_interval
+    )
 
 
 def _confirm_sequential_mode(client, job_name, target, timeout=None, poll_interval=0.01):
@@ -1026,248 +893,88 @@ def confirm_objective(
 
 
 def _confirm_frame_accumulation(client, job_name, si, target, timeout=None, poll_interval=0.01):
-    """Poll until frame accumulation matches exactly.
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        si: Setting index.
-        target: Expected accumulation count.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                actual = ch["activeSettings"][si]["frameAccumulation"]
-                if actual == target:
-                    return {"success": True, "logs": logs}
-                log.debug("FrameAccumulation confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError, IndexError):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"FrameAccumulation timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until frame accumulation matches exactly."""
+    return _run_spec(
+        "frame_accumulation",
+        client,
+        job_name,
+        target,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        si=si,
+    )
 
 
 def _confirm_frame_average(client, job_name, si, target, timeout=None, poll_interval=0.01):
-    """Poll until frame average matches exactly.
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        si: Setting index.
-        target: Expected average count.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                actual = ch["activeSettings"][si]["frameAverage"]
-                if actual == target:
-                    return {"success": True, "logs": logs}
-                log.debug("FrameAverage confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError, IndexError):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"FrameAverage timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until frame average matches exactly."""
+    return _run_spec(
+        "frame_average",
+        client,
+        job_name,
+        target,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        si=si,
+    )
 
 
 def _confirm_line_accumulation(client, job_name, si, target, timeout=None, poll_interval=0.01):
-    """Poll until line accumulation matches exactly.
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        si: Setting index.
-        target: Expected accumulation count.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                actual = ch["activeSettings"][si]["lineAccumulation"]
-                if actual == target:
-                    return {"success": True, "logs": logs}
-                log.debug("LineAccumulation confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError, IndexError):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"LineAccumulation timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until line accumulation matches exactly."""
+    return _run_spec(
+        "line_accumulation",
+        client,
+        job_name,
+        target,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        si=si,
+    )
 
 
 def _confirm_line_average(client, job_name, si, target, timeout=None, poll_interval=0.01):
-    """Poll until line average matches exactly.
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        si: Setting index.
-        target: Expected average count.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                actual = ch["activeSettings"][si]["lineAverage"]
-                if actual == target:
-                    return {"success": True, "logs": logs}
-                log.debug("LineAverage confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError, IndexError):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"LineAverage timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until line average matches exactly."""
+    return _run_spec(
+        "line_average",
+        client,
+        job_name,
+        target,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        si=si,
+    )
 
 
 def _confirm_laser_shutter(
     client, job_name, si, beam_route, target, timeout=None, poll_interval=0.01
 ):
-    """Poll until laser shutter state matches exactly.
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        si: Setting index.
-        beam_route: Beam route identifier.
-        target: Expected shutter state (bool).
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                las = next(
-                    line
-                    for line in ch["activeSettings"][si]["activeLaserLines"]
-                    if line["_beamRoute"] == beam_route
-                )
-                actual = las["shutterOpen"]
-                if actual == target:
-                    return {"success": True, "logs": logs}
-                log.debug("LaserShutter confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError, IndexError, StopIteration):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"LaserShutter timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until laser shutter state matches exactly."""
+    return _run_spec(
+        "laser_shutter",
+        client,
+        job_name,
+        target,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        si=si,
+        beam_route=beam_route,
+    )
 
 
 def _confirm_filter_wheel_slot(
     client, job_name, si, beam_route, fw_type, target, timeout=None, poll_interval=0.01
 ):
-    """Poll until filter wheel slot matches exactly.
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        si: Setting index.
-        beam_route: Beam route identifier.
-        fw_type: Filter wheel type string.
-        target: Expected slot index.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + timeout
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                fw = next(
-                    f
-                    for f in ch["activeSettings"][si]["filterWheels"]
-                    if f["_beamRoute"] == beam_route and f.get("type") == fw_type
-                )
-                actual = fw["filterIndex"]
-                if actual == target:
-                    return {"success": True, "logs": logs}
-                log.debug("FilterWheelSlot confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError, IndexError, StopIteration):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"FilterWheelSlot timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until filter wheel slot matches exactly."""
+    return _run_spec(
+        "filter_wheel_slot",
+        client,
+        job_name,
+        target,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        si=si,
+        beam_route=beam_route,
+        fw_type=fw_type,
+    )
 
 
 # =============================================================================

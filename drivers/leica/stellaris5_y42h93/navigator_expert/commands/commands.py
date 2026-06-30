@@ -231,6 +231,47 @@ def _dispatch(
     )
 
 
+def _dispatch_setting(
+    client,
+    api_attr,
+    field_map,
+    description,
+    profile,
+    confirm_fn,
+    *,
+    max_retries=None,
+    pre_check_timeout=None,
+):
+    """Fire a pure field-write setting command through the backbone.
+
+    The boilerplate is identical for every pure-delegation setter: resolve
+    the PyApi object, write a fixed map of model fields *in order*, and
+    dispatch with the command's profile and a target-bound confirm. ``field_map``
+    is an ordered ``{model_attr: value}`` mapping (insertion order is the write
+    order, matching the original hand-written ``setup`` bodies).
+
+    Setters that compute fields, resolve/cast enums, convert units, or validate
+    inputs keep their own bodies and call ``_dispatch`` directly — they do not
+    route through here.
+    """
+    api_obj = getattr(client, api_attr)
+
+    def setup(m):
+        for attr, value in field_map.items():
+            setattr(m, attr, value)
+
+    return _dispatch(
+        client,
+        api_obj,
+        description,
+        profile,
+        setup_fn=setup,
+        confirm_fn=confirm_fn,
+        max_retries=max_retries,
+        pre_check_timeout=pre_check_timeout,
+    )
+
+
 _SCAN_RESONANT_NO_CHANGE = "desired state does not differ from the current state"
 
 
@@ -281,19 +322,13 @@ def set_zoom(client, job_name, value, *, max_retries=None, pre_check_timeout=Non
         pre_check_timeout: Idle-wait timeout (seconds). None = profile default.
         tolerance: Readback confirmation tolerance.
     """
-    api_obj = client.PyApiSetZoomByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.ZoomValue = value
-
-    return _dispatch(
+    return _dispatch_setting(
         client,
-        api_obj,
+        "PyApiSetZoomByJobName",
+        {"JobName": job_name, "ZoomValue": value},
         f"Zoom -> {value}",
         ZOOM,
-        setup_fn=setup,
-        confirm_fn=partial(
+        partial(
             _confirm_zoom,
             job_name=job_name,
             target=value,
@@ -306,19 +341,13 @@ def set_zoom(client, job_name, value, *, max_retries=None, pre_check_timeout=Non
 
 def set_scan_speed(client, job_name, value, *, max_retries=None, pre_check_timeout=None):
     """Set scan speed for the specified job."""
-    api_obj = client.PyApiSetScanSpeedByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.ScanSpeed = value
-
-    return _dispatch(
+    return _dispatch_setting(
         client,
-        api_obj,
+        "PyApiSetScanSpeedByJobName",
+        {"JobName": job_name, "ScanSpeed": value},
         f"ScanSpeed -> {value}",
         SCAN_SPEED,
-        setup_fn=setup,
-        confirm_fn=partial(_confirm_scan_speed, job_name=job_name, target=value),
+        partial(_confirm_scan_speed, job_name=job_name, target=value),
         max_retries=max_retries,
         pre_check_timeout=pre_check_timeout,
     )
@@ -352,19 +381,13 @@ def set_scan_resonant(client, job_name, enable, *, max_retries=None, pre_check_t
 
 def set_scan_mode(client, job_name, mode, *, max_retries=None, pre_check_timeout=None):
     """Set scan mode (e.g. 'xyz', 'xyzt') for the specified job."""
-    api_obj = client.PyApiSetScanModeByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.ScanModeValue = mode
-
-    return _dispatch(
+    return _dispatch_setting(
         client,
-        api_obj,
+        "PyApiSetScanModeByJobName",
+        {"JobName": job_name, "ScanModeValue": mode},
         f"ScanMode -> {mode}",
         SCAN_MODE,
-        setup_fn=setup,
-        confirm_fn=partial(_confirm_scan_mode, job_name=job_name, target=mode),
+        partial(_confirm_scan_mode, job_name=job_name, target=mode),
         max_retries=max_retries,
         pre_check_timeout=pre_check_timeout,
     )
@@ -425,19 +448,13 @@ def set_scan_field_rotation(
     client, job_name, angle, *, max_retries=None, pre_check_timeout=None, tolerance=None
 ):
     """Set scan field rotation angle (degrees) for the specified job."""
-    api_obj = client.PyApiSetScanFieldRotationByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.Rotation = angle
-
-    return _dispatch(
+    return _dispatch_setting(
         client,
-        api_obj,
+        "PyApiSetScanFieldRotationByJobName",
+        {"JobName": job_name, "Rotation": angle},
         f"Rotation -> {angle}",
         SCAN_FIELD_ROTATION,
-        setup_fn=setup,
-        confirm_fn=partial(
+        partial(
             _confirm_scan_field_rotation,
             job_name=job_name,
             target=angle,
@@ -691,22 +708,13 @@ def set_frame_accumulation(
     client, job_name, setting_index, value, *, max_retries=None, pre_check_timeout=None
 ):
     """Set frame accumulation count for a specific setting index."""
-    api_obj = client.PyApiSetFrameAccumulationByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.SettingIndex = setting_index
-        m.FrameAccumulation = value
-
-    return _dispatch(
+    return _dispatch_setting(
         client,
-        api_obj,
+        "PyApiSetFrameAccumulationByJobName",
+        {"JobName": job_name, "SettingIndex": setting_index, "FrameAccumulation": value},
         f"Setting[{setting_index}].FrameAccumulation -> {value}",
         FRAME_ACCUMULATION,
-        setup_fn=setup,
-        confirm_fn=partial(
-            _confirm_frame_accumulation, job_name=job_name, si=setting_index, target=value
-        ),
+        partial(_confirm_frame_accumulation, job_name=job_name, si=setting_index, target=value),
         max_retries=max_retries,
         pre_check_timeout=pre_check_timeout,
     )
@@ -716,22 +724,13 @@ def set_frame_average(
     client, job_name, setting_index, value, *, max_retries=None, pre_check_timeout=None
 ):
     """Set frame average count for a specific setting index."""
-    api_obj = client.PyApiSetFrameAverageByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.SettingIndex = setting_index
-        m.FrameAverage = value
-
-    return _dispatch(
+    return _dispatch_setting(
         client,
-        api_obj,
+        "PyApiSetFrameAverageByJobName",
+        {"JobName": job_name, "SettingIndex": setting_index, "FrameAverage": value},
         f"Setting[{setting_index}].FrameAverage -> {value}",
         FRAME_AVERAGE,
-        setup_fn=setup,
-        confirm_fn=partial(
-            _confirm_frame_average, job_name=job_name, si=setting_index, target=value
-        ),
+        partial(_confirm_frame_average, job_name=job_name, si=setting_index, target=value),
         max_retries=max_retries,
         pre_check_timeout=pre_check_timeout,
     )
@@ -741,22 +740,13 @@ def set_line_accumulation(
     client, job_name, setting_index, value, *, max_retries=None, pre_check_timeout=None
 ):
     """Set line accumulation count for a specific setting index."""
-    api_obj = client.PyApiSetLineAccumulationByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.SettingIndex = setting_index
-        m.LineAccumulation = value
-
-    return _dispatch(
+    return _dispatch_setting(
         client,
-        api_obj,
+        "PyApiSetLineAccumulationByJobName",
+        {"JobName": job_name, "SettingIndex": setting_index, "LineAccumulation": value},
         f"Setting[{setting_index}].LineAccumulation -> {value}",
         LINE_ACCUMULATION,
-        setup_fn=setup,
-        confirm_fn=partial(
-            _confirm_line_accumulation, job_name=job_name, si=setting_index, target=value
-        ),
+        partial(_confirm_line_accumulation, job_name=job_name, si=setting_index, target=value),
         max_retries=max_retries,
         pre_check_timeout=pre_check_timeout,
     )
@@ -766,22 +756,13 @@ def set_line_average(
     client, job_name, setting_index, value, *, max_retries=None, pre_check_timeout=None
 ):
     """Set line average count for a specific setting index."""
-    api_obj = client.PyApiSetLineAverageByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.SettingIndex = setting_index
-        m.LineAverage = value
-
-    return _dispatch(
+    return _dispatch_setting(
         client,
-        api_obj,
+        "PyApiSetLineAverageByJobName",
+        {"JobName": job_name, "SettingIndex": setting_index, "LineAverage": value},
         f"Setting[{setting_index}].LineAverage -> {value}",
         LINE_AVERAGE,
-        setup_fn=setup,
-        confirm_fn=partial(
-            _confirm_line_average, job_name=job_name, si=setting_index, target=value
-        ),
+        partial(_confirm_line_average, job_name=job_name, si=setting_index, target=value),
         max_retries=max_retries,
         pre_check_timeout=pre_check_timeout,
     )
@@ -798,20 +779,13 @@ def set_pinhole_airy(
     tolerance=None,
 ):
     """Set pinhole size in Airy units for a specific setting index."""
-    api_obj = client.PyApiSetPinholeAUByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.SettingIndex = setting_index
-        m.PinholeAiry = value
-
-    return _dispatch(
+    return _dispatch_setting(
         client,
-        api_obj,
+        "PyApiSetPinholeAUByJobName",
+        {"JobName": job_name, "SettingIndex": setting_index, "PinholeAiry": value},
         f"Setting[{setting_index}].PinholeAiry -> {value}",
         PINHOLE_AIRY,
-        setup_fn=setup,
-        confirm_fn=partial(
+        partial(
             _confirm_pinhole_airy,
             job_name=job_name,
             si=setting_index,
@@ -840,21 +814,18 @@ def set_detector_gain(
     tolerance=None,
 ):
     """Set detector gain for a specific detector identified by beam route."""
-    api_obj = client.PyApiSetDetectorGainByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.SettingIndex = setting_index
-        m.BeamRoute = beam_route
-        m.GainValue = value
-
-    return _dispatch(
+    return _dispatch_setting(
         client,
-        api_obj,
+        "PyApiSetDetectorGainByJobName",
+        {
+            "JobName": job_name,
+            "SettingIndex": setting_index,
+            "BeamRoute": beam_route,
+            "GainValue": value,
+        },
         f"Setting[{setting_index}].Detector[{beam_route}].Gain -> {value}",
         DETECTOR_GAIN,
-        setup_fn=setup,
-        confirm_fn=partial(
+        partial(
             _confirm_detector_gain,
             job_name=job_name,
             si=setting_index,
@@ -885,23 +856,20 @@ def set_laser_intensity(
     tolerance=None,
 ):
     """Set laser intensity (0.0-1.0) for a specific laser line."""
-    api_obj = client.PyApiSetLaserIntensityByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.SettingIndex = setting_index
-        m.BeamRoute = beam_route
-        m.LaserLineIndex = line_index
-        m.IntensityValue = value
-        m.IsRoiBackground = False
-
-    return _dispatch(
+    return _dispatch_setting(
         client,
-        api_obj,
+        "PyApiSetLaserIntensityByJobName",
+        {
+            "JobName": job_name,
+            "SettingIndex": setting_index,
+            "BeamRoute": beam_route,
+            "LaserLineIndex": line_index,
+            "IntensityValue": value,
+            "IsRoiBackground": False,
+        },
         f"Setting[{setting_index}].Laser[{beam_route}][{line_index}] -> {value}",
         LASER_INTENSITY,
-        setup_fn=setup,
-        confirm_fn=partial(
+        partial(
             _confirm_laser_intensity,
             job_name=job_name,
             si=setting_index,
@@ -926,22 +894,19 @@ def set_laser_shutter(
     pre_check_timeout=None,
 ):
     """Open or close laser shutter for a specific beam route."""
-    api_obj = client.PyApiSetLaserShutterByJobName
-
-    def setup(m):
-        m.JobName = job_name
-        m.SettingIndex = setting_index
-        m.BeamRoute = beam_route
-        m.Activate = activate
-
     label = "Open" if activate else "Closed"
-    return _dispatch(
+    return _dispatch_setting(
         client,
-        api_obj,
+        "PyApiSetLaserShutterByJobName",
+        {
+            "JobName": job_name,
+            "SettingIndex": setting_index,
+            "BeamRoute": beam_route,
+            "Activate": activate,
+        },
         f"Setting[{setting_index}].Shutter[{beam_route}] -> {label}",
         LASER_SHUTTER,
-        setup_fn=setup,
-        confirm_fn=partial(
+        partial(
             _confirm_laser_shutter,
             job_name=job_name,
             si=setting_index,
