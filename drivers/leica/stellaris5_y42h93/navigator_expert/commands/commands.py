@@ -88,10 +88,9 @@ from .confirmations import (
     confirm_move_xy,
     confirm_move_z,
     confirm_objective,
-    prepare_select_job,
     race_confirmations,
-    select_job_confirm_legs,
 )
+from .confirm_select_job import prepare_select_job, select_job_confirm_legs
 from .dispatch import confirm_and_fire
 from .prechecks import check_idle
 

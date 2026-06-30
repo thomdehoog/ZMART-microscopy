@@ -4,7 +4,7 @@ Save/load experiments, locate the ScanningTemplates directory,
 detect template state, and define the canonical filename constants.
 
 Dependency direction:
-    - Imports: ``..utils``, ``.parsers``, ``_file_utils``,
+    - Imports: ``..utils``, ``.lrp``, ``_file_utils``,
       stdlib.
     - Imported by: ``strip_restore``, ``transaction``, ``__init__`` (re-export).
 """
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .._file_utils import _wait_file_stable
 from ..utils import RECEIPT_TIMEOUT, _make_timing
-from .parsers import parse_lrp
+from .lrp import parse_lrp
 
 log = logging.getLogger(__name__)
 

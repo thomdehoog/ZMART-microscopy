@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import navigator_expert as drv
 from navigator_expert import readers as readers
-from navigator_expert.commands import commands, confirmations, dispatch, prechecks
+from navigator_expert.commands import commands, confirm_select_job, confirmations, dispatch, prechecks
 from navigator_expert.commands import errors
 from navigator_expert.config import profiles
 from navigator_expert.connection import session
@@ -2069,7 +2069,7 @@ class TestModuleStructure(unittest.TestCase):
     def test_confirm_functions_replaced_factories(self):
         """confirm_acquire and confirm_select_job replaced closure factories."""
         self.assertTrue(callable(getattr(confirmations, "confirm_acquire", None)))
-        self.assertTrue(callable(getattr(confirmations, "confirm_select_job", None)))
+        self.assertTrue(callable(getattr(confirm_select_job, "confirm_select_job", None)))
 
     def test_all_set_functions_have_max_retries(self):
         import inspect
@@ -2692,7 +2692,7 @@ class TestConfirmSelectJob(unittest.TestCase):
         """Job is selected on first poll -> success."""
         jobs = [{"Name": "HiRes", "IsSelected": True}]
         with patch.object(readers, "get_jobs", return_value=jobs), patch("time.sleep"):
-            result = confirmations.confirm_select_job(
+            result = confirm_select_job.confirm_select_job(
                 None, job_name="HiRes", timeout=1.0, poll_interval=0.001
             )
         self.assertTrue(result["success"])
@@ -2701,7 +2701,7 @@ class TestConfirmSelectJob(unittest.TestCase):
         """Job never becomes selected -> failure."""
         jobs = [{"Name": "Other", "IsSelected": True}]
         with patch.object(readers, "get_jobs", return_value=jobs), patch("time.sleep"):
-            result = confirmations.confirm_select_job(
+            result = confirm_select_job.confirm_select_job(
                 None, job_name="HiRes", timeout=0.01, poll_interval=0.001
             )
         self.assertFalse(result["success"])
@@ -2709,11 +2709,11 @@ class TestConfirmSelectJob(unittest.TestCase):
     def test_select_job_log_confirmation_is_off_by_default(self):
         jobs = [{"Name": "HiRes", "IsSelected": True}]
         with (
-            patch.object(confirmations.log_wait, "wait_for_selected_job_log") as log_wait_mock,
+            patch.object(confirm_select_job.log_wait, "wait_for_selected_job_log") as log_wait_mock,
             patch.object(readers, "get_jobs", return_value=jobs),
             patch("time.sleep"),
         ):
-            result = confirmations.confirm_select_job(
+            result = confirm_select_job.confirm_select_job(
                 None, job_name="HiRes", timeout=1.0, poll_interval=0.001, command_started_at=100.0
             )
 
@@ -2722,7 +2722,7 @@ class TestConfirmSelectJob(unittest.TestCase):
 
     # Log-source and hybrid confirmation behavior is covered by
     # tests/unit/test_select_job_confirm.py against the one policy point
-    # (confirmations.select_job_confirm_legs).
+    # (confirm_select_job.select_job_confirm_legs).
 
     def test_select_job_early_exit_pins_api_mode(self):
         client = make_client()
@@ -2764,7 +2764,7 @@ class TestConfirmSelectJob(unittest.TestCase):
         dispatched = {"success": True, "confirmed": True, "message": "sent"}
         with (
             patch.object(profiles, "STATE_READERS", profile),
-            patch.object(confirmations, "_selected_job_name_from_log", return_value=None),
+            patch.object(confirm_select_job, "_selected_job_name_from_log", return_value=None),
             patch.object(commands._readers, "get_jobs") as get_jobs,
             patch.object(commands, "_dispatch", return_value=dispatched) as dispatch_mock,
         ):
@@ -2798,9 +2798,9 @@ class TestConfirmSelectJob(unittest.TestCase):
         dispatched = {"success": True, "confirmed": True, "message": "sent"}
         with (
             patch.object(profiles, "STATE_READERS", profile),
-            patch.object(confirmations, "_selected_job_name_from_log", return_value=None),
-            patch.object(confirmations, "_selected_job_api_jobs", side_effect=fake_api_jobs),
-            patch.object(confirmations, "_bounded_api_read", side_effect=fake_bounded),
+            patch.object(confirm_select_job, "_selected_job_name_from_log", return_value=None),
+            patch.object(confirm_select_job, "_selected_job_api_jobs", side_effect=fake_api_jobs),
+            patch.object(confirm_select_job, "_bounded_api_read", side_effect=fake_bounded),
             patch.object(commands, "_dispatch", return_value=dispatched) as dispatch_mock,
         ):
             result = commands.select_job(client, "Overview")
