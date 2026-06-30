@@ -32,6 +32,23 @@ GENERAL_WORKFLOW_DATA = TEST_DATA / "general_workflow"
 SCANFIELD_PARSING_DATA = TEST_DATA / "scanfield_parsing"
 
 
+def pytest_report_header(config):
+    """Print the full environment context at the top of every run.
+
+    This header travels with every captured log, so a failure reported from a
+    CI runner or another institute's microscope PC carries the exact system
+    context (OS, Python, package versions, git rev, LAS X availability) needed
+    to triage it. Diagnostics must never break a run, hence the guard.
+    See tests/_diagnostics.py.
+    """
+    try:
+        from _diagnostics import header_lines
+
+        return header_lines()
+    except Exception as exc:  # pragma: no cover - diagnostics must not fail a run
+        return [f"navigator_expert context: diagnostics unavailable ({exc!r})"]
+
+
 @pytest.fixture
 def general_workflow_data(tmp_path):
     """Return a writable temp copy of the canonical offline workflow bundle."""

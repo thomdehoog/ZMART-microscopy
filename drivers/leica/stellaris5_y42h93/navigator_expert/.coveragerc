@@ -1,0 +1,18 @@
+# Coverage configuration for the Navigator Expert driver.
+#
+# Pinned by run_ci.py via --cov-config (absolute path) so it applies regardless
+# of the working directory CI launches from. Keeps the coverage denominator to
+# *product* code: the test code and the CI runner itself are not under test.
+[run]
+branch = True
+omit =
+    */tests/*
+    */run_ci.py
+
+[report]
+# Lines that are unreachable-by-design or trivial should not count against us.
+exclude_also =
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    @(abc\.)?abstractmethod
