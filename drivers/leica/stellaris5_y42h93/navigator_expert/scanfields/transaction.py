@@ -1,4 +1,4 @@
-﻿"""LRP edit transaction backbone.
+"""LRP edit transaction backbone.
 
 ``apply_lrp_change`` is the generic backbone through which all LRP
 modifications are dispatched: save -> edit -> reorder -> load -> save

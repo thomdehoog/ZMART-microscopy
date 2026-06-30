@@ -15,7 +15,7 @@ def test_connect_lasx_returns_connected_client(monkeypatch):
     fake_client = MagicMock(name="client")
     connect_python_client = MagicMock(return_value=fake_client)
     monkeypatch.setattr(
-        "navigator_expert.runtime.session.connect_python_client",
+        "navigator_expert.connection.session.connect_python_client",
         connect_python_client,
     )
 
@@ -32,7 +32,7 @@ def test_connect_lasx_passes_role_through(monkeypatch):
     fake_client = MagicMock(name="client")
     connect_python_client = MagicMock(return_value=fake_client)
     monkeypatch.setattr(
-        "navigator_expert.runtime.session.connect_python_client",
+        "navigator_expert.connection.session.connect_python_client",
         connect_python_client,
     )
 

@@ -23,14 +23,14 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import tifffile
-from calibration.vendor.leica.navigator_expert.core import (
+from navigator_expert.calibration.core import (
     adopt as wf_adopt,
 )
-from calibration.vendor.leica.navigator_expert.core import common as cm
-from calibration.vendor.leica.navigator_expert.core import (
+from navigator_expert.calibration.core import common as cm
+from navigator_expert.calibration.core import (
     image_to_stage as wf_i2s,
 )
-from calibration.vendor.leica.navigator_expert.core import (
+from navigator_expert.calibration.core import (
     objective_pair as wf_obj,
 )
 from shared.output_layout import build_image_name

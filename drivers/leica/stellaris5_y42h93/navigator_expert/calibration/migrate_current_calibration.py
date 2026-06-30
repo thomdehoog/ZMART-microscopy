@@ -2,7 +2,7 @@
 
 This script converts the current v9 ``calibration.json`` plus v1
 ``stage.json`` pair into v11 ``current/calibration.json`` plus v1
-``microscopes/limits/vendor/leica/navigator_expert/current.json``. Loading calibration
+``drivers/leica/stellaris5_y42h93/navigator_expert/limits/current.json``. Loading calibration
 data never performs this migration implicitly; run this script as an
 intentional source-tree change.
 """
@@ -28,8 +28,7 @@ def current_root() -> Path:
 
 
 def limits_root() -> Path:
-    repo_root = Path(__file__).resolve().parents[4]
-    return repo_root / "limits" / "vendor" / "leica" / "navigator_expert"
+    return Path(__file__).resolve().parents[1] / "limits"
 
 
 def current_limits_path() -> Path:

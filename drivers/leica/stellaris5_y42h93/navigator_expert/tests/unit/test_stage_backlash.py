@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from navigator_expert.stage import movement as stage_movement
+from navigator_expert.motion import movement as stage_movement
 
 
 class TestMoveXyWithBacklash:

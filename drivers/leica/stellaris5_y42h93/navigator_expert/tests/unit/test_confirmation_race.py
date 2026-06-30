@@ -1,4 +1,4 @@
-﻿"""Unit tests for the confirmation race wrapper.
+"""Unit tests for the confirmation race wrapper.
 
 Contract under test (``commands/confirmations.race_confirmations``):
 

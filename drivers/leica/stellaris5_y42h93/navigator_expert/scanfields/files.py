@@ -1,4 +1,4 @@
-﻿"""Scan-field file I/O and constants.
+"""Scan-field file I/O and constants.
 
 Save/load experiments, locate the ScanningTemplates directory,
 detect template state, and define the canonical filename constants.
@@ -49,7 +49,7 @@ def find_scanning_templates_dir():
     """
     appdata = os.environ.get("APPDATA")
     if not appdata:
-        log.warning("APPDATA not set â€” cannot locate ScanningTemplates")
+        log.warning("APPDATA not set — cannot locate ScanningTemplates")
         return None
     base = Path(appdata) / "Leica Microsystems" / "LAS X" / "MatrixScreener6"
     if not base.is_dir():

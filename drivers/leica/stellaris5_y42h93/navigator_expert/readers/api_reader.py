@@ -1,4 +1,4 @@
-﻿"""
+"""
 Read functions.
 ===============
 Read-only queries against the LAS X Python API: scan status, connection

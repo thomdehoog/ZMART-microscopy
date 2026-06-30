@@ -1,4 +1,4 @@
-﻿"""
+"""
 Per-command profiles.
 =====================
 Every command has a ``CommandProfile`` that is its complete recipe - all
@@ -215,7 +215,7 @@ class CommandProfile:
         retry_backoff: Base delay in seconds between transient error retries.
             None for immediate retry (no delay).
         retry_escalate: If True, double the delay after each retry
-            (exponential backoff: 0s, base, 2Ã—base, 4Ã—base, ...).
+            (exponential backoff: 0s, base, 2×base, 4×base, ...).
             If False, use a fixed delay. Ignored when retry_backoff is None.
         skip_echo: If True, skip echo settlement polling after fire.
             Use for commands where a dedicated confirm_fn (e.g. scan

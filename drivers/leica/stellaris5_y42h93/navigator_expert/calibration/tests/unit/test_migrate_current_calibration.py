@@ -7,18 +7,18 @@ import pytest
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[6]
+    return Path(__file__).resolve().parents[4]  # drivers/leica/stellaris5_y42h93
 
 
 def _load_migration_module():
     sys.path.insert(0, str(_repo_root()))
-    import calibration.vendor.leica.navigator_expert.migrate_current_calibration as migration
+    import navigator_expert.calibration.migrate_current_calibration as migration
 
     return migration
 
 
 def _copy_current_v9(tmp_path: Path) -> Path:
-    current = _repo_root() / "calibration" / "vendor" / "leica" / "navigator_expert" / "current"
+    current = _repo_root() / "navigator_expert" / "calibration" / "current"
     dst = tmp_path / "current"
     dst.mkdir()
     shutil.copy2(current / "calibration.json", dst / "calibration.json")
@@ -36,7 +36,7 @@ def _copy_current_v9(tmp_path: Path) -> Path:
         # the stable reset baseline.
         limits = json.loads(
             (
-                _repo_root() / "limits" / "vendor" / "leica" / "navigator_expert" / "defaults.json"
+                _repo_root() / "navigator_expert" / "limits" / "defaults.json"
             ).read_text()
         )
         (dst / "stage.json").write_text(

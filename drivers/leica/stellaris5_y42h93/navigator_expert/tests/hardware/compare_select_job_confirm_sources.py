@@ -1,4 +1,4 @@
-﻿"""Compare API-backed and log-backed selected-job confirmation timings.
+"""Compare API-backed and log-backed selected-job confirmation timings.
 
 This is a hardware utility, not production driver logic. It runs the normal
 ``validate_hardware.py`` flow repeatedly with two selected-job confirmation

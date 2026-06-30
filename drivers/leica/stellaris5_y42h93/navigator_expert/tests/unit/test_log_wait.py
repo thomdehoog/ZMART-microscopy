@@ -1,4 +1,4 @@
-﻿"""Unit tests for log-backed polling helpers."""
+"""Unit tests for log-backed polling helpers."""
 
 import sys
 import unittest

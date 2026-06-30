@@ -1,4 +1,4 @@
-﻿"""Persist acquired LAS X exports into the workflow layout.
+"""Persist acquired LAS X exports into the workflow layout.
 
 Public workflow:
 

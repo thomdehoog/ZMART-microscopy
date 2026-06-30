@@ -1,4 +1,4 @@
-﻿"""
+"""
 Core dispatch engine.
 =====================
 The command dispatch backbone: all commands (set, move, acquire,
@@ -211,7 +211,7 @@ def _fire_block(
             None for immediate retry. First retry is always immediate;
             subsequent retries use the backoff delay.
         retry_escalate: If True, double the delay after each retry
-            (exponential backoff: 0s, base, 2Ã—base, 4Ã—base, ...).
+            (exponential backoff: 0s, base, 2×base, 4×base, ...).
             If False, use a fixed delay. Ignored when retry_backoff is None.
 
     Returns:
@@ -350,7 +350,7 @@ def _fire_block(
         transient = err_result.get("transient", False)
 
         if transient and attempt < max_retries:
-            # Backoff: first retry is immediate, then base Ã— 2^(attempt-1)
+            # Backoff: first retry is immediate, then base × 2^(attempt-1)
             if retry_backoff is not None and attempt > 0:
                 delay = retry_backoff * (2 ** (attempt - 1)) if retry_escalate else retry_backoff
                 log.warning(

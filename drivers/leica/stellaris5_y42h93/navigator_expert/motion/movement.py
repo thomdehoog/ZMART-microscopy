@@ -1,4 +1,4 @@
-﻿"""Stage motion helpers.
+"""Stage motion helpers.
 
 Backlash discipline: when the stage reverses direction, leadscrew slack
 introduces a position offset that depends on which side the nut last

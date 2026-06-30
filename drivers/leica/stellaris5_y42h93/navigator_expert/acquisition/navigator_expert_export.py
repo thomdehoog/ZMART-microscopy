@@ -1,4 +1,4 @@
-﻿"""Collect files produced by the Navigator Expert exporter.
+"""Collect files produced by the Navigator Expert exporter.
 
 Navigator Expert / LAS X is the file producer. The driver accepts the
 exported files, waits until they are stable, and hands stable source

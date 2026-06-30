@@ -1,8 +1,8 @@
-﻿"""
+"""
 Unit tests for readers.log_reader (offline, no driver, no hardware).
 =================================================================
 Fixtures are synthetic log lines. Covers the failure modes that matter:
-latin-1/Âµ decoding, <LF>/<TAB> tokens, partial/malformed lines, blank
+latin-1/µ decoding, <LF>/<TAB> tokens, partial/malformed lines, blank
 imageSize (skip), duplicate job names within the current window (fail
 closed), session block-id reassignment (use latest), per-job + global
 staleness exposure and max_age_s refusal, ambiguous/nonnumeric selection,
@@ -323,7 +323,7 @@ class TestLogReader(unittest.TestCase):
         self.assertEqual(hw["Microscope"]["name"], "DM Manual-6")
 
     def test_latin1_micro_in_imagesize(self):
-        line = atl_line(0, 242, "HiRes", image="290.63 Âµm x 290.63 Âµm")
+        line = atl_line(0, 242, "HiRes", image="290.63 µm x 290.63 µm")
         fd, path = tempfile.mkstemp(suffix=".log")
         try:
             with os.fdopen(fd, "wb") as f:

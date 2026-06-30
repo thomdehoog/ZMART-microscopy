@@ -1,4 +1,4 @@
-﻿"""
+"""
 Log-file state probe.
 =====================
 Reads LAS X state from the hardware log (``lcsCommand.log``, written by
@@ -205,7 +205,7 @@ class Snapshot:
 def parse_log(lcs_path=None, msgbox_path=None, now=None, lines=None):
     """Parse the LAS X logs into a :class:`Snapshot` (single forward pass).
 
-    Latin-1 decode (preserves the Âµ byte; never utf-8 replacement).
+    Latin-1 decode (preserves the µ byte; never utf-8 replacement).
     "Latest valid wins" per datum. Tolerant of partial/malformed final
     lines. ``lines``/``now`` are injectable for tests.
     """
@@ -571,7 +571,7 @@ def get_base_fov(job_name, snapshot=None, *, max_age_s=None):
 
 
 def read_zwide_um(job_name, snapshot=None, *, max_age_s=None):
-    """Live z-wide (Âµm) for *job_name*. Raises RuntimeError if unavailable -
+    """Live z-wide (µm) for *job_name*. Raises RuntimeError if unavailable -
     parity with the API reader."""
     settings = get_job_settings(job_name, snapshot, max_age_s=max_age_s)
     if not settings:

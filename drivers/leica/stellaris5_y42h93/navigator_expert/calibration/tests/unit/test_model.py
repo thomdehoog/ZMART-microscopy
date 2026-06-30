@@ -6,12 +6,12 @@ import pytest
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[6]
+    return Path(__file__).resolve().parents[4]  # drivers/leica/stellaris5_y42h93
 
 
 def _load_calibration_module():
     sys.path.insert(0, str(_repo_root()))
-    import calibration.vendor.leica.navigator_expert.core.model as calibration
+    import navigator_expert.calibration.core.model as calibration
 
     return calibration
 

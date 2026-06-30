@@ -1,4 +1,4 @@
-﻿"""
+"""
 Command wrappers.
 =================
 Public ``set_*``, ``move_*``, ``acquire``, and ``select_job`` functions.
@@ -1136,7 +1136,7 @@ def move_xy(client, x, y, unit="um", *, max_retries=None, pre_check_timeout=None
     return r
 
 
-# â”€â”€ Galvo pan limits â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Galvo pan limits ────────────────────────────────────────────────
 _PAN_LIMIT = 0.00775  # max pan value in either axis (objective-
 # independent: fraction of galvo deflection)
 
@@ -1218,7 +1218,7 @@ def move_galvo_to_pixel(client, px, py, *, job_name=None, pixel_size_um=None, im
         if abs(new_pan[0]) > _PAN_LIMIT or abs(new_pan[1]) > _PAN_LIMIT:
             raise RuntimeError(
                 f"resulting pan ({new_pan[0]:+.5f}, {new_pan[1]:+.5f}) "
-                f"exceeds angular limit Â±{_PAN_LIMIT}; stage-move closer first."
+                f"exceeds angular limit ±{_PAN_LIMIT}; stage-move closer first."
             )
         lrp_set_pan(p, new_pan[0], new_pan[1], job_name)
 

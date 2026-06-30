@@ -15,10 +15,10 @@ Open `smart_microscopy_v3.2.ipynb`. The notebook is the operator UI; implementat
 
 ## Layout
 
-- `_bootstrap.py` — adds `microscopes/drivers/vendor/leica/`, `microscopes/`, and the repo root to `sys.path` so the notebook can import the driver, calibration, shared packages, and workflow code.
+- `_bootstrap.py` — adds `drivers/leica/stellaris5_y42h93/`, `microscopes/`, and the repo root to `sys.path` so the notebook can import the driver, calibration, shared packages, and workflow code.
 - `pipeline/` — public surface (`Config`, `Context`, the step functions, visualization helpers) plus internal modules with leading underscore.
 - `tests/` — pipeline unit tests. Run from the repo root with `pytest workflows/target_acquisition/tests/`.
 
 ## Output
 
-Acquisition artifacts write to the operator-selected `media_path/smart/` tree (see `microscopes/shared/output_layout/`), not into this package.
+Acquisition artifacts write to the operator-selected `media_path/smart/` tree (see `shared/output_layout/`), not into this package.

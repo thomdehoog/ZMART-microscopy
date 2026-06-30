@@ -1,4 +1,4 @@
-﻿"""Selected-job confirmation legs and the hybrid race (TDD).
+"""Selected-job confirmation legs and the hybrid race (TDD).
 
 The FIRST test below is the real-scope A->B->A restore hazard: the CAM API
 selected-job readback can be persistently stale, so an API that already read

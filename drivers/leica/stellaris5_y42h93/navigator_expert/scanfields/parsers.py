@@ -1,4 +1,4 @@
-﻿"""
+"""
 Scan-field parsers.
 ===================
 Parse LAS X scanning template files (.xml, .rgn, .lrp) into
@@ -6,12 +6,12 @@ structured Python dicts.
 
 Three file types, three parser groups:
 
-    **XML** â€” ``parse_acquisition_positions`` extracts tile positions
+    **XML** — ``parse_acquisition_positions`` extracts tile positions
     from ``<ScanFieldData>`` elements, grouped by region.
     ``parse_matrix_settings`` extracts grid, carrier, and time-lapse
     configuration from ``<MatrixData>``.
 
-    **RGN** â€” ``parse_base_grid`` extracts base grid positions
+    **RGN** — ``parse_base_grid`` extracts base grid positions
     (``AM=1`` entries).  ``parse_focus_points`` extracts focus,
     autofocus, and point markers from ``ShapeList`` items and
     ``FocusMap`` elements.  ``parse_rgn_geometries`` extracts all
@@ -20,7 +20,7 @@ Three file types, three parser groups:
     properties (centers, bounding boxes, radii, semi-axes).
     ``parse_rgn_tile_colors`` extracts per-job RGBA color mappings.
 
-    **LRP** â€” ``parse_lrp`` parses the full job settings tree
+    **LRP** — ``parse_lrp`` parses the full job settings tree
     (detectors, lasers, AOTFs, shutters, spectral windows, filter
     wheels, light sources, LUTs, autofocus config, z-positions, ROIs).
     ``diff_lrp`` compares two parsed LRP structures.
@@ -537,7 +537,7 @@ def parse_focus_points(rgn_path):
         rgn_path: Path to the ``.rgn`` file.
 
     Returns:
-        ``(focus_points, autofocus_points)`` â€” each a list of dicts::
+        ``(focus_points, autofocus_points)`` — each a list of dicts::
 
             identifier, tag, type,
             x_um, y_um, z_um, enabled
@@ -631,7 +631,7 @@ def parse_rgn_geometries(rgn_path):
     Extracts all ``AM=0`` shapes from ``ShapeList/Items`` (these are
     the user-drawn regions in Navigator Expert).  ``AM=1`` entries
     (base grid) and ``FocusPoint``/``AutoFocusPoint`` items are
-    excluded â€” those are handled by ``parse_base_grid`` and
+    excluded — those are handled by ``parse_base_grid`` and
     ``parse_focus_points`` respectively.
 
     Each geometry includes raw vertices (in um) plus shape-specific
@@ -780,7 +780,7 @@ def parse_rgn_tile_colors(rgn_path):
 
     Returns:
         Dict ``{job_name: (r, g, b, a)}`` with values normalised
-        to 0.0â€“1.0.
+        to 0.0–1.0.
     """
     rgn_path = Path(rgn_path)
     if not rgn_path.is_file():
@@ -956,11 +956,11 @@ def parse_scan_positions(
 
     Tile sizes are resolved in priority order:
 
-    1. **API** â€” if ``client`` is provided, query LAS X for each job's
+    1. **API** — if ``client`` is provided, query LAS X for each job's
        ``imageSize``.
-    2. **Manual** â€” ``tile_size_um`` fills in any jobs not resolved by
+    2. **Manual** — ``tile_size_um`` fills in any jobs not resolved by
        the API and is used for unassigned tiles.
-    3. **Fallback** â€” unassigned tiles get the first available tile
+    3. **Fallback** — unassigned tiles get the first available tile
        size (from API or manual).
 
     Args:
@@ -978,13 +978,13 @@ def parse_scan_positions(
     Returns:
         Dict with::
 
-            acquisition_positions â€” dict of regions
-            base_grid             â€” list of grid positions
-            focus_points          â€” list of focus/point markers
-            autofocus_points      â€” list of autofocus points
-            geometries            â€” dict of user-drawn shapes
-            matrix_settings       â€” grid/carrier/time-lapse config
-            visualization_data    â€” tile colors, job tile sizes
+            acquisition_positions — dict of regions
+            base_grid             — list of grid positions
+            focus_points          — list of focus/point markers
+            autofocus_points      — list of autofocus points
+            geometries            — dict of user-drawn shapes
+            matrix_settings       — grid/carrier/time-lapse config
+            visualization_data    — tile colors, job tile sizes
     """
     d = Path(templates_dir)
     xml_path = d / (template_base + ".xml")
@@ -1138,7 +1138,7 @@ def _plan_positions_from_geometries(
 
 
 # =============================================================================
-# LRP parser â€” ATLConfocalSettingDefinition children
+# LRP parser — ATLConfocalSettingDefinition children
 # =============================================================================
 
 
@@ -1510,9 +1510,9 @@ def diff_lrp(parsed_a, parsed_b, ignore_keys=None):
     Returns:
         List of diff dicts, each with::
 
-            path  â€” dotted path (e.g. "AF Job.Sequential.attrs.LineAverage")
-            a     â€” value in parsed_a (None if missing)
-            b     â€” value in parsed_b (None if missing)
+            path  — dotted path (e.g. "AF Job.Sequential.attrs.LineAverage")
+            a     — value in parsed_a (None if missing)
+            b     — value in parsed_b (None if missing)
     """
     if ignore_keys is None:
         ignore_keys = {"UserSettingName", "BlockID", "MemoryBlockID", "UniqueID", "ID"}

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Readback confirmation functions.
 ================================
 Each ``_confirm_*`` function reads back the current state and checks
@@ -7,7 +7,7 @@ backbone (``confirm_and_fire``) to verify that set commands took effect.
 
 All confirm functions follow the same contract::
 
-    callable(client) â†’ {"success": bool, "logs": [...]}
+    callable(client) → {"success": bool, "logs": [...]}
 
 Extra parameters (job_name, target, tolerance, etc.) are pre-bound with
 ``functools.partial`` at profile definition time. The command function
@@ -249,7 +249,7 @@ def _reading_value_after(reading, observed_after):
 
 
 # =============================================================================
-# Confirm functions â€” approximate match (tolerance parameter)
+# Confirm functions — approximate match (tolerance parameter)
 # =============================================================================
 
 ZMODE_KEY = {"galvo": "z-galvo", "zwide": "z-wide"}
@@ -266,7 +266,7 @@ def confirm_move_z(
     Args:
         client: The connected LAS X API client.
         job_name: Target job name.
-        z_mode: Drive type â€” "galvo" or "zwide".
+        z_mode: Drive type — "galvo" or "zwide".
         target_um: Expected Z position in micrometers.
         tolerance: Acceptable deviation in micrometers.
         timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
@@ -301,7 +301,7 @@ def confirm_move_z(
         time.sleep(poll_interval)
 
     msg = (
-        f"MoveZ timeout after {time.perf_counter() - t_start:.1f}s â€” "
+        f"MoveZ timeout after {time.perf_counter() - t_start:.1f}s — "
         f"target={target_um:.1f} um ({z_mode})"
     )
     log.warning(msg)
@@ -345,7 +345,7 @@ def _confirm_zoom(client, job_name, target, tolerance=0.1, timeout=None, poll_in
 
     msg = (
         f"Zoom timeout after {time.perf_counter() - t_start:.1f}s "
-        f"â€” target={target}, last_actual={last_actual}"
+        f"— target={target}, last_actual={last_actual}"
     )
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
@@ -386,7 +386,7 @@ def _confirm_scan_field_rotation(
                 pass
         time.sleep(poll_interval)
 
-    msg = f"ScanFieldRotation timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"ScanFieldRotation timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -485,7 +485,7 @@ def _confirm_z_stack_definition(
         time.sleep(poll_interval)
 
     msg = (
-        f"Z-stack def timeout after {time.perf_counter() - t_start:.1f}s â€” "
+        f"Z-stack def timeout after {time.perf_counter() - t_start:.1f}s — "
         f"target=({begin_um}, {end_um})"
     )
     log.warning(msg)
@@ -527,7 +527,7 @@ def _confirm_z_stack_step_size(
                 pass
         time.sleep(poll_interval)
 
-    msg = f"Z-stack step timeout after {time.perf_counter() - t_start:.1f}s â€” target={target_um}"
+    msg = f"Z-stack step timeout after {time.perf_counter() - t_start:.1f}s — target={target_um}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -592,7 +592,7 @@ def _confirm_z_stack_size(
                 log.debug("Z-stack size confirm: exception %s, stack=%s", e, ch.get("stack"))
         time.sleep(poll_interval)
 
-    msg = f"Z-stack size timeout after {time.perf_counter() - t_start:.1f}s â€” target={target_um}"
+    msg = f"Z-stack size timeout after {time.perf_counter() - t_start:.1f}s — target={target_um}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -633,7 +633,7 @@ def _confirm_pinhole_airy(
                 pass
         time.sleep(poll_interval)
 
-    msg = f"PinholeAiry timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"PinholeAiry timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -680,7 +680,7 @@ def _confirm_detector_gain(
                 pass
         time.sleep(poll_interval)
 
-    msg = f"DetectorGain timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"DetectorGain timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -736,7 +736,7 @@ def _confirm_laser_intensity(
                 pass
         time.sleep(poll_interval)
 
-    msg = f"LaserIntensity timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"LaserIntensity timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -785,7 +785,7 @@ def _confirm_filter_wheel_spectrum(
         time.sleep(poll_interval)
 
     msg = (
-        f"FilterWheelSpectrum timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+        f"FilterWheelSpectrum timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     )
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
@@ -793,7 +793,7 @@ def _confirm_filter_wheel_spectrum(
 
 
 # =============================================================================
-# Confirm functions â€” exact match (no tolerance parameter)
+# Confirm functions — exact match (no tolerance parameter)
 # =============================================================================
 
 
@@ -828,7 +828,7 @@ def _confirm_scan_speed(client, job_name, target, timeout=None, poll_interval=0.
                 pass
         time.sleep(poll_interval)
 
-    msg = f"ScanSpeed timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"ScanSpeed timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -865,7 +865,7 @@ def _confirm_scan_resonant(client, job_name, target, timeout=None, poll_interval
                 pass
         time.sleep(poll_interval)
 
-    msg = f"ScanResonant timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"ScanResonant timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -902,7 +902,7 @@ def _confirm_scan_mode(client, job_name, target, timeout=None, poll_interval=0.0
                 pass
         time.sleep(poll_interval)
 
-    msg = f"ScanMode timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"ScanMode timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -939,7 +939,7 @@ def _confirm_sequential_mode(client, job_name, target, timeout=None, poll_interv
                 pass
         time.sleep(poll_interval)
 
-    msg = f"SequentialMode timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"SequentialMode timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -977,7 +977,7 @@ def _confirm_image_format(client, job_name, w, h, timeout=None, poll_interval=0.
                 pass
         time.sleep(poll_interval)
 
-    msg = f"ImageFormat timeout after {time.perf_counter() - t_start:.1f}s â€” target='{w} x {h}'"
+    msg = f"ImageFormat timeout after {time.perf_counter() - t_start:.1f}s — target='{w} x {h}'"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -1026,7 +1026,7 @@ def confirm_objective(
         time.sleep(poll_interval)
 
     msg = (
-        f"Objective timeout after {time.perf_counter() - t_start:.1f}s â€” "
+        f"Objective timeout after {time.perf_counter() - t_start:.1f}s — "
         f"target={label} (slot {target_slot})"
     )
     log.warning(msg)
@@ -1066,7 +1066,7 @@ def _confirm_frame_accumulation(client, job_name, si, target, timeout=None, poll
                 pass
         time.sleep(poll_interval)
 
-    msg = f"FrameAccumulation timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"FrameAccumulation timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -1104,7 +1104,7 @@ def _confirm_frame_average(client, job_name, si, target, timeout=None, poll_inte
                 pass
         time.sleep(poll_interval)
 
-    msg = f"FrameAverage timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"FrameAverage timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -1142,7 +1142,7 @@ def _confirm_line_accumulation(client, job_name, si, target, timeout=None, poll_
                 pass
         time.sleep(poll_interval)
 
-    msg = f"LineAccumulation timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"LineAccumulation timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -1180,7 +1180,7 @@ def _confirm_line_average(client, job_name, si, target, timeout=None, poll_inter
                 pass
         time.sleep(poll_interval)
 
-    msg = f"LineAverage timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"LineAverage timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -1226,7 +1226,7 @@ def _confirm_laser_shutter(
                 pass
         time.sleep(poll_interval)
 
-    msg = f"LaserShutter timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"LaserShutter timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -1273,7 +1273,7 @@ def _confirm_filter_wheel_slot(
                 pass
         time.sleep(poll_interval)
 
-    msg = f"FilterWheelSlot timeout after {time.perf_counter() - t_start:.1f}s â€” target={target}"
+    msg = f"FilterWheelSlot timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs}
@@ -1336,7 +1336,7 @@ def confirm_move_xy(
         time.sleep(poll_interval)
 
     msg = (
-        f"MoveXY timeout after {time.perf_counter() - t_start:.1f}s â€” "
+        f"MoveXY timeout after {time.perf_counter() - t_start:.1f}s — "
         f"target=({target_x_um:.1f}, {target_y_um:.1f})"
     )
     log.warning(msg)
@@ -1359,10 +1359,10 @@ def confirm_acquire(
     Acquisition profiles fire the command once and treat that as a
     failed acquisition, not as permission to send another acquire command.
 
-    Phase 1 â€” wait up to *start_timeout* for scan to go non-idle.
+    Phase 1 — wait up to *start_timeout* for scan to go non-idle.
               Returns False immediately on permanent error.
               Returns False if scan hasn't started.
-    Phase 2 â€” wait for consecutive idle reads to confirm completion.
+    Phase 2 — wait for consecutive idle reads to confirm completion.
 
     Args:
         client: The connected LAS X API client.
@@ -1431,7 +1431,7 @@ def confirm_acquire(
             logs.append(_make_log_entry("info", msg))
             last_heartbeat = now
 
-        # Phase 2: completion â€” consecutive idle reads after saw scanning
+        # Phase 2: completion — consecutive idle reads after saw scanning
         if consecutive_idle >= idle_streak_required and saw_scanning:
             return {"success": True, "logs": logs}
 

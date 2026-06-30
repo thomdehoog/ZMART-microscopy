@@ -4,10 +4,10 @@ Stage limits are configured safety/working limits, not calibration
 measurements. They live beside calibration files because both describe
 the current Leica machine state.
 
-``microscopes/limits/vendor/leica/navigator_expert/defaults.json`` contains the configured
+``drivers/leica/stellaris5_y42h93/navigator_expert/limits/defaults.json`` contains the configured
 physical envelope for the microscope.
 
-``microscopes/limits/vendor/leica/navigator_expert/current.json`` records the active
+``drivers/leica/stellaris5_y42h93/navigator_expert/limits/current.json`` records the active
 working envelope. The target-acquisition notebook updates this file from
 boundary markers or scan-field geometry, then explicitly reloads it before
 applying limits.

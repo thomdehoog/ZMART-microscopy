@@ -1,4 +1,4 @@
-﻿"""Unit tests for the alternating API/log change-wait reader.
+"""Unit tests for the alternating API/log change-wait reader.
 
 Contract under test (see ``readers/change_wait.py``):
 

@@ -21,7 +21,7 @@ from typing import Any
 
 import navigator_expert as drv
 import numpy as np
-from calibration.vendor.leica.navigator_expert.core import model as calib
+from navigator_expert.calibration.core import model as calib
 from shared.output_layout import Naming, build_position_analysis_name
 
 from ._acquire import acquire

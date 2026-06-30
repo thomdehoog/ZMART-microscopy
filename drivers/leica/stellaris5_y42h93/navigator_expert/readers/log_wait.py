@@ -1,4 +1,4 @@
-﻿"""Log-backed polling helpers for selected state transitions.
+"""Log-backed polling helpers for selected state transitions.
 
 The low-level log reader stays a single-snapshot parser. Helpers in this
 module poll those snapshots for a caller-owned expected condition. They are

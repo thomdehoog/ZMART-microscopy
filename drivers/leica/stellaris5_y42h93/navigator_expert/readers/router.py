@@ -1,4 +1,4 @@
-﻿"""Routed LAS X state readers.
+"""Routed LAS X state readers.
 
 Public functions keep the old reader return shapes by default. The backend is
 a profile-controlled implementation detail: ``api``, ``log``, or ``hybrid``.

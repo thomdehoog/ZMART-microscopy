@@ -1,4 +1,4 @@
-﻿"""Probe the REAL Navigator Expert export layout for one or more jobs.
+"""Probe the REAL Navigator Expert export layout for one or more jobs.
 
 Read-only diagnostic. Acquires each named LAS X job once via the public
 driver, then dumps EXACTLY what the current exporter sees so we stop

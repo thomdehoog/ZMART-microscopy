@@ -1,4 +1,4 @@
-﻿"""Unit tests for the split stage safety/backlash loader."""
+"""Unit tests for the split stage safety/backlash loader."""
 
 import json
 from pathlib import Path
@@ -61,18 +61,10 @@ def test_load_combines_limits_and_calibrated_backlash(tmp_path):
 
 
 def test_limits_paths_are_separate_from_calibration_state():
-    repo_root = Path(__file__).resolve().parents[6]
-    current_limits = repo_root / "limits" / "vendor" / "leica" / "navigator_expert" / "current.json"
+    driver_root = Path(__file__).resolve().parents[2]
+    current_limits = driver_root / "limits" / "current.json"
     default_limits = current_limits.with_name("defaults.json")
-    calibration = (
-        repo_root
-        / "calibration"
-        / "vendor"
-        / "leica"
-        / "navigator_expert"
-        / "current"
-        / "calibration.json"
-    )
+    calibration = driver_root / "calibration" / "current" / "calibration.json"
 
     assert stage_config.current_path() == current_limits
     assert stage_config.defaults_path() == default_limits

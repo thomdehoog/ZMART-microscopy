@@ -1,4 +1,4 @@
-﻿"""Alternating API/log change-wait reader.
+"""Alternating API/log change-wait reader.
 
 ``wait_for_change`` answers one question after a command was fired: *did the
 state visibly change?* It alternates the CAM API and the LAS X log until one
