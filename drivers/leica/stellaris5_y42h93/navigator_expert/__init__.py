@@ -381,8 +381,8 @@ from .scanfields.files import (
 from .scanfields.strip_restore import strip_template, restore_template
 from .scanfields.strip_restore import strip_template_in_place
 from .scanfields.transaction import apply_lrp_change, reorder_jobs
+from .scanfields.lrp import parse_lrp
 from .scanfields.parsers import (
-    parse_lrp,
     parse_scan_positions,
     parse_acquisition_positions,
     parse_base_grid,

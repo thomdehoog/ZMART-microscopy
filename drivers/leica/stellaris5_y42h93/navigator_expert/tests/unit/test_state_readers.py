@@ -13,7 +13,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from navigator_expert import readers
-from navigator_expert.commands import confirmations
+from navigator_expert.commands import confirm_select_job
 from navigator_expert.config import profiles
 from navigator_expert.readers import capabilities, router
 
@@ -242,13 +242,13 @@ class TestStateReaders(unittest.TestCase):
         )
         with (
             patch.object(
-                confirmations._readers,
+                confirm_select_job._readers,
                 "get_jobs",
                 side_effect=[old, fresh],
             ),
             patch("time.sleep"),
         ):
-            result = confirmations.confirm_select_job(
+            result = confirm_select_job.confirm_select_job(
                 object(),
                 job_name="Overview",
                 timeout=1.0,
@@ -270,10 +270,10 @@ class TestStateReaders(unittest.TestCase):
             )
 
         with (
-            patch.object(confirmations._readers, "get_jobs", side_effect=fake_get_jobs),
+            patch.object(confirm_select_job._readers, "get_jobs", side_effect=fake_get_jobs),
             patch("time.sleep"),
         ):
-            result = confirmations.confirm_select_job(
+            result = confirm_select_job.confirm_select_job(
                 object(),
                 job_name="Overview",
                 timeout=1.0,

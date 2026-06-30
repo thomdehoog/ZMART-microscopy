@@ -15,12 +15,12 @@ from .files import (
     save_and_read_lrp,
     save_experiment,
 )
+from .lrp import parse_lrp
 from .parsers import (
     UNASSIGNED_JOB,
     parse_acquisition_positions,
     parse_base_grid,
     parse_focus_points,
-    parse_lrp,
     parse_matrix_settings,
     parse_rgn_geometries,
     parse_rgn_tile_colors,

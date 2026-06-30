@@ -437,7 +437,7 @@ ACQUIRE = CommandProfile(
 SELECT_JOB = CommandProfile(
     pre_check_fn=partial(check_idle, timeout=None),
     # select_job's confirmation legs are built per call by
-    # confirmations.select_job_confirm_legs (api / log / hybrid policy from
+    # confirm_select_job.select_job_confirm_legs (api / log / hybrid policy from
     # StateReaderProfile.selected_job_confirm_source), not by this profile.
     confirm_fn=None,
     max_confirm_attempts=3,
