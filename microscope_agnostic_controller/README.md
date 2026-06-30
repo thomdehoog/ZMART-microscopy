@@ -184,7 +184,7 @@ is a complete, readable reference implementation.
 ## Tests
 
 ```bash
-python -m pytest microscopes/microscope_agnostic_controller/tests
+python -m pytest microscope_agnostic_controller/tests
 ```
 
 The test suite and the example notebook both run offline against the mock driver.

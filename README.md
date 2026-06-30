@@ -5,10 +5,12 @@ integrations that put an instrument under programmatic control, and workflows
 that use that control to analyze data and make acquisition decisions during an
 experiment.
 
-The repository has two main roots:
+The repository has three main roots:
 
 - `microscopes/` contains microscope-facing code: vendor drivers, calibration,
-  safety limits, shared utilities, and the microscope-agnostic layer.
+  safety limits, and shared utilities.
+- `microscope_agnostic_controller/` is the cross-vendor controller — the single
+  workflow-facing surface that sits above the drivers.
 - `workflows/` contains smart-microscopy workflows. The current workflow is
   `workflows/target_acquisition/`.
 
@@ -18,7 +20,7 @@ microscopes/
   calibration/vendor/leica/...             Leica calibration notebooks and code
   limits/                                  safety-limit data and helpers
   shared/                                  vendor-independent utilities
-  microscope_agnostic_controller/          cross-vendor controller (see its README)
+microscope_agnostic_controller/            cross-vendor controller (see its README)
 workflows/
   target_acquisition/                      operator notebook, pipeline, tests
 ```

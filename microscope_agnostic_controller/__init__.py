@@ -19,7 +19,7 @@ to use it, both giving ``mac.<call>()``:
     mic.set_origin()
     mic.acquire(acquisition_type="prescan", position_label="A1")
 
-Requires the microscopes/ source root on sys.path.
+Requires the repository root (the package's parent) on sys.path.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
