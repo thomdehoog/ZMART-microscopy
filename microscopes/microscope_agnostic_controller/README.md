@@ -9,7 +9,7 @@
 One small, consistent interface for driving a microscope from a workflow. You
 pick an instrument, set the frame, and issue plain commands. The same
 workflow runs on any microscope that has a driver; your code never imports a
-vendor's API — the driver talks to the microscope's own API, the controller stays
+vendor's API, the driver talks to the microscope's own API, the controller stays
 a thin, easy surface for humans and AI agents alike.
 
 ## Overview of functionalities
@@ -51,8 +51,8 @@ mac.disconnect()
 ```
 
 Most steps follow the same pattern: **discover, then apply.** Call a `get_*`
-function to see what the microscope supports — each option lists its allowed
-values and the one currently active — then pass your choice to the matching call.
+function to see what the microscope supports, each option lists its allowed
+values and the one currently active. It then pass your choice to the matching call.
 Omit an option and the driver keeps its active default, so you only specify what
 you want to change.
 
@@ -78,19 +78,12 @@ mac.set_instrument(instrument)
 ### 2. Set the origin of the frame
 
 A position only means something against a frame. `set_origin()` tells the driver
-the current position is, for our purposes, (0, 0, 0). From then on, every position
-is micrometers in that frame -- the single canonical reference. The objective and
-the actuator are hardware the driver maps onto, not part of what a position means:
+the current position is, for our purposes: (0, 0, 0). From then on, every position
+is micrometers in that frame, and in reference to that (0, 0, 0) point:
 
 ```python
 mac.set_origin()                    # (0, 0, 0) is here now
 ```
-
-- **Frame** — micrometers from the origin; the one canonical reference.
-- **Actuator** — chosen per axis (`with_actuators`); using the piezo for fine Z
-  does not change the coordinates you give, only which actuator moves to them.
-- **Objective** — switching it moves the optics, not your coordinates; the driver
-  applies the offset.
 
 ### 3. Move to a position in the frame
 
@@ -100,8 +93,8 @@ optional `with_actuators` argument chooses which actuator moves each axis (for
 example, the piezo for fine Z) without changing the coordinates you give.
 
 ```python
-mac.get_actuators()                 # {"x": ["motoric"], "z": ["motoric", "galvo", "piezo"]}
-mac.set_xyz(10, 20, 5, with_actuators={"z": "piezo"})   # Z via the piezo
+mac.get_actuators()                 # {"x": ["motoric"], "y": ["motoric"], "z": ["motoric", "galvo", "piezo"]}
+mac.set_xyz(10, 20, 5, with_actuators={"x": ["motoric"], "y": ["motoric"], "z": "piezo"}) 
 ```
 
 ### 4. Capture and reapply state
@@ -120,7 +113,7 @@ mac.set_state(prescan)                     # reapply it later
 ### 5. Acquire (captures and saves)
 
 `get_acquisition_options()` lists the acquisition and saving settings the
-instrument supports — for example `backlash_correction` (settles the actuators
+instrument supports. For example: `backlash_correction` (settles the actuators
 before the image is captured), `format`, and `procedure`. `acquire()` captures one
 dataset and saves it in one call: `acquisition_type` is the kind of scan,
 `position_label` names the output file, and `options` carries the settings. Omit a
@@ -129,7 +122,7 @@ setting and the driver uses its active default.
 ```python
 mac.get_acquisition_options()
 # {"backlash_correction": {...}, "format": {...}, "procedure": {...}}
-mac.acquire(acquisition_type="prescan", position_label="A1", options={"format": "ome-zarr"})
+mac.acquire(acquisition_type="prescan", position_label="A1", options={"format": "ome-tiff"})
 ```
 
 ### 6. Run a procedure
