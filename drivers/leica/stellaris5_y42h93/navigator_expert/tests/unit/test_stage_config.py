@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-import navigator_expert.motion.config as stage_config
+import navigator_expert.motion.stage_config as stage_config
 import pytest
 
 

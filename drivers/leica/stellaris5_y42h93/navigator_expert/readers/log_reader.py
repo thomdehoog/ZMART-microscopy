@@ -49,8 +49,7 @@ Parameters live in ``config.profiles.LOG_READER`` - no hardcoded values in the
 read paths.
 
 Dependency direction:
-    - Imports: stdlib, shared ``derived`` helpers, ``settings``
-      (make_changeable_copy).
+    - Imports: stdlib, shared ``derived`` helpers.
     - Imported by: ``readers.router``, dispatch diagnostics, tests, and
       hardware validators.
 """
@@ -63,7 +62,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from ..commands.settings import make_changeable_copy
 from . import derived
 
 log = logging.getLogger(__name__)
@@ -249,7 +247,7 @@ def parse_log(lcs_path=None, msgbox_path=None, now=None, lines=None):
                     j is not None
                     and j.get("jobName") is not None
                     and j.get("id") is not None
-                    and j.get("imageSize")
+                    and derived.settings_geometry_ready(j)
                 ):
                     snap.atl_by_block[str(j["id"])] = (j, ts)
                 continue
@@ -576,10 +574,4 @@ def read_zwide_um(job_name, snapshot=None, *, max_age_s=None):
     settings = get_job_settings(job_name, snapshot, max_age_s=max_age_s)
     if not settings:
         raise RuntimeError(f"log_reader: no fresh settings for '{job_name}'")
-    ch = make_changeable_copy(settings)
-    if not ch or "zPosition" not in ch:
-        raise RuntimeError("log_reader: zPosition not in job settings")
-    val = ch["zPosition"].get("z-wide")
-    if val is None:
-        raise RuntimeError(f"log_reader: z-wide readback missing; got {ch['zPosition']!r}")
-    return float(val)
+    return derived.zwide_um_from_settings(settings)

@@ -23,6 +23,7 @@ from .files import (
     TEMPLATE_LRP,
     TEMPLATE_RGN,
     TEMPLATE_XML,
+    _count_objects,
     find_scanning_templates_dir,
     load_experiment,
     save_experiment,
@@ -78,20 +79,6 @@ def _strip_rgn(src, dst):
         "</StageOverviewRegions>",
     ]
     dst.write_text("\r\n".join(lines), encoding="utf-8", newline="")
-
-
-def _count_objects(xml_path, rgn_path):
-    """Count scan fields, RGN items, and focus points."""
-    try:
-        xml_text = xml_path.read_text(encoding="utf-8")
-        rgn_tree = ET.parse(rgn_path)
-        fields = xml_text.count("<ScanFieldData")
-        items = len(rgn_tree.findall(".//ShapeList/Items/*"))
-        focus = len(rgn_tree.findall(".//FocusMap/*"))
-        return fields, items, focus
-    except (OSError, ET.ParseError) as e:
-        log.warning("Cannot count objects: %s", e)
-        return 0, 0, 0
 
 
 # =============================================================================

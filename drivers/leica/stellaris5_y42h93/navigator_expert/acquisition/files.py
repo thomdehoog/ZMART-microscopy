@@ -15,8 +15,14 @@ from __future__ import annotations
 import logging
 import re
 import time
+from typing import TYPE_CHECKING
 
 from .._file_utils import _wait_file_stable
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from .capture import AcquisitionResult
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +82,27 @@ def read_relative_path(client):
     except Exception as e:
         log.warning("Could not read RelativePathName: %s", e)
         return ""
+
+
+def _is_from_acquisition(path: Path, acq: AcquisitionResult) -> bool:
+    """Return True when *path* was written at or after *acq* started."""
+    try:
+        return path.stat().st_mtime >= acq.started_at
+    except OSError:
+        return False
+
+
+def _relative_posix(path: Path, base: Path, *, fallback_to_str: bool) -> str | None:
+    """Return *path* relative to *base* as a POSIX string.
+
+    When *path* is not under *base*, fall back to the POSIX form of the
+    absolute path (``fallback_to_str=True``) or to ``None``
+    (``fallback_to_str=False``).
+    """
+    try:
+        return str(path.relative_to(base)).replace("\\", "/")
+    except ValueError:
+        return str(path).replace("\\", "/") if fallback_to_str else None
 
 
 def wait_all_stable(files, *, timeout=60, poll_interval=0.5, stable_readings=3):

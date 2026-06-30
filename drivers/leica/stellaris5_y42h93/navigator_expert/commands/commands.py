@@ -62,6 +62,7 @@ from ..config.profiles import (
 )
 from ..utils import _hw_get, _make_log_entry, _make_timing, parse_format
 from ..motion.limits import _check_xy_limits, _check_z_limits
+from .objectives import objective_by_slot
 from .confirmations import (
     _confirm_detector_gain,
     _confirm_filter_wheel_slot,
@@ -485,12 +486,9 @@ def _resolve_objective(hw_info, slot_index=None, name=None, magnification=None):
     Any one of *slot_index*, *name*, or *magnification* identifies the
     objective.  Returns ``(None, None)`` if not found.
     """
-    objectives = _hw_get(_hw_get(hw_info, "Microscope", {}), "objectives", [])
-    # Filter out empty turret slots (objectiveNumber 0) - sending these to
-    # LAS X can trigger modal error dialogs that block the whole application.
-    real = [o for o in objectives if _hw_get(o, "objectiveNumber", 0) != 0]
-
-    for obj in real:
+    # Empty turret slots (objectiveNumber 0) are excluded by objective_by_slot;
+    # sending those to LAS X can trigger modal error dialogs that block the app.
+    for obj in objective_by_slot(hw_info).values():
         s = _hw_get(obj, "slotIndex")
         n = _hw_get(obj, "name", "").strip()
         m = _hw_get(obj, "magnification")
@@ -526,9 +524,10 @@ def set_objective(
     )
 
     if slot is None:
-        objectives = _hw_get(_hw_get(hw_info, "Microscope", {}), "objectives", [])
-        real = [o for o in objectives if _hw_get(o, "objectiveNumber", 0) != 0]
-        available = [(_hw_get(o, "slotIndex"), _hw_get(o, "name", "").strip()) for o in real]
+        available = [
+            (_hw_get(o, "slotIndex"), _hw_get(o, "name", "").strip())
+            for o in objective_by_slot(hw_info).values()
+        ]
         return {
             "success": False,
             "confirmed": None,
