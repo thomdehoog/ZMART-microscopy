@@ -1,0 +1,28 @@
+# Minimum runtime environment for SMART Microscopy -- pip fallback.
+#
+# The CANONICAL install is the conda-forge environment in environment.yml
+# (build it with build_env.py). This pip list mirrors the same packages for
+# environments without conda. Note: conda's `opencv` is `opencv-python` on
+# PyPI; otherwise the names match.
+#
+# Install into a Python 3.10-3.12 env:
+#     python -m pip install -r requirements.txt
+#
+# Test/lint tools are NOT here -- see
+# drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt.
+
+# --- compute core (registration, focusing, image I/O, calibration) ---
+numpy>=1.24
+scipy>=1.10
+scikit-image>=0.22      # registration: ORB, RANSAC, phase_cross_correlation
+opencv-python>=4.8      # registration: cv2 feature matching
+tifffile>=2024.1        # read/write OME-TIFF image data
+
+# --- live LAS X API (Python <-> .NET bridge) ---
+# The LAS X CAM API DLLs ship with LAS X and load from the install dir;
+# only the bridge itself is pip-installable.
+pythonnet>=3.0
+
+# Optional: diagnostic plots / visualization (lazy-imported; not required
+# for API / registration / focusing). Uncomment to enable the plot paths.
+# matplotlib>=3.7
