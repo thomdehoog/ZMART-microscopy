@@ -1,55 +1,52 @@
 # SMART Microscopy
 
-This repository contains implementations for smart microscopy: microscope
-integrations that put an instrument under programmatic control, and workflows
-that use that control to analyze data and make acquisition decisions during an
-experiment.
+SMART Microscopy puts microscopes under programmatic control and runs workflows
+that analyze data and make acquisition decisions live during an experiment. The
+design is **vendor-neutral**: a workflow targets one small controller interface,
+and any microscope with a driver behind that interface can run it.
 
-The repository has four main roots:
+## Architecture
 
-- `drivers/` contains the vendor microscope drivers, organized as
-  `drivers/<vendor>/<machine>/<api>/` (e.g.
-  `drivers/leica/stellaris5_y42h93/navigator_expert/`). Each driver carries its
-  own calibration and limits code.
-- `shared/` contains vendor-independent utilities (output layout, algorithms).
-- `microscope_agnostic_controller/` is the cross-vendor controller — the single
-  workflow-facing surface that sits above the drivers.
-- `workflows/` contains smart-microscopy workflows. The current workflow is
-  `workflows/target_acquisition/`.
+Four roots, layered from vendor-specific up to vendor-neutral:
 
 ```text
-drivers/
-  leica/stellaris5_y42h93/navigator_expert/   Leica LAS X Navigator Expert driver
-    calibration/                              calibration notebooks and code
-    limits/                                   safety-limit data and helpers
-shared/                                       vendor-independent utilities
-microscope_agnostic_controller/               cross-vendor controller (see its README)
-workflows/
-  target_acquisition/                         operator notebook, pipeline, tests
+drivers/                                        vendor microscope drivers
+  <vendor>/<machine>/<api>/                     one driver per (vendor, machine, API)
+  leica/stellaris5_y42h93/navigator_expert/     Leica LAS X Navigator Expert driver
+    calibration/                                calibration notebooks and code
+    limits/                                     safety-limit data and helpers
+shared/                                         vendor-independent utilities (output layout, algorithms)
+controller/                                     cross-vendor controller (single workflow-facing surface)
+workflows/                                      smart-microscopy workflows
+  target_acquisition/                           operator notebook, pipeline, tests
 ```
 
-## Current Status
+- **`drivers/`** — each driver speaks one microscope's native API and is keyed by
+  `<vendor>/<machine>/<api>`. A driver owns its own calibration and limits. New
+  microscopes are added here without touching workflows.
+- **`shared/`** — vendor-independent utilities: the lab-wide output layout and
+  image algorithms (registration, focus) used across drivers and workflows.
+- **`controller/`** — the cross-vendor controller: one small, consistent interface
+  a workflow drives, so the same workflow runs on any microscope that has a
+  driver. See its README for the full API and for how to register a new driver.
+- **`workflows/`** — the smart-microscopy workflows themselves (current:
+  `workflows/target_acquisition/`).
 
-The Leica Navigator Expert driver is the production-tested path. It has been
-validated against the LAS X simulator and a real Leica STELLARIS. The
-microscope-agnostic layer is still under construction; workflow code currently
-uses the Leica driver path directly through local bootstrap modules.
+## Drivers
 
-The repository runs from the source checkout (no `pip install .`); its Python
-dependencies install from conda-forge (see [Getting Started](#getting-started)).
+Drivers live under `drivers/<vendor>/<machine>/<api>/` and are registered with
+the controller through its registry (see the controller README), so adding a
+vendor, microscope, or API is an additive change. Each driver documents its own
+command model, state handling, and gotchas in its own README.
 
-## State Readers
+| Microscope | API | Driver | Status |
+|---|---|---|---|
+| Leica STELLARIS 5 | LAS X CAM / Navigator Expert | [`drivers/leica/stellaris5_y42h93/navigator_expert/`](drivers/leica/stellaris5_y42h93/navigator_expert/README.md) | Production-tested (LAS X simulator + real STELLARIS) |
 
-The Leica driver exposes three reader families:
-
-- `api`: CAM/PyAPI readback only.
-- `log`: LAS X log-derived state only.
-- `hybrid`: both sources participate where available; command confirmation
-  accepts the first admissible evidence.
-
-Hybrid is the default for selected-job confirmation. This is deliberate: API
-and log can each fail differently, so the driver treats source disagreement as
-diagnostic evidence instead of silently hiding it.
+The cross-vendor controller is the intended single surface above the drivers and
+is still under construction; today the workflow uses the Leica driver path
+directly through local bootstrap modules. As more drivers land, this table grows
+and workflows move onto the controller surface.
 
 ## Getting Started
 
@@ -60,28 +57,31 @@ python build_env.py            # creates the "smart-microscopy" conda-forge env
 conda activate smart-microscopy
 ```
 
-This targets **Python 3.10-3.12** (Windows for live LAS X use; registration and
-focusing run on any OS) and installs the minimum to drive the microscope and
-process its images. Full setup — dependency rationale, the conda-forge / PyPI
-choice, live-LAS X notes, and the typical path through the repo — is in
-**[`getting-started/`](getting-started/README.md)**.
+This targets **Python 3.10-3.12** and installs the minimum to drive a microscope
+and process its images. Driving a microscope *live* also needs that microscope's
+own software installed (e.g. LAS X for the Leica driver); registration, focusing,
+and image processing run on any OS. Full setup — dependency rationale, the
+conda-forge / PyPI choice, and the typical path through the repo — is in
+**[`getting_started/`](getting_started/README.md)**.
 
 ## Tests
 
-Offline tests need no microscope and no LAS X installation. Install the offline
-test/lint deps (separate from the runtime env; no `pythonnet`, so the suite runs
-on any OS):
+Each component has its own offline suite that needs no microscope and no vendor
+software. Install the offline test/lint deps (separate from the runtime env),
+then run the suites:
 
 ```powershell
 python -m pip install -r drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt
+python -m pytest -q controller/tests
 python -m pytest -q drivers/leica/stellaris5_y42h93/navigator_expert/tests/unit
 python -m pytest -q drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware
 python -m pytest -q workflows/target_acquisition/tests
 python -m pytest -q drivers/leica/stellaris5_y42h93/navigator_expert/calibration/tests shared/output_layout/tests
 ```
 
-Live validation is explicit and safe by default. Hardware-moving sections only
-run when their `--allow-*` flags are present:
+Live validation is explicit and safe by default — vendor-specific and gated. For
+the Leica driver, hardware-moving sections only run when their `--allow-*` flags
+are present:
 
 ```powershell
 python drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware/validate_hardware.py --yes --allow-xy --allow-z --allow-objective --allow-acquire --state-reader-mode hybrid

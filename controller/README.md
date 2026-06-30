@@ -1,10 +1,10 @@
-# Microscope Agnostic Controller
+# Controller
 
-[![Microscope Agnostic Controller](https://github.com/thomdehoog/smart-microscopy/actions/workflows/microscope-agnostic-controller.yml/badge.svg?branch=microscope-agnostic-layer)](https://github.com/thomdehoog/smart-microscopy/actions/workflows/microscope-agnostic-controller.yml)
+[![Controller](https://github.com/thomdehoog/smart-microscopy/actions/workflows/controller.yml/badge.svg?branch=microscope-agnostic-layer)](https://github.com/thomdehoog/smart-microscopy/actions/workflows/controller.yml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 [![license](https://img.shields.io/badge/license-MIT-blue)](../../LICENSE)
 [![code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/thomdehoog/smart-microscopy/actions/workflows/microscope-agnostic-controller.yml)
+[![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/thomdehoog/smart-microscopy/actions/workflows/controller.yml)
 
 One small, consistent interface for driving a microscope from a workflow. You
 pick an instrument, set the frame, and issue plain commands. The same
@@ -17,37 +17,37 @@ a thin, easy surface for humans and AI agents alike.
 Everything you can call:
 
 ```python
-import microscope_agnostic_controller as mac
+import controller
 
 # 1) Get the available instruments and connect to one
-mac.get_instruments()
-mac.set_instrument(instrument=Dict)
+controller.get_instruments()
+controller.set_instrument(instrument=Dict)
 
 # 2) Set the origin point of the frame (current position becomes 0, 0, 0)
-mac.set_origin()
+controller.set_origin()
 
 # 3) Discover actuators, then read or move the position in the frame
-mac.get_actuators()
-mac.get_xyz()
-mac.set_xyz(x, y, z, with_actuators=Dict)
+controller.get_actuators()
+controller.get_xyz()
+controller.set_xyz(x, y, z, with_actuators=Dict)
 
 # 4) Capture and reapply instrument state
-mac.get_state()
-mac.set_state(Dict)
+controller.get_state()
+controller.set_state(Dict)
 
 # 5) Acquire data (captures and saves) with the current state and position
-mac.get_acquisition_options()
-mac.acquire(acquisition_type=String, position_label=String, options=Dict)
+controller.get_acquisition_options()
+controller.acquire(acquisition_type=String, position_label=String, options=Dict)
 
 # 6) Run a procedure specific to the microscope (e.g. hardware autofocus)
-mac.get_procedures()
-mac.set_procedure(Dict)
+controller.get_procedures()
+controller.set_procedure(Dict)
 
 # 7) Get additional context the driver provides (e.g. initial positions)
-mac.get_context()
+controller.get_context()
 
 # 8) Close the session
-mac.disconnect()
+controller.disconnect()
 ```
 
 Most steps follow the same pattern: **discover, then apply.** Call a `get_*`
@@ -65,14 +65,14 @@ entry is a `connection` dict -- the `vendor` / `microscope` / `api` identity the
 registry keys on, plus any driver-specific params (client name, api delay, host,
 ...). You can edit it before connecting (e.g. drop in a credential); the
 controller forwards it to the driver's `connect` untouched. `set_instrument()`
-opens the session. After this, every `mac` call goes to that microscope.
+opens the session. After this, every `controller` call goes to that microscope.
 
 ```python
-instrument = mac.get_instruments()[0]
+instrument = controller.get_instruments()[0]
 # {"vendor": "leica", "microscope": "stellaris5-01", "api": "navigator-expert",
 #  "client": "PythonClient", "api_delay_ms": 250}
 
-mac.set_instrument(instrument)
+controller.set_instrument(instrument)
 ```
 
 ### 2. Set the origin of the frame
@@ -82,7 +82,7 @@ the current position is, for our purposes: (0, 0, 0). From then on, every positi
 is micrometers in that frame, and in reference to that (0, 0, 0) point:
 
 ```python
-mac.set_origin()                    # (0, 0, 0) is here now
+controller.set_origin()                    # (0, 0, 0) is here now
 ```
 
 ### 3. Move to a position in the frame
@@ -93,8 +93,8 @@ optional `with_actuators` argument chooses which actuator moves each axis (for
 example, the piezo for fine Z) without changing the coordinates you give.
 
 ```python
-mac.get_actuators()                 # {"x": ["motoric"], "y": ["motoric"], "z": ["motoric", "galvo", "piezo"]}
-mac.set_xyz(10, 20, 5, with_actuators={"x": ["motoric"], "y": ["motoric"], "z": "piezo"}) 
+controller.get_actuators()                 # {"x": ["motoric"], "y": ["motoric"], "z": ["motoric", "galvo", "piezo"]}
+controller.set_xyz(10, 20, 5, with_actuators={"x": ["motoric"], "y": ["motoric"], "z": "piezo"}) 
 ```
 
 ### 4. Capture and reapply state
@@ -105,9 +105,9 @@ reapply later. It is an opaque dict the driver owns: an `immutable` fingerprint
 (what is actually reapplied).
 
 ```python
-prescan = mac.get_state()                 # {"immutable": {...}, "mutable": {...}}
+prescan = controller.get_state()                 # {"immutable": {...}, "mutable": {...}}
 prescan["mutable"]["laser_power"] = 2.0
-mac.set_state(prescan)                     # reapply it later
+controller.set_state(prescan)                     # reapply it later
 ```
 
 ### 5. Acquire (captures and saves)
@@ -120,9 +120,9 @@ dataset and saves it in one call: `acquisition_type` is the kind of scan,
 setting and the driver uses its active default.
 
 ```python
-mac.get_acquisition_options()
+controller.get_acquisition_options()
 # {"backlash_correction": {...}, "format": {...}, "procedure": {...}}
-mac.acquire(acquisition_type="prescan", position_label="A1", options={"format": "ome-tiff"})
+controller.acquire(acquisition_type="prescan", position_label="A1", options={"format": "ome-tiff"})
 ```
 
 ### 6. Run a procedure
@@ -132,8 +132,8 @@ autofocus); `set_procedure()` runs one. Procedures are opaque dicts the driver
 interprets.
 
 ```python
-mac.get_procedures()                       # {"autofocus": {...}, ...}
-mac.set_procedure({"name": "autofocus"})
+controller.get_procedures()                       # {"autofocus": {...}, ...}
+controller.set_procedure({"name": "autofocus"})
 ```
 
 ### 7. Get additional context
@@ -142,13 +142,13 @@ mac.set_procedure({"name": "autofocus"})
 example the initial positions captured at connect.
 
 ```python
-mac.get_context()["initial_positions"]     # [{"x": 0.0, "y": 0.0, "z": 0.0}, ...]
+controller.get_context()["initial_positions"]     # [{"x": 0.0, "y": 0.0, "z": 0.0}, ...]
 ```
 
 ### 8. Close the session
 
 ```python
-mac.disconnect()
+controller.disconnect()
 ```
 
 ## A full experiment
@@ -165,7 +165,7 @@ A driver is a set of functions — one per operation — registered under a
 any connect params):
 
 ```python
-from microscope_agnostic_controller.registry import register
+from controller.registry import register
 
 register(
     {"vendor": "leica", "microscope": "stellaris5-01", "api": "navigator-expert",
@@ -184,7 +184,7 @@ is a complete, readable reference implementation.
 ## Tests
 
 ```bash
-python -m pytest microscope_agnostic_controller/tests
+python -m pytest controller/tests
 ```
 
 The test suite and the example notebook both run offline against the mock driver.

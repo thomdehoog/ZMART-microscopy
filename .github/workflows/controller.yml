@@ -1,4 +1,4 @@
-name: Microscope Agnostic Controller
+name: Controller
 
 on:
   push:
@@ -33,4 +33,4 @@ jobs:
       - name: Run the mock test suite
         # Only the controller's mock suite runs in CI: it is fully offline and
         # hardware-free. Driver/calibration suites need LAS X + a microscope.
-        run: python -m pytest microscope_agnostic_controller/tests --tb=short
+        run: python -m pytest controller/tests --tb=short
