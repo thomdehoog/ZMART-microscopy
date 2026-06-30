@@ -18,6 +18,7 @@ from .. import readers as _readers
 from . import files as _files
 from . import ome_canonical as _canonical
 from .capture import AcquisitionResult
+from .files import _is_from_acquisition
 from .product import (
     ExportedAcquisition,
     ExportedPosition,
@@ -416,24 +417,16 @@ def _validate_complete_grid(
 
 
 def _expected_dims_from_xml(xml_path: Path) -> tuple[int, int, int] | None:
-    """Return ``(SizeC, SizeZ, SizeT)`` from OME XML when declared."""
+    """Return ``(SizeC, SizeZ, SizeT)`` from OME XML when declared, else None."""
     try:
-        root = ET.parse(xml_path).getroot()
-    except (OSError, ET.ParseError):
+        xml = xml_path.read_bytes()
+    except OSError:
         return None
-    for pixels in root.iter():
-        if pixels.tag.rsplit("}", 1)[-1] != "Pixels":
-            continue
-        try:
-            size_c = int(pixels.attrib["SizeC"])
-            size_z = int(pixels.attrib["SizeZ"])
-            size_t = int(pixels.attrib["SizeT"])
-        except (KeyError, TypeError, ValueError):
-            return None
-        if size_c <= 0 or size_z <= 0 or size_t <= 0:
-            return None
-        return size_c, size_z, size_t
-    return None
+    try:
+        size_t, size_z, size_c = _canonical.pixels_dims(xml)
+    except (RuntimeError, ET.ParseError):
+        return None
+    return size_c, size_z, size_t
 
 
 def _find_companion_xml(
@@ -466,10 +459,3 @@ def _find_companion_xml(
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)
-
-
-def _is_from_acquisition(path: Path, acq: AcquisitionResult) -> bool:
-    try:
-        return path.stat().st_mtime >= acq.started_at
-    except OSError:
-        return False

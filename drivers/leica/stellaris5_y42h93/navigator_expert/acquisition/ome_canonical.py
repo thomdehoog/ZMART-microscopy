@@ -62,6 +62,24 @@ def metadata_from_ome_xml(
     return _ensure_channels(metadata)
 
 
+def pixels_dims(xml: bytes | str) -> tuple[int, int, int]:
+    """Return ``(SizeT, SizeZ, SizeC)`` from the first OME ``Pixels`` element.
+
+    Raises ``RuntimeError`` when no ``Pixels`` element is present or any of
+    ``SizeT``/``SizeZ``/``SizeC`` is missing or non-positive.
+    """
+    text = xml.decode("utf-8", errors="replace") if isinstance(xml, bytes) else xml
+    root = ET.fromstring(text)
+    pixels = _first_local(root, "Pixels")
+    if pixels is None:
+        raise RuntimeError("OME metadata has no Pixels element")
+    return (
+        _required_int(None, pixels, "SizeT"),
+        _required_int(None, pixels, "SizeZ"),
+        _required_int(None, pixels, "SizeC"),
+    )
+
+
 def metadata_with_shape_and_grid(
     metadata: AcquisitionMetadata,
     *,

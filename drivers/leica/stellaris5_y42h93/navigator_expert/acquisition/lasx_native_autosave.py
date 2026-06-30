@@ -20,6 +20,7 @@ from typing import Any
 from . import files as _files
 from . import ome_canonical as _canonical
 from .capture import AcquisitionResult
+from .files import _is_from_acquisition
 from .navigator_expert_export import (
     DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S,
     DEFAULT_EXPORT_COMPLETION_TIMEOUT_S,
@@ -435,13 +436,6 @@ def _is_native_ome_tiff(path: Path) -> bool:
     return path.is_file() and path.name.lower().endswith((".ome.tif", ".ome.tiff"))
 
 
-def _is_from_acquisition(path: Path, acq: AcquisitionResult) -> bool:
-    try:
-        return path.stat().st_mtime >= acq.started_at
-    except OSError:
-        return False
-
-
 def _is_under(path: Path, root: Path) -> bool:
     try:
         path.resolve().relative_to(root.resolve())
@@ -451,7 +445,4 @@ def _is_under(path: Path, root: Path) -> bool:
 
 
 def _relative_or_none(path: Path, root: Path) -> str | None:
-    try:
-        return str(path.relative_to(root)).replace("\\", "/")
-    except ValueError:
-        return None
+    return _files._relative_posix(path, root, fallback_to_str=False)

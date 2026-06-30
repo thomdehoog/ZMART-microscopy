@@ -20,7 +20,7 @@ Two primitives for the two physical patterns:
       when you're already at the target and just need to pin the
       slack-state without net displacement.
 
-Parameters for both come from ``motion.config.load``. Production callers
+Parameters for both come from ``motion.stage_config.load``. Production callers
 should pass ``stage_cfg["backlash"]`` from that loader; the function
 defaults below are last-resort fallbacks, not the source of truth.
 
@@ -117,7 +117,7 @@ def correct_backlash(client, *, overshoot_um=50.0, settle_ms=100, tolerance_um=2
 
     The parameter defaults are fallback values only. Production paths
     should pass calibrated values from ``stage_cfg["backlash"]`` loaded
-    via ``motion.config.load``.
+    via ``motion.stage_config.load``.
     """
     # This read parameterizes the two corrective moves below, so bypass the
     # passive reader profile and use the authoritative API path.

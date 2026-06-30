@@ -60,7 +60,7 @@ def apply_stage_limits_from_config(stage_cfg: dict) -> None:
     """Configure stage limits from a stage_config dict.
 
     The dict shape is the one produced by
-    :func:`navigator_expert.motion.config.load`; pass it through
+    :func:`navigator_expert.motion.stage_config.load`; pass it through
     once at session start so the cookbook and calibration share one
     source of truth.
     """

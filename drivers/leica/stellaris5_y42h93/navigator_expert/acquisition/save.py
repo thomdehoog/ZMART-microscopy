@@ -27,6 +27,7 @@ from shared.output_layout import (
     build_xml_name,
 )
 
+from . import files as _files
 from . import materialize as _materialize
 from . import ome_canonical as _canonical
 from .capture import AcquisitionResult
@@ -264,7 +265,7 @@ def _persist_vendor_metadata(
 
 def _write_summary_atomic(summary_path: Path, data: dict) -> None:
     summary_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _with_tmp_suffix(summary_path)
+    tmp = _materialize._with_tmp_suffix(summary_path)
     tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
     os.replace(str(tmp), str(summary_path))
 
@@ -287,15 +288,8 @@ def _append_summary_atomic(summary_path: Path, record: dict) -> None:
     _write_summary_atomic(summary_path, data)
 
 
-def _with_tmp_suffix(p: Path) -> Path:
-    return p.with_name(p.name + ".tmp")
-
-
 def _rel_posix(p: Path, base: Path) -> str:
-    try:
-        return str(p.relative_to(base)).replace("\\", "/")
-    except ValueError:
-        return str(p).replace("\\", "/")
+    return _files._relative_posix(p, base, fallback_to_str=True)
 
 
 def _naming_to_dict(n: Naming) -> dict:

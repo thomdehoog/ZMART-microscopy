@@ -369,17 +369,7 @@ def read_zwide_um(client, job_name, *, mode=None):
     settings = get_job_settings(client, job_name, mode=mode)
     if not settings:
         raise RuntimeError(f"could not read job settings for '{job_name}'")
-    from ..commands.settings import make_changeable_copy
-
-    ch = make_changeable_copy(settings)
-    if not ch or "zPosition" not in ch:
-        raise RuntimeError("zPosition not in job settings - LAS X version mismatch?")
-    val = ch["zPosition"].get("z-wide")
-    if isinstance(val, dict):
-        val = val.get("position")
-    if val is None:
-        raise RuntimeError(f"z-wide readback missing; got {ch['zPosition']!r}")
-    return float(val)
+    return derived.zwide_um_from_settings(settings)
 
 
 def get_jobs(

@@ -15,6 +15,7 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from .._file_utils import _wait_file_stable
 from ..utils import RECEIPT_TIMEOUT, _make_timing
 from .parsers import parse_lrp
 
@@ -97,23 +98,23 @@ def get_template_state(templates_dir=None):
     return "unstripped" if _template_has_objects(xml_path, rgn_path) else "stripped"
 
 
+def _count_objects(xml_path, rgn_path):
+    """Count scan fields, RGN items, and focus points."""
+    try:
+        xml_text = xml_path.read_text(encoding="utf-8")
+        rgn_tree = ET.parse(rgn_path)
+        fields = xml_text.count("<ScanFieldData")
+        items = len(rgn_tree.findall(".//ShapeList/Items/*"))
+        focus = len(rgn_tree.findall(".//FocusMap/*"))
+        return fields, items, focus
+    except (OSError, ET.ParseError) as e:
+        log.warning("Cannot count objects: %s", e)
+        return 0, 0, 0
+
+
 def _template_has_objects(xml_path, rgn_path):
     """Return True when a canonical template contains operator objects."""
-    try:
-        xml_text = Path(xml_path).read_text(encoding="utf-8")
-    except OSError:
-        xml_text = ""
-    fields = xml_text.count("<ScanFieldData")
-
-    items = focus = 0
-    try:
-        root = ET.parse(rgn_path).getroot()
-        items = len(root.findall(".//ShapeList/Items/*"))
-        focus = len(root.findall(".//FocusMap/*"))
-    except (OSError, ET.ParseError):
-        pass
-
-    return fields > 0 or items > 0 or focus > 0
+    return any(_count_objects(xml_path, rgn_path))
 
 
 # =============================================================================
@@ -166,19 +167,10 @@ def save_experiment(
                     and watch_path.stat().st_size > 0
                     and watch_path.stat().st_mtime > old_mtime
                 ):
-                    last_size = watch_path.stat().st_size
-                    stable_count = 0
-                    while (time.perf_counter() - poll_t0) < timeout:
-                        time.sleep(poll_interval)
-                        cur_size = watch_path.stat().st_size
-                        if cur_size == last_size:
-                            stable_count += 1
-                            if stable_count >= 3:
-                                confirmed = True
-                                break
-                        else:
-                            stable_count = 0
-                        last_size = cur_size
+                    remaining = timeout - (time.perf_counter() - poll_t0)
+                    confirmed = _wait_file_stable(
+                        watch_path, remaining, poll_interval, stable_readings=3
+                    )
                     break
             except OSError:
                 pass
