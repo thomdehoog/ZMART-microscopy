@@ -1,20 +1,20 @@
-"""Microscope Agnostic Controller.
+"""Cross-vendor microscope controller.
 
 A small, consistent interface for driving a microscope from a workflow. Two ways
-to use it, both giving ``mac.<call>()``:
+to use it, both giving ``controller.<call>()``:
 
     # the module IS the active microscope (one at a time) - shortest
-    import microscope_agnostic_controller as mac
+    import controller
 
-    instruments = mac.get_instruments()
-    mac.set_instrument(instruments[0])
-    mac.set_origin()                       # (0, 0, 0) is here now
-    mac.set_xyz(10, 20, 5)
-    mac.acquire(acquisition_type="prescan", position_label="A1")
-    mac.disconnect()
+    instruments = controller.get_instruments()
+    controller.set_instrument(instruments[0])
+    controller.set_origin()                # (0, 0, 0) is here now
+    controller.set_xyz(10, 20, 5)
+    controller.acquire(acquisition_type="prescan", position_label="A1")
+    controller.disconnect()
 
     # or hold the session object explicitly (needed for >1 microscope at once)
-    from microscope_agnostic_controller import set_instrument
+    from controller import set_instrument
     mic = set_instrument(instrument)
     mic.set_origin()
     mic.acquire(acquisition_type="prescan", position_label="A1")
@@ -36,7 +36,7 @@ from .registry import get_instruments
 
 __all__ = ["Session", "get_instruments", "set_instrument"]
 
-# The module-level active microscope, so ``import ... as mac; mac.acquire()`` works.
+# The module-level active microscope, so ``import controller; controller.acquire()`` works.
 _active: Session | None = None
 
 
@@ -44,8 +44,8 @@ def set_instrument(*args, **kwargs) -> Session:
     """Select an instrument, set the module's active microscope, return the session.
 
     The returned :class:`Session` is the explicit handle. The module also
-    delegates calls (``mac.acquire()``, …) to it, so a notebook can drive one
-    microscope without holding the object.
+    delegates calls (``controller.acquire()``, …) to it, so a notebook can drive
+    one microscope without holding the object.
     """
     global _active
     new = _set_instrument(*args, **kwargs)
@@ -63,6 +63,6 @@ def __getattr__(name: str):
         return getattr(_active, name)
     if _active is None and not name.startswith("_"):
         raise AttributeError(
-            f"no active microscope - call set_instrument(...) before mac.{name}(...)"
+            f"no active microscope - call set_instrument(...) before controller.{name}(...)"
         )
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
