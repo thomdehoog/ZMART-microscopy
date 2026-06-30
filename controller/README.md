@@ -1,10 +1,7 @@
 # Controller
 
-[![Controller](https://github.com/thomdehoog/smart-microscopy/actions/workflows/controller.yml/badge.svg?branch=microscope-agnostic-layer)](https://github.com/thomdehoog/smart-microscopy/actions/workflows/controller.yml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 [![license](https://img.shields.io/badge/license-MIT-blue)](../../LICENSE)
-[![code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/thomdehoog/smart-microscopy/actions/workflows/controller.yml)
 
 One small, consistent interface for driving a microscope from a workflow. You
 pick an instrument, set the frame, and issue plain commands. The same
