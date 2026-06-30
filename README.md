@@ -57,6 +57,13 @@ python build_env.py            # creates the "smart-microscopy" conda-forge env
 conda activate smart-microscopy
 ```
 
+**Why conda-forge?** It avoids Anaconda's `defaults` channel, whose terms of
+service require a paid license for larger organizations — universities included —
+while conda-forge is community-run and free to use. It also ships `pythonnet`
+(the LAS X .NET bridge) and `opencv` as ABI-matched conda packages, so there is
+no fragile pip/conda mixing. `build_env.py` pins `conda-forge` + `nodefaults` and
+asserts every installed package actually came from conda-forge.
+
 This targets **Python 3.10-3.12** and installs the minimum to drive a microscope
 and process its images. Driving a microscope *live* also needs that microscope's
 own software installed (e.g. LAS X for the Leica driver); registration, focusing,
