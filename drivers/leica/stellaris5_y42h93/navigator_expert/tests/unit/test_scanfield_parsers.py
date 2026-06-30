@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unit tests for scan-field parsers (no LAS X connection needed).
 =================================================================
 Run with:

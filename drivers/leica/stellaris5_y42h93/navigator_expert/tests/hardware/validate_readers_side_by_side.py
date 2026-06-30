@@ -1,4 +1,4 @@
-﻿"""
+"""
 Side-by-side reader validation: CAM API vs log_reader.
 ======================================================
 Runs against a live LAS X session (simulator or scope). Compares the

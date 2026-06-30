@@ -6,17 +6,16 @@ from pathlib import Path
 
 import pytest
 
-# Add vendor/leica/ to sys.path so `import navigator_expert` works
-# regardless of where pytest is invoked from.
-_VENDOR_LEICA = Path(__file__).resolve().parents[2]
-if str(_VENDOR_LEICA) not in sys.path:
-    sys.path.insert(0, str(_VENDOR_LEICA))
+# Add the machine dir (parent of navigator_expert) to sys.path so
+# `import navigator_expert` works regardless of where pytest is invoked from.
+_DRIVER_PARENT = Path(__file__).resolve().parents[2]
+if str(_DRIVER_PARENT) not in sys.path:
+    sys.path.insert(0, str(_DRIVER_PARENT))
 
-# Add microscopes/ to sys.path so `from shared...` and
-# `from calibration...` imports resolve.
-_MICROSCOPES_ROOT = Path(__file__).resolve().parents[5]
-if str(_MICROSCOPES_ROOT) not in sys.path:
-    sys.path.insert(0, str(_MICROSCOPES_ROOT))
+# Add the repo root so `from shared...` imports resolve.
+_REPO_ROOT = Path(__file__).resolve().parents[5]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 _HELPERS = Path(__file__).resolve().parent / "helpers"
 if str(_HELPERS) not in sys.path:
@@ -24,7 +23,7 @@ if str(_HELPERS) not in sys.path:
 
 # Add target_acquisition dir so workflow tests imported from this suite
 # can resolve `from pipeline...`.
-_TARGET_ACQ = _MICROSCOPES_ROOT.parent / "workflows" / "target_acquisition"
+_TARGET_ACQ = _REPO_ROOT / "workflows" / "target_acquisition"
 if str(_TARGET_ACQ) not in sys.path:
     sys.path.insert(0, str(_TARGET_ACQ))
 

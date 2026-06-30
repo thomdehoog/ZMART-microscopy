@@ -1,4 +1,4 @@
-﻿"""Idle-before-anything policy (operator decision, 2026-06-11).
+"""Idle-before-anything policy (operator decision, 2026-06-11).
 
 Commands that touch the scope's physical/acquisition state must SEE the
 scanner idle before firing, and must wait for it indefinitely - a long

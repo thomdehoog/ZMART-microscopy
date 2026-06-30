@@ -26,7 +26,7 @@ The adopted calibration state lives here:
 - `current/calibration.json` stores adopted optical calibration and backlash.
 
 Configured stage limits are not calibration measurements. They live in the
-`microscopes/limits/vendor/leica/navigator_expert/` tree:
+`drivers/leica/stellaris5_y42h93/navigator_expert/limits/` tree:
 
 - `defaults.json` stores the configured physical microscope envelope.
 - `current.json` stores the last active working envelope written by target
@@ -34,7 +34,7 @@ Configured stage limits are not calibration measurements. They live in the
 
 Target-acquisition boundary markers define a run-specific sample area inside
 the physical envelope. The notebook writes that active working envelope to
-`microscopes/limits/vendor/leica/navigator_expert/current.json`.
+`drivers/leica/stellaris5_y42h93/navigator_expert/limits/current.json`.
 
 Notebook sessions should write data, reports, and staging configs under an
 operator-selected sessions root. Those session artifacts are runtime data;
@@ -46,4 +46,4 @@ they are not source files and should not be committed.
 - `notebooks/` contains the operator UI.
 
 Runtime code reads only the adopted files under
-`microscopes/calibration/vendor/leica/navigator_expert/current/`.
+`drivers/leica/stellaris5_y42h93/navigator_expert/calibration/current/`.

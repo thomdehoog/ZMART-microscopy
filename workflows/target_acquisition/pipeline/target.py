@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import navigator_expert as drv
-from calibration.vendor.leica.navigator_expert.core import model as calib
+from navigator_expert.calibration.core import model as calib
 from shared.output_layout import Naming
 
 from ._acquire import acquire

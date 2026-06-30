@@ -1,4 +1,4 @@
-﻿"""
+"""
 Settings parsing.
 =================
 Transforms the raw job settings JSON returned by ``readers.get_job_settings``
@@ -40,7 +40,7 @@ def make_changeable_copy(settings):
     if settings is None:
         return None
 
-    # Schema validation â€” fail loud on missing required keys
+    # Schema validation — fail loud on missing required keys
     missing = [k for k in _REQUIRED_SETTINGS_KEYS if k not in settings]
     if missing:
         raise ValueError(
@@ -101,7 +101,7 @@ def make_changeable_copy(settings):
         active.append(entry)
     ch["activeSettings"] = active
 
-    # Z-stack â€” only include if scan mode involves Z
+    # Z-stack — only include if scan mode involves Z
     scan_mode = ch.get("scanMode", "")
     has_z = "z" in scan_mode.lower() if scan_mode else False
     stack_raw = settings.get("stack")

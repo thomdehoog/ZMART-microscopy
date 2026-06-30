@@ -168,7 +168,7 @@ def test_smart_base_for_navigator_expert_uses_media_path(monkeypatch, tmp_path):
 
 
 def test_config_default_save_exporter_comes_from_profile(monkeypatch, tmp_path):
-    from navigator_expert.runtime import profiles
+    from navigator_expert.config import profiles
 
     monkeypatch.setattr(
         profiles,

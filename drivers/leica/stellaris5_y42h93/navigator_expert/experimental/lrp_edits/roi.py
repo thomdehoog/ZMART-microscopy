@@ -1,4 +1,4 @@
-﻿"""
+"""
 ROI scanning template editors.
 ================================
 Editors for scan-ROI manipulation: enable/disable ROI scanning,
@@ -8,7 +8,7 @@ line), and verify ROI state.
 Writing strategy: ROI editors use ``ET.parse`` + ``tree.write()``
 because adding/removing elements is structural XML manipulation (not
 simple attribute replacement).  ``apply_lrp_change`` does
-save â†’ edit â†’ load â†’ save, so LAS X rewrites the file anyway â€” the
+save → edit → load → save, so LAS X rewrites the file anyway — the
 verify step checks the LAS X-saved version.
 
 Coordinate systems
@@ -23,7 +23,7 @@ In the display frame:
 - **Positive X = right** on screen.
 - **Positive Y = down** on screen.
 
-**Pixel â†’ vertex mapping** (for segmentation contours etc.)::
+**Pixel → vertex mapping** (for segmentation contours etc.)::
 
     vx = (col - image_center) * pixel_size_m
     vy = (row - image_center) * pixel_size_m
@@ -36,14 +36,14 @@ relative to the display and the mapping breaks.
 
 ``RotatorAngle``, ``FlipX``, and ``FlipY`` from the LRP describe the
 *physical* scan direction on the sample but do **not** affect the
-pixel â†” ROI vertex relationship â€” both live in the same display frame.
+pixel ↔ ROI vertex relationship — both live in the same display frame.
 
 Check the setting at runtime via::
 
     s = get_lasx_settings()
     orient = s["image_orientation"]
-    # orient["enable_transform"]  â†’ bool
-    # orient["transformation"]    â†’ "TOPLEFT", "RIGHTTOP", etc.
+    # orient["enable_transform"]  → bool
+    # orient["transformation"]    → "TOPLEFT", "RIGHTTOP", etc.
 
 **ROI translation** coordinate system:
 
@@ -59,7 +59,7 @@ Check the setting at runtime via::
     ``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``).
 
     Use ``roi_translation_to_pan()`` and ``roi_to_absolute_um()``
-    for conversions â€” the former takes ``pan_scale_um`` as a required
+    for conversions — the former takes ``pan_scale_um`` as a required
     kwarg.
 
 **Critical ordering rule**: when applying pan via
@@ -67,7 +67,7 @@ Check the setting at runtime via::
 FIRST and write the pan AFTER. If zoom is changed after the pan write,
 LAS X silently re-clamps pan during the zoom transition (observed on
 40x DRY: requested pan_y = 0.00431 trimmed to 0.00194). The manual GUI
-arrow buttons take a different path and do not clamp â€” so this is an
+arrow buttons take a different path and do not clamp — so this is an
 API-path issue, not a hardware limit. No error is raised; only the
 readback reveals the clamp. See ``feedback_pan_then_zoom_clamps.md``.
 
@@ -126,7 +126,7 @@ ROI_LINE = "64"
 
 
 def argb_color(r, g, b, a=255):
-    """Convert RGBA components (0â€“255) to a LAS X uint32 color string.
+    """Convert RGBA components (0–255) to a LAS X uint32 color string.
 
     LAS X stores colors as ARGB uint32 decimal strings.
 
@@ -170,7 +170,7 @@ def disable_roi_scan(client, job_name):
     """Atomic LRP edit: turn ROI scan off for *job_name*.
 
     Required before any pan/zoom that should illuminate the full FOV
-    â€” when ROI scan is on the scanner only paints inside the ROI
+    — when ROI scan is on the scanner only paints inside the ROI
     polygons, so a panned-but-still-roi-scanning frame appears black
     where the cells used to be. Verifies the change before returning.
     """
@@ -366,7 +366,7 @@ def make_star(n_points=5, outer_radius=None, inner_radius=None, center_x=0.0, ce
     """Generate vertices for an *n*-pointed star.
 
     Alternates between outer and inner radii, starting from the top
-    (12 o'clock), clockwise â€” matching LAS X ROI vertex order.
+    (12 o'clock), clockwise — matching LAS X ROI vertex order.
 
     Coordinates are in **metres**.  Size relative to the FOV using
     ``get_fov()``::
@@ -436,7 +436,7 @@ def center_vertices(vertices):
         vertices: List of ``(x, y)`` tuples in metres.
 
     Returns:
-        ``(centered_vertices, (cx, cy))`` â€” vertices shifted so
+        ``(centered_vertices, (cx, cy))`` — vertices shifted so
         their centroid is ``(0, 0)``, and the centroid as a tuple
         suitable for the ``translation`` parameter of ``lrp_add_roi``.
     """
@@ -468,10 +468,10 @@ def pixels_to_roi(contour, image_center, pixel_size_m, close=True):
             close the polygon when the gap exceeds half a pixel.
 
     Returns:
-        ``(vertices_m, translation_m)`` â€” centred vertices in metres
+        ``(vertices_m, translation_m)`` — centred vertices in metres
         and ``(tx, ty)`` translation for ``lrp_add_roi``.
     """
-    # Pixel â†’ scan field coordinates
+    # Pixel → scan field coordinates
     abs_verts = [
         ((c[1] - image_center) * pixel_size_m, (c[0] - image_center) * pixel_size_m)
         for c in contour
@@ -518,13 +518,13 @@ def lrp_add_roi(
     Args:
         lrp_path: Path to the ``.lrp`` file.
         job_name: Name of the job to modify.
-        roi_type: ROI type string â€” ``"8"`` (polygon),
+        roi_type: ROI type string — ``"8"`` (polygon),
             ``"16"`` (rectangle), ``"32"`` (ellipse), ``"64"`` (line).
         vertices: List of ``(x, y)`` tuples in metres from centre.
         name: Element name (default auto-numbered ``"ROI 1"`` etc.).
         color: Colour as uint32 string (default ``COLOR_RED``).
         rotation: Rotation in **degrees** (default ``0.0``).
-        translation: ``(tx, ty)`` tuple in **metres** â€” offset from
+        translation: ``(tx, ty)`` tuple in **metres** — offset from
             stage centre with X negated (default ``(0.0, 0.0)``
             places the ROI at the stage centre).  Use
             ``absolute_um_to_roi_translation()`` to convert from
@@ -566,7 +566,7 @@ def lrp_add_roi(
         children, "Element", Name=name, Visibility="2", CopyOption="1", UniqueID=str(uuid.uuid4())
     )
 
-    # Data â€” ROISingle with full LAS X attribute set (issue 1)
+    # Data — ROISingle with full LAS X attribute set (issue 1)
     data_el = ET.SubElement(roi_el, "Data")
     roi_single = ET.SubElement(
         data_el,
@@ -586,17 +586,17 @@ def lrp_add_roi(
         AnnotationText="",
     )
 
-    # AOTF attachment â€” inside ROISingle, before Vertices (issue 5)
+    # AOTF attachment — inside ROISingle, before Vertices (issue 5)
     aotf = lrp_find_aotf_template(root)
     if aotf is not None:
         roi_single.append(aotf)
 
-    # Vertices â€” use <P> elements, not <Item> (issue 3)
+    # Vertices — use <P> elements, not <Item> (issue 3)
     verts_el = ET.SubElement(roi_single, "Vertices")
     for x, y in vertices:
         ET.SubElement(verts_el, "P", X=str(x), Y=str(y))
 
-    # Transformation â€” nested structure (issue 4, issue 10)
+    # Transformation — nested structure (issue 4, issue 10)
     transform_el = ET.SubElement(roi_single, "Transformation", Rotation=str(rotation))
     sx, sy = scale
     ET.SubElement(transform_el, "Scaling", XScale=str(sx), YScale=str(sy))
@@ -704,7 +704,7 @@ def roi_translation_to_pan(translation_x_m, translation_y_m, *, pan_scale_um):
     the objective's base FOV via
     ``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``
     (see ``driver/runtime/utils.py`` and :func:`pan_scale_um_from_base_fov`).
-    ``pan_scale_um`` is required â€” the caller must resolve it from the
+    ``pan_scale_um`` is required — the caller must resolve it from the
     current objective's base FOV.
 
     Args:
@@ -733,7 +733,7 @@ def galvo_pan_for_pixel(px, py, *, pixel_size_um, image_size, pan_scale_um):
 
     Returned values are *deltas* relative to the current pan; the caller adds
     them to whatever pan is currently set. Stage XY does not enter the
-    derivation â€” the galvo deflects the scan field, which lives in the image
+    derivation — the galvo deflects the scan field, which lives in the image
     frame, not the stage frame.
 
     ``pan_scale_um`` is objective-dependent; resolve via
@@ -756,7 +756,7 @@ def roi_to_absolute_um(translation_x_m, translation_y_m, stage_x_um, stage_y_um)
         stage_y_um: Current stage Y position in um.
 
     Returns:
-        ``(x_um, y_um)`` â€” absolute position of the ROI centre.
+        ``(x_um, y_um)`` — absolute position of the ROI centre.
     """
     tx_um = float(translation_x_m) * 1e6
     ty_um = float(translation_y_m) * 1e6
@@ -775,7 +775,7 @@ def absolute_um_to_roi_translation(x_um, y_um, stage_x_um, stage_y_um):
         stage_y_um: Current stage Y position in um.
 
     Returns:
-        ``(tx_m, ty_m)`` â€” Translation values in metres, suitable for
+        ``(tx_m, ty_m)`` — Translation values in metres, suitable for
         the ``translation`` parameter of ``lrp_add_roi``.
     """
     tx_um = stage_x_um - x_um
@@ -813,16 +813,16 @@ def roi_geometry(roi):
     Returns:
         dict with keys::
 
-            vertices        â€” list of (X, Y) tuples in metres (local coords)
-            centroid_m      â€” (cx, cy) vertex centroid in metres (local)
-            bbox_um         â€” (width, height) bounding box in Âµm
-            translation_m   â€” (tx, ty) raw ROI translation in metres
-            effective_translation_m â€” (tx + cx, ty + cy) in metres
+            vertices        — list of (X, Y) tuples in metres (local coords)
+            centroid_m      — (cx, cy) vertex centroid in metres (local)
+            bbox_um         — (width, height) bounding box in µm
+            translation_m   — (tx, ty) raw ROI translation in metres
+            effective_translation_m — (tx + cx, ty + cy) in metres
                 (accounts for vertex centroid offset)
-            type            â€” ROI type string (e.g. "8" for polygon)
-            color           â€” LAS X ARGB color string
-            rotation        â€” rotation angle (radians)
-            scale           â€” (x_scale, y_scale)
+            type            — ROI type string (e.g. "8" for polygon)
+            color           — LAS X ARGB color string
+            rotation        — rotation angle (radians)
+            scale           — (x_scale, y_scale)
     """
     verts = [(v["X"], v["Y"]) for v in roi.get("_Vertices", [])]
     xs = [v[0] for v in verts]
@@ -862,11 +862,11 @@ def roi_to_pan_zoom(roi, fov_at_zoom1_um, margin=1.15):
     (``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``,
     see ``driver/runtime/utils.py``). Callers that already pass the correct base
     FOV (e.g. from :func:`get_base_fov`) get correct pan values on any
-    objective â€” no caller changes needed after the PAN_SCALE refactor.
+    objective — no caller changes needed after the PAN_SCALE refactor.
 
     Args:
         roi: A single ROI dict from ``parse_lrp``.
-        fov_at_zoom1_um: Objective FOV at zoom 1 in Âµm
+        fov_at_zoom1_um: Objective FOV at zoom 1 in µm
             (from ``get_base_fov``).
         margin: Extra margin factor passed to ``bbox_to_zoom``.
 
@@ -891,7 +891,7 @@ def mask_contour_to_roi(contour_pixels, *, pixel_size_um, image_size=512):
     (display frame, ``vx = (col - cx) * pixel_size_m`` per the module
     docstring's pixel-to-vertex formula). Translation places the
     centroid at its observed pixel position in the scan field, applying
-    the LAS X X-negation convention (``roi_abs_x = stage_x âˆ’ tx``,
+    the LAS X X-negation convention (``roi_abs_x = stage_x − tx``,
     ``roi_abs_y = stage_y + ty``).
 
     No stage XY, pan, or calibration matrix is needed: LAS X interprets

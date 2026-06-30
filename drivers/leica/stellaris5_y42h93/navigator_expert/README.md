@@ -14,11 +14,10 @@ mistakes that silently misbehave instead of failing loudly.
 ## Where this driver sits
 
 ```
-microscopes/
-  drivers/vendor/leica/navigator_expert/   <-- THIS package (Leica/LAS X vendor driver)
-  calibration/vendor/leica/navigator_expert/   adopted calibration + notebooks
-  limits/vendor/leica/navigator_expert/        physical stage envelope (JSON)
-  shared/output_layout/                        lab-wide file naming + layout (save() depends on this)
+drivers/leica/stellaris5_y42h93/navigator_expert/   <-- THIS package (Leica/LAS X vendor driver)
+  calibration/        adopted calibration + notebooks
+  limits/             physical stage envelope (JSON)
+shared/output_layout/   lab-wide file naming + layout (save() depends on this; at repo root)
 ```
 
 `navigator_expert` is the **vendor-specific** layer: it speaks the Leica LAS X
@@ -39,7 +38,7 @@ file name:
 | Change a **live** setting (zoom, speed, gain, laser, z-stack, ...)  | `commands/` `set_*`                            | result dict (`success`/`confirmed`) |
 | Move the stage / focus on the **live** scope                        | `move_xy`, `move_z`, `move_galvo_to_pixel`     | result dict                      |
 | Select a job, or trigger an acquisition                             | `select_job`, `acquire`                        | result dict / `AcquisitionResult` |
-| **Read** current state (xy, status, settings, jobs, hardware)       | `state_readers/` `get_*`, `ping`               | value or `None`                  |
+| **Read** current state (xy, status, settings, jobs, hardware)       | `readers/` `get_*`, `ping`               | value or `None`                  |
 | **Persist** acquired image data to disk                             | `acquisition/` `save`                          | `SavedAcquisition`               |
 | **Parse** a saved LAS X template (tile positions, ROIs, settings)   | `scanfields/` `parse_*`                        | dicts                            |
 | Save / load the active experiment template, strip/restore objects   | `save_experiment`, `load_experiment`, `strip_template` | result dict / `None`     |
@@ -53,7 +52,7 @@ Two mental distinctions matter most:
    that template. There is a deliberate parallel API for each — do not mix them
    up. See [Live commands vs. offline template edits](#live-commands-vs-offline-template-edits).
 2. **Command vs. read.** Commands *change* state and go through the dispatch
-   backbone. Reads *observe* state and go through `state_readers`. Reads that
+   backbone. Reads *observe* state and go through `readers`. Reads that
    decide control flow or get persisted have a stricter rule — see
    [Reading state](#reading-state).
 
@@ -67,10 +66,10 @@ Two mental distinctions matter most:
 import sys
 from pathlib import Path
 
-# Put microscopes/drivers/vendor/leica on sys.path so `navigator_expert`
+# Put drivers/leica/stellaris5_y42h93 on sys.path so `navigator_expert`
 # imports. The package also self-bootstraps the microscopes/ root onto
 # sys.path so `shared.output_layout` (used by save()) resolves.
-sys.path.insert(0, str(Path("microscopes/drivers/vendor/leica").resolve()))
+sys.path.insert(0, str(Path("drivers/leica/stellaris5_y42h93").resolve()))
 
 import navigator_expert as lasx           # namespace import
 from navigator_expert import set_zoom, acquire, save   # or selective import
@@ -305,7 +304,7 @@ adjustments).
 All setting commands take `(client, job_name, ...)` and return the result dict
 above. `setting_index` targets a specific sequential setting.
 
-### Read-only functions (`state_readers`)
+### Read-only functions (`readers`)
 
 | Function            | Signature                                   | Returns                                   |
 |---------------------|---------------------------------------------|-------------------------------------------|
@@ -389,7 +388,7 @@ functions read back against.
 
 ## Reading state
 
-`state_readers/` answers "what is the scope doing right now?" three ways, chosen
+`readers/` answers "what is the scope doing right now?" three ways, chosen
 per datum by `StateReaderProfile` in `runtime/profiles.py`:
 
 - **`api`** — a single CAM API read (run in a capped worker thread).
@@ -416,7 +415,7 @@ documented on `StateReaderProfile` and is enforced by choosing modes per datum.
 
 ### Change detection
 
-`state_readers.change_wait` answers "did the state visibly change after my
+`readers.change_wait` answers "did the state visibly change after my
 command?" by alternating API and log reads until one source differs from **its
 own** pre-command baseline:
 
@@ -473,7 +472,7 @@ save(client, acq, output_root, naming, *,
 writer-agnostic product, then persists it as canonical single-plane OME-TIFFs
 plus per-position OME-XML companions, updating `summary.json`. Two exporters
 exist and are both production-active (selected by
-`runtime.profiles.ACQUISITION.save_exporter`, default `lasx_native_autosave`):
+`config.profiles.ACQUISITION.save_exporter`, default `lasx_native_autosave`):
 
 | Exporter              | LAS X source                              | `cleanup_source` |
 |-----------------------|-------------------------------------------|------------------|
@@ -614,7 +613,7 @@ Respect them or downstream results are wrong without an error.
 5. **Reads that gate control flow or get persisted must use the API leg.** Never
    let a fresh-by-age log value decide whether a command fires, how it is
    parameterized, whether it confirms, or what metadata/calibration is written.
-6. **The CAM API can hang.** That is why `state_readers` has a log mirror and an
+6. **The CAM API can hang.** That is why `readers` has a log mirror and an
    in-flight API read cap. If you add a reader, do not block the API path
    uncancellably.
 7. **`select_job` confirmation defaults to `hybrid`.** A stale API readback can
@@ -690,7 +689,7 @@ MY_PARAM = _leica_setting_profile(_confirm_my_param)
 ### 3. Write the command wrapper (`commands/commands.py`)
 
 ```python
-from ..runtime.profiles import MY_PARAM
+from ..config.profiles import MY_PARAM
 from .confirmations import _confirm_my_param
 
 def set_my_param(client, job_name, setting_index, value, *,
@@ -749,16 +748,16 @@ All are overridable per call via the `tolerance` keyword.
 ## Dependency DAG (no circular imports)
 
 ```
-runtime.utils          -> stdlib only
-runtime.errors         -> runtime.utils
-commands.settings      -> runtime.utils
-commands.prechecks     -> state_readers, runtime.utils
-commands.confirmations -> state_readers, commands.settings, runtime.utils
-commands.dispatch      -> runtime.errors, runtime.utils, state_readers.log_reader
-runtime.profiles       -> commands.prechecks, commands.confirmations, runtime.errors
-commands.commands      -> commands.dispatch, runtime.profiles, commands.confirmations,
-                          state_readers, runtime.utils, stage.limits
-state_readers.*        -> api/log/hybrid readers, capabilities, log waits
+utils          -> stdlib only
+commands.errors         -> utils
+commands.settings      -> utils
+commands.prechecks     -> readers, utils
+commands.confirmations -> readers, commands.settings, utils
+commands.dispatch      -> commands.errors, utils, readers.log_reader
+config.profiles       -> commands.prechecks, commands.confirmations, commands.errors
+commands.commands      -> commands.dispatch, config.profiles, commands.confirmations,
+                          readers, utils, motion.limits
+readers.*        -> api/log/hybrid readers, capabilities, log waits
 scanfields.*           -> scan-field file operations above API readback
 acquisition.*          -> capture, exporters, OME, save (depends on shared.output_layout)
 stage.*                -> stage safety and backlash-aware movement

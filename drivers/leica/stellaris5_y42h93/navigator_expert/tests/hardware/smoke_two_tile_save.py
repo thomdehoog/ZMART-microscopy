@@ -1,4 +1,4 @@
-﻿"""Two-tile acquire/save smoke test against LAS X.
+"""Two-tile acquire/save smoke test against LAS X.
 
 This is a narrow integration check for the production acquisition path:
 

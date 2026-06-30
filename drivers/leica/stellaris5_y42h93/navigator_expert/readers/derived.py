@@ -1,4 +1,4 @@
-﻿"""Pure derivations shared by state-reader backends."""
+"""Pure derivations shared by state-reader backends."""
 
 from __future__ import annotations
 

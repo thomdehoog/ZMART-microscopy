@@ -1,4 +1,4 @@
-﻿"""Hardware validator for navigator_expert.
+"""Hardware validator for navigator_expert.
 
 Connects via LasxApi by default. The validator does not know -- and does
 not care -- whether the LAS X session behind the API is running in

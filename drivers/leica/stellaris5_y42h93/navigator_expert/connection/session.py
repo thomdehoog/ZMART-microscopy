@@ -1,4 +1,4 @@
-﻿"""Session-level helpers: connect to LAS X, validate scope state.
+"""Session-level helpers: connect to LAS X, validate scope state.
 
 Top-of-script setup that every cookbook and the calibration script
 share. Each helper raises a clear ``RuntimeError`` (or ``ConnectionError``
@@ -87,7 +87,7 @@ def connect_python_client(
 def require_canonical_scan_orientation() -> None:
     """Verify that LAS X exports images in the orientation our math assumes.
 
-    The pixelâ†”display-frame mapping ``vx = (col âˆ’ centre) Â· pixel_size`` (see
+    The pixel↔display-frame mapping ``vx = (col − centre) · pixel_size`` (see
     ``experimental.lrp_edits.roi`` module docstring) only holds when the
     saved TIFF and the on-screen scan field share an axis frame. LAS X
     guarantees that under ``EnableImageTransformation = false`` or
@@ -100,7 +100,7 @@ def require_canonical_scan_orientation() -> None:
     calibration is measured end-to-end), so changing them would invalidate
     the calibration but does not invalidate this function's derivation. A
     future check could compare the live values to those captured at
-    calibration time â€” that's a separate guarantee from "LAS X exports a
+    calibration time — that's a separate guarantee from "LAS X exports a
     canonical TIFF".
 
     Raises ``RuntimeError`` if image export is not in TOPLEFT.
@@ -114,6 +114,6 @@ def require_canonical_scan_orientation() -> None:
         raise RuntimeError(
             f"ImageTransformation = '{orient.get('transformation')}' "
             f"(expected 'TOPLEFT' or EnableImageTransformation = false). "
-            f"Pixelâ†”display-frame math will silently misnavigate. "
+            f"Pixel↔display-frame math will silently misnavigate. "
             f"Fix in LAS X Advanced Settings, then retry."
         )

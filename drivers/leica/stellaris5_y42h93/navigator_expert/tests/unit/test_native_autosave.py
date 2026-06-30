@@ -1,4 +1,4 @@
-﻿"""Unit tests for LAS X native AutoSave collection and persistence."""
+"""Unit tests for LAS X native AutoSave collection and persistence."""
 
 from __future__ import annotations
 

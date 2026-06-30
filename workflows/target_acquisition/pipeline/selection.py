@@ -21,7 +21,7 @@ from pathlib import Path
 from zipfile import BadZipFile
 
 import numpy as np
-from calibration.vendor.leica.navigator_expert.core import model as calib
+from navigator_expert.calibration.core import model as calib
 
 from .context import LimitsContext
 from .overview import OverviewResult, Pick

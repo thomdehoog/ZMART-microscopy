@@ -1,4 +1,4 @@
-﻿"""Verify the revised save() persists the FULL flat LAS X export product.
+"""Verify the revised save() persists the FULL flat LAS X export product.
 
 Run AFTER the driver fix lands (save() returns image_paths / xml_paths and
 writes one canonical file per (c, z, t)). Acquires one job, saves to a

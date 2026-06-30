@@ -1,4 +1,4 @@
-﻿"""Unit tests for routed state readers."""
+"""Unit tests for routed state readers."""
 
 import dataclasses
 import sys

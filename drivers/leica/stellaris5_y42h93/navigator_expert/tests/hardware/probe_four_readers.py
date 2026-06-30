@@ -1,4 +1,4 @@
-﻿"""Exercise all four Leica state-reader paths on LAS X.
+"""Exercise all four Leica state-reader paths on LAS X.
 
 The four paths are:
 

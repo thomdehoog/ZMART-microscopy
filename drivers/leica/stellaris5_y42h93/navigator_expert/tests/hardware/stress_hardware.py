@@ -1,4 +1,4 @@
-﻿"""Randomized hardware stress runner for navigator_expert.
+"""Randomized hardware stress runner for navigator_expert.
 
 This script is a manual integration runner, not a pytest test. It uses
 the same bootstrap and safety setup as validate_hardware.py, then runs a

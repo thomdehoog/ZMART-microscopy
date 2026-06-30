@@ -1,4 +1,4 @@
-﻿# ruff: noqa: E402,I001,F401
+# ruff: noqa: E402,I001,F401
 """Navigator Expert driver for Leica LAS X.
 
 Package layout::
@@ -262,7 +262,7 @@ __all__ = [
 
 # -- package self-bootstrap
 # navigator_expert depends on shared.output_layout under microscopes/.
-# Callers usually put microscopes/drivers/vendor/leica/ on sys.path; adding
+# Callers usually put drivers/leica/stellaris5_y42h93/ on sys.path; adding
 # both roots here keeps subprocesses and scripts resilient when they import the
 # driver first.
 import sys as _sys

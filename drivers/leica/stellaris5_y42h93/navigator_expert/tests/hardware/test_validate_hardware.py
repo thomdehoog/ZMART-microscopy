@@ -1,4 +1,4 @@
-﻿"""Pytest gate for the hardware validator's mock backend.
+"""Pytest gate for the hardware validator's mock backend.
 
 The canonical validation flow lives in ``validate_hardware.py`` so the
 same checks can run against the in-process mock, LAS X simulator, or

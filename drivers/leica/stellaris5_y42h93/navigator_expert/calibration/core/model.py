@@ -1,7 +1,7 @@
 """Load and apply the current objective calibration.
 
 The canonical calibration file is
-``microscopes/calibration/vendor/leica/navigator_expert/current/calibration.json``.
+``drivers/leica/stellaris5_y42h93/navigator_expert/calibration/current/calibration.json``.
 Schema v11 keeps only consumer-facing state: the image-to-stage matrix,
 one objective translation triple per slot, and calibrated backlash
 parameters. Diagnostic sub-deltas from calibration sessions stay in the
@@ -19,7 +19,7 @@ from typing import Any
 
 SCHEMA_VERSION = 11
 MIGRATION_COMMAND = (
-    "python -m calibration.vendor.leica.navigator_expert.migrate_current_calibration"
+    "python -m navigator_expert.calibration.migrate_current_calibration"
 )
 
 

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unit tests for the Navigator Expert driver core.
 ================================================
 Offline mock-based tests - no hardware required.
@@ -31,7 +31,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 import navigator_expert as drv
 from navigator_expert import readers as readers
 from navigator_expert.commands import commands, confirmations, dispatch, prechecks
-from navigator_expert.runtime import errors, profiles, session
+from navigator_expert.commands import errors
+from navigator_expert.config import profiles
+from navigator_expert.connection import session
 
 # =============================================================================
 # Helpers - mock factory

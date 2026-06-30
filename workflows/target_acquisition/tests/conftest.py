@@ -5,10 +5,9 @@ from pathlib import Path
 
 _TARGET_ACQ = Path(__file__).resolve().parents[1]  # .../target_acquisition/
 _REPO_ROOT = _TARGET_ACQ.parents[1]  # .../smart-microscopy/
-_MICROSCOPES_ROOT = _REPO_ROOT / "microscopes"
-_VENDOR_LEICA = _MICROSCOPES_ROOT / "driver" / "vendor" / "leica"
+_DRIVER_PARENT = _REPO_ROOT / "drivers" / "leica" / "stellaris5_y42h93"
 
-for p in [str(_VENDOR_LEICA), str(_MICROSCOPES_ROOT), str(_REPO_ROOT), str(_TARGET_ACQ)]:
+for p in [str(_DRIVER_PARENT), str(_REPO_ROOT), str(_TARGET_ACQ)]:
     if p not in sys.path:
         sys.path.insert(0, p)
 

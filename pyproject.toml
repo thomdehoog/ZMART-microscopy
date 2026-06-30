@@ -9,8 +9,8 @@ extend-exclude = [
     "**/__pycache__",
     # Calibration notebooks and generated sessions are not part of the
     # driver lint baseline.
-    "microscopes/calibration/vendor/leica/navigator_expert/notebooks",
-    "microscopes/calibration/vendor/leica/navigator_expert/sessions",
+    "drivers/leica/stellaris5_y42h93/navigator_expert/calibration/notebooks",
+    "drivers/leica/stellaris5_y42h93/navigator_expert/calibration/sessions",
 ]
 
 [tool.ruff.lint]

@@ -1,4 +1,4 @@
-﻿"""Generate canonical SMART OME metadata.
+"""Generate canonical SMART OME metadata.
 
 Vendor OME is parsed as input/provenance. The files written by ``save``
 use this module as the output metadata contract.

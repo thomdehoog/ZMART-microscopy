@@ -1,13 +1,13 @@
-﻿"""
+"""
 Pre-flight check functions.
 ============================
 Functions that run before a command fires to ensure preconditions are met.
-Each function owns its own polling loop internally â€” the backbone never
+Each function owns its own polling loop internally — the backbone never
 sleeps or polls. It calls the function once and gets back a result dict.
 
 Currently contains only ``check_idle`` (wait for scanner idle). Future
 pre-flight checks (e.g. wait for temperature stability, wait for stage
-settled) follow the same contract: ``callable(client) â†’ result dict``.
+settled) follow the same contract: ``callable(client) → result dict``.
 Extra parameters are pre-bound with ``partial`` at profile definition
 time; the command function binds ``client`` via lambda.
 
@@ -28,7 +28,7 @@ def check_idle(client, *, timeout, heartbeat=30.0):
     """Poll until the scanner is idle, or until timeout is exceeded.
 
     Logs a heartbeat message at regular intervals so long-running waits
-    are visible in the logs. All polling logic is internal â€” the caller
+    are visible in the logs. All polling logic is internal — the caller
     sees only a result dict with "success" and "logs".
 
     Args:

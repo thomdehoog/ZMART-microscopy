@@ -23,7 +23,7 @@ import sys
 # Mimic an example-script entry point: only leica/ on sys.path.
 sys.path.insert(0, r"{leica}")
 import navigator_expert as drv
-from navigator_expert.runtime import lasx_runtime
+from navigator_expert.connection import lasx_runtime
 assert drv.acquire is not None
 assert drv.save is not None
 assert drv.AcquisitionResult is not None
@@ -39,12 +39,12 @@ def test_driver_self_bootstrap_with_only_leica_on_path(tmp_path):
     The driver's self-bootstrap must add the microscopes root so
     `import shared.output_layout` resolves
     transitively when acquisition.py loads."""
-    microscopes_root = Path(__file__).resolve().parents[6]
-    leica_dir = microscopes_root / "drivers" / "vendor" / "leica"
-    assert leica_dir.is_dir(), f"missing {leica_dir}"
+    repo_root = Path(__file__).resolve().parents[6]
+    driver_parent = repo_root / "drivers" / "leica" / "stellaris5_y42h93"
+    assert driver_parent.is_dir(), f"missing {driver_parent}"
 
     script = tmp_path / "child.py"
-    script.write_text(CHILD_SCRIPT.format(leica=str(leica_dir)))
+    script.write_text(CHILD_SCRIPT.format(leica=str(driver_parent)))
 
     # Inherit parent env (numpy etc. come from site-packages) but the
     # child does NOT call conftest, so sys.path will only contain what
@@ -72,7 +72,7 @@ def test_lasx_runtime_load_smoke_when_installed():
     Bare dev/CI machines can import the loader but cannot load LAS X assemblies;
     hardware validation covers the required installed-runtime path.
     """
-    from navigator_expert.runtime import lasx_runtime
+    from navigator_expert.connection import lasx_runtime
 
     try:
         runtime = lasx_runtime.load_lasx_api_runtime()
