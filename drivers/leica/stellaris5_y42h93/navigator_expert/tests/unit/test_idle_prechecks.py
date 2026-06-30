@@ -23,7 +23,6 @@ IDLE_GUARDED = [
     "OBJECTIVE",
     "SELECT_JOB",
     "ACQUIRE",
-    "ACQUIRE_SINGLE_IMAGE",
 ]
 
 

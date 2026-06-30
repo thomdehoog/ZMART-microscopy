@@ -108,11 +108,6 @@ def parse_format(format_str):
     return int(parts[0].strip()), int(parts[1].strip())
 
 
-def format_to_str(width, height):
-    """Convert ``(512, 512)`` into '512 x 512'."""
-    return f"{width} x {height}"
-
-
 # =============================================================================
 # Image / tile geometry
 # =============================================================================

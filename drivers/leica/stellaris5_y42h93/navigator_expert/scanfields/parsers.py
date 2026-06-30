@@ -23,7 +23,6 @@ Three file types, three parser groups:
     **LRP** — ``parse_lrp`` parses the full job settings tree
     (detectors, lasers, AOTFs, shutters, spectral windows, filter
     wheels, light sources, LUTs, autofocus config, z-positions, ROIs).
-    ``diff_lrp`` compares two parsed LRP structures.
 
 ``parse_scan_positions`` is the main entry point that combines all
 parsers into a single result dict. LAS X may store tile centres in
@@ -1491,92 +1490,3 @@ def parse_lrp(lrp_path):
         result["jobs"][job_name] = job
 
     return result
-
-
-# =============================================================================
-# LRP diff
-# =============================================================================
-
-
-def diff_lrp(parsed_a, parsed_b, ignore_keys=None):
-    """Compare two parsed LRP structures and return differences.
-
-    Args:
-        parsed_a: First parsed LRP (from ``parse_lrp``).
-        parsed_b: Second parsed LRP (from ``parse_lrp``).
-        ignore_keys: Set of attribute names to ignore (e.g.
-            ``{"UserSettingName", "BlockID"}``).
-
-    Returns:
-        List of diff dicts, each with::
-
-            path  — dotted path (e.g. "AF Job.Sequential.attrs.LineAverage")
-            a     — value in parsed_a (None if missing)
-            b     — value in parsed_b (None if missing)
-    """
-    if ignore_keys is None:
-        ignore_keys = {"UserSettingName", "BlockID", "MemoryBlockID", "UniqueID", "ID"}
-
-    diffs = []
-
-    def _compare(obj_a, obj_b, path=""):
-        if isinstance(obj_a, dict) and isinstance(obj_b, dict):
-            all_keys = sorted(set(obj_a.keys()) | set(obj_b.keys()))
-            for k in all_keys:
-                if k in ignore_keys:
-                    continue
-                va = obj_a.get(k)
-                vb = obj_b.get(k)
-                _compare(va, vb, f"{path}.{k}" if path else k)
-        elif isinstance(obj_a, list) and isinstance(obj_b, list):
-            for i in range(max(len(obj_a), len(obj_b))):
-                va = obj_a[i] if i < len(obj_a) else None
-                vb = obj_b[i] if i < len(obj_b) else None
-                _compare(va, vb, f"{path}[{i}]")
-        else:
-            if obj_a != obj_b:
-                diffs.append({"path": path, "a": obj_a, "b": obj_b})
-
-    _compare(parsed_a, parsed_b)
-    return diffs
-
-
-# =============================================================================
-# Parsed LRP accessors
-# =============================================================================
-
-
-def get_master_attrs(parsed, job_name):
-    """Return the Master setting attributes dict for a job.
-
-    Provides clean access to the ``ATLConfocalSettingDefinition``
-    attributes (zoom, pan, flip, rotation, scan speed, etc.) without
-    exposing the internal LRP dict structure.
-
-    Args:
-        parsed: Output of :func:`parse_lrp`.
-        job_name: Job name (e.g. ``"Overview"``).
-
-    Returns:
-        Attribute dict, or empty dict if the job or Master is missing.
-    """
-    try:
-        return parsed["jobs"][job_name]["Master"]["attrs"]
-    except (KeyError, TypeError):
-        return {}
-
-
-def get_rois(parsed, job_name):
-    """Return the list of ROIs for a job.
-
-    Args:
-        parsed: Output of :func:`parse_lrp`.
-        job_name: Job name (e.g. ``"Overview"``).
-
-    Returns:
-        List of ROI dicts (may be empty).
-    """
-    try:
-        return parsed["jobs"][job_name]["Master"].get("_ROIs", [])
-    except (KeyError, TypeError):
-        return []

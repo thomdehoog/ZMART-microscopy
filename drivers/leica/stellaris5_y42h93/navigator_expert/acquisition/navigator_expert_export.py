@@ -104,9 +104,6 @@ def navigator_expert_media_path() -> Path:
     return Path(media_path)
 
 
-_media_path = navigator_expert_media_path
-
-
 def _detect_from_relative_path(
     client: Any,
     media_path: Path,

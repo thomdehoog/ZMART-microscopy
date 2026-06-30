@@ -106,8 +106,7 @@ class StateReaderProfile:
     # bounded by ``selected_job_hybrid_budget_s`` inside one confirm attempt.
     # Default hybrid: the api confirm is measured-wrong on the real scope
     # (stale 15 s+, wrong job) and log-only is insufficient on the
-    # simulator; hybrid fits both without environment detection. Validated
-    # 2026-06-11 simulator and real-scope validation runs.
+    # simulator; hybrid fits both without environment detection.
     selected_job_confirm_source: str = "hybrid"
     selected_job_hybrid_budget_s: float = 6.0
     selected_job_log_prime_cluster: bool = False
@@ -124,16 +123,8 @@ class StateReaderProfile:
     scan_status_log_max_age_s: float = 0.5
     scan_status_timeout_s: float = 2.0
 
-    # change-wait reader (readers.change_wait): alternating API/log
-    # polling that accepts the first per-source observation differing from
-    # that source's own pre-command baseline. ``xy_min_delta_um`` filters
-    # settled-stage encoder jitter; target tolerance is reported by the
-    # result, never enforced.
-    change_wait_timeout_s: float = 10.0
-    change_wait_loop_interval_s: float = 0.1
-    change_wait_api_retry_interval_s: float = 0.25
-    change_wait_xy_min_delta_um: float = 0.5
-    change_wait_baseline_api_timeout_s: float = 2.0
+    # XY min-delta (um) below which a stage move is treated as encoder jitter, not motion.
+    xy_min_delta_um: float = 0.5
 
 
 LOG_READER = LogReaderProfile()
@@ -190,8 +181,6 @@ class CommandProfile:
         confirm_fn: Readback confirmation. ``callable(client) -> result``.
             None to skip confirmation. Declarative only - commands always
             override this with a target-bound partial at call time.
-        correct_fn: Custom correction strategy. ``callable(client) -> result``.
-            None uses built-in idle correction. Stubbed for future use.
         max_retries: Transient error retries inside the fire block.
         max_confirm_attempts: Confirm wrapper re-attempt ceiling.
         refire_on_unconfirmed: If True, an unconfirmed readback causes
@@ -237,7 +226,6 @@ class CommandProfile:
     pre_check_fn: callable = None
     error_check_fn: callable = _default_error_check
     confirm_fn: callable = None
-    correct_fn: callable = None
     max_retries: int = 3
     max_confirm_attempts: int = 3
     refire_on_unconfirmed: bool = True
@@ -433,20 +421,6 @@ MOVE_Z = CommandProfile(
 # =============================================================================
 
 ACQUIRE = CommandProfile(
-    pre_check_fn=partial(check_idle, timeout=None),
-    confirm_fn=confirm_acquire,
-    error_check_fn=None,
-    max_confirm_attempts=1,
-    refire_on_unconfirmed=False,
-    poll_interval=0.1,
-    poll_timeout=None,
-    start_timeout=15.0,
-    heartbeat_interval=30.0,
-    skip_echo=True,
-    fire_async=True,
-)
-
-ACQUIRE_SINGLE_IMAGE = CommandProfile(
     pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_acquire,
     error_check_fn=None,

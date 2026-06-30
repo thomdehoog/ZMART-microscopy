@@ -35,7 +35,6 @@ from .. import readers as _readers
 from ..commands.errors import _check_api_error, _is_transient_error
 from ..config.profiles import (
     ACQUIRE,
-    ACQUIRE_SINGLE_IMAGE,
     DETECTOR_GAIN,
     FILTER_WHEEL_SLOT,
     FILTER_WHEEL_SPECTRUM,
@@ -218,7 +217,6 @@ def _dispatch(
         pre_check_fn=pre_check_fn,
         error_check_fn=(lambda: effective_error_check(client)) if effective_error_check else None,
         confirm_fn=final_confirm_fn,
-        correct_fn=(lambda: profile.correct_fn(client)) if profile.correct_fn else None,
         max_retries=max_retries if max_retries is not None else profile.max_retries,
         max_confirm_attempts=max_confirm_attempts
         if max_confirm_attempts is not None
@@ -1392,58 +1390,6 @@ def acquire(
             heartbeat_interval=_profile_value(ACQUIRE, "heartbeat_interval", heartbeat_interval),
             timeout=_profile_value(ACQUIRE, "poll_timeout", poll_timeout),
             poll_interval=_profile_value(ACQUIRE, "poll_interval", poll_interval),
-        ),
-        pre_check_timeout=pre_check_timeout,
-    )
-
-
-def acquire_single_image(
-    client,
-    poll_interval=None,
-    poll_timeout=None,
-    heartbeat_interval=None,
-    start_timeout=None,
-    pre_check_timeout=None,
-):
-    """Acquire a single image using the currently selected job settings.
-
-    Unlike ``acquire``, this does not take a job name - it fires
-    ``PyApiAcquireSingleImage`` which captures with whatever settings
-    are currently active in LAS X.
-
-    Routes through the backbone for consistent idle-wait and timing
-    instrumentation. Single-image acquisition is deliberately fired
-    once; stale or missing completion readback returns failure rather
-    than sending another acquire command.
-
-    Args:
-        client: LAS X API client.
-        poll_interval: Seconds between scan status polls during completion.
-        poll_timeout: Hard ceiling for scan completion (seconds). None
-            for no timeout (wait indefinitely).
-        heartbeat_interval: Log interval during long scans (seconds).
-        start_timeout: Seconds to wait for scan to start before
-            reporting failure.
-
-    Returns:
-        Result dict with timing in timing['total_s'].
-    """
-    api_obj = client.PyApiAcquireSingleImage
-
-    return _dispatch(
-        client,
-        api_obj,
-        "AcquireSingleImage",
-        ACQUIRE_SINGLE_IMAGE,
-        setup_fn=None,
-        confirm_fn=partial(
-            confirm_acquire,
-            start_timeout=_profile_value(ACQUIRE_SINGLE_IMAGE, "start_timeout", start_timeout),
-            heartbeat_interval=_profile_value(
-                ACQUIRE_SINGLE_IMAGE, "heartbeat_interval", heartbeat_interval
-            ),
-            timeout=_profile_value(ACQUIRE_SINGLE_IMAGE, "poll_timeout", poll_timeout),
-            poll_interval=_profile_value(ACQUIRE_SINGLE_IMAGE, "poll_interval", poll_interval),
         ),
         pre_check_timeout=pre_check_timeout,
     )

@@ -420,7 +420,6 @@ def confirm_and_fire(
     pre_check_fn=None,
     error_check_fn=None,
     confirm_fn=None,
-    correct_fn=None,
     max_retries=3,
     max_confirm_attempts=3,
     refire_on_unconfirmed=True,
@@ -441,8 +440,8 @@ def confirm_and_fire(
     Confirmation strategy (when confirm_fn returns failure):
         1. If ``refire_on_unconfirmed`` is False, retry readback only.
            The command is not sent again.
-        2. Otherwise, call ``correct_fn`` when provided, or run the
-           built-in idle correction (pre_check_fn), then re-fire.
+        2. Otherwise, run the built-in idle correction (pre_check_fn),
+           then re-fire.
         3. Re-confirm after each retry. All confirmation attempts count
            against ``max_confirm_attempts``.
 
@@ -456,8 +455,6 @@ def confirm_and_fire(
             defaults to ``_default_error_check``.
         confirm_fn: Zero-arg callable -> result dict. None to skip
             confirmation entirely.
-        correct_fn: Zero-arg callable -> result dict. None uses built-in
-            idle correction. Stubbed for future custom correction.
         max_retries: Transient error retries inside the fire block.
         max_confirm_attempts: How many times the confirm wrapper can
             re-run the fire-then-confirm cycle.
@@ -616,28 +613,12 @@ def confirm_and_fire(
                 all_logs.append(_make_log_entry("info", msg))
                 continue
 
-            if correct_fn is not None:
-                # Custom correction - result success is not checked because
-                # the re-fire + re-confirm cycle determines the outcome.
-                # Correction time is tracked in confirm_s (part of the
-                # confirm attempt cycle).
+            # Built-in idle correction: wait for idle, then re-fire
+            if pre_check_fn is not None:
                 t0 = time.perf_counter()
-                try:
-                    corr_result = correct_fn()
-                except Exception as e:
-                    msg = f"{description} | Correct exception: {e}"
-                    log.warning(msg)
-                    all_logs.append(_make_log_entry("warning", msg))
-                    corr_result = {"success": False, "logs": []}
-                t_confirm_total += time.perf_counter() - t0
-                all_logs.extend(corr_result.get("logs", []))
-            else:
-                # Built-in idle correction: wait for idle, then re-fire
-                if pre_check_fn is not None:
-                    t0 = time.perf_counter()
-                    idle_result = pre_check_fn()
-                    acc_pre += time.perf_counter() - t0
-                    all_logs.extend(idle_result.get("logs", []))
+                idle_result = pre_check_fn()
+                acc_pre += time.perf_counter() - t0
+                all_logs.extend(idle_result.get("logs", []))
 
             # Re-fire after correction
             log.info(

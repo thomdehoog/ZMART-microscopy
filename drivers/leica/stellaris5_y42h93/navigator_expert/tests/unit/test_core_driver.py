@@ -1953,10 +1953,7 @@ class TestFormatParsing(unittest.TestCase):
         self.assertEqual(drv.parse_format("1024 x 768"), (1024, 768))
 
     def test_roundtrip(self):
-        self.assertEqual(drv.parse_format(drv.format_to_str(2048, 2048)), (2048, 2048))
-
-    def test_format_to_str(self):
-        self.assertEqual(drv.format_to_str(512, 512), "512 x 512")
+        self.assertEqual(drv.parse_format("2048 x 2048"), (2048, 2048))
 
     def test_parse_bad_input(self):
         with self.assertRaises(ValueError):
@@ -2880,94 +2877,6 @@ class TestMakeLogEntry(unittest.TestCase):
         self.assertEqual(entry["level"], "info")
         self.assertEqual(entry["msg"], "test message")
         self.assertIsInstance(entry["ts"], float)
-
-
-# =============================================================================
-# 21. low-level acquire_single_image command wiring
-# =============================================================================
-
-
-class TestAcquireSingleImage(unittest.TestCase):
-    def test_uses_correct_api_object(self):
-        """commands.acquire_single_image fires PyApiAcquireSingleImage, not PyApiAcquireJob."""
-        captured = {}
-
-        def mock_fire(client, api_obj, description, **kw):
-            captured["api_obj"] = api_obj
-            captured["description"] = description
-            captured["kwargs"] = kw
-            return _make_v6_result(msg=description)
-
-        client = make_client()
-        with patch.object(commands, "confirm_and_fire", side_effect=mock_fire):
-            commands.acquire_single_image(client)
-        self.assertIs(captured["api_obj"], client.PyApiAcquireSingleImage)
-
-    def test_no_setup_fn(self):
-        """acquire_single_image passes setup_fn=None (no job name to set)."""
-        captured = {}
-
-        def mock_fire(client, api_obj, description, **kw):
-            captured["kwargs"] = kw
-            return _make_v6_result(msg=description)
-
-        with patch.object(commands, "confirm_and_fire", side_effect=mock_fire):
-            commands.acquire_single_image(make_client())
-        self.assertIsNone(captured["kwargs"].get("setup_fn"))
-
-    def test_provides_confirm_fn(self):
-        captured = {}
-
-        def mock_fire(client, api_obj, description, **kw):
-            captured["kwargs"] = kw
-            return _make_v6_result(msg=description)
-
-        with patch.object(commands, "confirm_and_fire", side_effect=mock_fire):
-            commands.acquire_single_image(make_client())
-        self.assertIsNotNone(captured["kwargs"].get("confirm_fn"))
-
-    def test_description_contains_single_image(self):
-        captured = {}
-
-        def mock_fire(client, api_obj, description, **kw):
-            captured["description"] = description
-            return _make_v6_result(msg=description)
-
-        with patch.object(commands, "confirm_and_fire", side_effect=mock_fire):
-            commands.acquire_single_image(make_client())
-        self.assertIn("SingleImage", captured["description"])
-
-    def test_single_image_acquisition_fires_once(self):
-        captured = {}
-
-        def mock_fire(client, api_obj, description, **kw):
-            captured["kwargs"] = kw
-            return _make_v6_result(msg=description)
-
-        with patch.object(commands, "confirm_and_fire", side_effect=mock_fire):
-            commands.acquire_single_image(make_client())
-        self.assertEqual(captured["kwargs"].get("max_confirm_attempts"), 1)
-        self.assertFalse(captured["kwargs"].get("refire_on_unconfirmed"))
-
-    def test_differs_from_acquire(self):
-        """acquire_single_image uses a different API object than acquire."""
-        captured_single = {}
-        captured_acquire = {}
-
-        def mock_fire_single(client, api_obj, description, **kw):
-            captured_single["api_obj"] = api_obj
-            return _make_v6_result(msg=description)
-
-        def mock_fire_acquire(client, api_obj, description, **kw):
-            captured_acquire["api_obj"] = api_obj
-            return _make_v6_result(msg=description)
-
-        client = make_client()
-        with patch.object(commands, "confirm_and_fire", side_effect=mock_fire_single):
-            commands.acquire_single_image(client)
-        with patch.object(commands, "confirm_and_fire", side_effect=mock_fire_acquire):
-            commands.acquire(client, "J")
-        self.assertIsNot(captured_single["api_obj"], captured_acquire["api_obj"])
 
 
 if __name__ == "__main__":
