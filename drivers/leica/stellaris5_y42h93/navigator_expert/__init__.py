@@ -5,11 +5,12 @@ Package layout::
 
     navigator_expert/
     - commands/     command wrappers, dispatch, confirmation logic
-    - runtime/      profiles, session helpers, errors, shared utilities
-    - readers/ API/log/hybrid state readers
+    - config/       command and reader profiles, tuning defaults
+    - connection/   session helpers and LAS X API connection
+    - readers/      API/log/hybrid state readers
     - scanfields/   LAS X scan-field files, parsing, planning, strip/restore
     - acquisition/  acquire-only capture, LAS X file export, OME fixes, save
-    - stage/        stage limits, backlash-aware movement, stage config
+    - motion/       stage limits, backlash-aware movement, stage config
     - experimental/ LRP mutation helpers without live-state readback
 """
 
@@ -29,7 +30,6 @@ __all__ = [
     "_safe_float",
     "_hw_get",
     "parse_format",
-    "format_to_str",
     "_make_timing",
     "_make_log_entry",
     "parse_tile_geometry",
@@ -69,8 +69,6 @@ __all__ = [
     "fix_ome_xml_bytes",
     "fix_ome_tiff",
     "fix_ome_xml_file",
-    "update_ome_tiff_filename",
-    "update_ome_xml_filename",
     # settings
     "make_changeable_copy",
     # prechecks
@@ -120,10 +118,7 @@ __all__ = [
     "save_and_read_lrp",
     # position parsers/planning
     "parse_lrp",
-    "diff_lrp",
     "parse_scan_positions",
-    "get_master_attrs",
-    "get_rois",
     "parse_acquisition_positions",
     "parse_base_grid",
     "parse_focus_points",
@@ -276,12 +271,11 @@ for _path in (_microscopes_root, _leica_root):
         _sys.path.insert(0, _path)
 del _sys, _Path, _here, _leica_root, _microscopes_root, _path
 
-# -- runtime/ + commands/ - shared runtime helpers and command mechanics
+# -- shared utilities + commands/ - helpers and command mechanics
 from .utils import (
     _safe_float,
     _hw_get,
     parse_format,
-    format_to_str,
     _make_timing,
     _make_log_entry,
     parse_tile_geometry,
@@ -351,7 +345,7 @@ from .connection.session import (
     require_canonical_scan_orientation,
 )
 
-# -- stage/ - stage safety + movement
+# -- motion/ - stage safety + movement
 from .motion.limits import (
     _stage_limits,
     set_stage_limits,
@@ -389,7 +383,6 @@ from .scanfields.strip_restore import strip_template_in_place
 from .scanfields.transaction import apply_lrp_change, reorder_jobs
 from .scanfields.parsers import (
     parse_lrp,
-    diff_lrp,
     parse_scan_positions,
     parse_acquisition_positions,
     parse_base_grid,
@@ -397,8 +390,6 @@ from .scanfields.parsers import (
     parse_rgn_geometries,
     parse_rgn_tile_colors,
     parse_matrix_settings,
-    get_master_attrs,
-    get_rois,
 )
 from .scanfields.planning import plan_tiles_from_geometries
 
@@ -411,8 +402,6 @@ from .acquisition.ome import (
     fix_ome_xml_bytes,
     fix_ome_tiff,
     fix_ome_xml_file,
-    update_ome_tiff_filename,
-    update_ome_xml_filename,
 )
 from .acquisition.files import (
     read_relative_path,

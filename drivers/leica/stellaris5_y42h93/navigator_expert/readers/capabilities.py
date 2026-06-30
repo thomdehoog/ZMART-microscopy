@@ -8,10 +8,10 @@ each source can provide:
   a family asked for a leg the datum does not have fails closed with
   ``UnsupportedSource``, and ``hybrid`` degrades to the legs that exist.
 - **evidence legs** (``evidence_log_fn`` + ``key_fn`` / ``target_fn``):
-  answer "did the state visibly change / reach a target?" for
-  :mod:`change_wait` and the confirmation race. These are deliberately
-  separate from the passive legs - a passive value and command evidence
-  are different questions even when they read the same log stream.
+  answer "did the state visibly change / reach a target?" for the
+  confirmation race. These are deliberately separate from the passive
+  legs - a passive value and command evidence are different questions
+  even when they read the same log stream.
 
 The table holds *capabilities* (facts about what a source can prove), not
 preferences. Policy - which family is the default - lives in
@@ -196,7 +196,7 @@ DATUMS = {
         evidence_log_fn=_xy_evidence,
         key_fn=_xy_key,
         target_fn=_xy_target,
-        min_delta_attr="change_wait_xy_min_delta_um",
+        min_delta_attr="xy_min_delta_um",
         numeric=True,
     ),
     "jobs": DatumSpec(

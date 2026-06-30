@@ -214,7 +214,6 @@ class CommandProfile:
     pre_check_fn          = None                 # wait for idle (None to skip)
     error_check_fn        = _default_error_check  # post-fire error check
     confirm_fn            = None                 # readback confirmation (None to skip)
-    correct_fn            = None                 # custom correction (None = idle wait)
     max_retries           = 3                    # transient error retries
     max_confirm_attempts  = 3                    # confirm-loop ceiling
     refire_on_unconfirmed = True                 # re-send after a failed readback
@@ -413,22 +412,6 @@ reads, confirmations, post-write readbacks) or that become persisted truth
 or the gated confirmation path. Cold status reads may use the log. This rule is
 documented on `StateReaderProfile` and is enforced by choosing modes per datum.
 
-### Change detection
-
-`readers.change_wait` answers "did the state visibly change after my
-command?" by alternating API and log reads until one source differs from **its
-own** pre-command baseline:
-
-```python
-baseline = read_change_baseline(client, "xy")   # capture BEFORE firing
-move_xy(client, x, y)
-res = wait_for_change(client, "xy", baseline, target=(x, y))  # fail-closed unconfirmed on timeout
-```
-
-`datum` is `"selected_job"` or `"xy"`. Capture the baseline *before* firing.
-Target tolerance is **reported, never enforced**. Tunables live in
-`profiles.STATE_READERS` (`change_wait_*`).
-
 ### Diagnostics
 
 Pass `diagnostics=True` to a routed reader to get a source-tagged `Reading`
@@ -523,18 +506,17 @@ reads and edits these.
 ### Parsing saved templates (read-only)
 
 ```python
-from navigator_expert import parse_lrp, parse_scan_positions, get_rois, diff_lrp
+from navigator_expert import parse_lrp, parse_scan_positions
 
 settings = parse_lrp("path/to/template.lrp")     # full job settings tree
 positions = parse_scan_positions(xml, rgn)        # tile/region geometry, focus points
 ```
 
 Parsers (`scanfields/parsers.py`) use stdlib ElementTree with safe type
-coercion — no fragile regex. Key entry points: `parse_lrp`, `diff_lrp`,
+coercion — no fragile regex. Key entry points: `parse_lrp`,
 `parse_scan_positions`, `parse_acquisition_positions`, `parse_base_grid`,
 `parse_focus_points`, `parse_rgn_geometries`, `parse_rgn_tile_colors`,
-`parse_matrix_settings`, plus accessors `get_master_attrs`, `get_rois`, and
-`plan_tiles_from_geometries` (planning).
+`parse_matrix_settings`, plus `plan_tiles_from_geometries` (planning).
 
 ### Saving / loading the active experiment
 

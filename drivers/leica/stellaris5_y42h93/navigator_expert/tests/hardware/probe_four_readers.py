@@ -1,23 +1,17 @@
-"""Exercise all four Leica state-reader paths on LAS X.
+"""Exercise the three Leica passive state-reader paths on LAS X.
 
-The four paths are:
+The three paths are:
 
   1. ``api``: routed passive reader pinned to the CAM API;
   2. ``log``: routed passive reader pinned to LAS X logs;
-  3. ``hybrid``: existing mixed passive reader that races API/log;
-  4. ``change_wait``: alternating API/log change detector with per-source
-     baselines.
+  3. ``hybrid``: mixed passive reader that races API/log.
 
 Default mode is read-only. With ``--yes`` the probe performs reversible writes:
 two rounds of job changes and a 10-position XY pattern by default. Every step
 records command timing, reader timing, values, source/age metadata, and error
 messages to JSONL while also printing a compact console table.
 
-Each write step ends with passive api/log/hybrid reads for diagnostics. On a slow
-real CAM API, the final passive ``hybrid`` read from one step can briefly hold the
-shared API in-flight claim, so the next ``change_wait`` baseline may report an
-``api_in_flight`` API leg and run log-only. That is expected fail-closed probe
-contention, not by itself a reader failure.
+Each write step ends with passive api/log/hybrid reads for diagnostics.
 
 Typical real-scope run:
 
@@ -227,66 +221,6 @@ def _read_all_passive(
     return {mode: _read_passive(client, datum, mode, job_name) for mode in PASSIVE_MODES}
 
 
-def _baseline_brief(reading: Any) -> dict[str, Any] | None:
-    if reading is None:
-        return None
-    return {
-        "source": reading.source,
-        "observed_at": reading.observed_at,
-        "age_s": reading.age_s,
-        "error": None if reading.error is None else repr(reading.error),
-        "value": _jsonable(reading.value),
-        "summary": _value_summary(reading.value),
-    }
-
-
-def _read_change_baseline(client, datum: str) -> dict[str, Any]:
-    started = time.perf_counter()
-    try:
-        baseline = readers.read_change_baseline(client, datum)
-    except Exception as exc:  # noqa: BLE001
-        return {
-            "status": "exception",
-            "elapsed_ms": round((time.perf_counter() - started) * 1000.0, 3),
-            "error": f"{type(exc).__name__}: {exc}",
-        }
-    return {
-        "status": "ok",
-        "elapsed_ms": round((time.perf_counter() - started) * 1000.0, 3),
-        "taken_at": baseline.taken_at,
-        "api": _baseline_brief(baseline.api),
-        "log": _baseline_brief(baseline.log),
-        "diagnostics": baseline.diagnostics,
-        "_baseline": baseline,
-    }
-
-
-def _change_wait_record(result: Any, fired_at: float) -> dict[str, Any]:
-    noticed_after_fire_s = None if result.observed_at is None else result.observed_at - fired_at
-    return {
-        "success": result.success,
-        "outcome": result.outcome,
-        "source": result.source,
-        "value": _jsonable(result.value),
-        "summary": _value_summary(result.value),
-        "observed_at": result.observed_at,
-        "elapsed_s": round(result.elapsed_s, 4),
-        "noticed_after_fire_s": (
-            None if noticed_after_fire_s is None else round(noticed_after_fire_s, 4)
-        ),
-        "api_attempts": result.api_attempts,
-        "log_attempts": result.log_attempts,
-        "matches_target": result.matches_target,
-        "within_tolerance": result.within_tolerance,
-        "target_delta": result.target_delta,
-        "sources_agree": result.sources_agree,
-        "reason": result.reason,
-        "last_reasons": result.diagnostics.get("last_reasons"),
-        "api_skips": result.diagnostics.get("api_skips"),
-        "diagnostics": result.diagnostics,
-    }
-
-
 def _summarize_selected(reads: dict[str, dict[str, Any]]) -> dict[str, Any]:
     return {
         mode: _selected_name(read.get("value") if read else None) for mode, read in reads.items()
@@ -314,22 +248,17 @@ def phase_read_only(
     output: Path,
     job_name: str | None,
 ) -> None:
-    print("\n=== READ-ONLY: api / log / hybrid / change_wait baseline ===")
+    print("\n=== READ-ONLY: api / log / hybrid ===")
     for datum in ("selected_job", "xy", "jobs", "scan_status", "hardware_info"):
         reads = _read_all_passive(client, datum, job_name=job_name)
-        baseline = _read_change_baseline(client, datum) if datum in {"selected_job", "xy"} else None
         record = {
             "phase": "read_only",
             "datum": datum,
             "passive": reads,
-            "change_wait_baseline": _strip_private(baseline),
         }
         _emit(records, output, record)
         cells = " | ".join(f"{mode} {_brief_read(reads[mode])}" for mode in PASSIVE_MODES)
-        cw = ""
-        if baseline is not None:
-            cw = f" | change_wait baseline {baseline['status']}@{baseline['elapsed_ms']:.0f}ms"
-        print(f"{datum:<14} {cells}{cw}")
+        print(f"{datum:<14} {cells}")
 
     if job_name:
         reads = _read_all_passive(client, "job_settings", job_name=job_name)
@@ -338,7 +267,6 @@ def phase_read_only(
             "datum": "job_settings",
             "job": job_name,
             "passive": reads,
-            "change_wait_baseline": None,
         }
         _emit(records, output, record)
         cells = " | ".join(f"{mode} {_brief_read(reads[mode])}" for mode in PASSIVE_MODES)
@@ -352,18 +280,9 @@ def phase_read_only(
             "phase": "read_only",
             "datum": "pending_dialog",
             "passive": {"log": pending},
-            "change_wait_baseline": None,
         },
     )
     print(f"{'pending_dialog':<14} log {_brief_read(pending)}")
-
-
-def _strip_private(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {k: _strip_private(v) for k, v in value.items() if not k.startswith("_")}
-    if isinstance(value, list):
-        return [_strip_private(v) for v in value]
-    return value
 
 
 def _current_selected_job(client) -> str | None:
@@ -420,8 +339,6 @@ def phase_job_changes(
         for round_index in range(1, rounds + 1):
             for target in sequence:
                 step += 1
-                baseline_info = _read_change_baseline(client, "selected_job")
-                baseline = baseline_info.get("_baseline")
                 fired_at = time.time()
                 started = time.perf_counter()
                 try:
@@ -431,29 +348,6 @@ def phase_job_changes(
                     command = None
                     command_error = f"{type(exc).__name__}: {exc}"
                 command_ms = (time.perf_counter() - started) * 1000.0
-
-                if baseline is not None:
-                    try:
-                        result = readers.wait_for_change(
-                            client,
-                            "selected_job",
-                            baseline,
-                            target=target,
-                            command_started_at=fired_at,
-                        )
-                        change_wait = _change_wait_record(result, fired_at)
-                    except Exception as exc:  # noqa: BLE001
-                        change_wait = {
-                            "success": False,
-                            "outcome": "exception",
-                            "error": f"{type(exc).__name__}: {exc}",
-                        }
-                else:
-                    change_wait = {
-                        "success": False,
-                        "outcome": "no_baseline",
-                        "error": baseline_info.get("error"),
-                    }
 
                 reads = _read_all_passive(client, "selected_job")
                 selected_by_reader = _summarize_selected(reads)
@@ -470,10 +364,8 @@ def phase_job_changes(
                         "success": (None if command is None else command.get("success")),
                         "confirmed": (None if command is None else command.get("confirmed")),
                     },
-                    "change_wait": change_wait,
                     "passive": reads,
                     "selected_by_reader": selected_by_reader,
-                    "baseline": _strip_private(baseline_info),
                 }
                 _emit(records, output, record)
                 _print_job_step(record)
@@ -484,27 +376,24 @@ def phase_job_changes(
 
 
 def _print_job_step(record: dict[str, Any]) -> None:
-    cw = record["change_wait"]
     selected = record["selected_by_reader"]
     command = record["command"]
     agreeing = [mode for mode in PASSIVE_MODES if selected.get(mode) == record["target"]]
-    # The command result and change detection grade the step. Passive-reader
-    # agreement is reported, never judged: right after a real switch the
-    # passive readers can all lag (API stale, log fail-closed), and that is
-    # expected behavior, not a failed step.
-    ok = command.get("success") is True and cw.get("success") is True
+    # The command result grades the step. Passive-reader agreement is
+    # reported, never judged: right after a real switch the passive readers
+    # can all lag (API stale, log fail-closed), and that is expected
+    # behavior, not a failed step.
+    ok = command.get("success") is True
     marker = "OK " if ok else "XX "
     print(
         f"{marker}job step={record['step']:02d} round={record['round']} "
         f"target={record['target']!r} cmd={command['elapsed_ms']:.0f}ms "
-        f"cw={cw.get('outcome')}:{cw.get('source')} "
-        f"cw_ms={float(cw.get('elapsed_s') or 0) * 1000:.0f} "
         f"agree={','.join(agreeing) or 'none'} "
         f"api={selected.get('api')!r} log={selected.get('log')!r} "
         f"hybrid={selected.get('hybrid')!r}"
     )
-    if command.get("error") or cw.get("error"):
-        print(f"    errors command={command.get('error')} cw={cw.get('error')}")
+    if command.get("error"):
+        print(f"    errors command={command.get('error')}")
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
@@ -573,8 +462,6 @@ def phase_xy_positions(
     )
     try:
         for index, target in enumerate(positions, 1):
-            baseline_info = _read_change_baseline(client, "xy")
-            baseline = baseline_info.get("_baseline")
             fired_at = time.time()
             started = time.perf_counter()
             try:
@@ -584,30 +471,6 @@ def phase_xy_positions(
                 command = None
                 command_error = f"{type(exc).__name__}: {exc}"
             command_ms = (time.perf_counter() - started) * 1000.0
-
-            if baseline is not None:
-                try:
-                    result = readers.wait_for_change(
-                        client,
-                        "xy",
-                        baseline,
-                        target=target,
-                        tolerance=tolerance_um,
-                        command_started_at=fired_at,
-                    )
-                    change_wait = _change_wait_record(result, fired_at)
-                except Exception as exc:  # noqa: BLE001
-                    change_wait = {
-                        "success": False,
-                        "outcome": "exception",
-                        "error": f"{type(exc).__name__}: {exc}",
-                    }
-            else:
-                change_wait = {
-                    "success": False,
-                    "outcome": "no_baseline",
-                    "error": baseline_info.get("error"),
-                }
 
             reads = _read_all_passive(client, "xy")
             xy_by_reader = _summarize_xy(reads, target)
@@ -623,10 +486,8 @@ def phase_xy_positions(
                     "success": (None if command is None else command.get("success")),
                     "confirmed": (None if command is None else command.get("confirmed")),
                 },
-                "change_wait": change_wait,
                 "passive": reads,
                 "xy_by_reader": xy_by_reader,
-                "baseline": _strip_private(baseline_info),
             }
             _emit(records, output, record)
             _print_xy_step(record)
@@ -636,18 +497,15 @@ def phase_xy_positions(
 
 
 def _print_xy_step(record: dict[str, Any]) -> None:
-    cw = record["change_wait"]
     command = record["command"]
     api_delta = (record["xy_by_reader"].get("api") or {}).get("target_delta_um")
-    ok = command.get("success") is True and cw.get("success") is True and api_delta is not None
+    ok = command.get("success") is True and api_delta is not None
     marker = "OK " if ok else "XX "
     target = record["target_um"]
     print(
         f"{marker}xy index={record['index']:02d} "
         f"target=({target[0]:.1f},{target[1]:.1f}) "
         f"cmd={command['elapsed_ms']:.0f}ms "
-        f"cw={cw.get('outcome')}:{cw.get('source')} "
-        f"cw_ms={float(cw.get('elapsed_s') or 0) * 1000:.0f} "
         f"api_delta={None if api_delta is None else round(api_delta, 3)}"
     )
     for mode in PASSIVE_MODES:
@@ -657,8 +515,8 @@ def _print_xy_step(record: dict[str, Any]) -> None:
             f"    {mode:<4} {_brief_read(read)} "
             f"target_delta={None if delta is None else round(delta, 3)}"
         )
-    if command.get("error") or cw.get("error"):
-        print(f"    errors command={command.get('error')} cw={cw.get('error')}")
+    if command.get("error"):
+        print(f"    errors command={command.get('error')}")
 
 
 def _build_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -670,29 +528,17 @@ def _build_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         ok = True
         if "command" in record:
             ok = ok and record["command"].get("success") is True
-        if "change_wait" in record:
-            ok = ok and record["change_wait"].get("success") is True
         if phase == "read_only":
             passive = record.get("passive") or {}
             ok = ok and all(
                 read.get("status") not in {"error", "exception"} for read in passive.values()
             )
-            baseline = record.get("change_wait_baseline")
-            if baseline is not None:
-                ok = ok and baseline.get("status") != "exception"
         if ok:
             phases[phase]["ok"] += 1
         else:
             phases[phase]["fail"] += 1
-    change_sources = {}
-    for record in records:
-        cw = record.get("change_wait") or {}
-        source = cw.get("source")
-        if source:
-            change_sources[source] = change_sources.get(source, 0) + 1
     return {
         "phases": phases,
-        "change_wait_sources": change_sources,
         "records": len(records),
     }
 
@@ -775,7 +621,7 @@ def main(argv=None) -> int:
             "config": config,
         },
     )
-    print("=== FOUR-READER PROBE ===")
+    print("=== THREE-READER PROBE ===")
     print(f"records: {output}")
 
     selected_job = _current_selected_job(client)
