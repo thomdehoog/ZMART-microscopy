@@ -1,0 +1,60 @@
+# Navigator Expert driver CI.
+#
+# This file is intentionally thin: GitHub only runs workflows from
+# .github/workflows/, so it cannot live inside the driver folder. All of the
+# actual CI *definition* -- what runs, markers, coverage, reporting -- lives in
+# drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py and pytest.ini.
+# This workflow is just the trigger that calls run_ci.py on every relevant push.
+name: navigator-expert
+
+on:
+  push:
+    branches: [main, microscope-agnostic-layer]
+    paths:
+      - "drivers/leica/stellaris5_y42h93/navigator_expert/**"
+      - "shared/**"
+      - ".github/workflows/navigator-expert.yml"
+  pull_request:
+    paths:
+      - "drivers/leica/stellaris5_y42h93/navigator_expert/**"
+      - "shared/**"
+      - ".github/workflows/navigator-expert.yml"
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  offline:
+    name: offline (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so the env header records the real git rev
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt
+
+      - name: Run driver CI (offline suite + coverage)
+        run: python drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py
+
+      - name: Upload reports
+        if: always() # keep reports even when tests fail -- that's when they matter most
+        uses: actions/upload-artifact@v4
+        with:
+          name: navigator-expert-reports-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: drivers/leica/stellaris5_y42h93/navigator_expert/tests/_report/
+          if-no-files-found: warn
