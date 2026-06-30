@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 _TESTS_DIR = Path(__file__).resolve().parent
-_SRC_ROOT = _TESTS_DIR.parents[1]  # microscopes/
+_SRC_ROOT = _TESTS_DIR.parents[1]  # repo root (parent of the package)
 for _path in (str(_SRC_ROOT), str(_TESTS_DIR)):
     if _path not in sys.path:
         sys.path.insert(0, _path)

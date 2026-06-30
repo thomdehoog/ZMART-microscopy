@@ -27,10 +27,10 @@ jobs:
 
       - name: Install pytest
         # The controller is pure-stdlib and the repo is not a pip package, so the
-        # mock suite needs only pytest. conftest.py puts microscopes/ on sys.path.
+        # mock suite needs only pytest. conftest.py puts the repo root on sys.path.
         run: pip install pytest
 
       - name: Run the mock test suite
         # Only the controller's mock suite runs in CI: it is fully offline and
         # hardware-free. Driver/calibration suites need LAS X + a microscope.
-        run: python -m pytest microscopes/microscope_agnostic_controller/tests --tb=short
+        run: python -m pytest microscope_agnostic_controller/tests --tb=short
