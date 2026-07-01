@@ -205,7 +205,7 @@ small zero-argument callables; extra parameters are pre-bound with
 
 ### CommandProfile (where tuning lives)
 
-Every command has a `CommandProfile` in `runtime/profiles.py` holding its full
+Every command has a `CommandProfile` in `config/profiles.py` holding its full
 recipe — pluggable callables plus retry/confirm tuning:
 
 ```python
@@ -214,19 +214,23 @@ class CommandProfile:
     pre_check_fn          = None                 # wait for idle (None to skip)
     error_check_fn        = _default_error_check  # post-fire error check
     confirm_fn            = None                 # readback confirmation (None to skip)
-    max_retries           = 3                    # transient error retries
+    max_retries           = 3                    # transient error retries (0 = never re-fire)
     max_confirm_attempts  = 3                    # confirm-loop ceiling
     refire_on_unconfirmed = True                 # re-send after a failed readback
-    confirm_timeout       = None
+    confirm_poll_s        = CONFIRM_POLL_S       # per-attempt readback POLL window (not a timeout)
     confirm_tolerance     = None
-    success_on_unconfirmed = False               # treat exhausted readback as non-fatal
+    success_on_unconfirmed = True                # exhausted readback -> unconfirmed, never hard-fail
     # ... plus poll/heartbeat/backoff/async knobs
 ```
 
-Tolerances, polling intervals, confirmation windows, and the acquisition
-fire-once policy live in the profile, **not** hardcoded in the wrapper. Most
-setting commands are built from one factory, `_leica_setting_profile`, which
-grants three 5 s readback windows and `success_on_unconfirmed=True`.
+The posture is uniform: every command retries the fire, re-fires between confirm
+windows, and returns *unconfirmed* rather than hard-failing. Tolerances, polling
+intervals, and poll windows live in the profile, **not** hardcoded in the
+wrapper. Most setting commands are built from one factory,
+`_leica_setting_profile`, which now only binds the confirm function — the three
+3 s readback poll windows, re-fire, and unconfirmed-not-fail are all the default.
+`ACQUIRE` is the sole deviation (`max_retries=0`, `refire_on_unconfirmed=False`):
+it must never re-send, or it would start a duplicate acquisition.
 
 ### The result dictionary
 

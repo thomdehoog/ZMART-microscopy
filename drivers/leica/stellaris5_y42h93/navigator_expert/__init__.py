@@ -22,7 +22,7 @@ __all__ = [
     "log",
     # config
     "RECEIPT_TIMEOUT",
-    "CONFIRM_TIMEOUT",
+    "CONFIRM_POLL_S",
     "PAN_LIMIT",
     "GALVO_FIELD_FRACTION",
     "pan_scale_um_from_base_fov",
@@ -280,7 +280,7 @@ from .utils import (
     _make_log_entry,
     parse_tile_geometry,
     RECEIPT_TIMEOUT,
-    CONFIRM_TIMEOUT,
+    CONFIRM_POLL_S,
     PAN_LIMIT,
     GALVO_FIELD_FRACTION,
     pan_scale_um_from_base_fov,

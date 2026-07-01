@@ -42,7 +42,7 @@ import time
 
 from .. import readers as _readers
 from ..commands.errors import _check_api_error, _is_transient_error
-from ..utils import CONFIRM_TIMEOUT, _make_log_entry
+from ..utils import CONFIRM_POLL_S, _make_log_entry
 from ..readers import router as _router
 from .confirm_specs import CONFIRM_SPECS
 from .settings import make_changeable_copy
@@ -205,10 +205,15 @@ def race_confirmations(api_leg=None, log_leg=None, *, label="", budget_s=None, a
 
 def _readback(client, job_name, *, observed_after=None):
     """Read job settings and return changeable copy, or None on failure."""
+    # Reader budget is its own profile knob, distinct from the confirm poll
+    # window: this is a genuine "how long may one job-settings read block"
+    # value. Deferred import — profiles imports this module.
+    from ..config.profiles import STATE_READERS
+
     reading = _readers.get_job_settings(
         client,
         job_name,
-        timeout=CONFIRM_TIMEOUT,
+        timeout=STATE_READERS.job_settings_timeout_s,
         mode="api",
         diagnostics=True,
     )
@@ -262,7 +267,7 @@ def _confirm_readback(
     compare,
     errors,
     tolerance=None,
-    timeout=None,
+    poll_window=None,
     poll_interval=0.01,
 ):
     """Poll a job-settings readback until one value matches ``target``.
@@ -285,17 +290,17 @@ def _confirm_readback(
             absolute-tolerance.
         errors: Exception tuple to swallow during extraction/comparison.
         tolerance: Acceptable deviation (ignored by exact comparators).
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
+        poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
         poll_interval: Seconds between readback polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
+    if poll_window is None:
+        poll_window = CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
-    deadline = t_start + timeout
+    deadline = t_start + poll_window
 
     while time.perf_counter() < deadline:
         ch = _readback(client, job_name)
@@ -316,7 +321,7 @@ def _confirm_readback(
 
 
 def _run_spec(
-    name, client, job_name, target, *, tolerance=None, timeout=None, poll_interval=0.01, **params
+    name, client, job_name, target, *, tolerance=None, poll_window=None, poll_interval=0.01, **params
 ):
     """Run ``_confirm_readback`` against one ``CONFIRM_SPECS`` row.
 
@@ -333,7 +338,7 @@ def _run_spec(
         compare=spec.compare,
         errors=spec.errors,
         tolerance=tolerance,
-        timeout=timeout,
+        poll_window=poll_window,
         poll_interval=poll_interval,
     )
 
@@ -346,7 +351,7 @@ ZMODE_KEY = {"galvo": "z-galvo", "zwide": "z-wide"}
 
 
 def confirm_move_z(
-    client, *, job_name, z_mode, target_um, tolerance=1.0, timeout=None, poll_interval=0.01
+    client, *, job_name, z_mode, target_um, tolerance=1.0, poll_window=None, poll_interval=0.01
 ):
     """Poll until Z drive position is within tolerance, or until timeout.
 
@@ -359,18 +364,18 @@ def confirm_move_z(
         z_mode: Drive type — "galvo" or "zwide".
         target_um: Expected Z position in micrometers.
         tolerance: Acceptable deviation in micrometers.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
+        poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
         poll_interval: Seconds between position polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
+    if poll_window is None:
+        poll_window = CONFIRM_POLL_S
     logs = []
     key = ZMODE_KEY[z_mode]
     t_start = time.perf_counter()
-    deadline = t_start + timeout
+    deadline = t_start + poll_window
 
     while time.perf_counter() < deadline:
         ch = _readback(client, job_name)
@@ -399,7 +404,7 @@ def confirm_move_z(
     return {"success": False, "logs": logs}
 
 
-def _confirm_zoom(client, job_name, target, tolerance=0.1, timeout=None, poll_interval=0.01):
+def _confirm_zoom(client, job_name, target, tolerance=0.1, poll_window=None, poll_interval=0.01):
     """Poll until zoom matches target within tolerance, or until timeout.
 
     Args:
@@ -407,17 +412,17 @@ def _confirm_zoom(client, job_name, target, tolerance=0.1, timeout=None, poll_in
         job_name: Target job name.
         target: Expected zoom value.
         tolerance: Acceptable deviation.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
+        poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
         poll_interval: Seconds between readback polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
+    if poll_window is None:
+        poll_window = CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
-    deadline = t_start + timeout
+    deadline = t_start + poll_window
 
     last_actual = None
     while time.perf_counter() < deadline:
@@ -443,7 +448,7 @@ def _confirm_zoom(client, job_name, target, tolerance=0.1, timeout=None, poll_in
 
 
 def _confirm_scan_field_rotation(
-    client, job_name, target, tolerance=0.5, timeout=None, poll_interval=0.01
+    client, job_name, target, tolerance=0.5, poll_window=None, poll_interval=0.01
 ):
     """Poll until scan field rotation matches target within tolerance (degrees)."""
     return _run_spec(
@@ -452,7 +457,7 @@ def _confirm_scan_field_rotation(
         job_name,
         target,
         tolerance=tolerance,
-        timeout=timeout,
+        poll_window=poll_window,
         poll_interval=poll_interval,
     )
 
@@ -475,7 +480,7 @@ def _quantised_candidates(centre, raw_size, step):
 
 
 def _confirm_z_stack_definition(
-    client, job_name, begin_um, end_um, tolerance=1.0, timeout=None, poll_interval=0.01
+    client, job_name, begin_um, end_um, tolerance=1.0, poll_window=None, poll_interval=0.01
 ):
     """Poll until z-stack begin/end positions match within tolerance (micrometers).
 
@@ -493,17 +498,17 @@ def _confirm_z_stack_definition(
         begin_um: Expected begin position (um), or None to skip.
         end_um: Expected end position (um), or None to skip.
         tolerance: Acceptable deviation in micrometers.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
+        poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
         poll_interval: Seconds between readback polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
+    if poll_window is None:
+        poll_window = CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
-    deadline = t_start + timeout
+    deadline = t_start + poll_window
 
     while time.perf_counter() < deadline:
         ch = _readback(client, job_name)
@@ -559,7 +564,7 @@ def _confirm_z_stack_definition(
 
 
 def _confirm_z_stack_step_size(
-    client, job_name, target_um, tolerance=0.5, timeout=None, poll_interval=0.01
+    client, job_name, target_um, tolerance=0.5, poll_window=None, poll_interval=0.01
 ):
     """Poll until z-stack step size matches within tolerance (micrometers).
 
@@ -568,17 +573,17 @@ def _confirm_z_stack_step_size(
         job_name: Target job name.
         target_um: Expected step size in micrometers.
         tolerance: Acceptable deviation in micrometers.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
+        poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
         poll_interval: Seconds between readback polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
+    if poll_window is None:
+        poll_window = CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
-    deadline = t_start + timeout
+    deadline = t_start + poll_window
 
     while time.perf_counter() < deadline:
         ch = _readback(client, job_name)
@@ -599,7 +604,7 @@ def _confirm_z_stack_step_size(
 
 
 def _confirm_z_stack_size(
-    client, job_name, target_um, tolerance=1.5, timeout=None, poll_interval=0.01
+    client, job_name, target_um, tolerance=1.5, poll_window=None, poll_interval=0.01
 ):
     """Poll until z-stack total size matches within tolerance (micrometers).
 
@@ -613,17 +618,17 @@ def _confirm_z_stack_size(
         job_name: Target job name.
         target_um: Expected total stack size in micrometers.
         tolerance: Acceptable deviation in micrometers.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
+        poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
         poll_interval: Seconds between readback polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
+    if poll_window is None:
+        poll_window = CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
-    deadline = t_start + timeout
+    deadline = t_start + poll_window
 
     while time.perf_counter() < deadline:
         ch = _readback(client, job_name)
@@ -664,7 +669,7 @@ def _confirm_z_stack_size(
 
 
 def _confirm_pinhole_airy(
-    client, job_name, si, target, tolerance=0.05, timeout=None, poll_interval=0.01
+    client, job_name, si, target, tolerance=0.05, poll_window=None, poll_interval=0.01
 ):
     """Poll until pinhole size matches within tolerance (Airy units)."""
     return _run_spec(
@@ -673,14 +678,14 @@ def _confirm_pinhole_airy(
         job_name,
         target,
         tolerance=tolerance,
-        timeout=timeout,
+        poll_window=poll_window,
         poll_interval=poll_interval,
         si=si,
     )
 
 
 def _confirm_detector_gain(
-    client, job_name, si, beam_route, target, tolerance=1.0, timeout=None, poll_interval=0.01
+    client, job_name, si, beam_route, target, tolerance=1.0, poll_window=None, poll_interval=0.01
 ):
     """Poll until detector gain matches within tolerance."""
     return _run_spec(
@@ -689,7 +694,7 @@ def _confirm_detector_gain(
         job_name,
         target,
         tolerance=tolerance,
-        timeout=timeout,
+        poll_window=poll_window,
         poll_interval=poll_interval,
         si=si,
         beam_route=beam_route,
@@ -704,7 +709,7 @@ def _confirm_laser_intensity(
     line_index,
     target,
     tolerance=0.005,
-    timeout=None,
+    poll_window=None,
     poll_interval=0.01,
 ):
     """Poll until laser intensity matches within tolerance (fraction)."""
@@ -714,7 +719,7 @@ def _confirm_laser_intensity(
         job_name,
         target,
         tolerance=tolerance,
-        timeout=timeout,
+        poll_window=poll_window,
         poll_interval=poll_interval,
         si=si,
         beam_route=beam_route,
@@ -723,7 +728,7 @@ def _confirm_laser_intensity(
 
 
 def _confirm_filter_wheel_spectrum(
-    client, job_name, si, beam_route, fw_type, target, tolerance=1, timeout=None, poll_interval=0.01
+    client, job_name, si, beam_route, fw_type, target, tolerance=1, poll_window=None, poll_interval=0.01
 ):
     """Poll until filter wheel spectrum position matches within tolerance (nm)."""
     return _run_spec(
@@ -732,7 +737,7 @@ def _confirm_filter_wheel_spectrum(
         job_name,
         target,
         tolerance=tolerance,
-        timeout=timeout,
+        poll_window=poll_window,
         poll_interval=poll_interval,
         si=si,
         beam_route=beam_route,
@@ -745,45 +750,45 @@ def _confirm_filter_wheel_spectrum(
 # =============================================================================
 
 
-def _confirm_scan_speed(client, job_name, target, timeout=None, poll_interval=0.01):
+def _confirm_scan_speed(client, job_name, target, poll_window=None, poll_interval=0.01):
     """Poll until scan speed matches exactly (discrete integer)."""
     return _run_spec(
-        "scan_speed", client, job_name, target, timeout=timeout, poll_interval=poll_interval
+        "scan_speed", client, job_name, target, poll_window=poll_window, poll_interval=poll_interval
     )
 
 
-def _confirm_scan_resonant(client, job_name, target, timeout=None, poll_interval=0.01):
+def _confirm_scan_resonant(client, job_name, target, poll_window=None, poll_interval=0.01):
     """Poll until resonant scanner state matches exactly."""
     return _run_spec(
-        "scan_resonant", client, job_name, target, timeout=timeout, poll_interval=poll_interval
+        "scan_resonant", client, job_name, target, poll_window=poll_window, poll_interval=poll_interval
     )
 
 
-def _confirm_scan_mode(client, job_name, target, timeout=None, poll_interval=0.01):
+def _confirm_scan_mode(client, job_name, target, poll_window=None, poll_interval=0.01):
     """Poll until scan mode matches exactly (enum string)."""
     return _run_spec(
-        "scan_mode", client, job_name, target, timeout=timeout, poll_interval=poll_interval
+        "scan_mode", client, job_name, target, poll_window=poll_window, poll_interval=poll_interval
     )
 
 
-def _confirm_sequential_mode(client, job_name, target, timeout=None, poll_interval=0.01):
+def _confirm_sequential_mode(client, job_name, target, poll_window=None, poll_interval=0.01):
     """Poll until sequential mode matches exactly (enum string).
 
     Args:
         client: The connected LAS X API client.
         job_name: Target job name.
         target: Expected sequential mode string.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
+        poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
         poll_interval: Seconds between readback polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
+    if poll_window is None:
+        poll_window = CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
-    deadline = t_start + timeout
+    deadline = t_start + poll_window
 
     while time.perf_counter() < deadline:
         ch = _readback(client, job_name)
@@ -803,7 +808,7 @@ def _confirm_sequential_mode(client, job_name, target, timeout=None, poll_interv
     return {"success": False, "logs": logs}
 
 
-def _confirm_image_format(client, job_name, w, h, timeout=None, poll_interval=0.01):
+def _confirm_image_format(client, job_name, w, h, poll_window=None, poll_interval=0.01):
     """Poll until image format matches exactly (pixel dimensions).
 
     Args:
@@ -811,17 +816,17 @@ def _confirm_image_format(client, job_name, w, h, timeout=None, poll_interval=0.
         job_name: Target job name.
         w: Expected width in pixels.
         h: Expected height in pixels.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
+        poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
         poll_interval: Seconds between readback polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
+    if poll_window is None:
+        poll_window = CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
-    deadline = t_start + timeout
+    deadline = t_start + poll_window
 
     while time.perf_counter() < deadline:
         ch = _readback(client, job_name)
@@ -842,7 +847,7 @@ def _confirm_image_format(client, job_name, w, h, timeout=None, poll_interval=0.
 
 
 def confirm_objective(
-    client, *, job_name, target_slot, target_name=None, timeout=None, poll_interval=0.01
+    client, *, job_name, target_slot, target_name=None, poll_window=None, poll_interval=0.01
 ):
     """Poll until the active objective's slot matches *target_slot*.
 
@@ -855,17 +860,17 @@ def confirm_objective(
         job_name: Target job name.
         target_slot: Expected objective slot index.
         target_name: Objective name (for log messages only).
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
+        poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
         poll_interval: Seconds between readback polls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
+    if poll_window is None:
+        poll_window = CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
-    deadline = t_start + timeout
+    deadline = t_start + poll_window
     label = target_name or f"slot {target_slot}"
 
     while time.perf_counter() < deadline:
@@ -892,60 +897,60 @@ def confirm_objective(
     return {"success": False, "logs": logs}
 
 
-def _confirm_frame_accumulation(client, job_name, si, target, timeout=None, poll_interval=0.01):
+def _confirm_frame_accumulation(client, job_name, si, target, poll_window=None, poll_interval=0.01):
     """Poll until frame accumulation matches exactly."""
     return _run_spec(
         "frame_accumulation",
         client,
         job_name,
         target,
-        timeout=timeout,
+        poll_window=poll_window,
         poll_interval=poll_interval,
         si=si,
     )
 
 
-def _confirm_frame_average(client, job_name, si, target, timeout=None, poll_interval=0.01):
+def _confirm_frame_average(client, job_name, si, target, poll_window=None, poll_interval=0.01):
     """Poll until frame average matches exactly."""
     return _run_spec(
         "frame_average",
         client,
         job_name,
         target,
-        timeout=timeout,
+        poll_window=poll_window,
         poll_interval=poll_interval,
         si=si,
     )
 
 
-def _confirm_line_accumulation(client, job_name, si, target, timeout=None, poll_interval=0.01):
+def _confirm_line_accumulation(client, job_name, si, target, poll_window=None, poll_interval=0.01):
     """Poll until line accumulation matches exactly."""
     return _run_spec(
         "line_accumulation",
         client,
         job_name,
         target,
-        timeout=timeout,
+        poll_window=poll_window,
         poll_interval=poll_interval,
         si=si,
     )
 
 
-def _confirm_line_average(client, job_name, si, target, timeout=None, poll_interval=0.01):
+def _confirm_line_average(client, job_name, si, target, poll_window=None, poll_interval=0.01):
     """Poll until line average matches exactly."""
     return _run_spec(
         "line_average",
         client,
         job_name,
         target,
-        timeout=timeout,
+        poll_window=poll_window,
         poll_interval=poll_interval,
         si=si,
     )
 
 
 def _confirm_laser_shutter(
-    client, job_name, si, beam_route, target, timeout=None, poll_interval=0.01
+    client, job_name, si, beam_route, target, poll_window=None, poll_interval=0.01
 ):
     """Poll until laser shutter state matches exactly."""
     return _run_spec(
@@ -953,7 +958,7 @@ def _confirm_laser_shutter(
         client,
         job_name,
         target,
-        timeout=timeout,
+        poll_window=poll_window,
         poll_interval=poll_interval,
         si=si,
         beam_route=beam_route,
@@ -961,7 +966,7 @@ def _confirm_laser_shutter(
 
 
 def _confirm_filter_wheel_slot(
-    client, job_name, si, beam_route, fw_type, target, timeout=None, poll_interval=0.01
+    client, job_name, si, beam_route, fw_type, target, poll_window=None, poll_interval=0.01
 ):
     """Poll until filter wheel slot matches exactly."""
     return _run_spec(
@@ -969,7 +974,7 @@ def _confirm_filter_wheel_slot(
         client,
         job_name,
         target,
-        timeout=timeout,
+        poll_window=poll_window,
         poll_interval=poll_interval,
         si=si,
         beam_route=beam_route,
@@ -983,7 +988,7 @@ def _confirm_filter_wheel_slot(
 
 
 def confirm_move_xy(
-    client, *, target_x_um, target_y_um, tolerance=20.0, timeout=None, poll_interval=0.1
+    client, *, target_x_um, target_y_um, tolerance=20.0, poll_window=None, poll_interval=0.1
 ):
     """Poll until XY stage position is within tolerance, or until timeout.
 
@@ -995,18 +1000,18 @@ def confirm_move_xy(
         target_x_um: Expected X position in micrometers.
         target_y_um: Expected Y position in micrometers.
         tolerance: Acceptable deviation in micrometers per axis.
-        timeout: Hard ceiling in seconds. None uses CONFIRM_TIMEOUT.
+        poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
         poll_interval: Seconds between get_xy calls.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
-    if timeout is None:
-        timeout = CONFIRM_TIMEOUT
+    if poll_window is None:
+        poll_window = CONFIRM_POLL_S
     logs = []
     observed_after = time.time()
     t_start = time.perf_counter()
-    deadline = t_start + timeout
+    deadline = t_start + poll_window
     last_position = None
 
     while time.perf_counter() < deadline:

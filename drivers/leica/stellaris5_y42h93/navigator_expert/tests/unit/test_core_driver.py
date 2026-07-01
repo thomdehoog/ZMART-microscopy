@@ -712,18 +712,18 @@ class TestRetryBackoff(unittest.TestCase):
         _, kwargs = mock_caf.call_args
         self.assertFalse(kwargs["refire_on_unconfirmed"])
 
-    def test_dispatch_injects_profile_confirm_timeout_when_unbound(self):
-        """Simple setting confirmations get their timeout from the profile."""
+    def test_dispatch_injects_profile_confirm_poll_when_unbound(self):
+        """Simple setting confirmations get their poll window from the profile."""
         client = make_client()
         api_obj = make_api_obj()
         seen = {}
 
-        def confirm(client, *, timeout=None):
+        def confirm(client, *, poll_window=None):
             seen["client"] = client
-            seen["timeout"] = timeout
+            seen["poll_window"] = poll_window
             return {"success": True, "logs": []}
 
-        profile = profiles.CommandProfile(confirm_timeout=5.0)
+        profile = profiles.CommandProfile(confirm_poll_s=5.0)
 
         with patch.object(
             commands,
@@ -743,20 +743,20 @@ class TestRetryBackoff(unittest.TestCase):
         confirm_callable = mock_caf.call_args.kwargs["confirm_fn"]
         confirm_callable()
         self.assertIs(seen["client"], client)
-        self.assertEqual(seen["timeout"], 5.0)
+        self.assertEqual(seen["poll_window"], 5.0)
 
-    def test_dispatch_preserves_wrapper_bound_confirm_timeout(self):
-        """Wrapper-bound polling deadlines win over generic profile timeout."""
+    def test_dispatch_preserves_wrapper_bound_confirm_poll(self):
+        """Wrapper-bound poll windows win over the generic profile poll window."""
         client = make_client()
         api_obj = make_api_obj()
         seen = {}
 
-        def confirm(client, *, timeout=None):
+        def confirm(client, *, poll_window=None):
             seen["client"] = client
-            seen["timeout"] = timeout
+            seen["poll_window"] = poll_window
             return {"success": True, "logs": []}
 
-        profile = profiles.CommandProfile(confirm_timeout=5.0)
+        profile = profiles.CommandProfile(confirm_poll_s=5.0)
 
         with patch.object(
             commands,
@@ -775,27 +775,38 @@ class TestRetryBackoff(unittest.TestCase):
                 "Test",
                 profile,
                 setup_fn=lambda m: None,
-                confirm_fn=partial(confirm, timeout=12.0),
+                confirm_fn=partial(confirm, poll_window=12.0),
             )
 
         confirm_callable = mock_caf.call_args.kwargs["confirm_fn"]
         confirm_callable()
         self.assertIs(seen["client"], client)
-        self.assertEqual(seen["timeout"], 12.0)
+        self.assertEqual(seen["poll_window"], 12.0)
 
     def test_default_setting_and_acquire_profiles_encode_retry_policy(self):
-        """Settings are non-fatal if unconfirmed; acquisition fires once."""
+        """Uniform posture; acquisition is the one command that never re-sends."""
+        # Settings inherit the uniform posture: 3 poll windows, re-fire,
+        # unconfirmed-not-fail, the shared poll window.
         self.assertEqual(profiles.ZOOM.max_confirm_attempts, 3)
-        self.assertEqual(profiles.ZOOM.confirm_timeout, 5.0)
+        self.assertEqual(profiles.ZOOM.confirm_poll_s, profiles.CONFIRM_POLL_S)
         self.assertTrue(profiles.ZOOM.refire_on_unconfirmed)
         self.assertTrue(profiles.ZOOM.success_on_unconfirmed)
 
-        self.assertEqual(profiles.OBJECTIVE.confirm_timeout, 10.0)
+        # OBJECTIVE and MOVE_Z used to deviate (single attempt / hard-fail);
+        # they now match the uniform posture.
+        self.assertEqual(profiles.OBJECTIVE.max_confirm_attempts, 3)
+        self.assertEqual(profiles.OBJECTIVE.confirm_poll_s, profiles.CONFIRM_POLL_S)
         self.assertTrue(profiles.OBJECTIVE.success_on_unconfirmed)
+        self.assertEqual(profiles.MOVE_Z.max_confirm_attempts, 3)
+        self.assertTrue(profiles.MOVE_Z.success_on_unconfirmed)
+        self.assertTrue(profiles.MOVE_XY.refire_on_unconfirmed)
 
+        # ACQUIRE is the sole deviation: never re-sends on EITHER axis, but
+        # still returns unconfirmed rather than hard-failing.
+        self.assertEqual(profiles.ACQUIRE.max_retries, 0)
         self.assertEqual(profiles.ACQUIRE.max_confirm_attempts, 1)
         self.assertFalse(profiles.ACQUIRE.refire_on_unconfirmed)
-        self.assertFalse(profiles.ACQUIRE.success_on_unconfirmed)
+        self.assertTrue(profiles.ACQUIRE.success_on_unconfirmed)
         self.assertEqual(profiles.ACQUIRE.start_timeout, 15.0)
 
         signature = inspect.signature(confirmations.confirm_acquire)
@@ -813,6 +824,45 @@ class TestRetryBackoff(unittest.TestCase):
         )
 
         self.assertEqual(profiles.SELECT_JOB.poll_timeout, 5.0)
+
+
+class TestCommandProfileGuard(unittest.TestCase):
+    """__post_init__ rejects field combinations the dispatcher cannot honour."""
+
+    def test_async_requires_no_error_check(self):
+        # Async fire blanks the echo, so a live echo-based error check would
+        # report a meaningless success.
+        with self.assertRaises(ValueError):
+            profiles.CommandProfile(fire_async=True)  # error_check_fn defaults live
+
+    def test_async_with_null_error_check_is_allowed(self):
+        p = profiles.CommandProfile(fire_async=True, error_check_fn=None)
+        self.assertTrue(p.fire_async)
+        self.assertIsNone(p.error_check_fn)
+
+    def test_single_confirm_attempt_forbids_refire(self):
+        # One window has no 'next attempt' for a re-fire to precede.
+        with self.assertRaises(ValueError):
+            profiles.CommandProfile(max_confirm_attempts=1)  # refire defaults True
+
+    def test_single_confirm_attempt_without_refire_is_allowed(self):
+        p = profiles.CommandProfile(max_confirm_attempts=1, refire_on_unconfirmed=False)
+        self.assertEqual(p.max_confirm_attempts, 1)
+        self.assertFalse(p.refire_on_unconfirmed)
+
+    def test_every_shipped_profile_is_coherent(self):
+        # Importing profiles constructs every module-level profile; the guard
+        # must reject none of them. Assert they are all built and typed.
+        shipped = [
+            profiles.ZOOM,
+            profiles.OBJECTIVE,
+            profiles.MOVE_XY,
+            profiles.MOVE_Z,
+            profiles.ACQUIRE,
+            profiles.SELECT_JOB,
+        ]
+        for p in shipped:
+            self.assertIsInstance(p, profiles.CommandProfile)
 
 
 # =============================================================================
@@ -1210,7 +1260,7 @@ class TestConfirmFunctions(unittest.TestCase):
                 side_effect=fake_get_job_settings,
             ):
                 result = confirmations._confirm_scan_resonant(
-                    object(), "J", True, timeout=0.01, poll_interval=0.001
+                    object(), "J", True, poll_window=0.01, poll_interval=0.001
                 )
         finally:
             profiles.STATE_READERS = prior
@@ -1268,12 +1318,12 @@ class TestConfirmFunctions(unittest.TestCase):
         ):
             self.assertTrue(
                 confirmations.confirm_move_xy(
-                    None, target_x_um=50000, target_y_um=50000, timeout=1
+                    None, target_x_um=50000, target_y_um=50000, poll_window=1
                 )["success"]
             )
             self.assertFalse(
                 confirmations.confirm_move_xy(
-                    None, target_x_um=50000, target_y_um=99999, timeout=0.2
+                    None, target_x_um=50000, target_y_um=99999, poll_window=0.2
                 )["success"]
             )
 
@@ -1283,7 +1333,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._mock_readback({"zPosition": {"z-galvo": 50.0}}):
             self.assertTrue(
                 confirmations.confirm_move_z(
-                    None, job_name="J", z_mode="galvo", target_um=50.0, timeout=1
+                    None, job_name="J", z_mode="galvo", target_um=50.0, poll_window=1
                 )["success"]
             )
 
@@ -1291,7 +1341,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._mock_readback({"zPosition": {"z-galvo": 10.0}}):
             self.assertFalse(
                 confirmations.confirm_move_z(
-                    None, job_name="J", z_mode="galvo", target_um=50.0, timeout=0.1
+                    None, job_name="J", z_mode="galvo", target_um=50.0, poll_window=0.1
                 )["success"]
             )
 
@@ -1299,7 +1349,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._mock_readback({"zPosition": {"z-wide": 100.0}}):
             self.assertTrue(
                 confirmations.confirm_move_z(
-                    None, job_name="J", z_mode="zwide", target_um=100.0, timeout=1
+                    None, job_name="J", z_mode="zwide", target_um=100.0, poll_window=1
                 )["success"]
             )
 
@@ -1307,7 +1357,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._mock_readback({"zPosition": {"z-galvo": 50.5}}):
             self.assertTrue(
                 confirmations.confirm_move_z(
-                    None, job_name="J", z_mode="galvo", target_um=50.0, tolerance=1.0, timeout=1
+                    None, job_name="J", z_mode="galvo", target_um=50.0, tolerance=1.0, poll_window=1
                 )["success"]
             )
 
@@ -1315,7 +1365,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._mock_readback(None):
             self.assertFalse(
                 confirmations.confirm_move_z(
-                    None, job_name="J", z_mode="galvo", target_um=50.0, timeout=0.1
+                    None, job_name="J", z_mode="galvo", target_um=50.0, poll_window=0.1
                 )["success"]
             )
 
@@ -1324,7 +1374,7 @@ class TestConfirmFunctions(unittest.TestCase):
     def test_confirm_z_stack_step_size_pass(self):
         with self._mock_readback({"stack": {"stepSize": 2.0}}):
             self.assertTrue(
-                confirmations._confirm_z_stack_step_size(None, "J", target_um=2.0, timeout=1)[
+                confirmations._confirm_z_stack_step_size(None, "J", target_um=2.0, poll_window=1)[
                     "success"
                 ]
             )
@@ -1332,7 +1382,7 @@ class TestConfirmFunctions(unittest.TestCase):
     def test_confirm_z_stack_step_size_fail(self):
         with self._mock_readback({"stack": {"stepSize": 5.0}}):
             self.assertFalse(
-                confirmations._confirm_z_stack_step_size(None, "J", target_um=2.0, timeout=0.1)[
+                confirmations._confirm_z_stack_step_size(None, "J", target_um=2.0, poll_window=0.1)[
                     "success"
                 ]
             )
@@ -1341,20 +1391,20 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._mock_readback({"stack": {"stepSize": 2.3}}):
             self.assertTrue(
                 confirmations._confirm_z_stack_step_size(
-                    None, "J", target_um=2.0, tolerance=0.5, timeout=1
+                    None, "J", target_um=2.0, tolerance=0.5, poll_window=1
                 )["success"]
             )
 
     def test_confirm_z_stack_size_pass(self):
         with self._mock_readback({"stack": {"size": 10.0, "stepSize": 2.0}}):
             self.assertTrue(
-                confirmations._confirm_z_stack_size(None, "J", target_um=10.0, timeout=1)["success"]
+                confirmations._confirm_z_stack_size(None, "J", target_um=10.0, poll_window=1)["success"]
             )
 
     def test_confirm_z_stack_size_fail(self):
         with self._mock_readback({"stack": {"size": 20.0, "stepSize": 2.0}}):
             self.assertFalse(
-                confirmations._confirm_z_stack_size(None, "J", target_um=10.0, timeout=0.1)[
+                confirmations._confirm_z_stack_size(None, "J", target_um=10.0, poll_window=0.1)[
                     "success"
                 ]
             )
@@ -1364,14 +1414,14 @@ class TestConfirmFunctions(unittest.TestCase):
         10.0 (n=5). Actual=10.0 should match via quantised path."""
         with self._mock_readback({"stack": {"size": 10.0, "stepSize": 2.0}}):
             self.assertTrue(
-                confirmations._confirm_z_stack_size(None, "J", target_um=9.5, timeout=1)["success"]
+                confirmations._confirm_z_stack_size(None, "J", target_um=9.5, poll_window=1)["success"]
             )
 
     def test_confirm_z_stack_definition_pass(self):
         with self._mock_readback({"stack": {"begin": -5.0, "end": 5.0, "stepSize": 1.0}}):
             self.assertTrue(
                 confirmations._confirm_z_stack_definition(
-                    None, "J", begin_um=-5.0, end_um=5.0, timeout=1
+                    None, "J", begin_um=-5.0, end_um=5.0, poll_window=1
                 )["success"]
             )
 
@@ -1379,7 +1429,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._mock_readback({"stack": {"begin": -5.0, "end": 5.0, "stepSize": 1.0}}):
             self.assertFalse(
                 confirmations._confirm_z_stack_definition(
-                    None, "J", begin_um=-10.0, end_um=10.0, timeout=0.1
+                    None, "J", begin_um=-10.0, end_um=10.0, poll_window=0.1
                 )["success"]
             )
 
@@ -1387,7 +1437,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._mock_readback({"stack": {"begin": -5.0, "end": 5.0, "stepSize": 1.0}}):
             self.assertTrue(
                 confirmations._confirm_z_stack_definition(
-                    None, "J", begin_um=-5.0, end_um=None, timeout=1
+                    None, "J", begin_um=-5.0, end_um=None, poll_window=1
                 )["success"]
             )
 
@@ -1399,7 +1449,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._mock_readback({"stack": {"begin": -4.5, "end": 4.5, "stepSize": 3.0}}):
             self.assertTrue(
                 confirmations._confirm_z_stack_definition(
-                    None, "J", begin_um=-5.0, end_um=5.0, timeout=1
+                    None, "J", begin_um=-5.0, end_um=5.0, poll_window=1
                 )["success"]
             )
 
@@ -1429,7 +1479,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._fw_readback(filter_index=2):
             self.assertTrue(
                 confirmations._confirm_filter_wheel_slot(
-                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=2, timeout=1
+                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=2, poll_window=1
                 )["success"]
             )
 
@@ -1437,7 +1487,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._fw_readback(filter_index=0):
             self.assertFalse(
                 confirmations._confirm_filter_wheel_slot(
-                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=2, timeout=0.1
+                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=2, poll_window=0.1
                 )["success"]
             )
 
@@ -1445,7 +1495,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._fw_readback(beam_route="BR2", filter_index=2):
             self.assertFalse(
                 confirmations._confirm_filter_wheel_slot(
-                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=2, timeout=0.1
+                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=2, poll_window=0.1
                 )["success"]
             )
 
@@ -1453,7 +1503,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._fw_readback(spectrum_position=525):
             self.assertTrue(
                 confirmations._confirm_filter_wheel_spectrum(
-                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=525, timeout=1
+                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=525, poll_window=1
                 )["success"]
             )
 
@@ -1461,7 +1511,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._fw_readback(spectrum_position=600):
             self.assertFalse(
                 confirmations._confirm_filter_wheel_spectrum(
-                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=525, timeout=0.1
+                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=525, poll_window=0.1
                 )["success"]
             )
 
@@ -1476,7 +1526,7 @@ class TestConfirmFunctions(unittest.TestCase):
                     fw_type="emission",
                     target=525,
                     tolerance=1,
-                    timeout=1,
+                    poll_window=1,
                 )["success"]
             )
 
@@ -1573,7 +1623,7 @@ class TestSetFunctionWiring(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertIsNone(result["error"])
-        confirm.assert_called_once_with(client, "HiRes", False, timeout=0.1)
+        confirm.assert_called_once_with(client, "HiRes", False, poll_window=0.1)
 
     def test_scan_resonant_no_change_error_fails_when_readback_disagrees(self):
         client = self._resonant_no_change_client()
