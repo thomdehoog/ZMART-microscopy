@@ -2,9 +2,10 @@
 
 **ZMB's Microscopy-Agnostic Research Toolkit (ZMART).**
 
-This toolkit allows programmatic control of a wide range of microscopes with a
-simple unified scripting philosophy to empower you to quickly build interoperable
-adaptive feedback microscopy workflows.
+This toolkit gives you programmatic control of a wide range of microscopes
+through a simple, unified scripting philosophy, so you can quickly build
+interoperable, adaptive feedback microscopy workflows. It is developed at the
+Center for Microscopy and Image Analysis (ZMB), University of Zurich.
 
 <p align="center">
   <img src="docs/zmart-architecture.png" alt="ZMART sits between Jupyter notebooks and an AI coding agent above, and vendor drivers - each bound to a microscope - below" width="640">
@@ -84,20 +85,25 @@ directly through local bootstrap modules. As drivers mature they move up from
 
 ## Architecture
 
-Four roots, layered from vendor-specific up to vendor-neutral:
+The top-level layout — vendor-specific drivers up to vendor-neutral workflows,
+plus setup and docs:
 
 - **`zmart_drivers/`** — each driver speaks one microscope's native API and is keyed by
   `<vendor>/<machine>/<api>`. A driver owns its own calibration and limits. New
   microscopes are added here without touching workflows.
-- **`shared/`** — vendor-independent utilities: the lab-wide output layout and
-  image algorithms (registration, focus) used across drivers and workflows.
 - **`zmart_controller/`** — the cross-vendor controller: one small, consistent interface
   a workflow drives, so the same workflow runs on any microscope that has a
   driver. This is the **emerging `zmart` surface** — the vendor-agnostic API the
   rest of the world would import. See its README for the full API and for how to
   register a new driver.
+- **`shared/`** — vendor-independent utilities: the lab-wide output layout and
+  image algorithms (registration, focus) used across drivers and workflows.
 - **`workflows/`** — the smart-microscopy workflows themselves (current:
   `workflows/target_acquisition/`).
+- **`getting_started/`** — setup and orientation: the one-step environment build,
+  the conda-forge / PyPI rationale, and the typical path through the repo.
+- **`docs/`** — project docs: the ZMART identity and architecture
+  (`docs/ZMART.md`), the diagram, and design notes.
 
 ## Getting Started
 
