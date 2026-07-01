@@ -6,16 +6,6 @@ decisions live during an experiment. The design is **vendor-neutral**: a
 workflow targets one small controller interface — the emerging `zmart` surface —
 and any microscope with a driver behind that interface can run it.
 
-> **The name is the point.** `zmart` is meant to be the vendor-agnostic API that
-> workflows and users import; the vendor drivers (`leica`, `zeiss`, `nikon`,
-> `evident`) plug in *underneath*. That is how the toolkit — and ZMB's name —
-> travels to other institutes: every `import zmart` in someone else's code
-> carries it. See **[`docs/ZMART.md`](docs/ZMART.md)** for the identity and the
-> rebrand sequencing. (Name: **ZMART Microscopy**, repo `ZMART-microscopy`. The
-> `controller` package is now **`zmart`**; still deferred to the deliberate code
-> pass are the repo name, the conda env, and the vendor driver packages like
-> `navigator_expert`.)
-
 ## Architecture
 
 Four roots, layered from vendor-specific up to vendor-neutral:
@@ -56,13 +46,36 @@ that has a driver.
 Full API and per-call docs: **[ZMART Controller »](zmart/README.md)**
 
 ```python
-import zmart   # the ZMART Controller (the vendor-agnostic surface)
+import zmart
 
+# 1) Get the available instruments and connect to one
 zmart.get_instruments()
-zmart.set_instrument(instrument=connection)   # pick a scope
-zmart.set_origin()                            # current position -> (0, 0, 0)
-zmart.set_xyz(x, y, z)
-zmart.acquire(acquisition_type="overview", position_label="A1", options=opts)
+zmart.set_instrument(instrument=Dict)
+
+# 2) Set the origin point of the frame (current position becomes 0, 0, 0)
+zmart.set_origin()
+
+# 3) Discover actuators, then read or move the position in the frame
+zmart.get_actuators()
+zmart.get_xyz()
+zmart.set_xyz(x, y, z, with_actuators=Dict)
+
+# 4) Capture and reapply instrument state
+zmart.get_state()
+zmart.set_state(Dict)
+
+# 5) Acquire data (captures and saves) with the current state and position
+zmart.get_acquisition_options()
+zmart.acquire(acquisition_type=String, position_label=String, options=Dict)
+
+# 6) Run a procedure specific to the microscope (e.g. hardware autofocus)
+zmart.get_procedures()
+zmart.set_procedure(Dict)
+
+# 7) Get additional context the driver provides (e.g. initial positions)
+zmart.get_context()
+
+# 8) Close the session
 zmart.disconnect()
 ```
 
@@ -73,17 +86,25 @@ the controller through its registry (see the controller README), so adding a
 vendor, microscope, or API is an additive change. Each driver documents its own
 command model, state handling, and gotchas in its own README.
 
+### Production-ready
+
 | Microscope | API | Driver | Status |
 |---|---|---|---|
 | Leica STELLARIS 5 | LAS X CAM / Navigator Expert | [`drivers/leica/stellaris5_y42h93/navigator_expert/`](drivers/leica/stellaris5_y42h93/navigator_expert/README.md) | **Production-tested** — LAS X simulator + real STELLARIS |
+
+### Under construction
+
+| Microscope | API | Driver | Status |
+|---|---|---|---|
 | ZEISS (ZEN) | ZEN API (gRPC) | [`drivers/zeiss/zenapi/`](drivers/zeiss/zenapi/README.md) | **Minimum viable product** — full offline suite green; not yet bench-validated (see [Risks](drivers/zeiss/zenapi/README.md#10-risks--bench-verify)) |
 | Nikon (NIS-Elements 6.2) | NIS-Elements macros / NkSocket TCP | [`drivers/nikon/`](drivers/nikon/README.md) | **Investigation + spike** — socket round-trip proof landed; no production driver yet (device verbs still to be pinned) |
 | Evident FLUOVIEW FV4000 (IX83) | FLUOVIEW RDK (TCP command server) | [`drivers/evident/`](drivers/evident/README.md) | **Investigation + planning** — RDK route mapped (Leica-CAM-symmetric); pending Evident developer-program access to the FV RDK command reference |
 
 The cross-vendor controller is the intended single surface above the drivers and
 is still under construction; today the workflow uses the Leica driver path
-directly through local bootstrap modules. As more drivers land, this table grows
-and workflows move onto the controller surface.
+directly through local bootstrap modules. As drivers mature they move up from
+**Under construction** to **Production-ready**, and workflows move onto the
+`zmart` surface.
 
 ## Getting Started
 
