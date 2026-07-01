@@ -2,9 +2,9 @@
 
 **ZMB's Microscopy-Agnostic Research Toolkit (ZMART).**
 
-This toolkit allows programmatic control of a wide range of microscopes and lets
-you build interoperable adaptive feedback microscopy workflows with a simple
-scripting philosophy.
+This toolkit allows programmatic control of a wide range of microscopes with a
+simple unified scripting philosophy to empower you to quickly build interoperable
+adaptive feedback microscopy workflows.
 
 <p align="center">
   <img src="docs/zmart-architecture.png" alt="ZMART sits between Jupyter notebooks and an AI coding agent above, and vendor drivers - each bound to a microscope - below" width="640">
@@ -18,45 +18,45 @@ instrument supports (each option lists its allowed values and the active one),
 then pass your choice to the matching call. The same code runs on any microscope
 that has a driver.
 
-Full API and per-call docs: **[ZMART Controller »](zmart/README.md)**
+Full API and per-call docs: **[ZMART Controller »](zmart_controller/README.md)**
 
 ```python
-import zmart
+import zmart_controller
 
 # 1) Get the available instruments and connect to one
-zmart.get_instruments()
-zmart.set_instrument(instrument=Dict)
+zmart_controller.get_instruments()
+zmart_controller.set_instrument(instrument=Dict)
 
 # 2) Set the origin point of the frame (current position becomes 0, 0, 0)
-zmart.set_origin()
+zmart_controller.set_origin()
 
 # 3) Discover actuators, then read or move the position in the frame
-zmart.get_actuators()
-zmart.get_xyz()
-zmart.set_xyz(x, y, z, with_actuators=Dict)
+zmart_controller.get_actuators()
+zmart_controller.get_xyz()
+zmart_controller.set_xyz(x, y, z, with_actuators=Dict)
 
 # 4) Capture and reapply instrument state
-zmart.get_state()
-zmart.set_state(Dict)
+zmart_controller.get_state()
+zmart_controller.set_state(Dict)
 
 # 5) Acquire data (captures and saves) with the current state and position
-zmart.get_acquisition_options()
-zmart.acquire(acquisition_type=String, position_label=String, options=Dict)
+zmart_controller.get_acquisition_options()
+zmart_controller.acquire(acquisition_type=String, position_label=String, options=Dict)
 
 # 6) Run a procedure specific to the microscope (e.g. hardware autofocus)
-zmart.get_procedures()
-zmart.set_procedure(Dict)
+zmart_controller.get_procedures()
+zmart_controller.set_procedure(Dict)
 
 # 7) Get additional context the driver provides (e.g. initial positions)
-zmart.get_context()
+zmart_controller.get_context()
 
 # 8) Close the session
-zmart.disconnect()
+zmart_controller.disconnect()
 ```
 
 ## ZMART Drivers
 
-Drivers live under `drivers/<vendor>/<machine>/<api>/` and are registered with
+Drivers live under `zmart_drivers/<vendor>/<machine>/<api>/` and are registered with
 the controller through its registry (see the controller README), so adding a
 vendor, microscope, or API is an additive change. Each driver documents its own
 command model, state handling, and gotchas in its own README.
@@ -65,15 +65,16 @@ command model, state handling, and gotchas in its own README.
 
 | Microscope | API | Driver | Status |
 |---|---|---|---|
-| Leica STELLARIS 5 | LAS X CAM / Navigator Expert | [`drivers/leica/stellaris5_y42h93/navigator_expert/`](drivers/leica/stellaris5_y42h93/navigator_expert/README.md) | **Production-tested** — LAS X simulator + real STELLARIS |
+| Leica STELLARIS 5 | LAS X CAM / Navigator Expert | [`zmart_drivers/leica/stellaris5_y42h93/navigator_expert/`](zmart_drivers/leica/stellaris5_y42h93/navigator_expert/README.md) | **Production-tested** — LAS X simulator + real STELLARIS |
 
 ### Under construction
 
 | Microscope | API | Driver | Status |
 |---|---|---|---|
-| ZEISS (ZEN) | ZEN API (gRPC) | [`drivers/zeiss/zenapi/`](drivers/zeiss/zenapi/README.md) | **Minimum viable product** — full offline suite green; not yet bench-validated (see [Risks](drivers/zeiss/zenapi/README.md#10-risks--bench-verify)) |
-| Nikon (NIS-Elements 6.2) | NIS-Elements macros / NkSocket TCP | [`drivers/nikon/`](drivers/nikon/README.md) | **Investigation + spike** — socket round-trip proof landed; no production driver yet (device verbs still to be pinned) |
-| Evident FLUOVIEW FV4000 (IX83) | FLUOVIEW RDK (TCP command server) | [`drivers/evident/`](drivers/evident/README.md) | **Investigation + planning** — RDK route mapped (Leica-CAM-symmetric); pending Evident developer-program access to the FV RDK command reference |
+| ZEISS (ZEN) | ZEN API (gRPC) | [`zmart_drivers/zeiss/zenapi/`](zmart_drivers/zeiss/zenapi/README.md) | **Minimum viable product** — full offline suite green; not yet bench-validated (see [Risks](zmart_drivers/zeiss/zenapi/README.md#10-risks--bench-verify)) |
+| Nikon (NIS-Elements 6.2) | NIS-Elements macros / NkSocket TCP | [`zmart_drivers/nikon/`](zmart_drivers/nikon/README.md) | **Investigation + spike** — socket round-trip proof landed; no production driver yet (device verbs still to be pinned) |
+| Evident FLUOVIEW FV4000 (IX83) | FLUOVIEW RDK (TCP command server) | [`zmart_drivers/evident/`](zmart_drivers/evident/README.md) | **Investigation + planning** — RDK route mapped (Leica-CAM-symmetric); pending Evident developer-program access to the FV RDK command reference |
+| mesoSPIM (open-source light-sheet) | mesoSPIM-control (PyQt5; no external API out of the box) | [`drivers/mesospim/`](drivers/mesospim/README.md) | **Investigation + planning** — GPL-3.0, driven at arm's length via a resident socket hook (Nikon-symmetric) + MIT client; uniquely offline-testable via `-D` demo mode |
 
 The cross-vendor controller is the intended single surface above the drivers and
 is still under construction; today the workflow uses the Leica driver path
@@ -85,24 +86,12 @@ directly through local bootstrap modules. As drivers mature they move up from
 
 Four roots, layered from vendor-specific up to vendor-neutral:
 
-```text
-drivers/                                        vendor microscope drivers
-  <vendor>/<machine>/<api>/                     one driver per (vendor, machine, API)
-  leica/stellaris5_y42h93/navigator_expert/     Leica LAS X Navigator Expert driver
-    calibration/                                calibration notebooks and code
-    limits/                                     safety-limit data and helpers
-shared/                                         vendor-independent utilities (output layout, algorithms)
-zmart/                                          cross-vendor controller (single workflow-facing surface)
-workflows/                                      smart-microscopy workflows
-  target_acquisition/                           operator notebook, pipeline, tests
-```
-
-- **`drivers/`** — each driver speaks one microscope's native API and is keyed by
+- **`zmart_drivers/`** — each driver speaks one microscope's native API and is keyed by
   `<vendor>/<machine>/<api>`. A driver owns its own calibration and limits. New
   microscopes are added here without touching workflows.
 - **`shared/`** — vendor-independent utilities: the lab-wide output layout and
   image algorithms (registration, focus) used across drivers and workflows.
-- **`zmart/`** — the cross-vendor controller: one small, consistent interface
+- **`zmart_controller/`** — the cross-vendor controller: one small, consistent interface
   a workflow drives, so the same workflow runs on any microscope that has a
   driver. This is the **emerging `zmart` surface** — the vendor-agnostic API the
   rest of the world would import. See its README for the full API and for how to
@@ -132,10 +121,10 @@ conda-forge / PyPI choice, and the typical path through the repo — is in
 Every component ships its own **offline** suite that needs no microscope and no
 vendor software, and documents how to run it in its own README:
 
-- Controller — [tests](zmart/README.md#tests)
+- Controller — [tests](zmart_controller/README.md#tests)
 - Target-acquisition workflow — [tests](workflows/target_acquisition/README.md#tests)
 - Output layout — [tests](shared/output_layout/README.md#tests)
-- Leica driver — [testing](drivers/leica/stellaris5_y42h93/navigator_expert/README.md#testing) (incl. gated live validation)
-- Zeiss driver — [testing](drivers/zeiss/zenapi/README.md#9-testing)
+- Leica driver — [testing](zmart_drivers/leica/stellaris5_y42h93/navigator_expert/README.md#testing) (incl. gated live validation)
+- Zeiss driver — [testing](zmart_drivers/zeiss/zenapi/README.md#9-testing)
 
 Live hardware validation is always explicit, gated, and safe by default.

@@ -57,7 +57,7 @@ time someone uses them.
 ## Status & sequencing
 
 - **Name: staked** (here, and across the front-facing docs).
-- **The `zmart` waist exists as the `zmart/` package (renamed from `controller/`), still under construction.** It is
+- **The `zmart` waist exists as the `zmart_controller/` package (renamed from `controller/`), still under construction.** It is
   the intended single workflow-facing surface, but workflows do not yet run
   through it (they use the Leica driver directly). The vendor-neutral verb
   contract is not frozen (see `docs/MIDLAYER_PLAN.md`). Drivers today: Leica
@@ -65,7 +65,7 @@ time someone uses them.
   (investigation / spike).
 - **The name is set; the code rename is under way.** The project is **ZMART
   Microscopy** (repo `ZMART-microscopy`). The top-level package rename
-  `controller/` → `zmart/` is done; still deferred are renaming the repo,
+  `controller/` → `zmart_controller/` is done; still deferred are renaming the repo,
   renaming the conda env, and renaming the vendor driver packages (e.g.
   `navigator_expert`). The rest is a deliberate pass — done *once the agnostic
   API is worth branding*, so we brand the surface people import (not the vendor

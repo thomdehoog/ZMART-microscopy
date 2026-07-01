@@ -9,7 +9,7 @@
 #     python -m pip install -r requirements.txt
 #
 # Test/lint tools are NOT here -- see
-# drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt.
+# zmart_drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt.
 
 # --- compute core (registration, focusing, image I/O, calibration) ---
 numpy>=1.24

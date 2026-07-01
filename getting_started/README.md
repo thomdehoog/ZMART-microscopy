@@ -52,7 +52,7 @@ shared packages to `sys.path`.
 Typical path through the repo:
 
 1. Review or update calibration under
-   `drivers/leica/stellaris5_y42h93/navigator_expert/calibration/`.
+   `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/`.
 2. Run the Leica driver validator against the simulator or microscope.
 3. Run the target-acquisition workflow from
    `workflows/target_acquisition/smart_microscopy_v3.2.ipynb`.

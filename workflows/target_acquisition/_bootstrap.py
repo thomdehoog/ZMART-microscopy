@@ -14,7 +14,7 @@ _HERE = Path(__file__).parent.resolve()
 _REPO_ROOT = _HERE.parents[1]
 
 # navigator_expert (and navigator_expert.calibration) needs its parent dir on sys.path
-_DRIVER_PARENT = _REPO_ROOT / "drivers" / "leica" / "stellaris5_y42h93"
+_DRIVER_PARENT = _REPO_ROOT / "zmart_drivers" / "leica" / "stellaris5_y42h93"
 if str(_DRIVER_PARENT) not in sys.path:
     sys.path.insert(0, str(_DRIVER_PARENT))
 

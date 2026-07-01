@@ -15,7 +15,7 @@ Open `smart_microscopy_v3.2.ipynb`. The notebook is the operator UI; implementat
 
 ## Layout
 
-- `_bootstrap.py` — adds `drivers/leica/stellaris5_y42h93/`, `microscopes/`, and the repo root to `sys.path` so the notebook can import the driver, calibration, shared packages, and workflow code.
+- `_bootstrap.py` — adds `zmart_drivers/leica/stellaris5_y42h93/`, `microscopes/`, and the repo root to `sys.path` so the notebook can import the driver, calibration, shared packages, and workflow code.
 - `pipeline/` — public surface (`Config`, `Context`, the step functions, visualization helpers) plus internal modules with leading underscore.
 - `tests/` — pipeline unit tests (offline; no microscope or vendor software).
 
