@@ -2736,6 +2736,60 @@ class TestConfirmAcquire(unittest.TestCase):
             result = confirmations.confirm_acquire(None, timeout=5.0, poll_interval=0.001)
         self.assertTrue(result["success"])
 
+    def test_failed_status_read_is_not_evidence_of_scanning(self):
+        """A failed read (None) then idle forever -> failure, not success.
+
+        A transient read error must not set saw_scanning: that would skip
+        the start timeout and let two idle reads confirm an acquisition
+        that never ran.
+        """
+        call_count = [0]
+
+        def mock_status(client, **_kwargs):
+            call_count[0] += 1
+            return None if call_count[0] == 1 else "eScanIdle"
+
+        with (
+            patch.object(readers, "get_scan_status", side_effect=mock_status),
+            patch.object(confirmations, "_check_api_error", return_value=None),
+            patch("time.sleep"),
+        ):
+            result = confirmations.confirm_acquire(
+                None, start_timeout=0.0, timeout=1.0, poll_interval=0.001
+            )
+        self.assertFalse(result["success"])
+
+    def test_unknown_status_is_not_evidence_of_scanning(self):
+        """The API reader's 'Unknown' failure sentinel behaves like None."""
+        call_count = [0]
+
+        def mock_status(client, **_kwargs):
+            call_count[0] += 1
+            return "Unknown" if call_count[0] == 1 else "eScanIdle"
+
+        with (
+            patch.object(readers, "get_scan_status", side_effect=mock_status),
+            patch.object(confirmations, "_check_api_error", return_value=None),
+            patch("time.sleep"),
+        ):
+            result = confirmations.confirm_acquire(
+                None, start_timeout=0.0, timeout=1.0, poll_interval=0.001
+            )
+        self.assertFalse(result["success"])
+
+    def test_unknown_read_breaks_idle_streak_but_not_saw_scanning(self):
+        """Scanning, then a failed read between idles -> still succeeds."""
+        statuses = iter(
+            ["eScanStarted", "Unknown", "eScanIdle", "eScanIdle", "eScanIdle"]
+        )
+
+        def mock_status(client, **_kwargs):
+            return next(statuses, "eScanIdle")
+
+        with patch.object(readers, "get_scan_status", side_effect=mock_status), patch("time.sleep"):
+            result = confirmations.confirm_acquire(None, timeout=5.0, poll_interval=0.001)
+        self.assertTrue(result["success"])
+
 
 class TestConfirmSelectJob(unittest.TestCase):
     def test_selected_after_settle(self):
