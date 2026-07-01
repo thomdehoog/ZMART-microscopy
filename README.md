@@ -41,7 +41,9 @@ command model, state handling, and gotchas in its own README.
 
 | Microscope | API | Driver | Status |
 |---|---|---|---|
-| Leica STELLARIS 5 | LAS X CAM / Navigator Expert | [`drivers/leica/stellaris5_y42h93/navigator_expert/`](drivers/leica/stellaris5_y42h93/navigator_expert/README.md) | Production-tested (LAS X simulator + real STELLARIS) |
+| Leica STELLARIS 5 | LAS X CAM / Navigator Expert | [`drivers/leica/stellaris5_y42h93/navigator_expert/`](drivers/leica/stellaris5_y42h93/navigator_expert/README.md) | **Production-tested** — LAS X simulator + real STELLARIS |
+| ZEISS (ZEN) | ZEN API (gRPC) | [`drivers/zeiss/zenapi/`](drivers/zeiss/zenapi/README.md) | **MVP** — full offline suite green; not yet bench-validated (see [Risks](drivers/zeiss/zenapi/README.md#10-risks--bench-verify)) |
+| Nikon (NIS-Elements 6.2) | NIS-Elements macros / NkSocket TCP | [`drivers/nikon/`](drivers/nikon/README.md) | **Investigation + spike** — socket round-trip proof landed; no production driver yet (device verbs still to be pinned) |
 
 The cross-vendor controller is the intended single surface above the drivers and
 is still under construction; today the workflow uses the Leica driver path
