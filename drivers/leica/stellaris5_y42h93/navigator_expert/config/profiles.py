@@ -56,6 +56,7 @@ from ..commands.confirmations import (
 )
 from ..commands.prechecks import check_idle
 from ..commands.errors import _default_error_check
+from ..utils import CONFIRM_POLL_S, RECEIPT_TIMEOUT
 
 
 @dataclass(frozen=True)
@@ -189,9 +190,11 @@ class CommandProfile:
             Leica setting commands normally re-fire because the API may
             accept a command while LAS X later settles to a different
             state, or an operator may change the setting manually.
-        confirm_timeout: Per-attempt readback confirmation timeout.
-            None lets the confirmation function use its own low-level
-            default.
+        confirm_poll_s: Per-attempt readback poll window (seconds). NOT a
+            timeout - the readback is polled for this long, then the command
+            re-fires and polls again up to ``max_confirm_attempts``; exhaustion
+            returns unconfirmed, never a hard fail. Defaults to the shared
+            ``CONFIRM_POLL_S``; set per command only for a stated reason.
         confirm_tolerance: Numeric tolerance passed to target readback
             confirmations. None means exact-match or function default.
         poll_interval: Poll interval for command-specific long-running
@@ -216,11 +219,11 @@ class CommandProfile:
         fire_async: If True, use UpdateAsync instead of UpdateAwaitReceipt.
             Use for hardware commands (e.g. stage moves, acquisitions)
             where confirm_fn is the authoritative completion signal.
-        success_on_unconfirmed: If True, return success=True when all
-            confirmation attempts are exhausted (confirmed=False).
-            Use for commands where the fire is reliable but the reader
-            may be slow (e.g. XY stage moves). Default False: exhausted
-            confirmation returns success=False.
+        success_on_unconfirmed: If True (the default), return success=True with
+            confirmed=False when all confirmation attempts are exhausted. The
+            command never hard-fails on an unconfirmed readback; only transport
+            failure and an echo error-check rejection return success=False. Set
+            False only for a command that must hard-fail on unconfirmed - none do.
     """
 
     pre_check_fn: callable = None
@@ -229,9 +232,7 @@ class CommandProfile:
     max_retries: int = 3
     max_confirm_attempts: int = 3
     refire_on_unconfirmed: bool = True
-    confirm_timeout: float = (
-        None  # Per-attempt confirm timeout (seconds). None uses CONFIRM_TIMEOUT.
-    )
+    confirm_poll_s: float = CONFIRM_POLL_S  # Per-attempt readback poll window (s).
     confirm_tolerance: float = None
     poll_interval: float = None
     poll_timeout: float = None
@@ -240,27 +241,36 @@ class CommandProfile:
     retry_backoff: float = None
     retry_escalate: bool = False
     skip_echo: bool = False
-    receipt_timeout: float = (
-        None  # Per-profile UpdateAwaitReceipt deadline. None uses RECEIPT_TIMEOUT.
-    )
+    receipt_timeout: float = RECEIPT_TIMEOUT  # UpdateAwaitReceipt ACK deadline (s).
     fire_async: bool = False
-    success_on_unconfirmed: bool = False
+    success_on_unconfirmed: bool = True
+
+    def __post_init__(self):
+        # Async fire blanks the echo, so an echo-based error check would read a
+        # cleared echo and report a meaningless success. Couple the two fields.
+        if self.fire_async and self.error_check_fn is not None:
+            raise ValueError("fire_async=True requires error_check_fn=None")
+        # A single confirm window has no 'next attempt' to re-fire before, so a
+        # requested re-fire could never run. Forbid the incoherent combination.
+        if self.max_confirm_attempts == 1 and self.refire_on_unconfirmed:
+            raise ValueError(
+                "max_confirm_attempts==1 requires refire_on_unconfirmed=False"
+            )
 
 
 def _leica_setting_profile(confirm_fn, **overrides):
     """Profile for Leica setting updates with occasionally stale readback.
 
-    Setting commands get three 5-second readback windows. If a readback
-    window does not confirm the requested state, the command is sent
-    again before the next readback. If LAS X still reports another
-    state, the result is ``success=True, confirmed=False`` so the larger
-    acquisition workflow can continue while the logs show the mismatch.
+    Setting commands get three 3-second readback poll windows. If a window does
+    not confirm the requested state, the command is re-fired before the next
+    window. If LAS X still reports another state after all windows, the result
+    is ``success=True, confirmed=False`` so the larger acquisition workflow
+    continues while the logs show the mismatch. All of that is the
+    ``CommandProfile`` default now, so the helper only binds the confirm
+    function (plus any per-command tolerance override).
     """
     return CommandProfile(
         confirm_fn=confirm_fn,
-        max_confirm_attempts=3,
-        confirm_timeout=5.0,
-        success_on_unconfirmed=True,
         **overrides,
     )
 
@@ -302,9 +312,8 @@ IMAGE_FORMAT = _leica_setting_profile(
 OBJECTIVE = CommandProfile(
     pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_objective,
-    max_confirm_attempts=1,
-    confirm_timeout=10.0,
-    success_on_unconfirmed=True,
+    # Uniform posture: 3 confirm windows, re-fire between them, unconfirmed-not-
+    # fail. A slow turret change is absorbed by the idle-wait before each re-fire.
 )
 
 
@@ -399,20 +408,19 @@ FILTER_WHEEL_SPECTRUM = _leica_setting_profile(
 MOVE_XY = CommandProfile(
     pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_move_xy,
-    error_check_fn=None,
-    max_confirm_attempts=3,
-    refire_on_unconfirmed=False,
-    confirm_timeout=15.0,
+    error_check_fn=None,  # async fire blanks the echo; nothing to error-check
     confirm_tolerance=20.0,
     fire_async=True,
-    success_on_unconfirmed=True,
+    # Uniform posture: re-fires an unconfirmed absolute move (idempotent) after
+    # waiting for idle; unconfirmed-not-fail like every other command.
 )
 
 MOVE_Z = CommandProfile(
     pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_move_z,
-    max_confirm_attempts=1,
     confirm_tolerance=1.0,
+    # Uniform posture (was single-attempt hard-fail): 3 windows, re-fire,
+    # unconfirmed-not-fail - same as MOVE_XY.
 )
 
 
@@ -424,6 +432,12 @@ ACQUIRE = CommandProfile(
     pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_acquire,
     error_check_fn=None,
+    # ACQUIRE is the one command that must never re-send: re-firing starts a
+    # second acquisition (duplicate data). It declines retry on BOTH axes -
+    # max_retries=0 (fire loop) and refire_on_unconfirmed=False (confirm loop).
+    # It still returns unconfirmed rather than failing; save()'s freshness/grid
+    # check is the real gate against acting on missing data.
+    max_retries=0,
     max_confirm_attempts=1,
     refire_on_unconfirmed=False,
     poll_interval=0.1,

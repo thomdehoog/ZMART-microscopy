@@ -173,18 +173,20 @@ def _dispatch(
     # Resolve confirm_fn: explicit override > profile default > None
     effective_confirm = confirm_fn if confirm_fn is not None else profile.confirm_fn
 
-    # Inject confirm_timeout from profile into simple readback confirmations.
-    # Command wrappers that bind `timeout` explicitly own that polling deadline.
+    # Inject the confirm poll window (confirm_poll_s) from the profile into simple
+    # readback confirmations. Long-poll confirms (acquire, select_job) bind their
+    # own `timeout` and are left untouched by the guard below.
     if (
         effective_confirm is not None
-        and profile.confirm_timeout is not None
+        and profile.confirm_poll_s is not None
         and not _has_bound_keyword(effective_confirm, "timeout")
+        and not _has_bound_keyword(effective_confirm, "poll_window")
     ):
         _inner = effective_confirm
-        _timeout = profile.confirm_timeout
+        _poll_window = profile.confirm_poll_s
 
-        def effective_confirm(c, _f=_inner, _t=_timeout):
-            return _f(c, timeout=_t)
+        def effective_confirm(c, _f=_inner, _t=_poll_window):
+            return _f(c, poll_window=_t)
 
     # Resolve pre_check_fn: timeout override > profile default > None
     if pre_check_timeout is not None and profile.pre_check_fn is not None:
@@ -286,7 +288,7 @@ def _scan_resonant_error_check(client, *, job_name, target, timeout=None):
     error_msg = err.get("error", "")
     details = err.get("details", {})
     if _SCAN_RESONANT_NO_CHANGE in error_msg.lower():
-        confirmed = _confirm_scan_resonant(client, job_name, target, timeout=timeout)
+        confirmed = _confirm_scan_resonant(client, job_name, target, poll_window=timeout)
         logs.extend(confirmed.get("logs", []))
         if confirmed.get("success"):
             msg = f"Resonant -> {target} already matched; accepting LAS X no-change response"
@@ -372,7 +374,7 @@ def set_scan_resonant(client, job_name, enable, *, max_retries=None, pre_check_t
             _scan_resonant_error_check,
             job_name=job_name,
             target=enable,
-            timeout=SCAN_RESONANT.confirm_timeout,
+            timeout=SCAN_RESONANT.confirm_poll_s,
         ),
         max_retries=max_retries,
         pre_check_timeout=pre_check_timeout,

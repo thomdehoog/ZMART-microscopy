@@ -271,8 +271,12 @@ class TestLegsBuilder(SelectJobCase):
             selected_job_confirm_source="hybrid",
             selected_job_hybrid_budget_s=4.5,
         )
+        # Pass the confirm ceiling the wrapper binds in production
+        # (SELECT_JOB.poll_timeout). Budget < ceiling, so it is not capped -
+        # this exercises the profile-budget branch of min(budget, ceiling),
+        # while test_hybrid_budget_is_capped_by_confirm_timeout covers the other.
         api_leg, log_leg, budget = confirm_select_job.select_job_confirm_legs(
-            "HiRes", command_started_at=100.0, api_baseline_name="Overview"
+            "HiRes", command_started_at=100.0, api_baseline_name="Overview", timeout=5.0
         )
         self.assertIsNotNone(api_leg)
         self.assertIsNotNone(log_leg)

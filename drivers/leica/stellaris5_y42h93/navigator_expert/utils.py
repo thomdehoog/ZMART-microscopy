@@ -16,9 +16,11 @@ import time
 # Configurable timeouts (seconds).
 # Import and override these to tune for your hardware.
 # ---------------------------------------------------------------------------
-RECEIPT_TIMEOUT = 2  # UpdateAwaitReceipt transport ACK deadline
-CONFIRM_TIMEOUT = 15  # Polling confirmation deadline (move_xy, move_z,
-# objective, select_job)
+RECEIPT_TIMEOUT = 2  # UpdateAwaitReceipt transport ACK deadline (a true timeout:
+# expiry after transport retries is a hard delivery failure)
+CONFIRM_POLL_S = 3  # Per-attempt readback poll window (NOT a timeout): poll the
+# readback for this long, then re-fire and poll again up to max_confirm_attempts;
+# exhaustion returns unconfirmed, never a hard fail.
 
 # ---------------------------------------------------------------------------
 # Galvo pan calibration.

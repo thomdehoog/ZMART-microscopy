@@ -267,7 +267,7 @@ def test_generic_confirms_matching_readback(name, monkeypatch):
         compare=spec.compare,
         errors=spec.errors,
         tolerance=spec.default_tolerance,
-        timeout=1.0,
+        poll_window=1.0,
         poll_interval=0.001,
     )
     # Confirmed immediately on the first poll: no logs accumulated.
@@ -289,7 +289,7 @@ def test_generic_rejects_non_matching_readback(name, monkeypatch):
         compare=spec.compare,
         errors=spec.errors,
         tolerance=spec.default_tolerance,
-        timeout=0.02,
+        poll_window=0.02,
         poll_interval=0.001,
     )
     assert result["success"] is False
@@ -313,12 +313,12 @@ def test_public_wrapper_confirms_match_and_rejects_miss(name, monkeypatch):
     wrapper = getattr(confirmations, f"_confirm_{name}")
 
     monkeypatch.setattr(confirmations, "_readback", _readback_returning(s["ch"](s["match"])))
-    ok = wrapper(object(), "JOB", target=s["target"], timeout=1.0, poll_interval=0.001, **s["params"])
+    ok = wrapper(object(), "JOB", target=s["target"], poll_window=1.0, poll_interval=0.001, **s["params"])
     assert ok == {"success": True, "logs": []}
 
     monkeypatch.setattr(confirmations, "_readback", _readback_returning(s["ch"](s["miss"])))
     bad = wrapper(
-        object(), "JOB", target=s["target"], timeout=0.02, poll_interval=0.001, **s["params"]
+        object(), "JOB", target=s["target"], poll_window=0.02, poll_interval=0.001, **s["params"]
     )
     assert bad["success"] is False
     assert bad["logs"][0]["level"] == "warning"
@@ -337,7 +337,7 @@ def test_extraction_error_is_swallowed_until_timeout(monkeypatch):
         label=spec.label,
         compare=spec.compare,
         errors=spec.errors,
-        timeout=0.02,
+        poll_window=0.02,
         poll_interval=0.001,
     )
     assert result["success"] is False
