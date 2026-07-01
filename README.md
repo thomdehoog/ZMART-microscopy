@@ -8,16 +8,16 @@ interoperable, adaptive feedback microscopy workflows. It is developed at the
 Center for Microscopy and Image Analysis (ZMB), University of Zurich.
 
 <p align="center">
-  <img src="docs/zmart-architecture.png" alt="ZMART sits between Jupyter notebooks and an AI coding agent above, and vendor drivers - each bound to a microscope - below" width="640">
+  <img src="docs/zmart-architecture.png" alt="ZMART sits between Jupyter notebooks and an AI coding agent above, and vendor drivers - each bound to a microscope - below" width="100%">
 </p>
 
 ## ZMART Controller
 
-The vendor-agnostic API you drive a microscope from — the `zmart` surface, kept
-deliberately small: **discover, then apply.** Call a `get_*` to see what the
-instrument supports (each option lists its allowed values and the active one),
-then pass your choice to the matching call. The same code runs on any microscope
-that has a driver.
+The vendor-agnostic API for driving a microscope — small, consistent, and the
+same for every vendor. The pattern is always **discover, then apply**. Call a
+`get_*` to see what the instrument supports; each option lists its allowed values
+and the one that's active. Then pass your choice to the matching call. Write it
+once, and it runs on any microscope that has a driver.
 
 Full API and per-call docs: **[ZMART Controller »](zmart_controller/README.md)**
 
@@ -77,11 +77,10 @@ command model, state handling, and gotchas in its own README.
 | Evident FLUOVIEW FV4000 (IX83) | FLUOVIEW RDK (TCP command server) | [`zmart_drivers/evident/`](zmart_drivers/evident/README.md) | **Investigation + planning** — RDK route mapped (Leica-CAM-symmetric); pending Evident developer-program access to the FV RDK command reference |
 | mesoSPIM (open-source light-sheet) | mesoSPIM-control (PyQt5; no external API out of the box) | [`zmart_drivers/mesospim/`](zmart_drivers/mesospim/README.md) | **Investigation + planning** — GPL-3.0, driven at arm's length via a resident socket hook (Nikon-symmetric) + MIT client; uniquely offline-testable via `-D` demo mode |
 
-The cross-vendor controller is the intended single surface above the drivers and
-is still under construction; today the workflow uses the Leica driver path
-directly through local bootstrap modules. As drivers mature they move up from
-**Under construction** to **Production-ready**, and workflows move onto the
-`zmart` surface.
+The ZMART Controller is meant to be the single surface every workflow drives, but
+it is still under construction — so today's workflows call the Leica driver
+directly. As each driver matures it graduates from **Under construction** to
+**Production-ready**, and workflows move onto the controller.
 
 ## Architecture
 
@@ -115,22 +114,23 @@ python build_env.py            # creates the "smart-microscopy" conda-forge env
 conda activate smart-microscopy
 ```
 
-This targets **Python 3.10-3.12** and installs the minimum to drive a microscope
-and process its images. Driving a microscope *live* also needs that microscope's
-own software installed (e.g. LAS X for the Leica driver); registration, focusing,
-and image processing run on any OS. Full setup — dependency rationale, the
-conda-forge / PyPI choice, and the typical path through the repo — is in
+This targets **Python 3.10-3.12** and installs the minimum needed to drive a
+microscope and process its images. Driving a microscope *live* also needs that
+microscope's own software installed (e.g. LAS X for the Leica driver); image
+processing — registration, focusing — runs on any OS. Full setup, dependency
+rationale, and the typical path through the repo are in
 **[`getting_started/`](getting_started/README.md)**.
 
 ## Tests
 
-Every component ships its own **offline** suite that needs no microscope and no
-vendor software, and documents how to run it in its own README:
+Every component ships its own **offline** test suite that runs without a
+microscope or any vendor software, and documents how to run it in its own README:
 
-- Controller — [tests](zmart_controller/README.md#tests)
-- Target-acquisition workflow — [tests](workflows/target_acquisition/README.md#tests)
-- Output layout — [tests](shared/output_layout/README.md#tests)
-- Leica driver — [testing](zmart_drivers/leica/stellaris5_y42h93/navigator_expert/README.md#testing) (incl. gated live validation)
-- Zeiss driver — [testing](zmart_drivers/zeiss/zenapi/README.md#9-testing)
+- **ZMART Controller** — [tests](zmart_controller/README.md#tests)
+- **Target-acquisition workflow** — [tests](workflows/target_acquisition/README.md#tests)
+- **Output layout** (`shared/`) — [tests](shared/output_layout/README.md#tests)
+- **Leica driver** — [tests](zmart_drivers/leica/stellaris5_y42h93/navigator_expert/README.md#testing)
+- **Zeiss driver** — [tests](zmart_drivers/zeiss/zenapi/README.md#9-testing)
 
-Live hardware validation is always explicit, gated, and safe by default.
+Live-hardware validation, where a driver supports it, is always explicit, gated,
+and safe by default.
