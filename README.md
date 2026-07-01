@@ -1,7 +1,7 @@
-# ZMART
+# ZMART Microscopy
 
-**ZMB's Microscopy-Agnostic Research Toolkit.** ZMART puts microscopes under
-programmatic control and runs workflows that analyze data and make acquisition
+**ZMB's Microscopy-Agnostic Research Toolkit.** ZMART Microscopy puts microscopes
+under programmatic control and runs workflows that analyze data and make acquisition
 decisions live during an experiment. The design is **vendor-neutral**: a
 workflow targets one small controller interface — the emerging `zmart` surface —
 and any microscope with a driver behind that interface can run it.
@@ -11,8 +11,10 @@ and any microscope with a driver behind that interface can run it.
 > `evident`) plug in *underneath*. That is how the toolkit — and ZMB's name —
 > travels to other institutes: every `import zmart` in someone else's code
 > carries it. See **[`docs/ZMART.md`](docs/ZMART.md)** for the identity and the
-> rebrand sequencing. (The repo and conda env stay `smart-microscopy` until that
-> rename is done deliberately, once the agnostic API is worth branding.)
+> rebrand sequencing. (Name: **ZMART Microscopy**, repo `ZMART-microscopy`. The
+> code packages — `navigator_expert`, and `controller` → `zmart` — and the conda
+> env are renamed on the deliberate code pass, once the agnostic API is worth
+> branding.)
 
 ## Architecture
 
@@ -42,6 +44,27 @@ workflows/                                      smart-microscopy workflows
   register a new driver.
 - **`workflows/`** — the smart-microscopy workflows themselves (current:
   `workflows/target_acquisition/`).
+
+## ZMART Controller
+
+The vendor-agnostic API you drive a microscope from — the `zmart` surface, kept
+deliberately small: **discover, then apply.** Call a `get_*` to see what the
+instrument supports (each option lists its allowed values and the active one),
+then pass your choice to the matching call. The same code runs on any microscope
+that has a driver.
+
+Full API and per-call docs: **[ZMART Controller »](controller/README.md)**
+
+```python
+import controller   # the ZMART Controller (renamed to `zmart` on the code pass)
+
+controller.get_instruments()
+controller.set_instrument(instrument=connection)   # pick a scope
+controller.set_origin()                            # current position -> (0, 0, 0)
+controller.set_xyz(x, y, z)
+controller.acquire(acquisition_type="overview", position_label="A1", options=opts)
+controller.disconnect()
+```
 
 ## Drivers
 
