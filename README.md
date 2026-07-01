@@ -133,7 +133,7 @@ microscope or any vendor software, and documents how to run it in its own README
 - **ZMART Controller** — [tests](zmart_controller/README.md#tests)
 - **Target-acquisition workflow** — [tests](workflows/target_acquisition/README.md#tests)
 - **Output layout** (`shared/`) — [tests](shared/output_layout/README.md#tests)
-- **Leica driver** — [tests](zmart_drivers/leica/stellaris5_y42h93/navigator_expert/README.md#testing)
+- **Leica driver** — [tests](zmart_drivers/leica/stellaris5_y42h93/navigator_expert/README.md#9-testing)
 - **Zeiss driver** — [tests](zmart_drivers/zeiss/zenapi/README.md#9-testing)
 
 Live-hardware validation, where a driver supports it, is always explicit, gated,
