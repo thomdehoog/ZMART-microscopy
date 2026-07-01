@@ -21,37 +21,37 @@ a thin, easy surface for humans and AI agents alike.
 Everything you can call:
 
 ```python
-import controller
+import zmart
 
 # 1) Get the available instruments and connect to one
-controller.get_instruments()
-controller.set_instrument(instrument=Dict)
+zmart.get_instruments()
+zmart.set_instrument(instrument=Dict)
 
 # 2) Set the origin point of the frame (current position becomes 0, 0, 0)
-controller.set_origin()
+zmart.set_origin()
 
 # 3) Discover actuators, then read or move the position in the frame
-controller.get_actuators()
-controller.get_xyz()
-controller.set_xyz(x, y, z, with_actuators=Dict)
+zmart.get_actuators()
+zmart.get_xyz()
+zmart.set_xyz(x, y, z, with_actuators=Dict)
 
 # 4) Capture and reapply instrument state
-controller.get_state()
-controller.set_state(Dict)
+zmart.get_state()
+zmart.set_state(Dict)
 
 # 5) Acquire data (captures and saves) with the current state and position
-controller.get_acquisition_options()
-controller.acquire(acquisition_type=String, position_label=String, options=Dict)
+zmart.get_acquisition_options()
+zmart.acquire(acquisition_type=String, position_label=String, options=Dict)
 
 # 6) Run a procedure specific to the microscope (e.g. hardware autofocus)
-controller.get_procedures()
-controller.set_procedure(Dict)
+zmart.get_procedures()
+zmart.set_procedure(Dict)
 
 # 7) Get additional context the driver provides (e.g. initial positions)
-controller.get_context()
+zmart.get_context()
 
 # 8) Close the session
-controller.disconnect()
+zmart.disconnect()
 ```
 
 Most steps follow the same pattern: **discover, then apply.** Call a `get_*`
@@ -69,14 +69,14 @@ entry is a `connection` dict -- the `vendor` / `microscope` / `api` identity the
 registry keys on, plus any driver-specific params (client name, api delay, host,
 ...). You can edit it before connecting (e.g. drop in a credential); the
 controller forwards it to the driver's `connect` untouched. `set_instrument()`
-opens the session. After this, every `controller` call goes to that microscope.
+opens the session. After this, every `zmart` call goes to that microscope.
 
 ```python
-instrument = controller.get_instruments()[0]
+instrument = zmart.get_instruments()[0]
 # {"vendor": "leica", "microscope": "stellaris5-01", "api": "navigator-expert",
 #  "client": "PythonClient", "api_delay_ms": 250}
 
-controller.set_instrument(instrument)
+zmart.set_instrument(instrument)
 ```
 
 ### 2. Set the origin of the frame
@@ -86,7 +86,7 @@ the current position is, for our purposes: (0, 0, 0). From then on, every positi
 is micrometers in that frame, and in reference to that (0, 0, 0) point:
 
 ```python
-controller.set_origin()                    # (0, 0, 0) is here now
+zmart.set_origin()                    # (0, 0, 0) is here now
 ```
 
 ### 3. Move to a position in the frame
@@ -97,8 +97,8 @@ optional `with_actuators` argument chooses which actuator moves each axis (for
 example, the piezo for fine Z) without changing the coordinates you give.
 
 ```python
-controller.get_actuators()                 # {"x": ["motoric"], "y": ["motoric"], "z": ["motoric", "galvo", "piezo"]}
-controller.set_xyz(10, 20, 5, with_actuators={"x": ["motoric"], "y": ["motoric"], "z": "piezo"}) 
+zmart.get_actuators()                 # {"x": ["motoric"], "y": ["motoric"], "z": ["motoric", "galvo", "piezo"]}
+zmart.set_xyz(10, 20, 5, with_actuators={"x": ["motoric"], "y": ["motoric"], "z": "piezo"}) 
 ```
 
 ### 4. Capture and reapply state
@@ -109,9 +109,9 @@ reapply later. It is an opaque dict the driver owns: an `immutable` fingerprint
 (what is actually reapplied).
 
 ```python
-prescan = controller.get_state()                 # {"immutable": {...}, "mutable": {...}}
+prescan = zmart.get_state()                 # {"immutable": {...}, "mutable": {...}}
 prescan["mutable"]["laser_power"] = 2.0
-controller.set_state(prescan)                     # reapply it later
+zmart.set_state(prescan)                     # reapply it later
 ```
 
 ### 5. Acquire (captures and saves)
@@ -124,9 +124,9 @@ dataset and saves it in one call: `acquisition_type` is the kind of scan,
 setting and the driver uses its active default.
 
 ```python
-controller.get_acquisition_options()
+zmart.get_acquisition_options()
 # {"backlash_correction": {...}, "format": {...}, "procedure": {...}}
-controller.acquire(acquisition_type="prescan", position_label="A1", options={"format": "ome-tiff"})
+zmart.acquire(acquisition_type="prescan", position_label="A1", options={"format": "ome-tiff"})
 ```
 
 ### 6. Run a procedure
@@ -136,8 +136,8 @@ autofocus); `set_procedure()` runs one. Procedures are opaque dicts the driver
 interprets.
 
 ```python
-controller.get_procedures()                       # {"autofocus": {...}, ...}
-controller.set_procedure({"name": "autofocus"})
+zmart.get_procedures()                       # {"autofocus": {...}, ...}
+zmart.set_procedure({"name": "autofocus"})
 ```
 
 ### 7. Get additional context
@@ -146,13 +146,13 @@ controller.set_procedure({"name": "autofocus"})
 example the initial positions captured at connect.
 
 ```python
-controller.get_context()["initial_positions"]     # [{"x": 0.0, "y": 0.0, "z": 0.0}, ...]
+zmart.get_context()["initial_positions"]     # [{"x": 0.0, "y": 0.0, "z": 0.0}, ...]
 ```
 
 ### 8. Close the session
 
 ```python
-controller.disconnect()
+zmart.disconnect()
 ```
 
 ## A full experiment
@@ -169,7 +169,7 @@ A driver is a set of functions — one per operation — registered under a
 any connect params):
 
 ```python
-from controller.registry import register
+from zmart.registry import register
 
 register(
     {"vendor": "leica", "microscope": "stellaris5-01", "api": "navigator-expert",
@@ -188,7 +188,7 @@ is a complete, readable reference implementation.
 ## Tests
 
 ```bash
-python -m pytest controller/tests
+python -m pytest zmart/tests
 ```
 
 The test suite and the example notebook both run offline against the mock driver.

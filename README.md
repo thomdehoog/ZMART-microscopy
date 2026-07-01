@@ -12,9 +12,9 @@ and any microscope with a driver behind that interface can run it.
 > travels to other institutes: every `import zmart` in someone else's code
 > carries it. See **[`docs/ZMART.md`](docs/ZMART.md)** for the identity and the
 > rebrand sequencing. (Name: **ZMART Microscopy**, repo `ZMART-microscopy`. The
-> code packages — `navigator_expert`, and `controller` → `zmart` — and the conda
-> env are renamed on the deliberate code pass, once the agnostic API is worth
-> branding.)
+> `controller` package is now **`zmart`**; still deferred to the deliberate code
+> pass are the repo name, the conda env, and the vendor driver packages like
+> `navigator_expert`.)
 
 ## Architecture
 
@@ -27,7 +27,7 @@ drivers/                                        vendor microscope drivers
     calibration/                                calibration notebooks and code
     limits/                                     safety-limit data and helpers
 shared/                                         vendor-independent utilities (output layout, algorithms)
-controller/                                     cross-vendor controller (single workflow-facing surface)
+zmart/                                          cross-vendor controller (single workflow-facing surface)
 workflows/                                      smart-microscopy workflows
   target_acquisition/                           operator notebook, pipeline, tests
 ```
@@ -37,7 +37,7 @@ workflows/                                      smart-microscopy workflows
   microscopes are added here without touching workflows.
 - **`shared/`** — vendor-independent utilities: the lab-wide output layout and
   image algorithms (registration, focus) used across drivers and workflows.
-- **`controller/`** — the cross-vendor controller: one small, consistent interface
+- **`zmart/`** — the cross-vendor controller: one small, consistent interface
   a workflow drives, so the same workflow runs on any microscope that has a
   driver. This is the **emerging `zmart` surface** — the vendor-agnostic API the
   rest of the world would import. See its README for the full API and for how to
@@ -53,17 +53,17 @@ instrument supports (each option lists its allowed values and the active one),
 then pass your choice to the matching call. The same code runs on any microscope
 that has a driver.
 
-Full API and per-call docs: **[ZMART Controller »](controller/README.md)**
+Full API and per-call docs: **[ZMART Controller »](zmart/README.md)**
 
 ```python
-import controller   # the ZMART Controller (renamed to `zmart` on the code pass)
+import zmart   # the ZMART Controller (the vendor-agnostic surface)
 
-controller.get_instruments()
-controller.set_instrument(instrument=connection)   # pick a scope
-controller.set_origin()                            # current position -> (0, 0, 0)
-controller.set_xyz(x, y, z)
-controller.acquire(acquisition_type="overview", position_label="A1", options=opts)
-controller.disconnect()
+zmart.get_instruments()
+zmart.set_instrument(instrument=connection)   # pick a scope
+zmart.set_origin()                            # current position -> (0, 0, 0)
+zmart.set_xyz(x, y, z)
+zmart.acquire(acquisition_type="overview", position_label="A1", options=opts)
+zmart.disconnect()
 ```
 
 ## Drivers
@@ -107,7 +107,7 @@ conda-forge / PyPI choice, and the typical path through the repo — is in
 Every component ships its own **offline** suite that needs no microscope and no
 vendor software, and documents how to run it in its own README:
 
-- Controller — [tests](controller/README.md#tests)
+- Controller — [tests](zmart/README.md#tests)
 - Target-acquisition workflow — [tests](workflows/target_acquisition/README.md#tests)
 - Output layout — [tests](shared/output_layout/README.md#tests)
 - Leica driver — [testing](drivers/leica/stellaris5_y42h93/navigator_expert/README.md#testing) (incl. gated live validation)

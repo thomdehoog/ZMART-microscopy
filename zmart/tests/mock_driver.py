@@ -228,7 +228,7 @@ def register_mock() -> None:
     Shared by the test suite (conftest) and the runnable example so the wiring
     lives in one place.
     """
-    from controller.registry import register
+    from zmart.registry import register
 
     register(
         {"vendor": "mock", "microscope": "mock-scope", "api": "mock-api", "client": "mock-client"},
