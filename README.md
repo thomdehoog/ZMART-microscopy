@@ -54,7 +54,7 @@ zmart.get_context()
 zmart.disconnect()
 ```
 
-## Drivers
+## ZMART Drivers
 
 Drivers live under `drivers/<vendor>/<machine>/<api>/` and are registered with
 the controller through its registry (see the controller README), so adding a
