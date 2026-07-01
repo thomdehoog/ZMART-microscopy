@@ -1,14 +1,61 @@
 """Unit tests for the split stage safety/backlash loader."""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import navigator_expert.motion.stage_config as stage_config
 import pytest
+from navigator_expert.config.machine import MachineProfile
 
 
 def _write_json(path, payload):
     path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+# --- adopt_limits: publish a physical-envelope snapshot ---
+
+_ENV_A = {"x": [1, 100], "y": [1, 100], "z_galvo": [-5, 5], "z_wide": [0, 50]}
+_ENV_B = {"x": [2, 200], "y": [2, 200], "z_galvo": [-10, 10], "z_wide": [0, 60]}
+_SEED_MOMENT = datetime(2026, 1, 1, tzinfo=timezone.utc)
+_ADOPT_MOMENT = datetime(2026, 2, 1, tzinfo=timezone.utc)
+
+
+def test_adopt_limits_publishes_snapshot_carrying_calibration_forward(tmp_path):
+    m = MachineProfile(programdata_root=tmp_path)
+    m.publish_snapshot(
+        _SEED_MOMENT,
+        calibration={"marker": "cal-A"},
+        limits={"schema_version": 1, "source": "defaults", "stage_um": _ENV_A},
+    )
+    out = stage_config.adopt_limits(_ENV_B, machine=m, moment=_ADOPT_MOMENT)
+    snap = m.latest_snapshot()
+    assert Path(out["snapshot"]) == snap
+    lim = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
+    assert lim["schema_version"] == 1
+    assert lim["stage_um"]["x"] == [2.0, 200.0]  # validated to floats
+    # calibration carried forward untouched
+    assert json.loads((snap / "calibration.json").read_text(encoding="utf-8")) == {"marker": "cal-A"}
+
+
+def test_adopt_limits_first_time_carries_bundled_calibration(tmp_path):
+    from navigator_expert.calibration.core import model
+
+    m = MachineProfile(programdata_root=tmp_path)
+    assert m.latest_snapshot() is None
+    stage_config.adopt_limits(_ENV_B, machine=m, moment=_ADOPT_MOMENT)
+    snap = m.latest_snapshot()
+    cal = model.load_calibration(snap / "calibration.json")  # bundled default carried in
+    assert model.get_reference_slot(cal) == 1
+    lim = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
+    assert lim["stage_um"]["z_wide"] == [0.0, 60.0]
+
+
+def test_adopt_limits_validates_envelope(tmp_path):
+    m = MachineProfile(programdata_root=tmp_path)
+    bad = {"x": [100, 1], "y": [1, 100], "z_galvo": [-5, 5], "z_wide": [0, 50]}  # min > max
+    with pytest.raises(ValueError):
+        stage_config.adopt_limits(bad, machine=m, moment=_ADOPT_MOMENT)
 
 
 def test_load_combines_limits_and_calibrated_backlash(tmp_path):
@@ -61,10 +108,13 @@ def test_load_combines_limits_and_calibrated_backlash(tmp_path):
 
 
 def test_limits_paths_are_separate_from_calibration_state():
+    # With no machine snapshot (hermetic root fixture), the physical limits and
+    # the calibration resolve to the driver-bundled defaults, while the per-run
+    # working envelope stays under the driver tree - three distinct files.
     driver_root = Path(__file__).resolve().parents[2]
     current_limits = driver_root / "limits" / "current.json"
-    default_limits = current_limits.with_name("defaults.json")
-    calibration = driver_root / "calibration" / "current" / "calibration.json"
+    default_limits = driver_root / "defaults" / "limits.json"
+    calibration = driver_root / "defaults" / "calibration.json"
 
     assert stage_config.current_path() == current_limits
     assert stage_config.defaults_path() == default_limits

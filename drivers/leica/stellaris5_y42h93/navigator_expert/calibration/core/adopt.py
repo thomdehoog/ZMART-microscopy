@@ -1,13 +1,14 @@
-"""Adopt a session-staging calibration into the current folder.
+"""Adopt a session-staging calibration into a machine snapshot.
 
-Adoption is the explicit operator step that folds a trustworthy session
-staging config into the operator-supplied current calibration file. Save
-workflows never adopt; this module is the only writer of
-``<current_root>/calibration.json``.
-
-The operator passes ``current_root`` on every call. The workflow refuses
-to guess a default: current config writes are too easy to overlook, and a
-silent default would let a stale package-tree file become the truth.
+Adoption is the explicit operator step that folds a trustworthy session staging
+config into the microscope's calibration. It reads the current calibration - the
+newest machine snapshot, or the driver-bundled default when there is none -
+merges the one staged delta, and publishes a new cumulative snapshot via
+:meth:`navigator_expert.config.machine.MachineProfile.publish_snapshot`
+(copy-forward: the latest snapshot's ``calibration.json`` + ``limits.json`` are
+carried forward, this adopt's ``calibration.json`` is overwritten, and the
+executed notebook is archived alongside; the write is atomic). Save workflows
+never adopt; this is the only path that writes a calibration snapshot.
 """
 
 from __future__ import annotations
@@ -15,15 +16,14 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from . import model as calibration_model
-from .common import STAGING_SCHEMA_VERSION, now_iso
+from .common import STAGING_SCHEMA_VERSION
 
 _VALID_KINDS = {"image_to_stage", "objective_translation"}
-_STAMP_SAFE = re.compile(r"[^0-9A-Za-z._-]+")
 
 
 def _expected_kind_for(staging_name: str) -> str | None:
@@ -40,11 +40,6 @@ def _expected_kind_for(staging_name: str) -> str | None:
     return None
 
 
-def _sanitize_stamp(value: str) -> str:
-    cleaned = _STAMP_SAFE.sub("_", value.strip())
-    return cleaned or "unknown"
-
-
 def _validate_staging_name(staging_name: str) -> None:
     if not staging_name:
         raise ValueError("staging_name must be a non-empty filename")
@@ -55,36 +50,6 @@ def _validate_staging_name(staging_name: str) -> None:
         or ".." in Path(staging_name).parts
     ):
         raise ValueError(f"staging_name must be a bare filename, got {staging_name!r}")
-
-
-def _calibration_path(current_root: Path) -> Path:
-    return current_root / "calibration.json"
-
-
-def _archive_current(current_path: Path, archive_dir: Path) -> Path | None:
-    if not current_path.exists():
-        return None
-    try:
-        existing = json.loads(current_path.read_text(encoding="utf-8"))
-        stamp_raw = existing.get("last_updated", "unknown")
-    except Exception:
-        stamp_raw = "unknown"
-    stamp = _sanitize_stamp(stamp_raw)
-    suffix = 0
-    while True:
-        name = (
-            f"{stamp}_{current_path.name}"
-            if suffix == 0
-            else f"{stamp}_{suffix}_{current_path.name}"
-        )
-        candidate = archive_dir / name
-        try:
-            with current_path.open("rb") as src, candidate.open("xb") as dst:
-                shutil.copyfileobj(src, dst)
-            shutil.copystat(current_path, candidate)
-            return candidate
-        except FileExistsError:
-            suffix += 1
 
 
 def _norm_label(value: str) -> str:
@@ -147,47 +112,20 @@ def _apply_staging_payload(
     )
 
 
-def adopt_calibration(
-    session: Any,
-    staging_name: str,
-    *,
-    current_root: str | Path,
-) -> dict:
-    """Copy ``session.paths.configs_dir / staging_name`` into ``current_root``.
-
-    Args:
-        session: A workflow session with ``.paths.configs_dir`` and
-            ``.session_id``.
-        staging_name: Bare filename inside the session's ``configs/`` folder.
-        current_root: Operator-supplied directory that holds the current
-            calibration configs. Required.
-
-    Returns:
-        ``{"source": str, "current_path": str, "archived_previous": str | None}``.
-        ``current_path`` is always the canonical ``calibration.json``.
-
-    Raises:
-        FileNotFoundError: if the staging file does not exist.
-        ValueError: if the staging payload schema/kind is invalid or the
-            staging_name is not a bare filename.
-        RuntimeError: if the current_root or archive directory cannot be
-            created.
-    """
+def _load_staging(session: Any, staging_name: str) -> tuple[Path, dict[str, Any]]:
+    """Validate *staging_name* and load+validate its staging payload."""
     _validate_staging_name(staging_name)
-
     source = session.paths.configs_dir / staging_name
     if not source.exists():
         raise FileNotFoundError(
             "No staging config to adopt. Review the report. The "
             "measurement may have failed validation or weak voting."
         )
-
     data = json.loads(source.read_text(encoding="utf-8"))
     if data.get("schema_version") != STAGING_SCHEMA_VERSION:
         raise ValueError(
             f"staging config has unexpected schema_version "
-            f"{data.get('schema_version')!r}; expected "
-            f"{STAGING_SCHEMA_VERSION}"
+            f"{data.get('schema_version')!r}; expected {STAGING_SCHEMA_VERSION}"
         )
     kind = data.get("kind")
     if kind not in _VALID_KINDS:
@@ -201,39 +139,61 @@ def adopt_calibration(
             f"but the file declares kind {kind!r}; refusing to adopt a "
             "mismatched pair."
         )
+    return source, data
 
-    resolved_root = Path(current_root).absolute()
-    resolved_current = _calibration_path(resolved_root)
-    try:
-        resolved_root.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        raise RuntimeError(
-            f"cannot create current config directory {resolved_root}: {exc}"
-        ) from exc
 
-    archive_dir = resolved_root / "archive"
-    try:
-        archive_dir.mkdir(exist_ok=True)
-    except OSError as exc:
-        raise RuntimeError(f"cannot create archive directory {archive_dir}: {exc}") from exc
+def adopt_calibration(
+    session: Any,
+    staging_name: str,
+    *,
+    machine: Any = None,
+    moment: datetime | None = None,
+    notebook_paths: Any = (),
+) -> dict:
+    """Merge ``session.paths.configs_dir / staging_name`` and publish a snapshot.
 
-    config = calibration_model.load_calibration(resolved_current)
+    Args:
+        session: A workflow session with ``.paths.configs_dir`` and ``.session_id``.
+        staging_name: Bare filename inside the session's ``configs/`` folder.
+        machine: ``MachineProfile`` to read the current calibration from and
+            publish the snapshot into. ``None`` uses the global ``MACHINE``.
+        moment: Snapshot timestamp; ``None`` uses ``datetime.now(timezone.utc)``.
+            Must sort strictly after the latest snapshot (monotonic guard).
+        notebook_paths: Executed notebook(s) to archive in the snapshot.
+
+    Returns:
+        ``{"source": str, "snapshot": str, "calibration_path": str}`` - the new
+        snapshot folder and its ``calibration.json``.
+
+    Raises:
+        FileNotFoundError: if the staging file does not exist.
+        ValueError: if the staging schema/kind is invalid, the staging_name is
+            not a bare filename, or *moment* does not sort after the latest snapshot.
+    """
+    source, data = _load_staging(session, staging_name)
+
+    if machine is None:
+        from ...config.machine import MACHINE
+
+        machine = MACHINE
+    if moment is None:
+        moment = datetime.now(timezone.utc)
+
+    config = calibration_model.load_calibration(machine.calibration_path())
     _apply_staging_payload(
         config,
         data,
         session_id=getattr(session, "session_id", "unknown"),
     )
-    archived = _archive_current(resolved_current, archive_dir)
-    calibration_model.save_calibration(config, path=resolved_current)
-
-    session_id = getattr(session, "session_id", "unknown")
-    log_path = resolved_root / ".adopt.log"
-    line = f"{now_iso()} {kind} {session_id} -> {resolved_current}\n"
-    with log_path.open("a", encoding="utf-8") as fh:
-        fh.write(line)
+    prepared = calibration_model.prepared_calibration(config)
+    snapshot = machine.publish_snapshot(
+        moment,
+        calibration=prepared,
+        notebook_paths=notebook_paths,
+    )
 
     return {
         "source": str(source),
-        "current_path": str(resolved_current),
-        "archived_previous": str(archived) if archived else None,
+        "snapshot": str(snapshot),
+        "calibration_path": str(snapshot / "calibration.json"),
     }

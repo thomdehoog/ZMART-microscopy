@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -61,23 +62,32 @@ def limits_root() -> Path:
     return _driver_root() / "limits"
 
 
-def calibration_current_root() -> Path:
-    return _driver_root() / "calibration" / "current"
-
-
 def current_path() -> Path:
-    """Path to the current limits config."""
+    """Path to the per-run working-envelope limits config.
+
+    This is per-run data (target acquisition writes it from boundary markers),
+    not machine state. It stays under the driver tree for now; a later increment
+    relocates it to the acquisition run output.
+    """
     return limits_root() / "current.json"
 
 
 def defaults_path() -> Path:
-    """Path to the configured physical-envelope baseline."""
-    return limits_root() / "defaults.json"
+    """Path to the active physical stage envelope.
+
+    Resolves through the machine profile: the newest ProgramData snapshot's
+    ``limits.json``, or the driver-bundled default when no snapshot exists.
+    """
+    from ..config.machine import MACHINE
+
+    return MACHINE.limits_path()
 
 
 def default_calibration_path() -> Path:
-    """Path to the current calibration config."""
-    return calibration_current_root() / "calibration.json"
+    """Path to the active calibration config (machine snapshot / bundled default)."""
+    from ..config.machine import MACHINE
+
+    return MACHINE.calibration_path()
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -207,3 +217,50 @@ def write_limits(
         },
     )
     return selected
+
+
+def adopt_limits(
+    stage_um: dict[str, Any],
+    *,
+    source: str = LIMITS_SOURCE_DEFAULTS,
+    machine: Any = None,
+    moment: datetime | None = None,
+    notebook_paths: Any = (),
+) -> dict:
+    """Publish a new machine snapshot holding an updated physical stage envelope.
+
+    Validates *stage_um* against the limits schema, carries the latest snapshot's
+    calibration forward untouched, and publishes a copy-forward snapshot whose
+    ``limits.json`` is the new physical envelope. This is the writer for the
+    ``set_stage_limits`` notebook - the hardware envelope only, never the per-run
+    working envelope (which is the workflow's concern).
+
+    Args:
+        stage_um: ``{"x": [min, max], "y": ..., "z_galvo": ..., "z_wide": ...}``.
+        source: Provenance tag (defaults to ``"defaults"``, the configured
+            physical baseline).
+        machine: ``MachineProfile`` to publish into; ``None`` uses the global one.
+        moment: Snapshot timestamp; ``None`` uses ``datetime.now(timezone.utc)``.
+        notebook_paths: Executed notebook(s) to archive in the snapshot.
+
+    Returns:
+        ``{"snapshot": str, "limits_path": str}``.
+    """
+    validated = _validate_limits(stage_um, path=Path("limits.json"))
+    payload = {
+        "schema_version": LIMITS_SCHEMA_VERSION,
+        "source": _validate_source(source),
+        "stage_um": validated,
+    }
+    if machine is None:
+        from ..config.machine import MACHINE
+
+        machine = MACHINE
+    if moment is None:
+        moment = datetime.now(timezone.utc)
+    snapshot = machine.publish_snapshot(
+        moment,
+        limits=payload,
+        notebook_paths=notebook_paths,
+    )
+    return {"snapshot": str(snapshot), "limits_path": str(snapshot / "limits.json")}
