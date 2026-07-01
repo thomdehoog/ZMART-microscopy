@@ -183,25 +183,55 @@ ping(client, timeout=5) -> bool
 require_canonical_scan_orientation() -> None          # raises unless export is TOPLEFT
 ```
 
-### State readers (`value` or `None`; no exceptions)
-`get_scan_status` · `get_xy` (`{"x","y","x_um","y_um"}`) · `read_zwide_um` · `get_jobs` ·
-`get_job_by_name` · `get_selected_job` · `get_job_settings` · `get_hardware_info` ·
-`get_fov` / `get_base_fov` · `get_lasx_settings` · `get_pending_dialog`. Pass `diagnostics=True` for a
-source-tagged `Reading` (value + `source` + `observed_at`).
+### State readers
 
-### Job-level settings
-`set_zoom` (tol 0.1) · `set_scan_speed` · `set_scan_resonant` · `set_scan_mode` ·
-`set_sequential_mode` · `set_scan_field_rotation` (tol 0.5°) · `set_image_format` (`"512 x 512"`) ·
-`set_objective(client, job, hw_info, slot_index=|name=|magnification=)` (needs `get_hardware_info()`).
+All return a value or `None` (never raise). Pass `diagnostics=True` for a source-tagged `Reading`
+(value + `source` + `observed_at`); pass `mode="api"|"log"|"hybrid"` to override the profile backend.
 
-### Z-stack
-`set_z_stack_definition` (tol 1.0 µm) · `set_z_stack_step_size` (tol 0.5 µm) · `set_z_stack_size` (tol 1.5 µm).
+| Function | Call | Returns |
+|---|---|---|
+| `ping` | `(client, timeout=5)` | `bool` |
+| `get_scan_status` | `(client, mode=None)` | status string (e.g. `"eIdle"`) |
+| `get_xy` | `(client, mode=None)` | `{"x","y","x_um","y_um"}` |
+| `read_zwide_um` | `(client, ...)` | `float` (µm) |
+| `get_jobs` | `(client, ...)` | list of job dicts |
+| `get_job_by_name` | `(client, job_name, ...)` | job dict |
+| `get_selected_job` | `(client, ...)` | selected job dict |
+| `get_job_settings` | `(client, job_name, ...)` | raw settings dict |
+| `get_hardware_info` | `(client, ...)` | hardware dict |
+| `get_fov` / `get_base_fov` | `(client, ...)` | field-of-view info |
+| `get_lasx_settings` | `()` | LAS X advanced settings (orientation, …) |
+| `get_pending_dialog` | `(client, ...)` | open LAS X dialog text, if any |
 
-### Per-setting optical / detector / laser / filter wheel
-`set_frame_accumulation` · `set_frame_average` · `set_line_accumulation` · `set_line_average` ·
-`set_pinhole_airy` (tol 0.05 AU) · `set_detector_gain` (tol 1.0) · `set_laser_intensity` (tol 0.005) ·
-`set_laser_shutter` · `set_filter_wheel_slot` · `set_filter_wheel_spectrum` (tol 1 nm). These take a
-`setting_index` (and `beam_route`/`line_index` where relevant).
+### Setting commands — reference
+
+All take `(client, job_name, …)` and return the result dict of §5; `tolerance` overrides the default.
+Per-setting commands (below the rule) also take a `setting_index` targeting a specific sequential setting.
+
+| Function | Key parameters | Tolerance / notes |
+|---|---|---|
+| `set_zoom` | `value` | 0.1 (factor) |
+| `set_scan_speed` | `value` | integer speed |
+| `set_scan_resonant` | `enable` | `True`/`False` |
+| `set_scan_mode` | `mode` | e.g. `"xyz"`, `"xzy"` |
+| `set_sequential_mode` | `mode` | `"Line"`/`"Frame"`/`"Stack"` |
+| `set_scan_field_rotation` | `angle` | 0.5° |
+| `set_image_format` | `format_str` | `"512 x 512"` or `(512, 512)` |
+| `set_objective` | `hw_info`, one of `slot_index=`/`name=`/`magnification=` | needs `get_hardware_info()` |
+| `set_z_stack_definition` | `begin_um=`, `end_um=` (`old_begin_um=`, `old_end_um=`) | 1.0 µm |
+| `set_z_stack_step_size` | `step_size_um` | 0.5 µm |
+| `set_z_stack_size` | `size_um` | 1.5 µm |
+| — *per-setting (take `setting_index`)* — | | |
+| `set_frame_accumulation` | `setting_index, value` | exact match |
+| `set_frame_average` | `setting_index, value` | exact match |
+| `set_line_accumulation` | `setting_index, value` | exact match |
+| `set_line_average` | `setting_index, value` | exact match |
+| `set_pinhole_airy` | `setting_index, value` | 0.05 AU |
+| `set_detector_gain` | `setting_index, beam_route, value` | 1.0 |
+| `set_laser_intensity` | `setting_index, beam_route, line_index, value` | 0.005 (0–1) |
+| `set_laser_shutter` | `setting_index, beam_route, activate` | `True` = open |
+| `set_filter_wheel_slot` | `setting_index, beam_route, filter_wheel_type, slot_index` | exact match |
+| `set_filter_wheel_spectrum` | `setting_index, beam_route, filter_wheel_type, position` | 1 nm |
 
 ### Settings model
 `make_changeable_copy(get_job_settings(client, job))` (`commands/settings.py`) normalizes raw job
