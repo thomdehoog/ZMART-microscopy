@@ -9,7 +9,7 @@ thin 1–3-line invocation style used across the lab's drivers.
 
 - **Author:** Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch · thomdehoog@gmail.com
 - **License:** MIT
-- **Status:** MVP. Core device control, acquisition, readers, and a full offline test suite are
+- **Status:** Minimum viable product (MVP). Core device control, acquisition, readers, and a full offline test suite are
   implemented and green. Server-facing details are transcribed from the
   [ZEISS OAD ZEN-API examples](https://github.com/zeiss-microscopy/OAD/tree/master/ZEN-API) and are
   **not yet validated against the `zen_api` wheel or a live gateway** — see [§10 Risks](#10-risks--bench-verify).
