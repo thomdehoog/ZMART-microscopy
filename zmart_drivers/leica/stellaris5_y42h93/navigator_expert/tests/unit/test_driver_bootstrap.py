@@ -40,7 +40,7 @@ def test_driver_self_bootstrap_with_only_leica_on_path(tmp_path):
     `import shared.output_layout` resolves
     transitively when acquisition.py loads."""
     repo_root = Path(__file__).resolve().parents[6]
-    driver_parent = repo_root / "drivers" / "leica" / "stellaris5_y42h93"
+    driver_parent = repo_root / "zmart_drivers" / "leica" / "stellaris5_y42h93"
     assert driver_parent.is_dir(), f"missing {driver_parent}"
 
     script = tmp_path / "child.py"
