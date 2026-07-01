@@ -8,7 +8,7 @@ microscope PC)::
     python run_ci.py                # env header + lint + offline tests + coverage
     python run_ci.py --no-lint      # skip ruff (tests + coverage only)
     python run_ci.py --no-cov       # skip coverage (faster; no pytest-cov needed)
-    python run_ci.py --hardware     # live LAS X validators (readers + end-to-end), read-only
+    python run_ci.py --hardware     # ALSO run the live LAS X validators after the offline suite
 
 Design goals (matching the suite's standard):
 
@@ -129,7 +129,7 @@ def main() -> int:
         "--hardware",
         action="store_true",
         help=(
-            "run the live LAS X hardware validators instead of the offline suite: "
+            "ALSO run the live LAS X hardware validators after the offline suite: "
             "the api/log/hybrid passive readers, api-vs-log parity, and the read-only "
             "end-to-end validator (needs a live LAS X session)"
         ),
@@ -174,14 +174,44 @@ def main() -> int:
     cov_requested = not args.no_cov
     cov_available = importlib.util.find_spec("pytest_cov") is not None
 
+    # --- offline suite + coverage (fatal) -- always runs ---------------------
+    # The portable gate: no microscope, no LAS X, so it runs everywhere, with or
+    # without --hardware. Excludes @pytest.mark.hardware; the mock-backed
+    # validator/stress tests run here (they are not marked hardware).
+    pytest_cmd = [
+        sys.executable,
+        "-m",
+        "pytest",
+        *[str(p) for p in TEST_PATHS],
+        "-m",
+        "not hardware",
+        # Absolute path: pytest resolves a relative --junit-xml against the cwd,
+        # so pin it to the driver's report dir regardless of launch dir.
+        f"--junit-xml={REPORT_DIR / 'junit.xml'}",
+    ]
+    if cov_requested and cov_available:
+        pytest_cmd += [
+            "--cov=navigator_expert",
+            f"--cov-config={DRIVER_ROOT / '.coveragerc'}",
+            "--cov-report=term-missing:skip-covered",
+            f"--cov-report=xml:{REPORT_DIR / 'coverage.xml'}",
+            f"--cov-report=html:{REPORT_DIR / 'htmlcov'}",
+        ]
+    elif cov_requested and not cov_available:
+        print("\n  (pytest-cov not installed -- running without coverage; `pip install pytest-cov` to enable)")
+
+    label = "tests: offline suite"
+    if cov_requested and cov_available:
+        label += " + coverage"
+    steps.append(run_step(label, pytest_cmd, env, fatal=True))
+
+    # --- live LAS X validators (fatal) -- ADDED on top by --hardware ---------
+    # --hardware ALSO runs the read-only live validators (after the offline
+    # suite), through this same step framework: streamed output, per-step
+    # timing, CI SUMMARY. All read-only and non-interactive -- no moves, writes,
+    # acquisitions, or prompts. Use the scripts directly with their --yes /
+    # --allow-* flags for the write / move / acquire phases (see each header).
     if args.hardware:
-        # --- live LAS X gate (fatal) -----------------------------------------
-        # Run the read-only hardware validators through this same step
-        # framework, so each one streams its output, is timed, and lands in the
-        # final CI SUMMARY. Everything here is READ-ONLY and non-interactive --
-        # no moves, no writes, no acquisitions, no prompts. For the write /
-        # move / acquire phases, run the scripts directly with their --yes /
-        # --allow-* flags (see each script's header).
         hw = DRIVER_ROOT / "tests" / "hardware"
         hardware_steps = [
             (
@@ -205,36 +235,6 @@ def main() -> int:
         ]
         for name, cmd in hardware_steps:
             steps.append(run_step(name, cmd, env, fatal=True))
-    else:
-        # --- offline suite + coverage (fatal) --------------------------------
-        # Excludes @pytest.mark.hardware; the mock-backed validator/stress tests
-        # run here (they are not marked hardware).
-        pytest_cmd = [
-            sys.executable,
-            "-m",
-            "pytest",
-            *[str(p) for p in TEST_PATHS],
-            "-m",
-            "not hardware",
-            # Absolute path: pytest resolves a relative --junit-xml against the
-            # cwd, so pin it to the driver's report dir regardless of launch dir.
-            f"--junit-xml={REPORT_DIR / 'junit.xml'}",
-        ]
-        if cov_requested and cov_available:
-            pytest_cmd += [
-                "--cov=navigator_expert",
-                f"--cov-config={DRIVER_ROOT / '.coveragerc'}",
-                "--cov-report=term-missing:skip-covered",
-                f"--cov-report=xml:{REPORT_DIR / 'coverage.xml'}",
-                f"--cov-report=html:{REPORT_DIR / 'htmlcov'}",
-            ]
-        elif cov_requested and not cov_available:
-            print("\n  (pytest-cov not installed -- running without coverage; `pip install pytest-cov` to enable)")
-
-        label = "tests: offline suite"
-        if cov_requested and cov_available:
-            label += " + coverage"
-        steps.append(run_step(label, pytest_cmd, env, fatal=True))
 
     # --- summary -------------------------------------------------------------
     total_elapsed = time.perf_counter() - overall_start
@@ -250,13 +250,12 @@ def main() -> int:
     print(f"\n  total: {total_elapsed:.1f}s")
     print(f"  reports written to: {REPORT_DIR}")
     print("    env.json          environment context for this run (read this first on a remote failure)")
+    print("    junit.xml         machine-readable offline test results")
+    if cov_requested and cov_available:
+        print("    coverage.xml      coverage for CI tooling")
+        print("    htmlcov/index.html  browsable coverage report")
     if args.hardware:
-        print("    hardware_validate.jsonl  end-to-end validator checks (PASS/WARN/FAIL/SKIP per step)")
-    else:
-        print("    junit.xml         machine-readable test results")
-        if cov_requested and cov_available:
-            print("    coverage.xml      coverage for CI tooling")
-            print("    htmlcov/index.html  browsable coverage report")
+        print("    hardware_validate.jsonl  live end-to-end validator checks (PASS/WARN/FAIL/SKIP per step)")
     print("    ci_summary.json   this step summary")
 
     summary = {
