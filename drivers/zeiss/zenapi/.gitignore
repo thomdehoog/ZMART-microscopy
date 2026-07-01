@@ -1,0 +1,7 @@
+# Generated test/CI artifacts
+tests/_report/
+# Python caches
+__pycache__/
+*.pyc
+# Local connection config (never commit tokens/certs)
+config.ini
