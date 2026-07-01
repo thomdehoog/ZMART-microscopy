@@ -638,6 +638,37 @@ Follow the project's TDD practice: add a failing offline test against synthetic
 fixtures (and, where useful, an auto-skipping real-data test) before
 implementing, and assert real values, not just shapes.
 
+### Running the offline suite
+
+Install the offline test/lint deps (separate from the runtime env), then run the
+driver's suites — no microscope or LAS X required:
+
+```powershell
+python -m pip install -r drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt
+python -m pytest -q drivers/leica/stellaris5_y42h93/navigator_expert/tests/unit
+python -m pytest -q drivers/leica/stellaris5_y42h93/navigator_expert/calibration/tests
+```
+
+Or use the self-contained gate, which layers lint + coverage + report paths on top:
+
+```powershell
+python drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py            # offline
+python drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py --hardware  # also the hardware suite
+```
+
+### Live hardware validation (gated, vendor-specific)
+
+Live validation is explicit and safe by default — the hardware-moving sections
+only run when their `--allow-*` flags are present, and require a live LAS X
+session (simulator or scope):
+
+```powershell
+python -m pytest -q drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware
+python drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware/validate_hardware.py --yes --allow-xy --allow-z --allow-objective --allow-acquire --state-reader-mode hybrid
+```
+
+Validator JSONL outputs are runtime artifacts and are ignored by default.
+
 ---
 
 ## Extending the driver
