@@ -2,8 +2,13 @@
 
 **ZMB's Microscopy-Agnostic Research Toolkit (ZMART).**
 
-ZMART Microscopy allows programmatic control of a wide range of microscopes and
-lets you build interoperable workflows with a simple scripting philosophy.
+This toolkit allows programmatic control of a wide range of microscopes and lets
+you build interoperable adaptive feedback microscopy workflows with a simple
+scripting philosophy.
+
+<p align="center">
+  <img src="docs/zmart-architecture.png" alt="ZMART sits between Jupyter notebooks and an AI coding agent above, and vendor drivers - each bound to a microscope - below" width="640">
+</p>
 
 ## ZMART Controller
 
