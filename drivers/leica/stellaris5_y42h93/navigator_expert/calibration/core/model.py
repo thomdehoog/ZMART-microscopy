@@ -1,11 +1,11 @@
 """Load and apply the current objective calibration.
 
-The canonical calibration file is
-``drivers/leica/stellaris5_y42h93/navigator_expert/calibration/current/calibration.json``.
-Schema v11 keeps only consumer-facing state: the image-to-stage matrix,
-one objective translation triple per slot, and calibrated backlash
-parameters. Diagnostic sub-deltas from calibration sessions stay in the
-session reports instead of the canonical JSON.
+The calibration is resolved through the machine profile - the newest snapshot
+under ``C:\\ProgramData\\smart_microscopy\\...`` or the driver-bundled default
+(see :mod:`navigator_expert.config.machine`). Schema v11 keeps only
+consumer-facing state: the image-to-stage matrix, one objective translation
+triple per slot, and calibrated backlash parameters. Diagnostic sub-deltas from
+calibration sessions stay in the session reports instead of the canonical JSON.
 """
 
 from __future__ import annotations
@@ -18,13 +18,10 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 11
-MIGRATION_COMMAND = (
-    "python -m navigator_expert.calibration.migrate_current_calibration"
-)
 
 
 class OldSchemaError(ValueError):
-    """Raised when a calibration file needs the explicit migration step."""
+    """Raised when a calibration file is an older, unsupported schema."""
 
 
 def default_path() -> Path:
@@ -58,10 +55,9 @@ def _atomic_write_json(path: str | Path, obj: dict[str, Any]) -> None:
 
 def _old_schema_message(version: Any) -> str:
     return (
-        f"calibration.json is at schema v{version}; this code expects "
-        f"v{SCHEMA_VERSION}. Run `{MIGRATION_COMMAND}` to migrate. "
-        "The migration is reversible via `git revert` on the migration "
-        "commit."
+        f"calibration.json is at schema v{version}; this driver expects "
+        f"v{SCHEMA_VERSION}. Re-run the calibration notebooks to publish a "
+        f"v{SCHEMA_VERSION} snapshot."
     )
 
 
@@ -116,8 +112,8 @@ def validate_calibration(config: dict[str, Any]) -> None:
 def load_calibration(path: str | Path | None = None) -> dict[str, Any]:
     """Load calibration.json without mutating it.
 
-    Old schemas raise :class:`OldSchemaError`; migration is an explicit
-    operator action handled by ``migrate_current_calibration.py``.
+    Old schemas raise :class:`OldSchemaError`; the operator re-runs the
+    calibration notebooks to publish a current-schema snapshot.
     """
     current = Path(path) if path is not None else default_path()
     if not current.exists():

@@ -5,8 +5,8 @@ Covers:
 - SessionPaths creation and folder layout
 - slug + objective_config_name + geometry validation
 - non-square pixel rejection
-- adoption behavior (success, archive, missing source, wrong kind,
-  relative current_path rejection)
+- adoption behavior (publishes a copy-forward snapshot, snapshot history,
+  missing staging source, wrong kind, bundled-default fallback)
 - image_to_stage success path with mocked driver + register_voting
 - weak-vote and D4-residual-failure paths block the staging config
 - report image paths are session-root-relative
