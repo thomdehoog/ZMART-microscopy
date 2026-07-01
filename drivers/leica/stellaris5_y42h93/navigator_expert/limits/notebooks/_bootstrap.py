@@ -6,7 +6,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[6]
 _DRIVER_PARENT = Path(__file__).resolve().parents[3]  # drivers/leica/stellaris5_y42h93
 
 # This notebook folder, so a notebook can archive its own executed copy into the
-# calibration snapshot (a read path, not a runtime write path).
+# machine snapshot (a read path, not a runtime write path).
 NOTEBOOKS_DIR = Path(__file__).resolve().parent
 
 for _path in (_REPO_ROOT, _DRIVER_PARENT):

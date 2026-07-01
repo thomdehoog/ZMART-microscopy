@@ -27,13 +27,17 @@ class OldSchemaError(ValueError):
     """Raised when a calibration file needs the explicit migration step."""
 
 
-def _calibration_root() -> Path:
-    return Path(__file__).resolve().parent.parent
-
-
 def default_path() -> Path:
-    """Path to the current adopted calibration config."""
-    return _calibration_root() / "current" / "calibration.json"
+    """Path to the active calibration config.
+
+    Resolves through the machine profile: the newest ProgramData snapshot for
+    this microscope, or the driver-bundled default when no snapshot exists
+    (see :mod:`navigator_expert.config.machine`). Deferred import keeps this
+    module import-light.
+    """
+    from ...config.machine import MACHINE
+
+    return MACHINE.calibration_path()
 
 
 def now_timestamp() -> str:
@@ -125,17 +129,33 @@ def load_calibration(path: str | Path | None = None) -> dict[str, Any]:
     return cfg
 
 
+def prepared_calibration(
+    config: dict[str, Any],
+    *,
+    path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Return a validated, write-ready copy of *config* (bumps ``last_updated``).
+
+    Shared by :func:`save_calibration` and the snapshot writer so a calibration
+    is validated identically no matter where it is persisted. *path* is only
+    used to label validation errors.
+    """
+    cfg = deepcopy(config)
+    cfg["last_updated"] = now_timestamp()
+    label = Path(path) if path is not None else Path("calibration.json")
+    _validate_schema_version(cfg, label)
+    validate_calibration(cfg)
+    return cfg
+
+
 def save_calibration(
     config: dict[str, Any],
     *,
     path: str | Path | None = None,
 ) -> Path:
     """Write the current calibration config atomically and bump timestamp."""
-    cfg = deepcopy(config)
-    cfg["last_updated"] = now_timestamp()
-    _validate_schema_version(cfg, Path(path) if path is not None else default_path())
-    validate_calibration(cfg)
     current = Path(path) if path is not None else default_path()
+    cfg = prepared_calibration(config, path=current)
     _atomic_write_json(current, cfg)
     return current
 
