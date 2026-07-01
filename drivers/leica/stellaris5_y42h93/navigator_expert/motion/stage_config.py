@@ -1,22 +1,15 @@
-"""Load and write Leica stage limit state.
+"""Load stage limits and calibrated backlash.
 
-Stage limits are configured safety/working limits, not calibration
-measurements. They live beside calibration files because both describe
-the current Leica machine state.
+The physical stage envelope and the calibration backlash are machine state:
+they resolve through the machine profile - the newest snapshot under
+``C:\\ProgramData\\smart_microscopy\\...`` or the driver-bundled default (see
+:mod:`navigator_expert.config.machine`). ``adopt_limits`` publishes a new
+physical-envelope snapshot from the ``set_stage_limits`` notebook.
 
-``drivers/leica/stellaris5_y42h93/navigator_expert/limits/defaults.json`` contains the configured
-physical envelope for the microscope.
-
-``drivers/leica/stellaris5_y42h93/navigator_expert/limits/current.json`` records the active
-working envelope. The target-acquisition notebook updates this file from
-boundary markers or scan-field geometry, then explicitly reloads it before
-applying limits.
-
-``current/calibration.json`` contains measured calibration state, including
-the backlash block consumed by motion helpers.
-
-The loader reads ``limits/.../defaults.json`` by default. Any caller that
-wants the active workflow envelope must pass ``current_path()`` explicitly.
+The per-run *working* envelope (boundary-marker / scan-field limits) is not
+machine state - it belongs to the acquisition workflow, above the vendor
+driver - so it is not resolved here. The legacy ``current_path`` /
+``write_limits`` helpers remain only until that lift into the workflow lands.
 """
 
 from __future__ import annotations

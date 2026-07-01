@@ -198,14 +198,14 @@ def test_set_image_to_stage_coerces_to_v11_block():
     }
 
 
-def test_old_schema_raises_with_migration_command(tmp_path):
+def test_old_schema_raises_pointing_at_recalibration(tmp_path):
     cal = _load_calibration_module()
     path = tmp_path / "calibration.json"
     path.write_text(
         json.dumps({"schema_version": 9, "objectives": {}}),
         encoding="utf-8",
     )
-    with pytest.raises(cal.OldSchemaError, match="migrate_current_calibration"):
+    with pytest.raises(cal.OldSchemaError, match="Re-run the calibration notebooks"):
         cal.load_calibration(path)
 
 
