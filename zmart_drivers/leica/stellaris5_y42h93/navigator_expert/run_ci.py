@@ -5,11 +5,11 @@ One command runs the driver's full offline quality gate anywhere Python and the
 driver import work (a developer laptop, a GitHub runner, the new institute's
 microscope PC)::
 
-    python run_ci.py                  # OFFLINE: env header + lint + offline tests + coverage
-    python run_ci.py --hardware       # BOTH: offline suite + the live LAS X validators
-    python run_ci.py --hardware-only  # ONLINE only: just the live LAS X validators (skip offline)
-    python run_ci.py --no-lint        # skip ruff (add to any of the above)
-    python run_ci.py --no-cov         # skip coverage (faster; no pytest-cov needed)
+    python run_ci.py             # OFFLINE (default): env header + lint + offline tests + coverage
+    python run_ci.py online      # ONLINE: just the live LAS X validators (needs live LAS X)
+    python run_ci.py both        # BOTH:   offline suite + the live LAS X validators
+    python run_ci.py --no-lint   # skip ruff (add to any mode)
+    python run_ci.py --no-cov    # skip coverage (faster; no pytest-cov needed)
 
 Design goals (matching the suite's standard):
 
@@ -124,27 +124,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Navigator Expert driver CI (offline suite + coverage + reports)."
     )
-    parser.add_argument("--no-lint", action="store_true", help="skip ruff lint/format checks")
-    parser.add_argument("--no-cov", action="store_true", help="skip coverage (no pytest-cov required)")
     parser.add_argument(
-        "--hardware",
-        action="store_true",
+        "mode",
+        nargs="?",
+        choices=["offline", "online", "both"],
+        default="offline",
         help=(
-            "ALSO run the live LAS X hardware validators after the offline suite "
-            "(offline + hardware): api/log/hybrid passive readers, api-vs-log "
-            "parity, and the read-only end-to-end validator (needs live LAS X)"
+            "which suite to run (default: offline). 'offline' -- no microscope, "
+            "no LAS X (the portable gate); 'online' -- the live LAS X validators "
+            "only (api/log/hybrid passive readers, api-vs-log parity, and the "
+            "read-only end-to-end validator per reader route; needs live LAS X); "
+            "'both' -- the offline suite followed by the live validators"
         ),
     )
-    parser.add_argument(
-        "--hardware-only",
-        action="store_true",
-        help="run ONLY the live LAS X hardware validators, skipping the offline suite",
-    )
+    parser.add_argument("--no-lint", action="store_true", help="skip ruff lint/format checks")
+    parser.add_argument("--no-cov", action="store_true", help="skip coverage (no pytest-cov required)")
     args = parser.parse_args()
 
-    # Three modes: offline (default) | online only (--hardware-only) | both (--hardware).
-    run_offline = not args.hardware_only
-    run_hardware = args.hardware or args.hardware_only
+    run_offline = args.mode in ("offline", "both")
+    run_hardware = args.mode in ("online", "both")
 
     overall_start = time.perf_counter()
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -184,7 +182,7 @@ def main() -> int:
     cov_requested = not args.no_cov
     cov_available = importlib.util.find_spec("pytest_cov") is not None
 
-    # --- offline suite + coverage (fatal) -- unless --hardware-only ----------
+    # --- offline suite + coverage (fatal) -- runs for mode 'offline' | 'both' -
     # The portable gate: no microscope, no LAS X, so it runs everywhere.
     # Excludes @pytest.mark.hardware; the mock-backed validator/stress tests run
     # here (they are not marked hardware).
@@ -216,7 +214,7 @@ def main() -> int:
             label += " + coverage"
         steps.append(run_step(label, pytest_cmd, env, fatal=True))
 
-    # --- live LAS X validators (fatal) -- with --hardware / --hardware-only ---
+    # --- live LAS X validators (fatal) -- runs for mode 'online' | 'both' -----
     # Read-only live validators, through this same step framework: streamed
     # output, per-step timing, CI SUMMARY. All read-only and non-interactive --
     # no moves, writes, acquisitions, or prompts. Use the scripts directly with
