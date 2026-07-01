@@ -7,7 +7,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 from __future__ import annotations
 
 import pytest
-from controller import get_instruments, set_instrument
+from zmart import get_instruments, set_instrument
 
 
 @pytest.fixture
@@ -130,7 +130,7 @@ class TestContext:
 
 class TestModuleStyle:
     def test_module_delegates_to_active_microscope(self):
-        import controller as m
+        import zmart as m
 
         m.set_instrument(m.get_instruments()[0])
         m.set_xyz(10, 20, 5)
@@ -138,7 +138,7 @@ class TestModuleStyle:
         m.disconnect()
 
     def test_unknown_attribute_raises(self):
-        import controller as m
+        import zmart as m
 
         missing = "definitely_not_a_method"
         with pytest.raises(AttributeError):
