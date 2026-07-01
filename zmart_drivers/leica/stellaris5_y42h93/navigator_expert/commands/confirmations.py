@@ -1091,16 +1091,21 @@ def confirm_acquire(
     deadline = t_start + (timeout if timeout is not None else 1e9)
 
     while time.perf_counter() < deadline:
-        status = (
-            _reading_value_after(
-                _readers.get_scan_status(client, mode="api", diagnostics=True),
-                observed_after,
-            )
-            or "Unknown"
+        status = _reading_value_after(
+            _readers.get_scan_status(client, mode="api", diagnostics=True),
+            observed_after,
         )
         elapsed = time.perf_counter() - t_start
 
-        if "Idle" not in status:
+        if status is None or status == "Unknown":
+            # Failed or stale status read (the API reader reports "Unknown"
+            # on failure): evidence of neither scanning nor idle. It must
+            # not set saw_scanning — that would arm phase 2 and skip both
+            # the permanent-error check and the start timeout, confirming
+            # an acquisition that may never have run. It also breaks the
+            # idle streak, so completion needs consecutive observed reads.
+            consecutive_idle = 0
+        elif "Idle" not in status:
             saw_scanning = True
             consecutive_idle = 0
         else:
@@ -1129,7 +1134,7 @@ def confirm_acquire(
         # Heartbeat for long scans
         now = time.perf_counter()
         if now - last_heartbeat > heartbeat_interval:
-            msg = f"Scanning: {status}, {elapsed:.0f}s elapsed"
+            msg = f"Scanning: {status or 'Unknown'}, {elapsed:.0f}s elapsed"
             log.info(msg)
             logs.append(_make_log_entry("info", msg))
             last_heartbeat = now
