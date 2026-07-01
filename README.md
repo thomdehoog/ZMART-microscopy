@@ -74,7 +74,7 @@ command model, state handling, and gotchas in its own README.
 | ZEISS (ZEN) | ZEN API (gRPC) | [`zmart_drivers/zeiss/zenapi/`](zmart_drivers/zeiss/zenapi/README.md) | **Minimum viable product** — full offline suite green; not yet bench-validated (see [Risks](zmart_drivers/zeiss/zenapi/README.md#10-risks--bench-verify)) |
 | Nikon (NIS-Elements 6.2) | NIS-Elements macros / NkSocket TCP | [`zmart_drivers/nikon/`](zmart_drivers/nikon/README.md) | **Investigation + spike** — socket round-trip proof landed; no production driver yet (device verbs still to be pinned) |
 | Evident FLUOVIEW FV4000 (IX83) | FLUOVIEW RDK (TCP command server) | [`zmart_drivers/evident/`](zmart_drivers/evident/README.md) | **Investigation + planning** — RDK route mapped (Leica-CAM-symmetric); pending Evident developer-program access to the FV RDK command reference |
-| mesoSPIM (open-source light-sheet) | mesoSPIM-control (PyQt5; no external API out of the box) | [`drivers/mesospim/`](drivers/mesospim/README.md) | **Investigation + planning** — GPL-3.0, driven at arm's length via a resident socket hook (Nikon-symmetric) + MIT client; uniquely offline-testable via `-D` demo mode |
+| mesoSPIM (open-source light-sheet) | mesoSPIM-control (PyQt5; no external API out of the box) | [`zmart_drivers/mesospim/`](zmart_drivers/mesospim/README.md) | **Investigation + planning** — GPL-3.0, driven at arm's length via a resident socket hook (Nikon-symmetric) + MIT client; uniquely offline-testable via `-D` demo mode |
 
 The cross-vendor controller is the intended single surface above the drivers and
 is still under construction; today the workflow uses the Leica driver path
