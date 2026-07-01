@@ -8,7 +8,7 @@ interoperable, adaptive feedback microscopy workflows. It is developed at the
 Center for Microscopy and Image Analysis (ZMB), University of Zurich.
 
 <p align="center">
-  <img src="docs/zmart-architecture.png" alt="ZMART sits between Jupyter notebooks and an AI coding agent above, and vendor drivers - each bound to a microscope - below" width="90%">
+  <img src="docs/zmart-architecture.png" alt="ZMART sits between Jupyter notebooks and an AI coding agent above, and vendor drivers - each bound to a microscope - below" width="100%">
 </p>
 
 ## ZMART Controller
