@@ -1,9 +1,17 @@
 # mesoSPIM integration — findings & architecture (ZMART driver)
 
-> **Status:** investigation / planning. No driver code yet. This documents how the open-source
-> **mesoSPIM-control** light-sheet acquisition software works and how a `zmart_drivers/mesospim/` driver
-> would **plug into ZMART** (the vendor-agnostic controller surface) beside the Leica/Zeiss/Nikon/
+> **Status:** **driver implemented** (offline, mock-server tested — 94 tests green) + a resident
+> command-server script for bench/`-D`-demo validation. This documents how the open-source
+> **mesoSPIM-control** light-sheet acquisition software works and how the `zmart_drivers/mesospim/`
+> driver **plugs into ZMART** (the vendor-agnostic controller surface) beside the Leica/Zeiss/Nikon/
 > Evident drivers.
+>
+> **What ships now:** an MIT socket client (`connection/`), a dispatch backbone + command wrappers
+> (`commands/`), state readers (`readers/`), profiles + 5-axis limits (`config/`), capture + save
+> (`acquisition/`), a ZMART controller adapter (`controller.py`), the GPL resident command-server
+> script (`server/`), and an offline suite driving a mock command server (`tests/`). The one
+> remaining bench step is validating `server/mesospim_command_server.py` against mesoSPIM `-D` demo
+> mode (its Core-binding calls are quarantined in one class for exactly that).
 >
 > **Target:** [mesoSPIM-control](https://github.com/mesoSPIM/mesoSPIM-control) (v1.20.0), the
 > Python/PyQt5 acquisition app for mesoSPIM light-sheet microscopes (Benchtop / v4 / v5 + custom).
@@ -128,24 +136,69 @@ Use surface (1) to add the missing socket boundary **without forking mesoSPIM**:
 The `zmart_drivers/mesospim/` driver presents ZMART's neutral contract; internally it is a socket client:
 
 ```
-zmart_drivers/mesospim/                 (eventual)
-  connection/   TCP client to the resident command server (connect / send / read)
-  commands/     dispatch backbone + verb wrappers (move_xy, move_z, snap, run_list, ...)
-  readers/      parse replies / state-singleton queries into ZMART state
-  config/       profiles (host/port; per-command confirm/retry tuning)
-  server/       the resident mesoSPIM command-server script (GPL edge) + upstream proposal
-  tests/        offline: MIT client vs a mock server; integration: vs mesoSPIM -D demo mode
+zmart_drivers/mesospim/
+  protocol.py     pure JSON-lines encode/parse (MIT)
+  connection/     TCP client + session lifecycle to the resident command server
+  commands/       dispatch backbone + verb wrappers (move_xy/z/focus/rotation, set_filter/zoom/laser/etl, ...)
+  readers/        parse replies / state-singleton queries into ZMART state
+  config/         profiles (host/port; per-command confirm/retry tuning), hardware model, 5-axis limits
+  acquisition/    capture (snap / acquisition list) + save into the canonical layout
+  controller.py   ZMART controller adapter (ops table + register)
+  server/         the resident mesoSPIM command-server script (GPL edge) + PROTOCOL.md + upstream proposal
+  tests/          offline: MIT client vs a mock server (94 tests); integration: vs mesoSPIM -D demo mode
+```
+
+### Two ways to drive it
+
+Directly (thin, notebook-style):
+
+```python
+import mesospim as drv
+client = drv.connect({"host": "127.0.0.1", "port": 42000})
+drv.apply_stage_limits_from_config(drv.load_stage_config())
+drv.move_xy(client, 1000, 2000)          # micrometers
+drv.set_filter(client, "515/30")
+acq = drv.acquire(client, "prescan")     # capture with current settings
+saved = drv.save(acq, run_dir, position_label="A1")
+drv.close(client)
+```
+
+Through the vendor-neutral controller (`import zmart_controller`):
+
+```python
+import mesospim, zmart_controller
+mesospim.register({"vendor": "mesospim", "microscope": "mesospim-01",
+                   "api": "command-server", "host": "127.0.0.1", "port": 42000})
+sess = zmart_controller.set_instrument(zmart_controller.get_instruments()[0])
+sess.set_origin()
+sess.set_xyz(10, 20, 5)                                   # um from origin
+sess.acquire("prescan", "A1", options={"format": "ome-tiff"})
+sess.disconnect()
+```
+
+The controller surface is x/y/z centric; focus and rotation are exposed as **procedures**
+(`move_focus`, `move_rotation`), and laser/filter/zoom/intensity/shutter/ETL as the capturable
+**mutable state** (`get_state` / `set_state`). The full driver API (`import mesospim`) covers the rest.
+
+### Testing
+
+```bash
+python -m pytest zmart_drivers/mesospim/tests          # offline: MIT client vs mock command server
+python -m pytest zmart_drivers/mesospim/tests -m integration   # vs mesoSPIM -D demo mode (see server/README.md)
 ```
 
 ## Next steps
 
-1. **Spike (buildable now):** the **MIT external client** + a **mock command server** + offline tests
-   (reuse the Nikon/Evident spike pattern), which also *specifies the protocol* the resident script
-   must implement.
-2. **Resident command-server script:** write the QTimer-polled socket server that dispatches to the
-   Core; validate against **mesoSPIM `-D` demo mode** (real software, no hardware).
+1. ~~**Spike:** MIT external client + mock command server + offline tests.~~ **Done** — the client,
+   dispatch/commands, readers, config/limits, acquisition, and the mock-server test suite are in
+   place (94 tests green), and the protocol is specified in [`server/PROTOCOL.md`](server/PROTOCOL.md).
+2. ~~**Resident command-server script:** the QTimer-polled socket server that dispatches to the Core.~~
+   **Written** ([`server/mesospim_command_server.py`](server/mesospim_command_server.py)); its
+   Core-binding calls are quarantined in `_CoreBridge`. **Still to do:** validate it against
+   **mesoSPIM `-D` demo mode** (real software, no hardware) — see [`server/README.md`](server/README.md).
 3. **Propose the hook upstream** to the mesoSPIM project (avoids a maintained fork; benefits the community).
-4. **Grow into `zmart_drivers/mesospim/`** and register it with the ZMART controller.
+4. ~~**Grow into `zmart_drivers/mesospim/`** and register it with the ZMART controller.~~ **Done** —
+   [`controller.py`](controller.py) registers the driver's ops table with `zmart_controller`.
 
 ## References
 - mesoSPIM-control: <https://github.com/mesoSPIM/mesoSPIM-control>
