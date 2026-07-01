@@ -9,6 +9,11 @@ workflow runs on any microscope that has a driver; your code never imports a
 vendor's API, the driver talks to the microscope's own API, the controller stays
 a thin, easy surface for humans and AI agents alike.
 
+> **This is the `zmart` surface.** The controller is ZMART's vendor-agnostic API
+> — the layer the outside world is meant to import (`import zmart`), with vendor
+> drivers plugged in underneath. See [`docs/ZMART.md`](../docs/ZMART.md) for the
+> identity and the "brand-surface" principle.
+
 ## Overview of functionalities
 
 Everything you can call:
