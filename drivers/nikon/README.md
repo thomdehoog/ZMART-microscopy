@@ -1,13 +1,12 @@
 # Nikon NIS-Elements integration — findings & architecture
 
 > **Status:** investigation / planning. No driver code yet. This document captures what the
-> Nikon macro-library bundle actually contains and what it means for a `drivers/nikon/` driver
-> that sits beside `drivers/leica/stellaris5_y42h93/navigator_expert/`.
+> Nikon macro-library bundle actually contains and what it means for a `drivers/nikon/`
 >
 > **Target instrument:** lab runs **NIS-Elements 6.2** (= 6.20).
 > **Contact:** Kees van der Oord, Nikon (`Kees.van.der.Oord@nikon.com`), who pointed us at the
 > Macro Utility Libraries module (email 2026-06-18).
-> **Source material:** `C:\Users\t.de\Desktop\Nikon api (1)\` (collected `Nk*.dll`, interface
+> **Source material:** `C:\Program Files\NIS-Elements\` (collected `Nk*.dll`, interface
 > macros, ~50 legacy LUCIA example macros, and the `NkMacroLibs_6.20.00.exe` installer).
 > Installed canonical locations on an NIS box: `C:\Program Files\NIS-Elements\{macros,examples}`.
 
