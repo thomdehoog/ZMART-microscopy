@@ -1,9 +1,18 @@
-# SMART Microscopy
+# ZMART
 
-SMART Microscopy puts microscopes under programmatic control and runs workflows
-that analyze data and make acquisition decisions live during an experiment. The
-design is **vendor-neutral**: a workflow targets one small controller interface,
+**ZMB's Microscopy-Agnostic Research Toolkit.** ZMART puts microscopes under
+programmatic control and runs workflows that analyze data and make acquisition
+decisions live during an experiment. The design is **vendor-neutral**: a
+workflow targets one small controller interface — the emerging `zmart` surface —
 and any microscope with a driver behind that interface can run it.
+
+> **The name is the point.** `zmart` is meant to be the vendor-agnostic API that
+> workflows and users import; the vendor drivers (`leica`, `zeiss`, `nikon`,
+> `evident`) plug in *underneath*. That is how the toolkit — and ZMB's name —
+> travels to other institutes: every `import zmart` in someone else's code
+> carries it. See **[`docs/ZMART.md`](docs/ZMART.md)** for the identity and the
+> rebrand sequencing. (The repo and conda env stay `smart-microscopy` until that
+> rename is done deliberately, once the agnostic API is worth branding.)
 
 ## Architecture
 
@@ -28,7 +37,9 @@ workflows/                                      smart-microscopy workflows
   image algorithms (registration, focus) used across drivers and workflows.
 - **`controller/`** — the cross-vendor controller: one small, consistent interface
   a workflow drives, so the same workflow runs on any microscope that has a
-  driver. See its README for the full API and for how to register a new driver.
+  driver. This is the **emerging `zmart` surface** — the vendor-agnostic API the
+  rest of the world would import. See its README for the full API and for how to
+  register a new driver.
 - **`workflows/`** — the smart-microscopy workflows themselves (current:
   `workflows/target_acquisition/`).
 
