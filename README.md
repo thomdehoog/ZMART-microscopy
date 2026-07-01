@@ -1,39 +1,9 @@
 # ZMART Microscopy
 
-**ZMB's Microscopy-Agnostic Research Toolkit.** ZMART Microscopy puts microscopes
-under programmatic control and runs workflows that analyze data and make acquisition
-decisions live during an experiment. The design is **vendor-neutral**: a
-workflow targets one small controller interface — the emerging `zmart` surface —
-and any microscope with a driver behind that interface can run it.
+**ZMB's Microscopy-Agnostic Research Toolkit (ZMART).**
 
-## Architecture
-
-Four roots, layered from vendor-specific up to vendor-neutral:
-
-```text
-drivers/                                        vendor microscope drivers
-  <vendor>/<machine>/<api>/                     one driver per (vendor, machine, API)
-  leica/stellaris5_y42h93/navigator_expert/     Leica LAS X Navigator Expert driver
-    calibration/                                calibration notebooks and code
-    limits/                                     safety-limit data and helpers
-shared/                                         vendor-independent utilities (output layout, algorithms)
-zmart/                                          cross-vendor controller (single workflow-facing surface)
-workflows/                                      smart-microscopy workflows
-  target_acquisition/                           operator notebook, pipeline, tests
-```
-
-- **`drivers/`** — each driver speaks one microscope's native API and is keyed by
-  `<vendor>/<machine>/<api>`. A driver owns its own calibration and limits. New
-  microscopes are added here without touching workflows.
-- **`shared/`** — vendor-independent utilities: the lab-wide output layout and
-  image algorithms (registration, focus) used across drivers and workflows.
-- **`zmart/`** — the cross-vendor controller: one small, consistent interface
-  a workflow drives, so the same workflow runs on any microscope that has a
-  driver. This is the **emerging `zmart` surface** — the vendor-agnostic API the
-  rest of the world would import. See its README for the full API and for how to
-  register a new driver.
-- **`workflows/`** — the smart-microscopy workflows themselves (current:
-  `workflows/target_acquisition/`).
+ZMART Microscopy allows programmatic control of a wide range of microscopes and
+lets you build interoperable workflows with a simple scripting philosophy.
 
 ## ZMART Controller
 
@@ -105,6 +75,35 @@ is still under construction; today the workflow uses the Leica driver path
 directly through local bootstrap modules. As drivers mature they move up from
 **Under construction** to **Production-ready**, and workflows move onto the
 `zmart` surface.
+
+## Architecture
+
+Four roots, layered from vendor-specific up to vendor-neutral:
+
+```text
+drivers/                                        vendor microscope drivers
+  <vendor>/<machine>/<api>/                     one driver per (vendor, machine, API)
+  leica/stellaris5_y42h93/navigator_expert/     Leica LAS X Navigator Expert driver
+    calibration/                                calibration notebooks and code
+    limits/                                     safety-limit data and helpers
+shared/                                         vendor-independent utilities (output layout, algorithms)
+zmart/                                          cross-vendor controller (single workflow-facing surface)
+workflows/                                      smart-microscopy workflows
+  target_acquisition/                           operator notebook, pipeline, tests
+```
+
+- **`drivers/`** — each driver speaks one microscope's native API and is keyed by
+  `<vendor>/<machine>/<api>`. A driver owns its own calibration and limits. New
+  microscopes are added here without touching workflows.
+- **`shared/`** — vendor-independent utilities: the lab-wide output layout and
+  image algorithms (registration, focus) used across drivers and workflows.
+- **`zmart/`** — the cross-vendor controller: one small, consistent interface
+  a workflow drives, so the same workflow runs on any microscope that has a
+  driver. This is the **emerging `zmart` surface** — the vendor-agnostic API the
+  rest of the world would import. See its README for the full API and for how to
+  register a new driver.
+- **`workflows/`** — the smart-microscopy workflows themselves (current:
+  `workflows/target_acquisition/`).
 
 ## Getting Started
 
