@@ -68,19 +68,12 @@ conda-forge / PyPI choice, and the typical path through the repo — is in
 ## Tests
 
 Every component ships its own **offline** suite that needs no microscope and no
-vendor software. The cross-cutting, repo-level suites:
+vendor software, and documents how to run it in its own README:
 
-```powershell
-python -m pytest -q controller/tests
-python -m pytest -q workflows/target_acquisition/tests
-python -m pytest -q shared/output_layout/tests
-```
-
-Each **driver** documents its own testing — how to install its offline dev deps,
-run its offline suite, and run its gated, vendor-specific live validation — in
-its own README (drivers own their calibration, limits, and hardware probes):
-
-- Leica: [testing section](drivers/leica/stellaris5_y42h93/navigator_expert/README.md#testing)
-- Zeiss: [testing section](drivers/zeiss/zenapi/README.md#9-testing)
+- Controller — [tests](controller/README.md#tests)
+- Target-acquisition workflow — [tests](workflows/target_acquisition/README.md#tests)
+- Output layout — [tests](shared/output_layout/README.md#tests)
+- Leica driver — [testing](drivers/leica/stellaris5_y42h93/navigator_expert/README.md#testing) (incl. gated live validation)
+- Zeiss driver — [testing](drivers/zeiss/zenapi/README.md#9-testing)
 
 Live hardware validation is always explicit, gated, and safe by default.
