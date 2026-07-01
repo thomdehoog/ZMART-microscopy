@@ -160,7 +160,13 @@ class _CoreBridge:
         self.core.sig_run_timepoint.emit(0)
         self.core.sig_end_image_series.emit(acq, acq_list)
         files = _written_files(acq)
-        return {"files": files, "planes": int(acq.get("planes", 1)), "pixels": _camera(self.core.cfg)}
+        cam = _camera(self.core.cfg)
+        # PROTOCOL.md: pixels is [x, y] (the driver indexes pixels[0]/pixels[1]).
+        return {
+            "files": files,
+            "planes": int(acq.get("planes", 1)),
+            "pixels": [cam["pixels_x"], cam["pixels_y"]],
+        }
 
 
 def _wavelength(name):

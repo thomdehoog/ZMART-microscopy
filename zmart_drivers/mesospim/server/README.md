@@ -47,6 +47,25 @@ python -m pytest zmart_drivers/mesospim/tests -m integration   # terminal 2 (see
 This is unique among the ZMART drivers: the whole control loop can be exercised
 against the **real acquisition software** with no hardware.
 
+### Headless validation of the Qt half (no mesoSPIM needed)
+
+`validate_headless.py` runs this server's **entire Qt machinery** (`QTcpServer` +
+`QTimer` poll + JSON dispatch + `_CoreBridge`) against a *fake* Core, driven by
+the real `MesospimClient` over a localhost socket — proving everything except the
+real Core executing the calls. It needs only PyQt5 and runs with no display:
+
+```bash
+QT_QPA_PLATFORM=offscreen python zmart_drivers/mesospim/server/validate_headless.py
+# ... RESULT: PASS ✅
+```
+
+The fake Core's method/signal surface (`move_absolute(sdict, wait_until_done=…)`,
+`move_relative`, `zero_axes(list)`, `sig_stop_movement`,
+`sig_state_request_and_wait_until_done`, the `x_abs`/`x_rel` move keys, and the
+`state['position']['x_pos']` layout) was checked against mesoSPIM-control
+v1.20.0 source, so the only surface this does **not** cover is the live Core
+actually moving hardware/demo backends — that is the `-D`-demo step above.
+
 ## Adapting to your instrument
 
 The bridge follows mesoSPIM-control **v1.20.0** names. Confirm these against your
