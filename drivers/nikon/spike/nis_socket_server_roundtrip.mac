@@ -1,0 +1,276 @@
+// nis_socket_server_roundtrip.mac
+// ----------------------------------------------------------------------------
+// SmartMicroscopy <-> NIS-Elements round-trip spike server (Step 1).
+//
+// A resident NIS macro that listens on a TCP socket and speaks a tiny text
+// protocol, proving the Leica-symmetric external-orchestrator loop end to end
+// BEFORE any device-motion verbs exist:
+//
+//     !<command>   run the rest of the line as a NIS macro command
+//                  (fire-and-forget, no reply)  e.g.  !Capture();
+//     ?<query>     compute a value and write ONE reply line back:
+//         ?ping             -> OK|pong
+//         ?Get_Calibration  -> OK|query=Get_Calibration|cal_um_per_px=..|aspect=..|unit=..|objective=..
+//                              ERROR|<reason>   (e.g. no image open)
+//
+// Reply lines are pipe-delimited (STATUS|key=value|...). '|' is used instead of
+// whitespace so the objective name may contain spaces. Lines are ASCII,
+// terminated by a carriage return ('\r') per NkSocket_ReadLineA/WriteLineA.
+//
+// This is a focused, loopback-bound fork of Nikon's NkSocketServerDemo.mac
+// (author Kees van der Oord). It reuses the proven NkPropSheet dialog +
+// WM_TIMER poll + NkSocket transport; the '?query' dispatch and reply framing
+// are ours.
+//
+// SECURITY: '!' runs arbitrary macro text received over the socket. This spike
+// binds to 127.0.0.1 only. For anything beyond a bench spike, replace blanket
+// '!' execution with a command allow-list (see NRT_OnTimer).
+//
+// Requirements (ship with NkMacroLibs_6.20.00): win32.mac, nkwindow.mac,
+//   nkpropsheet.mac, nksocket.mac in c:\program files\nis-elements\macros,
+//   and NkSocket.dll / NkWindow.dll beside nis_ar.exe.
+// Target: NIS-Elements 6.2 (6.20).
+//
+// Author: Thom de Hoog (ZMB, University of Zurich)
+//         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+// License: MIT
+// ----------------------------------------------------------------------------
+
+// globals persist after main() returns so the interpreted event handlers stay live
+global char  NRT_title[64]   = "SmartMicroscopy Round-Trip Server";
+global char  NRT_version[64] = "0.1.0";
+global long  NRT_dlg;
+global int64 NRT_socket;
+global long  NRT_is_connected;
+
+#define NRT_LOG_LEN  4096
+global char  NRT_log[NRT_LOG_LEN];
+
+#define NRT_TIMER_ID   1
+#define NRT_POLL_MS  250
+
+// the interpreter parses every function in this file, registers them as
+// commands, then runs main().
+int main()
+{
+   if(!ExistProc("NPS_ShowPropertyDialog"))
+   {
+      RunMacro("c:/Program Files/NIS-Elements/macros/NkPropSheet.mac");
+   }
+   if(!ExistProc("NkSocket_Connect"))
+   {
+      RunMacro("c:/Program Files/NIS-Elements/macros/NkSocket.mac");
+   }
+   NRT_ShowDialog();
+}
+
+int NRT_ShowDialog()
+{
+   char template[2048];
+
+   if(NRT_dlg)
+   {
+      NPS_OnClose(NRT_dlg);
+   }
+   NkSocket_Close(&NRT_socket);
+   NRT_is_connected = 0;
+   NRT_log[0] = 0;
+
+   // sheet: caption ; then one prop: line per control (fields separated by ':')
+   sprintf(template,"sheet:%s;","NRT_title");
+   strcat(template,"prop:port:cbbPort:combobox:CBS_DROPDOWN:120:54468;");
+   strcat(template,"prop::btnListen:button:BS_AUTOCHECKBOX|BS_PUSHLIKE:40>125:Listen;");
+   strcat(template,"prop:Status:edtStatus:edit:ES_READONLY|ES_AUTOVSCROLL:165:stopped;");
+   strcat(template,"prop::edtLog:edit:ES_READONLY|ES_MULTILINE|ES_AUTOVSCROLL|WS_EX_CLIENTEDGE:165x28:;");
+
+   NRT_dlg = NPS_ShowPropertyDialog(0, template);
+
+   NkDialog_AddMacroMessageHandler(NRT_dlg,"",WM_CLOSE,0,0,0,0,"NRT_OnClose()");
+   NkDialog_AddMacroMessageHandler(NRT_dlg,"",WM_TIMER,0,0,0,0,"NRT_OnTimer()");
+   NkDialog_AddMacroMessageHandler(NRT_dlg,"btnListen",WM_COMMAND,0,0,0,0,"NRT_OnListen()");
+}
+
+int NRT_OnListen()
+{
+   long result;
+   char port[64];
+   char bind[96];
+   char status[128];
+   int  val;
+
+   // stop any existing service first
+   if(NRT_socket)
+   {
+      NkSocket_Close(&NRT_socket);
+      KillTimer(NRT_dlg,NRT_TIMER_ID);
+      NRT_is_connected = 0;
+      NRT_SetStatus("stopped","");
+   }
+
+   val = NkDialog_SendMessage(NRT_dlg,"btnListen",BM_GETCHECK,0,0);
+   if(!val) return 0;
+
+   NkDialog_SendMessageString(NRT_dlg,"cbbPort",WM_GETTEXT,64,port);
+
+   // bind to loopback only, unless the operator typed an explicit address:port
+   if(strchr(port,':') == NULL) sprintf(bind,"127.0.0.1:%s","port");
+   else                         strcpy(bind,port);
+
+   result = NkSocket_Listen(&NRT_socket, bind);
+   if(result < 0)
+   {
+      NRT_Error(result);
+      NkDialog_SendMessage(NRT_dlg,"btnListen",BM_SETCHECK,0,0);
+      return 0;
+   }
+
+   NkSocket_IsListening(NRT_socket, status, 128);
+   NRT_SetStatus("listening on ", status);
+   SetTimer(NRT_dlg, NRT_TIMER_ID, NRT_POLL_MS, NULL);
+}
+
+int NRT_OnTimer()
+{
+   char8 bufA[256];
+   char  line[256];
+   int   result;
+
+   result = NkSocket_IsConnected(NRT_socket, NULL, 0);
+   if(result <= 0)
+   {
+      if(NRT_is_connected)
+      {
+         NRT_is_connected = 0;
+         NRT_Log("* client disconnected","");
+         NkSocket_IsListening(NRT_socket, line, 256);
+         NRT_SetStatus("listening on ", line);
+      }
+      return 0;
+   }
+   if(!NRT_is_connected)
+   {
+      NRT_is_connected = 1;
+      NkSocket_IsConnected(NRT_socket, line, 256);
+      NRT_SetStatus("client connected: ", line);
+   }
+
+   // drain every line that arrived since the last tick
+   while(1)
+   {
+      result = NkSocket_ReadLineA(NRT_socket, bufA, 256, 0);
+      if(result <= 0) break;           // no more data this tick (-14 = timeout)
+
+      MultiByteToWideChar(line, bufA);
+      NRT_Log("< ", line);
+
+      if(line[0] == '!')
+      {
+         // SECURITY: swap this for an allow-list before leaving the bench.
+         NRT_Log("  exec: ", line+1);
+         Int_ExecuteCommand(GetCurrentProcessId(), line+1);
+      }
+      else if(line[0] == '?')
+      {
+         NRT_HandleQuery(line+1);
+      }
+      else
+      {
+         NRT_Reply("ERROR|expected '!command' or '?query'");
+      }
+   }
+}
+
+// query dispatch: add a strcmp branch per query. Reply with ONE pipe-delimited
+// line. Extend this as the device-verb vocabulary is pinned down.
+int NRT_HandleQuery(char * query)
+{
+   char   reply[512];
+   char   opened[256];
+   char   objective[128];
+   double cal, aspect;
+   int    unit;
+
+   if(strcmp(query,"ping") == 0)
+   {
+      NRT_Reply("OK|pong");
+      return 0;
+   }
+
+   if(strcmp(query,"Get_Calibration") == 0)
+   {
+      // Get_Calibration is only meaningful with a document open (see SampleAPI_07)
+      GetOpenedDocumentList(&opened, 1, 255);
+      if(opened[0] == 0)
+      {
+         NRT_Reply("ERROR|no image open - cannot read calibration");
+         return 0;
+      }
+      objective[0] = 0;
+      Get_Calibration(objective, &cal, &aspect, &unit);
+      sprintf(reply,"OK|query=Get_Calibration|cal_um_per_px=%.5f|aspect=%.4f|unit=%d|objective=%s",
+              "cal,aspect,unit,objective");
+      NRT_Reply(reply);
+      return 0;
+   }
+
+   sprintf(reply,"ERROR|unknown query: %s","query");
+   NRT_Reply(reply);
+}
+
+int NRT_Reply(char * text)
+{
+   char8 bufA[512];
+   WideCharToMultiByte(bufA, text);
+   NkSocket_WriteLineA(NRT_socket, bufA);
+   NRT_Log("> ", text);
+}
+
+int NRT_OnClose()
+{
+   NkSocket_Close(&NRT_socket);
+   KillTimer(NRT_dlg, NRT_TIMER_ID);
+   NPS_OnClose(NRT_dlg);
+   NRT_dlg = 0;
+}
+
+// --- cosmetic log (does not affect the protocol) ----------------------------
+int NRT_Log(char * prefix, char * text)
+{
+   long hCtrl;
+   int  len;
+
+   // clip to the tail so the buffer can't grow without bound
+   len = strlen(NRT_log) + strlen(prefix) + strlen(text) + 2;
+   if(len >= NRT_LOG_LEN) NRT_log[0] = 0;
+   strcat(NRT_log, prefix);
+   strcat(NRT_log, text);
+
+   // the multi-line edit control wants CR+LF (13,10) line separators
+   len = strlen(NRT_log);
+   NRT_log[len]   = 13;
+   NRT_log[len+1] = 10;
+   NRT_log[len+2] = 0;
+
+   NkDialog_FindControl(NRT_dlg,"edtLog",&hCtrl);
+   len = strlen(NRT_log);
+   NkWindow_SendMessageString(hCtrl, WM_SETTEXT, 0, NRT_log);
+   NkWindow_SendMessage(hCtrl, EM_SETSEL, len, len);
+   NkWindow_SendMessage(hCtrl, EM_SCROLLCARET, 0, 0);
+}
+
+int NRT_SetStatus(char * prefix, char * text)
+{
+   char tmp[256];
+   NRT_Log(prefix, text);
+   sprintf(tmp,"%s%s","prefix,text");
+   NkDialog_SendMessageString(NRT_dlg,"edtStatus",WM_SETTEXT,0,tmp);
+}
+
+int NRT_Error(long result)
+{
+   char pfx[64];
+   char msg[128];
+   sprintf(pfx,"socket error %d: ","result");
+   NkSocket_GetErrorDescription(result, msg, 128);
+   NRT_SetStatus(pfx, msg);
+}

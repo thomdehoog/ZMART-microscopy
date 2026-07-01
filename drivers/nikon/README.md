@@ -31,6 +31,59 @@
 
 ---
 
+## Capabilities — what we can and can't do (grounded in the 6.2 bundle)
+
+> Verified 2026-07-01 by an exhaustive read of every macro in the bundle (48 `SampleAPI_*.mac`, the
+> interface/library `.mac` files, and the socket/serial/process demos extracted from **inside**
+> `NkMacroLibs_6.20.00.exe` — a plain zip, not loose files). DLLs are native C/C++ (no .NET); each
+> utility DLL's full callable surface is declared in its paired `.mac`, so no decompilation was needed.
+
+### ✅ Can do
+- **Drive NIS from an external process over TCP.** `NkSocket.dll` is a full client/server;
+  `NkSocketServerDemo.mac` runs any socket line prefixed with `!` via `Int_ExecuteCommand(pid, cmd)`.
+  Architecturally identical to the Leica CAM route.
+- **Run any NIS command or macro by name** — `Int_ExecuteCommand`, `RunMacro`, `Int_ExecProgram`,
+  gated by `ExistProc`.
+- **Run Python inside NIS** — `limpy.mac` → `v6_gnr_python.dll` (`Python_RunString`, `Eval*`, `SetAttr/Item*`).
+- **Have NIS launch our Python** — `CreateProcess.mac` (`CreateProcessW`), or `ShellExecuteW`.
+- **Serial/COM device control** — `NkComPort` (Arduino demo).
+- **Build a request/response protocol** — the socket is bidirectional; `NkString.dll` provides regex
+  + a key/value StrMap to parse a `?query`→reply inside the macro.
+- **Read state (read-only getters):** calibration µm/px per objective (`Get_Calibration`), device
+  presence/status (`Get_Info(INFO_STAGEPRESENT/STAGEINIT/LIGHTPRESENT/LIVESTATUS/GRABBING…)`,
+  `GetLightLevels`), image info / pixel type / size (`Get_ImageInfo`), pixel/RGB values, histograms,
+  open-document list, paths, version/board strings.
+- **Analyze images in-process:** threshold + particle analysis by Feret/circularity/mean-intensity
+  (`makpud.mac`), `MeasureObject`/`MeasureField`, histograms, filters (Sobel, Golay, morpho, stretch).
+  Native SDKs present: `NkUnmix2` (OpenCV spectral unmix), `NkImg2xProcess` (cell-distribution /
+  segmentation), `NkLAppAutoAlignLib` (auto-align / autofocus) — invoked via NIS, not standalone.
+
+### ❌ Can't do (with this bundle)
+- **No device-motion / acquisition verbs anywhere.** Zero stage-move, Z/focus, capture/acquire,
+  objective/nosepiece, shutter/filter/illumination/lamp/laser, or camera-select commands. The
+  `!Capture();` in the server banner is a **string literal**, never defined. → The verb vocabulary
+  must be pinned from the **NIS 6.2 macro command reference** (or from Kees). **This is the single
+  blocker** to a working driver — everything else is ready.
+- **No built-in state read-back** — the stock server is fire-and-forget; the `?query`→reply layer is ours.
+- **No security** — `Int_ExecuteCommand` runs arbitrary text off the socket. Bind `127.0.0.1`
+  (never `0.0.0.0`) and gate commands with an allow-list.
+- **Embedded Python is version-locked** to 6.2 `limpy.*` names (7.x differs); whether the JOBS Python
+  node and `requests`/`httpx` ship in 6.2 is unconfirmed.
+- **Polling only** — the demo polls every ~500 ms (`WM_TIMER`); no event push.
+- **Native SDK DLLs are not a clean external API** — no headers, invoked internally by NIS.
+
+### Command inventory (what's actually in the bundle)
+| Area | In bundle? | Evidence |
+|---|---|---|
+| TCP transport + `!cmd` dispatch | ✅ | `NkSocket.mac`, `NkSocketServerDemo.mac:240` |
+| Embedded Python bridge | ✅ | `limpy.mac` |
+| Process spawn / serial | ✅ | `CreateProcess.mac`, `NkComPort.mac` |
+| Read-only getters (calibration, info, image, histogram) | ✅ | `SampleAPI_07/18/20/23/43.mac` |
+| In-process analysis (Feret/circularity/measure/filters) | ✅ | `makpud.mac`, `SampleAPI_10/24/77.mac` |
+| Stage / Z / capture / objective / illumination verbs | ❌ | absent — full read, zero hits |
+
+---
+
 ## The three API layers
 
 ### 1. Classic macro language (LUCIA / LIM API)
@@ -180,6 +233,12 @@ A minimal proof on the bench:
 This proves the exact Leica-symmetric loop end-to-end. It requires the machine with NIS 6.2.
 Use placeholder verbs until item (1) above is resolved, or pin the vocabulary first so the spike
 uses real `Stg*`/`Capture` commands.
+
+**This spike is now written — see [`spike/`](spike/):** `nis_socket_server_roundtrip.mac` (resident
+server, loopback-bound, `!command` + `?query` dispatch with a real `?Get_Calibration` reply) and
+`nis_roundtrip_client.py` (+ offline tests for framing/parsing). It uses `?Get_Calibration` /
+`?ping` — real getters that work **today**, so the round-trip can be validated before any device
+verbs are pinned. Bench run instructions in [`spike/README.md`](spike/README.md).
 
 ---
 
