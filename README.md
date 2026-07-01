@@ -67,25 +67,20 @@ conda-forge / PyPI choice, and the typical path through the repo — is in
 
 ## Tests
 
-Each component has its own offline suite that needs no microscope and no vendor
-software. Install the offline test/lint deps (separate from the runtime env),
-then run the suites:
+Every component ships its own **offline** suite that needs no microscope and no
+vendor software. The cross-cutting, repo-level suites:
 
 ```powershell
-python -m pip install -r drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt
 python -m pytest -q controller/tests
-python -m pytest -q drivers/leica/stellaris5_y42h93/navigator_expert/tests/unit
-python -m pytest -q drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware
 python -m pytest -q workflows/target_acquisition/tests
-python -m pytest -q drivers/leica/stellaris5_y42h93/navigator_expert/calibration/tests shared/output_layout/tests
+python -m pytest -q shared/output_layout/tests
 ```
 
-Live validation is explicit and safe by default — vendor-specific and gated. For
-the Leica driver, hardware-moving sections only run when their `--allow-*` flags
-are present:
+Each **driver** documents its own testing — how to install its offline dev deps,
+run its offline suite, and run its gated, vendor-specific live validation — in
+its own README (drivers own their calibration, limits, and hardware probes):
 
-```powershell
-python drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware/validate_hardware.py --yes --allow-xy --allow-z --allow-objective --allow-acquire --state-reader-mode hybrid
-```
+- Leica: [testing section](drivers/leica/stellaris5_y42h93/navigator_expert/README.md#testing)
+- Zeiss: [testing section](drivers/zeiss/zenapi/README.md#9-testing)
 
-Validator JSONL outputs are runtime artifacts and are ignored by default.
+Live hardware validation is always explicit, gated, and safe by default.
