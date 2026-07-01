@@ -63,11 +63,12 @@ time someone uses them.
   contract is not frozen (see `docs/MIDLAYER_PLAN.md`). Drivers today: Leica
   (production-tested), Zeiss (MVP, offline-green), Nikon + Evident
   (investigation / spike).
-- **Do not rename the code yet.** Renaming `smart-microscopy` →
-  `zmart-microscopy` and cutting the top-level `zmart` package (from
-  `controller/`) is deliberate work — done *once the agnostic API is worth
-  branding*, so we brand the surface people import (not the vendor internals)
-  and never have to rename twice.
+- **The name is set; the code rename is deliberate.** The project is **ZMART
+  Microscopy** (repo `ZMART-microscopy`). Physically renaming the repo, cutting
+  the top-level `zmart` package (from `controller/`), and renaming the conda env
+  is a deliberate pass — done *once the agnostic API is worth branding*, so we
+  brand the surface people import (not the vendor internals) and never rename
+  twice.
 - **The order:** build the `zmart` waist so it is genuinely vendor-neutral → a
   couple of non-Leica examples so outsiders believe it → clean `import zmart` +
   install + docs → *then* the rebrand, and the name starts working in other

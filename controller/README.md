@@ -1,9 +1,11 @@
-# Controller
+# ZMART Controller
 
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 [![license](https://img.shields.io/badge/license-MIT-blue)](../../LICENSE)
 
-One small, consistent interface for driving a microscope from a workflow. You
+The **ZMART Controller** is one small, consistent interface for driving a
+microscope from a workflow — the vendor-agnostic surface the rest of ZMART is
+built on. You
 pick an instrument, set the frame, and issue plain commands. The same
 workflow runs on any microscope that has a driver; your code never imports a
 vendor's API, the driver talks to the microscope's own API, the controller stays
