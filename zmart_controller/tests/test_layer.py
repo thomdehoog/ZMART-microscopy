@@ -128,6 +128,27 @@ class TestContext:
         assert ctx["initial_positions"][0] == {"x": 0.0, "y": 0.0, "z": 0.0}
 
 
+class TestDisconnect:
+    def test_session_disconnect_is_idempotent(self, mic):
+        mic.disconnect()
+        mic.disconnect()  # second call must be a no-op, not a driver double-close
+
+    def test_ops_after_disconnect_raise(self, mic):
+        mic.disconnect()
+        with pytest.raises(RuntimeError, match="disconnected"):
+            mic.get_xyz()
+
+    def test_actuator_selection_persists(self, mic):
+        mic.set_xyz(0, 0, 0, with_actuators={"z": "piezo"})
+        assert mic.get_xyz()["z"]["actuator"] == "piezo"
+
+    def test_invalid_acquire_option_rejected(self, mic):
+        with pytest.raises(ValueError, match="unknown acquisition option"):
+            mic.acquire(acquisition_type="prescan", position_label="A1", options={"fromat": "x"})
+        with pytest.raises(ValueError, match="invalid value"):
+            mic.acquire(acquisition_type="prescan", position_label="A1", options={"format": "png"})
+
+
 class TestModuleStyle:
     def test_module_delegates_to_active_microscope(self):
         import zmart_controller as m
@@ -136,6 +157,32 @@ class TestModuleStyle:
         m.set_xyz(10, 20, 5)
         assert m.get_xyz()["x"]["value"] == 10
         m.disconnect()
+
+    def test_module_disconnect_clears_active(self):
+        import zmart_controller as m
+
+        m.set_instrument(m.get_instruments()[0])
+        m.disconnect()
+        with pytest.raises(AttributeError, match="no active microscope"):
+            m.acquire(acquisition_type="prescan", position_label="A1")
+        m.disconnect()  # no active microscope: still a no-op
+
+    def test_swap_survives_failing_teardown(self):
+        import zmart_controller as m
+
+        first = m.set_instrument(m.get_instruments()[0])
+        first.disconnect = lambda: (_ for _ in ()).throw(RuntimeError("teardown boom"))
+        with pytest.raises(RuntimeError, match="teardown boom"):
+            m.set_instrument(m.get_instruments()[0])
+        # the new session must be tracked despite the old teardown failing
+        m.set_xyz(1, 2, 3)
+        assert m.get_xyz()["x"]["value"] == 1
+
+    def test_no_active_session_error_is_helpful(self):
+        import zmart_controller as m
+
+        with pytest.raises(AttributeError, match="set_instrument"):
+            m.acquire(acquisition_type="prescan", position_label="A1")
 
     def test_unknown_attribute_raises(self):
         import zmart_controller as m

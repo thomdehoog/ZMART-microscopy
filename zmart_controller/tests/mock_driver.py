@@ -58,6 +58,9 @@ class MockHandle:
     client: str | None = None
     initial: list[dict] = field(default_factory=list)
 
+    # set by disconnect(); every other op refuses a closed handle
+    closed: bool = False
+
 
 def connect(connection: dict):
     """Open a session and capture the initial positions.
@@ -76,8 +79,23 @@ def connect(connection: dict):
     return handle
 
 
+def disconnect(handle: MockHandle) -> None:
+    """Close the session; every subsequent op on the handle raises.
+
+    A real driver would release its client connection here.
+    """
+    handle.closed = True
+
+
+def _require_open(handle: MockHandle) -> None:
+    """Refuse to drive a disconnected handle -- a real connection would be dead."""
+    if handle.closed:
+        raise RuntimeError("session is disconnected")
+
+
 def set_origin(handle: MockHandle) -> dict:
     """Mark the current position as the origin -- it now reads (0, 0, 0)."""
+    _require_open(handle)
     handle.origin_x = handle.x
     handle.origin_y = handle.y
     handle.origin_z = handle.z
@@ -86,14 +104,16 @@ def set_origin(handle: MockHandle) -> dict:
 
 def get_actuators(handle: MockHandle) -> dict:
     """The actuator options each axis offers (driver-defined)."""
+    _require_open(handle)
     return {axis: list(opts) for axis, opts in _ACTUATORS.items()}
 
 
-def acquisition_options(handle: MockHandle) -> dict:
+def get_acquisition_options(handle: MockHandle) -> dict:
     """The acquisition + saving options this instrument offers (options + active).
 
     Driver-owned and answered on demand; the controller caches nothing.
     """
+    _require_open(handle)
     return {
         "backlash_correction": {"options": [True, False], "active": True},
         "format": {"options": ["ome-tiff", "ome-zarr"], "active": "ome-tiff"},
@@ -102,9 +122,15 @@ def acquisition_options(handle: MockHandle) -> dict:
 
 
 def _with_defaults(handle: MockHandle, options: dict | None) -> dict:
-    """Fill omitted options from the active defaults (driver-side)."""
-    resolved = {name: spec["active"] for name, spec in acquisition_options(handle).items()}
+    """Validate options against the menu, filling omissions from the active defaults."""
+    menu = get_acquisition_options(handle)
+    resolved = {name: spec["active"] for name, spec in menu.items()}
     if options:
+        for name, value in options.items():
+            if name not in menu:
+                raise ValueError(f"unknown acquisition option {name!r}")
+            if value not in menu[name]["options"]:
+                raise ValueError(f"invalid value {value!r} for acquisition option {name!r}")
         resolved.update(options)
     return resolved
 
@@ -131,6 +157,7 @@ def _user_position(handle: MockHandle) -> dict[str, float]:
 
 def get_xyz(handle: MockHandle, *, with_actuators: dict | None = None) -> dict:
     """Report the position per axis (um, relative to origin) with its actuator."""
+    _require_open(handle)
     chosen = _resolve_actuators(handle, with_actuators)
     user = _user_position(handle)
     return {
@@ -144,10 +171,13 @@ def set_xyz(
 ) -> dict:
     """Move to an absolute target (um, relative to origin); return a move record.
 
-    The chosen actuators realize the move. Mapping user coordinates to the raw
-    position via the origin is the driver's arithmetic, not the controller's.
+    The chosen actuators realize the move and stay active for later calls.
+    Mapping user coordinates to the raw position via the origin is the driver's
+    arithmetic, not the controller's.
     """
+    _require_open(handle)
     chosen = _resolve_actuators(handle, with_actuators)
+    handle.actuators = chosen
     handle.x = handle.origin_x + x
     handle.y = handle.origin_y + y
     handle.z = handle.origin_z + z
@@ -163,6 +193,7 @@ def acquire(
     The driver fills omitted options (acquisition + saving) from its active
     defaults. Captures and saves in one step -- there is no separate export.
     """
+    _require_open(handle)
     options = _with_defaults(handle, options)
     settle = "backlash-corrected" if options["backlash_correction"] else "direct"
     record = {
@@ -179,6 +210,7 @@ def acquire(
 
 def get_state(handle: MockHandle) -> dict:
     """Return the opaque state: immutable identity + mutable settings."""
+    _require_open(handle)
     return {
         "immutable": {"serial": handle.serial},
         "mutable": {"laser_power": handle.laser_power, "gain": handle.gain},
@@ -187,6 +219,7 @@ def get_state(handle: MockHandle) -> dict:
 
 def set_state(handle: MockHandle, state: dict) -> dict:
     """Validate the immutable fingerprint, apply mutable settings, report what stuck."""
+    _require_open(handle)
     immutable = state.get("immutable", {})
     if immutable.get("serial", handle.serial) != handle.serial:
         raise ValueError("state captured on a different instrument")
@@ -203,6 +236,7 @@ def set_state(handle: MockHandle, state: dict) -> dict:
 
 def get_procedures(handle: MockHandle) -> dict:
     """Return the named procedures this instrument offers."""
+    _require_open(handle)
     return {
         "autofocus": {"description": "hardware autofocus"},
         "find_sample": {"description": "locate the sample"},
@@ -211,11 +245,13 @@ def get_procedures(handle: MockHandle) -> dict:
 
 def set_procedure(handle: MockHandle, procedure: dict) -> dict:
     """Run a procedure and report what ran."""
+    _require_open(handle)
     return {"ran": dict(procedure)}
 
 
 def get_context(handle: MockHandle) -> dict:
     """Whatever extra context the driver chooses to expose."""
+    _require_open(handle)
     return {
         "initial_positions": [dict(pos) for pos in handle.initial],
         "client": handle.client,
@@ -234,7 +270,8 @@ def register_mock() -> None:
         {"vendor": "mock", "microscope": "mock-scope", "api": "mock-api", "client": "mock-client"},
         ops={
             "connect": connect,
-            "acquisition_options": acquisition_options,
+            "disconnect": disconnect,
+            "get_acquisition_options": get_acquisition_options,
             "set_origin": set_origin,
             "get_actuators": get_actuators,
             "get_xyz": get_xyz,

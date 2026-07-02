@@ -1,15 +1,19 @@
 # ZMART Controller
 
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
-[![license](https://img.shields.io/badge/license-MIT-blue)](../../LICENSE)
+[![license](https://img.shields.io/badge/license-MIT-blue)](../LICENSE)
 
 The **ZMART Controller** is one small, consistent interface for driving a
 microscope from a workflow — the vendor-agnostic surface the rest of ZMART is
 built on. You
 pick an instrument, set the frame, and issue plain commands. The same
-workflow runs on any microscope that has a driver; your code never imports a
-vendor's API, the driver talks to the microscope's own API, the controller stays
-a thin, easy surface for humans and AI agents alike.
+workflow will run on any microscope that has a driver adapter; your code never
+imports a vendor's API, the driver talks to the microscope's own API, the
+controller stays a thin, easy surface for humans and AI agents alike.
+
+> **Status:** the vendor driver adapters are still under construction (see
+> [`docs/ZMART.md`](../docs/ZMART.md)) — today the only registered driver is the
+> mock used by the tests and the example notebook.
 
 > **This is the `zmart` surface.** The controller is ZMART's vendor-agnostic API
 > — the layer the outside world is meant to import (`import zmart`), with vendor
@@ -56,7 +60,7 @@ zmart_controller.disconnect()
 
 Most steps follow the same pattern: **discover, then apply.** Call a `get_*`
 function to see what the microscope supports, each option lists its allowed
-values and the one currently active. It then pass your choice to the matching call.
+values and the one currently active. Then pass your choice to the matching call.
 Omit an option and the driver keeps its active default, so you only specify what
 you want to change.
 
@@ -98,7 +102,7 @@ example, the piezo for fine Z) without changing the coordinates you give.
 
 ```python
 zmart_controller.get_actuators()                 # {"x": ["motoric"], "y": ["motoric"], "z": ["motoric", "galvo", "piezo"]}
-zmart_controller.set_xyz(10, 20, 5, with_actuators={"x": ["motoric"], "y": ["motoric"], "z": "piezo"}) 
+zmart_controller.set_xyz(10, 20, 5, with_actuators={"z": "piezo"})
 ```
 
 ### 4. Capture and reapply state
@@ -174,7 +178,7 @@ from zmart_controller.registry import register
 register(
     {"vendor": "leica", "microscope": "stellaris5-01", "api": "navigator-expert",
      "client": "PythonClient", "api_delay_ms": 250},
-    ops={"connect": ..., "acquisition_options": ..., "set_origin": ...,
+    ops={"connect": ..., "get_acquisition_options": ..., "set_origin": ...,
          "get_actuators": ..., "get_xyz": ..., "set_xyz": ..., "acquire": ...,
          "get_state": ..., "set_state": ..., "get_procedures": ...,
          "set_procedure": ..., "get_context": ...},
