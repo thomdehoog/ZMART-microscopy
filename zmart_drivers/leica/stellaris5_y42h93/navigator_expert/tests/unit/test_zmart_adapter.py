@@ -30,8 +30,28 @@ def _origin(x_um=0.0, y_um=0.0, z_wide_um=0.0, z_galvo_um=0.0, z_focus_um=0.0, o
     }
 
 
+def _function_limits(**constraint_overrides):
+    """A permissive function-limits object (every mutating op reviewed-unlimited).
+
+    Pass constraint overrides shaped like the bundled file's ``stage.*`` names
+    to bound ``set_xyz``, e.g. ``x_um={"min": 0, "max": 100}``.
+    """
+    payload = {
+        "schema_version": 1,
+        "source": "test",
+        "constraints": {},
+        "functions": {op: None for op in adapter._MUTATING_OPS},
+    }
+    if constraint_overrides:
+        payload["functions"]["set_xyz"] = {}
+        for param, bounds in constraint_overrides.items():
+            payload["functions"]["set_xyz"][param] = dict(bounds)
+    return adapter._shared_limits.parse(payload, functions=adapter._MUTATING_OPS)
+
+
 def _handle(**overrides):
     h = adapter.ZmartHandle(client=object(), connection=dict(adapter.CONNECTION), hash6="000abc")
+    h.function_limits = _function_limits()
     for key, value in overrides.items():
         setattr(h, key, value)
     return h
@@ -697,6 +717,107 @@ class TestLifecycle(unittest.TestCase):
                 self.assertEqual(session.get_xyz()["x"]["value"], 0.0)  # mocked readback
             finally:
                 session.disconnect()
+
+
+class TestFunctionLimits(unittest.TestCase):
+    """The function-keyed limits gate (``shared.limits``) wired through the adapter."""
+
+    def test_bundled_file_covers_every_mutating_op(self):
+        """THE completeness guard: adding a mutating op without a limits entry fails here."""
+        path = adapter._machine.MACHINE.bundled_default_path(
+            adapter._machine.FUNCTION_LIMITS_FILENAME
+        )
+        limits = adapter._shared_limits.load(path, functions=adapter._MUTATING_OPS)
+        self.assertEqual(limits.source, "defaults")
+
+    def test_set_xyz_refuses_beyond_function_limits_before_any_motion(self):
+        _wide_limits()  # Phase A permissive, so the function-limits layer is what fires
+        self.addCleanup(_clear_limits)
+        h = _handle(function_limits=_function_limits(x_um={"min": 0, "max": 500}))
+        patches = _patch_position(x_um=0.0, y_um=0.0)
+        with (
+            patch.object(adapter._motion, "move_xy_with_backlash") as xy,
+            patch.object(adapter._commands, "move_z") as mz,
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
+            with self.assertRaisesRegex(RuntimeError, r"set_xyz\.x_um"):
+                adapter.set_xyz(h, 1000.0, 10.0, 0.0)
+        xy.assert_not_called()
+        mz.assert_not_called()
+
+    def test_z_leg_function_limit_violation_keeps_the_actuator_hint(self):
+        _wide_limits()
+        self.addCleanup(_clear_limits)
+        h = _handle(function_limits=_function_limits(z_galvo_um={"min": -200, "max": 200}))
+        patches = _patch_position(z_wide_um=0.0, z_galvo_um=0.0)
+        with (
+            patch.object(adapter._motion, "move_xy_with_backlash") as xy,
+            patch.object(adapter._commands, "move_z") as mz,
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
+            with self.assertRaisesRegex(RuntimeError, r"with_actuators=\{'z': 'z-wide'\}"):
+                adapter.set_xyz(h, 10.0, 10.0, 300.0, with_actuators={"z": "z-galvo"})
+        xy.assert_not_called()
+        mz.assert_not_called()
+
+    def test_mutating_ops_refuse_without_function_limits(self):
+        """Fail-closed: no loaded limits means no mutations — reads still work."""
+        h = _handle(function_limits=None)
+        for call in (
+            lambda: adapter.set_origin(h),
+            lambda: adapter.set_state(h, {"changeable": {}}),
+            lambda: adapter.set_procedure(h, {"name": "backlash_takeup"}),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "function limits are not configured"):
+                call()
+        self.assertIn("backlash_takeup", adapter.get_procedures(h))  # read-only unaffected
+
+    def test_get_state_reports_limits_provenance(self):
+        h = _handle()
+        with (
+            patch.object(
+                adapter._readers,
+                "get_hardware_info",
+                return_value={"SerialNumber": "S", "SystemType": "T", "Microscope": {}},
+            ),
+            patch.object(
+                adapter._readers,
+                "get_selected_job",
+                return_value={"Name": "Overview", "IsSelected": True},
+            ),
+            patch.object(adapter._readers, "get_jobs", return_value=[]),
+        ):
+            observed = adapter.get_state(h)["observed"]
+        self.assertEqual(
+            observed["limits"],
+            {"schema_version": 1, "source": "test", "path": None, "is_fallback": False},
+        )
+
+    def test_machine_stage_envelope_overrides_bundled_constraints(self):
+        """The snapshot's envelope governs set_xyz, never a stale bundled copy."""
+        cfg = {
+            "stage_um": {
+                "x": [2000.0, 50000.0],
+                "y": [1000.0, 100000.0],
+                "z_galvo": [-200.0, 200.0],
+                "z_wide": [0.0, 25000.0],
+            }
+        }
+        limits = adapter._load_function_limits(cfg)
+        self.assertIsNotNone(limits)
+        limits.check("set_xyz", {"x_um": 2500.0})
+        with self.assertRaises(adapter._shared_limits.LimitViolation):
+            limits.check("set_xyz", {"x_um": 1500.0})  # inside the bundled envelope, outside the machine's
+
+    def test_unknown_machine_axis_fails_closed(self):
+        """An envelope the file can't represent must refuse mutations, not skip the axis."""
+        self.assertIsNone(adapter._load_function_limits({"stage_um": {"theta": [0.0, 360.0]}}))
 
 
 if __name__ == "__main__":

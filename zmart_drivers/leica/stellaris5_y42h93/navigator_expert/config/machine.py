@@ -59,6 +59,7 @@ _SNAPSHOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}Z$")
 
 CALIBRATION_FILENAME = "calibration.json"
 LIMITS_FILENAME = "limits.json"
+FUNCTION_LIMITS_FILENAME = "function_limits.json"
 ORIGIN_FILENAME = "origin.json"
 
 # Driver-bundled last-known-good defaults, each owned by its subsystem.
@@ -67,6 +68,7 @@ ORIGIN_FILENAME = "origin.json"
 _BUNDLED_SUBSYSTEM = {
     CALIBRATION_FILENAME: "calibration",
     LIMITS_FILENAME: "limits",
+    FUNCTION_LIMITS_FILENAME: "limits",
 }
 
 

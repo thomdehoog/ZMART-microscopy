@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "source": "defaults",
+  "constraints": {
+    "stage.x": {
+      "min": 1000,
+      "max": 130000
+    },
+    "stage.y": {
+      "min": 1000,
+      "max": 100000
+    },
+    "stage.z_galvo": {
+      "min": -200,
+      "max": 200
+    },
+    "stage.z_wide": {
+      "min": 0,
+      "max": 25000
+    }
+  },
+  "functions": {
+    "set_origin": null,
+    "set_xyz": {
+      "x_um": "@stage.x",
+      "y_um": "@stage.y",
+      "z_galvo_um": "@stage.z_galvo",
+      "z_wide_um": "@stage.z_wide"
+    },
+    "set_state": null,
+    "set_procedure": null,
+    "acquire": null
+  }
+}
