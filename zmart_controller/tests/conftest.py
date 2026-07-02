@@ -16,9 +16,8 @@ for _path in (str(_SRC_ROOT), str(_TESTS_DIR)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-import pytest  # noqa: E402
-
 import mock_driver  # noqa: E402
+import pytest  # noqa: E402
 
 mock_driver.register_mock()
 

@@ -7,6 +7,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 from __future__ import annotations
 
 import pytest
+
 from zmart_controller import get_instruments, set_instrument
 
 
