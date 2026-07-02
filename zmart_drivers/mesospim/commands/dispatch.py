@@ -36,11 +36,15 @@ import logging
 import socket
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..connection.client import MesospimError
 from ..protocol import Reply
 from ..utils import _make_log_entry, _make_timing
+
+if TYPE_CHECKING:
+    from ..config.profiles import CommandProfile
+    from ..connection.client import MesospimClient
 
 log = logging.getLogger(__name__)
 
@@ -69,9 +73,9 @@ def _result(
 
 
 def confirm_and_fire(
-    client,
+    client: MesospimClient,
     label: str,
-    profile,
+    profile: CommandProfile,
     fire_fn: Callable[[], Reply],
     *,
     confirm_fn: Callable[..., dict] | None = None,

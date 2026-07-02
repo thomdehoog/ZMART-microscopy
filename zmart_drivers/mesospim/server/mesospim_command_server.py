@@ -214,16 +214,26 @@ class _CoreBridge:
         # signals fire exactly as the GUI drives them. Snapshot and restore the
         # operator's acquisition table so a socket-driven run never destroys it.
         state = self.core.state
+        had_key = True
         try:
             prev_list = state["acq_list"]
         except (KeyError, TypeError):
-            prev_list = None
+            prev_list, had_key = None, False
         state["acq_list"] = acq_list
         try:
             self.core.start(row=0)
             self._run_until_idle()
         finally:
-            state["acq_list"] = prev_list
+            if had_key:
+                state["acq_list"] = prev_list
+            else:
+                # The key was absent before; don't leave a stray None the GUI
+                # might later assume is a list. Remove it if the singleton allows
+                # deletion, else fall back to restoring the prior value.
+                try:
+                    del state["acq_list"]
+                except (KeyError, TypeError, AttributeError):
+                    state["acq_list"] = prev_list
 
         files = _written_files(acq)
         cam = _camera(self.core.cfg)
@@ -497,6 +507,7 @@ class MesospimCommandServer:
             self._busy = False
 
     def _respond(self, line: str) -> None:
+        is_bye = False
         try:
             request = json.loads(line)
             if not isinstance(request, dict):
@@ -504,6 +515,7 @@ class MesospimCommandServer:
         except Exception as exc:  # noqa: BLE001
             reply = {"ok": False, "error": f"bad request: {exc}", "id": None}
         else:
+            is_bye = request.get("cmd") == "bye"
             reply = handle_request(self.bridge, request)
         if self._conn is None:  # client went away while the command ran
             return
@@ -512,7 +524,7 @@ class MesospimCommandServer:
             self._conn.flush()
         except Exception:  # noqa: BLE001
             traceback.print_exc()
-        if isinstance(reply, dict) and reply.get("ok") and _is_bye(line):
+        if is_bye and isinstance(reply, dict) and reply.get("ok"):
             self._conn.disconnectFromHost()
             self._conn = None
 
@@ -523,13 +535,6 @@ class MesospimCommandServer:
             self._conn.disconnectFromHost()
         self._server.close()
         print("[mesospim-cmd-server] stopped")
-
-
-def _is_bye(line: str) -> bool:
-    try:
-        return json.loads(line).get("cmd") == "bye"
-    except Exception:  # noqa: BLE001
-        return False
 
 
 # =============================================================================

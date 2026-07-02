@@ -44,7 +44,10 @@ def set_stage_limits(**axis_limits: tuple[float, float]) -> None:
     for axis, bounds in axis_limits.items():
         if axis not in _stage_limits:
             raise ValueError(f"unknown axis {axis!r}; known axes: {AXES}")
-        low, high = float(bounds[0]), float(bounds[1])
+        try:
+            low, high = float(bounds[0]), float(bounds[1])
+        except (TypeError, IndexError, ValueError) as exc:
+            raise ValueError(f"axis {axis!r} limit must be a (min, max) pair, got {bounds!r}") from exc
         if low > high:
             raise ValueError(f"axis {axis!r} limit has min > max: {bounds!r}")
         _stage_limits[axis] = (low, high)
@@ -93,7 +96,9 @@ def apply_stage_limits_from_config(stage_cfg: dict[str, Any]) -> None:
     This is the shape produced by :func:`load_stage_config`; pass it once at
     session start so notebooks and workflows share one source of truth.
     """
-    axes = stage_cfg["axes"]
+    axes = stage_cfg.get("axes") if isinstance(stage_cfg, dict) else None
+    if not isinstance(axes, dict):
+        raise ValueError("stage config must be a dict with an 'axes' object")
     set_stage_limits(**{axis: (bounds[0], bounds[1]) for axis, bounds in axes.items()})
 
 

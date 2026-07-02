@@ -432,6 +432,18 @@ CONNECTION = {
     "port": 42000,
 }
 
+def get_context(handle: MesospimHandle) -> dict:
+    """Read-only extras the driver exposes: initial positions, focus/rotation."""
+    pos = _readers.get_positions(handle.client)
+    return {
+        "initial_positions": [dict(p) for p in handle.initial_positions],
+        "focus_um": pos.get("f"),
+        "rotation_deg": pos.get("theta"),
+        "output_root": str(handle.output_root),
+        "server": dict(handle.immutable),
+    }
+
+
 OPS = {
     "connect": connect,
     "disconnect": disconnect,
@@ -445,20 +457,8 @@ OPS = {
     "set_state": set_state,
     "get_procedures": get_procedures,
     "set_procedure": set_procedure,
-    "get_context": lambda handle: get_context(handle),
+    "get_context": get_context,
 }
-
-
-def get_context(handle: MesospimHandle) -> dict:
-    """Read-only extras the driver exposes: initial positions, focus/rotation."""
-    pos = _readers.get_positions(handle.client)
-    return {
-        "initial_positions": [dict(p) for p in handle.initial_positions],
-        "focus_um": pos.get("f"),
-        "rotation_deg": pos.get("theta"),
-        "output_root": str(handle.output_root),
-        "server": dict(handle.immutable),
-    }
 
 
 def register(connection: dict | None = None) -> None:

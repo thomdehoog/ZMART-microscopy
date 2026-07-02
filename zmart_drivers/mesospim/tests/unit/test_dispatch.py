@@ -14,7 +14,7 @@ def _ok(data=None):
 
 
 def test_fire_no_confirm_success():
-    prof = CommandProfile(confirm_fn=None)
+    prof = CommandProfile()
     r = confirm_and_fire(None, "x", prof, fire_fn=lambda: _ok({"v": 1}), confirm_fn=None)
     assert r["success"] and r["confirmed"] is None and r["data"] == {"v": 1}
 
@@ -36,7 +36,7 @@ def test_transient_retry_then_success():
             raise ConnectionError("flaky")
         return _ok()
 
-    prof = CommandProfile(max_retries=3, confirm_fn=None)
+    prof = CommandProfile(max_retries=3)
     r = confirm_and_fire(None, "x", prof, fire_fn=fire, confirm_fn=None)
     assert r["success"] and r["timing"]["attempts"] == 3
 
@@ -45,7 +45,7 @@ def test_transient_exhausted_fails():
     def fire():
         raise TimeoutError("gone")
 
-    prof = CommandProfile(max_retries=1, confirm_fn=None)
+    prof = CommandProfile(max_retries=1)
     r = confirm_and_fire(None, "x", prof, fire_fn=fire, confirm_fn=None)
     assert not r["success"] and "transport failed" in r["message"]
 
@@ -132,7 +132,7 @@ def test_unexpected_fire_error_returns_envelope_not_exception():
     def fire():
         raise ProtocolError("garbled reply line")
 
-    prof = CommandProfile(confirm_fn=None)
+    prof = CommandProfile()
     r = confirm_and_fire(None, "x", prof, fire_fn=fire, confirm_fn=None)
     assert not r["success"] and "unexpected error" in r["message"]
 

@@ -20,9 +20,7 @@ License: MIT
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
-from ..utils import CONFIRM_POLL_S
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -39,29 +37,23 @@ CONNECTION = ConnectionProfile()
 
 @dataclass(frozen=True)
 class CommandProfile:
-    """Complete recipe for one command's backbone behaviour.
+    """Recipe for one command's backbone behaviour.
 
     Attributes:
-        confirm_fn: readback confirmation ``callable(client, ...) -> result``.
-            Declarative only -- commands bind the target via ``partial`` at call
-            time. None to skip confirmation.
         max_retries: transient-error (timeout / dropped-link) retries inside the
             fire block.
         max_confirm_attempts: confirm-wrapper re-attempt ceiling.
         refire_on_unconfirmed: re-send the command before the next confirm
             attempt when a readback did not confirm.
-        confirm_poll_s: per-attempt readback poll window (NOT a hard timeout).
         confirm_tolerance: numeric tolerance for a target readback (um or deg).
         success_on_unconfirmed: return ``success=True`` when confirmation is
             exhausted (confirmed=False) rather than a hard failure. Used for
             moves, where the fire is reliable but the reader may lag.
     """
 
-    confirm_fn: object = None
     max_retries: int = 2
     max_confirm_attempts: int = 3
     refire_on_unconfirmed: bool = False
-    confirm_poll_s: float = CONFIRM_POLL_S
     confirm_tolerance: float | None = None
     success_on_unconfirmed: bool = False
 
@@ -90,13 +82,6 @@ SET_STATE = CommandProfile(
     max_confirm_attempts=3,
     refire_on_unconfirmed=True,
     success_on_unconfirmed=True,
-)
-
-# Acquisition (snap / run list): fired once; the server's reply is the gate.
-ACQUIRE = CommandProfile(
-    max_retries=0,
-    max_confirm_attempts=1,
-    confirm_fn=None,
 )
 
 
@@ -161,12 +146,3 @@ class AcquisitionProfile:
 
 
 ACQUISITION = AcquisitionProfile()
-
-
-@dataclass(frozen=True)
-class Profiles:
-    """Bundle of every profile, so a session can override them together."""
-
-    connection: ConnectionProfile = field(default_factory=lambda: CONNECTION)
-    hardware: HardwareProfile = field(default_factory=lambda: HARDWARE)
-    acquisition: AcquisitionProfile = field(default_factory=lambda: ACQUISITION)
