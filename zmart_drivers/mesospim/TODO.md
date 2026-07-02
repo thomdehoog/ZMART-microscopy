@@ -169,17 +169,23 @@ now fixed on this branch):
 
 ## 7. Upstream 🟢
 
-- [x] **Draft the upstream PR** — an opt-in, off-by-default built-in command
-      server for mesoSPIM (**Tools → Command Server…** button), so operators start
-      it with a click instead of the Script-Window loader. Built + validated live
-      against the `-D` demo Core (menu action, queued start on the Core thread,
-      round-trip incl. acquire + unicode token). Packaged for later in
-      [`pull_request/`](pull_request/) (patch + README + PROTOCOL). **Not yet
-      submitted upstream.**
+- [x] **Draft the upstream PR (minimal)** — an opt-in, off-by-default
+      **Tools → Remote Scripting…** server: an external process sends a Python
+      script, it runs via the existing `Core.execute_script`, and the console
+      output is returned (text in / text out). No command vocabulary in mesoSPIM —
+      all of that stays on the ZMART side, injected as scripts. Token-gated,
+      localhost-default, ~276 lines / 3 files, reuses `execute_script` unmodified.
+      Built + validated live against the `-D` demo Core via the button's signal
+      path (auth, read state, **move the demo stage**, structured output, error →
+      traceback). Packaged in [`pull_request/`](pull_request/) (patch + README +
+      PROTOCOL + demo_client). **Not yet submitted upstream.**
+      *(An earlier, larger draft that put the whole command vocabulary upstream was
+      replaced by this minimal version — smaller PR, fewer decisions, easier to
+      merge; the vocabulary belongs to ZMART, not mesoSPIM.)*
 - [ ] Open an issue with the mesoSPIM maintainers to gauge interest, then submit
-      the PR from `pull_request/`. If accepted, the GPL edge lives upstream and the
-      Script-Window loader becomes the fallback for older installs; the ZMART
-      client is unchanged either way.
+      the PR from `pull_request/`. If accepted, operators start the server from the
+      GUI and the Script-Window loader becomes the fallback for older installs; the
+      ZMART client is unchanged either way.
 
 ## 8. Docs consistency 🟢
 
