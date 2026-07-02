@@ -161,10 +161,13 @@ def confirm_and_fire(
         )
 
     fire_s = time.perf_counter() - fire_start
-    # Wall-clock instant the command landed. The confirm freshness gate rejects
+    # perf_counter instant the command landed. The confirm freshness gate rejects
     # any readback observed *before* this, so a stale pre-command read can never
-    # confirm the fire. Captured once, before the first confirm read.
-    command_fired_at = time.time()
+    # confirm the fire. Must match Reading.observed_at's clock (perf_counter):
+    # wall clock and time.monotonic() are both ~16 ms coarse on Windows, so a
+    # stale read could share the fire's timestamp and wrongly confirm; wall clock
+    # can also step backward. Captured once, before the first confirm read.
+    command_fired_at = time.perf_counter()
 
     # -- no confirmation requested -------------------------------------------
     if confirm_fn is None:

@@ -33,7 +33,16 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Reading:
-    """A state read, tagged with its source and observation time."""
+    """A state read, tagged with its source and observation time.
+
+    ``observed_at`` is a :func:`time.perf_counter` stamp, not wall-clock epoch:
+    the freshness gate only ever *orders* it against the fire time (same clock),
+    so the clock must be monotonic **and** high-resolution. Wall clock is unsafe
+    (coarse + can step backward on an NTP sync), and on Windows ``time.time()``
+    *and* ``time.monotonic()`` are both ~16 ms coarse -- so a stale pre-fire read
+    and the fire share a timestamp and the gate wrongly confirms. ``perf_counter``
+    is the only stdlib clock that is monotonic and sub-microsecond on Windows.
+    """
 
     value: Any
     source: str = "server"
@@ -41,7 +50,7 @@ class Reading:
 
     @staticmethod
     def now(value: Any, source: str = "server") -> Reading:
-        return Reading(value=value, source=source, observed_at=time.time())
+        return Reading(value=value, source=source, observed_at=time.perf_counter())
 
 
 def _reading_value_after(reading: Any, observed_after: float):

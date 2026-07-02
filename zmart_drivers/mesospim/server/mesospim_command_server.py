@@ -100,17 +100,26 @@ class _CoreBridge:
                 out[key] = st[key]
             except (KeyError, TypeError):
                 out[key] = None
+        # The singleton stores position under raw 'x_pos','y_pos',... keys.
+        # Normalise it here so get_state's `position` block matches get_position
+        # and the documented {x,y,z,f,theta} reader contract (the mock server and
+        # the ZMART readers both assume axis names, not the raw 'x_pos' keys).
+        out["position"] = self._axis_positions(out.get("position"))
         return out
+
+    @staticmethod
+    def _axis_positions(pos) -> dict:
+        """Normalise a mesoSPIM position dict to axis names ``{x,y,z,f,theta}``.
+
+        mesoSPIM stores position under keys like ``'x_pos','y_pos',...`` (or, on
+        some builds, a nested ``{'x':..}``); accept both shapes.
+        """
+        pos = pos or {}
+        return {axis: pos.get(axis, pos.get(f"{axis}_pos")) for axis in _AXES}
 
     def position(self) -> dict:
         """Read the current position dict ``{x,y,z,f,theta}`` in um/deg."""
-        pos = self.state().get("position") or {}
-        # mesoSPIM stores position under keys like 'x_pos','y_pos',... or a
-        # nested {'x':..}. Normalise both shapes to axis names.
-        out = {}
-        for axis in _AXES:
-            out[axis] = pos.get(axis, pos.get(f"{axis}_pos"))
-        return out
+        return self._axis_positions(self.state().get("position"))
 
     def config(self) -> dict:
         """Read the hardware model from the loaded mesoSPIM config.
