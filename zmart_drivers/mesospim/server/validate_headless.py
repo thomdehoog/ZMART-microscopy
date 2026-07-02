@@ -38,8 +38,9 @@ _DRIVERS_DIR = _HERE.parents[2]  # server -> mesospim -> zmart_drivers
 sys.path.insert(0, str(_DRIVERS_DIR))
 from mesospim.connection.client import MesospimClient  # noqa: E402
 
-# Load the resident server script as a module (its `if "self" in dir()` guard
-# means importing it does NOT start a server).
+# Load the resident server as a module (importing it does NOT start a server;
+# start(core) is the explicit entry point). This validator builds the server
+# manually below so it can bind the fake Core to the bridge.
 _SERVER = _HERE.parent / "mesospim_command_server.py"
 spec = importlib.util.spec_from_file_location("mesospim_command_server", _SERVER)
 srv = importlib.util.module_from_spec(spec)
