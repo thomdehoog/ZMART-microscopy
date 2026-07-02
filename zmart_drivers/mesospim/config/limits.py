@@ -64,13 +64,18 @@ def clear_stage_limits() -> None:
 def check_axis(axis: str, value: float) -> None:
     """Validate one absolute axis target. Raises :class:`LimitError`.
 
-    An axis with no configured limit is left unchecked -- the driver never
-    invents a bound it was not told; configure limits at session start to make
-    checks active.
+    Fails **closed**, like the Leica ``navigator_expert`` sibling: an axis with
+    no configured limit is rejected rather than silently allowed, so a forgotten
+    ``set_stage_limits`` / ``apply_stage_limits_from_config`` can never let an
+    unbounded move reach a mounted sample. Configure limits at session start
+    (the controller does this automatically in ``controller.connect``).
     """
     bounds = _stage_limits.get(axis)
     if bounds is None:
-        return
+        raise LimitError(
+            f"no stage limits configured for axis {axis!r}; call set_stage_limits() "
+            f"or apply_stage_limits_from_config() before moving"
+        )
     low, high = bounds
     if value < low or value > high:
         raise LimitError(f"{axis}={value} outside limits [{low}, {high}]")

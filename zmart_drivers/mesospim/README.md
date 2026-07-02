@@ -155,6 +155,8 @@ Directly (thin, notebook-style):
 ```python
 import mesospim as drv
 client = drv.connect({"host": "127.0.0.1", "port": 42000})
+# Required before any move: limits fail *closed*, so an unconfigured axis is
+# rejected. (The zmart_controller path loads these automatically in connect.)
 drv.apply_stage_limits_from_config(drv.load_stage_config())
 drv.move_xy(client, 1000, 2000)          # micrometers
 drv.set_filter(client, "515/30")

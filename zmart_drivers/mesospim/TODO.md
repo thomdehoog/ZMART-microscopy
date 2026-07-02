@@ -42,9 +42,11 @@ actually wrote; the driver's `save()` then relocates them.
       `sig_prepare_image_series` → `sig_run_timepoint(0)` → `sig_end_image_series`;
       verify that is the right sequence (vs. a dedicated `run_acquisition_list`
       slot) and that it blocks until frames are on disk.
-- [ ] Implement real output-path resolution in `_CoreBridge._written_files`
-      (currently `folder/filename` only): per-plane filenames the image-writer
-      plugin produces, in plane order.
+- [x] The controller now assigns the Acquisition a `folder`/`filename` (a
+      `<output_root>/_staging` dir + canonical stem), and `_CoreBridge._written_files`
+      resolves one path per plane (single: `folder/filename`; stack:
+      `<stem>_z0000<ext>`, …). **Still bench-pending:** confirm that pattern
+      matches the installed image-writer plugin's actual naming.
 - [ ] Decide `snap` (single live frame, `sig_get_snap_image`) vs. a 1-plane
       series for `acquisition_type="snap"`, and where a live snap writes to.
 
@@ -58,9 +60,9 @@ actually wrote; the driver's `save()` then relocates them.
 
 ## 4. Protocol / client hardening 🟠
 
-- [ ] Enforce protocol-version compatibility: `MesospimClient.connect` should
-      refuse a `hello.data.protocol` major it doesn't know (today it only stores
-      `server_info`).
+- [x] Enforce protocol-version compatibility: `MesospimClient.connect` now
+      refuses a `hello.data.protocol` it does not know (`protocol.PROTOCOL_VERSION`)
+      and drops the socket instead of leaving it half-open.
 - [ ] Add an `-m integration` test module that runs the round-trip in §1 so the
       bench step is one command, and wire it into the repo's `run_ci` aggregation.
 - [ ] Add a `requirements-dev.txt` (pytest, numpy, tifffile for the mock/tests;
@@ -95,7 +97,17 @@ actually wrote; the driver's `save()` then relocates them.
 ### Already done (for reference)
 
 Protocol + client + session · dispatch backbone (retry/confirm) · command
-wrappers (move/state/etl) · readers · profiles + 5-axis limits · capture + save ·
-ZMART controller adapter + `register()` · resident command-server script ·
-`PROTOCOL.md` · mock command server + 94 offline tests · headless Qt validation
-of the server · Core bindings checked against mesoSPIM-control v1.20.0 source.
+wrappers (move/state/etl) · readers · profiles + 5-axis limits (fail-closed;
+auto-loaded in `controller.connect`) · capture + save · ZMART controller adapter
++ `register()` · resident command-server script · `PROTOCOL.md` · mock command
+server + 102 offline tests · headless Qt validation of the server · Core bindings
+checked against mesoSPIM-control v1.20.0 source.
+
+Post-review hardening: stage limits fail **closed** (unconfigured axis rejected,
+matching the Leica sibling) and the controller loads them at connect · acquire
+maps stack Z bounds through the frame origin and names the writer output so the
+server can resolve frame paths · dispatch re-fire survives a NAK (envelope, not
+exception) · the confirm freshness gate stamps observed-after at fire time so a
+pre-command readback can't confirm · `set_state` fingerprint includes the
+instrument name and rejects an empty fingerprint · client enforces the protocol
+version and never leaves a half-open socket.
