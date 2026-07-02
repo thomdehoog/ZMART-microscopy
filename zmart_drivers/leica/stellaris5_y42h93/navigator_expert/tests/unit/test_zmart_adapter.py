@@ -384,46 +384,89 @@ class TestAcquire(unittest.TestCase):
 
 
 class TestStateAndProcedures(unittest.TestCase):
-    def test_state_mutable_is_the_selected_job(self):
-        h = _handle()
-        with (
-            patch.object(
-                adapter._readers,
-                "get_hardware_info",
-                return_value={"Microscope": {"name": "DM Manual-6"}},
-            ),
+    _HW = {
+        "SerialNumber": "STELLARIS-1234",
+        "SystemType": "CONFOCAL",
+        "Microscope": {
+            "name": "DM Manual-6",
+            "objectives": [
+                {"slotIndex": 0, "objectiveNumber": 506511},
+                {"slotIndex": 1, "objectiveNumber": 506513},
+            ],
+        },
+    }
+
+    def _state_patches(self, jobs=("Overview", "HiRes")):
+        return (
+            patch.object(adapter._readers, "get_hardware_info", return_value=dict(self._HW)),
             patch.object(
                 adapter._readers,
                 "get_selected_job",
                 return_value={"Name": "Overview", "IsSelected": True},
             ),
-        ):
+            patch.object(
+                adapter._readers,
+                "get_jobs",
+                return_value=[{"Name": n, "IsSelected": n == "Overview"} for n in jobs],
+            ),
+        )
+
+    def test_state_fingerprint_identifies_the_instrument(self):
+        h = _handle()
+        p = self._state_patches()
+        with p[0], p[1], p[2]:
             state = adapter.get_state(h)
-        self.assertEqual(state["immutable"], {"microscope": "DM Manual-6"})
+        self.assertEqual(state["immutable"]["vendor"], "leica")
+        self.assertEqual(state["immutable"]["microscope"], "stellaris5-y42h93")
+        self.assertEqual(state["immutable"]["serial_number"], "STELLARIS-1234")
+        self.assertEqual(state["immutable"]["system_type"], "CONFOCAL")
+        self.assertEqual(state["immutable"]["stand"], "DM Manual-6")
+        self.assertEqual(state["immutable"]["objectives"], [[0, 506511], [1, 506513]])
         self.assertEqual(state["mutable"], {"job": "Overview"})
 
     def test_set_state_reapplies_the_job_and_guards_the_fingerprint(self):
         h = _handle()
+        p = self._state_patches()
         with (
-            patch.object(
-                adapter._readers,
-                "get_hardware_info",
-                return_value={"Microscope": {"name": "DM Manual-6"}},
-            ),
-            patch.object(
-                adapter._readers,
-                "get_selected_job",
-                return_value={"Name": "Overview", "IsSelected": True},
-            ),
+            p[0],
+            p[1],
+            p[2],
             patch.object(adapter._commands, "select_job", return_value={"success": True}) as select,
         ):
-            result = adapter.set_state(
-                h, {"immutable": {"microscope": "DM Manual-6"}, "mutable": {"job": "HiRes"}}
-            )
+            captured = adapter.get_state(h)
+            captured["mutable"]["job"] = "HiRes"
+            result = adapter.set_state(h, captured)
             self.assertEqual(result["applied"], {"job": "HiRes"})
             select.assert_called_once()
+            # Any mismatching stored key refuses -- incl. sim-captured state
+            # applied to a "real" instrument.
             with self.assertRaisesRegex(ValueError, "different instrument"):
-                adapter.set_state(h, {"immutable": {"microscope": "OTHER"}, "mutable": {}})
+                adapter.set_state(h, {"immutable": {"serial_number": "OTHER"}, "mutable": {}})
+            with self.assertRaisesRegex(ValueError, "different instrument"):
+                adapter.set_state(h, {"immutable": {"system_type": "SIMULATOR"}, "mutable": {}})
+
+    def test_set_state_acts_on_mutable_only(self):
+        """A mutable-only state applies; the fingerprint is checked only when given."""
+        h = _handle()
+        p = self._state_patches()
+        with (
+            p[0],
+            p[1],
+            p[2],
+            patch.object(adapter._commands, "select_job", return_value={"success": True}),
+        ):
+            result = adapter.set_state(h, {"mutable": {"job": "HiRes"}})
+        self.assertEqual(result["applied"], {"job": "HiRes"})
+
+    def test_set_state_refuses_a_job_that_no_longer_exists(self):
+        h = _handle()
+        p = self._state_patches(jobs=("Overview",))
+        with p[0], p[1], p[2], patch.object(adapter._commands, "select_job") as select:
+            with self.assertRaisesRegex(ValueError, "no longer exists"):
+                adapter.set_state(
+                    h, {"immutable": {"stand": "DM Manual-6"}, "mutable": {"job": "Gone"}}
+                )
+        select.assert_not_called()
 
     def test_procedures(self):
         h = _handle()

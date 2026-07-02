@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -91,11 +92,18 @@ def _connect_session(args: argparse.Namespace, adapter: Any, output_root: str) -
     inst["output_root"] = output_root
 
     if args.mock:
+        from dataclasses import replace  # noqa: PLC0415
+
         from mock_lasx_api import MockLasxClient  # noqa: PLC0415
+        from navigator_expert.config import profiles  # noqa: PLC0415
 
         adapter._session.connect_python_client = lambda **_kw: MockLasxClient(
             latency=args.mock_latency
         )
+        # The mock has no LAS X log stream, so the default select-job
+        # confirmation race would only ever time out waiting on log evidence
+        # (same pinning as validate_hardware --mock).
+        profiles.STATE_READERS = replace(profiles.STATE_READERS, selected_job_confirm_source="api")
 
     return zmart_controller.set_instrument(inst)
 
@@ -107,6 +115,8 @@ def _confirm_live_write(args: argparse.Namespace) -> bool:
     parts = []
     if args.allow_move:
         parts.append("set_origin + small XY/Z moves (restored)")
+    if args.allow_state:
+        parts.append("a job switch + restore (set_state)")
     if args.allow_acquire:
         parts.append("one acquire")
     if not parts:
@@ -319,6 +329,61 @@ def phase_move(v: vh.Validator, sess: Any, drv: Any, args: argparse.Namespace) -
             _restore(v, sess, drv, orig, job, restore_zwide)
 
 
+def _get_state_settled(sess: Any, attempts: int = 6, delay_s: float = 0.5) -> dict:
+    """``get_state`` with a short settle window.
+
+    Right after a confirmed job switch the API's selected-job readback can
+    lag for a moment (the documented api-lag-after-confirm behavior); the
+    adapter's fail-closed read raises during that window, so poll briefly
+    instead of failing the phase on a transient.
+    """
+    last: Exception | None = None
+    for _ in range(attempts):
+        try:
+            return sess.get_state()
+        except RuntimeError as exc:
+            last = exc
+            time.sleep(delay_s)
+    raise last  # type: ignore[misc]
+
+
+def phase_state(v: vh.Validator, sess: Any) -> None:
+    """Capture → switch job via set_state → restore, fingerprint verified live."""
+    with v.phase("state (capture / switch / restore)"):
+        captured = v.callable("get_state: capture", sess.get_state)
+        if not captured:
+            return
+        immutable = captured["immutable"]
+        v.compare(
+            "state: fingerprint carries an identity",
+            bool(
+                immutable.get("serial_number")
+                or immutable.get("stand")
+                or immutable.get("objectives")
+            ),
+            True,
+        )
+        original = captured["mutable"]["job"]
+        names = (sess.get_acquisition_options().get("job") or {}).get("options") or []
+        other = next((n for n in names if n != original), None)
+        if other is None:
+            v.skip("state: switch", "only one job on this instrument")
+            return
+        v.callable(
+            "set_state: switch job",
+            lambda: sess.set_state({**captured, "mutable": {"job": other}}),
+        )
+        after = v.callable("get_state: after switch (settled)", lambda: _get_state_settled(sess))
+        if after:
+            v.compare("state: switched", after["mutable"]["job"], other)
+        v.callable("set_state: restore", lambda: sess.set_state(captured))
+        restored = v.callable(
+            "get_state: after restore (settled)", lambda: _get_state_settled(sess)
+        )
+        if restored:
+            v.compare("state: restored", restored["mutable"]["job"], original)
+
+
 def phase_acquire(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
     """One real capture+save through the controller into the scratch output root."""
     if args.mock:
@@ -363,8 +428,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--api-delay-ms", type=int, default=None)
 
     # phase gates
-    p.add_argument("--read-only", action="store_true", help="skip all move/acquire phases")
+    p.add_argument("--read-only", action="store_true", help="skip all move/state/acquire phases")
     p.add_argument("--allow-move", action="store_true", help="set_origin + set_xyz round-trip")
+    p.add_argument(
+        "--allow-state", action="store_true", help="get/set_state round-trip (switches jobs)"
+    )
     p.add_argument("--allow-acquire", action="store_true", help="one capture+save")
 
     # deltas
@@ -438,6 +506,10 @@ def main(argv: list[str] | None = None) -> int:
                 phase_move(v, sess, drv, args)
             else:
                 v.skip("phase: move", "use --allow-move to enable")
+            if args.allow_state:
+                phase_state(v, sess)
+            else:
+                v.skip("phase: state", "use --allow-state to enable")
             if args.allow_acquire:
                 phase_acquire(v, sess, args)
             else:
