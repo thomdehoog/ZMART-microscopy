@@ -1,157 +1,550 @@
-# mesoSPIM integration — findings & architecture (ZMART driver)
+# mesospim — mesoSPIM light-sheet microscope driver
 
-> **Status:** investigation / planning. No driver code yet. This documents how the open-source
-> **mesoSPIM-control** light-sheet acquisition software works and how a `zmart_drivers/mesospim/` driver
-> would **plug into ZMART** (the vendor-agnostic controller surface) beside the Leica/Zeiss/Nikon/
-> Evident drivers.
->
-> **Target:** [mesoSPIM-control](https://github.com/mesoSPIM/mesoSPIM-control) (v1.20.0), the
-> Python/PyQt5 acquisition app for mesoSPIM light-sheet microscopes (Benchtop / v4 / v5 + custom).
-> mesoSPIM originated at **UZH** (Fabian Voigt, Helmchen lab) — a local, community-run project.
->
-> **License:** mesoSPIM-control is **GPL-3.0**; ZMART is **MIT**. That contrast drives the design
-> (see [Licensing](#licensing--how-this-stays-mit)).
+`mesospim` drives a **mesoSPIM** light-sheet microscope from an external Python process. Its target,
+[**mesoSPIM-control**](https://github.com/mesoSPIM/mesoSPIM-control) (the GPL PyQt5 acquisition app),
+has **no external control API** — all control is in-process, inside its Qt event loop. So this driver
+adds the missing boundary: a small **resident command-server script**, loaded through mesoSPIM's own
+**Script Window**, opens a localhost TCP socket; the driver is a thin **MIT client** that speaks to it.
+That process boundary is what keeps ZMART MIT while mesoSPIM-control stays GPL (see [§10](#10-licensing--how-this-stays-mit)).
+
+It is a vendor sibling to the Leica `navigator_expert` and ZEISS `zenapi` drivers and mirrors their
+architecture — *connection + command vocabulary + state readers*, all tuning in profiles, every write
+routed through a dispatch backbone with retry + readback confirmation. The public API is
+**synchronous**, so operator notebooks keep the thin 1–3-line invocation style used across the ZMART
+drivers.
+
+- **Author:** Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch · thomdehoog@gmail.com
+- **License:** **MIT** (the client). The one resident server script is **GPL-3.0** — see [§10](#10-licensing--how-this-stays-mit).
+- **Status:** **Live-validated against the real mesoSPIM-control software in `-D` demo mode** (v1.20.0).
+  The command server is loaded exactly as an operator would (Script Window → [`server/scriptwindow_loader.py`](server/scriptwindow_loader.py)),
+  and the full round-trip — connect → get_config → get_state → move → get_position → **acquire** — passes
+  against the live `Core` through the **unmodified** mesoSPIM code (5/5 integration tests). **115 offline
+  tests** green and the server's Qt half is validated headless. Remaining: **real-hardware** validation
+  (demo mode simulates the devices — see the honest boundary below) and non-Tiff image writers
+  (see [TODO.md](TODO.md)).
+
+## How it controls the microscope — in plain terms
+
+The driver does **not** talk to the camera, stage, or lasers itself, and it does
+**not** re-implement any microscope logic. It tells the **real mesoSPIM-control
+program** what to do — the same program a scientist normally clicks in — and
+mesoSPIM does the actual work. We only add the one thing mesoSPIM lacks: a way to
+send it commands from outside.
+
+```
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  YOUR PYTHON  (your PC, or the microscope PC)                        │
+  │                                                                     │
+  │      drv.move_xy(client, 1000, 2000)                                │
+  │              │                                                      │
+  │              ▼                                                      │
+  │  ZMART mesospim driver  (MIT)                                       │
+  │      turns your call into ONE line of JSON:                        │
+  │      {"cmd":"move_absolute","args":{"targets":{"x":1000,"y":2000}}} │
+  └──────────────┬──────────────────────────────────────────────────────┘
+                 │
+                 │   localhost network socket   127.0.0.1 : 42000
+                 │   one JSON request  ──►  one JSON reply
+                 │   (the ONLY link between the MIT driver and GPL mesoSPIM)
+                 ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  THE REAL mesoSPIM-control PROGRAM                                   │
+  │                                                                     │
+  │  command server   (you load it ONCE via the Script Window)         │
+  │      for each request it calls the SAME methods                    │
+  │      mesoSPIM's own buttons call:                                  │
+  │      core.move_absolute(...) · core.start(...) · core.state[...]   │
+  │              │                                                      │
+  │              ▼                                                      │
+  │  mesoSPIM_Core     ── the program's control brain ──               │
+  │              │                                                      │
+  │  ─ ─ ─ ─ ─ ─ ┼ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+  │              ▼                                                      │
+  │  camera · stage · lasers · galvo / ETL                             │
+  │  real devices on the microscope PC                                 │
+  │  (or SIMULATED, when mesoSPIM runs in -D demo mode)                │
+  └─────────────────────────────────────────────────────────────────────┘
+```
+
+**Reading it top to bottom:**
+
+1. **Your code / the ZMART driver (MIT).** You call something plain like
+   `drv.move_xy(client, 1000, 2000)`. The driver turns it into one short line of
+   text (JSON).
+2. **A localhost network socket (`127.0.0.1:42000`).** That line is sent over an
+   ordinary TCP socket and one line of JSON comes back. This socket is the *only*
+   connection between the MIT driver and the GPL mesoSPIM program — which is also
+   what keeps the licensing clean (see [§10](#10-licensing--how-this-stays-mit)).
+3. **The command server, running _inside_ mesoSPIM.** mesoSPIM has a built-in
+   "Script Window" that runs a Python snippet inside the live program. You load
+   our tiny loader there once; it starts a small server on the socket. Because it
+   runs inside mesoSPIM, it holds the real `Core` object.
+4. **`mesoSPIM_Core` — the program's control brain.** For every command, the
+   server calls **the exact same `Core` methods that mesoSPIM's own buttons call**
+   (`core.move_absolute(...)`, `core.start(...)` to run an acquisition, …). So a
+   move sent by the driver runs the *identical code path* as a scientist clicking
+   "move" in the GUI. **That is why this is real control, not a look-alike.**
+5. **The devices.** `Core` drives the real camera, stage and lasers. In **demo
+   mode (`-D`)** these are mesoSPIM's own *simulated* devices, so the whole program
+   runs with no microscope attached.
+
+**The honest boundary.** Everything *except the bottom box* is the real
+mesoSPIM-control program in every case. In `-D` demo mode the bottom box is
+simulated (no hardware present); on the actual microscope PC the very same path
+drives the real devices. That last step — real stage moves, real camera — is the
+one remaining bench check (see [TODO.md](TODO.md)); it needs the physical
+instrument, which no amount of demo-mode testing can stand in for.
+
+## Contents
+
+1. [About mesoSPIM-control & the command server](#1-about-mesospim-control--the-command-server)
+2. [Requirements & installation](#2-requirements--installation)
+3. [Configuration](#3-configuration)
+4. [Quick start](#4-quick-start)
+5. [Core concepts](#5-core-concepts)
+6. [API reference](#6-api-reference)
+7. [Architecture](#7-architecture)
+8. [Configuration & tuning (profiles)](#8-configuration--tuning-profiles)
+9. [Testing](#9-testing)
+10. [Licensing — how this stays MIT](#10-licensing--how-this-stays-mit)
+11. [Invariants & gotchas](#11-invariants--gotchas)
+12. [Extending the driver](#12-extending-the-driver)
+13. [References](#13-references)
 
 ---
 
-## TL;DR
+## 1. About mesoSPIM-control & the command server
 
-- mesoSPIM-control is a **monolithic PyQt5 GUI app with NO external control API** — no socket, ZMQ,
-  REST, or RPC. All control is in-process, inside the Qt event loop.
-- **But** it exposes, in-process: a **Script Window** (`exec()`s a script with the full Core `self`
-  in scope), an **embedded IPython console** (`-C`), **GUI-free `Acquisition`/`AcquisitionList`**
-  data classes, and a process-wide **state singleton** — plus **complete demo backends + a `-D`
-  demo mode** that run the whole app with zero hardware.
-- **Recommended (MIT-preserving, no fork):** add a **resident Python "command-server" script** —
-  loaded through mesoSPIM's own **Script Window** — that opens a localhost socket and **QTimer-polls**
-  it, translating text commands into Core signals / state reads (the exact analog of the Nikon
-  `NkSocketServerDemo.mac` `WM_TIMER` poll). ZMART's `zmart_drivers/mesospim/` is then a thin **MIT external
-  client** speaking that socket — a sibling of the Leica CAM / Nikon NkSocket drivers.
-- This keeps **ZMART MIT** (process boundary; GPL confined to the resident script), and it is
-  **testable offline against the real software** via `-D` demo mode — unique among the ZMART drivers.
+mesoSPIM-control is a monolithic **Python 3.12 / PyQt5** GUI app. `mesoSPIM_Core` (a `QObject` "pacemaker")
+runs on its own thread and drives everything through **signals/slots**; a process-wide
+`mesoSPIM_StateSingleton` holds instrument state; device backends (cameras, PI/ASI stages, NI DAQ galvo/ETL
+waveforms, lasers, filter wheels) are config-driven and **swappable for `Demo` backends**. Crucially, it
+exposes **no socket, ZMQ, REST, or RPC** — nothing a separate OS process can connect to out of the box.
 
----
+**The hook (no fork).** mesoSPIM's **Script Window** (Core menu) `exec()`s a Python snippet with the live
+`Core` bound as `self`. You load the driver's tiny flat loader ([`server/scriptwindow_loader.py`](server/scriptwindow_loader.py))
+there once; it imports the command-server module and starts it. The server opens a `127.0.0.1:42000`
+`QTcpServer` and **`QTimer`-poll**s it — non-blocking, so the Qt event loop never freezes (the same pattern
+as the Nikon `NkSocketServerDemo.mac` `WM_TIMER` poll). Each JSON request line becomes a `Core` action
+(`move_absolute`, a state request, an `Acquisition` run) or a state read, with a JSON reply line back. The
+driver is a plain MIT client of that socket.
 
-## What it is (hardware + stack)
+> **Why a *loader* and not the server file directly?** The Script Window runs your script with
+> `exec(script)` *inside* a `Core` method, where `globals()` ≠ `locals()`. A full *module*'s top-level
+> names (constants, classes) then resolve as globals and raise `NameError`. So the server logic lives in a
+> module and the thing you actually load is a **flat** one-job loader that imports it — mirroring
+> mesoSPIM's own flat example scripts. Details in [`server/README.md`](server/README.md).
 
-Python 3.12, PyQt5, pyqtgraph. Config-driven hardware abstraction with swappable backends. Controls:
+**Why this is a good fit.** Because mesoSPIM ships a **`-D` demo mode** (all `Demo` backends, zero hardware),
+the *entire* control loop — including a real acquisition through the real image writer — can be exercised
+against the actual acquisition software with no microscope. That is unique among the ZMART drivers, and it
+is exactly how this driver was validated (see [§9](#9-testing)).
 
-- **Cameras** (`src/devices/cameras/`): Hamamatsu Orca (DCAM), Photometrics (PVCAM/PyVCAM), PCO, `Demo_Camera`.
-- **Stages** XYZ + rotation + focus (`src/mesoSPIM_Stages.py`, `src/devices/stages/`): Physik Instrumente (C-884), PI+Galil hybrid, ASI Tiger/MS-2000, `mesoSPIM_DemoStage`.
-- **Lasers** (`src/devices/lasers/`): NI/cDAQ digital enable + analog modulation; `Demo_LaserEnabler`.
-- **DAQ / galvos / ETL waveforms** (`src/mesoSPIM_WaveFormGenerator.py`): National Instruments generates galvo + tunable-lens + camera-trigger waveforms; `mesoSPIM_DemoWaveFormGenerator`.
-- **Shutters** (`NI_Shutter`/`Demo_Shutter`), **filter wheels** (Ludl, Sutter Lambda 10, Dynamixel, ZWO; Demo), **zoom** (Dynamixel servo, Mitutoyo turret; Demo).
+The resident server is the **only** place that touches the GPL `Core` API; its `Core`-binding calls are
+quarantined in one class (`_CoreBridge`) so the surface to re-verify against a new mesoSPIM version is small.
+The wire vocabulary is specified in [`server/PROTOCOL.md`](server/PROTOCOL.md).
 
-## Architecture
+## 2. Requirements & installation
 
-Monolithic Qt app (no formal QStateMachine; a shared state dict + string state field):
+The **client** (this package) is pure standard-library sockets + JSON and is **cross-platform** with no heavy
+dependencies. Only the resident server + live `Core` need mesoSPIM-control, which is effectively
+**Windows-only** (Python ≥ 3.12; `requirements-conda-mamba.txt` pins Windows-only packages). `-D` demo mode
+needs **no camera / stage / DAQ hardware** — a bare Windows box or VM is enough.
 
-- **Entry** `mesoSPIM/mesoSPIM_Control.py` builds `QApplication` + `mesoSPIM_MainWindow` and calls
-  `ex.show()` — **GUI is mandatory; no headless mode.**
-- **`mesoSPIM_MainWindow`** moves the Core onto its own thread:
-  `self.core = mesoSPIM_Core(cfg, self); self.core.moveToThread(self.core_thread)`.
-- **`mesoSPIM_Core(QtCore.QObject)`** — "the pacemaker": everything is **signals/slots**
-  (`sig_state_request`, `sig_move_relative`, `sig_prepare_image_series`, …). It spawns camera /
-  image-writer / serial worker QThreads.
-- **Device HAL is config-driven** (if/elif on config strings in the Core), e.g.
-  `if cfg.waveformgeneration in ('NI','cDAQ'): … elif == 'DemoWaveFormGeneration': …`;
-  stages dispatched by `stage_parameters['stage_type']`.
-- **State:** `mesoSPIM_StateSingleton` — process-wide, mutex-guarded; `state['state']` cycles
-  `init → idle → live/snap/running_script`.
-- **Acquisition loop:** `start → prepare/run/close_acquisition_list → run_acquisition` iterates
-  z-planes (`snap_image_in_series()` + `move_relative()`).
+**Install the driver (import the package):**
 
-## Programmatic control surfaces (all in-process)
+```python
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path("zmart_drivers").resolve()))   # parent of the mesospim package
 
-1. **Script Window** (`mesoSPIM_ScriptWindow.py` → Core slot): the Core literally
-   `exec()`s the script with `self` in scope —
-   ```python
-   @QtCore.pyqtSlot(str)
-   def execute_script(self, script):
-       self.state['state'] = 'running_script'
-       exec(script)   # full access to self (Core), self.state, devices
-   ```
-   Ships example scripts in `mesoSPIM/scripts/`.
-2. **Embedded IPython console** (`-C/--console`): `IPython.start_ipython(..., user_ns={'mSpim': ex, 'app': app})` — `mSpim.core` reaches everything.
-3. **`Acquisition` / `AcquisitionList`** (`utils/acquisitions.py`): GUI-free data classes
-   (`x_pos, y_pos, z_start/end/step, planes, rot, laser, intensity, filter, zoom, etl_*`, …),
-   constructible in pure Python; the app runs a list via *Run Acquisition List*. (On-disk save is an
-   undocumented pickle `.bin`, so cross-process file exchange is fragile.)
-4. **`mesoSPIM_StateSingleton`** — a co-resident object can read/write instrument state and enqueue
-   actions via the Core's signals.
-
-There is **no** way for a separate OS process to drive it out of the box.
-
-## The recommended hook (no fork)
-
-Use surface (1) to add the missing socket boundary **without forking mesoSPIM**:
-
-- A **resident command-server script** (our file, loaded via the Script Window) opens a
-  `127.0.0.1` TCP server and **QTimer-polls** it — non-blocking, so it never freezes the Qt event
-  loop (directly analogous to the Nikon `NkSocketServerDemo.mac` `WM_TIMER` poll). Each received
-  text line is dispatched to the Core: emit `sig_move_relative` / `sig_state_request`, snap, submit
-  an `AcquisitionList`, or read `mesoSPIM_StateSingleton` for a reply.
-- ZMART's **`zmart_drivers/mesospim/`** connects as an external **MIT** client and speaks that protocol —
-  identical in shape to the Leica CAM / Nikon NkSocket drivers, so it reuses the existing driver
-  skeleton (connection + commands + readers).
-- **Better than a fork:** it's a script mesoSPIM *runs*, not a patch to maintain — and it's a good
-  **upstream contribution** (Zurich-local, community project), which would make the hook first-class.
-
-## Licensing — how this stays MIT
-
-- mesoSPIM-control is **GPL-3.0**. Importing its modules into ZMART would make the combined work GPL.
-- The **process boundary avoids that**: ZMART links only to our **MIT** external client, which
-  *communicates with* a separate GPL program (mere aggregation, not a derivative work).
-- The **GPL edge is the resident script only** (it uses the GPL Core API) — a small, standalone file,
-  ideally contributed upstream. ZMART core + the `zmart_drivers/mesospim/` client stay MIT.
-- GPL does **not** restrict *use* (incl. commercial) — only distribution of derivatives. So a
-  commercial ZMART product driving mesoSPIM at arm's length is fine; folding modified mesoSPIM source
-  into a closed product is the only thing that isn't. (Not legal advice — confirm with UZH tech-transfer.)
-
-## Can do / can't do
-
-### ✅ Can do
-- Drive mesoSPIM **in-process** today via the Script Window / IPython console (move, snap, run lists).
-- Add a clean **external socket** via a resident QTimer-polled script — no fork — then drive it from
-  an MIT ZMART client (Leica/Nikon-symmetric).
-- **Test the whole loop offline against the real software** using `-D` demo mode (all Demo backends).
-- Reuse the vendor-neutral driver skeleton (connection + commands + readers + profiles).
-
-### ❌ Can't do
-- **No external API out of the box** — nothing for a separate process to connect to until we add the hook.
-- **No headless mode** — the Qt GUI is mandatory; the Core isn't cleanly usable without `QApplication`.
-- **In-process import into ZMART is off the table** — it would make ZMART GPL and fights the Qt coupling.
-- The acquisition-list **`.bin`** format is undocumented pickle — don't rely on file interchange; submit lists in-process via the hook.
-
-## Integration into ZMART
-
-The `zmart_drivers/mesospim/` driver presents ZMART's neutral contract; internally it is a socket client:
-
-```
-zmart_drivers/mesospim/                 (eventual)
-  connection/   TCP client to the resident command server (connect / send / read)
-  commands/     dispatch backbone + verb wrappers (move_xy, move_z, snap, run_list, ...)
-  readers/      parse replies / state-singleton queries into ZMART state
-  config/       profiles (host/port; per-command confirm/retry tuning)
-  server/       the resident mesoSPIM command-server script (GPL edge) + upstream proposal
-  tests/        offline: MIT client vs a mock server; integration: vs mesoSPIM -D demo mode
+import mesospim as drv
 ```
 
-## Next steps
+Test/optional dependencies (the client itself needs none of these):
 
-1. **Spike (buildable now):** the **MIT external client** + a **mock command server** + offline tests
-   (reuse the Nikon/Evident spike pattern), which also *specifies the protocol* the resident script
-   must implement.
-2. **Resident command-server script:** write the QTimer-polled socket server that dispatches to the
-   Core; validate against **mesoSPIM `-D` demo mode** (real software, no hardware).
-3. **Propose the hook upstream** to the mesoSPIM project (avoids a maintained fork; benefits the community).
-4. **Grow into `zmart_drivers/mesospim/`** and register it with the ZMART controller.
+```bash
+pip install -r zmart_drivers/mesospim/requirements-dev.txt   # pytest, numpy, tifffile; PyQt5 optional (validator)
+```
 
-## References
-- mesoSPIM-control: <https://github.com/mesoSPIM/mesoSPIM-control>
-- mesoSPIM project: <https://mesospim.org>
-- Sibling patterns: `zmart_drivers/nikon/` (resident socket macro + external client), `zmart_drivers/leica/.../navigator_expert/` (CAM external orchestrator).
+**Start the command server on the mesoSPIM PC:**
 
-<!-- Investigation date: 2026-07-01. Maintainer: Thom de Hoog (ZMB / University of Zurich),
-     thom.dehoog@zmb.uzh.ch · thomdehoog@gmail.com. ZMART driver = MIT; mesoSPIM-control = GPL-3.0,
-     kept behind a process boundary. Grounded in a source read of mesoSPIM-control v1.20.0. -->
+1. Launch mesoSPIM-control — real hardware, or **`-D` demo mode** for a hardware-free run:
+   `python mesoSPIM_Control.py -D`.
+2. **Core menu → Script Window →** open [`server/scriptwindow_loader.py`](server/scriptwindow_loader.py)
+   **→ Run**. Open the *loader*, **not** `mesospim_command_server.py` (see [§1](#1-about-mesospim-control--the-command-server)).
+   If the ZMART driver isn't already importable in mesoSPIM's Python, set `SERVER_DIR` at the top of the
+   loader to the folder holding `mesospim_command_server.py`. You should see
+   `[mesospim-cmd-server] listening on 127.0.0.1:42000`.
+3. From the driver: `client = drv.connect({"host": "127.0.0.1", "port": 42000})`.
+
+**Network use (control from another PC).** By default the server binds to
+`127.0.0.1` (same machine only). To drive it from another machine, set `HOST` in
+the loader to `0.0.0.0` (or the mesoSPIM PC's LAN IP) **and** set a `TOKEN` — then
+pass it: `drv.connect({"host": "<mesoSPIM-PC-IP>", "port": 42000, "token": "<token>"})`.
+The token gates access (fail-closed: no token, no control). Note it is **plain
+TCP** — the token is a casual gate for a trusted lab LAN, not sniffer-proof
+security; tunnel it (SSH/VPN) for untrusted networks. See [`server/PROTOCOL.md`](server/PROTOCOL.md) → Authentication.
+
+See [`server/README.md`](server/README.md) for the server details and offline validation options.
+
+## 3. Configuration
+
+- **Connection** — `ConnectionProfile` (`config/profiles.py`, exported as `CONNECTION`): `host` (127.0.0.1),
+  `port` (42000), `timeout_s` (10 s). `connect()` reads `host`/`port`/`timeout` from the connection dict the
+  ZMART controller forwards, with explicit kwargs winning over the dict winning over the profile.
+- **Stage limits (required before any move)** — limits fail **closed**: an axis with no configured limit is
+  *rejected*, so a forgotten setup can never let an unbounded move reach a mounted sample. Configure once per
+  session with `set_stage_limits(...)` or `apply_stage_limits_from_config(load_stage_config(...))`, in
+  micrometers (degrees for `theta`). The bundled envelope is [`config/stage_limits.json`](config/stage_limits.json)
+  (schema-versioned). **The `zmart_controller` path loads these automatically in `connect`.**
+- **Hardware model / acquisition defaults** — `HARDWARE` (laser lines, filters, zoom→pixel-size table, camera
+  size) and `ACQUISITION` (save format, defaults, `acquire_timeout_s`) in `config/profiles.py`. The live
+  instrument's values are authoritative and read back via `get_config`; the profile is the offline default and
+  validation reference.
+
+## 4. Quick start
+
+```python
+import mesospim as drv
+
+# 1. Connect to the resident command server (handshake + ping-verified).
+client = drv.connect({"host": "127.0.0.1", "port": 42000})
+
+# 2. Stage safety limits (REQUIRED before movement) — micrometers / degrees.
+#    limits fail CLOSED, so an unconfigured axis is rejected.
+drv.apply_stage_limits_from_config(drv.load_stage_config())     # bundled envelope
+
+# 3. Drive the microscope — synchronous, micrometers.
+r = drv.move_xy(client, 1000, 2000)
+assert r["success"], r["message"]                 # check `confirmed` too — see §5
+drv.set_filter(client, "515/30")
+drv.set_laser(client, "488 nm")
+drv.set_intensity(client, 20)                      # percent
+
+# 4. Read state.
+print(drv.get_positions(client))                   # {'x':1000.0,'y':2000.0,'z':..,'f':..,'theta':..}
+print(drv.get_config(client)["lasers"])            # [{'name':'488 nm','wavelength_nm':488}, ...]
+
+# 5. Capture and persist (two steps). The low-level acquire needs a folder/filename
+#    so the mesoSPIM image writer has somewhere to write.
+acq   = drv.acquire(client, "snap", options={"folder": "D:/runs/demo", "filename": "A1.tiff", "planes": 1})
+saved = drv.save(acq, "D:/runs/demo", position_label="A1")     # relocates the frames + a JSON sidecar
+print(saved.image_paths)
+
+drv.close(client)
+```
+
+Through the vendor-neutral controller instead (`import zmart_controller`):
+
+```python
+import mesospim, zmart_controller
+mesospim.register({"vendor": "mesospim", "microscope": "mesospim-01",
+                   "api": "command-server", "host": "127.0.0.1", "port": 42000})
+sess = zmart_controller.set_instrument(zmart_controller.get_instruments()[0])
+sess.set_origin()
+sess.set_xyz(10, 20, 5)                             # µm from origin
+sess.acquire("prescan", "A1", options={"format": "ome-tiff"})
+sess.disconnect()
+```
+
+The controller surface is x/y/z-centric: focus and rotation are exposed as **procedures**
+(`move_focus`, `move_rotation`), and laser/filter/zoom/intensity/shutter/ETL as the capturable **mutable
+state** (`get_state`/`set_state`). The full driver API (`import mesospim`) covers the rest.
+
+## 5. Core concepts
+
+**The client.** `connect(...)` opens the socket, performs the `hello` handshake (recording the server
+identity + protocol version), verifies the link with a `ping`, and returns a `MesospimClient`. It refuses a
+server whose protocol version it does not know. Every command and reader takes the client as its first
+argument. One request/reply at a time, guarded by a lock — mesoSPIM's command server is single-client by
+design (it lives in the Qt event loop).
+
+**Units.** Linear axes (x, y, z, focus) are **micrometers**; rotation (`theta`) is **degrees** — on both the
+public API and the wire. The server handles any conversion to mesoSPIM's internal units.
+
+**Command vs. read.** Commands *change* state through the dispatch backbone and return a result envelope;
+readers *observe* state and return a value (or `None`).
+
+**The result envelope.** Every command returns a stable dict:
+
+| Key | Meaning |
+|---|---|
+| `success` | The command achieved its effect (fired without a permanent/transport error). |
+| `confirmed` | A readback matched the target (`True`/`False`); `None` if no confirmation ran. |
+| `message` | Human-readable summary. |
+| `data` | Command-specific payload (server reply data, resulting position, …). |
+| `timing` | `{pre_check_s, fire_s, confirm_s, total_s, attempts, confirm_attempts}`. |
+| `logs` | Ordered `{ts, level, msg}` trace. |
+
+**`success` vs. `confirmed` — read both.** For moves and settings the profiles use
+`success_on_unconfirmed=True`: `success=True, confirmed=False` means "the command fired but the readback did
+not verify it" — the mismatch is in `logs`. Don't treat `success` alone as "the stage is there." (In
+practice the server blocks on `wait_until_done`, so the reply only returns *after* the move completes and the
+confirming readback normally sees the arrived position.) `success=False` means it never fired (a validation
+or limit failure, a NAK, or a transport error), and `confirmed` is then `None`.
+
+**The freshness gate.** When a reader is asked for provenance (`diagnostics=True`) it returns a `Reading`
+(`value` + `source` + `observed_at`). The confirm layer rejects any readback observed *before* the command
+fired, so a stale pre-command read can never falsely confirm. Ordering uses `time.perf_counter()` (monotonic,
+sub-microsecond) — wall-clock and `time.monotonic()` are both ~16 ms coarse on Windows and would let a stale
+read share the fire's timestamp.
+
+**Acquisition is two steps.** `acquire(...)` runs a capture and returns an `AcquisitionResult` referencing the
+frame files the mesoSPIM image writer wrote (it **raises** if the server reports no frames). `save(...)` is a
+deliberate second step that relocates those frames into a canonical layout with a metadata sidecar.
+
+**Errors.** A NAK (`ok=false`) raises `MesospimError` from `request()` (use `try_request()` when a NAK is an
+expected, inspectable outcome). Transport failures (dropped link, timeout) invalidate the connection and are
+classified transient by the dispatch backbone (retried up to the profile ceiling); there is no auto-reconnect.
+
+**Logging.** `logging.getLogger("mesospim").setLevel(logging.DEBUG)` — the same trace also travels in each
+result's `logs`.
+
+## 6. API reference
+
+All functions are synchronous; `client` is a `MesospimClient`. Commands return the result envelope of §5;
+readers return a value or `None`.
+
+### Connection
+```python
+connect(connection=None, *, host=None, port=None, timeout=None, token=None) -> MesospimClient   # handshake + ping-verified; token sent in hello if the server requires one
+close(client) -> None                                                               # says "bye", idempotent
+ping(client) -> bool
+```
+
+### Movement (result envelope; µm / deg)
+| Function | Signature | Notes |
+|---|---|---|
+| `move_absolute` | `(client, targets: dict, *, tolerance=None)` | `{axis: value}` over `x,y,z,f,theta`; limit-checked before firing |
+| `move_relative` | `(client, deltas: dict, *, tolerance=None)` | expected absolute (current + delta) is limit-checked & confirmed |
+| `move_xy` | `(client, x, y, *, tolerance=None)` | convenience over `move_absolute` |
+| `move_z` / `move_focus` | `(client, value, *, tolerance=None)` | sample Z / detection focus |
+| `move_rotation` | `(client, theta, *, tolerance=None)` | degrees |
+| `stop` | `(client)` | halt all motion (no confirmation) |
+| `zero_axes` | `(client, axes=None)` | define current position as instrument zero (`None` = all axes) |
+
+### Instrument state (result envelope)
+| Function | Signature | Notes |
+|---|---|---|
+| `set_state` | `(client, settings: dict)` | batch of mesoSPIM state keys; applied via `sig_state_request_and_wait_until_done` |
+| `set_filter` / `set_zoom` / `set_laser` | `(client, name)` | select by name (`"515/30"`, `"1x"`, `"488 nm"`) |
+| `set_intensity` | `(client, intensity)` | laser intensity, 0–100 % (range-checked) |
+| `set_shutter` | `(client, shutterconfig)` | `"Left"` / `"Right"` / `"Both"` |
+| `set_etl` | `(client, side, *, amplitude=None, offset=None)` | `side` = `"left"`/`"right"`; either/both params |
+
+### State readers
+All take `(client, ...)`; pass `diagnostics=True` for a source-tagged `Reading`. They return a value (or `None`),
+never raise on a bad read (`is_idle` swallows errors and returns `False`).
+
+| Function | Returns |
+|---|---|
+| `ping` | `bool` |
+| `is_idle` | `bool` (state == `"idle"`) |
+| `get_state` | full state dict — `state`, `position` (`{x,y,z,f,theta}`), settings (`laser`,`intensity`,`filter`,`zoom`,`shutterconfig`,`etl_*`) |
+| `get_positions` | `{x,y,z,f,theta}` (µm / deg) |
+| `get_position` | single axis value |
+| `get_xyz` | `{x,y,z}` |
+| `get_config` / `get_hardware_info` | `lasers` (`[{name,wavelength_nm}]`), `filters`, `zooms` (`[{name,pixel_size_um}]`), `axes`, `shutter_configs`, `camera` (`{pixels_x,pixels_y}`), `app`, `version` |
+| `get_lasers` / `get_filters` / `get_zooms` | the corresponding list from `get_config` |
+| `get_progress` | `state`, `current_plane`, `total_planes`, `current_acquisition`, `total_acquisitions` |
+
+### Acquisition & save
+```python
+acquire(client, acquisition_type="snap", *, options=None, state=None) -> AcquisitionResult   # RAISES if no frames
+snap(client, *, options=None) -> AcquisitionResult                                            # single frame (planes=1)
+run_acquisition_list(client, acquisitions: list[dict]) -> dict                                # multi-tile/-channel
+build_acquisition(state: dict, options=None) -> dict                                          # compose an Acquisition dict
+save(acq, output_root, *, position_label, format="ome-tiff") -> SavedAcquisition              # relocate frames + JSON sidecar
+canonical_stem(acquisition_type, position_label) -> str
+```
+`options` may set `folder`/`filename` (where the image writer writes — the controller path fills these in) and
+acquisition fields (`planes`, `z_step`, `z_start`, `z_end`, `laser`, `intensity`, `filter`, `zoom`,
+`shutterconfig`, …). `acquire` uses `ACQUISITION.acquire_timeout_s` as its socket deadline (a capture reply
+only arrives once the run finishes, far beyond the default per-request timeout). Result/product types:
+`AcquisitionResult`, `AcquisitionMetadata`, `ChannelMetadata`, `SavedAcquisition` (`acquisition/product.py`).
+
+> `save()` takes **no client** — it just relocates the files the writer already produced, into
+> `<output_root>/data/` under a stable, collision-safe stem, with a JSON metadata sidecar. It does not
+> re-encode pixels (the OME rewrite is a documented seam; see [§12](#12-extending-the-driver)).
+
+### Config & limits
+```python
+set_stage_limits(**axis_limits) -> None            # e.g. x=(0, 20000), theta=(-360, 360); µm / deg
+get_stage_limits() -> dict
+apply_stage_limits_from_config(stage_cfg) -> None   # from load_stage_config(...)
+load_stage_config(path=None) -> dict                # validates schema; defaults to the bundled envelope
+check_move(targets) -> None                         # raises LimitError (fail-closed) — used by the command wrappers
+```
+Profiles `ACQUISITION`, `CONNECTION`, `HARDWARE` and the exception `LimitError` are also exported.
+
+### Controller & protocol
+```python
+register(connection=None) -> None                   # register the ops table with zmart_controller (idempotent)
+# protocol (advanced callers / server authors):
+Request, Reply, encode_request, parse_request, parse_reply, PROTOCOL_VERSION
+```
+
+## 7. Architecture
+
+```
+zmart_drivers/mesospim/
+├── protocol.py     JSON-lines encode/parse — pure, socket-free (MIT); the wire contract
+├── connection/     client.py  blocking, line-oriented TCP client (lock-guarded, single in-flight)
+│                   session.py connect() / close()
+├── commands/       dispatch.py  confirm_and_fire backbone (fire + transient retry → confirm + optional re-fire)
+│                   commands.py  move_*/set_*/stop/zero_axes wrappers (three-phase: validate+limits → backbone → envelope)
+├── readers/        readers.py   get_* reads + the Reading freshness gate
+├── config/         profiles.py  CONNECTION/HARDWARE/ACQUISITION + CommandProfile instances (MOVE/MOVE_ROTATION/SET_STATE)
+│                   limits.py    fail-closed 5-axis µm/deg envelope     stage_limits.json  bundled default
+├── acquisition/    product.py   typed results     capture.py  build/acquire/snap/run_acquisition_list
+│                   save.py      relocate the writer's frames into <output_root>/data/ + JSON sidecar
+├── controller.py   ZMART controller adapter — ops table (connect, set_xyz, acquire, get/set_state, …) + register()
+├── server/         mesospim_command_server.py  the GPL resident script (QTcpServer + QTimer poll + _CoreBridge)
+│                   validate_headless.py  the server's Qt half vs a fake Core     PROTOCOL.md   README.md
+└── tests/          unit/  offline vs a mock server     integration/  vs mesoSPIM -D demo     helpers/mock_mesospim_server.py
+```
+
+**Dispatch backbone** (`commands/dispatch.py` → `confirm_and_fire`) — two layers, deliberately *dumb* (it owns
+order, retry ceilings, and timing; it knows nothing about axes, lasers, or acquisitions):
+
+```
+confirm_and_fire
+ ├─ fire block   send the request; retry only on transient transport errors (≤ max_retries). A server NAK is
+ │               a permanent rejection, not retried.
+ └─ confirm wrap run confirm_fn (readback + freshness gate); optionally re-fire and re-confirm (≤ max_confirm_attempts).
+```
+
+Command wrappers supply small zero-arg/one-arg callables (targets pre-bound with `functools.partial`). Because
+the *server* blocks on `wait_until_done`, the ACK returns only after the move completes, so a single confirm
+read normally sees the arrived state.
+
+**GPL/MIT split.** Everything above is MIT and imports nothing from mesoSPIM. The lone GPL file,
+`server/mesospim_command_server.py`, runs *inside* the mesoSPIM process and imports only stdlib, PyQt5, and
+mesoSPIM's own GPL modules — never anything from ZMART. The socket is the boundary (see [§10](#10-licensing--how-this-stays-mit)).
+
+**Dependency direction:** `utils` (stdlib) → `protocol` → `connection.client` → `commands.dispatch` →
+`config.profiles`/`config.limits` → `commands.commands`; `readers`, `acquisition`, and `controller` sit above.
+No circular imports.
+
+## 8. Configuration & tuning (profiles)
+
+Per-command tuning lives in `config/profiles.py` as frozen `CommandProfile` instances; wrappers accept explicit
+overrides (`tolerance=`) only for tests/unusual runs. Tuning a command = editing its profile.
+
+```python
+@dataclass(frozen=True)
+class CommandProfile:
+    max_retries=2 ; max_confirm_attempts=3 ; refire_on_unconfirmed=False
+    confirm_tolerance=None ; success_on_unconfirmed=False
+    # __post_init__ forbids the incoherent max_confirm_attempts==1 + refire_on_unconfirmed=True
+```
+
+| Profile | Posture |
+|---|---|
+| `MOVE` | confirm within `1.0 µm`; unconfirmed ≠ failure (fire is reliable, reader may lag). |
+| `MOVE_ROTATION` | as `MOVE` but `0.1°` tolerance (chosen for `theta`-only moves). |
+| `SET_STATE` | re-fire between confirm windows; unconfirmed ≠ failure. |
+
+Other tuning surfaces: `CONNECTION` (host/port/timeout), `ACQUISITION.acquire_timeout_s` (capture socket
+deadline, 600 s), and `HARDWARE` (the offline device model / validation reference).
+
+## 9. Testing
+
+One self-contained gate ([`run_ci.py`](run_ci.py) — env header + lint + tests + reports), three modes:
+
+```bash
+pip install -r zmart_drivers/mesospim/requirements-dev.txt        # first run only (pytest, numpy, tifffile)
+
+python zmart_drivers/mesospim/run_ci.py            # OFFLINE (default, portable): mock-server suite + coverage
+                                                   #   + the headless Qt validator of the resident server (if PyQt5)
+python zmart_drivers/mesospim/run_ci.py online     # ONLINE:  live round-trip vs a running mesoSPIM -D demo
+python zmart_drivers/mesospim/run_ci.py both       # BOTH:    the offline gate followed by the live round-trip
+```
+
+The three layers it runs, fastest/most-portable to most-faithful:
+
+1. **Offline suite (111 tests)** — the MIT client vs a **mock command server** over a real socket; no
+   mesoSPIM, no hardware. `python -m pytest zmart_drivers/mesospim/tests` runs it directly (`-m "not
+   integration"` is the default).
+2. **Headless Qt validation** — the resident GPL server's *entire* Qt machinery (`QTcpServer` + `QTimer`
+   poll + `_CoreBridge`) against a **fake Core**, driven by the real client. Needs only PyQt5, no display:
+   `QT_QPA_PLATFORM=offscreen python zmart_drivers/mesospim/server/validate_headless.py`.
+3. **Live round-trip** — the `-m integration` suite against a **running mesoSPIM `-D` demo** (real software,
+   Demo backends, no hardware) on `MESOSPIM_HOST`/`MESOSPIM_PORT` (default `127.0.0.1:42000`). It skips
+   cleanly if nothing is listening; capture is opt-in via `MESOSPIM_ALLOW_ACQUIRE=1` so it never fires
+   lasers by accident. `run_ci.py` does not launch mesoSPIM — start the `-D` demo + command server first
+   (see [§2](#2-requirements--installation)), the same way the Leica/ZEISS `online` runs need their app live.
+
+`online`/`both` therefore exercise the **real mesoSPIM-control software** — only the *hardware* is simulated
+by the Demo backends. Reports (env.json, junit.xml, coverage, ci_summary.json) land in `tests/_report/`.
+
+**Bench-validated.** The live round-trip has been run against a **`mesoSPIM_Core` (v1.20.0, all Demo
+backends)** — all five tests pass, including `acquire`: it moves the demo stage, captures a frame, and the
+driver resolves/relocates the Tiff stack the image writer wrote (plus the writer's `MAX_*` MIP and
+`*_meta.txt` companions, which the driver correctly does *not* return as frame data). See [TODO.md](TODO.md)
+for the method and the remaining bench items (non-Tiff writers; real-hardware moves).
+
+Follow the project TDD practice: add a failing offline test first, and assert real values, not just shapes.
+
+## 10. Licensing — how this stays MIT
+
+- mesoSPIM-control is **GPL-3.0**; importing its modules into ZMART would make the combined work GPL.
+- The **process boundary avoids that.** ZMART links only to the **MIT** external client, which *communicates
+  with* a separate GPL program over a socket — mere aggregation, not a derivative work.
+- The **GPL edge is one file:** `server/mesospim_command_server.py`. It uses the GPL `Core` API, so it is
+  GPL-3.0, and it imports **nothing** from ZMART. Its ideal long-term home is an upstream contribution to the
+  mesoSPIM project (a first-class "command server" script), so it is a script mesoSPIM *ships and runs* rather
+  than a patch anyone maintains.
+- GPL does **not** restrict *use* (including commercial) — only distribution of derivatives. Driving mesoSPIM
+  at arm's length from a commercial ZMART product is fine; folding modified mesoSPIM source into a closed
+  product is not. *(Not legal advice — confirm with UZH tech-transfer.)*
+
+## 11. Invariants & gotchas
+
+These **silently misbehave** instead of failing loudly — respect them or results are wrong without an error:
+
+1. **Configure stage limits before any movement.** Limits fail **closed**: an unconfigured axis is rejected,
+   so every `move_*` returns `success=False` until `set_stage_limits`/`apply_stage_limits_from_config` runs.
+   (The `zmart_controller` path does this automatically in `connect`.)
+2. **For moves and settings, check `confirmed`, not just `success`.** The profiles accept unconfirmed as
+   success (mismatch in `logs`); `success` alone is "fired," not "arrived."
+3. **`acquire()` raises on no frames and needs a `folder`/`filename`** so the image writer has somewhere to
+   write. Persisting is a separate `save()` call (which takes no client).
+4. **Acquisitions are slow.** A capture reply only comes back when the run finishes — `acquire` uses
+   `ACQUISITION.acquire_timeout_s` (600 s), not the ~10 s default socket deadline. A real stack can take minutes.
+5. **Single-client server.** The command server accepts one client at a time; it lives in mesoSPIM's Qt event
+   loop and is polled non-blocking. Don't open two concurrent clients.
+6. **Process-global stage limits.** Limits live in a module-level dict, so this driver assumes one instrument
+   per process; a second session in the same process would share (and overwrite) them.
+7. **The resident server must match your mesoSPIM version.** Its `Core`-binding names are verified against
+   v1.20.0 and quarantined in `_CoreBridge`; re-verify there if your installed version differs (run [§9](#9-testing)
+   step 3 against `-D` demo mode first). `acquire` imports mesoSPIM's `Acquisition` from
+   `mesoSPIM.src.utils.acquisitions` (with a bare-`utils` fallback).
+
+## 12. Extending the driver
+
+- **New command** — add a wrapper in `commands/commands.py` (three phases: validate + limit-check →
+  `confirm_and_fire(...)` with the profile + a `fire_fn` and target-bound `confirm_fn` → return the envelope),
+  a `CommandProfile` in `config/profiles.py` if the defaults don't fit, a matching `cmd` branch in the server's
+  `_dispatch`, and the export in `__init__.py`. Copy the closest existing command.
+- **New server capability** — extend `_CoreBridge` (the only `Core`-touching surface) and the server `_dispatch`
+  table, and mirror it in `tests/helpers/mock_mesospim_server.py` so the offline suite covers it.
+- **Real procedures** — `autofocus` / `find_sample` currently forward to a server `procedure` command the
+  resident script NAKs; implement them server-side (e.g. an ETL/remote-focus sweep) or drop them from
+  `config.profiles.ACQUISITION.procedures`.
+- **Acquisition features** — multi-channel captures and XY-tiling by building an `AcquisitionList`; an OME-TIFF
+  re-encode in `acquisition/save.py` (today it copies the writer's frames verbatim + a JSON sidecar — the
+  pixel-pull → OME path is a documented seam).
+
+## 13. References
+
+- ZMART controller (the vendor-agnostic surface this driver registers with): [`zmart_controller/`](../../zmart_controller/README.md)
+- Sibling drivers: [`zmart_drivers/zeiss/zenapi/`](../zeiss/zenapi/README.md) (gRPC), [`zmart_drivers/leica/stellaris5_y42h93/navigator_expert/`](../leica/stellaris5_y42h93/navigator_expert/README.md) (CAM API), [`zmart_drivers/nikon/`](../nikon/README.md) (socket macro)
+- Wire protocol & resident server: [`server/PROTOCOL.md`](server/PROTOCOL.md) · [`server/README.md`](server/README.md)
+- Remaining work & bench-validation notes: [`TODO.md`](TODO.md)
+- mesoSPIM-control: <https://github.com/mesoSPIM/mesoSPIM-control> · mesoSPIM project: <https://mesospim.org>
+
+<!-- Maintainer: Thom de Hoog (ZMB / University of Zurich), thom.dehoog@zmb.uzh.ch · thomdehoog@gmail.com.
+     ZMART driver = MIT; mesoSPIM-control = GPL-3.0, kept behind a process boundary. Grounded in a source
+     read of mesoSPIM-control v1.20.0 and a live -D demo-mode validation. -->
