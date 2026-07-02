@@ -76,10 +76,10 @@ command model, state handling, and gotchas in its own README.
 
 | Microscope | API | Driver | Status |
 |---|---|---|---|
+| mesoSPIM (open-source light-sheet) | mesoSPIM-control (PyQt5; resident socket hook) | [`zmart_drivers/mesospim/`](zmart_drivers/mesospim/README.md) | **Demo-validated — near production** — the full round-trip **incl. `acquire`** passes against a live mesoSPIM `-D` demo (real software, simulated hardware); 111 offline + headless-Qt + live-demo tests green, `run_ci.py` runs offline/online/both. GPL app driven at arm's length via a resident hook + MIT client. Pending real-hardware validation |
 | ZEISS (ZEN) | ZEN API (gRPC) | [`zmart_drivers/zeiss/zenapi/`](zmart_drivers/zeiss/zenapi/README.md) | **Minimum viable product** — full offline suite green; not yet bench-validated (see [Risks](zmart_drivers/zeiss/zenapi/README.md#10-risks--bench-verify)) |
 | Nikon (NIS-Elements 6.2) | NIS-Elements macros / NkSocket TCP | [`zmart_drivers/nikon/`](zmart_drivers/nikon/README.md) | **Investigation + spike** — socket round-trip proof landed; no production driver yet (device verbs still to be pinned) |
 | Evident FLUOVIEW FV4000 (IX83) | FLUOVIEW RDK (TCP command server) | [`zmart_drivers/evident/`](zmart_drivers/evident/README.md) | **Investigation + planning** — RDK route mapped (Leica-CAM-symmetric); pending Evident developer-program access to the FV RDK command reference |
-| mesoSPIM (open-source light-sheet) | mesoSPIM-control (PyQt5; no external API out of the box) | [`zmart_drivers/mesospim/`](zmart_drivers/mesospim/README.md) | **Driver implemented** — full offline suite green (MIT client vs mock command server, 94 tests); GPL-3.0 driven at arm's length via a resident socket hook (Nikon-symmetric) + MIT client; pending `-D`-demo bench validation of the resident script |
 
 The ZMART Controller is meant to be the single surface every workflow drives, but
 it is still under construction — so today's workflows call the Leica driver
@@ -134,8 +134,8 @@ microscope or any vendor software, and documents how to run it in its own README
 - **Target-acquisition workflow** — [tests](workflows/target_acquisition/README.md#tests)
 - **Output layout** (`shared/`) — [tests](shared/output_layout/README.md#tests)
 - **Leica driver** — [tests](zmart_drivers/leica/stellaris5_y42h93/navigator_expert/README.md#9-testing)
+- **mesoSPIM driver** — [tests](zmart_drivers/mesospim/README.md#9-testing) (offline / online / both via `run_ci.py`)
 - **Zeiss driver** — [tests](zmart_drivers/zeiss/zenapi/README.md#9-testing)
-- **mesoSPIM driver** — [tests](zmart_drivers/mesospim/README.md#testing)
 
 Live-hardware validation, where a driver supports it, is always explicit, gated,
 and safe by default.
