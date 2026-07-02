@@ -1275,7 +1275,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--api-delay-ms", type=int, help="override profiles.LASX_API.delay_ms for LasxApi"
     )
-    p.add_argument("--limits-config", help="limits JSON; default is limits/.../defaults.json")
+    p.add_argument(
+        "--limits-config",
+        help="limits JSON; default is the machine profile "
+        "(snapshot, else bundled limits/defaults/limits.json)",
+    )
 
     # Phase gates
     p.add_argument("--read-only", action="store_true", help="skip all write/move/acquire phases")

@@ -14,11 +14,11 @@ workflow writes one per adopt by copying the latest snapshot (or the bundled
 default) forward and merging its delta.
 
 When no snapshot exists (fresh machine, or a wiped ProgramData tree) the driver
-falls back - loudly - to the defaults bundled in the driver at
-``defaults/calibration.json`` and ``defaults/limits.json``. Those are a real
-last-known-good calibration for this microscope, never an identity/zero
-placeholder, so the driver stays usable while warning that a re-calibration is
-due.
+falls back - loudly - to the defaults bundled in the driver, each owned by its
+subsystem: ``calibration/defaults/calibration.json`` and
+``limits/defaults/limits.json``. Those are a real last-known-good calibration
+for this microscope, never an identity/zero placeholder, so the driver stays
+usable while warning that a re-calibration is due.
 
 ``<datetime>`` is UTC with microsecond precision, formatted so it is both a
 legal Windows path segment (no colons) and lexicographically == chronologically
@@ -55,6 +55,12 @@ _SNAPSHOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}Z$")
 
 CALIBRATION_FILENAME = "calibration.json"
 LIMITS_FILENAME = "limits.json"
+
+# Driver-bundled last-known-good defaults, each owned by its subsystem.
+_BUNDLED_SUBSYSTEM = {
+    CALIBRATION_FILENAME: "calibration",
+    LIMITS_FILENAME: "limits",
+}
 
 
 def _driver_root() -> Path:
@@ -99,8 +105,13 @@ class MachineProfile:
     def snapshot_root(self) -> Path:
         return self.root() / self.vendor / self.microscope_id
 
-    def bundled_default_root(self) -> Path:
-        return _driver_root() / "defaults"
+    def bundled_default_path(self, filename: str) -> Path:
+        """Driver-bundled last-known-good default for *filename*.
+
+        Each subsystem owns its default: ``calibration/defaults/`` and
+        ``limits/defaults/``.
+        """
+        return _driver_root() / _BUNDLED_SUBSYSTEM[filename] / "defaults" / filename
 
     def snapshots(self) -> list[Path]:
         """All well-formed snapshot folders under ``snapshot_root``, oldest first.
@@ -129,7 +140,7 @@ class MachineProfile:
             candidate = latest / filename
             if candidate.exists():
                 return candidate, False
-        return self.bundled_default_root() / filename, True
+        return self.bundled_default_path(filename), True
 
     def _resolve_logged(self, filename: str, kind: str) -> Path:
         path, is_fallback = self.resolve(filename)

@@ -99,7 +99,7 @@ def test_resolve_falls_back_to_bundled_default_when_no_snapshot(tmp_path):
     p = _profile(tmp_path)
     cal, fb = p.resolve("calibration.json")
     assert fb is True
-    assert cal == p.bundled_default_root() / "calibration.json"
+    assert cal == p.bundled_default_path("calibration.json")
     assert cal.exists()  # the bundled default really ships
 
 
@@ -110,7 +110,7 @@ def test_resolve_falls_back_per_file_when_snapshot_incomplete(tmp_path):
     lim, lim_fb = p.resolve("limits.json")
     assert cal_fb is False  # calibration present in the snapshot
     assert lim_fb is True  # limits missing -> bundled default
-    assert lim == p.bundled_default_root() / "limits.json"
+    assert lim == p.bundled_default_path("limits.json")
 
 
 def test_bundled_defaults_are_real_last_known_good(tmp_path):
@@ -118,7 +118,7 @@ def test_bundled_defaults_are_real_last_known_good(tmp_path):
     from navigator_expert.calibration.core import model
 
     p = _profile(tmp_path)
-    cal = model.load_calibration(p.bundled_default_root() / "calibration.json")
+    cal = model.load_calibration(p.bundled_default_path("calibration.json"))
     assert model.get_reference_slot(cal) == 1
     assert model.get_translation_um(cal, 0) != (0.0, 0.0, 0.0)
 
@@ -188,7 +188,7 @@ def test_publish_first_snapshot_carries_bundled_default_forward(tmp_path):
     new_limits = {"schema_version": 1, "source": "defaults", "stage_um": {"x": [0, 1]}}
     snap = p.publish_snapshot(_AT_1430, limits=new_limits)
     # No prior snapshot -> calibration.json comes from the bundled default.
-    bundled = json.loads((p.bundled_default_root() / "calibration.json").read_text())
+    bundled = json.loads(p.bundled_default_path("calibration.json").read_text())
     assert json.loads((snap / "calibration.json").read_text()) == bundled
     assert json.loads((snap / "limits.json").read_text()) == new_limits
     assert p.latest_snapshot() == snap
@@ -251,7 +251,7 @@ def test_published_calibration_is_loadable(tmp_path):
     from navigator_expert.calibration.core import model
 
     p = _profile(tmp_path)
-    cal = model.load_calibration(p.bundled_default_root() / "calibration.json")
+    cal = model.load_calibration(p.bundled_default_path("calibration.json"))
     snap = p.publish_snapshot(_AT_1430, calibration=cal)
     reloaded = model.load_calibration(snap / "calibration.json")
     assert model.get_reference_slot(reloaded) == 1

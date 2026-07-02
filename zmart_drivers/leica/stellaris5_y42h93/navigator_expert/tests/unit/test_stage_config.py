@@ -115,8 +115,8 @@ def test_limits_paths_are_separate_from_calibration_state():
     # working envelope stays under the driver tree - three distinct files.
     driver_root = Path(__file__).resolve().parents[2]
     current_limits = driver_root / "limits" / "current.json"
-    default_limits = driver_root / "defaults" / "limits.json"
-    calibration = driver_root / "defaults" / "calibration.json"
+    default_limits = driver_root / "limits" / "defaults" / "limits.json"
+    calibration = driver_root / "calibration" / "defaults" / "calibration.json"
 
     assert stage_config.current_path() == current_limits
     assert stage_config.defaults_path() == default_limits

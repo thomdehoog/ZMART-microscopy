@@ -77,9 +77,9 @@ runtime where possible. Override via the profile, not at call sites.
 - **Log reader** — `LogReaderProfile`: the `lcsCommand.log` / `MatrixScreener.log` paths + freshness windows.
 - **Machine-local calibration & limits** — `config/machine.py` resolves the instrument's calibration
   (image↔stage matrix, per-objective translation) and stage limits from a **machine-local system config
-  dir** (out of the repo); the committed `defaults/{calibration,limits}.json` are a
-  **real last-known-good calibration** (never an identity/zero placeholder — see
-  `config/machine.py`).
+  dir** (out of the repo); the committed `calibration/defaults/calibration.json` and
+  `limits/defaults/limits.json` are a **real last-known-good calibration** (never an
+  identity/zero placeholder — see `config/machine.py`).
 - **Stage limits (required before any move)** — `set_stage_limits(...)` or
   `apply_stage_limits_from_config(...)`, in micrometers.
 - **Canonical orientation** — call `require_canonical_scan_orientation()` at session start; it fails
@@ -303,7 +303,7 @@ zmart_drivers/leica/stellaris5_y42h93/navigator_expert/
 ├── motion/       limits.py (µm safety envelope) · movement.py (backlash) · stage_config.py
 ├── acquisition/  product.py (neutral types) · capture.py (acquire) · save.py (exporters) · ome.py
 ├── scanfields/   .lrp/.rgn/.xml parsing + templates    experimental/lrp_edits/  offline template editors
-├── calibration/  image↔stage + objective-pair (data machine-local; defaults/ committed)   limits/  notebooks
+├── calibration/  image↔stage + objective-pair (data machine-local; defaults/ inside)   limits/  current.json · defaults/ · notebooks/
 ├── zmart_adapter/  ops table plugging this driver into zmart_controller (import to register)
 ├── tests/        unit/ (offline) + hardware/ (@pytest.mark.hardware)
 └── run_ci.py · pytest.ini   (package root)
