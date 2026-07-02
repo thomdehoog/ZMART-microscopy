@@ -24,7 +24,7 @@ for _p in (_HERE, _HELPERS, _LEICA_ROOT, _REPO_ROOT):
 
 import zmart_controller
 import validate_zmart_adapter
-from navigator_expert import zmart_adapter as adapter
+from navigator_expert.zmart_adapter import zmart_adapter as adapter
 
 
 def _run_mock(tmp_path, *extra):
