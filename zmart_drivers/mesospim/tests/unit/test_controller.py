@@ -143,11 +143,45 @@ def test_acquire_stack(session):
     assert len(record["image_files"]) == 1
 
 
+def test_acquire_cleans_staging_and_does_not_duplicate(session, tmp_path):
+    record = session.acquire("prescan", "A1")
+    from pathlib import Path
+
+    out = Path(record["image_files"][0])
+    assert out.exists() and out.parent.name == "data"
+    # staging is transient: the writer's originals are removed after relocation.
+    staging = out.parent.parent / "_staging"
+    assert not staging.exists() or not any(staging.rglob("*.tiff"))
+
+
+def test_repeated_same_label_acquire_does_not_overwrite(session):
+    r1 = session.acquire("prescan", "A1")
+    r2 = session.acquire("prescan", "A1")
+    # Same type+label twice must yield two distinct saved datasets, not a clobber.
+    assert r1["image_files"][0] != r2["image_files"][0]
+    from pathlib import Path
+
+    assert Path(r1["image_files"][0]).exists() and Path(r2["image_files"][0]).exists()
+
+
+def test_acquire_stack_z_out_of_limits_raises(session):
+    from mesospim.config import limits
+
+    limits.set_stage_limits(z=(0, 100))  # tight envelope for this test
+    with pytest.raises(RuntimeError, match="stage limits"):
+        session.acquire("stack", "Z9", options={"z_start": 0, "z_end": 500, "z_step": 1})
+
+
 def test_procedures(session):
+    from mesospim import MesospimError
+
     procs = session.get_procedures()
     assert "autofocus" in procs and "move_focus" in procs
     assert session.set_procedure({"name": "move_focus", "value": 12.0})["ran"] == "move_focus"
-    assert session.set_procedure({"name": "autofocus"})["ran"] == "autofocus"
+    # autofocus/find_sample are advertised but the resident server NAKs them today
+    # (TODO §5), so forwarding raises rather than silently "succeeding".
+    with pytest.raises(MesospimError):
+        session.set_procedure({"name": "autofocus"})
     with pytest.raises(ValueError):
         session.set_procedure({"name": "nope"})
 

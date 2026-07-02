@@ -63,14 +63,21 @@ def save(
     """
     data_dir = Path(output_root) / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    stem = canonical_stem(acq.acquisition_type, position_label)
+
+    # Validate every source up front so a missing frame can't leave a partial
+    # dataset behind (we would otherwise copy some frames, then raise).
+    sources = [Path(s) for s in acq.files]
+    missing = [str(s) for s in sources if not s.exists()]
+    if missing:
+        raise FileNotFoundError(f"source frame file(s) missing: {missing}")
+
+    # A distinct stem per acquisition: never silently overwrite a prior dataset
+    # that shares the same type+label (a retry, a re-image of the same well).
+    stem = _unique_stem(data_dir, canonical_stem(acq.acquisition_type, position_label))
 
     image_paths: list[Path] = []
-    multiplane = len(acq.files) > 1
-    for index, source in enumerate(acq.files):
-        source = Path(source)
-        if not source.exists():
-            raise FileNotFoundError(f"source frame file missing: {source}")
+    multiplane = len(sources) > 1
+    for index, source in enumerate(sources):
         suffix = source.suffix or ".tiff"
         name = f"{stem}_z{index:04d}{suffix}" if multiplane else f"{stem}{suffix}"
         dest = data_dir / name
@@ -107,6 +114,20 @@ def save(
         format=format,
         metadata=acq.metadata,
     )
+
+
+def _unique_stem(data_dir: Path, stem: str) -> str:
+    """Return ``stem`` or ``stem_2`` / ``stem_3`` / … that isn't already used.
+
+    The per-acquisition metadata sidecar (``<stem>.json``) is the sentinel, so a
+    repeated type+label can't clobber an earlier dataset's frames or metadata.
+    """
+    candidate = stem
+    n = 2
+    while (data_dir / f"{candidate}.json").exists():
+        candidate = f"{stem}_{n}"
+        n += 1
+    return candidate
 
 
 def _metadata_dict(acq: AcquisitionResult) -> dict:

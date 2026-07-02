@@ -52,9 +52,10 @@ class AcquisitionMetadata:
 class AcquisitionResult:
     """Save-agnostic result of one capture (snap or acquisition list).
 
-    ``files`` are the frame files the mesoSPIM image-writer wrote on the
-    acquisition PC (one per plane, in order). ``acquisition`` is the mesoSPIM
-    ``Acquisition`` dict that produced them.
+    ``files`` are the output files the mesoSPIM image-writer wrote on the
+    acquisition PC -- normally one multi-page stack per acquisition (the default
+    Tiff writer), so ``files`` is usually a single path even for a Z-stack.
+    ``acquisition`` is the mesoSPIM ``Acquisition`` dict that produced them.
     """
 
     acquisition_type: str

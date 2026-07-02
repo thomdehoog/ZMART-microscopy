@@ -122,12 +122,22 @@ class MesospimClient:
             raise
         info = dict(reply.data)
         version = info.get("protocol")
-        if version is not None and int(version) != PROTOCOL_VERSION:
-            self._drop_socket()
-            raise MesospimError(
-                f"server speaks protocol version {version}, but this client only "
-                f"knows version {PROTOCOL_VERSION}"
-            )
+        if version is not None:
+            try:
+                server_version = int(version)
+            except (TypeError, ValueError):
+                self._drop_socket()
+                raise MesospimError(
+                    f"server reported an unparseable protocol version {version!r}"
+                ) from None
+            if server_version != PROTOCOL_VERSION:
+                self._drop_socket()
+                raise MesospimError(
+                    f"server speaks protocol version {version}, but this client only "
+                    f"knows version {PROTOCOL_VERSION}"
+                )
+        else:
+            log.warning("server did not report a protocol version; assuming compatibility")
         self.server_info = info
         log.info(
             "connected to mesoSPIM command server %s:%d (%s)",
@@ -138,22 +148,27 @@ class MesospimClient:
         return self.server_info
 
     def close(self) -> None:
-        """Say ``bye`` (best effort) and close the socket. Idempotent."""
-        sock = self._sock
-        if sock is None:
-            return
-        try:
-            self._send_line(encode_request("bye", id=self._take_id()))
-            sock.settimeout(1.0)
-            self._read_line()
-        except OSError:
-            pass
-        finally:
+        """Say ``bye`` (best effort) and close the socket. Idempotent.
+
+        Takes the same lock as :meth:`request` so a concurrent in-flight command
+        cannot interleave its frame with the ``bye`` or race on the buffer/id.
+        """
+        with self._lock:
+            sock = self._sock
+            if sock is None:
+                return
             try:
-                sock.close()
+                self._send_line(encode_request("bye", id=self._take_id()))
+                sock.settimeout(1.0)
+                self._read_line()
+            except OSError:
+                pass
             finally:
-                self._sock = None
-                self._buf = b""
+                try:
+                    sock.close()
+                finally:
+                    self._sock = None
+                    self._buf = b""
 
     def _drop_socket(self) -> None:
         """Hard-close the socket without a ``bye`` (used on handshake failure)."""

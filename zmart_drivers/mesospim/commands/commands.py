@@ -30,7 +30,7 @@ from functools import partial
 from ..config.limits import LimitError, check_move
 from ..config.profiles import MOVE, MOVE_ROTATION, SET_STATE
 from ..readers.readers import _reading_value_after, get_positions, get_state
-from ..utils import AXES, LINEAR_AXES, _make_log_entry, _make_timing, _safe_float
+from ..utils import AXES, _make_log_entry, _make_timing, _safe_float
 from .dispatch import confirm_and_fire
 
 log = logging.getLogger(__name__)
@@ -204,8 +204,8 @@ def set_state(client, settings: dict) -> dict:
 
     ``settings`` keys are mesoSPIM state keys (``filter``, ``zoom``, ``laser``,
     ``intensity``, ``shutterconfig``, ``etl_l_amplitude``, ...). The server
-    applies them via ``sig_state_request``; confirmation reads the same keys
-    back.
+    applies them via ``sig_state_request_and_wait_until_done``; confirmation
+    reads the same keys back.
     """
     if not settings:
         return _fail("set_state", "no settings given")
@@ -305,5 +305,4 @@ __all__ = [
     "set_intensity",
     "set_shutter",
     "set_etl",
-    "LINEAR_AXES",
 ]

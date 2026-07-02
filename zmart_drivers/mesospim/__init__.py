@@ -17,7 +17,8 @@ The public surface is **synchronous**, so operator notebooks keep the thin
     drv.apply_stage_limits_from_config(drv.load_stage_config())
     drv.move_xy(client, 1000, 2000)          # micrometers
     drv.set_filter(client, "515/30")
-    acq = drv.acquire(client, "prescan")     # capture with current settings
+    # low-level acquire needs a folder/filename (the controller path sets these):
+    acq = drv.acquire(client, "prescan", options={"folder": str(run_dir), "filename": "A1.tiff"})
     saved = drv.save(acq, run_dir, position_label="A1")
     drv.close(client)
 
@@ -43,6 +44,7 @@ from .acquisition import (
     SavedAcquisition,
     acquire,
     build_acquisition,
+    canonical_stem,
     run_acquisition_list,
     save,
     snap,
@@ -166,6 +168,7 @@ __all__ = [
     "run_acquisition_list",
     "build_acquisition",
     "save",
+    "canonical_stem",
     "AcquisitionResult",
     "AcquisitionMetadata",
     "ChannelMetadata",

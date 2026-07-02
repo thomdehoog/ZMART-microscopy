@@ -48,13 +48,15 @@ class FakeSignal:
 
 
 class FakeCfg:
-    laser_designation = {"488 nm": "laser0", "561 nm": "laser1"}
+    # Attribute names/shapes match mesoSPIM-control 1.20.0's config module (what
+    # _CoreBridge.config()/_camera() actually read): laserdict, zoomdict + a
+    # separate pixelsize dict, shutteroptions, camera_parameters.
+    laserdict = {"488 nm": "PXI1Slot4/port0/line3", "561 nm": "PXI1Slot4/port0/line4"}
     filterdict = {"Empty": 0, "515/30": 1}
-    zoomdict = {"1x": 6.55, "2x": 3.26}
-    shutteroptions = ["Left", "Right", "Both"]
-    version = "1.20.0-fake"
-    camera_x_pixels = 2048
-    camera_y_pixels = 2048
+    zoomdict = {"1x": 2707, "2x": 1706}
+    pixelsize = {"1x": 6.55, "2x": 3.26}
+    shutteroptions = ("Left", "Right")
+    camera_parameters = {"x_pixels": 2048, "y_pixels": 2048}
 
 
 class FakeCore:
@@ -139,6 +141,7 @@ def main():
     port = server._server.serverPort()
     server._conn = None
     server._buf = b""
+    server._busy = False
     server._timer = QtCore.QTimer(holder)
     server._timer.timeout.connect(server._poll)
     server._timer.start(10)
