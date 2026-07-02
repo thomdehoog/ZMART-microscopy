@@ -104,10 +104,22 @@ z chosen = galvo:
     z_wide  = z_wide_ref  + ΔT.z                          # base: compensation ONLY
     z_galvo = z_galvo_ref + F.z                           # chosen: displacement ONLY
 z chosen = z-wide:
-    z_galvo stays at its current value g
-    z_wide  = (focus_ref + F.z + ΔT.z) − g
-(sum check, galvo case: z_wide + z_galvo = focus_ref + F.z + ΔT.z ✓)
+    z_galvo = z_galvo_ref                                 # snaps to canonical
+    z_wide  = z_wide_ref + F.z + ΔT.z
+(sum check, either case: z_wide + z_galvo = focus_ref + F.z + ΔT.z ✓)
 ```
+
+**set_xyz is a pure function of (origin, F, ΔT, actuator choice).** No target
+formula contains a current actuator position — the only live input is the
+current objective (for ΔT). Consequence: after every ``set_xyz`` the entire
+actuator configuration is canonical, reproducible from the journal line alone;
+decompositions never accumulate; any perturbation is re-canonicalized by the
+next move. (This is why the non-chosen z drive snaps to its canonical value
+rather than holding an arbitrary current one — holding would reintroduce state.
+It also makes ``rebase_galvo`` mostly implicit; the explicit procedure remains
+for "rebase without moving".) Statelessness is a property of computing targets
+only: confirmation still reads the hardware afterwards, and ``get_xyz`` still
+measures.
 
 The galvo's formula contains no ΔT term — **the galvo cannot see objectives**
 (the algebra of "the galvo should not care"). On a cross-objective galvo move
