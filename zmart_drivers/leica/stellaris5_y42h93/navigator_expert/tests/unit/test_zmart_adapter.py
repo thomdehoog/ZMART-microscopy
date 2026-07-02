@@ -1,0 +1,306 @@
+"""Offline tests for the ZMART Controller adapter.
+
+The driver layers underneath (readers, commands, capture, save, motion)
+are patched; what is under test is the adapter's contract with
+``zmart_controller``: registration, frame math, actuator mapping,
+option validation, and closed-handle semantics — including a full
+end-to-end pass through a real controller ``Session``.
+"""
+
+import sys
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # machine dir
+sys.path.insert(0, str(Path(__file__).resolve().parents[6]))  # repo root (zmart_controller)
+
+from navigator_expert import zmart_adapter as adapter
+
+
+def _handle(**overrides):
+    h = adapter.ZmartHandle(client=object(), connection=dict(adapter.CONNECTION), hash6="000abc")
+    for key, value in overrides.items():
+        setattr(h, key, value)
+    return h
+
+
+def _patch_position(x_um=100.0, y_um=200.0, z_um=50.0, job="Overview"):
+    return (
+        patch.object(adapter._readers, "get_xy", return_value={"x_um": x_um, "y_um": y_um}),
+        patch.object(adapter._readers, "read_zwide_um", return_value=z_um),
+        patch.object(
+            adapter._readers,
+            "get_selected_job",
+            return_value={"Name": job, "IsSelected": True},
+        ),
+    )
+
+
+class TestRegistration(unittest.TestCase):
+    def test_importing_the_adapter_registers_the_instrument(self):
+        from zmart_controller import registry
+
+        entry = registry.REGISTRY.get(("leica", "stellaris5-y42h93", "navigator-expert"))
+        self.assertIsNotNone(entry, "adapter import must register the instrument")
+        for op in registry.OPS:
+            self.assertIn(op, entry["ops"])
+        self.assertIn("disconnect", entry["ops"])
+
+
+class TestFrame(unittest.TestCase):
+    def test_set_origin_zeros_the_frame(self):
+        h = _handle()
+        p1, p2, p3 = _patch_position(x_um=1000.0, y_um=2000.0, z_um=30.0)
+        with p1, p2, p3:
+            self.assertEqual(adapter.set_origin(h)["origin"], {"x": 0.0, "y": 0.0, "z": 0.0})
+            pos = adapter.get_xyz(h)
+        self.assertEqual(pos["x"]["value"], 0.0)
+        self.assertEqual(pos["z"]["value"], 0.0)
+        self.assertEqual(pos["x"]["unit"], "um")
+        self.assertEqual(pos["x"]["actuator"], "motoric")
+        self.assertEqual(pos["z"]["actuator"], "z-wide")
+
+    def test_get_xyz_is_origin_relative(self):
+        h = _handle(origin_um={"x": 1000.0, "y": 2000.0, "z": 30.0})
+        p1, p2, p3 = _patch_position(x_um=1010.0, y_um=1990.0, z_um=35.0)
+        with p1, p2, p3:
+            pos = adapter.get_xyz(h)
+        self.assertEqual(pos["x"]["value"], 10.0)
+        self.assertEqual(pos["y"]["value"], -10.0)
+        self.assertEqual(pos["z"]["value"], 5.0)
+
+    def test_set_xyz_moves_to_absolute_and_maps_z_actuator(self):
+        h = _handle(origin_um={"x": 1000.0, "y": 2000.0, "z": 30.0})
+        moves = {}
+
+        def fake_move_xy_with_backlash(client, x_um, y_um, **kwargs):
+            moves["xy"] = (x_um, y_um)
+            return {"success": True, "confirmed": True}
+
+        def fake_move_z(client, job, z, unit="um", z_mode="galvo", **kwargs):
+            moves["z"] = (z, z_mode)
+            return {"success": True, "confirmed": True}
+
+        _, _, p3 = _patch_position()
+        with (
+            patch.object(adapter._motion, "move_xy_with_backlash", fake_move_xy_with_backlash),
+            patch.object(adapter._commands, "move_z", fake_move_z),
+            p3,
+        ):
+            record = adapter.set_xyz(h, 10.0, 20.0, 5.0, with_actuators={"z": "z-galvo"})
+        self.assertEqual(moves["xy"], (1010.0, 2020.0))
+        self.assertEqual(moves["z"], (35.0, "galvo"))
+        self.assertEqual(record["actuators"]["z"], "z-galvo")
+        # the selection persists for later reads
+        self.assertEqual(h.actuators["z"], "z-galvo")
+
+    def test_unconfirmed_z_move_raises(self):
+        h = _handle()
+        _, _, p3 = _patch_position()
+        with (
+            patch.object(
+                adapter._motion,
+                "move_xy_with_backlash",
+                return_value={"success": True, "confirmed": True},
+            ),
+            patch.object(
+                adapter._commands,
+                "move_z",
+                return_value={"success": True, "confirmed": False},
+            ),
+            p3,
+            self.assertRaises(RuntimeError),
+        ):
+            adapter.set_xyz(h, 0.0, 0.0, 0.0)
+
+    def test_unknown_actuator_rejected(self):
+        h = _handle()
+        with self.assertRaises(ValueError):
+            adapter.get_actuators(h) and adapter.set_xyz(
+                h, 0, 0, 0, with_actuators={"z": "hovercraft"}
+            )
+
+    def test_actuator_menu(self):
+        h = _handle()
+        self.assertEqual(
+            adapter.get_actuators(h),
+            {"x": ["motoric"], "y": ["motoric"], "z": ["z-wide", "z-galvo"]},
+        )
+
+
+class TestAcquire(unittest.TestCase):
+    def _jobs(self):
+        return [
+            {"Name": "Overview", "IsSelected": True},
+            {"Name": "HiRes", "IsSelected": False},
+        ]
+
+    def test_options_discovered_from_live_jobs(self):
+        h = _handle()
+        with patch.object(adapter._readers, "get_jobs", return_value=self._jobs()):
+            opts = adapter.get_acquisition_options(h)
+        self.assertEqual(opts["job"]["options"], ["Overview", "HiRes"])
+        self.assertEqual(opts["job"]["active"], "Overview")
+        self.assertEqual(opts["format"]["active"], "ome-tiff")
+
+    def test_unknown_or_invalid_option_rejected(self):
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
+        with patch.object(adapter._readers, "get_jobs", return_value=self._jobs()):
+            with self.assertRaisesRegex(ValueError, "unknown acquisition option"):
+                adapter.acquire(
+                    h, acquisition_type="prescan", position_label="A1", options={"fromat": "x"}
+                )
+            with self.assertRaisesRegex(ValueError, "invalid value"):
+                adapter.acquire(
+                    h, acquisition_type="prescan", position_label="A1", options={"job": "Nope"}
+                )
+
+    def test_missing_output_root_is_a_clear_error(self):
+        h = _handle()
+        with self.assertRaisesRegex(RuntimeError, "output_root"):
+            adapter.acquire(h, acquisition_type="prescan", position_label="A1")
+
+    def test_acquire_selects_job_captures_and_saves(self):
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
+        calls = {}
+
+        def fake_select_job(client, job, **kwargs):
+            calls["selected"] = job
+            return {"success": True}
+
+        def fake_capture(client, job, **kwargs):
+            calls["captured"] = job
+            return SimpleNamespace(job=job)
+
+        def fake_save(client, acq, output_root, naming, **kwargs):
+            calls["saved"] = (str(output_root), naming)
+            return SimpleNamespace(
+                image_paths={0: Path("/tmp/out/img.ome.tif")},
+                xml_paths={0: Path("/tmp/out/img.xml")},
+                naming=naming,
+            )
+
+        _, _, p3 = _patch_position(job="Overview")
+        with (
+            patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(adapter._commands, "select_job", fake_select_job),
+            patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
+            patch.object(adapter._capture, "acquire", fake_capture),
+            patch.object(adapter._save, "save", fake_save),
+            p3,
+        ):
+            record = adapter.acquire(
+                h,
+                acquisition_type="prescan",
+                position_label="7",
+                options={"job": "HiRes", "backlash_correction": False},
+            )
+        self.assertEqual(calls["selected"], "HiRes")
+        self.assertEqual(calls["captured"], "HiRes")
+        saved_root, naming = calls["saved"]
+        self.assertEqual(saved_root, "/tmp/out")
+        self.assertEqual(naming.acquisition_type, "prescan")
+        self.assertEqual(naming.p, 7)  # numeric label maps onto the p slot
+        self.assertEqual(record["settle"], "direct")
+        self.assertEqual(record["images"], ["/tmp/out/img.ome.tif"])
+
+
+class TestStateAndProcedures(unittest.TestCase):
+    def test_state_mutable_is_the_selected_job(self):
+        h = _handle()
+        with (
+            patch.object(
+                adapter._readers,
+                "get_hardware_info",
+                return_value={"Microscope": {"name": "DM Manual-6"}},
+            ),
+            patch.object(
+                adapter._readers,
+                "get_selected_job",
+                return_value={"Name": "Overview", "IsSelected": True},
+            ),
+        ):
+            state = adapter.get_state(h)
+        self.assertEqual(state["immutable"], {"microscope": "DM Manual-6"})
+        self.assertEqual(state["mutable"], {"job": "Overview"})
+
+    def test_set_state_reapplies_the_job_and_guards_the_fingerprint(self):
+        h = _handle()
+        with (
+            patch.object(
+                adapter._readers,
+                "get_hardware_info",
+                return_value={"Microscope": {"name": "DM Manual-6"}},
+            ),
+            patch.object(
+                adapter._readers,
+                "get_selected_job",
+                return_value={"Name": "Overview", "IsSelected": True},
+            ),
+            patch.object(adapter._commands, "select_job", return_value={"success": True}) as select,
+        ):
+            result = adapter.set_state(
+                h, {"immutable": {"microscope": "DM Manual-6"}, "mutable": {"job": "HiRes"}}
+            )
+            self.assertEqual(result["applied"], {"job": "HiRes"})
+            select.assert_called_once()
+            with self.assertRaisesRegex(ValueError, "different instrument"):
+                adapter.set_state(h, {"immutable": {"microscope": "OTHER"}, "mutable": {}})
+
+    def test_procedures(self):
+        h = _handle()
+        self.assertIn("backlash_takeup", adapter.get_procedures(h))
+        with patch.object(adapter._motion, "correct_backlash", lambda client, **k: None):
+            self.assertEqual(
+                adapter.set_procedure(h, {"name": "backlash_takeup"})["ran"]["name"],
+                "backlash_takeup",
+            )
+        with self.assertRaises(ValueError):
+            adapter.set_procedure(h, {"name": "nope"})
+
+
+class TestLifecycle(unittest.TestCase):
+    def test_ops_after_disconnect_raise(self):
+        h = _handle()
+        adapter.disconnect(h)
+        with self.assertRaisesRegex(RuntimeError, "disconnected"):
+            adapter.get_actuators(h)
+
+    def test_full_controller_session_flow(self):
+        """End to end through a real zmart_controller Session."""
+        import zmart_controller
+
+        p1, p2, p3 = _patch_position(x_um=1000.0, y_um=2000.0, z_um=30.0)
+        with (
+            patch.object(adapter._session, "connect_python_client", return_value=object()),
+            p1,
+            p2,
+            p3,
+            patch.object(
+                adapter._motion,
+                "move_xy_with_backlash",
+                return_value={"success": True, "confirmed": True},
+            ),
+            patch.object(
+                adapter._commands,
+                "move_z",
+                return_value={"success": True, "confirmed": True},
+            ),
+        ):
+            instrument = next(
+                i for i in zmart_controller.get_instruments() if i["vendor"] == "leica"
+            )
+            session = zmart_controller.set_instrument(instrument)
+            try:
+                session.set_origin()
+                record = session.set_xyz(10, 20, 5, with_actuators={"z": "z-galvo"})
+                self.assertEqual(record["position"], {"x": 10, "y": 20, "z": 5})
+                self.assertEqual(session.get_xyz()["x"]["value"], 0.0)  # mocked readback
+            finally:
+                session.disconnect()
+
+
+if __name__ == "__main__":
+    unittest.main()
