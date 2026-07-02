@@ -21,6 +21,7 @@ import inspect
 import sys
 import time
 import unittest
+from types import SimpleNamespace
 from functools import partial
 from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -2709,6 +2710,78 @@ class TestReadbackCacheRemoved(unittest.TestCase):
 # =============================================================================
 # 19. confirm_acquire and confirm_select_job
 # =============================================================================
+
+
+class TestDispatchCheckExceptions(unittest.TestCase):
+    """pre_check_fn / error_check_fn exceptions become structured failures."""
+
+    def test_raising_pre_check_returns_failure_dict(self):
+        result = dispatch._fire_block(
+            None,
+            SimpleNamespace(Model=SimpleNamespace()),
+            "TestCmd",
+            setup_fn=None,
+            pre_check_fn=lambda: (_ for _ in ()).throw(RuntimeError("com fault")),
+            error_check_fn=None,
+        )
+        self.assertFalse(result["success"])
+        self.assertTrue(any("Pre-check raised" in e["msg"] for e in result["logs"]))
+
+    def test_raising_error_check_is_transient_failure_not_exception(self):
+        api_obj = SimpleNamespace(
+            Model=SimpleNamespace(),
+            UpdateAsync=lambda: None,
+        )
+        fake_client = SimpleNamespace(
+            PyApiCommandEcho=SimpleNamespace(Model=SimpleNamespace(Result=0, HasError=False))
+        )
+        result = dispatch._fire_block(
+            fake_client,
+            api_obj,
+            "TestCmd",
+            setup_fn=None,
+            pre_check_fn=None,
+            error_check_fn=lambda: (_ for _ in ()).throw(RuntimeError("echo read fault")),
+            fire_async=True,
+            max_retries=0,
+        )
+        self.assertFalse(result["success"])
+        self.assertTrue(any("Error check raised" in e["msg"] for e in result["logs"]))
+
+
+class TestUnitValidation(unittest.TestCase):
+    def test_move_xy_unknown_unit_returns_failure_dict(self):
+        result = drv.move_xy(None, 1.0, 2.0, unit="nm")
+        self.assertFalse(result["success"])
+        self.assertIn("unknown unit", result["message"])
+
+    def test_move_z_unknown_unit_returns_failure_dict(self):
+        result = drv.move_z(None, "Job", 1.0, unit="nm")
+        self.assertFalse(result["success"])
+        self.assertIn("unknown unit", result["message"])
+
+    def test_set_objective_requires_exactly_one_selector(self):
+        result = drv.set_objective(None, "Job", {}, slot_index=1, name="HC PL APO 63x")
+        self.assertFalse(result["success"])
+        self.assertIn("exactly one", result["message"])
+        result = drv.set_objective(None, "Job", {})
+        self.assertFalse(result["success"])
+
+
+class TestQuantisedCandidatesDirection(unittest.TestCase):
+    def test_descending_stack_candidates_keep_direction(self):
+        # begin=10, end=-10: candidates must stay descending.
+        candidates = confirmations._quantised_candidates(0.0, -20.0, 3.0)
+        for begin, end in candidates:
+            self.assertGreater(begin, end)
+        sizes = sorted(abs(e - b) for b, e in candidates)
+        self.assertAlmostEqual(sizes[0], 18.0)
+        self.assertAlmostEqual(sizes[-1], 21.0)
+
+    def test_ascending_stack_unchanged(self):
+        candidates = confirmations._quantised_candidates(0.0, 20.0, 3.0)
+        for begin, end in candidates:
+            self.assertLess(begin, end)
 
 
 class TestConfirmAcquire(unittest.TestCase):
