@@ -23,7 +23,7 @@ import logging
 import time
 from pathlib import Path
 
-from ..config.profiles import HARDWARE
+from ..config.profiles import ACQUISITION, HARDWARE
 from ..readers.readers import get_state
 from ..utils import _safe_float
 from .product import AcquisitionMetadata, AcquisitionResult, ChannelMetadata
@@ -129,7 +129,14 @@ def acquire(
     acq = build_acquisition(state, options)
 
     started_at = time.time()
-    reply = client.request("acquire", acquisition=acq, acquisition_type=acquisition_type)
+    # A capture reply arrives only when the run finishes, which far exceeds the
+    # default per-request socket deadline -- use the acquisition timeout.
+    reply = client.request(
+        "acquire",
+        acquisition=acq,
+        acquisition_type=acquisition_type,
+        read_timeout=ACQUISITION.acquire_timeout_s,
+    )
     finished_at = time.time()
 
     data = dict(reply.data)
@@ -167,5 +174,9 @@ def run_acquisition_list(client, acquisitions: list[dict]) -> dict:
     """
     if not acquisitions:
         raise ValueError("acquisition list is empty")
-    reply = client.request("run_acquisition_list", acquisitions=list(acquisitions))
+    reply = client.request(
+        "run_acquisition_list",
+        acquisitions=list(acquisitions),
+        read_timeout=ACQUISITION.acquire_timeout_s,
+    )
     return dict(reply.data)

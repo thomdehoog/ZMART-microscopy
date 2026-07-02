@@ -204,7 +204,14 @@ class _CoreBridge:
         prepare/end alone does NOT capture frames. Wire this to ``start()`` and
         wait for the state to return to ``idle`` when validating on the bench.
         """
-        from utils.acquisitions import Acquisition, AcquisitionList  # mesoSPIM, GPL
+        # mesoSPIM's Acquisition classes (GPL). mesoSPIM-control puts the repo
+        # root on sys.path and imports these as ``mesoSPIM.src.utils.acquisitions``
+        # (see mesoSPIM_Core), so that is the canonical name in a running app; fall
+        # back to a bare ``utils.acquisitions`` for layouts that put src on path.
+        try:
+            from mesoSPIM.src.utils.acquisitions import Acquisition, AcquisitionList
+        except ImportError:
+            from utils.acquisitions import Acquisition, AcquisitionList
 
         acq = Acquisition()
         acq.update({k: v for k, v in acquisition.items() if v is not None})

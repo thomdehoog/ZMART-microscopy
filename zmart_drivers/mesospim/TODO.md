@@ -1,9 +1,10 @@
 # mesoSPIM driver — what's left to do
 
-Status as of this branch: the driver is **implemented and offline-tested** (103
-tests green, ruff clean), and the resident command server's Qt half is validated
-headless. What remains is almost entirely **bench validation against the real
-mesoSPIM-control app** plus a few polish items. Nothing below blocks using the
+Status as of this branch: the driver is **implemented, offline-tested** (111
+tests green), the resident command server's Qt half is validated headless, and
+the full round-trip — **including `acquire`** — is now **validated against a live
+mesoSPIM `-D` demo Core** (see §1–2 and "Bench validation results" below). What
+remains is real-hardware validation plus polish. Nothing below blocks using the
 driver against the mock server or reviewing the design.
 
 Legend: 🔴 blocker for live use · 🟠 needed for a real run · 🟢 polish / nice-to-have.
@@ -27,10 +28,14 @@ Miniforge/mamba + `pip install -r requirements-conda-mamba.txt`, then
 `python mesoSPIM_Control.py -D`. The ZMART **client** side is cross-platform;
 only the resident server + live Core need Windows.
 
-- [ ] Launch `python mesoSPIM_Control.py -D`, load `server/mesospim_command_server.py`
-      via the Script Window, confirm it prints `listening on 127.0.0.1:42000`.
-- [ ] Run the ZMART round-trip against it (mark the suite `-m integration`):
-      `connect → get_config → get_state → move_absolute → get_position → snap`.
+- [x] Launch mesoSPIM `-D` demo mode, load `server/mesospim_command_server.py`,
+      confirm it prints `listening on 127.0.0.1:42000`. **DONE** — validated
+      against a live `mesoSPIM_Core` (v1.20.0, all Demo backends) on Windows,
+      driven headless (offscreen Qt). See "Bench validation results" below.
+- [x] Run the ZMART round-trip against it (`-m integration`): connect →
+      get_config → get_state → move_absolute → get_position → snap. **DONE** —
+      all 5 integration tests pass against the live demo Core, including the
+      opt-in `acquire` (`MESOSPIM_ALLOW_ACQUIRE=1`).
 - [ ] Confirm these Core names on the **installed** version (verified against the
       `1.20.0` source below, but versions drift — all are isolated in `_CoreBridge`):
   - [x] `core.move_absolute(sdict, wait_until_done=True)` / `move_relative(...)`
@@ -63,20 +68,54 @@ actually wrote; the driver's `save()` then relocates them.
       emit would never capture. The bridge now injects the `AcquisitionList` into
       `state['acq_list']` and calls the public `core.start(row=0)` (which drives
       the real `sig_add_images_to_image_series`), then waits for `idle`.
-      **Bench-pending:** confirm `start(row=…)` + wait-for-idle is sufficient
-      (vs. also waiting on `sig_finished`) and that disk/limit pre-checks in
-      `start()` don't reject a scripted run.
+      **CONFIRMED on the demo Core:** `start(row=0)` + wait-for-idle captures a
+      frame; `start()`'s disk pre-check runs (`Free disk C: space …`) and does not
+      reject a scripted run. A snap takes several seconds, so the capture reply
+      exceeds the default socket deadline — the client now uses a dedicated
+      `ACQUISITION.acquire_timeout_s` (600 s) for `acquire`/`run_acquisition_list`.
 - [x] The controller assigns the Acquisition a per-acquisition `folder`/`filename`
       (a unique `<output_root>/_staging/<stem>_NNNN` dir + canonical stem, cleaned
       up after the frames are relocated), and the module-level `_written_files`
       helper resolves the writer path as `realpath(folder + '/' + sanitize(filename))`.
       Corrected to the **default Tiff writer's real behaviour — one multi-page
       stack per acquisition** (not one file per plane), with mesoSPIM's
-      `replace_with_underscores` filename sanitisation. **Bench-pending:** confirm
-      for non-Tiff writers (OME-Zarr / BigTIFF / raw) and note the companion
-      `MAX_*` MIP + `*_meta.txt` sidecar the writer also drops in the folder.
+      `replace_with_underscores` filename sanitisation. **CONFIRMED on the demo
+      Core:** a snap wrote exactly one stack (`bench_snap.tiff`) that
+      `_written_files` resolved correctly, alongside the predicted companions
+      `MAX_bench_snap.tiff.tif` (MIP) and `bench_snap.tiff_meta.txt` — which the
+      driver correctly does *not* return as frame data. **Still bench-pending:**
+      confirm for non-Tiff writers (OME-Zarr / BigTIFF / raw).
 - [ ] Decide `snap` (single live frame, `sig_get_snap_image`) vs. a 1-plane
       series for `acquisition_type="snap"`, and where a live snap writes to.
+
+### Bench validation results (mesoSPIM `-D` demo, v1.20.0, Windows)
+
+Validated against a **live `mesoSPIM_Core` with all Demo backends** by mirroring
+`mesoSPIM_Control.main()` (load `demo_config.py` → `PluginRegistry(cfg)` → build
+`mesoSPIM_MainWindow`) and `exec()`-ing `mesospim_command_server.py` against the
+Core exactly as the Script Window does. Run headless (offscreen Qt); the harness
+only disables the USB webcam and auto-dismisses mesoSPIM's construction-time modal
+dialogs (ETL-config picker) — no driver/mesoSPIM code was patched to make it run.
+
+**Result: all 5 `-m integration` tests pass**, including `acquire` — the full
+`connect → get_config → get_state → move_absolute → get_position → snap` loop runs
+against the real Core, moves the demo stage, captures a frame, and writes/relocates
+the stack. `_CoreBridge` names (config/state/move/position/zero/stop/set_state),
+the `start(row=0)` run path, and image-writer path resolution are all confirmed.
+
+Two real bugs surfaced that the mock/headless-fake-Core suites could not (both
+now fixed on this branch):
+
+1. **`acquire` import was wrong.** The server did `from utils.acquisitions import
+   …`, which raises `ModuleNotFoundError` in a real mesoSPIM process (the class is
+   `mesoSPIM.src.utils.acquisitions`, the repo root being on `sys.path`). This
+   would have broken *every* capture on real hardware, not just headless. Fixed to
+   import the canonical `mesoSPIM.src.utils.acquisitions` with a bare-`utils`
+   fallback.
+2. **`acquire` had no long timeout.** The capture reply only arrives once the run
+   finishes, which exceeds the ~10 s default socket deadline (a demo snap alone
+   takes several seconds). Added `ACQUISITION.acquire_timeout_s` (600 s) and a
+   per-call `read_timeout` on the client, used by `acquire`/`run_acquisition_list`.
 
 ## 3. Real-hardware validation 🟠
 

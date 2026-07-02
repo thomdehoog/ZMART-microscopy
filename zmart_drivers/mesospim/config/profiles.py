@@ -137,6 +137,10 @@ class AcquisitionProfile:
     formats: tuple[str, ...] = ("ome-tiff", "raw", "h5")
     default_shutterconfig: str = "Left"
     default_zoom: str = "1x"
+    # Socket read deadline for a capture reply. Acquisitions run far longer than
+    # the ~10s per-request default -- the server only answers once the run
+    # finishes (a real stack can take minutes). Sized as a generous ceiling.
+    acquire_timeout_s: float = 600.0
     # Named procedures the driver exposes to the controller.
     procedures: tuple[tuple[str, str], ...] = (
         ("autofocus", "sweep the focus (ETL/remote) for peak sharpness"),
