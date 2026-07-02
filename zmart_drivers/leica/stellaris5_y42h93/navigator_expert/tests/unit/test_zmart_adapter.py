@@ -37,9 +37,9 @@ def _handle(**overrides):
     return h
 
 
-def _settings(z_wide_um=50.0, z_galvo_um=0.0, objective="HC PL APO 63x/1.40 OIL CS2"):
+def _settings(z_wide_um=50.0, z_galvo_um=0.0, objective="HC PL APO 63x/1.40 OIL CS2", slot=3):
     return {
-        "objective": {"name": objective, "magnification": 63, "slotIndex": 3},
+        "objective": {"name": objective, "magnification": 63, "slotIndex": slot},
         "zPosition": {
             "z-wide": {"position": z_wide_um},
             "z-galvo": {"position": z_galvo_um},
@@ -47,13 +47,13 @@ def _settings(z_wide_um=50.0, z_galvo_um=0.0, objective="HC PL APO 63x/1.40 OIL 
     }
 
 
-def _patch_position(x_um=100.0, y_um=200.0, z_wide_um=50.0, z_galvo_um=0.0, job="Overview"):
+def _patch_position(x_um=100.0, y_um=200.0, z_wide_um=50.0, z_galvo_um=0.0, job="Overview", slot=3):
     return (
         patch.object(adapter._readers, "get_xy", return_value={"x_um": x_um, "y_um": y_um}),
         patch.object(
             adapter._readers,
             "get_job_settings",
-            return_value=_settings(z_wide_um=z_wide_um, z_galvo_um=z_galvo_um),
+            return_value=_settings(z_wide_um=z_wide_um, z_galvo_um=z_galvo_um, slot=slot),
         ),
         patch.object(
             adapter._readers,
@@ -68,6 +68,24 @@ def _patch_position(x_um=100.0, y_um=200.0, z_wide_um=50.0, z_galvo_um=0.0, job=
     )
 
 
+def _wide_limits():
+    """Configure a permissive stage envelope for tests that exercise set_xyz."""
+    adapter._limits.set_stage_limits(
+        x_min=0.0,
+        x_max=1_000_000.0,
+        y_min=0.0,
+        y_max=1_000_000.0,
+        z_galvo_min=-200.0,
+        z_galvo_max=200.0,
+        z_wide_min=-100_000.0,
+        z_wide_max=100_000.0,
+    )
+
+
+def _clear_limits():
+    adapter._limits._stage_limits.update(dict.fromkeys(adapter._limits._stage_limits, None))
+
+
 class TestRegistration(unittest.TestCase):
     def test_importing_the_adapter_registers_the_instrument(self):
         from zmart_controller import registry
@@ -80,6 +98,12 @@ class TestRegistration(unittest.TestCase):
 
 
 class TestFrame(unittest.TestCase):
+    def setUp(self):
+        _wide_limits()  # set_xyz pre-flights against the stage envelope
+
+    def tearDown(self):
+        _clear_limits()
+
     def test_set_origin_zeros_the_frame(self):
         h = _handle()
         patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0)
@@ -412,6 +436,159 @@ class TestStateAndProcedures(unittest.TestCase):
             adapter.set_procedure(h, {"name": "nope"})
 
 
+class TestObjectiveCompensation(unittest.TestCase):
+    """Cross-objective frame math: ΔT = T[current] − T[origin's objective].
+
+    Uses the EXISTING calibration translation totals (no schema change,
+    operator decision 2026-07-02); the driver assumes x/y apply to the motoric
+    stage and z applies in focus space.
+    """
+
+    def setUp(self):
+        _wide_limits()
+
+    def tearDown(self):
+        _clear_limits()
+
+    def _cross_handle(self):
+        return _handle(
+            origin=_origin(
+                x_um=1000.0,
+                y_um=2000.0,
+                z_focus_um=30.0,
+                objective={"name": "10x", "slotIndex": 1},
+            ),
+            translations={1: (0.0, 0.0, 0.0), 2: (100.0, 50.0, 10.0)},
+        )
+
+    def test_cross_objective_read_applies_translation(self):
+        h = self._cross_handle()
+        patches = _patch_position(x_um=1110.0, y_um=2060.0, z_wide_um=45.0, z_galvo_um=0.0, slot=2)
+        with patches[0], patches[1], patches[2], patches[3]:
+            pos = adapter.get_xyz(h)
+        self.assertEqual(pos["x"]["value"], 10.0)  # 1110 − 1000 − 100
+        self.assertEqual(pos["y"]["value"], 10.0)  # 2060 − 2000 − 50
+        self.assertEqual(pos["z"]["value"], 5.0)  # 45 − 30 − 10
+
+    def test_cross_objective_move_targets_include_translation(self):
+        h = self._cross_handle()
+        moves = {}
+
+        def fake_xy(client, x_um, y_um, **kwargs):
+            moves["xy"] = (x_um, y_um)
+            return {"success": True, "confirmed": True}
+
+        def fake_z(client, job, z, unit="um", z_mode="galvo", **kwargs):
+            moves["z"] = (z, z_mode)
+            return {"success": True, "confirmed": True}
+
+        patches = _patch_position(z_wide_um=40.0, z_galvo_um=0.0, slot=2)
+        with (
+            patch.object(adapter._motion, "move_xy_with_backlash", fake_xy),
+            patch.object(adapter._commands, "move_z", fake_z),
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
+            record = adapter.set_xyz(h, 10.0, 10.0, 5.0, with_actuators={"z": "z-galvo"})
+        self.assertEqual(moves["xy"], (1110.0, 2060.0))  # ref + F + ΔT
+        # focus target = 30 + 5 + 10 = 45; galvo = 45 − z_wide(40) = 5
+        self.assertEqual(moves["z"], (5.0, "galvo"))
+        self.assertEqual(record["objective_translation_um"], [100.0, 50.0, 10.0])
+
+    def test_round_trip_property_across_objectives(self):
+        """get_xyz(set_xyz(F)) == F — commanded hardware read back through the frame."""
+        h = self._cross_handle()
+        state = {"x": 0.0, "y": 0.0, "z_wide": 40.0, "z_galvo": 0.0}
+
+        def fake_xy(client, x_um, y_um, **kwargs):
+            state["x"], state["y"] = x_um, y_um
+            return {"success": True, "confirmed": True}
+
+        def fake_z(client, job, z, unit="um", z_mode="galvo", **kwargs):
+            state["z_galvo" if z_mode == "galvo" else "z_wide"] = z
+            return {"success": True, "confirmed": True}
+
+        with (
+            patch.object(adapter._motion, "move_xy_with_backlash", fake_xy),
+            patch.object(adapter._commands, "move_z", fake_z),
+            patch.object(
+                adapter._readers,
+                "get_xy",
+                side_effect=lambda client, **kw: {"x_um": state["x"], "y_um": state["y"]},
+            ),
+            patch.object(
+                adapter._readers,
+                "get_job_settings",
+                side_effect=lambda client, job, **kw: _settings(
+                    z_wide_um=state["z_wide"], z_galvo_um=state["z_galvo"], slot=2
+                ),
+            ),
+            patch.object(
+                adapter._readers,
+                "get_selected_job",
+                return_value={"Name": "Overview", "IsSelected": True},
+            ),
+            patch.object(adapter._cmd_settings, "make_changeable_copy", side_effect=lambda s: s),
+        ):
+            adapter.set_xyz(h, 12.0, -7.0, 4.0, with_actuators={"z": "z-galvo"})
+            pos = adapter.get_xyz(h)
+        self.assertAlmostEqual(pos["x"]["value"], 12.0)
+        self.assertAlmostEqual(pos["y"]["value"], -7.0)
+        self.assertAlmostEqual(pos["z"]["value"], 4.0)
+
+    def test_cross_objective_move_without_translations_refuses(self):
+        h = _handle(origin=_origin(objective={"name": "10x", "slotIndex": 1}))
+        patches = _patch_position(slot=2)
+        with (
+            patch.object(adapter._motion, "move_xy_with_backlash") as xy,
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
+            with self.assertRaisesRegex(RuntimeError, "translation"):
+                adapter.set_xyz(h, 1.0, 1.0, 0.0)
+        xy.assert_not_called()  # refused before any motion
+
+    def test_cross_objective_read_without_translations_warns_uncompensated(self):
+        h = _handle(origin=_origin(x_um=1000.0, objective={"name": "10x", "slotIndex": 1}))
+        patches = _patch_position(x_um=1110.0, slot=2)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            self.assertLogs(adapter.log, level="WARNING"),
+        ):
+            pos = adapter.get_xyz(h)
+        self.assertEqual(pos["x"]["value"], 110.0)  # uncompensated, but loud
+
+    def test_same_objective_needs_no_calibration(self):
+        h = _handle(origin=_origin(x_um=1000.0, objective={"name": "63x", "slotIndex": 3}))
+        patches = _patch_position(x_um=1010.0, slot=3)
+        with patches[0], patches[1], patches[2], patches[3]:
+            pos = adapter.get_xyz(h)
+        self.assertEqual(pos["x"]["value"], 10.0)  # ΔT = 0, translations unused
+
+    def test_preflight_refuses_out_of_range_galvo_before_any_motion(self):
+        h = _handle(origin=_origin(objective={"name": "63x", "slotIndex": 3}))
+        patches = _patch_position(z_wide_um=0.0, z_galvo_um=0.0, slot=3)
+        with (
+            patch.object(adapter._motion, "move_xy_with_backlash") as xy,
+            patch.object(adapter._commands, "move_z") as mz,
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
+            with self.assertRaisesRegex(RuntimeError, "z-wide"):
+                adapter.set_xyz(h, 10.0, 10.0, 300.0, with_actuators={"z": "z-galvo"})
+        xy.assert_not_called()
+        mz.assert_not_called()
+
+
 class TestLifecycle(unittest.TestCase):
     def test_ops_after_disconnect_raise(self):
         h = _handle()
@@ -457,6 +634,8 @@ class TestLifecycle(unittest.TestCase):
         """End to end through a real zmart_controller Session."""
         import zmart_controller
 
+        _wide_limits()
+        self.addCleanup(_clear_limits)
         patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0)
         with (
             patch.object(adapter._session, "connect_python_client", return_value=object()),

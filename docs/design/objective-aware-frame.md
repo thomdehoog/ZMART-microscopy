@@ -1,7 +1,11 @@
-# Objective-aware coordinate frame — design (not yet implemented)
+# Objective-aware coordinate frame — design
 
-- **Status:** proposed 2026-07-02 · awaiting external review · nothing below is built
-  except where marked BUILT.
+- **Status:** proposed 2026-07-02 · **§1 frame arithmetic + pre-flight BUILT the
+  same day** (operator decision: NO calibration schema change — ΔT uses the
+  existing per-objective ``translation_um`` totals; "x/y apply to the motoric
+  stage, z in focus space" is a driver-side assumption). The §2 verification
+  gate + motor_shift/correction schema split and the journal still await the
+  external review / a later pass.
 - **Scope:** `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/zmart_adapter/`
   (frame math), `calibration/` (schema addition), driver motion guards.
 - **Owner:** Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch ·
@@ -113,11 +117,14 @@ This is a controller-contract change (today: plain name lists) touching the
 mock, the mesoSPIM adapter, and the Leica adapter — cheap with three
 implementers (question 6).
 
-### 1. Frame arithmetic (get_xyz / set_xyz)
+### 1. Frame arithmetic (get_xyz / set_xyz) — BUILT 2026-07-02
 
 **One decomposition rule (final, operator-settled): the chosen actuator absorbs
 the whole change; every other actuator holds where it is. A move changes
-exactly one actuator, ever.**
+exactly one actuator, ever.** Built in ``zmart_adapter``: translations load at
+connect from the active calibration; cross-objective moves REFUSE when they are
+unavailable, reads warn and return uncompensated; all targets pre-flight
+against the stage envelope before any motion.
 
 ```
 ΔT = T[current_objective] − T[origin.objective]           # calibration, XY µm + z µm
