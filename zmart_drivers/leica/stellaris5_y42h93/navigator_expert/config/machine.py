@@ -1,17 +1,21 @@
 """Machine-local resolution of this microscope's coordinate-system config.
 
-Runtime coordinate config - the optical calibration and the physical stage
-envelope - lives in dated snapshots under a machine-wide ProgramData root,
-newest wins::
+Runtime coordinate config - the optical calibration, the physical stage
+envelope, and the operator-set frame origin - lives in dated snapshots under a
+machine-wide ProgramData root, newest wins::
 
-    <programdata_root>/<vendor>/<microscope_id>/<datetime>/
+    <programdata_root>/<vendor>/<microscope_id>/<api>/<datetime>/
         calibration.json    # optical calibration + backlash (schema v11)
         limits.json         # physical stage envelope (schema v1)
+        origin.json         # frame zero point (set_origin; updated in place)
         <executed>.ipynb    # the calibration notebook that produced this adopt
 
 Each snapshot is a complete, cumulative machine-state record; the calibration
 workflow writes one per adopt by copying the latest snapshot (or the bundled
-default) forward and merging its delta.
+default) forward and merging its delta. ``origin.json`` is the one exception
+to snapshot immutability: it is ephemeral operator state (the current frame
+zero point), written into the *newest* snapshot in place by ``set_origin`` and
+carried forward on adopt, so it stays the truth until set again.
 
 When no snapshot exists (fresh machine, or a wiped ProgramData tree) the driver
 falls back - loudly - to the defaults bundled in the driver, each owned by its
@@ -55,8 +59,11 @@ _SNAPSHOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}Z$")
 
 CALIBRATION_FILENAME = "calibration.json"
 LIMITS_FILENAME = "limits.json"
+ORIGIN_FILENAME = "origin.json"
 
 # Driver-bundled last-known-good defaults, each owned by its subsystem.
+# The origin has no bundled default: with none set, the frame is absolute
+# stage coordinates.
 _BUNDLED_SUBSYSTEM = {
     CALIBRATION_FILENAME: "calibration",
     LIMITS_FILENAME: "limits",
@@ -94,6 +101,7 @@ class MachineProfile:
 
     vendor: str = "leica"
     microscope_id: str = "stellaris5_y42h93"
+    api: str = "navigator_expert"
     programdata_root: Path | None = None
 
     def root(self) -> Path:
@@ -103,7 +111,42 @@ class MachineProfile:
         return Path(env) if env else DEFAULT_PROGRAMDATA_ROOT
 
     def snapshot_root(self) -> Path:
+        return self.root() / self.vendor / self.microscope_id / self.api
+
+    def legacy_snapshot_root(self) -> Path:
+        """The pre-api-level snapshot root (vendor/microscope only).
+
+        Snapshots published before the ``<api>`` level was added live here;
+        :meth:`migrate_legacy_snapshots` moves them under :meth:`snapshot_root`.
+        """
         return self.root() / self.vendor / self.microscope_id
+
+    def _legacy_snapshots(self) -> list[Path]:
+        legacy = self.legacy_snapshot_root()
+        if not legacy.is_dir():
+            return []
+        return sorted(
+            (p for p in legacy.iterdir() if p.is_dir() and is_snapshot_name(p.name)),
+            key=lambda p: p.name,
+        )
+
+    def migrate_legacy_snapshots(self) -> list[Path]:
+        """One-time move of pre-api-level snapshots under the api level.
+
+        Returns the moved snapshot paths (empty when there is nothing to do).
+        A snapshot whose name already exists under the new root is left in
+        place with a warning rather than overwritten.
+        """
+        moved: list[Path] = []
+        for src in self._legacy_snapshots():
+            target = self.snapshot_root() / src.name
+            if target.exists():
+                log.warning("legacy snapshot %s also exists at %s; not moving", src, target)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src), str(target))
+            moved.append(target)
+        return moved
 
     def bundled_default_path(self, filename: str) -> Path:
         """Driver-bundled last-known-good default for *filename*.
@@ -154,6 +197,14 @@ class MachineProfile:
                 path,
                 kind,
             )
+            if self._legacy_snapshots():
+                log.warning(
+                    "Pre-api-level snapshots exist at %s; run "
+                    "MachineProfile.migrate_legacy_snapshots() once to move "
+                    "them under %s.",
+                    self.legacy_snapshot_root(),
+                    self.snapshot_root(),
+                )
         return path
 
     def calibration_path(self) -> Path:
@@ -163,6 +214,34 @@ class MachineProfile:
     def limits_path(self) -> Path:
         """Active physical limits.json (latest snapshot, else bundled default)."""
         return self._resolve_logged(LIMITS_FILENAME, "limits")
+
+    # --- origin: the operator-set frame zero point -----------------------
+
+    def read_origin(self) -> dict | None:
+        """The persisted frame origin, or None (no snapshot / never set)."""
+        latest = self.latest_snapshot()
+        if latest is None:
+            return None
+        path = latest / ORIGIN_FILENAME
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def write_origin(self, payload: dict) -> Path | None:
+        """Persist the frame origin into the newest snapshot (atomic replace).
+
+        Returns the written path, or None when no snapshot exists yet - the
+        origin cannot outlive machine state that was never established, so
+        the caller keeps it in memory and says so.
+        """
+        latest = self.latest_snapshot()
+        if latest is None:
+            return None
+        path = latest / ORIGIN_FILENAME
+        tmp = path.with_suffix(".json.tmp")
+        _write_json(tmp, payload)
+        os.replace(tmp, path)
+        return path
 
     def new_snapshot_dir(self, moment: datetime) -> Path:
         """Path for a NEW snapshot stamped from *moment*.
@@ -204,10 +283,12 @@ class MachineProfile:
         Seeds the new dated folder by carrying the latest snapshot's
         ``calibration.json`` and ``limits.json`` forward (from the bundled
         default when there is no snapshot), overrides whichever of *calibration*
-        / *limits* is provided, copies the given executed notebook(s) in, then
-        atomically renames the folder into place. The live snapshot is never
-        mutated, so a crash mid-publish cannot corrupt the calibration the driver
-        is currently reading.
+        / *limits* is provided, carries a persisted ``origin.json`` forward when
+        one exists (so an adopt never silently drops the operator's frame
+        origin), copies the given executed notebook(s) in, then atomically
+        renames the folder into place. The live snapshot is never mutated, so a
+        crash mid-publish cannot corrupt the calibration the driver is currently
+        reading.
 
         *moment* must stamp strictly after the latest snapshot
         (see :meth:`new_snapshot_dir`); callers pass ``datetime.now(timezone.utc)``.
@@ -223,6 +304,9 @@ class MachineProfile:
         try:
             self._seed_file(staging, CALIBRATION_FILENAME, calibration)
             self._seed_file(staging, LIMITS_FILENAME, limits)
+            prior = self.latest_snapshot()
+            if prior is not None and (prior / ORIGIN_FILENAME).exists():
+                shutil.copy2(prior / ORIGIN_FILENAME, staging / ORIGIN_FILENAME)
             for nb in notebook_paths:
                 nb = Path(nb)
                 shutil.copy2(nb, staging / nb.name)

@@ -24,8 +24,10 @@ which drive realized a move. The driver package itself is untouched.
 
 Scope of v1 (grow as needed):
     - ``set_origin`` captures stage XY, both z drives, and the current
-      objective as the zero point, persisted to ``origin.json`` under
-      ``connection["output_root"]``.
+      objective as the zero point, persisted machine-locally to
+      ``origin.json`` in the newest machine snapshot (next to
+      ``calibration.json`` / ``limits.json``) and restored by ``connect`` -
+      the origin stays the frame truth across sessions until set again.
     - ``get_xyz`` returns both frames: controller-relative values plus
       the raw hardware readings under ``"hardware"``.
     - ``get_state``/``set_state`` round-trip the selected job (the job
@@ -52,7 +54,6 @@ Dependency direction:
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -68,6 +69,7 @@ from ..acquisition import capture as _capture
 from ..acquisition import save as _save
 from ..commands import commands as _commands
 from ..commands import settings as _cmd_settings
+from ..config import machine as _machine
 from ..connection import session as _session
 from ..motion import limits as _limits
 from ..motion import movement as _motion
@@ -178,7 +180,10 @@ def connect(connection: dict) -> ZmartHandle:
             :func:`acquire` saves and :func:`set_origin` persists.
 
     Applies the machine's physical stage limits once here so
-    :func:`set_xyz` can move (see :func:`_configure_stage_limits`).
+    :func:`set_xyz` can move (see :func:`_configure_stage_limits`), and
+    restores the machine-local frame origin persisted by :func:`set_origin`
+    (the origin stays the frame truth across sessions until set again; with
+    none persisted, the frame is absolute stage coordinates).
 
     Raises whatever :func:`connect_python_client` raises when LAS X is
     unreachable — the controller surfaces that to the caller unchanged.
@@ -188,7 +193,42 @@ def connect(connection: dict) -> ZmartHandle:
         api_delay_ms=connection.get("api_delay_ms"),
     )
     _configure_stage_limits()
-    return ZmartHandle(client=client, connection=dict(connection), hash6=run_hash())
+    handle = ZmartHandle(client=client, connection=dict(connection), hash6=run_hash())
+    _restore_persisted_origin(handle)
+    return handle
+
+
+_ORIGIN_KEYS = ("x_um", "y_um", "z_wide_um", "z_galvo_um", "z_focus_um")
+
+
+def _restore_persisted_origin(handle: ZmartHandle) -> None:
+    """Adopt the machine-local origin as this session's frame zero point.
+
+    Best-effort: an unreadable or malformed origin file is logged and the
+    frame stays absolute (all-zero origin) — the safe interpretation, since
+    an absolute frame applies no hidden offset.
+    """
+    try:
+        stored = _machine.MACHINE.read_origin()
+    except Exception as exc:  # noqa: BLE001 -- config IO / JSON; degrade, don't crash connect
+        log.warning("could not read the persisted origin (%s); frame stays absolute", exc)
+        return
+    if stored is None:
+        return
+    origin = stored.get("origin") or {}
+    if not all(key in origin for key in _ORIGIN_KEYS):
+        log.warning(
+            "persisted origin at %s is missing keys %s; frame stays absolute",
+            _machine.MACHINE.latest_snapshot(),
+            [key for key in _ORIGIN_KEYS if key not in origin],
+        )
+        return
+    handle.origin = dict(origin)
+    log.info(
+        "restored persisted origin (captured_at=%s, objective=%s)",
+        stored.get("captured_at"),
+        (origin.get("objective") or {}).get("name"),
+    )
 
 
 def disconnect(handle: ZmartHandle) -> None:
@@ -269,9 +309,12 @@ def set_origin(handle: ZmartHandle) -> dict:
     """The current position becomes (0, 0, 0) of the controller frame.
 
     Captures stage XY, both z drives, their focus sum, and the current
-    objective as the zero point, and persists that reference to
-    ``origin.json`` under ``connection['output_root']`` (memory-only,
-    with a warning, when no output root is configured).
+    objective as the zero point, and persists that reference machine-locally
+    as ``origin.json`` in the newest machine snapshot (next to
+    ``calibration.json`` / ``limits.json``). The persisted origin is restored
+    by :func:`connect`, so it stays the frame truth until set again. On a
+    machine with no snapshot yet (never calibrated) the origin is kept in
+    memory only, with a warning.
     """
     _require_open(handle)
     snap = _hardware_snapshot(handle)
@@ -283,36 +326,29 @@ def set_origin(handle: ZmartHandle) -> dict:
         "z_focus_um": snap["z_wide_um"] + snap["z_galvo_um"],
         "objective": snap["objective"],
     }
-    origin_file = None
-    output_root = handle.connection.get("output_root")
-    if output_root:
-        path = Path(output_root) / "origin.json"
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps(
-                    {
-                        "origin": handle.origin,
-                        "job": snap["job"],
-                        "session_hash6": handle.hash6,
-                        "captured_at": time.time(),
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-        except OSError as exc:
-            # The in-memory origin is already set; failing to persist the
-            # reference must be loud (re-running set_origin after fixing
-            # the path is cheap), not a silent divergence discovered later.
-            raise RuntimeError(f"could not persist origin reference to {path}: {exc}") from exc
-        origin_file = str(path)
-    else:
-        log.warning("set_origin: no output_root configured; origin kept in memory only")
+    payload = {
+        "origin": handle.origin,
+        "job": snap["job"],
+        "session_hash6": handle.hash6,
+        "captured_at": time.time(),
+    }
+    try:
+        path = _machine.MACHINE.write_origin(payload)
+    except OSError as exc:
+        # The in-memory origin is already set; failing to persist the
+        # reference must be loud (re-running set_origin after fixing the
+        # cause is cheap), not a silent divergence discovered later.
+        raise RuntimeError(f"could not persist origin reference: {exc}") from exc
+    if path is None:
+        log.warning(
+            "set_origin: no machine snapshot under %s; origin kept in memory only "
+            "(adopt a calibration to make it persistent)",
+            _machine.MACHINE.snapshot_root(),
+        )
     return {
         "origin": {"x": 0.0, "y": 0.0, "z": 0.0},
         "reference": dict(handle.origin),
-        "origin_file": origin_file,
+        "origin_file": None if path is None else str(path),
     }
 
 

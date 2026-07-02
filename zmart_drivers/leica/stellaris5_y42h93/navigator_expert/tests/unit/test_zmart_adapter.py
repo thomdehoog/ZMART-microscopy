@@ -86,7 +86,7 @@ class TestFrame(unittest.TestCase):
         with patches[0], patches[1], patches[2], patches[3]:
             record = adapter.set_origin(h)
             self.assertEqual(record["origin"], {"x": 0.0, "y": 0.0, "z": 0.0})
-            self.assertIsNone(record["origin_file"])  # no output_root configured
+            self.assertIsNone(record["origin_file"])  # no machine snapshot (hermetic root)
             self.assertEqual(record["reference"]["z_focus_um"], 30.0)
             pos = adapter.get_xyz(h)
         self.assertEqual(pos["x"]["value"], 0.0)
@@ -95,23 +95,71 @@ class TestFrame(unittest.TestCase):
         self.assertEqual(pos["x"]["actuator"], "motoric")
         self.assertEqual(pos["z"]["actuator"], "z-wide")
 
-    def test_set_origin_persists_reference_json(self):
+    def test_set_origin_persists_into_newest_machine_snapshot(self):
         import json
         import tempfile
 
+        from navigator_expert.config.machine import MachineProfile
+
         with tempfile.TemporaryDirectory() as tmp:
-            h = _handle(connection={**adapter.CONNECTION, "output_root": tmp})
+            profile = MachineProfile(programdata_root=Path(tmp))
+            snapshot = profile.snapshot_root() / "2026-07-01T14-30-00-123456Z"
+            snapshot.mkdir(parents=True)
+            h = _handle()
             patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_galvo_um=2.0)
-            with patches[0], patches[1], patches[2], patches[3]:
+            with (
+                patch.object(adapter._machine, "MACHINE", profile),
+                patches[0],
+                patches[1],
+                patches[2],
+                patches[3],
+            ):
                 record = adapter.set_origin(h)
-            self.assertIsNotNone(record["origin_file"])
-            saved = json.loads(Path(record["origin_file"]).read_text(encoding="utf-8"))
+            self.assertEqual(record["origin_file"], str(snapshot / "origin.json"))
+            saved = json.loads((snapshot / "origin.json").read_text(encoding="utf-8"))
             self.assertEqual(saved["origin"]["x_um"], 1000.0)
             self.assertEqual(saved["origin"]["z_wide_um"], 30.0)
             self.assertEqual(saved["origin"]["z_galvo_um"], 2.0)
             self.assertEqual(saved["origin"]["z_focus_um"], 32.0)
             self.assertEqual(saved["origin"]["objective"]["magnification"], 63)
             self.assertEqual(saved["job"], "Overview")
+
+    def test_connect_restores_persisted_origin(self):
+        """The machine-local origin is the frame truth across sessions."""
+        import tempfile
+
+        from navigator_expert.config.machine import MachineProfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = MachineProfile(programdata_root=Path(tmp))
+            snapshot = profile.snapshot_root() / "2026-07-01T14-30-00-123456Z"
+            snapshot.mkdir(parents=True)
+            profile.write_origin(
+                {
+                    "origin": _origin(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_focus_um=30.0),
+                    "captured_at": 123.0,
+                }
+            )
+            with (
+                patch.object(adapter._machine, "MACHINE", profile),
+                patch.object(adapter._session, "connect_python_client", return_value=object()),
+                patch.object(adapter._limits, "apply_stage_limits_from_config"),
+                patch.object(adapter._stage_config, "load", return_value={}),
+            ):
+                h = adapter.connect(dict(adapter.CONNECTION))
+            self.assertEqual(h.origin["x_um"], 1000.0)
+            self.assertEqual(h.origin["z_focus_um"], 30.0)
+
+            # A malformed persisted origin must not poison the frame.
+            profile.write_origin({"origin": {"x_um": 1.0}})  # missing keys
+            with (
+                patch.object(adapter._machine, "MACHINE", profile),
+                patch.object(adapter._session, "connect_python_client", return_value=object()),
+                patch.object(adapter._limits, "apply_stage_limits_from_config"),
+                patch.object(adapter._stage_config, "load", return_value={}),
+            ):
+                h2 = adapter.connect(dict(adapter.CONNECTION))
+            self.assertEqual(h2.origin["x_um"], 0.0)  # frame stays absolute
 
     def test_get_xyz_is_origin_relative(self):
         h = _handle(origin=_origin(x_um=1000.0, y_um=2000.0, z_focus_um=30.0))

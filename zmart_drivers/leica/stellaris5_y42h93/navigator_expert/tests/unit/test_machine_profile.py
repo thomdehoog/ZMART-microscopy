@@ -16,7 +16,7 @@ from navigator_expert.config.machine import (
 
 
 def _mk_snapshot(root: Path, name: str, *, calibration=True, limits=True) -> Path:
-    d = root / "leica" / "stellaris5_y42h93" / name
+    d = root / "leica" / "stellaris5_y42h93" / "navigator_expert" / name
     d.mkdir(parents=True)
     if calibration:
         (d / "calibration.json").write_text("{}", encoding="utf-8")
@@ -66,7 +66,7 @@ def test_latest_snapshot_none_when_root_absent(tmp_path):
 
 
 def test_latest_snapshot_none_when_empty(tmp_path):
-    (tmp_path / "leica" / "stellaris5_y42h93").mkdir(parents=True)
+    (tmp_path / "leica" / "stellaris5_y42h93" / "navigator_expert").mkdir(parents=True)
     assert _profile(tmp_path).latest_snapshot() is None
 
 
@@ -79,8 +79,9 @@ def test_latest_snapshot_picks_newest(tmp_path):
 
 def test_latest_snapshot_ignores_malformed_dirs_and_files(tmp_path):
     valid = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
-    (tmp_path / "leica" / "stellaris5_y42h93" / "current").mkdir()  # not a snapshot
-    (tmp_path / "leica" / "stellaris5_y42h93" / "notes.txt").write_text("x")
+    api_root = tmp_path / "leica" / "stellaris5_y42h93" / "navigator_expert"
+    (api_root / "current").mkdir()  # not a snapshot
+    (api_root / "notes.txt").write_text("x")
     assert _profile(tmp_path).latest_snapshot() == valid
 
 
@@ -121,6 +122,78 @@ def test_bundled_defaults_are_real_last_known_good(tmp_path):
     cal = model.load_calibration(p.bundled_default_path("calibration.json"))
     assert model.get_reference_slot(cal) == 1
     assert model.get_translation_um(cal, 0) != (0.0, 0.0, 0.0)
+
+
+# --- api level + legacy migration ---
+
+
+def test_snapshot_root_includes_api_level(tmp_path):
+    p = _profile(tmp_path)
+    assert p.snapshot_root() == tmp_path / "leica" / "stellaris5_y42h93" / "navigator_expert"
+    assert p.legacy_snapshot_root() == tmp_path / "leica" / "stellaris5_y42h93"
+
+
+def test_migrate_legacy_snapshots_moves_pre_api_snapshots(tmp_path):
+    # Snapshots at the old vendor/microscope level move under the api level.
+    legacy = tmp_path / "leica" / "stellaris5_y42h93" / "2026-06-15T09-12-00-000000Z"
+    legacy.mkdir(parents=True)
+    (legacy / "calibration.json").write_text("{}", encoding="utf-8")
+    p = _profile(tmp_path)
+    assert p.latest_snapshot() is None  # not visible pre-migration
+
+    moved = p.migrate_legacy_snapshots()
+
+    assert moved == [p.snapshot_root() / "2026-06-15T09-12-00-000000Z"]
+    assert not legacy.exists()
+    assert p.latest_snapshot() == moved[0]
+    assert (moved[0] / "calibration.json").exists()
+    assert p.migrate_legacy_snapshots() == []  # idempotent
+
+
+# --- origin: machine-local frame zero point ---
+
+
+def test_origin_round_trips_into_latest_snapshot(tmp_path):
+    _mk_snapshot(tmp_path, "2026-06-15T09-12-00-000000Z")
+    newest = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
+    p = _profile(tmp_path)
+    payload = {"origin": {"x_um": 1.0, "y_um": 2.0}, "captured_at": 123.0}
+
+    path = p.write_origin(payload)
+
+    assert path == newest / "origin.json"
+    assert p.read_origin() == payload
+
+    # A second set_origin overwrites in place (same newest snapshot).
+    p.write_origin({"origin": {"x_um": 9.0}, "captured_at": 456.0})
+    assert p.read_origin()["origin"] == {"x_um": 9.0}
+
+
+def test_origin_without_snapshot_is_not_persisted(tmp_path):
+    p = _profile(tmp_path)
+    assert p.write_origin({"origin": {}}) is None
+    assert p.read_origin() is None
+
+
+def test_publish_snapshot_carries_origin_forward(tmp_path):
+    newest = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
+    p = _profile(tmp_path)
+    p.write_origin({"origin": {"x_um": 5.0}})
+    assert (newest / "origin.json").exists()
+
+    snap = p.publish_snapshot(datetime(2026, 7, 2, 10, 0, 0, 0, tzinfo=timezone.utc))
+
+    # The origin survives an adopt: it rides into the new snapshot.
+    assert json.loads((snap / "origin.json").read_text(encoding="utf-8"))["origin"] == {"x_um": 5.0}
+    assert p.read_origin()["origin"] == {"x_um": 5.0}
+
+
+def test_publish_snapshot_without_prior_origin_has_none(tmp_path):
+    _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
+    p = _profile(tmp_path)
+    snap = p.publish_snapshot(datetime(2026, 7, 2, 10, 0, 0, 0, tzinfo=timezone.utc))
+    assert not (snap / "origin.json").exists()
+    assert p.read_origin() is None
 
 
 # --- monotonic new snapshot ---
@@ -164,7 +237,7 @@ def test_env_var_override(tmp_path, monkeypatch):
     monkeypatch.setenv(machine.PROGRAMDATA_ROOT_ENV, str(tmp_path))
     p = MachineProfile()  # no explicit root
     assert p.root() == tmp_path
-    assert p.snapshot_root() == tmp_path / "leica" / "stellaris5_y42h93"
+    assert p.snapshot_root() == tmp_path / "leica" / "stellaris5_y42h93" / "navigator_expert"
 
 
 def test_explicit_root_beats_env(tmp_path, monkeypatch):
