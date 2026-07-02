@@ -29,12 +29,16 @@ from navigator_expert.zmart_adapter import zmart_adapter as adapter
 
 def _run_mock(tmp_path, *extra):
     """Run the validator against the mock, restoring global state afterwards."""
+    from navigator_expert.config import profiles
+
     output = tmp_path / "adapter_mock.jsonl"
     original_connect = adapter._session.connect_python_client
+    original_profile = profiles.STATE_READERS
     try:
         exit_code = validate_zmart_adapter.main(["--mock", "--output", str(output), *extra])
     finally:
         adapter._session.connect_python_client = original_connect
+        profiles.STATE_READERS = original_profile
         zmart_controller.disconnect()  # clear the module-level active session
     records = [
         json.loads(line) for line in output.read_text(encoding="utf-8").splitlines() if line.strip()
@@ -63,8 +67,8 @@ def test_readonly_mock_run(tmp_path):
 
 
 def test_full_mock_run_move_and_acquire(tmp_path):
-    """Read-only + move (both z drives) pass; acquire SKIPs under the mock."""
-    exit_code, records = _run_mock(tmp_path, "--allow-move", "--allow-acquire")
+    """Read-only + move (both z drives) + state pass; acquire SKIPs under the mock."""
+    exit_code, records = _run_mock(tmp_path, "--allow-move", "--allow-state", "--allow-acquire")
     assert exit_code == 0
 
     summary = records[-1]
@@ -75,14 +79,17 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     assert counts["PASS"] >= 30
 
     by_name = {r["name"]: r for r in records}
-    # The controller round-trip and the z-focus additive model are exercised.
+    # The controller round-trip, z-focus model, and state round-trip are exercised.
     assert {
         "set_origin",
         "xy: frame x",
         "zgalvo: frame z",
         "zgalvo: drive moved by delta (sign check)",
         "zwide: frame z is additive (z-wide + z-galvo)",
+        "state: switched",
+        "state: restored",
     } <= set(by_name)
+    assert by_name["state: restored"]["status"] == "PASS"
     assert by_name["zgalvo: frame z"]["status"] == "PASS"
     assert by_name["zwide: frame z is additive (z-wide + z-galvo)"]["status"] == "PASS"
     # Acquire needs real LAS X export files, so it is skipped under the mock.

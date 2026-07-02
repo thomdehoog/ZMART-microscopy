@@ -669,17 +669,31 @@ def acquire(
 
 
 def get_state(handle: ZmartHandle) -> dict:
-    """Immutable fingerprint + the mutable settings v1 can round-trip.
+    """Immutable instrument fingerprint + the mutable settings v1 round-trips.
 
-    Mutable is deliberately just the selected job: the job *is* the unit
-    of configuration in LAS X (each job carries its own optics/scan
-    settings), so capture-and-reapply of the selection round-trips the
-    whole setup without this adapter re-implementing per-setting state.
+    The fingerprint carries only identity that changes when the INSTRUMENT
+    (or its physical configuration) changes: the connection identity, the
+    hardware-reported serial number and system type (simulator vs. real),
+    the stand, and the turret configuration (slot → objectiveNumber).
+    Mutable is deliberately just the selected job: the job *is* the unit of
+    configuration in LAS X, so capture-and-reapply of the selection
+    round-trips the whole setup without per-setting state.
     """
     _require_open(handle)
     hw = _readers.get_hardware_info(handle.client, mode="api") or {}
+    microscope = hw.get("Microscope") or {}
+    objectives = [
+        [o.get("slotIndex"), o.get("objectiveNumber")] for o in (microscope.get("objectives") or [])
+    ]
     return {
-        "immutable": {"microscope": (hw.get("Microscope") or {}).get("name")},
+        "immutable": {
+            "vendor": handle.connection.get("vendor"),
+            "microscope": handle.connection.get("microscope"),
+            "serial_number": hw.get("SerialNumber"),
+            "system_type": hw.get("SystemType"),
+            "stand": microscope.get("name"),
+            "objectives": objectives,
+        },
         "mutable": {"job": _selected_job_name(handle)},
     }
 
@@ -687,26 +701,44 @@ def get_state(handle: ZmartHandle) -> dict:
 def set_state(handle: ZmartHandle, state: dict) -> dict:
     """Reapply the mutable part; report what stuck.
 
-    The immutable fingerprint guards against restoring a state captured
-    on a different instrument. When the state carries a fingerprint but
-    the live one cannot be read, this refuses rather than applying
-    unverified — fail-closed, like the driver's readers.
+    Every key the STORED fingerprint carries is compared against the live
+    one (evolvable: a state checks only what it recorded); a stored value
+    whose live counterpart cannot be read refuses rather than applying
+    unverified — fail-closed, like the driver's readers. The mutable job
+    must still exist on this instrument before it is reapplied (the job
+    catalog is deliberately NOT part of the fingerprint — it is supposed
+    to change; only the referent is guarded).
     """
     _require_open(handle)
-    stored = (state.get("immutable") or {}).get("microscope")
-    current = get_state(handle)["immutable"]["microscope"]
-    if stored is not None:
-        if current is None:
+    live = get_state(handle)
+    # set_state ACTS only on the mutable part (operator decision). The
+    # immutable fingerprint is verified opportunistically — only when the
+    # caller handed one over (the full get_state round-trip gets the
+    # wrong-instrument check for free; a mutable-only state just applies).
+    stored = state.get("immutable") or {}
+    for key, want in stored.items():
+        if want is None:
+            continue
+        have = live["immutable"].get(key)
+        if have is None:
             raise RuntimeError(
-                "cannot verify the instrument fingerprint (hardware info unreadable); "
+                f"cannot verify the instrument fingerprint ({key} unreadable); "
                 "refusing to apply state captured elsewhere"
             )
-        if stored != current:
-            raise ValueError("state captured on a different instrument")
+        if want != have:
+            raise ValueError(
+                f"state captured on a different instrument ({key}: {want!r} != {have!r})"
+            )
 
     applied: dict[str, Any] = {}
-    job = state.get("mutable", {}).get("job")
-    if job and job != _selected_job_name(handle):
+    job = (state.get("mutable") or {}).get("job")
+    if job and job != live["mutable"]["job"]:
+        jobs = _readers.get_jobs(handle.client, mode="api") or []
+        names = [j.get("Name") for j in jobs if j.get("Name")]
+        if job not in names:
+            raise ValueError(
+                f"job {job!r} no longer exists on this instrument (available: {names})"
+            )
         result = _commands.select_job(handle.client, job)
         if not result.get("success"):
             raise RuntimeError(f"select_job('{job}') failed: {result}")
