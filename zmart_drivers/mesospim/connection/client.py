@@ -200,8 +200,17 @@ class MesospimClient:
             raise ConnectionError("not connected; call connect() first")
         with self._lock:
             req_id = self._take_id()
-            self._send_line(encode_request(cmd, args=args or None, id=req_id))
-            reply = parse_reply(self._read_line())
+            try:
+                self._send_line(encode_request(cmd, args=args or None, id=req_id))
+                reply = parse_reply(self._read_line())
+            except OSError:
+                # Transport failure (dropped link, or a timeout that left a
+                # half-read frame in the buffer): invalidate the connection so
+                # ``connected`` is truthful and stale partial bytes can't splice
+                # onto the next reply and desync the stream. dispatch treats this
+                # as a transient error; there is no auto-reconnect.
+                self._drop_socket()
+                raise
             if reply.id is not None and reply.id != req_id:
                 # A single-in-flight protocol should never desync; surface it
                 # loudly rather than returning a mismatched reply.

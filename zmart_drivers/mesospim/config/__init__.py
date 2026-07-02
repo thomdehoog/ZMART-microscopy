@@ -18,7 +18,6 @@ from .profiles import (
     CommandProfile,
     ConnectionProfile,
     HardwareProfile,
-    Profiles,
 )
 
 __all__ = [
@@ -37,5 +36,4 @@ __all__ = [
     "CommandProfile",
     "ConnectionProfile",
     "HardwareProfile",
-    "Profiles",
 ]

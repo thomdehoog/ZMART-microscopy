@@ -86,7 +86,7 @@ def ping(client) -> bool:
 # -- state --------------------------------------------------------------------
 
 
-def get_state(client, *, diagnostics: bool = False):
+def get_state(client, *, diagnostics: bool = False) -> Reading | dict:
     """Read the full instrument state dict.
 
     Keys include ``state`` (mesoSPIM state string: idle/live/snap/...),
@@ -98,14 +98,14 @@ def get_state(client, *, diagnostics: bool = False):
     return _wrap(data, diagnostics)
 
 
-def get_positions(client, *, diagnostics: bool = False):
+def get_positions(client, *, diagnostics: bool = False) -> Reading | dict:
     """Read every axis position as ``{x,y,z,f,theta}`` (um / deg)."""
     data = client.request("get_position").data
     positions = {axis: _safe_float(data.get(axis)) for axis in AXES}
     return _wrap(positions, diagnostics)
 
 
-def get_position(client, axis: str, *, diagnostics: bool = False):
+def get_position(client, axis: str, *, diagnostics: bool = False) -> Reading | float | None:
     """Read a single axis position (um for linear axes, deg for theta)."""
     if axis not in AXES:
         raise ValueError(f"unknown axis {axis!r}; known axes: {AXES}")
@@ -113,7 +113,7 @@ def get_position(client, axis: str, *, diagnostics: bool = False):
     return _wrap(positions.get(axis), diagnostics)
 
 
-def get_xyz(client, *, diagnostics: bool = False):
+def get_xyz(client, *, diagnostics: bool = False) -> Reading | dict:
     """Read just the linear stage position as ``{x, y, z}`` (um)."""
     positions = get_positions(client)
     xyz = {axis: positions.get(axis) for axis in ("x", "y", "z")}
@@ -123,7 +123,7 @@ def get_xyz(client, *, diagnostics: bool = False):
 # -- configuration / hardware model -------------------------------------------
 
 
-def get_config(client, *, diagnostics: bool = False):
+def get_config(client, *, diagnostics: bool = False) -> Reading | dict:
     """Read the instrument's hardware model.
 
     Keys: ``lasers`` (list of ``{name, wavelength_nm}``), ``filters`` (list of
@@ -157,7 +157,7 @@ def get_zooms(client) -> list[dict]:
 # -- acquisition progress -----------------------------------------------------
 
 
-def get_progress(client, *, diagnostics: bool = False):
+def get_progress(client, *, diagnostics: bool = False) -> Reading | dict:
     """Read acquisition progress.
 
     Keys: ``state`` (idle/running_acquisition_list/...), ``current_plane``,
