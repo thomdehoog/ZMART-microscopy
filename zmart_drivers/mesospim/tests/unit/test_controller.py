@@ -139,7 +139,8 @@ def test_acquire_captures_and_saves(session, tmp_path):
 def test_acquire_stack(session):
     record = session.acquire("stack", "B2", options={"z_start": 0, "z_end": 4, "z_step": 1})
     assert record["planes"] == 5
-    assert len(record["image_files"]) == 5
+    # A 5-plane stack is one multi-page file (matches the real Tiff writer).
+    assert len(record["image_files"]) == 1
 
 
 def test_procedures(session):

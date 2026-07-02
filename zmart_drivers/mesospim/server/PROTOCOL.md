@@ -74,11 +74,15 @@ to the mesoSPIM key (`x_abs`/`x_rel`, ..., `f_abs`/`f_rel`, `theta_abs`/…).
 An `<Acquisition>` object uses the real mesoSPIM field names: `x_pos`, `y_pos`,
 `z_start`, `z_end`, `z_step`, `planes`, `rot`, `f_start`, `f_end`, `laser`,
 `intensity`, `filter`, `zoom`, `shutterconfig`, `folder`, `filename`,
-`etl_l_amplitude`, `etl_l_offset`, `etl_r_amplitude`, `etl_r_offset`.
+`etl_l_amplitude`, `etl_l_offset`, `etl_r_amplitude`, `etl_r_offset`. (These
+match mesoSPIM-control's `Acquisition` keys; note the rotation key is `rot`.)
 
-The `files` returned are the frame files the mesoSPIM **image writer** wrote on
-the acquisition PC (one per plane, in order). The ZMART driver's `save()`
-relocates them into the canonical output layout — it does not re-encode pixels.
+The `files` returned are the output files the mesoSPIM **image writer** wrote on
+the acquisition PC. The default Tiff writer produces **one multi-page stack per
+acquisition** (all planes in a single ImageJ TIFF), so `acquire` returns a single
+path and `run_acquisition_list` returns one path per acquisition. The ZMART
+driver's `save()` relocates them into the canonical output layout — it does not
+re-encode pixels.
 
 ## Errors
 
