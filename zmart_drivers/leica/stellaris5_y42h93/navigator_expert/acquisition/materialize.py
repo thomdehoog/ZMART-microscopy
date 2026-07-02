@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import uuid
 from pathlib import Path
 
 from . import ome as _ome
@@ -128,4 +129,6 @@ def extract_embedded_ome_xml(tiff_src: Path) -> bytes:
 
 
 def _with_tmp_suffix(p: Path) -> Path:
-    return p.with_name(p.name + ".tmp")
+    # PID + random suffix: a fixed '.tmp' would let two writers of the same
+    # destination clobber each other's temp file before os.replace.
+    return p.with_name(f"{p.name}.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp")

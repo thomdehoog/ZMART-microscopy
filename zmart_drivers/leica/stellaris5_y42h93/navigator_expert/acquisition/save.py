@@ -161,59 +161,70 @@ def _persist_export(
     xml_paths: dict[PositionIndex, Path] = {}
     vendor_records = _persist_vendor_metadata(exported, output_root, naming)
 
-    for pos in exported.positions:
-        xml_naming = replace(naming, t=pos.t)
-        xml_dest = acquisition_metadata_dir(
-            output_root, xml_naming.acquisition_type
-        ) / build_xml_name(xml_naming)
-        xml_dest.parent.mkdir(parents=True, exist_ok=True)
+    # One load + one write instead of a full read-modify-write per plane
+    # (O(n^2) disk I/O on large grids). The finally still persists records
+    # for planes materialized before a mid-save failure.
+    summary_path = output_root / "summary.json"
+    summary = _load_summary(summary_path)
+    summary_dirty = False
+    try:
+        for pos in exported.positions:
+            xml_naming = replace(naming, t=pos.t)
+            xml_dest = acquisition_metadata_dir(
+                output_root, xml_naming.acquisition_type
+            ) / build_xml_name(xml_naming)
+            xml_dest.parent.mkdir(parents=True, exist_ok=True)
 
-        plane_names = {
-            idx: build_image_name(replace(naming, t=idx.t, z=idx.z, c=idx.c))
-            for idx in sorted(pos.planes)
-        }
-        companion = _canonical.companion_xml(
-            exported.metadata,
-            image_name=xml_dest.name,
-            plane_filenames=plane_names,
-        )
-        _materialize.save_xml_bytes_atomic(companion, xml_dest, fix_ome=fix_ome)
-        xml_paths[PositionIndex(t=pos.t, v=naming.v)] = xml_dest
-
-        for idx, image_src in sorted(pos.planes.items()):
-            plane_naming = replace(
-                naming,
-                t=idx.t,
-                z=idx.z,
-                c=idx.c,
-            )
-            image_dest = acquisition_data_dir(
-                output_root, plane_naming.acquisition_type
-            ) / build_image_name(plane_naming)
-            image_dest.parent.mkdir(parents=True, exist_ok=True)
-
-            _materialize.save_image_source_atomic(
-                image_src,
-                image_dest,
-                metadata=exported.metadata,
-                index=idx,
-                fix_ome=fix_ome,
-            )
-            image_paths[idx] = image_dest
-
-            record = {
-                "naming": _naming_to_dict(plane_naming),
-                "image_path": _rel_posix(image_dest, output_root),
-                "xml_path": _rel_posix(xml_dest, output_root),
-                "source": _rel_posix(image_src.path, exported.media_path),
-                "source_exporter": exported.source_exporter,
-                "canonical_metadata": True,
-                "vendor_metadata": vendor_records,
-                "physical_size_um": _physical_size_record(exported.metadata),
-                "channel": _channel_record(exported.metadata, idx.c),
-                "lineage": lineage,
+            plane_names = {
+                idx: build_image_name(replace(naming, t=idx.t, z=idx.z, c=idx.c))
+                for idx in sorted(pos.planes)
             }
-            _append_summary_atomic(output_root / "summary.json", record)
+            companion = _canonical.companion_xml(
+                exported.metadata,
+                image_name=xml_dest.name,
+                plane_filenames=plane_names,
+            )
+            _materialize.save_xml_bytes_atomic(companion, xml_dest, fix_ome=fix_ome)
+            xml_paths[PositionIndex(t=pos.t, v=naming.v)] = xml_dest
+
+            for idx, image_src in sorted(pos.planes.items()):
+                plane_naming = replace(
+                    naming,
+                    t=idx.t,
+                    z=idx.z,
+                    c=idx.c,
+                )
+                image_dest = acquisition_data_dir(
+                    output_root, plane_naming.acquisition_type
+                ) / build_image_name(plane_naming)
+                image_dest.parent.mkdir(parents=True, exist_ok=True)
+
+                _materialize.save_image_source_atomic(
+                    image_src,
+                    image_dest,
+                    metadata=exported.metadata,
+                    index=idx,
+                    fix_ome=fix_ome,
+                )
+                image_paths[idx] = image_dest
+
+                record = {
+                    "naming": _naming_to_dict(plane_naming),
+                    "image_path": _rel_posix(image_dest, output_root),
+                    "xml_path": _rel_posix(xml_dest, output_root),
+                    "source": _rel_posix(image_src.path, exported.media_path),
+                    "source_exporter": exported.source_exporter,
+                    "canonical_metadata": True,
+                    "vendor_metadata": vendor_records,
+                    "physical_size_um": _physical_size_record(exported.metadata),
+                    "channel": _channel_record(exported.metadata, idx.c),
+                    "lineage": lineage,
+                }
+                _upsert_summary_record(summary, record)
+                summary_dirty = True
+    finally:
+        if summary_dirty:
+            _write_summary_atomic(summary_path, summary)
 
     if cleanup_source:
         for p in exported.source_files:
@@ -270,13 +281,21 @@ def _write_summary_atomic(summary_path: Path, data: dict) -> None:
     os.replace(str(tmp), str(summary_path))
 
 
-def _append_summary_atomic(summary_path: Path, record: dict) -> None:
-    """Upsert *record* into ``summary.json`` atomically."""
+def _load_summary(summary_path: Path) -> dict:
+    """Existing summary content, or a fresh structure when absent/corrupt."""
     if summary_path.is_file():
-        with summary_path.open("r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    else:
-        data = {"acquisitions": []}
+        try:
+            with summary_path.open("r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except (json.JSONDecodeError, OSError) as e:
+            # An externally corrupted summary must not abort a save whose
+            # images are already written; rebuild it from this save on.
+            log.warning("summary.json unreadable, starting fresh (%s): %s", summary_path, e)
+    return {"acquisitions": []}
+
+
+def _upsert_summary_record(data: dict, record: dict) -> None:
+    """Insert *record* into the in-memory summary, replacing by image_path."""
     acqs = data.setdefault("acquisitions", [])
     new_path = record.get("image_path")
     for i, existing in enumerate(acqs):
@@ -285,6 +304,12 @@ def _append_summary_atomic(summary_path: Path, record: dict) -> None:
             break
     else:
         acqs.append(record)
+
+
+def _append_summary_atomic(summary_path: Path, record: dict) -> None:
+    """Upsert *record* into ``summary.json`` atomically."""
+    data = _load_summary(summary_path)
+    _upsert_summary_record(data, record)
     _write_summary_atomic(summary_path, data)
 
 

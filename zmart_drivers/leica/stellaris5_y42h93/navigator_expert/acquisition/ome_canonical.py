@@ -6,6 +6,7 @@ use this module as the output metadata contract.
 
 from __future__ import annotations
 
+import logging
 import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import replace
@@ -18,6 +19,8 @@ from ..commands import settings as _core_settings
 from ..import utils as _core_utils
 from . import ome as _ome
 from .product import AcquisitionMetadata, ChannelMetadata, PlaneIndex
+
+log = logging.getLogger(__name__)
 
 OME_NS = "http://www.openmicroscopy.org/Schemas/OME/2016-06"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
@@ -120,6 +123,14 @@ def metadata_with_job_physical_sizes(
     """
     settings = _read_job_settings_bounded(client, job_name, timeout_s=read_timeout_s)
     if not isinstance(settings, dict):
+        # A transient slow read silently keeps the vendor values — including
+        # the known-wrong native-AutoSave PhysicalSizeZ. Say so out loud.
+        log.warning(
+            "job settings for '%s' unavailable within %.1fs; keeping vendor "
+            "OME physical sizes (native-AutoSave Z spacing may be wrong)",
+            job_name,
+            read_timeout_s,
+        )
         return metadata
 
     x_um, y_um = _xy_pixel_sizes_from_job_settings(settings)
@@ -154,10 +165,12 @@ def plane_xml(
         size_c=1,
         pixel_type=metadata.pixel_type,
     )
+    # Keep the physical pixel sizes: many tools open the per-plane TIFF
+    # directly (never the companion) and would silently lose calibration.
+    # Z spacing is dropped only because a single-plane image has no
+    # inter-plane distance to describe.
     plane_meta = replace(
         plane_meta,
-        physical_size_x_um=None,
-        physical_size_y_um=None,
         physical_size_z_um=None,
     )
     channel = _ascii_channel(metadata.channel(index.c))
@@ -426,7 +439,9 @@ def _add_physical(attrs: dict[str, str], axis: str, value_um: float | None) -> N
     if value_um is None:
         return
     attrs[f"PhysicalSize{axis}"] = _num(value_um)
-    attrs[f"PhysicalSize{axis}Unit"] = MICROMETER
+    # No explicit Unit attribute: the OME schema default is exactly µm, and
+    # the embedded per-plane XML lives in TIFF tag 270, which tifffile
+    # requires to be 7-bit ASCII — a literal 'µm' would fail the write.
 
 
 def _physical_um(pixels: ET.Element, axis: str) -> float | None:
