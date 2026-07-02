@@ -21,10 +21,11 @@ opinionated (a command set, error semantics, structured results) lives in the
 *client*, injected as a script — not in mesoSPIM.
 
 ```
-  external process ──socket──▶  Remote Scripting server (in mesoSPIM)
-     sends a script                runs it via the EXISTING Core.execute_script,
-                                    with stdout/stderr captured
-     ◀───────────────              returns the captured console text
+  OUTSIDE program                    TCP/IP socket                 INSIDE mesoSPIM
+  ───────────────                   127.0.0.1:42000               (Core / Script Window context)
+  send script text   ───────────────────▶────────────────────▶   runs it (self = Core)
+                                                                   captures console output
+  read output text   ◀───────────────────◀────────────────────   sends the text back
 ```
 
 ## What the PR does — 3 files, ~276 lines
