@@ -22,6 +22,11 @@ Numeric command tuning comes from ``profiles.py``. Wrapper keyword
 arguments are explicit overrides for tests and unusual hardware runs;
 ``None`` means "use the profile".
 
+Result contract: with the profiles' ``success_on_unconfirmed=True``
+(deliberate — see ``CommandProfile``), ``result["success"]`` means the
+command was *accepted*, not that it took effect. A caller that needs
+proof the setting/move landed must check ``result["confirmed"]``.
+
 Import restrictions: only command helpers, runtime profiles/utilities, limits,
 readers, and confirmations. The ``prechecks`` import is used in ``_dispatch``
 for the ``pre_check_timeout`` override.
@@ -537,6 +542,18 @@ def set_objective(
     Resolves the input to a slot index, then fires the command.
     Exactly one of slot_index, name, or magnification must be provided.
     """
+    selectors = [v for v in (slot_index, name, magnification) if v is not None]
+    if len(selectors) != 1:
+        return {
+            "success": False,
+            "confirmed": None,
+            "message": (
+                "exactly one of slot_index, name, or magnification must be "
+                f"provided (got {len(selectors)})"
+            ),
+            "timing": _make_timing(total_s=0.0, attempts=0),
+            "logs": [],
+        }
     slot, target_name = _resolve_objective(
         hw_info, slot_index=slot_index, name=name, magnification=magnification
     )
@@ -595,9 +612,17 @@ def set_z_stack_definition(
 ):
     """Set z-stack begin/end positions (micrometers).
 
+    Args:
+        begin_um, end_um: New positions; None leaves the field untouched
+            (unless the matching old_* flag requests a reset).
+        old_begin_um, old_end_um: Reset *flags*, not values — passing any
+            non-None value asks LAS X to reset that field to its default
+            (SetBegin/SetEnd = 0). The numeric value itself is never sent.
+
     Note: confirm_fn is provided but LAS X may recalculate z-stack
     geometry (size, end) after setting begin/end. Confirmation may
-    report unconfirmed even though the command was accepted.
+    report unconfirmed even though the command was accepted; reset
+    outcomes are not confirmed at all (only non-None targets are).
     """
     # Determine set flags: 0=reset, 1=set, 2=ignore
     if begin_um is not None:
@@ -1032,8 +1057,18 @@ def move_xy(client, x, y, unit="um", *, max_retries=None, pre_check_timeout=None
         tolerance: Position confirmation tolerance in micrometers.
 
     Returns:
-        Result dict with 'position' key containing final XY readback.
+        Result dict; 'position' is the requested *target* (meters), not a
+        readback — check 'confirmed' for evidence the stage arrived.
     """
+    if unit not in ("um", "mm", "m"):
+        return {
+            "success": False,
+            "confirmed": None,
+            "message": f"unknown unit {unit!r} (expected 'um', 'mm', or 'm')",
+            "position": None,
+            "timing": _make_timing(total_s=0.0, attempts=0),
+            "logs": [],
+        }
     # Phase A: convert to um for limit check
     try:
         if unit == "mm":
@@ -1244,6 +1279,14 @@ def move_z(
             "timing": _make_timing(total_s=0.0, attempts=0),
             "logs": [],
         }
+    if unit not in UNIT_MAP:
+        return {
+            "success": False,
+            "confirmed": None,
+            "message": f"unknown unit {unit!r}. Use: {list(UNIT_MAP.keys())}",
+            "timing": _make_timing(total_s=0.0, attempts=0),
+            "logs": [],
+        }
 
     # Convert to um for limit check and confirmation
     if unit == "mm":
@@ -1412,13 +1455,11 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
     )
     if context["api_said_selected"]:
         result.setdefault("logs", []).append(
-            {
-                "level": "info",
-                "msg": (
-                    "API reported target already selected before SelectJob, "
-                    "but the log-participating confirmation still fired the "
-                    "command"
-                ),
-            }
+            _make_log_entry(
+                "info",
+                "API reported target already selected before SelectJob, "
+                "but the log-participating confirmation still fired the "
+                "command",
+            )
         )
     return result

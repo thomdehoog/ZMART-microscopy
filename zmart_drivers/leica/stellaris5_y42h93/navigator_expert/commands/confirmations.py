@@ -494,10 +494,14 @@ def _quantised_candidates(centre, raw_size, step):
     ceil multiples as candidates.
     """
     candidates = []
-    n_lo = max(1, math.floor(raw_size / step))
-    n_hi = max(1, math.ceil(raw_size / step))
+    n_lo = max(1, math.floor(abs(raw_size) / step))
+    n_hi = max(1, math.ceil(abs(raw_size) / step))
+    # Preserve the stack direction: for a descending stack (begin > end)
+    # the quantised readback keeps begin above end; ascending-only
+    # candidates would never match and burn every re-fire.
+    direction = -1.0 if raw_size < 0 else 1.0
     for n in sorted({n_lo, n_hi}):  # set avoids duplicate when exact
-        q_size = n * step
+        q_size = n * step * direction
         candidates.append((centre - q_size / 2.0, centre + q_size / 2.0))
     return candidates
 
@@ -557,7 +561,7 @@ def _confirm_z_stack_definition(
                 # Add quantised candidates when a meaningful step size exists
                 if step and step > 0 and begin_um is not None and end_um is not None:
                     centre = (begin_um + end_um) / 2.0
-                    raw_size = abs(end_um - begin_um)
+                    raw_size = end_um - begin_um  # signed: keeps stack direction
                     candidates.extend(_quantised_candidates(centre, raw_size, step))
 
                 # Accept if actual matches ANY candidate within base tolerance
@@ -1085,6 +1089,12 @@ def confirm_acquire(
     Acquisition profiles fire the command once and treat that as a
     failed acquisition, not as permission to send another acquire command.
 
+    Known limitation: detection is level-based polling at *poll_interval*
+    (each poll also costs an API round trip), so an acquisition shorter
+    than one polling gap can start and finish unobserved — reported here
+    as a failure even though data was acquired. ``save()``'s freshness
+    check is the backstop that recovers the data in that case.
+
     Phase 1 — wait up to *start_timeout* for scan to go non-idle.
               Returns False immediately on permanent error.
               Returns False if scan hasn't started.
@@ -1149,7 +1159,11 @@ def confirm_acquire(
             # Start timeout: return acquisition failure. The acquire
             # profile does not re-fire acquisition commands.
             if time.perf_counter() > start_deadline:
-                msg = f"Scan not started after {start_timeout:.0f}s ({elapsed:.0f}s total)"
+                msg = (
+                    f"Scan was never observed non-idle within {start_timeout:.0f}s "
+                    f"({elapsed:.0f}s total) — either it did not start, or it "
+                    f"finished between two status polls"
+                )
                 log.warning(msg)
                 logs.append(_make_log_entry("warning", msg))
                 return {"success": False, "logs": logs}

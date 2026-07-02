@@ -17,6 +17,12 @@ Two-layer architecture:
         (idle-check + re-fire) and re-attempt. This is a flat loop,
         not recursion.
 
+Concurrency: command dispatch assumes a single writer. The shared
+``PyApiCommandEcho`` is cleared, fired, and read with no lock — two
+threads issuing commands on one client would trample each other's echo
+(missed or cross-attributed errors). Concurrent *reads* are single-flight
+capped in the router; commands are single-threaded by convention.
+
 Two ceilings, both explicit:
     - ``max_retries`` controls transient error retries inside the fire block.
     - ``max_confirm_attempts`` controls how many times the confirm wrapper
@@ -203,8 +209,8 @@ def _fire_block(
         pre_check_fn: Zero-arg callable -> result dict with "success" and
             "logs". None to skip step 1.
         error_check_fn: Zero-arg callable -> result dict with "success",
-            "error", "transient", and "logs". None defaults to
-            ``_default_error_check``.
+            "error", "transient", and "logs". None skips the check (the
+            default check is applied at profile level, not here).
         max_retries: Max retries after the first attempt. Total attempts =
             max_retries + 1.
         retry_backoff: Base delay in seconds between transient error retries.
@@ -236,7 +242,14 @@ def _fire_block(
         # --- Step 1: Pre-check ---
         if pre_check_fn is not None:
             t0 = time.perf_counter()
-            result = pre_check_fn()
+            try:
+                result = pre_check_fn()
+            except Exception as e:
+                # Same contract as steps 2/3: a raising check becomes a
+                # structured failure, never an exception out of a set_* call.
+                msg = f"{description} | Pre-check raised: {type(e).__name__}: {e}"
+                log.error(msg)
+                result = {"success": False, "logs": [_make_log_entry("error", msg)]}
             t_pre_check += time.perf_counter() - t0
             all_logs.extend(result.get("logs", []))
 
@@ -293,7 +306,14 @@ def _fire_block(
             else:
                 delivered = _fire_with_receipt(api_obj, receipt_timeout=receipt_timeout)
             if delivered and not skip_echo and not fire_async:
-                _await_echo_result(client)
+                if not _await_echo_result(client):
+                    # The echo never settled: a LAS X rejection arriving
+                    # after this window is invisible to the error check
+                    # below (it reads a still-cleared echo). Only the
+                    # readback confirmation can catch it — leave a trace.
+                    msg = f"{description} | Command echo did not settle; error check may miss a late rejection"
+                    log.warning(msg)
+                    all_logs.append(_make_log_entry("warning", msg))
         except Exception as e:
             t_fire += time.perf_counter() - t0
             msg = f"{description} | Fire exception: {e}"
@@ -336,7 +356,20 @@ def _fire_block(
         # --- Step 4: Error check ---
         t0 = time.perf_counter()
         if error_check_fn is not None:
-            err_result = error_check_fn()
+            try:
+                err_result = error_check_fn()
+            except Exception as e:
+                # A raising check (transient COM fault reading the echo) must
+                # not escape as an exception; classify it transient so the
+                # normal retry path decides.
+                msg = f"{description} | Error check raised: {type(e).__name__}: {e}"
+                log.warning(msg)
+                err_result = {
+                    "success": False,
+                    "error": msg,
+                    "transient": True,
+                    "logs": [_make_log_entry("warning", msg)],
+                }
         else:
             err_result = {"success": True, "logs": []}
         t_check += time.perf_counter() - t0
@@ -452,7 +485,8 @@ def confirm_and_fire(
         setup_fn: Callable(model) that writes parameters to api_obj.Model.
         pre_check_fn: Zero-arg callable -> result dict. None to skip.
         error_check_fn: Zero-arg callable -> error result dict. None
-            defaults to ``_default_error_check``.
+            skips the check (the default check is applied at profile
+            level, not here).
         confirm_fn: Zero-arg callable -> result dict. None to skip
             confirmation entirely.
         max_retries: Transient error retries inside the fire block.
@@ -466,7 +500,10 @@ def confirm_and_fire(
         retry_escalate: If True, use exponential backoff (delay doubles
             each retry). Passed to ``_fire_block``.
         success_on_unconfirmed: If True, return success=True when all
-            confirmation attempts are exhausted. Default False.
+            confirmation attempts are exhausted (every profile currently
+            sets True — deliberate, see ``CommandProfile``). This means
+            ``success=True`` alone does NOT prove the setting took
+            effect: callers that need proof must check ``confirmed``.
 
     Returns:
         {
