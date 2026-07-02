@@ -7,9 +7,8 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 from __future__ import annotations
 
 import pytest
-from zmart_controller import registry
 
-import mock_driver
+from zmart_controller import registry
 
 
 @pytest.fixture

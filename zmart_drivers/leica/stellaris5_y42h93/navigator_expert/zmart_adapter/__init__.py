@@ -1,4 +1,4 @@
-"""ZMART Controller adapter for the Navigator Expert driver.
+r"""ZMART Controller adapter for the Navigator Expert driver.
 
 The ops table that plugs this driver into ``zmart_controller``: one
 function per controller op, each taking the opaque handle as its first
@@ -12,20 +12,34 @@ instrument::
     instrument = next(
         i for i in zmart_controller.get_instruments() if i["vendor"] == "leica"
     )
-    instrument["output_root"] = r"D:\\smart_output"   # where acquire() saves
+    instrument["output_root"] = r"D:\smart_output"    # where acquire() saves
     zmart_controller.set_instrument(instrument)
 
 Frame math lives here: the driver speaks absolute stage micrometres, the
 controller speaks micrometres relative to the origin set by
-``set_origin``. The driver package itself is untouched.
+``set_origin``. The controller's single ``z`` axis is the *focus*
+displacement — the sum of the two physical drives (z-wide + z-galvo)
+relative to the origin's focus sum — so it reads the same regardless of
+which drive realized a move. The driver package itself is untouched.
 
 Scope of v1 (grow as needed):
+    - ``set_origin`` captures stage XY, both z drives, and the current
+      objective as the zero point, persisted to ``origin.json`` under
+      ``connection["output_root"]``.
+    - ``get_xyz`` returns both frames: controller-relative values plus
+      the raw hardware readings under ``"hardware"``.
     - ``get_state``/``set_state`` round-trip the selected job (the job
       is LAS X's unit of configuration, so reapplying the selection
       restores the whole setup).
     - ``get_procedures`` offers backlash takeup only.
-    - ``acquire`` maps ``acquisition_type`` -> the driver's Naming slot
-      convention and ``options["job"]`` -> the LAS X job to run.
+    - ``acquire`` selects the job, captures, and saves in one step;
+      ``acquisition_type``/``position_label`` map onto the driver's
+      Naming slots and travel verbatim in the save lineage.
+
+Live-validation note: the z model assumes the two drives combine
+*additively with the same sign*. Verify once on hardware (park the
+galvo at a known offset, move z-wide, check the focus sum) before
+trusting large z moves.
 
 Dependency direction:
     - Imports: driver internals, ``zmart_controller.registry``,
@@ -74,7 +88,25 @@ _Z_MODES = {"z-wide": "zwide", "z-galvo": "galvo"}
 
 @dataclass
 class ZmartHandle:
-    """Opaque controller handle: client + frame origin + adapter state."""
+    """Opaque controller handle: the CAM client plus all adapter state.
+
+    Attributes:
+        client: Connected LAS X CAM client (process-lifetime, no close).
+        connection: The connection dict this session was opened with
+            (carries ``output_root`` and the connect params).
+        hash6: Session hash used in output Naming and provenance records.
+        origin: The frame zero point captured by :func:`set_origin` —
+            stage XY, both z drives, their focus sum, and the objective
+            it was captured under. Defaults to all-zero (frame ==
+            absolute stage coordinates) until ``set_origin`` runs.
+        actuators: Active actuator per axis; updated by every
+            ``with_actuators`` selection so later reads report it.
+        used_p: Naming ``p`` slots already consumed this session, so
+            auto-assigned positions never collide with explicit numeric
+            position labels.
+        closed: Set by :func:`disconnect`; every op refuses a closed
+            handle.
+    """
 
     client: Any
     connection: dict
@@ -92,11 +124,12 @@ class ZmartHandle:
     actuators: dict[str, str] = field(
         default_factory=lambda: {"x": "motoric", "y": "motoric", "z": "z-wide"}
     )
-    position_counter: int = 0
+    used_p: set = field(default_factory=set)
     closed: bool = False
 
 
 def _require_open(handle: ZmartHandle) -> None:
+    """Refuse to drive a disconnected handle."""
     if handle.closed:
         raise RuntimeError("session is disconnected")
 
@@ -107,7 +140,17 @@ def _require_open(handle: ZmartHandle) -> None:
 
 
 def connect(connection: dict) -> ZmartHandle:
-    """Open the CAM client and return the controller handle."""
+    """Open the CAM client and return the controller handle.
+
+    Args:
+        connection: The instrument dict from ``get_instruments()``.
+            ``client`` and ``api_delay_ms`` feed the CAM connection;
+            ``output_root`` (edited in by the caller) is where
+            :func:`acquire` saves and :func:`set_origin` persists.
+
+    Raises whatever :func:`connect_python_client` raises when LAS X is
+    unreachable — the controller surfaces that to the caller unchanged.
+    """
     client = _session.connect_python_client(
         client_name=connection.get("client", "PythonClient"),
         api_delay_ms=connection.get("api_delay_ms"),
@@ -162,6 +205,13 @@ def _hardware_snapshot(handle: ZmartHandle) -> dict:
 
 
 def _warn_on_objective_change(handle: ZmartHandle, snapshot: dict) -> None:
+    """Warn when the objective differs from the one the origin was set under.
+
+    Objective swaps shift focus and centring (parfocality/parcentricity);
+    the frame math does not model those offsets, so positions silently
+    drift. A warning — not an error — because short excursions are a
+    normal part of operator workflows.
+    """
     origin_obj = (handle.origin.get("objective") or {}).get("name")
     current_obj = (snapshot.get("objective") or {}).get("name")
     if origin_obj and current_obj and origin_obj != current_obj:
@@ -174,6 +224,7 @@ def _warn_on_objective_change(handle: ZmartHandle, snapshot: dict) -> None:
 
 
 def _selected_job_name(handle: ZmartHandle) -> str:
+    """Name of the currently selected LAS X job; raises when unreadable."""
     selected = _readers.get_selected_job(handle.client, mode="api")
     name = selected.get("Name") if selected else None
     if not name:
@@ -203,19 +254,25 @@ def set_origin(handle: ZmartHandle) -> dict:
     output_root = handle.connection.get("output_root")
     if output_root:
         path = Path(output_root) / "origin.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(
-                {
-                    "origin": handle.origin,
-                    "job": snap["job"],
-                    "session_hash6": handle.hash6,
-                    "captured_at": time.time(),
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "origin": handle.origin,
+                        "job": snap["job"],
+                        "session_hash6": handle.hash6,
+                        "captured_at": time.time(),
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            # The in-memory origin is already set; failing to persist the
+            # reference must be loud (re-running set_origin after fixing
+            # the path is cheap), not a silent divergence discovered later.
+            raise RuntimeError(f"could not persist origin reference to {path}: {exc}") from exc
         origin_file = str(path)
     else:
         log.warning("set_origin: no output_root configured; origin kept in memory only")
@@ -227,11 +284,13 @@ def set_origin(handle: ZmartHandle) -> dict:
 
 
 def get_actuators(handle: ZmartHandle) -> dict:
+    """The actuator options per axis: motoric XY, z-wide / z-galvo for Z."""
     _require_open(handle)
     return {axis: list(opts) for axis, opts in _ACTUATORS.items()}
 
 
 def _resolve_actuators(handle: ZmartHandle, with_actuators: dict | None) -> dict[str, str]:
+    """Merge a per-call actuator selection over the handle's active one."""
     chosen = dict(handle.actuators)
     for axis, actuator in (with_actuators or {}).items():
         if actuator not in _ACTUATORS.get(axis, ()):
@@ -302,6 +361,9 @@ def set_xyz(
         z_target = target_focus - snap["z_wide_um"]
 
     # Backlash-compensated transit raises unless the readback confirms.
+    # Ordering note: XY moves first, so a z failure below leaves the stage
+    # at the new XY — the exception message carries the z result; callers
+    # re-issue set_xyz rather than reasoning about partial application.
     _motion.move_xy_with_backlash(handle.client, abs_x, abs_y)
 
     z_mode = _Z_MODES[chosen["z"]]
@@ -326,6 +388,13 @@ def set_xyz(
 
 
 def get_acquisition_options(handle: ZmartHandle) -> dict:
+    """The acquisition + saving options this instrument offers (options + active).
+
+    Discovered live on every call: ``job`` lists the LAS X jobs with the
+    selected one active; ``exporter`` and ``cleanup_source`` are forwarded
+    to the driver's ``save()``; ``backlash_correction`` runs an XY slack
+    takeup before capture.
+    """
     _require_open(handle)
     jobs = _readers.get_jobs(handle.client, mode="api") or []
     names = [j["Name"] for j in jobs if j.get("Name")]
@@ -350,9 +419,30 @@ def _with_defaults(handle: ZmartHandle, options: dict | None) -> dict:
         if name not in menu:
             raise ValueError(f"unknown acquisition option {name!r}")
         if value not in menu[name]["options"]:
-            raise ValueError(f"invalid value {value!r} for acquisition option {name!r}")
+            raise ValueError(
+                f"invalid value {value!r} for acquisition option {name!r} "
+                f"(available: {menu[name]['options']!r})"
+            )
         resolved[name] = value
     return resolved
+
+
+def _assign_p_slot(handle: ZmartHandle, position_label: str) -> int:
+    """Map a position label onto an unused Naming ``p`` slot.
+
+    Numeric labels claim their value directly (an intentional re-acquire
+    of the same position overwrites, matching the driver's upsert
+    semantics). Non-numeric labels take the next never-used slot, so an
+    auto-assigned position can never collide with an explicit one.
+    """
+    if str(position_label).isdigit():
+        p = int(position_label)
+    else:
+        p = 1
+        while p in handle.used_p:
+            p += 1
+    handle.used_p.add(p)
+    return p
 
 
 def acquire(
@@ -362,7 +452,23 @@ def acquire(
     position_label: str,
     options: dict | None = None,
 ) -> dict:
-    """Run the job, wait for the export, and persist the OME-TIFF product."""
+    """Run the job, wait for the export, and persist the OME-TIFF product.
+
+    Args:
+        acquisition_type: Kind of scan; becomes the Naming slot that names
+            the output folder/files, so it must be kebab-case lowercase
+            (``Naming`` raises a clear ``ValueError`` otherwise).
+        position_label: Free text naming this position. A numeric label
+            maps directly onto the Naming ``p`` slot; anything else gets
+            the next unused ``p``. Either way the label travels verbatim
+            in the lineage record ``save()`` writes to ``summary.json``.
+        options: Values from :func:`get_acquisition_options`; omitted
+            options use the active defaults, unknown keys/values raise.
+
+    Returns a record with the resolved job/options and the saved image
+    and XML paths. Raises on any unrecoverable step — job selection,
+    capture, export detection, or persistence.
+    """
     _require_open(handle)
     output_root = handle.connection.get("output_root")
     if not output_root:
@@ -385,12 +491,7 @@ def acquire(
 
     acq = _capture.acquire(handle.client, job)
 
-    # Propagation: acquisition_type becomes the Naming slot that names the
-    # output folder/files; position_label maps onto the p slot when numeric
-    # (a per-session counter otherwise) and always travels verbatim in the
-    # lineage record that save() writes into summary.json.
-    handle.position_counter += 1
-    p = int(position_label) if str(position_label).isdigit() else handle.position_counter
+    p = _assign_p_slot(handle, position_label)
     naming = Naming(acquisition_type=acquisition_type, hash6=handle.hash6, p=p)
     saved = _save.save(
         handle.client,
@@ -440,12 +541,24 @@ def get_state(handle: ZmartHandle) -> dict:
 
 
 def set_state(handle: ZmartHandle, state: dict) -> dict:
-    """Reapply the mutable part; report what stuck."""
+    """Reapply the mutable part; report what stuck.
+
+    The immutable fingerprint guards against restoring a state captured
+    on a different instrument. When the state carries a fingerprint but
+    the live one cannot be read, this refuses rather than applying
+    unverified — fail-closed, like the driver's readers.
+    """
     _require_open(handle)
-    immutable = state.get("immutable", {})
-    current = get_state(handle)["immutable"]
-    if immutable and immutable.get("microscope", current["microscope"]) != current["microscope"]:
-        raise ValueError("state captured on a different instrument")
+    stored = (state.get("immutable") or {}).get("microscope")
+    current = get_state(handle)["immutable"]["microscope"]
+    if stored is not None:
+        if current is None:
+            raise RuntimeError(
+                "cannot verify the instrument fingerprint (hardware info unreadable); "
+                "refusing to apply state captured elsewhere"
+            )
+        if stored != current:
+            raise ValueError("state captured on a different instrument")
 
     applied: dict[str, Any] = {}
     job = state.get("mutable", {}).get("job")
@@ -458,6 +571,7 @@ def set_state(handle: ZmartHandle, state: dict) -> dict:
 
 
 def get_procedures(handle: ZmartHandle) -> dict:
+    """The named procedures this instrument offers."""
     _require_open(handle)
     return {
         "backlash_takeup": {
@@ -467,6 +581,7 @@ def get_procedures(handle: ZmartHandle) -> dict:
 
 
 def set_procedure(handle: ZmartHandle, procedure: dict) -> dict:
+    """Run a procedure from :func:`get_procedures`; report what ran."""
     _require_open(handle)
     name = procedure.get("name")
     if name == "backlash_takeup":
@@ -481,9 +596,19 @@ def set_procedure(handle: ZmartHandle, procedure: dict) -> dict:
 
 
 def get_context(handle: ZmartHandle) -> dict:
+    """Extra read-only context for the controller.
+
+    Purely informational, so it degrades instead of raising: an
+    unreadable job selection reports ``None`` rather than failing a
+    caller that only wanted the output root.
+    """
     _require_open(handle)
+    try:
+        selected = _selected_job_name(handle)
+    except RuntimeError:
+        selected = None
     return {
-        "selected_job": _selected_job_name(handle),
+        "selected_job": selected,
         "client": handle.connection.get("client"),
         "output_root": handle.connection.get("output_root"),
         "session_hash6": handle.hash6,
@@ -512,4 +637,7 @@ def register() -> None:
     )
 
 
+# Import-time registration IS the opt-in: nothing in the driver imports
+# this module, so the instrument appears in get_instruments() exactly when
+# a workflow imports the adapter (see the module docstring example).
 register()
