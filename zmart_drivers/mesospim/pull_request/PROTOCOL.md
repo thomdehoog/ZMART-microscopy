@@ -62,4 +62,7 @@ script = (
   and closes the connection.
 - A script that raises → its traceback is in the returned text; the connection
   stays open.
-- A second concurrent client → refused (one client at a time).
+- A second concurrent client → the NEW connection wins: the server drops the
+  old socket and serves the newcomer (which must still pass the token gate).
+  One client at a time, but a crashed client's half-open socket can never hold
+  the server hostage.

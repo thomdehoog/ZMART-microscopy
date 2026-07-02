@@ -123,7 +123,12 @@ def move_relative(client, deltas: dict, *, tolerance: float | None = None) -> di
     except ValueError as exc:
         return _fail(f"move_relative {deltas}", str(exc))
 
-    baseline = get_positions(client)
+    # A pre-fire failure returns the standard envelope, like every sibling:
+    # a dropped link here must not escape as a raw exception.
+    try:
+        baseline = get_positions(client)
+    except (ConnectionError, OSError, RuntimeError) as exc:
+        return _fail(f"move_relative {deltas}", f"could not read baseline positions: {exc}")
     expected = {}
     for axis, delta in clean.items():
         base = _safe_float(baseline.get(axis))
