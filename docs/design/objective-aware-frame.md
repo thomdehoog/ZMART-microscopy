@@ -22,6 +22,48 @@ consumed inside `set_xyz` and never leaking into the coordinate: decomposition
 pre-flight). Position truth is always a fresh hardware read; the frame transform
 is stateless math on that measurement, never bookkeeping.
 
+The loop closes with a single write path: **moving IS writing actuators**.
+``set_xyz`` means "change the actuators such that the frame reads the target" —
+intent in frame space, action in actuator space, truth by fresh read, history in
+the journal. There is no other way anything changes, which is why the model
+cannot drift.
+
+Two compressions of the whole design (operator's words, 2026-07-02):
+
+- **"Everything becomes a relative movement in an absolute system."** The frame
+  carries relative *meaning* (µm from your zero; A→B); execution is always
+  absolute *positions*. Relative meaning is what you think in; absolute
+  execution is what makes it drift-proof. The mirror image — absolute meaning
+  realized by relative moves — is dead reckoning, which this design bans.
+- **"The base might just change — and that is what objectives do."** Exactly two
+  base events exist: ``set_origin`` (the operator *chooses* the base) and an
+  objective swap (physics *shifts* the base). ΔT is the change-of-base term;
+  frame values of fixed sample points survive it because the transform absorbs
+  the shift.
+- **"On an objective change, XY and z-wide just change — not the absolute
+  system."** Three layers, only the middle one jumps at a swap: the absolute
+  coordinate system (stage encoders) never changes and is the bedrock that makes
+  absolute execution drift-proof; the actuator *values* within it jump (the
+  firmware's shift, XY + z-wide only — the galvo is orthogonal to the objective
+  story); the frame's *base* (sample↔absolute mapping) shifts by the optical
+  offset, and ΔT re-anchors it.
+
+The complete taxonomy of change — three event kinds, each touching a different
+layer:
+
+1. **Commanded move** — exactly one actuator (the actuator of interest) absorbs
+   one delta, computed fresh (`target − current`) and commanded as an absolute
+   position: relative in meaning, absolute in execution. Other actuators held by
+   construction.
+2. **Objective swap** — XY + z-wide values jump (firmware); the frame base
+   shifts; ΔT re-anchors; frame values of sample points survive.
+3. **True absolute-system change** (stage re-home / re-initialization) — the one
+   event the design cannot absorb: all absolute references die, the persisted
+   origin is meaningless, the operator must re-run ``set_origin``. It is
+   detectable (next connect: position/objective wildly inconsistent with the
+   last journaled state ⇒ warn "re-home suspected"), so it fails loud, not
+   wrong.
+
 ## Problem
 
 A frame coordinate must mean the *same sample location* under any objective. Today
@@ -102,7 +144,11 @@ attributable** (other moves may have occurred) ⇒ warn, don't fail (question 4)
    compensation applied to *reads* rather than positions?
 2. Is bracketed-swap measurement sound, and is the firmware shift reproducible
    enough per objective pair to gate on? What tolerance? (Planned: validation pass
-   on the LAS X simulator + scope.)
+   on the LAS X simulator + scope. Must also confirm: an objective change acts on
+   XY + z-wide ONLY — the galvo is orthogonal to the objective story — but since
+   z-galvo is read through job settings and objective changes ride on job
+   selection, verify a job swap does not carry its own galvo setpoint; if it
+   does, the bracket must compare focus terms accordingly.)
 3. Any optical reason a galvo-realized µm ≠ z-wide-realized µm that breaks
    applying the z translation in focus-sum space?
 4. Warn-don't-fail for out-of-session swaps: acceptable, or should the frame
@@ -123,11 +169,31 @@ hash on every line) recording what *happened*:
 
 - `connect` (+ which persisted origin was restored, its age/objective),
 - `set_origin` (full reference), `set_xyz` (target + confirmed readback),
+  `get_xyz`,
 - **bracketed swap measurements** (uncommanded delta vs. recorded motor_shift) —
   accumulated across sessions this dataset answers open question 2
   (reproducibility/tolerance of the firmware shift),
 - out-of-session change detections (objective/position differs from the last
   session's final state).
+
+**Line schema — every line records both sides of the invariant** (the
+sample-space coordinate AND its realization), plus the origin the frame values
+are measured against (frame values are meaningless across a ``set_origin``
+without it):
+
+```json
+{"ts": "...", "session": "09dumk", "event": "set_xyz",
+ "frame":     {"x": 25.0, "y": 25.0, "z": 2.0},
+ "hardware":  {"x_um": 63585.0, "y_um": 41345.0,
+               "z_wide_um": -7200.0, "z_galvo_um": 2.0},
+ "objective": {"name": "HC PL APO CS 10x/0.40 DRY", "slotIndex": 0},
+ "origin_ref": 1751467200.0,
+ "target": {"...": "..."}, "confirmed": true}
+```
+
+The adapter already produces the frame + hardware + objective triple on every
+call; the journal appends that plus ``ts`` / ``session`` / ``event`` /
+``origin_ref`` (the origin's ``captured_at``) and event-specific extras.
 
 The driver already produces the raw material (structured command envelopes with
 timing/logs; validator JSONL records); the journal is a thin appender, not new
