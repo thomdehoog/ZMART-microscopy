@@ -53,6 +53,21 @@ def test_token_server_accepts_correct_token_and_serves_commands():
             c.close()
 
 
+def test_non_ascii_token_roundtrips():
+    """A unicode token must work: hmac.compare_digest rejects non-ASCII str, so
+    the server compares UTF-8 bytes. Regression for a token like 'bütton'."""
+    with MockMesospimServer(token="bütton") as srv:
+        good = MesospimClient(srv.host, srv.port, timeout=3.0, token="bütton")
+        good.connect()
+        try:
+            assert good.server_info.get("app") == "mesoSPIM-control"
+        finally:
+            good.close()
+        bad = MesospimClient(srv.host, srv.port, timeout=3.0, token="button")
+        with pytest.raises(MesospimError):
+            bad.connect()
+
+
 def test_token_server_refuses_command_before_hello():
     """A client that skips the handshake cannot issue commands (fail-closed)."""
     import json

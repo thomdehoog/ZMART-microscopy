@@ -160,7 +160,10 @@ class MockMesospimServer:
         args = request.get("args") or {}
         if self._token is not None and not self._authed:
             import hmac
-            if cmd == "hello" and hmac.compare_digest(str(args.get("token", "")), str(self._token)):
+            # Compare UTF-8 bytes (compare_digest rejects non-ASCII str), mirroring
+            # the real server so a unicode token behaves identically offline.
+            supplied = str(args.get("token", "")).encode("utf-8")
+            if cmd == "hello" and hmac.compare_digest(supplied, str(self._token).encode("utf-8")):
                 self._authed = True
             else:
                 return {"ok": False, "id": req_id,
