@@ -119,6 +119,21 @@ def get_job_settings(client, job_name, timeout=1.0, poll_interval=0.01, max_retr
                 raw = client.PyApiGetJobSettingsByName.Model.Settings
                 if raw is not None:
                     parsed = json.loads(raw) if isinstance(raw, str) else raw
+                    # Correlate the response with *this* query: a delayed
+                    # response for an earlier job can land after our flush
+                    # and would otherwise be returned as this job's settings.
+                    if (
+                        isinstance(parsed, dict)
+                        and parsed.get("jobName") is not None
+                        and parsed.get("jobName") != job_name
+                    ):
+                        log.debug(
+                            "get_job_settings: stale response for '%s' while polling '%s'",
+                            parsed.get("jobName"),
+                            job_name,
+                        )
+                        time.sleep(poll_interval)
+                        continue
                     # LAS X occasionally returns a populated dict whose
                     # geometry fields are blank - happens right after a
                     # zoom or format change while the engine is still
@@ -383,7 +398,13 @@ def get_lasx_settings(settings_path=None):
         log.warning("LAS X settings file not found: %s", path)
         return None
 
-    tree = ET.parse(path)
+    try:
+        tree = ET.parse(path)
+    except ET.ParseError as exc:
+        # Readers never raise: a corrupt/partially-written settings file
+        # fails closed like a missing one.
+        log.warning("LAS X settings file unparseable: %s (%s)", path, exc)
+        return None
     root = tree.getroot()
 
     nav = root.find("SettingsNavigatorExpert")

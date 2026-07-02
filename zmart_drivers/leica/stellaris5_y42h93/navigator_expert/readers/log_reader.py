@@ -92,6 +92,31 @@ _RE_CURRENT_BLOCK_ID = re.compile(r"CurrentBlock/BlockID = (\d+)")
 _RE_MSGBOX = re.compile(r"MessageBox : (.+)")
 
 
+# Per-parse read cap: multi-hour LAS X session logs grow to tens or
+# hundreds of MB; an unbounded whole-file scan per freshness probe would
+# make the "hang-proof" log leg lose every hybrid race. Recent state
+# always lives in the tail; the parse stays stateless (rotation-safe).
+_LOG_TAIL_BYTES = 4 * 1024 * 1024
+
+
+def _tail_lines(path, max_bytes=_LOG_TAIL_BYTES):
+    """Lines from the last *max_bytes* of *path* (the whole file when smaller).
+
+    The first line after a mid-file seek is dropped — it is almost always
+    partial, and a partial line must never parse as a datum.
+    """
+    with open(path, "rb") as f:
+        f.seek(0, 2)
+        size = f.tell()
+        offset = max(0, size - max_bytes)
+        f.seek(offset)
+        data = f.read()
+    lines = data.decode("latin-1").splitlines(keepends=True)
+    if offset > 0 and lines:
+        lines = lines[1:]
+    return lines
+
+
 def _parse_ts(line):
     """Epoch seconds (local) for a log line's leading timestamp, or None."""
     m = _RE_TS.match(line)
@@ -214,8 +239,7 @@ def parse_log(lcs_path=None, msgbox_path=None, now=None, lines=None):
 
     if lines is None:
         try:
-            with open(lcs_path, encoding="latin-1") as f:
-                lines = f.readlines()
+            lines = _tail_lines(lcs_path)
         except OSError:
             lines = []
 
@@ -276,29 +300,31 @@ def _read_msgbox_state(snap, msgbox_path):
     # Dialog open/close is decided by LINE ORDER (not timestamps, which can tie).
     dialog_open, dialog_text, dialog_ts = False, None, None
     try:
-        with open(msgbox_path, encoding="latin-1") as f:
-            for ln in f:
-                m = _RE_ACQ.search(ln)
-                if m:
-                    snap.scan_state, snap.scan_ts = int(m.group(1)), _parse_ts(ln)
-                    continue
-                m = _RE_CURRENT_BLOCK_NAME.search(ln)
-                if m:
-                    snap.current_block_name = m.group(1).strip()
-                    snap.current_block_ts = _parse_ts(ln)
-                    continue
-                m = _RE_CURRENT_BLOCK_ID.search(ln)
-                if m:
-                    snap.current_block_id = int(m.group(1))
-                    continue
-                if "MessageBox Result" in ln:
-                    dialog_open = False
-                elif "MessageBox :" in ln:
-                    mo = _RE_MSGBOX.search(ln)
-                    if mo:
-                        dialog_open = True
-                        dialog_text = mo.group(1).rstrip("' \"\t")
-                        dialog_ts = _parse_ts(ln)
+        for ln in _tail_lines(msgbox_path):
+            m = _RE_ACQ.search(ln)
+            if m:
+                snap.scan_state, snap.scan_ts = int(m.group(1)), _parse_ts(ln)
+                continue
+            m = _RE_CURRENT_BLOCK_NAME.search(ln)
+            if m:
+                snap.current_block_name = m.group(1).strip()
+                snap.current_block_ts = _parse_ts(ln)
+                # New Name = new selection generation: drop the previous
+                # BlockID so a fresh Name can never pair with a stale ID.
+                snap.current_block_id = None
+                continue
+            m = _RE_CURRENT_BLOCK_ID.search(ln)
+            if m:
+                snap.current_block_id = int(m.group(1))
+                continue
+            if "MessageBox Result" in ln:
+                dialog_open = False
+            elif "MessageBox :" in ln:
+                mo = _RE_MSGBOX.search(ln)
+                if mo:
+                    dialog_open = True
+                    dialog_text = mo.group(1).rstrip("' \"\t")
+                    dialog_ts = _parse_ts(ln)
     except OSError:
         pass
     if dialog_open:

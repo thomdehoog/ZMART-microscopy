@@ -34,6 +34,18 @@ class Reading:
     age_s: float | None
     error: Exception | None = None
 
+    def _replace_value_none(self):
+        """This reading with the value stripped (kept: source/timing/error)."""
+        if self.value is None:
+            return self
+        return Reading(
+            value=None,
+            source=self.source,
+            observed_at=self.observed_at,
+            age_s=self.age_s,
+            error=self.error,
+        )
+
 
 def _profile():
     from ..config import profiles
@@ -92,6 +104,29 @@ def _fire_api_read(fn, api_key):
 
     threading.Thread(target=run, name="lasx-api-read", daemon=True).start()
     return results
+
+
+def _capped_api_read(api_fn, api_key, timeout_s):
+    """One CAM read through the capped worker, bounded by *timeout_s*.
+
+    Waits for the in-flight slot if another read holds it, then for the
+    result. Returns the Reading, or ``None`` when the slot or the result
+    did not arrive in time — a hung CAM call (modal dialog) parks in the
+    daemon worker instead of blocking the caller forever.
+    """
+    deadline = time.monotonic() + timeout_s
+    results = _fire_api_read(api_fn, api_key)
+    while results is None:
+        if time.monotonic() >= deadline:
+            log.warning("api read not started: another read in flight past %.1fs", timeout_s)
+            return None
+        time.sleep(0.005)
+        results = _fire_api_read(api_fn, api_key)
+    try:
+        return results.get(timeout=max(0.0, deadline - time.monotonic()))
+    except queue.Empty:
+        log.warning("api read timed out after %.1fs", timeout_s)
+        return None
 
 
 def _claim_api_read(api_key):
@@ -181,27 +216,39 @@ def _routed(datum, client, *, mode, diagnostics, api_kwargs=None, job_name=None)
 
 
 def _route_read(mode, *, datum, api_fn, log_fn, trust, timeout_s, api_key):
+    # Failed reads return the error-carrying Reading (value=None) rather than
+    # bare None, so diagnostics=True callers can see *why* — plain callers
+    # still receive None via _plain_or_diagnostic. Untrusted (stale) log
+    # readings stay None: their value must never leak to a plain caller.
     if mode == "api":
         if api_fn is None:
             return _unsupported("api", datum)
-        reading = _api_read(api_fn)
-        return reading if reading.error is None else None
+        reading = _capped_api_read(api_fn, api_key, timeout_s)
+        if reading is None:
+            return None
+        return reading if reading.error is None else reading._replace_value_none()
     if mode == "log":
         if log_fn is None:
             return _unsupported("log", datum)
         reading = log_fn()
-        return reading if trust(reading) else None
+        if trust(reading):
+            return reading
+        return reading._replace_value_none() if reading.error is not None else None
     if mode == "hybrid":
         if api_fn is None and log_fn is None:
             return _unsupported("hybrid", datum)
         if log_fn is None:
             log.debug("hybrid: datum %r has no log leg; api only", datum)
-            reading = _api_read(api_fn)
-            return reading if reading.error is None else None
+            reading = _capped_api_read(api_fn, api_key, timeout_s)
+            if reading is None:
+                return None
+            return reading if reading.error is None else reading._replace_value_none()
         if api_fn is None:
             log.debug("hybrid: datum %r has no api leg; log only", datum)
             reading = log_fn()
-            return reading if trust(reading) else None
+            if trust(reading):
+                return reading
+            return reading._replace_value_none() if reading.error is not None else None
         return _log_rescue_concurrent(
             api_fn=api_fn,
             log_fn=log_fn,
@@ -273,6 +320,24 @@ def _log_rescue_concurrent(
                     grace_deadline = time.monotonic() + log_grace_s
         if log_pending or api_pending:
             time.sleep(0.005)
+    # Deadline hit: a result that landed during the final sleep is already
+    # in its queue — drain once instead of dropping it.
+    if log_pending:
+        try:
+            reading = log_results.get_nowait()
+        except queue.Empty:
+            pass
+        else:
+            if trust_log(reading):
+                return reading
+    if api_pending and api_results is not None:
+        try:
+            reading = api_results.get_nowait()
+        except queue.Empty:
+            pass
+        else:
+            if trust_api(reading) and api_candidate is None:
+                api_candidate = reading
     return api_candidate
 
 
@@ -366,9 +431,14 @@ def get_xy(
 
 
 def read_zwide_um(client, job_name, *, mode=None):
+    """Z-wide position (um) from the job settings, or None when unreadable.
+
+    Like every routed reader this fails closed with None instead of raising.
+    """
     settings = get_job_settings(client, job_name, mode=mode)
     if not settings:
-        raise RuntimeError(f"could not read job settings for '{job_name}'")
+        log.warning("read_zwide_um: could not read job settings for '%s'", job_name)
+        return None
     return derived.zwide_um_from_settings(settings)
 
 

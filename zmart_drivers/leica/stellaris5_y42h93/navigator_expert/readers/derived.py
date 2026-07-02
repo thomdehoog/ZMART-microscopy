@@ -41,9 +41,10 @@ def base_fov_from_settings(settings):
     try:
         geo = parse_tile_geometry(settings)
         zoom_info = settings.get("zoom") or {}
+        # Sub-unity zoom is legal hardware state (range starts at 0.75x);
+        # only None/0 fall back to 1. Clamping <1 to 1 corrupted the base
+        # FOV by up to ~33% at 0.75x.
         current_zoom = float(zoom_info.get("current", 1) or 1)
-        if current_zoom < 1:
-            current_zoom = 1
         return (
             geo["tile_w_um"] * 1e-6 * current_zoom,
             geo["tile_h_um"] * 1e-6 * current_zoom,

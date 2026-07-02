@@ -199,6 +199,8 @@ def move_zwide_and_verify(
     if not result or not result.get("success"):
         raise RuntimeError(f"move_z zwide failed: {result}")
     actual = drv.read_zwide_um(client, job_name, mode="api")
+    if actual is None:
+        raise RuntimeError(f"z-wide readback unavailable for job '{job_name}'")
     if abs(actual - z_um) > tolerance_um:
         raise RuntimeError(f"z-wide readback outside tolerance: requested {z_um}, got {actual}")
 
