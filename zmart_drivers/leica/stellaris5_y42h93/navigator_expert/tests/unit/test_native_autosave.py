@@ -17,6 +17,7 @@ from navigator_expert.acquisition import lasx_native_autosave as native
 from navigator_expert.acquisition import navigator_expert_export as exporter
 from navigator_expert.acquisition import save as acquisition
 from navigator_expert.config import profiles
+
 from shared.output_layout import Naming
 
 

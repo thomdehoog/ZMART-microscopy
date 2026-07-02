@@ -42,8 +42,8 @@ import time
 
 from .. import readers as _readers
 from ..commands.errors import _check_api_error, _is_transient_error
-from ..utils import CONFIRM_POLL_S, _make_log_entry
 from ..readers import router as _router
+from ..utils import CONFIRM_POLL_S, _make_log_entry
 from .confirm_specs import CONFIRM_SPECS
 from .settings import make_changeable_copy
 
@@ -344,7 +344,15 @@ def _confirm_readback(
 
 
 def _run_spec(
-    name, client, job_name, target, *, tolerance=None, poll_window=None, poll_interval=0.01, **params
+    name,
+    client,
+    job_name,
+    target,
+    *,
+    tolerance=None,
+    poll_window=None,
+    poll_interval=0.01,
+    **params,
 ):
     """Run ``_confirm_readback`` against one ``CONFIRM_SPECS`` row.
 
@@ -755,7 +763,15 @@ def _confirm_laser_intensity(
 
 
 def _confirm_filter_wheel_spectrum(
-    client, job_name, si, beam_route, fw_type, target, tolerance=1, poll_window=None, poll_interval=0.01
+    client,
+    job_name,
+    si,
+    beam_route,
+    fw_type,
+    target,
+    tolerance=1,
+    poll_window=None,
+    poll_interval=0.01,
 ):
     """Poll until filter wheel spectrum position matches within tolerance (nm)."""
     return _run_spec(
@@ -787,7 +803,12 @@ def _confirm_scan_speed(client, job_name, target, poll_window=None, poll_interva
 def _confirm_scan_resonant(client, job_name, target, poll_window=None, poll_interval=0.01):
     """Poll until resonant scanner state matches exactly."""
     return _run_spec(
-        "scan_resonant", client, job_name, target, poll_window=poll_window, poll_interval=poll_interval
+        "scan_resonant",
+        client,
+        job_name,
+        target,
+        poll_window=poll_window,
+        poll_interval=poll_interval,
     )
 
 

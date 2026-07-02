@@ -313,7 +313,9 @@ def test_public_wrapper_confirms_match_and_rejects_miss(name, monkeypatch):
     wrapper = getattr(confirmations, f"_confirm_{name}")
 
     monkeypatch.setattr(confirmations, "_readback", _readback_returning(s["ch"](s["match"])))
-    ok = wrapper(object(), "JOB", target=s["target"], poll_window=1.0, poll_interval=0.001, **s["params"])
+    ok = wrapper(
+        object(), "JOB", target=s["target"], poll_window=1.0, poll_interval=0.001, **s["params"]
+    )
     assert ok == {"success": True, "logs": []}
 
     monkeypatch.setattr(confirmations, "_readback", _readback_returning(s["ch"](s["miss"])))

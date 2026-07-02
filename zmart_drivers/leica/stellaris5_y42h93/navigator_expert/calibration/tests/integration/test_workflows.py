@@ -35,6 +35,7 @@ from navigator_expert.calibration.core import (
     objective_pair as wf_obj,
 )
 from navigator_expert.config.machine import MachineProfile
+
 from shared.output_layout import build_image_name
 
 # ---------------------------------------------------------------------

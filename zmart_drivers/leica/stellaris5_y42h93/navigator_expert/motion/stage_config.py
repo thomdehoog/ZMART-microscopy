@@ -20,8 +20,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..calibration.core.model import SCHEMA_VERSION as CALIBRATION_SCHEMA_VERSION
+
 LIMITS_SCHEMA_VERSION = 1
-CALIBRATION_SCHEMA_VERSION = 11
 LIMITS_SOURCE_DEFAULTS = "defaults"
 LIMITS_SOURCE_BOUNDARY_MARKERS = "boundary_markers"
 LIMITS_SOURCE_CFG_FALLBACK = "cfg_fallback"
@@ -174,8 +175,9 @@ def load(
     """Load stage limits and calibrated backlash.
 
     Without an explicit ``limits_path``, this reads the configured physical
-    envelope from ``defaults.json``. Use ``current_path()`` explicitly for the
-    active target-acquisition working envelope.
+    envelope via ``defaults_path()`` (the machine limits snapshot, falling
+    back to the bundled ``defaults/limits.json``). Use ``current_path()``
+    explicitly for the active target-acquisition working envelope.
     """
     selected_limits = Path(limits_path) if limits_path is not None else defaults_path()
     selected_calibration = (

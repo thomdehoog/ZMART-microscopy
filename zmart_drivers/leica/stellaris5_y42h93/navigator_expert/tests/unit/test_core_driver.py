@@ -21,9 +21,9 @@ import inspect
 import sys
 import time
 import unittest
-from types import SimpleNamespace
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, PropertyMock, patch
 
 # Add the leica directory to sys.path so `import navigator_expert` works.
@@ -31,8 +31,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import navigator_expert as drv
 from navigator_expert import readers as readers
-from navigator_expert.commands import commands, confirm_select_job, confirmations, dispatch, prechecks
-from navigator_expert.commands import errors
+from navigator_expert.commands import (
+    commands,
+    confirm_select_job,
+    confirmations,
+    dispatch,
+    errors,
+    prechecks,
+)
 from navigator_expert.config import profiles
 from navigator_expert.connection import session
 
@@ -1399,7 +1405,9 @@ class TestConfirmFunctions(unittest.TestCase):
     def test_confirm_z_stack_size_pass(self):
         with self._mock_readback({"stack": {"size": 10.0, "stepSize": 2.0}}):
             self.assertTrue(
-                confirmations._confirm_z_stack_size(None, "J", target_um=10.0, poll_window=1)["success"]
+                confirmations._confirm_z_stack_size(None, "J", target_um=10.0, poll_window=1)[
+                    "success"
+                ]
             )
 
     def test_confirm_z_stack_size_fail(self):
@@ -1415,7 +1423,9 @@ class TestConfirmFunctions(unittest.TestCase):
         10.0 (n=5). Actual=10.0 should match via quantised path."""
         with self._mock_readback({"stack": {"size": 10.0, "stepSize": 2.0}}):
             self.assertTrue(
-                confirmations._confirm_z_stack_size(None, "J", target_um=9.5, poll_window=1)["success"]
+                confirmations._confirm_z_stack_size(None, "J", target_um=9.5, poll_window=1)[
+                    "success"
+                ]
             )
 
     def test_confirm_z_stack_definition_pass(self):
@@ -1512,7 +1522,13 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._fw_readback(spectrum_position=600):
             self.assertFalse(
                 confirmations._confirm_filter_wheel_spectrum(
-                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=525, poll_window=0.1
+                    None,
+                    "J",
+                    si=0,
+                    beam_route="BR1",
+                    fw_type="emission",
+                    target=525,
+                    poll_window=0.1,
                 )["success"]
             )
 
@@ -2852,9 +2868,7 @@ class TestConfirmAcquire(unittest.TestCase):
 
     def test_unknown_read_breaks_idle_streak_but_not_saw_scanning(self):
         """Scanning, then a failed read between idles -> still succeeds."""
-        statuses = iter(
-            ["eScanStarted", "Unknown", "eScanIdle", "eScanIdle", "eScanIdle"]
-        )
+        statuses = iter(["eScanStarted", "Unknown", "eScanIdle", "eScanIdle", "eScanIdle"])
 
         def mock_status(client, **_kwargs):
             return next(statuses, "eScanIdle")

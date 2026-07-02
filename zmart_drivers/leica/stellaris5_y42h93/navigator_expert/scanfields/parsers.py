@@ -52,6 +52,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from ._convert import _to_float, _to_int
+
 # parse_lrp lives in lrp.py; re-exported here so the (untouched) experimental
 # lrp_edits package can keep importing it from scanfields.parsers.
 from .lrp import _get_job_names, parse_lrp  # noqa: F401

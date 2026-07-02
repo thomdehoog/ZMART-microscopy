@@ -181,21 +181,15 @@ def _emit(records: list[dict[str, Any]], output: Path, record: dict[str, Any]) -
 
 def _read_passive(client, datum: str, mode: str, job_name: str | None) -> dict[str, Any]:
     if datum == "selected_job":
-        return _timed_read(
-            lambda: readers.get_selected_job(client, mode=mode, diagnostics=True)
-        )
+        return _timed_read(lambda: readers.get_selected_job(client, mode=mode, diagnostics=True))
     if datum == "xy":
         return _timed_read(lambda: readers.get_xy(client, mode=mode, diagnostics=True))
     if datum == "jobs":
         return _timed_read(lambda: readers.get_jobs(client, mode=mode, diagnostics=True))
     if datum == "scan_status":
-        return _timed_read(
-            lambda: readers.get_scan_status(client, mode=mode, diagnostics=True)
-        )
+        return _timed_read(lambda: readers.get_scan_status(client, mode=mode, diagnostics=True))
     if datum == "hardware_info":
-        return _timed_read(
-            lambda: readers.get_hardware_info(client, mode=mode, diagnostics=True)
-        )
+        return _timed_read(lambda: readers.get_hardware_info(client, mode=mode, diagnostics=True))
     if datum == "job_settings":
         if not job_name:
             return {

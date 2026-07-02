@@ -35,7 +35,9 @@ def test_adopt_limits_publishes_snapshot_carrying_calibration_forward(tmp_path):
     assert lim["schema_version"] == 1
     assert lim["stage_um"]["x"] == [2.0, 200.0]  # validated to floats
     # calibration carried forward untouched
-    assert json.loads((snap / "calibration.json").read_text(encoding="utf-8")) == {"marker": "cal-A"}
+    assert json.loads((snap / "calibration.json").read_text(encoding="utf-8")) == {
+        "marker": "cal-A"
+    }
 
 
 def test_adopt_limits_first_time_carries_bundled_calibration(tmp_path):

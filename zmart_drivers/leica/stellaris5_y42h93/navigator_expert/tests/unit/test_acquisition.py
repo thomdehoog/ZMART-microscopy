@@ -16,6 +16,7 @@ import tifffile
 from navigator_expert.acquisition import capture, materialize, ome_canonical
 from navigator_expert.acquisition import navigator_expert_export as exporter
 from navigator_expert.acquisition import save as acquisition
+
 from shared.output_layout import (
     Naming,
     build_image_name,

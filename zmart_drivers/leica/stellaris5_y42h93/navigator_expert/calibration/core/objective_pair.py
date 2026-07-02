@@ -11,13 +11,14 @@ Five operator steps, each one workflow call:
    prepare folders.
 2. ``measure_parfocality_reference`` -- under the reference objective,
    record home XY and home z-wide (diagnostic), trigger the configured
-   reference z-stack, fit the Brenner peak ``focus_z_ref_um``, park
-   z-wide at the peak.
+   reference z-stack, fit the Brenner peak ``focus_z_ref_um``. The
+   workflow only *notes* the peak — it does not move z-wide; the
+   operator manages z-wide manually until step 4.
 3. ``measure_parfocality_target`` -- after the operator switches to
    the target objective, record ``z_post`` then trigger the configured
    target z-stack, fit ``focus_z_target_um``, compute
-   ``translation_z_um = focus_z_target_um - focus_z_ref_um``, and park
-   z-wide at the target peak.
+   ``translation_z_um = focus_z_target_um - focus_z_ref_um``. As in
+   step 2, z-wide is not moved here.
 4. ``measure_parcentricity_reference`` -- back at the reference
    objective: return to home XY + ``focus_z_ref_um`` and acquire a
    clean reference image.
@@ -42,9 +43,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import navigator_expert as drv
 import numpy as np
-from shared.algorithms import brenner, register_voting
+
+import navigator_expert as drv
+from shared.algorithms import VOTING_METHODS, brenner, register_voting
 
 from . import model as calib
 from .common import (
@@ -288,7 +290,7 @@ def _print_step5_summary(session, summary: dict) -> None:
     print()
     print(f"  Pair:           {session.from_objective} -> {session.to_objective}")
     state = "trusted" if trusted else "untrusted"
-    print(f"  Voting:         {state} ({confidence}/4)")
+    print(f"  Voting:         {state} ({confidence}/{len(VOTING_METHODS)})")
     if trusted and shift[0] is not None and shift[1] is not None:
         print(f"  Image shift:    ({shift[0]:+.2f}, {shift[1]:+.2f}) um")
     tx = summary.get("translation_xy_um")

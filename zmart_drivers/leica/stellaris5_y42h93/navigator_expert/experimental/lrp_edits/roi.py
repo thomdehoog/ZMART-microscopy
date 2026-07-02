@@ -444,9 +444,14 @@ def center_vertices(vertices):
         their centroid is ``(0, 0)``, and the centroid as a tuple
         suitable for the ``translation`` parameter of ``lrp_add_roi``.
     """
-    n = len(vertices)
-    cx = sum(v[0] for v in vertices) / n
-    cy = sum(v[1] for v in vertices) / n
+    if not vertices:
+        raise ValueError("center_vertices: empty vertex list")
+    # A closed polygon repeats its first vertex; including the duplicate
+    # would bias the centroid toward it.
+    distinct = vertices[:-1] if len(vertices) > 1 and vertices[0] == vertices[-1] else vertices
+    n = len(distinct)
+    cx = sum(v[0] for v in distinct) / n
+    cy = sum(v[1] for v in distinct) / n
     centered = [(v[0] - cx, v[1] - cy) for v in vertices]
     return centered, (cx, cy)
 
@@ -527,7 +532,10 @@ def lrp_add_roi(
         vertices: List of ``(x, y)`` tuples in metres from centre.
         name: Element name (default auto-numbered ``"ROI 1"`` etc.).
         color: Colour as uint32 string (default ``COLOR_RED``).
-        rotation: Rotation in **degrees** (default ``0.0``).
+        rotation: Raw LAS X ``Transformation/Rotation`` value, written
+            unmodified (default ``0.0``). The unit has not been verified
+            against hardware; round-trip values read via ``roi_geometry``
+            rather than assuming degrees or radians.
         translation: ``(tx, ty)`` tuple in **metres** — offset from
             stage centre with X negated (default ``(0.0, 0.0)``
             places the ROI at the stage centre).  Use
@@ -825,7 +833,9 @@ def roi_geometry(roi):
                 (accounts for vertex centroid offset)
             type            — ROI type string (e.g. "8" for polygon)
             color           — LAS X ARGB color string
-            rotation        — rotation angle (radians)
+            rotation        — raw LAS X Transformation/Rotation value
+                              (passed through unmodified; unit unverified
+                              against hardware — see lrp_add_roi)
             scale           — (x_scale, y_scale)
     """
     verts = [(v["X"], v["Y"]) for v in roi.get("_Vertices", [])]

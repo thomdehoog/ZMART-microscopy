@@ -77,7 +77,9 @@ runtime where possible. Override via the profile, not at call sites.
 - **Log reader** — `LogReaderProfile`: the `lcsCommand.log` / `MatrixScreener.log` paths + freshness windows.
 - **Machine-local calibration & limits** — `config/machine.py` resolves the instrument's calibration
   (image↔stage matrix, per-objective translation) and stage limits from a **machine-local system config
-  dir** (out of the repo); committed **examples** live in `defaults/{calibration,limits}.json`.
+  dir** (out of the repo); the committed `defaults/{calibration,limits}.json` are a
+  **real last-known-good calibration** (never an identity/zero placeholder — see
+  `config/machine.py`).
 - **Stage limits (required before any move)** — `set_stage_limits(...)` or
   `apply_stage_limits_from_config(...)`, in micrometers.
 - **Canonical orientation** — call `require_canonical_scan_orientation()` at session start; it fails
@@ -127,6 +129,8 @@ print(saved.image_paths)                                  # {PlaneIndex(t,z,c): 
 
 **The client.** `connect_python_client()` loads the LAS X runtime, connects, applies the API pacing
 delay, and pings. Every command/reader takes the returned `client` as its first argument.
+The CAM client has no disconnect counterpart — it lives for the process; there is
+nothing to close when a session ends.
 
 **Live vs. file.** `set_zoom(...)` talks to the running scope and confirms by reading hardware back;
 `lrp_set_zoom(...)` edits a `.lrp` template *file* (nothing happens on the scope until LAS X reloads
@@ -179,7 +183,7 @@ All setting commands take `(client, job_name, ...)` and return the result dict o
 ### Connection
 ```python
 connect_python_client(client_name="PythonClient", api_delay_ms=None) -> client
-ping(client, timeout=5) -> bool
+ping(client) -> bool
 require_canonical_scan_orientation() -> None          # raises unless export is TOPLEFT
 ```
 
@@ -190,7 +194,7 @@ All return a value or `None` (never raise). Pass `diagnostics=True` for a source
 
 | Function | Call | Returns |
 |---|---|---|
-| `ping` | `(client, timeout=5)` | `bool` |
+| `ping` | `(client)` | `bool` |
 | `get_scan_status` | `(client, mode=None)` | status string (e.g. `"eIdle"`) |
 | `get_xy` | `(client, mode=None)` | `{"x","y","x_um","y_um"}` |
 | `read_zwide_um` | `(client, ...)` | `float` (µm) |
@@ -201,7 +205,7 @@ All return a value or `None` (never raise). Pass `diagnostics=True` for a source
 | `get_hardware_info` | `(client, ...)` | hardware dict |
 | `get_fov` / `get_base_fov` | `(client, ...)` | field-of-view info |
 | `get_lasx_settings` | `()` | LAS X advanced settings (orientation, …) |
-| `get_pending_dialog` | `(client, ...)` | open LAS X dialog text, if any |
+| `get_pending_dialog` | `(*, diagnostics=False)` — no client; log-only | open LAS X dialog text, if any |
 
 ### Setting commands — reference
 
@@ -300,7 +304,8 @@ zmart_drivers/leica/stellaris5_y42h93/navigator_expert/
 ├── acquisition/  product.py (neutral types) · capture.py (acquire) · save.py (exporters) · ome.py
 ├── scanfields/   .lrp/.rgn/.xml parsing + templates    experimental/lrp_edits/  offline template editors
 ├── calibration/  image↔stage + objective-pair (data machine-local; defaults/ committed)   limits/  notebooks
-└── tests/        unit/ (offline) + hardware/ (@pytest.mark.hardware) · run_ci.py · pytest.ini
+├── tests/        unit/ (offline) + hardware/ (@pytest.mark.hardware)
+└── run_ci.py · pytest.ini   (package root)
 ```
 
 **Two-layer dispatch backbone** (`commands/dispatch.py` → `confirm_and_fire`):
@@ -358,8 +363,9 @@ python -m pytest -q zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests
 python -m pytest -q zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/tests
 
 # Self-contained gate (lint + offline pytest + coverage)
-python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py            # offline
-python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py --hardware  # also the hardware suite
+python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py           # offline (default)
+python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py online     # live LAS X validators only
+python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py both       # offline suite + live validators
 ```
 
 `tests/unit/` is offline against committed synthetic fixtures (template parsing, strip/restore,

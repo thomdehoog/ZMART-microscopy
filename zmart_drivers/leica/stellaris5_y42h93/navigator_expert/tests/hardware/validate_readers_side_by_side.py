@@ -37,8 +37,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # vendor/leica
 import navigator_expert as drv
 from navigator_expert.commands.settings import make_changeable_copy
 from navigator_expert.config import profiles
-from navigator_expert.utils import parse_tile_geometry
 from navigator_expert.readers import log_reader as L
+from navigator_expert.utils import parse_tile_geometry
 
 API_HANG_MS = 1500.0  # an API read slower than this is treated as a dialog-hang
 

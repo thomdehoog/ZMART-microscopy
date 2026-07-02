@@ -117,8 +117,7 @@ class TestReorderJobs:
     def test_preserves_prolog_and_writes_utf8(self, tmp_path):
         blocks = _job_block("Übersicht µ", 1) + _job_block("Job B", 2)
         elements = (
-            '<LDM_Block_Sequence_Element BlockID="1" />'
-            '<LDM_Block_Sequence_Element BlockID="2" />'
+            '<LDM_Block_Sequence_Element BlockID="1" /><LDM_Block_Sequence_Element BlockID="2" />'
         )
         path = _write_lrp(tmp_path, _template(elements, blocks))
         assert reorder_jobs(path, "Job B") is True

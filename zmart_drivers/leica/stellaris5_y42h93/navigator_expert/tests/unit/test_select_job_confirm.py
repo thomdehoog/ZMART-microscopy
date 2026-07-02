@@ -256,7 +256,9 @@ class TestLegsBuilder(SelectJobCase):
             selected_job_confirm_source="log",
             selected_job_log_confirm_timeout_s=0.25,
         )
-        _, log_leg, _ = confirm_select_job.select_job_confirm_legs("HiRes", command_started_at=100.0)
+        _, log_leg, _ = confirm_select_job.select_job_confirm_legs(
+            "HiRes", command_started_at=100.0
+        )
         with patch.object(
             confirm_select_job.log_wait,
             "wait_for_selected_job_log",
@@ -307,7 +309,9 @@ class TestLegsBuilder(SelectJobCase):
             selected_job_confirm_source="log",
             selected_job_log_confirm_timeout_s=0.25,
         )
-        _, log_leg, _ = confirm_select_job.select_job_confirm_legs("HiRes", command_started_at=123.456)
+        _, log_leg, _ = confirm_select_job.select_job_confirm_legs(
+            "HiRes", command_started_at=123.456
+        )
         with patch.object(
             confirm_select_job.log_wait,
             "wait_for_selected_job_log",
@@ -339,7 +343,9 @@ class TestPrepareSelectJob(SelectJobCase):
         with (
             patch.object(confirm_select_job, "_selected_job_name_from_log", return_value=None),
             patch.object(
-                confirm_select_job, "_selected_job_api_baseline", return_value=("AF Job", jobs, "ok")
+                confirm_select_job,
+                "_selected_job_api_baseline",
+                return_value=("AF Job", jobs, "ok"),
             ),
         ):
             noop, context = confirm_select_job.prepare_select_job(None, "AF Job")

@@ -8,15 +8,35 @@ import pytest
 from navigator_expert.motion import movement as stage_movement
 
 
+class TestUnconfirmedMoveRaises:
+    def test_accepted_but_unconfirmed_final_move_raises(self, monkeypatch):
+        # success=True with confirmed=False means "accepted, no readback
+        # proof" — the raise-on-failure contract must reject it.
+        results = iter(
+            [
+                {"success": True, "confirmed": True},
+                {"success": True, "confirmed": False},
+            ]
+        )
+
+        def fake_move_xy(client, x, y, unit="um", tolerance=None):
+            return next(results)
+
+        monkeypatch.setattr(stage_movement._commands, "move_xy", fake_move_xy)
+        monkeypatch.setattr(stage_movement.time, "sleep", lambda s: None)
+        with pytest.raises(RuntimeError, match="unconfirmed"):
+            stage_movement.move_xy_with_backlash(None, 100.0, 200.0)
+
+
 class TestMoveXyWithBacklash:
     def test_three_call_sequence(self):
         """Overshoot → sleep → final approach. Verifies the order and
         the exact XY values handed to move_xy."""
         calls = []
 
-        def fake_move_xy(client, x, y, unit="um"):
+        def fake_move_xy(client, x, y, unit="um", tolerance=None):
             calls.append(("move", x, y, unit))
-            return {"success": True}
+            return {"success": True, "confirmed": True}
 
         def fake_sleep(s):
             calls.append(("sleep", s))
@@ -44,7 +64,7 @@ class TestMoveXyWithBacklash:
         uncompensated position — the bug backlash exists to prevent.
         Fail loud instead."""
 
-        def fake_move_xy(client, x, y, unit="um"):
+        def fake_move_xy(client, x, y, unit="um", tolerance=None):
             return {"success": False, "error": "timeout"}
 
         with (
@@ -64,12 +84,12 @@ class TestMoveXyWithBacklash:
         value to detect a half-completed positioning."""
         results = iter(
             [
-                {"success": True},  # overshoot succeeds
+                {"success": True, "confirmed": True},  # overshoot succeeds
                 {"success": False, "error": "limit"},  # final fails
             ]
         )
 
-        def fake_move_xy(client, x, y, unit="um"):
+        def fake_move_xy(client, x, y, unit="um", tolerance=None):
             return next(results)
 
         with (
@@ -86,9 +106,12 @@ class TestMoveXyWithBacklash:
     def test_returns_final_move_result(self):
         """Return value is the final move's result so callers can check
         success the same way they would for plain move_xy."""
-        results = [{"success": True}, {"success": True, "x_um": 100, "y_um": 200}]
+        results = [
+            {"success": True, "confirmed": True},
+            {"success": True, "confirmed": True, "x_um": 100, "y_um": 200},
+        ]
 
-        def fake_move_xy(client, x, y, unit="um"):
+        def fake_move_xy(client, x, y, unit="um", tolerance=None):
             return results.pop(0)
 
         with (
@@ -101,7 +124,7 @@ class TestMoveXyWithBacklash:
                 y_um=200.0,
             )
 
-        assert r == {"success": True, "x_um": 100, "y_um": 200}
+        assert r == {"success": True, "confirmed": True, "x_um": 100, "y_um": 200}
 
 
 class TestCorrectBacklash:
@@ -116,7 +139,7 @@ class TestCorrectBacklash:
 
         def fake_move_xy(client, x, y, unit="um", tolerance=None):
             move_calls.append((x, y, unit, tolerance))
-            return {"success": True}
+            return {"success": True, "confirmed": True}
 
         with (
             patch.object(stage_movement._readers, "get_xy", side_effect=fake_get_xy),

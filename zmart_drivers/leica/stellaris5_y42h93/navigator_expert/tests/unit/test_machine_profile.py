@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-
 from navigator_expert.config import machine
 from navigator_expert.config.machine import (
     MachineProfile,

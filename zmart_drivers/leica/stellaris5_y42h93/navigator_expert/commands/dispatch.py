@@ -47,8 +47,8 @@ and stdlib. Nothing from command wrappers, profiles, prechecks, or confirmations
 import logging
 import time
 
-from ..utils import RECEIPT_TIMEOUT, _make_log_entry, _make_timing
 from ..readers import log_reader as _log_reader
+from ..utils import RECEIPT_TIMEOUT, _make_log_entry, _make_timing
 
 log = logging.getLogger(__name__)
 

@@ -54,16 +54,8 @@ from ..commands.confirmations import (
     confirm_move_z,
     confirm_objective,
 )
-from ..commands.prechecks import check_idle
-
-# Default ceiling for the pre-command idle wait. Commands used to wait
-# indefinitely (timeout=None): an operator leaving live view running made
-# every move/select/acquire block forever with only a heartbeat log. Ten
-# minutes accommodates any legitimate scan-in-progress wait while still
-# surfacing a stuck system as a structured failure. Callers can override
-# per call via pre_check_timeout.
-DEFAULT_PRE_CHECK_TIMEOUT_S = 600.0
 from ..commands.errors import _default_error_check
+from ..commands.prechecks import check_idle
 from ..utils import CONFIRM_POLL_S, RECEIPT_TIMEOUT
 
 
@@ -261,9 +253,7 @@ class CommandProfile:
         # A single confirm window has no 'next attempt' to re-fire before, so a
         # requested re-fire could never run. Forbid the incoherent combination.
         if self.max_confirm_attempts == 1 and self.refire_on_unconfirmed:
-            raise ValueError(
-                "max_confirm_attempts==1 requires refire_on_unconfirmed=False"
-            )
+            raise ValueError("max_confirm_attempts==1 requires refire_on_unconfirmed=False")
 
 
 def _leica_setting_profile(confirm_fn, **overrides):
@@ -318,7 +308,7 @@ IMAGE_FORMAT = _leica_setting_profile(
 )
 
 OBJECTIVE = CommandProfile(
-    pre_check_fn=partial(check_idle, timeout=DEFAULT_PRE_CHECK_TIMEOUT_S),
+    pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_objective,
     # Uniform posture: 3 confirm windows, re-fire between them, unconfirmed-not-
     # fail. A slow turret change is absorbed by the idle-wait before each re-fire.
@@ -414,7 +404,7 @@ FILTER_WHEEL_SPECTRUM = _leica_setting_profile(
 # =============================================================================
 
 MOVE_XY = CommandProfile(
-    pre_check_fn=partial(check_idle, timeout=DEFAULT_PRE_CHECK_TIMEOUT_S),
+    pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_move_xy,
     error_check_fn=None,  # async fire blanks the echo; nothing to error-check
     confirm_tolerance=20.0,
@@ -424,7 +414,7 @@ MOVE_XY = CommandProfile(
 )
 
 MOVE_Z = CommandProfile(
-    pre_check_fn=partial(check_idle, timeout=DEFAULT_PRE_CHECK_TIMEOUT_S),
+    pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_move_z,
     confirm_tolerance=1.0,
     # Uniform posture (was single-attempt hard-fail): 3 windows, re-fire,
@@ -437,7 +427,7 @@ MOVE_Z = CommandProfile(
 # =============================================================================
 
 ACQUIRE = CommandProfile(
-    pre_check_fn=partial(check_idle, timeout=DEFAULT_PRE_CHECK_TIMEOUT_S),
+    pre_check_fn=partial(check_idle, timeout=None),
     confirm_fn=confirm_acquire,
     error_check_fn=None,
     # ACQUIRE is the one command that must never re-send: re-firing starts a
@@ -457,7 +447,7 @@ ACQUIRE = CommandProfile(
 )
 
 SELECT_JOB = CommandProfile(
-    pre_check_fn=partial(check_idle, timeout=DEFAULT_PRE_CHECK_TIMEOUT_S),
+    pre_check_fn=partial(check_idle, timeout=None),
     # select_job's confirmation legs are built per call by
     # confirm_select_job.select_job_confirm_legs (api / log / hybrid policy from
     # StateReaderProfile.selected_job_confirm_source), not by this profile.
