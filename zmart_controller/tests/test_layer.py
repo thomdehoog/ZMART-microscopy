@@ -60,7 +60,7 @@ class TestFrame:
     def test_actuator_selector_reported_back(self, mic):
         pos = mic.get_xyz(with_actuators={"z": "piezo"})
         assert pos["z"]["actuator"] == "piezo"
-        assert pos["x"]["actuator"] == "motoric"  # untouched axes use the active one
+        assert pos["x"]["actuator"] == "motoric"  # untouched axes use the reference one
 
     def test_unknown_actuator_raises(self, mic):
         with pytest.raises(ValueError, match="unknown actuator"):
@@ -139,9 +139,11 @@ class TestDisconnect:
         with pytest.raises(RuntimeError, match="disconnected"):
             mic.get_xyz()
 
-    def test_actuator_selection_persists(self, mic):
+    def test_actuator_selection_does_not_persist(self, mic):
+        """Defaults are fixed (the reference actuator), never sticky —
+        a per-call selection applies to that call only."""
         mic.set_xyz(0, 0, 0, with_actuators={"z": "piezo"})
-        assert mic.get_xyz()["z"]["actuator"] == "piezo"
+        assert mic.get_xyz()["z"]["actuator"] == "motoric"
 
     def test_invalid_acquire_option_rejected(self, mic):
         with pytest.raises(ValueError, match="unknown acquisition option"):
