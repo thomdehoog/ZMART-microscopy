@@ -93,12 +93,33 @@ sample point under 63x.
 
 ### 1. Frame arithmetic (get_xyz / set_xyz) — needs only the CURRENT objective
 
+**Decomposition rule (operator-refined): the base actuators carry the base
+change; the chosen actuator carries the intended displacement.**
+
 ```
-ΔT       = T[current_objective] − T[origin.objective]     # calibration, XY µm + z µm
-abs_xy   = origin.xy_ref    + F.xy + ΔT.xy
-focus    = origin.focus_ref + F.z  + ΔT.z
-→ decompose focus onto the CHOSEN z drive (other drive's current position)
+ΔT = T[current_objective] − T[origin.objective]           # calibration, XY µm + z µm
+
+XY (motoric):  abs_xy  = xy_ref      + F.xy + ΔT.xy       # one actuator: both terms
+z chosen = galvo:
+    z_wide  = z_wide_ref  + ΔT.z                          # base: compensation ONLY
+    z_galvo = z_galvo_ref + F.z                           # chosen: displacement ONLY
+z chosen = z-wide:
+    z_galvo stays at its current value g
+    z_wide  = (focus_ref + F.z + ΔT.z) − g
+(sum check, galvo case: z_wide + z_galvo = focus_ref + F.z + ΔT.z ✓)
 ```
+
+The galvo's formula contains no ΔT term — **the galvo cannot see objectives**
+(the algebra of "the galvo should not care"). On a cross-objective galvo move
+both drives change, but the motor's change is pure base maintenance, net-zero at
+the object level: the net sample-space movement is only what the chosen actuator
+realized. This beats decomposing the whole focus target onto the chosen drive:
+parfocal offsets (tens–hundreds of µm) would otherwise eat the galvo's ±range,
+and the galvo would couple to objectives. z-wide's target is canonical per
+(origin, objective) — stateless and self-correcting (a perturbed z-wide is
+restored to base by the next galvo-chosen move). The invariant's final form: *a
+galvo-chosen move never moves the motor for displacement; the motor moves only
+to maintain the base, which is net-zero in sample space.*
 
 Stateless per call: the hardware snapshot already carries the current objective and
 `origin.json` carries the anchor objective. **No-double-counting claim:** because
@@ -107,6 +128,22 @@ firmware did at swap time; the motor_shift/correction split is NOT needed for
 target computation. Side effect: after a swap with no commanded move, an
 objective-aware `get_xyz` reads the residual truthfully (perfect firmware
 compensation ⇒ frame value unchanged; otherwise the frame shows −correction).
+The galvo pre-flight guard checks only `z_galvo_ref + F.z` against the galvo
+range — compensation never counts against it.
+
+**Reading is the inverse (the joystick case).** A manual stage move needs
+nothing special: `get_xyz` runs the same transform in the read direction —
+`F = read − ref − ΔT` with the actuators AND the current objective read fresh —
+so it returns the sample-space coordinate of whatever is under the axis now,
+relative to 0,0,0, regardless of who moved the stage, which objective is in, or
+how many joystick nudges got there (stateless math on a measurement). Both ends
+of the operator workflow close: object found in an image → frame target →
+``set_xyz``; object found by eye → ``get_xyz`` → storable frame coordinate,
+revisitable under any objective. The two directions being exact inverses is the
+implementation's acceptance test: ``get_xyz(set_xyz(F)) == F`` under any
+objective and actuator choice (property test on the simulator). A joystick move
+differs only in journal attribution: an unwitnessed change (observed, not
+commanded).
 
 ### 2. Calibration schema addition — the split, for VERIFICATION not arithmetic
 
