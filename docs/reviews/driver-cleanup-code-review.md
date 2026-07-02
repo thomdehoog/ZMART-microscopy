@@ -21,7 +21,7 @@
 >   lives. `move_xy_with_backlash` (M19) now demands `confirmed`.
 > - **Fixed in the second pass (2026-07-02, this branch):**
 >   - **C1's driver↔controller adapter layer** — built at
->     `navigator_expert/zmart_adapter/` (registers on import) and validated
+>     `navigator_expert/zmart_adapter.py` (registers on import) and validated
 >     end-to-end against a live LAS X simulator through a real
 >     `zmart_controller.Session`
 >     (`tests/hardware/validate_zmart_adapter.py`; read-only slice wired into
