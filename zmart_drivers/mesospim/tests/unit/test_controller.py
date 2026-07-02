@@ -81,6 +81,46 @@ def test_set_state_rejects_foreign_instrument(session):
         session.set_state(state)
 
 
+def test_set_state_rejects_foreign_microscope(session):
+    # Same host/port, different instrument name -> still rejected (the guard is
+    # not purely endpoint-based).
+    state = session.get_state()
+    assert state["immutable"]["microscope"] == "mesospim-test"
+    state["immutable"]["microscope"] = "some-other-scope"
+    with pytest.raises(ValueError):
+        session.set_state(state)
+
+
+def test_set_state_rejects_missing_fingerprint(session):
+    state = session.get_state()
+    state["immutable"] = {}
+    with pytest.raises(ValueError):
+        session.set_state(state)
+
+
+def test_acquire_stack_z_bounds_use_origin(session, monkeypatch):
+    # z_start/z_end are given in the user frame; with a non-zero origin they must
+    # be mapped to raw stage coordinates before the capture.
+    import mesospim.controller as ctl
+
+    captured = {}
+    real = ctl._acq.acquire
+
+    def spy(client, acquisition_type, *, options=None, state=None):
+        captured["options"] = dict(options or {})
+        return real(client, acquisition_type, options=options, state=state)
+
+    monkeypatch.setattr(ctl._acq, "acquire", spy)
+
+    session.set_xyz(0, 0, 100)
+    session.set_origin()  # raw z=100 now reads as user z=0
+    session.acquire("stack", "C3", options={"z_start": 0, "z_end": 4, "z_step": 1})
+
+    assert captured["options"]["z_start"] == 100.0  # 0 (user) + 100 (origin)
+    assert captured["options"]["z_end"] == 104.0
+    assert captured["options"]["z_step"] == 1  # a delta, unchanged
+
+
 def test_acquisition_options(session):
     opts = session.get_acquisition_options()
     assert "format" in opts and "backlash_correction" in opts

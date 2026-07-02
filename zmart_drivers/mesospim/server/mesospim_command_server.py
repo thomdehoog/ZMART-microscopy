@@ -159,7 +159,7 @@ class _CoreBridge:
         self.core.sig_prepare_image_series.emit(acq, acq_list)
         self.core.sig_run_timepoint.emit(0)
         self.core.sig_end_image_series.emit(acq, acq_list)
-        files = _written_files(acq)
+        files = _written_files(acq, int(acq.get("planes", 1)))
         cam = _camera(self.core.cfg)
         # PROTOCOL.md: pixels is [x, y] (the driver indexes pixels[0]/pixels[1]).
         return {
@@ -196,13 +196,28 @@ def _get(obj, *names, default=None):
     return default
 
 
-def _written_files(acq: dict) -> list:
+def _written_files(acq: dict, planes: int = 1) -> list:
+    """Resolve the frame files the image writer produced, in plane order.
+
+    PROTOCOL.md promises one path per plane. A single-plane capture is the bare
+    ``folder/filename``; a multi-plane stack is ``<stem>_z0000<ext>``, ... in
+    order. The exact writer naming is site-specific -- confirm this pattern
+    against the installed mesoSPIM image-writer plugin in ``-D`` demo mode (see
+    ``TODO.md``); returning empty here means the driver never gave the writer an
+    output filename.
+    """
     import os
 
     folder = acq.get("folder") or ""
     filename = acq.get("filename") or ""
-    path = os.path.join(folder, filename)
-    return [path] if filename else []
+    if not filename:
+        return []
+    stem, dot, ext = filename.rpartition(".")
+    if not dot:
+        stem, ext = filename, "tiff"
+    if planes <= 1:
+        return [os.path.join(folder, filename)]
+    return [os.path.join(folder, f"{stem}_z{i:04d}.{ext}") for i in range(planes)]
 
 
 # =============================================================================

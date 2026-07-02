@@ -243,17 +243,40 @@ class MockMesospimServer:
     def _acquire(self, acq: dict) -> dict:
         planes = max(1, int(acq.get("planes", 1)))
         px = _CONFIG["camera"]
+        # Mirror the real server's path contract: when the Acquisition names an
+        # output folder/filename, write there with the same per-plane naming the
+        # GPL server's _written_files resolves. Fall back to a temp name only
+        # when none is given (a lower-level capture call), keeping standalone
+        # capture tests runnable.
+        targets = self._target_paths(acq, planes)
         files = []
-        for _i in range(planes):
+        for i in range(planes):
             self._frame_seq += 1
             # Deterministic synthetic content: a gradient offset by the frame seq.
             base = np.arange(px["pixels_x"] * px["pixels_y"], dtype=np.uint16)
             frame = (base.reshape(px["pixels_y"], px["pixels_x"]) + self._frame_seq) % 65535
-            path = self.output_dir / f"mock_frame_{self._frame_seq:06d}.tiff"
+            path = targets[i]
+            path.parent.mkdir(parents=True, exist_ok=True)
             tifffile.imwrite(str(path), frame.astype(np.uint16))
             files.append(str(path))
         return {"files": files, "planes": planes,
                 "pixels": [px["pixels_x"], px["pixels_y"]]}
+
+    def _target_paths(self, acq: dict, planes: int) -> list[Path]:
+        """Per-plane output paths, honouring the Acquisition folder/filename."""
+        filename = acq.get("filename")
+        if not filename:
+            return [
+                self.output_dir / f"mock_frame_{self._frame_seq + 1 + i:06d}.tiff"
+                for i in range(planes)
+            ]
+        folder = Path(acq.get("folder") or self.output_dir)
+        stem, dot, ext = filename.rpartition(".")
+        if not dot:
+            stem, ext = filename, "tiff"
+        if planes <= 1:
+            return [folder / filename]
+        return [folder / f"{stem}_z{i:04d}.{ext}" for i in range(planes)]
 
 
 class _Nak(Exception):

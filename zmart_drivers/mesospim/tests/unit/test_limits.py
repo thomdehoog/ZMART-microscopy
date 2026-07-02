@@ -15,9 +15,17 @@ def _isolate_limits():
     limits.clear_stage_limits()
 
 
-def test_unconfigured_axis_is_unchecked():
-    # No limit set -> no error (the driver never invents a bound).
-    limits.check_axis("x", 1e9)
+def test_unconfigured_axis_fails_closed():
+    # No limit set -> reject (fail closed, like the Leica sibling): an
+    # unconfigured axis must never let an unbounded move through.
+    with pytest.raises(limits.LimitError):
+        limits.check_axis("x", 1e9)
+
+
+def test_check_move_fails_closed_on_unconfigured_axis():
+    limits.set_stage_limits(x=(0, 100))
+    with pytest.raises(limits.LimitError):
+        limits.check_move({"x": 10, "y": 20})  # y never configured
 
 
 def test_set_and_check_axis():

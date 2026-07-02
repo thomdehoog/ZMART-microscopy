@@ -29,7 +29,12 @@ from .product import AcquisitionResult, SavedAcquisition
 log = logging.getLogger(__name__)
 
 
-def _canonical_stem(acquisition_type: str, position_label: str) -> str:
+def canonical_stem(acquisition_type: str, position_label: str) -> str:
+    """Stable, filesystem-safe stem for one acquisition's output files.
+
+    Public so the controller can pre-name the image-writer output folder/file
+    with the same stem the saved frames end up under.
+    """
     safe_label = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in position_label)
     safe_type = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in acquisition_type)
     return f"{safe_type}_{safe_label}"
@@ -58,7 +63,7 @@ def save(
     """
     data_dir = Path(output_root) / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    stem = _canonical_stem(acq.acquisition_type, position_label)
+    stem = canonical_stem(acq.acquisition_type, position_label)
 
     image_paths: list[Path] = []
     multiplane = len(acq.files) > 1

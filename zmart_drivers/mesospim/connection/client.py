@@ -27,6 +27,7 @@ import threading
 from typing import Any
 
 from ..protocol import (
+    PROTOCOL_VERSION,
     TERMINATOR,
     Reply,
     encode_request,
@@ -96,8 +97,10 @@ class MesospimClient:
         """Open the socket and perform the ``hello`` handshake.
 
         Returns the server's ``hello`` payload (protocol version, app name,
-        current state). Raises ``ConnectionError`` if the socket cannot open and
-        :class:`MesospimError` if the handshake is refused.
+        current state). Raises ``ConnectionError`` if the socket cannot open,
+        :class:`MesospimError` if the handshake is refused, and
+        :class:`MesospimError` if the server speaks a protocol version this
+        client does not know.
         """
         if self._sock is not None:
             return self.server_info
@@ -110,8 +113,22 @@ class MesospimClient:
                 f"resident command-server script loaded? ({exc})"
             ) from exc
         self._sock.settimeout(self._timeout)
-        reply = self.request("hello")
-        self.server_info = dict(reply.data)
+        # A failed handshake must not leave a half-open socket that reports
+        # ``connected`` with empty ``server_info``; tear it down and re-raise.
+        try:
+            reply = self.request("hello")
+        except BaseException:
+            self._drop_socket()
+            raise
+        info = dict(reply.data)
+        version = info.get("protocol")
+        if version is not None and int(version) != PROTOCOL_VERSION:
+            self._drop_socket()
+            raise MesospimError(
+                f"server speaks protocol version {version}, but this client only "
+                f"knows version {PROTOCOL_VERSION}"
+            )
+        self.server_info = info
         log.info(
             "connected to mesoSPIM command server %s:%d (%s)",
             self._addr[0],
@@ -137,6 +154,17 @@ class MesospimClient:
             finally:
                 self._sock = None
                 self._buf = b""
+
+    def _drop_socket(self) -> None:
+        """Hard-close the socket without a ``bye`` (used on handshake failure)."""
+        sock = self._sock
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
+        self._sock = None
+        self._buf = b""
 
     # -- request/reply -------------------------------------------------------
 

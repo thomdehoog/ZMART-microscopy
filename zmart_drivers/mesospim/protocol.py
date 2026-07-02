@@ -37,6 +37,11 @@ from typing import Any
 TERMINATOR = "\n"
 ENCODING = "utf-8"
 
+# Wire-protocol version the client and reference server agree on. The server
+# reports its version in the ``hello`` reply (``data.protocol``); the client
+# refuses a server whose version it does not know (see ``client.connect``).
+PROTOCOL_VERSION = 1
+
 
 class ProtocolError(ValueError):
     """A line could not be parsed as a protocol request or reply."""

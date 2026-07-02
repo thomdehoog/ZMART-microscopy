@@ -149,6 +149,10 @@ def confirm_and_fire(
         )
 
     fire_s = time.perf_counter() - fire_start
+    # Wall-clock instant the command landed. The confirm freshness gate rejects
+    # any readback observed *before* this, so a stale pre-command read can never
+    # confirm the fire. Captured once, before the first confirm read.
+    command_fired_at = time.time()
 
     # -- no confirmation requested -------------------------------------------
     if confirm_fn is None:
@@ -169,9 +173,8 @@ def confirm_and_fire(
     last: dict[str, Any] = {}
     for attempt in range(1, profile.max_confirm_attempts + 1):
         confirm_attempts = attempt
-        command_started_at = time.time()
         try:
-            last = confirm_fn(client, observed_after=command_started_at)
+            last = confirm_fn(client, observed_after=command_fired_at)
         except Exception as exc:  # noqa: BLE001 - a reader failure is not fatal
             logs.append(_make_log_entry("warning", f"{label}: confirm read failed: {exc}"))
             last = {"confirmed": False, "error": str(exc)}
@@ -197,6 +200,11 @@ def confirm_and_fire(
                 fire_fn()
             except _TRANSIENT as exc:
                 logs.append(_make_log_entry("warning", f"{label}: re-fire transient: {exc}"))
+            except MesospimError as exc:
+                # A NAK on re-fire is a permanent rejection, not a crash: log it
+                # and let the confirm loop fall through to the exhausted branch so
+                # the caller still gets the standard envelope, never an exception.
+                logs.append(_make_log_entry("warning", f"{label}: re-fire rejected: {exc}"))
 
     # -- confirmation exhausted ----------------------------------------------
     timing = _make_timing(

@@ -12,6 +12,24 @@ def test_connect_handshake_populates_server_info(client):
     assert client.server_info.get("protocol") == 1
 
 
+def test_connect_refuses_unknown_protocol_version():
+    # The client must refuse a server whose protocol version it does not know,
+    # and must not leave a half-open socket behind.
+    class BadProtocolServer(MockMesospimServer):
+        def _dispatch(self, cmd, args):
+            data = super()._dispatch(cmd, args)
+            if cmd == "hello":
+                data = dict(data)
+                data["protocol"] = 999
+            return data
+
+    with BadProtocolServer(port=0) as s:
+        c = MesospimClient(s.host, s.port, timeout=3.0)
+        with pytest.raises(MesospimError):
+            c.connect()
+        assert not c.connected
+
+
 def test_ping_request(client):
     assert client.request("ping").ok
 

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from mesospim.commands.dispatch import confirm_and_fire
 from mesospim.config.profiles import CommandProfile
+from mesospim.connection.client import MesospimError
 from mesospim.protocol import Reply
+from mesospim.readers.readers import Reading, _reading_value_after
 
 
 def _ok(data=None):
@@ -95,3 +97,49 @@ def test_single_confirm_attempt_disables_refire():
     # __post_init__ guard: 1 attempt cannot re-fire.
     prof = CommandProfile(max_confirm_attempts=1, refire_on_unconfirmed=True)
     assert prof.refire_on_unconfirmed is False
+
+
+def test_freshness_gate_rejects_pre_fire_readback():
+    # A reading taken BEFORE the command fired must never confirm it: the gate
+    # feeds confirm_fn an observed_after stamped at fire time.
+    stale = Reading.now({"x": 1.0})  # observed before confirm_and_fire runs
+
+    def confirm(client, observed_after):
+        value = _reading_value_after(stale, observed_after)
+        return {"confirmed": value is not None}
+
+    prof = CommandProfile(max_confirm_attempts=2, success_on_unconfirmed=False)
+    r = confirm_and_fire(None, "x", prof, fire_fn=_ok, confirm_fn=confirm)
+    assert not r["success"] and r["confirmed"] is False
+
+
+def test_fresh_readback_confirms():
+    # A reading taken AFTER the fire passes the gate and confirms.
+    def confirm(client, observed_after):
+        fresh = Reading.now({"x": 1.0})
+        return {"confirmed": _reading_value_after(fresh, observed_after) is not None}
+
+    prof = CommandProfile(max_confirm_attempts=2)
+    r = confirm_and_fire(None, "x", prof, fire_fn=_ok, confirm_fn=confirm)
+    assert r["success"] and r["confirmed"] is True
+
+
+def test_refire_nak_returns_envelope_not_exception():
+    # A NAK on re-fire is permanent, not a crash: the caller still gets the
+    # standard envelope (regression for the un-caught MesospimError bug).
+    fires = {"n": 0}
+
+    def fire():
+        fires["n"] += 1
+        if fires["n"] == 1:
+            return _ok()
+        raise MesospimError("rejected on re-fire")
+
+    prof = CommandProfile(
+        max_confirm_attempts=3, refire_on_unconfirmed=True, success_on_unconfirmed=True
+    )
+    r = confirm_and_fire(
+        None, "x", prof, fire_fn=fire, confirm_fn=lambda c, observed_after: {"confirmed": False}
+    )
+    assert r["success"] and r["confirmed"] is False
+    assert fires["n"] > 1  # it did attempt the re-fire

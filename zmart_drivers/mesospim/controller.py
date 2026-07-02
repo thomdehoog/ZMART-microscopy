@@ -37,6 +37,7 @@ from typing import Any
 
 from . import acquisition as _acq
 from . import commands as _cmd
+from .config import limits as _limits
 from .config.profiles import ACQUISITION, HARDWARE
 from .connection.session import close as _close
 from .connection.session import connect as _connect
@@ -88,14 +89,25 @@ def connect(connection: dict) -> MesospimHandle:
     """Open a mesoSPIM session and capture the initial positions.
 
     Honours ``connection`` keys ``host`` / ``port`` / ``timeout`` (forwarded to
-    the driver ``connect``) and ``output_root`` (where ``acquire`` saves). If no
-    ``output_root`` is given, a per-session temp directory is created.
+    the driver ``connect``), ``output_root`` (where ``acquire`` saves), and
+    ``stage_limits`` (a path to a stage-limits config; defaults to the bundled
+    envelope). If no ``output_root`` is given, a per-session temp directory is
+    created.
+
+    Stage safety limits are loaded here so the controller path is never left
+    fail-open: ``check_axis`` rejects an unconfigured axis, so a move can only
+    run once limits exist.
     """
     client = _connect(connection)
     output_root = Path(
         connection.get("output_root") or tempfile.mkdtemp(prefix="mesospim_run_")
     )
     output_root.mkdir(parents=True, exist_ok=True)
+
+    # Configure hard stage limits before any move is possible. Without this the
+    # fail-closed ``check_axis`` would reject every move; with it the bundled
+    # (or caller-supplied) envelope is active for the whole session.
+    _limits.apply_stage_limits_from_config(_limits.load_stage_config(connection.get("stage_limits")))
 
     positions = _readers.get_positions(client)
     info = dict(client.server_info)
@@ -105,6 +117,7 @@ def connect(connection: dict) -> MesospimHandle:
         output_root=output_root,
         immutable={
             "app": info.get("app", "mesoSPIM-control"),
+            "microscope": connection.get("microscope"),
             "version": info.get("version"),
             "host": client.host,
             "port": client.port,
@@ -211,9 +224,17 @@ def get_state(handle: MesospimHandle) -> dict:
 
 
 def set_state(handle: MesospimHandle, state: dict) -> dict:
-    """Validate the immutable fingerprint, then reapply the mutable settings."""
-    immutable = state.get("immutable", {})
-    for key in ("app", "host", "port"):
+    """Validate the immutable fingerprint, then reapply the mutable settings.
+
+    Rejects state that carries no fingerprint at all (an empty ``immutable`` must
+    not silently pass), and compares the instrument identity -- including the
+    configured ``microscope`` name, not just the socket endpoint, so state from a
+    different instrument reachable at the same ``host``/``port`` is still caught.
+    """
+    immutable = state.get("immutable") or {}
+    if not immutable:
+        raise ValueError("state has no immutable fingerprint; refusing to reapply")
+    for key in ("app", "microscope", "host", "port"):
         want = immutable.get(key, handle.immutable.get(key))
         if want != handle.immutable.get(key):
             raise ValueError(
@@ -316,6 +337,20 @@ def acquire(
 
     # 3) capture (snap or stack, per the capture options).
     capture_options = {k: options[k] for k in _ACQUIRE_CAPTURE_KEYS if k in options}
+    # Stack Z bounds arrive in the controller's user frame (like set_xyz); map
+    # them to raw stage coordinates via the origin so a non-zero origin does not
+    # shift the stack. z_step is a delta, so it is left untouched.
+    for zc in ("z_start", "z_end"):
+        if zc in capture_options:
+            capture_options[zc] = handle.origin["z"] + float(capture_options[zc])
+    # Give the image writer an explicit output location so the resident server
+    # can resolve the frame paths (without this the Acquisition has no
+    # folder/filename and the server returns no files).
+    stem = _acq.canonical_stem(acquisition_type, position_label)
+    staging = handle.output_root / "_staging"
+    staging.mkdir(parents=True, exist_ok=True)
+    capture_options.setdefault("folder", str(staging))
+    capture_options.setdefault("filename", f"{stem}.tiff")
     result = _acq.acquire(handle.client, acquisition_type, options=capture_options)
 
     # 4) save into the canonical layout.
@@ -338,11 +373,23 @@ def acquire(
 
 
 def _settle(handle: MesospimHandle, overshoot_um: float = 5.0) -> None:
-    """Pin the linear stage backlash: nudge -overshoot on x/y/z, then return."""
+    """Pin the linear stage backlash: nudge -overshoot on x/y/z, then return.
+
+    Backlash correction is an optimisation, not a requirement: if the overshoot
+    would violate a stage limit (or otherwise fails), it is skipped with a
+    warning rather than driving into a hard stop. But once the overshoot has
+    moved the stage, a failed return move leaves the stage displaced, so that is
+    surfaced as an error rather than proceeding to capture at the wrong place.
+    """
     pos = _readers.get_positions(handle.client)
     linear = {axis: float(pos.get(axis) or 0.0) for axis in ("x", "y", "z")}
-    _cmd.move_absolute(handle.client, {a: v - overshoot_um for a, v in linear.items()})
-    _cmd.move_absolute(handle.client, linear)
+    nudge = _cmd.move_absolute(handle.client, {a: v - overshoot_um for a, v in linear.items()})
+    if not nudge.get("success"):
+        log.warning("acquire: backlash settle skipped (%s)", nudge.get("message"))
+        return
+    back = _cmd.move_absolute(handle.client, linear)
+    if not back.get("success"):
+        raise RuntimeError(f"acquire: backlash settle left stage displaced: {back.get('message')}")
 
 
 # =============================================================================
