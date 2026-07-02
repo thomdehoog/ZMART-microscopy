@@ -103,9 +103,7 @@ def connect(connection: dict) -> MesospimHandle:
     run once limits exist.
     """
     client = _connect(connection)
-    output_root = Path(
-        connection.get("output_root") or tempfile.mkdtemp(prefix="mesospim_run_")
-    )
+    output_root = Path(connection.get("output_root") or tempfile.mkdtemp(prefix="mesospim_run_"))
     output_root.mkdir(parents=True, exist_ok=True)
 
     # Configure hard stage limits before any move is possible. Without this the
@@ -116,7 +114,9 @@ def connect(connection: dict) -> MesospimHandle:
     # single instrument per process; connecting a second instrument in the same
     # process would share (and overwrite) these limits.
     _limits.clear_stage_limits()
-    _limits.apply_stage_limits_from_config(_limits.load_stage_config(connection.get("stage_limits")))
+    _limits.apply_stage_limits_from_config(
+        _limits.load_stage_config(connection.get("stage_limits"))
+    )
 
     positions = _readers.get_positions(client)
     info = dict(client.server_info)
@@ -297,7 +297,7 @@ def set_procedure(handle: MesospimHandle, procedure: dict) -> dict:
 # =============================================================================
 
 
-def acquisition_options(handle: MesospimHandle) -> dict:
+def get_acquisition_options(handle: MesospimHandle) -> dict:
     """The acquisition + saving options this instrument offers (options + active)."""
     zooms = [name for name, _px in HARDWARE.zoom_pixel_size_um]
     return {
@@ -432,6 +432,7 @@ CONNECTION = {
     "port": 42000,
 }
 
+
 def get_context(handle: MesospimHandle) -> dict:
     """Read-only extras the driver exposes: initial positions, focus/rotation."""
     pos = _readers.get_positions(handle.client)
@@ -447,7 +448,7 @@ def get_context(handle: MesospimHandle) -> dict:
 OPS = {
     "connect": connect,
     "disconnect": disconnect,
-    "acquisition_options": acquisition_options,
+    "get_acquisition_options": get_acquisition_options,
     "set_origin": set_origin,
     "get_actuators": get_actuators,
     "get_xyz": get_xyz,
