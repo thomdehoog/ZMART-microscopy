@@ -35,7 +35,9 @@ Dependency direction:
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -48,6 +50,7 @@ from .. import readers as _readers
 from ..acquisition import capture as _capture
 from ..acquisition import save as _save
 from ..commands import commands as _commands
+from ..commands import settings as _cmd_settings
 from ..connection import session as _session
 from ..motion import movement as _motion
 
@@ -76,7 +79,16 @@ class ZmartHandle:
     client: Any
     connection: dict
     hash6: str
-    origin_um: dict[str, float] = field(default_factory=lambda: {"x": 0.0, "y": 0.0, "z": 0.0})
+    origin: dict = field(
+        default_factory=lambda: {
+            "x_um": 0.0,
+            "y_um": 0.0,
+            "z_wide_um": 0.0,
+            "z_galvo_um": 0.0,
+            "z_focus_um": 0.0,
+            "objective": None,
+        }
+    )
     actuators: dict[str, str] = field(
         default_factory=lambda: {"x": "motoric", "y": "motoric", "z": "z-wide"}
     )
@@ -113,16 +125,52 @@ def disconnect(handle: ZmartHandle) -> None:
 # =============================================================================
 
 
-def _absolute_xyz_um(handle: ZmartHandle) -> dict[str, float]:
-    """Current absolute stage position in um; raises when unreadable."""
+def _z_um_from_settings(settings: dict, key: str) -> float:
+    """One z drive's live position (um) from raw job settings."""
+    ch = _cmd_settings.make_changeable_copy(settings)
+    if not ch or "zPosition" not in ch:
+        raise RuntimeError("zPosition not in job settings - LAS X version mismatch?")
+    val = ch["zPosition"].get(key)
+    if isinstance(val, dict):
+        val = val.get("position")
+    if val is None:
+        raise RuntimeError(f"{key} readback missing; got {ch['zPosition']!r}")
+    return float(val)
+
+
+def _hardware_snapshot(handle: ZmartHandle) -> dict:
+    """One consistent read of everything the frame math needs.
+
+    Stage XY, both z drives, and the current objective come from the
+    authoritative API route; raises when any of them is unreadable.
+    """
     xy = _readers.get_xy(handle.client, mode="api")
     if not xy:
         raise RuntimeError("could not read stage XY position")
     job = _selected_job_name(handle)
-    z = _readers.read_zwide_um(handle.client, job)
-    if z is None:
-        raise RuntimeError(f"could not read z-wide position for job '{job}'")
-    return {"x": float(xy["x_um"]), "y": float(xy["y_um"]), "z": float(z)}
+    settings = _readers.get_job_settings(handle.client, job, mode="api")
+    if not settings:
+        raise RuntimeError(f"could not read job settings for '{job}'")
+    return {
+        "job": job,
+        "x_um": float(xy["x_um"]),
+        "y_um": float(xy["y_um"]),
+        "z_wide_um": _z_um_from_settings(settings, "z-wide"),
+        "z_galvo_um": _z_um_from_settings(settings, "z-galvo"),
+        "objective": settings.get("objective"),
+    }
+
+
+def _warn_on_objective_change(handle: ZmartHandle, snapshot: dict) -> None:
+    origin_obj = (handle.origin.get("objective") or {}).get("name")
+    current_obj = (snapshot.get("objective") or {}).get("name")
+    if origin_obj and current_obj and origin_obj != current_obj:
+        log.warning(
+            "objective changed since set_origin ('%s' -> '%s'); frame positions "
+            "do not account for parfocality/parcentricity offsets",
+            origin_obj,
+            current_obj,
+        )
 
 
 def _selected_job_name(handle: ZmartHandle) -> str:
@@ -134,10 +182,48 @@ def _selected_job_name(handle: ZmartHandle) -> str:
 
 
 def set_origin(handle: ZmartHandle) -> dict:
-    """The current position becomes (0, 0, 0) of the controller frame."""
+    """The current position becomes (0, 0, 0) of the controller frame.
+
+    Captures stage XY, both z drives, their focus sum, and the current
+    objective as the zero point, and persists that reference to
+    ``origin.json`` under ``connection['output_root']`` (memory-only,
+    with a warning, when no output root is configured).
+    """
     _require_open(handle)
-    handle.origin_um = _absolute_xyz_um(handle)
-    return {"origin": {"x": 0.0, "y": 0.0, "z": 0.0}}
+    snap = _hardware_snapshot(handle)
+    handle.origin = {
+        "x_um": snap["x_um"],
+        "y_um": snap["y_um"],
+        "z_wide_um": snap["z_wide_um"],
+        "z_galvo_um": snap["z_galvo_um"],
+        "z_focus_um": snap["z_wide_um"] + snap["z_galvo_um"],
+        "objective": snap["objective"],
+    }
+    origin_file = None
+    output_root = handle.connection.get("output_root")
+    if output_root:
+        path = Path(output_root) / "origin.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "origin": handle.origin,
+                    "job": snap["job"],
+                    "session_hash6": handle.hash6,
+                    "captured_at": time.time(),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        origin_file = str(path)
+    else:
+        log.warning("set_origin: no output_root configured; origin kept in memory only")
+    return {
+        "origin": {"x": 0.0, "y": 0.0, "z": 0.0},
+        "reference": dict(handle.origin),
+        "origin_file": origin_file,
+    }
 
 
 def get_actuators(handle: ZmartHandle) -> dict:
@@ -155,43 +241,82 @@ def _resolve_actuators(handle: ZmartHandle, with_actuators: dict | None) -> dict
 
 
 def get_xyz(handle: ZmartHandle, *, with_actuators: dict | None = None) -> dict:
-    """Position per axis in the frame (um from the origin)."""
+    """Position per axis in the frame (um from the origin), plus raw hardware.
+
+    The frame ``z`` is the *focus* displacement: (z-wide + z-galvo) minus
+    the origin's focus sum, so it reads the same regardless of which drive
+    realized the move. The untranslated stage values (XY, both z drives,
+    objective) ride along under ``"hardware"``.
+    """
     _require_open(handle)
     chosen = _resolve_actuators(handle, with_actuators)
-    absolute = _absolute_xyz_um(handle)
-    return {
-        axis: {
-            "value": absolute[axis] - handle.origin_um[axis],
-            "unit": "um",
-            "actuator": chosen[axis],
-        }
+    snap = _hardware_snapshot(handle)
+    _warn_on_objective_change(handle, snap)
+    z_focus = snap["z_wide_um"] + snap["z_galvo_um"]
+    frame = {
+        "x": snap["x_um"] - handle.origin["x_um"],
+        "y": snap["y_um"] - handle.origin["y_um"],
+        "z": z_focus - handle.origin["z_focus_um"],
+    }
+    result = {
+        axis: {"value": frame[axis], "unit": "um", "actuator": chosen[axis]}
         for axis in ("x", "y", "z")
     }
+    result["hardware"] = {
+        "x_um": snap["x_um"],
+        "y_um": snap["y_um"],
+        "z_wide_um": snap["z_wide_um"],
+        "z_galvo_um": snap["z_galvo_um"],
+        "objective": snap["objective"],
+        "job": snap["job"],
+    }
+    return result
 
 
 def set_xyz(
     handle: ZmartHandle, x: float, y: float, z: float, *, with_actuators: dict | None = None
 ) -> dict:
-    """Move to (x, y, z) in the frame; confirmed or this raises."""
+    """Move to (x, y, z) in the frame; confirmed or this raises.
+
+    Stage behind the controller: XY targets are origin + frame value on
+    the motoric stage. Frame ``z`` is a *focus* target — the two drives
+    sum, so the chosen actuator moves to::
+
+        target_drive = origin_focus + z - other_drive_current
+
+    i.e. z-wide absorbs the target while whatever z-galvo offset is
+    parked stays accounted for, and vice versa. (Additive combination —
+    validate the sign convention live before trusting large z moves.)
+    """
     _require_open(handle)
     chosen = _resolve_actuators(handle, with_actuators)
     handle.actuators = chosen
-    abs_x = handle.origin_um["x"] + x
-    abs_y = handle.origin_um["y"] + y
-    abs_z = handle.origin_um["z"] + z
+    snap = _hardware_snapshot(handle)
+    _warn_on_objective_change(handle, snap)
+    abs_x = handle.origin["x_um"] + x
+    abs_y = handle.origin["y_um"] + y
+    target_focus = handle.origin["z_focus_um"] + z
+    if chosen["z"] == "z-wide":
+        z_target = target_focus - snap["z_galvo_um"]
+    else:
+        z_target = target_focus - snap["z_wide_um"]
 
     # Backlash-compensated transit raises unless the readback confirms.
     _motion.move_xy_with_backlash(handle.client, abs_x, abs_y)
 
-    job = _selected_job_name(handle)
     z_mode = _Z_MODES[chosen["z"]]
-    z_result = _commands.move_z(handle.client, job, abs_z, unit="um", z_mode=z_mode)
+    z_result = _commands.move_z(handle.client, snap["job"], z_target, unit="um", z_mode=z_mode)
     if not z_result.get("success") or not z_result.get("confirmed"):
         raise RuntimeError(f"move_z ({chosen['z']}) failed or was unconfirmed: {z_result}")
 
     return {
         "position": {"x": x, "y": y, "z": z},
         "actuators": dict(chosen),
+        "hardware_targets": {
+            "x_um": abs_x,
+            "y_um": abs_y,
+            f"{chosen['z'].replace('-', '_')}_um": z_target,
+        },
     }
 
 
@@ -209,6 +334,11 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
         "job": {"options": names, "active": selected},
         "backlash_correction": {"options": [True, False], "active": True},
         "format": {"options": ["ome-tiff"], "active": "ome-tiff"},
+        "exporter": {
+            "options": ["navigator_expert", "lasx_native_autosave"],
+            "active": _save.active_save_exporter(),
+        },
+        "cleanup_source": {"options": [True, False], "active": False},
     }
 
 
@@ -255,14 +385,27 @@ def acquire(
 
     acq = _capture.acquire(handle.client, job)
 
-    # The controller's position_label is free text; the driver's Naming
-    # uses integer slots. A numeric label maps onto the p slot directly,
-    # anything else gets a per-session counter — the label itself is
-    # preserved in the returned record.
+    # Propagation: acquisition_type becomes the Naming slot that names the
+    # output folder/files; position_label maps onto the p slot when numeric
+    # (a per-session counter otherwise) and always travels verbatim in the
+    # lineage record that save() writes into summary.json.
     handle.position_counter += 1
     p = int(position_label) if str(position_label).isdigit() else handle.position_counter
     naming = Naming(acquisition_type=acquisition_type, hash6=handle.hash6, p=p)
-    saved = _save.save(handle.client, acq, Path(output_root), naming)
+    saved = _save.save(
+        handle.client,
+        acq,
+        Path(output_root),
+        naming,
+        lineage={
+            "acquisition_type": acquisition_type,
+            "position_label": str(position_label),
+            "job": job,
+            "session_hash6": handle.hash6,
+        },
+        exporter=resolved["exporter"],
+        cleanup_source=resolved["cleanup_source"],
+    )
 
     return {
         "acquisition_type": acquisition_type,
