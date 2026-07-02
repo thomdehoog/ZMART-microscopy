@@ -2,18 +2,10 @@
 #
 # The MIT client itself (connection/, commands/, readers/, controller.py) has NO
 # heavy dependencies -- it is pure standard-library sockets + JSON. Everything
-# below is only for running the test suite and the optional headless validator.
+# below is only for running the test suite.
 #
 #   pip install -r zmart_drivers/mesospim/requirements-dev.txt
 
 pytest>=7          # test runner
-numpy>=1.21        # synthetic frames in the mock command server / tests
+numpy>=1.21        # synthetic frames in the mock server / tests
 tifffile>=2021.7   # read/write those frames in the mock server / tests
-
-# Optional -- ONLY needed for server/validate_headless.py (the headless Qt check
-# of the resident command server). Not required for the offline suite or the
-# client. Uncomment to run the headless validator:
-#
-#   QT_QPA_PLATFORM=offscreen python zmart_drivers/mesospim/server/validate_headless.py
-#
-# PyQt5>=5.15

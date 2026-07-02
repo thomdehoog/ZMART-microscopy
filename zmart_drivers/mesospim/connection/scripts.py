@@ -15,10 +15,10 @@ result comes back as a nonce-delimited base64(JSON) block.
 
 These snippets touch the real mesoSPIM Core surface (``self.move_absolute``,
 ``self.state['position']['x_pos']``, ``self.cfg.laserdict``,
-``self.sig_state_request_and_wait_until_done``, ``self.snap``), verified against
-mesoSPIM-control v1.20.0. The acquisition snippet uses ``self.snap`` + the
-image-writer's ``self.state['snap_image_path']`` -- the one **site-specific**
-hook to confirm on the bench (documented in ``TODO.md``).
+``self.sig_state_request_and_wait_until_done``, ``self.start``), verified
+against mesoSPIM-control v1.20.0. The acquisition entry point
+(``self.start(row=0)`` + the image-writer's folder/filename path) is the one
+**site-specific** hook to confirm on the bench (documented in ``TODO.md``).
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -128,75 +128,70 @@ self.sig_state_request_and_wait_until_done.emit(_settings)
 _result = {'applied': _settings}
 """,
     # -- acquisition ---------------------------------------------------------
-    # Runs one Acquisition through the real Core entry point ``self.start(row=0)``
-    # (the default mesoSPIM Tiff writer produces ONE multi-page stack per
-    # acquisition, at the Acquisition's folder/filename), then waits for the
-    # state to return to idle and returns that single file path.
+    # A capture is three scripts, so no script ever sleeps inside mesoSPIM's
+    # event loop waiting for its own acquisition:
+    #
+    #   acquire_start   swap in a one-item acq_list and fire ``self.start(row=0)``
+    #                   (the real Core entry point; the default Tiff writer makes
+    #                   ONE multi-page stack at the Acquisition's folder/filename),
+    #                   then return immediately.
+    #   stat_files      cheap idempotent poll helper: which files exist, how big.
+    #                   The client polls this + ``get_progress`` until the run is
+    #                   idle and the stack exists (see ``acquisition.capture``).
+    #   acquire_finish  restore the operator's acq_list and report the outcome.
+    #
+    # The operator's acq_list is stashed on the Core OBJECT between the start and
+    # finish scripts (attributes persist across injected scripts; script locals
+    # do not).
     #
     # BENCH ITEM (TODO.md): confirm ``start(row=...)`` is the right entry point on
     # your version and that the writer's path is folder/filename.
-    "acquire": """
+    "acquire_start": """
 _acq = dict(_a['acquisition'])
 try:
     from mesoSPIM.src.utils.acquisitions import Acquisition, AcquisitionList
 except ImportError:
     from utils.acquisitions import Acquisition, AcquisitionList
-import os as _os, time as _time
+import os as _os
 _obj = Acquisition()
 _obj.update({k: v for k, v in _acq.items() if v is not None})
 _st = self.state
-_had = True
 try:
-    _prev = _st['acq_list']
+    self._zmart_prev_acq_list = (True, _st['acq_list'])
 except (KeyError, TypeError):
-    _prev, _had = None, False
+    self._zmart_prev_acq_list = (False, None)
 _st['acq_list'] = AcquisitionList([_obj])
-try:
-    self.start(row=0)
-    for _ in range(6000):
-        if (self.state or {}).get('state') in ('idle', None):
-            break
-        _time.sleep(0.05)
-finally:
-    if _had:
-        _st['acq_list'] = _prev
-    else:
-        try:
-            del _st['acq_list']
-        except Exception:
-            _st['acq_list'] = _prev
+self.start(row=0)
 _folder = _acq.get('folder') or ''
 _fname = _acq.get('filename') or ''
-_files = [_os.path.join(_folder, _fname)] if _fname else []
 _cfg = getattr(self, 'cfg', None)
-_result = {'files': _files, 'planes': int(_acq.get('planes', 1) or 1),
+_result = {'started': True,
+           'files': [_os.path.join(_folder, _fname)] if _fname else [],
+           'planes': int(_acq.get('planes', 1) or 1),
            'pixels': [int(getattr(_cfg, 'camera_x_pixels', 2048) or 2048),
                       int(getattr(_cfg, 'camera_y_pixels', 2048) or 2048)]}
 """,
-    "run_acquisition_list": """
+    "stat_files": """
+import os as _os
+_files = [str(_f) for _f in (_a.get('files') or [])]
+_result = {'missing': [_f for _f in _files if not _os.path.isfile(_f)],
+           'sizes': {_f: _os.path.getsize(_f) for _f in _files if _os.path.isfile(_f)}}
+""",
+    "acquire_finish": """
+_st = self.state
+_had, _prev = getattr(self, '_zmart_prev_acq_list', (False, None))
+if _had:
+    _st['acq_list'] = _prev
+else:
+    try:
+        del _st['acq_list']
+    except Exception:
+        _st['acq_list'] = _prev
 try:
-    from mesoSPIM.src.utils.acquisitions import Acquisition, AcquisitionList
-except ImportError:
-    from utils.acquisitions import Acquisition, AcquisitionList
-import os as _os, time as _time
-_files = []
-_per = []
-for _one in _a['acquisitions']:
-    _obj = Acquisition()
-    _obj.update({k: v for k, v in _one.items() if v is not None})
-    self.state['acq_list'] = AcquisitionList([_obj])
-    self.start(row=0)
-    for _ in range(6000):
-        if (self.state or {}).get('state') in ('idle', None):
-            break
-        _time.sleep(0.05)
-    _folder = _one.get('folder') or ''
-    _fname = _one.get('filename') or ''
-    _p = _os.path.join(_folder, _fname) if _fname else None
-    if _p:
-        _files.append(_p)
-    _per.append({'files': [_p] if _p else [], 'planes': int(_one.get('planes', 1) or 1)})
-_result = {'files': _files, 'per_acquisition': _per}
+    del self._zmart_prev_acq_list
+except AttributeError:
+    pass
+_result = {'state': (self.state or {}).get('state')}
 """,
     # -- named procedures ----------------------------------------------------
     # No generic server-side procedure exists. Fail (the harness turns this into

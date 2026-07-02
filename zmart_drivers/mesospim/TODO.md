@@ -1,6 +1,6 @@
 # mesoSPIM driver — what's left to do
 
-Status as of this branch: the driver is **implemented and offline-tested** (112
+Status as of this branch: the driver is **implemented and offline-tested** (115
 tests green). It now rides mesoSPIM's generic **Remote Scripting** bridge (the
 upstream patch under `pull_request/`): the driver injects Python scripts and
 parses a structured result back, with all command vocabulary client-side in
@@ -45,13 +45,13 @@ Miniforge/mamba + `pip install -r requirements-conda-mamba.txt`, then
 `python mesoSPIM_Control.py -D`. The ZMART **client** side is cross-platform;
 only the resident server + live Core need Windows.
 
-- [x] Launch mesoSPIM `-D` demo mode, load `server/scriptwindow_loader.py` in the
-      Script Window, confirm it prints `listening on 127.0.0.1:42000`. **DONE** —
+- [x] Launch mesoSPIM `-D` demo mode, load the (since retired) Script-Window
+      loader, confirm it prints `listening on 127.0.0.1:42000`. **DONE** —
       validated against a live `mesoSPIM_Core` (v1.20.0, all Demo backends) on
       Windows, driven headless (offscreen Qt). **Found + fixed:** loading the
       server *module* directly failed (`NameError` — `exec(script)` runs in a
-      `Core` method, so module-level names resolve as globals); the flat
-      `scriptwindow_loader.py` is the fix. See [`LIVE_BENCH_VALIDATION.md`](LIVE_BENCH_VALIDATION.md).
+      `Core` method, so module-level names resolve as globals); a flat loader
+      script was the fix. See [`LIVE_BENCH_VALIDATION.md`](LIVE_BENCH_VALIDATION.md).
 - [x] Run the ZMART round-trip against it (`-m integration`): connect →
       get_config → get_state → move_absolute → get_position → snap. **DONE** —
       all 5 integration tests pass against the live demo Core (through the real
@@ -90,9 +90,11 @@ actually wrote; the driver's `save()` then relocates them.
       the real `sig_add_images_to_image_series`), then waits for `idle`.
       **CONFIRMED on the demo Core:** `start(row=0)` + wait-for-idle captures a
       frame; `start()`'s disk pre-check runs (`Free disk C: space …`) and does not
-      reject a scripted run. A snap takes several seconds, so the capture reply
-      exceeds the default socket deadline — the client now uses a dedicated
-      `ACQUISITION.acquire_timeout_s` (600 s) for `acquire`/`run_acquisition_list`.
+      reject a scripted run. On the Remote Scripting transport a capture never
+      blocks a script inside mesoSPIM: `acquire_start` returns immediately and
+      the client polls progress + file existence up to
+      `ACQUISITION.acquire_timeout_s` (600 s), raising on expiry (never a
+      silent "success" without the stack on disk).
 - [x] The controller assigns the Acquisition a per-acquisition `folder`/`filename`
       (a unique `<output_root>/_staging/<stem>_NNNN` dir + canonical stem, cleaned
       up after the frames are relocated), and the module-level `_written_files`
@@ -108,7 +110,7 @@ actually wrote; the driver's `save()` then relocates them.
 - [ ] Decide `snap` (single live frame, `sig_get_snap_image`) vs. a 1-plane
       series for `acquisition_type="snap"`, and where a live snap writes to.
 
-### Bench validation results (mesoSPIM `-D` demo, v1.20.0, Windows)
+### Bench validation results (mesoSPIM `-D` demo, v1.20.0, Windows — old transport)
 
 Validated against a **live `mesoSPIM_Core` with all Demo backends** by mirroring
 `mesoSPIM_Control.main()` (load `demo_config.py` → `PluginRegistry(cfg)` → build
@@ -156,9 +158,8 @@ now fixed on this branch):
       nothing is listening; capture is opt-in via `MESOSPIM_ALLOW_ACQUIRE=1`;
       address via `MESOSPIM_HOST`/`MESOSPIM_PORT`. Still to do: wire it into the
       repo's `run_ci` aggregation (it is excluded from the default run today).
-- [x] Added `requirements-dev.txt` (pytest, numpy, tifffile; PyQt5 commented as
-      optional for `server/validate_headless.py`). The MIT client itself has no
-      heavy deps — `numpy`/`tifffile` are test-only.
+- [x] Added `requirements-dev.txt` (pytest, numpy, tifffile). The MIT client
+      itself has no heavy deps — `numpy`/`tifffile` are test-only.
 
 ## 5. Real procedures 🟢
 

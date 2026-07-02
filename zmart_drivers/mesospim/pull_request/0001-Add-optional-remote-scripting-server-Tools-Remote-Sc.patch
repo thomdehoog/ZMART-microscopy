@@ -32,8 +32,8 @@ structured output via print(json), and sees a raising script's traceback as text
 ---
  mesoSPIM/src/mesoSPIM_Core.py            |  25 ++++
  mesoSPIM/src/mesoSPIM_MainWindow.py      |  95 ++++++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 156 +++++++++++++++++++++++
- 3 files changed, 276 insertions(+)
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 166 ++++++++++++++++++++++++
+ 3 files changed, 286 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
@@ -211,7 +211,7 @@ new file mode 100644
 index 0000000..904505c
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,156 @@
+@@ -0,0 +1,166 @@
 +"""
 +mesoSPIM remote scripting server.
 +=================================
@@ -282,20 +282,30 @@ index 0000000..904505c
 +    def _on_new_connection(self):
 +        conn = self._server.nextPendingConnection()
 +        if self._conn is not None:
-+            # One client at a time: reject a second concurrent connection.
-+            conn.disconnectFromHost()
-+            return
++            # One client at a time; the NEW connection wins. A client that
++            # vanished without closing (crash, network drop) would otherwise
++            # hold the server hostage until mesoSPIM restarts. The newcomer
++            # still has to pass the token gate before any script runs.
++            self._drop_client(self._conn)
 +        self._conn = conn
 +        self._buf = b""
 +        self._authed = self._token is None
 +        conn.readyRead.connect(self._on_ready_read)
-+        conn.disconnected.connect(self._on_disconnected)
++        conn.disconnected.connect(lambda c=conn: self._on_disconnected(c))
 +
-+    def _on_disconnected(self):
-+        if self._conn is not None:
-+            self._conn.deleteLater()
-+        self._conn = None
-+        self._buf = b""
++    def _on_disconnected(self, conn):
++        conn.deleteLater()
++        if conn is self._conn:
++            self._conn = None
++            self._buf = b""
++
++    def _drop_client(self, conn):
++        try:
++            conn.disconnected.disconnect()
++        except TypeError:
++            pass  # no slots were connected
++        conn.disconnectFromHost()
++        conn.deleteLater()
 +
 +    # -- framing -------------------------------------------------------------
 +
@@ -364,7 +374,7 @@ index 0000000..904505c
 +
 +    def stop(self):
 +        if self._conn is not None:
-+            self._conn.disconnectFromHost()
++            self._drop_client(self._conn)
 +            self._conn = None
 +        self._server.close()
 +        print("[mesospim-remote-scripting] stopped")
