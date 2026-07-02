@@ -226,8 +226,9 @@ class TestFrame(unittest.TestCase):
         self.assertEqual(moves["z"], (3.0, "galvo"))
         self.assertEqual(record["actuators"]["z"], "z-galvo")
         self.assertEqual(record["hardware_targets"]["z_galvo_um"], 3.0)
-        # the selection persists for later reads
-        self.assertEqual(h.actuators["z"], "z-galvo")
+        # the selection does NOT persist: defaults are fixed, never sticky
+        self.assertEqual(adapter._resolve_actuators(None)["z"], "z-wide")
+        self.assertEqual(adapter._resolve_actuators(None)["x"], "motoric")
 
     def test_set_xyz_z_wide_compensates_parked_galvo(self):
         h = _handle(origin=_origin(z_focus_um=30.0))
