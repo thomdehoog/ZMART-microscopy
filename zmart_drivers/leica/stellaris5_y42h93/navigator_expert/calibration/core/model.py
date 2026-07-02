@@ -10,6 +10,7 @@ calibration sessions stay in the session reports instead of the canonical JSON.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from copy import deepcopy
@@ -219,6 +220,24 @@ def get_image_to_stage(config: dict[str, Any]) -> list[list[float]]:
         [float(matrix[0][0]), float(matrix[0][1])],
         [float(matrix[1][0]), float(matrix[1][1])],
     ]
+
+
+def matrix_hash(matrix) -> str:
+    """Content fingerprint (sha256 hex) of a 2x2 image-to-stage matrix.
+
+    Measurement sessions record it next to their staged corrections and
+    adoption verifies it against the active matrix: a ``correction_xy`` is
+    ``image_to_stage @ image_shift``, so it is only valid under the matrix
+    it was measured with -- an intervening image-to-stage adoption must not
+    silently pair it with a different one.
+    """
+    canonical = json.dumps(
+        [
+            [float(matrix[0][0]), float(matrix[0][1])],
+            [float(matrix[1][0]), float(matrix[1][1])],
+        ]
+    )
+    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
 
 
 def _entry(config: dict[str, Any], slot: int) -> dict[str, Any]:

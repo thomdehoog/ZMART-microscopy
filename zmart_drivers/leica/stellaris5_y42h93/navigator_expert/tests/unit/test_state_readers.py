@@ -438,5 +438,53 @@ class TestMissingLegs(unittest.TestCase):
         parse_log.assert_not_called()
 
 
+class TestAgeForSnapshot(unittest.TestCase):
+    """age_for_snapshot must report the age of the datum that produced the
+    value, mirroring the log readers' derivation order -- not a min/max over
+    tangential timestamps."""
+
+    def _age(self, ages, **kwargs):
+        with patch.object(capabilities.log_reader, "ages", return_value=ages):
+            return capabilities.age_for_snapshot(SimpleNamespace(now=100.0), **kwargs)
+
+    def test_jobs_fresh_summary_ignores_ancient_cluster(self):
+        # get_jobs derives the list from the fresh matrix summary; ancient
+        # per-job ATL lines and stale selection markers are tangential.
+        ages = {"job_list": 0.2, "jobs": {"A": 300.0, "B": 250.0}, "selected": 400.0}
+        self.assertEqual(self._age(ages, age_key="jobs", max_age_s=2.0), 0.2)
+
+    def test_jobs_cluster_fallback_bounds_by_oldest_job_line(self):
+        ages = {"job_list": None, "jobs": {"A": 0.4, "B": 1.1}}
+        self.assertEqual(self._age(ages, age_key="jobs", max_age_s=2.0), 1.1)
+
+    def test_jobs_stale_summary_falls_back_to_cluster(self):
+        # The reader refuses a summary older than max_age_s and derives from
+        # the ATL cluster; the age must mirror that.
+        ages = {"job_list": 500.0, "jobs": {"A": 0.4, "B": 1.1}}
+        self.assertEqual(self._age(ages, age_key="jobs", max_age_s=2.0), 1.1)
+
+    def test_selected_job_stale_current_block_must_not_report_fresh_intent(self):
+        # Regression: value from CurrentBlock, min() reported the fresher
+        # SetCurrentSelectedElementID intent echo -- stale value, fresh age.
+        ages = {"current_block": 1.8, "selected": 0.1}
+        self.assertEqual(self._age(ages, age_key="selected_job", max_age_s=2.0), 1.8)
+
+    def test_selected_job_without_current_block_uses_intent(self):
+        ages = {"current_block": None, "selected": 0.4}
+        self.assertEqual(self._age(ages, age_key="selected_job", max_age_s=2.0), 0.4)
+
+    def test_selected_job_refused_current_block_uses_intent(self):
+        ages = {"current_block": 500.0, "selected": 0.4}
+        self.assertEqual(self._age(ages, age_key="selected_job", max_age_s=2.0), 0.4)
+
+    def test_job_name_path_reads_per_job_age(self):
+        ages = {"jobs": {"A": 0.7}}
+        self.assertEqual(self._age(ages, job_name="A"), 0.7)
+
+    def test_plain_keys_pass_through(self):
+        ages = {"xy": 0.9}
+        self.assertEqual(self._age(ages, age_key="xy"), 0.9)
+
+
 if __name__ == "__main__":
     unittest.main()

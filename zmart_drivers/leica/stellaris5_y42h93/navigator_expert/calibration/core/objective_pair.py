@@ -760,6 +760,11 @@ def measure_parcentricity_target_and_save(
             "to_objective": session.to_objective,
             "translation_xy_um": list(session.translation_xy_um),
             "translation_z_um": float(session.translation_z_um),
+            # Provenance: the correction_xy baked into this translation is
+            # image_to_stage @ image_shift, valid only under the matrix it
+            # was measured with. Adoption verifies this fingerprint against
+            # the active matrix and refuses a mismatch.
+            "image_to_stage_hash": calib.matrix_hash(session.image_to_stage),
         }
         write_json_atomic(out, payload)
         # Absolute path: sessions_root is operator-supplied and may live
@@ -799,6 +804,7 @@ def measure_parcentricity_target_and_save(
         "calibration_file": session.objective_config_name,
         "config_written": config_written,
         "source_calibration_file": source_calibration_file,
+        "image_to_stage_hash": calib.matrix_hash(session.image_to_stage),
         "from_objective": session.from_objective,
         "to_objective": session.to_objective,
         "home_xy_um": [_f(session.home_xy[0]), _f(session.home_xy[1])],

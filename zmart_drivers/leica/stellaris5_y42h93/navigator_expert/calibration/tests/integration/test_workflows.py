@@ -31,6 +31,7 @@ from navigator_expert.calibration.core import common as cm
 from navigator_expert.calibration.core import (
     image_to_stage as wf_i2s,
 )
+from navigator_expert.calibration.core import model as calib_model
 from navigator_expert.calibration.core import (
     objective_pair as wf_obj,
 )
@@ -753,6 +754,8 @@ def test_adoption_objective_translation_updates_canonical_calibration(
         "to_objective": "20x",
         "translation_xy_um": [12.0, 17.0],
         "translation_z_um": 3.0,
+        # measured under the seeded identity matrix
+        "image_to_stage_hash": calib_model.matrix_hash([[1.0, 0.0], [0.0, 1.0]]),
     }
     session, _ = _make_staging_session(
         sessions_root,
@@ -770,6 +773,61 @@ def test_adoption_objective_translation_updates_canonical_calibration(
     current = json.loads(machine.calibration_path().read_text(encoding="utf-8"))
     assert current["objectives"]["2"]["translation_um"] == [12.0, 17.0, 3.0]
     assert current["objectives"]["2"]["session_id"] == session.session_id
+
+
+def test_adoption_objective_translation_refuses_matrix_mismatch(sessions_root, machine):
+    """A correction measured under matrix A must not adopt onto matrix B.
+
+    correction_xy = image_to_stage @ image_shift, so an intervening
+    image-to-stage adoption invalidates any staged objective translation.
+    """
+    _seed_snapshot(machine)  # active matrix: identity
+    payload = {
+        "schema_version": cm.STAGING_SCHEMA_VERSION,
+        "kind": "objective_translation",
+        "created_at": "2026-05-22T15:10:00+02:00",
+        "from_objective": "10x",
+        "to_objective": "20x",
+        "translation_xy_um": [12.0, 17.0],
+        "translation_z_um": 3.0,
+        # measured under a rotated matrix, NOT the active identity
+        "image_to_stage_hash": calib_model.matrix_hash([[0.0, -1.0], [1.0, 0.0]]),
+    }
+    session, _ = _make_staging_session(sessions_root, payload, "objective_10x_to_20x.json")
+
+    with pytest.raises(ValueError, match="different image_to_stage"):
+        wf_adopt.adopt_calibration(
+            session,
+            "objective_10x_to_20x.json",
+            machine=machine,
+            moment=_ADOPT_MOMENT,
+        )
+    # Fail-closed: nothing was published on top of the seed.
+    assert len(machine.snapshots()) == 1
+
+
+def test_adoption_objective_translation_requires_matrix_provenance(sessions_root, machine):
+    """A staging payload without the matrix fingerprint cannot be verified."""
+    _seed_snapshot(machine)
+    payload = {
+        "schema_version": cm.STAGING_SCHEMA_VERSION,
+        "kind": "objective_translation",
+        "created_at": "2026-05-22T15:10:00+02:00",
+        "from_objective": "10x",
+        "to_objective": "20x",
+        "translation_xy_um": [12.0, 17.0],
+        "translation_z_um": 3.0,
+    }
+    session, _ = _make_staging_session(sessions_root, payload, "objective_10x_to_20x.json")
+
+    with pytest.raises(ValueError, match="image_to_stage_hash"):
+        wf_adopt.adopt_calibration(
+            session,
+            "objective_10x_to_20x.json",
+            machine=machine,
+            moment=_ADOPT_MOMENT,
+        )
+    assert len(machine.snapshots()) == 1
 
 
 def test_adoption_first_adopt_falls_back_to_bundled_default(
@@ -833,6 +891,9 @@ def test_adoption_seeds_from_bundled_default_when_no_snapshot(sessions_root, mac
     # With a fresh machine (no snapshot) an objective-pair adopt reads the
     # bundled default, merges the delta, and publishes the first snapshot.
     assert machine.latest_snapshot() is None
+    # The adopt below merges into the bundled default calibration, so the
+    # staged correction must fingerprint the bundled default's matrix.
+    bundled = calib_model.load_calibration(machine.calibration_path())
     payload = {
         "schema_version": cm.STAGING_SCHEMA_VERSION,
         "kind": "objective_translation",
@@ -841,6 +902,7 @@ def test_adoption_seeds_from_bundled_default_when_no_snapshot(sessions_root, mac
         "to_objective": "20x",
         "translation_xy_um": [12.0, 17.0],
         "translation_z_um": 3.0,
+        "image_to_stage_hash": calib_model.matrix_hash(calib_model.get_image_to_stage(bundled)),
     }
     session, _ = _make_staging_session(
         sessions_root,
@@ -1592,6 +1654,8 @@ def test_objective_pair_xy_translation_arithmetic_identity(
     assert payload["kind"] == "objective_translation"
     assert payload["translation_xy_um"] == [12.0, 17.0]
     assert payload["translation_z_um"] == pytest.approx(3.0, abs=1e-6)
+    # The writer fingerprints the matrix the session measured under.
+    assert payload["image_to_stage_hash"] == calib_model.matrix_hash([[1.0, 0.0], [0.0, 1.0]])
 
 
 def test_objective_pair_weak_xy_vote_blocks_config(monkeypatch, sessions_root, machine):

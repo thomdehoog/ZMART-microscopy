@@ -61,6 +61,14 @@ def _x_scan_mode(ch, p):
     return ch["scanMode"]
 
 
+def _x_sequential_mode(ch, p):
+    return ch["sequentialMode"]
+
+
+def _x_z_stack_step_size(ch, p):
+    return ch["stack"]["stepSize"]
+
+
 def _x_pinhole_airy(ch, p):
     return ch["activeSettings"][p["si"]]["pinholeAiry"]["value"]
 
@@ -155,10 +163,14 @@ CONFIRM_SPECS = {
     "filter_wheel_spectrum": ConfirmSpec(
         "FilterWheelSpectrum", _x_filter_wheel_spectrum, _cmp_tolerance, _SEARCH_ERRORS, 1
     ),
+    "z_stack_step_size": ConfirmSpec(
+        "Z-stack step", _x_z_stack_step_size, _cmp_tolerance, _DICT_ERRORS, 0.5
+    ),
     # -- exact match ---------------------------------------------------------
     "scan_speed": ConfirmSpec("ScanSpeed", _x_scan_speed, _cmp_exact, _DICT_ERRORS),
     "scan_resonant": ConfirmSpec("ScanResonant", _x_scan_resonant, _cmp_exact, _DICT_ERRORS),
     "scan_mode": ConfirmSpec("ScanMode", _x_scan_mode, _cmp_exact, _DICT_ERRORS),
+    "sequential_mode": ConfirmSpec("SequentialMode", _x_sequential_mode, _cmp_exact, _DICT_ERRORS),
     "frame_accumulation": ConfirmSpec(
         "FrameAccumulation", _x_frame_accumulation, _cmp_exact, _INDEXED_ERRORS
     ),

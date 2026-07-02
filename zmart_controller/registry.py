@@ -10,11 +10,11 @@ the connection dict; everything else in that dict is free for the driver to use
 (client name, api delay, host, credentials, ...) and is forwarded untouched to
 ``connect``.
 
-This is where vendor driver adapters will register once they exist -- those
-adapters are still under construction (see ``docs/ZMART.md``), so today the only
-callers are the mock driver and the example notebook. Test-only integrations,
-like the mock, register themselves from the test side, so no test code is
-imported into production.
+This is where vendor driver adapters register. The first real one is the Leica
+Stellaris 5 adapter (``zmart_drivers.leica.stellaris5_y42h93.navigator_expert
+.zmart_adapter`` -- import it to register the instrument); the mock driver and
+the example notebook register from the test/demo side, so no test code is
+imported into production. See ``docs/ZMART.md`` for the integration status.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).

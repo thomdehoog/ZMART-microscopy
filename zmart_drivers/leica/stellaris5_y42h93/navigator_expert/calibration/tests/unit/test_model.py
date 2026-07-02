@@ -226,3 +226,28 @@ def test_save_load_semantic_round_trip(tmp_path):
     cal.save_calibration(loaded, path=path)
     loaded_again = cal.load_calibration(path)
     assert _semantically_equal(loaded, loaded_again)
+
+
+def test_matrix_hash_is_deterministic_and_type_insensitive():
+    cal = _load_calibration_module()
+    a = cal.matrix_hash([[1.0, 0.0], [0.0, 1.0]])
+    b = cal.matrix_hash([[1, 0], [0, 1]])  # ints coerce to the same floats
+    assert a == b
+    assert len(a) == 64  # sha256 hex
+
+
+def test_matrix_hash_differs_for_different_matrices():
+    cal = _load_calibration_module()
+    identity = cal.matrix_hash([[1.0, 0.0], [0.0, 1.0]])
+    rotated = cal.matrix_hash([[0.0, -1.0], [1.0, 0.0]])
+    scaled = cal.matrix_hash([[1.0000001, 0.0], [0.0, 1.0]])
+    assert identity != rotated
+    assert identity != scaled
+
+
+def test_matrix_hash_matches_config_matrix():
+    cal = _load_calibration_module()
+    cfg = _config()
+    assert cal.matrix_hash(cal.get_image_to_stage(cfg)) == cal.matrix_hash(
+        [[0.0, -1.0], [1.0, 0.0]]
+    )

@@ -85,6 +85,40 @@ def test_mock_starts_inside_typical_calibrated_envelope():
     assert mock._stage_y >= 0.001
 
 
+def test_mock_scan_window_survives_delayed_first_poll():
+    """A starved status poller must still observe the scan.
+
+    Regression for the suite-load acquire flake, which needs two guarantees:
+
+    - The mock's scanning window was purely wall-clock (0.1 s) while the
+      driver polls at 0.1 s, so under CPU load the whole window could pass
+      between the acquire command and the first status poll.
+    - confirm_acquire's fail-closed freshness gate discards a reading
+      stamped in the same wall-clock tick as the command start -- and that
+      discarded first poll still consumes an observation.
+
+    So the mock guarantees TWO observed scanning reads per command-initiated
+    scan: even with the first eaten by the tick gate, the next poll (a
+    strictly later tick) still sees the scan.
+    """
+    import time
+    from types import SimpleNamespace
+
+    mock = MockLasxClient(latency=0.0)
+    mock._handle_acquire_job(SimpleNamespace(JobName="HiRes"))
+    time.sleep(0.25)  # well past the 0.1 s wall-clock window
+    assert mock.PyApiStatus.Model.ScanStatus == "eScanStarted"  # may be tick-rejected
+    assert mock.PyApiStatus.Model.ScanStatus == "eScanStarted"  # the poll that counts
+    assert mock.PyApiStatus.Model.ScanStatus == "eScanIdle"  # then idle
+
+    # StartScan gets the same guarantee.
+    mock._handle_start_scan(SimpleNamespace(JobName="HiRes"))
+    time.sleep(0.25)
+    assert mock.PyApiStatus.Model.ScanStatus == "eScanStarted"
+    assert mock.PyApiStatus.Model.ScanStatus == "eScanStarted"
+    assert mock.PyApiStatus.Model.ScanStatus == "eScanIdle"
+
+
 def test_validate_hardware_full_mock_run(tmp_path):
     """Run the full reversible validation flow against the Python mock."""
     output = tmp_path / "hardware_mock.jsonl"

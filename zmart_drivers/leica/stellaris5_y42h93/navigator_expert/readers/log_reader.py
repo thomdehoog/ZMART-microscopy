@@ -117,15 +117,35 @@ def _tail_lines(path, max_bytes=_LOG_TAIL_BYTES):
     return lines
 
 
+def _fold_disambiguate(t0, t1, now):
+    """Pick the DST-fold epoch closest to *now*; log lines are recent.
+
+    Outside DST transitions both folds map to the same instant (t0 == t1).
+    During the fall-back hour the same wall-clock repeats, so the two folds
+    are an hour apart -- choosing by fixed fold can misdate a fresh line by
+    up to an hour, tripping every sub-2-second ``*_log_max_age_s`` gate.
+    Ties keep the first fold (the pre-transition reading).
+    """
+    if t0 == t1:
+        return t0
+    return t0 if abs(now - t0) <= abs(now - t1) else t1
+
+
 def _parse_ts(line):
-    """Epoch seconds (local) for a log line's leading timestamp, or None."""
+    """Epoch seconds (local, DST-fold aware) for a log line's leading
+    timestamp, or None. LAS X stamps naive local wall-clock time; see
+    :func:`_fold_disambiguate` for how the ambiguous fall-back hour is
+    resolved."""
     m = _RE_TS.match(line)
     if not m:
         return None
     try:
-        return datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S.%f").timestamp()
+        dt = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S.%f")
     except ValueError:
         return None
+    return _fold_disambiguate(
+        dt.replace(fold=0).timestamp(), dt.replace(fold=1).timestamp(), time.time()
+    )
 
 
 def _json_in_line(line):

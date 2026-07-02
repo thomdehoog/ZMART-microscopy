@@ -42,21 +42,21 @@ EXPECTED_COLLAPSED = {
     "scan_speed",
     "scan_resonant",
     "scan_mode",
+    "sequential_mode",
     "frame_accumulation",
     "frame_average",
     "line_accumulation",
     "line_average",
     "laser_shutter",
     "filter_wheel_slot",
+    "z_stack_step_size",
 }
 
-# Confirms deliberately left bespoke in Stage 4 — they must NOT appear in the
-# table (each has extra behaviour the generic can't express byte-identically).
+# Confirms deliberately left bespoke — they must NOT appear in the table
+# (each has extra behaviour the generic can't express byte-identically).
 BESPOKE_CONFIRMS = {
     "zoom",  # last_actual carried into the timeout message
-    "sequential_mode",  # explicitly held bespoke
     "image_format",  # "W x H" string target + special log/timeout text
-    "z_stack_step_size",  # logs every poll, before compare, with %.4f/%.6g
     "z_stack_size",  # step-quantised candidate matching
     "z_stack_definition",  # step-quantised candidate matching
     "move_z",  # z-mode key + delta in the debug line
@@ -139,6 +139,20 @@ SAMPLES = {
         match="xyz",
         miss="xy",
         ch=lambda a: {"scanMode": a},
+    ),
+    "sequential_mode": dict(
+        params={},
+        target="Line",
+        match="Line",
+        miss="Frame",
+        ch=lambda a: {"sequentialMode": a},
+    ),
+    "z_stack_step_size": dict(
+        params={},
+        target=2.0,
+        match=2.2,  # |0.2| < 0.5
+        miss=3.0,
+        ch=lambda a: {"stack": {"stepSize": a}},
     ),
     "frame_accumulation": dict(
         params={"si": 0},
@@ -241,6 +255,7 @@ def test_expected_tolerances_are_exact_values():
     assert CONFIRM_SPECS["detector_gain"].default_tolerance == 1.0
     assert CONFIRM_SPECS["laser_intensity"].default_tolerance == 0.005
     assert CONFIRM_SPECS["filter_wheel_spectrum"].default_tolerance == 1
+    assert CONFIRM_SPECS["z_stack_step_size"].default_tolerance == 0.5
 
 
 # =============================================================================
