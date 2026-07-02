@@ -91,57 +91,74 @@ sample point under 63x.
 
 ## Design
 
-### 1. Frame arithmetic (get_xyz / set_xyz) — needs only the CURRENT objective
+### 0. Actuator kinds — absolute and relative movers (contract change)
 
-**Decomposition rule (operator-refined): the base actuators carry the base
-change; the chosen actuator carries the intended displacement.**
+**"Absolute vs. relative mover" is a property of the actuator**, declared in
+``get_actuators`` and consumed by one generic decomposition rule — not a Leica
+special case:
+
+```python
+get_actuators() → {
+  "x": [{"name": "motoric", "kind": "absolute"}],
+  "y": [{"name": "motoric", "kind": "absolute"}],
+  "z": [
+    {"name": "z-wide",  "kind": "absolute"},
+    {"name": "z-galvo", "kind": "relative", "rides_on": "z-wide",
+     "range_um": [-200.0, 200.0]},
+  ],
+}
+```
+
+This is a controller-contract change (today: plain name lists) touching the
+mock, the mesoSPIM adapter, and the Leica adapter — cheap with three
+implementers (question 6).
+
+### 1. Frame arithmetic (get_xyz / set_xyz)
+
+**One decomposition rule (final, operator-settled): the chosen actuator absorbs
+the whole change; every other actuator holds where it is. A move changes
+exactly one actuator, ever.**
 
 ```
 ΔT = T[current_objective] − T[origin.objective]           # calibration, XY µm + z µm
+focus_target = focus_ref + F.z + ΔT.z
 
-XY (motoric):  abs_xy  = xy_ref      + F.xy + ΔT.xy       # one actuator: both terms
-z chosen = galvo:
-    z_wide  = z_wide_ref  + ΔT.z                          # base: compensation ONLY
-    z_galvo = z_galvo_ref + F.z                           # chosen: displacement ONLY
-z chosen = z-wide:
-    z_galvo = z_galvo_ref                                 # snaps to canonical
-    z_wide  = z_wide_ref + F.z + ΔT.z
-(sum check, either case: z_wide + z_galvo = focus_ref + F.z + ΔT.z ✓)
+XY (motoric):             abs_xy  = xy_ref + F.xy + ΔT.xy
+z chosen = galvo:         z_galvo = focus_target − z_wide_current   (z-wide holds)
+z chosen = z-wide:        z_wide  = focus_target − z_galvo_current  (galvo holds)
+(sum check, either case: z_wide + z_galvo = focus_target ✓)
 ```
 
-**set_xyz is a pure function of (origin, F, ΔT, actuator choice).** No target
-formula contains a current actuator position — the only live input is the
-current objective (for ΔT). Consequence: after every ``set_xyz`` the entire
-actuator configuration is canonical, reproducible from the journal line alone;
-decompositions never accumulate; any perturbation is re-canonicalized by the
-next move. (This is why the non-chosen z drive snaps to its canonical value
-rather than holding an arbitrary current one — holding would reintroduce state.
-It also makes ``rebase_galvo`` mostly implicit; the explicit procedure remains
-for "rebase without moving".) Statelessness is a property of computing targets
-only: confirmation still reads the hardware afterwards, and ``get_xyz`` still
-measures.
+No rebasing inside movement semantics — neither automatic nor optional
+(rejected as going too far). Design journey recorded so it is not re-litigated:
+a *canonical* (origin-anchored) galvo target was rejected because it confines
+the galvo to the origin's plane ± its range (a 500 µm motoric move would leave
+fine galvo work refused); automatic/optional re-centering inside ``set_xyz``
+was rejected as complexity beyond need. Hold-current survives every scenario:
+after a motoric move the galvo still sits where it was, so fine work around the
+new plane computes small galvo values; a cross-objective galvo move absorbs
+only the small optical ``correction`` residual because the firmware pre-shifts
+z-wide (motor_shift); and if the galvo ever drifts to its range edge, the
+pre-flight raises the actionable error — the operator moves with z-wide or runs
+the ``center_actuator`` **procedure** (see Guards), centering's one legitimate
+home.
 
-The galvo's formula contains no ΔT term — **the galvo cannot see objectives**
-(the algebra of "the galvo should not care"). On a cross-objective galvo move
-both drives change, but the motor's change is pure base maintenance, net-zero at
-the object level: the net sample-space movement is only what the chosen actuator
-realized. This beats decomposing the whole focus target onto the chosen drive:
-parfocal offsets (tens–hundreds of µm) would otherwise eat the galvo's ±range,
-and the galvo would couple to objectives. z-wide's target is canonical per
-(origin, objective) — stateless and self-correcting (a perturbed z-wide is
-restored to base by the next galvo-chosen move). The invariant's final form: *a
-galvo-chosen move never moves the motor for displacement; the motor moves only
-to maintain the base, which is net-zero in sample space.*
+Target computation reads at most two live values: the current objective (for
+ΔT) and the non-chosen z drive's current position — both fresh measurements,
+never bookkeeping; the journal reconstructs every configuration from actuals.
+Acceptance property: ``get_xyz(set_xyz(F)) == F`` under any objective and
+actuator choice.
 
-Stateless per call: the hardware snapshot already carries the current objective and
-`origin.json` carries the anchor objective. **No-double-counting claim:** because
-every commanded move is absolute, the *total* translation subsumes whatever the
+The hardware snapshot already carries the current objective and `origin.json`
+carries the anchor objective. **No-double-counting claim:** because every
+commanded move is absolute, the *total* translation subsumes whatever the
 firmware did at swap time; the motor_shift/correction split is NOT needed for
 target computation. Side effect: after a swap with no commanded move, an
 objective-aware `get_xyz` reads the residual truthfully (perfect firmware
 compensation ⇒ frame value unchanged; otherwise the frame shows −correction).
-The galvo pre-flight guard checks only `z_galvo_ref + F.z` against the galvo
-range — compensation never counts against it.
+The relative-mover pre-flight checks the computed rider target
+(`focus_target − carrier_current`) against the actuator's declared range —
+refusing the whole move before anything travels.
 
 **Reading is the inverse (the joystick case).** A manual stage move needs
 nothing special: `get_xyz` runs the same transform in the read direction —
@@ -174,17 +191,22 @@ attributable** (other moves may have occurred) ⇒ warn, don't fail (question 4)
 
 ### 3. Guards
 
-- **Galvo pre-flight:** validate the z decomposition *before* the XY leg, so a
-  galvo target outside its physical range refuses the WHOLE move with an
-  actionable message ("focus target needs the galvo at +312 µm (range ±200): move
-  with z-wide instead, or rebase the galvo") — instead of today's order (XY moves,
-  then z fails, stage left at new XY with old focus).
+- **Relative-mover pre-flight:** validate the z decomposition *before* the XY
+  leg, so a rider target outside its declared range refuses the WHOLE move with
+  an actionable message ("focus target needs the galvo at +312 µm (range ±200):
+  move with z-wide instead, or run center_actuator('z-galvo')") — instead of
+  today's order (XY moves, then z fails, stage left at new XY with old focus).
 - **Missing calibration entry** for either objective ⇒ refuse cross-objective
   moves.
-- **`rebase_galvo` procedure** (via `get_procedures`): z-wide absorbs the current
-  galvo offset, galvo returns to 0, net focus unchanged. A deliberate operator
-  action — never implicit — resolving "the galvo needs to be reset sometime"
-  without breaking the invariant that a galvo move never moves the motor.
+- **`center_actuator` procedure** (via `get_procedures` /
+  `set_procedure({"name": "center_actuator", "actuator": ...})`): return a
+  relative mover to mid-range while its carrier absorbs the offset — net-zero
+  in sample space (acceptance: `get_xyz` before == after). Centering lives ONLY
+  here (operator decision): procedures have the license for coordinated
+  housekeeping motion (like `backlash_takeup`); movement semantics stay
+  one-actuator-per-move. Vendor-neutral by construction (a Zeiss piezo centers
+  the same way). Journaled as its own event: the split changes, `frame` does
+  not.
 
 ## Open questions (for external review)
 
