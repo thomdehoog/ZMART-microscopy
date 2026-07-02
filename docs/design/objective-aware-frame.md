@@ -146,9 +146,13 @@ after a motoric move the galvo still sits where it was, so fine work around the
 new plane computes small galvo values; a cross-objective galvo move absorbs
 only the small optical ``correction`` residual because the firmware pre-shifts
 z-wide (motor_shift); and if the galvo ever drifts to its range edge, the
-pre-flight raises the actionable error — the operator moves with z-wide or runs
-the ``center_actuator`` **procedure** (see Guards), centering's one legitimate
-home.
+pre-flight raises the actionable error — the operator moves with z-wide. (A
+``center_actuator`` procedure was considered and DROPPED entirely — operator
+decision: "you can forget it". Error + z-wide covers the need.)
+
+``with_actuators`` accepts exactly the names ``get_actuators`` lists per axis
+(discover-then-apply). Omitted axes use **fixed defaults** — x/y ``motoric``,
+z ``z-wide`` — never sticky: a previous call's choice is not state (BUILT).
 
 Target computation reads at most two live values: the current objective (for
 ΔT) and the non-chosen z drive's current position — both fresh measurements,
@@ -198,22 +202,17 @@ attributable** (other moves may have occurred) ⇒ warn, don't fail (question 4)
 
 ### 3. Guards
 
-- **Relative-mover pre-flight:** validate the z decomposition *before* the XY
-  leg, so a rider target outside its declared range refuses the WHOLE move with
-  an actionable message ("focus target needs the galvo at +312 µm (range ±200):
-  move with z-wide instead, or run center_actuator('z-galvo')") — instead of
-  today's order (XY moves, then z fails, stage left at new XY with old focus).
+- **Relative-mover pre-flight (BUILT):** validate the z decomposition *before*
+  the XY leg, so a rider target outside its declared range refuses the WHOLE
+  move with an actionable message ("try with_actuators={'z': 'z-wide'}") —
+  instead of the old order (XY moves, then z fails, stage left at new XY with
+  old focus).
 - **Missing calibration entry** for either objective ⇒ refuse cross-objective
-  moves.
-- **`center_actuator` procedure** (via `get_procedures` /
-  `set_procedure({"name": "center_actuator", "actuator": ...})`): return a
-  relative mover to mid-range while its carrier absorbs the offset — net-zero
-  in sample space (acceptance: `get_xyz` before == after). Centering lives ONLY
-  here (operator decision): procedures have the license for coordinated
-  housekeeping motion (like `backlash_takeup`); movement semantics stay
-  one-actuator-per-move. Vendor-neutral by construction (a Zeiss piezo centers
-  the same way). Journaled as its own event: the split changes, `frame` does
-  not.
+  moves (BUILT; reads warn and return uncompensated instead, staying
+  available).
+- **No centering, anywhere** (operator decision: "you can forget it") — a
+  `center_actuator` procedure was designed and dropped; the answer to an
+  out-of-range rider is the error + moving with the absolute drive.
 
 ## Open questions (for external review)
 

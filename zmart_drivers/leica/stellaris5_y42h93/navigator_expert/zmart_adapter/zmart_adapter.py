@@ -96,6 +96,10 @@ CONNECTION = {
 
 _ACTUATORS = {"x": ("motoric",), "y": ("motoric",), "z": ("z-wide", "z-galvo")}
 
+# Fixed defaults for axes omitted from ``with_actuators`` — never sticky: a
+# previous call's choice is not state.
+_DEFAULT_ACTUATORS = {"x": "motoric", "y": "motoric", "z": "z-wide"}
+
 # controller actuator name -> driver move_z z_mode
 _Z_MODES = {"z-wide": "zwide", "z-galvo": "galvo"}
 
@@ -113,8 +117,6 @@ class ZmartHandle:
             stage XY, both z drives, their focus sum, and the objective
             it was captured under. Defaults to all-zero (frame ==
             absolute stage coordinates) until ``set_origin`` runs.
-        actuators: Active actuator per axis; updated by every
-            ``with_actuators`` selection so later reads report it.
         used_p: Naming ``p`` slots already consumed this session, so
             auto-assigned positions never collide with explicit numeric
             position labels.
@@ -134,9 +136,6 @@ class ZmartHandle:
             "z_focus_um": 0.0,
             "objective": None,
         }
-    )
-    actuators: dict[str, str] = field(
-        default_factory=lambda: {"x": "motoric", "y": "motoric", "z": "z-wide"}
     )
     used_p: set = field(default_factory=set)
     # Per-objective-slot translation triples (µm) from the active calibration,
@@ -407,14 +406,20 @@ def set_origin(handle: ZmartHandle) -> dict:
 
 
 def get_actuators(handle: ZmartHandle) -> dict:
-    """The actuator options per axis: motoric XY, z-wide / z-galvo for Z."""
+    """The actuator menu per axis — exactly the names ``with_actuators`` accepts.
+
+    ``{"x": ["motoric"], "y": ["motoric"], "z": ["z-wide", "z-galvo"]}``.
+    Axes omitted from ``with_actuators`` use the fixed defaults (x/y
+    ``motoric``, z ``z-wide``) — never sticky: a previous call's choice is
+    not remembered.
+    """
     _require_open(handle)
     return {axis: list(opts) for axis, opts in _ACTUATORS.items()}
 
 
-def _resolve_actuators(handle: ZmartHandle, with_actuators: dict | None) -> dict[str, str]:
-    """Merge a per-call actuator selection over the handle's active one."""
-    chosen = dict(handle.actuators)
+def _resolve_actuators(with_actuators: dict | None) -> dict[str, str]:
+    """Merge a per-call actuator selection over the fixed defaults."""
+    chosen = dict(_DEFAULT_ACTUATORS)
     for axis, actuator in (with_actuators or {}).items():
         if actuator not in _ACTUATORS.get(axis, ()):
             raise ValueError(f"unknown actuator {actuator!r} for axis {axis!r}")
@@ -434,7 +439,7 @@ def get_xyz(handle: ZmartHandle, *, with_actuators: dict | None = None) -> dict:
     under ``"hardware"``.
     """
     _require_open(handle)
-    chosen = _resolve_actuators(handle, with_actuators)
+    chosen = _resolve_actuators(with_actuators)
     snap = _hardware_snapshot(handle)
     dt = _delta_or_warn(handle, snap)
     z_focus = snap["z_wide_um"] + snap["z_galvo_um"]
@@ -477,8 +482,7 @@ def set_xyz(
     refuses the whole move with the actionable alternative.
     """
     _require_open(handle)
-    chosen = _resolve_actuators(handle, with_actuators)
-    handle.actuators = chosen
+    chosen = _resolve_actuators(with_actuators)
     snap = _hardware_snapshot(handle)
     dt = _objective_delta_um(handle, snap.get("objective"))  # raises if unavailable
     abs_x = handle.origin["x_um"] + x + dt[0]
