@@ -93,25 +93,27 @@ class TestAcquire:
 
 
 class TestState:
-    def test_state_split_into_mutable_immutable(self, mic):
+    def test_state_split_into_changeable_observed(self, mic):
         state = mic.get_state()
-        assert set(state) == {"immutable", "mutable"}
-        assert "serial" in state["immutable"]
-        assert "laser_power" in state["mutable"]
+        assert list(state) == ["changeable", "observed"]  # changeable first
+        assert "laser_power" in state["changeable"]
+        assert "serial" in state["observed"]
 
     def test_capture_and_reapply(self, mic):
         original = mic.get_state()
-        mic.set_state({"mutable": {"laser_power": 99.0}})
-        assert mic.get_state()["mutable"]["laser_power"] == 99.0
+        mic.set_state({"changeable": {"laser_power": 99.0}})
+        assert mic.get_state()["changeable"]["laser_power"] == 99.0
         mic.set_state(original)
-        assert mic.get_state()["mutable"]["laser_power"] == original["mutable"]["laser_power"]
+        assert mic.get_state()["changeable"]["laser_power"] == original["changeable"]["laser_power"]
 
     def test_set_state_returns_driver_record(self, mic):
-        assert mic.set_state({"mutable": {"laser_power": 7.0}})["applied"]["laser_power"] == 7.0
+        assert mic.set_state({"changeable": {"laser_power": 7.0}})["applied"]["laser_power"] == 7.0
 
-    def test_immutable_mismatch_rejected(self, mic):
-        with pytest.raises(ValueError, match="different instrument"):
-            mic.set_state({"immutable": {"serial": "OTHER"}, "mutable": {}})
+    def test_observed_is_a_report_never_an_instruction(self, mic):
+        # A mismatching observed part does not block applying the changeable
+        # part (operator decision: set_state acts on changeable only).
+        rec = mic.set_state({"changeable": {"laser_power": 5.0}, "observed": {"serial": "OTHER"}})
+        assert rec["applied"]["laser_power"] == 5.0
 
 
 class TestProcedures:

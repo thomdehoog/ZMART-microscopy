@@ -4,7 +4,7 @@ It exercises the full controller contract so the package can be tested offline,
 and it shows the shape a real driver implements: it receives the connection dict,
 owns the frame origin (user coordinates are micrometers from it), and does the
 work the controller does not -- settling before capture, saving, and
-owning the mutable/immutable state boundary.
+owning the changeable/observed state boundary.
 
 Driver contract used by the registry: ``connect(connection) -> handle`` opens a
 session and returns an opaque handle; every other operation takes that handle as
@@ -212,27 +212,30 @@ def acquire(
 
 
 def get_state(handle: MockHandle) -> dict:
-    """Return the opaque state: immutable identity + mutable settings."""
+    """Return the opaque state: the changeable settings first, then the
+    observed report (identity and condition, read-only)."""
     _require_open(handle)
     return {
-        "immutable": {"serial": handle.serial},
-        "mutable": {"laser_power": handle.laser_power, "gain": handle.gain},
+        "changeable": {"laser_power": handle.laser_power, "gain": handle.gain},
+        "observed": {"serial": handle.serial},
     }
 
 
 def set_state(handle: MockHandle, state: dict) -> dict:
-    """Validate the immutable fingerprint, apply mutable settings, report what stuck."""
+    """Apply the changeable settings; report what stuck.
+
+    ``observed`` is a report, never an instruction — it is not read here
+    (operator decision: the identity gate returns only if the changeable
+    part ever grows beyond low-risk settings).
+    """
     _require_open(handle)
-    immutable = state.get("immutable", {})
-    if immutable.get("serial", handle.serial) != handle.serial:
-        raise ValueError("state captured on a different instrument")
-    mutable = state.get("mutable", {})
+    changeable = state.get("changeable", {})
     applied = {}
-    if "laser_power" in mutable:
-        handle.laser_power = mutable["laser_power"]
+    if "laser_power" in changeable:
+        handle.laser_power = changeable["laser_power"]
         applied["laser_power"] = handle.laser_power
-    if "gain" in mutable:
-        handle.gain = mutable["gain"]
+    if "gain" in changeable:
+        handle.gain = changeable["gain"]
         applied["gain"] = handle.gain
     return {"applied": applied}
 
