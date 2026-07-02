@@ -8,6 +8,7 @@ layout.
 
 from __future__ import annotations
 
+import logging
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -27,8 +28,13 @@ from .product import (
     VendorMetadataSource,
 )
 
+log = logging.getLogger(__name__)
+
 DEFAULT_FILE_STABILITY_TIMEOUT_S = 120
-DEFAULT_EXPORT_COMPLETION_TIMEOUT_S = 5.0
+# Completeness (all timepoints/planes present) gets a budget in the same
+# regime as file stability (120 s): a long time-series still flushing to
+# disk after the job finished is healthy, not a failure.
+DEFAULT_EXPORT_COMPLETION_TIMEOUT_S = 60.0
 DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S = 0.5
 
 
@@ -65,6 +71,7 @@ def collect_navigator_expert_export(
         poll_interval=path_poll_interval,
         completion_timeout=export_completion_timeout,
         completion_poll_interval=export_completion_poll_interval,
+        stability_timeout=file_stability_timeout_s,
     )
     if detected is None:
         detected = _detect_from_mtime(
@@ -74,19 +81,11 @@ def collect_navigator_expert_export(
             timeout=mtime_poll_timeout,
             completion_timeout=export_completion_timeout,
             completion_poll_interval=export_completion_poll_interval,
+            stability_timeout=file_stability_timeout_s,
         )
 
-    files = detected.source_files
-    if not files:
+    if not detected.source_files:
         raise RuntimeError("Navigator Expert export produced no files")
-    stability = _files.wait_all_stable(
-        files,
-        timeout=file_stability_timeout_s,
-    )
-    if not stability.get("success"):
-        raise RuntimeError(
-            f"Navigator Expert export files did not become stable: {stability.get('error')}"
-        )
     return detected
 
 
@@ -114,12 +113,15 @@ def _detect_from_relative_path(
     poll_interval: float,
     completion_timeout: float,
     completion_poll_interval: float,
+    stability_timeout: float,
 ) -> ExportedAcquisition | None:
     deadline = time.perf_counter() + timeout
     while time.perf_counter() < deadline:
         rel = _files.read_relative_path(client)
         if rel:
-            full_path = media_path / rel.lstrip("\\/")
+            # Normalize interior backslashes too: on a posix host a value
+            # like 'sub\\image.ome.tif' is otherwise one filename component.
+            full_path = media_path / rel.lstrip("\\/").replace("\\", "/")
             if full_path.is_file() and _is_from_acquisition(full_path, acq):
                 parsed = _files.parse_lasx_filename(full_path.name)
                 if parsed is not None:
@@ -138,6 +140,7 @@ def _detect_from_relative_path(
                         collected=collected,
                         method="relative_path",
                         relative_path=rel,
+                        stability_timeout=stability_timeout,
                     )
         time.sleep(poll_interval)
     return None
@@ -151,6 +154,7 @@ def _detect_from_mtime(
     timeout: float,
     completion_timeout: float,
     completion_poll_interval: float,
+    stability_timeout: float,
 ) -> ExportedAcquisition:
     found = _find_fresh_seed_by_mtime(media_path, acq, timeout=timeout)
     if found is None:
@@ -172,6 +176,7 @@ def _detect_from_mtime(
         source_dir=source_dir,
         collected=collected,
         method="mtime",
+        stability_timeout=stability_timeout,
     )
 
 
@@ -271,12 +276,22 @@ def _collect_positions_once(
         )
 
     by_t: dict[int, dict[PlaneIndex, PlaneSource]] = {}
+    repeat_by_idx: dict[PlaneIndex, int] = {}
     for p, parsed in fresh:
         idx = PlaneIndex(t=parsed["T"], z=parsed["Z"], c=parsed["C"])
         planes = by_t.setdefault(idx.t, {})
+        repeat = int(parsed.get("repeat") or 0)
         if idx in planes:
-            raise RuntimeError(f"duplicate LAS X plane index {idx}: {p}")
+            # A re-export into the same folder writes a --NNN repeat file
+            # next to the original. Keep the newest repeat; identical
+            # repeat numbers are a genuine ambiguity and still fail.
+            if repeat == repeat_by_idx[idx]:
+                raise RuntimeError(f"duplicate LAS X plane index {idx}: {p}")
+            if repeat < repeat_by_idx[idx]:
+                continue
+            log.debug("plane %s: repeat %03d supersedes %03d", idx, repeat, repeat_by_idx[idx])
         planes[idx] = PlaneSource(path=p)
+        repeat_by_idx[idx] = repeat
 
     xml_by_t: dict[int, tuple[Path, tuple[int, int, int] | None]] = {}
     for t in sorted(by_t):
@@ -325,7 +340,21 @@ def _exported_acquisition(
     collected: _CollectedExport,
     method: str,
     relative_path: str | None = None,
+    stability_timeout: float,
 ) -> ExportedAcquisition:
+    # Prove every collected file is fully written and unlocked BEFORE the
+    # first pixel/XML read below — LAS X holds an exclusive write lock and
+    # reading early yields PermissionError or truncated data. Mirrors the
+    # native-autosave path's ordering.
+    files = sorted(
+        {plane.path for pos in collected.positions for plane in pos.planes.values()}
+        | set(collected.xml_paths)
+    )
+    stability = _files.wait_all_stable(files, timeout=stability_timeout)
+    if not stability.get("success"):
+        raise RuntimeError(
+            f"Navigator Expert export files did not become stable: {stability.get('error')}"
+        )
     metadata = _metadata_from_collected(collected)
     metadata = _canonical.metadata_with_job_physical_sizes(
         metadata,
