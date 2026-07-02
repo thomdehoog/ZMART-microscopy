@@ -37,9 +37,12 @@ Scope of v1 (grow as needed):
       Naming slots and travel verbatim in the save lineage.
 
 Live-validation note: the z model assumes the two drives combine
-*additively with the same sign*. Verify once on hardware (park the
-galvo at a known offset, move z-wide, check the focus sum) before
-trusting large z moves.
+*additively with the same sign*. The arithmetic, readback keys/units,
+and sign convention are validated against a live CAM by
+``tests/hardware/validate_zmart_adapter.py`` (galvo leg). The *physical*
+additivity of the two drives on a real objective still wants one hardware
+pass (park the galvo at a known offset, move z-wide, check the focus sum)
+before trusting large z moves.
 
 Dependency direction:
     - Imports: driver internals, ``zmart_controller.registry``,
@@ -66,7 +69,9 @@ from ..acquisition import save as _save
 from ..commands import commands as _commands
 from ..commands import settings as _cmd_settings
 from ..connection import session as _session
+from ..motion import limits as _limits
 from ..motion import movement as _motion
+from ..motion import stage_config as _stage_config
 
 log = logging.getLogger(__name__)
 
@@ -139,6 +144,30 @@ def _require_open(handle: ZmartHandle) -> None:
 # =============================================================================
 
 
+def _configure_stage_limits() -> None:
+    """Load and apply the machine's physical stage envelope for this session.
+
+    ``move_xy`` / ``move_z`` refuse to run until ``set_stage_limits()`` has
+    been called, and the controller contract has no limits hook — so the
+    adapter (the one component that knows the machine) configures the hard
+    safety envelope here, once at connect, from the machine config
+    (``stage_config.load()`` — newest snapshot or bundled default).
+
+    Best-effort: a missing/invalid config is logged rather than failing the
+    connect, so read-only controller use still works; a later ``set_xyz``
+    then fails loudly with the driver's own "Stage limits not configured"
+    message instead of moving unbounded.
+    """
+    try:
+        _limits.apply_stage_limits_from_config(_stage_config.load())
+    except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
+        log.warning(
+            "could not configure stage limits from machine config (%s); "
+            "set_xyz will fail until limits are configured",
+            exc,
+        )
+
+
 def connect(connection: dict) -> ZmartHandle:
     """Open the CAM client and return the controller handle.
 
@@ -148,6 +177,9 @@ def connect(connection: dict) -> ZmartHandle:
             ``output_root`` (edited in by the caller) is where
             :func:`acquire` saves and :func:`set_origin` persists.
 
+    Applies the machine's physical stage limits once here so
+    :func:`set_xyz` can move (see :func:`_configure_stage_limits`).
+
     Raises whatever :func:`connect_python_client` raises when LAS X is
     unreachable — the controller surfaces that to the caller unchanged.
     """
@@ -155,6 +187,7 @@ def connect(connection: dict) -> ZmartHandle:
         client_name=connection.get("client", "PythonClient"),
         api_delay_ms=connection.get("api_delay_ms"),
     )
+    _configure_stage_limits()
     return ZmartHandle(client=client, connection=dict(connection), hash6=run_hash())
 
 
