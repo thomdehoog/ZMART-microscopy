@@ -7,6 +7,21 @@
 - **Owner:** Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch ·
   thomdehoog@gmail.com
 
+## The invariant
+
+**Frame coordinates live in sample space: the same surface point reads the same
+frame value regardless of how the actuators realize it.** Actuator positions are
+how a coordinate is *realized*, never what it *means*: frame z is computed from
+the focus sum (`z_wide + z_galvo`), so it is invariant under re-decomposition
+between the drives (including `rebase_galvo`); `with_actuators` selects how a
+move is executed, never what a coordinate denotes; and — once this design lands —
+an objective change re-anchors the mapping via ΔT without moving the frame value
+of a fixed sample point. Actuator state matters in exactly two places, both
+consumed inside `set_xyz` and never leaking into the coordinate: decomposition
+(the other drive's current position) and feasibility (the galvo range
+pre-flight). Position truth is always a fresh hardware read; the frame transform
+is stateless math on that measurement, never bookkeeping.
+
 ## Problem
 
 A frame coordinate must mean the *same sample location* under any objective. Today
@@ -96,8 +111,32 @@ attributable** (other moves may have occurred) ⇒ warn, don't fail (question 4)
    bump (unknown fields tolerated; verified-when-present, like `image_to_stage_hash`)
    vs. required-with-bump?
 
+## Journal — evidence, not truth
+
+The frame does NOT depend on tracked state to know the current position: the
+hardware is the only position truth (fresh snapshot per call, readback-confirmed
+moves, nothing dead-reckoned). A log that became the position truth would drift
+from reality at the first unwitnessed event (GUI action, crash) — the classic
+mutable-shared-state trap. What IS missing is an **append-only machine-local
+journal** (JSONL, `…/<vendor>/<microscope>/<api>/journal/YYYY-MM-DD.jsonl`, session
+hash on every line) recording what *happened*:
+
+- `connect` (+ which persisted origin was restored, its age/objective),
+- `set_origin` (full reference), `set_xyz` (target + confirmed readback),
+- **bracketed swap measurements** (uncommanded delta vs. recorded motor_shift) —
+  accumulated across sessions this dataset answers open question 2
+  (reproducibility/tolerance of the firmware shift),
+- out-of-session change detections (objective/position differs from the last
+  session's final state).
+
+The driver already produces the raw material (structured command envelopes with
+timing/logs; validator JSONL records); the journal is a thin appender, not new
+machinery. Run provenance stays with the run (`save()` lineage) — the journal is
+the machine's diary.
+
 ## Sequencing
 
 The galvo pre-flight + `rebase_galvo` (guards, no calibration dependency) are
-separable and can land before the review verdict. The frame arithmetic + schema
-addition + swap gate land together, after review.
+separable and can land before the review verdict, as can the journal (pure
+observation, no behavior change). The frame arithmetic + schema addition + swap
+gate land together, after review.
