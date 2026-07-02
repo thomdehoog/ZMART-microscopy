@@ -65,9 +65,9 @@ from ..config.profiles import (
     Z_STACK_STEP_SIZE,
     ZOOM,
 )
-from ..utils import _hw_get, _make_log_entry, _make_timing, parse_format
 from ..motion.limits import _check_xy_limits, _check_z_limits
-from .objectives import objective_by_slot
+from ..utils import _hw_get, _make_log_entry, _make_timing, parse_format
+from .confirm_select_job import prepare_select_job, select_job_confirm_legs
 from .confirmations import (
     _confirm_detector_gain,
     _confirm_filter_wheel_slot,
@@ -95,8 +95,8 @@ from .confirmations import (
     confirm_objective,
     race_confirmations,
 )
-from .confirm_select_job import prepare_select_job, select_job_confirm_legs
 from .dispatch import confirm_and_fire
+from .objectives import objective_by_slot
 from .prechecks import check_idle
 
 log = logging.getLogger(__name__)
@@ -1164,10 +1164,10 @@ def move_galvo_to_pixel(client, px, py, *, job_name=None, pixel_size_um=None, im
     """
     from ..experimental.lrp_edits.roi import galvo_pan_for_pixel
     from ..experimental.lrp_edits.scan import lrp_get_pan, lrp_set_pan
-    from ..utils import pan_scale_um_from_base_fov, parse_tile_geometry
+    from ..readers import get_base_fov, get_job_settings, get_selected_job
     from ..scanfields.files import TEMPLATE_XML
     from ..scanfields.transaction import apply_lrp_change
-    from ..readers import get_base_fov, get_job_settings, get_selected_job
+    from ..utils import pan_scale_um_from_base_fov, parse_tile_geometry
 
     if job_name is None:
         # These reads parameterize the command that follows, so they use the

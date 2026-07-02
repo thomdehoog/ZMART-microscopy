@@ -264,19 +264,40 @@ def lrp_set_z_stack_size(lrp_path, size_um, job_name):
 
     # Find current ZPosition for this job's Master element.
     z_m = None
+    job_found = False
     for b in root.findall(".//LDM_Block_Sequence_Block"):
         seq = b.find(".//LDM_Block_Sequential")
         if seq is not None and seq.get("BlockName") == job_name:
+            job_found = True
             el = b.find(".//LDM_Block_Sequential_Master/ATLConfocalSettingDefinition")
-            if el is not None:
-                try:
-                    z_m = float(el.get("ZPosition", "0"))
-                except (ValueError, TypeError):
-                    z_m = 0.0
+            if el is None:
+                log.error(
+                    "lrp_set_z_stack_size: job '%s' has no Sequential_Master setting", job_name
+                )
+                return 0
+            raw_z = el.get("ZPosition")
+            if raw_z is None:
+                # Silently centering at Z=0 m would move the stack far from
+                # the sample; fail loudly instead.
+                log.error(
+                    "lrp_set_z_stack_size: job '%s' Master has no ZPosition; refusing to "
+                    "centre the stack at 0",
+                    job_name,
+                )
+                return 0
+            try:
+                z_m = float(raw_z)
+            except (ValueError, TypeError):
+                log.error(
+                    "lrp_set_z_stack_size: job '%s' ZPosition %r unparseable", job_name, raw_z
+                )
+                return 0
             break
 
-    if z_m is None:
+    if not job_found:
         log.error("lrp_set_z_stack_size: job '%s' not found", job_name)
+        return 0
+    if z_m is None:
         return 0
 
     half_m = (float(size_um) * 1e-6) / 2.0

@@ -1,4 +1,5 @@
 """Import bootstrap only. Must never choose runtime write paths."""
+
 import sys
 from pathlib import Path
 

@@ -37,7 +37,9 @@ from ..commands import commands as _commands
 log = logging.getLogger(__name__)
 
 
-def move_xy_with_backlash(client, x_um, y_um, *, overshoot_um=50.0, settle_ms=100):
+def move_xy_with_backlash(
+    client, x_um, y_um, *, overshoot_um=50.0, settle_ms=100, tolerance_um=None
+):
     """Move to ``(x_um, y_um)`` with backlash takeup on the final approach.
 
     Approaches the target through the overshoot waypoint
@@ -63,6 +65,10 @@ def move_xy_with_backlash(client, x_um, y_um, *, overshoot_um=50.0, settle_ms=10
         STELLARIS.
     settle_ms
         Pause between the overshoot waypoint and the final approach.
+    tolerance_um
+        Position confirmation tolerance for both legs; None uses the
+        move profile's default. Pass the calibrated
+        ``backlash["tolerance_um"]`` from the machine snapshot.
 
     Returns
     -------
@@ -75,21 +81,29 @@ def move_xy_with_backlash(client, x_um, y_um, *, overshoot_um=50.0, settle_ms=10
         uncompensated position - the bug backlash compensation exists
         to prevent.
     """
+    # success=True alone means "command accepted" (profiles set
+    # success_on_unconfirmed=True); the raise-on-failure contract of this
+    # helper needs readback evidence, so both legs must be *confirmed* —
+    # an unconfirmed overshoot leaves the slack-state unpinned, an
+    # unconfirmed approach images at an uncompensated position.
     r = _commands.move_xy(
         client,
         x_um - overshoot_um,
         y_um - overshoot_um,
         unit="um",
+        tolerance=tolerance_um,
     )
-    if not r or not r.get("success"):
+    if not r or not r.get("success") or not r.get("confirmed"):
         raise RuntimeError(
             f"backlash overshoot to ({x_um - overshoot_um:.2f}, "
-            f"{y_um - overshoot_um:.2f}) failed: {r}"
+            f"{y_um - overshoot_um:.2f}) failed or was unconfirmed: {r}"
         )
     time.sleep(settle_ms / 1000.0)
-    r = _commands.move_xy(client, x_um, y_um, unit="um")
-    if not r or not r.get("success"):
-        raise RuntimeError(f"backlash final approach to ({x_um:.2f}, {y_um:.2f}) failed: {r}")
+    r = _commands.move_xy(client, x_um, y_um, unit="um", tolerance=tolerance_um)
+    if not r or not r.get("success") or not r.get("confirmed"):
+        raise RuntimeError(
+            f"backlash final approach to ({x_um:.2f}, {y_um:.2f}) failed or was unconfirmed: {r}"
+        )
     return r
 
 

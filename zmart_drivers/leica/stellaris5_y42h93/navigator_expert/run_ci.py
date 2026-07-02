@@ -39,8 +39,8 @@ import sys
 import time
 from pathlib import Path
 
-DRIVER_ROOT = Path(__file__).resolve().parent          # .../navigator_expert
-MACHINE_ROOT = DRIVER_ROOT.parent                      # .../<machine> (import root)
+DRIVER_ROOT = Path(__file__).resolve().parent  # .../navigator_expert
+MACHINE_ROOT = DRIVER_ROOT.parent  # .../<machine> (import root)
 REPORT_DIR = DRIVER_ROOT / "tests" / "_report"
 TEST_PATHS = [DRIVER_ROOT / "tests", DRIVER_ROOT / "calibration" / "tests"]
 
@@ -105,6 +105,12 @@ def run_step(name: str, cmd: list[str], env: dict, *, fatal: bool) -> dict:
         returncode = 127
         error = f"command not found: {exc}"
         print(f"  ! {error}")
+    except OSError as exc:
+        # Any other launch failure must still yield a step result — the CI
+        # summary and ci_summary.json are the off-machine triage context.
+        returncode = 126
+        error = f"command failed to launch: {exc}"
+        print(f"  ! {error}")
     elapsed = time.perf_counter() - start
     ok = returncode == 0
     status = "OK" if ok else "FAIL"
@@ -138,7 +144,9 @@ def main() -> int:
         ),
     )
     parser.add_argument("--no-lint", action="store_true", help="skip ruff lint/format checks")
-    parser.add_argument("--no-cov", action="store_true", help="skip coverage (no pytest-cov required)")
+    parser.add_argument(
+        "--no-cov", action="store_true", help="skip coverage (no pytest-cov required)"
+    )
     args = parser.parse_args()
 
     run_offline = args.mode in ("offline", "both")
@@ -156,8 +164,10 @@ def main() -> int:
 
     steps: list[dict] = []
 
-    # --- lint (non-fatal: report style debt without masking test results) ----
-    if not args.no_lint:
+    # --- lint (non-fatal: report style debt without masking test results;
+    # online mode is 'just the live validators', so lint runs only when the
+    # offline suite does) ----
+    if not args.no_lint and run_offline:
         ruff_available = importlib.util.find_spec("ruff") is not None
         if ruff_available:
             steps.append(
@@ -207,7 +217,9 @@ def main() -> int:
                 f"--cov-report=html:{REPORT_DIR / 'htmlcov'}",
             ]
         elif cov_requested and not cov_available:
-            print("\n  (pytest-cov not installed -- running without coverage; `pip install pytest-cov` to enable)")
+            print(
+                "\n  (pytest-cov not installed -- running without coverage; `pip install pytest-cov` to enable)"
+            )
 
         label = "tests: offline suite"
         if cov_requested and cov_available:
@@ -266,14 +278,18 @@ def main() -> int:
         print(f"  [{flag}]  {step['name']:<34}  {step['seconds']:>6.1f}s")
     print(f"\n  total: {total_elapsed:.1f}s")
     print(f"  reports written to: {REPORT_DIR}")
-    print("    env.json          environment context for this run (read this first on a remote failure)")
+    print(
+        "    env.json          environment context for this run (read this first on a remote failure)"
+    )
     if run_offline:
         print("    junit.xml         machine-readable offline test results")
         if cov_requested and cov_available:
             print("    coverage.xml      coverage for CI tooling")
             print("    htmlcov/index.html  browsable coverage report")
     if run_hardware:
-        print("    hardware_validate_{api,log,hybrid}.jsonl  end-to-end validator checks per reader route")
+        print(
+            "    hardware_validate_{api,log,hybrid}.jsonl  end-to-end validator checks per reader route"
+        )
     print("    ci_summary.json   this step summary")
 
     summary = {
@@ -286,7 +302,9 @@ def main() -> int:
     (REPORT_DIR / "ci_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     if warn_failures:
-        print(f"\n  WARN: {len(warn_failures)} non-fatal step(s) reported issues (lint) -- see above.")
+        print(
+            f"\n  WARN: {len(warn_failures)} non-fatal step(s) reported issues (lint) -- see above."
+        )
     if fatal_failures:
         print(
             f"\n  RESULT: FAILED -- {len(fatal_failures)} fatal step(s): "

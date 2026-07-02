@@ -114,6 +114,8 @@ __all__ = [
     "get_template_state",
     "strip_template_in_place",
     "apply_lrp_change",
+    "correct_backlash",
+    "move_xy_with_backlash",
     "reorder_jobs",
     "save_and_read_lrp",
     # position parsers/planning
@@ -264,12 +266,12 @@ import sys as _sys
 from pathlib import Path as _Path
 
 _here = _Path(__file__).resolve()
-_leica_root = str(_here.parents[1])
+_machine_root = str(_here.parents[1])  # .../leica/stellaris5_y42h93
 _repo_root = str(_here.parents[4])
-for _path in (_repo_root, _leica_root):
+for _path in (_repo_root, _machine_root):
     if _path not in _sys.path:
         _sys.path.insert(0, _path)
-del _sys, _Path, _here, _leica_root, _repo_root, _path
+del _sys, _Path, _here, _machine_root, _repo_root, _path
 
 # -- shared utilities + commands/ - helpers and command mechanics
 from .utils import (

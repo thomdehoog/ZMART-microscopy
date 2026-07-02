@@ -60,6 +60,14 @@ def find_scanning_templates_dir():
     if not user_dirs:
         log.warning("No User_* directories in %s", base)
         return None
+    if len(user_dirs) > 1:
+        # Guessing alphabetically could edit another user's templates.
+        log.error(
+            "Multiple LAS X user profiles found (%s); cannot pick one safely — "
+            "pass the ScanningTemplates dir explicitly",
+            ", ".join(d.name for d in user_dirs),
+        )
+        return None
     templates = user_dirs[0] / "ScanningTemplates"
     return templates if templates.is_dir() else None
 
@@ -78,6 +86,9 @@ def get_template_state(templates_dir=None):
         region objects, or focus points.
         ``"stripped"`` when the active sidecar is newer than the
         canonical XML, or when the canonical files contain no objects.
+        ``"unreadable"`` when the canonical files exist but cannot be
+        parsed — a corrupt template must not masquerade as "stripped"
+        and invite a workflow to proceed as if stripping succeeded.
     """
     if templates_dir is None:
         templates_dir = find_scanning_templates_dir()
@@ -91,6 +102,12 @@ def get_template_state(templates_dir=None):
 
     if not xml_path.is_file():
         return "fresh"
+    try:
+        xml_path.read_text(encoding="utf-8")
+        ET.parse(rgn_path)
+    except (OSError, ET.ParseError) as e:
+        log.warning("get_template_state: canonical template unreadable: %s", e)
+        return "unreadable"
     if not stripped_xml.is_file():
         return "unstripped" if _template_has_objects(xml_path, rgn_path) else "stripped"
     if stripped_xml.stat().st_mtime > xml_path.stat().st_mtime:

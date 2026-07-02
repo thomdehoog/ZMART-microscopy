@@ -14,8 +14,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import navigator_expert as drv
 import numpy as np
+
+import navigator_expert as drv
 from shared.algorithms import (
     D4_RESIDUAL_MAX,
     VOTING_METHODS,
@@ -423,10 +424,12 @@ def _print_text_summary(
     orientation_label_field = "Orientation winner:  " if config_written else "Orientation:         "
     print(f"  {orientation_label_field} {orientation_line}")
     if session.residual_from_d4 is not None:
+        # classify_d4 returns a dimensionless Frobenius matrix distance —
+        # labelling it um would misread the 0.3 gate as a 0.3 um gate.
         print(
             f"  D4 residual:          "
-            f"{float(session.residual_from_d4):.2f} um  "
-            f"(threshold {float(D4_RESIDUAL_MAX):.2f} um)"
+            f"{float(session.residual_from_d4):.2f} (matrix distance)  "
+            f"(threshold {float(D4_RESIDUAL_MAX):.2f})"
         )
     print()
     if config_written:

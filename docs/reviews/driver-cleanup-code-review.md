@@ -1,5 +1,36 @@
 # Code Review — ZMART Controller & Leica Stellaris 5 Driver
 
+> **Remediation status (2026-07-02, this branch):** the findings below have been
+> addressed on `claude/zmart-driver-review-ktly65`. Outcome per finding:
+>
+> - **Fixed in code** (with regression tests; both suites green — controller 35,
+>   driver 655 passed, ruff clean): C1's doc overstatements, C2, C3, C4, M1–M4,
+>   M8–M20 (M14 and every unnumbered Major included), and most Minors/Nits —
+>   see the commit history of this branch for the per-subsystem changes.
+> - **Deliberate policy, reverted after counter-evidence — M5:** the unbounded
+>   idle wait is a dated operator decision ("Idle-before-anything policy,
+>   2026-06-11") pinned by `test_idle_prechecks.py`; a default ceiling was
+>   implemented, then reverted to respect that policy. Revisit with the operator
+>   if a watchdog is wanted.
+> - **Documented as known limitation — M6:** fast-scan invisibility needs
+>   frame-counter/hardware evidence; the docstring and failure message now say
+>   exactly what happens, and `save()`'s freshness check remains the backstop.
+> - **Documented, not flipped — M7:** `success_on_unconfirmed=True` is
+>   deliberate per profile comments; the contradictory docstrings were fixed and
+>   the accepted-vs-took-effect contract is now stated where every wrapper
+>   lives. `move_xy_with_backlash` (M19) now demands `confirmed`.
+> - **Deferred (need hardware evidence or a design decision):** C1's actual
+>   driver↔controller adapter layer; adopt-time matrix provenance (finding 10,
+>   §6 — schema addition); DST-safe log timestamps (§3 minor 7 — fail-closed
+>   for up to an hour during fall-back, unchanged); `age_for_snapshot`
+>   min/max semantics (§3 minor 12 — diagnostics-only); CONFIRM_SPECS table
+>   folding of two bespoke loops (§2 m7 — behavior-neutral refactor);
+>   `GALVO_FIELD_FRACTION` snapshot routing (§6 finding 13 — warning
+>   strengthened instead); ROI rotation unit (docs now say "unverified raw
+>   value" — needs a hardware measurement); geometry-grid spacing and planned
+>   column-major order (§4 minors 14/15 — pinned by tests as intended; needs an
+>   owner decision before changing the math).
+
 - **Branch:** `driver-cleanup` @ `a5465a5`
 - **Date:** 2026-07-01
 - **Scope:** `zmart_controller/` (all files) and `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/` (all production modules: commands, readers, scanfields, experimental/lrp_edits, acquisition, calibration, motion, config, facade, run_ci)

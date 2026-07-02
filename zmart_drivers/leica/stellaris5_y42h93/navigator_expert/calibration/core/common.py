@@ -29,9 +29,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import navigator_expert as drv
 import numpy as np
 import tifffile
+
+import navigator_expert as drv
 from shared.output_layout import Naming, run_hash
 
 # matplotlib is imported lazily inside the plot helpers so test imports
@@ -122,6 +123,11 @@ def read_job_geometry(
     # authoritative API reader, not the passive state-reader profile.
     settings = drv.get_job_settings(client, job_name, mode="api") or {}
     geom = drv.parse_tile_geometry(settings)
+    if geom is None or geom.get("pixel_w_um") is None or geom.get("pixels_x") is None:
+        raise ValueError(
+            f"job settings for '{job_name}' are missing pixel size / image "
+            f"format metadata (imageSize/format unparseable or absent)"
+        )
     pixel_w = float(geom["pixel_w_um"])
     pixel_h = float(geom["pixel_h_um"])
     if not np.isclose(pixel_w, pixel_h, rtol=0, atol=1e-9):

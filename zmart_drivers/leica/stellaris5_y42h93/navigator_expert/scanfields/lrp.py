@@ -10,10 +10,13 @@ Dependency direction:
       ``__init__`` (re-export).
 """
 
+import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from ._convert import _to_float
+
+log = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -348,7 +351,12 @@ def parse_lrp(lrp_path):
         seq = b.find(".//LDM_Block_Sequential")
         if seq is None:
             continue
+        if b.get("BlockType") not in (None, "1"):
+            # Match _get_job_names: only BlockType 1 entries are jobs.
+            continue
         job_name = seq.get("BlockName", "?")
+        if job_name in result["jobs"]:
+            log.warning("parse_lrp: duplicate job name '%s'; keeping the last", job_name)
 
         job = {
             "block_attrs": dict(b.attrib),

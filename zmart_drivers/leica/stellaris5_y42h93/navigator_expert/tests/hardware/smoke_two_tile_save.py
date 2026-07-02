@@ -35,6 +35,7 @@ if str(_LEICA) not in sys.path:
     sys.path.insert(0, str(_LEICA))
 
 import navigator_expert as drv  # noqa: E402
+
 from shared.output_layout import Naming, parse_image_name, run_hash  # noqa: E402
 
 
