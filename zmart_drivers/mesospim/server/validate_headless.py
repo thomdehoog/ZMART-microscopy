@@ -20,6 +20,17 @@ import sys
 import threading
 from pathlib import Path
 
+# mesoSPIM-control is Windows-only, where the console defaults to cp1252 and
+# cannot encode the PASS/FAIL emoji in the result line -- which would crash this
+# validator at the very end even when every check passed. Re-encode our own
+# stdout/stderr as UTF-8 (dropping to a replacement char if even that fails) so
+# the report always prints on the target platform.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 _HERE = Path(__file__).resolve()
 _DRIVERS_DIR = _HERE.parents[2]  # server -> mesospim -> zmart_drivers
 
@@ -114,6 +125,9 @@ def drive(port):
         results["pos_after_rel"] = c.request("get_position").data
         c.request("set_state", settings={"filter": "Empty", "intensity": 77.0})
         results["state_after_set"] = c.request("get_state").data
+        # get_state's `position` block must be normalised to axis names
+        # (x,y,z,f,theta), same as get_position -- not the Core's raw 'x_pos' keys.
+        results["state_position"] = (results["state_after_set"].get("position") or {})
         c.request("zero", axes=["x", "z"])
         results["pos_after_zero"] = c.request("get_position").data
         results["stop_ok"] = c.request("stop").ok
@@ -168,6 +182,7 @@ def main():
     print("pos abs     :", results.get("pos_after_abs"), "(expect x=111, z=42)")
     print("pos rel     :", results.get("pos_after_rel"), "(expect x=120)")
     print("state set   :", {k: results.get("state_after_set", {}).get(k) for k in ("filter", "intensity")}, "(expect Empty/77)")
+    print("state pos   :", sorted(results.get("state_position", {})), "(expect x,y,z,f,theta axis keys)")
     print("pos zero    :", results.get("pos_after_zero"), "(expect x=0, z=0)")
     print("stop ok     :", results.get("stop_ok"))
     print("bogus is nak:", results.get("nak") is False)
@@ -183,6 +198,7 @@ def main():
         results.get("stop_ok") is True,
         results.get("nak") is False,
         bool(cfg.get("lasers")),
+        {"x", "y", "z", "f", "theta"} <= set(results.get("state_position", {})),
     ]
     ok = all(checks) and results.get("done")
     print("\nRESULT:", "PASS ✅" if ok else f"FAIL ❌ ({checks})")
