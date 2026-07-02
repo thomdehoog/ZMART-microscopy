@@ -176,7 +176,7 @@ def load(
 
     Without an explicit ``limits_path``, this reads the configured physical
     envelope via ``defaults_path()`` (the machine limits snapshot, falling
-    back to the bundled ``defaults/limits.json``). Use ``current_path()``
+    back to the bundled ``limits/defaults/limits.json``). Use ``current_path()``
     explicitly for the active target-acquisition working envelope.
     """
     selected_limits = Path(limits_path) if limits_path is not None else defaults_path()

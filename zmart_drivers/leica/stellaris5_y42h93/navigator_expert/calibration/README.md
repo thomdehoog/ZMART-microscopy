@@ -25,9 +25,9 @@ Adopting a calibration publishes a dated, machine-local **snapshot** under
 `C:\ProgramData\smart_microscopy\<vendor>\<microscope>\<datetime>\`, holding
 `calibration.json` + the physical `limits.json` + the executed notebook. The
 driver reads the newest snapshot (`config/machine.py`); with no snapshot it
-falls back, loudly, to the driver-bundled `defaults/`. The physical stage
-envelope has its own operator notebook, `set_stage_limits` under
-`limits/notebooks/`.
+falls back, loudly, to the driver-bundled defaults (`calibration/defaults/`
+and `limits/defaults/`). The physical stage envelope has its own operator
+notebook, `set_stage_limits` under `limits/notebooks/`.
 
 The per-run *working* envelope (a boundary-marker sample area) is not machine
 state - it belongs to the acquisition workflow, not here.
@@ -42,4 +42,4 @@ they are not source files and should not be committed.
 - `notebooks/` contains the operator UI.
 
 Runtime code reads only the adopted calibration in the newest machine snapshot
-(`config/machine.py`), or the bundled `defaults/` when none exists.
+(`config/machine.py`), or the bundled `calibration/defaults/` when none exists.
