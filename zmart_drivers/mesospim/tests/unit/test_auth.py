@@ -10,11 +10,10 @@ Author: Thom de Hoog (ZMB, University of Zurich). License: MIT.
 """
 from __future__ import annotations
 
-import pytest
-from mock_mesospim_server import MockMesospimServer
-
 import mesospim as drv
+import pytest
 from mesospim.connection.client import MesospimClient, MesospimError
+from mock_mesospim_server import MockMesospimServer
 
 
 def test_open_server_allows_connect_without_token():
@@ -68,19 +67,28 @@ def test_non_ascii_token_roundtrips():
             bad.connect()
 
 
-def test_token_server_refuses_command_before_hello():
-    """A client that skips the handshake cannot issue commands (fail-closed)."""
-    import json
+def test_token_server_refuses_script_before_token():
+    """A client whose first frame is not the token is rejected (fail-closed).
+
+    With a token set, the FIRST frame must be that token; anything else (here a
+    script) is refused with ``AUTH-FAILED`` and the connection closed, so an
+    unauthenticated client can never run code on the scope.
+    """
     import socket
+
+    from mesospim.protocol import frame
 
     with MockMesospimServer(token="s3cret") as srv:
         raw = socket.create_connection((srv.host, srv.port), timeout=3.0)
         try:
-            raw.sendall(b'{"cmd": "move_absolute", "args": {"targets": {"x": 100}}, "id": 1}\n')
+            raw.sendall(frame("self.move_absolute({'x_abs': 100}, wait_until_done=True)"))
             buf = b""
             while b"\n" not in buf:
                 buf += raw.recv(4096)
-            resp = json.loads(buf.split(b"\n", 1)[0].decode())
-            assert resp["ok"] is False, "unauthenticated command must be refused"
+            head, _, rest = buf.partition(b"\n")
+            length = int(head)
+            while len(rest) < length:
+                rest += raw.recv(4096)
+            assert rest[:length].decode() == "AUTH-FAILED"
         finally:
             raw.close()

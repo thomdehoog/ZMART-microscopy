@@ -1,4 +1,9 @@
-"""MesospimClient <-> MockMesospimServer round-trip over a real localhost socket."""
+"""MesospimClient <-> MockMesospimServer round-trip over a real localhost socket.
+
+The mock is a faithful Remote Scripting double: it ``exec``s the injected scripts
+against a Core-shaped fake and returns the captured console, so these exercise the
+real framing + harness + vocabulary, only without a live hardware Core.
+"""
 
 from __future__ import annotations
 
@@ -12,42 +17,6 @@ def test_connect_handshake_populates_server_info(client):
     assert client.server_info.get("protocol") == 1
 
 
-def test_connect_refuses_unknown_protocol_version():
-    # The client must refuse a server whose protocol version it does not know,
-    # and must not leave a half-open socket behind.
-    class BadProtocolServer(MockMesospimServer):
-        def _dispatch(self, cmd, args):
-            data = super()._dispatch(cmd, args)
-            if cmd == "hello":
-                data = dict(data)
-                data["protocol"] = 999
-            return data
-
-    with BadProtocolServer(port=0) as s:
-        c = MesospimClient(s.host, s.port, timeout=3.0)
-        with pytest.raises(MesospimError):
-            c.connect()
-        assert not c.connected
-
-
-def test_connect_refuses_unparseable_protocol_version():
-    # A non-numeric protocol must be rejected (and not leak a half-open socket),
-    # not crash with a raw ValueError from int().
-    class BadProtocolServer(MockMesospimServer):
-        def _dispatch(self, cmd, args):
-            data = super()._dispatch(cmd, args)
-            if cmd == "hello":
-                data = dict(data)
-                data["protocol"] = "v1-beta"
-            return data
-
-    with BadProtocolServer(port=0) as s:
-        c = MesospimClient(s.host, s.port, timeout=3.0)
-        with pytest.raises(MesospimError):
-            c.connect()
-        assert not c.connected
-
-
 def test_ping_request(client):
     assert client.request("ping").ok
 
@@ -55,26 +24,35 @@ def test_ping_request(client):
 def test_read_timeout_override_is_restored(client):
     # A per-call read_timeout (used for long acquisitions) must apply only to
     # that call and then restore the base socket deadline -- and must never be
-    # forwarded as a protocol argument.
+    # forwarded as a command argument.
     base = client._sock.gettimeout()
     assert client.request("ping", read_timeout=42.0).ok
     assert client._sock.gettimeout() == base
 
 
-def test_request_echoes_id_and_returns_data(client):
+def test_request_returns_data(client):
     reply = client.request("get_config")
     assert reply.ok
     assert "lasers" in reply.data
 
 
 def test_try_request_returns_nak_without_raising(client):
-    reply = client.try_request("bogus_command")
+    # A command whose injected script fails comes back as a clean NAK, not a
+    # client-side crash: the server NAKs named procedures (TODO §5).
+    reply = client.try_request("procedure", name="autofocus")
     assert not reply.ok and reply.error
 
 
 def test_request_raises_on_nak(client):
     with pytest.raises(MesospimError):
-        client.request("bogus_command")
+        client.request("procedure", name="autofocus")
+
+
+def test_unknown_command_is_a_programming_error(client):
+    # There is no injected-script template for an unknown command; that is a bug
+    # in the caller, surfaced as KeyError (not a wire NAK).
+    with pytest.raises(KeyError):
+        client.try_request("bogus_command")
 
 
 def test_injected_error(server):

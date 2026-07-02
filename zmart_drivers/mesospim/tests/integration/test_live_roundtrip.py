@@ -1,14 +1,14 @@
 """
-Live round-trip against a running mesoSPIM command server.
-==========================================================
-The one suite that cannot run in CI: it drives the **real** resident
-command-server script (``server/mesospim_command_server.py``) loaded inside
-mesoSPIM-control -- ideally in ``-D`` demo mode (all Demo backends, no hardware).
-It is the bench check for the pieces the offline mock cannot prove: the
-``_CoreBridge`` names against a live Core, and the acquisition run + image-writer
-path resolution.
+Live round-trip against a running mesoSPIM Remote Scripting server.
+==================================================================
+The one suite that cannot run in CI: it drives a **real** mesoSPIM through its
+Remote Scripting server (``Tools -> Remote Scripting...``; the upstream PR under
+``pull_request/``) -- ideally in ``-D`` demo mode (all Demo backends, no
+hardware). It is the bench check for the pieces the offline mock cannot prove:
+the injected-script vocabulary (``connection/scripts.py``) against a live Core,
+and the acquisition run + image-writer path resolution.
 
-Run it (mesoSPIM ``-D`` running with the script loaded, listening on 42000)::
+Run it (mesoSPIM ``-D`` running with Remote Scripting started, listening on 42000)::
 
     python -m pytest zmart_drivers/mesospim/tests -m integration
 

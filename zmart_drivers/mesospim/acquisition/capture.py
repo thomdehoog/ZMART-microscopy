@@ -20,6 +20,7 @@ License: MIT
 from __future__ import annotations
 
 import logging
+import tempfile
 import time
 from pathlib import Path
 
@@ -126,6 +127,13 @@ def acquire(
     no frames.
     """
     state = state if state is not None else get_state(client)
+    # The image writer needs a concrete folder + filename to write the stack to;
+    # the controller supplies a staging path, but a direct capture() caller may
+    # not, so default to a fresh temp folder here. The injected acquire script
+    # returns exactly this path, and save() relocates from it.
+    options = dict(options or {})
+    options.setdefault("folder", tempfile.mkdtemp(prefix="mesospim_capture_"))
+    options.setdefault("filename", f"{acquisition_type}.tiff")
     acq = build_acquisition(state, options)
 
     started_at = time.time()
@@ -174,9 +182,17 @@ def run_acquisition_list(client, acquisitions: list[dict]) -> dict:
     """
     if not acquisitions:
         raise ValueError("acquisition list is empty")
+    # Give every acquisition a concrete folder/filename the image writer can use
+    # (and the injected script can report back), unless the caller set one.
+    prepared = []
+    for index, one in enumerate(acquisitions):
+        acq = dict(one)
+        acq.setdefault("folder", tempfile.mkdtemp(prefix="mesospim_list_"))
+        acq.setdefault("filename", f"acq_{index:04d}.tiff")
+        prepared.append(acq)
     reply = client.request(
         "run_acquisition_list",
-        acquisitions=list(acquisitions),
+        acquisitions=prepared,
         read_timeout=ACQUISITION.acquire_timeout_s,
     )
     return dict(reply.data)
