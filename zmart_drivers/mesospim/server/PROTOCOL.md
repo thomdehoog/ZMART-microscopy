@@ -20,13 +20,33 @@ time (the server lives in the Qt event loop and is single-client).
 Units: linear axes (`x`, `y`, `z`, `f`) are **micrometers**; `theta` is
 **degrees**. The server converts to mesoSPIM's internal units.
 
+## Authentication (optional token)
+
+The server may require a **shared token**. When one is configured, the client
+**must** present it in the `hello` request; until it does, every command —
+including `hello` with a bad token — is refused with a NAK, and no `Core` action
+runs (fail-closed):
+
+- **Authenticate:** `{"cmd": "hello", "args": {"token": "<token>"}, "id": ...}`
+- **Bad/missing token on `hello`:** `{"ok": false, "error": "authentication failed: bad or missing token", ...}`
+- **Any command before a good `hello`:** `{"ok": false, "error": "authentication required: send hello with a valid token first", ...}`
+
+The token is compared in constant time. Auth is **per connection** (a dropped and
+reopened socket must authenticate again). When no token is configured the server
+is **open** — intended for `127.0.0.1` (localhost) use only.
+
+> **Transport is plain TCP — the token is sent in clear text.** It gates casual
+> access on a trusted LAN; it is *not* protection against a network sniffer. The
+> real safety model is "mesoSPIM is open **and** an operator activated the server."
+> For untrusted networks, tunnel it (SSH/VPN) or don't expose it off localhost.
+
 ## Commands
 
 ### Session
 
 | `cmd` | `args` | reply `data` |
 |---|---|---|
-| `hello` | – | `{app, version, protocol, state}` |
+| `hello` | `{token?}` | `{app, version, protocol, state}` (send `token` when the server requires one — see Authentication) |
 | `ping` | – | `{}` |
 | `bye` | – | `{}` (server may close after) |
 

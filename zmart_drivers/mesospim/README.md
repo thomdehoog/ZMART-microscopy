@@ -178,6 +178,14 @@ pip install -r zmart_drivers/mesospim/requirements-dev.txt   # pytest, numpy, ti
    `[mesospim-cmd-server] listening on 127.0.0.1:42000`.
 3. From the driver: `client = drv.connect({"host": "127.0.0.1", "port": 42000})`.
 
+**Network use (control from another PC).** By default the server binds to
+`127.0.0.1` (same machine only). To drive it from another machine, set `HOST` in
+the loader to `0.0.0.0` (or the mesoSPIM PC's LAN IP) **and** set a `TOKEN` — then
+pass it: `drv.connect({"host": "<mesoSPIM-PC-IP>", "port": 42000, "token": "<token>"})`.
+The token gates access (fail-closed: no token, no control). Note it is **plain
+TCP** — the token is a casual gate for a trusted lab LAN, not sniffer-proof
+security; tunnel it (SSH/VPN) for untrusted networks. See [`server/PROTOCOL.md`](server/PROTOCOL.md) → Authentication.
+
 See [`server/README.md`](server/README.md) for the server details and offline validation options.
 
 ## 3. Configuration
@@ -300,7 +308,7 @@ readers return a value or `None`.
 
 ### Connection
 ```python
-connect(connection=None, *, host=None, port=None, timeout=None) -> MesospimClient   # handshake + ping-verified
+connect(connection=None, *, host=None, port=None, timeout=None, token=None) -> MesospimClient   # handshake + ping-verified; token sent in hello if the server requires one
 close(client) -> None                                                               # says "bye", idempotent
 ping(client) -> bool
 ```

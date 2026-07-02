@@ -64,7 +64,7 @@ class MockMesospimServer:
             client/dispatch error paths.
     """
 
-    def __init__(self, host="127.0.0.1", port=0, *, output_dir=None, errors=None):
+    def __init__(self, host="127.0.0.1", port=0, *, output_dir=None, errors=None, token=None):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._sock.bind((host, port))
@@ -73,6 +73,8 @@ class MockMesospimServer:
         self.output_dir = Path(output_dir or tempfile.mkdtemp(prefix="mock_mesospim_"))
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.errors = set(errors or [])
+        self._token = token or None
+        self._authed = self._token is None
         self.state = {
             "state": "idle",
             "position": {axis: 0.0 for axis in _AXES},
@@ -130,6 +132,7 @@ class MockMesospimServer:
     def _handle(self, conn: socket.socket) -> None:
         conn.settimeout(0.3)
         buf = b""
+        self._authed = self._token is None  # fresh auth state per connection
         while not self._stop.is_set():
             try:
                 chunk = conn.recv(4096)
@@ -155,6 +158,14 @@ class MockMesospimServer:
         req_id = request.get("id")
         cmd = request.get("cmd")
         args = request.get("args") or {}
+        if self._token is not None and not self._authed:
+            import hmac
+            if cmd == "hello" and hmac.compare_digest(str(args.get("token", "")), str(self._token)):
+                self._authed = True
+            else:
+                return {"ok": False, "id": req_id,
+                        "error": ("authentication failed: bad or missing token" if cmd == "hello"
+                                  else "authentication required: send hello with a valid token first")}
         if cmd in self.errors:
             return {"ok": False, "error": f"injected error for {cmd}", "id": req_id}
         try:

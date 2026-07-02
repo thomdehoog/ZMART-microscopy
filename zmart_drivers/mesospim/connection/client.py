@@ -60,9 +60,11 @@ class MesospimClient:
         port: int = DEFAULT_PORT,
         *,
         timeout: float = 10.0,
+        token: str | None = None,
     ) -> None:
         self._addr = (host, port)
         self._timeout = timeout
+        self._token = token
         self._sock: socket.socket | None = None
         self._buf = b""
         self._lock = threading.Lock()
@@ -116,7 +118,8 @@ class MesospimClient:
         # A failed handshake must not leave a half-open socket that reports
         # ``connected`` with empty ``server_info``; tear it down and re-raise.
         try:
-            reply = self.request("hello")
+            hello_args = {"token": self._token} if self._token is not None else {}
+            reply = self.request("hello", **hello_args)
         except BaseException:
             self._drop_socket()
             raise
