@@ -30,6 +30,16 @@ import sys
 # already on ``sys.path`` in the mesoSPIM environment (e.g. pip-installed).
 SERVER_DIR = r""
 
+# Where the server listens. "127.0.0.1" = same PC only. Use "0.0.0.0" (or the
+# mesoSPIM PC's LAN IP) to allow control from another machine on the network.
+HOST = "127.0.0.1"
+PORT = 42000
+# Shared token gating access. Leave "" for an open server (localhost use only!).
+# Set a value whenever HOST is on the network, so a random machine on the LAN
+# can't drive the scope. The driver must pass the same token:
+#     drv.connect({..., "token": "..."})
+TOKEN = ""
+
 if "self" not in dir():
     raise RuntimeError(
         "Run this from mesoSPIM's Script Window (Core menu): it needs the live "
@@ -41,5 +51,5 @@ if SERVER_DIR and SERVER_DIR not in sys.path:
 
 import mesospim_command_server as _zmart_server  # noqa: E402
 
-_zmart_server.start(self)  # noqa: F821 - `self` is the live mesoSPIM_Core
+_zmart_server.start(self, HOST, PORT, TOKEN or None)  # noqa: F821 - `self` is the live mesoSPIM_Core
 print("[mesospim] ZMART command server started via the Script-Window loader")

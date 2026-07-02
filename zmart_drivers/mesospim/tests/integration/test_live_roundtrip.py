@@ -41,13 +41,14 @@ pytestmark = pytest.mark.integration
 _HOST = os.environ.get("MESOSPIM_HOST", "127.0.0.1")
 _PORT = int(os.environ.get("MESOSPIM_PORT", "42000"))
 _ALLOW_ACQUIRE = os.environ.get("MESOSPIM_ALLOW_ACQUIRE") == "1"
+_TOKEN = os.environ.get("MESOSPIM_TOKEN")  # set when the server requires a token
 
 
 @pytest.fixture
 def live_client():
     """A client connected to a live server, or skip if none is reachable."""
     try:
-        client = drv.connect({"host": _HOST, "port": _PORT, "timeout": 5.0})
+        client = drv.connect({"host": _HOST, "port": _PORT, "timeout": 5.0, "token": _TOKEN})
     except (ConnectionError, drv.MesospimError) as exc:
         pytest.skip(f"no live mesoSPIM command server at {_HOST}:{_PORT} ({exc})")
     try:

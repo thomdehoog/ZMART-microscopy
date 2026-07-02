@@ -29,8 +29,11 @@ if str(_SERVER_DIR) not in sys.path:
 class _FakeServer:
     """Stand-in for MesospimCommandServer (no socket)."""
 
-    def __init__(self, core):
+    def __init__(self, core, host=None, port=None, token=None):
         self.core = core
+        self.host = host
+        self.port = port
+        self.token = token
         self.stopped = False
 
     def stop(self):

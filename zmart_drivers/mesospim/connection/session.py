@@ -34,6 +34,7 @@ def connect(
     host: str | None = None,
     port: int | None = None,
     timeout: float | None = None,
+    token: str | None = None,
 ) -> MesospimClient:
     """Connect to a running mesoSPIM command server.
 
@@ -57,8 +58,9 @@ def connect(
     resolved_timeout = float(
         timeout if timeout is not None else connection.get("timeout", CONNECTION.timeout_s)
     )
+    resolved_token = token if token is not None else connection.get("token")
 
-    client = MesospimClient(resolved_host, resolved_port, timeout=resolved_timeout)
+    client = MesospimClient(resolved_host, resolved_port, timeout=resolved_timeout, token=resolved_token)
     client.connect()
 
     if not _ping(client):

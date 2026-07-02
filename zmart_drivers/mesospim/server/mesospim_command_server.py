@@ -461,12 +461,17 @@ def _dispatch(bridge: _CoreBridge, cmd, args):
 class MesospimCommandServer:
     """Localhost TCP server polled by a QTimer inside the Qt event loop."""
 
-    def __init__(self, core, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, poll_ms: int = 20):
+    def __init__(self, core, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, poll_ms: int = 20,
+                 token: str | None = None):
         from PyQt5 import QtCore, QtNetwork  # noqa: F401 - import guarded to runtime
 
         self._QtCore = QtCore
         self._QtNetwork = QtNetwork
         self.bridge = _CoreBridge(core)
+        # A shared secret gating access. None/"" = open (localhost use only). When
+        # set, the client must present it in `hello` before any command is served.
+        self._token = token or None
+        self._authed = self._token is None
         self._server = QtNetwork.QTcpServer(core)
         if not self._server.listen(QtNetwork.QHostAddress(host), port):
             raise RuntimeError(f"cannot listen on {host}:{port}: {self._server.errorString()}")
@@ -476,7 +481,8 @@ class MesospimCommandServer:
         self._timer = QtCore.QTimer(core)
         self._timer.timeout.connect(self._poll)
         self._timer.start(poll_ms)
-        print(f"[mesospim-cmd-server] listening on {host}:{port}")
+        print(f"[mesospim-cmd-server] listening on {host}:{port} "
+              f"(token {'required' if self._token else 'off'})")
 
     def _poll(self) -> None:
         # Re-entrancy guard: a Core call that pumps the event loop (a
@@ -489,6 +495,7 @@ class MesospimCommandServer:
         if self._conn is None and self._server.hasPendingConnections():
             self._conn = self._server.nextPendingConnection()
             self._buf = b""
+            self._authed = self._token is None  # fresh auth state per connection
         if self._conn is None:
             return
         if self._conn.state() == self._QtNetwork.QAbstractSocket.UnconnectedState:
@@ -522,8 +529,12 @@ class MesospimCommandServer:
         except Exception as exc:  # noqa: BLE001
             reply = {"ok": False, "error": f"bad request: {exc}", "id": None}
         else:
-            is_bye = request.get("cmd") == "bye"
-            reply = handle_request(self.bridge, request)
+            auth_error = self._auth_gate(request)
+            if auth_error is not None:
+                reply = auth_error
+            else:
+                is_bye = request.get("cmd") == "bye"
+                reply = handle_request(self.bridge, request)
         if self._conn is None:  # client went away while the command ran
             return
         try:
@@ -534,6 +545,27 @@ class MesospimCommandServer:
         if is_bye and isinstance(reply, dict) and reply.get("ok"):
             self._conn.disconnectFromHost()
             self._conn = None
+
+    def _auth_gate(self, request):
+        """Enforce the token (fail-closed). Return an error reply dict, or None.
+
+        When a token is configured the client must present it in ``hello`` before
+        any command is served; a client that skips the handshake is refused.
+        Uses a constant-time compare so the token is not leaked by timing.
+        """
+        import hmac
+
+        if self._token is None or self._authed:
+            return None
+        req_id = request.get("id")
+        if request.get("cmd") == "hello":
+            supplied = str((request.get("args") or {}).get("token", ""))
+            if hmac.compare_digest(supplied, str(self._token)):
+                self._authed = True
+                return None
+            return {"ok": False, "error": "authentication failed: bad or missing token", "id": req_id}
+        return {"ok": False, "error": "authentication required: send hello with a valid token first",
+                "id": req_id}
 
     def stop(self) -> None:
         self._timer.stop()
@@ -559,13 +591,15 @@ class MesospimCommandServer:
 # =============================================================================
 
 
-def start(core):
+def start(core, host=DEFAULT_HOST, port=DEFAULT_PORT, token=None):
     """Construct (or restart) the resident command server bound to ``core``.
 
-    Reload-safe: stops any prior instance tracked on the Core, so re-loading from
-    the Script Window never fails with "address in use". The server parents its
-    ``QTcpServer``/``QTimer`` to the Core, so it outlives the loader's ``exec()``
-    frame. Returns the running server.
+    Binds to ``host``:``port``. ``token`` gates access: if non-empty the client
+    must present it in the ``hello`` handshake before any command is served; if
+    ``None``/"" the server is open (localhost use only). Reload-safe: stops any
+    prior instance tracked on the Core, so re-loading from the Script Window never
+    fails with "address in use". The server parents its ``QTcpServer``/``QTimer``
+    to the Core, so it outlives the loader's ``exec()`` frame. Returns the server.
     """
     prev = getattr(core, "_zmart_cmd_server", None)
     if prev is not None:
@@ -573,6 +607,6 @@ def start(core):
             prev.stop()
         except Exception:  # noqa: BLE001 - best-effort teardown of the old instance
             pass
-    server = MesospimCommandServer(core)
+    server = MesospimCommandServer(core, host=host, port=port, token=token)
     core._zmart_cmd_server = server
     return server
