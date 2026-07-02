@@ -242,6 +242,16 @@ def main() -> int:
                 "hardware: reader parity (api vs log)",
                 [sys.executable, str(hw / "validate_readers_side_by_side.py"), "--read-only"],
             ),
+            (
+                "hardware: zmart adapter (controller round-trip, read-only)",
+                [
+                    sys.executable,
+                    str(hw / "validate_zmart_adapter.py"),
+                    "--read-only",
+                    "--allow-missing-lasx",  # SKIP (not FAIL) if no live LAS X
+                    f"--output={REPORT_DIR / 'zmart_adapter_validate.jsonl'}",
+                ],
+            ),
         ]
         # End-to-end driver validation once PER reader route, so the driver's own
         # read/gating behaviour is exercised under api, log, AND hybrid -- not

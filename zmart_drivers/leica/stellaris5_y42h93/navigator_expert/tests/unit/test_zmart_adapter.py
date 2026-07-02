@@ -300,14 +300,14 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(calls["selected"], "HiRes")
         self.assertEqual(calls["captured"], "HiRes")
         saved_root, naming = calls["saved"]
-        self.assertEqual(saved_root, "/tmp/out")
+        self.assertEqual(Path(saved_root), Path("/tmp/out"))  # OS-agnostic separators
         self.assertEqual(naming.acquisition_type, "prescan")
         self.assertEqual(naming.p, 7)  # numeric label maps onto the p slot
         self.assertEqual(calls["lineage"]["position_label"], "7")
         self.assertEqual(calls["lineage"]["acquisition_type"], "prescan")
         self.assertEqual(calls["exporter"], "navigator_expert")
         self.assertEqual(record["settle"], "direct")
-        self.assertEqual(record["images"], ["/tmp/out/img.ome.tif"])
+        self.assertEqual([Path(p) for p in record["images"]], [Path("/tmp/out/img.ome.tif")])
 
 
 class TestStateAndProcedures(unittest.TestCase):
@@ -371,6 +371,40 @@ class TestLifecycle(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "disconnected"):
             adapter.get_actuators(h)
 
+    def test_connect_configures_stage_limits(self):
+        """connect must apply the machine's stage envelope, or set_xyz can't move.
+
+        move_xy/move_z refuse to run until set_stage_limits() has been called,
+        and the controller has no limits hook -- so the adapter must do it.
+        """
+        cfg = {
+            "stage_um": {
+                "x": [1000.0, 130000.0],
+                "y": [1000.0, 100000.0],
+                "z_galvo": [-200.0, 200.0],
+                "z_wide": [0.0, 25000.0],
+            },
+            "backlash": {"overshoot_um": 50.0, "settle_ms": 100, "tolerance_um": 20.0},
+        }
+        with (
+            patch.object(adapter._session, "connect_python_client", return_value=object()),
+            patch.object(adapter._stage_config, "load", return_value=cfg),
+            patch.object(adapter._limits, "apply_stage_limits_from_config") as apply_mock,
+        ):
+            h = adapter.connect(dict(adapter.CONNECTION))
+        self.assertIsInstance(h, adapter.ZmartHandle)
+        apply_mock.assert_called_once_with(cfg)
+
+    def test_connect_degrades_when_limits_config_unavailable(self):
+        """A missing/invalid limits config must not fail connect (read-only still works)."""
+        with (
+            patch.object(adapter._session, "connect_python_client", return_value=object()),
+            patch.object(adapter._stage_config, "load", side_effect=RuntimeError("no config")),
+        ):
+            h = adapter.connect(dict(adapter.CONNECTION))
+        self.assertIsInstance(h, adapter.ZmartHandle)
+        self.assertFalse(h.closed)
+
     def test_full_controller_session_flow(self):
         """End to end through a real zmart_controller Session."""
         import zmart_controller
@@ -378,6 +412,7 @@ class TestLifecycle(unittest.TestCase):
         patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0)
         with (
             patch.object(adapter._session, "connect_python_client", return_value=object()),
+            patch.object(adapter._limits, "apply_stage_limits_from_config"),
             patches[0],
             patches[1],
             patches[2],
