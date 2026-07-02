@@ -19,6 +19,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[6]))  # repo root (zmart
 from navigator_expert import zmart_adapter as adapter
 
 
+def _origin(x_um=0.0, y_um=0.0, z_wide_um=0.0, z_galvo_um=0.0, z_focus_um=0.0, objective=None):
+    return {
+        "x_um": x_um,
+        "y_um": y_um,
+        "z_wide_um": z_wide_um,
+        "z_galvo_um": z_galvo_um,
+        "z_focus_um": z_focus_um,
+        "objective": objective,
+    }
+
+
 def _handle(**overrides):
     h = adapter.ZmartHandle(client=object(), connection=dict(adapter.CONNECTION), hash6="000abc")
     for key, value in overrides.items():
@@ -26,14 +37,33 @@ def _handle(**overrides):
     return h
 
 
-def _patch_position(x_um=100.0, y_um=200.0, z_um=50.0, job="Overview"):
+def _settings(z_wide_um=50.0, z_galvo_um=0.0, objective="HC PL APO 63x/1.40 OIL CS2"):
+    return {
+        "objective": {"name": objective, "magnification": 63, "slotIndex": 3},
+        "zPosition": {
+            "z-wide": {"position": z_wide_um},
+            "z-galvo": {"position": z_galvo_um},
+        },
+    }
+
+
+def _patch_position(x_um=100.0, y_um=200.0, z_wide_um=50.0, z_galvo_um=0.0, job="Overview"):
     return (
         patch.object(adapter._readers, "get_xy", return_value={"x_um": x_um, "y_um": y_um}),
-        patch.object(adapter._readers, "read_zwide_um", return_value=z_um),
+        patch.object(
+            adapter._readers,
+            "get_job_settings",
+            return_value=_settings(z_wide_um=z_wide_um, z_galvo_um=z_galvo_um),
+        ),
         patch.object(
             adapter._readers,
             "get_selected_job",
             return_value={"Name": job, "IsSelected": True},
+        ),
+        patch.object(
+            adapter._cmd_settings,
+            "make_changeable_copy",
+            side_effect=lambda settings: settings,
         ),
     )
 
@@ -52,9 +82,12 @@ class TestRegistration(unittest.TestCase):
 class TestFrame(unittest.TestCase):
     def test_set_origin_zeros_the_frame(self):
         h = _handle()
-        p1, p2, p3 = _patch_position(x_um=1000.0, y_um=2000.0, z_um=30.0)
-        with p1, p2, p3:
-            self.assertEqual(adapter.set_origin(h)["origin"], {"x": 0.0, "y": 0.0, "z": 0.0})
+        patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0)
+        with patches[0], patches[1], patches[2], patches[3]:
+            record = adapter.set_origin(h)
+            self.assertEqual(record["origin"], {"x": 0.0, "y": 0.0, "z": 0.0})
+            self.assertIsNone(record["origin_file"])  # no output_root configured
+            self.assertEqual(record["reference"]["z_focus_um"], 30.0)
             pos = adapter.get_xyz(h)
         self.assertEqual(pos["x"]["value"], 0.0)
         self.assertEqual(pos["z"]["value"], 0.0)
@@ -62,17 +95,39 @@ class TestFrame(unittest.TestCase):
         self.assertEqual(pos["x"]["actuator"], "motoric")
         self.assertEqual(pos["z"]["actuator"], "z-wide")
 
+    def test_set_origin_persists_reference_json(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            h = _handle(connection={**adapter.CONNECTION, "output_root": tmp})
+            patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_galvo_um=2.0)
+            with patches[0], patches[1], patches[2], patches[3]:
+                record = adapter.set_origin(h)
+            self.assertIsNotNone(record["origin_file"])
+            saved = json.loads(Path(record["origin_file"]).read_text(encoding="utf-8"))
+            self.assertEqual(saved["origin"]["x_um"], 1000.0)
+            self.assertEqual(saved["origin"]["z_wide_um"], 30.0)
+            self.assertEqual(saved["origin"]["z_galvo_um"], 2.0)
+            self.assertEqual(saved["origin"]["z_focus_um"], 32.0)
+            self.assertEqual(saved["origin"]["objective"]["magnification"], 63)
+            self.assertEqual(saved["job"], "Overview")
+
     def test_get_xyz_is_origin_relative(self):
-        h = _handle(origin_um={"x": 1000.0, "y": 2000.0, "z": 30.0})
-        p1, p2, p3 = _patch_position(x_um=1010.0, y_um=1990.0, z_um=35.0)
-        with p1, p2, p3:
+        h = _handle(origin=_origin(x_um=1000.0, y_um=2000.0, z_focus_um=30.0))
+        patches = _patch_position(x_um=1010.0, y_um=1990.0, z_wide_um=32.0, z_galvo_um=3.0)
+        with patches[0], patches[1], patches[2], patches[3]:
             pos = adapter.get_xyz(h)
         self.assertEqual(pos["x"]["value"], 10.0)
         self.assertEqual(pos["y"]["value"], -10.0)
-        self.assertEqual(pos["z"]["value"], 5.0)
+        self.assertEqual(pos["z"]["value"], 5.0)  # (32 + 3) - 30 focus sum
+        self.assertEqual(pos["hardware"]["z_wide_um"], 32.0)
+        self.assertEqual(pos["hardware"]["z_galvo_um"], 3.0)
+        self.assertEqual(pos["hardware"]["x_um"], 1010.0)
+        self.assertIn("objective", pos["hardware"])
 
     def test_set_xyz_moves_to_absolute_and_maps_z_actuator(self):
-        h = _handle(origin_um={"x": 1000.0, "y": 2000.0, "z": 30.0})
+        h = _handle(origin=_origin(x_um=1000.0, y_um=2000.0, z_focus_um=30.0))
         moves = {}
 
         def fake_move_xy_with_backlash(client, x_um, y_um, **kwargs):
@@ -83,22 +138,53 @@ class TestFrame(unittest.TestCase):
             moves["z"] = (z, z_mode)
             return {"success": True, "confirmed": True}
 
-        _, _, p3 = _patch_position()
+        # current hardware: z-wide at 32, z-galvo at 3
+        patches = _patch_position(z_wide_um=32.0, z_galvo_um=3.0)
         with (
             patch.object(adapter._motion, "move_xy_with_backlash", fake_move_xy_with_backlash),
             patch.object(adapter._commands, "move_z", fake_move_z),
-            p3,
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
         ):
             record = adapter.set_xyz(h, 10.0, 20.0, 5.0, with_actuators={"z": "z-galvo"})
         self.assertEqual(moves["xy"], (1010.0, 2020.0))
-        self.assertEqual(moves["z"], (35.0, "galvo"))
+        # target focus = 30 + 5 = 35; galvo absorbs it minus z-wide's 32 -> 3
+        self.assertEqual(moves["z"], (3.0, "galvo"))
         self.assertEqual(record["actuators"]["z"], "z-galvo")
+        self.assertEqual(record["hardware_targets"]["z_galvo_um"], 3.0)
         # the selection persists for later reads
         self.assertEqual(h.actuators["z"], "z-galvo")
 
+    def test_set_xyz_z_wide_compensates_parked_galvo(self):
+        h = _handle(origin=_origin(z_focus_um=30.0))
+        moves = {}
+
+        def fake_move_z(client, job, z, unit="um", z_mode="galvo", **kwargs):
+            moves["z"] = (z, z_mode)
+            return {"success": True, "confirmed": True}
+
+        patches = _patch_position(z_wide_um=25.0, z_galvo_um=4.0)
+        with (
+            patch.object(
+                adapter._motion,
+                "move_xy_with_backlash",
+                return_value={"success": True, "confirmed": True},
+            ),
+            patch.object(adapter._commands, "move_z", fake_move_z),
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
+            adapter.set_xyz(h, 0.0, 0.0, 10.0)  # default z actuator: z-wide
+        # target focus = 30 + 10 = 40; the parked galvo offset (4) is kept
+        self.assertEqual(moves["z"], (36.0, "zwide"))
+
     def test_unconfirmed_z_move_raises(self):
         h = _handle()
-        _, _, p3 = _patch_position()
+        patches = _patch_position()
         with (
             patch.object(
                 adapter._motion,
@@ -110,7 +196,10 @@ class TestFrame(unittest.TestCase):
                 "move_z",
                 return_value={"success": True, "confirmed": False},
             ),
-            p3,
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
             self.assertRaises(RuntimeError),
         ):
             adapter.set_xyz(h, 0.0, 0.0, 0.0)
@@ -139,15 +228,23 @@ class TestAcquire(unittest.TestCase):
 
     def test_options_discovered_from_live_jobs(self):
         h = _handle()
-        with patch.object(adapter._readers, "get_jobs", return_value=self._jobs()):
+        with (
+            patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
+        ):
             opts = adapter.get_acquisition_options(h)
         self.assertEqual(opts["job"]["options"], ["Overview", "HiRes"])
         self.assertEqual(opts["job"]["active"], "Overview")
         self.assertEqual(opts["format"]["active"], "ome-tiff")
+        self.assertEqual(opts["exporter"]["active"], "navigator_expert")
+        self.assertEqual(opts["cleanup_source"]["active"], False)
 
     def test_unknown_or_invalid_option_rejected(self):
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
-        with patch.object(adapter._readers, "get_jobs", return_value=self._jobs()):
+        with (
+            patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
+        ):
             with self.assertRaisesRegex(ValueError, "unknown acquisition option"):
                 adapter.acquire(
                     h, acquisition_type="prescan", position_label="A1", options={"fromat": "x"}
@@ -176,20 +273,23 @@ class TestAcquire(unittest.TestCase):
 
         def fake_save(client, acq, output_root, naming, **kwargs):
             calls["saved"] = (str(output_root), naming)
+            calls["lineage"] = kwargs.get("lineage")
+            calls["exporter"] = kwargs.get("exporter")
             return SimpleNamespace(
                 image_paths={0: Path("/tmp/out/img.ome.tif")},
                 xml_paths={0: Path("/tmp/out/img.xml")},
                 naming=naming,
             )
 
-        _, _, p3 = _patch_position(job="Overview")
+        patches = _patch_position(job="Overview")
         with (
             patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
             patch.object(adapter._commands, "select_job", fake_select_job),
             patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
             patch.object(adapter._capture, "acquire", fake_capture),
             patch.object(adapter._save, "save", fake_save),
-            p3,
+            patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
+            patches[2],
         ):
             record = adapter.acquire(
                 h,
@@ -203,6 +303,9 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(saved_root, "/tmp/out")
         self.assertEqual(naming.acquisition_type, "prescan")
         self.assertEqual(naming.p, 7)  # numeric label maps onto the p slot
+        self.assertEqual(calls["lineage"]["position_label"], "7")
+        self.assertEqual(calls["lineage"]["acquisition_type"], "prescan")
+        self.assertEqual(calls["exporter"], "navigator_expert")
         self.assertEqual(record["settle"], "direct")
         self.assertEqual(record["images"], ["/tmp/out/img.ome.tif"])
 
@@ -272,12 +375,13 @@ class TestLifecycle(unittest.TestCase):
         """End to end through a real zmart_controller Session."""
         import zmart_controller
 
-        p1, p2, p3 = _patch_position(x_um=1000.0, y_um=2000.0, z_um=30.0)
+        patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0)
         with (
             patch.object(adapter._session, "connect_python_client", return_value=object()),
-            p1,
-            p2,
-            p3,
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
             patch.object(
                 adapter._motion,
                 "move_xy_with_backlash",
