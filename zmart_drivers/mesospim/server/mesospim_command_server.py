@@ -545,19 +545,34 @@ class MesospimCommandServer:
 
 
 # =============================================================================
-# Script-window entry point.
-# When run via mesoSPIM's Script Window, ``self`` (the Core) is in scope, so the
-# server is parented to it and outlives this script's exec() frame.
+# Public entry point.
+#
+# This file is a *module*: import it and call ``start(core)``. Do NOT open it in
+# mesoSPIM's Script Window directly -- the Script Window runs a script with
+# ``exec(script)`` inside ``mesoSPIM_Core.execute_script`` (a method, so
+# ``globals()`` != ``locals()``), and this module's top-level names then resolve
+# as globals and raise ``NameError`` (e.g. the ``host=DEFAULT_HOST`` default on
+# ``MesospimCommandServer.__init__``). Open the flat ``scriptwindow_loader.py``
+# instead: it imports this module and calls ``start(self)``. A flat script (only
+# top-level statements using ``self``, like mesoSPIM's own example scripts)
+# survives that scope; this module does not.
 # =============================================================================
 
-if "self" in dir():
-    # Re-running the script must not fail with "address in use": stop any prior
-    # server (tracked on the Core so it survives across Script-Window re-runs).
-    _prev = getattr(self, "_zmart_cmd_server", None)  # noqa: F821 - Core from Script Window
-    if _prev is not None:
+
+def start(core):
+    """Construct (or restart) the resident command server bound to ``core``.
+
+    Reload-safe: stops any prior instance tracked on the Core, so re-loading from
+    the Script Window never fails with "address in use". The server parents its
+    ``QTcpServer``/``QTimer`` to the Core, so it outlives the loader's ``exec()``
+    frame. Returns the running server.
+    """
+    prev = getattr(core, "_zmart_cmd_server", None)
+    if prev is not None:
         try:
-            _prev.stop()
+            prev.stop()
         except Exception:  # noqa: BLE001 - best-effort teardown of the old instance
             pass
-    self._zmart_cmd_server = MesospimCommandServer(self)  # noqa: F821 - Core from Script Window
-    _mesospim_command_server = self._zmart_cmd_server  # noqa: F821
+    server = MesospimCommandServer(core)
+    core._zmart_cmd_server = server
+    return server

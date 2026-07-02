@@ -15,10 +15,85 @@ drivers.
 
 - **Author:** Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch · thomdehoog@gmail.com
 - **License:** **MIT** (the client). The one resident server script is **GPL-3.0** — see [§10](#10-licensing--how-this-stays-mit).
-- **Status:** **Validated against mesoSPIM `-D` demo mode** (v1.20.0). The full round-trip — connect →
-  get_config → get_state → move → get_position → **acquire** — passes against a live demo `Core`;
-  111 offline tests green and the resident server's Qt half is validated headless. Remaining: real-
-  hardware validation and non-Tiff image writers (see [TODO.md](TODO.md)).
+- **Status:** **Live-validated against the real mesoSPIM-control software in `-D` demo mode** (v1.20.0).
+  The command server is loaded exactly as an operator would (Script Window → [`server/scriptwindow_loader.py`](server/scriptwindow_loader.py)),
+  and the full round-trip — connect → get_config → get_state → move → get_position → **acquire** — passes
+  against the live `Core` through the **unmodified** mesoSPIM code (5/5 integration tests). **115 offline
+  tests** green and the server's Qt half is validated headless. Remaining: **real-hardware** validation
+  (demo mode simulates the devices — see the honest boundary below) and non-Tiff image writers
+  (see [TODO.md](TODO.md)).
+
+## How it controls the microscope — in plain terms
+
+The driver does **not** talk to the camera, stage, or lasers itself, and it does
+**not** re-implement any microscope logic. It tells the **real mesoSPIM-control
+program** what to do — the same program a scientist normally clicks in — and
+mesoSPIM does the actual work. We only add the one thing mesoSPIM lacks: a way to
+send it commands from outside.
+
+```
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  YOUR PYTHON  (your PC, or the microscope PC)                        │
+  │                                                                     │
+  │      drv.move_xy(client, 1000, 2000)                                │
+  │              │                                                      │
+  │              ▼                                                      │
+  │  ZMART mesospim driver  (MIT)                                       │
+  │      turns your call into ONE line of JSON:                        │
+  │      {"cmd":"move_absolute","args":{"targets":{"x":1000,"y":2000}}} │
+  └──────────────┬──────────────────────────────────────────────────────┘
+                 │
+                 │   localhost network socket   127.0.0.1 : 42000
+                 │   one JSON request  ──►  one JSON reply
+                 │   (the ONLY link between the MIT driver and GPL mesoSPIM)
+                 ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  THE REAL mesoSPIM-control PROGRAM                                   │
+  │                                                                     │
+  │  command server   (you load it ONCE via the Script Window)         │
+  │      for each request it calls the SAME methods                    │
+  │      mesoSPIM's own buttons call:                                  │
+  │      core.move_absolute(...) · core.start(...) · core.state[...]   │
+  │              │                                                      │
+  │              ▼                                                      │
+  │  mesoSPIM_Core     ── the program's control brain ──               │
+  │              │                                                      │
+  │  ─ ─ ─ ─ ─ ─ ┼ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+  │              ▼                                                      │
+  │  camera · stage · lasers · galvo / ETL                             │
+  │  real devices on the microscope PC                                 │
+  │  (or SIMULATED, when mesoSPIM runs in -D demo mode)                │
+  └─────────────────────────────────────────────────────────────────────┘
+```
+
+**Reading it top to bottom:**
+
+1. **Your code / the ZMART driver (MIT).** You call something plain like
+   `drv.move_xy(client, 1000, 2000)`. The driver turns it into one short line of
+   text (JSON).
+2. **A localhost network socket (`127.0.0.1:42000`).** That line is sent over an
+   ordinary TCP socket and one line of JSON comes back. This socket is the *only*
+   connection between the MIT driver and the GPL mesoSPIM program — which is also
+   what keeps the licensing clean (see [§10](#10-licensing--how-this-stays-mit)).
+3. **The command server, running _inside_ mesoSPIM.** mesoSPIM has a built-in
+   "Script Window" that runs a Python snippet inside the live program. You load
+   our tiny loader there once; it starts a small server on the socket. Because it
+   runs inside mesoSPIM, it holds the real `Core` object.
+4. **`mesoSPIM_Core` — the program's control brain.** For every command, the
+   server calls **the exact same `Core` methods that mesoSPIM's own buttons call**
+   (`core.move_absolute(...)`, `core.start(...)` to run an acquisition, …). So a
+   move sent by the driver runs the *identical code path* as a scientist clicking
+   "move" in the GUI. **That is why this is real control, not a look-alike.**
+5. **The devices.** `Core` drives the real camera, stage and lasers. In **demo
+   mode (`-D`)** these are mesoSPIM's own *simulated* devices, so the whole program
+   runs with no microscope attached.
+
+**The honest boundary.** Everything *except the bottom box* is the real
+mesoSPIM-control program in every case. In `-D` demo mode the bottom box is
+simulated (no hardware present); on the actual microscope PC the very same path
+drives the real devices. That last step — real stage moves, real camera — is the
+one remaining bench check (see [TODO.md](TODO.md)); it needs the physical
+instrument, which no amount of demo-mode testing can stand in for.
 
 ## Contents
 
@@ -46,12 +121,19 @@ runs on its own thread and drives everything through **signals/slots**; a proces
 waveforms, lasers, filter wheels) are config-driven and **swappable for `Demo` backends**. Crucially, it
 exposes **no socket, ZMQ, REST, or RPC** — nothing a separate OS process can connect to out of the box.
 
-**The hook (no fork).** mesoSPIM's **Script Window** (Core menu) `exec()`s a Python script with the live
-`Core` bound as `self`. The driver ships a resident **command-server script** that uses this to open a
-`127.0.0.1:42000` `QTcpServer` and **`QTimer`-poll** it — non-blocking, so the Qt event loop never freezes
-(the same pattern as the Nikon `NkSocketServerDemo.mac` `WM_TIMER` poll). Each JSON request line becomes a
-`Core` action (`move_absolute`, a state request, an `Acquisition` run) or a state read, with a JSON reply
-line back. The driver is a plain MIT client of that socket.
+**The hook (no fork).** mesoSPIM's **Script Window** (Core menu) `exec()`s a Python snippet with the live
+`Core` bound as `self`. You load the driver's tiny flat loader ([`server/scriptwindow_loader.py`](server/scriptwindow_loader.py))
+there once; it imports the command-server module and starts it. The server opens a `127.0.0.1:42000`
+`QTcpServer` and **`QTimer`-poll**s it — non-blocking, so the Qt event loop never freezes (the same pattern
+as the Nikon `NkSocketServerDemo.mac` `WM_TIMER` poll). Each JSON request line becomes a `Core` action
+(`move_absolute`, a state request, an `Acquisition` run) or a state read, with a JSON reply line back. The
+driver is a plain MIT client of that socket.
+
+> **Why a *loader* and not the server file directly?** The Script Window runs your script with
+> `exec(script)` *inside* a `Core` method, where `globals()` ≠ `locals()`. A full *module*'s top-level
+> names (constants, classes) then resolve as globals and raise `NameError`. So the server logic lives in a
+> module and the thing you actually load is a **flat** one-job loader that imports it — mirroring
+> mesoSPIM's own flat example scripts. Details in [`server/README.md`](server/README.md).
 
 **Why this is a good fit.** Because mesoSPIM ships a **`-D` demo mode** (all `Demo` backends, zero hardware),
 the *entire* control loop — including a real acquisition through the real image writer — can be exercised
@@ -89,8 +171,11 @@ pip install -r zmart_drivers/mesospim/requirements-dev.txt   # pytest, numpy, ti
 
 1. Launch mesoSPIM-control — real hardware, or **`-D` demo mode** for a hardware-free run:
    `python mesoSPIM_Control.py -D`.
-2. **Core menu → Script Window →** open [`server/mesospim_command_server.py`](server/mesospim_command_server.py)
-   **→ Run**. You should see `[mesospim-cmd-server] listening on 127.0.0.1:42000`.
+2. **Core menu → Script Window →** open [`server/scriptwindow_loader.py`](server/scriptwindow_loader.py)
+   **→ Run**. Open the *loader*, **not** `mesospim_command_server.py` (see [§1](#1-about-mesospim-control--the-command-server)).
+   If the ZMART driver isn't already importable in mesoSPIM's Python, set `SERVER_DIR` at the top of the
+   loader to the folder holding `mesospim_command_server.py`. You should see
+   `[mesospim-cmd-server] listening on 127.0.0.1:42000`.
 3. From the driver: `client = drv.connect({"host": "127.0.0.1", "port": 42000})`.
 
 See [`server/README.md`](server/README.md) for the server details and offline validation options.

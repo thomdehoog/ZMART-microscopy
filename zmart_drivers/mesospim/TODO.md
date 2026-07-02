@@ -1,11 +1,19 @@
 # mesoSPIM driver — what's left to do
 
-Status as of this branch: the driver is **implemented, offline-tested** (111
+Status as of this branch: the driver is **implemented, offline-tested** (115
 tests green), the resident command server's Qt half is validated headless, and
-the full round-trip — **including `acquire`** — is now **validated against a live
-mesoSPIM `-D` demo Core** (see §1–2 and "Bench validation results" below). What
-remains is real-hardware validation plus polish. Nothing below blocks using the
-driver against the mock server or reviewing the design.
+the full round-trip — **including `acquire`** — is **live-validated against the
+real mesoSPIM-control software in `-D` demo mode**, loaded exactly as an operator
+would (Script Window → `scriptwindow_loader.py`) through the **unmodified** Core
+(5/5 integration tests). See [`LIVE_BENCH_VALIDATION.md`](LIVE_BENCH_VALIDATION.md)
+for the full run and method. What remains is **real-hardware** validation (demo
+mode simulates the devices) plus polish.
+
+> **Correction (2026-07-02).** An earlier version of this file claimed the demo
+> round-trip passed, but that check had **not** gone through mesoSPIM's real
+> Script-Window load path — which in fact failed: the server module cannot be
+> `exec()`'d directly (`NameError`, see below). That is now **fixed** with a flat
+> `scriptwindow_loader.py`, and the round-trip is confirmed through the real path.
 
 Legend: 🔴 blocker for live use · 🟠 needed for a real run · 🟢 polish / nice-to-have.
 
@@ -28,14 +36,17 @@ Miniforge/mamba + `pip install -r requirements-conda-mamba.txt`, then
 `python mesoSPIM_Control.py -D`. The ZMART **client** side is cross-platform;
 only the resident server + live Core need Windows.
 
-- [x] Launch mesoSPIM `-D` demo mode, load `server/mesospim_command_server.py`,
-      confirm it prints `listening on 127.0.0.1:42000`. **DONE** — validated
-      against a live `mesoSPIM_Core` (v1.20.0, all Demo backends) on Windows,
-      driven headless (offscreen Qt). See "Bench validation results" below.
+- [x] Launch mesoSPIM `-D` demo mode, load `server/scriptwindow_loader.py` in the
+      Script Window, confirm it prints `listening on 127.0.0.1:42000`. **DONE** —
+      validated against a live `mesoSPIM_Core` (v1.20.0, all Demo backends) on
+      Windows, driven headless (offscreen Qt). **Found + fixed:** loading the
+      server *module* directly failed (`NameError` — `exec(script)` runs in a
+      `Core` method, so module-level names resolve as globals); the flat
+      `scriptwindow_loader.py` is the fix. See [`LIVE_BENCH_VALIDATION.md`](LIVE_BENCH_VALIDATION.md).
 - [x] Run the ZMART round-trip against it (`-m integration`): connect →
       get_config → get_state → move_absolute → get_position → snap. **DONE** —
-      all 5 integration tests pass against the live demo Core, including the
-      opt-in `acquire` (`MESOSPIM_ALLOW_ACQUIRE=1`).
+      all 5 integration tests pass against the live demo Core (through the real
+      Script-Window loader), including the opt-in `acquire` (`MESOSPIM_ALLOW_ACQUIRE=1`).
 - [ ] Confirm these Core names on the **installed** version (verified against the
       `1.20.0` source below, but versions drift — all are isolated in `_CoreBridge`):
   - [x] `core.move_absolute(sdict, wait_until_done=True)` / `move_relative(...)`
