@@ -19,12 +19,27 @@
 >   deliberate per profile comments; the contradictory docstrings were fixed and
 >   the accepted-vs-took-effect contract is now stated where every wrapper
 >   lives. `move_xy_with_backlash` (M19) now demands `confirmed`.
-> - **Deferred (need hardware evidence or a design decision):** C1's actual
->   driver↔controller adapter layer; adopt-time matrix provenance (finding 10,
->   §6 — schema addition); DST-safe log timestamps (§3 minor 7 — fail-closed
->   for up to an hour during fall-back, unchanged); `age_for_snapshot`
->   min/max semantics (§3 minor 12 — diagnostics-only); CONFIRM_SPECS table
->   folding of two bespoke loops (§2 m7 — behavior-neutral refactor);
+> - **Fixed in the second pass (2026-07-02, this branch):**
+>   - **C1's driver↔controller adapter layer** — built at
+>     `navigator_expert/zmart_adapter/` (registers on import) and validated
+>     end-to-end against a live LAS X simulator through a real
+>     `zmart_controller.Session`
+>     (`tests/hardware/validate_zmart_adapter.py`; read-only slice wired into
+>     `run_ci.py online`). The live pass exposed and fixed a stage-limits gap
+>     (the adapter now applies the machine envelope at connect). Still owed on
+>     a real scope: the z-wide drive leg and physical z-additivity.
+>   - **Adopt-time matrix provenance** (finding 10, §6) — objective-pair
+>     sessions record `image_to_stage_hash`; `adopt_calibration` refuses a
+>     staged translation measured under a different (or unrecorded) matrix.
+>   - **DST-safe log timestamps** (§3 minor 7) — `_parse_ts` disambiguates the
+>     fall-back hour by choosing the fold closest to now.
+>   - **`age_for_snapshot` semantics** (§3 minor 12) — mirrors the readers'
+>     value derivation instead of min/max over tangential timestamps.
+>   - **CONFIRM_SPECS folding** (§2 m7) — `sequential_mode` and
+>     `z_stack_step_size` folded into the table; drift tests updated.
+>   - The stress-suite acquire flake (mock scanning window missable under CPU
+>     load) — the mock now guarantees one observed scanning read.
+> - **Deferred (need hardware evidence or an owner decision):**
 >   `GALVO_FIELD_FRACTION` snapshot routing (§6 finding 13 — warning
 >   strengthened instead); ROI rotation unit (docs now say "unverified raw
 >   value" — needs a hardware measurement); geometry-grid spacing and planned

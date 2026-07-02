@@ -1381,7 +1381,7 @@ class TestConfirmFunctions(unittest.TestCase):
     def test_confirm_z_stack_step_size_pass(self):
         with self._mock_readback({"stack": {"stepSize": 2.0}}):
             self.assertTrue(
-                confirmations._confirm_z_stack_step_size(None, "J", target_um=2.0, poll_window=1)[
+                confirmations._confirm_z_stack_step_size(None, "J", target=2.0, poll_window=1)[
                     "success"
                 ]
             )
@@ -1389,7 +1389,7 @@ class TestConfirmFunctions(unittest.TestCase):
     def test_confirm_z_stack_step_size_fail(self):
         with self._mock_readback({"stack": {"stepSize": 5.0}}):
             self.assertFalse(
-                confirmations._confirm_z_stack_step_size(None, "J", target_um=2.0, poll_window=0.1)[
+                confirmations._confirm_z_stack_step_size(None, "J", target=2.0, poll_window=0.1)[
                     "success"
                 ]
             )
@@ -1398,7 +1398,7 @@ class TestConfirmFunctions(unittest.TestCase):
         with self._mock_readback({"stack": {"stepSize": 2.3}}):
             self.assertTrue(
                 confirmations._confirm_z_stack_step_size(
-                    None, "J", target_um=2.0, tolerance=0.5, poll_window=1
+                    None, "J", target=2.0, tolerance=0.5, poll_window=1
                 )["success"]
             )
 

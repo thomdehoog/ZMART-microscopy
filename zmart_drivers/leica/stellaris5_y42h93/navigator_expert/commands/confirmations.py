@@ -599,43 +599,18 @@ def _confirm_z_stack_definition(
 
 
 def _confirm_z_stack_step_size(
-    client, job_name, target_um, tolerance=0.5, poll_window=None, poll_interval=0.01
+    client, job_name, target, tolerance=0.5, poll_window=None, poll_interval=0.01
 ):
-    """Poll until z-stack step size matches within tolerance (micrometers).
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        target_um: Expected step size in micrometers.
-        tolerance: Acceptable deviation in micrometers.
-        poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if poll_window is None:
-        poll_window = CONFIRM_POLL_S
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + poll_window
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                actual = ch["stack"]["stepSize"]
-                log.debug("Z-stack step confirm: target=%.4f actual=%.6g", target_um, actual)
-                if abs(actual - target_um) < tolerance:
-                    return {"success": True, "logs": logs}
-            except (KeyError, TypeError):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"Z-stack step timeout after {time.perf_counter() - t_start:.1f}s — target={target_um}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until z-stack step size matches within tolerance (micrometers)."""
+    return _run_spec(
+        "z_stack_step_size",
+        client,
+        job_name,
+        target,
+        tolerance=tolerance,
+        poll_window=poll_window,
+        poll_interval=poll_interval,
+    )
 
 
 def _confirm_z_stack_size(
@@ -820,40 +795,15 @@ def _confirm_scan_mode(client, job_name, target, poll_window=None, poll_interval
 
 
 def _confirm_sequential_mode(client, job_name, target, poll_window=None, poll_interval=0.01):
-    """Poll until sequential mode matches exactly (enum string).
-
-    Args:
-        client: The connected LAS X API client.
-        job_name: Target job name.
-        target: Expected sequential mode string.
-        poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
-        poll_interval: Seconds between readback polls.
-
-    Returns:
-        {"success": bool, "logs": [...]}
-    """
-    if poll_window is None:
-        poll_window = CONFIRM_POLL_S
-    logs = []
-    t_start = time.perf_counter()
-    deadline = t_start + poll_window
-
-    while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
-        if ch is not None:
-            try:
-                actual = ch["sequentialMode"]
-                if actual == target:
-                    return {"success": True, "logs": logs}
-                log.debug("SequentialMode confirm: target=%s actual=%s", target, actual)
-            except (KeyError, TypeError):
-                pass
-        time.sleep(poll_interval)
-
-    msg = f"SequentialMode timeout after {time.perf_counter() - t_start:.1f}s — target={target}"
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
+    """Poll until sequential mode matches exactly (enum string)."""
+    return _run_spec(
+        "sequential_mode",
+        client,
+        job_name,
+        target,
+        poll_window=poll_window,
+        poll_interval=poll_interval,
+    )
 
 
 def _confirm_image_format(client, job_name, w, h, poll_window=None, poll_interval=0.01):

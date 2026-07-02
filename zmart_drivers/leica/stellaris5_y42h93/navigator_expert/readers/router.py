@@ -157,7 +157,9 @@ def _snapshot_read(spec, *, max_age_s, job_name=None) -> Reading:
             value = spec.log_fn(snapshot, max_age_s=max_age_s)
         else:
             value = spec.log_fn(snapshot, max_age_s=max_age_s, job_name=job_name)
-        age_s = capabilities.age_for_snapshot(snapshot, age_key=spec.age_key, job_name=job_name)
+        age_s = capabilities.age_for_snapshot(
+            snapshot, age_key=spec.age_key, job_name=job_name, max_age_s=max_age_s
+        )
         observed_at = None if age_s is None else snapshot.now - age_s
         return Reading(
             value=value,

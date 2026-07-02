@@ -57,10 +57,14 @@ time someone uses them.
 ## Status & sequencing
 
 - **Name: staked** (here, and across the front-facing docs).
-- **The `zmart` waist exists as the `zmart_controller/` package (renamed from `controller/`), still under construction.** It is
-  the intended single workflow-facing surface, but workflows do not yet run
-  through it (they use the Leica driver directly). The vendor-neutral verb
-  contract is not frozen (see `docs/MIDLAYER_PLAN.md`). Drivers today: Leica
+- **The `zmart` waist exists as the `zmart_controller/` package (renamed from
+  `controller/`), with its first real adapter wired.** The Leica driver plugs in
+  via `navigator_expert/zmart_adapter/` (import to register) and the full
+  controller round-trip — connect, origin/frame moves, capture+save — is
+  validated against a live LAS X simulator by
+  `navigator_expert/tests/hardware/validate_zmart_adapter.py`. Workflows do not
+  yet run through it (they use the Leica driver directly), and the
+  vendor-neutral verb contract is not frozen. Drivers today: Leica
   (production-tested), Zeiss (MVP, offline-green), Nikon + Evident
   (investigation / spike).
 - **The name is set; the code rename is under way.** The project is **ZMART

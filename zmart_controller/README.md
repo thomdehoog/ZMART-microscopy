@@ -168,6 +168,10 @@ connect, capture both states, get the positions, then move and acquire at each
 one. It uses the bundled mock driver, so it runs without any hardware — open it
 and step through the cells.
 
+`example_leica_experiment.ipynb` is the same surface against the **real Leica
+driver** via its `zmart_adapter` (needs a live LAS X — simulator or scope):
+register by import, connect, look around read-only, then origin/move/acquire.
+
 ## Adding a microscope
 
 A driver is a set of functions — one per operation — registered under a

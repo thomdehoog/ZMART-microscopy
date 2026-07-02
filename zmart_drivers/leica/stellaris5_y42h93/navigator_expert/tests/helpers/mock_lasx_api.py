@@ -345,6 +345,15 @@ class MockLasxClient:
         self._stage_y = 0.03  # meters
         self._scan_status = "eScanIdle"
         self._scan_busy_until = 0.0
+        # Command-initiated scans guarantee this many observed "scanning"
+        # reads. The wall-clock window alone (0.1 s vs. the driver's 0.1 s
+        # polling) can be missed entirely when the runner thread is starved
+        # under load — the confirm loop would then report "Scan was never
+        # observed non-idle" for a scan that did run. Two reads, not one:
+        # confirm_acquire's fail-closed freshness gate discards a reading
+        # stamped in the same wall-clock tick as the command start, and that
+        # discarded poll still consumes a read.
+        self._scan_min_reads = 0
 
         # PyApiCommandEcho — error tracking
         self.PyApiCommandEcho = type("Obj", (), {"Model": self._echo})()
@@ -410,6 +419,11 @@ class MockLasxClient:
         class StatusModel:
             @property
             def ScanStatus(self):
+                # Guaranteed observations first, so a delayed poller still
+                # sees the scan; then the wall-clock window.
+                if client._scan_min_reads > 0:
+                    client._scan_min_reads -= 1
+                    return "eScanStarted"
                 if time.monotonic() < client._scan_busy_until:
                     return "eScanStarted"
                 return client._scan_status
@@ -521,8 +535,10 @@ class MockLasxClient:
         if job_name not in self._jobs:
             self._echo.set_error(f"Job '{job_name}' not found")
             return
-        # Simulate a short scan
+        # Simulate a short scan; guarantee observed scanning reads so a
+        # starved poller cannot miss the whole window (see _scan_min_reads).
         self._scan_busy_until = time.monotonic() + 0.1
+        self._scan_min_reads = 2
 
     def _handle_acquire_job(self, model):
         self._echo.clear()
@@ -530,8 +546,10 @@ class MockLasxClient:
         if job_name not in self._jobs:
             self._echo.set_error(f"Job '{job_name}' not found")
             return
-        # Simulate a short scan
+        # Simulate a short scan; guarantee observed scanning reads so a
+        # starved poller cannot miss the whole window (see _scan_min_reads).
         self._scan_busy_until = time.monotonic() + 0.1
+        self._scan_min_reads = 2
 
     def _handle_move_stage(self, model):
         self._echo.clear()

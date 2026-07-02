@@ -95,6 +95,25 @@ def _apply_staging_payload(
         )
         return
 
+    # Provenance gate: the staged correction_xy was computed as
+    # image_to_stage @ image_shift under the session's matrix. Pairing it
+    # with a different active matrix silently corrupts the translation.
+    staged_hash = data.get("image_to_stage_hash")
+    if staged_hash is None:
+        raise ValueError(
+            "staging config records no image_to_stage_hash, so the matrix its "
+            "correction was measured under cannot be verified; re-run the "
+            "objective-pair session against the current calibration"
+        )
+    current_hash = calibration_model.matrix_hash(calibration_model.get_image_to_stage(config))
+    if staged_hash != current_hash:
+        raise ValueError(
+            "staged translation was measured under a different image_to_stage "
+            f"matrix (measured {staged_hash[:12]}, active {current_hash[:12]}); "
+            "an intervening image_to_stage adoption invalidated the staged "
+            "correction_xy - re-run the objective-pair session"
+        )
+
     from_slot = _objective_slot_for_label(config, data["from_objective"])
     to_slot = _objective_slot_for_label(config, data["to_objective"])
     base = calibration_model.get_translation_um(config, from_slot)

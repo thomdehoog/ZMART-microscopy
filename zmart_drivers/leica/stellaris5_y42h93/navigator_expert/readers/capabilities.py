@@ -71,33 +71,41 @@ def key_delta(key, other):
     return None if key == other else math.inf
 
 
-def age_for_snapshot(snapshot, *, age_key=None, job_name=None):
-    """Age of a datum's log value within *snapshot*, in seconds."""
+def age_for_snapshot(snapshot, *, age_key=None, job_name=None, max_age_s=None):
+    """Age of a datum's log value within *snapshot*, in seconds.
+
+    Mirrors the log readers' value derivation, so the reported age belongs
+    to the datum that actually produced the value -- not a min/max over
+    tangential timestamps (which made fresh job lists report ancient ages
+    and stale selections report fresh intent-echo ages):
+
+    - ``jobs``: :func:`log_reader.get_jobs` derives the list from the matrix
+      summary when it is present and fresh under *max_age_s*; otherwise from
+      the ATL cluster, whose staleness is bounded by its oldest per-job line.
+      Selection markers only tag ``IsSelected`` and are not the value's age.
+    - ``selected_job``: :func:`log_reader.get_selected_job` prefers the
+      ``CurrentBlock`` applied state; the element-index intent echo is only
+      the fallback.
+    """
     ages = log_reader.ages(snapshot)
     if job_name is not None:
         return ages.get("jobs", {}).get(job_name)
+
+    def fresh(age):
+        return age is not None and (max_age_s is None or age <= max_age_s)
+
     if age_key == "jobs":
-        values = [age for age in (ages.get("jobs") or {}).values() if age is not None]
         job_list_age = ages.get("job_list")
-        if job_list_age is not None:
-            values.append(job_list_age)
-        selected_age = ages.get("selected")
-        if selected_age is not None:
-            values.append(selected_age)
-        current_block_age = ages.get("current_block")
-        if current_block_age is not None:
-            values.append(current_block_age)
-        return max(values) if values else None
+        if fresh(job_list_age):
+            return job_list_age
+        cluster = [age for age in (ages.get("jobs") or {}).values() if age is not None]
+        return max(cluster) if cluster else job_list_age
     if age_key == "selected_job":
-        values = [
-            age
-            for age in (
-                ages.get("current_block"),
-                ages.get("selected"),
-            )
-            if age is not None
-        ]
-        return min(values) if values else None
+        current_block_age = ages.get("current_block")
+        if fresh(current_block_age):
+            return current_block_age
+        selected_age = ages.get("selected")
+        return selected_age if selected_age is not None else current_block_age
     return ages.get(age_key)
 
 

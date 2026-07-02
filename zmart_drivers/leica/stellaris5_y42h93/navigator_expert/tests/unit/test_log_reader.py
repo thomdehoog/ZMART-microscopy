@@ -416,5 +416,30 @@ class TestLogReader(unittest.TestCase):
         self.assertIsNone(s.xy)
 
 
+class TestTimestampDstFold(unittest.TestCase):
+    """DST fall-back safety: a naive local wall-clock repeats for an hour, so
+    _parse_ts must pick the fold interpretation closest to now instead of
+    letting a fixed-fold epoch trip every sub-2s *_log_max_age_s gate."""
+
+    def test_fold_disambiguation_prefers_epoch_closest_to_now(self):
+        # Ambiguous hour: candidates one hour apart; log lines are recent.
+        self.assertEqual(L._fold_disambiguate(1000.0, 4600.0, 4595.0), 4600.0)
+        self.assertEqual(L._fold_disambiguate(1000.0, 4600.0, 1005.0), 1000.0)
+
+    def test_fold_disambiguation_unambiguous_time_is_identity(self):
+        self.assertEqual(L._fold_disambiguate(500.0, 500.0, 0.0), 500.0)
+
+    def test_fold_disambiguation_tie_prefers_first_fold(self):
+        self.assertEqual(L._fold_disambiguate(0.0, 3600.0, 1800.0), 0.0)
+
+    def test_parse_ts_unambiguous_matches_naive_timestamp(self):
+        line = ts(0) + " GetStageHwPosition ..."
+        self.assertEqual(L._parse_ts(line), BASE.timestamp())
+
+    def test_parse_ts_rejects_garbage(self):
+        self.assertIsNone(L._parse_ts("no timestamp here"))
+        self.assertIsNone(L._parse_ts("2026-13-99 25:00:00.000000 bad"))
+
+
 if __name__ == "__main__":
     unittest.main()

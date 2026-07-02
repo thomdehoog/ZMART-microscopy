@@ -687,7 +687,7 @@ def set_z_stack_step_size(
         confirm_fn=partial(
             _confirm_z_stack_step_size,
             job_name=job_name,
-            target_um=step_size_um,
+            target=step_size_um,
             tolerance=_profile_value(Z_STACK_STEP_SIZE, "confirm_tolerance", tolerance),
         ),
         max_retries=max_retries,
