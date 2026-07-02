@@ -25,6 +25,10 @@ _ACTUATORS: dict[str, list[str]] = {
     "z": ["motoric", "galvo", "piezo"],
 }
 
+# Fixed defaults for axes omitted from ``with_actuators`` (the reference
+# actuator per axis) — never sticky: a previous call's choice is not state.
+_DEFAULT_ACTUATORS: dict[str, str] = {"x": "motoric", "y": "motoric", "z": "motoric"}
+
 
 @dataclass
 class MockHandle:
@@ -43,11 +47,6 @@ class MockHandle:
     origin_x: float = 0.0
     origin_y: float = 0.0
     origin_z: float = 0.0
-
-    # active actuator per axis
-    actuators: dict = field(
-        default_factory=lambda: {"x": "motoric", "y": "motoric", "z": "motoric"}
-    )
 
     # mutable instrument settings
     laser_power: float = 5.0
@@ -135,9 +134,13 @@ def _with_defaults(handle: MockHandle, options: dict | None) -> dict:
     return resolved
 
 
-def _resolve_actuators(handle: MockHandle, with_actuators: dict | None) -> dict[str, str]:
-    """Per-axis actuator choice, validated and defaulting to the active one."""
-    chosen = dict(handle.actuators)
+def _resolve_actuators(with_actuators: dict | None) -> dict[str, str]:
+    """Per-axis actuator choice, validated, over the fixed reference defaults.
+
+    Never sticky: a previous call's selection is not state — omitted axes
+    always resolve to the reference actuator.
+    """
+    chosen = dict(_DEFAULT_ACTUATORS)
     if with_actuators:
         for axis, actuator in with_actuators.items():
             if axis not in _ACTUATORS or actuator not in _ACTUATORS[axis]:
@@ -158,7 +161,7 @@ def _user_position(handle: MockHandle) -> dict[str, float]:
 def get_xyz(handle: MockHandle, *, with_actuators: dict | None = None) -> dict:
     """Report the position per axis (um, relative to origin) with its actuator."""
     _require_open(handle)
-    chosen = _resolve_actuators(handle, with_actuators)
+    chosen = _resolve_actuators(with_actuators)
     user = _user_position(handle)
     return {
         axis: {"value": user[axis], "actuator": chosen[axis], "unit": "um"}
@@ -171,13 +174,13 @@ def set_xyz(
 ) -> dict:
     """Move to an absolute target (um, relative to origin); return a move record.
 
-    The chosen actuators realize the move and stay active for later calls.
+    The chosen actuators realize this move only — the selection is never
+    remembered (omitted axes always default to the reference actuator).
     Mapping user coordinates to the raw position via the origin is the driver's
     arithmetic, not the controller's.
     """
     _require_open(handle)
-    chosen = _resolve_actuators(handle, with_actuators)
-    handle.actuators = chosen
+    chosen = _resolve_actuators(with_actuators)
     handle.x = handle.origin_x + x
     handle.y = handle.origin_y + y
     handle.z = handle.origin_z + z
