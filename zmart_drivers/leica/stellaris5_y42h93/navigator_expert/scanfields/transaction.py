@@ -41,7 +41,8 @@ def reorder_jobs(lrp_path, first_job):
         True if the job was moved (or was already first), False on error.
     """
     lrp_path = Path(lrp_path)
-    root = ET.parse(lrp_path).getroot()
+    raw = lrp_path.read_text(encoding="utf-8")
+    root = ET.fromstring(raw, parser=ET.XMLParser(target=ET.TreeBuilder(insert_comments=True)))
 
     el_list = root.find(".//LDM_Block_Sequence_Element_List")
     block_list = root.find(".//LDM_Block_Sequence_Block_List")
@@ -49,48 +50,43 @@ def reorder_jobs(lrp_path, first_job):
         log.error("reorder_jobs: missing element/block list")
         return False
 
-    block_to_job = {}
+    target_block = None
     for b in block_list:
         seq = b.find(".//LDM_Block_Sequential")
-        if seq is not None:
-            block_to_job[b.get("BlockID")] = seq.get("BlockName")
-
-    el_by_job = {}
-    for e in el_list:
-        job = block_to_job.get(e.get("BlockID"))
-        if job:
-            el_by_job[job] = e
-
-    block_by_job = {}
-    for b in block_list:
-        seq = b.find(".//LDM_Block_Sequential")
-        if seq is not None:
-            block_by_job[seq.get("BlockName")] = b
-
-    if first_job not in block_by_job:
+        if seq is not None and seq.get("BlockName") == first_job:
+            target_block = b
+            break
+    if target_block is None:
         log.error("reorder_jobs: job '%s' not found", first_job)
         return False
 
-    current_order = [
-        block_to_job[e.get("BlockID")] for e in el_list if e.get("BlockID") in block_to_job
-    ]
+    block_id = target_block.get("BlockID")
+    target_el = next((e for e in el_list if e.get("BlockID") == block_id), None)
+    if target_el is None:
+        log.error(
+            "reorder_jobs: no sequence element for job '%s' (BlockID=%s)", first_job, block_id
+        )
+        return False
 
-    if current_order and current_order[0] == first_job:
+    if list(el_list)[0] is target_el and list(block_list)[0] is target_block:
         log.debug("reorder_jobs: '%s' already first", first_job)
         return True
 
-    new_order = [first_job] + [j for j in current_order if j != first_job]
+    # Move the target's entries to the front; every other entry keeps its
+    # place. Blocks/elements the job maps miss (non-job block types,
+    # unmapped BlockIDs, duplicates) must survive the reorder untouched.
+    el_list.remove(target_el)
+    el_list.insert(0, target_el)
+    block_list.remove(target_block)
+    block_list.insert(0, target_block)
 
-    for e in list(el_list):
-        el_list.remove(e)
-    for b in list(block_list):
-        block_list.remove(b)
-
-    for job_name in new_order:
-        el_list.append(el_by_job[job_name])
-        block_list.append(block_by_job[job_name])
-
-    ET.ElementTree(root).write(str(lrp_path), encoding="unicode", xml_declaration=False)
+    # LAS X writes the XML declaration and its header comments *before* the
+    # root element, where ElementTree cannot represent them — preserve that
+    # prolog verbatim and re-serialize only the root. Always write UTF-8:
+    # a locale-encoded write would corrupt non-ASCII job names.
+    root_start = raw.find(f"<{root.tag}")
+    prolog = raw[:root_start] if root_start > 0 else '<?xml version="1.0"?>'
+    lrp_path.write_text(prolog + ET.tostring(root, encoding="unicode"), encoding="utf-8")
     log.info("reorder_jobs: moved '%s' to first position", first_job)
     return True
 
@@ -119,12 +115,17 @@ def apply_lrp_change(
         *args: Forwarded to *lrp_edit_fn*.
         verify_fn: Optional callable ``verify_fn(lrp_path) -> bool``
             that checks the saved file.
-        confirm_delays: Sequence of delays (seconds) for confirm save
-            attempts.
+        confirm_delays: Per-attempt save *timeouts* (seconds) for the
+            confirm save attempts, escalating across retries.
         **kwargs: Forwarded to *lrp_edit_fn*.
 
     Returns:
         dict with success, edit_result, attempts, or None on failure.
+
+    There is no rollback: a failure after the edit leaves the on-disk LRP
+    modified while LAS X's in-memory template may be stale. Pass a
+    *verify_fn* whenever the edit's effect can be checked — an edit that
+    changed nothing (e.g. job not found) still reaches the confirm stage.
     """
     templates_dir = find_scanning_templates_dir()
     if templates_dir is None:
@@ -146,6 +147,11 @@ def apply_lrp_change(
         log.warning("apply_lrp_change: could not determine active job")
 
     edit_result = lrp_edit_fn(lrp_path, *args, **kwargs)
+    if not edit_result:
+        # 0/None covers both "already at target" and "job/attribute not
+        # found" — the edit fns log which. Surface it here because without
+        # a verify_fn the caller would otherwise see success=True.
+        log.warning("apply_lrp_change: edit reported no changes (edit_result=%r)", edit_result)
 
     if current_job_name:
         reorder_jobs(lrp_path, current_job_name)

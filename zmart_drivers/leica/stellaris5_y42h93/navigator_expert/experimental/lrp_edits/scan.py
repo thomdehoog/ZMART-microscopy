@@ -307,11 +307,14 @@ def reset_pan(client, job_name):
     Used to return the scan field to its un-panned position — typically as
     the final step of a cookbook so a subsequent run starts from a known
     state. Verifies the change before returning.
+
+    Returns the :func:`apply_lrp_change` result dict, or ``None`` when the
+    edit could not be applied/verified.
     """
     from ...scanfields.files import TEMPLATE_XML
     from ...scanfields.transaction import apply_lrp_change
 
-    apply_lrp_change(
+    return apply_lrp_change(
         client,
         TEMPLATE_XML,
         lambda p: lrp_set_pan(p, 0.0, 0.0, job_name),

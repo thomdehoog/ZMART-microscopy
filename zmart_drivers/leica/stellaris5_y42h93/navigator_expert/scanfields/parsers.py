@@ -107,6 +107,8 @@ def _tile_size_from_image_size_str(image_size_str):
     avg = (info["x"] + info["y"]) / 2.0
     if info["unit"] == "mm":
         return round(avg * 1000.0, 4)
+    if info["unit"] == "nm":
+        return round(avg / 1000.0, 4)
     return round(avg, 4)
 
 
@@ -216,7 +218,12 @@ def parse_acquisition_positions(xml_root, job_tile_sizes, skip_jobs=None):
     for t in tiles_raw:
         regions_raw[(t["section_x"], t["section_y"])].append(t)
 
-    sorted_keys = sorted(regions_raw.keys(), key=lambda k: (k[1], k[0]))
+    # None section indices (malformed ScanFieldData) sort last instead of
+    # raising TypeError against the int keys.
+    def _none_last(v):
+        return (v is None, v if v is not None else 0)
+
+    sorted_keys = sorted(regions_raw.keys(), key=lambda k: (_none_last(k[1]), _none_last(k[0])))
     section_xs = sorted(set(k[0] for k in sorted_keys))
     section_ys = sorted(set(k[1] for k in sorted_keys))
 
@@ -225,6 +232,11 @@ def parse_acquisition_positions(xml_root, job_tile_sizes, skip_jobs=None):
         sx, sy = key
         tiles = regions_raw[key]
         jn = tiles[0]["job_name"]
+        other_jobs = {t["job_name"] for t in tiles} - {jn}
+        if other_jobs:
+            log.warning(
+                "Section (%s, %s) mixes jobs %s; attributing it to '%s'", sx, sy, other_jobs, jn
+            )
         ts = job_tile_sizes.get(jn)
         h = ts / 2.0 if ts is not None else 0.0
 
@@ -747,7 +759,7 @@ def parse_rgn_tile_colors(rgn_path):
     job_colors = {}
 
     for item in root.findall(".//ShapeList/Items/*"):
-        name_text = item.findtext("n") or ""
+        name_text = item.findtext("Name") or item.findtext("n") or ""
         tile_color = item.findtext("TileColor") or ""
         label_text = item.findtext("LabelText") or ""
 
