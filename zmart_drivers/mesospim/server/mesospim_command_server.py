@@ -560,7 +560,9 @@ class MesospimCommandServer:
         req_id = request.get("id")
         if request.get("cmd") == "hello":
             supplied = str((request.get("args") or {}).get("token", ""))
-            if hmac.compare_digest(supplied, str(self._token)):
+            # Compare UTF-8 bytes: hmac.compare_digest rejects non-ASCII `str`
+            # (a token like "bütton" would raise), so encode first.
+            if hmac.compare_digest(supplied.encode("utf-8"), str(self._token).encode("utf-8")):
                 self._authed = True
                 return None
             return {"ok": False, "error": "authentication failed: bad or missing token", "id": req_id}
