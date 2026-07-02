@@ -169,10 +169,17 @@ now fixed on this branch):
 
 ## 7. Upstream 🟢
 
-- [ ] Propose `server/mesospim_command_server.py` to the mesoSPIM project as a
-      first-class "command server" script (Zurich-local, community-run), so it is
-      a script mesoSPIM ships rather than a patch to maintain. Keeps the GPL edge
-      upstream and the ZMART client MIT.
+- [x] **Draft the upstream PR** — an opt-in, off-by-default built-in command
+      server for mesoSPIM (**Tools → Command Server…** button), so operators start
+      it with a click instead of the Script-Window loader. Built + validated live
+      against the `-D` demo Core (menu action, queued start on the Core thread,
+      round-trip incl. acquire + unicode token). Packaged for later in
+      [`pull_request/`](pull_request/) (patch + README + PROTOCOL). **Not yet
+      submitted upstream.**
+- [ ] Open an issue with the mesoSPIM maintainers to gauge interest, then submit
+      the PR from `pull_request/`. If accepted, the GPL edge lives upstream and the
+      Script-Window loader becomes the fallback for older installs; the ZMART
+      client is unchanged either way.
 
 ## 8. Docs consistency 🟢
 

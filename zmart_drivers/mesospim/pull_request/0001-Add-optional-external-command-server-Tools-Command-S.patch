@@ -1,0 +1,819 @@
+From 99276c3fbbbffbea063372cb65fb6ba554c3cd38 Mon Sep 17 00:00:00 2001
+From: Thom de Hoog <thomdehoog@gmail.com>
+Date: Thu, 2 Jul 2026 17:22:19 +0200
+Subject: [PATCH] Add optional external command server (Tools -> Command
+ Server...)
+
+mesoSPIM-control has no external control API: everything runs in-process inside
+the Qt event loop, so a separate program cannot drive the microscope. This adds
+an OPT-IN, OFF-BY-DEFAULT TCP command server that exposes the existing Core
+control surface over a localhost socket, so an external process can move stages,
+change state, and run acquisitions by calling the SAME Core methods the GUI
+buttons call.
+
+- mesoSPIM_CommandServer.py (new): a QTimer-polled (non-blocking) TCP server
+  speaking a small line-oriented JSON protocol. All Core-touching calls are
+  isolated in one _CoreBridge class. Optional shared token gates access
+  (fail-closed, constant-time compare over UTF-8 bytes); plain TCP, intended for
+  a trusted LAN.
+- mesoSPIM_Core: start_command_server(host, port, token) / stop_command_server()
+  slots. Invoked via a queued connection so the server's socket/poll-timer live
+  on the Core thread, where the Core's work runs (wait_until_done moves and
+  acquisitions behave correctly).
+- mesoSPIM_MainWindow: a "Tools -> Command Server..." menu entry (added
+  programmatically, no .ui change) opening a small Start/Stop dialog with
+  host/port/token and a token generator; stops the server on app close.
+
+Nothing runs unless the operator starts it. Validated against -D demo mode: the
+full connect -> get_config -> get_state -> move -> get_position -> acquire loop
+runs against the real Core, including a real acquisition through the image
+writer, with no hardware.
+---
+ mesoSPIM/src/mesoSPIM_CommandServer.py | 602 +++++++++++++++++++++++++
+ mesoSPIM/src/mesoSPIM_Core.py          |  30 ++
+ mesoSPIM/src/mesoSPIM_MainWindow.py    |  91 ++++
+ 3 files changed, 723 insertions(+)
+ create mode 100644 mesoSPIM/src/mesoSPIM_CommandServer.py
+
+diff --git a/mesoSPIM/src/mesoSPIM_CommandServer.py b/mesoSPIM/src/mesoSPIM_CommandServer.py
+new file mode 100644
+index 0000000..19a31ab
+--- /dev/null
++++ b/mesoSPIM/src/mesoSPIM_CommandServer.py
+@@ -0,0 +1,602 @@
++"""
++mesoSPIM command server -- external control API over a localhost TCP socket.
++============================================================================
++Gives mesoSPIM-control an optional external control API: a small TCP server that
++turns a line-oriented JSON protocol into ``mesoSPIM_Core`` actions (moves, state
++requests, acquisitions) and state reads. It lets a separate process drive the
++microscope the same way the GUI does -- calling the exact same ``Core`` methods
++the buttons call.
++
++Start it from the GUI (Tools -> Command Server...), which calls
++``mesoSPIM_Core.start_command_server(host, port, token)``. The server is
++**QTimer-polled** (non-blocking, so the Qt event loop never freezes -- the same
++pattern as a WM_TIMER socket poll) and lives on the Core's own thread, so its
++``Core`` calls run where the Core's work runs.
++
++    All ``Core``-touching calls are grouped in ``_CoreBridge`` -- the single
++    surface to confirm if mesoSPIM's Core API changes. Method/attribute names
++    follow mesoSPIM-control v1.20.0. Validate against ``-D`` demo mode (all Demo
++    backends, no hardware): the whole loop, including a real acquisition through
++    the image writer, runs with no microscope attached.
++
++Wire protocol: see the accompanying PROTOCOL.md.
++Author: Thom de Hoog (ZMB, University of Zurich). License: GPL-3.0 (as part of
++mesoSPIM-control, which it imports/uses).
++"""
++
++from __future__ import annotations
++
++import json
++import traceback
++
++PROTOCOL_VERSION = 1
++DEFAULT_HOST = "127.0.0.1"
++DEFAULT_PORT = 42000
++# Guard against a client that never sends a newline: cap the un-framed buffer.
++_MAX_LINE_BYTES = 4 * 1024 * 1024
++
++# Axis name -> mesoSPIM state keys for absolute / relative moves.
++_ABS_KEY = {"x": "x_abs", "y": "y_abs", "z": "z_abs", "f": "f_abs", "theta": "theta_abs"}
++_REL_KEY = {"x": "x_rel", "y": "y_rel", "z": "z_rel", "f": "f_rel", "theta": "theta_rel"}
++_AXES = ("x", "y", "z", "f", "theta")
++
++
++# =============================================================================
++# Core bridge -- the ONLY place that touches the mesoSPIM Core API.
++# Validate these against mesoSPIM -D demo mode.
++# =============================================================================
++
++
++class _CoreBridge:
++    """Thin adapter over the live ``mesoSPIM_Core`` (``self`` in the script)."""
++
++    def __init__(self, core):
++        self.core = core
++        # mesoSPIM does not keep acquisition progress in the state singleton --
++        # it emits it on ``sig_progress(dict)``. Cache the latest so ``progress``
++        # can answer a synchronous read. Guarded: a fake/older Core may lack it.
++        self._last_progress: dict = {}
++        try:
++            self.core.sig_progress.connect(self._on_progress)
++        except Exception:  # noqa: BLE001 - no sig_progress on this Core; progress stays empty
++            pass
++
++    def _on_progress(self, payload) -> None:
++        try:
++            self._last_progress = dict(payload)
++        except (TypeError, ValueError):
++            self._last_progress = {}
++
++    def disconnect_signals(self) -> None:
++        """Detach from Core signals so a stopped/reloaded server leaks nothing."""
++        try:
++            self.core.sig_progress.disconnect(self._on_progress)
++        except Exception:  # noqa: BLE001 - not connected / no such signal
++            pass
++
++    # -- reads ---------------------------------------------------------------
++
++    def state(self) -> dict:
++        """Snapshot the process-wide state singleton as a plain dict."""
++        st = self.core.state  # mesoSPIM_StateSingleton, dict-like + mutex-guarded
++        keys = (
++            "state",
++            "position",
++            "laser",
++            "intensity",
++            "filter",
++            "zoom",
++            "shutterconfig",
++            "etl_l_amplitude",
++            "etl_l_offset",
++            "etl_r_amplitude",
++            "etl_r_offset",
++        )
++        out = {}
++        for key in keys:
++            try:
++                out[key] = st[key]
++            except (KeyError, TypeError):
++                out[key] = None
++        # The singleton stores position under raw 'x_pos','y_pos',... keys.
++        # Normalise it here so get_state's `position` block matches get_position
++        # and the documented {x,y,z,f,theta} reader contract (the mock server and
++        # the ZMART readers both assume axis names, not the raw 'x_pos' keys).
++        out["position"] = self._axis_positions(out.get("position"))
++        return out
++
++    @staticmethod
++    def _axis_positions(pos) -> dict:
++        """Normalise a mesoSPIM position dict to axis names ``{x,y,z,f,theta}``.
++
++        mesoSPIM stores position under keys like ``'x_pos','y_pos',...`` (or, on
++        some builds, a nested ``{'x':..}``); accept both shapes.
++        """
++        pos = pos or {}
++        return {axis: pos.get(axis, pos.get(f"{axis}_pos")) for axis in _AXES}
++
++    def position(self) -> dict:
++        """Read the current position dict ``{x,y,z,f,theta}`` in um/deg."""
++        return self._axis_positions(self.state().get("position"))
++
++    def config(self) -> dict:
++        """Read the hardware model from the loaded mesoSPIM config.
++
++        Attribute names match mesoSPIM-control's config module (verified against
++        the 1.20.0 `demo_config.py`): laser lines are the keys of ``laserdict``;
++        zoom *names* are the keys of ``zoomdict`` while the pixel size (um/px)
++        lives in a separate ``pixelsize`` dict keyed by the same names; the
++        camera frame size is ``camera_parameters['x_pixels' / 'y_pixels']``.
++        """
++        cfg = getattr(self.core, "cfg", None)
++        lasers, filters, zooms, shutters = [], [], [], []
++        if cfg is not None:
++            for name in getattr(cfg, "laserdict", {}) or {}:
++                lasers.append({"name": name, "wavelength_nm": _wavelength(name)})
++            filters = list((getattr(cfg, "filterdict", {}) or {}).keys())
++            pixelsize = getattr(cfg, "pixelsize", {}) or {}
++            zooms = [
++                {"name": z, "pixel_size_um": pixelsize.get(z)}
++                for z in (getattr(cfg, "zoomdict", {}) or {})
++            ]
++            shutters = list(getattr(cfg, "shutteroptions", ("Left", "Right", "Both")))
++        return {
++            "app": "mesoSPIM-control",
++            "version": _config_version(cfg),
++            "lasers": lasers,
++            "filters": filters,
++            "zooms": zooms,
++            "shutter_configs": shutters,
++            "axes": list(_AXES),
++            "camera": _camera(cfg),
++        }
++
++    def progress(self) -> dict:
++        # Live status is in the state singleton; the counts come from the cached
++        # sig_progress payload (keys per mesoSPIM-control 1.20.0 send_progress()).
++        st = self.state()
++        p = self._last_progress
++        return {
++            "state": st.get("state"),
++            "current_plane": p.get("current_image_in_acq"),
++            "total_planes": p.get("images_in_acq"),
++            "current_acquisition": p.get("current_acq"),
++            "total_acquisitions": p.get("total_acqs"),
++        }
++
++    # -- writes --------------------------------------------------------------
++
++    def move_absolute(self, targets: dict) -> dict:
++        sdict = {_ABS_KEY[a]: float(v) for a, v in targets.items()}
++        self.core.move_absolute(sdict, wait_until_done=True)
++        return self.position()
++
++    def move_relative(self, deltas: dict) -> dict:
++        sdict = {_REL_KEY[a]: float(v) for a, v in deltas.items()}
++        self.core.move_relative(sdict, wait_until_done=True)
++        return self.position()
++
++    def zero(self, axes: list) -> None:
++        self.core.zero_axes(list(axes))
++
++    def stop(self) -> None:
++        self.core.sig_stop_movement.emit()
++
++    def set_state(self, settings: dict) -> dict:
++        # sig_state_request is the mesoSPIM central control channel.
++        self.core.sig_state_request_and_wait_until_done.emit(dict(settings))
++        return {"applied": dict(settings)}
++
++    def acquire(self, acquisition: dict, acquisition_type: str) -> dict:
++        """Run one Acquisition and return the written frame file(s).
++
++        Builds a mesoSPIM ``Acquisition`` (an ``IndexedOrderedDict`` subclass, so
++        ``.update()`` merges over the constructor defaults) and a single-item
++        ``AcquisitionList``, then runs it.
++
++        RUN MECHANISM -- BENCH ITEM (see TODO.md). Against mesoSPIM-control 1.20.0
++        the intended entry point is the Core method ``start(row=...)``, which wraps
++        the row of ``state['acq_list']`` and drives the real per-image signal
++        ``sig_add_images_to_image_series`` (``sig_run_timepoint(int)`` is the
++        *time-lapse* counter, not a per-acquisition trigger). Emitting
++        prepare/end alone does NOT capture frames. Wire this to ``start()`` and
++        wait for the state to return to ``idle`` when validating on the bench.
++        """
++        # mesoSPIM's Acquisition classes (GPL). mesoSPIM-control puts the repo
++        # root on sys.path and imports these as ``mesoSPIM.src.utils.acquisitions``
++        # (see mesoSPIM_Core), so that is the canonical name in a running app; fall
++        # back to a bare ``utils.acquisitions`` for layouts that put src on path.
++        try:
++            from mesoSPIM.src.utils.acquisitions import Acquisition, AcquisitionList
++        except ImportError:
++            from utils.acquisitions import Acquisition, AcquisitionList
++
++        acq = Acquisition()
++        acq.update({k: v for k, v in acquisition.items() if v is not None})
++        acq_list = AcquisitionList([acq])
++
++        # Run through the public entry point so the image writer + per-image
++        # signals fire exactly as the GUI drives them. Snapshot and restore the
++        # operator's acquisition table so a socket-driven run never destroys it.
++        state = self.core.state
++        had_key = True
++        try:
++            prev_list = state["acq_list"]
++        except (KeyError, TypeError):
++            prev_list, had_key = None, False
++        state["acq_list"] = acq_list
++        try:
++            self.core.start(row=0)
++            self._run_until_idle()
++        finally:
++            if had_key:
++                state["acq_list"] = prev_list
++            else:
++                # The key was absent before; don't leave a stray None the GUI
++                # might later assume is a list. Remove it if the singleton allows
++                # deletion, else fall back to restoring the prior value.
++                try:
++                    del state["acq_list"]
++                except (KeyError, TypeError, AttributeError):
++                    state["acq_list"] = prev_list
++
++        files = _written_files(acq)
++        cam = _camera(self.core.cfg)
++        # PROTOCOL.md: pixels is [x, y] (the driver indexes pixels[0]/pixels[1]).
++        return {
++            "files": files,
++            "planes": int(acq.get("planes", 1)),
++            "pixels": [cam["pixels_x"], cam["pixels_y"]],
++        }
++
++    def _run_until_idle(self, timeout_s: float = 600.0) -> None:
++        """Wait for the run to finish WITHOUT freezing the Qt event loop.
++
++        ``start()`` drives the acquisition through the Qt event loop / worker
++        threads, so a plain ``time.sleep`` loop here (this runs inside the socket
++        poll callback on the GUI thread) would stall the state machine and freeze
++        mesoSPIM. Instead a nested ``QEventLoop`` keeps events flowing: a ticker
++        quits it once the state has left ``idle`` and come back (edge-detected), a
++        one-shot grace timer covers a run that finished before we started waiting,
++        and a watchdog bounds the total wait. The outer socket poll is
++        re-entrancy-guarded (``MesospimCommandServer._busy``), so no second
++        request is read while this nested loop runs. BENCH ITEM: confirm the
++        finish semantics of ``start()`` on the installed version.
++        """
++        from PyQt5 import QtCore  # present inside mesoSPIM-control
++
++        loop = QtCore.QEventLoop()
++        seen = {"active": False}
++
++        def _check() -> None:
++            st = self.state().get("state")
++            if st and st != "idle":
++                seen["active"] = True
++            elif seen["active"] and st == "idle":
++                loop.quit()
++
++        ticker = QtCore.QTimer()
++        ticker.timeout.connect(_check)
++        ticker.start(50)
++        grace = QtCore.QTimer()  # run already done before we got here (fast demo snap)
++        grace.setSingleShot(True)
++        grace.timeout.connect(lambda: None if seen["active"] else loop.quit())
++        grace.start(1000)
++        watchdog = QtCore.QTimer()
++        watchdog.setSingleShot(True)
++        watchdog.timeout.connect(loop.quit)
++        watchdog.start(int(timeout_s * 1000))
++        try:
++            loop.exec_()
++        finally:
++            ticker.stop()
++            grace.stop()
++            watchdog.stop()
++
++
++def _wavelength(name):
++    digits = "".join(c for c in str(name) if c.isdigit())
++    return int(digits) if digits else None
++
++
++def _config_version(cfg):
++    # mesoSPIM's config module carries no version attribute; fall back to the
++    # app package version if it is importable, else None.
++    v = getattr(cfg, "version", None)
++    if v is not None:
++        return v
++    try:
++        import mesoSPIM  # mesoSPIM-control package, GPL
++
++        return getattr(mesoSPIM, "__version__", None)
++    except Exception:  # noqa: BLE001 - version is best-effort metadata
++        return None
++
++
++def _camera(cfg):
++    # mesoSPIM stores the frame size in cfg.camera_parameters['x_pixels'/'y_pixels'].
++    params = getattr(cfg, "camera_parameters", None) or {}
++    x = params.get("x_pixels") if isinstance(params, dict) else None
++    y = params.get("y_pixels") if isinstance(params, dict) else None
++    return {"pixels_x": int(x or 2048), "pixels_y": int(y or 2048)}
++
++
++def _sanitize_filename(name: str) -> str:
++    """Mirror mesoSPIM's ``utility_functions.replace_with_underscores``.
++
++    The image writer sanitises ``acq['filename']`` before writing, so the server
++    must apply the same transform to predict the real output path.
++    """
++    return str(name).replace(" ", "_").replace("/", "_").replace("%", "pct")
++
++
++def _written_files(acq: dict) -> list:
++    """Resolve the file the image writer produced for this acquisition.
++
++    Against mesoSPIM-control 1.20.0 the writer path is
++    ``os.path.realpath(folder + '/' + replace_with_underscores(filename))``, and
++    the default Tiff writer produces ONE multi-page (ImageJ) stack per
++    acquisition -- not one file per plane. So a single acquisition maps to a
++    single output path; multi-file products come from a multi-item
++    AcquisitionList (one stack per acquisition). Returning empty means the driver
++    gave the writer no filename. (Companion ``MAX_*`` MIP and ``*_meta.txt``
++    sidecar files are written alongside but are not returned as frame data.)
++    """
++    import os
++
++    folder = acq.get("folder") or ""
++    filename = acq.get("filename") or ""
++    # Require BOTH: an empty folder would let realpath resolve against the
++    # mesoSPIM process CWD and silently return a wrong absolute path.
++    if not folder or not filename:
++        return []
++    path = os.path.realpath(os.path.join(folder, _sanitize_filename(filename)))
++    if not os.path.exists(path):
++        # The writer names files itself; if our prediction misses, don't invent a
++        # path. Return empty so the client fails loudly rather than saving junk.
++        return []
++    return [path]
++
++
++# =============================================================================
++# Pure dispatch -- request dict -> reply dict. No sockets, no Qt.
++# =============================================================================
++
++
++def handle_request(bridge: _CoreBridge, request: dict) -> dict:
++    """Translate one parsed request into a reply dict (``ok``/``data``/``error``).
++
++    Kept pure (only the ``_CoreBridge`` touches Qt/Core) so the dispatch table
++    can be reasoned about and, in principle, tested against a fake core.
++    """
++    req_id = request.get("id")
++    cmd = request.get("cmd")
++    args = request.get("args") or {}
++    try:
++        data = _dispatch(bridge, cmd, args)
++        return {"ok": True, "data": data, "id": req_id}
++    except _Nak as exc:
++        return {"ok": False, "error": str(exc), "id": req_id}
++    except Exception as exc:  # noqa: BLE001 - never let a handler crash the loop
++        return {"ok": False, "error": f"{type(exc).__name__}: {exc}", "id": req_id}
++
++
++class _Nak(Exception):
++    """A request the server understood but declined."""
++
++
++def _axis_dict(raw: dict) -> dict:
++    out = {}
++    for axis, value in (raw or {}).items():
++        if axis not in _AXES:
++            raise _Nak(f"unknown axis {axis!r}")
++        out[axis] = float(value)
++    if not out:
++        raise _Nak("no axes given")
++    return out
++
++
++def _dispatch(bridge: _CoreBridge, cmd, args):
++    if cmd == "hello":
++        return {
++            "app": "mesoSPIM-control",
++            "version": bridge.config().get("version"),
++            "protocol": PROTOCOL_VERSION,
++            "state": bridge.state().get("state"),
++        }
++    if cmd == "ping":
++        return {}
++    if cmd == "bye":
++        return {}
++    if cmd == "get_state":
++        return bridge.state()
++    if cmd == "get_position":
++        return bridge.position()
++    if cmd == "get_config":
++        return bridge.config()
++    if cmd == "get_progress":
++        return bridge.progress()
++    if cmd == "move_absolute":
++        return {"position": bridge.move_absolute(_axis_dict(args.get("targets")))}
++    if cmd == "move_relative":
++        return {"position": bridge.move_relative(_axis_dict(args.get("deltas")))}
++    if cmd == "zero":
++        bridge.zero(args.get("axes") or list(_AXES))
++        return {}
++    if cmd == "stop":
++        bridge.stop()
++        return {}
++    if cmd == "set_state":
++        settings = args.get("settings") or {}
++        if not settings:
++            raise _Nak("set_state needs 'settings'")
++        return bridge.set_state(settings)
++    if cmd == "acquire":
++        acq = args.get("acquisition")
++        if not acq:
++            raise _Nak("acquire needs 'acquisition'")
++        return bridge.acquire(acq, args.get("acquisition_type", "snap"))
++    if cmd == "run_acquisition_list":
++        acqs = args.get("acquisitions") or []
++        if not acqs:
++            raise _Nak("run_acquisition_list needs 'acquisitions'")
++        files, per = [], []
++        for one in acqs:
++            data = bridge.acquire(one, "list")
++            files.extend(data.get("files", []))
++            per.append(data)
++        return {"files": files, "per_acquisition": per}
++    if cmd == "procedure":
++        raise _Nak(f"procedure {args.get('name')!r} not implemented on this server")
++    raise _Nak(f"unknown cmd {cmd!r}")
++
++
++# =============================================================================
++# Socket server -- QTimer-polled, non-blocking. Qt imported here only.
++# =============================================================================
++
++
++class MesospimCommandServer:
++    """Localhost TCP server polled by a QTimer inside the Qt event loop."""
++
++    def __init__(self, core, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, poll_ms: int = 20,
++                 token: str | None = None):
++        from PyQt5 import QtCore, QtNetwork  # noqa: F401 - import guarded to runtime
++
++        self._QtCore = QtCore
++        self._QtNetwork = QtNetwork
++        self.bridge = _CoreBridge(core)
++        # A shared secret gating access. None/"" = open (localhost use only). When
++        # set, the client must present it in `hello` before any command is served.
++        self._token = token or None
++        self._authed = self._token is None
++        self._server = QtNetwork.QTcpServer(core)
++        if not self._server.listen(QtNetwork.QHostAddress(host), port):
++            raise RuntimeError(f"cannot listen on {host}:{port}: {self._server.errorString()}")
++        self._conn = None
++        self._buf = b""
++        self._busy = False
++        self._timer = QtCore.QTimer(core)
++        self._timer.timeout.connect(self._poll)
++        self._timer.start(poll_ms)
++        print(f"[mesospim-cmd-server] listening on {host}:{port} "
++              f"(token {'required' if self._token else 'off'})")
++
++    def _poll(self) -> None:
++        # Re-entrancy guard: a Core call that pumps the event loop (a
++        # wait_until_done move, or the acquisition wait) can re-fire this QTimer
++        # while a request is still being handled. Never read/dispatch a second
++        # request concurrently -- it would corrupt the shared read buffer.
++        if self._busy:
++            return
++        # Accept one client at a time; mesoSPIM's command channel is single-client.
++        if self._conn is None and self._server.hasPendingConnections():
++            self._conn = self._server.nextPendingConnection()
++            self._buf = b""
++            self._authed = self._token is None  # fresh auth state per connection
++        if self._conn is None:
++            return
++        if self._conn.state() == self._QtNetwork.QAbstractSocket.UnconnectedState:
++            self._conn = None
++            return
++        self._busy = True
++        try:
++            while self._conn is not None and self._conn.bytesAvailable():
++                self._buf += bytes(self._conn.readAll())
++                if len(self._buf) > _MAX_LINE_BYTES:
++                    print(
++                        f"[mesospim-cmd-server] request exceeded {_MAX_LINE_BYTES} bytes "
++                        f"with no newline; dropping client"
++                    )
++                    self._conn.disconnectFromHost()
++                    self._conn = None
++                    self._buf = b""
++                    return
++                while self._conn is not None and b"\n" in self._buf:
++                    raw, _, self._buf = self._buf.partition(b"\n")
++                    self._respond(raw.decode("utf-8", "replace"))
++        finally:
++            self._busy = False
++
++    def _respond(self, line: str) -> None:
++        is_bye = False
++        try:
++            request = json.loads(line)
++            if not isinstance(request, dict):
++                raise ValueError("expected a JSON object")
++        except Exception as exc:  # noqa: BLE001
++            reply = {"ok": False, "error": f"bad request: {exc}", "id": None}
++        else:
++            auth_error = self._auth_gate(request)
++            if auth_error is not None:
++                reply = auth_error
++            else:
++                is_bye = request.get("cmd") == "bye"
++                reply = handle_request(self.bridge, request)
++        if self._conn is None:  # client went away while the command ran
++            return
++        try:
++            self._conn.write((json.dumps(reply) + "\n").encode("utf-8"))
++            self._conn.flush()
++        except Exception:  # noqa: BLE001
++            traceback.print_exc()
++        if is_bye and isinstance(reply, dict) and reply.get("ok"):
++            self._conn.disconnectFromHost()
++            self._conn = None
++
++    def _auth_gate(self, request):
++        """Enforce the token (fail-closed). Return an error reply dict, or None.
++
++        When a token is configured the client must present it in ``hello`` before
++        any command is served; a client that skips the handshake is refused.
++        Uses a constant-time compare so the token is not leaked by timing.
++        """
++        import hmac
++
++        if self._token is None or self._authed:
++            return None
++        req_id = request.get("id")
++        if request.get("cmd") == "hello":
++            supplied = str((request.get("args") or {}).get("token", ""))
++            # Compare UTF-8 bytes: hmac.compare_digest rejects non-ASCII `str`
++            # (a token like "bütton" would raise), so encode first.
++            if hmac.compare_digest(supplied.encode("utf-8"), str(self._token).encode("utf-8")):
++                self._authed = True
++                return None
++            return {"ok": False, "error": "authentication failed: bad or missing token", "id": req_id}
++        return {"ok": False, "error": "authentication required: send hello with a valid token first",
++                "id": req_id}
++
++    def stop(self) -> None:
++        self._timer.stop()
++        self.bridge.disconnect_signals()
++        if self._conn is not None:
++            self._conn.disconnectFromHost()
++        self._server.close()
++        print("[mesospim-cmd-server] stopped")
++
++
++# =============================================================================
++# Public entry point. Called by mesoSPIM_Core.start_command_server(...).
++# =============================================================================
++
++
++def start(core, host=DEFAULT_HOST, port=DEFAULT_PORT, token=None):
++    """Construct (or restart) the command server bound to ``core``.
++
++    Binds to ``host``:``port``. ``token`` gates access: if non-empty the client
++    must present it in the ``hello`` handshake before any command is served; if
++    ``None``/"" the server is open (localhost use only). Restart-safe: stops any
++    prior instance tracked on the Core, so starting twice never fails with
++    "address in use". The server parents its ``QTcpServer``/``QTimer`` to the
++    Core. Returns the running server.
++    """
++    prev = getattr(core, "_command_server_obj", None)
++    if prev is not None:
++        try:
++            prev.stop()
++        except Exception:  # noqa: BLE001 - best-effort teardown of the old instance
++            pass
++    server = MesospimCommandServer(core, host=host, port=port, token=token)
++    core._command_server_obj = server
++    return server
+diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
+index f8495c7..30325ef 100644
+--- a/mesoSPIM/src/mesoSPIM_Core.py
++++ b/mesoSPIM/src/mesoSPIM_Core.py
+@@ -921,6 +921,36 @@ class mesoSPIM_Core(QtCore.QObject):
+         self.state['state']='idle'
+         self.sig_update_gui_from_state.emit()
+ 
++    @QtCore.pyqtSlot(str, int, str)
++    def start_command_server(self, host, port, token):
++        '''Start the external TCP command server, bound to this live Core.
++
++        Invoked (via a queued connection, so it runs on the Core's own thread and
++        the server's QTcpServer/poll-timer live there) when the operator activates
++        the server from the GUI. `token` gates access: if non-empty the client
++        must present it to issue any command; if empty the server is open
++        (localhost use only). Plain TCP -- intended for a trusted LAN; the safety
++        model is "mesoSPIM is open AND an operator activated it". See
++        mesoSPIM_CommandServer.py.
++        '''
++        from .mesoSPIM_CommandServer import start as _start_command_server
++        # start() is restart-safe: it stops any prior instance tracked on the Core
++        # (self._command_server_obj) before binding, so re-starting never fails
++        # with "address in use".
++        _start_command_server(self, host, int(port), token or None)
++        logger.info(f'Command server listening on {host}:{port} (token {"set" if token else "off"})')
++
++    @QtCore.pyqtSlot()
++    def stop_command_server(self):
++        '''Stop the command server if it is running (idempotent).'''
++        srv = getattr(self, '_command_server_obj', None)
++        if srv is not None:
++            try:
++                srv.stop()
++            except Exception:
++                logger.exception('Error stopping command server')
++            self._command_server_obj = None
++
+     def lightsheet_alignment_mode(self):
+         '''Switches shutters after each image to allow coalignment of both lightsheets'''
+         self.stopflag = False
+diff --git a/mesoSPIM/src/mesoSPIM_MainWindow.py b/mesoSPIM/src/mesoSPIM_MainWindow.py
+index 186d97d..20e5362 100644
+--- a/mesoSPIM/src/mesoSPIM_MainWindow.py
++++ b/mesoSPIM/src/mesoSPIM_MainWindow.py
+@@ -74,6 +74,10 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+ 
+     sig_save_etl_config = QtCore.pyqtSignal()
+     sig_poke_demo_thread = QtCore.pyqtSignal()
++    # External TCP command server (Start/Stop from the Tools menu). Emitted to the
++    # Core (queued) so the server's socket/timer live on the Core's own thread.
++    sig_start_command_server = QtCore.pyqtSignal(str, int, str)
++    sig_stop_command_server = QtCore.pyqtSignal()
+     sig_launch_optimizer = QtCore.pyqtSignal(dict)
+     sig_launch_contrast_window = QtCore.pyqtSignal()
+ 
+@@ -169,6 +173,8 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+         # The signal switchboard, MainWindow -> Core
+         self.sig_launch_optimizer.connect(self.launch_optimizer)
+         self.sig_launch_contrast_window.connect(self.launch_contrast_window)
++        self.sig_start_command_server.connect(self.core.start_command_server, type=QtCore.Qt.QueuedConnection)
++        self.sig_stop_command_server.connect(self.core.stop_command_server, type=QtCore.Qt.QueuedConnection)
+ 
+         ''' Start the thread '''
+         self.core_thread.start(QtCore.QThread.HighestPriority)
+@@ -246,6 +252,9 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+     def close_app(self):
+         #self.log_display_handler.flushOnClose = False #discontinued
+         logger.info('Closing the application')
++        if getattr(self, '_command_server_running', False):
++            self.sig_stop_command_server.emit()
++            self._command_server_running = False
+         self.camera_window.close()
+         self.acquisition_manager_window.close()
+         if self.optimizer:
+@@ -380,6 +389,15 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+         self.actionOpen_Acquisition_Manager.triggered.connect(self.acquisition_manager_window.show)
+         self.actionOpen_Tile_Overview.triggered.connect(self.tile_view_window.show)
+         self.actionCascade_windows.triggered.connect(self.cascade_all_windows)
++        # Add a "Tools -> Command Server..." entry programmatically (no .ui change
++        # needed). Note: `self.menuBar` is the QMenuBar *widget* loaded from the .ui
++        # (it shadows QMainWindow.menuBar()), so add to it as an attribute.
++        self._command_server_running = False
++        self.menuTools = self.menuBar.addMenu('Tools')
++        self.actionCommandServer = QtWidgets.QAction('Command Server...', self)
++        self.actionCommandServer.setStatusTip('Start/stop the external TCP control API')
++        self.actionCommandServer.triggered.connect(self.open_command_server_dialog)
++        self.menuTools.addAction(self.actionCommandServer)
+ 
+     def initialize_and_connect_widgets(self):
+         """ Connecting the menu actions """
+@@ -895,6 +913,79 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+     def display_warning(self, string):
+         warning = QtWidgets.QMessageBox.warning(None,'mesoSPIM Warning', string, QtWidgets.QMessageBox.Ok)
+ 
++    def open_command_server_dialog(self):
++        '''Small dialog to start/stop the external TCP command server.
++
++        Starting it is exactly equivalent to loading the ZMART Script-Window
++        loader (both call Core.start_command_server); this just gives it a button.
++        Host 127.0.0.1 = same PC only; use 0.0.0.0 / the LAN IP to allow another
++        machine, in which case set a token. Plain TCP -- the token gates casual
++        access on a trusted LAN, it is not sniffer-proof (tunnel for untrusted nets).
++        '''
++        import secrets
++        dlg = QtWidgets.QDialog(self)
++        dlg.setWindowTitle('Command Server')
++        form = QtWidgets.QFormLayout(dlg)
++        host_edit = QtWidgets.QLineEdit(getattr(self, '_cs_host', '127.0.0.1'))
++        port_edit = QtWidgets.QLineEdit(str(getattr(self, '_cs_port', 42000)))
++        token_edit = QtWidgets.QLineEdit(getattr(self, '_cs_token', ''))
++        token_edit.setPlaceholderText('blank = open (localhost only)')
++        gen_btn = QtWidgets.QPushButton('Generate')
++        gen_btn.clicked.connect(lambda: token_edit.setText(secrets.token_urlsafe(16)))
++        token_row = QtWidgets.QHBoxLayout()
++        token_row.addWidget(token_edit)
++        token_row.addWidget(gen_btn)
++        status = QtWidgets.QLabel()
++        form.addRow('Host:', host_edit)
++        form.addRow('Port:', port_edit)
++        form.addRow('Token:', token_row)
++        form.addRow('Status:', status)
++        start_btn = QtWidgets.QPushButton('Start')
++        stop_btn = QtWidgets.QPushButton('Stop')
++        btns = QtWidgets.QHBoxLayout()
++        btns.addWidget(start_btn)
++        btns.addWidget(stop_btn)
++        form.addRow(btns)
++
++        def refresh():
++            running = self._command_server_running
++            state = f"running on {getattr(self, '_cs_host', '')}:{getattr(self, '_cs_port', '')}" if running else 'stopped'
++            status.setText(state)
++            start_btn.setEnabled(not running)
++            stop_btn.setEnabled(running)
++            for w in (host_edit, port_edit, token_edit, gen_btn):
++                w.setEnabled(not running)
++
++        def do_start():
++            try:
++                port = int(port_edit.text())
++            except ValueError:
++                QtWidgets.QMessageBox.warning(dlg, 'Command Server', 'Port must be a number.')
++                return
++            host = host_edit.text().strip() or '127.0.0.1'
++            token = token_edit.text().strip()
++            if host not in ('127.0.0.1', 'localhost') and not token:
++                if QtWidgets.QMessageBox.question(
++                        dlg, 'No token',
++                        'Binding to the network with no token lets any machine on the LAN '
++                        'control the microscope. Start anyway?',
++                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No) != QtWidgets.QMessageBox.Yes:
++                    return
++            self._cs_host, self._cs_port, self._cs_token = host, port, token
++            self.sig_start_command_server.emit(host, port, token)
++            self._command_server_running = True
++            refresh()
++
++        def do_stop():
++            self.sig_stop_command_server.emit()
++            self._command_server_running = False
++            refresh()
++
++        start_btn.clicked.connect(do_start)
++        stop_btn.clicked.connect(do_stop)
++        refresh()
++        dlg.exec_()
++
+     def choose_snap_folder(self):
+         path = QtWidgets.QFileDialog.getExistingDirectory(self, 'Open csv File', self.state['snap_folder'])
+         if path:
+-- 
+2.53.0.windows.1
+
