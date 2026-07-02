@@ -30,6 +30,7 @@ License: MIT
 from __future__ import annotations
 
 import logging
+import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -78,6 +79,9 @@ class MesospimHandle:
     origin: dict = field(default_factory=lambda: {"x": 0.0, "y": 0.0, "z": 0.0})
     initial_positions: list = field(default_factory=list)
     immutable: dict = field(default_factory=dict)
+    # Monotonic counter to give each acquisition a unique image-writer staging
+    # dir (so repeated/same-label captures never collide).
+    _acq_seq: int = 0
 
 
 # =============================================================================
@@ -106,7 +110,12 @@ def connect(connection: dict) -> MesospimHandle:
 
     # Configure hard stage limits before any move is possible. Without this the
     # fail-closed ``check_axis`` would reject every move; with it the bundled
-    # (or caller-supplied) envelope is active for the whole session.
+    # (or caller-supplied) envelope is active for the whole session. Cleared
+    # first so a reconnect fully replaces the limits rather than merging into a
+    # prior session's. NOTE: limits are process-global, so this driver assumes a
+    # single instrument per process; connecting a second instrument in the same
+    # process would share (and overwrite) these limits.
+    _limits.clear_stage_limits()
     _limits.apply_stage_limits_from_config(_limits.load_stage_config(connection.get("stage_limits")))
 
     positions = _readers.get_positions(client)
@@ -343,23 +352,39 @@ def acquire(
     for zc in ("z_start", "z_end"):
         if zc in capture_options:
             capture_options[zc] = handle.origin["z"] + float(capture_options[zc])
-    # Give the image writer an explicit output location so the resident server
-    # can resolve the frame paths (without this the Acquisition has no
-    # folder/filename and the server returns no files).
+    # Limit-check the swept Z range before firing: the capture path sweeps the
+    # stage but does not go through move_absolute, so enforce the same hard
+    # limits here (fail closed) rather than trusting the acquisition to be safe.
+    try:
+        for zc in ("z_start", "z_end"):
+            if zc in capture_options:
+                _limits.check_axis("z", float(capture_options[zc]))
+    except _limits.LimitError as exc:
+        raise RuntimeError(f"acquire: stack Z range outside stage limits: {exc}") from exc
+
+    # Give the image writer an explicit, per-acquisition output location so the
+    # resident server can resolve the frame paths and repeated/same-label
+    # captures never collide. Cleaned up after the frames are relocated.
+    handle._acq_seq += 1
     stem = _acq.canonical_stem(acquisition_type, position_label)
-    staging = handle.output_root / "_staging"
+    staging = handle.output_root / "_staging" / f"{stem}_{handle._acq_seq:04d}"
     staging.mkdir(parents=True, exist_ok=True)
     capture_options.setdefault("folder", str(staging))
     capture_options.setdefault("filename", f"{stem}.tiff")
     result = _acq.acquire(handle.client, acquisition_type, options=capture_options)
 
-    # 4) save into the canonical layout.
-    saved = _acq.save(
-        result,
-        handle.output_root,
-        position_label=position_label,
-        format=fmt,
-    )
+    # 4) save into the canonical layout, then drop the staging copies (save()
+    #    copies rather than moves, so remove the writer's originals to avoid
+    #    doubling every dataset on disk).
+    try:
+        saved = _acq.save(
+            result,
+            handle.output_root,
+            position_label=position_label,
+            format=fmt,
+        )
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     return {
         "acquisition_type": acquisition_type,
         "position_label": position_label,

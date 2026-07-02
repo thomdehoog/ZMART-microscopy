@@ -130,6 +130,18 @@ def confirm_and_fire(
                 logs=logs,
                 timing=_make_timing(total_s=time.perf_counter() - t0, attempts=attempts),
             )
+        except Exception as exc:  # noqa: BLE001 - never break the envelope contract
+            # e.g. a ProtocolError on a garbled reply line: fail the command
+            # rather than let a raw exception escape confirm_and_fire.
+            logs.append(_make_log_entry("error", f"{label}: unexpected error: {exc}"))
+            return _result(
+                success=False,
+                confirmed=None,
+                message=f"{label}: unexpected error: {exc}",
+                data=None,
+                logs=logs,
+                timing=_make_timing(total_s=time.perf_counter() - t0, attempts=attempts),
+            )
         break
 
     assert reply is not None
@@ -200,11 +212,11 @@ def confirm_and_fire(
                 fire_fn()
             except _TRANSIENT as exc:
                 logs.append(_make_log_entry("warning", f"{label}: re-fire transient: {exc}"))
-            except MesospimError as exc:
-                # A NAK on re-fire is a permanent rejection, not a crash: log it
-                # and let the confirm loop fall through to the exhausted branch so
-                # the caller still gets the standard envelope, never an exception.
-                logs.append(_make_log_entry("warning", f"{label}: re-fire rejected: {exc}"))
+            except Exception as exc:  # noqa: BLE001 - a re-fire failure must not crash
+                # A NAK (or any error) on re-fire is not fatal: log it and let the
+                # confirm loop fall through to the exhausted branch so the caller
+                # still gets the standard envelope, never a raised exception.
+                logs.append(_make_log_entry("warning", f"{label}: re-fire failed: {exc}"))
 
     # -- confirmation exhausted ----------------------------------------------
     timing = _make_timing(

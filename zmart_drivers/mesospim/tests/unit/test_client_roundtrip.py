@@ -30,6 +30,24 @@ def test_connect_refuses_unknown_protocol_version():
         assert not c.connected
 
 
+def test_connect_refuses_unparseable_protocol_version():
+    # A non-numeric protocol must be rejected (and not leak a half-open socket),
+    # not crash with a raw ValueError from int().
+    class BadProtocolServer(MockMesospimServer):
+        def _dispatch(self, cmd, args):
+            data = super()._dispatch(cmd, args)
+            if cmd == "hello":
+                data = dict(data)
+                data["protocol"] = "v1-beta"
+            return data
+
+    with BadProtocolServer(port=0) as s:
+        c = MesospimClient(s.host, s.port, timeout=3.0)
+        with pytest.raises(MesospimError):
+            c.connect()
+        assert not c.connected
+
+
 def test_ping_request(client):
     assert client.request("ping").ok
 

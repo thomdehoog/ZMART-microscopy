@@ -41,14 +41,14 @@ Units: linear axes (`x`, `y`, `z`, `f`) are **micrometers**; `theta` is
 
 ### Movement
 
-Map directly onto the mesoSPIM `Core` movement signals.
+Map directly onto the mesoSPIM `Core` movement API.
 
 | `cmd` | `args` | maps to | reply `data` |
 |---|---|---|---|
-| `move_absolute` | `{targets: {axis: value}}` | `sig_move_absolute` (`{axis_abs: v}`), waits | `{position}` |
-| `move_relative` | `{deltas: {axis: delta}}` | `sig_move_relative` (`{axis_rel: v}`), waits | `{position}` |
-| `zero` | `{axes: [str]}` | `zero_axes(list)` | `{}` |
-| `stop` | – | `sig_stop_movement` | `{}` |
+| `move_absolute` | `{targets: {axis: value}}` | `core.move_absolute({axis_abs: v}, wait_until_done=True)` | `{position}` |
+| `move_relative` | `{deltas: {axis: delta}}` | `core.move_relative({axis_rel: v}, wait_until_done=True)` | `{position}` |
+| `zero` | `{axes: [str]}` | `core.zero_axes(list)` | `{}` |
+| `stop` | – | `core.sig_stop_movement` | `{}` |
 
 The axis keys are `x`, `y`, `z`, `f`, `theta`. The server translates each axis
 to the mesoSPIM key (`x_abs`/`x_rel`, ..., `f_abs`/`f_rel`, `theta_abs`/…).
@@ -57,7 +57,7 @@ to the mesoSPIM key (`x_abs`/`x_rel`, ..., `f_abs`/`f_rel`, `theta_abs`/…).
 
 | `cmd` | `args` | maps to | reply `data` |
 |---|---|---|---|
-| `set_state` | `{settings: {key: value}}` | `sig_state_request(settings)`, waits | `{applied}` |
+| `set_state` | `{settings: {key: value}}` | `core.sig_state_request_and_wait_until_done(settings)` | `{applied}` |
 
 `settings` keys are mesoSPIM state keys: `filter`, `zoom`, `laser`, `intensity`,
 `shutterconfig`, `etl_l_amplitude`, `etl_l_offset`, `etl_r_amplitude`,
@@ -67,8 +67,8 @@ to the mesoSPIM key (`x_abs`/`x_rel`, ..., `f_abs`/`f_rel`, `theta_abs`/…).
 
 | `cmd` | `args` | maps to | reply `data` |
 |---|---|---|---|
-| `acquire` | `{acquisition: {<Acquisition>}, acquisition_type: str}` | build `Acquisition`+`AcquisitionList`, snap (planes≤1) or run series | `{files:[path], planes, pixels:[x,y]}` |
-| `run_acquisition_list` | `{acquisitions: [{<Acquisition>}]}` | run the whole list | `{files:[path], per_acquisition:[…]}` |
+| `acquire` | `{acquisition: {<Acquisition>}, acquisition_type: str}` | build `Acquisition`+`AcquisitionList`, run via `core.start(row=0)` (a single-plane series when `planes≤1`; a dedicated live-snap path is not yet implemented) | `{files:[path], planes, pixels:[x,y]}` |
+| `run_acquisition_list` | `{acquisitions: [{<Acquisition>}]}` | run each acquisition (one output stack per acquisition) | `{files:[path], per_acquisition:[…]}` |
 | `procedure` | `{name: str, args: {}}` | a named server-side procedure (e.g. `autofocus`) | procedure-specific |
 
 An `<Acquisition>` object uses the real mesoSPIM field names: `x_pos`, `y_pos`,

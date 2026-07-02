@@ -1,6 +1,6 @@
 # mesoSPIM integration — findings & architecture (ZMART driver)
 
-> **Status:** **driver implemented** (offline, mock-server tested — 94 tests green) + a resident
+> **Status:** **driver implemented** (offline, mock-server tested — 110 tests green) + a resident
 > command-server script for bench/`-D`-demo validation. This documents how the open-source
 > **mesoSPIM-control** light-sheet acquisition software works and how the `zmart_drivers/mesospim/`
 > driver **plugs into ZMART** (the vendor-agnostic controller surface) beside the Leica/Zeiss/Nikon/
@@ -145,7 +145,7 @@ zmart_drivers/mesospim/
   acquisition/    capture (snap / acquisition list) + save into the canonical layout
   controller.py   ZMART controller adapter (ops table + register)
   server/         the resident mesoSPIM command-server script (GPL edge) + PROTOCOL.md + upstream proposal
-  tests/          offline: MIT client vs a mock server (94 tests); integration: vs mesoSPIM -D demo mode
+  tests/          offline: MIT client vs a mock server (110 tests); integration: vs mesoSPIM -D demo mode
 ```
 
 ### Two ways to drive it
@@ -160,7 +160,9 @@ client = drv.connect({"host": "127.0.0.1", "port": 42000})
 drv.apply_stage_limits_from_config(drv.load_stage_config())
 drv.move_xy(client, 1000, 2000)          # micrometers
 drv.set_filter(client, "515/30")
-acq = drv.acquire(client, "prescan")     # capture with current settings
+# The low-level acquire needs an output folder/filename so the image writer has
+# somewhere to write (the controller path below supplies these automatically).
+acq = drv.acquire(client, "prescan", options={"folder": str(run_dir), "filename": "prescan_A1.tiff"})
 saved = drv.save(acq, run_dir, position_label="A1")
 drv.close(client)
 ```
@@ -186,14 +188,15 @@ The controller surface is x/y/z centric; focus and rotation are exposed as **pro
 
 ```bash
 python -m pytest zmart_drivers/mesospim/tests          # offline: MIT client vs mock command server
-python -m pytest zmart_drivers/mesospim/tests -m integration   # vs mesoSPIM -D demo mode (see server/README.md)
+# The `-m integration` suite (round-trip vs a live mesoSPIM -D demo Core) is not
+# written yet — see TODO §4 / server/README.md for the manual bench procedure.
 ```
 
 ## Next steps
 
 1. ~~**Spike:** MIT external client + mock command server + offline tests.~~ **Done** — the client,
    dispatch/commands, readers, config/limits, acquisition, and the mock-server test suite are in
-   place (94 tests green), and the protocol is specified in [`server/PROTOCOL.md`](server/PROTOCOL.md).
+   place (110 tests green), and the protocol is specified in [`server/PROTOCOL.md`](server/PROTOCOL.md).
 2. ~~**Resident command-server script:** the QTimer-polled socket server that dispatches to the Core.~~
    **Written** ([`server/mesospim_command_server.py`](server/mesospim_command_server.py)); its
    Core-binding calls are quarantined in `_CoreBridge`. **Still to do:** validate it against

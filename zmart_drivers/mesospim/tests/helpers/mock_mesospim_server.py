@@ -20,6 +20,7 @@ License: MIT
 from __future__ import annotations
 
 import json
+import os
 import socket
 import tempfile
 import threading
@@ -119,7 +120,7 @@ class MockMesospimServer:
         while not self._stop.is_set():
             try:
                 conn, _ = self._sock.accept()
-            except TimeoutError:
+            except TimeoutError:  # socket timeout (aliased to TimeoutError on 3.10+)
                 continue
             except OSError:
                 break
@@ -132,7 +133,7 @@ class MockMesospimServer:
         while not self._stop.is_set():
             try:
                 chunk = conn.recv(4096)
-            except TimeoutError:
+            except TimeoutError:  # socket timeout (aliased to TimeoutError on 3.10+)
                 continue
             except OSError:
                 return
@@ -176,8 +177,9 @@ class MockMesospimServer:
         if cmd == "get_config":
             return dict(_CONFIG)
         if cmd == "get_progress":
-            return {"state": self.state["state"], "current_plane": 0, "total_planes": 0,
-                    "current_acquisition": 0, "total_acquisitions": 0}
+            # Match the real server: counts are None until a run reports progress.
+            return {"state": self.state["state"], "current_plane": None, "total_planes": None,
+                    "current_acquisition": None, "total_acquisitions": None}
         if cmd == "move_absolute":
             targets = self._axes(args.get("targets"))
             self.state["position"].update(targets)
@@ -217,10 +219,9 @@ class MockMesospimServer:
                 per.append(data)
             return {"files": files, "per_acquisition": per}
         if cmd == "procedure":
-            name = args.get("name")
-            if name in ("autofocus", "find_sample"):
-                return {"ran": name, "result": "ok"}
-            raise _Nak(f"procedure {name!r} not implemented")
+            # Match the real resident server: it NAKs all `procedure` verbs
+            # (autofocus / find_sample are not implemented server-side yet).
+            raise _Nak(f"procedure {args.get('name')!r} not implemented on this server")
         raise _Nak(f"unknown cmd {cmd!r}")
 
     # -- helpers -------------------------------------------------------------
@@ -268,14 +269,18 @@ class MockMesospimServer:
                 "pixels": [px["pixels_x"], px["pixels_y"]]}
 
     def _target_path(self, acq: dict) -> Path:
-        """Single output path, honouring (and sanitising) the folder/filename."""
+        """Single output path, honouring (and sanitising) the folder/filename.
+
+        Mirrors the real server's `_written_files`: same sanitisation and
+        `realpath` canonicalisation so tests see the same path shape as live.
+        """
         filename = acq.get("filename")
         if not filename:
             self._acq_seq += 1
-            return self.output_dir / f"mock_stack_{self._acq_seq:06d}.tiff"
+            return Path(os.path.realpath(self.output_dir / f"mock_stack_{self._acq_seq:06d}.tiff"))
         folder = Path(acq.get("folder") or self.output_dir)
         safe = str(filename).replace(" ", "_").replace("/", "_").replace("%", "pct")
-        return folder / safe
+        return Path(os.path.realpath(folder / safe))
 
 
 class _Nak(Exception):

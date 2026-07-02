@@ -41,8 +41,14 @@ stages, lasers, or DAQ. Load the server there and run the ZMART round-trip:
 
 ```bash
 python mesoSPIM_Control.py -D          # terminal 1: mesoSPIM in demo mode + Script Window → Run this file
-python -m pytest zmart_drivers/mesospim/tests -m integration   # terminal 2 (see tests/)
+# Then from terminal 2, drive it with the MIT client (connect → get_config →
+# get_state → move_absolute → get_position → acquire). A packaged `-m integration`
+# pytest suite is not written yet (see the repo README / TODO §4); until then this
+# round-trip is manual.
 ```
+
+mesoSPIM-control is effectively **Windows-only** (Python ≥3.12); `-D` demo mode
+needs no hardware or drivers, so a Windows VM is sufficient for this step.
 
 This is unique among the ZMART drivers: the whole control loop can be exercised
 against the **real acquisition software** with no hardware.
@@ -68,15 +74,22 @@ actually moving hardware/demo backends — that is the `-D`-demo step above.
 
 ## Adapting to your instrument
 
-The bridge follows mesoSPIM-control **v1.20.0** names. Confirm these against your
-installed version in demo mode and adjust in `_CoreBridge` only:
+All Core-touching names were **verified against mesoSPIM-control `1.20.0`**
+source and corrected to match. Re-verify only if your installed version differs;
+everything below is isolated in `_CoreBridge` (and the module-level `_written_files`
+/ `_camera` helpers it calls):
 
 - `core.move_absolute(sdict, wait_until_done=True)` / `core.move_relative(...)`
-  and the `{axis}_abs` / `{axis}_rel` state keys.
-- `core.sig_state_request_and_wait_until_done` for settings.
-- The `Acquisition` run entrypoint and how the image-writer's output path is
-  resolved (`_written_files`) — the most site-specific part.
-- The config attribute names in `_CoreBridge.config()` / `_camera()`.
+  and the `{axis}_abs` / `{axis}_rel` state keys. ✓ verified
+- `core.sig_state_request_and_wait_until_done` for settings. ✓ verified
+- Config attribute names in `config()` / `_camera()`: `laserdict`, `filterdict`,
+  `zoomdict` + separate `pixelsize`, `shutteroptions`,
+  `camera_parameters['x_pixels'/'y_pixels']`. ✓ verified
+- **Still bench-pending:** the `Acquisition` run path (`core.start(row=0)` + a
+  Qt-event-loop wait for completion) and the image-writer output-path resolution
+  in `_written_files` (default Tiff writer → one multi-page stack per
+  acquisition). These are the most site-specific and need a live `-D` run to
+  confirm.
 
 ## Upstreaming
 

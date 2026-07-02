@@ -34,6 +34,8 @@ import traceback
 PROTOCOL_VERSION = 1
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 42000
+# Guard against a client that never sends a newline: cap the un-framed buffer.
+_MAX_LINE_BYTES = 4 * 1024 * 1024
 
 # Axis name -> mesoSPIM state keys for absolute / relative moves.
 _ABS_KEY = {"x": "x_abs", "y": "y_abs", "z": "z_abs", "f": "f_abs", "theta": "theta_abs"}
@@ -66,6 +68,13 @@ class _CoreBridge:
             self._last_progress = dict(payload)
         except (TypeError, ValueError):
             self._last_progress = {}
+
+    def disconnect_signals(self) -> None:
+        """Detach from Core signals so a stopped/reloaded server leaks nothing."""
+        try:
+            self.core.sig_progress.disconnect(self._on_progress)
+        except Exception:  # noqa: BLE001 - not connected / no such signal
+            pass
 
     # -- reads ---------------------------------------------------------------
 
@@ -191,11 +200,22 @@ class _CoreBridge:
         acq = Acquisition()
         acq.update({k: v for k, v in acquisition.items() if v is not None})
         acq_list = AcquisitionList([acq])
-        # Inject as the active list and run through the public entry point so the
-        # image writer and per-image signals fire the same way the GUI does.
-        self.core.state["acq_list"] = acq_list
-        self.core.start(row=0)
-        self._wait_until_idle()
+
+        # Run through the public entry point so the image writer + per-image
+        # signals fire exactly as the GUI drives them. Snapshot and restore the
+        # operator's acquisition table so a socket-driven run never destroys it.
+        state = self.core.state
+        try:
+            prev_list = state["acq_list"]
+        except (KeyError, TypeError):
+            prev_list = None
+        state["acq_list"] = acq_list
+        try:
+            self.core.start(row=0)
+            self._run_until_idle()
+        finally:
+            state["acq_list"] = prev_list
+
         files = _written_files(acq)
         cam = _camera(self.core.cfg)
         # PROTOCOL.md: pixels is [x, y] (the driver indexes pixels[0]/pixels[1]).
@@ -205,21 +225,49 @@ class _CoreBridge:
             "pixels": [cam["pixels_x"], cam["pixels_y"]],
         }
 
-    def _wait_until_idle(self, timeout_s: float = 600.0) -> None:
-        """Block until the Core reports ``idle`` again after a run.
+    def _run_until_idle(self, timeout_s: float = 600.0) -> None:
+        """Wait for the run to finish WITHOUT freezing the Qt event loop.
 
-        ``start()`` drives the acquisition through the Qt state machine, so the
-        frames are only on disk once the state falls back to ``idle``. BENCH ITEM:
-        confirm this is sufficient (vs. also waiting on ``sig_finished``) on the
-        installed version.
+        ``start()`` drives the acquisition through the Qt event loop / worker
+        threads, so a plain ``time.sleep`` loop here (this runs inside the socket
+        poll callback on the GUI thread) would stall the state machine and freeze
+        mesoSPIM. Instead a nested ``QEventLoop`` keeps events flowing: a ticker
+        quits it once the state has left ``idle`` and come back (edge-detected), a
+        one-shot grace timer covers a run that finished before we started waiting,
+        and a watchdog bounds the total wait. The outer socket poll is
+        re-entrancy-guarded (``MesospimCommandServer._busy``), so no second
+        request is read while this nested loop runs. BENCH ITEM: confirm the
+        finish semantics of ``start()`` on the installed version.
         """
-        import time
+        from PyQt5 import QtCore  # present inside mesoSPIM-control
 
-        deadline = time.time() + timeout_s
-        while time.time() < deadline:
-            if self.state().get("state") == "idle":
-                return
-            time.sleep(0.05)
+        loop = QtCore.QEventLoop()
+        seen = {"active": False}
+
+        def _check() -> None:
+            st = self.state().get("state")
+            if st and st != "idle":
+                seen["active"] = True
+            elif seen["active"] and st == "idle":
+                loop.quit()
+
+        ticker = QtCore.QTimer()
+        ticker.timeout.connect(_check)
+        ticker.start(50)
+        grace = QtCore.QTimer()  # run already done before we got here (fast demo snap)
+        grace.setSingleShot(True)
+        grace.timeout.connect(lambda: None if seen["active"] else loop.quit())
+        grace.start(1000)
+        watchdog = QtCore.QTimer()
+        watchdog.setSingleShot(True)
+        watchdog.timeout.connect(loop.quit)
+        watchdog.start(int(timeout_s * 1000))
+        try:
+            loop.exec_()
+        finally:
+            ticker.stop()
+            grace.stop()
+            watchdog.stop()
 
 
 def _wavelength(name):
@@ -274,9 +322,16 @@ def _written_files(acq: dict) -> list:
 
     folder = acq.get("folder") or ""
     filename = acq.get("filename") or ""
-    if not filename:
+    # Require BOTH: an empty folder would let realpath resolve against the
+    # mesoSPIM process CWD and silently return a wrong absolute path.
+    if not folder or not filename:
         return []
-    return [os.path.realpath(os.path.join(folder, _sanitize_filename(filename)))]
+    path = os.path.realpath(os.path.join(folder, _sanitize_filename(filename)))
+    if not os.path.exists(path):
+        # The writer names files itself; if our prediction misses, don't invent a
+        # path. Return empty so the client fails loudly rather than saving junk.
+        return []
+    return [path]
 
 
 # =============================================================================
@@ -391,12 +446,19 @@ class MesospimCommandServer:
             raise RuntimeError(f"cannot listen on {host}:{port}: {self._server.errorString()}")
         self._conn = None
         self._buf = b""
+        self._busy = False
         self._timer = QtCore.QTimer(core)
         self._timer.timeout.connect(self._poll)
         self._timer.start(poll_ms)
         print(f"[mesospim-cmd-server] listening on {host}:{port}")
 
     def _poll(self) -> None:
+        # Re-entrancy guard: a Core call that pumps the event loop (a
+        # wait_until_done move, or the acquisition wait) can re-fire this QTimer
+        # while a request is still being handled. Never read/dispatch a second
+        # request concurrently -- it would corrupt the shared read buffer.
+        if self._busy:
+            return
         # Accept one client at a time; mesoSPIM's command channel is single-client.
         if self._conn is None and self._server.hasPendingConnections():
             self._conn = self._server.nextPendingConnection()
@@ -406,11 +468,24 @@ class MesospimCommandServer:
         if self._conn.state() == self._QtNetwork.QAbstractSocket.UnconnectedState:
             self._conn = None
             return
-        while self._conn is not None and self._conn.bytesAvailable():
-            self._buf += bytes(self._conn.readAll())
-            while b"\n" in self._buf:
-                raw, _, self._buf = self._buf.partition(b"\n")
-                self._respond(raw.decode("utf-8", "replace"))
+        self._busy = True
+        try:
+            while self._conn is not None and self._conn.bytesAvailable():
+                self._buf += bytes(self._conn.readAll())
+                if len(self._buf) > _MAX_LINE_BYTES:
+                    print(
+                        f"[mesospim-cmd-server] request exceeded {_MAX_LINE_BYTES} bytes "
+                        f"with no newline; dropping client"
+                    )
+                    self._conn.disconnectFromHost()
+                    self._conn = None
+                    self._buf = b""
+                    return
+                while self._conn is not None and b"\n" in self._buf:
+                    raw, _, self._buf = self._buf.partition(b"\n")
+                    self._respond(raw.decode("utf-8", "replace"))
+        finally:
+            self._busy = False
 
     def _respond(self, line: str) -> None:
         try:
@@ -421,6 +496,8 @@ class MesospimCommandServer:
             reply = {"ok": False, "error": f"bad request: {exc}", "id": None}
         else:
             reply = handle_request(self.bridge, request)
+        if self._conn is None:  # client went away while the command ran
+            return
         try:
             self._conn.write((json.dumps(reply) + "\n").encode("utf-8"))
             self._conn.flush()
@@ -432,6 +509,7 @@ class MesospimCommandServer:
 
     def stop(self) -> None:
         self._timer.stop()
+        self.bridge.disconnect_signals()
         if self._conn is not None:
             self._conn.disconnectFromHost()
         self._server.close()
@@ -452,4 +530,13 @@ def _is_bye(line: str) -> bool:
 # =============================================================================
 
 if "self" in dir():
-    _mesospim_command_server = MesospimCommandServer(self)  # noqa: F821 - Core from Script Window
+    # Re-running the script must not fail with "address in use": stop any prior
+    # server (tracked on the Core so it survives across Script-Window re-runs).
+    _prev = getattr(self, "_zmart_cmd_server", None)  # noqa: F821 - Core from Script Window
+    if _prev is not None:
+        try:
+            _prev.stop()
+        except Exception:  # noqa: BLE001 - best-effort teardown of the old instance
+            pass
+    self._zmart_cmd_server = MesospimCommandServer(self)  # noqa: F821 - Core from Script Window
+    _mesospim_command_server = self._zmart_cmd_server  # noqa: F821

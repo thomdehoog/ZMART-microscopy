@@ -105,6 +105,54 @@ def test_save_multiple_source_files_get_plane_suffixes(tmp_path):
     assert names[0].endswith("_z0000.tiff")
 
 
+def _result_from(files, planes=1):
+    from mesospim.acquisition.product import (
+        AcquisitionMetadata,
+        AcquisitionResult,
+        ChannelMetadata,
+    )
+
+    return AcquisitionResult(
+        acquisition_type="snap",
+        acquisition={},
+        started_at=0.0,
+        finished_at=1.0,
+        files=tuple(files),
+        planes=planes,
+        metadata=AcquisitionMetadata(size_x=8, size_y=8, size_z=planes, channels=(ChannelMetadata(0),)),
+    )
+
+
+def test_save_missing_source_raises_before_copying_any(tmp_path):
+    import numpy as np
+
+    src = tmp_path / "src"
+    src.mkdir()
+    good = src / "good.tiff"
+    tifffile.imwrite(str(good), np.zeros((8, 8), dtype="uint16"))
+    missing = src / "missing.tiff"
+    result = _result_from([good, missing], planes=2)
+    with pytest.raises(FileNotFoundError):
+        acq.save(result, tmp_path / "run", position_label="A1")
+    # nothing was copied: the data dir must be empty (no partial dataset).
+    data_dir = tmp_path / "run" / "data"
+    assert not data_dir.exists() or not any(data_dir.iterdir())
+
+
+def test_save_same_label_gets_unique_stem(tmp_path):
+    import numpy as np
+
+    src = tmp_path / "src"
+    src.mkdir()
+    frame = src / "f.tiff"
+    tifffile.imwrite(str(frame), np.zeros((8, 8), dtype="uint16"))
+    s1 = acq.save(_result_from([frame]), tmp_path / "run", position_label="A1")
+    s2 = acq.save(_result_from([frame]), tmp_path / "run", position_label="A1")
+    assert s1.image_paths[0] != s2.image_paths[0]
+    assert s1.metadata_path != s2.metadata_path
+    assert s1.image_paths[0].exists() and s2.image_paths[0].exists()
+
+
 def test_acquire_no_frames_raises(client, monkeypatch):
     # Force the server reply to carry no files.
     real = client.request

@@ -48,6 +48,8 @@ def connect(
 
     Raises:
         ConnectionError: the socket could not open or the ping failed.
+        MesospimError: the ``hello`` handshake was refused or the server speaks
+            an incompatible protocol version.
     """
     connection = connection or {}
     resolved_host = host or connection.get("host") or CONNECTION.host

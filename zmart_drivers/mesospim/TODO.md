@@ -66,9 +66,10 @@ actually wrote; the driver's `save()` then relocates them.
       **Bench-pending:** confirm `start(row=…)` + wait-for-idle is sufficient
       (vs. also waiting on `sig_finished`) and that disk/limit pre-checks in
       `start()` don't reject a scripted run.
-- [x] The controller assigns the Acquisition a `folder`/`filename` (a
-      `<output_root>/_staging` dir + canonical stem), and `_CoreBridge._written_files`
-      resolves the writer path as `realpath(folder + '/' + sanitize(filename))`.
+- [x] The controller assigns the Acquisition a per-acquisition `folder`/`filename`
+      (a unique `<output_root>/_staging/<stem>_NNNN` dir + canonical stem, cleaned
+      up after the frames are relocated), and the module-level `_written_files`
+      helper resolves the writer path as `realpath(folder + '/' + sanitize(filename))`.
       Corrected to the **default Tiff writer's real behaviour — one multi-page
       stack per acquisition** (not one file per plane), with mesoSPIM's
       `replace_with_underscores` filename sanitisation. **Bench-pending:** confirm
@@ -121,12 +122,11 @@ actually wrote; the driver's `save()` then relocates them.
 
 ## 8. Docs consistency 🟢
 
-- [ ] Tighten `server/README.md` → "Adapting to your instrument". It still frames
-      the `_CoreBridge` config attribute names and `_written_files` as "confirm
-      these against your version", but those were verified and fixed against
-      mesoSPIM-control `1.20.0` (see §1/§2). Reword to "verified against 1.20.0;
-      re-verify only if your installed version differs" so it is not read as
-      unfinished.
+- [x] `server/README.md` → "Adapting to your instrument" reworded: the config
+      names / bindings verified against `1.20.0` are marked ✓, and only the
+      genuinely site-specific bits (acquisition run path, image-writer path) are
+      left as bench-pending. README/PROTOCOL/docstrings brought in line with the
+      single-stack + fail-closed + protocol-enforcement behaviour.
 
 ---
 
@@ -136,7 +136,7 @@ Protocol + client + session · dispatch backbone (retry/confirm) · command
 wrappers (move/state/etl) · readers · profiles + 5-axis limits (fail-closed;
 auto-loaded in `controller.connect`) · capture + save · ZMART controller adapter
 + `register()` · resident command-server script · `PROTOCOL.md` · mock command
-server + 103 offline tests · headless Qt validation of the server · Core bindings
+server + 110 offline tests · headless Qt validation of the server · Core bindings
 checked against mesoSPIM-control `1.20.0` source.
 
 Post-review hardening: stage limits fail **closed** (unconfigured axis rejected,
@@ -155,3 +155,16 @@ nonexistent state keys), the acquisition run entrypoint (`core.start(row=…)` +
 wait-for-idle, not the time-lapse `sig_run_timepoint`), and the image-writer path
 model (one sanitised multi-page stack per acquisition, not one file per plane).
 The mock server now mirrors that single-stack contract.
+
+Production hardening (post critical review): resident server no longer blocks the
+Qt event loop during an acquisition (nested `QEventLoop` wait), guards against
+re-entrant polling, snapshots/restores the GUI's `acq_list`, caps the read
+buffer, and is reload-safe (stops a prior instance, disconnects `sig_progress`);
+`_written_files` refuses an empty folder and a non-existent path. Client-side:
+`close()` now takes the socket lock, protocol-version parsing is defensive, and
+any unexpected `fire_fn`/re-fire error is returned as an envelope (never raised).
+Controller: per-acquisition staging that is cleaned up (no on-disk duplication),
+collision-safe save names (no silent overwrite of a repeated type+label), and the
+acquisition Z-sweep is limit-checked (fail-closed) before firing. `save()`
+validates all sources before copying any (no partial datasets). Mock aligned to
+the real server (procedures NAK, progress `None` defaults, `realpath`).

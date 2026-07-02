@@ -124,6 +124,19 @@ def test_fresh_readback_confirms():
     assert r["success"] and r["confirmed"] is True
 
 
+def test_unexpected_fire_error_returns_envelope_not_exception():
+    # A non-transient, non-NAK error (e.g. a ProtocolError on a garbled reply)
+    # must be converted to a failed envelope, not raised.
+    from mesospim.protocol import ProtocolError
+
+    def fire():
+        raise ProtocolError("garbled reply line")
+
+    prof = CommandProfile(confirm_fn=None)
+    r = confirm_and_fire(None, "x", prof, fire_fn=fire, confirm_fn=None)
+    assert not r["success"] and "unexpected error" in r["message"]
+
+
 def test_refire_nak_returns_envelope_not_exception():
     # A NAK on re-fire is permanent, not a crash: the caller still gets the
     # standard envelope (regression for the un-caught MesospimError bug).
