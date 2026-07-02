@@ -52,6 +52,15 @@ def test_ping_request(client):
     assert client.request("ping").ok
 
 
+def test_read_timeout_override_is_restored(client):
+    # A per-call read_timeout (used for long acquisitions) must apply only to
+    # that call and then restore the base socket deadline -- and must never be
+    # forwarded as a protocol argument.
+    base = client._sock.gettimeout()
+    assert client.request("ping", read_timeout=42.0).ok
+    assert client._sock.gettimeout() == base
+
+
 def test_request_echoes_id_and_returns_data(client):
     reply = client.request("get_config")
     assert reply.ok

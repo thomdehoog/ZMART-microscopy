@@ -183,23 +183,32 @@ class MesospimClient:
 
     # -- request/reply -------------------------------------------------------
 
-    def request(self, cmd: str, **args: Any) -> Reply:
+    def request(self, cmd: str, *, read_timeout: float | None = None, **args: Any) -> Reply:
         """Send ``cmd`` with keyword ``args`` and return the parsed reply.
 
         Raises :class:`MesospimError` if the reply is a NAK (``ok=false``); use
         :meth:`try_request` when a NAK is an expected, inspectable outcome.
+        ``read_timeout`` overrides the socket deadline for this one call (used for
+        long-running commands like ``acquire``); the base timeout is restored after.
         """
-        reply = self.try_request(cmd, **args)
+        reply = self.try_request(cmd, read_timeout=read_timeout, **args)
         if not reply.ok:
             raise MesospimError(f"{cmd} rejected: {reply.error or '(no message)'}")
         return reply
 
-    def try_request(self, cmd: str, **args: Any) -> Reply:
-        """Send ``cmd`` and return the reply without raising on a NAK."""
+    def try_request(self, cmd: str, *, read_timeout: float | None = None, **args: Any) -> Reply:
+        """Send ``cmd`` and return the reply without raising on a NAK.
+
+        ``read_timeout`` (seconds) overrides the socket deadline for this call
+        only -- acquisitions can run far longer than the default per-request
+        timeout. It is keyword-only so it is never sent as a protocol argument.
+        """
         if self._sock is None:
             raise ConnectionError("not connected; call connect() first")
         with self._lock:
             req_id = self._take_id()
+            if read_timeout is not None:
+                self._sock.settimeout(read_timeout)
             try:
                 self._send_line(encode_request(cmd, args=args or None, id=req_id))
                 reply = parse_reply(self._read_line())
@@ -211,6 +220,10 @@ class MesospimClient:
                 # as a transient error; there is no auto-reconnect.
                 self._drop_socket()
                 raise
+            finally:
+                # Restore the base per-request deadline (socket is gone after a drop).
+                if read_timeout is not None and self._sock is not None:
+                    self._sock.settimeout(self._timeout)
             if reply.id is not None and reply.id != req_id:
                 # A single-in-flight protocol should never desync; surface it
                 # loudly rather than returning a mismatched reply.
