@@ -16,7 +16,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # machine dir
 sys.path.insert(0, str(Path(__file__).resolve().parents[6]))  # repo root (zmart_controller)
 
-from navigator_expert import zmart_adapter as adapter
+from navigator_expert.zmart_adapter import zmart_adapter as adapter
 
 
 def _origin(x_um=0.0, y_um=0.0, z_wide_um=0.0, z_galvo_um=0.0, z_focus_um=0.0, objective=None):

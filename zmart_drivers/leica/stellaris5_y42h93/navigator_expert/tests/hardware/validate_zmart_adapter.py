@@ -68,8 +68,8 @@ EXACT_TOL_UM = 0.05
 
 
 def _register_adapter() -> Any:
-    """Import the adapter (registers on import) and return the module."""
-    import navigator_expert.zmart_adapter as adapter  # noqa: PLC0415
+    """Import the adapter (registers on import) and return the implementation module."""
+    from navigator_expert.zmart_adapter import zmart_adapter as adapter  # noqa: PLC0415
 
     return adapter
 

@@ -59,7 +59,7 @@ time someone uses them.
 - **Name: staked** (here, and across the front-facing docs).
 - **The `zmart` waist exists as the `zmart_controller/` package (renamed from
   `controller/`), with its first real adapter wired.** The Leica driver plugs in
-  via `navigator_expert/zmart_adapter.py` (import to register) and the full
+  via `navigator_expert/zmart_adapter/` (import to register) and the full
   controller round-trip — connect, origin/frame moves, capture+save — is
   validated against a live LAS X simulator by
   `navigator_expert/tests/hardware/validate_zmart_adapter.py`. Workflows do not
