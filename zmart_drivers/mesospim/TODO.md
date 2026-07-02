@@ -1,6 +1,6 @@
 # mesoSPIM driver — what's left to do
 
-Status as of this branch: the driver is **implemented and offline-tested** (94
+Status as of this branch: the driver is **implemented and offline-tested** (103
 tests green, ruff clean), and the resident command server's Qt half is validated
 headless. What remains is almost entirely **bench validation against the real
 mesoSPIM-control app** plus a few polish items. Nothing below blocks using the
@@ -15,6 +15,17 @@ Legend: 🔴 blocker for live use · 🟠 needed for a real run · 🟢 polish /
 The one thing that cannot be done in CI (needs the GPL app + a display; see
 `server/README.md`). Everything here is about confirming the resident script's
 `_CoreBridge` against a *running* Core, not new code.
+
+**Environment (how/where to run this).** mesoSPIM-control is a pure-Python PyQt5
+app but is effectively **Windows-only** (docs: Windows ≥7 64-bit; Python ≥3.12).
+`-D` demo mode swaps in `Demo` backends, so **no camera / stage / DAQ hardware or
+their drivers are needed** — a bare Windows box or VM is enough (a Windows 11 VM
+on macOS works fine for this). A native macOS/Linux run is *not* supported:
+`requirements-conda-mamba.txt` pins Windows-only packages (`pywinusb`, plus
+`nidaqmx` / `pipython`), so the install fails before launch. Install via
+Miniforge/mamba + `pip install -r requirements-conda-mamba.txt`, then
+`python mesoSPIM_Control.py -D`. The ZMART **client** side is cross-platform;
+only the resident server + live Core need Windows.
 
 - [ ] Launch `python mesoSPIM_Control.py -D`, load `server/mesospim_command_server.py`
       via the Script Window, confirm it prints `listening on 127.0.0.1:42000`.
