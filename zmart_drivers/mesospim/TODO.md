@@ -1,19 +1,24 @@
 # mesoSPIM driver — what's left to do
 
-Status as of this branch: the driver is **implemented, offline-tested** (115
-tests green), the resident command server's Qt half is validated headless, and
-the full round-trip — **including `acquire`** — is **live-validated against the
-real mesoSPIM-control software in `-D` demo mode**, loaded exactly as an operator
-would (Script Window → `scriptwindow_loader.py`) through the **unmodified** Core
-(5/5 integration tests). See [`LIVE_BENCH_VALIDATION.md`](LIVE_BENCH_VALIDATION.md)
-for the full run and method. What remains is **real-hardware** validation (demo
-mode simulates the devices) plus polish.
+Status as of this branch: the driver is **implemented and offline-tested** (112
+tests green). It now rides mesoSPIM's generic **Remote Scripting** bridge (the
+upstream patch under `pull_request/`): the driver injects Python scripts and
+parses a structured result back, with all command vocabulary client-side in
+`connection/scripts.py`. The mock server `exec`s those very scripts against a
+Core-shaped fake, so framing/harness/vocabulary are exercised for real offline.
 
-> **Correction (2026-07-02).** An earlier version of this file claimed the demo
-> round-trip passed, but that check had **not** gone through mesoSPIM's real
-> Script-Window load path — which in fact failed: the server module cannot be
-> `exec()`'d directly (`NameError`, see below). That is now **fixed** with a flat
-> `scriptwindow_loader.py`, and the round-trip is confirmed through the real path.
+> **Transport change.** An earlier iteration used a bespoke ZMART command server
+> loaded into the Core; it was live-validated in `-D` demo but had sharp edges (an
+> `exec()`-scope `NameError` on load; two live-only bugs). It has been **retired**
+> in favour of the generic Remote Scripting bridge (which reuses `Core.execute_script`
+> unmodified). See [`LIVE_BENCH_VALIDATION.md`](LIVE_BENCH_VALIDATION.md) (marked
+> superseded) for that history and why the design moved here.
+>
+> The Core-API findings below (config/state/move/`start(row=…)`/image-writer path)
+> were verified against a live v1.20.0 Core and still hold — they now live in the
+> injected scripts (`connection/scripts.py`). What is **not** yet re-run is the
+> live round-trip on this **new** transport (§1); that plus **real-hardware**
+> validation are the open blockers.
 
 Legend: 🔴 blocker for live use · 🟠 needed for a real run · 🟢 polish / nice-to-have.
 
@@ -21,9 +26,13 @@ Legend: 🔴 blocker for live use · 🟠 needed for a real run · 🟢 polish /
 
 ## 1. Bench validation against mesoSPIM `-D` demo mode 🔴
 
-The one thing that cannot be done in CI (needs the GPL app + a display; see
-`server/README.md`). Everything here is about confirming the resident script's
-`_CoreBridge` against a *running* Core, not new code.
+The one thing that cannot be done in CI (needs the GPL app + a display). Two parts:
+**(a)** apply the Remote Scripting patch (`pull_request/`) and start it (Tools →
+Remote Scripting), then **(b)** re-run the `-m integration` round-trip on the new
+injected-script transport. The Core-name checklist below was confirmed on the old
+transport and carried into `connection/scripts.py`; re-confirm it end-to-end here.
+(The items marked done were validated against a live Core previously; the ☐ ones
+are the new-transport re-run.)
 
 **Environment (how/where to run this).** mesoSPIM-control is a pure-Python PyQt5
 app but is effectively **Windows-only** (docs: Windows ≥7 64-bit; Python ≥3.12).

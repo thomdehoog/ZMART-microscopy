@@ -1,16 +1,17 @@
 """
-Mock mesoSPIM command server (offline test double).
-====================================================
-An independent **MIT** re-implementation of the mesoSPIM command-server protocol
-(``server/PROTOCOL.md``) for offline testing -- the analog of the Evident
-``MockRdkServer``. It holds a little mutable instrument state (5-axis position,
-light-path settings, a hardware config) and, for ``acquire``, writes small
-synthetic frame files so the driver's capture + save path can be exercised end
-to end with NO mesoSPIM software and no hardware.
+Mock mesoSPIM Remote Scripting server (offline test double).
+============================================================
+A faithful **MIT** re-implementation of the mesoSPIM Remote Scripting bridge for
+offline testing. Like the real server, it speaks the length-framed protocol,
+optionally gates on a token, and -- for each received script -- **runs it with
+``exec`` in a context where ``self`` is a Core-shaped fake**, capturing stdout +
+stderr and sending the captured console back.
 
-It is deliberately separate from the GPL ``server/mesospim_command_server.py``:
-both implement the same documented protocol, but this double imports nothing GPL
-and touches no Qt, so it runs anywhere pytest does.
+This is a much more honest double than a hand-rolled command switch: the driver's
+tests run the *actual injected scripts* (`connection.scripts` templates) through a
+*real ``exec`` + stdout capture*, against a Core whose method/signal/state surface
+matches mesoSPIM-control v1.20.0. Only the live hardware Core is absent; the whole
+transport, harness, and vocabulary are exercised for real.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -19,11 +20,15 @@ License: MIT
 
 from __future__ import annotations
 
-import json
+import io
 import os
 import socket
+import sys
 import tempfile
 import threading
+import traceback
+import types
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import numpy as np
@@ -31,53 +36,73 @@ import tifffile
 
 _AXES = ("x", "y", "z", "f", "theta")
 
-_CONFIG = {
-    "app": "mesoSPIM-control",
-    "version": "1.20.0-mock",
-    "lasers": [
-        {"name": "405 nm", "wavelength_nm": 405},
-        {"name": "488 nm", "wavelength_nm": 488},
-        {"name": "561 nm", "wavelength_nm": 561},
-        {"name": "647 nm", "wavelength_nm": 647},
-    ],
-    "filters": ["Empty-Alignment", "515/30", "561/LP", "647-LP"],
-    "zooms": [
-        {"name": "1x", "pixel_size_um": 6.55},
-        {"name": "2x", "pixel_size_um": 3.26},
-    ],
-    "shutter_configs": ["Left", "Right", "Both"],
-    "axes": list(_AXES),
+
+# A fake ``utils.acquisitions`` so the injected acquire script's
+# ``from utils.acquisitions import Acquisition, AcquisitionList`` resolves
+# offline (the real ones are GPL mesoSPIM classes).
+class _FakeAcquisition(dict):
+    """dict subclass whose ``.update`` merges over the mesoSPIM defaults."""
+
+    def __init__(self):
+        super().__init__(planes=1, z_step=1.0, folder="", filename="")
+
+
+class _FakeAcquisitionList(list):
+    pass
+
+
+def _install_fake_acquisitions() -> None:
+    if "utils.acquisitions" in sys.modules:
+        return
+    pkg = sys.modules.setdefault("utils", types.ModuleType("utils"))
+    mod = types.ModuleType("utils.acquisitions")
+    mod.Acquisition = _FakeAcquisition
+    mod.AcquisitionList = _FakeAcquisitionList
+    pkg.acquisitions = mod
+    sys.modules["utils.acquisitions"] = mod
+
+
+_install_fake_acquisitions()
+
+
+# =============================================================================
+# A Core-shaped fake: the surface the injected scripts touch (== self).
+# =============================================================================
+
+
+class _FakeSignal:
+    """Stand-in for a pyqtSignal: ``emit()`` runs a bound handler."""
+
+    def __init__(self, handler=None):
+        self._handler = handler or (lambda *a: None)
+
+    def emit(self, *args):
+        self._handler(*args)
+
+
+class FakeCfg:
+    """Matches the mesoSPIM config attributes ``get_config`` reads."""
+
+    laserdict = {"405 nm": "PWM", "488 nm": "PWM", "561 nm": "PWM", "647 nm": "PWM"}
+    filterdict = {"Empty-Alignment": 0, "515/30": 1, "561/LP": 2, "647-LP": 3}
+    zoomdict = {"1x": 6.55, "2x": 3.26}
+    shutteroptions = ("Left", "Right", "Both")
+    version = "1.20.0-mock"
     # Small camera so synthetic frames stay tiny in tests.
-    "camera": {"pixels_x": 64, "pixels_y": 64},
-}
+    camera_x_pixels = 64
+    camera_y_pixels = 64
 
 
-class MockMesospimServer:
-    """One-client-at-a-time fake mesoSPIM command server for tests.
+class FakeCore:
+    """Duck-typed ``mesoSPIM_Core`` with exactly the surface the scripts use."""
 
-    Args:
-        host, port: bind address; ``port=0`` picks a free ephemeral port
-            (read ``.port`` after construction).
-        output_dir: where synthetic frame files are written; a temp dir by
-            default (read ``.output_dir``).
-        errors: command names that should reply with a NAK, to exercise the
-            client/dispatch error paths.
-    """
-
-    def __init__(self, host="127.0.0.1", port=0, *, output_dir=None, errors=None, token=None):
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._sock.bind((host, port))
-        self._sock.listen(1)
-        self.host, self.port = self._sock.getsockname()
-        self.output_dir = Path(output_dir or tempfile.mkdtemp(prefix="mock_mesospim_"))
+    def __init__(self, output_dir: Path):
+        self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.errors = set(errors or [])
-        self._token = token or None
-        self._authed = self._token is None
+        self.cfg = FakeCfg()
         self.state = {
             "state": "idle",
-            "position": {axis: 0.0 for axis in _AXES},
+            "position": {f"{a}_pos": 0.0 for a in _AXES},
             "laser": "488 nm",
             "intensity": 10.0,
             "filter": "515/30",
@@ -87,11 +112,97 @@ class MockMesospimServer:
             "etl_l_offset": 2.0,
             "etl_r_amplitude": 1.0,
             "etl_r_offset": 2.0,
+            "snap_image_path": None,
         }
-        self._frame_seq = 0
-        self._acq_seq = 0
+        self.sig_stop_movement = _FakeSignal()
+        self.sig_state_request_and_wait_until_done = _FakeSignal(self._apply_state)
+        self._seq = 0
+
+    # -- Core API the scripts call ------------------------------------------
+
+    def _apply_state(self, settings):
+        self.state.update(settings)
+
+    def move_absolute(self, sdict, wait_until_done=False, use_internal_position=True):
+        for key, val in sdict.items():
+            self.state["position"][key.replace("_abs", "") + "_pos"] = float(val)
+
+    def move_relative(self, ddict, wait_until_done=False):
+        for key, val in ddict.items():
+            self.state["position"][key.replace("_rel", "") + "_pos"] += float(val)
+
+    def zero_axes(self, axes):
+        for axis in axes:
+            self.state["position"][f"{axis}_pos"] = 0.0
+
+    def start(self, row=0):
+        """Run the acquisition at ``state['acq_list'][row]``: write ONE stack.
+
+        Mirrors the real Core entry point + default Tiff image writer -- a single
+        multi-page TIFF (shape ``(planes, H, W)``, or 2-D for a single plane) at
+        the Acquisition's ``folder``/``filename`` -- then returns to idle.
+        """
+        acq = self.state["acq_list"][row]
+        planes = max(1, int(acq.get("planes", 1) or 1))
+        folder = acq.get("folder") or str(self.output_dir)
+        filename = acq.get("filename") or f"stack_{self._next():06d}.tiff"
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, filename)
+        w, h = self.cfg.camera_x_pixels, self.cfg.camera_y_pixels
+        pages = []
+        for _ in range(planes):
+            self._seq += 1
+            base = np.arange(w * h, dtype=np.uint16).reshape(h, w)
+            pages.append(((base + self._seq) % 65535).astype(np.uint16))
+        stack = pages[0] if planes == 1 else np.stack(pages)  # (H,W) or (planes,H,W)
+        tifffile.imwrite(path, stack, photometric="minisblack")
+        self.state["snap_image_path"] = path
+        self.state["state"] = "idle"
+
+    def _next(self) -> int:
+        self._acq_seq = getattr(self, "_acq_seq", 0) + 1
+        return self._acq_seq
+
+
+# =============================================================================
+# The socket server.
+# =============================================================================
+
+
+class MockMesospimServer:
+    """One-client-at-a-time fake Remote Scripting server for tests.
+
+    Args:
+        host, port: bind address; ``port=0`` picks a free ephemeral port
+            (read ``.port`` after construction).
+        output_dir: where synthetic frame files are written; a temp dir by default.
+        token: if set, the first frame a client sends must be this token.
+        errors: command names (from the injected ``# zmart-cmd:`` marker) that
+            should reply with an error instead of running -- to exercise the
+            client/dispatch failure paths.
+    """
+
+    def __init__(self, host="127.0.0.1", port=0, *, output_dir=None, token=None, errors=None):
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._sock.bind((host, port))
+        self._sock.listen(1)
+        self.host, self.port = self._sock.getsockname()
+        self.core = FakeCore(output_dir or tempfile.mkdtemp(prefix="mock_mesospim_"))
+        self._token = token or None
+        self.errors = set(errors or [])
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+
+    # -- compatibility accessors --------------------------------------------
+
+    @property
+    def state(self) -> dict:
+        return self.core.state
+
+    @property
+    def output_dir(self) -> Path:
+        return self.core.output_dir
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -122,7 +233,7 @@ class MockMesospimServer:
         while not self._stop.is_set():
             try:
                 conn, _ = self._sock.accept()
-            except TimeoutError:  # socket timeout (aliased to TimeoutError on 3.10+)
+            except TimeoutError:
                 continue
             except OSError:
                 break
@@ -130,172 +241,68 @@ class MockMesospimServer:
                 self._handle(conn)
 
     def _handle(self, conn: socket.socket) -> None:
+        import hmac
+
         conn.settimeout(0.3)
         buf = b""
-        self._authed = self._token is None  # fresh auth state per connection
+        authed = self._token is None
         while not self._stop.is_set():
             try:
                 chunk = conn.recv(4096)
-            except TimeoutError:  # socket timeout (aliased to TimeoutError on 3.10+)
-                continue
+            except TimeoutError:
+                continue  # idle wait -- buf is preserved across timeouts
             except OSError:
                 return
             if not chunk:
-                return
+                return  # client disconnected
             buf += chunk
+            # Process every complete "<len>\n<payload>" frame currently buffered.
             while b"\n" in buf:
-                raw, _, buf = buf.partition(b"\n")
-                reply = self._respond(raw.decode("utf-8", "replace"))
-                conn.sendall((json.dumps(reply) + "\n").encode("utf-8"))
+                head, _, rest = buf.partition(b"\n")
+                try:
+                    length = int(head)
+                except ValueError:
+                    conn.sendall(_frame("framing error: expected a byte count"))
+                    return
+                if len(rest) < length:
+                    break  # payload not fully arrived yet
+                payload = rest[:length].decode("utf-8", "replace")
+                buf = rest[length:]
+                if not authed:
+                    ok = hmac.compare_digest(
+                        payload.encode("utf-8"), str(self._token).encode("utf-8")
+                    )
+                    authed = ok
+                    conn.sendall(_frame("OK" if ok else "AUTH-FAILED"))
+                    if not ok:
+                        return
+                else:
+                    conn.sendall(_frame(self._run(payload)))
 
-    # -- dispatch ------------------------------------------------------------
+    # -- run a received script ----------------------------------------------
 
-    def _respond(self, line: str) -> dict:
-        try:
-            request = json.loads(line)
-        except json.JSONDecodeError as exc:
-            return {"ok": False, "error": f"bad json: {exc}", "id": None}
-        req_id = request.get("id")
-        cmd = request.get("cmd")
-        args = request.get("args") or {}
-        if self._token is not None and not self._authed:
-            import hmac
-            # Compare UTF-8 bytes (compare_digest rejects non-ASCII str), mirroring
-            # the real server so a unicode token behaves identically offline.
-            supplied = str(args.get("token", "")).encode("utf-8")
-            if cmd == "hello" and hmac.compare_digest(supplied, str(self._token).encode("utf-8")):
-                self._authed = True
-            else:
-                return {"ok": False, "id": req_id,
-                        "error": ("authentication failed: bad or missing token" if cmd == "hello"
-                                  else "authentication required: send hello with a valid token first")}
+    def _run(self, script: str) -> str:
+        cmd = _sniff_cmd(script)
         if cmd in self.errors:
-            return {"ok": False, "error": f"injected error for {cmd}", "id": req_id}
-        try:
-            return {"ok": True, "data": self._dispatch(cmd, args), "id": req_id}
-        except _Nak as exc:
-            return {"ok": False, "error": str(exc), "id": req_id}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "error": f"{type(exc).__name__}: {exc}", "id": req_id}
-
-    def _dispatch(self, cmd, args):
-        if cmd == "hello":
-            return {"app": _CONFIG["app"], "version": _CONFIG["version"], "protocol": 1,
-                    "state": self.state["state"]}
-        if cmd in ("ping", "bye"):
-            return {}
-        if cmd == "get_state":
-            return self._state_snapshot()
-        if cmd == "get_position":
-            return dict(self.state["position"])
-        if cmd == "get_config":
-            return dict(_CONFIG)
-        if cmd == "get_progress":
-            # Match the real server: counts are None until a run reports progress.
-            return {"state": self.state["state"], "current_plane": None, "total_planes": None,
-                    "current_acquisition": None, "total_acquisitions": None}
-        if cmd == "move_absolute":
-            targets = self._axes(args.get("targets"))
-            self.state["position"].update(targets)
-            return {"position": dict(self.state["position"])}
-        if cmd == "move_relative":
-            deltas = self._axes(args.get("deltas"))
-            for axis, delta in deltas.items():
-                self.state["position"][axis] = self.state["position"].get(axis, 0.0) + delta
-            return {"position": dict(self.state["position"])}
-        if cmd == "zero":
-            for axis in args.get("axes") or _AXES:
-                if axis in self.state["position"]:
-                    self.state["position"][axis] = 0.0
-            return {}
-        if cmd == "stop":
-            return {}
-        if cmd == "set_state":
-            settings = args.get("settings") or {}
-            if not settings:
-                raise _Nak("set_state needs 'settings'")
-            for key, value in settings.items():
-                self.state[key] = value
-            return {"applied": dict(settings)}
-        if cmd == "acquire":
-            acq = args.get("acquisition")
-            if not acq:
-                raise _Nak("acquire needs 'acquisition'")
-            return self._acquire(acq)
-        if cmd == "run_acquisition_list":
-            acqs = args.get("acquisitions") or []
-            if not acqs:
-                raise _Nak("run_acquisition_list needs 'acquisitions'")
-            files, per = [], []
-            for one in acqs:
-                data = self._acquire(one)
-                files.extend(data["files"])
-                per.append(data)
-            return {"files": files, "per_acquisition": per}
-        if cmd == "procedure":
-            # Match the real resident server: it NAKs all `procedure` verbs
-            # (autofocus / find_sample are not implemented server-side yet).
-            raise _Nak(f"procedure {args.get('name')!r} not implemented on this server")
-        raise _Nak(f"unknown cmd {cmd!r}")
-
-    # -- helpers -------------------------------------------------------------
-
-    def _state_snapshot(self) -> dict:
-        snap = {k: v for k, v in self.state.items() if k != "position"}
-        snap["position"] = dict(self.state["position"])
-        return snap
-
-    @staticmethod
-    def _axes(raw) -> dict:
-        out = {}
-        for axis, value in (raw or {}).items():
-            if axis not in _AXES:
-                raise _Nak(f"unknown axis {axis!r}")
-            out[axis] = float(value)
-        if not out:
-            raise _Nak("no axes given")
-        return out
-
-    def _acquire(self, acq: dict) -> dict:
-        planes = max(1, int(acq.get("planes", 1)))
-        px = _CONFIG["camera"]
-        # Mirror the real server + default Tiff writer: ONE multi-page stack per
-        # acquisition at the Acquisition's folder/filename (sanitised), not one
-        # file per plane. Fall back to a temp name only when none is given (a
-        # lower-level capture call), keeping standalone capture tests runnable.
-        path = self._target_path(acq)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        pages = []
-        for _ in range(planes):
-            self._frame_seq += 1
-            # Deterministic synthetic content: a gradient offset by the frame seq.
-            base = np.arange(px["pixels_x"] * px["pixels_y"], dtype=np.uint16)
-            frame = (base.reshape(px["pixels_y"], px["pixels_x"]) + self._frame_seq) % 65535
-            pages.append(frame.astype(np.uint16))
-        # A single plane is a 2-D image; a stack is a (planes, y, x) multi-page
-        # ImageJ TIFF (imagej=True mirrors the real default Tiff writer and keeps
-        # tifffile from mistaking a 3-plane stack for an RGB image).
-        if planes == 1:
-            tifffile.imwrite(str(path), pages[0])
-        else:
-            tifffile.imwrite(str(path), np.stack(pages), imagej=True)
-        return {"files": [str(path)], "planes": planes,
-                "pixels": [px["pixels_x"], px["pixels_y"]]}
-
-    def _target_path(self, acq: dict) -> Path:
-        """Single output path, honouring (and sanitising) the folder/filename.
-
-        Mirrors the real server's `_written_files`: same sanitisation and
-        `realpath` canonicalisation so tests see the same path shape as live.
-        """
-        filename = acq.get("filename")
-        if not filename:
-            self._acq_seq += 1
-            return Path(os.path.realpath(self.output_dir / f"mock_stack_{self._acq_seq:06d}.tiff"))
-        folder = Path(acq.get("folder") or self.output_dir)
-        safe = str(filename).replace(" ", "_").replace("/", "_").replace("%", "pct")
-        return Path(os.path.realpath(folder / safe))
+            # A plain (unmarked) reply: the client's parse_result surfaces it as
+            # a failed Reply, exactly like a server-side error would.
+            return f"injected error for command {cmd!r}"
+        buf = io.StringIO()
+        namespace = {"self": self.core}
+        with redirect_stdout(buf), redirect_stderr(buf):
+            try:
+                exec(script, namespace)  # noqa: S102 - this IS the bridge under test
+            except Exception:
+                traceback.print_exc()
+        return buf.getvalue()
 
 
-class _Nak(Exception):
-    """A request the mock understood but declined."""
+def _frame(text: str) -> bytes:
+    b = text.encode("utf-8")
+    return str(len(b)).encode("ascii") + b"\n" + b
+
+
+def _sniff_cmd(script: str) -> str | None:
+    first = script.split("\n", 1)[0].strip()
+    prefix = "# zmart-cmd:"
+    return first[len(prefix):].strip() if first.startswith(prefix) else None

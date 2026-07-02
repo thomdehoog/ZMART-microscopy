@@ -2,10 +2,12 @@
 
 `mesospim` drives a **mesoSPIM** light-sheet microscope from an external Python process. Its target,
 [**mesoSPIM-control**](https://github.com/mesoSPIM/mesoSPIM-control) (the GPL PyQt5 acquisition app),
-has **no external control API** — all control is in-process, inside its Qt event loop. So this driver
-adds the missing boundary: a small **resident command-server script**, loaded through mesoSPIM's own
-**Script Window**, opens a localhost TCP socket; the driver is a thin **MIT client** that speaks to it.
-That process boundary is what keeps ZMART MIT while mesoSPIM-control stays GPL (see [§10](#10-licensing--how-this-stays-mit)).
+has **no external control API** — all control is in-process, inside its Qt event loop. So the boundary is
+added *in mesoSPIM* by a small, generic upstream feature — **Remote Scripting** (Tools → Remote Scripting…;
+the patch under [`pull_request/`](pull_request/)) — that runs a received Python script in the live Core and
+returns its console. This driver is a thin **MIT client** that injects scripts and parses a structured result
+back; all command vocabulary stays client-side. That process boundary keeps ZMART MIT while mesoSPIM-control
+stays GPL (see [§10](#10-licensing--how-this-stays-mit)).
 
 It is a vendor sibling to the Leica `navigator_expert` and ZEISS `zenapi` drivers and mirrors their
 architecture — *connection + command vocabulary + state readers*, all tuning in profiles, every write
@@ -14,14 +16,14 @@ routed through a dispatch backbone with retry + readback confirmation. The publi
 drivers.
 
 - **Author:** Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch · thomdehoog@gmail.com
-- **License:** **MIT** (the client). The one resident server script is **GPL-3.0** — see [§10](#10-licensing--how-this-stays-mit).
-- **Status:** **Live-validated against the real mesoSPIM-control software in `-D` demo mode** (v1.20.0).
-  The command server is loaded exactly as an operator would (Script Window → [`server/scriptwindow_loader.py`](server/scriptwindow_loader.py)),
-  and the full round-trip — connect → get_config → get_state → move → get_position → **acquire** — passes
-  against the live `Core` through the **unmodified** mesoSPIM code (5/5 integration tests). **115 offline
-  tests** green and the server's Qt half is validated headless. Remaining: **real-hardware** validation
-  (demo mode simulates the devices — see the honest boundary below) and non-Tiff image writers
-  (see [TODO.md](TODO.md)).
+- **License:** **MIT** (the whole driver). The only GPL-3.0 code is the generic **Remote Scripting** feature
+  *in mesoSPIM* (the upstream patch under [`pull_request/`](pull_request/)) — see [§10](#10-licensing--how-this-stays-mit).
+- **Status:** The driver rides mesoSPIM's **Remote Scripting** bridge — a generic "run this Python, return the
+  console" socket ([`pull_request/`](pull_request/), validated against real mesoSPIM `-D` demo, v1.20.0). The
+  driver injects small scripts and parses a structured result back; all command vocabulary is client-side
+  ([`connection/scripts.py`](connection/scripts.py)). **112 offline tests** green — the mock server `exec`s the
+  real injected scripts against a Core-shaped fake, so framing/harness/vocabulary are exercised for real.
+  Remaining: re-run the live round-trip on this transport and **real-hardware** validation (see [TODO.md](TODO.md)).
 
 ## How it controls the microscope — in plain terms
 
@@ -39,19 +41,20 @@ send it commands from outside.
   │              │                                                      │
   │              ▼                                                      │
   │  ZMART mesospim driver  (MIT)                                       │
-  │      turns your call into ONE line of JSON:                        │
-  │      {"cmd":"move_absolute","args":{"targets":{"x":1000,"y":2000}}} │
+  │      turns your call into a small Python SCRIPT to run:            │
+  │      self.move_absolute({'x_abs':1000,'y_abs':2000},...) ; print() │
   └──────────────┬──────────────────────────────────────────────────────┘
                  │
                  │   localhost network socket   127.0.0.1 : 42000
-                 │   one JSON request  ──►  one JSON reply
+                 │   send script text  ──►  get its console output back
                  │   (the ONLY link between the MIT driver and GPL mesoSPIM)
                  ▼
   ┌─────────────────────────────────────────────────────────────────────┐
   │  THE REAL mesoSPIM-control PROGRAM                                   │
   │                                                                     │
-  │  command server   (you load it ONCE via the Script Window)         │
-  │      for each request it calls the SAME methods                    │
+  │  Remote Scripting server   (Tools → Remote Scripting… ; upstream)  │
+  │      runs the received script via the SAME Core.execute_script     │
+  │      the Script Window uses, so it calls the same methods          │
   │      mesoSPIM's own buttons call:                                  │
   │      core.move_absolute(...) · core.start(...) · core.state[...]   │
   │              │                                                      │
@@ -69,19 +72,21 @@ send it commands from outside.
 **Reading it top to bottom:**
 
 1. **Your code / the ZMART driver (MIT).** You call something plain like
-   `drv.move_xy(client, 1000, 2000)`. The driver turns it into one short line of
-   text (JSON).
-2. **A localhost network socket (`127.0.0.1:42000`).** That line is sent over an
-   ordinary TCP socket and one line of JSON comes back. This socket is the *only*
-   connection between the MIT driver and the GPL mesoSPIM program — which is also
-   what keeps the licensing clean (see [§10](#10-licensing--how-this-stays-mit)).
-3. **The command server, running _inside_ mesoSPIM.** mesoSPIM has a built-in
-   "Script Window" that runs a Python snippet inside the live program. You load
-   our tiny loader there once; it starts a small server on the socket. Because it
-   runs inside mesoSPIM, it holds the real `Core` object.
-4. **`mesoSPIM_Core` — the program's control brain.** For every command, the
-   server calls **the exact same `Core` methods that mesoSPIM's own buttons call**
-   (`core.move_absolute(...)`, `core.start(...)` to run an acquisition, …). So a
+   `drv.move_xy(client, 1000, 2000)`. The driver turns it into a tiny Python
+   **script** (built in [`connection/scripts.py`](connection/scripts.py)) that
+   calls the Core and prints its result.
+2. **A localhost network socket (`127.0.0.1:42000`).** That script is sent over an
+   ordinary TCP socket and the script's console output comes back. This socket is
+   the *only* connection between the MIT driver and the GPL mesoSPIM program —
+   which is also what keeps the licensing clean (see [§10](#10-licensing--how-this-stays-mit)).
+3. **The Remote Scripting server, running _inside_ mesoSPIM.** mesoSPIM has a
+   built-in "Script Window" that runs a Python snippet inside the live program. A
+   small, generic upstream feature (**Tools → Remote Scripting…**; the patch under
+   [`pull_request/`](pull_request/)) puts a socket in front of it — it runs the
+   received script via the *existing* `Core.execute_script` and returns the console.
+4. **`mesoSPIM_Core` — the program's control brain.** The injected script calls
+   **the exact same `Core` methods that mesoSPIM's own buttons call**
+   (`self.move_absolute(...)`, `self.start(...)` to run an acquisition, …). So a
    move sent by the driver runs the *identical code path* as a scientist clicking
    "move" in the GUI. **That is why this is real control, not a look-alike.**
 5. **The devices.** `Core` drives the real camera, stage and lasers. In **demo
@@ -97,7 +102,7 @@ instrument, which no amount of demo-mode testing can stand in for.
 
 ## Contents
 
-1. [About mesoSPIM-control & the command server](#1-about-mesospim-control--the-command-server)
+1. [About mesoSPIM-control & Remote Scripting](#1-about-mesospim-control--remote-scripting)
 2. [Requirements & installation](#2-requirements--installation)
 3. [Configuration](#3-configuration)
 4. [Quick start](#4-quick-start)
@@ -113,7 +118,7 @@ instrument, which no amount of demo-mode testing can stand in for.
 
 ---
 
-## 1. About mesoSPIM-control & the command server
+## 1. About mesoSPIM-control & Remote Scripting
 
 mesoSPIM-control is a monolithic **Python 3.12 / PyQt5** GUI app. `mesoSPIM_Core` (a `QObject` "pacemaker")
 runs on its own thread and drives everything through **signals/slots**; a process-wide
@@ -121,28 +126,31 @@ runs on its own thread and drives everything through **signals/slots**; a proces
 waveforms, lasers, filter wheels) are config-driven and **swappable for `Demo` backends**. Crucially, it
 exposes **no socket, ZMQ, REST, or RPC** — nothing a separate OS process can connect to out of the box.
 
-**The hook (no fork).** mesoSPIM's **Script Window** (Core menu) `exec()`s a Python snippet with the live
-`Core` bound as `self`. You load the driver's tiny flat loader ([`server/scriptwindow_loader.py`](server/scriptwindow_loader.py))
-there once; it imports the command-server module and starts it. The server opens a `127.0.0.1:42000`
-`QTcpServer` and **`QTimer`-poll**s it — non-blocking, so the Qt event loop never freezes (the same pattern
-as the Nikon `NkSocketServerDemo.mac` `WM_TIMER` poll). Each JSON request line becomes a `Core` action
-(`move_absolute`, a state request, an `Acquisition` run) or a state read, with a JSON reply line back. The
-driver is a plain MIT client of that socket.
+**The hook (no fork, minimal upstream).** mesoSPIM's **Script Window** (Core menu) `exec()`s a Python
+snippet with the live `Core` bound as `self`. A tiny, **generic** upstream contribution
+([`pull_request/`](pull_request/)) — **Tools → Remote Scripting…** — puts a socket in front of that: it runs
+a received Python script through the *existing* `Core.execute_script` and returns the console output. Text
+in, console text out; **no command vocabulary, no data format in mesoSPIM**. The GPL edge is that one small,
+reusable feature.
 
-> **Why a *loader* and not the server file directly?** The Script Window runs your script with
-> `exec(script)` *inside* a `Core` method, where `globals()` ≠ `locals()`. A full *module*'s top-level
-> names (constants, classes) then resolve as globals and raise `NameError`. So the server logic lives in a
-> module and the thing you actually load is a **flat** one-job loader that imports it — mirroring
-> mesoSPIM's own flat example scripts. Details in [`server/README.md`](server/README.md).
+**All the vocabulary lives client-side (MIT).** A "command" here is a Python **script** the driver injects
+([`connection/scripts.py`](connection/scripts.py)) — `move_absolute`, a state read, an `Acquisition` run.
+Each is wrapped in a harness that prints its result as a **per-call-nonce + base64(JSON)** block, so the
+driver extracts a clean structured `{ok, data, error}` from the console even though other threads may print
+into it (exactly as the Script Window console does). The framing is length-prefixed (see
+[`pull_request/PROTOCOL.md`](pull_request/PROTOCOL.md)). Nothing ZMART-specific runs inside mesoSPIM.
+
+> **Why this shape.** Putting only a transport in mesoSPIM (and keeping the vocabulary in the MIT client)
+> makes the upstream patch trivial to review and accept, keeps the GPL/MIT boundary clean, and means new
+> capability is a new injected script — not a mesoSPIM change. The alternative (a bespoke ZMART command
+> server loaded into the Core) was retired in favour of this after the PR proved out on the bench.
 
 **Why this is a good fit.** Because mesoSPIM ships a **`-D` demo mode** (all `Demo` backends, zero hardware),
 the *entire* control loop — including a real acquisition through the real image writer — can be exercised
-against the actual acquisition software with no microscope. That is unique among the ZMART drivers, and it
-is exactly how this driver was validated (see [§9](#9-testing)).
-
-The resident server is the **only** place that touches the GPL `Core` API; its `Core`-binding calls are
-quarantined in one class (`_CoreBridge`) so the surface to re-verify against a new mesoSPIM version is small.
-The wire vocabulary is specified in [`server/PROTOCOL.md`](server/PROTOCOL.md).
+against the actual acquisition software with no microscope. That is unique among the ZMART drivers (see
+[§9](#9-testing)). Offline, the mock server **`exec`s the very same injected scripts** against a Core-shaped
+fake, so the framing, harness, and vocabulary are all exercised for real; only the live hardware Core is
+absent.
 
 ## 2. Requirements & installation
 
@@ -167,26 +175,22 @@ Test/optional dependencies (the client itself needs none of these):
 pip install -r zmart_drivers/mesospim/requirements-dev.txt   # pytest, numpy, tifffile; PyQt5 optional (validator)
 ```
 
-**Start the command server on the mesoSPIM PC:**
+**Start Remote Scripting on the mesoSPIM PC:**
 
-1. Launch mesoSPIM-control — real hardware, or **`-D` demo mode** for a hardware-free run:
+1. Apply the Remote Scripting patch ([`pull_request/`](pull_request/)) to mesoSPIM-control (until it is
+   merged upstream), then launch — real hardware, or **`-D` demo mode** for a hardware-free run:
    `python mesoSPIM_Control.py -D`.
-2. **Core menu → Script Window →** open [`server/scriptwindow_loader.py`](server/scriptwindow_loader.py)
-   **→ Run**. Open the *loader*, **not** `mesospim_command_server.py` (see [§1](#1-about-mesospim-control--the-command-server)).
-   If the ZMART driver isn't already importable in mesoSPIM's Python, set `SERVER_DIR` at the top of the
-   loader to the folder holding `mesospim_command_server.py`. You should see
-   `[mesospim-cmd-server] listening on 127.0.0.1:42000`.
+2. **Tools → Remote Scripting… → Start** (host `127.0.0.1`, port `42000`; set a token to expose it on the
+   network). You should see `[mesospim-remote-scripting] listening on 127.0.0.1:42000`.
 3. From the driver: `client = drv.connect({"host": "127.0.0.1", "port": 42000})`.
 
-**Network use (control from another PC).** By default the server binds to
-`127.0.0.1` (same machine only). To drive it from another machine, set `HOST` in
-the loader to `0.0.0.0` (or the mesoSPIM PC's LAN IP) **and** set a `TOKEN` — then
-pass it: `drv.connect({"host": "<mesoSPIM-PC-IP>", "port": 42000, "token": "<token>"})`.
-The token gates access (fail-closed: no token, no control). Note it is **plain
-TCP** — the token is a casual gate for a trusted lab LAN, not sniffer-proof
-security; tunnel it (SSH/VPN) for untrusted networks. See [`server/PROTOCOL.md`](server/PROTOCOL.md) → Authentication.
-
-See [`server/README.md`](server/README.md) for the server details and offline validation options.
+**Network use (control from another PC).** In the dialog, set the host to `0.0.0.0` (or the mesoSPIM PC's LAN
+IP) **and** a token (the dialog warns and can generate one) — then pass it:
+`drv.connect({"host": "<mesoSPIM-PC-IP>", "port": 42000, "token": "<token>"})`. The token gates access
+(fail-closed) and is compared in constant time. Note it is **plain TCP** — a casual gate for a trusted lab
+LAN, not sniffer-proof; tunnel it (SSH/VPN) for untrusted networks. Because a script is arbitrary Python on
+the acquisition PC, the server is off by default and started by an operator. See
+[`pull_request/README.md`](pull_request/README.md) and [`pull_request/PROTOCOL.md`](pull_request/PROTOCOL.md).
 
 ## 3. Configuration
 
@@ -208,7 +212,7 @@ See [`server/README.md`](server/README.md) for the server details and offline va
 ```python
 import mesospim as drv
 
-# 1. Connect to the resident command server (handshake + ping-verified).
+# 1. Connect to mesoSPIM's Remote Scripting server (handshake + ping-verified).
 client = drv.connect({"host": "127.0.0.1", "port": 42000})
 
 # 2. Stage safety limits (REQUIRED before movement) — micrometers / degrees.
@@ -257,7 +261,7 @@ state** (`get_state`/`set_state`). The full driver API (`import mesospim`) cover
 **The client.** `connect(...)` opens the socket, performs the `hello` handshake (recording the server
 identity + protocol version), verifies the link with a `ping`, and returns a `MesospimClient`. It refuses a
 server whose protocol version it does not know. Every command and reader takes the client as its first
-argument. One request/reply at a time, guarded by a lock — mesoSPIM's command server is single-client by
+argument. One request/reply at a time, guarded by a lock — mesoSPIM's Remote Scripting server is single-client by
 design (it lives in the Qt event loop).
 
 **Units.** Linear axes (x, y, z, focus) are **micrometers**; rotation (`theta`) is **degrees** — on both the
@@ -399,9 +403,9 @@ zmart_drivers/mesospim/
 │                   limits.py    fail-closed 5-axis µm/deg envelope     stage_limits.json  bundled default
 ├── acquisition/    product.py   typed results     capture.py  build/acquire/snap/run_acquisition_list
 │                   save.py      relocate the writer's frames into <output_root>/data/ + JSON sidecar
+│                   connection/scripts.py  the injected-script templates (the mesoSPIM vocabulary, client-side)
 ├── controller.py   ZMART controller adapter — ops table (connect, set_xyz, acquire, get/set_state, …) + register()
-├── server/         mesospim_command_server.py  the GPL resident script (QTcpServer + QTimer poll + _CoreBridge)
-│                   validate_headless.py  the server's Qt half vs a fake Core     PROTOCOL.md   README.md
+├── pull_request/   the upstream mesoSPIM Remote Scripting patch (GPL) + PROTOCOL.md + demo_client.py
 └── tests/          unit/  offline vs a mock server     integration/  vs mesoSPIM -D demo     helpers/mock_mesospim_server.py
 ```
 
@@ -419,13 +423,14 @@ Command wrappers supply small zero-arg/one-arg callables (targets pre-bound with
 the *server* blocks on `wait_until_done`, the ACK returns only after the move completes, so a single confirm
 read normally sees the arrived state.
 
-**GPL/MIT split.** Everything above is MIT and imports nothing from mesoSPIM. The lone GPL file,
-`server/mesospim_command_server.py`, runs *inside* the mesoSPIM process and imports only stdlib, PyQt5, and
-mesoSPIM's own GPL modules — never anything from ZMART. The socket is the boundary (see [§10](#10-licensing--how-this-stays-mit)).
+**GPL/MIT split.** The whole driver is MIT and imports nothing from mesoSPIM. The only GPL code is the
+generic **Remote Scripting** feature *in mesoSPIM* (the upstream patch under [`pull_request/`](pull_request/));
+the driver reaches it over a socket. Nothing ZMART-specific runs inside the mesoSPIM process — the injected
+scripts are just text the MIT client sends (see [§10](#10-licensing--how-this-stays-mit)).
 
-**Dependency direction:** `utils` (stdlib) → `protocol` → `connection.client` → `commands.dispatch` →
-`config.profiles`/`config.limits` → `commands.commands`; `readers`, `acquisition`, and `controller` sit above.
-No circular imports.
+**Dependency direction:** `utils` (stdlib) → `protocol` → `connection.scripts` → `connection.client` →
+`commands.dispatch` → `config.profiles`/`config.limits` → `commands.commands`; `readers`, `acquisition`, and
+`controller` sit above. No circular imports.
 
 ## 8. Configuration & tuning (profiles)
 
@@ -457,24 +462,23 @@ One self-contained gate ([`run_ci.py`](run_ci.py) — env header + lint + tests 
 pip install -r zmart_drivers/mesospim/requirements-dev.txt        # first run only (pytest, numpy, tifffile)
 
 python zmart_drivers/mesospim/run_ci.py            # OFFLINE (default, portable): mock-server suite + coverage
-                                                   #   + the headless Qt validator of the resident server (if PyQt5)
 python zmart_drivers/mesospim/run_ci.py online     # ONLINE:  live round-trip vs a running mesoSPIM -D demo
 python zmart_drivers/mesospim/run_ci.py both       # BOTH:    the offline gate followed by the live round-trip
 ```
 
-The three layers it runs, fastest/most-portable to most-faithful:
+The two layers it runs, portable to most-faithful:
 
-1. **Offline suite (111 tests)** — the MIT client vs a **mock command server** over a real socket; no
-   mesoSPIM, no hardware. `python -m pytest zmart_drivers/mesospim/tests` runs it directly (`-m "not
-   integration"` is the default).
-2. **Headless Qt validation** — the resident GPL server's *entire* Qt machinery (`QTcpServer` + `QTimer`
-   poll + `_CoreBridge`) against a **fake Core**, driven by the real client. Needs only PyQt5, no display:
-   `QT_QPA_PLATFORM=offscreen python zmart_drivers/mesospim/server/validate_headless.py`.
-3. **Live round-trip** — the `-m integration` suite against a **running mesoSPIM `-D` demo** (real software,
+1. **Offline suite (112 tests)** — the MIT client vs a **mock Remote Scripting server** over a real socket;
+   no mesoSPIM, no hardware. The mock is a *faithful* double: it `exec`s the very injected scripts the driver
+   sends against a Core-shaped fake and returns the captured console, so the framing, harness, and command
+   vocabulary are all exercised for real. `python -m pytest zmart_drivers/mesospim/tests` runs it directly
+   (`-m "not integration"` is the default).
+2. **Live round-trip** — the `-m integration` suite against a **running mesoSPIM `-D` demo** (real software,
    Demo backends, no hardware) on `MESOSPIM_HOST`/`MESOSPIM_PORT` (default `127.0.0.1:42000`). It skips
    cleanly if nothing is listening; capture is opt-in via `MESOSPIM_ALLOW_ACQUIRE=1` so it never fires
-   lasers by accident. `run_ci.py` does not launch mesoSPIM — start the `-D` demo + command server first
-   (see [§2](#2-requirements--installation)), the same way the Leica/ZEISS `online` runs need their app live.
+   lasers by accident. `run_ci.py` does not launch mesoSPIM — start the `-D` demo with **Tools → Remote
+   Scripting** first (see [§2](#2-requirements--installation)), the same way the Leica/ZEISS `online` runs
+   need their app live.
 
 `online`/`both` therefore exercise the **real mesoSPIM-control software** — only the *hardware* is simulated
 by the Demo backends. Reports (env.json, junit.xml, coverage, ci_summary.json) land in `tests/_report/`.
@@ -492,10 +496,10 @@ Follow the project TDD practice: add a failing offline test first, and assert re
 - mesoSPIM-control is **GPL-3.0**; importing its modules into ZMART would make the combined work GPL.
 - The **process boundary avoids that.** ZMART links only to the **MIT** external client, which *communicates
   with* a separate GPL program over a socket — mere aggregation, not a derivative work.
-- The **GPL edge is one file:** `server/mesospim_command_server.py`. It uses the GPL `Core` API, so it is
-  GPL-3.0, and it imports **nothing** from ZMART. Its ideal long-term home is an upstream contribution to the
-  mesoSPIM project (a first-class "command server" script), so it is a script mesoSPIM *ships and runs* rather
-  than a patch anyone maintains.
+- The **GPL edge lives in mesoSPIM, not in ZMART:** the generic Remote Scripting feature (the patch under
+  [`pull_request/`](pull_request/)). It uses the GPL `Core` API and imports **nothing** from ZMART; its home
+  is an upstream contribution to the mesoSPIM project, so it is a feature mesoSPIM *ships and runs* rather
+  than a patch anyone maintains. The ZMART client injects only *text* (scripts) across the socket.
 - GPL does **not** restrict *use* (including commercial) — only distribution of derivatives. Driving mesoSPIM
   at arm's length from a commercial ZMART product is fine; folding modified mesoSPIM source into a closed
   product is not. *(Not legal advice — confirm with UZH tech-transfer.)*
@@ -513,25 +517,26 @@ These **silently misbehave** instead of failing loudly — respect them or resul
    write. Persisting is a separate `save()` call (which takes no client).
 4. **Acquisitions are slow.** A capture reply only comes back when the run finishes — `acquire` uses
    `ACQUISITION.acquire_timeout_s` (600 s), not the ~10 s default socket deadline. A real stack can take minutes.
-5. **Single-client server.** The command server accepts one client at a time; it lives in mesoSPIM's Qt event
-   loop and is polled non-blocking. Don't open two concurrent clients.
+5. **Single-client server.** The Remote Scripting server accepts one client at a time; it lives in mesoSPIM's
+   Qt event loop. Don't open two concurrent clients.
 6. **Process-global stage limits.** Limits live in a module-level dict, so this driver assumes one instrument
    per process; a second session in the same process would share (and overwrite) them.
-7. **The resident server must match your mesoSPIM version.** Its `Core`-binding names are verified against
-   v1.20.0 and quarantined in `_CoreBridge`; re-verify there if your installed version differs (run [§9](#9-testing)
-   step 3 against `-D` demo mode first). `acquire` imports mesoSPIM's `Acquisition` from
-   `mesoSPIM.src.utils.acquisitions` (with a bare-`utils` fallback).
+7. **The injected scripts must match your mesoSPIM version.** The `Core`-binding names (state keys, move API,
+   `cfg` attributes, `start(row=…)`, the image-writer path) are verified against v1.20.0 and all live in one
+   place — `connection/scripts.py`; re-verify there if your installed version differs (run the live round-trip
+   against `-D` demo mode first). `acquire` imports mesoSPIM's `Acquisition` from `mesoSPIM.src.utils.acquisitions`
+   (with a bare-`utils` fallback).
 
 ## 12. Extending the driver
 
-- **New command** — add a wrapper in `commands/commands.py` (three phases: validate + limit-check →
+- **New command** — add an injected-script template in `connection/scripts.py` (a body that reads `_a` and
+  sets `_result`), a wrapper in `commands/commands.py` (three phases: validate + limit-check →
   `confirm_and_fire(...)` with the profile + a `fire_fn` and target-bound `confirm_fn` → return the envelope),
-  a `CommandProfile` in `config/profiles.py` if the defaults don't fit, a matching `cmd` branch in the server's
-  `_dispatch`, and the export in `__init__.py`. Copy the closest existing command.
-- **New server capability** — extend `_CoreBridge` (the only `Core`-touching surface) and the server `_dispatch`
-  table, and mirror it in `tests/helpers/mock_mesospim_server.py` so the offline suite covers it.
-- **Real procedures** — `autofocus` / `find_sample` currently forward to a server `procedure` command the
-  resident script NAKs; implement them server-side (e.g. an ETL/remote-focus sweep) or drop them from
+  a `CommandProfile` in `config/profiles.py` if the defaults don't fit, and the export in `__init__.py`. The
+  mock covers it automatically (it `exec`s the template); extend `FakeCore` only if the template calls a new
+  Core method.
+- **Real procedures** — `autofocus` / `find_sample` currently NAK (the `procedure` template raises); implement
+  them as their own injected scripts (e.g. an ETL/remote-focus sweep) or drop them from
   `config.profiles.ACQUISITION.procedures`.
 - **Acquisition features** — multi-channel captures and XY-tiling by building an `AcquisitionList`; an OME-TIFF
   re-encode in `acquisition/save.py` (today it copies the writer's frames verbatim + a JSON sidecar — the
@@ -541,7 +546,7 @@ These **silently misbehave** instead of failing loudly — respect them or resul
 
 - ZMART controller (the vendor-agnostic surface this driver registers with): [`zmart_controller/`](../../zmart_controller/README.md)
 - Sibling drivers: [`zmart_drivers/zeiss/zenapi/`](../zeiss/zenapi/README.md) (gRPC), [`zmart_drivers/leica/stellaris5_y42h93/navigator_expert/`](../leica/stellaris5_y42h93/navigator_expert/README.md) (CAM API), [`zmart_drivers/nikon/`](../nikon/README.md) (socket macro)
-- Wire protocol & resident server: [`server/PROTOCOL.md`](server/PROTOCOL.md) · [`server/README.md`](server/README.md)
+- Remote Scripting bridge (the upstream mesoSPIM patch) & wire framing: [`pull_request/README.md`](pull_request/README.md) · [`pull_request/PROTOCOL.md`](pull_request/PROTOCOL.md)
 - Remaining work & bench-validation notes: [`TODO.md`](TODO.md)
 - mesoSPIM-control: <https://github.com/mesoSPIM/mesoSPIM-control> · mesoSPIM project: <https://mesospim.org>
 

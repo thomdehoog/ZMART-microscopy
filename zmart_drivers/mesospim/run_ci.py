@@ -179,18 +179,6 @@ def main() -> int:
         label = "tests: offline suite" + (" + coverage" if (not args.no_cov and has("pytest_cov")) else "")
         steps.append(run_step(label, pytest_cmd, env, fatal=True))
 
-        # Headless validation of the resident GPL server's whole Qt machinery
-        # (QTcpServer + QTimer poll + _CoreBridge) vs a fake Core -- needs only
-        # PyQt5, no display, no mesoSPIM. Skipped (not failed) if PyQt5 is absent.
-        if has("PyQt5"):
-            hv_env = dict(env)
-            hv_env.setdefault("QT_QPA_PLATFORM", "offscreen")
-            steps.append(run_step("server: headless Qt validator",
-                                  [sys.executable, str(DRIVER_ROOT / "server" / "validate_headless.py")],
-                                  hv_env, fatal=True))
-        else:
-            print("\n  (PyQt5 not installed -- skipping the headless server validator)")
-
     # --- ONLINE: live round-trip vs a running mesoSPIM -D demo ----------------
     # The integration suite connects to MESOSPIM_HOST/PORT (default 127.0.0.1:42000)
     # and SKIPS cleanly if nothing is listening, so this is safe to run anywhere;
