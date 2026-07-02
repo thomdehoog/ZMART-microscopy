@@ -329,6 +329,72 @@ class TestStateReaders(unittest.TestCase):
         )
 
 
+class TestApiModeCappedWorker(unittest.TestCase):
+    """mode="api" must run in the capped worker with the profile timeout."""
+
+    def setUp(self):
+        self._state_profile = profiles.STATE_READERS
+
+    def tearDown(self):
+        profiles.STATE_READERS = self._state_profile
+
+    def test_api_mode_hung_read_returns_none_after_timeout(self):
+        profiles.STATE_READERS = profiles.StateReaderProfile(xy_timeout_s=0.2)
+        release = threading.Event()
+
+        def hung_api(*_args, **_kwargs):
+            release.wait(5.0)
+            return {"x_um": 1.0, "y_um": 2.0}
+
+        try:
+            with patch.object(router.api_reader, "get_xy", side_effect=hung_api):
+                t0 = time.monotonic()
+                result = readers.get_xy(object(), mode="api")
+                elapsed = time.monotonic() - t0
+            self.assertIsNone(result)
+            self.assertLess(elapsed, 2.0)  # caller must not block on the hang
+        finally:
+            release.set()
+
+    def test_api_mode_respects_in_flight_cap(self):
+        profiles.STATE_READERS = profiles.StateReaderProfile(xy_timeout_s=0.2)
+        release = threading.Event()
+        client = object()
+
+        def hung_api(*_args, **_kwargs):
+            release.wait(5.0)
+            return {"x_um": 1.0, "y_um": 2.0}
+
+        try:
+            with patch.object(router.api_reader, "get_xy", side_effect=hung_api) as api:
+                self.assertIsNone(readers.get_xy(client, mode="api"))  # parks the worker
+                self.assertIsNone(readers.get_xy(client, mode="api"))  # must not pile on
+                self.assertEqual(api.call_count, 1)
+        finally:
+            release.set()
+
+    def test_api_mode_error_reading_carries_error_in_diagnostics(self):
+        with patch.object(router.api_reader, "get_xy", side_effect=RuntimeError("com fault")):
+            reading = readers.get_xy(object(), mode="api", diagnostics=True)
+        self.assertIsNotNone(reading)
+        self.assertIsNone(reading.value)
+        self.assertIsInstance(reading.error, RuntimeError)
+
+
+class TestDerivedZoom(unittest.TestCase):
+    def test_sub_unity_zoom_is_not_clamped(self):
+        from navigator_expert.readers import derived
+
+        settings = {
+            "imageSize": "100.0 um x 100.0 um",
+            "format": "512 x 512",
+            "zoom": {"current": 0.75},
+        }
+        fov = derived.base_fov_from_settings(settings)
+        self.assertIsNotNone(fov)
+        self.assertAlmostEqual(fov[0], 100.0e-6 * 0.75)
+
+
 class TestMissingLegs(unittest.TestCase):
     """A family asked for a leg the datum lacks fails closed with a
     recorded ``UnsupportedSource`` reason; hybrid degrades to the legs

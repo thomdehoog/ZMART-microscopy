@@ -126,7 +126,8 @@ def race_confirmations(api_leg=None, log_leg=None, *, label="", budget_s=None, a
         started = time.monotonic()
         deadline = started + budget_s
         outcomes = {}
-        if api_results is None:
+        api_skipped = api_results is None
+        if api_skipped:
             outcomes["api"] = _failed_outcome(
                 "info",
                 f"{label} | api confirmation leg skipped: api read in flight",
@@ -158,6 +159,23 @@ def race_confirmations(api_leg=None, log_leg=None, *, label="", budget_s=None, a
             if len(outcomes) < 2:
                 time.sleep(min(0.005, max(0.0, deadline - now)))
 
+        if winner is not None:
+            loser = "log" if winner == "api" else "api"
+            if loser not in outcomes:
+                # The loser may have finished in the instant between our last
+                # poll and the win — one bounded drain so a completed leg is
+                # reported as disagreement, not misreported as abandoned.
+                pending_q = log_results if loser == "log" else api_results
+                if pending_q is not None:
+                    try:
+                        late = pending_q.get(timeout=0.05)
+                    except queue.Empty:
+                        pass
+                    else:
+                        outcomes[loser] = (
+                            late if loser == "log" else _outcome_from_api_reading(late)
+                        )
+
         elapsed = time.monotonic() - started
         logs = []
         for tag in ("api", "log"):
@@ -169,7 +187,12 @@ def race_confirmations(api_leg=None, log_leg=None, *, label="", budget_s=None, a
             logs.append(
                 _make_log_entry("info", f"{label} | confirmed by {winner} leg ({elapsed:.3f}s)")
             )
-            if loser in outcomes:
+            if loser == "api" and api_skipped:
+                # A skipped leg is no disagreement — it never ran.
+                logs.append(
+                    _make_log_entry("info", f"{label} | api leg was skipped; log leg confirmed")
+                )
+            elif loser in outcomes:
                 msg = f"{label} | {loser} leg had not confirmed when the {winner} leg confirmed"
                 log.warning(msg)
                 logs.append(_make_log_entry("warning", msg))

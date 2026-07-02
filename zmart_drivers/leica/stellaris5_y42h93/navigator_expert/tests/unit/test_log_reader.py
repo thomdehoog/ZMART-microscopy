@@ -182,6 +182,21 @@ class TestLogReader(unittest.TestCase):
         self.assertIsNotNone(L.get_job_settings("Overview", s))
         self.assertIsNone(L.get_job_settings("AF Job", s))
 
+    def test_new_block_name_drops_stale_block_id(self):
+        # A fresh Name line without its BlockID (writer race / partial dump)
+        # must not pair with the previous generation's ID.
+        lines = current_block_lines(2, "Overview", 6) + [
+            current_block_lines(3, "Target", 9)[0]  # Name only, no BlockID line
+        ]
+        msgbox = self._write_msgbox(lines)
+        s = L.parse_log(
+            lines=[],
+            msgbox_path=msgbox,
+            now=(BASE + timedelta(seconds=5)).timestamp(),
+        )
+        self.assertEqual(s.current_block_name, "Target")
+        self.assertIsNone(s.current_block_id)  # not the stale 6
+
     def test_matrix_job_list_honors_max_age(self):
         s = parse([matrix_jobs_line(0)], now=(BASE + timedelta(seconds=600)).timestamp())
         self.assertIsNotNone(L.get_jobs(s))
