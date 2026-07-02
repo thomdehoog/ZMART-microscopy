@@ -51,7 +51,9 @@ def _set_job_attr(lrp_path, attr_name, value_str, job_name, caller):
 
     count = 0
     setting_tag = "ATLConfocalSettingDefinition"
-    pattern = re.compile(rf'{attr_name}="([^"]*)"')
+    # Whitespace lookbehind so e.g. attr_name="Zoom" can never match inside
+    # a suffix-colliding sibling like BaseZoom="..." on the same tag.
+    pattern = re.compile(rf'(?<=\s){re.escape(attr_name)}="([^"]*)"')
     search_pos = job_pos
 
     while search_pos < block_end:
@@ -66,7 +68,11 @@ def _set_job_attr(lrp_path, attr_name, value_str, job_name, caller):
         element_text = text[setting_pos : end_pos + 1]
         m = pattern.search(element_text)
         if m and m.group(1) != value_str:
-            new_element = element_text.replace(m.group(0), f'{attr_name}="{value_str}"')
+            # Splice at the match position: replacing by value would also
+            # rewrite any other attribute that happens to carry the same text.
+            new_element = (
+                element_text[: m.start()] + f'{attr_name}="{value_str}"' + element_text[m.end() :]
+            )
             text = text[:setting_pos] + new_element + text[end_pos + 1 :]
             block_end += len(new_element) - len(element_text)
             end_pos += len(new_element) - len(element_text)
@@ -81,45 +87,44 @@ def _set_job_attr(lrp_path, attr_name, value_str, job_name, caller):
     return count
 
 
-def _verify_job_attr(lrp_path, attr_name, value_str, job_name):
-    """Verify *attr_name* on all settings in a job (exact match).
-
-    Returns True if every ``ATLConfocalSettingDefinition`` that has
-    the attribute matches *value_str*.
-    """
-    lrp_path = Path(lrp_path)
-    root = ET.parse(lrp_path).getroot()
+def _job_setting_attr_values(lrp_path, attr_name, job_name):
+    """All values of *attr_name* on the job's settings, or None if the job is missing."""
+    root = ET.parse(Path(lrp_path)).getroot()
     for b in root.findall(".//LDM_Block_Sequence_Block"):
         seq = b.find(".//LDM_Block_Sequential")
         if seq is not None and seq.get("BlockName") == job_name:
-            for el in b.findall(".//ATLConfocalSettingDefinition"):
-                raw = el.get(attr_name)
-                if raw is None:
-                    continue
-                if raw != value_str:
-                    return False
-            return True
-    return False
+            return [
+                el.get(attr_name)
+                for el in b.findall(".//ATLConfocalSettingDefinition")
+                if el.get(attr_name) is not None
+            ]
+    return None
+
+
+def _verify_job_attr(lrp_path, attr_name, value_str, job_name):
+    """Verify *attr_name* on all settings in a job (exact match).
+
+    Returns True only if the job exists, at least one of its
+    ``ATLConfocalSettingDefinition`` elements carries the attribute, and
+    every carried value matches *value_str*. An absent attribute is a
+    failed verification, not a vacuous pass — ``_set_job_attr`` never
+    adds attributes, so "absent" means the edit silently did nothing.
+    """
+    values = _job_setting_attr_values(lrp_path, attr_name, job_name)
+    if not values:
+        return False
+    return all(raw == value_str for raw in values)
 
 
 def _verify_job_attr_float(lrp_path, attr_name, value, job_name, tolerance):
     """Like ``_verify_job_attr`` but with float tolerance."""
-    lrp_path = Path(lrp_path)
-    root = ET.parse(lrp_path).getroot()
-    for b in root.findall(".//LDM_Block_Sequence_Block"):
-        seq = b.find(".//LDM_Block_Sequential")
-        if seq is not None and seq.get("BlockName") == job_name:
-            for el in b.findall(".//ATLConfocalSettingDefinition"):
-                raw = el.get(attr_name)
-                if raw is None:
-                    continue
-                try:
-                    if abs(float(raw) - value) > tolerance:
-                        return False
-                except (ValueError, TypeError):
-                    return False
-            return True
-    return False
+    values = _job_setting_attr_values(lrp_path, attr_name, job_name)
+    if not values:
+        return False
+    try:
+        return all(abs(float(raw) - value) <= tolerance for raw in values)
+    except (ValueError, TypeError):
+        return False
 
 
 def _set_sequential_attr(lrp_path, attr_name, value_str, job_name, caller):
@@ -151,13 +156,16 @@ def _set_sequential_attr(lrp_path, attr_name, value_str, job_name, caller):
         return 0
 
     element_text = text[search_start : end_pos + 1]
-    pattern = re.compile(rf'{attr_name}="([^"]*)"')
+    pattern = re.compile(rf'(?<=\s){re.escape(attr_name)}="([^"]*)"')
     m = pattern.search(element_text)
-    if not m or m.group(1) == value_str:
+    if not m:
+        log.warning("%s: job='%s' has no %s attribute; nothing edited", caller, job_name, attr_name)
+        return 0
+    if m.group(1) == value_str:
         log.info("%s: job='%s', no change needed", caller, job_name)
         return 0
 
-    new_element = element_text.replace(m.group(0), f'{attr_name}="{value_str}"')
+    new_element = element_text[: m.start()] + f'{attr_name}="{value_str}"' + element_text[m.end() :]
     text = text[:search_start] + new_element + text[end_pos + 1 :]
     lrp_path.write_text(text, encoding="utf-8")
 

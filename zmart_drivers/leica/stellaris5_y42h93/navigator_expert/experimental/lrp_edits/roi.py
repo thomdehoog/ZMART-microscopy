@@ -173,11 +173,15 @@ def disable_roi_scan(client, job_name):
     — when ROI scan is on the scanner only paints inside the ROI
     polygons, so a panned-but-still-roi-scanning frame appears black
     where the cells used to be. Verifies the change before returning.
+
+    Returns the :func:`apply_lrp_change` result dict, or ``None`` when the
+    edit could not be applied/verified — check it: a silently failed
+    disable produces exactly the black-frame failure described above.
     """
     from ...scanfields.files import TEMPLATE_XML
     from ...scanfields.transaction import apply_lrp_change
 
-    apply_lrp_change(
+    return apply_lrp_change(
         client,
         TEMPLATE_XML,
         lambda p: lrp_enable_roi_scan(p, False, job_name),

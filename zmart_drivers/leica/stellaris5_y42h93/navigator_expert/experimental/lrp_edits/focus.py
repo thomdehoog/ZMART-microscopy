@@ -62,9 +62,14 @@ def lrp_set_stack_calculation_mode(lrp_path, mode, job_name):
         log.error("lrp_set_stack_calculation_mode: job '%s' not found", job_name)
         return 0
 
+    # Bound the search at this job's block end: an unbounded find would land
+    # on the *next* job's Sequential_Master and silently edit that job.
+    next_block = text.find("<LDM_Block_Sequence_Block", job_pos + 1)
+    block_end = next_block if next_block != -1 else len(text)
+
     master_tag = "LDM_Block_Sequential_Master"
     master_pos = text.find(master_tag, job_pos)
-    if master_pos == -1:
+    if master_pos == -1 or master_pos >= block_end:
         log.error(
             "lrp_set_stack_calculation_mode: no Sequential_Master found for job '%s'", job_name
         )
@@ -72,7 +77,7 @@ def lrp_set_stack_calculation_mode(lrp_path, mode, job_name):
 
     setting_tag = "ATLConfocalSettingDefinition"
     setting_pos = text.find(setting_tag, master_pos)
-    if setting_pos == -1:
+    if setting_pos == -1 or setting_pos >= block_end:
         log.error(
             "lrp_set_stack_calculation_mode: no setting found in Sequential_Master for job '%s'",
             job_name,

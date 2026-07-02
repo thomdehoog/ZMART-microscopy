@@ -265,7 +265,10 @@ def save_and_read_lrp(client, *, timeout=5.0):
     lrp_path = os.path.join(tdir, TEMPLATE_LRP)
     result = save_experiment(client, TEMPLATE_XML, tdir, timeout=timeout)
     if not result:
-        log.warning("save_and_read_lrp: save_experiment returned no result")
+        # Returning the parse anyway would hand the caller *stale* pre-save
+        # hardware settings while claiming they are current.
+        log.error("save_and_read_lrp: save failed; not parsing the stale on-disk LRP")
+        return None
     try:
         return parse_lrp(lrp_path)
     except Exception as e:

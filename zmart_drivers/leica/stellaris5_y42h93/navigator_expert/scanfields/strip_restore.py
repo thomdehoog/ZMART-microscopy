@@ -289,6 +289,10 @@ def restore_template(client):
     if stripped_lrp.is_file():
         shutil.copy2(stripped_lrp, bak_lrp)
         log.debug("Backed up modified LRP")
+    else:
+        # A leftover .lrp.bak from a crashed prior run would otherwise be
+        # restored over the freshly-restored LRP at the end of this run.
+        bak_lrp.unlink(missing_ok=True)
 
     orig_fields, orig_items, orig_focus = _count_objects(xml_path, rgn_path)
     log.info(
@@ -333,7 +337,7 @@ def restore_template(client):
         fields, items, focus = _count_objects(xml_path, rgn_path)
         log.info("Attempt %d result: %d fields, %d items, %d focus", attempt, fields, items, focus)
 
-        if items >= orig_items and fields >= orig_fields:
+        if items >= orig_items and fields >= orig_fields and focus >= orig_focus:
             break
 
         log.warning(
@@ -348,10 +352,16 @@ def restore_template(client):
         shutil.copy2(bak_rgn, rgn_path)
     else:
         total_t = time.perf_counter() - t0
-        bak_xml.unlink(missing_ok=True)
-        bak_rgn.unlink(missing_ok=True)
-        bak_lrp.unlink(missing_ok=True)
-        log.error("Restore failed after %d attempts (%.1fs)", len(_RESTORE_SAVE_TIMEOUTS), total_t)
+        # Keep the .bak files: if the last-attempt rollback copies failed
+        # too (file locks), they are the only good state left on disk.
+        log.error(
+            "Restore failed after %d attempts (%.1fs); keeping %s/%s/%s for manual recovery",
+            len(_RESTORE_SAVE_TIMEOUTS),
+            total_t,
+            bak_xml.name,
+            bak_rgn.name,
+            bak_lrp.name,
+        )
         return None
 
     if bak_lrp.is_file():
