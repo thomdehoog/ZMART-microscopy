@@ -86,6 +86,7 @@ class MockMesospimServer:
             "etl_r_offset": 2.0,
         }
         self._frame_seq = 0
+        self._acq_seq = 0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -243,40 +244,38 @@ class MockMesospimServer:
     def _acquire(self, acq: dict) -> dict:
         planes = max(1, int(acq.get("planes", 1)))
         px = _CONFIG["camera"]
-        # Mirror the real server's path contract: when the Acquisition names an
-        # output folder/filename, write there with the same per-plane naming the
-        # GPL server's _written_files resolves. Fall back to a temp name only
-        # when none is given (a lower-level capture call), keeping standalone
-        # capture tests runnable.
-        targets = self._target_paths(acq, planes)
-        files = []
-        for i in range(planes):
+        # Mirror the real server + default Tiff writer: ONE multi-page stack per
+        # acquisition at the Acquisition's folder/filename (sanitised), not one
+        # file per plane. Fall back to a temp name only when none is given (a
+        # lower-level capture call), keeping standalone capture tests runnable.
+        path = self._target_path(acq)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pages = []
+        for _ in range(planes):
             self._frame_seq += 1
             # Deterministic synthetic content: a gradient offset by the frame seq.
             base = np.arange(px["pixels_x"] * px["pixels_y"], dtype=np.uint16)
             frame = (base.reshape(px["pixels_y"], px["pixels_x"]) + self._frame_seq) % 65535
-            path = targets[i]
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tifffile.imwrite(str(path), frame.astype(np.uint16))
-            files.append(str(path))
-        return {"files": files, "planes": planes,
+            pages.append(frame.astype(np.uint16))
+        # A single plane is a 2-D image; a stack is a (planes, y, x) multi-page
+        # ImageJ TIFF (imagej=True mirrors the real default Tiff writer and keeps
+        # tifffile from mistaking a 3-plane stack for an RGB image).
+        if planes == 1:
+            tifffile.imwrite(str(path), pages[0])
+        else:
+            tifffile.imwrite(str(path), np.stack(pages), imagej=True)
+        return {"files": [str(path)], "planes": planes,
                 "pixels": [px["pixels_x"], px["pixels_y"]]}
 
-    def _target_paths(self, acq: dict, planes: int) -> list[Path]:
-        """Per-plane output paths, honouring the Acquisition folder/filename."""
+    def _target_path(self, acq: dict) -> Path:
+        """Single output path, honouring (and sanitising) the folder/filename."""
         filename = acq.get("filename")
         if not filename:
-            return [
-                self.output_dir / f"mock_frame_{self._frame_seq + 1 + i:06d}.tiff"
-                for i in range(planes)
-            ]
+            self._acq_seq += 1
+            return self.output_dir / f"mock_stack_{self._acq_seq:06d}.tiff"
         folder = Path(acq.get("folder") or self.output_dir)
-        stem, dot, ext = filename.rpartition(".")
-        if not dot:
-            stem, ext = filename, "tiff"
-        if planes <= 1:
-            return [folder / filename]
-        return [folder / f"{stem}_z{i:04d}.{ext}" for i in range(planes)]
+        safe = str(filename).replace(" ", "_").replace("/", "_").replace("%", "pct")
+        return folder / safe
 
 
 class _Nak(Exception):

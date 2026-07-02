@@ -52,6 +52,20 @@ class _CoreBridge:
 
     def __init__(self, core):
         self.core = core
+        # mesoSPIM does not keep acquisition progress in the state singleton --
+        # it emits it on ``sig_progress(dict)``. Cache the latest so ``progress``
+        # can answer a synchronous read. Guarded: a fake/older Core may lack it.
+        self._last_progress: dict = {}
+        try:
+            self.core.sig_progress.connect(self._on_progress)
+        except Exception:  # noqa: BLE001 - no sig_progress on this Core; progress stays empty
+            pass
+
+    def _on_progress(self, payload) -> None:
+        try:
+            self._last_progress = dict(payload)
+        except (TypeError, ValueError):
+            self._last_progress = {}
 
     # -- reads ---------------------------------------------------------------
 
@@ -90,18 +104,29 @@ class _CoreBridge:
         return out
 
     def config(self) -> dict:
-        """Read the hardware model from the loaded mesoSPIM config."""
+        """Read the hardware model from the loaded mesoSPIM config.
+
+        Attribute names match mesoSPIM-control's config module (verified against
+        the 1.20.0 `demo_config.py`): laser lines are the keys of ``laserdict``;
+        zoom *names* are the keys of ``zoomdict`` while the pixel size (um/px)
+        lives in a separate ``pixelsize`` dict keyed by the same names; the
+        camera frame size is ``camera_parameters['x_pixels' / 'y_pixels']``.
+        """
         cfg = getattr(self.core, "cfg", None)
         lasers, filters, zooms, shutters = [], [], [], []
         if cfg is not None:
-            for name in getattr(cfg, "laser_designation", {}) or {}:
+            for name in getattr(cfg, "laserdict", {}) or {}:
                 lasers.append({"name": name, "wavelength_nm": _wavelength(name)})
             filters = list((getattr(cfg, "filterdict", {}) or {}).keys())
-            zooms = [{"name": z, "pixel_size_um": px} for z, px in _zoomdict(cfg).items()]
-            shutters = list(getattr(cfg, "shutteroptions", ["Left", "Right", "Both"]))
+            pixelsize = getattr(cfg, "pixelsize", {}) or {}
+            zooms = [
+                {"name": z, "pixel_size_um": pixelsize.get(z)}
+                for z in (getattr(cfg, "zoomdict", {}) or {})
+            ]
+            shutters = list(getattr(cfg, "shutteroptions", ("Left", "Right", "Both")))
         return {
             "app": "mesoSPIM-control",
-            "version": getattr(cfg, "version", None),
+            "version": _config_version(cfg),
             "lasers": lasers,
             "filters": filters,
             "zooms": zooms,
@@ -111,13 +136,16 @@ class _CoreBridge:
         }
 
     def progress(self) -> dict:
+        # Live status is in the state singleton; the counts come from the cached
+        # sig_progress payload (keys per mesoSPIM-control 1.20.0 send_progress()).
         st = self.state()
+        p = self._last_progress
         return {
             "state": st.get("state"),
-            "current_plane": _get(self.core.state, "current_framenumber"),
-            "total_planes": _get(self.core.state, "snap_count"),
-            "current_acquisition": _get(self.core.state, "current_acquisition"),
-            "total_acquisitions": _get(self.core.state, "total_acquisitions"),
+            "current_plane": p.get("current_image_in_acq"),
+            "total_planes": p.get("images_in_acq"),
+            "current_acquisition": p.get("current_acq"),
+            "total_acquisitions": p.get("total_acqs"),
         }
 
     # -- writes --------------------------------------------------------------
@@ -146,20 +174,29 @@ class _CoreBridge:
     def acquire(self, acquisition: dict, acquisition_type: str) -> dict:
         """Run one Acquisition and return the written frame file(s).
 
-        Builds a mesoSPIM ``Acquisition`` + single-item ``AcquisitionList`` and
-        runs it through the Core. The image-writer plugin writes the frames; we
-        return their paths. Adapt the run entrypoint / writer path resolution to
-        your installed mesoSPIM version (validate in ``-D`` demo mode).
+        Builds a mesoSPIM ``Acquisition`` (an ``IndexedOrderedDict`` subclass, so
+        ``.update()`` merges over the constructor defaults) and a single-item
+        ``AcquisitionList``, then runs it.
+
+        RUN MECHANISM -- BENCH ITEM (see TODO.md). Against mesoSPIM-control 1.20.0
+        the intended entry point is the Core method ``start(row=...)``, which wraps
+        the row of ``state['acq_list']`` and drives the real per-image signal
+        ``sig_add_images_to_image_series`` (``sig_run_timepoint(int)`` is the
+        *time-lapse* counter, not a per-acquisition trigger). Emitting
+        prepare/end alone does NOT capture frames. Wire this to ``start()`` and
+        wait for the state to return to ``idle`` when validating on the bench.
         """
         from utils.acquisitions import Acquisition, AcquisitionList  # mesoSPIM, GPL
 
         acq = Acquisition()
         acq.update({k: v for k, v in acquisition.items() if v is not None})
         acq_list = AcquisitionList([acq])
-        self.core.sig_prepare_image_series.emit(acq, acq_list)
-        self.core.sig_run_timepoint.emit(0)
-        self.core.sig_end_image_series.emit(acq, acq_list)
-        files = _written_files(acq, int(acq.get("planes", 1)))
+        # Inject as the active list and run through the public entry point so the
+        # image writer and per-image signals fire the same way the GUI does.
+        self.core.state["acq_list"] = acq_list
+        self.core.start(row=0)
+        self._wait_until_idle()
+        files = _written_files(acq)
         cam = _camera(self.core.cfg)
         # PROTOCOL.md: pixels is [x, y] (the driver indexes pixels[0]/pixels[1]).
         return {
@@ -168,43 +205,70 @@ class _CoreBridge:
             "pixels": [cam["pixels_x"], cam["pixels_y"]],
         }
 
+    def _wait_until_idle(self, timeout_s: float = 600.0) -> None:
+        """Block until the Core reports ``idle`` again after a run.
+
+        ``start()`` drives the acquisition through the Qt state machine, so the
+        frames are only on disk once the state falls back to ``idle``. BENCH ITEM:
+        confirm this is sufficient (vs. also waiting on ``sig_finished``) on the
+        installed version.
+        """
+        import time
+
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            if self.state().get("state") == "idle":
+                return
+            time.sleep(0.05)
+
 
 def _wavelength(name):
     digits = "".join(c for c in str(name) if c.isdigit())
     return int(digits) if digits else None
 
 
-def _zoomdict(cfg):
-    zd = getattr(cfg, "zoomdict", None) or getattr(cfg, "zoom", None) or {}
-    return zd if isinstance(zd, dict) else {}
+def _config_version(cfg):
+    # mesoSPIM's config module carries no version attribute; fall back to the
+    # app package version if it is importable, else None.
+    v = getattr(cfg, "version", None)
+    if v is not None:
+        return v
+    try:
+        import mesoSPIM  # mesoSPIM-control package, GPL
+
+        return getattr(mesoSPIM, "__version__", None)
+    except Exception:  # noqa: BLE001 - version is best-effort metadata
+        return None
 
 
 def _camera(cfg):
-    x = _get(cfg, "camera_x_pixels", "x_pixels") or 2048
-    y = _get(cfg, "camera_y_pixels", "y_pixels") or 2048
-    return {"pixels_x": int(x), "pixels_y": int(y)}
+    # mesoSPIM stores the frame size in cfg.camera_parameters['x_pixels'/'y_pixels'].
+    params = getattr(cfg, "camera_parameters", None) or {}
+    x = params.get("x_pixels") if isinstance(params, dict) else None
+    y = params.get("y_pixels") if isinstance(params, dict) else None
+    return {"pixels_x": int(x or 2048), "pixels_y": int(y or 2048)}
 
 
-def _get(obj, *names, default=None):
-    for name in names:
-        try:
-            val = obj[name] if isinstance(obj, dict) else getattr(obj, name)
-        except (KeyError, TypeError, AttributeError):
-            val = None
-        if val is not None:
-            return val
-    return default
+def _sanitize_filename(name: str) -> str:
+    """Mirror mesoSPIM's ``utility_functions.replace_with_underscores``.
+
+    The image writer sanitises ``acq['filename']`` before writing, so the server
+    must apply the same transform to predict the real output path.
+    """
+    return str(name).replace(" ", "_").replace("/", "_").replace("%", "pct")
 
 
-def _written_files(acq: dict, planes: int = 1) -> list:
-    """Resolve the frame files the image writer produced, in plane order.
+def _written_files(acq: dict) -> list:
+    """Resolve the file the image writer produced for this acquisition.
 
-    PROTOCOL.md promises one path per plane. A single-plane capture is the bare
-    ``folder/filename``; a multi-plane stack is ``<stem>_z0000<ext>``, ... in
-    order. The exact writer naming is site-specific -- confirm this pattern
-    against the installed mesoSPIM image-writer plugin in ``-D`` demo mode (see
-    ``TODO.md``); returning empty here means the driver never gave the writer an
-    output filename.
+    Against mesoSPIM-control 1.20.0 the writer path is
+    ``os.path.realpath(folder + '/' + replace_with_underscores(filename))``, and
+    the default Tiff writer produces ONE multi-page (ImageJ) stack per
+    acquisition -- not one file per plane. So a single acquisition maps to a
+    single output path; multi-file products come from a multi-item
+    AcquisitionList (one stack per acquisition). Returning empty means the driver
+    gave the writer no filename. (Companion ``MAX_*`` MIP and ``*_meta.txt``
+    sidecar files are written alongside but are not returned as frame data.)
     """
     import os
 
@@ -212,12 +276,7 @@ def _written_files(acq: dict, planes: int = 1) -> list:
     filename = acq.get("filename") or ""
     if not filename:
         return []
-    stem, dot, ext = filename.rpartition(".")
-    if not dot:
-        stem, ext = filename, "tiff"
-    if planes <= 1:
-        return [os.path.join(folder, filename)]
-    return [os.path.join(folder, f"{stem}_z{i:04d}.{ext}") for i in range(planes)]
+    return [os.path.realpath(os.path.join(folder, _sanitize_filename(filename)))]
 
 
 # =============================================================================

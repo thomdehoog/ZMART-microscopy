@@ -31,10 +31,13 @@ def test_snap_single_frame(client):
     assert result.files[0].exists()
 
 
-def test_acquire_stack_multiple_frames(client):
+def test_acquire_stack_is_single_multipage_stack(client):
+    # The default mesoSPIM Tiff writer produces ONE multi-page stack per
+    # acquisition (not one file per plane), so a 5-plane stack is 1 file.
     result = acq.acquire(client, "prescan", options={"z_start": 0, "z_end": 4, "z_step": 1})
     assert result.planes == 5
-    assert len(result.files) == 5
+    assert len(result.files) == 1
+    assert tifffile.imread(str(result.files[0])).shape == (5, 64, 64)
 
 
 def test_metadata_populated(client):
@@ -60,9 +63,43 @@ def test_save_single_frame(client, tmp_path):
     assert tifffile.imread(str(img)).shape == (64, 64)
 
 
-def test_save_multiplane_names(client, tmp_path):
+def test_save_stack_single_file(client, tmp_path):
+    # One multi-page stack in -> one file out, named by the canonical stem.
     result = acq.acquire(client, "stack", options={"z_start": 0, "z_end": 2, "z_step": 1})
     saved = acq.save(result, tmp_path / "run", position_label="B2")
+    assert len(saved.image_paths) == 1
+    img = saved.image_paths[0]
+    assert "B2" in img.name and img.parent.name == "data"
+    assert tifffile.imread(str(img)).shape == (3, 64, 64)
+
+
+def test_save_multiple_source_files_get_plane_suffixes(tmp_path):
+    # If a writer ever returns one file per plane, save() names them in order.
+    # (Covers the multi-file naming branch directly, without the mock.)
+    import numpy as np
+    from mesospim.acquisition.product import (
+        AcquisitionMetadata,
+        AcquisitionResult,
+        ChannelMetadata,
+    )
+
+    src = tmp_path / "src"
+    src.mkdir()
+    sources = []
+    for i in range(3):
+        p = src / f"frame_{i}.tiff"
+        tifffile.imwrite(str(p), np.zeros((8, 8), dtype="uint16"))
+        sources.append(p)
+    result = AcquisitionResult(
+        acquisition_type="stack",
+        acquisition={},
+        started_at=0.0,
+        finished_at=1.0,
+        files=tuple(sources),
+        planes=3,
+        metadata=AcquisitionMetadata(size_x=8, size_y=8, size_z=3, channels=(ChannelMetadata(0),)),
+    )
+    saved = acq.save(result, tmp_path / "run", position_label="C1")
     assert len(saved.image_paths) == 3
     names = sorted(p.name for p in saved.image_paths)
     assert names[0].endswith("_z0000.tiff")
