@@ -119,6 +119,15 @@ actually wrote; the driver's `save()` then relocates them.
       a script mesoSPIM ships rather than a patch to maintain. Keeps the GPL edge
       upstream and the ZMART client MIT.
 
+## 8. Docs consistency 🟢
+
+- [ ] Tighten `server/README.md` → "Adapting to your instrument". It still frames
+      the `_CoreBridge` config attribute names and `_written_files` as "confirm
+      these against your version", but those were verified and fixed against
+      mesoSPIM-control `1.20.0` (see §1/§2). Reword to "verified against 1.20.0;
+      re-verify only if your installed version differs" so it is not read as
+      unfinished.
+
 ---
 
 ### Already done (for reference)
