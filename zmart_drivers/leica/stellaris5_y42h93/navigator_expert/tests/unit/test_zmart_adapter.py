@@ -411,20 +411,25 @@ class TestStateAndProcedures(unittest.TestCase):
             ),
         )
 
-    def test_state_fingerprint_identifies_the_instrument(self):
+    def test_state_shape_changeable_first_then_observed(self):
         h = _handle()
         p = self._state_patches()
         with p[0], p[1], p[2]:
             state = adapter.get_state(h)
-        self.assertEqual(state["immutable"]["vendor"], "leica")
-        self.assertEqual(state["immutable"]["microscope"], "stellaris5-y42h93")
-        self.assertEqual(state["immutable"]["serial_number"], "STELLARIS-1234")
-        self.assertEqual(state["immutable"]["system_type"], "CONFOCAL")
-        self.assertEqual(state["immutable"]["stand"], "DM Manual-6")
-        self.assertEqual(state["immutable"]["objectives"], [[0, 506511], [1, 506513]])
-        self.assertEqual(state["mutable"], {"job": "Overview"})
+        self.assertEqual(list(state), ["changeable", "observed"])  # changeable first
+        self.assertEqual(state["changeable"], {"job": "Overview"})
+        observed = state["observed"]
+        self.assertEqual(observed["vendor"], "leica")
+        self.assertEqual(observed["microscope"], "stellaris5-y42h93")
+        self.assertEqual(observed["serial_number"], "STELLARIS-1234")
+        self.assertEqual(observed["system_type"], "CONFOCAL")
+        self.assertEqual(observed["stand"], "DM Manual-6")
+        self.assertEqual(observed["objectives"], [[0, 506511], [1, 506513]])
+        # the rich readings ride along: the full selected-job record + catalog
+        self.assertEqual(observed["job"]["Name"], "Overview")
+        self.assertEqual([j["Name"] for j in observed["jobs"]], ["Overview", "HiRes"])
 
-    def test_set_state_reapplies_the_job_and_guards_the_fingerprint(self):
+    def test_set_state_applies_changeable_ignoring_observed(self):
         h = _handle()
         p = self._state_patches()
         with (
@@ -434,38 +439,20 @@ class TestStateAndProcedures(unittest.TestCase):
             patch.object(adapter._commands, "select_job", return_value={"success": True}) as select,
         ):
             captured = adapter.get_state(h)
-            captured["mutable"]["job"] = "HiRes"
+            captured["changeable"]["job"] = "HiRes"
+            # observed is a report, never an instruction: even a wildly
+            # mismatching observed part does not block the apply.
+            captured["observed"]["serial_number"] = "SOMETHING-ELSE"
             result = adapter.set_state(h, captured)
             self.assertEqual(result["applied"], {"job": "HiRes"})
             select.assert_called_once()
-            # Any mismatching stored key refuses -- incl. sim-captured state
-            # applied to a "real" instrument.
-            with self.assertRaisesRegex(ValueError, "different instrument"):
-                adapter.set_state(h, {"immutable": {"serial_number": "OTHER"}, "mutable": {}})
-            with self.assertRaisesRegex(ValueError, "different instrument"):
-                adapter.set_state(h, {"immutable": {"system_type": "SIMULATOR"}, "mutable": {}})
-
-    def test_set_state_acts_on_mutable_only(self):
-        """A mutable-only state applies; the fingerprint is checked only when given."""
-        h = _handle()
-        p = self._state_patches()
-        with (
-            p[0],
-            p[1],
-            p[2],
-            patch.object(adapter._commands, "select_job", return_value={"success": True}),
-        ):
-            result = adapter.set_state(h, {"mutable": {"job": "HiRes"}})
-        self.assertEqual(result["applied"], {"job": "HiRes"})
 
     def test_set_state_refuses_a_job_that_no_longer_exists(self):
         h = _handle()
         p = self._state_patches(jobs=("Overview",))
         with p[0], p[1], p[2], patch.object(adapter._commands, "select_job") as select:
             with self.assertRaisesRegex(ValueError, "no longer exists"):
-                adapter.set_state(
-                    h, {"immutable": {"stand": "DM Manual-6"}, "mutable": {"job": "Gone"}}
-                )
+                adapter.set_state(h, {"changeable": {"job": "Gone"}})
         select.assert_not_called()
 
     def test_procedures(self):

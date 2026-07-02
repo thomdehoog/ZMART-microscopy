@@ -62,16 +62,18 @@ class Session:
     def get_state(self) -> dict:
         """Capture instrument state as an opaque dict.
 
-        Carries an ``"immutable"`` part (instrument/config fingerprint, not
-        settable) and a ``"mutable"`` part (settings that can be reapplied). The
-        controller does not interpret it; the driver owns the boundary.
+        Carries a ``"changeable"`` part (the settings ``set_state``
+        reapplies) and an ``"observed"`` part (a read-only report:
+        instrument identity and current condition). The controller does not
+        interpret it; the driver owns the boundary.
         """
         return self._ops["get_state"](self._handle)
 
     def set_state(self, state: dict):
         """Reapply captured state; return whatever the driver reports.
 
-        The driver applies only what it deems mutable.
+        The driver acts on the ``"changeable"`` part only; ``"observed"`` is
+        a report, never an instruction.
         """
         return self._ops["set_state"](self._handle, state)
 

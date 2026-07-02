@@ -109,14 +109,14 @@ zmart_controller.set_xyz(10, 20, 5, with_actuators={"z": "piezo"})
 
 ### 4. Capture and reapply state
 
-A *state* is a snapshot of the instrument's settings you can capture now and
-reapply later. It is an opaque dict the driver owns: an `immutable` fingerprint
-(so you cannot restore settings from a different instrument) plus a `mutable` part
-(what is actually reapplied).
+A *state* is a snapshot of the instrument you can capture now and reapply
+later. It is an opaque dict the driver owns: a `changeable` part (what
+`set_state` actually reapplies) plus an `observed` part (a read-only report of
+instrument identity and condition — never an instruction).
 
 ```python
-prescan = zmart_controller.get_state()                 # {"immutable": {...}, "mutable": {...}}
-prescan["mutable"]["laser_power"] = 2.0
+prescan = zmart_controller.get_state()                 # {"changeable": {...}, "observed": {...}}
+prescan["changeable"]["laser_power"] = 2.0
 zmart_controller.set_state(prescan)                     # reapply it later
 ```
 

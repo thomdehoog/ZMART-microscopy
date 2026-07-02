@@ -9,12 +9,12 @@ registers it.
 
 Like the reference ``mock_driver``, the driver owns the frame **origin**: the
 controller works in micrometers from an origin the driver subtracts, so the
-controller never does coordinate math. It also owns the mutable/immutable state
-boundary and the capture+save step.
+controller never does coordinate math. It also owns the changeable/observed
+state boundary and the capture+save step.
 
 The controller surface is deliberately x/y/z centric. mesoSPIM's extra axes
 (focus, rotation) and light-path settings are exposed too: focus/rotation as
-**procedures**, and laser/filter/zoom/intensity/shutter/ETL as the **mutable
+**procedures**, and laser/filter/zoom/intensity/shutter/ETL as the **changeable
 state**. The full driver API (``import mesospim``) remains available for anything
 the neutral surface does not cover.
 
@@ -226,37 +226,26 @@ def set_xyz(
 
 
 def get_state(handle: MesospimHandle) -> dict:
-    """Capture instrument state: immutable fingerprint + mutable settings."""
+    """Capture instrument state: changeable settings first, then the observed report."""
     state = _readers.get_state(handle.client)
-    mutable = {key: state.get(key) for key in _MUTABLE_KEYS if state.get(key) is not None}
-    return {"immutable": dict(handle.immutable), "mutable": mutable}
+    changeable = {key: state.get(key) for key in _MUTABLE_KEYS if state.get(key) is not None}
+    return {"changeable": changeable, "observed": dict(handle.immutable)}
 
 
 def set_state(handle: MesospimHandle, state: dict) -> dict:
-    """Validate the immutable fingerprint, then reapply the mutable settings.
+    """Apply the changeable settings; report what stuck.
 
-    Rejects state that carries no fingerprint at all (an empty ``immutable`` must
-    not silently pass), and compares the instrument identity -- including the
-    configured ``microscope`` name, not just the socket endpoint, so state from a
-    different instrument reachable at the same ``host``/``port`` is still caught.
+    ``observed`` is a report, never an instruction — it is not read here
+    (operator decision: the identity gate returns only if the changeable
+    part ever grows beyond low-risk settings).
     """
-    immutable = state.get("immutable") or {}
-    if not immutable:
-        raise ValueError("state has no immutable fingerprint; refusing to reapply")
-    for key in ("app", "microscope", "host", "port"):
-        want = immutable.get(key, handle.immutable.get(key))
-        if want != handle.immutable.get(key):
-            raise ValueError(
-                f"state captured on a different instrument ({key}={want!r} != "
-                f"{handle.immutable.get(key)!r})"
-            )
-    mutable = {k: v for k, v in (state.get("mutable") or {}).items() if k in _MUTABLE_KEYS}
-    if not mutable:
+    changeable = {k: v for k, v in (state.get("changeable") or {}).items() if k in _MUTABLE_KEYS}
+    if not changeable:
         return {"applied": {}}
-    result = _cmd.set_state(handle.client, mutable)
+    result = _cmd.set_state(handle.client, changeable)
     if not result.get("success"):
         raise RuntimeError(f"set_state failed: {result.get('message')}")
-    return {"applied": mutable, "confirmed": result.get("confirmed")}
+    return {"applied": changeable, "confirmed": result.get("confirmed")}
 
 
 # =============================================================================

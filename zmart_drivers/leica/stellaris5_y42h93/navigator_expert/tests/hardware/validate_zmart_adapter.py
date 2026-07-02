@@ -178,16 +178,20 @@ def phase_readonly(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None
         opts = v.callable("get_acquisition_options", sess.get_acquisition_options)
         if state is not None and opts is not None:
             v.compare(
-                "get_state: mutable job is in the job list",
-                state["mutable"]["job"] in opts["job"]["options"],
+                "get_state: changeable job is in the job list",
+                state["changeable"]["job"] in opts["job"]["options"],
                 True,
             )
-            if not args.mock:
-                v.compare(
-                    "get_state: immutable microscope is non-null",
-                    bool(state["immutable"]["microscope"]),
-                    True,
-                )
+            observed = state["observed"]
+            v.compare(
+                "get_state: observed carries an identity",
+                bool(
+                    observed.get("serial_number")
+                    or observed.get("stand")
+                    or observed.get("objectives")
+                ),
+                True,
+            )
             v.compare(
                 "get_acquisition_options: active exporter is offered",
                 opts["exporter"]["active"] in opts["exporter"]["options"],
@@ -353,17 +357,7 @@ def phase_state(v: vh.Validator, sess: Any) -> None:
         captured = v.callable("get_state: capture", sess.get_state)
         if not captured:
             return
-        immutable = captured["immutable"]
-        v.compare(
-            "state: fingerprint carries an identity",
-            bool(
-                immutable.get("serial_number")
-                or immutable.get("stand")
-                or immutable.get("objectives")
-            ),
-            True,
-        )
-        original = captured["mutable"]["job"]
+        original = captured["changeable"]["job"]
         names = (sess.get_acquisition_options().get("job") or {}).get("options") or []
         other = next((n for n in names if n != original), None)
         if other is None:
@@ -371,17 +365,17 @@ def phase_state(v: vh.Validator, sess: Any) -> None:
             return
         v.callable(
             "set_state: switch job",
-            lambda: sess.set_state({**captured, "mutable": {"job": other}}),
+            lambda: sess.set_state({**captured, "changeable": {"job": other}}),
         )
         after = v.callable("get_state: after switch (settled)", lambda: _get_state_settled(sess))
         if after:
-            v.compare("state: switched", after["mutable"]["job"], other)
+            v.compare("state: switched", after["changeable"]["job"], other)
         v.callable("set_state: restore", lambda: sess.set_state(captured))
         restored = v.callable(
             "get_state: after restore (settled)", lambda: _get_state_settled(sess)
         )
         if restored:
-            v.compare("state: restored", restored["mutable"]["job"], original)
+            v.compare("state: restored", restored["changeable"]["job"], original)
 
 
 def phase_acquire(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
