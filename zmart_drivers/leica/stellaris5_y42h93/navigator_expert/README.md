@@ -304,7 +304,7 @@ zmart_drivers/leica/stellaris5_y42h93/navigator_expert/
 ├── acquisition/  product.py (neutral types) · capture.py (acquire) · save.py (exporters) · ome.py
 ├── scanfields/   .lrp/.rgn/.xml parsing + templates    experimental/lrp_edits/  offline template editors
 ├── calibration/  image↔stage + objective-pair (data machine-local; defaults/ committed)   limits/  notebooks
-├── zmart_adapter/ ops table plugging this driver into zmart_controller (import to register)
+├── zmart_adapter.py  ops table plugging this driver into zmart_controller (import to register)
 ├── tests/        unit/ (offline) + hardware/ (@pytest.mark.hardware)
 └── run_ci.py · pytest.ini   (package root)
 ```

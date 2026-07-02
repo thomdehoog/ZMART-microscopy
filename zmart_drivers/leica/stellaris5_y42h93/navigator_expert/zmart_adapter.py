@@ -63,15 +63,15 @@ from shared.output_layout import Naming
 from shared.output_layout.naming import run_hash
 from zmart_controller import registry as _registry
 
-from .. import readers as _readers
-from ..acquisition import capture as _capture
-from ..acquisition import save as _save
-from ..commands import commands as _commands
-from ..commands import settings as _cmd_settings
-from ..connection import session as _session
-from ..motion import limits as _limits
-from ..motion import movement as _motion
-from ..motion import stage_config as _stage_config
+from . import readers as _readers
+from .acquisition import capture as _capture
+from .acquisition import save as _save
+from .commands import commands as _commands
+from .commands import settings as _cmd_settings
+from .connection import session as _session
+from .motion import limits as _limits
+from .motion import movement as _motion
+from .motion import stage_config as _stage_config
 
 log = logging.getLogger(__name__)
 
