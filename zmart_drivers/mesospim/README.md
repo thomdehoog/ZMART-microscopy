@@ -187,9 +187,13 @@ The controller surface is x/y/z centric; focus and rotation are exposed as **pro
 ### Testing
 
 ```bash
-python -m pytest zmart_drivers/mesospim/tests          # offline: MIT client vs mock command server
-# The `-m integration` suite (round-trip vs a live mesoSPIM -D demo Core) is not
-# written yet — see TODO §4 / server/README.md for the manual bench procedure.
+pip install -r zmart_drivers/mesospim/requirements-dev.txt   # pytest, numpy, tifffile
+python -m pytest zmart_drivers/mesospim/tests                # offline: MIT client vs mock command server
+
+# Live round-trip vs a running mesoSPIM (-D demo mode, script loaded on :42000).
+# Skips cleanly if nothing is listening. The capture step is opt-in so it can't
+# fire lasers by accident:
+MESOSPIM_ALLOW_ACQUIRE=1 python -m pytest zmart_drivers/mesospim/tests -m integration
 ```
 
 ## Next steps

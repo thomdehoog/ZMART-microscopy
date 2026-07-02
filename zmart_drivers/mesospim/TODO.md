@@ -91,11 +91,15 @@ actually wrote; the driver's `save()` then relocates them.
 - [x] Enforce protocol-version compatibility: `MesospimClient.connect` now
       refuses a `hello.data.protocol` it does not know (`protocol.PROTOCOL_VERSION`)
       and drops the socket instead of leaving it half-open.
-- [ ] Add an `-m integration` test module that runs the round-trip in §1 so the
-      bench step is one command, and wire it into the repo's `run_ci` aggregation.
-- [ ] Add a `requirements-dev.txt` (pytest, numpy, tifffile for the mock/tests;
-      PyQt5 only for `server/validate_headless.py`). Note: the MIT client itself
-      has **no** heavy deps — `numpy`/`tifffile` are test-only.
+- [x] Added the `-m integration` round-trip module
+      (`tests/integration/test_live_roundtrip.py`): connect → get_config →
+      get_state → move → get_position → acquire against a live server. Skips when
+      nothing is listening; capture is opt-in via `MESOSPIM_ALLOW_ACQUIRE=1`;
+      address via `MESOSPIM_HOST`/`MESOSPIM_PORT`. Still to do: wire it into the
+      repo's `run_ci` aggregation (it is excluded from the default run today).
+- [x] Added `requirements-dev.txt` (pytest, numpy, tifffile; PyQt5 commented as
+      optional for `server/validate_headless.py`). The MIT client itself has no
+      heavy deps — `numpy`/`tifffile` are test-only.
 
 ## 5. Real procedures 🟢
 

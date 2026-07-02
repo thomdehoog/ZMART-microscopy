@@ -41,10 +41,11 @@ stages, lasers, or DAQ. Load the server there and run the ZMART round-trip:
 
 ```bash
 python mesoSPIM_Control.py -D          # terminal 1: mesoSPIM in demo mode + Script Window → Run this file
-# Then from terminal 2, drive it with the MIT client (connect → get_config →
-# get_state → move_absolute → get_position → acquire). A packaged `-m integration`
-# pytest suite is not written yet (see the repo README / TODO §4); until then this
-# round-trip is manual.
+# terminal 2: the packaged live round-trip (connect → get_config → get_state →
+# move → get_position → acquire). Skips cleanly if nothing is listening; the
+# capture step is opt-in so it never fires lasers by accident:
+MESOSPIM_ALLOW_ACQUIRE=1 python -m pytest zmart_drivers/mesospim/tests -m integration
+# Point it at another address with MESOSPIM_HOST / MESOSPIM_PORT.
 ```
 
 mesoSPIM-control is effectively **Windows-only** (Python ≥3.12); `-D` demo mode
