@@ -17,5 +17,19 @@ for _path in (str(_SRC_ROOT), str(_TESTS_DIR)):
         sys.path.insert(0, _path)
 
 import mock_driver  # noqa: E402
+import pytest  # noqa: E402
 
 mock_driver.register_mock()
+
+
+@pytest.fixture(autouse=True)
+def _reset_active_session():
+    """Clear the module-level active session after every test.
+
+    Without this, a test that sets an instrument leaks it into the next test,
+    and the "no active microscope" error branch is never exercised.
+    """
+    yield
+    import zmart_controller
+
+    zmart_controller._active = None

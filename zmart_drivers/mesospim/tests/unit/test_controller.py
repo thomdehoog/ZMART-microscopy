@@ -68,34 +68,21 @@ def test_set_and_get_xyz_relative_to_origin(session):
 
 def test_state_capture_and_reapply(session):
     state = session.get_state()
-    assert "immutable" in state and "mutable" in state
-    state["mutable"]["intensity"] = 77.0
+    assert list(state) == ["changeable", "observed"]  # changeable first
+    state["changeable"]["intensity"] = 77.0
     session.set_state(state)
-    assert session.get_state()["mutable"]["intensity"] == 77.0
+    assert session.get_state()["changeable"]["intensity"] == 77.0
 
 
-def test_set_state_rejects_foreign_instrument(session):
+def test_observed_is_a_report_never_an_instruction(session):
+    # A mismatching observed part does not block applying the changeable part
+    # (operator decision: set_state acts on changeable only).
     state = session.get_state()
-    state["immutable"]["host"] = "10.0.0.99"
-    with pytest.raises(ValueError):
-        session.set_state(state)
-
-
-def test_set_state_rejects_foreign_microscope(session):
-    # Same host/port, different instrument name -> still rejected (the guard is
-    # not purely endpoint-based).
-    state = session.get_state()
-    assert state["immutable"]["microscope"] == "mesospim-test"
-    state["immutable"]["microscope"] = "some-other-scope"
-    with pytest.raises(ValueError):
-        session.set_state(state)
-
-
-def test_set_state_rejects_missing_fingerprint(session):
-    state = session.get_state()
-    state["immutable"] = {}
-    with pytest.raises(ValueError):
-        session.set_state(state)
+    assert state["observed"]["microscope"] == "mesospim-test"
+    state["observed"]["host"] = "10.0.0.99"
+    state["changeable"]["intensity"] = 55.0
+    session.set_state(state)
+    assert session.get_state()["changeable"]["intensity"] == 55.0
 
 
 def test_acquire_stack_z_bounds_use_origin(session, monkeypatch):

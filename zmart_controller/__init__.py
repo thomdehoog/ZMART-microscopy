@@ -34,7 +34,7 @@ from .layer import Session
 from .layer import set_instrument as _set_instrument
 from .registry import get_instruments
 
-__all__ = ["Session", "get_instruments", "set_instrument"]
+__all__ = ["Session", "disconnect", "get_instruments", "set_instrument"]
 
 # The module-level active microscope, so ``import zmart_controller; zmart_controller.acquire()`` works.
 _active: Session | None = None
@@ -50,11 +50,25 @@ def set_instrument(*args, **kwargs) -> Session:
     global _active
     new = _set_instrument(*args, **kwargs)
     # Resolve the new session first; only then tear down the previous active one,
-    # so a failed set_instrument never disconnects a working session.
-    if _active is not None and _active is not new:
-        _active.disconnect()
-    _active = new
+    # so a failed set_instrument never disconnects a working session. Track the
+    # new session before the teardown, so it never leaks if teardown raises.
+    previous, _active = _active, new
+    if previous is not None and previous is not new:
+        previous.disconnect()
     return new
+
+
+def disconnect() -> None:
+    """Disconnect the module's active microscope and clear it.
+
+    After this, module-level calls raise until :func:`set_instrument` selects a
+    new instrument. A no-op when no microscope is active (like
+    :meth:`Session.disconnect`, calling it twice is safe).
+    """
+    global _active
+    previous, _active = _active, None
+    if previous is not None:
+        previous.disconnect()
 
 
 def __getattr__(name: str):
