@@ -11,7 +11,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # machine dir
 sys.path.insert(0, str(Path(__file__).resolve().parents[6]))  # repo root (zmart_controller)
@@ -330,6 +330,7 @@ class TestAcquire(unittest.TestCase):
         # autofocus jobs are a separate category, never acquisition options
         self.assertEqual(opts["job"]["options"], ["Overview", "HiRes"])
         self.assertEqual(opts["job"]["active"], "Overview")
+        self.assertEqual(opts["strip_scan_fields"]["active"], True)  # default on
         self.assertEqual(opts["format"]["active"], "ome-tiff")
         self.assertEqual(opts["exporter"]["active"], "navigator_expert")
         self.assertEqual(opts["cleanup_source"]["active"], False)
@@ -384,6 +385,7 @@ class TestAcquire(unittest.TestCase):
             patch.object(adapter._capture, "acquire", fake_capture),
             patch.object(adapter._save, "save", fake_save),
             patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
+            patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
             patches[2],
         ):
             record = adapter.acquire(
@@ -403,6 +405,60 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(calls["exporter"], "navigator_expert")
         self.assertEqual(record["settle"], "direct")
         self.assertEqual([Path(p) for p in record["images"]], [Path("/tmp/out/img.ome.tif")])
+
+    def _acquire_with_template_state(self, state, strip_result=None, options=None):
+        """Run acquire with the scanfield layer patched; returns the calls list."""
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
+        calls = []
+        patches = _patch_position(job="Overview")
+        with (
+            patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(adapter._commands, "select_job", return_value={"success": True}),
+            patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
+            patch.object(
+                adapter._capture,
+                "acquire",
+                side_effect=lambda client, job, **k: (
+                    calls.append("capture") or SimpleNamespace(job=job)
+                ),
+            ),
+            patch.object(
+                adapter._save,
+                "save",
+                return_value=SimpleNamespace(image_paths={}, xml_paths={}, naming=None),
+            ),
+            patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
+            patch.object(adapter._scanfields, "get_template_state", return_value=state),
+            patch.object(
+                adapter._scanfields,
+                "strip_template",
+                side_effect=lambda client, **k: calls.append("strip") or strip_result,
+            ),
+            patches[2],
+        ):
+            adapter.acquire(h, acquisition_type="prescan", position_label="1", options=options)
+        return calls
+
+    def test_acquire_strips_an_unstripped_template_before_capturing(self):
+        calls = self._acquire_with_template_state("unstripped", strip_result={"success": True})
+        self.assertEqual(calls, ["strip", "capture"])
+
+    def test_acquire_skips_the_strip_when_already_stripped(self):
+        self.assertEqual(self._acquire_with_template_state("stripped"), ["capture"])
+
+    def test_acquire_strip_can_be_opted_out(self):
+        calls = self._acquire_with_template_state(
+            "unstripped", options={"strip_scan_fields": False}
+        )
+        self.assertEqual(calls, ["capture"])
+
+    def test_acquire_refuses_an_unreadable_template(self):
+        with self.assertRaisesRegex(RuntimeError, "unreadable"):
+            self._acquire_with_template_state("unreadable")
+
+    def test_acquire_refuses_when_the_strip_fails(self):
+        with self.assertRaisesRegex(RuntimeError, "could not strip"):
+            self._acquire_with_template_state("unstripped", strip_result=None)
 
 
 class TestStateAndProcedures(unittest.TestCase):
@@ -514,6 +570,7 @@ class TestStateAndProcedures(unittest.TestCase):
             position[1],
             position[2],
             position[3],
+            patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
             patch.object(
                 adapter._commands,
                 "select_job",
@@ -540,6 +597,29 @@ class TestStateAndProcedures(unittest.TestCase):
         self.assertEqual(result["focus_um"], 43.5)  # 42.0 + 1.5, read before restore
         self.assertEqual(result["frame_z_um"], 43.5)  # all-zero origin
         self.assertEqual(result["duration_s"], 2.5)
+
+    def test_autofocus_strips_an_unstripped_template_first(self):
+        h = _handle()
+        p = self._state_patches()
+        strip = MagicMock(return_value={"success": True})
+        position = _patch_position()
+        with (
+            p[2],
+            position[0],
+            position[1],
+            position[2],
+            position[3],
+            patch.object(adapter._scanfields, "get_template_state", return_value="unstripped"),
+            patch.object(adapter._scanfields, "strip_template", strip),
+            patch.object(adapter._commands, "select_job", return_value={"success": True}),
+            patch.object(
+                adapter._capture,
+                "acquire",
+                return_value=SimpleNamespace(job="AF Job", started_at=0.0, finished_at=1.0),
+            ),
+        ):
+            adapter.set_procedure(h, {"name": "autofocus"})
+        strip.assert_called_once()
 
     def test_autofocus_rejects_a_normal_job(self):
         h = _handle()

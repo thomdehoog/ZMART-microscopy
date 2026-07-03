@@ -72,6 +72,7 @@ from shared.output_layout.naming import run_hash
 from zmart_controller import registry as _registry
 
 from .. import readers as _readers
+from .. import scanfields as _scanfields
 from ..acquisition import capture as _capture
 from ..acquisition import save as _save
 from ..calibration.core import model as _cal_model
@@ -625,7 +626,9 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
     Discovered live on every call: ``job`` lists the LAS X jobs with the
     selected one active; ``exporter`` and ``cleanup_source`` are forwarded
     to the driver's ``save()``; ``backlash_correction`` runs an XY slack
-    takeup before capture.
+    takeup before capture; ``strip_scan_fields`` (Leica-specific, default
+    on) empties the scanning template before the capture so LAS X acquires
+    the single current position, never a stored scan-field pattern.
     """
     _require_open(handle)
     normal, _ = _job_catalog(handle)
@@ -634,6 +637,7 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
     return {
         "job": {"options": names, "active": selected},
         "backlash_correction": {"options": [True, False], "active": True},
+        "strip_scan_fields": {"options": [True, False], "active": True},
         "format": {"options": ["ome-tiff"], "active": "ome-tiff"},
         "exporter": {
             "options": ["navigator_expert", "lasx_native_autosave"],
@@ -657,6 +661,27 @@ def _with_defaults(handle: ZmartHandle, options: dict | None) -> dict:
             )
         resolved[name] = value
     return resolved
+
+
+def _ensure_scan_fields_stripped(handle: ZmartHandle) -> None:
+    """Empty the scanning template before a capture.
+
+    A template carrying scan fields makes LAS X acquire the stored pattern
+    instead of the single current position. Sidecar strip only (never
+    in-place): the operator's canonical template files stay on disk and
+    ``drv.restore_template`` can bring the fields back. Cheap when there is
+    nothing to do — "stripped" and "fresh" return immediately.
+    """
+    state = _scanfields.get_template_state()
+    if state in ("stripped", "fresh"):
+        return
+    if state == "unreadable":
+        raise RuntimeError(
+            "scanning template is unreadable; cannot verify the scan field is empty — "
+            "fix or remove the template, or pass options={'strip_scan_fields': False}"
+        )
+    if not _scanfields.strip_template(handle.client):
+        raise RuntimeError("could not strip the scanning template before acquiring")
 
 
 def _assign_p_slot(handle: ZmartHandle, position_label: str) -> int:
@@ -713,6 +738,11 @@ def acquire(
     job = resolved["job"]
     if not job:
         raise RuntimeError("no LAS X job selected and none passed via options['job']")
+
+    # Strip BEFORE selecting: stripping reloads the experiment, which could
+    # otherwise undo the selection.
+    if resolved["strip_scan_fields"]:
+        _ensure_scan_fields_stripped(handle)
 
     if job != _selected_job_name(handle):
         select = _commands.select_job(handle.client, job)
@@ -872,7 +902,9 @@ def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
     ``job`` names the autofocus job; it may be omitted when the instrument
     has exactly one. Nothing is saved — the result is the focus readback
     right after the run (before the selection is restored), in both
-    hardware and frame terms.
+    hardware and frame terms. The scanning template is stripped first,
+    like every capture (an autofocus must run at the current position,
+    never a stored pattern).
     """
     _, autofocus = _job_catalog(handle)
     names = [j["Name"] for j in autofocus if j.get("Name")]
@@ -886,6 +918,7 @@ def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
     elif job not in names:
         raise ValueError(f"{job!r} is not an autofocus job (available: {names})")
 
+    _ensure_scan_fields_stripped(handle)
     original = _selected_job_name(handle)
     if job != original:
         selected = _commands.select_job(handle.client, job)
