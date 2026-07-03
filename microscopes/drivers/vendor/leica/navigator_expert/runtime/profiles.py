@@ -432,19 +432,9 @@ ACQUIRE = CommandProfile(
     fire_async=True,
 )
 
-ACQUIRE_SINGLE_IMAGE = CommandProfile(
-    pre_check_fn=partial(check_idle, timeout=None),
-    confirm_fn=confirm_acquire,
-    error_check_fn=None,
-    max_confirm_attempts=1,
-    refire_on_unconfirmed=False,
-    poll_interval=0.1,
-    poll_timeout=None,
-    start_timeout=15.0,
-    heartbeat_interval=30.0,
-    skip_echo=True,
-    fire_async=True,
-)
+# AcquireSingleImage confirms and times identically to AcquireJob; only the
+# fired API object differs (handled in the command wrapper).
+ACQUIRE_SINGLE_IMAGE = ACQUIRE
 
 SELECT_JOB = CommandProfile(
     pre_check_fn=partial(check_idle, timeout=None),

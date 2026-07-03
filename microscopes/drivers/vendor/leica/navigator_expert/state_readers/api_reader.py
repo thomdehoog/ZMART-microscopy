@@ -222,29 +222,6 @@ def get_xy(client, timeout=1.0, poll_interval=0.01, max_retries=3):
     return None
 
 
-def read_zwide_um(client, job_name):
-    """Return the live z-wide position (in um) for the given job.
-
-    Parses the ``zPosition.z-wide`` field from
-    :func:`get_job_settings` (after :func:`make_changeable_copy` has
-    flattened the API JSON). Raises ``RuntimeError`` if the readback
-    is unavailable: almost always means the job is not selected or
-    the LAS X version doesn't expose Z readback in this shape.
-    """
-    from ..commands.settings import make_changeable_copy
-
-    settings = get_job_settings(client, job_name)
-    if not settings:
-        raise RuntimeError(f"could not read job settings for '{job_name}'")
-    ch = make_changeable_copy(settings)
-    if not ch or "zPosition" not in ch:
-        raise RuntimeError("zPosition not in job settings - LAS X version mismatch?")
-    val = ch["zPosition"].get("z-wide")
-    if val is None:
-        raise RuntimeError(f"z-wide readback missing; got {ch['zPosition']!r}")
-    return float(val)
-
-
 def get_jobs(client, timeout=1.0, poll_interval=0.01, max_retries=3):
     """List all available jobs and their selection status.
 
@@ -280,15 +257,6 @@ def get_jobs(client, timeout=1.0, poll_interval=0.01, max_retries=3):
     return None
 
 
-def get_job_by_name(client, job_name, **kwargs):
-    """Return the metadata dict for a single job, or None if not found.
-
-    Convenience wrapper around get_jobs(). All keyword arguments are
-    forwarded to get_jobs().
-    """
-    return derived.job_by_name(get_jobs(client, **kwargs), job_name)
-
-
 def get_selected_job(client, **kwargs):
     """Return the metadata dict for the currently selected job, or None.
 
@@ -296,54 +264,6 @@ def get_selected_job(client, **kwargs):
     forwarded to get_jobs().
     """
     return derived.selected_job(get_jobs(client, **kwargs))
-
-
-def get_fov(client, job_name, **kwargs):
-    """Return the scan field size for a job in metres.
-
-    Queries ``get_job_settings`` and parses ``imageSize``.
-
-    Args:
-        client: Live LAS X CAM client.
-        job_name: Job name to query.
-        **kwargs: Forwarded to ``get_job_settings``.
-
-    Returns:
-        ``(width_m, height_m)`` tuple, or ``None`` on failure.
-    """
-    settings = get_job_settings(client, job_name, **kwargs)
-    if not settings:
-        log.error("get_fov: no settings for job '%s'", job_name)
-        return None
-    value = derived.fov_from_settings(settings)
-    if value is None:
-        log.error("get_fov: cannot parse FOV for '%s'", job_name)
-    return value
-
-
-def get_base_fov(client, job_name, **kwargs):
-    """Return the objective's full field of view (at zoom 1) in metres.
-
-    Reads the current FOV and zoom from the API, then scales back to
-    zoom 1.  This is a fundamental property of the objective and scan
-    configuration; it does not change with zoom.
-
-    Args:
-        client: Live LAS X CAM client.
-        job_name: Job name to query.
-        **kwargs: Forwarded to ``get_job_settings``.
-
-    Returns:
-        ``(width_m, height_m)`` tuple at zoom 1, or ``None`` on failure.
-    """
-    settings = get_job_settings(client, job_name, **kwargs)
-    if not settings:
-        log.error("get_base_fov: no settings for job '%s'", job_name)
-        return None
-    value = derived.base_fov_from_settings(settings)
-    if value is None:
-        log.error("get_base_fov: cannot parse FOV for '%s'", job_name)
-    return value
 
 
 # =============================================================================
