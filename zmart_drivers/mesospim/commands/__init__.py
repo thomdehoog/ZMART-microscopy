@@ -1,12 +1,21 @@
-"""Command wrappers + the dispatch backbone."""
+"""Command wrappers + the dispatch backbone.
 
-from .commands import (
+Instrument-state settings live here (:mod:`.commands`); stage movement lives in
+:mod:`mesospim.motion.movement` and is re-exported here so the historical
+``mesospim.commands.move_*`` surface keeps working.
+"""
+
+from ..motion.movement import (
     move_absolute,
     move_focus,
     move_relative,
     move_rotation,
     move_xy,
     move_z,
+    stop,
+    zero_axes,
+)
+from .commands import (
     set_etl,
     set_filter,
     set_intensity,
@@ -14,8 +23,6 @@ from .commands import (
     set_shutter,
     set_state,
     set_zoom,
-    stop,
-    zero_axes,
 )
 from .dispatch import confirm_and_fire
 

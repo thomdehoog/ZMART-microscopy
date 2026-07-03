@@ -73,11 +73,20 @@ from .commands import (
     zero_axes,
 )
 
-# --- config / limits ---
+# --- config (profiles) ---
 from .config import (
     ACQUISITION,
     CONNECTION,
     HARDWARE,
+)
+from .connection.client import MesospimClient, MesospimError
+from .connection.session import close, connect
+
+# --- controller integration ---
+from .controller import register
+
+# --- motion: stage limits (movement wrappers come in via .commands above) ---
+from .motion import (
     LimitError,
     apply_stage_limits_from_config,
     check_move,
@@ -85,11 +94,6 @@ from .config import (
     load_stage_config,
     set_stage_limits,
 )
-from .connection.client import MesospimClient, MesospimError
-from .connection.session import close, connect
-
-# --- controller integration ---
-from .controller import register
 
 # --- protocol (for advanced callers / server authors) ---
 from .protocol import Reply, frame, parse_result, wrap_script

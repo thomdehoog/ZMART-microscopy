@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import mesospim
 import pytest
-from mesospim.config import limits
+from mesospim.motion import limits
 
 
 @pytest.fixture(autouse=True)
@@ -169,7 +169,7 @@ def test_repeated_same_label_acquire_does_not_overwrite(session):
 
 
 def test_acquire_stack_z_out_of_limits_raises(session):
-    from mesospim.config import limits
+    from mesospim.motion import limits
 
     limits.set_stage_limits(z=(0, 100))  # tight envelope for this test
     with pytest.raises(RuntimeError, match="stage limits"):
@@ -216,7 +216,7 @@ def _connection(server, tmp_path):
 def test_bundled_function_limits_cover_every_mutating_op():
     """THE completeness guard: adding a mutating op without a limits entry fails here."""
     from mesospim import controller
-    from mesospim.config import machine
+    from mesospim.calibration import machine
 
     from shared import limits as shared_limits
 

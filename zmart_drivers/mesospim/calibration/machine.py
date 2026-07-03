@@ -9,11 +9,11 @@ one folder per instrument::
         function_limits.json   # function-keyed safety limits (shared.limits, v1)
         origin.json            # frame zero point (set_origin; updated in place)
 
-Each file resolves machine copy first, then the driver-bundled default in
-``config/`` -- so the defaults ship with the driver and a machine-specific
-envelope never requires editing the checkout (the same model as the Leica
-sibling). Unlike Leica there are no dated snapshots: mesoSPIM has no
-calibration-adopt workflow to write history, so the machine dir holds the
+Each file resolves machine copy first, then the driver-bundled default under
+``limits/defaults/`` -- so the defaults ship with the driver and a
+machine-specific envelope never requires editing the checkout (the same model
+as the Leica sibling). Unlike Leica there are no dated snapshots: mesoSPIM has
+no calibration-adopt workflow to write history, so the machine dir holds the
 current copy of each file, edited or written in place. If a snapshot-producing
 workflow ever lands, this profile is the seam to grow it behind.
 
@@ -45,8 +45,8 @@ ORIGIN_FILENAME = "origin.json"
 
 
 def _bundled_default(filename: str) -> Path:
-    """Driver-bundled last-known-good default for *filename* (this config dir)."""
-    return Path(__file__).resolve().parent / filename
+    """Driver-bundled last-known-good default for *filename* (``limits/defaults/``)."""
+    return Path(__file__).resolve().parents[1] / "limits" / "defaults" / filename
 
 
 def _atomic_write_json(path: Path, payload: dict) -> None:

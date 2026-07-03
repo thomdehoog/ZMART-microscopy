@@ -33,7 +33,7 @@ import os
 
 import mesospim as drv
 import pytest
-from mesospim.config import limits
+from mesospim.motion import limits
 from mesospim.protocol import PROTOCOL_VERSION
 
 pytestmark = pytest.mark.integration

@@ -39,11 +39,11 @@ from typing import Any
 
 from . import acquisition as _acq
 from . import commands as _cmd
-from .config import limits as _limits
-from .config import machine as _machine
+from .calibration import machine as _machine
 from .config.profiles import ACQUISITION, HARDWARE
 from .connection.session import close as _close
 from .connection.session import connect as _connect
+from .motion import limits as _limits
 from .readers import readers as _readers
 
 log = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ def connect(connection: dict) -> MesospimHandle:
     Honours ``connection`` keys ``host`` / ``port`` / ``timeout`` (forwarded to
     the driver ``connect``), ``output_root`` (where ``acquire`` saves),
     ``machine_root`` (override for the ProgramData root -- see
-    ``config.machine``), and ``stage_limits`` (an explicit path to a
+    ``calibration.machine``), and ``stage_limits`` (an explicit path to a
     stage-limits config; default resolves the machine copy, else the bundled
     envelope). If no ``output_root`` is given, a per-session temp directory is
     created.

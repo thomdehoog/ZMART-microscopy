@@ -108,8 +108,8 @@ _SCHEMA_VERSION = 1
 
 
 def defaults_path() -> Path:
-    """Path to the bundled default stage envelope."""
-    return Path(__file__).resolve().parent / "stage_limits.json"
+    """Path to the bundled default stage envelope (``limits/defaults/``)."""
+    return Path(__file__).resolve().parents[1] / "limits" / "defaults" / "stage_limits.json"
 
 
 def load_stage_config(path: str | Path | None = None) -> dict[str, Any]:

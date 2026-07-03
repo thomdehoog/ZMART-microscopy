@@ -142,10 +142,10 @@ now fixed on this branch):
 ## 3. Real-hardware validation 🟠
 
 - [ ] On an actual mesoSPIM: verify moves land within tolerance, that limits in
-      `config/stage_limits.json` match the instrument envelope, and that theta /
+      the machine copy of `stage_limits.json` match the instrument envelope, and that theta /
       focus behave. Record the real envelope as the machine copy of
       `stage_limits.json` (under the ProgramData machine dir — see
-      `config/machine.py`) rather than editing the bundled default.
+      `calibration/machine.py`) rather than editing the bundled default.
 - [ ] Sanity-check the zoom→pixel-size table in `config/profiles.py`
       (`HARDWARE.zoom_pixel_size_um`) against the instrument's calibration.
 

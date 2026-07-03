@@ -64,3 +64,20 @@ def _make_timing(
         "attempts": attempts,
         "confirm_attempts": confirm_attempts,
     }
+
+
+def _fail(label: str, message: str) -> dict:
+    """A pre-fire failure envelope (validation / limits): no request was sent.
+
+    Shared by the movement wrappers (:mod:`mesospim.motion.movement`) and the
+    state-setting wrappers (:mod:`mesospim.commands.commands`), so it lives here
+    rather than in either.
+    """
+    return {
+        "success": False,
+        "confirmed": None,
+        "message": f"{label}: {message}",
+        "data": {},
+        "timing": _make_timing(total_s=0.0, attempts=0),
+        "logs": [_make_log_entry("error", f"{label}: {message}")],
+    }

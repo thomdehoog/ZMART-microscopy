@@ -200,10 +200,11 @@ the acquisition PC, the server is off by default and started by an operator. See
 - **Stage limits (required before any move)** — limits fail **closed**: an axis with no configured limit is
   *rejected*, so a forgotten setup can never let an unbounded move reach a mounted sample. Configure once per
   session with `set_stage_limits(...)` or `apply_stage_limits_from_config(load_stage_config(...))`, in
-  micrometers (degrees for `theta`). The bundled envelope is [`config/stage_limits.json`](config/stage_limits.json)
-  (schema-versioned). **The `zmart_controller` path loads these automatically in `connect`.**
+  micrometers (degrees for `theta`). The check code is [`motion/limits.py`](motion/limits.py) and the bundled
+  envelope is [`limits/defaults/stage_limits.json`](limits/defaults/stage_limits.json) (schema-versioned).
+  **The `zmart_controller` path loads these automatically in `connect`.**
 - **Machine-local config (ProgramData wins, bundled defaults fall back)** — the controller path resolves each
-  config file machine copy first, then the bundled default (`config/machine.py`):
+  config file machine copy first, then the bundled default under `limits/defaults/` ([`calibration/machine.py`](calibration/machine.py)):
   `<programdata_root>/mesospim/<microscope_id>/{stage_limits.json, function_limits.json, origin.json}` with
   `programdata_root` = `C:\ProgramData\smart_microscopy` (override: `SMART_MICROSCOPY_ROOT` env var, or
   `connection["machine_root"]`). So a machine-specific envelope never means editing the checkout. The
@@ -408,10 +409,13 @@ zmart_drivers/mesospim/
 ├── connection/     client.py  blocking, line-oriented TCP client (lock-guarded, single in-flight)
 │                   session.py connect() / close()
 ├── commands/       dispatch.py  confirm_and_fire backbone (fire + transient retry → confirm + optional re-fire)
-│                   commands.py  move_*/set_*/stop/zero_axes wrappers (three-phase: validate+limits → backbone → envelope)
+│                   commands.py  set_*/set_state wrappers (instrument-state settings)
+├── motion/         movement.py  move_*/stop/zero_axes wrappers (three-phase: validate+limits → backbone → envelope)
+│                   limits.py    fail-closed 5-axis µm/deg envelope check
+├── limits/         defaults/    bundled stage_limits.json + function_limits.json (ship with the driver)
+├── calibration/    machine.py   ProgramData resolution of the stage envelope, function limits, persisted origin
 ├── readers/        readers.py   get_* reads + the Reading freshness gate
 ├── config/         profiles.py  CONNECTION/HARDWARE/ACQUISITION + CommandProfile instances (MOVE/MOVE_ROTATION/SET_STATE)
-│                   limits.py    fail-closed 5-axis µm/deg envelope     stage_limits.json  bundled default
 ├── acquisition/    product.py   typed results     capture.py  build/acquire/snap/run_acquisition_list
 │                   save.py      relocate the writer's frames into <output_root>/data/ + JSON sidecar
 │                   connection/scripts.py  the injected-script templates (the mesoSPIM vocabulary, client-side)
@@ -440,8 +444,8 @@ the driver reaches it over a socket. Nothing ZMART-specific runs inside the meso
 scripts are just text the MIT client sends (see [§10](#10-licensing--how-this-stays-mit)).
 
 **Dependency direction:** `utils` (stdlib) → `protocol` → `connection.scripts` → `connection.client` →
-`commands.dispatch` → `config.profiles`/`config.limits` → `commands.commands`; `readers`, `acquisition`, and
-`controller` sit above. No circular imports.
+`commands.dispatch` → `config.profiles`/`motion.limits` → `motion.movement`/`commands.commands`; `calibration`
+(machine config), `readers`, `acquisition`, and `controller` sit above. No circular imports.
 
 ## 8. Configuration & tuning (profiles)
 
@@ -543,9 +547,10 @@ These **silently misbehave** instead of failing loudly — respect them or resul
 ## 12. Extending the driver
 
 - **New command** — add an injected-script template in `connection/scripts.py` (a body that reads `_a` and
-  sets `_result`), a wrapper in `commands/commands.py` (three phases: validate + limit-check →
-  `confirm_and_fire(...)` with the profile + a `fire_fn` and target-bound `confirm_fn` → return the envelope),
-  a `CommandProfile` in `config/profiles.py` if the defaults don't fit, and the export in `__init__.py`. The
+  sets `_result`), a wrapper in `motion/movement.py` (moves) or `commands/commands.py` (state) — three phases:
+  validate + limit-check → `confirm_and_fire(...)` with the profile + a `fire_fn` and target-bound `confirm_fn`
+  → return the envelope — a `CommandProfile` in `config/profiles.py` if the defaults don't fit, and the export
+  in `__init__.py`. The
   mock covers it automatically (it `exec`s the template); extend `FakeCore` only if the template calls a new
   Core method.
 - **Real procedures** — `autofocus` / `find_sample` currently NAK (the `procedure` template raises); implement
