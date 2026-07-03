@@ -137,9 +137,8 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
     analysis_repo = Path(cfg.analysis_repo)
     if not analysis_repo.exists():
         raise FileNotFoundError(f"Config.analysis_repo does not exist: {analysis_repo}")
-    _put_analysis_repo_first(analysis_repo)
 
-    Engine = _analysis_engine_class(analysis_repo)
+    Engine = _analysis_engine_class(analysis_repo)  # puts analysis_repo first on sys.path
 
     engine = Engine()
 

@@ -111,9 +111,10 @@ def acquire_targets(
 ) -> list[TargetRecord]:
     """Step 5: switch objective, translate picks, acquire each target.
 
-    Per-pick failure isolation: if translation, zoom, move, or acquire
-    fails for one pick, it yields a TargetRecord with success=False,
-    failure_stage set to the step that failed, and the loop continues.
+    Per-pick failure isolation: if any step (translate, geometry, acquire,
+    save, hijack) fails for one pick, it yields a TargetRecord with
+    success=False, failure_stage set to the step that failed, and the loop
+    continues.
 
     Display/save behavior mirrors run_overview:
       - live_display=True (default): render each target inline.
@@ -260,6 +261,7 @@ def acquire_targets(
                     "cell_source_stage_xy_um": list(pick.cell_source_stage_xy_um),
                 }
                 acq = drv.acquire(ctx.client, cfg.target_job)
+                stage = "save"
                 result = drv.save(
                     ctx.client,
                     acq,
@@ -270,7 +272,6 @@ def acquire_targets(
                 )
                 plane = require_single_plane(result, context="target-acquisition")
                 tif_path = plane.image_path
-                stage = "save"
 
                 if cfg.simulate:
                     # NonSimulatorFrameError propagates past the per-pick
