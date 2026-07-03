@@ -118,6 +118,15 @@ def capture_console(log_path: Path | None):
     try:
         handle.write(_separator(log_path.stem))
         handle.flush()
+    except OSError as exc:
+        # Same fail-open policy as the open() above: a write failure
+        # (e.g. disk full) must not abort the wrapped step.
+        print(f"[logcapture] WARNING: console log disabled ({log_path}): {exc}")
+        _active_paths.discard(log_path)
+        handle.close()
+        yield
+        return
+    try:
         sys.stdout = _Tee(original, handle)
         yield
     finally:
@@ -227,10 +236,20 @@ class _DeferredTee:
                 self._buffer = []
                 self._disabled = True
                 return
-            handle.write(_separator(log_path.stem))
-            writer = _TimestampedFileWriter(handle)
-            writer.write("".join(self._buffer))
-            writer.flush()
+            try:
+                handle.write(_separator(log_path.stem))
+                writer = _TimestampedFileWriter(handle)
+                writer.write("".join(self._buffer))
+                writer.flush()
+            except OSError as exc:
+                # Same fail-open policy as the open() above.
+                self._original.write(
+                    f"[logcapture] WARNING: console log disabled ({log_path}): {exc}\n"
+                )
+                self._buffer = []
+                self._disabled = True
+                handle.close()
+                return
             self._file = handle
             self._file_writer = writer
             self._log_path = log_path
