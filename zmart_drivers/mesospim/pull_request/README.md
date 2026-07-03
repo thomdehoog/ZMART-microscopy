@@ -30,13 +30,13 @@ opinionated (a command set, error semantics, structured results) lives in the
   read output text   ◀───────────────────◀────────────────────   sends the text back
 ```
 
-## What the PR does — 3 files, ~410 lines
+## What the PR does — 3 files, ~480 lines
 
 | File | Change |
 |---|---|
-| `mesoSPIM/src/mesoSPIM_RemoteScripting.py` | **New.** A signal-driven `QTcpServer`. For each received script it runs the **existing** `Core.execute_script` with stdout/stderr redirected into a buffer, and returns the buffer. Framing + the token gate are factored into socket-free helpers (`frame`, `FrameDecoder`, `AuthGate`) that unit-test without Qt; `QtNetwork` is imported lazily. Constant-time token compare over UTF-8 bytes. A new client preempts a stale one, and a dropped/crashed client's socket teardown is guarded (it never propagates a Qt error into mesoSPIM), so a misbehaving client can neither wedge nor crash the server. |
+| `mesoSPIM/src/mesoSPIM_RemoteScripting.py` | **New.** A signal-driven `QTcpServer`. For each received script it runs the **existing** `Core.execute_script` and returns its console output, captured **per-thread** (so it never swaps the process-wide `stdout`/`stderr` out from under other threads). Framing + the token gate are factored into socket-free helpers (`frame`, `FrameDecoder`, `AuthGate`) that unit-test without Qt; `QtNetwork` is imported lazily. Constant-time token compare over UTF-8 bytes. A new client preempts a stale one, and a dropped/crashed client's socket teardown is guarded (it never propagates a Qt error into mesoSPIM), so a misbehaving client can neither wedge nor crash the server. |
 | `mesoSPIM/src/mesoSPIM_Core.py` | `start_remote_scripting(host, port, token)` / `stop_remote_scripting()` slots, plus a `sig_remote_scripting_started(ok, message)` signal so a bind failure (e.g. port in use) is reported instead of the GUI showing a false "running". |
-| `mesoSPIM/src/mesoSPIM_MainWindow.py` | A **Tools → Remote Scripting…** menu entry (added in code, no `.ui` change; reuses an existing Tools menu if present) with a Start/Stop dialog (host / port / token + generator); reflects the real start outcome; stops on app close. |
+| `mesoSPIM/src/mesoSPIM_MainWindow.py` | A **Tools → Remote Scripting…** menu entry that appears **only when `enable_remote_scripting = True`** in the config (added in code, no `.ui` change; reuses an existing Tools menu), with a Start/Stop dialog (host / port / token + generator); reflects the real start outcome; stops on app close. |
 
 **`execute_script` is reused unmodified** — the PR only puts a socket in front of
 a method mesoSPIM already has. That is the whole pitch, and why it should be easy
@@ -65,9 +65,11 @@ captured console output. See [`PROTOCOL.md`](PROTOCOL.md).
 A received script is **arbitrary Python on the acquisition PC** (it can touch the
 filesystem, not just the scope). So:
 
-- **Off by default**; started by an operator from the GUI, and **secure by default
-  when started** — the Start dialog pre-fills a freshly generated token (clear it to
-  deliberately run open on localhost).
+- **Opt-in**: the menu entry exists only when the config sets
+  `enable_remote_scripting = True` — an unmodified install can't be started at all.
+- **Off by default** even then; started by an operator from the GUI, and **secure by
+  default when started** — the Start dialog pre-fills a freshly generated token (clear
+  it to deliberately run open on localhost).
 - **Binds `127.0.0.1`** unless changed; the dialog warns before binding to the
   network without a token.
 - **Optional token** gates access (constant-time compare). Because the payload is
@@ -124,5 +126,5 @@ scripts. See [`demo_client.py`](demo_client.py) for the marker-delimited pattern
 (send a script, read the console frame, extract the result between markers).
 
 ---
-Author: Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch ·
-thomdehoog@gmail.com. Patch license: **GPL-3.0** (part of mesoSPIM-control).
+Author: Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch.
+Patch license: **GPL-3.0** (part of mesoSPIM-control).

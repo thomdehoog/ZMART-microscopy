@@ -1,6 +1,11 @@
 > **Note.** This is an **anticipated** review — written from the perspective of the
 > upstream mesoSPIM-control maintainer to pre-empt likely feedback *before* we submit.
 > It is **not** a review received from upstream. Use it to harden the PR ahead of time.
+>
+> **Update — both "before merge" items are now addressed in the PR:** (1) the script
+> capture is per-thread and no longer swaps the global `sys.stdout`/`stderr`; (2) the
+> menu is gated behind an `enable_remote_scripting` config flag (unmodified installs
+> can't start it). Re-validated live on both `v1.20.0` and `release/candidate-py312`.
 
 # Maintainer review — *Add optional remote scripting server (Tools → Remote Scripting…)*
 
