@@ -514,6 +514,8 @@ class MockLasxClient:
             jobs_list.append(
                 {
                     "Name": name,
+                    # mirrors the simulator's catalog: "AF Job" is the AF job
+                    "IsAutofocus": name == "AF Job",
                     "IsSelected": name == self._selected_job,
                     "ScanMode": job.get("scanMode", "xyz"),
                 }
