@@ -93,6 +93,33 @@ class FakeCfg:
     camera_y_pixels = 64
 
 
+class _FakeStateSingleton:
+    """Mimics ``mesoSPIM_StateSingleton``: item access only, **no** ``.get``.
+
+    The real state singleton supports ``self.state[key]`` (mutex-locked, raising
+    ``KeyError`` on a missing key), ``__setitem__``, ``__len__`` and
+    ``set_parameters`` -- but it is **not** a dict: no ``.get``, no ``.keys``, not
+    iterable. Modelling that here is what lets the offline suite catch a snippet
+    that assumes ``self.state`` is a plain dict (e.g. ``self.state.get('state')``,
+    which raises ``AttributeError`` on the real Core).
+    """
+
+    def __init__(self, initial):
+        self._d = dict(initial)
+
+    def __getitem__(self, key):
+        return self._d[key]
+
+    def __setitem__(self, key, value):
+        self._d[key] = value
+
+    def __len__(self):
+        return len(self._d)
+
+    def set_parameters(self, mapping):
+        self._d.update(mapping)
+
+
 class FakeCore:
     """Duck-typed ``mesoSPIM_Core`` with exactly the surface the scripts use."""
 
@@ -100,7 +127,7 @@ class FakeCore:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.cfg = FakeCfg()
-        self.state = {
+        self.state = _FakeStateSingleton({
             "state": "idle",
             "position": {f"{a}_pos": 0.0 for a in _AXES},
             "laser": "488 nm",
@@ -113,7 +140,7 @@ class FakeCore:
             "etl_r_amplitude": 1.0,
             "etl_r_offset": 2.0,
             "snap_image_path": None,
-        }
+        })
         self.sig_stop_movement = _FakeSignal()
         self.sig_state_request_and_wait_until_done = _FakeSignal(self._apply_state)
         self._seq = 0
@@ -121,7 +148,7 @@ class FakeCore:
     # -- Core API the scripts call ------------------------------------------
 
     def _apply_state(self, settings):
-        self.state.update(settings)
+        self.state.set_parameters(settings)
 
     def move_absolute(self, sdict, wait_until_done=False, use_internal_position=True):
         for key, val in sdict.items():
@@ -288,13 +315,45 @@ class MockMesospimServer:
             # a failed Reply, exactly like a server-side error would.
             return f"injected error for command {cmd!r}"
         buf = io.StringIO()
-        namespace = {"self": self.core}
         with redirect_stdout(buf), redirect_stderr(buf):
             try:
-                exec(script, namespace)  # noqa: S102 - this IS the bridge under test
+                _exec_like_core(self.core, script)
             except Exception:
                 traceback.print_exc()
         return buf.getvalue()
+
+
+def _exec_like_core(_core, _script):
+    """Execute an injected script the way mesoSPIM's ``Core.execute_script`` does.
+
+    Two behaviours of the real bridge are reproduced so the offline suite catches
+    bugs the live Core would hit:
+
+    1. **Method scope.** The real bridge runs ``exec(script)`` *inside a method*,
+       so ``globals() is not locals()``. Reproducing that (plain ``exec(_script)``
+       in a function frame, ``self`` a local) makes the double catch the
+       nested-scope ``NameError`` a lambda / comprehension / ``def`` in the script
+       would raise -- which ``exec(script, one_namespace)`` silently masks.
+
+    2. **The 'running_script' observer effect.** ``execute_script`` sets
+       ``state['state']='running_script'`` around the ``exec`` and forces it back
+       to ``'idle'`` afterwards. So any state read *through the bridge* sees
+       ``'running_script'``, never the true status -- which means a completion
+       check that waits for ``state=='idle'`` can never succeed. Mirroring it here
+       keeps the offline acquire/readers tests honest to that reality.
+    """
+    self = _core  # noqa: F841 - the injected script resolves ``self`` as a local
+    try:
+        _core.state["state"] = "running_script"
+    except Exception:  # noqa: BLE001 - a fake without a state singleton
+        pass
+    try:
+        exec(_script)  # noqa: S102 - deliberately method-scope, mirroring execute_script
+    finally:
+        try:
+            _core.state["state"] = "idle"
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _frame(text: str) -> bytes:

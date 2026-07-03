@@ -97,21 +97,29 @@ def wrap_script(body: str, nonce: str) -> str:
     """Wrap a command ``body`` in the emit/try-except harness.
 
     ``body`` is Python that runs in the Core context (``self`` == Core) and must
-    assign the result to a local named ``_result``. ``nonce`` must be unique per
-    call. The returned script prints exactly one delimited base64(JSON) block.
+    assign the result to a name ``_result``. ``nonce`` must be unique per call.
+    The returned script prints exactly one delimited base64(JSON) block.
+
+    Scope note (critical): mesoSPIM runs an injected script with ``exec(script)``
+    **inside** ``mesoSPIM_Core.execute_script`` -- a method, so ``globals() is not
+    locals()``. In that frame any nested function, lambda or comprehension in
+    ``body`` resolves its free names via the *module* globals, not the script's own
+    assignments, and raises ``NameError`` (e.g. a ``lambda`` that reads ``_pos``, or
+    a dict comprehension). So we do NOT inline ``body`` at that top level; we
+    ``exec`` it in a dedicated namespace dict where ``globals is locals`` (normal
+    module scoping), with ``self`` injected. The emit code stays flat at the outer
+    top level, where reading the module-local ``_z*`` imports is fine.
     """
     start, end = _markers(nonce)
-    indented = "\n".join("    " + line for line in body.splitlines()) or "    pass"
     return (
         "import json as _zjson, base64 as _zb64, traceback as _ztb\n"
-        "def _zmart_emit(_obj):\n"
-        "    _zpayload = _zb64.b64encode(_zjson.dumps(_obj).encode('utf-8')).decode('ascii')\n"
-        f"    print({start!r} + _zpayload + {end!r})\n"
+        "_zns = {'self': self}\n"
         "try:\n"
-        f"{indented}\n"
-        "    _zmart_emit({'ok': True, 'data': _result})\n"
+        f"    exec(compile({body!r}, '<zmart-cmd>', 'exec'), _zns)\n"
+        "    _zres = {'ok': True, 'data': _zns.get('_result')}\n"
         "except Exception:\n"
-        "    _zmart_emit({'ok': False, 'error': _ztb.format_exc()})\n"
+        "    _zres = {'ok': False, 'error': _ztb.format_exc()}\n"
+        f"print({start!r} + _zb64.b64encode(_zjson.dumps(_zres).encode('utf-8')).decode('ascii') + {end!r})\n"
     )
 
 

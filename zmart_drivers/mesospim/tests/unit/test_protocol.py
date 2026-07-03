@@ -14,12 +14,23 @@ import pytest
 from mesospim import protocol as p
 
 
-def _run(script: str) -> str:
-    """Exec a wrapped script the way the server does, returning captured stdout."""
+def _run(script: str, core=None) -> str:
+    """Exec a wrapped script the way the server does, returning captured stdout.
+
+    Faithful to mesoSPIM_Core.execute_script: ``exec(script)`` **inside a
+    function**, so ``globals() is not locals()`` and ``self`` is a local. Running
+    it this way (rather than ``exec(script, one_dict)``) means these tests catch a
+    harness that breaks nested scopes -- see test_body_with_nested_scope_runs.
+    """
     buf = io.StringIO()
     with redirect_stdout(buf):
-        exec(script, {})  # noqa: S102 - exercising the harness the server runs
+        _exec_like_core(core, script)
     return buf.getvalue()
+
+
+def _exec_like_core(_core, _script):
+    self = _core  # noqa: F841 - the wrapped script binds ``self`` as a local
+    exec(_script)  # noqa: S102 - method-scope exec, exactly like Core.execute_script
 
 
 # -- framing ------------------------------------------------------------------
@@ -73,6 +84,17 @@ def test_payload_with_marker_text_is_safe():
     body = "_result = {'s': '<<<ZMART-RESULT:n5|x|n5:ZMART-END>>>'}"
     reply = p.parse_result(_run(p.wrap_script(body, "n5")), "n5")
     assert reply.ok and reply.data["s"].startswith("<<<ZMART")
+
+
+def test_body_with_nested_scope_runs():
+    # mesoSPIM execs the script inside a method (globals() is not locals()), so a
+    # lambda or comprehension that closes over a script-local would raise
+    # NameError unless wrap_script runs the body in a single namespace. This body
+    # has both: a lambda over ``_mult`` and a comprehension over ``_f``. Guards the
+    # scope fix -- with the old nested-emit harness it fails, with the fix it runs.
+    body = "_mult = 10\n_f = lambda k: k * _mult\n_result = {'r': [_f(v) for v in (1, 2, 3)]}"
+    reply = p.parse_result(_run(p.wrap_script(body, "n7")), "n7")
+    assert reply.ok and reply.data == {"r": [10, 20, 30]}
 
 
 def test_malformed_payload_raises_protocol_error():

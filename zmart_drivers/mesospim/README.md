@@ -254,10 +254,12 @@ drv.close(client)
 Through the vendor-neutral controller instead (`import zmart_controller`):
 
 ```python
-import mesospim, zmart_controller
-mesospim.register({"vendor": "mesospim", "microscope": "mesospim-01",
-                   "api": "command-server", "host": "127.0.0.1", "port": 42000})
-sess = zmart_controller.set_instrument(zmart_controller.get_instruments()[0])
+import zmart_controller
+import mesospim  # importing the driver registers it (vendor=mesospim, api=remote-scripting)
+
+# Add "token": "…" if the server requires one; host/port default to 127.0.0.1:42000.
+sess = zmart_controller.set_instrument({"vendor": "mesospim", "microscope": "mesospim-01",
+                                        "api": "remote-scripting", "host": "127.0.0.1", "port": 42000})
 sess.set_origin()
 sess.set_xyz(10, 20, 5)                             # µm from origin
 sess.acquire("prescan", "A1", options={"format": "ome-tiff"})
@@ -350,20 +352,24 @@ ping(client) -> bool
 | `set_etl` | `(client, side, *, amplitude=None, offset=None)` | `side` = `"left"`/`"right"`; either/both params |
 
 ### State readers
-All take `(client, ...)`; pass `diagnostics=True` for a source-tagged `Reading`. They return a value (or `None`),
-never raise on a bad read (`is_idle` swallows errors and returns `False`).
+All take `(client, ...)`; pass `diagnostics=True` for a source-tagged `Reading`. They return a value (or `None`)
+and never raise on a bad read.
+
+> **Run-state is not observable over this transport.** Every read runs inside `Core.execute_script`, which sets
+> `state['state']='running_script'` for the read's duration — so `get_state`/`get_progress` report `state` as `None`
+> (unknown). Position, settings and progress counts are read truthfully; judge acquisition completion from the frame
+> files on disk (see `acquisition.capture`), not from `state`.
 
 | Function | Returns |
 |---|---|
 | `ping` | `bool` |
-| `is_idle` | `bool` (state == `"idle"`) |
-| `get_state` | full state dict — `state`, `position` (`{x,y,z,f,theta}`), settings (`laser`,`intensity`,`filter`,`zoom`,`shutterconfig`,`etl_*`) |
+| `get_state` | full state dict — `position` (`{x,y,z,f,theta}`), settings (`laser`,`intensity`,`filter`,`zoom`,`shutterconfig`,`etl_*`), and `state` (always `None`; see above) |
 | `get_positions` | `{x,y,z,f,theta}` (µm / deg) |
 | `get_position` | single axis value |
 | `get_xyz` | `{x,y,z}` |
 | `get_config` / `get_hardware_info` | `lasers` (`[{name,wavelength_nm}]`), `filters`, `zooms` (`[{name,pixel_size_um}]`), `axes`, `shutter_configs`, `camera` (`{pixels_x,pixels_y}`), `app`, `version` |
 | `get_lasers` / `get_filters` / `get_zooms` | the corresponding list from `get_config` |
-| `get_progress` | `state`, `current_plane`, `total_planes`, `current_acquisition`, `total_acquisitions` |
+| `get_progress` | `current_plane`, `total_planes`, `current_acquisition`, `total_acquisitions` (+ `state`, always `None`) |
 
 ### Acquisition & save
 ```python
@@ -419,7 +425,7 @@ zmart_drivers/mesospim/
 ├── acquisition/    product.py   typed results     capture.py  build/acquire/snap/run_acquisition_list
 │                   save.py      relocate the writer's frames into <output_root>/data/ + JSON sidecar
 │                   connection/scripts.py  the injected-script templates (the mesoSPIM vocabulary, client-side)
-├── controller.py   ZMART controller adapter — ops table (connect, set_xyz, acquire, get/set_state, …) + register()
+├── mesospim_zmart_adapter.py  ZMART controller adapter — ops table (connect, set_xyz, acquire, get/set_state, …); registers at import
 ├── pull_request/   the upstream mesoSPIM Remote Scripting patch (GPL) + PROTOCOL.md + demo_client.py
 └── tests/          unit/  offline vs a mock server     integration/  vs mesoSPIM -D demo     helpers/mock_mesospim_server.py
 ```

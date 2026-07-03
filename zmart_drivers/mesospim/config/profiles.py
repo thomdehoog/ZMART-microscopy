@@ -4,7 +4,7 @@ Connection, command, hardware, and acquisition profiles.
 One place for machine-sensitive tuning and the mesoSPIM hardware model, kept out
 of the command wrappers (which accept explicit overrides only for tests).
 
-- :class:`ConnectionProfile` -- host/port/timeout for the command-server socket.
+- :class:`ConnectionProfile` -- host/port/timeout for the Remote Scripting socket.
 - :class:`CommandProfile` -- per-command retry/confirm tuning (the mesoSPIM
   analog of the Leica/ZEN ``CommandProfile``, minus the vendor transport knobs).
 - :class:`HardwareProfile` -- the instrument's axes, laser lines, filters, and

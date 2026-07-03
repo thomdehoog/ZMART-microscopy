@@ -116,14 +116,20 @@ def _run_acquisition(client, acq: dict, *, label: str) -> dict:
     """Fire one ``Acquisition`` and wait for its stack, without ever blocking
     a script inside mesoSPIM's event loop.
 
-    Three injected scripts (see ``connection.scripts``): ``acquire_start``
-    fires ``self.start(row=0)`` and returns immediately; the client then polls
-    ``get_progress`` + ``stat_files`` until the run is idle AND the stack
-    exists on disk (which also covers a run that finished before the first
-    poll); ``acquire_finish`` restores the operator's acquisition list. On
-    timeout the acquisition list is still restored, and this raises with the
-    last observed progress -- a capture can never silently "succeed" without
-    its file.
+    Three injected scripts (see ``connection.scripts``): ``acquire_start`` fires
+    ``self.start(row=0)`` and returns immediately; the client then polls
+    ``stat_files`` until every expected file exists **and its size is stable**
+    across two polls (the image writer has finished flushing); ``acquire_finish``
+    restores the operator's acquisition list.
+
+    Completion is judged from the file on disk, NOT from ``state=='idle'``: every
+    read goes through ``Core.execute_script``, which reports ``'running_script'``
+    for the duration of the read, so machine state can never signal "done" over
+    this transport (see ``connection.scripts`` and ``TODO.md``). Size-stability
+    also covers a run that finished before the first poll.
+
+    On timeout the acquisition list is still restored, and this raises with the
+    last observed stat -- a capture can never silently "succeed" without its file.
 
     Returns the ``acquire_start`` reply data (files, planes, pixels).
     """
@@ -131,18 +137,28 @@ def _run_acquisition(client, acq: dict, *, label: str) -> dict:
     data = dict(start.data)
     files = [str(p) for p in data.get("files", [])]
     deadline = time.monotonic() + ACQUISITION.acquire_timeout_s
-    progress: dict = {}
+    prev_sizes: dict | None = None
+    stat: dict = {}
     try:
+        if not files:
+            # No filename was given, so there is nothing on disk to verify --
+            # don't poll to the deadline. Return and let the caller raise the
+            # "no frame files" error immediately.
+            return data
         while True:
-            progress = dict(client.request("get_progress").data)
-            if progress.get("state") in ("idle", None):
-                stat = client.request("stat_files", files=files)
-                if not stat.data.get("missing"):
-                    return data
+            stat = dict(client.request("stat_files", files=files).data)
+            sizes = stat.get("sizes", {})
+            missing = stat.get("missing", list(files))
+            # Done when every expected file is present and unchanged since the
+            # last poll (writer flushed). ``files`` must be non-empty: a capture
+            # with no filename can never be verified and must time out, not pass.
+            if files and not missing and sizes == prev_sizes:
+                return data
+            prev_sizes = sizes
             if time.monotonic() > deadline:
                 raise RuntimeError(
-                    f"acquire({label!r}) did not produce its stack within "
-                    f"{ACQUISITION.acquire_timeout_s:.0f}s; last progress: {progress!r}"
+                    f"acquire({label!r}) did not produce a stable stack within "
+                    f"{ACQUISITION.acquire_timeout_s:.0f}s; last stat: {stat!r}"
                 )
             time.sleep(ACQUISITION.acquire_poll_s)
     finally:

@@ -176,18 +176,19 @@ def test_acquire_restores_operator_acq_list(client, server):
 
 
 def test_acquire_timeout_raises_and_restores(client, server, monkeypatch):
-    # A run that never returns to idle (and never writes its stack) must FAIL
-    # loudly at the acquisition deadline -- never report success with paths to
-    # files that do not exist -- and must still hand the operator's acquisition
-    # list back.
+    # A run that never writes its stack must FAIL loudly at the acquisition
+    # deadline -- never report success with paths to files that do not exist --
+    # and must still hand the operator's acquisition list back. Completion is
+    # judged from the file on disk (state is unusable over the bridge -- it always
+    # reads 'running_script'), so "never finishes" here means "never writes".
     from dataclasses import replace
 
     from mesospim.acquisition import capture
 
-    def never_finishes(row=0):
-        server.core.state["state"] = "running"
+    def never_writes(row=0):
+        pass  # fire the run but never produce the stack file
 
-    monkeypatch.setattr(server.core, "start", never_finishes)
+    monkeypatch.setattr(server.core, "start", never_writes)
     monkeypatch.setattr(
         capture,
         "ACQUISITION",
@@ -195,7 +196,7 @@ def test_acquire_timeout_raises_and_restores(client, server, monkeypatch):
     )
     sentinel = ["operator-list"]
     server.core.state["acq_list"] = sentinel
-    with pytest.raises(RuntimeError, match="did not produce its stack"):
+    with pytest.raises(RuntimeError, match="did not produce a stable stack"):
         acq.acquire(client, "snap")
     assert server.core.state["acq_list"] is sentinel
 

@@ -37,7 +37,7 @@ def session(server, tmp_path):
     connection = {
         "vendor": "mesospim",
         "microscope": "mesospim-test",
-        "api": "command-server",
+        "api": "remote-scripting",
         "host": server.host,
         "port": server.port,
         "output_root": str(tmp_path / "run"),
@@ -57,7 +57,7 @@ def test_context_identity(session):
     assert session.context == {
         "vendor": "mesospim",
         "microscope": "mesospim-test",
-        "api": "command-server",
+        "api": "remote-scripting",
     }
 
 
@@ -105,7 +105,7 @@ def test_observed_is_a_report_never_an_instruction(session):
 def test_acquire_stack_z_bounds_use_origin(session, monkeypatch):
     # z_start/z_end are given in the user frame; with a non-zero origin they must
     # be mapped to raw stage coordinates before the capture.
-    import mesospim.controller as ctl
+    import mesospim.mesospim_zmart_adapter as ctl
 
     captured = {}
     real = ctl._acq.acquire
@@ -205,7 +205,7 @@ def _connection(server, tmp_path):
     return {
         "vendor": "mesospim",
         "microscope": "mesospim-test",
-        "api": "command-server",
+        "api": "remote-scripting",
         "host": server.host,
         "port": server.port,
         "output_root": str(tmp_path / "run"),
@@ -215,7 +215,7 @@ def _connection(server, tmp_path):
 
 def test_bundled_function_limits_cover_every_mutating_op():
     """THE completeness guard: adding a mutating op without a limits entry fails here."""
-    from mesospim import controller
+    from mesospim import mesospim_zmart_adapter as controller
     from mesospim.calibration import machine
 
     from shared import limits as shared_limits

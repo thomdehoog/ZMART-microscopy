@@ -17,7 +17,9 @@ def test_ping_false_after_close(client):
 
 def test_get_state_has_position_and_settings(client):
     state = readers.get_state(client)
-    assert state["state"] == "idle"
+    # Run-state is not observable over the bridge (every read runs inside
+    # execute_script, which reports 'running_script'), so it is reported as None.
+    assert state["state"] is None
     assert set(state["position"]) == {"x", "y", "z", "f", "theta"}
     assert state["laser"] == "488 nm"
 
@@ -46,11 +48,10 @@ def test_get_config_lists(client):
 
 def test_get_progress(client):
     prog = readers.get_progress(client)
-    assert "state" in prog
-
-
-def test_is_idle(client):
-    assert readers.is_idle(client) is True
+    # Progress counts are read truthfully; the run-state field is unobservable
+    # over the bridge and is reported as None (see get_state).
+    assert "current_plane" in prog
+    assert prog["state"] is None
 
 
 def test_diagnostics_returns_reading(client):

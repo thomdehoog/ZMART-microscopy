@@ -1,4 +1,4 @@
-From a5f6acac19cb0020e410ce681c62ee3eaff07aae Mon Sep 17 00:00:00 2001
+From 43fb9761a1647ef2568eefab4744aac417c12e2d Mon Sep 17 00:00:00 2001
 From: Thom de Hoog <thomdehoog@gmail.com>
 Date: Thu, 2 Jul 2026 19:10:17 +0200
 Subject: [PATCH] Add optional remote scripting server (Tools -> Remote
@@ -13,7 +13,9 @@ Python API. Text in, console text out -- no command vocabulary, no data format.
 - mesoSPIM_RemoteScripting.py (new): a signal-driven QTcpServer that, for each
   received script, runs the EXISTING Core.execute_script with stdout/stderr
   captured and returns the captured console text. Length-framed UTF-8. Optional
-  shared token (first frame; constant-time compare) gates access.
+  shared token (first frame; constant-time compare) gates access. A dropped or
+  crashed client never propagates a Qt error into mesoSPIM (disconnect teardown
+  is guarded against an already-reclaimed socket).
 - mesoSPIM_Core: start_remote_scripting(host, port, token) / stop slots, invoked
   via a queued connection so the server lives on the Core's thread (where
   execute_script runs).
@@ -21,29 +23,30 @@ Python API. Text in, console text out -- no command vocabulary, no data format.
   code, no .ui change) with a Start/Stop dialog (host/port/token + generator);
   stops the server on app close.
 
-OFF BY DEFAULT. A script is arbitrary code on the acquisition PC, so the dialog
-defaults to 127.0.0.1 and warns before binding to the network without a token.
-Plain TCP (the token gates casual LAN access, it is not sniffer-proof).
+OFF BY DEFAULT, and secure-by-default when started: the dialog binds to
+127.0.0.1 and pre-fills a freshly generated token, and warns before binding to
+the network with no token. Plain TCP (the token gates casual LAN access, it is
+not sniffer-proof).
 
 Validated against -D demo mode: started from the GUI signal path, a client
 authenticates, reads state, drives the demo stage (self.move_absolute), gets
 structured output via print(json), and sees a raising script's traceback as text
 (no crash). No change to existing behavior -- execute_script is reused unmodified.
 ---
- mesoSPIM/src/mesoSPIM_Core.py            |  37 +++++
- mesoSPIM/src/mesoSPIM_MainWindow.py      | 122 ++++++++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 250 +++++++++++++++++++++++++++++++++
- 3 files changed, 409 insertions(+)
+ mesoSPIM/src/mesoSPIM_Core.py            |  37 ++++
+ mesoSPIM/src/mesoSPIM_MainWindow.py      | 125 +++++++++++
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 259 +++++++++++++++++++++++
+ 3 files changed, 421 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
-index f8495c7..896730c 100644
+index f8495c7..e2ffe61 100644
 --- a/mesoSPIM/src/mesoSPIM_Core.py
 +++ b/mesoSPIM/src/mesoSPIM_Core.py
 @@ -921,6 +921,43 @@ class mesoSPIM_Core(QtCore.QObject):
          self.state['state']='idle'
          self.sig_update_gui_from_state.emit()
-
+ 
 +    # Reports the outcome of a start_remote_scripting attempt back to the GUI
 +    # (ok, message) so the dialog never shows a false "running" on a bind failure.
 +    sig_remote_scripting_started = QtCore.pyqtSignal(bool, str)
@@ -85,7 +88,7 @@ index f8495c7..896730c 100644
          '''Switches shutters after each image to allow coalignment of both lightsheets'''
          self.stopflag = False
 diff --git a/mesoSPIM/src/mesoSPIM_MainWindow.py b/mesoSPIM/src/mesoSPIM_MainWindow.py
-index 186d97d..8f1e124 100644
+index 186d97d..0afaa0e 100644
 --- a/mesoSPIM/src/mesoSPIM_MainWindow.py
 +++ b/mesoSPIM/src/mesoSPIM_MainWindow.py
 @@ -74,6 +74,10 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
@@ -106,10 +109,10 @@ index 186d97d..8f1e124 100644
 +        self.sig_start_remote_scripting.connect(self.core.start_remote_scripting, type=QtCore.Qt.QueuedConnection)
 +        self.sig_stop_remote_scripting.connect(self.core.stop_remote_scripting, type=QtCore.Qt.QueuedConnection)
 +        self.core.sig_remote_scripting_started.connect(self.on_remote_scripting_started)
-
+ 
          ''' Start the thread '''
          self.core_thread.start(QtCore.QThread.HighestPriority)
-@@ -246,6 +252,9 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -246,6 +253,9 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
      def close_app(self):
          #self.log_display_handler.flushOnClose = False #discontinued
          logger.info('Closing the application')
@@ -119,7 +122,7 @@ index 186d97d..8f1e124 100644
          self.camera_window.close()
          self.acquisition_manager_window.close()
          if self.optimizer:
-@@ -380,6 +389,23 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -380,6 +390,23 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
          self.actionOpen_Acquisition_Manager.triggered.connect(self.acquisition_manager_window.show)
          self.actionOpen_Tile_Overview.triggered.connect(self.tile_view_window.show)
          self.actionCascade_windows.triggered.connect(self.cascade_all_windows)
@@ -140,13 +143,13 @@ index 186d97d..8f1e124 100644
 +        self.actionRemoteScripting.setStatusTip('Start/stop the external Python scripting server')
 +        self.actionRemoteScripting.triggered.connect(self.open_remote_scripting_dialog)
 +        self.menuTools.addAction(self.actionRemoteScripting)
-
+ 
      def initialize_and_connect_widgets(self):
          """ Connecting the menu actions """
-@@ -895,6 +913,101 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -895,6 +922,104 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
      def display_warning(self, string):
          warning = QtWidgets.QMessageBox.warning(None,'mesoSPIM Warning', string, QtWidgets.QMessageBox.Ok)
-
+ 
 +    def on_remote_scripting_started(self, ok, message):
 +        '''Result of a start attempt from the Core (queued): update state + dialog.
 +
@@ -179,7 +182,10 @@ index 186d97d..8f1e124 100644
 +        form.addRow(warn)
 +        host_edit = QtWidgets.QLineEdit(getattr(self, '_rs_host', '127.0.0.1'))
 +        port_edit = QtWidgets.QLineEdit(str(getattr(self, '_rs_port', 42000)))
-+        token_edit = QtWidgets.QLineEdit(getattr(self, '_rs_token', ''))
++        # Secure by default: pre-fill a fresh random token so starting the server
++        # is never accidentally open. The operator can clear it to run open on
++        # localhost (a network bind with no token is still confirmed in do_start).
++        token_edit = QtWidgets.QLineEdit(getattr(self, '_rs_token', '') or secrets.token_urlsafe(16))
 +        token_edit.setPlaceholderText('blank = open (localhost only)')
 +        gen_btn = QtWidgets.QPushButton('Generate')
 +        gen_btn.clicked.connect(lambda: token_edit.setText(secrets.token_urlsafe(16)))
@@ -247,10 +253,10 @@ index 186d97d..8f1e124 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteScripting.py b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 new file mode 100644
-index 0000000..904505c
+index 0000000..ba6998d
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,259 @@
 +"""
 +mesoSPIM remote scripting server.
 +=================================
@@ -427,19 +433,28 @@ index 0000000..904505c
 +        conn.disconnected.connect(lambda c=conn: self._on_disconnected(c))
 +
 +    def _on_disconnected(self, conn):
-+        conn.deleteLater()
 +        if conn is self._conn:
 +            self._conn = None
++        # Qt may already have reclaimed the C++ socket by the time the queued
++        # ``disconnected`` fires; calling deleteLater() on it then raises
++        # RuntimeError. A client dropping MUST NOT crash mesoSPIM, so guard it.
++        try:
++            conn.deleteLater()
++        except RuntimeError:
++            pass
 +
 +    def _drop_client(self, conn):
-+        try:
-+            conn.disconnected.disconnect()
-+        except TypeError:
-+            pass  # no slots were connected
-+        conn.disconnectFromHost()
-+        conn.deleteLater()
 +        if conn is self._conn:
 +            self._conn = None
++        try:
++            conn.disconnected.disconnect()
++        except (TypeError, RuntimeError):
++            pass  # no slots were connected, or the socket is already gone
++        try:
++            conn.disconnectFromHost()
++            conn.deleteLater()
++        except RuntimeError:
++            pass  # already reclaimed by Qt
 +
 +    # -- framing / dispatch --------------------------------------------------
 +

@@ -83,7 +83,7 @@ from .connection.client import MesospimClient, MesospimError
 from .connection.session import close, connect
 
 # --- controller integration ---
-from .controller import register
+from .mesospim_zmart_adapter import register
 
 # --- motion: stage limits (movement wrappers come in via .commands above) ---
 from .motion import (
@@ -111,7 +111,6 @@ from .readers import (
     get_state,
     get_xyz,
     get_zooms,
-    is_idle,
     ping,
 )
 
@@ -130,7 +129,6 @@ __all__ = [
     # readers
     "Reading",
     "ping",
-    "is_idle",
     "get_state",
     "get_positions",
     "get_position",

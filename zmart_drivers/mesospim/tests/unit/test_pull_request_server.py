@@ -126,3 +126,41 @@ def test_non_ascii_token_works(rs):
 
 def test_empty_token_is_treated_as_no_token(rs):
     assert rs.AuthGate("").passed
+
+
+# -- robustness: a dropped client must never crash mesoSPIM -------------------
+
+
+class _ReclaimedSocket:
+    """A QTcpSocket whose C++ object Qt has already deleted: every call raises
+    ``RuntimeError`` ("wrapped C/C++ object ... has been deleted"), like the real
+    thing does after Qt reclaims it."""
+
+    class _Signal:
+        def disconnect(self):
+            raise RuntimeError("wrapped C/C++ object of type QTcpSocket has been deleted")
+
+    disconnected = _Signal()
+
+    def deleteLater(self):
+        raise RuntimeError("wrapped C/C++ object of type QTcpSocket has been deleted")
+
+    def disconnectFromHost(self):
+        raise RuntimeError("wrapped C/C++ object of type QTcpSocket has been deleted")
+
+
+def test_disconnect_of_reclaimed_socket_never_raises(rs):
+    # The bug this guards: _on_disconnected/_drop_client called deleteLater() on a
+    # socket Qt had already reclaimed, raising RuntimeError that propagated out and
+    # crashed the whole mesoSPIM app. A dropped/crashed client must never do that.
+    # Build the server via __new__ so no Qt event loop / socket is needed.
+    server = rs.RemoteScriptingServer.__new__(rs.RemoteScriptingServer)
+    dead = _ReclaimedSocket()
+
+    server._conn = dead
+    server._on_disconnected(dead)  # must not raise
+    assert server._conn is None
+
+    server._conn = dead
+    server._drop_client(dead)  # must not raise
+    assert server._conn is None
