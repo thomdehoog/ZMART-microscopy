@@ -1,0 +1,3 @@
+# The upstream PR patch must keep LF line endings so `git am`/`git apply` accepts
+# it verbatim on every platform -- CRLF in a patch corrupts its context lines.
+pull_request/*.patch -text

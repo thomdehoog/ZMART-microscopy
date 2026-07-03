@@ -12,7 +12,6 @@ from .readers import (
     get_state,
     get_xyz,
     get_zooms,
-    is_idle,
     ping,
 )
 
@@ -28,6 +27,5 @@ __all__ = [
     "get_state",
     "get_xyz",
     "get_zooms",
-    "is_idle",
     "ping",
 ]

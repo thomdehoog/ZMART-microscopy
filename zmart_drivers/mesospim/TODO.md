@@ -15,24 +15,43 @@ Core-shaped fake, so framing/harness/vocabulary are exercised for real offline.
 > superseded) for that history and why the design moved here.
 >
 > The Core-API findings below (config/state/move/`start(row=…)`/image-writer path)
-> were verified against a live v1.20.0 Core and still hold — they now live in the
-> injected scripts (`connection/scripts.py`). What is **not** yet re-run is the
-> live round-trip on this **new** transport (§1); that plus **real-hardware**
-> validation are the open blockers.
+> were verified against a live v1.20.0 Core and now live in the injected scripts
+> (`connection/scripts.py`). **The live round-trip on this new transport is now
+> DONE** (§1): 11/11 `-m integration` tests (driver + adapter, incl. a real
+> `acquire`) against the `-D` demo with the PR applied. **Real-hardware**
+> validation remains the one open blocker.
 
 Legend: 🔴 blocker for live use · 🟠 needed for a real run · 🟢 polish / nice-to-have.
 
 ---
 
-## 1. Bench validation against mesoSPIM `-D` demo mode 🔴
+## 1. Bench validation against mesoSPIM `-D` demo mode — DONE ✅
 
-The one thing that cannot be done in CI (needs the GPL app + a display). Two parts:
-**(a)** apply the Remote Scripting patch (`pull_request/`) and start it (Tools →
-Remote Scripting), then **(b)** re-run the `-m integration` round-trip on the new
-injected-script transport. The Core-name checklist below was confirmed on the old
-transport and carried into `connection/scripts.py`; re-confirm it end-to-end here.
-(The items marked done were validated against a live Core previously; the ☐ ones
-are the new-transport re-run.)
+Validated end-to-end on the Remote Scripting transport: PR applied to a v1.20.0
+`-D` demo, server started with a token (via `tests/hardware/launch_demo_server.py`),
+**11/11 `-m integration` tests green** — the driver round-trip
+(`test_live_roundtrip`) *and* the adapter through `zmart_controller.Session`
+(`test_live_adapter`), both including a real `acquire` that wrote a file. Three
+live-only bugs the offline mock had hidden were found and fixed, and the mock was
+made faithful so they stay caught:
+
+- injected scripts used nested scopes (a `lambda` / comprehension) that `NameError`
+  under mesoSPIM's `exec(script)`-inside-a-method — `wrap_script` now runs the body
+  in a single namespace (`globals is locals`);
+- `self.state.get(...)` — the state singleton has **no** `.get`; state is now read
+  through a `_sget` helper (mutexed `__getitem__` + default);
+- the acquire poll waited for `state=='idle'`, but every read through the bridge
+  reports `'running_script'` (mesoSPIM's `execute_script` sets it around the exec) —
+  completion is now judged from the frame file's size stabilising, and
+  `get_state`/`get_progress` honestly report run-state as `None` (unobservable here).
+
+Also hardened the PR server (a dropped/crashed client no longer crashes mesoSPIM —
+guarded the disconnect teardown) and made it secure-by-default (the dialog pre-fills
+a fresh token). See [`LIVE_BENCH_VALIDATION.md`](LIVE_BENCH_VALIDATION.md).
+
+The Core-name checklist below was confirmed against the v1.20.0 source and now lives
+in `connection/scripts.py` (all isolated there); re-confirm on your installed
+version if it differs.
 
 **Environment (how/where to run this).** mesoSPIM-control is a pure-Python PyQt5
 app but is effectively **Windows-only** (docs: Windows ≥7 64-bit; Python ≥3.12).

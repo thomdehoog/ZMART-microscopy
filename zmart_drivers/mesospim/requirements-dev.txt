@@ -1,8 +1,8 @@
 # Dev / test dependencies for the mesoSPIM ZMART driver.
 #
-# The MIT client itself (connection/, commands/, readers/, controller.py) has NO
-# heavy dependencies -- it is pure standard-library sockets + JSON. Everything
-# below is only for running the test suite.
+# The MIT client itself (connection/, commands/, motion/, readers/,
+# mesospim_zmart_adapter.py) has NO heavy dependencies -- it is pure
+# standard-library sockets + JSON. Everything below is only for the test suite.
 #
 #   pip install -r zmart_drivers/mesospim/requirements-dev.txt
 

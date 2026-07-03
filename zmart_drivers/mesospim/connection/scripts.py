@@ -8,17 +8,29 @@ the state" means in terms of the live ``mesoSPIM_Core`` API -- lives here, on th
 learns no ZMART concepts; it just runs the snippet with ``self`` == Core.
 
 Each template is Python that runs in the Core context and assigns its result to a
-local ``_result`` (a JSON-serialisable dict). :func:`build_script` decodes the
-call's arguments from an embedded JSON literal into ``_a``, then wraps the body
-in the emit/try-except harness (see :func:`mesospim.protocol.wrap_script`) so the
-result comes back as a nonce-delimited base64(JSON) block.
+name ``_result`` (a JSON-serialisable dict). :func:`build_script` embeds the
+call's arguments as a Python literal ``_a``, prepends a small ``_sget`` prelude
+(a singleton-safe state reader -- see below), then wraps the body in the
+emit/try-except harness (:func:`mesospim.protocol.wrap_script`) so the result
+comes back as a nonce-delimited base64(JSON) block.
 
-These snippets touch the real mesoSPIM Core surface (``self.move_absolute``,
+Two mesoSPIM realities the snippets must respect (both verified against
+mesoSPIM-control v1.20.0, and both invisible to a naive dict-based mock):
+
+* ``self.state`` is a ``mesoSPIM_StateSingleton``, **not** a ``dict``. It supports
+  ``self.state[key]`` (raising ``KeyError`` on a missing key) but has **no**
+  ``.get``, ``.keys`` or iteration. So state is read through ``_sget(key, default)``
+  which wraps the mutexed item access. (``position`` itself is a plain dict, so
+  ``.get`` on *it* is fine.)
+* mesoSPIM runs the script via ``exec(script)`` inside a *method*, so nested
+  scopes need the single-namespace exec that :func:`wrap_script` provides.
+
+These snippets touch the real Core surface (``self.move_absolute``,
 ``self.state['position']['x_pos']``, ``self.cfg.laserdict``,
-``self.sig_state_request_and_wait_until_done``, ``self.start``), verified
-against mesoSPIM-control v1.20.0. The acquisition entry point
-(``self.start(row=0)`` + the image-writer's folder/filename path) is the one
-**site-specific** hook to confirm on the bench (documented in ``TODO.md``).
+``self.sig_state_request_and_wait_until_done``, ``self.start``), verified against
+mesoSPIM-control v1.20.0. The acquisition entry point (``self.start(row=0)`` + the
+image-writer's folder/filename path) is the one **site-specific** hook to confirm
+on the bench (documented in ``TODO.md``).
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -27,9 +39,18 @@ License: MIT
 
 from __future__ import annotations
 
-import json
-
 from ..protocol import wrap_script
+
+# Prepended to every body: a singleton-safe state reader. ``self.state`` is a
+# mesoSPIM_StateSingleton (item access + KeyError, no ``.get``), so this is how a
+# snippet reads an optional state key without assuming a dict.
+_PRELUDE = (
+    "def _sget(_k, _d=None):\n"
+    "    try:\n"
+    "        return self.state[_k]\n"
+    "    except (KeyError, TypeError):\n"
+    "        return _d\n"
+)
 
 # Each entry is Python that reads its args from ``_a`` and sets ``_result``.
 _TEMPLATES: dict[str, str] = {
@@ -37,32 +58,31 @@ _TEMPLATES: dict[str, str] = {
     "hello": """
 _cfg = getattr(self, 'cfg', None)
 _result = {'app': 'mesoSPIM-control', 'version': getattr(_cfg, 'version', None),
-           'protocol': 1, 'state': (self.state or {}).get('state')}
+           'protocol': 1, 'state': _sget('state')}
 """,
     "ping": """
-_result = {'pong': True, 'state': (self.state or {}).get('state')}
+_result = {'pong': True, 'state': _sget('state')}
 """,
     # -- reads ---------------------------------------------------------------
     "get_state": """
-_st = self.state or {}
-_pos = _st.get('position', {}) or {}
+_pos = _sget('position', {}) or {}
 _axis = lambda a: _pos.get(a, _pos.get(a + '_pos'))
 _result = {
-    'state': _st.get('state'),
+    'state': _sget('state'),
     'position': {a: _axis(a) for a in ('x', 'y', 'z', 'f', 'theta')},
-    'laser': _st.get('laser'),
-    'intensity': _st.get('intensity'),
-    'filter': _st.get('filter'),
-    'zoom': _st.get('zoom'),
-    'shutterconfig': _st.get('shutterconfig'),
-    'etl_l_amplitude': _st.get('etl_l_amplitude'),
-    'etl_l_offset': _st.get('etl_l_offset'),
-    'etl_r_amplitude': _st.get('etl_r_amplitude'),
-    'etl_r_offset': _st.get('etl_r_offset'),
+    'laser': _sget('laser'),
+    'intensity': _sget('intensity'),
+    'filter': _sget('filter'),
+    'zoom': _sget('zoom'),
+    'shutterconfig': _sget('shutterconfig'),
+    'etl_l_amplitude': _sget('etl_l_amplitude'),
+    'etl_l_offset': _sget('etl_l_offset'),
+    'etl_r_amplitude': _sget('etl_r_amplitude'),
+    'etl_r_offset': _sget('etl_r_offset'),
 }
 """,
     "get_position": """
-_pos = (self.state or {}).get('position', {}) or {}
+_pos = _sget('position', {}) or {}
 _result = {a: _pos.get(a, _pos.get(a + '_pos')) for a in ('x', 'y', 'z', 'f', 'theta')}
 """,
     "get_config": """
@@ -93,24 +113,23 @@ _result = {
 }
 """,
     "get_progress": """
-_st = self.state or {}
-_result = {'state': _st.get('state'),
-           'current_plane': _st.get('current_framenumber'),
-           'total_planes': _st.get('snap_count'),
-           'current_acquisition': _st.get('current_acquisition'),
-           'total_acquisitions': _st.get('total_acquisitions')}
+_result = {'state': _sget('state'),
+           'current_plane': _sget('current_framenumber'),
+           'total_planes': _sget('snap_count'),
+           'current_acquisition': _sget('current_acquisition'),
+           'total_acquisitions': _sget('total_acquisitions')}
 """,
     # -- movement ------------------------------------------------------------
     "move_absolute": """
 _sdict = {a + '_abs': float(v) for a, v in _a['targets'].items()}
 self.move_absolute(_sdict, wait_until_done=True)
-_pos = (self.state or {}).get('position', {}) or {}
+_pos = _sget('position', {}) or {}
 _result = {'position': {a: _pos.get(a, _pos.get(a + '_pos')) for a in ('x', 'y', 'z', 'f', 'theta')}}
 """,
     "move_relative": """
 _ddict = {a + '_rel': float(v) for a, v in _a['deltas'].items()}
 self.move_relative(_ddict, wait_until_done=True)
-_pos = (self.state or {}).get('position', {}) or {}
+_pos = _sget('position', {}) or {}
 _result = {'position': {a: _pos.get(a, _pos.get(a + '_pos')) for a in ('x', 'y', 'z', 'f', 'theta')}}
 """,
     "zero": """
@@ -136,8 +155,12 @@ _result = {'applied': _settings}
     #                   ONE multi-page stack at the Acquisition's folder/filename),
     #                   then return immediately.
     #   stat_files      cheap idempotent poll helper: which files exist, how big.
-    #                   The client polls this + ``get_progress`` until the run is
-    #                   idle and the stack exists (see ``acquisition.capture``).
+    #                   The client polls this until the stack exists and its size
+    #                   stops growing (see ``acquisition.capture``). NOTE: it does
+    #                   NOT poll state=='idle' -- reading state through the bridge
+    #                   always sees 'running_script' (mesoSPIM_Core.execute_script
+    #                   sets it around every exec), so file growth is the honest
+    #                   completion signal.
     #   acquire_finish  restore the operator's acq_list and report the outcome.
     #
     # The operator's acq_list is stashed on the Core OBJECT between the start and
@@ -191,7 +214,7 @@ try:
     del self._zmart_prev_acq_list
 except AttributeError:
     pass
-_result = {'state': (self.state or {}).get('state')}
+_result = {'state': _sget('state')}
 """,
     # -- named procedures ----------------------------------------------------
     # No generic server-side procedure exists. Fail (the harness turns this into
@@ -211,11 +234,13 @@ def known_commands() -> tuple[str, ...]:
 def build_script(cmd: str, args: dict, nonce: str) -> str:
     """Build the full injected script for ``cmd`` with ``args`` and ``nonce``.
 
-    Raises ``KeyError`` for an unknown command. The leading ``# zmart-cmd``
-    comment is inert Python that lets a server log (or a test double) see which
-    command a script implements without parsing it.
+    Raises ``KeyError`` for an unknown command. Arguments are embedded as a Python
+    literal (``_a``) rather than parsed from JSON in-script, so the body needs no
+    imports of its own. The leading ``# zmart-cmd`` comment is inert Python that
+    lets a server log (or a test double) see which command a script implements
+    without parsing it.
     """
     if cmd not in _TEMPLATES:
         raise KeyError(f"no injected-script template for command {cmd!r}")
-    body = f"_a = _zjson.loads({json.dumps(args)!r})\n" + _TEMPLATES[cmd].strip("\n")
+    body = f"_a = {args!r}\n" + _PRELUDE + _TEMPLATES[cmd].strip("\n")
     return f"# zmart-cmd: {cmd}\n" + wrap_script(body, nonce)

@@ -1,5 +1,32 @@
 # mesoSPIM driver — live bench validation against the real software
 
+## Current: Remote Scripting transport (2026-07-03) ✅
+
+Validated the shipping driver + adapter + the `pull_request/` Remote Scripting PR
+end to end against the real **mesoSPIM-control v1.20.0** in `-D` demo mode (all Demo
+backends, offscreen Qt on Windows). The PR patch was applied to a clean v1.20.0
+checkout (`git am`), the server started with a token via
+`tests/hardware/launch_demo_server.py`, and both `-m integration` suites run green:
+
+- **`test_live_roundtrip` (driver)** — 5/5: handshake/protocol, `get_config`
+  (laser/filter/zoom/camera bindings), `get_state`, `move_absolute`+confirm, and
+  `acquire` (real demo snap → file written and resolved).
+- **`test_live_adapter` (through `zmart_controller.Session`)** — 6/6: registered
+  instrument, context/actuators, `get_xyz`/`get_state` shape, acquisition options,
+  `set_xyz`+confirm, and `acquire` through the Session (wrote `snap_A1.tiff` + JSON).
+
+Three live-only bugs the offline mock had masked were found here and fixed (see
+`TODO.md §1`): the injected-script nested-scope `NameError` (fixed by a
+single-namespace `exec` in `wrap_script`), `self.state.get` on the no-`.get`
+singleton (fixed with a `_sget` helper), and the acquire idle-poll defeated by the
+`running_script` observer effect (fixed with file-size-stable completion). The PR
+server was hardened (a dropped client no longer crashes mesoSPIM) and made
+secure-by-default (token pre-filled). The offline mock now reproduces method-scope
+`exec`, the singleton and the observer effect, so all three stay caught in CI
+(offline suite 130 green).
+
+---
+
 > **⚠ SUPERSEDED (transport changed).** This document records the bench validation of the earlier
 > **bespoke command-server** transport (a ZMART-specific JSON command server loaded into the Core via a
 > Script-Window loader). That transport has since been **retired**: the driver now rides mesoSPIM's generic

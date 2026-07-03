@@ -71,6 +71,18 @@ def _wrap(value: Any, diagnostics: bool):
     return Reading.now(value) if diagnostics else value
 
 
+# Over the Remote Scripting transport every read runs inside
+# ``mesoSPIM_Core.execute_script``, which sets ``state['state']='running_script'``
+# for the read's duration -- so the machine run-state is NOT observable here; it
+# always reads ``'running_script'``. Report it as ``None`` ("unknown") rather than
+# a misleading value. Position, settings and progress counts ARE read truthfully.
+_UNOBSERVABLE_RUN_STATE = "running_script"
+
+
+def _run_state(raw: Any) -> Any:
+    return None if raw == _UNOBSERVABLE_RUN_STATE else raw
+
+
 # -- connection health --------------------------------------------------------
 
 
@@ -89,12 +101,17 @@ def ping(client) -> bool:
 def get_state(client, *, diagnostics: bool = False) -> Reading | dict:
     """Read the full instrument state dict.
 
-    Keys include ``state`` (mesoSPIM state string: idle/live/snap/...),
-    ``position`` (``{x,y,z,f,theta}``), and the current settings
-    (``filter``, ``zoom``, ``laser``, ``intensity``, ``shutterconfig``,
-    the ``etl_*`` block, ...).
+    Keys: ``position`` (``{x,y,z,f,theta}``) and the current settings
+    (``filter``, ``zoom``, ``laser``, ``intensity``, ``shutterconfig``, the
+    ``etl_*`` block, ...), plus ``state``.
+
+    NOTE -- ``state`` (the mesoSPIM run-state string) is **not observable** over
+    this transport: every read runs inside ``Core.execute_script``, which reports
+    ``'running_script'`` for the read's duration, so ``state`` is returned as
+    ``None`` (unknown). Position and settings are read truthfully.
     """
     data = dict(client.request("get_state").data)
+    data["state"] = _run_state(data.get("state"))
     return _wrap(data, diagnostics)
 
 
@@ -160,17 +177,12 @@ def get_zooms(client) -> list[dict]:
 def get_progress(client, *, diagnostics: bool = False) -> Reading | dict:
     """Read acquisition progress.
 
-    Keys: ``state`` (idle/running_acquisition_list/...), ``current_plane``,
-    ``total_planes``, ``current_acquisition``, ``total_acquisitions``.
+    Keys: ``current_plane``, ``total_planes``, ``current_acquisition``,
+    ``total_acquisitions``, and ``state`` -- which is ``None`` over this transport
+    (the run-state is not observable; see :func:`get_state`). Judge acquisition
+    completion from the frame files on disk, not ``state`` (see
+    ``acquisition.capture``).
     """
     data = dict(client.request("get_progress").data)
+    data["state"] = _run_state(data.get("state"))
     return _wrap(data, diagnostics)
-
-
-def is_idle(client) -> bool:
-    """True when the instrument reports the ``idle`` state."""
-    try:
-        return get_state(client).get("state") == "idle"
-    except Exception:  # noqa: BLE001
-        log.debug("is_idle read failed", exc_info=True)
-        return False

@@ -18,9 +18,13 @@ The controller surface is deliberately x/y/z centric. mesoSPIM's extra axes
 state**. The full driver API (``import mesospim``) remains available for anything
 the neutral surface does not cover.
 
-Register at import: ``from mesospim import controller`` runs :func:`register`
-via the package ``__init__``, so ``zmart_controller.get_instruments()`` lists the
-mesoSPIM entry.
+Register at import: importing this module (which ``import mesospim`` does via the
+package ``__init__``) runs :func:`register` at the bottom of the file, so
+``zmart_controller.get_instruments()`` lists the mesoSPIM entry with no explicit
+call -- exactly like the Leica adapter. ``register(connection)`` may be re-called
+to override the identity/params (a specific ``microscope`` name, ``host``/``port``,
+``output_root``); it is idempotent and a safe no-op if ``zmart_controller`` is
+not installed.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -572,7 +576,7 @@ def _settle(handle: MesospimHandle, overshoot_um: float = 5.0) -> None:
 CONNECTION = {
     "vendor": "mesospim",
     "microscope": "mesospim-01",
-    "api": "command-server",
+    "api": "remote-scripting",
     "host": "127.0.0.1",
     "port": 42000,
 }
@@ -620,3 +624,10 @@ def register(connection: dict | None = None) -> None:
         log.debug("zmart_controller not importable; skipping registration", exc_info=True)
         return
     _register(connection or dict(CONNECTION), ops=dict(OPS))
+
+
+# Import-time registration IS the opt-in: importing this module (which the package
+# ``__init__`` does) makes the mesoSPIM instrument available to zmart_controller
+# with no explicit call, exactly like the Leica adapter. No-op if the controller
+# is not installed.
+register()

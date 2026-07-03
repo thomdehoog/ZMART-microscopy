@@ -49,4 +49,4 @@ def test_register_is_safe_without_controller(monkeypatch):
         return real_import(name, *a, **k)
 
     monkeypatch.setattr(builtins, "__import__", block)
-    mesospim.register({"vendor": "mesospim", "microscope": "x", "api": "command-server"})
+    mesospim.register({"vendor": "mesospim", "microscope": "x", "api": "remote-scripting"})
