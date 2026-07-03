@@ -703,6 +703,7 @@ class TestSave:
         tmp_path,
         naming,
     ):
+        pytest.importorskip("ome_types")
         from ome_types import from_tiff, from_xml
 
         saved = drv.save(

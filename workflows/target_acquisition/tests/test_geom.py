@@ -310,6 +310,7 @@ class TestNoDriftAgainstCallers:
 
     def _write_overview(self, layout, image, *, g=0, p=0):
         import tifffile
+
         from shared.output_layout import Naming, build_image_name
 
         naming = Naming(
@@ -420,6 +421,7 @@ class TestNoDriftAgainstCallers:
         assert np.array_equal(via_visualize, via_helper)
 
     def test_hijack_provider_crop_step_equals_helper_output(self, tmp_path):
+        pytest.importorskip("skimage")
         """Hijack provider's crop step (before resize) MUST go
         through the shared helper. Patches ``skimage.transform.resize``
         to identity so the provider's output IS the crop -- directly
@@ -471,6 +473,7 @@ class TestNoDriftAgainstCallers:
         self,
         tmp_path,
     ):
+        pytest.importorskip("skimage")
         """Spy on the helper symbol as imported by each module.
         Assert both call sites delegate to it (the spy fires)
         with identical primitive arguments derived from the same

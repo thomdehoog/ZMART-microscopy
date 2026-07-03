@@ -43,6 +43,7 @@ from pipeline._hijack import (
     hijack_frame,
 )
 from pipeline._mock_provider import get_provider
+
 from shared.output_layout import Naming, build_xml_name
 
 # ─── Helpers ──────────────────────────────────────────────────────
@@ -526,6 +527,7 @@ class TestMockProvider:
             get_provider("no-such-provider")
 
     def test_human_mitosis_matches_shape_and_dtype(self):
+        pytest.importorskip("skimage")
         provider = get_provider("skimage_human_mitosis")
         naming = Naming(
             acquisition_type="overview-scan",
@@ -538,6 +540,7 @@ class TestMockProvider:
         assert out.dtype == np.uint16
 
     def test_human_mitosis_deterministic_per_naming(self):
+        pytest.importorskip("skimage")
         """Same (g, p) -> same content; different (g, p) -> different
         content. A deterministic mapping is what makes the mock
         tile-stitchable and reproducible across runs."""
