@@ -1176,10 +1176,13 @@ def _parse_detector(det_el):
     return d
 
 
-def _parse_laser(laser_el):
-    """Parse a Laser element with BeamRoute."""
-    d = dict(laser_el.attrib)
-    beam = _parse_beam_route(laser_el)
+def _attrs_with_beam_route(el):
+    """Element attributes as a dict, plus ``_BeamRoute`` when present.
+
+    Shared shape for the leaf beam elements (Laser, Shutter, MultiBand, LUT).
+    """
+    d = dict(el.attrib)
+    beam = _parse_beam_route(el)
     if beam is not None:
         d["_BeamRoute"] = beam
     return d
@@ -1200,24 +1203,6 @@ def _parse_aotf(aotf_el):
         lines.append(ld)
     if lines:
         d["_LaserLines"] = lines
-    return d
-
-
-def _parse_shutter(shutter_el):
-    """Parse a Shutter element with BeamRoute."""
-    d = dict(shutter_el.attrib)
-    beam = _parse_beam_route(shutter_el)
-    if beam is not None:
-        d["_BeamRoute"] = beam
-    return d
-
-
-def _parse_multiband(mb_el):
-    """Parse a MultiBand (spectral window) element with BeamRoute."""
-    d = dict(mb_el.attrib)
-    beam = _parse_beam_route(mb_el)
-    if beam is not None:
-        d["_BeamRoute"] = beam
     return d
 
 
@@ -1255,15 +1240,6 @@ def _parse_light_source(ls_el):
     return d
 
 
-def _parse_lut(lut_el):
-    """Parse a LUT element with BeamRoute."""
-    d = dict(lut_el.attrib)
-    beam = _parse_beam_route(lut_el)
-    if beam is not None:
-        d["_BeamRoute"] = beam
-    return d
-
-
 def _parse_setting(setting_el):
     """Parse an ATLConfocalSettingDefinition and all children.
 
@@ -1285,7 +1261,7 @@ def _parse_setting(setting_el):
     if la is not None:
         lasers = []
         for laser in la.findall("Laser"):
-            lasers.append(_parse_laser(laser))
+            lasers.append(_attrs_with_beam_route(laser))
         if lasers:
             result["_Lasers"] = lasers
 
@@ -1301,7 +1277,7 @@ def _parse_setting(setting_el):
     if sl is not None:
         shutters = []
         for sh in sl.findall("Shutter"):
-            shutters.append(_parse_shutter(sh))
+            shutters.append(_attrs_with_beam_route(sh))
         if shutters:
             result["_Shutters"] = shutters
 
@@ -1309,7 +1285,7 @@ def _parse_setting(setting_el):
     if spectro is not None:
         multibands = []
         for mb in spectro.findall("MultiBand"):
-            multibands.append(_parse_multiband(mb))
+            multibands.append(_attrs_with_beam_route(mb))
         if multibands:
             result["_MultiBands"] = multibands
 
@@ -1329,7 +1305,7 @@ def _parse_setting(setting_el):
     if lut_list is not None:
         luts = []
         for lut in lut_list.findall("LUT"):
-            luts.append(_parse_lut(lut))
+            luts.append(_attrs_with_beam_route(lut))
         if luts:
             result["_LUTs"] = luts
 

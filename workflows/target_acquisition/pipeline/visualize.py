@@ -1673,7 +1673,7 @@ def plot_target_pairs(
     if logs_dir is not None:
         logs_dir.mkdir(parents=True, exist_ok=True)
 
-    for _j, rec in enumerate(successful):
+    for rec in successful:
         pick = pick_map.get(tuple(rec.pick_id))
         tile_key = _normalize_tile_key(rec.pick_id[:3])
 
