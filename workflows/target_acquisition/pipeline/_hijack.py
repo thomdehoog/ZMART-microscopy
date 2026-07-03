@@ -63,7 +63,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
 
-import navigator_expert.acquisition.ome as ome_tiff
+import navigator_expert.acquisition.ome_vendor_fix as ome_tiff
 import tifffile
 from shared.output_layout import build_xml_name
 
