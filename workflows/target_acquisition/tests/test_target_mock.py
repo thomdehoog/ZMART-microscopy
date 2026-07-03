@@ -518,9 +518,9 @@ class TestAcquireTargetsIntegration:
 
         # ensure_job_state: silent noop.
         monkeypatch.setattr(target_mod, "ensure_job_state", lambda ctx, job: None)
-        # acquire(): also a noop (driver call). Patch the module-level
+        # position_stage(): also a noop (stage motion). Patch the module-level
         # import in target.py.
-        monkeypatch.setattr(target_mod, "acquire", lambda ctx, job, x, y, z: None)
+        monkeypatch.setattr(target_mod, "position_stage", lambda ctx, job, x, y, z: None)
 
         # acquire/save: write a real fake target TIFF + companion XML
         # that hijack_frame can read and the SystemTypeName guard will

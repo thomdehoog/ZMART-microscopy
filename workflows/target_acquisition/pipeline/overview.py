@@ -24,7 +24,7 @@ import numpy as np
 from calibration.vendor.leica.navigator_expert.core import model as calib
 from shared.output_layout import Naming, build_position_analysis_name
 
-from ._acquire import acquire
+from ._acquire import position_stage
 from ._hijack import NonSimulatorFrameError, hijack_frame
 from ._job_state import ensure_job_state
 from ._log_capture import _logged
@@ -306,7 +306,7 @@ def run_overview(
             )
 
             try:
-                acquire(ctx, cfg.acquisition_job, x_um, y_um, zwide_um)
+                position_stage(ctx, cfg.acquisition_job, x_um, y_um, zwide_um)
                 naming = Naming(
                     acquisition_type="overview-scan",
                     hash6=ctx.run.layout.hash6,
