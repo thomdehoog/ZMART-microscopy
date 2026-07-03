@@ -1,15 +1,10 @@
-"""Configuration: profiles, hardware model, and stage limits."""
+"""Configuration: connection, hardware model, and acquisition profiles.
 
-from .limits import (
-    LimitError,
-    apply_stage_limits_from_config,
-    check_axis,
-    check_move,
-    clear_stage_limits,
-    get_stage_limits,
-    load_stage_config,
-    set_stage_limits,
-)
+Stage limits moved to :mod:`mesospim.motion.limits` and the machine-local
+coordinate config to :mod:`mesospim.calibration.machine`; this package is now
+just the static profiles (:mod:`.profiles`).
+"""
+
 from .profiles import (
     ACQUISITION,
     CONNECTION,
@@ -21,14 +16,6 @@ from .profiles import (
 )
 
 __all__ = [
-    "LimitError",
-    "apply_stage_limits_from_config",
-    "check_axis",
-    "check_move",
-    "clear_stage_limits",
-    "get_stage_limits",
-    "load_stage_config",
-    "set_stage_limits",
     "ACQUISITION",
     "CONNECTION",
     "HARDWARE",
