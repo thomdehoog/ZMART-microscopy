@@ -1136,10 +1136,6 @@ def move_xy(client, x, y, unit="um", *, max_retries=None, pre_check_timeout=None
     return r
 
 
-# ── Galvo pan limits ────────────────────────────────────────────────
-_PAN_LIMIT = 0.00775  # max pan value in either axis (objective-
-# independent: fraction of galvo deflection)
-
 
 def move_galvo_to_pixel(client, px, py, *, job_name=None, pixel_size_um=None, image_size=None):
     """Pan the galvo so the pixel ``(px, py)`` of the current frame appears at FOV centre.
@@ -1161,11 +1157,11 @@ def move_galvo_to_pixel(client, px, py, *, job_name=None, pixel_size_um=None, im
     Returns a dict with ``success``, ``pan`` (the absolute pan written),
     ``delta_pan`` (what was added), ``pan_scale_um``, ``message``. Returns
     ``success=False`` with ``message`` if the resulting absolute pan would
-    exceed the angular limit (``_PAN_LIMIT``); the caller should stage-move
+    exceed the angular limit (``PAN_LIMIT``); the caller should stage-move
     closer first.
     """
     from ..experimental.lrp_edits.pan import galvo_pan_for_pixel, lrp_get_pan, lrp_set_pan
-    from ..runtime.utils import pan_scale_um_from_base_fov, parse_tile_geometry
+    from ..runtime.utils import PAN_LIMIT, pan_scale_um_from_base_fov, parse_tile_geometry
     from ..scanfields.files import TEMPLATE_XML
     from ..scanfields.transaction import apply_lrp_change
     from ..state_readers import get_base_fov, get_job_settings, get_selected_job
@@ -1214,10 +1210,10 @@ def move_galvo_to_pixel(client, px, py, *, job_name=None, pixel_size_um=None, im
         cur_x, cur_y = lrp_get_pan(p, job_name)
         new_pan[0] = cur_x + d_pan_x
         new_pan[1] = cur_y + d_pan_y
-        if abs(new_pan[0]) > _PAN_LIMIT or abs(new_pan[1]) > _PAN_LIMIT:
+        if abs(new_pan[0]) > PAN_LIMIT or abs(new_pan[1]) > PAN_LIMIT:
             raise RuntimeError(
                 f"resulting pan ({new_pan[0]:+.5f}, {new_pan[1]:+.5f}) "
-                f"exceeds angular limit ±{_PAN_LIMIT}; stage-move closer first."
+                f"exceeds angular limit ±{PAN_LIMIT}; stage-move closer first."
             )
         lrp_set_pan(p, new_pan[0], new_pan[1], job_name)
 

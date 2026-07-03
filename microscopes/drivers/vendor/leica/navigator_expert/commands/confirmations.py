@@ -204,7 +204,7 @@ def race_confirmations(api_leg=None, log_leg=None, *, label="", budget_s=None, a
 # =============================================================================
 
 
-def _readback(client, job_name, *, observed_after=None):
+def _readback(client, job_name):
     """Read job settings and return changeable copy, or None on failure."""
     reading = _readers.get_job_settings(
         client,
@@ -217,12 +217,6 @@ def _readback(client, job_name, *, observed_after=None):
         return None
     if hasattr(reading, "value"):
         if reading.value is None:
-            return None
-        if (
-            observed_after is not None
-            and reading.observed_at is not None
-            and reading.observed_at <= observed_after
-        ):
             return None
         raw = reading.value
     else:
