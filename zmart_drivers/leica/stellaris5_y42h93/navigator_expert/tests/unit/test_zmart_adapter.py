@@ -315,8 +315,9 @@ class TestFrame(unittest.TestCase):
 class TestAcquire(unittest.TestCase):
     def _jobs(self):
         return [
-            {"Name": "Overview", "IsSelected": True},
-            {"Name": "HiRes", "IsSelected": False},
+            {"Name": "Overview", "IsSelected": True, "IsAutofocus": False},
+            {"Name": "HiRes", "IsSelected": False, "IsAutofocus": False},
+            {"Name": "AF Job", "IsSelected": False, "IsAutofocus": True},
         ]
 
     def test_options_discovered_from_live_jobs(self):
@@ -326,6 +327,7 @@ class TestAcquire(unittest.TestCase):
             patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
         ):
             opts = adapter.get_acquisition_options(h)
+        # autofocus jobs are a separate category, never acquisition options
         self.assertEqual(opts["job"]["options"], ["Overview", "HiRes"])
         self.assertEqual(opts["job"]["active"], "Overview")
         self.assertEqual(opts["format"]["active"], "ome-tiff")
@@ -416,7 +418,10 @@ class TestStateAndProcedures(unittest.TestCase):
         },
     }
 
-    def _state_patches(self, jobs=("Overview", "HiRes")):
+    def _state_patches(self, jobs=("Overview", "HiRes"), af_jobs=("AF Job",)):
+        catalog = [
+            {"Name": n, "IsSelected": n == "Overview", "IsAutofocus": False} for n in jobs
+        ] + [{"Name": n, "IsSelected": False, "IsAutofocus": True} for n in af_jobs]
         return (
             patch.object(adapter._readers, "get_hardware_info", return_value=dict(self._HW)),
             patch.object(
@@ -424,11 +429,7 @@ class TestStateAndProcedures(unittest.TestCase):
                 "get_selected_job",
                 return_value={"Name": "Overview", "IsSelected": True},
             ),
-            patch.object(
-                adapter._readers,
-                "get_jobs",
-                return_value=[{"Name": n, "IsSelected": n == "Overview"} for n in jobs],
-            ),
+            patch.object(adapter._readers, "get_jobs", return_value=catalog),
         )
 
     def test_state_shape_changeable_first_then_observed(self):
@@ -445,9 +446,19 @@ class TestStateAndProcedures(unittest.TestCase):
         self.assertEqual(observed["system_type"], "CONFOCAL")
         self.assertEqual(observed["stand"], "DM Manual-6")
         self.assertEqual(observed["objectives"], [[0, 506511], [1, 506513]])
-        # the rich readings ride along: the full selected-job record + catalog
+        # the rich readings ride along: the full selected-job record + catalog,
+        # with autofocus jobs as their own category
         self.assertEqual(observed["job"]["Name"], "Overview")
         self.assertEqual([j["Name"] for j in observed["jobs"]], ["Overview", "HiRes"])
+        self.assertEqual([j["Name"] for j in observed["autofocus_jobs"]], ["AF Job"])
+
+    def test_set_state_refuses_an_autofocus_job(self):
+        h = _handle()
+        p = self._state_patches()
+        with p[0], p[1], p[2], patch.object(adapter._commands, "select_job") as select:
+            with self.assertRaisesRegex(ValueError, "autofocus"):
+                adapter.set_state(h, {"changeable": {"job": "AF Job"}})
+        select.assert_not_called()
 
     def test_set_state_applies_changeable_ignoring_observed(self):
         h = _handle()
@@ -477,7 +488,11 @@ class TestStateAndProcedures(unittest.TestCase):
 
     def test_procedures(self):
         h = _handle()
-        self.assertIn("backlash_takeup", adapter.get_procedures(h))
+        p = self._state_patches()
+        with p[2]:
+            procedures = adapter.get_procedures(h)
+        self.assertIn("backlash_takeup", procedures)
+        self.assertEqual(procedures["autofocus"]["jobs"], ["AF Job"])
         with patch.object(adapter._motion, "correct_backlash", lambda client, **k: None):
             self.assertEqual(
                 adapter.set_procedure(h, {"name": "backlash_takeup"})["ran"]["name"],
@@ -485,6 +500,67 @@ class TestStateAndProcedures(unittest.TestCase):
             )
         with self.assertRaises(ValueError):
             adapter.set_procedure(h, {"name": "nope"})
+
+    def test_autofocus_runs_capture_only_and_restores_the_selection(self):
+        from types import SimpleNamespace
+
+        h = _handle()
+        calls = []
+        p = self._state_patches()
+        position = _patch_position(z_wide_um=42.0, z_galvo_um=1.5)
+        with (
+            p[2],  # job catalog (AF Job flagged)
+            position[0],
+            position[1],
+            position[2],
+            position[3],
+            patch.object(
+                adapter._commands,
+                "select_job",
+                side_effect=lambda client, job, **k: (
+                    calls.append(("select", job)) or {"success": True}
+                ),
+            ),
+            patch.object(
+                adapter._capture,
+                "acquire",
+                side_effect=lambda client, job, **k: (
+                    calls.append(("acquire", job))
+                    or SimpleNamespace(job=job, started_at=1.0, finished_at=3.5)
+                ),
+            ),
+        ):
+            result = adapter.set_procedure(h, {"name": "autofocus"})  # single AF job: no arg
+        # select AF -> capture -> restore the original selection, in order
+        self.assertEqual(
+            calls, [("select", "AF Job"), ("acquire", "AF Job"), ("select", "Overview")]
+        )
+        self.assertEqual(result["ran"], "autofocus")
+        self.assertEqual(result["job"], "AF Job")
+        self.assertEqual(result["focus_um"], 43.5)  # 42.0 + 1.5, read before restore
+        self.assertEqual(result["frame_z_um"], 43.5)  # all-zero origin
+        self.assertEqual(result["duration_s"], 2.5)
+
+    def test_autofocus_rejects_a_normal_job(self):
+        h = _handle()
+        p = self._state_patches()
+        with p[2]:
+            with self.assertRaisesRegex(ValueError, "not an autofocus job"):
+                adapter.set_procedure(h, {"name": "autofocus", "job": "Overview"})
+
+    def test_autofocus_requires_a_choice_when_several_exist(self):
+        h = _handle()
+        p = self._state_patches(af_jobs=("AF Job", "AF Fine"))
+        with p[2]:
+            with self.assertRaisesRegex(ValueError, "multiple autofocus jobs"):
+                adapter.set_procedure(h, {"name": "autofocus"})
+
+    def test_autofocus_without_af_jobs_is_a_clear_error(self):
+        h = _handle()
+        p = self._state_patches(af_jobs=())
+        with p[2]:
+            with self.assertRaisesRegex(RuntimeError, "no autofocus job"):
+                adapter.set_procedure(h, {"name": "autofocus"})
 
 
 class TestObjectiveCompensation(unittest.TestCase):
@@ -813,7 +889,9 @@ class TestFunctionLimits(unittest.TestCase):
         self.assertIsNotNone(limits)
         limits.check("set_xyz", {"x_um": 2500.0})
         with self.assertRaises(adapter._shared_limits.LimitViolation):
-            limits.check("set_xyz", {"x_um": 1500.0})  # inside the bundled envelope, outside the machine's
+            limits.check(
+                "set_xyz", {"x_um": 1500.0}
+            )  # inside the bundled envelope, outside the machine's
 
     def test_unknown_machine_axis_fails_closed(self):
         """An envelope the file can't represent must refuse mutations, not skip the axis."""

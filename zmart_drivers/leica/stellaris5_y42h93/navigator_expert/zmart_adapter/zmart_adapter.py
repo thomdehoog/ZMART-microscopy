@@ -227,8 +227,7 @@ def _load_function_limits(stage_cfg: dict | None) -> Any | None:
         )
     except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
         log.warning(
-            "function limits unavailable (%s); every mutating op will refuse "
-            "until %s loads",
+            "function limits unavailable (%s); every mutating op will refuse until %s loads",
             exc,
             _machine.FUNCTION_LIMITS_FILENAME,
         )
@@ -429,6 +428,18 @@ def _selected_job_name(handle: ZmartHandle) -> str:
     return name
 
 
+def _job_catalog(handle: ZmartHandle) -> tuple[list[dict], list[dict]]:
+    """The live job catalog split into (normal, autofocus) jobs.
+
+    Autofocus jobs are a separate category: they never appear as acquisition
+    or state options and run only through the ``autofocus`` procedure.
+    """
+    jobs = _readers.get_jobs(handle.client, mode="api") or []
+    normal = [dict(j) for j in jobs if not j.get("IsAutofocus")]
+    autofocus = [dict(j) for j in jobs if j.get("IsAutofocus")]
+    return normal, autofocus
+
+
 def set_origin(handle: ZmartHandle) -> dict:
     """The current position becomes (0, 0, 0) of the controller frame.
 
@@ -617,9 +628,9 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
     takeup before capture.
     """
     _require_open(handle)
-    jobs = _readers.get_jobs(handle.client, mode="api") or []
-    names = [j["Name"] for j in jobs if j.get("Name")]
-    selected = next((j["Name"] for j in jobs if j.get("IsSelected")), None)
+    normal, _ = _job_catalog(handle)
+    names = [j["Name"] for j in normal if j.get("Name")]
+    selected = next((j["Name"] for j in normal if j.get("IsSelected")), None)
     return {
         "job": {"options": names, "active": selected},
         "backlash_correction": {"options": [True, False], "active": True},
@@ -765,7 +776,7 @@ def get_state(handle: ZmartHandle) -> dict:
     selected = _readers.get_selected_job(handle.client, mode="api") or {}
     if not selected.get("Name"):
         raise RuntimeError("could not determine the selected LAS X job")
-    jobs = _readers.get_jobs(handle.client, mode="api") or []
+    normal, autofocus = _job_catalog(handle)
     return {
         "changeable": {"job": selected["Name"]},
         "observed": {
@@ -779,7 +790,8 @@ def get_state(handle: ZmartHandle) -> dict:
                 for o in (microscope.get("objectives") or [])
             ],
             "job": dict(selected),
-            "jobs": [dict(j) for j in jobs],
+            "jobs": normal,
+            "autofocus_jobs": autofocus,
             # Which function-limits file governs this session (evidence, not
             # an instruction): path, source tag, and whether it is the
             # bundled fallback. None when limits failed to load (every
@@ -806,8 +818,13 @@ def set_state(handle: ZmartHandle, state: dict) -> dict:
     applied: dict[str, Any] = {}
     job = (state.get("changeable") or {}).get("job")
     if job and job != _selected_job_name(handle):
-        jobs = _readers.get_jobs(handle.client, mode="api") or []
-        names = [j.get("Name") for j in jobs if j.get("Name")]
+        normal, autofocus = _job_catalog(handle)
+        names = [j.get("Name") for j in normal if j.get("Name")]
+        if job in (j.get("Name") for j in autofocus):
+            raise ValueError(
+                f"{job!r} is an autofocus job — run it via the 'autofocus' "
+                "procedure (set_procedure), not as state"
+            )
         if job not in names:
             raise ValueError(
                 f"job {job!r} no longer exists on this instrument (available: {names})"
@@ -820,11 +837,18 @@ def set_state(handle: ZmartHandle, state: dict) -> dict:
 
 
 def get_procedures(handle: ZmartHandle) -> dict:
-    """The named procedures this instrument offers."""
+    """The named procedures this instrument offers (discover-then-apply)."""
     _require_open(handle)
+    _, autofocus = _job_catalog(handle)
     return {
         "backlash_takeup": {
             "description": "pin the XY leadscrew slack at the current position (+X +Y approach)"
+        },
+        "autofocus": {
+            "description": "run a LAS X autofocus job (capture only, nothing saved); "
+            "restores the previously selected job and returns the focus readback",
+            "args": ["job"],
+            "jobs": [j["Name"] for j in autofocus if j.get("Name")],
         },
     }
 
@@ -837,7 +861,55 @@ def set_procedure(handle: ZmartHandle, procedure: dict) -> dict:
     if name == "backlash_takeup":
         _motion.correct_backlash(handle.client)
         return {"ran": dict(procedure)}
+    if name == "autofocus":
+        return _run_autofocus(handle, procedure)
     raise ValueError(f"unknown procedure {name!r}")
+
+
+def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
+    """Select the autofocus job, run it capture-only, restore the selection.
+
+    ``job`` names the autofocus job; it may be omitted when the instrument
+    has exactly one. Nothing is saved — the result is the focus readback
+    right after the run (before the selection is restored), in both
+    hardware and frame terms.
+    """
+    _, autofocus = _job_catalog(handle)
+    names = [j["Name"] for j in autofocus if j.get("Name")]
+    if not names:
+        raise RuntimeError("no autofocus job exists on this instrument")
+    job = procedure.get("job")
+    if job is None:
+        if len(names) > 1:
+            raise ValueError(f"multiple autofocus jobs; pass 'job' (available: {names})")
+        job = names[0]
+    elif job not in names:
+        raise ValueError(f"{job!r} is not an autofocus job (available: {names})")
+
+    original = _selected_job_name(handle)
+    if job != original:
+        selected = _commands.select_job(handle.client, job)
+        if not selected.get("success"):
+            raise RuntimeError(f"select_job('{job}') failed: {selected}")
+    try:
+        acq = _capture.acquire(handle.client, job)
+        # Read the focus result BEFORE restoring the selection: restoring
+        # could reposition (jobs own objective state).
+        snap = _hardware_snapshot(handle)
+    finally:
+        if job != original:
+            restored = _commands.select_job(handle.client, original)
+            if not restored.get("success"):
+                log.warning("could not restore job %r after autofocus: %s", original, restored)
+    focus = snap["z_wide_um"] + snap["z_galvo_um"]
+    dt = _delta_or_warn(handle, snap)
+    return {
+        "ran": "autofocus",
+        "job": job,
+        "focus_um": focus,
+        "frame_z_um": focus - handle.origin["z_focus_um"] - dt[2],
+        "duration_s": acq.finished_at - acq.started_at,
+    }
 
 
 # =============================================================================
