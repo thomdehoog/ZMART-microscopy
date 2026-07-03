@@ -34,11 +34,11 @@ from __future__ import annotations
 from pathlib import Path
 from unittest import mock
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import pytest
+
+matplotlib = pytest.importorskip("matplotlib")
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
 
 # ─── TileStyle.alpha behavior ─────────────────────────────────────
 

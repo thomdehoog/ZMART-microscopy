@@ -45,8 +45,9 @@ import tifffile
 from pipeline._hijack import NonSimulatorFrameError
 from pipeline._mock_provider import build_target_provider
 from pipeline.overview import Pick
-from shared.output_layout import Naming, build_image_name
 from support import minimal_calibration
+
+from shared.output_layout import Naming, build_image_name
 
 # ─── Helpers ──────────────────────────────────────────────────────
 
@@ -133,6 +134,7 @@ def _dummy_naming() -> Naming:
 
 class TestTargetProviderMath:
     def test_zoom_factor_correct(self, tmp_path):
+        pytest.importorskip("skimage")
         """Crop dimensions in overview pixels equal floor(target_shape
         * target_pixel_size / overview_pixel_size). Picks sizes that
         avoid half-pixel ties so banker's-rounding is not in play."""
@@ -172,6 +174,7 @@ class TestTargetProviderMath:
         )
 
     def test_centroid_lands_at_target_center(self, tmp_path):
+        pytest.importorskip("skimage")
         """Asymmetric centroid (cx=120, cy=50) fails hard on any
         (col, row) <-> (x, y) swap. Marker at the pick's centroid
         in the overview must land at the centre of the target."""
@@ -211,6 +214,7 @@ class TestTargetProviderMath:
         )
 
     def test_output_shape_matches_target(self, tmp_path):
+        pytest.importorskip("skimage")
         """Shape is the requested target shape. Exercise non-square
         target image to confirm aspect ratio is honoured."""
         layout = _make_layout(tmp_path)
@@ -227,6 +231,7 @@ class TestTargetProviderMath:
         assert out.shape == (200, 100)
 
     def test_output_dtype_matches_target(self, tmp_path):
+        pytest.importorskip("skimage")
         """Dtype matches the requested dtype. uint16 is the LAS X
         norm; pin it explicitly so a future change to resize() doesn't
         silently return float64."""
@@ -243,6 +248,7 @@ class TestTargetProviderMath:
         assert out.dtype == np.uint16
 
     def test_edge_cell_pads_with_median_no_crash(self, tmp_path):
+        pytest.importorskip("skimage")
         """Cell at (2, 2) in overview pixels: crop extends well into
         negative coordinates. Provider must not crash; the padded
         region must carry the overview's median intensity (not zeros,
@@ -317,6 +323,7 @@ class TestTargetProviderErrors:
             provider((128, 128), np.uint16, naming=_dummy_naming())
 
     def test_multi_plane_overview_raises_clearly(self, tmp_path):
+        pytest.importorskip("skimage")
         """The target mock requires a 2-D overview. hijack_frame
         already blocks multi-plane saved files upstream, so a fresh
         simulator run is 2-D by construction. This test pins the
@@ -363,6 +370,7 @@ class TestTargetMockHonestResolution:
     """
 
     def test_hijack_resize_uses_nearest_neighbour(self, tmp_path):
+        pytest.importorskip("skimage")
         """Pin that build_target_provider passes order=0 to
         skimage.transform.resize. A future contributor removing
         order=0 (e.g. via 'cleanup' that drops what looks like a
@@ -404,6 +412,7 @@ class TestTargetMockHonestResolution:
         )
 
     def test_hijack_output_is_blocky_in_simulator_mode(self, tmp_path):
+        pytest.importorskip("skimage")
         """End-to-end pin: a 4x4 overview crop upsampled to 8x8 target
         must contain visible 2x2 blocks of identical values (nearest-
         neighbour), not gradients (bilinear). Catches order=0 being
@@ -603,6 +612,7 @@ class TestAcquireTargetsIntegration:
         tmp_path,
         monkeypatch,
     ):
+        pytest.importorskip("skimage")
         """The integration test: simulate=True yields N hijack_frame
         calls, each with a different provider closure. Catches the
         bug where math is green but the loop still uses the wrong

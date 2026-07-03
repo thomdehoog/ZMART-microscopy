@@ -12,6 +12,8 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
+
 from shared.output_layout.naming import Naming, build_position_analysis_name
 
 # ─── Fixtures ────────────────────────────────────────────────────
@@ -254,7 +256,7 @@ class TestDisplayTileFlags:
         skip the IPython.display() call so the notebook does not show a
         figure. The figure is still saved when save_png=True.
         """
-        import IPython.display as ipy_display
+        ipy_display = pytest.importorskip("IPython.display")
 
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
@@ -276,7 +278,7 @@ class TestDisplayTileFlags:
         """display_tile with save_png=False must skip fig.savefig even
         when logs_dir is set; the inline display still fires.
         """
-        import IPython.display as ipy_display
+        ipy_display = pytest.importorskip("IPython.display")
 
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
@@ -316,7 +318,7 @@ class TestDisplayTileSaveQueue:
         """
         import threading
 
-        import IPython.display as ipy_display
+        ipy_display = pytest.importorskip("IPython.display")
         from pipeline._save_queue import _FigureSaveQueue
         from pipeline.visualize import display_tile
 
@@ -356,8 +358,8 @@ class TestDisplayTileSaveQueue:
         producer thread and closed by its finally block. plt.close
         must be called exactly once for that figure.
         """
-        import IPython.display as ipy_display
-        import matplotlib.pyplot as plt
+        ipy_display = pytest.importorskip("IPython.display")
+        plt = pytest.importorskip("matplotlib.pyplot")
 
         monkeypatch.setattr(ipy_display, "display", MagicMock())
 
@@ -390,8 +392,8 @@ class TestDisplayTileSaveQueue:
         worker calls plt.close after savefig; the producer's finally
         must NOT also close (no double-close).
         """
-        import IPython.display as ipy_display
-        import matplotlib.pyplot as plt
+        ipy_display = pytest.importorskip("IPython.display")
+        plt = pytest.importorskip("matplotlib.pyplot")
 
         monkeypatch.setattr(ipy_display, "display", MagicMock())
 
@@ -444,8 +446,8 @@ class TestDisplayTargetSaveQueue:
         figure ownership to the worker. The worker calls plt.close once
         after savefig; the producer's finally must not also close.
         """
-        import IPython.display as ipy_display
-        import matplotlib.pyplot as plt
+        ipy_display = pytest.importorskip("IPython.display")
+        plt = pytest.importorskip("matplotlib.pyplot")
 
         monkeypatch.setattr(ipy_display, "display", MagicMock())
 
@@ -488,7 +490,7 @@ class TestDisplayTargetFlags:
         """display_target with live_display=False builds the figure but
         skips display(). save_png still produces the PNG.
         """
-        import IPython.display as ipy_display
+        ipy_display = pytest.importorskip("IPython.display")
 
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
@@ -515,7 +517,7 @@ class TestDisplayTargetFlags:
         """display_target with save_png=False skips fig.savefig even
         when logs_dir is provided. The inline display still fires.
         """
-        import IPython.display as ipy_display
+        ipy_display = pytest.importorskip("IPython.display")
 
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
@@ -547,7 +549,7 @@ class TestDisplayTargetFlags:
 
 class TestPlotOverviewTiles:
     def test_renders_triptych_for_each_tile(self, tmp_path):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
         from pipeline.visualize import plot_overview_tiles
@@ -572,7 +574,7 @@ class TestPlotOverviewTiles:
         assert len(pngs) == 2
 
     def test_zero_pick_tile_renders(self, tmp_path):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
         from pipeline.visualize import plot_overview_tiles
@@ -588,7 +590,7 @@ class TestPlotOverviewTiles:
         assert len(list(logs_dir.glob("*.png"))) == 1
 
     def test_missing_npz_skipped(self, tmp_path):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
         from pipeline.visualize import plot_overview_tiles
@@ -602,10 +604,10 @@ class TestPlotOverviewTiles:
 
     def test_mock_mode_title_contains_mock(self, tmp_path, monkeypatch):
         # The "(mock)" title prefix is driven by the `simulated` NPZ key.
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
@@ -629,7 +631,7 @@ class TestPlotOverviewTiles:
         assert "mock" in captured_titles[0].lower()
 
     def test_creates_logs_dir(self, tmp_path):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
         from pipeline.visualize import plot_overview_tiles
@@ -646,7 +648,7 @@ class TestPlotOverviewTiles:
 
     def test_picked_labels_from_pick_id(self, tmp_path):
         """Verify that pick_id[3] is used as the label for the red overlay."""
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
         from pipeline.visualize import _picked_overlay
@@ -656,7 +658,7 @@ class TestPlotOverviewTiles:
         masks[10:20, 10:20] = 3
         masks[30:40, 30:40] = 7
 
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
 
         fig, ax = plt.subplots()
         _picked_overlay(ax, image_2d, masks, [3])
@@ -671,10 +673,10 @@ class TestPlotOverviewTiles:
 
     def test_picked_overlay_rendered_end_to_end(self, tmp_path, monkeypatch):
         """Integration: picks with (str, int, int) tile_key match all-str npz tile_id."""
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
@@ -822,10 +824,10 @@ class TestStep5PanelInterpolation:
     """
 
     def test_centre_panel_imshow_uses_nearest(self):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.target import TargetRecord
         from pipeline.visualize import _render_target_crop_panel
 
@@ -859,10 +861,10 @@ class TestStep5PanelInterpolation:
             plt.close(fig)
 
     def test_right_panel_imshow_uses_nearest(self):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import _render_highres_target_panel
 
         target_img = np.zeros((200, 200), dtype=np.uint16)
@@ -922,7 +924,7 @@ class TestEnsure2D:
 
 class TestPlotTargetPairs:
     def test_renders_pairs_for_successful_targets(self, tmp_path):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
         from pipeline.target import TargetRecord
@@ -956,7 +958,7 @@ class TestPlotTargetPairs:
         assert len(list(logs_dir.glob("*.png"))) == 1
 
     def test_skips_failed_targets(self, tmp_path):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
         from pipeline.target import TargetRecord
@@ -990,7 +992,7 @@ class TestPlotTargetPairs:
         assert len(list(logs_dir.glob("*.png"))) == 0
 
     def test_no_successful_targets(self, tmp_path):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
         from pipeline.visualize import plot_target_pairs
@@ -1034,10 +1036,10 @@ class TestDisplayTilePanelLayout:
         }
 
     def _cell_widths(self, monkeypatch, scan_field):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import display_tile
 
         widths: list = []
@@ -1080,7 +1082,7 @@ class TestSharedScanFieldRenderer:
     """
 
     def test_context_matches_across_call_styles(self):
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import TileStyle, render_scan_field_panel
 
         scan_field = {
@@ -1169,8 +1171,8 @@ class TestRenderCropBoundary:
     """Small images yield a smaller crop, not padding or exceptions."""
 
     def test_image_smaller_than_crop_size_renders_whole_image(self):
-        import matplotlib.pyplot as plt
-        from matplotlib.patches import Rectangle
+        plt = pytest.importorskip("matplotlib.pyplot")
+        Rectangle = pytest.importorskip("matplotlib.patches").Rectangle
         from pipeline.overview import Pick
         from pipeline.visualize import _render_crop
 
@@ -1252,10 +1254,10 @@ class TestDisplaySelectionCropStrip:
     ):
         """Regression: pick_id has (str, int, int, int) but npz tile_id
         is all-string. display_selection must normalize before lookup."""
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.selection import MODE_THRESHOLD, SelectionResult
         from pipeline.visualize import display_selection
 
@@ -1342,10 +1344,10 @@ class TestFrameAspectPadding:
         }
 
     def test_square_field_padded_to_16_9(self):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import render_scan_field_panel
 
         fig, ax = plt.subplots(figsize=(14, 7.875))
@@ -1366,10 +1368,10 @@ class TestFrameAspectPadding:
             plt.close(fig)
 
     def test_wide_field_padded_to_16_9(self):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import render_scan_field_panel
 
         fig, ax = plt.subplots(figsize=(14, 7.875))
@@ -1390,10 +1392,10 @@ class TestFrameAspectPadding:
             plt.close(fig)
 
     def test_no_frame_aspect_preserves_natural_extent(self):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import render_scan_field_panel
 
         fig, ax = plt.subplots(figsize=(14, 7.875))
@@ -1415,10 +1417,10 @@ class TestFrameAspectPadding:
             plt.close(fig)
 
     def test_context_extents_updated_after_padding(self):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import render_scan_field_panel
 
         fig, ax = plt.subplots(figsize=(14, 7.875))
@@ -1472,10 +1474,10 @@ class TestFigureWidth:
         return seen
 
     def test_display_tile_is_14_wide(self, monkeypatch):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import _FRAME_WIDTH_IN, display_tile
 
         scan_field = {
@@ -1497,10 +1499,10 @@ class TestFigureWidth:
         assert widths == [_FRAME_WIDTH_IN]
 
     def test_display_selection_is_14_wide(self, tmp_path, monkeypatch):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import _FRAME_WIDTH_IN, display_selection
 
         analysis_dir = tmp_path / "analysis"
@@ -1524,10 +1526,10 @@ class TestFigureWidth:
         ) == [_FRAME_WIDTH_IN]
 
     def test_plot_overview_tiles_is_14_wide(self, tmp_path, monkeypatch):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import _FRAME_WIDTH_IN, plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
@@ -1542,10 +1544,10 @@ class TestFigureWidth:
         assert widths and all(w == _FRAME_WIDTH_IN for w in widths)
 
     def test_display_target_is_14_wide(self, tmp_path, monkeypatch):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import _FRAME_WIDTH_IN, display_target
 
         analysis_dir = tmp_path / "analysis"
@@ -1564,10 +1566,10 @@ class TestFigureWidth:
         assert widths == [_FRAME_WIDTH_IN]
 
     def test_plot_target_pairs_is_14_wide(self, tmp_path, monkeypatch):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.target import TargetRecord
         from pipeline.visualize import _FRAME_WIDTH_IN, plot_target_pairs
 
@@ -1627,11 +1629,11 @@ class TestSelectionCropRow:
     square axes, explicitly positioned so each is a readable size."""
 
     def test_six_equal_square_crops_in_one_row(self):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        from matplotlib.gridspec import GridSpec
+        plt = pytest.importorskip("matplotlib.pyplot")
+        GridSpec = pytest.importorskip("matplotlib.gridspec").GridSpec
         from pipeline.visualize import _build_selection_figure_layout
 
         fig, _, crop_axes, _ = _build_selection_figure_layout(True, plt, GridSpec)
@@ -1662,10 +1664,10 @@ class TestScatterCropAnnotations:
     legend labels."""
 
     def test_one_numbered_badge_per_shown_crop(self, tmp_path, monkeypatch):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import display_selection
 
         analysis_dir = tmp_path / "analysis"
@@ -1867,7 +1869,7 @@ class TestTargetZoomCallout:
     zoomed-in view of the boxed region."""
 
     def _connection_count(self, plt, monkeypatch, call):
-        from matplotlib.patches import ConnectionPatch
+        ConnectionPatch = pytest.importorskip("matplotlib.patches").ConnectionPatch
 
         seen = []
         real_close = plt.close
@@ -1883,10 +1885,10 @@ class TestTargetZoomCallout:
         return seen
 
     def test_two_lines_when_rect_is_drawn(self, tmp_path, monkeypatch):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.target import TargetRecord
         from pipeline.visualize import display_target
 
@@ -1913,10 +1915,10 @@ class TestTargetZoomCallout:
         assert seen == [2], f"expected the 2-line zoom callout, got {seen}"
 
     def test_no_lines_without_a_pick(self, tmp_path, monkeypatch):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
@@ -1950,10 +1952,10 @@ class TestTargetMultiCueRendering:
         target_size=(64, 64),
         target_pixel_size_um=0.5,
     ):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.target import TargetRecord
         from pipeline.visualize import display_target
 
@@ -2049,7 +2051,7 @@ class TestTargetMultiCueRendering:
         tmp_path,
         monkeypatch,
     ):
-        from matplotlib.patches import ConnectionPatch
+        ConnectionPatch = pytest.importorskip("matplotlib.patches").ConnectionPatch
 
         fig, _ = self._render(
             tmp_path,
@@ -2081,10 +2083,10 @@ class TestTargetCropBorder:
         return seen
 
     def test_border_drawn_with_pick_and_tile(self, tmp_path, monkeypatch):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.target import TargetRecord
         from pipeline.visualize import display_target
 
@@ -2111,10 +2113,10 @@ class TestTargetCropBorder:
         assert seen == [1], f"expected one crop-panel border, got {seen}"
 
     def test_no_border_without_a_pick(self, tmp_path, monkeypatch):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
@@ -2156,10 +2158,10 @@ class TestTargetSuptitlePosition:
         return seen
 
     def test_suptitle_uses_source_tile_position(self, tmp_path, monkeypatch):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.target import TargetRecord
         from pipeline.visualize import display_target
 
@@ -2191,10 +2193,10 @@ class TestTargetSuptitlePosition:
         assert "label 3" in seen[0], seen
 
     def test_suptitle_position_unknown_when_none(self, tmp_path, monkeypatch):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        plt = pytest.importorskip("matplotlib.pyplot")
         from pipeline.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
@@ -2251,6 +2253,7 @@ class TestPngNaming:
 
     def test_overview_tile_png_name_canonical(self):
         from pipeline.visualize import _overview_tile_png_name, _position_stem
+
         from shared.output_layout.naming import Naming
 
         stem = _position_stem(Naming(acquisition_type="overview-scan", hash6="abc123", g=0, p=7))
@@ -2306,11 +2309,12 @@ class TestPngNaming:
         assert _target_png_name(rec, live=True) == "live_target_R0_r1c2_l5.png"
 
     def test_display_tile_writes_canonical_name(self, tmp_path, monkeypatch):
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
         monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
         from pipeline.visualize import _position_stem, display_tile
+
         from shared.output_layout.naming import Naming
 
         logs = tmp_path / "logs"
@@ -2327,7 +2331,7 @@ class TestPngNaming:
     def test_display_target_tif_none_fallback(self, tmp_path, monkeypatch):
         """display_target with a tif_path-less record still saves (pick-address
         name) and does not raise."""
-        import matplotlib
+        matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
         monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)

@@ -24,6 +24,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import tifffile
+
+pytest.importorskip("cv2")  # calibration core imports cv2
+
 from navigator_expert.calibration.core import (
     adopt as wf_adopt,
 )
@@ -234,7 +237,7 @@ def test_plot_overlay_smoke():
         pixel_size_um=1.0,
     )
     assert fig is not None
-    import matplotlib.pyplot as plt
+    plt = pytest.importorskip("matplotlib.pyplot")
 
     plt.close(fig)
 
@@ -3078,7 +3081,7 @@ def test_plot_d4_candidates_no_redundant_axis_titles():
         for lbl in ("+X +Y", "-Y +X", "-X -Y", "+Y -X"):
             assert title.strip() != lbl, (lbl, title)
 
-    import matplotlib.pyplot as plt
+    plt = pytest.importorskip("matplotlib.pyplot")
 
     plt.close(fig)
 
@@ -3310,7 +3313,7 @@ def test_plot_d4_candidates_nan_measurement_titles_have_no_nan():
     )
     for t in _collect_all_titles(fig):
         assert "nan" not in t.lower(), t
-    import matplotlib.pyplot as plt
+    plt = pytest.importorskip("matplotlib.pyplot")
 
     plt.close(fig)
 
@@ -3359,7 +3362,7 @@ def test_plot_d4_candidates_rotation_only_layout():
     for t in _collect_all_titles(fig):
         assert "nan" not in t.lower(), t
 
-    import matplotlib.pyplot as plt
+    plt = pytest.importorskip("matplotlib.pyplot")
 
     plt.close(fig)
 
@@ -3389,7 +3392,7 @@ def test_plot_d4_candidates_suptitle_names_rotation_winner():
     assert "\n" not in sup, sup
     assert "residual" not in sup, sup
 
-    import matplotlib.pyplot as plt
+    plt = pytest.importorskip("matplotlib.pyplot")
 
     plt.close(fig)
 
@@ -3465,7 +3468,7 @@ def test_save_and_visualize_raises_when_png_save_fails(monkeypatch, sessions_roo
     )
     session = wf_i2s.measure(session)
 
-    import matplotlib.figure as mpl_figure
+    mpl_figure = pytest.importorskip("matplotlib.figure")
 
     def _boom(self, *a, **kw):
         raise OSError("disk on fire")

@@ -5,11 +5,12 @@ pinning the helper pins the behavior everywhere: the operator gets a
 quick-look PNG and vector copies to open in Affinity / Illustrator.
 """
 
-import matplotlib
+import pytest
 
+matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from pipeline._figsave import save_figure
+import matplotlib.pyplot as plt  # noqa: E402
+from pipeline._figsave import save_figure  # noqa: E402
 
 
 def _toy_figure():
