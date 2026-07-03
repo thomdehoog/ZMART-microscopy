@@ -1,0 +1,37 @@
+name: CI
+
+# Offline checks only — no microscope and no LAS X installation required.
+# This is the gate that would have caught the driver->drivers path breakage
+# and the undeclared test dependencies.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install package with test extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[test]' ruff
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Offline test suites
+        run: |
+          python -m pytest -q \
+            microscopes/drivers/vendor/leica/navigator_expert/tests/unit \
+            microscopes/drivers/vendor/leica/navigator_expert/tests/hardware \
+            workflows/target_acquisition/tests \
+            microscopes/calibration/vendor/leica/navigator_expert/tests \
+            microscopes/shared/output_layout/tests
