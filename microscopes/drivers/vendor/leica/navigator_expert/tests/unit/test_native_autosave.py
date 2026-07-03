@@ -12,7 +12,7 @@ import navigator_expert as drv
 import numpy as np
 import pytest
 import tifffile
-from navigator_expert.acquisition import capture, materialize
+from navigator_expert.acquisition import capture, materialize, ome_canonical
 from navigator_expert.acquisition import lasx_native_autosave as native
 from navigator_expert.acquisition import navigator_expert_export as exporter
 from navigator_expert.acquisition import save as acquisition
@@ -428,7 +428,7 @@ class TestNativeSave:
             lambda _data: (None, None, None, None, "Not a standard TIFF (magic=43)"),
         )
 
-        raw = materialize.extract_embedded_ome_xml(tiff)
+        raw = ome_canonical.extract_embedded_ome_xml(tiff)
 
         assert b"<OME" in raw
 
@@ -451,7 +451,7 @@ class TestNativeSave:
         materialize.save_vendor_metadata_atomic(
             drv.VendorMetadataSource(
                 name="source_embedded.ome.xml",
-                data=materialize.extract_embedded_ome_xml(tiff),
+                data=ome_canonical.extract_embedded_ome_xml(tiff),
             ),
             vendor_dest,
         )
