@@ -1,8 +1,8 @@
-"""focus.py -- Step 3: build a z-wide focus map.
+"""focus.py -- Step 2c: build a z-wide focus map.
 
 At each focus marker, move XY, run the AF job, read back z-wide,
-fit a surface model. The model is used by Step 4 to command z-wide
-per tile.
+fit a surface model. The model is used by Step 3 (overview) to command
+z-wide per tile.
 
 Model selection:
     1 point or flat Z  → constant (mean z)
@@ -267,7 +267,7 @@ class FocusMap:
 
 @_logged("initialization")
 def build_focus_map(ctx: Context) -> FocusMap:
-    """Step 3: run AF at each focus marker, fit a z-wide surface model.
+    """Step 2c: run AF at each focus marker, fit a z-wide surface model.
 
     Reads focus/autofocus positions from the template, strips the
     template, selects the AF job, moves to each marker, acquires,

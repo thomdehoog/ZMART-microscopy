@@ -78,7 +78,7 @@ def _smart_base_for_exporter(cfg: Config) -> Path:
 
 
 def preflight(cfg: Config, client: Any) -> Context:
-    """Step 0: prepare the world for the pipeline.
+    """Step 1: prepare the world for the pipeline.
 
     Thin wrapper around `_preflight_impl`: tees console output to
     `initialization/logs/initialization.log` — buffered from the start,
@@ -91,7 +91,7 @@ def preflight(cfg: Config, client: Any) -> Context:
 
 
 def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
-    """Step 0: prepare the world for the pipeline.
+    """Step 1: prepare the world for the pipeline.
 
     Args:
         cfg:    operator inputs (frozen).
@@ -364,12 +364,12 @@ def _run_smoke_test(engine: Any, timeout_s: float = 30.0) -> None:
 
     On timeout this **hard-fails** (and shuts down the engine) rather
     than continuing -- a late-completing smoke job would otherwise leak
-    a result into Step 4's buffer. The smoke path is opt-in
+    a result into Step 3's buffer. The smoke path is opt-in
     (`Config.smoke_test_pipeline=True`), so a hard fail is the right
     posture.
 
     Failures are cumulative in the Engine and cannot be removed.
-    Step 4 takes its own failure-count snapshot after preflight returns,
+    Step 3 takes its own failure-count snapshot after preflight returns,
     so preflight smoke failures are excluded from this run's accounting.
     We print + warn here so the operator sees them.
     """
@@ -404,11 +404,11 @@ def _run_smoke_test(engine: Any, timeout_s: float = 30.0) -> None:
             f"Smoke test did not drain within {timeout_s}s "
             f"(pending={s['pending']}, running={s['running']}). "
             f"Engine has been shut down (wait=False) to prevent a late "
-            f"completion from leaking into Step 4. Disable smoke_test_pipeline "
+            f"completion from leaking into Step 3. Disable smoke_test_pipeline "
             f"or investigate the engine, then re-run preflight."
         )
 
-    # Drain any results so they cannot leak into Step 4
+    # Drain any results so they cannot leak into Step 3
     drained = engine.results("overview")
     failures = engine.status("overview")["failures"]
 
@@ -418,8 +418,8 @@ def _run_smoke_test(engine: Any, timeout_s: float = 30.0) -> None:
             print(f"  - step={f.get('step')!r} error={f.get('error')!r}")
         warnings.warn(
             f"Smoke test produced {len(failures)} failure(s). "
-            f"They are historical and will not be counted in Step 4 "
-            f"(Step 4 starts from a fresh failure-count snapshot).",
+            f"They are historical and will not be counted in Step 3 "
+            f"(Step 3 starts from a fresh failure-count snapshot).",
             stacklevel=3,
         )
     else:

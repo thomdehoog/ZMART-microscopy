@@ -2,9 +2,10 @@
 
 The notebook imports only from this package. Re-exports:
 
-- the six numbered step functions executed in order from the notebook:
-  preflight -> prepare_template -> build_focus_map -> run_overview ->
-  select_targets -> acquire_targets -> finish;
+- the numbered step functions executed in order from the notebook:
+  preflight (1) -> prepare_template (2a) -> read_scan_field (2b) ->
+  build_focus_map (2c) -> run_overview (3) -> select_targets (4) ->
+  acquire_targets (5) -> finish (6);
 - the run-scoped types (`Config`, `Context`, `LimitsContext`, `TargetState`),
   the dataclasses each step produces (`Picks`, `OverviewResult`,
   `SelectionResult`, `TargetRecord`, `FocusMap`), and the selection-mode
