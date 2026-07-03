@@ -1,42 +1,48 @@
-From 43fb9761a1647ef2568eefab4744aac417c12e2d Mon Sep 17 00:00:00 2001
-From: Thom de Hoog <thomdehoog@gmail.com>
-Date: Thu, 2 Jul 2026 19:10:17 +0200
+From f1dc7ab08b3479d8ba6a9dbf32cce1834aa87a6b Mon Sep 17 00:00:00 2001
+From: Thom de Hoog <thom.dehoog@zmb.uzh.ch>
+Date: Fri, 3 Jul 2026 13:37:38 +0200
 Subject: [PATCH] Add optional remote scripting server (Tools -> Remote
  Scripting...)
 
 mesoSPIM-control has no external control interface: everything runs in-process
 inside the Qt event loop. The Script Window already runs Python in the live Core
-context (self == Core); this simply makes that reachable from another process
-over a socket, so external tools can script the microscope with the full mesoSPIM
-Python API. Text in, console text out -- no command vocabulary, no data format.
+context (self == Core); this makes that reachable from another process over a
+socket, so external tools can script the microscope with the full mesoSPIM Python
+API. Text in, console text out -- no command vocabulary, no data format.
 
 - mesoSPIM_RemoteScripting.py (new): a signal-driven QTcpServer that, for each
-  received script, runs the EXISTING Core.execute_script with stdout/stderr
-  captured and returns the captured console text. Length-framed UTF-8. Optional
-  shared token (first frame; constant-time compare) gates access. A dropped or
-  crashed client never propagates a Qt error into mesoSPIM (disconnect teardown
-  is guarded against an already-reclaimed socket).
+  received script, runs the EXISTING Core.execute_script and returns its captured
+  console output. Length-framed UTF-8. Optional shared token (first frame,
+  constant-time compare over UTF-8 bytes) gates access. A script's console is
+  captured PER-THREAD, so its output is returned without swapping the process-wide
+  stdout/stderr out from under the other threads. A dropped/crashed client cannot
+  crash mesoSPIM (the disconnect teardown is guarded against an already-reclaimed
+  socket).
 - mesoSPIM_Core: start_remote_scripting(host, port, token) / stop slots, invoked
   via a queued connection so the server lives on the Core's thread (where
-  execute_script runs).
-- mesoSPIM_MainWindow: a "Tools -> Remote Scripting..." menu entry (added in
-  code, no .ui change) with a Start/Stop dialog (host/port/token + generator);
-  stops the server on app close.
+  execute_script runs), plus a sig_remote_scripting_started(ok, message) signal so
+  a bind failure is reported rather than shown as a false "running".
+- mesoSPIM_MainWindow: a "Tools -> Remote Scripting..." menu entry (added in code,
+  no .ui change) with a Start/Stop dialog (host/port/token + generator); reflects
+  the real start outcome; stops on app close.
 
-OFF BY DEFAULT, and secure-by-default when started: the dialog binds to
-127.0.0.1 and pre-fills a freshly generated token, and warns before binding to
-the network with no token. Plain TCP (the token gates casual LAN access, it is
-not sniffer-proof).
+OFF BY DEFAULT and opt-in: the menu appears only when the site sets
+`enable_remote_scripting = True` in its config, so an unmodified install cannot be
+talked into starting it by an accidental menu click. When enabled it is
+secure-by-default -- the dialog binds 127.0.0.1 and pre-fills a fresh token, and
+warns before any network bind without a token. A script is arbitrary Python on the
+acquisition PC; this is plain TCP, so the token gates casual LAN access, it is not
+sniffer-proof (tunnel it for untrusted networks).
 
-Validated against -D demo mode: started from the GUI signal path, a client
-authenticates, reads state, drives the demo stage (self.move_absolute), gets
-structured output via print(json), and sees a raising script's traceback as text
-(no crash). No change to existing behavior -- execute_script is reused unmodified.
+Validated against -D demo mode (both v1.20.0 and release/candidate-py312): started
+from the GUI signal path, a client authenticates, reads state, drives the demo
+stage, gets structured output via print(json), runs an acquisition, and sees a
+raising script's traceback as text (no crash). execute_script is reused unmodified.
 ---
- mesoSPIM/src/mesoSPIM_Core.py            |  37 ++++
- mesoSPIM/src/mesoSPIM_MainWindow.py      | 125 +++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 259 +++++++++++++++++++++++
- 3 files changed, 421 insertions(+)
+ mesoSPIM/src/mesoSPIM_Core.py            |  37 +++
+ mesoSPIM/src/mesoSPIM_MainWindow.py      | 131 ++++++++++
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 312 +++++++++++++++++++++++
+ 3 files changed, 480 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
@@ -88,7 +94,7 @@ index f8495c7..e2ffe61 100644
          '''Switches shutters after each image to allow coalignment of both lightsheets'''
          self.stopflag = False
 diff --git a/mesoSPIM/src/mesoSPIM_MainWindow.py b/mesoSPIM/src/mesoSPIM_MainWindow.py
-index 186d97d..0afaa0e 100644
+index 186d97d..1cccf4a 100644
 --- a/mesoSPIM/src/mesoSPIM_MainWindow.py
 +++ b/mesoSPIM/src/mesoSPIM_MainWindow.py
 @@ -74,6 +74,10 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
@@ -122,7 +128,7 @@ index 186d97d..0afaa0e 100644
          self.camera_window.close()
          self.acquisition_manager_window.close()
          if self.optimizer:
-@@ -380,6 +390,23 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -380,6 +390,29 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
          self.actionOpen_Acquisition_Manager.triggered.connect(self.acquisition_manager_window.show)
          self.actionOpen_Tile_Overview.triggered.connect(self.tile_view_window.show)
          self.actionCascade_windows.triggered.connect(self.cascade_all_windows)
@@ -132,21 +138,27 @@ index 186d97d..0afaa0e 100644
 +        # Tools menu if one is ever added, rather than creating a duplicate.
 +        self._remote_scripting_running = False
 +        self._rs_refresh = None
-+        self.menuTools = None
-+        for _action in self.menuBar.actions():
-+            if _action.menu() is not None and _action.text().replace('&', '') == 'Tools':
-+                self.menuTools = _action.menu()
-+                break
-+        if self.menuTools is None:
-+            self.menuTools = self.menuBar.addMenu('Tools')
-+        self.actionRemoteScripting = QtWidgets.QAction('Remote Scripting...', self)
-+        self.actionRemoteScripting.setStatusTip('Start/stop the external Python scripting server')
-+        self.actionRemoteScripting.triggered.connect(self.open_remote_scripting_dialog)
-+        self.menuTools.addAction(self.actionRemoteScripting)
++        # Opt-in only: expose the menu entry (and thus the ability to start a
++        # remote-code-execution server) only when the site sets
++        # `enable_remote_scripting = True` in its config. An unmodified install
++        # cannot start it by an accidental menu click; the signal/slot path stays
++        # wired for deliberate/programmatic use.
++        if getattr(self.cfg, 'enable_remote_scripting', False):
++            self.menuTools = None
++            for _action in self.menuBar.actions():
++                if _action.menu() is not None and _action.text().replace('&', '') == 'Tools':
++                    self.menuTools = _action.menu()
++                    break
++            if self.menuTools is None:
++                self.menuTools = self.menuBar.addMenu('Tools')
++            self.actionRemoteScripting = QtWidgets.QAction('Remote Scripting...', self)
++            self.actionRemoteScripting.setStatusTip('Start/stop the external Python scripting server')
++            self.actionRemoteScripting.triggered.connect(self.open_remote_scripting_dialog)
++            self.menuTools.addAction(self.actionRemoteScripting)
  
      def initialize_and_connect_widgets(self):
          """ Connecting the menu actions """
-@@ -895,6 +922,104 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -895,6 +928,104 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
      def display_warning(self, string):
          warning = QtWidgets.QMessageBox.warning(None,'mesoSPIM Warning', string, QtWidgets.QMessageBox.Ok)
  
@@ -253,10 +265,10 @@ index 186d97d..0afaa0e 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteScripting.py b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 new file mode 100644
-index 0000000..ba6998d
+index 0000000..2c3e890
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,259 @@
+@@ -0,0 +1,312 @@
 +"""
 +mesoSPIM remote scripting server.
 +=================================
@@ -304,8 +316,9 @@ index 0000000..ba6998d
 +import hmac
 +import io
 +import logging
++import sys
++import threading
 +import traceback
-+from contextlib import redirect_stderr, redirect_stdout
 +
 +logger = logging.getLogger(__name__)
 +
@@ -384,6 +397,40 @@ index 0000000..ba6998d
 +        return ok
 +
 +
++class _ThreadTee:
++    """A stdout/stderr stand-in that always writes through to the real stream and,
++    additionally, to a per-thread capture buffer when one is registered for the
++    calling thread.
++
++    This lets the server capture a script's own console output for the reply
++    *without* hijacking the process-wide stream: a script runs alone on the Core
++    thread, so only that thread has a buffer registered, and every other thread's
++    output still reaches the real console untouched.
++    """
++
++    def __init__(self, real):
++        self._real = real
++        self._buffers = {}
++
++    def register(self, buf):
++        self._buffers[threading.get_ident()] = buf
++
++    def unregister(self):
++        self._buffers.pop(threading.get_ident(), None)
++
++    def write(self, text):
++        buf = self._buffers.get(threading.get_ident())
++        if buf is not None:
++            buf.write(text)
++        return self._real.write(text)
++
++    def flush(self):
++        self._real.flush()
++
++    def __getattr__(self, name):  # delegate isatty/encoding/... to the real stream
++        return getattr(self._real, name)
++
++
 +class RemoteScriptingServer:
 +    """A localhost TCP server that runs received scripts in the Core context.
 +
@@ -413,6 +460,13 @@ index 0000000..ba6998d
 +        self._conn = None
 +        self._decoder = FrameDecoder()
 +        self._auth = AuthGate(self._token)
++        # Tee sys.stdout/stderr so a script's own output can be captured per-thread
++        # (see _ThreadTee / _run_script) without swapping the process-wide stream
++        # out from under the other threads. Restored in stop().
++        self._real_stdout, self._real_stderr = sys.stdout, sys.stderr
++        self._out_tee = _ThreadTee(sys.stdout)
++        self._err_tee = _ThreadTee(sys.stderr)
++        sys.stdout, sys.stderr = self._out_tee, self._err_tee
 +        logger.info(
 +            "Remote scripting listening on %s:%d (token %s)",
 +            self._host,
@@ -497,24 +551,35 @@ index 0000000..ba6998d
 +        self._send(self._run_script(message))
 +
 +    def _run_script(self, script):
-+        """Run ``script`` via the existing Core.execute_script, capturing output.
++        """Run ``script`` via the existing Core.execute_script, capturing its own
++        console output for the reply.
 +
-+        execute_script already runs exec() in the Core context (self == Core) and
-+        prints any traceback; we only redirect stdout/stderr so the client gets
-+        back exactly what the Script Window console would show.
++        execute_script runs exec() in the Core context (self == Core) and prints
++        any traceback. A script runs alone on the Core thread (execute_script blocks
++        it), so we register a capture buffer for THIS thread on the tees installed
++        in __init__ -- capturing the script's stdout/stderr while other threads'
++        output keeps flowing only to the real console. We never swap the
++        process-wide stream out from under them.
 +        """
 +        buf = io.StringIO()
++        self._out_tee.register(buf)
++        self._err_tee.register(buf)
 +        try:
-+            with redirect_stdout(buf), redirect_stderr(buf):
-+                self.core.execute_script(script)
++            self.core.execute_script(script)
 +        except Exception:  # execute_script catches script errors; belt-and-suspenders
 +            buf.write(traceback.format_exc())
++        finally:
++            self._out_tee.unregister()
++            self._err_tee.unregister()
 +        return buf.getvalue()
 +
 +    def stop(self):
 +        if self._conn is not None:
 +            self._drop_client(self._conn)
 +        self._server.close()
++        # Restore the real stdout/stderr we teed in __init__.
++        if getattr(self, "_real_stdout", None) is not None:
++            sys.stdout, sys.stderr = self._real_stdout, self._real_stderr
 +        logger.info("Remote scripting stopped")
 -- 
 2.53.0.windows.1

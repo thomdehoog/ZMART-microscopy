@@ -71,9 +71,11 @@ import mesospim   # registers instrument (vendor=mesospim, api=remote-scripting)
 started it is **token-gated** — do not run it open on anything but localhost.
 
 ### Operator (GUI)
-In mesoSPIM: **Tools → Remote Scripting…**. The dialog pre-fills a fresh **token**
-(keep it — copy it to your client) and binds `127.0.0.1:42000`. Click **Start**.
-(Binding to a non-localhost host with no token is refused with a warning.)
+First **enable it**: set `enable_remote_scripting = True` in your mesoSPIM config (the
+menu is hidden otherwise — an unmodified install can't start it). Then in mesoSPIM:
+**Tools → Remote Scripting…**. The dialog pre-fills a fresh **token** (keep it — copy it
+to your client) and binds `127.0.0.1:42000`. Click **Start**. (Binding to a
+non-localhost host with no token is refused with a warning.)
 
 ### Headless / CI / the `-D` demo
 Use the bundled launcher, which boots the demo offscreen and starts the server with
