@@ -40,7 +40,6 @@ _PROJECT_CONFIG_NAME = "IOManagerConfiguation.xlif"
 class _NativeAutoSaveConfig:
     base_folder: Path
     use_autosave: bool
-    store_separate_folders: bool
     lcf_path: Path
 
 
@@ -136,7 +135,6 @@ def _read_native_autosave_config(
     return _NativeAutoSaveConfig(
         base_folder=Path(base),
         use_autosave=_as_bool(attrs.get("DoUseAutoSave")),
-        store_separate_folders=_as_bool(attrs.get("DoStoreInSeparateFolders")),
         lcf_path=path,
     )
 

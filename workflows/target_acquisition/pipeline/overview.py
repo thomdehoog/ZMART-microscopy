@@ -426,10 +426,11 @@ def run_overview(
 
         new_failures = s.get("failures", [])[failure_count_before:]
 
-        assert n_results + len(new_failures) == n_tiles_submitted, (
-            f"Drain mismatch: {n_results} results + {len(new_failures)} "
-            f"failures != {n_tiles_submitted} submitted"
-        )
+        if n_results + len(new_failures) != n_tiles_submitted:
+            raise RuntimeError(
+                f"Drain mismatch: {n_results} results + {len(new_failures)} "
+                f"failures != {n_tiles_submitted} submitted"
+            )
 
         print(
             f"\n[step 3] Drain complete: {n_results} result(s), "
