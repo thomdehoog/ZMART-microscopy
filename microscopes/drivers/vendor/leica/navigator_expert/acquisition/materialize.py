@@ -123,9 +123,5 @@ def _read_source_plane(image_src: PlaneSource):
         return tif.pages[image_src.page_index].asarray()
 
 
-def extract_embedded_ome_xml(tiff_src: Path) -> bytes:
-    return _canonical.extract_embedded_ome_xml(tiff_src)
-
-
 def _with_tmp_suffix(p: Path) -> Path:
     return p.with_name(p.name + ".tmp")
