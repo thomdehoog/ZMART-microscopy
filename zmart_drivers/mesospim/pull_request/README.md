@@ -28,17 +28,22 @@ opinionated (a command set, error semantics, structured results) lives in the
   read output text   ◀───────────────────◀────────────────────   sends the text back
 ```
 
-## What the PR does — 3 files, ~276 lines
+## What the PR does — 3 files, ~410 lines
 
 | File | Change |
 |---|---|
-| `mesoSPIM/src/mesoSPIM_RemoteScripting.py` | **New.** A signal-driven `QTcpServer`. For each received script it runs the **existing** `Core.execute_script` with stdout/stderr redirected into a buffer, and returns the buffer. Optional shared-token gate (constant-time compare over UTF-8 bytes). |
-| `mesoSPIM/src/mesoSPIM_Core.py` | `start_remote_scripting(host, port, token)` / `stop_remote_scripting()` slots. |
-| `mesoSPIM/src/mesoSPIM_MainWindow.py` | A **Tools → Remote Scripting…** menu entry (added in code, no `.ui` change) with a Start/Stop dialog (host / port / token + generator); stops on app close. |
+| `mesoSPIM/src/mesoSPIM_RemoteScripting.py` | **New.** A signal-driven `QTcpServer`. For each received script it runs the **existing** `Core.execute_script` with stdout/stderr redirected into a buffer, and returns the buffer. Framing + the token gate are factored into socket-free helpers (`frame`, `FrameDecoder`, `AuthGate`) that unit-test without Qt; `QtNetwork` is imported lazily. Constant-time token compare over UTF-8 bytes. A new client preempts a stale one, so a crashed client can't wedge the single-client server. |
+| `mesoSPIM/src/mesoSPIM_Core.py` | `start_remote_scripting(host, port, token)` / `stop_remote_scripting()` slots, plus a `sig_remote_scripting_started(ok, message)` signal so a bind failure (e.g. port in use) is reported instead of the GUI showing a false "running". |
+| `mesoSPIM/src/mesoSPIM_MainWindow.py` | A **Tools → Remote Scripting…** menu entry (added in code, no `.ui` change; reuses an existing Tools menu if present) with a Start/Stop dialog (host / port / token + generator); reflects the real start outcome; stops on app close. |
 
 **`execute_script` is reused unmodified** — the PR only puts a socket in front of
 a method mesoSPIM already has. That is the whole pitch, and why it should be easy
 to review.
+
+**A note on blocking.** A script runs synchronously on the Core's thread (exactly
+as the Script Window does), so the GUI is unresponsive while a script runs. A
+well-behaved client keeps scripts short — start work and return, poll for
+completion in separate calls — rather than sleeping inside one long script.
 
 ## Wire protocol
 
@@ -96,6 +101,11 @@ drove it from a raw socket client:
 - `self.move_absolute({'x_abs':1234,'z_abs':42}, wait_until_done=True)` → the
   **demo stage actually moved** (position became 1234.0 / 42.0);
 - a script that raises → traceback returned as text, no crash.
+
+The framing and token logic also carry **Qt-free unit tests** (frame boundaries,
+oversized input, constant-time compare incl. a non-ASCII token) that run in
+ordinary CI — the socket shell is thin enough that these cover the parts worth
+covering without a live Core.
 
 ## How ZMART builds on it
 
