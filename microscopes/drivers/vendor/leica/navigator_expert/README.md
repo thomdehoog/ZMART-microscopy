@@ -32,10 +32,10 @@ select_job(client, "MyExperiment")
 set_zoom(client, "MyExperiment", 2.0)
 set_scan_speed(client, "MyExperiment", 600)
 
-# 4. Move stage and acquire
+# 4. Move stage and acquire (raises RuntimeError on failure)
 move_xy(client, 65_000, 65_000)
 result = acquire(client, "MyExperiment")
-print(f"Acquired in {result['timing']['total_s']:.1f}s")
+print(f"Acquired in {result.finished_at - result.started_at:.1f}s")
 ```
 
 ---
@@ -135,12 +135,12 @@ print(f"Stage at ({pos['x_um']:.1f}, {pos['y_um']:.1f}) um")
 # Z movement
 move_z(client, "Tiling_10x", 5.0, unit="um", z_mode="galvo")
 
-# Acquire
-result = acquire(client, "Tiling_10x", poll_timeout=300)
-if result["success"]:
-    print(f"Done in {result['timing']['total_s']:.1f}s")
-else:
-    print(f"Failed: {result['message']}")
+# Acquire — returns an AcquisitionResult on success, raises RuntimeError on failure
+try:
+    result = acquire(client, "Tiling_10x", poll_timeout=300)
+    print(f"Done in {result.finished_at - result.started_at:.1f}s")
+except RuntimeError as exc:
+    print(f"Failed: {exc}")
 ```
 
 ---
@@ -159,14 +159,14 @@ the command profile in `runtime/profiles.py`.
 
 | Function | Signature | Returns |
 |----------|-----------|---------|
-| `ping` | `(client, timeout=5)` | `bool` |
-| `get_scan_status` | `(client)` | Status string (e.g. `"eIdle"`, `"eScanRunning"`) |
-| `get_jobs` | `(client, timeout=15, poll_interval=0.05, max_retries=3)` | List of job dicts or `None` |
+| `ping` | `(client)` | `bool` |
+| `get_scan_status` | `(client)` | Status string (e.g. `"eScanIdle"`, `"eScanRunning"`) |
+| `get_jobs` | `(client, timeout=1.0, poll_interval=0.01, max_retries=3)` | List of job dicts or `None` |
 | `get_job_by_name` | `(client, job_name, **kwargs)` | Job dict or `None` |
 | `get_selected_job` | `(client, **kwargs)` | Selected job dict or `None` |
-| `get_job_settings` | `(client, job_name, timeout=15, poll_interval=0.05, max_retries=3)` | Settings dict or `None` |
-| `get_hardware_info` | `(client, timeout=15, poll_interval=0.05, max_retries=3)` | Hardware dict or `None` |
-| `get_xy` | `(client, timeout=15, poll_interval=0.05, max_retries=3)` | `{"x", "y", "x_um", "y_um"}` or `None` |
+| `get_job_settings` | `(client, job_name, timeout=1.0, poll_interval=0.01, max_retries=3)` | Settings dict or `None` |
+| `get_hardware_info` | `(client, timeout=1.0, poll_interval=0.01, max_retries=3)` | Hardware dict or `None` |
+| `get_xy` | `(client, timeout=1.0, poll_interval=0.01, max_retries=3)` | `{"x", "y", "x_um", "y_um"}` or `None` |
 
 `get_xy` returns positions in both meters (`x`, `y`) and micrometers (`x_um`, `y_um`).
 
@@ -265,9 +265,12 @@ Moves the Z drive.
 
 ### Acquisition & Job Selection
 
-**`acquire(client, job_name, poll_interval=None, poll_timeout=None, heartbeat_interval=None, start_timeout=None, pre_check_timeout=None)`**
+**`acquire(client, job, *, poll_interval=None, poll_timeout=None, heartbeat_interval=None, start_timeout=None, pre_check_timeout=None)`**
 
-Triggers acquisition once and blocks until the scan completes. Returns timing in `result["timing"]["total_s"]`.
+Triggers acquisition once and blocks until the scan completes. Returns a frozen
+`AcquisitionResult` (`job`, `started_at`, `finished_at`, `command_result`) and
+**raises `RuntimeError`** if the acquisition does not succeed — it does not
+return a failure result.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -346,7 +349,9 @@ Fields prefixed with `_` (`_beamRoute`, `_lineIndex`, `_index`, `_name`) are nor
 
 ## Result Dictionary
 
-Every command function returns a result dict with this shape:
+Every `set_*` / `move_*` / `select_job` command returns a result dict with this
+shape. (The facade's `acquire` is the exception: it returns an
+`AcquisitionResult` dataclass and raises on failure — see above.)
 
 ```python
 {
