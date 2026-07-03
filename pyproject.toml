@@ -1,3 +1,33 @@
+[project]
+name = "zmart-microscopy"
+version = "0.0.0"
+description = "Smart-microscopy drivers and workflows (Leica Navigator Expert)."
+requires-python = ">=3.10"
+# Core runtime dependency shared by driver and workflow.
+dependencies = [
+    "numpy",
+]
+
+[project.optional-dependencies]
+# Image I/O and OME validation used by the acquisition/save path.
+io = ["tifffile", "ome-types"]
+# Figure rendering and notebook display used by the workflow pipeline.
+viz = ["matplotlib", "ipython"]
+# Registration/focus math used by the calibration package.
+calibration = ["opencv-python-headless", "scikit-image", "scipy", "pandas"]
+# Everything needed to run the offline test suites.
+test = [
+    "pytest",
+    "tifffile",
+    "ome-types",
+    "matplotlib",
+    "ipython",
+    "opencv-python-headless",
+    "scikit-image",
+    "scipy",
+    "pandas",
+]
+
 [tool.ruff]
 target-version = "py310"
 line-length = 100

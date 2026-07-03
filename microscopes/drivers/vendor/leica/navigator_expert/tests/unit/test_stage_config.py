@@ -77,7 +77,8 @@ def test_limits_paths_are_separate_from_calibration_state():
     assert stage_config.current_path() == current_limits
     assert stage_config.defaults_path() == default_limits
     assert stage_config.default_calibration_path() == calibration
-    assert current_limits.exists()
+    # current.json is a runtime artifact (gitignored); only defaults.json is
+    # committed, so we assert the path mapping, not the artifact's existence.
     assert default_limits.exists()
     assert calibration.exists()
     assert json.loads(default_limits.read_text(encoding="utf-8"))["schema_version"] == 1
