@@ -11,7 +11,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # machine dir
 sys.path.insert(0, str(Path(__file__).resolve().parents[6]))  # repo root (zmart_controller)
@@ -315,8 +315,9 @@ class TestFrame(unittest.TestCase):
 class TestAcquire(unittest.TestCase):
     def _jobs(self):
         return [
-            {"Name": "Overview", "IsSelected": True},
-            {"Name": "HiRes", "IsSelected": False},
+            {"Name": "Overview", "IsSelected": True, "IsAutofocus": False},
+            {"Name": "HiRes", "IsSelected": False, "IsAutofocus": False},
+            {"Name": "AF Job", "IsSelected": False, "IsAutofocus": True},
         ]
 
     def test_options_discovered_from_live_jobs(self):
@@ -326,8 +327,10 @@ class TestAcquire(unittest.TestCase):
             patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
         ):
             opts = adapter.get_acquisition_options(h)
+        # autofocus jobs are a separate category, never acquisition options
         self.assertEqual(opts["job"]["options"], ["Overview", "HiRes"])
         self.assertEqual(opts["job"]["active"], "Overview")
+        self.assertEqual(opts["strip_scan_fields"]["active"], True)  # default on
         self.assertEqual(opts["format"]["active"], "ome-tiff")
         self.assertEqual(opts["exporter"]["active"], "navigator_expert")
         self.assertEqual(opts["cleanup_source"]["active"], False)
@@ -382,6 +385,7 @@ class TestAcquire(unittest.TestCase):
             patch.object(adapter._capture, "acquire", fake_capture),
             patch.object(adapter._save, "save", fake_save),
             patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
+            patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
             patches[2],
         ):
             record = adapter.acquire(
@@ -402,6 +406,60 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(record["settle"], "direct")
         self.assertEqual([Path(p) for p in record["images"]], [Path("/tmp/out/img.ome.tif")])
 
+    def _acquire_with_template_state(self, state, strip_result=None, options=None):
+        """Run acquire with the scanfield layer patched; returns the calls list."""
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
+        calls = []
+        patches = _patch_position(job="Overview")
+        with (
+            patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(adapter._commands, "select_job", return_value={"success": True}),
+            patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
+            patch.object(
+                adapter._capture,
+                "acquire",
+                side_effect=lambda client, job, **k: (
+                    calls.append("capture") or SimpleNamespace(job=job)
+                ),
+            ),
+            patch.object(
+                adapter._save,
+                "save",
+                return_value=SimpleNamespace(image_paths={}, xml_paths={}, naming=None),
+            ),
+            patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
+            patch.object(adapter._scanfields, "get_template_state", return_value=state),
+            patch.object(
+                adapter._scanfields,
+                "strip_template",
+                side_effect=lambda client, **k: calls.append("strip") or strip_result,
+            ),
+            patches[2],
+        ):
+            adapter.acquire(h, acquisition_type="prescan", position_label="1", options=options)
+        return calls
+
+    def test_acquire_strips_an_unstripped_template_before_capturing(self):
+        calls = self._acquire_with_template_state("unstripped", strip_result={"success": True})
+        self.assertEqual(calls, ["strip", "capture"])
+
+    def test_acquire_skips_the_strip_when_already_stripped(self):
+        self.assertEqual(self._acquire_with_template_state("stripped"), ["capture"])
+
+    def test_acquire_strip_can_be_opted_out(self):
+        calls = self._acquire_with_template_state(
+            "unstripped", options={"strip_scan_fields": False}
+        )
+        self.assertEqual(calls, ["capture"])
+
+    def test_acquire_refuses_an_unreadable_template(self):
+        with self.assertRaisesRegex(RuntimeError, "unreadable"):
+            self._acquire_with_template_state("unreadable")
+
+    def test_acquire_refuses_when_the_strip_fails(self):
+        with self.assertRaisesRegex(RuntimeError, "could not strip"):
+            self._acquire_with_template_state("unstripped", strip_result=None)
+
 
 class TestStateAndProcedures(unittest.TestCase):
     _HW = {
@@ -416,7 +474,10 @@ class TestStateAndProcedures(unittest.TestCase):
         },
     }
 
-    def _state_patches(self, jobs=("Overview", "HiRes")):
+    def _state_patches(self, jobs=("Overview", "HiRes"), af_jobs=("AF Job",)):
+        catalog = [
+            {"Name": n, "IsSelected": n == "Overview", "IsAutofocus": False} for n in jobs
+        ] + [{"Name": n, "IsSelected": False, "IsAutofocus": True} for n in af_jobs]
         return (
             patch.object(adapter._readers, "get_hardware_info", return_value=dict(self._HW)),
             patch.object(
@@ -424,11 +485,7 @@ class TestStateAndProcedures(unittest.TestCase):
                 "get_selected_job",
                 return_value={"Name": "Overview", "IsSelected": True},
             ),
-            patch.object(
-                adapter._readers,
-                "get_jobs",
-                return_value=[{"Name": n, "IsSelected": n == "Overview"} for n in jobs],
-            ),
+            patch.object(adapter._readers, "get_jobs", return_value=catalog),
         )
 
     def test_state_shape_changeable_first_then_observed(self):
@@ -445,9 +502,19 @@ class TestStateAndProcedures(unittest.TestCase):
         self.assertEqual(observed["system_type"], "CONFOCAL")
         self.assertEqual(observed["stand"], "DM Manual-6")
         self.assertEqual(observed["objectives"], [[0, 506511], [1, 506513]])
-        # the rich readings ride along: the full selected-job record + catalog
+        # the rich readings ride along: the full selected-job record + catalog,
+        # with autofocus jobs as their own category
         self.assertEqual(observed["job"]["Name"], "Overview")
         self.assertEqual([j["Name"] for j in observed["jobs"]], ["Overview", "HiRes"])
+        self.assertEqual([j["Name"] for j in observed["autofocus_jobs"]], ["AF Job"])
+
+    def test_set_state_refuses_an_autofocus_job(self):
+        h = _handle()
+        p = self._state_patches()
+        with p[0], p[1], p[2], patch.object(adapter._commands, "select_job") as select:
+            with self.assertRaisesRegex(ValueError, "autofocus"):
+                adapter.set_state(h, {"changeable": {"job": "AF Job"}})
+        select.assert_not_called()
 
     def test_set_state_applies_changeable_ignoring_observed(self):
         h = _handle()
@@ -477,7 +544,11 @@ class TestStateAndProcedures(unittest.TestCase):
 
     def test_procedures(self):
         h = _handle()
-        self.assertIn("backlash_takeup", adapter.get_procedures(h))
+        p = self._state_patches()
+        with p[2]:
+            procedures = adapter.get_procedures(h)
+        self.assertIn("backlash_takeup", procedures)
+        self.assertEqual(procedures["autofocus"]["jobs"], ["AF Job"])
         with patch.object(adapter._motion, "correct_backlash", lambda client, **k: None):
             self.assertEqual(
                 adapter.set_procedure(h, {"name": "backlash_takeup"})["ran"]["name"],
@@ -485,6 +556,186 @@ class TestStateAndProcedures(unittest.TestCase):
             )
         with self.assertRaises(ValueError):
             adapter.set_procedure(h, {"name": "nope"})
+
+    def test_autofocus_runs_capture_only_and_restores_the_selection(self):
+        from types import SimpleNamespace
+
+        h = _handle()
+        calls = []
+        p = self._state_patches()
+        position = _patch_position(z_wide_um=42.0, z_galvo_um=1.5)
+        with (
+            p[2],  # job catalog (AF Job flagged)
+            position[0],
+            position[1],
+            position[2],
+            position[3],
+            patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
+            patch.object(
+                adapter._commands,
+                "select_job",
+                side_effect=lambda client, job, **k: (
+                    calls.append(("select", job)) or {"success": True}
+                ),
+            ),
+            patch.object(
+                adapter._capture,
+                "acquire",
+                side_effect=lambda client, job, **k: (
+                    calls.append(("acquire", job))
+                    or SimpleNamespace(job=job, started_at=1.0, finished_at=3.5)
+                ),
+            ),
+        ):
+            result = adapter.set_procedure(h, {"name": "autofocus"})  # single AF job: no arg
+        # select AF -> capture -> restore the original selection, in order
+        self.assertEqual(
+            calls, [("select", "AF Job"), ("acquire", "AF Job"), ("select", "Overview")]
+        )
+        self.assertEqual(result["ran"], "autofocus")
+        self.assertEqual(result["job"], "AF Job")
+        self.assertEqual(result["focus_um"], 43.5)  # 42.0 + 1.5, read before restore
+        self.assertEqual(result["frame_z_um"], 43.5)  # all-zero origin
+        self.assertEqual(result["duration_s"], 2.5)
+
+    def test_autofocus_strips_an_unstripped_template_first(self):
+        h = _handle()
+        p = self._state_patches()
+        strip = MagicMock(return_value={"success": True})
+        position = _patch_position()
+        with (
+            p[2],
+            position[0],
+            position[1],
+            position[2],
+            position[3],
+            patch.object(adapter._scanfields, "get_template_state", return_value="unstripped"),
+            patch.object(adapter._scanfields, "strip_template", strip),
+            patch.object(adapter._commands, "select_job", return_value={"success": True}),
+            patch.object(
+                adapter._capture,
+                "acquire",
+                return_value=SimpleNamespace(job="AF Job", started_at=0.0, finished_at=1.0),
+            ),
+        ):
+            adapter.set_procedure(h, {"name": "autofocus"})
+        strip.assert_called_once()
+
+    def test_autofocus_rejects_a_normal_job(self):
+        h = _handle()
+        p = self._state_patches()
+        with p[2]:
+            with self.assertRaisesRegex(ValueError, "not an autofocus job"):
+                adapter.set_procedure(h, {"name": "autofocus", "job": "Overview"})
+
+    def test_autofocus_requires_a_choice_when_several_exist(self):
+        h = _handle()
+        p = self._state_patches(af_jobs=("AF Job", "AF Fine"))
+        with p[2]:
+            with self.assertRaisesRegex(ValueError, "multiple autofocus jobs"):
+                adapter.set_procedure(h, {"name": "autofocus"})
+
+    def test_autofocus_without_af_jobs_is_a_clear_error(self):
+        h = _handle()
+        p = self._state_patches(af_jobs=())
+        with p[2]:
+            with self.assertRaisesRegex(RuntimeError, "no autofocus job"):
+                adapter.set_procedure(h, {"name": "autofocus"})
+
+
+class TestScanFieldContext(unittest.TestCase):
+    """get_context().scan_field: template positions, typed, in both spaces."""
+
+    _PARSED = {
+        "acquisition_positions": {
+            "0": {
+                "job_name": "HiRes",
+                "positions": [
+                    {"row": 0, "col": 0, "x_um": 1100.0, "y_um": 2200.0, "z_um": 40.0},
+                    {"row": 0, "col": 1, "x_um": 1150.0, "y_um": 2200.0, "z_um": 41.0},
+                ],
+            }
+        },
+        "focus_points": [
+            {"identifier": "F1", "x_um": 1500.0, "y_um": 2500.0, "z_um": 33.0, "enabled": True}
+        ],
+        "autofocus_points": [
+            {"identifier": "AF1", "x_um": 1600.0, "y_um": 2600.0, "z_um": 35.0, "enabled": True}
+        ],
+        "geometries": {
+            "g1": {"type": "Point", "center_um": {"x_um": 1050.0, "y_um": 2050.0}, "label": "A"},
+            "g2": {"type": "Rectangle", "center_um": {"x_um": 9.0, "y_um": 9.0}},
+        },
+    }
+
+    def _context(self, parsed=None, save_result=None, templates_dir="X:/tpl"):
+        h = _handle(origin=_origin(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_focus_um=30.0))
+        calls = []
+        position = _patch_position()
+        save_result = {"success": True} if save_result is None else save_result
+        with (
+            position[0],
+            position[1],
+            position[2],
+            position[3],
+            patch.object(
+                adapter._scanfields,
+                "find_scanning_templates_dir",
+                return_value=None if templates_dir is None else Path(templates_dir),
+            ),
+            patch.object(
+                adapter._scanfields,
+                "save_experiment",
+                side_effect=lambda *a, **k: calls.append("save") or save_result,
+            ),
+            patch.object(
+                adapter._scanfields,
+                "parse_scan_positions",
+                side_effect=lambda *a, **k: (
+                    calls.append("parse") or dict(parsed if parsed is not None else self._PARSED)
+                ),
+            ),
+            patch.object(adapter._scanfields, "get_template_state", return_value="unstripped"),
+        ):
+            return adapter.get_context(h), calls
+
+    def test_positions_are_typed_and_in_both_spaces(self):
+        context, calls = self._context()
+        self.assertEqual(calls, ["save", "parse"])  # always flush before parsing
+        field = context["scan_field"]
+        self.assertEqual(field["template_state"], "unstripped")
+        by_kind = {}
+        for position in field["positions"]:
+            by_kind.setdefault(position["kind"], []).append(position)
+        # grid tiles carry their group and job; frame = stage - origin
+        first = by_kind["grid"][0]
+        self.assertEqual(first["group"], {"region": "0", "row": 0, "col": 0})
+        self.assertEqual(first["job"], "HiRes")
+        self.assertEqual(first["stage"], {"x_um": 1100.0, "y_um": 2200.0, "z_um": 40.0})
+        self.assertEqual(first["frame"], {"x_um": 100.0, "y_um": 200.0, "z_um": 10.0})
+        self.assertEqual(len(by_kind["grid"]), 2)
+        # focus and autofocus points are distinct kinds
+        self.assertEqual(by_kind["focus-point"][0]["id"], "F1")
+        self.assertEqual(by_kind["focus-point"][0]["frame"]["z_um"], 3.0)
+        self.assertEqual(by_kind["autofocus-point"][0]["id"], "AF1")
+        # point markers come through with their label; other shapes do not
+        marker = by_kind["marker"][0]
+        self.assertEqual(marker["label"], "A")
+        self.assertEqual(marker["frame"]["x_um"], 50.0)
+        self.assertIsNone(marker["frame"]["z_um"])
+        self.assertEqual(len(field["positions"]), 5)
+
+    def test_no_templates_profile_reports_none(self):
+        context, calls = self._context(templates_dir=None)
+        self.assertIsNone(context["scan_field"])
+        self.assertEqual(calls, [])  # nothing saved, nothing parsed
+
+    def test_unconfirmed_save_degrades_to_none(self):
+        # get_context is informational: a stale template must not raise.
+        context, calls = self._context(save_result=False)
+        self.assertIsNone(context["scan_field"])
+        self.assertEqual(calls, ["save"])
+        self.assertEqual(context["session_hash6"], "000abc")  # rest of the context intact
 
 
 class TestObjectiveCompensation(unittest.TestCase):
@@ -813,7 +1064,9 @@ class TestFunctionLimits(unittest.TestCase):
         self.assertIsNotNone(limits)
         limits.check("set_xyz", {"x_um": 2500.0})
         with self.assertRaises(adapter._shared_limits.LimitViolation):
-            limits.check("set_xyz", {"x_um": 1500.0})  # inside the bundled envelope, outside the machine's
+            limits.check(
+                "set_xyz", {"x_um": 1500.0}
+            )  # inside the bundled envelope, outside the machine's
 
     def test_unknown_machine_axis_fails_closed(self):
         """An envelope the file can't represent must refuse mutations, not skip the axis."""

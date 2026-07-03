@@ -117,6 +117,8 @@ def _confirm_live_write(args: argparse.Namespace) -> bool:
         parts.append("set_origin + small XY/Z moves (restored)")
     if args.allow_state:
         parts.append("a job switch + restore (set_state)")
+    if args.allow_autofocus:
+        parts.append("one autofocus run")
     if args.allow_acquire:
         parts.append("one acquire")
     if not parts:
@@ -378,6 +380,32 @@ def phase_state(v: vh.Validator, sess: Any) -> None:
             v.compare("state: restored", restored["changeable"]["job"], original)
 
 
+def phase_autofocus(v: vh.Validator, sess: Any) -> None:
+    """Run the autofocus procedure end-to-end; the selection must survive it."""
+    with v.phase("autofocus (procedure)"):
+        procedures = v.callable("get_procedures", sess.get_procedures)
+        if not procedures:
+            return
+        af_jobs = (procedures.get("autofocus") or {}).get("jobs") or []
+        if not af_jobs:
+            v.skip("autofocus: run", "no autofocus job on this instrument")
+            return
+        before = _get_state_settled(sess)["changeable"]["job"]
+        result = v.callable(
+            "autofocus: run",
+            lambda: sess.set_procedure({"name": "autofocus", "job": af_jobs[0]}),
+        )
+        if result:
+            v.compare(
+                "autofocus: reports a numeric focus",
+                isinstance(result.get("focus_um"), (int, float)),
+                True,
+            )
+        after = v.callable("get_state: after autofocus (settled)", lambda: _get_state_settled(sess))
+        if after:
+            v.compare("autofocus: selection restored", after["changeable"]["job"], before)
+
+
 def phase_acquire(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
     """One real capture+save through the controller into the scratch output root."""
     if args.mock:
@@ -426,6 +454,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--allow-move", action="store_true", help="set_origin + set_xyz round-trip")
     p.add_argument(
         "--allow-state", action="store_true", help="get/set_state round-trip (switches jobs)"
+    )
+    p.add_argument(
+        "--allow-autofocus", action="store_true", help="run the autofocus procedure once"
     )
     p.add_argument("--allow-acquire", action="store_true", help="one capture+save")
 
@@ -504,6 +535,10 @@ def main(argv: list[str] | None = None) -> int:
                 phase_state(v, sess)
             else:
                 v.skip("phase: state", "use --allow-state to enable")
+            if args.allow_autofocus:
+                phase_autofocus(v, sess)
+            else:
+                v.skip("phase: autofocus", "use --allow-autofocus to enable")
             if args.allow_acquire:
                 phase_acquire(v, sess, args)
             else:

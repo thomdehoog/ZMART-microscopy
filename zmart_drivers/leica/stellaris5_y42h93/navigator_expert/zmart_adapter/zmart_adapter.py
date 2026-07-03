@@ -72,6 +72,7 @@ from shared.output_layout.naming import run_hash
 from zmart_controller import registry as _registry
 
 from .. import readers as _readers
+from .. import scanfields as _scanfields
 from ..acquisition import capture as _capture
 from ..acquisition import save as _save
 from ..calibration.core import model as _cal_model
@@ -227,8 +228,7 @@ def _load_function_limits(stage_cfg: dict | None) -> Any | None:
         )
     except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
         log.warning(
-            "function limits unavailable (%s); every mutating op will refuse "
-            "until %s loads",
+            "function limits unavailable (%s); every mutating op will refuse until %s loads",
             exc,
             _machine.FUNCTION_LIMITS_FILENAME,
         )
@@ -429,6 +429,18 @@ def _selected_job_name(handle: ZmartHandle) -> str:
     return name
 
 
+def _job_catalog(handle: ZmartHandle) -> tuple[list[dict], list[dict]]:
+    """The live job catalog split into (normal, autofocus) jobs.
+
+    Autofocus jobs are a separate category: they never appear as acquisition
+    or state options and run only through the ``autofocus`` procedure.
+    """
+    jobs = _readers.get_jobs(handle.client, mode="api") or []
+    normal = [dict(j) for j in jobs if not j.get("IsAutofocus")]
+    autofocus = [dict(j) for j in jobs if j.get("IsAutofocus")]
+    return normal, autofocus
+
+
 def set_origin(handle: ZmartHandle) -> dict:
     """The current position becomes (0, 0, 0) of the controller frame.
 
@@ -614,15 +626,18 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
     Discovered live on every call: ``job`` lists the LAS X jobs with the
     selected one active; ``exporter`` and ``cleanup_source`` are forwarded
     to the driver's ``save()``; ``backlash_correction`` runs an XY slack
-    takeup before capture.
+    takeup before capture; ``strip_scan_fields`` (Leica-specific, default
+    on) empties the scanning template before the capture so LAS X acquires
+    the single current position, never a stored scan-field pattern.
     """
     _require_open(handle)
-    jobs = _readers.get_jobs(handle.client, mode="api") or []
-    names = [j["Name"] for j in jobs if j.get("Name")]
-    selected = next((j["Name"] for j in jobs if j.get("IsSelected")), None)
+    normal, _ = _job_catalog(handle)
+    names = [j["Name"] for j in normal if j.get("Name")]
+    selected = next((j["Name"] for j in normal if j.get("IsSelected")), None)
     return {
         "job": {"options": names, "active": selected},
         "backlash_correction": {"options": [True, False], "active": True},
+        "strip_scan_fields": {"options": [True, False], "active": True},
         "format": {"options": ["ome-tiff"], "active": "ome-tiff"},
         "exporter": {
             "options": ["navigator_expert", "lasx_native_autosave"],
@@ -646,6 +661,27 @@ def _with_defaults(handle: ZmartHandle, options: dict | None) -> dict:
             )
         resolved[name] = value
     return resolved
+
+
+def _ensure_scan_fields_stripped(handle: ZmartHandle) -> None:
+    """Empty the scanning template before a capture.
+
+    A template carrying scan fields makes LAS X acquire the stored pattern
+    instead of the single current position. Sidecar strip only (never
+    in-place): the operator's canonical template files stay on disk and
+    ``drv.restore_template`` can bring the fields back. Cheap when there is
+    nothing to do — "stripped" and "fresh" return immediately.
+    """
+    state = _scanfields.get_template_state()
+    if state in ("stripped", "fresh"):
+        return
+    if state == "unreadable":
+        raise RuntimeError(
+            "scanning template is unreadable; cannot verify the scan field is empty — "
+            "fix or remove the template, or pass options={'strip_scan_fields': False}"
+        )
+    if not _scanfields.strip_template(handle.client):
+        raise RuntimeError("could not strip the scanning template before acquiring")
 
 
 def _assign_p_slot(handle: ZmartHandle, position_label: str) -> int:
@@ -702,6 +738,11 @@ def acquire(
     job = resolved["job"]
     if not job:
         raise RuntimeError("no LAS X job selected and none passed via options['job']")
+
+    # Strip BEFORE selecting: stripping reloads the experiment, which could
+    # otherwise undo the selection.
+    if resolved["strip_scan_fields"]:
+        _ensure_scan_fields_stripped(handle)
 
     if job != _selected_job_name(handle):
         select = _commands.select_job(handle.client, job)
@@ -765,7 +806,7 @@ def get_state(handle: ZmartHandle) -> dict:
     selected = _readers.get_selected_job(handle.client, mode="api") or {}
     if not selected.get("Name"):
         raise RuntimeError("could not determine the selected LAS X job")
-    jobs = _readers.get_jobs(handle.client, mode="api") or []
+    normal, autofocus = _job_catalog(handle)
     return {
         "changeable": {"job": selected["Name"]},
         "observed": {
@@ -779,7 +820,8 @@ def get_state(handle: ZmartHandle) -> dict:
                 for o in (microscope.get("objectives") or [])
             ],
             "job": dict(selected),
-            "jobs": [dict(j) for j in jobs],
+            "jobs": normal,
+            "autofocus_jobs": autofocus,
             # Which function-limits file governs this session (evidence, not
             # an instruction): path, source tag, and whether it is the
             # bundled fallback. None when limits failed to load (every
@@ -806,8 +848,13 @@ def set_state(handle: ZmartHandle, state: dict) -> dict:
     applied: dict[str, Any] = {}
     job = (state.get("changeable") or {}).get("job")
     if job and job != _selected_job_name(handle):
-        jobs = _readers.get_jobs(handle.client, mode="api") or []
-        names = [j.get("Name") for j in jobs if j.get("Name")]
+        normal, autofocus = _job_catalog(handle)
+        names = [j.get("Name") for j in normal if j.get("Name")]
+        if job in (j.get("Name") for j in autofocus):
+            raise ValueError(
+                f"{job!r} is an autofocus job — run it via the 'autofocus' "
+                "procedure (set_procedure), not as state"
+            )
         if job not in names:
             raise ValueError(
                 f"job {job!r} no longer exists on this instrument (available: {names})"
@@ -820,11 +867,18 @@ def set_state(handle: ZmartHandle, state: dict) -> dict:
 
 
 def get_procedures(handle: ZmartHandle) -> dict:
-    """The named procedures this instrument offers."""
+    """The named procedures this instrument offers (discover-then-apply)."""
     _require_open(handle)
+    _, autofocus = _job_catalog(handle)
     return {
         "backlash_takeup": {
             "description": "pin the XY leadscrew slack at the current position (+X +Y approach)"
+        },
+        "autofocus": {
+            "description": "run a LAS X autofocus job (capture only, nothing saved); "
+            "restores the previously selected job and returns the focus readback",
+            "args": ["job"],
+            "jobs": [j["Name"] for j in autofocus if j.get("Name")],
         },
     }
 
@@ -837,7 +891,58 @@ def set_procedure(handle: ZmartHandle, procedure: dict) -> dict:
     if name == "backlash_takeup":
         _motion.correct_backlash(handle.client)
         return {"ran": dict(procedure)}
+    if name == "autofocus":
+        return _run_autofocus(handle, procedure)
     raise ValueError(f"unknown procedure {name!r}")
+
+
+def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
+    """Select the autofocus job, run it capture-only, restore the selection.
+
+    ``job`` names the autofocus job; it may be omitted when the instrument
+    has exactly one. Nothing is saved — the result is the focus readback
+    right after the run (before the selection is restored), in both
+    hardware and frame terms. The scanning template is stripped first,
+    like every capture (an autofocus must run at the current position,
+    never a stored pattern).
+    """
+    _, autofocus = _job_catalog(handle)
+    names = [j["Name"] for j in autofocus if j.get("Name")]
+    if not names:
+        raise RuntimeError("no autofocus job exists on this instrument")
+    job = procedure.get("job")
+    if job is None:
+        if len(names) > 1:
+            raise ValueError(f"multiple autofocus jobs; pass 'job' (available: {names})")
+        job = names[0]
+    elif job not in names:
+        raise ValueError(f"{job!r} is not an autofocus job (available: {names})")
+
+    _ensure_scan_fields_stripped(handle)
+    original = _selected_job_name(handle)
+    if job != original:
+        selected = _commands.select_job(handle.client, job)
+        if not selected.get("success"):
+            raise RuntimeError(f"select_job('{job}') failed: {selected}")
+    try:
+        acq = _capture.acquire(handle.client, job)
+        # Read the focus result BEFORE restoring the selection: restoring
+        # could reposition (jobs own objective state).
+        snap = _hardware_snapshot(handle)
+    finally:
+        if job != original:
+            restored = _commands.select_job(handle.client, original)
+            if not restored.get("success"):
+                log.warning("could not restore job %r after autofocus: %s", original, restored)
+    focus = snap["z_wide_um"] + snap["z_galvo_um"]
+    dt = _delta_or_warn(handle, snap)
+    return {
+        "ran": "autofocus",
+        "job": job,
+        "focus_um": focus,
+        "frame_z_um": focus - handle.origin["z_focus_um"] - dt[2],
+        "duration_s": acq.finished_at - acq.started_at,
+    }
 
 
 # =============================================================================
@@ -845,20 +950,115 @@ def set_procedure(handle: ZmartHandle, procedure: dict) -> dict:
 # =============================================================================
 
 
+def _scan_field(handle: ZmartHandle) -> dict | None:
+    """Positions and focus points the operator stored in the scanning template.
+
+    Saves the experiment first (the parsers read the on-disk template; a
+    load alone does not flush it), then reports every stored position as a
+    typed entry in BOTH coordinate spaces — grid positions name the region
+    group they belong to. Template z values are treated as focus positions
+    (the same convention as the frame's z axis). None when this machine has
+    no LAS X scanning-templates profile.
+
+    Read this BEFORE acquiring: the default ``strip_scan_fields``
+    acquisition option empties the template.
+    """
+    templates_dir = _scanfields.find_scanning_templates_dir()
+    if templates_dir is None:
+        return None
+    saved = _scanfields.save_experiment(
+        handle.client,
+        _scanfields.TEMPLATE_XML,
+        templates_dir,
+        timeout=60,
+        confirm_path=Path(templates_dir) / _scanfields.TEMPLATE_RGN,
+    )
+    if not saved:
+        raise RuntimeError("save_experiment did not confirm; the template on disk may be stale")
+    parsed = _scanfields.parse_scan_positions(
+        templates_dir, _scanfields.TEMPLATE_BASE, client=handle.client
+    )
+    dt = _delta_or_warn(handle, _hardware_snapshot(handle))
+    origin = handle.origin
+
+    def entry(kind: str, x_um: float, y_um: float, z_um: float | None, **meta: Any) -> dict:
+        return {
+            "kind": kind,
+            "frame": {
+                "x_um": x_um - origin["x_um"] - dt[0],
+                "y_um": y_um - origin["y_um"] - dt[1],
+                "z_um": None if z_um is None else z_um - origin["z_focus_um"] - dt[2],
+            },
+            "stage": {"x_um": x_um, "y_um": y_um, "z_um": z_um},
+            **meta,
+        }
+
+    positions = []
+    for region_key, region in (parsed.get("acquisition_positions") or {}).items():
+        for tile in region.get("positions") or []:
+            positions.append(
+                entry(
+                    "grid",
+                    tile["x_um"],
+                    tile["y_um"],
+                    tile.get("z_um"),
+                    group={"region": region_key, "row": tile.get("row"), "col": tile.get("col")},
+                    job=region.get("job_name"),
+                )
+            )
+    for kind, points in (
+        ("focus-point", parsed.get("focus_points") or []),
+        ("autofocus-point", parsed.get("autofocus_points") or []),
+    ):
+        for point in points:
+            positions.append(
+                entry(
+                    kind,
+                    point["x_um"],
+                    point["y_um"],
+                    point.get("z_um"),
+                    id=point.get("identifier"),
+                    enabled=point.get("enabled", True),
+                )
+            )
+    for geometry in (parsed.get("geometries") or {}).values():
+        center = geometry.get("center_um") or {}
+        if geometry.get("type") == "Point" and center.get("x_um") is not None:
+            positions.append(
+                entry("marker", center["x_um"], center["y_um"], None, label=geometry.get("label"))
+            )
+    return {
+        "coordinate_spaces": {
+            "frame": "um from the origin, objective-compensated (what set_xyz accepts)",
+            "stage": "absolute stage um (what LAS X stores)",
+        },
+        "template_state": _scanfields.get_template_state(templates_dir),
+        "positions": positions,
+    }
+
+
 def get_context(handle: ZmartHandle) -> dict:
     """Extra read-only context for the controller.
 
     Purely informational, so it degrades instead of raising: an
-    unreadable job selection reports ``None`` rather than failing a
-    caller that only wanted the output root.
+    unreadable job selection or scan field reports ``None`` rather than
+    failing a caller that only wanted the output root. Note ``scan_field``
+    flushes the live experiment to disk before parsing it (a save, not a
+    state change).
     """
     _require_open(handle)
     try:
         selected = _selected_job_name(handle)
     except RuntimeError:
         selected = None
+    try:
+        scan_field = _scan_field(handle)
+    except Exception as exc:  # noqa: BLE001 -- informational surface; degrade, don't raise
+        log.warning("scan field unavailable: %s", exc)
+        scan_field = None
     return {
         "selected_job": selected,
+        "scan_field": scan_field,
         "client": handle.connection.get("client"),
         "output_root": handle.connection.get("output_root"),
         "session_hash6": handle.hash6,
