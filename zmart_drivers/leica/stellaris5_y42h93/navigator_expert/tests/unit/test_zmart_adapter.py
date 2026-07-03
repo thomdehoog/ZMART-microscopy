@@ -643,6 +643,101 @@ class TestStateAndProcedures(unittest.TestCase):
                 adapter.set_procedure(h, {"name": "autofocus"})
 
 
+class TestScanFieldContext(unittest.TestCase):
+    """get_context().scan_field: template positions, typed, in both spaces."""
+
+    _PARSED = {
+        "acquisition_positions": {
+            "0": {
+                "job_name": "HiRes",
+                "positions": [
+                    {"row": 0, "col": 0, "x_um": 1100.0, "y_um": 2200.0, "z_um": 40.0},
+                    {"row": 0, "col": 1, "x_um": 1150.0, "y_um": 2200.0, "z_um": 41.0},
+                ],
+            }
+        },
+        "focus_points": [
+            {"identifier": "F1", "x_um": 1500.0, "y_um": 2500.0, "z_um": 33.0, "enabled": True}
+        ],
+        "autofocus_points": [
+            {"identifier": "AF1", "x_um": 1600.0, "y_um": 2600.0, "z_um": 35.0, "enabled": True}
+        ],
+        "geometries": {
+            "g1": {"type": "Point", "center_um": {"x_um": 1050.0, "y_um": 2050.0}, "label": "A"},
+            "g2": {"type": "Rectangle", "center_um": {"x_um": 9.0, "y_um": 9.0}},
+        },
+    }
+
+    def _context(self, parsed=None, save_result=None, templates_dir="X:/tpl"):
+        h = _handle(origin=_origin(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_focus_um=30.0))
+        calls = []
+        position = _patch_position()
+        save_result = {"success": True} if save_result is None else save_result
+        with (
+            position[0],
+            position[1],
+            position[2],
+            position[3],
+            patch.object(
+                adapter._scanfields,
+                "find_scanning_templates_dir",
+                return_value=None if templates_dir is None else Path(templates_dir),
+            ),
+            patch.object(
+                adapter._scanfields,
+                "save_experiment",
+                side_effect=lambda *a, **k: calls.append("save") or save_result,
+            ),
+            patch.object(
+                adapter._scanfields,
+                "parse_scan_positions",
+                side_effect=lambda *a, **k: (
+                    calls.append("parse") or dict(parsed if parsed is not None else self._PARSED)
+                ),
+            ),
+            patch.object(adapter._scanfields, "get_template_state", return_value="unstripped"),
+        ):
+            return adapter.get_context(h), calls
+
+    def test_positions_are_typed_and_in_both_spaces(self):
+        context, calls = self._context()
+        self.assertEqual(calls, ["save", "parse"])  # always flush before parsing
+        field = context["scan_field"]
+        self.assertEqual(field["template_state"], "unstripped")
+        by_kind = {}
+        for position in field["positions"]:
+            by_kind.setdefault(position["kind"], []).append(position)
+        # grid tiles carry their group and job; frame = stage - origin
+        first = by_kind["grid"][0]
+        self.assertEqual(first["group"], {"region": "0", "row": 0, "col": 0})
+        self.assertEqual(first["job"], "HiRes")
+        self.assertEqual(first["stage"], {"x_um": 1100.0, "y_um": 2200.0, "z_um": 40.0})
+        self.assertEqual(first["frame"], {"x_um": 100.0, "y_um": 200.0, "z_um": 10.0})
+        self.assertEqual(len(by_kind["grid"]), 2)
+        # focus and autofocus points are distinct kinds
+        self.assertEqual(by_kind["focus-point"][0]["id"], "F1")
+        self.assertEqual(by_kind["focus-point"][0]["frame"]["z_um"], 3.0)
+        self.assertEqual(by_kind["autofocus-point"][0]["id"], "AF1")
+        # point markers come through with their label; other shapes do not
+        marker = by_kind["marker"][0]
+        self.assertEqual(marker["label"], "A")
+        self.assertEqual(marker["frame"]["x_um"], 50.0)
+        self.assertIsNone(marker["frame"]["z_um"])
+        self.assertEqual(len(field["positions"]), 5)
+
+    def test_no_templates_profile_reports_none(self):
+        context, calls = self._context(templates_dir=None)
+        self.assertIsNone(context["scan_field"])
+        self.assertEqual(calls, [])  # nothing saved, nothing parsed
+
+    def test_unconfirmed_save_degrades_to_none(self):
+        # get_context is informational: a stale template must not raise.
+        context, calls = self._context(save_result=False)
+        self.assertIsNone(context["scan_field"])
+        self.assertEqual(calls, ["save"])
+        self.assertEqual(context["session_hash6"], "000abc")  # rest of the context intact
+
+
 class TestObjectiveCompensation(unittest.TestCase):
     """Cross-objective frame math: ΔT = T[current] − T[origin's objective].
 

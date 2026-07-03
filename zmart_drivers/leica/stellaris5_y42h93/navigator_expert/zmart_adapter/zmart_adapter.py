@@ -950,20 +950,115 @@ def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
 # =============================================================================
 
 
+def _scan_field(handle: ZmartHandle) -> dict | None:
+    """Positions and focus points the operator stored in the scanning template.
+
+    Saves the experiment first (the parsers read the on-disk template; a
+    load alone does not flush it), then reports every stored position as a
+    typed entry in BOTH coordinate spaces — grid positions name the region
+    group they belong to. Template z values are treated as focus positions
+    (the same convention as the frame's z axis). None when this machine has
+    no LAS X scanning-templates profile.
+
+    Read this BEFORE acquiring: the default ``strip_scan_fields``
+    acquisition option empties the template.
+    """
+    templates_dir = _scanfields.find_scanning_templates_dir()
+    if templates_dir is None:
+        return None
+    saved = _scanfields.save_experiment(
+        handle.client,
+        _scanfields.TEMPLATE_XML,
+        templates_dir,
+        timeout=60,
+        confirm_path=Path(templates_dir) / _scanfields.TEMPLATE_RGN,
+    )
+    if not saved:
+        raise RuntimeError("save_experiment did not confirm; the template on disk may be stale")
+    parsed = _scanfields.parse_scan_positions(
+        templates_dir, _scanfields.TEMPLATE_BASE, client=handle.client
+    )
+    dt = _delta_or_warn(handle, _hardware_snapshot(handle))
+    origin = handle.origin
+
+    def entry(kind: str, x_um: float, y_um: float, z_um: float | None, **meta: Any) -> dict:
+        return {
+            "kind": kind,
+            "frame": {
+                "x_um": x_um - origin["x_um"] - dt[0],
+                "y_um": y_um - origin["y_um"] - dt[1],
+                "z_um": None if z_um is None else z_um - origin["z_focus_um"] - dt[2],
+            },
+            "stage": {"x_um": x_um, "y_um": y_um, "z_um": z_um},
+            **meta,
+        }
+
+    positions = []
+    for region_key, region in (parsed.get("acquisition_positions") or {}).items():
+        for tile in region.get("positions") or []:
+            positions.append(
+                entry(
+                    "grid",
+                    tile["x_um"],
+                    tile["y_um"],
+                    tile.get("z_um"),
+                    group={"region": region_key, "row": tile.get("row"), "col": tile.get("col")},
+                    job=region.get("job_name"),
+                )
+            )
+    for kind, points in (
+        ("focus-point", parsed.get("focus_points") or []),
+        ("autofocus-point", parsed.get("autofocus_points") or []),
+    ):
+        for point in points:
+            positions.append(
+                entry(
+                    kind,
+                    point["x_um"],
+                    point["y_um"],
+                    point.get("z_um"),
+                    id=point.get("identifier"),
+                    enabled=point.get("enabled", True),
+                )
+            )
+    for geometry in (parsed.get("geometries") or {}).values():
+        center = geometry.get("center_um") or {}
+        if geometry.get("type") == "Point" and center.get("x_um") is not None:
+            positions.append(
+                entry("marker", center["x_um"], center["y_um"], None, label=geometry.get("label"))
+            )
+    return {
+        "coordinate_spaces": {
+            "frame": "um from the origin, objective-compensated (what set_xyz accepts)",
+            "stage": "absolute stage um (what LAS X stores)",
+        },
+        "template_state": _scanfields.get_template_state(templates_dir),
+        "positions": positions,
+    }
+
+
 def get_context(handle: ZmartHandle) -> dict:
     """Extra read-only context for the controller.
 
     Purely informational, so it degrades instead of raising: an
-    unreadable job selection reports ``None`` rather than failing a
-    caller that only wanted the output root.
+    unreadable job selection or scan field reports ``None`` rather than
+    failing a caller that only wanted the output root. Note ``scan_field``
+    flushes the live experiment to disk before parsing it (a save, not a
+    state change).
     """
     _require_open(handle)
     try:
         selected = _selected_job_name(handle)
     except RuntimeError:
         selected = None
+    try:
+        scan_field = _scan_field(handle)
+    except Exception as exc:  # noqa: BLE001 -- informational surface; degrade, don't raise
+        log.warning("scan field unavailable: %s", exc)
+        scan_field = None
     return {
         "selected_job": selected,
+        "scan_field": scan_field,
         "client": handle.connection.get("client"),
         "output_root": handle.connection.get("output_root"),
         "session_hash6": handle.hash6,
