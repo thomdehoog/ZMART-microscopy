@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 import shutil
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -39,12 +40,18 @@ from typing import Any
 from . import acquisition as _acq
 from . import commands as _cmd
 from .config import limits as _limits
+from .config import machine as _machine
 from .config.profiles import ACQUISITION, HARDWARE
 from .connection.session import close as _close
 from .connection.session import connect as _connect
 from .readers import readers as _readers
 
 log = logging.getLogger(__name__)
+
+# The ops that change something about the microscope. Each MUST have an entry
+# in function_limits.json (null = reviewed-and-unlimited); the loader rejects
+# a file that misses one, so a new mutating op cannot ship silently unlimited.
+_MUTATING_OPS = ("set_origin", "set_xyz", "set_state", "set_procedure", "acquire")
 
 # Per-axis actuator options this instrument exposes to the controller. mesoSPIM
 # linear axes are single-motoric; focus/rotation are separate axes reached via
@@ -79,6 +86,13 @@ class MesospimHandle:
     origin: dict = field(default_factory=lambda: {"x": 0.0, "y": 0.0, "z": 0.0})
     initial_positions: list = field(default_factory=list)
     immutable: dict = field(default_factory=dict)
+    # Machine profile: where this instrument's machine-local config lives
+    # (stage/function limits, persisted origin). Set at connect.
+    machine: Any = None
+    # Function-keyed limits for this session (shared.limits.FunctionLimits),
+    # loaded at connect; None when the file could not be loaded — every
+    # mutating op then refuses (fail-closed), read-only use still works.
+    function_limits: Any | None = None
     # Monotonic counter to give each acquisition a unique image-writer staging
     # dir (so repeated/same-label captures never collide).
     _acq_seq: int = 0
@@ -93,30 +107,46 @@ def connect(connection: dict) -> MesospimHandle:
     """Open a mesoSPIM session and capture the initial positions.
 
     Honours ``connection`` keys ``host`` / ``port`` / ``timeout`` (forwarded to
-    the driver ``connect``), ``output_root`` (where ``acquire`` saves), and
-    ``stage_limits`` (a path to a stage-limits config; defaults to the bundled
+    the driver ``connect``), ``output_root`` (where ``acquire`` saves),
+    ``machine_root`` (override for the ProgramData root -- see
+    ``config.machine``), and ``stage_limits`` (an explicit path to a
+    stage-limits config; default resolves the machine copy, else the bundled
     envelope). If no ``output_root`` is given, a per-session temp directory is
     created.
 
     Stage safety limits are loaded here so the controller path is never left
     fail-open: ``check_axis`` rejects an unconfigured axis, so a move can only
-    run once limits exist.
+    run once limits exist. The function-keyed limits (``function_limits.json``,
+    machine copy else bundled) load here too, with the stage envelope overlaid
+    onto their ``stage.*`` constraints; a frame origin persisted by a previous
+    session's :func:`set_origin` is restored, so the zero point survives
+    reconnects.
     """
     client = _connect(connection)
     output_root = Path(connection.get("output_root") or tempfile.mkdtemp(prefix="mesospim_run_"))
     output_root.mkdir(parents=True, exist_ok=True)
+    machine = _machine.MachineProfile(
+        microscope_id=connection.get("microscope") or "mesospim-01",
+        programdata_root=connection.get("machine_root"),
+    )
 
     # Configure hard stage limits before any move is possible. Without this the
-    # fail-closed ``check_axis`` would reject every move; with it the bundled
+    # fail-closed ``check_axis`` would reject every move; with it the machine's
     # (or caller-supplied) envelope is active for the whole session. Cleared
     # first so a reconnect fully replaces the limits rather than merging into a
     # prior session's. NOTE: limits are process-global, so this driver assumes a
     # single instrument per process; connecting a second instrument in the same
     # process would share (and overwrite) these limits.
+    explicit = connection.get("stage_limits")
+    if explicit is not None:
+        stage_path = Path(explicit)
+    else:
+        stage_path, stage_fallback = machine.resolve(_machine.STAGE_LIMITS_FILENAME)
+        if stage_fallback:
+            log.info("no machine stage envelope under %s; using bundled default", machine.machine_dir())
+    stage_cfg = _limits.load_stage_config(stage_path)
     _limits.clear_stage_limits()
-    _limits.apply_stage_limits_from_config(
-        _limits.load_stage_config(connection.get("stage_limits"))
-    )
+    _limits.apply_stage_limits_from_config(stage_cfg)
 
     positions = _readers.get_positions(client)
     info = dict(client.server_info)
@@ -124,6 +154,7 @@ def connect(connection: dict) -> MesospimHandle:
         client=client,
         connection=dict(connection),
         output_root=output_root,
+        machine=machine,
         immutable={
             "app": info.get("app", "mesoSPIM-control"),
             "microscope": connection.get("microscope"),
@@ -133,8 +164,82 @@ def connect(connection: dict) -> MesospimHandle:
         },
         initial_positions=[{k: positions.get(k) for k in ("x", "y", "z", "f", "theta")}],
     )
+    handle.function_limits = _load_function_limits(machine, stage_cfg)
+    _restore_persisted_origin(handle)
     log.info("mesoSPIM controller session ready (output_root=%s)", output_root)
     return handle
+
+
+def _load_function_limits(machine: Any, stage_cfg: dict | None) -> Any | None:
+    """Load the session's function-keyed limits (``shared.limits``), fail-closed.
+
+    Resolves ``function_limits.json`` through the machine profile -- the machine
+    copy, else the driver-bundled default -- and overlays the machine's physical
+    stage envelope onto the file's ``stage.*`` constraints, so the numbers that
+    govern moves are the machine's, never a stale bundled copy. The loader also
+    enforces completeness: every op in :data:`_MUTATING_OPS` must have an entry.
+
+    Returns None when the file cannot be loaded or fails validation; every
+    mutating op then refuses via :func:`_check_limits` while read-only
+    controller use still works.
+    """
+    try:
+        from shared import limits as _shared_limits  # repo root on sys.path
+
+        path, is_fallback = machine.resolve(_machine.FUNCTION_LIMITS_FILENAME)
+        overrides = None
+        if stage_cfg is not None:
+            overrides = {
+                f"stage.{axis}": {"min": bounds[0], "max": bounds[1]}
+                for axis, bounds in stage_cfg["axes"].items()
+            }
+        return _shared_limits.load(
+            path,
+            functions=_MUTATING_OPS,
+            constraint_overrides=overrides,
+            is_fallback=is_fallback,
+        )
+    except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
+        log.warning(
+            "function limits unavailable (%s); every mutating op will refuse "
+            "until %s loads",
+            exc,
+            _machine.FUNCTION_LIMITS_FILENAME,
+        )
+        return None
+
+
+def _check_limits(handle: MesospimHandle, function: str, values: dict) -> None:
+    """Gate one mutating op on the session's function-keyed limits.
+
+    Fail-closed: with no limits loaded the op refuses outright. An
+    out-of-bounds value raises ``shared.limits.LimitViolation`` (a
+    RuntimeError) naming the value, the constraint, and the governing file.
+    """
+    if handle.function_limits is None:
+        raise RuntimeError(
+            f"{function} refused: function limits are not configured — connect() "
+            f"could not load {_machine.FUNCTION_LIMITS_FILENAME} (see the connect warning)"
+        )
+    handle.function_limits.check(function, values)
+
+
+def _restore_persisted_origin(handle: MesospimHandle) -> None:
+    """Restore the frame origin a previous session persisted (if any)."""
+    try:
+        payload = handle.machine.read_origin()
+    except Exception as exc:  # noqa: BLE001 -- corrupt file must not block connect
+        log.warning("could not read persisted origin (%s); frame is raw stage coordinates", exc)
+        return
+    if not payload:
+        return
+    origin = payload.get("origin") or {}
+    try:
+        handle.origin = {axis: float(origin[axis]) for axis in ("x", "y", "z")}
+    except (KeyError, TypeError, ValueError) as exc:
+        log.warning("persisted origin is malformed (%s); frame is raw stage coordinates", exc)
+        return
+    log.info("restored frame origin from %s", handle.machine.machine_dir() / _machine.ORIGIN_FILENAME)
 
 
 def disconnect(handle: MesospimHandle) -> None:
@@ -148,10 +253,28 @@ def disconnect(handle: MesospimHandle) -> None:
 
 
 def set_origin(handle: MesospimHandle) -> dict:
-    """Mark the current position as the origin -- it now reads (0, 0, 0)."""
+    """Mark the current position as the origin -- it now reads (0, 0, 0).
+
+    Persisted machine-locally (``origin.json`` in the machine dir) and restored
+    by :func:`connect`, so the zero point stays the frame truth across sessions
+    until set again. Failing to persist is loud: the in-memory origin is
+    already set, and a silent divergence discovered later is worse than
+    re-running set_origin after fixing the cause.
+    """
+    _check_limits(handle, "set_origin", {})
     pos = _readers.get_positions(handle.client)
     handle.origin = {axis: float(pos.get(axis) or 0.0) for axis in ("x", "y", "z")}
-    return {"origin": dict(handle.origin)}
+    try:
+        path = handle.machine.write_origin(
+            {
+                "origin": dict(handle.origin),
+                "microscope": handle.immutable.get("microscope"),
+                "captured_at": time.time(),
+            }
+        )
+    except OSError as exc:
+        raise RuntimeError(f"could not persist origin reference: {exc}") from exc
+    return {"origin": dict(handle.origin), "origin_file": str(path)}
 
 
 def _user_xyz(handle: MesospimHandle, pos: dict) -> dict[str, float]:
@@ -210,6 +333,10 @@ def set_xyz(
         "y": handle.origin["y"] + float(y),
         "z": handle.origin["z"] + float(z),
     }
+    # Two layers on purpose: the function limits carry provenance (which file,
+    # which constraint) and gate the ABSOLUTE targets; the driver's own
+    # check_move in move_absolute stays as the safety net underneath.
+    _check_limits(handle, "set_xyz", targets)
     result = _cmd.move_absolute(handle.client, targets)
     if not result.get("success"):
         raise RuntimeError(f"set_xyz failed: {result.get('message')}")
@@ -226,10 +353,19 @@ def set_xyz(
 
 
 def get_state(handle: MesospimHandle) -> dict:
-    """Capture instrument state: changeable settings first, then the observed report."""
+    """Capture instrument state: changeable settings first, then the observed report.
+
+    ``observed`` carries the identity fingerprint plus the provenance of the
+    function limits governing this session (evidence, not an instruction) --
+    None when limits failed to load (every mutating op is then refusing).
+    """
     state = _readers.get_state(handle.client)
     changeable = {key: state.get(key) for key in _MUTABLE_KEYS if state.get(key) is not None}
-    return {"changeable": changeable, "observed": dict(handle.immutable)}
+    observed = dict(handle.immutable)
+    observed["limits"] = (
+        None if handle.function_limits is None else handle.function_limits.describe()
+    )
+    return {"changeable": changeable, "observed": observed}
 
 
 def set_state(handle: MesospimHandle, state: dict) -> dict:
@@ -240,6 +376,7 @@ def set_state(handle: MesospimHandle, state: dict) -> dict:
     part ever grows beyond low-risk settings).
     """
     changeable = {k: v for k, v in (state.get("changeable") or {}).items() if k in _MUTABLE_KEYS}
+    _check_limits(handle, "set_state", changeable)
     if not changeable:
         return {"applied": {}}
     result = _cmd.set_state(handle.client, changeable)
@@ -262,15 +399,24 @@ def get_procedures(handle: MesospimHandle) -> dict:
 
 
 def set_procedure(handle: MesospimHandle, procedure: dict) -> dict:
-    """Run a procedure. ``procedure`` is ``{"name": ..., ...args}``."""
+    """Run a procedure. ``procedure`` is ``{"name": ..., ...args}``.
+
+    The focus / rotation moves are gated by the function-keyed limits under
+    the ``f`` / ``theta`` constraints — these axes live outside the xyz frame,
+    so this is where their envelope is enforced at the controller layer.
+    """
     name = procedure.get("name")
     if name == "move_focus":
+        _check_limits(handle, "set_procedure", {"f": float(procedure["value"])})
         result = _cmd.move_focus(handle.client, float(procedure["value"]))
     elif name == "move_rotation":
+        _check_limits(handle, "set_procedure", {"theta": float(procedure["value"])})
         result = _cmd.move_rotation(handle.client, float(procedure["value"]))
     elif name == "zero_stage":
+        _check_limits(handle, "set_procedure", {})
         result = _cmd.zero_axes(handle.client, ["x", "y", "z"])
     elif name in ("autofocus", "find_sample"):
+        _check_limits(handle, "set_procedure", {})
         # Server-side named procedures: forwarded verbatim to the command server.
         reply = handle.client.request("procedure", name=name, args=procedure.get("args", {}))
         return {"ran": name, "data": dict(reply.data)}
@@ -321,6 +467,9 @@ def acquire(
     """
     options = dict(options or {})
     fmt = options.get("format", ACQUISITION.save_format)
+    # Fail-closed gate BEFORE anything is applied; the absolute z bounds are
+    # checked again below, once they are mapped through the frame origin.
+    _check_limits(handle, "acquire", {})
 
     # 1) apply light-path settings that were passed as options.
     state_updates = {k: options[k] for k in _ACQUIRE_STATE_KEYS if k in options}
@@ -344,6 +493,13 @@ def acquire(
     # Limit-check the swept Z range before firing: the capture path sweeps the
     # stage but does not go through move_absolute, so enforce the same hard
     # limits here (fail closed) rather than trusting the acquisition to be safe.
+    # Two layers, as for set_xyz: the function-keyed limits (with provenance)
+    # first, the driver's own check_axis as the safety net.
+    _check_limits(
+        handle,
+        "acquire",
+        {zc: capture_options[zc] for zc in ("z_start", "z_end") if zc in capture_options},
+    )
     try:
         for zc in ("z_start", "z_end"):
             if zc in capture_options:

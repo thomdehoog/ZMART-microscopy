@@ -1,27 +1,39 @@
 """
-mesoSPIM command-server wire protocol (pure encode/parse).
-==========================================================
-mesoSPIM-control has no external control API of its own (see the driver
-`README.md`). ZMART reaches it through a small **resident command-server
-script**, loaded via mesoSPIM's Script Window, which opens a localhost TCP
-socket and translates text requests into mesoSPIM ``Core`` signals and state
-reads. This module is the pure, socket-free core of the protocol the client and
-that server both speak -- encode/parse only.
+Remote-scripting transport + structured-result envelope.
+========================================================
+The mesoSPIM driver talks to mesoSPIM-control through its **Remote Scripting**
+server (an upstream contribution under ``pull_request/``):
+a tiny, generic bridge that runs a Python script in the live ``mesoSPIM_Core``
+context and returns whatever the script prints. There is **no command vocabulary
+on the wire** -- the driver injects a script, mesoSPIM runs it (``self`` == Core),
+and the console output comes back.
 
-Why **JSON lines** rather than the Evident/Nikon ``VERB= args`` framing: the
-mesoSPIM control surface is fundamentally *dict-shaped*. The Core is driven by
-``sig_state_request(dict)`` / ``sig_move_absolute(dict)`` / ``sig_move_relative(
-dict)`` and an ``Acquisition`` is itself a dict of ~20 fields. A JSON object per
-line maps onto that one-to-one, keeps nested payloads (an acquisition list, a
-config block) honest, and stays trivially parseable. One request object and one
-reply object per newline-terminated line; UTF-8; ``\n`` terminated.
+This module is the pure, socket-free core of that transport:
 
-Request  : ``{"cmd": <str>, "args": {<...>}, "id": <int|null>}``
-Reply    : ``{"ok": true,  "data": {<...>}, "id": <int|null>}``
-           ``{"ok": false, "error": <str>, "id": <int|null>}``
+1. **Framing** -- length-prefixed, both directions::
 
-The command vocabulary (``cmd`` values and their ``args``) is specified in
-``server/PROTOCOL.md``; this module is agnostic to it -- it only frames lines.
+       message = b"<decimal-byte-count>\\n" + <payload bytes>
+
+   This is the framing the Remote Scripting PR speaks (see
+   ``pull_request/PROTOCOL.md``). It suits arbitrary script text (which contains
+   newlines) where a line-delimited framing would not.
+
+2. **A structured result over an unstructured channel.** The reply is raw
+   console text and may interleave output from other threads (loggers, the demo
+   thread), exactly as mesoSPIM's Script Window console does. So every command
+   the driver injects is wrapped in :func:`wrap_script`, which:
+
+     - emits its result as ``<nonce>`` + base64(JSON) + ``<nonce-end>`` -- a
+       **per-call nonce** so no other output can be mistaken for ours, and
+       **base64** so the payload can never contain the delimiter; and
+     - catches any exception and emits a structured ``{"ok": false, "error":
+       <traceback>}`` instead, so a failing script comes back as a clean NAK, not
+       a client-side parse crash.
+
+   :func:`parse_result` extracts that block from the console text and returns a
+   :class:`Reply`. If no block is present (e.g. a syntax error before the harness
+   ran, which mesoSPIM prints as a bare traceback), the whole console text is
+   returned as the error.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -30,38 +42,29 @@ License: MIT
 
 from __future__ import annotations
 
+import base64
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
-TERMINATOR = "\n"
 ENCODING = "utf-8"
 
-# Wire-protocol version the client and reference server agree on. The server
-# reports its version in the ``hello`` reply (``data.protocol``); the client
-# refuses a server whose version it does not know (see ``client.connect``).
+# Bumped only if the framing or harness contract changes.
 PROTOCOL_VERSION = 1
 
 
 class ProtocolError(ValueError):
-    """A line could not be parsed as a protocol request or reply."""
-
-
-@dataclass(frozen=True)
-class Request:
-    """A parsed request line."""
-
-    cmd: str
-    args: dict[str, Any] = field(default_factory=dict)
-    id: int | None = None
+    """A frame or result payload could not be parsed."""
 
 
 @dataclass(frozen=True)
 class Reply:
-    """A parsed reply line.
+    """A parsed structured result.
 
     ``ok`` reports success; ``data`` carries the payload of a successful reply
-    and ``error`` the message of a failed one (the other is always empty).
+    and ``error`` the message of a failed one. ``id`` is unused by the
+    remote-scripting transport (kept for API compatibility with callers).
     """
 
     ok: bool
@@ -70,66 +73,69 @@ class Reply:
     id: int | None = None
 
 
-# -- encode -------------------------------------------------------------------
+# -- framing ------------------------------------------------------------------
 
 
-def encode_request(cmd: str, *, args: dict[str, Any] | None = None, id: int | None = None) -> str:
-    """Build a request line (without the terminator)."""
-    if not isinstance(cmd, str) or not cmd:
-        raise ProtocolError(f"cmd must be a non-empty string, got {cmd!r}")
-    return json.dumps({"cmd": cmd, "args": args or {}, "id": id}, separators=(",", ":"))
+def frame(payload: str | bytes) -> bytes:
+    """Length-prefix ``payload`` for the wire: ``b"<len>\\n" + payload``."""
+    if isinstance(payload, str):
+        payload = payload.encode(ENCODING)
+    return str(len(payload)).encode("ascii") + b"\n" + payload
 
 
-def encode_ok(data: dict[str, Any] | None = None, *, id: int | None = None) -> str:
-    """Build a success reply line ``{"ok": true, "data": ...}``."""
-    return json.dumps({"ok": True, "data": data or {}, "id": id}, separators=(",", ":"))
+# -- structured result harness ------------------------------------------------
+
+_MARKER_PREFIX = "<<<ZMART-RESULT:"
+_MARKER_SUFFIX = ":ZMART-END>>>"
 
 
-def encode_error(message: str, *, id: int | None = None) -> str:
-    """Build a failure reply line ``{"ok": false, "error": ...}``."""
-    return json.dumps({"ok": False, "error": str(message), "id": id}, separators=(",", ":"))
+def _markers(nonce: str) -> tuple[str, str]:
+    return f"{_MARKER_PREFIX}{nonce}|", f"|{nonce}{_MARKER_SUFFIX}"
 
 
-def frame(line: str) -> bytes:
-    """Add the newline terminator and encode to bytes for the wire."""
-    return (line + TERMINATOR).encode(ENCODING)
+def wrap_script(body: str, nonce: str) -> str:
+    """Wrap a command ``body`` in the emit/try-except harness.
+
+    ``body`` is Python that runs in the Core context (``self`` == Core) and must
+    assign the result to a local named ``_result``. ``nonce`` must be unique per
+    call. The returned script prints exactly one delimited base64(JSON) block.
+    """
+    start, end = _markers(nonce)
+    indented = "\n".join("    " + line for line in body.splitlines()) or "    pass"
+    return (
+        "import json as _zjson, base64 as _zb64, traceback as _ztb\n"
+        "def _zmart_emit(_obj):\n"
+        "    _zpayload = _zb64.b64encode(_zjson.dumps(_obj).encode('utf-8')).decode('ascii')\n"
+        f"    print({start!r} + _zpayload + {end!r})\n"
+        "try:\n"
+        f"{indented}\n"
+        "    _zmart_emit({'ok': True, 'data': _result})\n"
+        "except Exception:\n"
+        "    _zmart_emit({'ok': False, 'error': _ztb.format_exc()})\n"
+    )
 
 
-# -- parse --------------------------------------------------------------------
+def parse_result(console: str, nonce: str) -> Reply:
+    """Extract the delimited base64(JSON) result block from console text.
 
-
-def _loads(line: str) -> dict[str, Any]:
-    stripped = line.strip()
-    if not stripped:
-        raise ProtocolError("empty line")
+    Returns a :class:`Reply`. If the block is absent, the whole console text is
+    returned as an error (this is how a pre-harness failure -- a syntax error, an
+    import error, an auth/plumbing issue -- surfaces).
+    """
+    start, end = _markers(nonce)
+    match = re.search(re.escape(start) + "(.*?)" + re.escape(end), console, re.DOTALL)
+    if not match:
+        text = console.strip()
+        return Reply(ok=False, error=text or "no result marker in server reply")
     try:
-        obj = json.loads(stripped)
-    except json.JSONDecodeError as exc:
-        raise ProtocolError(f"not valid JSON: {exc}") from exc
-    if not isinstance(obj, dict):
-        raise ProtocolError(f"expected a JSON object, got {type(obj).__name__}")
-    return obj
-
-
-def parse_request(line: str) -> Request:
-    """Parse one line into a :class:`Request`. Raises :class:`ProtocolError`."""
-    obj = _loads(line)
-    cmd = obj.get("cmd")
-    if not isinstance(cmd, str) or not cmd:
-        raise ProtocolError(f"request missing 'cmd': {obj!r}")
-    args = obj.get("args", {}) or {}
-    if not isinstance(args, dict):
-        raise ProtocolError(f"request 'args' must be an object, got {type(args).__name__}")
-    return Request(cmd=cmd, args=args, id=obj.get("id"))
-
-
-def parse_reply(line: str) -> Reply:
-    """Parse one line into a :class:`Reply`. Raises :class:`ProtocolError`."""
-    obj = _loads(line)
-    if "ok" not in obj:
-        raise ProtocolError(f"reply missing 'ok': {obj!r}")
+        payload = base64.b64decode(match.group(1)).decode("utf-8")
+        obj = json.loads(payload)
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise ProtocolError(f"could not decode result payload: {exc}") from exc
+    if not isinstance(obj, dict) or "ok" not in obj:
+        raise ProtocolError(f"malformed result object: {obj!r}")
     ok = bool(obj["ok"])
     data = obj.get("data", {}) or {}
     if not isinstance(data, dict):
-        raise ProtocolError(f"reply 'data' must be an object, got {type(data).__name__}")
-    return Reply(ok=ok, data=data, error=str(obj.get("error", "")), id=obj.get("id"))
+        raise ProtocolError(f"result 'data' must be an object, got {type(data).__name__}")
+    return Reply(ok=ok, data=data, error=str(obj.get("error", "")))

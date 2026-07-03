@@ -159,13 +159,45 @@ def test_acquire_no_frames_raises(client, monkeypatch):
 
     def fake(cmd, **args):
         reply = real(cmd, **args)
-        if cmd == "acquire":
+        if cmd == "acquire_start":
             object.__setattr__(reply, "data", {"files": [], "planes": 0})
         return reply
 
     monkeypatch.setattr(client, "request", fake)
     with pytest.raises(RuntimeError):
         acq.acquire(client, "snap")
+
+
+def test_acquire_restores_operator_acq_list(client, server):
+    sentinel = ["operator-list"]
+    server.core.state["acq_list"] = sentinel
+    acq.snap(client)
+    assert server.core.state["acq_list"] is sentinel
+
+
+def test_acquire_timeout_raises_and_restores(client, server, monkeypatch):
+    # A run that never returns to idle (and never writes its stack) must FAIL
+    # loudly at the acquisition deadline -- never report success with paths to
+    # files that do not exist -- and must still hand the operator's acquisition
+    # list back.
+    from dataclasses import replace
+
+    from mesospim.acquisition import capture
+
+    def never_finishes(row=0):
+        server.core.state["state"] = "running"
+
+    monkeypatch.setattr(server.core, "start", never_finishes)
+    monkeypatch.setattr(
+        capture,
+        "ACQUISITION",
+        replace(capture.ACQUISITION, acquire_timeout_s=0.3, acquire_poll_s=0.02),
+    )
+    sentinel = ["operator-list"]
+    server.core.state["acq_list"] = sentinel
+    with pytest.raises(RuntimeError, match="did not produce its stack"):
+        acq.acquire(client, "snap")
+    assert server.core.state["acq_list"] is sentinel
 
 
 def test_run_acquisition_list(client):
