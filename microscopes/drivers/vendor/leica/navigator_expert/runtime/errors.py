@@ -126,17 +126,33 @@ def _check_api_error(client):
     echo = client.PyApiCommandEcho.Model
     details = _read_echo_details(echo)
 
+    # Read COM fields defensively: the .NET echo object can raise on attribute
+    # access, and this function must always return a result dict / None (the
+    # dispatch backbone calls it without its own try/except).
+    def _echo(name, default=None):
+        try:
+            return getattr(echo, name)
+        except Exception:
+            return default
+
+    has_error = bool(_echo("HasError", False))
+    error_raw = _echo("Error", None)
+    error_msg = error_raw if error_raw else ""
+
     try:
         result_code = int(echo.Result)
     except Exception:
         # Can't read Result enum
-        if echo.HasError:
-            error_msg = echo.Error if echo.Error else "(no message)"
-            return {"error": error_msg, "result": "Unknown", "result_code": -1, "details": details}
+        if has_error:
+            return {
+                "error": error_msg or "(no message)",
+                "result": "Unknown",
+                "result_code": -1,
+                "details": details,
+            }
         return None
 
     result_str = _RESULT_MAP.get(result_code, "Unknown")
-    error_msg = echo.Error if echo.Error else ""
 
     # NotImplemented → always error
     if result_code == 3:
@@ -150,13 +166,13 @@ def _check_api_error(client):
         }
 
     # HasError with "warning" → success (non-fatal adjustment)
-    if echo.HasError and "warning" in error_msg.lower():
+    if has_error and "warning" in error_msg.lower():
         if details:
             log.debug("Warning accepted with details: %s", details)
         return None
 
     # HasError without warning → error
-    if echo.HasError:
+    if has_error:
         if not error_msg:
             error_msg = "(HasError set, no message)"
         return {
