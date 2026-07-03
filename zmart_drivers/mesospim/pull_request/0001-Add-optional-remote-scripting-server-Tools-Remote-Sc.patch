@@ -30,20 +30,24 @@ authenticates, reads state, drives the demo stage (self.move_absolute), gets
 structured output via print(json), and sees a raising script's traceback as text
 (no crash). No change to existing behavior -- execute_script is reused unmodified.
 ---
- mesoSPIM/src/mesoSPIM_Core.py            |  25 ++++
- mesoSPIM/src/mesoSPIM_MainWindow.py      |  95 ++++++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 166 ++++++++++++++++++++++++
- 3 files changed, 286 insertions(+)
+ mesoSPIM/src/mesoSPIM_Core.py            |  37 +++++
+ mesoSPIM/src/mesoSPIM_MainWindow.py      | 122 ++++++++++++++++
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 250 +++++++++++++++++++++++++++++++++
+ 3 files changed, 409 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
 index f8495c7..896730c 100644
 --- a/mesoSPIM/src/mesoSPIM_Core.py
 +++ b/mesoSPIM/src/mesoSPIM_Core.py
-@@ -921,6 +921,31 @@ class mesoSPIM_Core(QtCore.QObject):
+@@ -921,6 +921,43 @@ class mesoSPIM_Core(QtCore.QObject):
          self.state['state']='idle'
          self.sig_update_gui_from_state.emit()
- 
+
++    # Reports the outcome of a start_remote_scripting attempt back to the GUI
++    # (ok, message) so the dialog never shows a false "running" on a bind failure.
++    sig_remote_scripting_started = QtCore.pyqtSignal(bool, str)
++
 +    @QtCore.pyqtSlot(str, int, str)
 +    def start_remote_scripting(self, host, port, token):
 +        '''Start the remote scripting server (Tools -> Remote Scripting...).
@@ -51,12 +55,20 @@ index f8495c7..896730c 100644
 +        Runs on the Core's own thread (invoked via a queued connection) so the
 +        server's QTcpServer lives here, where execute_script runs. `token` gates
 +        access: when non-empty a client must send it before any script runs.
-+        Restart-safe: stops any prior instance first. See mesoSPIM_RemoteScripting.py.
++        Restart-safe: stops any prior instance first. Emits
++        sig_remote_scripting_started(ok, message); on a bind failure (e.g. port in
++        use) ok is False so the GUI can report it. See mesoSPIM_RemoteScripting.py.
 +        '''
 +        from .mesoSPIM_RemoteScripting import RemoteScriptingServer
 +        self.stop_remote_scripting()
-+        self._remote_scripting_server = RemoteScriptingServer(self, host, int(port), token or None)
++        try:
++            self._remote_scripting_server = RemoteScriptingServer(self, host, int(port), token or None)
++        except Exception as exc:
++            logger.exception('Remote scripting server failed to start')
++            self.sig_remote_scripting_started.emit(False, str(exc))
++            return
 +        logger.info(f'Remote scripting server on {host}:{port} (token {"set" if token else "off"})')
++        self.sig_remote_scripting_started.emit(True, f'{host}:{port}')
 +
 +    @QtCore.pyqtSlot()
 +    def stop_remote_scripting(self):
@@ -87,13 +99,14 @@ index 186d97d..8f1e124 100644
      sig_launch_optimizer = QtCore.pyqtSignal(dict)
      sig_launch_contrast_window = QtCore.pyqtSignal()
  
-@@ -169,6 +173,8 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -169,6 +173,9 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
          # The signal switchboard, MainWindow -> Core
          self.sig_launch_optimizer.connect(self.launch_optimizer)
          self.sig_launch_contrast_window.connect(self.launch_contrast_window)
 +        self.sig_start_remote_scripting.connect(self.core.start_remote_scripting, type=QtCore.Qt.QueuedConnection)
 +        self.sig_stop_remote_scripting.connect(self.core.stop_remote_scripting, type=QtCore.Qt.QueuedConnection)
- 
++        self.core.sig_remote_scripting_started.connect(self.on_remote_scripting_started)
+
          ''' Start the thread '''
          self.core_thread.start(QtCore.QThread.HighestPriority)
 @@ -246,6 +252,9 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
@@ -106,26 +119,47 @@ index 186d97d..8f1e124 100644
          self.camera_window.close()
          self.acquisition_manager_window.close()
          if self.optimizer:
-@@ -380,6 +389,15 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -380,6 +389,23 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
          self.actionOpen_Acquisition_Manager.triggered.connect(self.acquisition_manager_window.show)
          self.actionOpen_Tile_Overview.triggered.connect(self.tile_view_window.show)
          self.actionCascade_windows.triggered.connect(self.cascade_all_windows)
 +        # Add a "Tools -> Remote Scripting..." entry programmatically (no .ui change).
 +        # `self.menuBar` is the QMenuBar *widget* from the .ui (it shadows
-+        # QMainWindow.menuBar()), so add to it as an attribute.
++        # QMainWindow.menuBar()), so add to it as an attribute. Reuse an existing
++        # Tools menu if one is ever added, rather than creating a duplicate.
 +        self._remote_scripting_running = False
-+        self.menuTools = self.menuBar.addMenu('Tools')
++        self._rs_refresh = None
++        self.menuTools = None
++        for _action in self.menuBar.actions():
++            if _action.menu() is not None and _action.text().replace('&', '') == 'Tools':
++                self.menuTools = _action.menu()
++                break
++        if self.menuTools is None:
++            self.menuTools = self.menuBar.addMenu('Tools')
 +        self.actionRemoteScripting = QtWidgets.QAction('Remote Scripting...', self)
 +        self.actionRemoteScripting.setStatusTip('Start/stop the external Python scripting server')
 +        self.actionRemoteScripting.triggered.connect(self.open_remote_scripting_dialog)
 +        self.menuTools.addAction(self.actionRemoteScripting)
- 
+
      def initialize_and_connect_widgets(self):
          """ Connecting the menu actions """
-@@ -895,6 +913,83 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -895,6 +913,101 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
      def display_warning(self, string):
          warning = QtWidgets.QMessageBox.warning(None,'mesoSPIM Warning', string, QtWidgets.QMessageBox.Ok)
- 
+
++    def on_remote_scripting_started(self, ok, message):
++        '''Result of a start attempt from the Core (queued): update state + dialog.
++
++        On failure (e.g. the port is in use) the server did NOT start, so the
++        dialog must not show "running". Warn the operator with the reason.
++        '''
++        self._remote_scripting_running = ok
++        if not ok:
++            QtWidgets.QMessageBox.warning(
++                self, 'Remote Scripting', f'Could not start the server: {message}')
++        if self._rs_refresh is not None:
++            self._rs_refresh()
++
 +    def open_remote_scripting_dialog(self):
 +        '''Start/stop the remote scripting server (external Python control API).
 +
@@ -189,9 +223,10 @@ index 186d97d..8f1e124 100644
 +                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No) != QtWidgets.QMessageBox.Yes:
 +                    return
 +            self._rs_host, self._rs_port, self._rs_token = host, port, token
++            # Do NOT assume success here: the Core binds the socket on its own
++            # thread and may fail (port in use). on_remote_scripting_started sets
++            # the running state and refreshes the dialog from the real outcome.
 +            self.sig_start_remote_scripting.emit(host, port, token)
-+            self._remote_scripting_running = True
-+            refresh()
 +
 +        def do_stop():
 +            self.sig_stop_remote_scripting.emit()
@@ -200,8 +235,12 @@ index 186d97d..8f1e124 100644
 +
 +        start_btn.clicked.connect(do_start)
 +        stop_btn.clicked.connect(do_stop)
++        # Let the started-signal handler refresh this dialog while it is open
++        # (a modal exec_ still pumps queued cross-thread signals).
++        self._rs_refresh = refresh
 +        refresh()
 +        dlg.exec_()
++        self._rs_refresh = None
 +
      def choose_snap_folder(self):
          path = QtWidgets.QFileDialog.getExistingDirectory(self, 'Open csv File', self.state['snap_folder'])
@@ -211,7 +250,7 @@ new file mode 100644
 index 0000000..904505c
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,250 @@
 +"""
 +mesoSPIM remote scripting server.
 +=================================
@@ -232,6 +271,12 @@ index 0000000..904505c
 +    gate against casual access on a trusted LAN, not protection against a network
 +    sniffer. For untrusted networks, tunnel it (SSH/VPN).
 +
++    BLOCKING. A script runs synchronously on the Core's thread via
++    ``Core.execute_script``, exactly as the Script Window does -- so the GUI is
++    unresponsive while a script runs. Keep injected scripts short (start work and
++    return; poll for completion in separate calls) rather than sleeping inside
++    one long-running script.
++
 +Wire protocol (line-length-framed, UTF-8):
 +
 +    request  =  b"<decimal-byte-count>\\n" + <payload bytes>
@@ -242,54 +287,142 @@ index 0000000..904505c
 +failure). Every frame after that (or every frame, if no token) is a script; the
 +reply frame is the captured console output.
 +
++The framing and auth logic (:func:`frame`, :class:`FrameDecoder`,
++:class:`AuthGate`) is kept socket-free so it unit-tests without a running Qt
++event loop; ``QtNetwork`` is imported lazily by the server itself.
++
 +Author: Thom de Hoog (ZMB, University of Zurich). License: GPL-3.0 (part of
 +mesoSPIM-control; it uses the GPL Core API).
 +"""
 +
 +import hmac
 +import io
++import logging
 +import traceback
 +from contextlib import redirect_stderr, redirect_stdout
 +
-+from PyQt5 import QtNetwork
++logger = logging.getLogger(__name__)
 +
-+_MAX_FRAME_BYTES = 16 * 1024 * 1024  # guard against a client that never frames
++ENCODING = "utf-8"
++MAX_FRAME_BYTES = 16 * 1024 * 1024  # guard against a client that never frames
++
++
++class FramingError(ValueError):
++    """A frame's length prefix was not a decimal byte count."""
++
++
++def frame(payload):
++    """Length-prefix a payload for the wire: ``b"<len>\\n" + payload``."""
++    if isinstance(payload, str):
++        payload = payload.encode(ENCODING)
++    return str(len(payload)).encode("ascii") + b"\n" + payload
++
++
++class FrameDecoder:
++    """Incremental parser for length-prefixed frames (socket-free, so testable).
++
++    Feed it received bytes with :meth:`feed`, then iterate :meth:`frames` for the
++    complete payloads buffered so far. Raises :class:`FramingError` on a
++    non-integer length line. :attr:`buffered` is the unconsumed byte count, so
++    the caller can cap it against a client that never frames.
++    """
++
++    def __init__(self):
++        self._buf = b""
++
++    def feed(self, data):
++        self._buf += bytes(data)
++
++    @property
++    def buffered(self):
++        return len(self._buf)
++
++    def frames(self):
++        """Yield each complete payload (bytes) buffered so far, consuming it."""
++        while b"\n" in self._buf:
++            head, _, rest = self._buf.partition(b"\n")
++            try:
++                length = int(head)
++            except ValueError as exc:
++                raise FramingError("expected '<byte-count>\\n<payload>'") from exc
++            if len(rest) < length:
++                return  # payload not fully arrived yet
++            self._buf = rest[length:]
++            yield rest[:length]
++
++
++class AuthGate:
++    """Constant-time shared-token gate for the first frame.
++
++    :attr:`passed` is True from the start when no token is configured. :meth:`check`
++    compares the supplied first frame against the token in constant time, over
++    UTF-8 bytes so a non-ASCII token works (``hmac.compare_digest`` refuses to
++    compare a ``str`` containing non-ASCII).
++    """
++
++    def __init__(self, token=None):
++        self._token = token or None
++        self.passed = self._token is None
++
++    @property
++    def required(self):
++        return self._token is not None
++
++    def check(self, supplied):
++        """True if *supplied* matches the token; sets :attr:`passed` on success."""
++        if isinstance(supplied, str):
++            supplied = supplied.encode(ENCODING)
++        ok = hmac.compare_digest(supplied, str(self._token).encode(ENCODING))
++        if ok:
++            self.passed = True
++        return ok
 +
 +
 +class RemoteScriptingServer:
 +    """A localhost TCP server that runs received scripts in the Core context.
 +
 +    Signal-driven (QTcpServer + readyRead), so it lives on the Core's event loop
-+    without blocking it while idle. One client at a time. Parented to the Core so
-+    Qt owns its lifetime.
++    without blocking it while idle. One client at a time -- a new connection
++    preempts a stale one, so a crashed client's half-open socket can never hold
++    the server hostage. Parented to the Core so Qt owns its lifetime.
++
++    Raises ``RuntimeError`` if the socket cannot bind (e.g. the port is in use);
++    the caller reports that to the operator rather than showing a false "running".
 +    """
 +
 +    def __init__(self, core, host="127.0.0.1", port=42000, token=None):
++        from PyQt5 import QtNetwork
++
 +        self.core = core
 +        self._token = token or None
++        # QHostAddress does not resolve hostnames; map the common alias.
++        bind_host = "127.0.0.1" if host in ("localhost", "") else host
 +        self._server = QtNetwork.QTcpServer(core)
-+        if not self._server.listen(QtNetwork.QHostAddress(host), int(port)):
-+            raise RuntimeError(f"cannot listen on {host}:{port}: {self._server.errorString()}")
++        if not self._server.listen(QtNetwork.QHostAddress(bind_host), int(port)):
++            raise RuntimeError(
++                f"cannot listen on {host}:{port}: {self._server.errorString()}"
++            )
++        self._host, self._port = bind_host, int(port)
 +        self._server.newConnection.connect(self._on_new_connection)
 +        self._conn = None
-+        self._buf = b""
-+        self._authed = self._token is None
-+        print(f"[mesospim-remote-scripting] listening on {host}:{port} "
-+              f"(token {'required' if self._token else 'off'})")
++        self._decoder = FrameDecoder()
++        self._auth = AuthGate(self._token)
++        logger.info(
++            "Remote scripting listening on %s:%d (token %s)",
++            self._host,
++            self._port,
++            "required" if self._token else "off",
++        )
 +
 +    # -- connection lifecycle ------------------------------------------------
 +
 +    def _on_new_connection(self):
 +        conn = self._server.nextPendingConnection()
 +        if self._conn is not None:
-+            # One client at a time; the NEW connection wins. A client that
-+            # vanished without closing (crash, network drop) would otherwise
-+            # hold the server hostage until mesoSPIM restarts. The newcomer
-+            # still has to pass the token gate before any script runs.
 +            self._drop_client(self._conn)
 +        self._conn = conn
-+        self._buf = b""
-+        self._authed = self._token is None
++        self._decoder = FrameDecoder()
++        self._auth = AuthGate(self._token)
 +        conn.readyRead.connect(self._on_ready_read)
 +        conn.disconnected.connect(lambda c=conn: self._on_disconnected(c))
 +
@@ -297,7 +430,6 @@ index 0000000..904505c
 +        conn.deleteLater()
 +        if conn is self._conn:
 +            self._conn = None
-+            self._buf = b""
 +
 +    def _drop_client(self, conn):
 +        try:
@@ -306,54 +438,46 @@ index 0000000..904505c
 +            pass  # no slots were connected
 +        conn.disconnectFromHost()
 +        conn.deleteLater()
++        if conn is self._conn:
++            self._conn = None
 +
-+    # -- framing -------------------------------------------------------------
++    # -- framing / dispatch --------------------------------------------------
 +
 +    def _on_ready_read(self):
 +        if self._conn is None:
 +            return
-+        self._buf += bytes(self._conn.readAll())
-+        if len(self._buf) > _MAX_FRAME_BYTES:
-+            self._conn.disconnectFromHost()
++        self._decoder.feed(self._conn.readAll())
++        if self._decoder.buffered > MAX_FRAME_BYTES:
++            self._close("frame too large")
 +            return
-+        # Parse as many complete "<len>\n<payload>" frames as are buffered.
-+        while self._conn is not None:
-+            if b"\n" not in self._buf:
-+                return
-+            head, _, rest = self._buf.partition(b"\n")
-+            try:
-+                length = int(head)
-+            except ValueError:
-+                self._send(b"framing error: expected '<byte-count>\\n<payload>'")
-+                self._conn.disconnectFromHost()
-+                return
-+            if len(rest) < length:
-+                return  # payload not fully arrived yet
-+            payload = rest[:length]
-+            self._buf = rest[length:]
-+            self._handle(payload.decode("utf-8", "replace"))
++        try:
++            for payload in self._decoder.frames():
++                self._handle(payload.decode(ENCODING, "replace"))
++                if self._conn is None:
++                    return  # a rejected/closed client: stop processing its frames
++        except FramingError as exc:
++            self._send(f"framing error: {exc}")
++            self._close("framing error")
 +
 +    def _send(self, text):
 +        if self._conn is None:
 +            return
-+        if isinstance(text, str):
-+            text = text.encode("utf-8")
-+        self._conn.write(str(len(text)).encode("ascii") + b"\n" + text)
++        self._conn.write(frame(text))
 +        self._conn.flush()
 +
-+    # -- dispatch ------------------------------------------------------------
++    def _close(self, _reason=""):
++        if self._conn is not None:
++            self._conn.disconnectFromHost()
++            self._conn = None  # _on_disconnected still deleteLater()s it
 +
 +    def _handle(self, message):
 +        # First frame is the token when one is configured.
-+        if not self._authed:
-+            supplied = message.encode("utf-8")
-+            if hmac.compare_digest(supplied, str(self._token).encode("utf-8")):
-+                self._authed = True
++        if not self._auth.passed:
++            if self._auth.check(message):
 +                self._send("OK")
 +            else:
 +                self._send("AUTH-FAILED")
-+                if self._conn is not None:
-+                    self._conn.disconnectFromHost()
++                self._close("auth failed")
 +            return
 +        self._send(self._run_script(message))
 +
@@ -368,16 +492,15 @@ index 0000000..904505c
 +        try:
 +            with redirect_stdout(buf), redirect_stderr(buf):
 +                self.core.execute_script(script)
-+        except Exception:  # execute_script catches script errors itself; this is belt-and-suspenders
++        except Exception:  # execute_script catches script errors; belt-and-suspenders
 +            buf.write(traceback.format_exc())
 +        return buf.getvalue()
 +
 +    def stop(self):
 +        if self._conn is not None:
 +            self._drop_client(self._conn)
-+            self._conn = None
 +        self._server.close()
-+        print("[mesospim-remote-scripting] stopped")
++        logger.info("Remote scripting stopped")
 -- 
 2.53.0.windows.1
 
