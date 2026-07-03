@@ -48,22 +48,6 @@ from shared.output_layout import Naming, build_xml_name
 # ─── Helpers ──────────────────────────────────────────────────────
 
 
-_OME_DESC_TMPL = (
-    '<?xml version="1.0" encoding="UTF-8"?>'
-    '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
-    '<Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYCZT" '
-    'Type="uint16" SizeX="16" SizeY="16" SizeC="1" SizeZ="1" SizeT="1"/>'
-    "</Image>"
-    "<StructuredAnnotations>"
-    '<XMLAnnotation ID="Annotation:0">'
-    "<Value><OriginalMetadata>"
-    "<Key>Data - Image - Attachment - SystemTypeName</Key>"
-    "<Value>{system_type}</Value>"
-    "</OriginalMetadata></Value>"
-    "</XMLAnnotation>"
-    "</StructuredAnnotations>"
-    "</OME>"
-)
 # Attribute-encoded OriginalMetadata fragment matching real LAS X
 # output. The hijack's allowlist parser (pipeline/_hijack.py) walks
 # OriginalMetadata via ElementTree across any namespace, so this
