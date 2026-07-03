@@ -1,17 +1,10 @@
 """Per-datum source capabilities - the one table behind the reader families.
 
-Every datum the state readers serve is declared here once, with the legs
-each source can provide:
-
-- **passive legs** (``api_fn`` / ``log_fn``): answer "what is the state
-  now?" for the routed readers in :mod:`router`. Either leg may be absent;
-  a family asked for a leg the datum does not have fails closed with
-  ``UnsupportedSource``, and ``hybrid`` degrades to the legs that exist.
-- **evidence legs** (``evidence_log_fn`` + ``key_fn`` / ``target_fn``):
-  answer "did the state visibly change / reach a target?" for
-  :mod:`change_wait` and the confirmation race. These are deliberately
-  separate from the passive legs - a passive value and command evidence
-  are different questions even when they read the same log stream.
+Every datum the state readers serve is declared here once, with the passive
+legs (``api_fn`` / ``log_fn``) each source can provide - answering "what is the
+state now?" for the routed readers in :mod:`router`. Either leg may be absent;
+a family asked for a leg the datum does not have fails closed with
+``UnsupportedSource``, and ``hybrid`` degrades to the legs that exist.
 
 The table holds *capabilities* (facts about what a source can prove), not
 preferences. Policy - which family is the default - lives in
@@ -20,7 +13,6 @@ preferences. Policy - which family is the default - lives in
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -43,10 +35,8 @@ def trust_status(reading) -> bool:
 class DatumSpec:
     """Source capabilities for one datum.
 
-    Passive legs are optional callables; evidence capabilities are present
-    only for datums that support change detection / target confirmation.
-    ``*_attr`` fields name ``StateReaderProfile`` attributes so every
-    tunable stays in the profile.
+    Passive legs are optional callables. ``*_attr`` fields name
+    ``StateReaderProfile`` attributes so every tunable stays in the profile.
     """
 
     mode_attr: str
@@ -56,19 +46,6 @@ class DatumSpec:
     log_fn: Callable | None = None  # (snapshot, *, max_age_s[, job_name])
     log_max_age_attr: str | None = None
     age_key: str | None = None  # key for age_for_snapshot()
-    evidence_log_fn: Callable | None = None  # (snapshot) -> (value, observed_at)
-    key_fn: Callable | None = None  # raw value -> comparable key or None
-    target_fn: Callable | None = None  # target -> normalized key (validates)
-    min_delta_attr: str | None = None  # profile attr for change min-delta
-    numeric: bool = False
-
-
-def key_delta(key, other):
-    """Distance between two keys: max component delta for numeric tuples,
-    ``None`` for equal discrete keys, ``inf`` for differing discrete keys."""
-    if isinstance(key, tuple) and isinstance(other, tuple) and len(key) == len(other):
-        return max(abs(a - b) for a, b in zip(key, other, strict=True))
-    return None if key == other else math.inf
 
 
 def age_for_snapshot(snapshot, *, age_key=None, job_name=None):
@@ -99,60 +76,6 @@ def age_for_snapshot(snapshot, *, age_key=None, job_name=None):
         ]
         return min(values) if values else None
     return ages.get(age_key)
-
-
-def _selected_job_key(value):
-    if not isinstance(value, dict):
-        return None
-    name = value.get("Name")
-    if not isinstance(name, str) or not name.strip() or name == "Unknown":
-        return None
-    return name
-
-
-def _selected_job_target(target):
-    if not isinstance(target, str) or not target.strip() or target == "Unknown":
-        raise ValueError("selected_job target must be a non-empty job name")
-    return target
-
-
-def _selected_job_evidence(snapshot):
-    # CurrentBlock is the measured fast-and-correct selection signal
-    # (~0.2 s after a switch). SetCurrentSelectedElementID is an intent echo,
-    # not applied state, so it is deliberately not used as evidence.
-    if snapshot.current_block_name:
-        return {"Name": snapshot.current_block_name}, snapshot.current_block_ts
-    return None, None
-
-
-def _xy_key(value):
-    if not isinstance(value, dict):
-        return None
-    try:
-        key = (float(value["x_um"]), float(value["y_um"]))
-    except (KeyError, TypeError, ValueError):
-        return None
-    if any(math.isnan(c) or math.isinf(c) for c in key):
-        return None
-    return key
-
-
-def _xy_target(target):
-    if not isinstance(target, (tuple, list)) or len(target) != 2:
-        raise ValueError("xy target must be a 2-item sequence")
-    try:
-        key = tuple(float(c) for c in target)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("xy target must contain finite numbers") from exc
-    if any(math.isnan(c) or math.isinf(c) for c in key):
-        raise ValueError("xy target must contain finite numbers")
-    return key
-
-
-def _xy_evidence(snapshot):
-    value = log_reader.get_xy(snapshot, max_age_s=None)
-    observed_at = None if value is None else snapshot.xy_ts
-    return value, observed_at
 
 
 DATUMS = {
@@ -193,11 +116,6 @@ DATUMS = {
         log_fn=lambda snapshot, *, max_age_s: log_reader.get_xy(snapshot, max_age_s=max_age_s),
         log_max_age_attr="xy_log_max_age_s",
         age_key="xy",
-        evidence_log_fn=_xy_evidence,
-        key_fn=_xy_key,
-        target_fn=_xy_target,
-        min_delta_attr="change_wait_xy_min_delta_um",
-        numeric=True,
     ),
     "jobs": DatumSpec(
         mode_attr="jobs_mode",
@@ -216,9 +134,6 @@ DATUMS = {
         ),
         log_max_age_attr="selected_job_log_max_age_s",
         age_key="selected_job",
-        evidence_log_fn=_selected_job_evidence,
-        key_fn=_selected_job_key,
-        target_fn=_selected_job_target,
     ),
 }
 
@@ -227,15 +142,4 @@ def spec(datum) -> DatumSpec:
     found = DATUMS.get(datum)
     if found is None:
         raise ValueError(f"unknown datum {datum!r}; known: {sorted(DATUMS)}")
-    return found
-
-
-def change_spec(datum) -> DatumSpec:
-    """The spec for *datum*, required to support change/target evidence."""
-    found = spec(datum)
-    if found.key_fn is None or found.evidence_log_fn is None:
-        raise ValueError(
-            f"datum {datum!r} does not support change detection; "
-            f"supported: {sorted(d for d, s in DATUMS.items() if s.key_fn)}"
-        )
     return found

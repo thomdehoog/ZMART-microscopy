@@ -187,25 +187,6 @@ showed the target before the command cannot witness a transition and never
 confirms (the stale-readback restore case). Winner, per-leg timings, and
 source disagreements land in the result `logs[]` and the driver log.
 
-### Change Detection
-
-`state_readers.change_wait` answers "did the state visibly change after my
-command?" by alternating API and log reads until one source differs from
-its own pre-command baseline (fail-closed `unconfirmed` on timeout; target
-tolerance is reported, never enforced). Tunables live in
-`profiles.STATE_READERS` (`change_wait_*`).
-
-| Function | Signature | Returns |
-|----------|-----------|---------|
-| `read_change_baseline` | `(client, datum)` | `ChangeBaseline` (per-source pre-command readings) |
-| `wait_for_change` | `(client, datum, baseline, target=None, tolerance=None)` | `ChangeWaitResult` |
-
-`datum` is `"selected_job"` or `"xy"`. Capture the baseline BEFORE firing
-the command, after any previous API readback you rely on has converged; the
-API leg has no independent event timestamp, while the log leg rejects lines
-older than the baseline. See `tests/hardware/probe_four_readers.py` for live
-usage.
-
 ### Job-Level Settings
 
 | Function | Key Parameters | Notes |

@@ -69,8 +69,6 @@ __all__ = [
     "fix_ome_xml_bytes",
     "fix_ome_tiff",
     "fix_ome_xml_file",
-    "update_ome_tiff_filename",
-    "update_ome_xml_filename",
     # settings
     "make_changeable_copy",
     # prechecks
@@ -324,8 +322,6 @@ from .acquisition.ome import (
     fix_ome_xml_bytes,
     fix_ome_tiff,
     fix_ome_xml_file,
-    update_ome_tiff_filename,
-    update_ome_xml_filename,
 )
 from .acquisition.files import (
     read_relative_path,

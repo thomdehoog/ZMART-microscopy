@@ -16,12 +16,11 @@ Fix strategy:
     namespace prefixes, etc.).
 
 Dependency direction:
-    - Imports: stdlib only (re, struct, os, logging).
-    - Imported by: ``__init__`` (re-export).
+    - Imports: stdlib only (re, struct, logging).
+    - Imported by: the package ``__init__`` (re-export) and ``ome_canonical``.
 """
 
 import logging
-import os
 import re
 import struct
 
@@ -47,12 +46,6 @@ _RE_LASER_WAVELENGTH_ZERO = re.compile(r'(<Laser\b)([^/]*?)\bWavelength="0"([^/]
 
 # Extract NNNnm from a LightSource ID string
 _RE_WAVELENGTH_NM = re.compile(r"(\d+)\s*nm", re.IGNORECASE)
-
-# Match <Image ... Name="<path>" ...> — captures (before Name, path, after)
-_RE_IMAGE_NAME = re.compile(r'(<Image\b[^>]*\bName=")([^"]*)(")')
-
-# Match <Description>..path..</Description>
-_RE_DESCRIPTION = re.compile(r"(<Description>)([^<]*)(</Description>)")
 
 
 # ===================================================================
@@ -466,170 +459,3 @@ def fix_ome_xml_file(input_path, output_path=None):
         "error": None,
     }
 
-
-# ===================================================================
-# Filename update functions (requirement 4)
-# ===================================================================
-
-
-def _replace_filename_in_path(old_path, new_filename):
-    """Replace the filename portion of a path, keeping the directory.
-
-    Finds the *last* single ``\\`` or ``/`` separator and replaces
-    everything after it.  Handles Windows paths with mixed single
-    and double backslashes correctly.
-
-    If *old_path* has no directory component, just returns *new_filename*.
-    """
-    # Find the last single \ or / — this is always the filename boundary,
-    # even when the path contains \\ elsewhere.
-    idx_bs = old_path.rfind("\\")
-    idx_fs = old_path.rfind("/")
-    idx = max(idx_bs, idx_fs)
-    if idx >= 0:
-        return old_path[: idx + 1] + new_filename
-    return new_filename
-
-
-def _update_filenames_in_xml(xml_bytes, new_filename):
-    """Update the filename portion in Image Name and Description paths.
-
-    Keeps the directory structure intact, replacing only the filename
-    at the end of the path.  For example::
-
-        Z:\\data\\Experiments\\old.ome.tif  ->  Z:\\data\\Experiments\\new.ome.tif
-
-    Args:
-        xml_bytes: Raw UTF-8 OME-XML content.
-        new_filename: Bare filename to substitute (e.g. ``"sample.ome.tif"``).
-
-    Returns:
-        ``(updated_xml_bytes, list_of_change_descriptions)``.
-    """
-    xml_str = xml_bytes.decode("utf-8")
-    changes = []
-
-    def _replace_name(m):
-        old_path = m.group(2)
-        new_path = _replace_filename_in_path(old_path, new_filename)
-        if old_path == new_path:
-            return m.group(0)
-        changes.append(f'Image Name: "{old_path}" -> "{new_path}"')
-        return m.group(1) + new_path + m.group(3)
-
-    def _replace_desc(m):
-        old_path = m.group(2)
-        # Only replace if the content looks like a file path
-        if "\\" not in old_path and "/" not in old_path:
-            return m.group(0)
-        new_path = _replace_filename_in_path(old_path, new_filename)
-        if old_path == new_path:
-            return m.group(0)
-        changes.append(f'Description: "{old_path}" -> "{new_path}"')
-        return m.group(1) + new_path + m.group(3)
-
-    xml_str = _RE_IMAGE_NAME.sub(_replace_name, xml_str)
-    xml_str = _RE_DESCRIPTION.sub(_replace_desc, xml_str)
-
-    return xml_str.encode("utf-8"), changes
-
-
-def update_ome_tiff_filename(path):
-    """Update embedded XML in an OME-TIFF to match its current filename.
-
-    Replaces absolute paths in ``<Image Name="...">`` and
-    ``<Description>`` with the bare filename of *path*.  Operates
-    in-place.
-
-    Args:
-        path: Path to the OME-TIFF file.
-
-    Returns:
-        ``{"success": bool, "path": str, "changes": [...],
-        "error": str | None}``.
-    """
-    new_filename = os.path.basename(path)
-
-    try:
-        with open(path, "rb") as f:
-            data = bytearray(f.read())
-    except OSError as e:
-        return {"success": False, "path": path, "changes": [], "error": str(e)}
-
-    xml_raw, desc_offset, desc_count, desc_entry_pos, endian_or_err = _read_tiff_tag_270(data)
-
-    if xml_raw is None:
-        if endian_or_err == "No ImageDescription tag found":
-            return {"success": True, "path": path, "changes": [], "error": None}
-        return {"success": False, "path": path, "changes": [], "error": endian_or_err}
-
-    try:
-        updated_xml, changes = _update_filenames_in_xml(xml_raw, new_filename)
-    except UnicodeDecodeError as e:
-        return {"success": False, "path": path, "changes": [], "error": str(e)}
-
-    if not changes:
-        return {"success": True, "path": path, "changes": [], "error": None}
-
-    for c in changes:
-        log.info("%s: %s", path, c)
-
-    # Patch back into TIFF
-    updated_with_null = updated_xml + b"\x00"
-    new_len = len(updated_with_null)
-
-    if new_len <= desc_count:
-        padded = updated_with_null + b"\x00" * (desc_count - new_len)
-        data[desc_offset : desc_offset + desc_count] = padded
-    elif desc_offset + desc_count >= len(data):
-        # XML is at end of file — extend in place (no relocation)
-        data[desc_offset:] = updated_with_null
-        struct.pack_into(endian_or_err + "I", data, desc_entry_pos + 4, new_len)
-    else:
-        # XML is in the middle — relocate to end of file
-        data[desc_offset : desc_offset + desc_count] = b"\x00" * desc_count
-        new_offset = len(data)
-        data.extend(updated_with_null)
-        struct.pack_into(endian_or_err + "I", data, desc_entry_pos + 4, new_len)
-        struct.pack_into(endian_or_err + "I", data, desc_entry_pos + 8, new_offset)
-
-    with open(path, "wb") as f:
-        f.write(data)
-
-    return {"success": True, "path": path, "changes": changes, "error": None}
-
-
-def update_ome_xml_filename(path):
-    """Update a companion OME-XML file to match its current filename.
-
-    Replaces absolute paths in ``<Image Name="...">`` and
-    ``<Description>`` with the bare filename of *path*.  Operates
-    in-place.
-
-    Args:
-        path: Path to the OME-XML file.
-
-    Returns:
-        ``{"success": bool, "path": str, "changes": [...],
-        "error": str | None}``.
-    """
-    new_filename = os.path.basename(path)
-
-    try:
-        with open(path, "rb") as f:
-            raw = f.read()
-    except OSError as e:
-        return {"success": False, "path": path, "changes": [], "error": str(e)}
-
-    try:
-        updated, changes = _update_filenames_in_xml(raw, new_filename)
-    except UnicodeDecodeError as e:
-        return {"success": False, "path": path, "changes": [], "error": str(e)}
-
-    for c in changes:
-        log.info("%s: %s", path, c)
-
-    with open(path, "wb") as f:
-        f.write(updated)
-
-    return {"success": True, "path": path, "changes": changes, "error": None}
