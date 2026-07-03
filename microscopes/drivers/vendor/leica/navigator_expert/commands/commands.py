@@ -218,7 +218,6 @@ def _dispatch(
         pre_check_fn=pre_check_fn,
         error_check_fn=(lambda: effective_error_check(client)) if effective_error_check else None,
         confirm_fn=final_confirm_fn,
-        correct_fn=(lambda: profile.correct_fn(client)) if profile.correct_fn else None,
         max_retries=max_retries if max_retries is not None else profile.max_retries,
         max_confirm_attempts=max_confirm_attempts
         if max_confirm_attempts is not None
