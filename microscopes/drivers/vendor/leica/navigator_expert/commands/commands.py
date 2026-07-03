@@ -1164,8 +1164,7 @@ def move_galvo_to_pixel(client, px, py, *, job_name=None, pixel_size_um=None, im
     exceed the angular limit (``_PAN_LIMIT``); the caller should stage-move
     closer first.
     """
-    from ..experimental.lrp_edits.roi import galvo_pan_for_pixel
-    from ..experimental.lrp_edits.scan import lrp_get_pan, lrp_set_pan
+    from ..experimental.lrp_edits.pan import galvo_pan_for_pixel, lrp_get_pan, lrp_set_pan
     from ..runtime.utils import pan_scale_um_from_base_fov, parse_tile_geometry
     from ..scanfields.files import TEMPLATE_XML
     from ..scanfields.transaction import apply_lrp_change

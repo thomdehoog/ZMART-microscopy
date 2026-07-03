@@ -2850,7 +2850,7 @@ class TestCommandReaderSafety(unittest.TestCase):
                 return_value={"pixel_w_um": 1.0, "pixels_x": 512},
             ),
             patch(
-                "navigator_expert.experimental.lrp_edits.roi.galvo_pan_for_pixel",
+                "navigator_expert.experimental.lrp_edits.pan.galvo_pan_for_pixel",
                 return_value=(0.0, 0.0),
             ),
             patch(
