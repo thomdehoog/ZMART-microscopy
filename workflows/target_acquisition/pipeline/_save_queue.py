@@ -31,6 +31,7 @@ Design:
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 
@@ -92,14 +93,21 @@ class _FigureSaveQueue:
             self._semaphore.release()
 
     def drain(self, *, timeout: float | None = None) -> None:
-        """Wait for all queued saves to complete. Idempotent."""
+        """Wait for all queued saves to complete, up to a total *timeout*.
+
+        The timeout is a single budget shared across all pending futures (not
+        per future), so a wedged filesystem cannot stretch shutdown to
+        ``len(pending) * timeout``. Idempotent.
+        """
         if not self._futures:
             return
         pending = self._futures
         self._futures = []
+        deadline = None if timeout is None else time.monotonic() + timeout
         for future in pending:
+            remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
             try:
-                future.result(timeout=timeout)
+                future.result(timeout=remaining)
             except Exception as exc:
                 # _run already swallows save_fn exceptions; this branch
                 # catches TimeoutError or executor-internal failures.
@@ -114,7 +122,7 @@ class _FigureSaveQueue:
         Safe to call multiple times.
 
         Best-effort, not a hard guarantee: drain() waits up to `timeout`
-        per pending future. Any future that does not complete within that
+        total across all pending futures. Any future not complete within that
         window is logged as a drain failure and left running. The
         executor is then closed with wait=False so a stuck worker cannot
         block the operator; the worker thread may still be writing after
