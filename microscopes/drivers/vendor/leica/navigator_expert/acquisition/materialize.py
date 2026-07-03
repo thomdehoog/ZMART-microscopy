@@ -6,8 +6,8 @@ import os
 import shutil
 from pathlib import Path
 
-from . import ome as _ome
 from . import ome_canonical as _canonical
+from . import ome_vendor_fix as _ome
 from .product import AcquisitionMetadata, PlaneIndex, PlaneSource, VendorMetadataSource
 
 
