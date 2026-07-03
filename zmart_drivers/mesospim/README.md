@@ -202,6 +202,17 @@ the acquisition PC, the server is off by default and started by an operator. See
   session with `set_stage_limits(...)` or `apply_stage_limits_from_config(load_stage_config(...))`, in
   micrometers (degrees for `theta`). The bundled envelope is [`config/stage_limits.json`](config/stage_limits.json)
   (schema-versioned). **The `zmart_controller` path loads these automatically in `connect`.**
+- **Machine-local config (ProgramData wins, bundled defaults fall back)** — the controller path resolves each
+  config file machine copy first, then the bundled default (`config/machine.py`):
+  `<programdata_root>/mesospim/<microscope_id>/{stage_limits.json, function_limits.json, origin.json}` with
+  `programdata_root` = `C:\ProgramData\smart_microscopy` (override: `SMART_MICROSCOPY_ROOT` env var, or
+  `connection["machine_root"]`). So a machine-specific envelope never means editing the checkout. The
+  **function-keyed limits** (`function_limits.json`, the shared `shared/limits` schema — same as the Leica
+  driver) gate every mutating controller op, with the stage envelope overlaid onto their `stage.*`
+  constraints and completeness enforced at load: every mutating op needs an entry (`null` =
+  reviewed-and-unlimited), so a new op can't ship silently unlimited. Which file governed the session is
+  reported under `get_state()["observed"]["limits"]`. The **frame origin** set by `set_origin` persists to
+  `origin.json` and is restored at `connect`, so the zero point survives reconnects.
 - **Hardware model / acquisition defaults** — `HARDWARE` (laser lines, filters, zoom→pixel-size table, camera
   size) and `ACQUISITION` (save format, defaults, `acquire_timeout_s`) in `config/profiles.py`. The live
   instrument's values are authoritative and read back via `get_config`; the profile is the offline default and
