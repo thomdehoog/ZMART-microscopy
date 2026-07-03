@@ -15,7 +15,7 @@ _REPO_ROOT = _HERE.parents[1]
 _MICROSCOPES_ROOT = _REPO_ROOT / "microscopes"
 
 # navigator_expert needs microscopes/drivers/vendor/leica/ on sys.path
-_VENDOR_LEICA = _MICROSCOPES_ROOT / "driver" / "vendor" / "leica"
+_VENDOR_LEICA = _MICROSCOPES_ROOT / "drivers" / "vendor" / "leica"
 if str(_VENDOR_LEICA) not in sys.path:
     sys.path.insert(0, str(_VENDOR_LEICA))
 
