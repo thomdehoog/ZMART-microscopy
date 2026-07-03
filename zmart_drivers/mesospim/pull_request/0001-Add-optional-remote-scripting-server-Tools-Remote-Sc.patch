@@ -1,6 +1,6 @@
-From f1dc7ab08b3479d8ba6a9dbf32cce1834aa87a6b Mon Sep 17 00:00:00 2001
+From 463508ed7a28e6f09277050eb3d5d62bc7d3490a Mon Sep 17 00:00:00 2001
 From: Thom de Hoog <thom.dehoog@zmb.uzh.ch>
-Date: Fri, 3 Jul 2026 13:37:38 +0200
+Date: Fri, 3 Jul 2026 14:12:44 +0200
 Subject: [PATCH] Add optional remote scripting server (Tools -> Remote
  Scripting...)
 
@@ -26,13 +26,11 @@ API. Text in, console text out -- no command vocabulary, no data format.
   no .ui change) with a Start/Stop dialog (host/port/token + generator); reflects
   the real start outcome; stops on app close.
 
-OFF BY DEFAULT and opt-in: the menu appears only when the site sets
-`enable_remote_scripting = True` in its config, so an unmodified install cannot be
-talked into starting it by an accidental menu click. When enabled it is
-secure-by-default -- the dialog binds 127.0.0.1 and pre-fills a fresh token, and
-warns before any network bind without a token. A script is arbitrary Python on the
-acquisition PC; this is plain TCP, so the token gates casual LAN access, it is not
-sniffer-proof (tunnel it for untrusted networks).
+OFF BY DEFAULT and secure-by-default: the server never runs until an operator
+starts it from Tools -> Remote Scripting...; the dialog binds 127.0.0.1, pre-fills a
+fresh token, and warns before any network bind without a token. A script is
+arbitrary Python on the acquisition PC; this is plain TCP, so the token gates
+casual LAN access, it is not sniffer-proof (tunnel it for untrusted networks).
 
 Validated against -D demo mode (both v1.20.0 and release/candidate-py312): started
 from the GUI signal path, a client authenticates, reads state, drives the demo
@@ -40,9 +38,9 @@ stage, gets structured output via print(json), runs an acquisition, and sees a
 raising script's traceback as text (no crash). execute_script is reused unmodified.
 ---
  mesoSPIM/src/mesoSPIM_Core.py            |  37 +++
- mesoSPIM/src/mesoSPIM_MainWindow.py      | 131 ++++++++++
+ mesoSPIM/src/mesoSPIM_MainWindow.py      | 125 +++++++++
  mesoSPIM/src/mesoSPIM_RemoteScripting.py | 312 +++++++++++++++++++++++
- 3 files changed, 480 insertions(+)
+ 3 files changed, 474 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
@@ -94,7 +92,7 @@ index f8495c7..e2ffe61 100644
          '''Switches shutters after each image to allow coalignment of both lightsheets'''
          self.stopflag = False
 diff --git a/mesoSPIM/src/mesoSPIM_MainWindow.py b/mesoSPIM/src/mesoSPIM_MainWindow.py
-index 186d97d..1cccf4a 100644
+index 186d97d..0afaa0e 100644
 --- a/mesoSPIM/src/mesoSPIM_MainWindow.py
 +++ b/mesoSPIM/src/mesoSPIM_MainWindow.py
 @@ -74,6 +74,10 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
@@ -128,7 +126,7 @@ index 186d97d..1cccf4a 100644
          self.camera_window.close()
          self.acquisition_manager_window.close()
          if self.optimizer:
-@@ -380,6 +390,29 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -380,6 +390,23 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
          self.actionOpen_Acquisition_Manager.triggered.connect(self.acquisition_manager_window.show)
          self.actionOpen_Tile_Overview.triggered.connect(self.tile_view_window.show)
          self.actionCascade_windows.triggered.connect(self.cascade_all_windows)
@@ -138,27 +136,21 @@ index 186d97d..1cccf4a 100644
 +        # Tools menu if one is ever added, rather than creating a duplicate.
 +        self._remote_scripting_running = False
 +        self._rs_refresh = None
-+        # Opt-in only: expose the menu entry (and thus the ability to start a
-+        # remote-code-execution server) only when the site sets
-+        # `enable_remote_scripting = True` in its config. An unmodified install
-+        # cannot start it by an accidental menu click; the signal/slot path stays
-+        # wired for deliberate/programmatic use.
-+        if getattr(self.cfg, 'enable_remote_scripting', False):
-+            self.menuTools = None
-+            for _action in self.menuBar.actions():
-+                if _action.menu() is not None and _action.text().replace('&', '') == 'Tools':
-+                    self.menuTools = _action.menu()
-+                    break
-+            if self.menuTools is None:
-+                self.menuTools = self.menuBar.addMenu('Tools')
-+            self.actionRemoteScripting = QtWidgets.QAction('Remote Scripting...', self)
-+            self.actionRemoteScripting.setStatusTip('Start/stop the external Python scripting server')
-+            self.actionRemoteScripting.triggered.connect(self.open_remote_scripting_dialog)
-+            self.menuTools.addAction(self.actionRemoteScripting)
++        self.menuTools = None
++        for _action in self.menuBar.actions():
++            if _action.menu() is not None and _action.text().replace('&', '') == 'Tools':
++                self.menuTools = _action.menu()
++                break
++        if self.menuTools is None:
++            self.menuTools = self.menuBar.addMenu('Tools')
++        self.actionRemoteScripting = QtWidgets.QAction('Remote Scripting...', self)
++        self.actionRemoteScripting.setStatusTip('Start/stop the external Python scripting server')
++        self.actionRemoteScripting.triggered.connect(self.open_remote_scripting_dialog)
++        self.menuTools.addAction(self.actionRemoteScripting)
  
      def initialize_and_connect_widgets(self):
          """ Connecting the menu actions """
-@@ -895,6 +928,104 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -895,6 +922,104 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
      def display_warning(self, string):
          warning = QtWidgets.QMessageBox.warning(None,'mesoSPIM Warning', string, QtWidgets.QMessageBox.Ok)
  
