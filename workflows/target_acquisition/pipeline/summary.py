@@ -71,8 +71,9 @@ def write_summary(
     config_dict["target_slot"] = ctx.target_slot
 
     summary: dict[str, Any] = {
-        "schema_version": 1,
-        "timestamp": ctx.out_dir.name,
+        "schema_version": 2,
+        # The run directory name (<experiment>_<hash6>); not a wall-clock time.
+        "run_name": ctx.out_dir.name,
         "config": config_dict,
         "source_slot": ctx.source_slot,
         "target_slot": ctx.target_slot,

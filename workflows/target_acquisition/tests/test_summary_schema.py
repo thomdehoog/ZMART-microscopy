@@ -195,7 +195,7 @@ class TestSummarySchemaMigration:
 
         for expected in (
             "schema_version",
-            "timestamp",
+            "run_name",
             "config",
             "source_slot",
             "target_slot",
@@ -210,7 +210,7 @@ class TestSummarySchemaMigration:
             "targets",
         ):
             assert expected in summary, f"top-level key {expected!r} missing"
-        assert summary["schema_version"] == 1
+        assert summary["schema_version"] == 2
 
     def test_eligible_cutoff_key_is_serialized(self, tmp_path):
         """The schema rename from n_tiles_below_sparse_cutoff to
