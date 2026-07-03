@@ -1,19 +1,24 @@
 # mesoSPIM driver — what's left to do
 
-Status as of this branch: the driver is **implemented, offline-tested** (115
-tests green), the resident command server's Qt half is validated headless, and
-the full round-trip — **including `acquire`** — is **live-validated against the
-real mesoSPIM-control software in `-D` demo mode**, loaded exactly as an operator
-would (Script Window → `scriptwindow_loader.py`) through the **unmodified** Core
-(5/5 integration tests). See [`LIVE_BENCH_VALIDATION.md`](LIVE_BENCH_VALIDATION.md)
-for the full run and method. What remains is **real-hardware** validation (demo
-mode simulates the devices) plus polish.
+Status as of this branch: the driver is **implemented and offline-tested** (115
+tests green). It now rides mesoSPIM's generic **Remote Scripting** bridge (the
+upstream patch under `pull_request/`): the driver injects Python scripts and
+parses a structured result back, with all command vocabulary client-side in
+`connection/scripts.py`. The mock server `exec`s those very scripts against a
+Core-shaped fake, so framing/harness/vocabulary are exercised for real offline.
 
-> **Correction (2026-07-02).** An earlier version of this file claimed the demo
-> round-trip passed, but that check had **not** gone through mesoSPIM's real
-> Script-Window load path — which in fact failed: the server module cannot be
-> `exec()`'d directly (`NameError`, see below). That is now **fixed** with a flat
-> `scriptwindow_loader.py`, and the round-trip is confirmed through the real path.
+> **Transport change.** An earlier iteration used a bespoke ZMART command server
+> loaded into the Core; it was live-validated in `-D` demo but had sharp edges (an
+> `exec()`-scope `NameError` on load; two live-only bugs). It has been **retired**
+> in favour of the generic Remote Scripting bridge (which reuses `Core.execute_script`
+> unmodified). See [`LIVE_BENCH_VALIDATION.md`](LIVE_BENCH_VALIDATION.md) (marked
+> superseded) for that history and why the design moved here.
+>
+> The Core-API findings below (config/state/move/`start(row=…)`/image-writer path)
+> were verified against a live v1.20.0 Core and still hold — they now live in the
+> injected scripts (`connection/scripts.py`). What is **not** yet re-run is the
+> live round-trip on this **new** transport (§1); that plus **real-hardware**
+> validation are the open blockers.
 
 Legend: 🔴 blocker for live use · 🟠 needed for a real run · 🟢 polish / nice-to-have.
 
@@ -21,9 +26,13 @@ Legend: 🔴 blocker for live use · 🟠 needed for a real run · 🟢 polish /
 
 ## 1. Bench validation against mesoSPIM `-D` demo mode 🔴
 
-The one thing that cannot be done in CI (needs the GPL app + a display; see
-`server/README.md`). Everything here is about confirming the resident script's
-`_CoreBridge` against a *running* Core, not new code.
+The one thing that cannot be done in CI (needs the GPL app + a display). Two parts:
+**(a)** apply the Remote Scripting patch (`pull_request/`) and start it (Tools →
+Remote Scripting), then **(b)** re-run the `-m integration` round-trip on the new
+injected-script transport. The Core-name checklist below was confirmed on the old
+transport and carried into `connection/scripts.py`; re-confirm it end-to-end here.
+(The items marked done were validated against a live Core previously; the ☐ ones
+are the new-transport re-run.)
 
 **Environment (how/where to run this).** mesoSPIM-control is a pure-Python PyQt5
 app but is effectively **Windows-only** (docs: Windows ≥7 64-bit; Python ≥3.12).
@@ -36,13 +45,13 @@ Miniforge/mamba + `pip install -r requirements-conda-mamba.txt`, then
 `python mesoSPIM_Control.py -D`. The ZMART **client** side is cross-platform;
 only the resident server + live Core need Windows.
 
-- [x] Launch mesoSPIM `-D` demo mode, load `server/scriptwindow_loader.py` in the
-      Script Window, confirm it prints `listening on 127.0.0.1:42000`. **DONE** —
+- [x] Launch mesoSPIM `-D` demo mode, load the (since retired) Script-Window
+      loader, confirm it prints `listening on 127.0.0.1:42000`. **DONE** —
       validated against a live `mesoSPIM_Core` (v1.20.0, all Demo backends) on
       Windows, driven headless (offscreen Qt). **Found + fixed:** loading the
       server *module* directly failed (`NameError` — `exec(script)` runs in a
-      `Core` method, so module-level names resolve as globals); the flat
-      `scriptwindow_loader.py` is the fix. See [`LIVE_BENCH_VALIDATION.md`](LIVE_BENCH_VALIDATION.md).
+      `Core` method, so module-level names resolve as globals); a flat loader
+      script was the fix. See [`LIVE_BENCH_VALIDATION.md`](LIVE_BENCH_VALIDATION.md).
 - [x] Run the ZMART round-trip against it (`-m integration`): connect →
       get_config → get_state → move_absolute → get_position → snap. **DONE** —
       all 5 integration tests pass against the live demo Core (through the real
@@ -81,9 +90,11 @@ actually wrote; the driver's `save()` then relocates them.
       the real `sig_add_images_to_image_series`), then waits for `idle`.
       **CONFIRMED on the demo Core:** `start(row=0)` + wait-for-idle captures a
       frame; `start()`'s disk pre-check runs (`Free disk C: space …`) and does not
-      reject a scripted run. A snap takes several seconds, so the capture reply
-      exceeds the default socket deadline — the client now uses a dedicated
-      `ACQUISITION.acquire_timeout_s` (600 s) for `acquire`/`run_acquisition_list`.
+      reject a scripted run. On the Remote Scripting transport a capture never
+      blocks a script inside mesoSPIM: `acquire_start` returns immediately and
+      the client polls progress + file existence up to
+      `ACQUISITION.acquire_timeout_s` (600 s), raising on expiry (never a
+      silent "success" without the stack on disk).
 - [x] The controller assigns the Acquisition a per-acquisition `folder`/`filename`
       (a unique `<output_root>/_staging/<stem>_NNNN` dir + canonical stem, cleaned
       up after the frames are relocated), and the module-level `_written_files`
@@ -99,7 +110,7 @@ actually wrote; the driver's `save()` then relocates them.
 - [ ] Decide `snap` (single live frame, `sig_get_snap_image`) vs. a 1-plane
       series for `acquisition_type="snap"`, and where a live snap writes to.
 
-### Bench validation results (mesoSPIM `-D` demo, v1.20.0, Windows)
+### Bench validation results (mesoSPIM `-D` demo, v1.20.0, Windows — old transport)
 
 Validated against a **live `mesoSPIM_Core` with all Demo backends** by mirroring
 `mesoSPIM_Control.main()` (load `demo_config.py` → `PluginRegistry(cfg)` → build
@@ -132,7 +143,9 @@ now fixed on this branch):
 
 - [ ] On an actual mesoSPIM: verify moves land within tolerance, that limits in
       `config/stage_limits.json` match the instrument envelope, and that theta /
-      focus behave. Update `stage_limits.json` defaults to the real envelope.
+      focus behave. Record the real envelope as the machine copy of
+      `stage_limits.json` (under the ProgramData machine dir — see
+      `config/machine.py`) rather than editing the bundled default.
 - [ ] Sanity-check the zoom→pixel-size table in `config/profiles.py`
       (`HARDWARE.zoom_pixel_size_um`) against the instrument's calibration.
 
@@ -147,9 +160,8 @@ now fixed on this branch):
       nothing is listening; capture is opt-in via `MESOSPIM_ALLOW_ACQUIRE=1`;
       address via `MESOSPIM_HOST`/`MESOSPIM_PORT`. Still to do: wire it into the
       repo's `run_ci` aggregation (it is excluded from the default run today).
-- [x] Added `requirements-dev.txt` (pytest, numpy, tifffile; PyQt5 commented as
-      optional for `server/validate_headless.py`). The MIT client itself has no
-      heavy deps — `numpy`/`tifffile` are test-only.
+- [x] Added `requirements-dev.txt` (pytest, numpy, tifffile). The MIT client
+      itself has no heavy deps — `numpy`/`tifffile` are test-only.
 
 ## 5. Real procedures 🟢
 
@@ -169,17 +181,23 @@ now fixed on this branch):
 
 ## 7. Upstream 🟢
 
-- [x] **Draft the upstream PR** — an opt-in, off-by-default built-in command
-      server for mesoSPIM (**Tools → Command Server…** button), so operators start
-      it with a click instead of the Script-Window loader. Built + validated live
-      against the `-D` demo Core (menu action, queued start on the Core thread,
-      round-trip incl. acquire + unicode token). Packaged for later in
-      [`pull_request/`](pull_request/) (patch + README + PROTOCOL). **Not yet
-      submitted upstream.**
+- [x] **Draft the upstream PR (minimal)** — an opt-in, off-by-default
+      **Tools → Remote Scripting…** server: an external process sends a Python
+      script, it runs via the existing `Core.execute_script`, and the console
+      output is returned (text in / text out). No command vocabulary in mesoSPIM —
+      all of that stays on the ZMART side, injected as scripts. Token-gated,
+      localhost-default, ~276 lines / 3 files, reuses `execute_script` unmodified.
+      Built + validated live against the `-D` demo Core via the button's signal
+      path (auth, read state, **move the demo stage**, structured output, error →
+      traceback). Packaged in [`pull_request/`](pull_request/) (patch + README +
+      PROTOCOL + demo_client). **Not yet submitted upstream.**
+      *(An earlier, larger draft that put the whole command vocabulary upstream was
+      replaced by this minimal version — smaller PR, fewer decisions, easier to
+      merge; the vocabulary belongs to ZMART, not mesoSPIM.)*
 - [ ] Open an issue with the mesoSPIM maintainers to gauge interest, then submit
-      the PR from `pull_request/`. If accepted, the GPL edge lives upstream and the
-      Script-Window loader becomes the fallback for older installs; the ZMART
-      client is unchanged either way.
+      the PR from `pull_request/`. If accepted, operators start the server from the
+      GUI and the Script-Window loader becomes the fallback for older installs; the
+      ZMART client is unchanged either way.
 
 ## 8. Docs consistency 🟢
 

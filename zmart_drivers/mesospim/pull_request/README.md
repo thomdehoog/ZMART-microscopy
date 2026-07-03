@@ -1,93 +1,119 @@
-# Upstream PR — built-in command server for mesoSPIM-control
+# Upstream PR — remote scripting for mesoSPIM-control
 
-This folder documents a proposed **upstream contribution to
-[mesoSPIM-control](https://github.com/mesoSPIM/mesoSPIM-control)**: an opt-in,
-off-by-default **external command server** that gives mesoSPIM a TCP control API,
-started from a GUI button (**Tools → Command Server…**).
+A **minimal** proposed contribution to
+[mesoSPIM-control](https://github.com/mesoSPIM/mesoSPIM-control): let an external
+process send a Python script to the Script Window over a socket and get its
+console output back. One small feature — **Tools → Remote Scripting…** — that any
+driver (ZMART included) can build on.
 
-It is the "first-class" end state described in the driver
-[`../TODO.md`](../TODO.md) and [`../README.md`](../README.md): once (a version of)
-this lands in mesoSPIM, an operator just clicks a button — no Script-Window
-loader to paste — and the ZMART driver connects to it unchanged. Until then, the
-committed [`../server/scriptwindow_loader.py`](../server/scriptwindow_loader.py)
-is the zero-fork way to get the same server running.
+**Status:** built and **validated against the real mesoSPIM software in `-D` demo
+mode** (v1.20.0). Not yet submitted upstream. Nothing here changes the ZMART
+driver — it is a patch *for mesoSPIM*.
 
-**Status:** drafted, built, and **validated against the real mesoSPIM-control
-software in `-D` demo mode** (v1.20.0). Not yet submitted upstream. Nothing here
-changes the ZMART driver — it is a patch *for mesoSPIM*.
+## The idea (why it is this small)
 
-## What the PR does
+mesoSPIM already runs Python in the live Core via its **Script Window**
+(`Core.execute_script`, `self` == Core). This PR just makes that reachable from
+another process. So it adds **no command vocabulary, no data format, no control
+semantics** — it is *text in, console text out*. A client scripts the scope with
+the full mesoSPIM Python API and `print()`s whatever it wants back. Everything
+opinionated (a command set, error semantics, structured results) lives in the
+*client*, injected as a script — not in mesoSPIM.
 
-mesoSPIM-control has **no external API**: everything runs in-process inside the
-Qt event loop, so a separate program cannot drive the microscope. The PR adds a
-small TCP server that turns a line-oriented JSON protocol
-([`PROTOCOL.md`](PROTOCOL.md)) into `mesoSPIM_Core` actions — calling the **same
-`Core` methods the GUI buttons call**. So an external process moves stages,
-changes state, and runs acquisitions exactly as a click would.
+```
+  OUTSIDE program                    TCP/IP socket                 INSIDE mesoSPIM
+  ───────────────                   127.0.0.1:42000               (Core / Script Window context)
+  send script text   ───────────────────▶────────────────────▶   runs it (self = Core)
+                                                                   captures console output
+  read output text   ◀───────────────────◀────────────────────   sends the text back
+```
 
-Three files (all inside mesoSPIM):
+## What the PR does — 3 files, ~410 lines
 
 | File | Change |
 |---|---|
-| `mesoSPIM/src/mesoSPIM_CommandServer.py` | **New.** The server: a `QTimer`-polled (non-blocking) `QTcpServer`, JSON dispatch, and a single `_CoreBridge` class holding every `Core`-touching call. Optional shared-token auth (fail-closed, constant-time compare over UTF-8 bytes). |
-| `mesoSPIM/src/mesoSPIM_Core.py` | `start_command_server(host, port, token)` / `stop_command_server()` slots. |
-| `mesoSPIM/src/mesoSPIM_MainWindow.py` | A **Tools → Command Server…** menu entry (added in code, no `.ui` change) opening a small Start/Stop dialog (host / port / token + a token generator); stops the server on app close. |
+| `mesoSPIM/src/mesoSPIM_RemoteScripting.py` | **New.** A signal-driven `QTcpServer`. For each received script it runs the **existing** `Core.execute_script` with stdout/stderr redirected into a buffer, and returns the buffer. Framing + the token gate are factored into socket-free helpers (`frame`, `FrameDecoder`, `AuthGate`) that unit-test without Qt; `QtNetwork` is imported lazily. Constant-time token compare over UTF-8 bytes. A new client preempts a stale one, so a crashed client can't wedge the single-client server. |
+| `mesoSPIM/src/mesoSPIM_Core.py` | `start_remote_scripting(host, port, token)` / `stop_remote_scripting()` slots, plus a `sig_remote_scripting_started(ok, message)` signal so a bind failure (e.g. port in use) is reported instead of the GUI showing a false "running". |
+| `mesoSPIM/src/mesoSPIM_MainWindow.py` | A **Tools → Remote Scripting…** menu entry (added in code, no `.ui` change; reuses an existing Tools menu if present) with a Start/Stop dialog (host / port / token + generator); reflects the real start outcome; stops on app close. |
 
-## Design notes (why it should be mergeable)
+**`execute_script` is reused unmodified** — the PR only puts a socket in front of
+a method mesoSPIM already has. That is the whole pitch, and why it should be easy
+to review.
 
-- **Opt-in, off by default.** Nothing binds a socket unless an operator clicks
-  Start, so existing users see zero behaviour change.
-- **Correct threading.** The `Core` runs on its own `QThread`. The menu emits a
-  **queued** signal to `Core.start_command_server`, so the server's socket and
-  poll-timer are created **on the Core thread** — where the Core's work runs.
-  This is the thread placement that makes `wait_until_done` moves and
-  acquisitions behave; it is the configuration validated below.
-- **Small surface to re-verify.** Every `Core`/`cfg` name the server touches is
-  isolated in `_CoreBridge`; names follow mesoSPIM-control v1.20.0.
-- **Security is honest.** Plain TCP. The token gates casual access on a trusted
-  LAN; it is **not** sniffer-proof. Default bind is `127.0.0.1`; binding to the
-  network with no token prompts a confirmation. For untrusted networks, tunnel it
-  (SSH/VPN).
+**A note on blocking.** A script runs synchronously on the Core's thread (exactly
+as the Script Window does), so the GUI is unresponsive while a script runs. A
+well-behaved client keeps scripts short — start work and return, poll for
+completion in separate calls — rather than sleeping inside one long script.
+
+## Wire protocol
+
+Length-framed UTF-8, both directions:
+
+```
+message = b"<decimal-byte-count>\n" + <payload bytes>
+```
+
+If a token is set, the **first** frame the client sends must be the token; the
+server replies `OK` or `AUTH-FAILED` (and closes on failure). Every frame after
+that (or every frame, when no token) is a **script**; the reply frame is the
+captured console output. See [`PROTOCOL.md`](PROTOCOL.md).
+
+## Security — read this
+
+A received script is **arbitrary Python on the acquisition PC** (it can touch the
+filesystem, not just the scope). So:
+
+- **Off by default**; started by an operator from the GUI.
+- **Binds `127.0.0.1`** unless changed; the dialog warns before binding to the
+  network without a token.
+- **Optional token** gates access (constant-time compare). Because the payload is
+  arbitrary code, the token matters *more* here than for a bounded command set —
+  a token-holder can run anything.
+- **Plain TCP**: the token is a gate against casual/accidental LAN access, **not**
+  sniffer-proof. For untrusted networks, tunnel it (SSH/VPN) or add TLS — out of
+  scope for this minimal PR (and a decision the maintainers can make separately).
+
+## One faithful wrinkle
+
+The reply is the process console output *during* the script's run, so it can
+interleave with messages other threads print at the same time — exactly as the
+Script Window console does. A client that needs a clean result should delimit it
+with a marker and extract between markers (see the demo below).
 
 ## How to apply
 
-From a mesoSPIM-control checkout:
-
 ```bash
-git checkout -b command-server
-git am /path/to/0001-Add-optional-external-command-server-Tools-Command-S.patch
-# or, if you prefer not to keep the authorship/message:
-#   git apply 0001-...patch
+git checkout -b remote-scripting
+git am 0001-Add-optional-remote-scripting-server-Tools-Remote-Sc.patch
 ```
 
-Then launch mesoSPIM and use **Tools → Command Server… → Start**.
+Then launch mesoSPIM and use **Tools → Remote Scripting… → Start**.
 
 ## How it was validated
 
-Built the real mesoSPIM app (`-D` demo backends) headless and exercised the
-**button's actual mechanism** — emitting `MainWindow.sig_start_command_server`,
-which is exactly what the dialog's *Start* does — then drove it with the ZMART
-client:
+Built the real mesoSPIM app (`-D` demo backends) headless and started the server
+through the **button's real signal path** (`sig_start_remote_scripting`), then
+drove it from a raw socket client:
 
-- Menu action present; emitting the signal starts the server **on the Core
-  thread** (`listening on 127.0.0.1:42000 (token required)`).
-- Full round-trip passes against the live demo `Core`: `connect → get_config →
-  get_state → move → get_position → acquire` (a real acquisition through the
-  image writer), **including a non-ASCII token** (`bütton`); a wrong token is
-  refused.
+- wrong token → `AUTH-FAILED`; correct (non-ASCII) token → `OK`;
+- `print(self.state['position'])` → real position returned;
+- structured output via `print(json.dumps(...))` → parsed;
+- `self.move_absolute({'x_abs':1234,'z_abs':42}, wait_until_done=True)` → the
+  **demo stage actually moved** (position became 1234.0 / 42.0);
+- a script that raises → traceback returned as text, no crash.
 
-## Relationship to the ZMART driver
+The framing and token logic also carry **Qt-free unit tests** (frame boundaries,
+oversized input, constant-time compare incl. a non-ASCII token) that run in
+ordinary CI — the socket shell is thin enough that these cover the parts worth
+covering without a live Core.
 
-- The driver connects to `host:port` (with an optional `token`) **regardless of
-  how the server was started** — Script-Window loader today, this button later.
-  No driver change is needed to adopt the PR.
-- The wire protocol here ([`PROTOCOL.md`](PROTOCOL.md)) is the **same contract**
-  the driver's [`../protocol.py`](../protocol.py) implements; keep them in sync.
-- `mesoSPIM_CommandServer.py` in the patch is the in-tree form of the driver's
-  [`../server/mesospim_command_server.py`](../server/mesospim_command_server.py)
-  (identical logic; the in-tree copy is imported normally, so it needs no
-  Script-Window loader).
+## How ZMART builds on it
+
+The ZMART driver is *one client* of this bridge. Its command vocabulary,
+threading helpers, and result format live on the ZMART side and are injected as
+scripts. See [`demo_client.py`](demo_client.py) for the marker-delimited pattern
+(send a script, read the console frame, extract the result between markers).
 
 ---
 Author: Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch ·
-thomdehoog@gmail.com. Patch license: **GPL-3.0** (it is part of mesoSPIM-control).
+thomdehoog@gmail.com. Patch license: **GPL-3.0** (part of mesoSPIM-control).

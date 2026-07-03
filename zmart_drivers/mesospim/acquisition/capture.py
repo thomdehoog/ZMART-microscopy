@@ -20,6 +20,7 @@ License: MIT
 from __future__ import annotations
 
 import logging
+import tempfile
 import time
 from pathlib import Path
 
@@ -111,6 +112,48 @@ def _metadata_from(acq: dict, server_data: dict) -> AcquisitionMetadata:
     )
 
 
+def _run_acquisition(client, acq: dict, *, label: str) -> dict:
+    """Fire one ``Acquisition`` and wait for its stack, without ever blocking
+    a script inside mesoSPIM's event loop.
+
+    Three injected scripts (see ``connection.scripts``): ``acquire_start``
+    fires ``self.start(row=0)`` and returns immediately; the client then polls
+    ``get_progress`` + ``stat_files`` until the run is idle AND the stack
+    exists on disk (which also covers a run that finished before the first
+    poll); ``acquire_finish`` restores the operator's acquisition list. On
+    timeout the acquisition list is still restored, and this raises with the
+    last observed progress -- a capture can never silently "succeed" without
+    its file.
+
+    Returns the ``acquire_start`` reply data (files, planes, pixels).
+    """
+    start = client.request("acquire_start", acquisition=acq, acquisition_type=label)
+    data = dict(start.data)
+    files = [str(p) for p in data.get("files", [])]
+    deadline = time.monotonic() + ACQUISITION.acquire_timeout_s
+    progress: dict = {}
+    try:
+        while True:
+            progress = dict(client.request("get_progress").data)
+            if progress.get("state") in ("idle", None):
+                stat = client.request("stat_files", files=files)
+                if not stat.data.get("missing"):
+                    return data
+            if time.monotonic() > deadline:
+                raise RuntimeError(
+                    f"acquire({label!r}) did not produce its stack within "
+                    f"{ACQUISITION.acquire_timeout_s:.0f}s; last progress: {progress!r}"
+                )
+            time.sleep(ACQUISITION.acquire_poll_s)
+    finally:
+        # Always hand the operator's acquisition list back, success or not
+        # (without masking the original error if the connection died mid-poll).
+        try:
+            client.try_request("acquire_finish")
+        except (ConnectionError, OSError):
+            log.warning("could not restore the acquisition list (connection lost)")
+
+
 def acquire(
     client,
     acquisition_type: str = "snap",
@@ -121,25 +164,24 @@ def acquire(
     """Run one capture and return its save-agnostic result.
 
     Reads the current state (unless ``state`` is supplied), builds the
-    ``Acquisition``, fires it, and returns the frame files the image writer
-    produced. Raises ``RuntimeError`` if the server reports failure or produces
-    no frames.
+    ``Acquisition``, fires it, and waits for the frame files the image writer
+    produced. Raises ``RuntimeError`` if the server reports failure or the
+    stack does not appear within the acquisition timeout.
     """
     state = state if state is not None else get_state(client)
+    # The image writer needs a concrete folder + filename to write the stack to;
+    # the controller supplies a staging path, but a direct capture() caller may
+    # not, so default to a fresh temp folder here. The injected acquire script
+    # returns exactly this path, and save() relocates from it.
+    options = dict(options or {})
+    options.setdefault("folder", tempfile.mkdtemp(prefix="mesospim_capture_"))
+    options.setdefault("filename", f"{acquisition_type}.tiff")
     acq = build_acquisition(state, options)
 
     started_at = time.time()
-    # A capture reply arrives only when the run finishes, which far exceeds the
-    # default per-request socket deadline -- use the acquisition timeout.
-    reply = client.request(
-        "acquire",
-        acquisition=acq,
-        acquisition_type=acquisition_type,
-        read_timeout=ACQUISITION.acquire_timeout_s,
-    )
+    data = _run_acquisition(client, acq, label=acquisition_type)
     finished_at = time.time()
 
-    data = dict(reply.data)
     files = tuple(Path(p) for p in data.get("files", []))
     planes = int(data.get("planes", acq.get("planes", 1)))
     if not files:
@@ -166,17 +208,26 @@ def snap(client, *, options: dict | None = None) -> AcquisitionResult:
 
 
 def run_acquisition_list(client, acquisitions: list[dict]) -> dict:
-    """Submit a full mesoSPIM ``AcquisitionList`` and return the server's record.
+    """Run a list of ``Acquisition`` dicts one by one and return every file.
 
     Each entry is an ``Acquisition`` dict (see :func:`build_acquisition`). This
-    is the multi-tile / multi-channel path; the reply carries every produced
-    file grouped per acquisition.
+    is the multi-tile / multi-channel path. Each acquisition runs through the
+    same start/poll/finish flow as :func:`acquire`, so the operator's
+    acquisition list is restored and the stack verified on disk per item; the
+    record carries every produced file grouped per acquisition.
     """
     if not acquisitions:
         raise ValueError("acquisition list is empty")
-    reply = client.request(
-        "run_acquisition_list",
-        acquisitions=list(acquisitions),
-        read_timeout=ACQUISITION.acquire_timeout_s,
-    )
-    return dict(reply.data)
+    files: list[str] = []
+    per: list[dict] = []
+    for index, one in enumerate(acquisitions):
+        # Give every acquisition a concrete folder/filename the image writer can
+        # use (and the injected script can report back), unless the caller set one.
+        acq = dict(one)
+        acq.setdefault("folder", tempfile.mkdtemp(prefix="mesospim_list_"))
+        acq.setdefault("filename", f"acq_{index:04d}.tiff")
+        data = _run_acquisition(client, acq, label=f"list[{index}]")
+        produced = [str(p) for p in data.get("files", [])]
+        files.extend(produced)
+        per.append({"files": produced, "planes": int(data.get("planes", 1) or 1)})
+    return {"files": files, "per_acquisition": per}

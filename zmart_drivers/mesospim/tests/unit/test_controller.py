@@ -15,6 +15,20 @@ def _no_limits():
     limits.clear_stage_limits()
 
 
+@pytest.fixture(autouse=True)
+def _registry_isolation():
+    # The controller registry is process-global; the connections these tests
+    # register point at per-test mock servers that die with the test. Restore
+    # the registry afterwards so other suites in the same run never resolve a
+    # stale mesospim entry.
+    from zmart_controller import registry
+
+    before = dict(registry.REGISTRY)
+    yield
+    registry.REGISTRY.clear()
+    registry.REGISTRY.update(before)
+
+
 @pytest.fixture
 def session(server, tmp_path):
     """A connected controller Session wired to the mock command server."""
@@ -27,6 +41,9 @@ def session(server, tmp_path):
         "host": server.host,
         "port": server.port,
         "output_root": str(tmp_path / "run"),
+        # Hermetic machine dir: origin persistence and limits resolution must
+        # never touch the real ProgramData root from a test.
+        "machine_root": str(tmp_path / "machine"),
     }
     mesospim.register(connection)
     sess = zmart_controller.set_instrument(connection)
@@ -177,3 +194,120 @@ def test_context(session):
     ctx = session.get_context()
     assert "initial_positions" in ctx
     assert "output_root" in ctx
+
+
+# =============================================================================
+# machine-local config: function limits, persisted origin, machine envelope
+# =============================================================================
+
+
+def _connection(server, tmp_path):
+    return {
+        "vendor": "mesospim",
+        "microscope": "mesospim-test",
+        "api": "command-server",
+        "host": server.host,
+        "port": server.port,
+        "output_root": str(tmp_path / "run"),
+        "machine_root": str(tmp_path / "machine"),
+    }
+
+
+def test_bundled_function_limits_cover_every_mutating_op():
+    """THE completeness guard: adding a mutating op without a limits entry fails here."""
+    from mesospim import controller
+    from mesospim.config import machine
+
+    from shared import limits as shared_limits
+
+    path = machine._bundled_default(machine.FUNCTION_LIMITS_FILENAME)
+    loaded = shared_limits.load(path, functions=controller._MUTATING_OPS)
+    assert loaded.source == "defaults"
+
+
+def test_origin_persists_across_sessions(server, tmp_path):
+    import zmart_controller
+
+    connection = _connection(server, tmp_path)
+    mesospim.register(connection)
+
+    first = zmart_controller.set_instrument(connection)
+    try:
+        first.set_xyz(100, 200, 50)  # move somewhere first (origin still 0)
+        out = first.set_origin()
+        assert out["origin_file"]  # persisted machine-locally
+        assert first.get_xyz()["x"]["value"] == 0.0
+    finally:
+        first.disconnect()
+
+    second = zmart_controller.set_instrument(connection)
+    try:
+        # The restored origin makes the same physical spot read (0, 0, 0).
+        pos = second.get_xyz()
+        assert (pos["x"]["value"], pos["y"]["value"], pos["z"]["value"]) == (0.0, 0.0, 0.0)
+    finally:
+        second.disconnect()
+
+
+def test_machine_stage_envelope_overrides_bundled(server, tmp_path):
+    """A machine copy of stage_limits.json governs moves, not the bundled default."""
+    import json
+
+    import zmart_controller
+
+    connection = _connection(server, tmp_path)
+    machine_dir = tmp_path / "machine" / "mesospim" / "mesospim-test"
+    machine_dir.mkdir(parents=True)
+    (machine_dir / "stage_limits.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": "defaults",
+                "axes": {
+                    "x": [0.0, 500.0],  # tighter than the bundled 25000
+                    "y": [0.0, 25000.0],
+                    "z": [0.0, 25000.0],
+                    "f": [0.0, 25000.0],
+                    "theta": [-360.0, 360.0],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    mesospim.register(connection)
+    sess = zmart_controller.set_instrument(connection)
+    try:
+        sess.set_xyz(400, 0, 0)  # inside the machine envelope
+        with pytest.raises(RuntimeError, match="stage.x"):
+            sess.set_xyz(600, 0, 0)  # inside bundled, outside the machine copy
+    finally:
+        sess.disconnect()
+
+
+def test_focus_and_rotation_procedures_are_limit_gated(session):
+    with pytest.raises(RuntimeError, match="stage.f"):
+        session.set_procedure({"name": "move_focus", "value": 99999.0})
+    with pytest.raises(RuntimeError, match="stage.theta"):
+        session.set_procedure({"name": "move_rotation", "value": 720.0})
+    # In-bounds still runs.
+    assert session.set_procedure({"name": "move_rotation", "value": 15.0})["ran"] == "move_rotation"
+
+
+def test_mutating_ops_refuse_without_function_limits(session):
+    """Fail-closed: no loaded limits means no mutations — reads still work."""
+    session._handle.function_limits = None
+    for call in (
+        lambda: session.set_origin(),
+        lambda: session.set_xyz(1, 1, 1),
+        lambda: session.set_state({"changeable": {}}),
+        lambda: session.set_procedure({"name": "zero_stage"}),
+    ):
+        with pytest.raises(RuntimeError, match="function limits are not configured"):
+            call()
+    assert "move_focus" in session.get_procedures()  # read-only unaffected
+
+
+def test_observed_reports_limits_provenance(session):
+    observed = session.get_state()["observed"]
+    assert observed["limits"]["schema_version"] == 1
+    assert observed["limits"]["is_fallback"] is True  # no machine copy in this fixture
