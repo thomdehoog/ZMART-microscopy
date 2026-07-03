@@ -1397,7 +1397,14 @@ def confirm_acquire(
         )
         elapsed = time.perf_counter() - t_start
 
-        if "Idle" not in status:
+        if "Unknown" in status:
+            # No admissible scan-status this tick. Unknown is evidence of
+            # nothing: treating it as scanning would falsely latch
+            # saw_scanning (disabling the start-timeout and permanent-error
+            # checks); treating it as idle would falsely advance the
+            # completion streak. Wait for a real reading.
+            pass
+        elif "Idle" not in status:
             saw_scanning = True
             consecutive_idle = 0
         else:
