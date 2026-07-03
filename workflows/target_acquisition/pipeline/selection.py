@@ -200,11 +200,11 @@ def load_overview_result(analysis_dir: Path) -> OverviewResult:
             completed = bool(meta.get("completed", False))
             n_tiles_planned = int(meta.get("n_tiles_planned", 0))
             n_tiles_submitted = int(meta.get("n_tiles_submitted", 0))
-            n_tiles_acquired = int(meta["n_tiles_acquired"])
-            n_tiles_hijacked = int(meta["n_tiles_hijacked"])
-            simulated = bool(meta["simulated"])
+            n_tiles_acquired = int(meta.get("n_tiles_acquired", 0))
+            n_tiles_hijacked = int(meta.get("n_tiles_hijacked", 0))
+            simulated = bool(meta.get("simulated", False))
             mock_image_source = meta.get("mock_image_source", None)
-        except (json.JSONDecodeError, OSError) as exc:
+        except (json.JSONDecodeError, OSError, KeyError, TypeError, ValueError) as exc:
             print(
                 f"[load] WARNING: overview_meta.json unreadable ({exc}); "
                 f"failure lists default to []. Treating run as incomplete."

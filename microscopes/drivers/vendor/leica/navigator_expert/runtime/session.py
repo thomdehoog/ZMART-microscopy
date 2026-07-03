@@ -88,7 +88,7 @@ def require_canonical_scan_orientation() -> None:
     """Verify that LAS X exports images in the orientation our math assumes.
 
     The pixel↔display-frame mapping ``vx = (col − centre) · pixel_size`` (see
-    ``experimental.lrp_edits.roi`` module docstring) only holds when the
+    ``experimental.lrp_edits.pan`` module docstring) only holds when the
     saved TIFF and the on-screen scan field share an axis frame. LAS X
     guarantees that under ``EnableImageTransformation = false`` or
     ``ImageTransformation = TOPLEFT``; any other transformation rotates or
@@ -103,14 +103,18 @@ def require_canonical_scan_orientation() -> None:
     calibration time — that's a separate guarantee from "LAS X exports a
     canonical TIFF".
 
-    Raises ``RuntimeError`` if image export is not in TOPLEFT.
+    Raises ``RuntimeError`` if image export is not in TOPLEFT, or if the
+    orientation settings cannot be read (fail closed — an unverifiable
+    orientation is not a safe one).
     """
-    settings = _readers.get_lasx_settings() or {}
-    orient = settings.get("image_orientation", {}) or {}
-    if (
-        orient.get("enable_transform", False)
-        and orient.get("transformation", "TOPLEFT") != "TOPLEFT"
-    ):
+    settings = _readers.get_lasx_settings()
+    if settings is None or "image_orientation" not in settings:
+        raise RuntimeError(
+            "Could not read LAS X image-orientation settings; cannot confirm "
+            "the export is in TOPLEFT. Check the LAS X settings path, then retry."
+        )
+    orient = settings.get("image_orientation") or {}
+    if orient.get("enable_transform", False) and orient.get("transformation", "TOPLEFT") != "TOPLEFT":
         raise RuntimeError(
             f"ImageTransformation = '{orient.get('transformation')}' "
             f"(expected 'TOPLEFT' or EnableImageTransformation = false). "

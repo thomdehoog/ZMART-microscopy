@@ -42,8 +42,9 @@ def base_fov_from_settings(settings):
         geo = parse_tile_geometry(settings)
         zoom_info = settings.get("zoom") or {}
         current_zoom = float(zoom_info.get("current", 1) or 1)
-        if current_zoom < 1:
-            current_zoom = 1
+        # FOV scales as 1/zoom, so the zoom-1 (base) FOV is the current tile FOV
+        # times the current zoom. Zoom < 1 is valid on hardware whose range
+        # starts below 1 (e.g. 0.75); do not clamp it or the base FOV inflates.
         return (
             geo["tile_w_um"] * 1e-6 * current_zoom,
             geo["tile_h_um"] * 1e-6 * current_zoom,
