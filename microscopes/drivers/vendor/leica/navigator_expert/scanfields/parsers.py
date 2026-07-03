@@ -50,19 +50,13 @@ from collections import defaultdict
 from pathlib import Path
 
 from .planning import (
+    UNASSIGNED_JOB,
     has_lasx_tile_count_tags,
     infer_overlap_pct_from_geometry_counts,
     plan_tiles_from_geometries,
 )
 
 log = logging.getLogger(__name__)
-
-
-# =============================================================================
-# Type conversion helpers
-# =============================================================================
-
-UNASSIGNED_JOB = "(unassigned)"
 
 
 def _to_float(s: str | None) -> float | None:
