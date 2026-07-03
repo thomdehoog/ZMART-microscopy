@@ -179,8 +179,6 @@ class CommandProfile:
         confirm_fn: Readback confirmation. ``callable(client) -> result``.
             None to skip confirmation. Declarative only - commands always
             override this with a target-bound partial at call time.
-        correct_fn: Custom correction strategy. ``callable(client) -> result``.
-            None uses built-in idle correction. Stubbed for future use.
         max_retries: Transient error retries inside the fire block.
         max_confirm_attempts: Confirm wrapper re-attempt ceiling.
         refire_on_unconfirmed: If True, an unconfirmed readback causes
@@ -226,7 +224,6 @@ class CommandProfile:
     pre_check_fn: callable = None
     error_check_fn: callable = _default_error_check
     confirm_fn: callable = None
-    correct_fn: callable = None
     max_retries: int = 3
     max_confirm_attempts: int = 3
     refire_on_unconfirmed: bool = True
