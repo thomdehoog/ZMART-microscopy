@@ -4,8 +4,39 @@ from unittest.mock import patch
 
 import pytest
 from navigator_expert.commands import confirmations
-from navigator_expert.runtime import session
+from navigator_expert.runtime import errors, session
 from navigator_expert.state_readers import derived
+
+
+class _RaisingEcho:
+    """A .NET-like echo whose every field access raises (unreadable COM object)."""
+
+    @property
+    def Result(self):
+        raise RuntimeError("Can't read Result enum")
+
+    @property
+    def HasError(self):
+        raise RuntimeError("Can't read HasError")
+
+    @property
+    def Error(self):
+        raise RuntimeError("Can't read Error")
+
+
+class _RaisingClient:
+    class PyApiCommandEcho:
+        Model = _RaisingEcho()
+
+
+def test_check_api_error_never_raises_on_unreadable_echo():
+    """A COM object that raises on every attribute must not propagate (B7).
+
+    _check_api_error is called by the dispatch backbone without its own
+    try/except, so it must always return a result dict or None.
+    """
+    with patch.object(errors, "_read_echo_details", return_value={}):
+        assert errors._check_api_error(_RaisingClient()) is None
 
 
 def test_base_fov_does_not_clamp_sub_one_zoom():
