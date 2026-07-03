@@ -17,7 +17,7 @@ import navigator_expert as drv
 from calibration.vendor.leica.navigator_expert.core import model as calib
 from shared.output_layout import Naming
 
-from ._acquire import acquire
+from ._acquire import position_stage
 from ._hijack import NonSimulatorFrameError, hijack_frame
 from ._job_state import ensure_job_state
 from ._log_capture import _logged
@@ -244,7 +244,7 @@ def acquire_targets(
                 target_pixel_size_um = float(target_geo["pixel_w_um"])
 
                 stage = "acquire"
-                acquire(ctx, cfg.target_job, tx, ty, tz)
+                position_stage(ctx, cfg.target_job, tx, ty, tz)
                 rid, row, col, label = pick.pick_id
                 naming = Naming(
                     acquisition_type="target-acquisition",
