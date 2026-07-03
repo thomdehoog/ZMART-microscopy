@@ -91,8 +91,18 @@ class TestDualLegRace(unittest.TestCase):
             finally:
                 log_done.set()
 
+        def winning_api():
+            # Wait for the log leg to fail, then settle well past the race
+            # loop's ~5 ms poll cadence so its failure is recorded in
+            # `outcomes` before this win breaks the loop. This makes the
+            # disagreement deterministically observable (log_done alone fires
+            # a hair before log_results.put(), a zero-margin race).
+            log_done.wait(2.0)
+            time.sleep(0.1)
+            return _ok("api readback")
+
         race = confirmations.race_confirmations(
-            api_leg=lambda: (log_done.wait(2.0), _ok("api readback"))[1],
+            api_leg=winning_api,
             log_leg=failing_log,
             label="TestCmd",
             budget_s=3.0,
