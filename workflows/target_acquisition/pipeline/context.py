@@ -43,7 +43,7 @@ class Config:
 
     Z-wide limits always come from `limits/.../defaults.json` (the physical
     envelope); there is no operator-typed override -- focus behaviour
-    is controlled by the focus map in Step 3.
+    is controlled by the focus map in Step 2c.
     """
 
     # Jobs

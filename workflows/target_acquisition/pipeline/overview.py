@@ -1,4 +1,4 @@
-"""overview.py -- Step 4: overview acquisition with live analysis.
+"""overview.py -- Step 3: overview acquisition with live analysis.
 
 Snake-ordered tile acquisition with per-tile engine submission,
 opportunistic + blocking drain, NPZ persistence (schema v2). Selection
@@ -196,7 +196,7 @@ def run_overview(
     save_png: bool = True,
     on_tile: Callable[[TileEvent], None] | None = None,
 ) -> OverviewResult:
-    """Step 4: acquire tiles, submit to engine, drain, persist. NO selection.
+    """Step 3: acquire tiles, submit to engine, drain, persist. NO selection.
 
     Per drained result: build per-tile Pick objects via _picks_from_result;
     save NPZ schema v2 via _save_single_tile_analysis(extra_arrays=...);
