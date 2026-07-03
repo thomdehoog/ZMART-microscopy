@@ -1,5 +1,8 @@
 # mesospim — mesoSPIM light-sheet microscope driver
 
+> **New here? Start with the [workflow manual](WORKFLOW.md)** — apply the PR, start the
+> server, and drive the scope from Python end to end. This README is the reference.
+
 `mesospim` drives a **mesoSPIM** light-sheet microscope from an external Python process. Its target,
 [**mesoSPIM-control**](https://github.com/mesoSPIM/mesoSPIM-control) (the GPL PyQt5 acquisition app),
 has **no external control API** — all control is in-process, inside its Qt event loop. So the boundary is

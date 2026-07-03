@@ -3,10 +3,16 @@
 ## Current: Remote Scripting transport (2026-07-03) ✅
 
 Validated the shipping driver + adapter + the `pull_request/` Remote Scripting PR
-end to end against the real **mesoSPIM-control v1.20.0** in `-D` demo mode (all Demo
-backends, offscreen Qt on Windows). The PR patch was applied to a clean v1.20.0
-checkout (`git am`), the server started with a token via
-`tests/hardware/launch_demo_server.py`, and both `-m integration` suites run green:
+end to end against the real **mesoSPIM-control** in `-D` demo mode (all Demo backends,
+offscreen Qt on Windows) on **two bases**: the **v1.20.0** release tag (patch via
+`git am`) and the active **`release/candidate-py312`** branch (86 commits ahead; patch
+via `git apply --3way` with one trivial keep-both conflict in the MainWindow
+signal-connection block). The PR ports 1:1 (identical 3 files / 421 insertions). The
+server was started with a token via `tests/hardware/launch_demo_server.py`, and both
+`-m integration` suites run green **on each** (11/11 — driver 5/5 + adapter 6/6, incl.
+acquire). On candidate-py312 the launcher also neutralises the optional
+ImageProcessor plugins' import-time `torch` auto-install (a headless test demo must
+not pip-install ~2 GB of GPU deps; `PluginRegistry` then skips those processors):
 
 - **`test_live_roundtrip` (driver)** — 5/5: handshake/protocol, `get_config`
   (laser/filter/zoom/camera bindings), `get_state`, `move_absolute`+confirm, and

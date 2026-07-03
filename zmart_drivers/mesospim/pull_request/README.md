@@ -7,8 +7,10 @@ console output back. One small feature — **Tools → Remote Scripting…** —
 driver (ZMART included) can build on.
 
 **Status:** built and **validated against the real mesoSPIM software in `-D` demo
-mode** (v1.20.0). Not yet submitted upstream. Nothing here changes the ZMART
-driver — it is a patch *for mesoSPIM*.
+mode** — both the **v1.20.0** release tag and the active **`release/candidate-py312`**
+branch (86 commits ahead); a full driver + adapter round-trip incl. `acquire` passes
+on both. Not yet submitted upstream. Nothing here changes the ZMART driver — it is a
+patch *for mesoSPIM*.
 
 ## The idea (why it is this small)
 
@@ -32,7 +34,7 @@ opinionated (a command set, error semantics, structured results) lives in the
 
 | File | Change |
 |---|---|
-| `mesoSPIM/src/mesoSPIM_RemoteScripting.py` | **New.** A signal-driven `QTcpServer`. For each received script it runs the **existing** `Core.execute_script` with stdout/stderr redirected into a buffer, and returns the buffer. Framing + the token gate are factored into socket-free helpers (`frame`, `FrameDecoder`, `AuthGate`) that unit-test without Qt; `QtNetwork` is imported lazily. Constant-time token compare over UTF-8 bytes. A new client preempts a stale one, so a crashed client can't wedge the single-client server. |
+| `mesoSPIM/src/mesoSPIM_RemoteScripting.py` | **New.** A signal-driven `QTcpServer`. For each received script it runs the **existing** `Core.execute_script` with stdout/stderr redirected into a buffer, and returns the buffer. Framing + the token gate are factored into socket-free helpers (`frame`, `FrameDecoder`, `AuthGate`) that unit-test without Qt; `QtNetwork` is imported lazily. Constant-time token compare over UTF-8 bytes. A new client preempts a stale one, and a dropped/crashed client's socket teardown is guarded (it never propagates a Qt error into mesoSPIM), so a misbehaving client can neither wedge nor crash the server. |
 | `mesoSPIM/src/mesoSPIM_Core.py` | `start_remote_scripting(host, port, token)` / `stop_remote_scripting()` slots, plus a `sig_remote_scripting_started(ok, message)` signal so a bind failure (e.g. port in use) is reported instead of the GUI showing a false "running". |
 | `mesoSPIM/src/mesoSPIM_MainWindow.py` | A **Tools → Remote Scripting…** menu entry (added in code, no `.ui` change; reuses an existing Tools menu if present) with a Start/Stop dialog (host / port / token + generator); reflects the real start outcome; stops on app close. |
 
@@ -63,7 +65,9 @@ captured console output. See [`PROTOCOL.md`](PROTOCOL.md).
 A received script is **arbitrary Python on the acquisition PC** (it can touch the
 filesystem, not just the scope). So:
 
-- **Off by default**; started by an operator from the GUI.
+- **Off by default**; started by an operator from the GUI, and **secure by default
+  when started** — the Start dialog pre-fills a freshly generated token (clear it to
+  deliberately run open on localhost).
 - **Binds `127.0.0.1`** unless changed; the dialog warns before binding to the
   network without a token.
 - **Optional token** gates access (constant-time compare). Because the payload is
@@ -83,9 +87,14 @@ with a marker and extract between markers (see the demo below).
 ## How to apply
 
 ```bash
-git checkout -b remote-scripting
+git checkout -b remote-scripting v1.20.0     # the patch's base (the release tag)
 git am 0001-Add-optional-remote-scripting-server-Tools-Remote-Sc.patch
 ```
+
+On a newer branch (e.g. `release/candidate-py312`) the patch still applies via a
+3-way merge — `git apply --3way 0001-*.patch` — with **one trivial conflict** in the
+MainWindow signal-connection block: keep **both** sides (the existing line and the
+three `remote_scripting` connections). Validated end to end on that branch too.
 
 Then launch mesoSPIM and use **Tools → Remote Scripting… → Start**.
 
