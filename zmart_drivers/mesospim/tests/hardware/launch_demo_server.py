@@ -79,6 +79,19 @@ def main() -> int:
         pass
 
     app = QtWidgets.QApplication(sys.argv)
+
+    # Some mesoSPIM builds (e.g. the py312 line) ship optional ImageProcessor
+    # plugins that pip-install heavy GPU deps (torch+cu128, ~2 GB) at import time
+    # via plugins.utils.install_and_import. A headless test demo must never do
+    # that, so neutralise it to "import if already present, else raise" -- then
+    # PluginRegistry (which catches each plugin's import failure) just skips those
+    # processors. Guarded so it is a no-op on older builds without this hook.
+    try:
+        from mesoSPIM.src.plugins import utils as _plugin_utils
+        _plugin_utils.install_and_import = lambda name, *a, **k: __import__(name)
+    except Exception:  # noqa: BLE001 - older mesoSPIM without the plugin utils
+        pass
+
     # PluginRegistry must exist before MainWindow (Acquisition resolves a writer at
     # class-definition time).
     from mesoSPIM.src.plugins.manager import PluginRegistry
