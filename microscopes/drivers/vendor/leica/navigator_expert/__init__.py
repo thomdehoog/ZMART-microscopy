@@ -314,7 +314,7 @@ from .scanfields.parsers import (
 from .scanfields.planning import plan_tiles_from_geometries
 
 # -- acquisition/ - capture, file arrival, and save handling
-from .acquisition.ome import (
+from .acquisition.ome_vendor_fix import (
     extract_wavelength_from_id,
     check_ome_xml_bytes,
     check_ome_tiff,

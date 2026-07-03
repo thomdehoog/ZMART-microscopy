@@ -16,7 +16,7 @@ from typing import Any
 from .. import state_readers as _readers
 from ..commands import settings as _core_settings
 from ..runtime import utils as _core_utils
-from . import ome as _ome
+from . import ome_vendor_fix as _ome
 from .product import AcquisitionMetadata, ChannelMetadata, PlaneIndex
 
 OME_NS = "http://www.openmicroscopy.org/Schemas/OME/2016-06"

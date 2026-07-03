@@ -1,9 +1,10 @@
 """
-OME-TIFF / OME-XML schema validation and patching.
-====================================================
-Detect and fix known OME-XML schema violations in Leica STELLARIS
-exports: OME-TIFF files (embedded XML in TIFF tag 270) and companion
-OME-XML files in the ``metadata/`` directory.
+Vendor OME-TIFF / OME-XML schema validation and repair.
+=======================================================
+Detect and fix known OME-XML schema violations in *vendor-produced* Leica
+STELLARIS exports: OME-TIFF files (embedded XML in TIFF tag 270) and companion
+OME-XML files in the ``metadata/`` directory. (This is the input/repair side;
+``ome_canonical`` is the output side that emits SMART's own canonical OME.)
 
 Known violation addressed:
     ``<Laser Wavelength="0">`` violates the OME-XML 2008-09 schema
