@@ -7,6 +7,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 from __future__ import annotations
 
 import pytest
+
 from zmart_controller import get_instruments, set_instrument
 
 
@@ -59,7 +60,7 @@ class TestFrame:
     def test_actuator_selector_reported_back(self, mic):
         pos = mic.get_xyz(with_actuators={"z": "piezo"})
         assert pos["z"]["actuator"] == "piezo"
-        assert pos["x"]["actuator"] == "motoric"  # untouched axes use the active one
+        assert pos["x"]["actuator"] == "motoric"  # untouched axes use the reference one
 
     def test_unknown_actuator_raises(self, mic):
         with pytest.raises(ValueError, match="unknown actuator"):
@@ -92,25 +93,27 @@ class TestAcquire:
 
 
 class TestState:
-    def test_state_split_into_mutable_immutable(self, mic):
+    def test_state_split_into_changeable_observed(self, mic):
         state = mic.get_state()
-        assert set(state) == {"immutable", "mutable"}
-        assert "serial" in state["immutable"]
-        assert "laser_power" in state["mutable"]
+        assert list(state) == ["changeable", "observed"]  # changeable first
+        assert "laser_power" in state["changeable"]
+        assert "serial" in state["observed"]
 
     def test_capture_and_reapply(self, mic):
         original = mic.get_state()
-        mic.set_state({"mutable": {"laser_power": 99.0}})
-        assert mic.get_state()["mutable"]["laser_power"] == 99.0
+        mic.set_state({"changeable": {"laser_power": 99.0}})
+        assert mic.get_state()["changeable"]["laser_power"] == 99.0
         mic.set_state(original)
-        assert mic.get_state()["mutable"]["laser_power"] == original["mutable"]["laser_power"]
+        assert mic.get_state()["changeable"]["laser_power"] == original["changeable"]["laser_power"]
 
     def test_set_state_returns_driver_record(self, mic):
-        assert mic.set_state({"mutable": {"laser_power": 7.0}})["applied"]["laser_power"] == 7.0
+        assert mic.set_state({"changeable": {"laser_power": 7.0}})["applied"]["laser_power"] == 7.0
 
-    def test_immutable_mismatch_rejected(self, mic):
-        with pytest.raises(ValueError, match="different instrument"):
-            mic.set_state({"immutable": {"serial": "OTHER"}, "mutable": {}})
+    def test_observed_is_a_report_never_an_instruction(self, mic):
+        # A mismatching observed part does not block applying the changeable
+        # part (operator decision: set_state acts on changeable only).
+        rec = mic.set_state({"changeable": {"laser_power": 5.0}, "observed": {"serial": "OTHER"}})
+        assert rec["applied"]["laser_power"] == 5.0
 
 
 class TestProcedures:
@@ -128,6 +131,29 @@ class TestContext:
         assert ctx["initial_positions"][0] == {"x": 0.0, "y": 0.0, "z": 0.0}
 
 
+class TestDisconnect:
+    def test_session_disconnect_is_idempotent(self, mic):
+        mic.disconnect()
+        mic.disconnect()  # second call must be a no-op, not a driver double-close
+
+    def test_ops_after_disconnect_raise(self, mic):
+        mic.disconnect()
+        with pytest.raises(RuntimeError, match="disconnected"):
+            mic.get_xyz()
+
+    def test_actuator_selection_does_not_persist(self, mic):
+        """Defaults are fixed (the reference actuator), never sticky —
+        a per-call selection applies to that call only."""
+        mic.set_xyz(0, 0, 0, with_actuators={"z": "piezo"})
+        assert mic.get_xyz()["z"]["actuator"] == "motoric"
+
+    def test_invalid_acquire_option_rejected(self, mic):
+        with pytest.raises(ValueError, match="unknown acquisition option"):
+            mic.acquire(acquisition_type="prescan", position_label="A1", options={"fromat": "x"})
+        with pytest.raises(ValueError, match="invalid value"):
+            mic.acquire(acquisition_type="prescan", position_label="A1", options={"format": "png"})
+
+
 class TestModuleStyle:
     def test_module_delegates_to_active_microscope(self):
         import zmart_controller as m
@@ -136,6 +162,32 @@ class TestModuleStyle:
         m.set_xyz(10, 20, 5)
         assert m.get_xyz()["x"]["value"] == 10
         m.disconnect()
+
+    def test_module_disconnect_clears_active(self):
+        import zmart_controller as m
+
+        m.set_instrument(m.get_instruments()[0])
+        m.disconnect()
+        with pytest.raises(AttributeError, match="no active microscope"):
+            m.acquire(acquisition_type="prescan", position_label="A1")
+        m.disconnect()  # no active microscope: still a no-op
+
+    def test_swap_survives_failing_teardown(self):
+        import zmart_controller as m
+
+        first = m.set_instrument(m.get_instruments()[0])
+        first.disconnect = lambda: (_ for _ in ()).throw(RuntimeError("teardown boom"))
+        with pytest.raises(RuntimeError, match="teardown boom"):
+            m.set_instrument(m.get_instruments()[0])
+        # the new session must be tracked despite the old teardown failing
+        m.set_xyz(1, 2, 3)
+        assert m.get_xyz()["x"]["value"] == 1
+
+    def test_no_active_session_error_is_helpful(self):
+        import zmart_controller as m
+
+        with pytest.raises(AttributeError, match="set_instrument"):
+            m.acquire(acquisition_type="prescan", position_label="A1")
 
     def test_unknown_attribute_raises(self):
         import zmart_controller as m

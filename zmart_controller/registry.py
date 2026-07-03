@@ -10,9 +10,11 @@ the connection dict; everything else in that dict is free for the driver to use
 (client name, api delay, host, credentials, ...) and is forwarded untouched to
 ``connect``.
 
-Real vendor drivers register here. Test-only integrations, like the mock,
-register themselves from the test side, so no test code is imported into
-production.
+This is where vendor driver adapters register. The first real one is the Leica
+Stellaris 5 adapter (``zmart_drivers.leica.stellaris5_y42h93.navigator_expert
+.zmart_adapter`` -- import it to register the instrument); the mock driver and
+the example notebook register from the test/demo side, so no test code is
+imported into production. See ``docs/ZMART.md`` for the integration status.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -20,13 +22,16 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Every driver ops table must provide a callable for each of these operations.
 # disconnect is optional.
 OPS: tuple[str, ...] = (
     "connect",
-    "acquisition_options",
+    "get_acquisition_options",
     "set_origin",
     "get_actuators",
     "get_xyz",
@@ -51,7 +56,10 @@ def _identity(connection: dict[str, Any]) -> tuple[str, ...]:
     """Pull the (vendor, microscope, api) identity out of a connection dict."""
     missing = [key for key in IDENTITY if key not in connection]
     if missing:
-        raise ValueError(f"connection missing identity keys {missing}: {connection!r}")
+        # List only the keys, never the values -- connection dicts may carry credentials.
+        raise ValueError(
+            f"connection missing identity keys {missing}; has keys {sorted(connection)}"
+        )
     return tuple(connection[key] for key in IDENTITY)
 
 
@@ -62,12 +70,16 @@ def register(connection: dict[str, Any], *, ops: dict[str, Any]) -> None:
     It must carry the ``vendor`` / ``microscope`` / ``api`` identity the registry
     keys on, and may carry any driver-specific extras. ``ops`` must cover every
     name in :data:`OPS` (``disconnect`` is optional). Raises ``ValueError`` if an
-    op is missing or the connection identity is incomplete.
+    op is missing or the connection identity is incomplete. Registering the same
+    identity twice logs a warning and overwrites the earlier entry (last wins).
     """
     missing = [name for name in OPS if name not in ops]
     if missing:
         raise ValueError(f"driver {_identity(connection)} missing ops: {missing}")
-    REGISTRY[_identity(connection)] = {"connection": dict(connection), "ops": ops}
+    key = _identity(connection)
+    if key in REGISTRY:
+        logger.warning("driver %s already registered; overwriting", key)
+    REGISTRY[key] = {"connection": dict(connection), "ops": ops}
 
 
 def get_instruments() -> list[dict[str, Any]]:

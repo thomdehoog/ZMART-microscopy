@@ -1,15 +1,21 @@
 # ZMART Controller
 
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
-[![license](https://img.shields.io/badge/license-MIT-blue)](../../LICENSE)
+[![license](https://img.shields.io/badge/license-MIT-blue)](../LICENSE)
 
 The **ZMART Controller** is one small, consistent interface for driving a
 microscope from a workflow — the vendor-agnostic surface the rest of ZMART is
 built on. You
 pick an instrument, set the frame, and issue plain commands. The same
-workflow runs on any microscope that has a driver; your code never imports a
-vendor's API, the driver talks to the microscope's own API, the controller stays
-a thin, easy surface for humans and AI agents alike.
+workflow will run on any microscope that has a driver adapter; your code never
+imports a vendor's API, the driver talks to the microscope's own API, the
+controller stays a thin, easy surface for humans and AI agents alike.
+
+> **Status:** the first real adapter is the Leica Stellaris 5 one — import
+> `zmart_drivers.leica.stellaris5_y42h93.navigator_expert.zmart_adapter` to
+> register it. The other vendor adapters are still under construction (see
+> [`docs/ZMART.md`](../docs/ZMART.md)); the mock used by the tests and the
+> example notebook registers from the test side.
 
 > **This is the `zmart` surface.** The controller is ZMART's vendor-agnostic API
 > — the layer the outside world is meant to import (`import zmart`), with vendor
@@ -56,7 +62,7 @@ zmart_controller.disconnect()
 
 Most steps follow the same pattern: **discover, then apply.** Call a `get_*`
 function to see what the microscope supports, each option lists its allowed
-values and the one currently active. It then pass your choice to the matching call.
+values and the one currently active. Then pass your choice to the matching call.
 Omit an option and the driver keeps its active default, so you only specify what
 you want to change.
 
@@ -98,19 +104,19 @@ example, the piezo for fine Z) without changing the coordinates you give.
 
 ```python
 zmart_controller.get_actuators()                 # {"x": ["motoric"], "y": ["motoric"], "z": ["motoric", "galvo", "piezo"]}
-zmart_controller.set_xyz(10, 20, 5, with_actuators={"x": ["motoric"], "y": ["motoric"], "z": "piezo"}) 
+zmart_controller.set_xyz(10, 20, 5, with_actuators={"z": "piezo"})
 ```
 
 ### 4. Capture and reapply state
 
-A *state* is a snapshot of the instrument's settings you can capture now and
-reapply later. It is an opaque dict the driver owns: an `immutable` fingerprint
-(so you cannot restore settings from a different instrument) plus a `mutable` part
-(what is actually reapplied).
+A *state* is a snapshot of the instrument you can capture now and reapply
+later. It is an opaque dict the driver owns: a `changeable` part (what
+`set_state` actually reapplies) plus an `observed` part (a read-only report of
+instrument identity and condition — never an instruction).
 
 ```python
-prescan = zmart_controller.get_state()                 # {"immutable": {...}, "mutable": {...}}
-prescan["mutable"]["laser_power"] = 2.0
+prescan = zmart_controller.get_state()                 # {"changeable": {...}, "observed": {...}}
+prescan["changeable"]["laser_power"] = 2.0
 zmart_controller.set_state(prescan)                     # reapply it later
 ```
 
@@ -162,6 +168,10 @@ connect, capture both states, get the positions, then move and acquire at each
 one. It uses the bundled mock driver, so it runs without any hardware — open it
 and step through the cells.
 
+`example_leica_experiment.ipynb` is the same surface against the **real Leica
+driver** via its `zmart_adapter` (needs a live LAS X — simulator or scope):
+register by import, connect, look around read-only, then origin/move/acquire.
+
 ## Adding a microscope
 
 A driver is a set of functions — one per operation — registered under a
@@ -174,7 +184,7 @@ from zmart_controller.registry import register
 register(
     {"vendor": "leica", "microscope": "stellaris5-01", "api": "navigator-expert",
      "client": "PythonClient", "api_delay_ms": 250},
-    ops={"connect": ..., "acquisition_options": ..., "set_origin": ...,
+    ops={"connect": ..., "get_acquisition_options": ..., "set_origin": ...,
          "get_actuators": ..., "get_xyz": ..., "set_xyz": ..., "acquire": ...,
          "get_state": ..., "set_state": ..., "get_procedures": ...,
          "set_procedure": ..., "get_context": ...},

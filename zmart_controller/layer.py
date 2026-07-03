@@ -40,6 +40,9 @@ class Session:
         # opaque driver connection/state
         self._handle = handle
 
+        # set by disconnect() so a second disconnect is a no-op
+        self._closed = False
+
         self.context = context
 
     # --- the frame (its origin) ---------------------------------------------
@@ -59,16 +62,18 @@ class Session:
     def get_state(self) -> dict:
         """Capture instrument state as an opaque dict.
 
-        Carries an ``"immutable"`` part (instrument/config fingerprint, not
-        settable) and a ``"mutable"`` part (settings that can be reapplied). The
-        controller does not interpret it; the driver owns the boundary.
+        Carries a ``"changeable"`` part (the settings ``set_state``
+        reapplies) and an ``"observed"`` part (a read-only report:
+        instrument identity and current condition). The controller does not
+        interpret it; the driver owns the boundary.
         """
         return self._ops["get_state"](self._handle)
 
     def set_state(self, state: dict):
         """Reapply captured state; return whatever the driver reports.
 
-        The driver applies only what it deems mutable.
+        The driver acts on the ``"changeable"`` part only; ``"observed"`` is
+        a report, never an instruction.
         """
         return self._ops["set_state"](self._handle, state)
 
@@ -122,7 +127,7 @@ class Session:
         and saving settings (e.g. ``format``, ``procedure``), since :meth:`acquire`
         captures and saves in one step.
         """
-        return self._ops["acquisition_options"](self._handle)
+        return self._ops["get_acquisition_options"](self._handle)
 
     def acquire(
         self,
@@ -155,7 +160,15 @@ class Session:
         return self._ops["get_context"](self._handle)
 
     def disconnect(self) -> None:
-        """Close the session if the driver provides a teardown hook."""
+        """Close the session if the driver provides a teardown hook.
+
+        Idempotent: a second call is a no-op, so callers never need a driver
+        whose teardown tolerates double-disconnect.
+        """
+        if self._closed:
+            return
+        # Mark closed before calling the driver, so a raising teardown is not retried.
+        self._closed = True
         disconnect = self._ops.get("disconnect")
         if disconnect is not None:
             disconnect(self._handle)
