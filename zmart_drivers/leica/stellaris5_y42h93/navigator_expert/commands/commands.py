@@ -185,6 +185,12 @@ def _dispatch(
             (e.g. target value, tolerance) that are not in the profile.
             When None, uses profile.confirm_fn (which may also be None,
             meaning no confirmation).
+        log_confirm_fn: Optional log-evidence confirm leg. When provided,
+            the confirmation becomes a target-gated race between the api and
+            log legs instead of an identity pass-through.
+        confirm_race_budget_s: Wall-clock bound for that race (seconds).
+            Required when ``log_confirm_fn`` is given; must fit inside one
+            confirm attempt.
         max_retries: Override for the profile's max_retries. None uses
             the profile default.
         retry_backoff: Override for the profile's retry_backoff. None

@@ -2,7 +2,7 @@
 Unit tests for scan-field parsers (no LAS X connection needed).
 =================================================================
 Run with:
-    python -m pytest zmart_drivers/vendor/leica/navigator_expert/tests/unit/test_position_parsers.py -v
+    python -m pytest tests/unit/test_scanfield_parsers.py -v
 """
 
 import math
@@ -25,7 +25,7 @@ from navigator_expert.scanfields.parsers import (
     parse_scan_positions,
 )
 
-# â”€â”€ Sample data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# -- Sample data ---------------------------------------------------------
 
 SAMPLE_XML = """\
 <?xml version="1.0" encoding="utf-8"?>
@@ -73,7 +73,7 @@ SAMPLE_RGN = """\
 </StageOverviewRegions>
 """
 
-# â”€â”€ Type conversion helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# -- Type conversion helpers ---------------------------------------------
 
 
 class TestToFloat:
@@ -104,7 +104,7 @@ class TestToInt:
         assert _to_int("abc") is None
 
 
-# â”€â”€ Tile size helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# -- Tile size helpers ---------------------------------------------------
 
 
 class TestParseSizeString:
@@ -138,7 +138,7 @@ class TestTileSizeFromImageSizeStr:
         assert _tile_size_from_image_size_str("garbage") is None
 
 
-# â”€â”€ Tile positions from XML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# -- Tile positions from XML ---------------------------------------------
 
 
 class TestGetRawTiles:
@@ -442,7 +442,7 @@ class TestParseTemplatePositionsFromRgnGrid:
         assert materialized_positions == grid_spec_positions
 
 
-# â”€â”€ Base grid from RGN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# -- Base grid from RGN --------------------------------------------------
 
 
 class TestParseBaseGrid:
@@ -457,7 +457,7 @@ class TestParseBaseGrid:
         assert parse_base_grid(tmp_path / "nope.rgn") == []
 
 
-# â”€â”€ Focus points from RGN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# -- Focus points from RGN ----------------------------------------------
 
 
 class TestParseFocusPoints:

@@ -227,22 +227,22 @@ class Snapshot:
     reference time used for age computations."""
 
     now: float = 0.0
-    xy: tuple = None
-    xy_ts: float = None
+    xy: tuple | None = None
+    xy_ts: float | None = None
     matrix_jobs: list = field(default_factory=list)
-    matrix_jobs_ts: float = None
+    matrix_jobs_ts: float | None = None
     atl_by_block: dict = field(default_factory=dict)  # block_id(str) -> (json, ts)
-    selected_element: int = None
-    selected_ts: float = None
-    current_block_name: str = None
-    current_block_id: int = None
-    current_block_ts: float = None
-    hw_info: dict = None
-    hw_ts: float = None
-    scan_state: int = None
-    scan_ts: float = None
-    pending_dialog: str = None  # open modal dialog text (blocks the CAM API), or None
-    pending_dialog_ts: float = None
+    selected_element: int | None = None
+    selected_ts: float | None = None
+    current_block_name: str | None = None
+    current_block_id: int | None = None
+    current_block_ts: float | None = None
+    hw_info: dict | None = None
+    hw_ts: float | None = None
+    scan_state: int | None = None
+    scan_ts: float | None = None
+    pending_dialog: str | None = None  # open modal dialog text (blocks the CAM API), or None
+    pending_dialog_ts: float | None = None
 
 
 def parse_log(lcs_path=None, msgbox_path=None, now=None, lines=None):

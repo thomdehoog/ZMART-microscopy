@@ -121,7 +121,7 @@ class ObjectivePairSession:
 # ---------------------------------------------------------------------
 
 
-def _load_image_to_stage(path: Path) -> dict:
+def _load_image_to_stage(path: Path):
     if not path.exists():
         raise FileNotFoundError(
             f"calibration not found at {path}. Run "
@@ -129,7 +129,7 @@ def _load_image_to_stage(path: Path) -> dict:
             "explicit calibration path."
         )
     config = calib.load_calibration(path)
-    return {"image_to_stage": calib.get_image_to_stage(config)}
+    return calib.get_image_to_stage(config)
 
 
 def start_session(
@@ -152,7 +152,7 @@ def start_session(
     # absolute(), not resolve(): keep the operator's drive letter intact
     # for the report's source_calibration_file field.
     resolved_path = Path(calibration_path).absolute()
-    i2s = _load_image_to_stage(resolved_path)
+    image_to_stage = _load_image_to_stage(resolved_path)
 
     client = drv.connect_python_client()
     # Connect-time limits handshake: calibration moves the stage through the
@@ -176,7 +176,7 @@ def start_session(
         to_objective=to_objective,
         objective_config_name=objective_config_name,
         calibration_path=resolved_path,
-        image_to_stage=np.asarray(i2s["image_to_stage"], dtype=float),
+        image_to_stage=np.asarray(image_to_stage, dtype=float),
         kind=kind,
     )
 

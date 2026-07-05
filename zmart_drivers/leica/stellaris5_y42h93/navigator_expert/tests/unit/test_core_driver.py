@@ -2473,7 +2473,7 @@ class TestConfirmSelectJob(unittest.TestCase):
             )
         self.assertFalse(result["success"])
 
-    def test_select_job_log_confirmation_is_off_by_default(self):
+    def test_api_confirm_leg_never_touches_log_wait(self):
         jobs = [{"Name": "HiRes", "IsSelected": True}]
         with (
             patch.object(confirm_select_job.log_wait, "wait_for_selected_job_log") as log_wait_mock,

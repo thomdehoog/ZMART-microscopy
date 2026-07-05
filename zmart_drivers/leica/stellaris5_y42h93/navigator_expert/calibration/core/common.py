@@ -223,8 +223,7 @@ def zero_z_galvo(client: Any, job_name: str) -> None:
 def acquire_frame_to(session: Any, name: str) -> np.ndarray:
     """Acquire one frame, save into ``session.paths.data_dir``, track paths.
 
-    ``name`` may contain forward slashes to create subdirectories (e.g.
-    ``target_z_stack/z_003``).
+    Any parent directories implied by ``name`` are created as needed.
     """
     saved = _capture_for_calibration(
         session,
