@@ -13,10 +13,14 @@ python run_ci.py online
 python run_ci.py online --live-writes
 ```
 
-`online` runs, in order: the passive reader probe (api/log/hybrid), the
-side-by-side reader parity + routed reader-mode validator, the
-zmart_controller↔adapter round-trip, and the end-to-end driver validator once
-per reader route (`--state-reader-mode api`, `log`, and `hybrid` explicitly).
+`online` runs, in order: **first a mock limits self-check** (the fail-closed
+limits gate proven against the in-process mock, in THIS install, before LAS X
+is touched — if it fails the run **hard-aborts and no hardware validator
+runs**, so a broken limits gate can never reach the stage), then the passive
+reader probe (api/log/hybrid), the side-by-side reader parity + routed
+reader-mode validator, the zmart_controller↔adapter round-trip, and the
+end-to-end driver validator once per reader route (`--state-reader-mode api`,
+`log`, and `hybrid` explicitly).
 Hardware validation uses only production driver modules — nothing under
 `experimental/` (maintainer decision).
 
