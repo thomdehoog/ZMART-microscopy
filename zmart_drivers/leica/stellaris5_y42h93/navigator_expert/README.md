@@ -172,9 +172,10 @@ permanent error, failed pre-check) and `confirmed` is `None`.
 (`out of range`, `is invalid`, `not implemented`, …) then **transient** (`being scanned`, `busy`,
 `timeout`, …); unknown → permanent (conservative). Transient errors retry up to `max_retries`.
 
-**Reading state — api / log / hybrid** (`readers/`, chosen per datum by `StateReaderProfile`): `api`
-(one CAM read in a capped worker thread), `log` (parse LAS X logs — never blocks the CAM API, can be
-stale), `hybrid` (race them, first *admissible* evidence wins). **Freshness rule:** a fresh-by-age
+**Reading state — api / log / hybrid** (`readers/`, chosen per datum by `StateReaderProfile`;
+default `hybrid` for all routed datums): `api` (one CAM read in a capped worker thread), `log`
+(parse LAS X logs — never blocks the CAM API, can be stale), `hybrid` (race them, first
+*admissible* evidence wins — the legs' staleness profiles are complementary, so one usually delivers). **Freshness rule:** a fresh-by-age
 *log* value must never decide whether a command fires, how it is parameterized, whether it confirms,
 or what metadata/calibration is persisted — those must use the API leg. The CAM API can hang; the log
 mirror is the hang-proof fallback.
