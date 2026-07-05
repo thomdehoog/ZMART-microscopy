@@ -7,14 +7,10 @@ option validation, and closed-handle semantics — including a full
 end-to-end pass through a real controller ``Session``.
 """
 
-import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # machine dir
-sys.path.insert(0, str(Path(__file__).resolve().parents[6]))  # repo root (zmart_controller)
 
 from navigator_expert.zmart_adapter import zmart_adapter as adapter
 

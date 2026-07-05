@@ -181,8 +181,11 @@ def set_instrument(instrument: dict[str, Any]) -> Session:
     This is the connector: it resolves the driver and forwards the connection
     dict to the driver's ``connect`` untouched. There is no reference to declare
     up front; the frame is just micrometers from an origin you set with
-    :meth:`Session.set_origin` (the driver defaults it to the current position at
-    connect). Option menus are not cached here -- ``get_*`` calls forward live.
+    :meth:`Session.set_origin`. The origin policy at connect is driver-defined:
+    drivers may restore an origin persisted by a previous session, or use an
+    absolute frame until one is set -- call ``set_origin()`` at session start
+    if you need a fresh frame. Option menus are not cached here -- ``get_*``
+    calls forward live.
 
     Returns a connected :class:`Session`. Raises ``ValueError`` if the instrument
     identity matches no registered driver.

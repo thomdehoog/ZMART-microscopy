@@ -7,11 +7,7 @@ corruption in the text-replace primitives, locale/prolog loss in
 verification, and cross-job Sequential_Master edits.
 """
 
-import sys
 import xml.etree.ElementTree as ET
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from navigator_expert.experimental.lrp_edits._primitives import (
     _set_job_attr,

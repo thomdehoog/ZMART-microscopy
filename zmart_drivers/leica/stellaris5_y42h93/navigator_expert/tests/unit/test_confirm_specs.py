@@ -17,15 +17,9 @@ Offline: ``_readback`` is monkeypatched, so no hardware/API is touched.
 """
 
 import inspect
-import sys
-from pathlib import Path
 
 import pytest
-
-# Make ``import navigator_expert`` work no matter where pytest is invoked.
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-
-from navigator_expert.commands import confirm_specs, confirmations  # noqa: E402
+from navigator_expert.commands import confirm_specs, confirmations
 
 CONFIRM_SPECS = confirm_specs.CONFIRM_SPECS
 

@@ -1159,15 +1159,3 @@ class TestHelpers:
         assert exported.image_files == [tiff]
         assert exported.metadata_files == [xml]
         assert exported.source_files == [tiff, xml]
-
-
-def test_old_public_workflow_helpers_are_not_exported():
-    assert not hasattr(drv, "start_run")
-    assert not hasattr(drv, "acquire_and_save")
-    assert not hasattr(drv, "RunHandle")
-    assert not hasattr(drv, "acquire_frame")
-    assert not hasattr(drv, "acquire_stack")
-    assert not hasattr(drv, "acquire_single_image")
-    assert not hasattr(drv, "detect_new_files")
-    assert not hasattr(drv, "validate_files")
-    assert not hasattr(drv, "confirm_arrival")

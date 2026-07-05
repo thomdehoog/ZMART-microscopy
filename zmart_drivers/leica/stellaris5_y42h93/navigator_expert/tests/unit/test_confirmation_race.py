@@ -16,13 +16,9 @@ Contract under test (``commands/confirmations.race_confirmations``):
   on this client, the api leg is skipped (log-only race), not overlapped.
 """
 
-import sys
 import threading
 import time
 import unittest
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from navigator_expert.commands import confirmations
 from navigator_expert.readers import router

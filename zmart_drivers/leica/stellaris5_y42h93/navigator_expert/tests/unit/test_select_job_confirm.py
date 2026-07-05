@@ -12,13 +12,9 @@ evidence), ``log`` keeps the measured log-confirm path, ``hybrid`` races both
 with the admissibility gate on the api leg.
 """
 
-import sys
 import time
 import unittest
-from pathlib import Path
 from unittest.mock import patch
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from navigator_expert import readers as readers
 from navigator_expert.commands import confirm_select_job, confirmations

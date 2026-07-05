@@ -6,14 +6,10 @@ Run with:
 """
 
 import math
-import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-
 from navigator_expert.scanfields.parsers import (
     _get_raw_tiles,
     _parse_size_string,

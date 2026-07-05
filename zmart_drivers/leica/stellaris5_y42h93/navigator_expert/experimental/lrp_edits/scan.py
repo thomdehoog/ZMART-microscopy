@@ -15,7 +15,6 @@ from pathlib import Path
 
 from ._primitives import (
     _set_job_attr,
-    _verify_job_attr,
     _verify_job_attr_float,
 )
 
@@ -41,11 +40,6 @@ def lrp_set_zoom(lrp_path, value, job_name):
     return _set_job_attr(lrp_path, "Zoom", str(value), job_name, "lrp_set_zoom")
 
 
-def lrp_verify_zoom(lrp_path, value, job_name, tolerance=0.01):
-    """Verify Zoom for a job (with tolerance)."""
-    return _verify_job_attr_float(lrp_path, "Zoom", float(value), job_name, tolerance)
-
-
 # =============================================================================
 # Scan speed
 # =============================================================================
@@ -63,11 +57,6 @@ def lrp_set_scan_speed(lrp_path, value, job_name):
         Number of attributes changed.
     """
     return _set_job_attr(lrp_path, "ScanSpeed", str(int(value)), job_name, "lrp_set_scan_speed")
-
-
-def lrp_verify_scan_speed(lrp_path, value, job_name):
-    """Verify ScanSpeed for a job (exact match)."""
-    return _verify_job_attr(lrp_path, "ScanSpeed", str(int(value)), job_name)
 
 
 # =============================================================================
@@ -98,18 +87,6 @@ def lrp_set_image_format(lrp_path, value, job_name):
     count += _set_job_attr(lrp_path, "InDimension", dim, job_name, "lrp_set_image_format")
     count += _set_job_attr(lrp_path, "OutDimension", dim, job_name, "lrp_set_image_format")
     return count
-
-
-def lrp_verify_image_format(lrp_path, value, job_name):
-    """Verify InDimension and OutDimension for a job (exact match)."""
-    if isinstance(value, str) and "x" in value:
-        dim = str(int(value.split("x")[0]))
-    else:
-        dim = str(int(value))
-
-    return _verify_job_attr(lrp_path, "InDimension", dim, job_name) and _verify_job_attr(
-        lrp_path, "OutDimension", dim, job_name
-    )
 
 
 # =============================================================================
@@ -144,12 +121,6 @@ def lrp_set_scan_direction(lrp_path, bidirectional, job_name):
     return count
 
 
-def lrp_verify_scan_direction(lrp_path, bidirectional, job_name):
-    """Verify ScanDirectionX for a job (exact match)."""
-    mode = 0 if bidirectional else 1
-    return _verify_job_attr(lrp_path, "ScanDirectionX", str(mode), job_name)
-
-
 # =============================================================================
 # PhaseX (bidirectional phase correction)
 # =============================================================================
@@ -169,11 +140,6 @@ def lrp_set_phase_x(lrp_path, value, job_name):
         Number of attributes changed.
     """
     return _set_job_attr(lrp_path, "PhaseX", str(value), job_name, "lrp_set_phase_x")
-
-
-def lrp_verify_phase_x(lrp_path, value, job_name, tolerance=0.1):
-    """Verify PhaseX for a job (with tolerance)."""
-    return _verify_job_attr_float(lrp_path, "PhaseX", float(value), job_name, tolerance)
 
 
 # =============================================================================
@@ -208,12 +174,6 @@ def lrp_set_resonant_scanner(lrp_path, enable, job_name):
     return count
 
 
-def lrp_verify_resonant_scanner(lrp_path, enable, job_name):
-    """Verify IsResonantScanner for a job (exact match)."""
-    val = "1" if enable else "0"
-    return _verify_job_attr(lrp_path, "IsResonantScanner", val, job_name)
-
-
 # =============================================================================
 # Bit depth
 # =============================================================================
@@ -237,11 +197,6 @@ def lrp_set_bit_depth(lrp_path, value, job_name):
     return _set_job_attr(lrp_path, "BitSize", str(value), job_name, "lrp_set_bit_depth")
 
 
-def lrp_verify_bit_depth(lrp_path, value, job_name):
-    """Verify BitSize for a job (exact match)."""
-    return _verify_job_attr(lrp_path, "BitSize", str(int(value)), job_name)
-
-
 # =============================================================================
 # Scan field rotation
 # =============================================================================
@@ -261,11 +216,6 @@ def lrp_set_scan_field_rotation(lrp_path, value, job_name):
     return _set_job_attr(
         lrp_path, "RotatorAngle", str(value), job_name, "lrp_set_scan_field_rotation"
     )
-
-
-def lrp_verify_scan_field_rotation(lrp_path, value, job_name, tolerance=0.01):
-    """Verify RotatorAngle for a job (with tolerance)."""
-    return _verify_job_attr_float(lrp_path, "RotatorAngle", float(value), job_name, tolerance)
 
 
 # =============================================================================
