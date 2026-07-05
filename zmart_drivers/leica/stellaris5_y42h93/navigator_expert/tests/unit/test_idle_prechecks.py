@@ -7,12 +7,8 @@ wait stays observable through check_idle's heartbeat; it is fail-closed
 against Unknown status (Unknown is not idle).
 """
 
-import sys
 import unittest
-from pathlib import Path
 from unittest.mock import patch
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from navigator_expert.commands import prechecks
 from navigator_expert.config import profiles

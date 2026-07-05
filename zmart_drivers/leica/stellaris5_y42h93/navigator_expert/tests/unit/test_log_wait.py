@@ -1,10 +1,6 @@
 """Unit tests for log-backed polling helpers."""
 
-import sys
 import unittest
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from navigator_expert.config import profiles
 from navigator_expert.readers import log_reader

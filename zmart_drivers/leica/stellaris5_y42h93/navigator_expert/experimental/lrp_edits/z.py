@@ -17,11 +17,7 @@ import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from ._primitives import (
-    _set_job_attr,
-    _verify_job_attr,
-    _verify_job_attr_float,
-)
+from ._primitives import _set_job_attr
 
 log = logging.getLogger(__name__)
 
@@ -62,11 +58,6 @@ def lrp_set_z_stack_direction(lrp_path, mode, job_name):
     return count
 
 
-def lrp_verify_z_stack_direction(lrp_path, mode, job_name):
-    """Verify ZStackDirectionMode for a job (exact match)."""
-    return _verify_job_attr(lrp_path, "ZStackDirectionMode", str(int(mode)), job_name)
-
-
 # =============================================================================
 # Z-stack sections
 # =============================================================================
@@ -88,11 +79,6 @@ def lrp_set_sections(lrp_path, value, job_name):
         log.error("lrp_set_sections: invalid value %r (must be >= 1)", value)
         return 0
     return _set_job_attr(lrp_path, "Sections", str(value), job_name, "lrp_set_sections")
-
-
-def lrp_verify_sections(lrp_path, value, job_name):
-    """Verify Sections for a job (exact match)."""
-    return _verify_job_attr(lrp_path, "Sections", str(int(value)), job_name)
 
 
 # =============================================================================
@@ -121,14 +107,6 @@ def lrp_set_z_stack_active(lrp_path, enable, job_name):
     if not enable:
         count += _set_job_attr(lrp_path, "Sections", "1", job_name, "lrp_set_z_stack_active")
     return count
-
-
-def lrp_verify_z_stack_active(lrp_path, enable, job_name):
-    """Verify ValidBeginStack and ValidEndStack for a job."""
-    val = "1" if enable else "0"
-    return _verify_job_attr(lrp_path, "ValidBeginStack", val, job_name) and _verify_job_attr(
-        lrp_path, "ValidEndStack", val, job_name
-    )
 
 
 # =============================================================================
@@ -170,14 +148,6 @@ def lrp_set_z_use_mode(lrp_path, mode, job_name):
     return count
 
 
-def lrp_verify_z_use_mode(lrp_path, mode, job_name):
-    """Verify ZUseMode for a job (exact match)."""
-    if isinstance(mode, str):
-        reverse = {v: k for k, v in Z_USE_MODES.items()}
-        mode = reverse.get(mode, mode)
-    return _verify_job_attr(lrp_path, "ZUseMode", str(int(mode)), job_name)
-
-
 # =============================================================================
 # Z-position
 # =============================================================================
@@ -196,13 +166,6 @@ def lrp_set_z_position(lrp_path, z_um, job_name):
     """
     z_m = float(z_um) * 1e-6
     return _set_job_attr(lrp_path, "ZPosition", str(z_m), job_name, "lrp_set_z_position")
-
-
-def lrp_verify_z_position(lrp_path, z_um, job_name, tolerance_um=0.5):
-    """Verify ZPosition for a job (with tolerance, in um)."""
-    return _verify_job_attr_float(
-        lrp_path, "ZPosition", float(z_um) * 1e-6, job_name, tolerance_um * 1e-6
-    )
 
 
 # =============================================================================
@@ -233,15 +196,6 @@ def lrp_set_z_stack_range(lrp_path, begin_um, end_um, job_name):
     count += _set_job_attr(lrp_path, "ValidBeginStack", "1", job_name, "lrp_set_z_stack_range")
     count += _set_job_attr(lrp_path, "ValidEndStack", "1", job_name, "lrp_set_z_stack_range")
     return count
-
-
-def lrp_verify_z_stack_range(lrp_path, begin_um, end_um, job_name, tolerance_um=1.0):
-    """Verify Begin and End for a job (with tolerance, in um)."""
-    return _verify_job_attr_float(
-        lrp_path, "Begin", float(begin_um) * 1e-6, job_name, tolerance_um * 1e-6
-    ) and _verify_job_attr_float(
-        lrp_path, "End", float(end_um) * 1e-6, job_name, tolerance_um * 1e-6
-    )
 
 
 def lrp_set_z_stack_size(lrp_path, size_um, job_name):
@@ -314,23 +268,3 @@ def lrp_set_z_stack_size(lrp_path, size_um, job_name):
     )
 
     return lrp_set_z_stack_range(lrp_path, begin_um, end_um, job_name)
-
-
-def lrp_verify_z_stack_size(lrp_path, size_um, job_name, tolerance_um=1.0):
-    """Verify the Z-stack total size (End - Begin) in um."""
-    lrp_path = Path(lrp_path)
-    root = ET.parse(lrp_path).getroot()
-    for b in root.findall(".//LDM_Block_Sequence_Block"):
-        seq = b.find(".//LDM_Block_Sequential")
-        if seq is not None and seq.get("BlockName") == job_name:
-            el = b.find(".//LDM_Block_Sequential_Master/ATLConfocalSettingDefinition")
-            if el is None:
-                return False
-            try:
-                begin = float(el.get("Begin", "0"))
-                end = float(el.get("End", "0"))
-            except (ValueError, TypeError):
-                return False
-            actual_um = (end - begin) * 1e6
-            return abs(actual_um - size_um) < tolerance_um
-    return False

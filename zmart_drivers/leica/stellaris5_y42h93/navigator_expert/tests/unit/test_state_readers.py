@@ -1,7 +1,6 @@
 """Unit tests for routed state readers."""
 
 import dataclasses
-import sys
 import tempfile
 import threading
 import time
@@ -9,8 +8,6 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from navigator_expert import readers
 from navigator_expert.commands import confirm_select_job

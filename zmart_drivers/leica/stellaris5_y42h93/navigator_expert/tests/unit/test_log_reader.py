@@ -14,13 +14,9 @@ detection by line order.
 
 import json
 import os
-import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from navigator_expert.config import profiles
 from navigator_expert.readers import log_reader as L

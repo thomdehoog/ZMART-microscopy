@@ -10,14 +10,9 @@ Dependency direction:
 
 import logging
 import re
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from ._primitives import (
-    _set_job_attr,
-    _verify_job_attr,
-    _verify_job_attr_float,
-)
+from ._primitives import _set_job_attr
 
 log = logging.getLogger(__name__)
 
@@ -117,29 +112,6 @@ def lrp_set_stack_calculation_mode(lrp_path, mode, job_name):
     return count
 
 
-def lrp_verify_stack_calculation_mode(lrp_path, mode, job_name):
-    """Verify the Z-stack calculation mode on the Master element.
-
-    Args:
-        lrp_path: Path to the ``.lrp`` file.
-        mode: Expected mode (0, 1, or 2).
-        job_name: Name of the job to verify.
-
-    Returns:
-        True if ``StackCalculationMode`` matches the expected value.
-    """
-    lrp_path = Path(lrp_path)
-    root = ET.parse(lrp_path).getroot()
-    for b in root.findall(".//LDM_Block_Sequence_Block"):
-        seq = b.find(".//LDM_Block_Sequential")
-        if seq is not None and seq.get("BlockName") == job_name:
-            el = b.find(".//LDM_Block_Sequential_Master/ATLConfocalSettingDefinition")
-            if el is None:
-                return False
-            return el.get("StackCalculationMode") == str(mode)
-    return False
-
-
 # =============================================================================
 # Pinhole (Airy units)
 # =============================================================================
@@ -157,25 +129,6 @@ def lrp_set_pinhole_airy(lrp_path, value, job_name):
         Number of attributes changed.
     """
     return _set_job_attr(lrp_path, "PinholeAiry", str(value), job_name, "lrp_set_pinhole_airy")
-
-
-def lrp_verify_pinhole_airy(lrp_path, value, job_name, tolerance=0.1):
-    """Verify PinholeAiry for a job (with tolerance).
-
-    LAS X adjusts PinholeAiry when saving (e.g. ``1.0`` becomes
-    ``0.99996859...``), so float tolerance is used instead of exact
-    string comparison.
-
-    Args:
-        lrp_path: Path to the ``.lrp`` file.
-        value: Expected pinhole size in Airy units.
-        job_name: Name of the job to verify.
-        tolerance: Acceptable deviation (default 0.1 AU).
-
-    Returns:
-        True if all PinholeAiry values are within tolerance.
-    """
-    return _verify_job_attr_float(lrp_path, "PinholeAiry", value, job_name, tolerance)
 
 
 # =============================================================================
@@ -196,9 +149,3 @@ def lrp_set_autofocus_active(lrp_path, enable, job_name):
     """
     val = "1" if enable else "0"
     return _set_job_attr(lrp_path, "IsAutofocusActive", val, job_name, "lrp_set_autofocus_active")
-
-
-def lrp_verify_autofocus_active(lrp_path, enable, job_name):
-    """Verify IsAutofocusActive for a job (exact match)."""
-    val = "1" if enable else "0"
-    return _verify_job_attr(lrp_path, "IsAutofocusActive", val, job_name)

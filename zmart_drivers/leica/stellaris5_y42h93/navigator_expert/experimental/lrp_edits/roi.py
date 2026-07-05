@@ -58,9 +58,8 @@ Check the setting at runtime via::
     where ``pan_scale_um`` is objective-dependent (see ``utils.py``:
     ``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``).
 
-    Use ``roi_translation_to_pan()`` and ``roi_to_absolute_um()``
-    for conversions — the former takes ``pan_scale_um`` as a required
-    kwarg.
+    Use ``roi_translation_to_pan()`` for conversions — it takes
+    ``pan_scale_um`` as a required kwarg.
 
 **Critical ordering rule**: when applying pan via
 ``apply_lrp_change`` + ``lrp_set_pan``, call ``set_zoom(zoom)``
@@ -98,7 +97,6 @@ import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from ...scanfields.parsers import parse_lrp
 from ._primitives import (
     _set_job_attr,
     _verify_job_attr,
@@ -425,83 +423,6 @@ def make_line(x1, y1, x2, y2):
 
 
 # =============================================================================
-# Vertex centring
-# =============================================================================
-
-
-def center_vertices(vertices):
-    """Re-centre vertices around their centroid.
-
-    LAS X requires the ROI position to be stored in the Translation
-    field, with vertices relative to the centroid.  Without this,
-    ROI scan only illuminates one ROI instead of all.
-
-    Args:
-        vertices: List of ``(x, y)`` tuples in metres.
-
-    Returns:
-        ``(centered_vertices, (cx, cy))`` — vertices shifted so
-        their centroid is ``(0, 0)``, and the centroid as a tuple
-        suitable for the ``translation`` parameter of ``lrp_add_roi``.
-    """
-    if not vertices:
-        raise ValueError("center_vertices: empty vertex list")
-    # A closed polygon repeats its first vertex; including the duplicate
-    # would bias the centroid toward it.
-    distinct = vertices[:-1] if len(vertices) > 1 and vertices[0] == vertices[-1] else vertices
-    n = len(distinct)
-    cx = sum(v[0] for v in distinct) / n
-    cy = sum(v[1] for v in distinct) / n
-    centered = [(v[0] - cx, v[1] - cy) for v in vertices]
-    return centered, (cx, cy)
-
-
-def pixels_to_roi(contour, image_center, pixel_size_m, close=True):
-    """Convert pixel contour to centred ROI vertices + translation.
-
-    Converts a contour from pixel coordinates (e.g. from
-    ``skimage.measure.find_contours``) to the format needed by
-    ``lrp_add_roi``: vertices in metres centred on the shape
-    centroid, plus a translation that positions the shape in the
-    scan field.
-
-    Requires **ImageTransformation = TOPLEFT** (or
-    ``EnableImageTransformation = false``) in LAS X settings.
-
-    Args:
-        contour: Array-like of ``(row, col)`` pixel coordinates
-            (the format returned by ``find_contours``).
-        image_center: Image centre in pixels (typically ``width / 2``).
-        pixel_size_m: Pixel size in metres.
-        close: If ``True`` (default), append the first vertex to
-            close the polygon when the gap exceeds half a pixel.
-
-    Returns:
-        ``(vertices_m, translation_m)`` — centred vertices in metres
-        and ``(tx, ty)`` translation for ``lrp_add_roi``.
-    """
-    # Pixel → scan field coordinates
-    abs_verts = [
-        ((c[1] - image_center) * pixel_size_m, (c[0] - image_center) * pixel_size_m)
-        for c in contour
-    ]
-
-    # Centre and extract translation
-    vertices_m, translation_m = center_vertices(abs_verts)
-
-    # Close polygon if needed
-    if close and len(vertices_m) >= 3:
-        d = (
-            (vertices_m[0][0] - vertices_m[-1][0]) ** 2
-            + (vertices_m[0][1] - vertices_m[-1][1]) ** 2
-        ) ** 0.5
-        if d > pixel_size_m * 0.5:
-            vertices_m.append(vertices_m[0])
-
-    return vertices_m, translation_m
-
-
-# =============================================================================
 # Add ROI
 # =============================================================================
 
@@ -534,13 +455,11 @@ def lrp_add_roi(
         color: Colour as uint32 string (default ``COLOR_RED``).
         rotation: Raw LAS X ``Transformation/Rotation`` value, written
             unmodified (default ``0.0``). The unit has not been verified
-            against hardware; round-trip values read via ``roi_geometry``
-            rather than assuming degrees or radians.
+            against hardware; round-trip values by reading them back from
+            the LRP rather than assuming degrees or radians.
         translation: ``(tx, ty)`` tuple in **metres** — offset from
             stage centre with X negated (default ``(0.0, 0.0)``
-            places the ROI at the stage centre).  Use
-            ``absolute_um_to_roi_translation()`` to convert from
-            absolute stage coordinates.
+            places the ROI at the stage centre).
         scale: ``(sx, sy)`` tuple (default ``(1.0, 1.0)``).
 
     Returns:
@@ -628,81 +547,6 @@ def lrp_add_roi(
 
 
 # =============================================================================
-# Verify helpers
-# =============================================================================
-
-
-def lrp_verify_roi_count(lrp_path, expected_count, job_name):
-    """Verify the number of ROIs for a job via ``parse_lrp``.
-
-    Args:
-        lrp_path: Path to the ``.lrp`` file.
-        expected_count: Expected number of ROIs.
-        job_name: Name of the job to check.
-
-    Returns:
-        ``True`` if the count matches, ``False`` otherwise.
-    """
-    parsed = parse_lrp(lrp_path)
-    job = parsed["jobs"].get(job_name)
-    if job is None:
-        log.error("lrp_verify_roi_count: job '%s' not found", job_name)
-        return expected_count == 0
-    master = job.get("Master", {})
-    rois = master.get("_ROIs", [])
-    actual = len(rois)
-    if actual != expected_count:
-        log.warning(
-            "lrp_verify_roi_count: job='%s', expected %d, got %d", job_name, expected_count, actual
-        )
-        return False
-    return True
-
-
-def lrp_verify_roi(lrp_path, job_name, index, roi_type=None, n_vertices=None):
-    """Verify attributes of a specific ROI by index.
-
-    Args:
-        lrp_path: Path to the ``.lrp`` file.
-        job_name: Name of the job to check.
-        index: Zero-based ROI index.
-        roi_type: Expected ROI type string (optional).
-        n_vertices: Expected vertex count (optional).
-
-    Returns:
-        ``True`` if all specified checks pass, ``False`` otherwise.
-    """
-    parsed = parse_lrp(lrp_path)
-    job = parsed["jobs"].get(job_name)
-    if job is None:
-        log.error("lrp_verify_roi: job '%s' not found", job_name)
-        return False
-    master = job.get("Master", {})
-    rois = master.get("_ROIs", [])
-    if index >= len(rois):
-        log.error("lrp_verify_roi: index %d out of range (have %d ROIs)", index, len(rois))
-        return False
-
-    roi = rois[index]
-    if roi_type is not None:
-        # LAS X uses "RoiType"; accept either casing for robustness
-        actual_type = roi.get("RoiType") or roi.get("ROIType")
-        if actual_type != str(roi_type):
-            log.warning(
-                "lrp_verify_roi: RoiType mismatch: expected %s, got %s", roi_type, actual_type
-            )
-            return False
-    if n_vertices is not None:
-        actual = len(roi.get("_Vertices", []))
-        if actual != n_vertices:
-            log.warning(
-                "lrp_verify_roi: vertex count mismatch: expected %d, got %d", n_vertices, actual
-            )
-            return False
-    return True
-
-
-# =============================================================================
 # ROI Translation coordinate helpers
 # =============================================================================
 
@@ -756,146 +600,6 @@ def galvo_pan_for_pixel(px, py, *, pixel_size_um, image_size, pan_scale_um):
     tx_m = (px - centre) * pixel_size_um * 1e-6
     ty_m = (py - centre) * pixel_size_um * 1e-6
     return roi_translation_to_pan(tx_m, ty_m, pan_scale_um=pan_scale_um)
-
-
-def roi_to_absolute_um(translation_x_m, translation_y_m, stage_x_um, stage_y_um):
-    """Convert ROI Translation to absolute stage coordinates in um.
-
-    Args:
-        translation_x_m: Translation X (metres).
-        translation_y_m: Translation Y (metres).
-        stage_x_um: Current stage X position in um (from ``get_xy``).
-        stage_y_um: Current stage Y position in um.
-
-    Returns:
-        ``(x_um, y_um)`` — absolute position of the ROI centre.
-    """
-    tx_um = float(translation_x_m) * 1e6
-    ty_um = float(translation_y_m) * 1e6
-    return (stage_x_um - tx_um, stage_y_um + ty_um)
-
-
-def absolute_um_to_roi_translation(x_um, y_um, stage_x_um, stage_y_um):
-    """Convert absolute stage coordinates to ROI Translation (metres).
-
-    Inverse of ``roi_to_absolute_um``.
-
-    Args:
-        x_um: Target X position in um.
-        y_um: Target Y position in um.
-        stage_x_um: Current stage X position in um.
-        stage_y_um: Current stage Y position in um.
-
-    Returns:
-        ``(tx_m, ty_m)`` — Translation values in metres, suitable for
-        the ``translation`` parameter of ``lrp_add_roi``.
-    """
-    tx_um = stage_x_um - x_um
-    ty_um = y_um - stage_y_um
-    return (tx_um * 1e-6, ty_um * 1e-6)
-
-
-def bbox_to_zoom(width_um, height_um, fov_at_zoom1_um, margin=1.15):
-    """Calculate the optimal zoom to frame a bounding box.
-
-    Args:
-        width_um: Bounding box width in um.
-        height_um: Bounding box height in um.
-        fov_at_zoom1_um: FOV at zoom 1 in um for the current objective
-            (e.g. ``get_fov`` at zoom 1, or ``pixel_w_um * pixels_x``).
-        margin: Extra margin factor (default 1.15 = 15%).
-
-    Returns:
-        Integer zoom level, clamped to [1, 48].
-    """
-    max_dim = max(width_um, height_um)
-    if max_dim <= 0:
-        return 48
-    optimal = fov_at_zoom1_um / (max_dim * margin)
-    return min(48, max(1, round(optimal)))
-
-
-def roi_geometry(roi):
-    """Extract centroid, bounding box, and effective translation from a parsed ROI.
-
-    Args:
-        roi: A single ROI dict from ``parse_lrp``
-            (i.e. ``parsed["jobs"][job]["Master"]["_ROIs"][i]``).
-
-    Returns:
-        dict with keys::
-
-            vertices        — list of (X, Y) tuples in metres (local coords)
-            centroid_m      — (cx, cy) vertex centroid in metres (local)
-            bbox_um         — (width, height) bounding box in µm
-            translation_m   — (tx, ty) raw ROI translation in metres
-            effective_translation_m — (tx + cx, ty + cy) in metres
-                (accounts for vertex centroid offset)
-            type            — ROI type string (e.g. "8" for polygon)
-            color           — LAS X ARGB color string
-            rotation        — raw LAS X Transformation/Rotation value
-                              (passed through unmodified; unit unverified
-                              against hardware — see lrp_add_roi)
-            scale           — (x_scale, y_scale)
-    """
-    verts = [(v["X"], v["Y"]) for v in roi.get("_Vertices", [])]
-    xs = [v[0] for v in verts]
-    ys = [v[1] for v in verts]
-
-    cx = sum(xs) / len(xs) if xs else 0.0
-    cy = sum(ys) / len(ys) if ys else 0.0
-
-    t = roi.get("_Transformation", {})
-    tx = float(t.get("TranslationX", 0))
-    ty = float(t.get("TranslationY", 0))
-
-    return {
-        "vertices": verts,
-        "centroid_m": (cx, cy),
-        "bbox_um": (
-            (max(xs) - min(xs)) * 1e6 if xs else 0.0,
-            (max(ys) - min(ys)) * 1e6 if ys else 0.0,
-        ),
-        "translation_m": (tx, ty),
-        "effective_translation_m": (tx + cx, ty + cy),
-        "type": roi.get("RoiType", "8"),
-        "color": roi.get("Color", "4294901760"),
-        "rotation": float(t.get("Rotation", 0)),
-        "scale": (float(t.get("XScale", 1)), float(t.get("YScale", 1))),
-    }
-
-
-def roi_to_pan_zoom(roi, fov_at_zoom1_um, margin=1.15):
-    """Compute pan and zoom values to frame an ROI.
-
-    Combines :func:`roi_geometry`, :func:`roi_translation_to_pan`, and
-    :func:`bbox_to_zoom` into a single call.
-
-    Internally resolves the objective-dependent ``pan_scale_um`` from
-    ``fov_at_zoom1_um`` via :func:`pan_scale_um_from_base_fov`
-    (``pan_scale_um = base_fov_um * GALVO_FIELD_FRACTION / PAN_LIMIT``,
-    see ``driver/runtime/utils.py``). Callers that already pass the correct base
-    FOV (e.g. from :func:`get_base_fov`) get correct pan values on any
-    objective — no caller changes needed after the PAN_SCALE refactor.
-
-    Args:
-        roi: A single ROI dict from ``parse_lrp``.
-        fov_at_zoom1_um: Objective FOV at zoom 1 in µm
-            (from ``get_base_fov``).
-        margin: Extra margin factor passed to ``bbox_to_zoom``.
-
-    Returns:
-        ``(pan_x, pan_y, zoom)`` tuple.
-    """
-    from ...utils import pan_scale_um_from_base_fov
-
-    pan_scale_um = pan_scale_um_from_base_fov(fov_at_zoom1_um)
-    geo = roi_geometry(roi)
-    eff_tx, eff_ty = geo["effective_translation_m"]
-    pan_x, pan_y = roi_translation_to_pan(eff_tx, eff_ty, pan_scale_um=pan_scale_um)
-    w_um, h_um = geo["bbox_um"]
-    zoom = bbox_to_zoom(w_um, h_um, fov_at_zoom1_um, margin=margin)
-    return (pan_x, pan_y, zoom)
 
 
 def mask_contour_to_roi(contour_pixels, *, pixel_size_um, image_size=512):

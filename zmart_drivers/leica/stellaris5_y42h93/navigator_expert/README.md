@@ -82,6 +82,12 @@ runtime where possible. Override via the profile, not at call sites.
   identity/zero placeholder — see `config/machine.py`).
 - **Stage limits (required before any move)** — `set_stage_limits(...)` or
   `apply_stage_limits_from_config(...)`, in micrometers.
+- **Function-keyed limits (fail-closed gate)** — `function_limits.json` (bundled at
+  `limits/defaults/`, overridden by the newest machine snapshot, validated by `shared.limits`).
+  Every mutating op on the zmart-adapter surface (`set_origin`, `set_xyz`, `set_state`,
+  `set_procedure`, `acquire`) is checked against it and **refuses to run if the file failed to
+  load or validate at connect** — the only clue is a connect-time log warning. If every
+  move/acquire is refusing, check that warning and this file first.
 - **Canonical orientation** — call `require_canonical_scan_orientation()` at session start; it fails
   fast unless LAS X image export is `TOPLEFT` (any other transform silently breaks pixel↔stage math).
 
@@ -268,6 +274,19 @@ and writes canonical single-plane OME-TIFFs + per-position OME-XML into the `sha
 in place, preserving byte formatting; `acquisition/ome_canonical.py` writes clean canonical SMART OME;
 `save(..., fix_ome=True)` validates/repairs each written file.
 
+**Acquiring empties the scanning template by default.** Through the zmart adapter, every `acquire()`
+(and the autofocus procedure) applies the `strip_scan_fields` acquisition option: operator-drawn scan
+fields, regions, and focus points vanish from LAS X. The strip is sidecar-backed — restore with
+`restore_template` — but read stored positions via `get_context()["scan_field"]` *before* the first
+acquire, or pass `options={"strip_scan_fields": False}`.
+
+**`Naming` constraints and slot overwrites.** Name parts (`acquisition_type` etc.) must be
+kebab-case lowercase (`"overview"`, `"target-scan"`); `Naming` raises `ValueError` on `"Prescan"` or
+`"target_scan"` — and on the adapter path that raise happens **after the scan has fired**, so the
+capture is wasted. Validate names before acquiring. A numeric `position_label` claims that `p` slot
+directly and **overwrites** any previous output saved at the same slot (upsert); non-numeric labels
+take the next unused slot and appear only in the lineage record, never the filename.
+
 ### Templates / scan-fields (offline-capable)
 
 **Parse saved templates** (read-only, stdlib ElementTree — no fragile regex; `scanfields/parsers.py`,
@@ -287,7 +306,7 @@ live `set_*` commands (`lrp_set_zoom` vs `set_zoom`, …), since file editing ha
 every edit through `apply_lrp_change(...)` (**save → edit → reorder → load → save → verify**;
 `reorder_jobs` keeps the active job selected). It also provides ROI authoring — `make_rectangle` /
 `make_ellipse` / `make_polygon`, `lrp_add_roi`, `lrp_clear_rois` — and pixel↔stage↔pan/zoom coordinate
-math — `roi_to_pan_zoom`, `mask_contour_to_roi`, `bbox_to_zoom`, `galvo_pan_for_pixel` (see the
+math — `mask_contour_to_roi`, `roi_translation_to_pan`, `galvo_pan_for_pixel` (see the
 coordinate-frame docstring atop `experimental/lrp_edits/roi.py`). Despite the `experimental/` name this
 code is **load-bearing** (used by `move_galvo_to_pixel`, `disable_roi_scan`, `reset_pan`) — read it as
 "offline template editor", not "unstable".
@@ -407,6 +426,9 @@ These **silently misbehave** instead of failing loudly — respect them or resul
     select the wrong job after reload.
 11. **`load_experiment` confirms only the receipt, not on-disk state** — follow with `save_experiment`
     (or use `apply_lrp_change`, which does).
+12. **Adapter mutating ops are gated by `function_limits.json`, fail-closed** — if it fails to
+    load/validate at connect, every `set_*`/`acquire` on the zmart-adapter surface refuses; the only
+    hint is the connect-time warning (see §3).
 
 ## 11. Extending the driver
 
