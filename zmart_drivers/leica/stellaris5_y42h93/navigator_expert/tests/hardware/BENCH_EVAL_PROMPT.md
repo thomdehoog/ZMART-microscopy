@@ -46,12 +46,15 @@ python run_ci.py online --live-writes  # full validation (~15–30 min)
 ```
 
 Reports land in `tests/_report/hardware_run_report_*.md` (paths are printed at
-the end). Keep every report, including from failed runs.
+the end), each with a companion `driver_log_*.log` capturing every driver log
+line (its path is in the report's Run metadata). Keep every report and log,
+including from failed runs.
 
 ## Evaluate
 
-Work from the Markdown run reports plus the driver log. Answer each question
-with evidence (quote the report rows/log lines):
+Work from the Markdown run reports plus the companion `driver_log_*.log`
+files (grep those for the CF-01 absence checks in question 3). Answer each
+question with evidence (quote the report rows/log lines):
 
 1. **Read-only sanity (gate for --live-writes):** did all readers return values?
    Any FAIL rows, API timeouts/hangs, or `CRASHED` line? If yes → do not
@@ -84,8 +87,9 @@ with evidence (quote the report rows/log lines):
 
 ## Deliver
 
-1. Commit the report files to the branch
-   (`git add tests/_report && git commit && git push -u origin <branch>`).
+1. Commit the report and driver-log files to the branch — note `tests/_report/`
+   is gitignored, so force-add the run artifacts:
+   `git add -f tests/_report && git commit && git push -u origin <branch>`.
 2. Write `tests/_report/BENCH_EVAL_<date>.md`: a verdict per question above
    (with quoted evidence), an overall PASS / PASS-WITH-FINDINGS / FAIL call,
    and a ranked list of follow-up actions the findings justify. Where a
