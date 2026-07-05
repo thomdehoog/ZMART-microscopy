@@ -740,9 +740,14 @@ def phase_select(client, rec):
 
 def _connect(args):
     if args.mock:
+        from limits_fixtures import hermetic_mock_machine_root  # noqa: PLC0415
         from mock_lasx_api import MockLasxClient  # noqa: PLC0415
 
+        # Enforcement has no bundled fallback: provision a hermetic
+        # machine-local fixture snapshot so the REAL limits handshake runs.
+        root = hermetic_mock_machine_root()
         print("Connect: mock (in-process MockLasxClient)")
+        print(f"Limits: hermetic machine root provisioned at {root}")
         return MockLasxClient(latency=args.mock_latency)
     from navigator_expert.connection.lasx_runtime import load_lasx_api_runtime  # noqa: PLC0415
 
@@ -801,6 +806,19 @@ def main(argv=None):
     crash = None
     try:
         client = _connect(args)
+
+        # Connect-time limits handshake: the write phases fire real command
+        # wrappers, which refuse fail-closed without validated machine-local
+        # limits. Read phases are ungated; a failed handshake only blocks
+        # the mutating phases.
+        limits_state = drv.connect_limits_handshake(client)
+        if not limits_state.ok:
+            print(f"limits handshake FAILED: {limits_state.error}")
+            if not args.read_only and args.yes:
+                # every write phase would refuse fail-closed; record one
+                # actionable failure instead of a wall of refusals
+                rec.row("limits handshake", False, limits_state.error)
+                args = argparse.Namespace(**{**vars(args), "read_only": True})
 
         jobs, selected = phase_readonly(client, rec)
         job = args.job or selected or next(iter(jobs), None)

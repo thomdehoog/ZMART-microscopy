@@ -12,6 +12,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from limits_fixtures import (
+    DEFAULT_STAGE_UM,
+    install_permissive_limits,
+    provision_machine_limits,
+)
+from navigator_expert.commands import gate as _gate
 from navigator_expert.commands import settings as _cmd_settings
 from navigator_expert.zmart_adapter import zmart_adapter as adapter
 
@@ -27,28 +33,16 @@ def _origin(x_um=0.0, y_um=0.0, z_wide_um=0.0, z_galvo_um=0.0, z_focus_um=0.0, o
     }
 
 
-def _function_limits(**constraint_overrides):
-    """A permissive function-limits object (every mutating op reviewed-unlimited).
+def _handle(gate_constraints=None, gated=True, **overrides):
+    """A handle whose client carries a permissive commands-layer gate state.
 
-    Pass constraint overrides shaped like the bundled file's ``stage.*`` names
-    to bound ``set_xyz``, e.g. ``x_um={"min": 0, "max": 100}``.
+    ``gate_constraints`` bounds the ``set_xyz`` key (e.g.
+    ``{"x_um": {"min": 0, "max": 100}}``); ``gated=False`` leaves the client
+    without any gate state (the fail-closed posture of a failed handshake).
     """
-    payload = {
-        "schema_version": 1,
-        "source": "test",
-        "constraints": {},
-        "functions": {op: None for op in adapter._MUTATING_OPS},
-    }
-    if constraint_overrides:
-        payload["functions"]["set_xyz"] = {}
-        for param, bounds in constraint_overrides.items():
-            payload["functions"]["set_xyz"][param] = dict(bounds)
-    return adapter._shared_limits.parse(payload, functions=adapter._MUTATING_OPS)
-
-
-def _handle(**overrides):
     h = adapter.ZmartHandle(client=object(), connection=dict(adapter.CONNECTION), hash6="000abc")
-    h.function_limits = _function_limits()
+    if gated:
+        install_permissive_limits(h.client, **(gate_constraints or {}))
     for key, value in overrides.items():
         setattr(h, key, value)
     return h
@@ -184,8 +178,6 @@ class TestFrame(unittest.TestCase):
             with (
                 patch.object(adapter._machine, "MACHINE", profile),
                 patch.object(adapter._session, "connect_python_client", return_value=object()),
-                patch.object(adapter._limits, "apply_stage_limits_from_config"),
-                patch.object(adapter._stage_config, "load", return_value={}),
             ):
                 h = adapter.connect(dict(adapter.CONNECTION))
             self.assertEqual(h.origin["x_um"], 1000.0)
@@ -196,8 +188,6 @@ class TestFrame(unittest.TestCase):
             with (
                 patch.object(adapter._machine, "MACHINE", profile),
                 patch.object(adapter._session, "connect_python_client", return_value=object()),
-                patch.object(adapter._limits, "apply_stage_limits_from_config"),
-                patch.object(adapter._stage_config, "load", return_value={}),
             ):
                 h2 = adapter.connect(dict(adapter.CONNECTION))
             self.assertEqual(h2.origin["x_um"], 0.0)  # frame stays absolute
@@ -248,7 +238,8 @@ class TestFrame(unittest.TestCase):
         self.assertEqual(adapter._resolve_actuators(None)["x"], "motoric")
 
     def test_set_xyz_z_wide_compensates_parked_galvo(self):
-        h = _handle(origin=_origin(z_focus_um=30.0))
+        # origin inside the physical backstop (x/y >= 1000)
+        h = _handle(origin=_origin(x_um=10000.0, y_um=10000.0, z_focus_um=30.0))
         moves = {}
 
         def fake_move_z(client, job, z, unit="um", z_mode="galvo", **kwargs):
@@ -872,7 +863,9 @@ class TestObjectiveCompensation(unittest.TestCase):
         self.assertEqual(pos["x"]["value"], 10.0)  # ΔT = 0, translations unused
 
     def test_preflight_refuses_out_of_range_galvo_before_any_motion(self):
-        h = _handle(origin=_origin(objective={"name": "63x", "slotIndex": 3}))
+        h = _handle(
+            origin=_origin(x_um=10000.0, y_um=10000.0, objective={"name": "63x", "slotIndex": 3})
+        )
         patches = _patch_position(z_wide_um=0.0, z_galvo_um=0.0, slot=3)
         with (
             patch.object(adapter._motion, "move_xy_with_backlash") as xy,
@@ -895,50 +888,51 @@ class TestLifecycle(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "disconnected"):
             adapter.get_actuators(h)
 
-    def test_connect_configures_stage_limits(self):
-        """connect must apply the machine's stage envelope, or set_xyz can't move.
+    def test_connect_runs_the_limits_handshake(self):
+        """connect must run the machine-local limits handshake, or set_xyz can't move.
 
-        move_xy/move_z refuse to run until set_stage_limits() has been called,
-        and the controller has no limits hook -- so the adapter must do it.
+        move_xy/move_z refuse until the stage envelope is applied and the
+        function-keyed gate is installed, and the controller has no limits
+        hook -- so the adapter's connect must do it, against REAL machine-local
+        files (the bundled templates are refused).
         """
-        cfg = {
-            "stage_um": {
-                "x": [1000.0, 130000.0],
-                "y": [1000.0, 100000.0],
-                "z_galvo": [-200.0, 200.0],
-                "z_wide": [0.0, 25000.0],
-            },
-            "backlash": {"overshoot_um": 50.0, "settle_ms": 100, "tolerance_um": 20.0},
-        }
-        with (
-            patch.object(adapter._session, "connect_python_client", return_value=object()),
-            patch.object(adapter._stage_config, "load", return_value=cfg),
-            patch.object(adapter._limits, "apply_stage_limits_from_config") as apply_mock,
-        ):
+        import os
+
+        _clear_limits()
+        self.addCleanup(_clear_limits)
+        provision_machine_limits(os.environ["SMART_MICROSCOPY_ROOT"])
+        with patch.object(adapter._session, "connect_python_client", return_value=object()):
             h = adapter.connect(dict(adapter.CONNECTION))
         self.assertIsInstance(h, adapter.ZmartHandle)
-        apply_mock.assert_called_once_with(cfg)
+        # the stage envelope was applied from the machine-local snapshot...
+        self.assertEqual(adapter._limits.get_stage_limits()["x_max"], 130000.0)
+        # ...and the commands-layer gate governs this client (with provenance)
+        described = _gate.describe(h.client)
+        self.assertEqual(described["source"], "machine")
+        self.assertFalse(described["is_fallback"])
 
-    def test_connect_degrades_when_limits_config_unavailable(self):
-        """A missing/invalid limits config must not fail connect (read-only still works)."""
-        with (
-            patch.object(adapter._session, "connect_python_client", return_value=object()),
-            patch.object(adapter._stage_config, "load", side_effect=RuntimeError("no config")),
-        ):
+    def test_connect_degrades_when_limits_are_unprovisioned(self):
+        """No machine-local limits: connect still works read-only, mutations refuse."""
+        with patch.object(adapter._session, "connect_python_client", return_value=object()):
             h = adapter.connect(dict(adapter.CONNECTION))
         self.assertIsInstance(h, adapter.ZmartHandle)
         self.assertFalse(h.closed)
+        self.assertIsNone(_gate.describe(h.client))  # no limits govern: refusing
+        state = _gate.state_for(h.client)
+        self.assertIn("set_stage_limits.ipynb", state.error)
 
     def test_full_controller_session_flow(self):
-        """End to end through a real zmart_controller Session."""
+        """End to end through a real zmart_controller Session (real handshake)."""
+        import os
+
         import zmart_controller
 
-        _wide_limits()
+        _clear_limits()
         self.addCleanup(_clear_limits)
+        provision_machine_limits(os.environ["SMART_MICROSCOPY_ROOT"])
         patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0)
         with (
             patch.object(adapter._session, "connect_python_client", return_value=object()),
-            patch.object(adapter._limits, "apply_stage_limits_from_config"),
             patches[0],
             patches[1],
             patches[2],
@@ -968,20 +962,29 @@ class TestLifecycle(unittest.TestCase):
 
 
 class TestFunctionLimits(unittest.TestCase):
-    """The function-keyed limits gate (``shared.limits``) wired through the adapter."""
+    """The commands-layer function-keyed gate as seen through the adapter.
 
-    def test_bundled_file_covers_every_mutating_op(self):
-        """THE completeness guard: adding a mutating op without a limits entry fails here."""
+    The gate itself lives in ``commands/gate.py`` (and is exhaustively
+    attacked in test_limits_adversarial.py); these tests pin the adapter's
+    contract on top of it: whole-move pre-flight, fail-closed refusals with
+    actionable RuntimeErrors, and provenance reporting.
+    """
+
+    def test_bundled_template_covers_every_declared_key(self):
+        """THE completeness guard on the template: a new key cannot ship absent."""
+        from shared import limits as shared_limits
+
         path = adapter._machine.MACHINE.bundled_default_path(
             adapter._machine.FUNCTION_LIMITS_FILENAME
         )
-        limits = adapter._shared_limits.load(path, functions=adapter._MUTATING_OPS)
+        limits = shared_limits.load(path, functions=_gate.FUNCTION_LIMIT_KEYS, is_fallback=True)
         self.assertEqual(limits.source, "defaults")
+        self.assertTrue(limits.is_fallback)  # provenance: template, not machine
 
     def test_set_xyz_refuses_beyond_function_limits_before_any_motion(self):
         _wide_limits()  # Phase A permissive, so the function-limits layer is what fires
         self.addCleanup(_clear_limits)
-        h = _handle(function_limits=_function_limits(x_um={"min": 0, "max": 500}))
+        h = _handle(gate_constraints={"x_um": {"min": 0, "max": 500}})
         patches = _patch_position(x_um=0.0, y_um=0.0)
         with (
             patch.object(adapter._motion, "move_xy_with_backlash") as xy,
@@ -999,7 +1002,10 @@ class TestFunctionLimits(unittest.TestCase):
     def test_z_leg_function_limit_violation_keeps_the_actuator_hint(self):
         _wide_limits()
         self.addCleanup(_clear_limits)
-        h = _handle(function_limits=_function_limits(z_galvo_um={"min": -200, "max": 200}))
+        h = _handle(
+            gate_constraints={"z_galvo_um": {"min": -200, "max": 200}},
+            origin=_origin(x_um=10000.0, y_um=10000.0),
+        )
         patches = _patch_position(z_wide_um=0.0, z_galvo_um=0.0)
         with (
             patch.object(adapter._motion, "move_xy_with_backlash") as xy,
@@ -1014,17 +1020,36 @@ class TestFunctionLimits(unittest.TestCase):
         xy.assert_not_called()
         mz.assert_not_called()
 
-    def test_mutating_ops_refuse_without_function_limits(self):
-        """Fail-closed: no loaded limits means no mutations — reads still work."""
-        h = _handle(function_limits=None)
-        for call in (
-            lambda: adapter.set_origin(h),
-            lambda: adapter.set_state(h, {"changeable": {}}),
-            lambda: adapter.set_procedure(h, {"name": "backlash_takeup"}),
+    def test_mutating_ops_refuse_without_a_limits_handshake(self):
+        """Fail-closed below the adapter: no gate state means no mutations.
+
+        The refusal comes from the commands layer and surfaces as the ops
+        contract's RuntimeError; read-only ops still work. (set_origin fires
+        no native command — it captures a reference — so it is deliberately
+        not among the refusals.)
+        """
+        _wide_limits()  # the stage envelope alone must NOT be enough
+        self.addCleanup(_clear_limits)
+        h = _handle(gated=False)
+        patches = _patch_position()
+        catalog = [
+            {"Name": "Overview", "IsSelected": True, "IsAutofocus": False},
+            {"Name": "HiRes", "IsSelected": False, "IsAutofocus": False},
+        ]
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patch.object(adapter._readers, "get_jobs", return_value=catalog),
         ):
-            with self.assertRaisesRegex(RuntimeError, "function limits are not configured"):
-                call()
-        self.assertIn("backlash_takeup", adapter.get_procedures(h))  # read-only unaffected
+            with self.assertRaisesRegex(RuntimeError, "refused"):
+                adapter.set_xyz(h, 0.0, 0.0, 0.0)
+            with self.assertRaisesRegex(RuntimeError, "refused"):
+                adapter.set_state(h, {"changeable": {"job": "HiRes"}})
+            with self.assertRaisesRegex(RuntimeError, "refused"):
+                adapter.set_procedure(h, {"name": "backlash_takeup"})
+            self.assertIn("backlash_takeup", adapter.get_procedures(h))  # reads fine
 
     def test_get_state_reports_limits_provenance(self):
         h = _handle()
@@ -1047,27 +1072,39 @@ class TestFunctionLimits(unittest.TestCase):
             {"schema_version": 1, "source": "test", "path": None, "is_fallback": False},
         )
 
-    def test_machine_stage_envelope_overrides_bundled_constraints(self):
-        """The snapshot's envelope governs set_xyz, never a stale bundled copy."""
-        cfg = {
-            "stage_um": {
-                "x": [2000.0, 50000.0],
-                "y": [1000.0, 100000.0],
-                "z_galvo": [-200.0, 200.0],
-                "z_wide": [0.0, 25000.0],
-            }
-        }
-        limits = adapter._load_function_limits(cfg)
-        self.assertIsNotNone(limits)
-        limits.check("set_xyz", {"x_um": 2500.0})
-        with self.assertRaises(adapter._shared_limits.LimitViolation):
-            limits.check(
-                "set_xyz", {"x_um": 1500.0}
-            )  # inside the bundled envelope, outside the machine's
+    def test_machine_stage_envelope_governs_the_gate(self):
+        """The snapshot's envelope governs moves, never a stale template copy."""
+        import os
+
+        _clear_limits()
+        self.addCleanup(_clear_limits)
+        provision_machine_limits(
+            os.environ["SMART_MICROSCOPY_ROOT"],
+            stage_um=dict(DEFAULT_STAGE_UM, x=[2000.0, 50000.0]),
+        )
+        client = object()
+        state = _gate.connect_handshake(client)
+        self.assertTrue(state.ok)
+        state.limits.check("set_xyz", {"x_um": 2500.0})
+        from shared import limits as shared_limits
+
+        with self.assertRaises(shared_limits.LimitViolation):
+            # inside the template envelope, outside the machine's
+            state.limits.check("set_xyz", {"x_um": 1500.0})
 
     def test_unknown_machine_axis_fails_closed(self):
-        """An envelope the file can't represent must refuse mutations, not skip the axis."""
-        self.assertIsNone(adapter._load_function_limits({"stage_um": {"theta": [0.0, 360.0]}}))
+        """An envelope the schema can't represent refuses mutations, not the axis."""
+        import os
+
+        provision_machine_limits(
+            os.environ["SMART_MICROSCOPY_ROOT"],
+            stage_um=dict(DEFAULT_STAGE_UM, theta=[0.0, 360.0]),
+        )
+        client = object()
+        state = _gate.connect_handshake(client)
+        self.assertFalse(state.ok)
+        self.assertIn("theta", state.error)
+        self.assertIsNotNone(_gate.check_refusal(client, "move_xy", {"x_um": 5000.0}))
 
 
 if __name__ == "__main__":

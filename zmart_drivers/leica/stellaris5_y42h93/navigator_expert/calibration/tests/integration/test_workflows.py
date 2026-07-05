@@ -273,13 +273,12 @@ def _patch_driver(
     )
     monkeypatch.setattr(
         wf_i2s.drv,
-        "load_stage_config",
-        lambda *a, **k: {"backlash": {"x_um": 50.0, "y_um": 50.0}},
-    )
-    monkeypatch.setattr(
-        wf_i2s.drv,
-        "apply_stage_limits_from_config",
-        lambda cfg: None,
+        "connect_limits_handshake",
+        lambda client, **k: SimpleNamespace(
+            ok=True,
+            error=None,
+            stage_cfg={"backlash": {"x_um": 50.0, "y_um": 50.0}},
+        ),
     )
     monkeypatch.setattr(
         wf_i2s.drv,
@@ -432,12 +431,7 @@ def test_start_session_fails_fast_on_uncreatable_sessions_root(
         raise AssertionError("driver must not be called when sessions_root is invalid")
 
     monkeypatch.setattr(wf_i2s.drv, "connect_python_client", _no_driver)
-    monkeypatch.setattr(wf_i2s.drv, "load_stage_config", _no_driver)
-    monkeypatch.setattr(
-        wf_i2s.drv,
-        "apply_stage_limits_from_config",
-        _no_driver,
-    )
+    monkeypatch.setattr(wf_i2s.drv, "connect_limits_handshake", _no_driver)
     monkeypatch.setattr(wf_i2s.drv, "get_hardware_info", _no_driver)
 
     with pytest.raises(RuntimeError) as exc_info:
@@ -1253,13 +1247,12 @@ def _patch_objective_driver(
     )
     monkeypatch.setattr(
         wf_obj.drv,
-        "load_stage_config",
-        lambda *a, **k: {"backlash": {"x_um": 50.0, "y_um": 50.0}},
-    )
-    monkeypatch.setattr(
-        wf_obj.drv,
-        "apply_stage_limits_from_config",
-        lambda cfg: None,
+        "connect_limits_handshake",
+        lambda client, **k: SimpleNamespace(
+            ok=True,
+            error=None,
+            stage_cfg={"backlash": {"x_um": 50.0, "y_um": 50.0}},
+        ),
     )
     monkeypatch.setattr(
         wf_obj.drv,

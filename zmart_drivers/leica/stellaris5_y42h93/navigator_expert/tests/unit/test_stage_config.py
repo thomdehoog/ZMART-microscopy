@@ -15,8 +15,10 @@ def _write_json(path, payload):
 
 # --- adopt_limits: publish a physical-envelope snapshot ---
 
-_ENV_A = {"x": [1, 100], "y": [1, 100], "z_galvo": [-5, 5], "z_wide": [0, 50]}
-_ENV_B = {"x": [2, 200], "y": [2, 200], "z_galvo": [-10, 10], "z_wide": [0, 60]}
+# Envelopes must sit WITHIN the hardcoded physical backstop
+# (motion.limits.STAGE_BACKSTOP_UM) or adopt_limits refuses them.
+_ENV_A = {"x": [1100, 100000], "y": [1100, 90000], "z_galvo": [-5, 5], "z_wide": [0, 50]}
+_ENV_B = {"x": [1200, 120000], "y": [1200, 95000], "z_galvo": [-10, 10], "z_wide": [0, 60]}
 _SEED_MOMENT = datetime(2026, 1, 1, tzinfo=timezone.utc)
 _ADOPT_MOMENT = datetime(2026, 2, 1, tzinfo=timezone.utc)
 
@@ -33,11 +35,16 @@ def test_adopt_limits_publishes_snapshot_carrying_calibration_forward(tmp_path):
     assert Path(out["snapshot"]) == snap
     lim = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
     assert lim["schema_version"] == 1
-    assert lim["stage_um"]["x"] == [2.0, 200.0]  # validated to floats
+    assert lim["stage_um"]["x"] == [1200.0, 120000.0]  # validated to floats
     # calibration carried forward untouched
     assert json.loads((snap / "calibration.json").read_text(encoding="utf-8")) == {
         "marker": "cal-A"
     }
+    # the machine-local function_limits.json is published alongside (generated
+    # from the adopted envelope on first adopt; the bundled file is a template)
+    fl = json.loads((snap / "function_limits.json").read_text(encoding="utf-8"))
+    assert fl["constraints"]["stage.x"] == {"min": 1200.0, "max": 120000.0}
+    assert fl["functions"]["set_xyz"]["x_um"] == "@stage.x"
 
 
 def test_adopt_limits_first_time_carries_bundled_calibration(tmp_path):
@@ -55,9 +62,17 @@ def test_adopt_limits_first_time_carries_bundled_calibration(tmp_path):
 
 def test_adopt_limits_validates_envelope(tmp_path):
     m = MachineProfile(programdata_root=tmp_path)
-    bad = {"x": [100, 1], "y": [1, 100], "z_galvo": [-5, 5], "z_wide": [0, 50]}  # min > max
+    bad = dict(_ENV_A, x=[100000, 1100])  # min > max
     with pytest.raises(ValueError):
         stage_config.adopt_limits(bad, machine=m, moment=_ADOPT_MOMENT)
+
+
+def test_adopt_limits_refuses_an_envelope_outside_the_backstop(tmp_path):
+    m = MachineProfile(programdata_root=tmp_path)
+    wide = dict(_ENV_A, x=[500, 200000])  # wider than the physical travel
+    with pytest.raises(RuntimeError, match="backstop"):
+        stage_config.adopt_limits(wide, machine=m, moment=_ADOPT_MOMENT)
+    assert m.latest_snapshot() is None  # nothing published
 
 
 def test_load_combines_limits_and_calibrated_backlash(tmp_path):
@@ -110,22 +125,38 @@ def test_load_combines_limits_and_calibrated_backlash(tmp_path):
 
 
 def test_limits_paths_are_separate_from_calibration_state():
-    # With no machine snapshot (hermetic root fixture), the physical limits and
-    # the calibration resolve to the driver-bundled defaults, while the per-run
-    # working envelope stays under the driver tree - three distinct files.
+    # With no machine snapshot (hermetic root fixture): the calibration keeps
+    # its loud bundled fallback (values, not enforcement), the physical limits
+    # REFUSE the bundled template (no-fallback rule), and the per-run working
+    # envelope path stays under the driver tree (its file is untracked/per-run,
+    # so only the path is asserted here).
     driver_root = Path(__file__).resolve().parents[2]
     current_limits = driver_root / "limits" / "current.json"
-    default_limits = driver_root / "limits" / "defaults" / "limits.json"
+    template_limits = driver_root / "limits" / "defaults" / "limits.json"
     calibration = driver_root / "calibration" / "defaults" / "calibration.json"
 
     assert stage_config.current_path() == current_limits
-    assert stage_config.defaults_path() == default_limits
     assert stage_config.default_calibration_path() == calibration
-    assert current_limits.exists()
-    assert default_limits.exists()
     assert calibration.exists()
-    assert json.loads(default_limits.read_text(encoding="utf-8"))["schema_version"] == 1
-    assert json.loads(default_limits.read_text(encoding="utf-8"))["source"] == "defaults"
+    with pytest.raises(RuntimeError, match="set_stage_limits.ipynb"):
+        stage_config.defaults_path()
+    # The bundled template stays shipped (it seeds the notebook), but is
+    # never returned as the enforceable envelope.
+    assert template_limits.exists()
+    assert json.loads(template_limits.read_text(encoding="utf-8"))["schema_version"] == 1
+    assert json.loads(template_limits.read_text(encoding="utf-8"))["source"] == "defaults"
+
+
+def test_defaults_path_returns_the_machine_local_snapshot_copy(tmp_path, monkeypatch):
+    import navigator_expert.config.machine as machine_mod
+
+    monkeypatch.setenv("SMART_MICROSCOPY_ROOT", str(tmp_path))
+    m = machine_mod.MachineProfile()
+    m.publish_snapshot(
+        _SEED_MOMENT,
+        limits={"schema_version": 1, "source": "defaults", "stage_um": _ENV_A},
+    )
+    assert stage_config.defaults_path() == m.latest_snapshot() / "limits.json"
 
 
 def test_load_defaults_to_defaults_path(tmp_path, monkeypatch):

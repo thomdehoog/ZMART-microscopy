@@ -50,6 +50,21 @@ def pytest_report_header(config):
 
 
 @pytest.fixture(autouse=True)
+def _clean_limits_gate():
+    """Empty the commands-layer limits-gate registry around every test.
+
+    The gate registry is process-global (keyed by client identity); a state
+    installed by one test must never govern another test's client, and the
+    adversarial suite depends on starting from the fail-closed empty state.
+    """
+    from navigator_expert.commands import gate
+
+    gate._GATE_STATE.clear()
+    yield
+    gate._GATE_STATE.clear()
+
+
+@pytest.fixture(autouse=True)
 def fast_timing_windows(monkeypatch):
     """Shrink the real-time confirm/echo poll windows for the offline suite.
 

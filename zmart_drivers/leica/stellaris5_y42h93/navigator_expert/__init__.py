@@ -12,7 +12,8 @@ Package layout::
     - acquisition/  acquire-only capture, LAS X file export, OME fixes, save
     - motion/       stage limits, backlash-aware movement, stage config
     - calibration/  image-stage + objective-pair calibration (model + defaults consumed at connect)
-    - limits/       bundled stage/function limits defaults + operator notebook
+    - limits/       stage/function limits TEMPLATES + the operator notebook that
+                    creates the machine-local (enforceable) files
     - zmart_adapter/ ops table plugging this driver into zmart_controller
     - experimental/ LRP mutation helpers without live-state readback
     - tests/        offline unit suite + hardware validators
@@ -45,11 +46,18 @@ __all__ = [
     "_TRANSIENT_PATTERNS",
     # limits
     "_stage_limits",
+    "STAGE_BACKSTOP_UM",
     "set_stage_limits",
     "get_stage_limits",
     "apply_stage_limits_from_config",
+    "check_envelope_within_backstop",
     "_check_xy_limits",
     "_check_z_limits",
+    # function-keyed limits gate (commands layer)
+    "connect_limits_handshake",
+    "GateState",
+    "MUTATING_COMMANDS",
+    "FUNCTION_LIMIT_KEYS",
     # readers
     "Reading",
     "get_scan_status",
@@ -321,12 +329,22 @@ from .connection.session import (
     require_canonical_scan_orientation,
 )
 
+# -- commands/gate - function-keyed limits gate + connect handshake
+from .commands.gate import (
+    FUNCTION_LIMIT_KEYS,
+    GateState,
+    MUTATING_COMMANDS,
+    connect_handshake as connect_limits_handshake,
+)
+
 # -- motion/ - stage safety + movement
 from .motion.limits import (
     _stage_limits,
+    STAGE_BACKSTOP_UM,
     set_stage_limits,
     get_stage_limits,
     apply_stage_limits_from_config,
+    check_envelope_within_backstop,
     _check_xy_limits,
     _check_z_limits,
 )

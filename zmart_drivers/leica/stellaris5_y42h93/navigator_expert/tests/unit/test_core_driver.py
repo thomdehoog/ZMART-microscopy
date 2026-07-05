@@ -53,7 +53,15 @@ def make_echo(has_error=False, error="", result_code=1):
 
 
 def make_client(echo=None, scan_status="eScanIdle"):
-    """Create a mock LAS X client."""
+    """Create a mock LAS X client with a permissive function-limits gate.
+
+    The commands-layer gate fails closed for a never-handshaken client, so
+    the factory installs a permissive in-memory state — these tests are
+    about command mechanics, not limits (test_limits_adversarial.py owns
+    those). Tests that need the fail-closed behavior use a fresh object.
+    """
+    from limits_fixtures import install_permissive_limits
+
     client = MagicMock()
     if echo is None:
         echo = make_echo()
@@ -61,6 +69,7 @@ def make_client(echo=None, scan_status="eScanIdle"):
     status_obj = MagicMock()
     status_obj.__str__ = MagicMock(return_value=scan_status)
     client.PyApiStatus.Model.ScanStatus = status_obj
+    install_permissive_limits(client)
     return client
 
 
@@ -487,7 +496,14 @@ class TestRetryBackoff(unittest.TestCase):
         with (
             patch(
                 "navigator_expert.commands.dispatch.time.sleep",
-                side_effect=lambda s: sleep_calls.append(s),
+                # patching dispatch.time.sleep rebinds the STDLIB time.sleep;
+                # leftover daemon threads (confirmation-race legs from earlier
+                # tests) also call it, so record main-thread sleeps only
+                side_effect=lambda s: (
+                    sleep_calls.append(s)
+                    if threading.current_thread() is threading.main_thread()
+                    else None
+                ),
             ),
             patch.object(dispatch, "_fire_with_receipt", return_value=True),
             patch.object(dispatch, "_await_echo_result", return_value=True),
@@ -517,7 +533,14 @@ class TestRetryBackoff(unittest.TestCase):
         with (
             patch(
                 "navigator_expert.commands.dispatch.time.sleep",
-                side_effect=lambda s: sleep_calls.append(s),
+                # patching dispatch.time.sleep rebinds the STDLIB time.sleep;
+                # leftover daemon threads (confirmation-race legs from earlier
+                # tests) also call it, so record main-thread sleeps only
+                side_effect=lambda s: (
+                    sleep_calls.append(s)
+                    if threading.current_thread() is threading.main_thread()
+                    else None
+                ),
             ),
             patch.object(dispatch, "_fire_with_receipt", return_value=True),
             patch.object(dispatch, "_await_echo_result", return_value=True),
@@ -546,7 +569,14 @@ class TestRetryBackoff(unittest.TestCase):
         with (
             patch(
                 "navigator_expert.commands.dispatch.time.sleep",
-                side_effect=lambda s: sleep_calls.append(s),
+                # patching dispatch.time.sleep rebinds the STDLIB time.sleep;
+                # leftover daemon threads (confirmation-race legs from earlier
+                # tests) also call it, so record main-thread sleeps only
+                side_effect=lambda s: (
+                    sleep_calls.append(s)
+                    if threading.current_thread() is threading.main_thread()
+                    else None
+                ),
             ),
             patch.object(dispatch, "_fire_with_receipt", return_value=True),
             patch.object(dispatch, "_await_echo_result", return_value=True),
@@ -580,7 +610,14 @@ class TestRetryBackoff(unittest.TestCase):
         with (
             patch(
                 "navigator_expert.commands.dispatch.time.sleep",
-                side_effect=lambda s: sleep_calls.append(s),
+                # patching dispatch.time.sleep rebinds the STDLIB time.sleep;
+                # leftover daemon threads (confirmation-race legs from earlier
+                # tests) also call it, so record main-thread sleeps only
+                side_effect=lambda s: (
+                    sleep_calls.append(s)
+                    if threading.current_thread() is threading.main_thread()
+                    else None
+                ),
             ),
             patch.object(dispatch, "_fire_with_receipt", return_value=True),
             patch.object(dispatch, "_await_echo_result", return_value=True),
@@ -609,7 +646,14 @@ class TestRetryBackoff(unittest.TestCase):
         with (
             patch(
                 "navigator_expert.commands.dispatch.time.sleep",
-                side_effect=lambda s: sleep_calls.append(s),
+                # patching dispatch.time.sleep rebinds the STDLIB time.sleep;
+                # leftover daemon threads (confirmation-race legs from earlier
+                # tests) also call it, so record main-thread sleeps only
+                side_effect=lambda s: (
+                    sleep_calls.append(s)
+                    if threading.current_thread() is threading.main_thread()
+                    else None
+                ),
             ),
             patch.object(dispatch, "_fire_with_receipt", return_value=True),
             patch.object(dispatch, "_await_echo_result", return_value=True),
@@ -637,7 +681,14 @@ class TestRetryBackoff(unittest.TestCase):
         with (
             patch(
                 "navigator_expert.commands.dispatch.time.sleep",
-                side_effect=lambda s: sleep_calls.append(s),
+                # patching dispatch.time.sleep rebinds the STDLIB time.sleep;
+                # leftover daemon threads (confirmation-race legs from earlier
+                # tests) also call it, so record main-thread sleeps only
+                side_effect=lambda s: (
+                    sleep_calls.append(s)
+                    if threading.current_thread() is threading.main_thread()
+                    else None
+                ),
             ),
             patch.object(dispatch, "_fire_with_receipt", return_value=True),
             patch.object(dispatch, "_await_echo_result", return_value=True),
@@ -2301,10 +2352,11 @@ class TestUnitValidation(unittest.TestCase):
         self.assertIn("unknown unit", result["message"])
 
     def test_set_objective_requires_exactly_one_selector(self):
-        result = drv.set_objective(None, "Job", {}, slot_index=1, name="HC PL APO 63x")
+        client = make_client()  # gate-permissive; the selector validation is under test
+        result = drv.set_objective(client, "Job", {}, slot_index=1, name="HC PL APO 63x")
         self.assertFalse(result["success"])
         self.assertIn("exactly one", result["message"])
-        result = drv.set_objective(None, "Job", {})
+        result = drv.set_objective(client, "Job", {})
         self.assertFalse(result["success"])
 
 

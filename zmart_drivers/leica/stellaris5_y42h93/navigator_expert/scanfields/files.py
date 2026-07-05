@@ -3,8 +3,15 @@
 Save/load experiments, locate the ScanningTemplates directory,
 detect template state, and define the canonical filename constants.
 
+``save_experiment`` / ``load_experiment`` fire ``PyApi{Save,Load}Experiment``
+directly on the client — mutations outside the ``commands.commands`` wrappers
+— so they carry their own function-keyed limits gate (``commands.gate``,
+keys ``save_experiment`` / ``load_experiment``): with no valid machine-local
+limits the receipt is never fired and the call returns ``None`` (the
+functions' existing failure contract) after logging the refusal.
+
 Dependency direction:
-    - Imports: ``..utils``, ``.lrp``, ``_file_utils``,
+    - Imports: ``..utils``, ``..commands.gate``, ``.lrp``, ``_file_utils``,
       stdlib.
     - Imported by: ``strip_restore``, ``transaction``, ``__init__`` (re-export).
 """
@@ -16,6 +23,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .._file_utils import _wait_file_stable
+from ..commands import gate as _gate
 from ..utils import RECEIPT_TIMEOUT, _make_timing
 from .lrp import parse_lrp
 
@@ -157,8 +165,14 @@ def save_experiment(
         confirm_path: File to poll.  Defaults to ``templates_dir/name``.
 
     Returns:
-        Result dict on success, None on timeout or receipt failure.
+        Result dict on success, None on timeout, receipt failure, or a
+        function-limits refusal (logged at ERROR).
     """
+    refused = _gate.check_refusal(client, "save_experiment", {"name": name})
+    if refused is not None:
+        log.error(refused)
+        return None
+
     templates_dir = Path(templates_dir)
     watch_path = Path(confirm_path) if confirm_path else templates_dir / name
     t0 = time.perf_counter()
@@ -230,8 +244,14 @@ def load_experiment(client, name):
     Use a follow-up ``save_experiment`` to verify the load took effect.
 
     Returns:
-        Result dict on success, None on receipt failure.
+        Result dict on success, None on receipt failure or a function-limits
+        refusal (logged at ERROR).
     """
+    refused = _gate.check_refusal(client, "load_experiment", {"name": name})
+    if refused is not None:
+        log.error(refused)
+        return None
+
     t0 = time.perf_counter()
     try:
         client.PyApiLoadExperiment.Model.ExperimentName = name
