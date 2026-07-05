@@ -1411,8 +1411,9 @@ def acquire(
 def select_job(client, job_name, poll_timeout=None, poll_interval=None):
     """Select a job by name.
 
-    Routes through the backbone. No pre_check_fn (job switching doesn't
-    need scanner idle). Source policy (api / log / hybrid) lives entirely
+    Routes through the backbone. The SELECT_JOB profile pre-checks scanner
+    idle before firing (``check_idle`` with no timeout). Source policy
+    (api / log / hybrid) lives entirely
     in the confirmation layer: ``prepare_select_job`` owns the
     "already selected" decision and the api baseline, and
     ``select_job_confirm_legs`` builds the confirmation legs the dispatch

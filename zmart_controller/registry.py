@@ -10,6 +10,13 @@ the connection dict; everything else in that dict is free for the driver to use
 (client name, api delay, host, credentials, ...) and is forwarded untouched to
 ``connect``.
 
+Error contract for ops: report failure by raising (``ValueError`` for caller
+mistakes, ``RuntimeError`` for instrument failures or driver refusals), never by
+encoding it in the returned dict — the controller forwards return values
+uninspected and propagates exceptions unchanged. Error text must be
+credential-safe: connection dicts may carry credentials, so messages name keys,
+never values (as :func:`_identity` does).
+
 This is where vendor driver adapters register. The first real one is the Leica
 Stellaris 5 adapter (``zmart_drivers.leica.stellaris5_y42h93.navigator_expert
 .zmart_adapter`` -- import it to register the instrument); the mock driver and

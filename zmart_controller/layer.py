@@ -9,6 +9,11 @@ Each concern is discover-then-apply: read the available options with a ``get_*``
 call, then pass your choice back to the matching call. Omitted options fall back
 to the driver's active default, filled by the driver.
 
+Failure is reported by raising: driver ops raise exceptions (``ValueError`` for
+caller mistakes, ``RuntimeError`` for instrument failures or refusals) and never
+encode failure in a returned dict; the controller catches nothing and propagates
+driver exceptions to the caller unchanged.
+
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 """
@@ -100,9 +105,11 @@ class Session:
     def get_xyz(self, with_actuators: dict | None = None) -> dict:
         """Read the current position per axis, in the frame (micrometers).
 
-        ``with_actuators`` optionally selects which
-        actuator to read per axis (e.g. ``{"z": "piezo"}``); axes left unspecified
-        use the reference one.
+        ``with_actuators`` optionally names an actuator per axis (e.g.
+        ``{"z": "piezo"}``; names must come from :meth:`get_actuators`). The
+        driver validates the choice and echoes it in the reading; whether the
+        value differs per actuator is driver-defined — the Leica driver's z,
+        for example, reads the same regardless.
         """
         return self._ops["get_xyz"](self._handle, with_actuators=with_actuators)
 
@@ -138,8 +145,9 @@ class Session:
         """Capture one dataset and save it, returning the driver's record.
 
         ``acquisition_type`` is the kind of scan (e.g. ``"prescan"`` /
-        ``"targetscan"``); ``position_label`` names the position in the output
-        filename. ``options`` carries the acquisition and saving settings from
+        ``"targetscan"``); ``position_label`` labels the position in the
+        driver's output records — how it appears (filename slot, lineage) is
+        driver-defined. ``options`` carries the acquisition and saving settings from
         :meth:`get_acquisition_options`; pass it through untouched -- the driver
         fills any omitted option from its active default.
         """
@@ -153,9 +161,12 @@ class Session:
     # --- context and lifecycle ----------------------------------------------
 
     def get_context(self) -> dict:
-        """Additional read-only context the driver provides (e.g. initial positions).
+        """Additional context the driver provides; keys are driver-defined.
 
-        Opaque to the controller -- whatever the driver chooses to expose.
+        Opaque to the controller -- whatever the driver chooses to expose
+        (e.g. the mock's ``initial_positions``, the Leica driver's
+        ``scan_field``). Read-only with respect to instrument state, but a
+        driver may persist working files and block briefly while gathering it.
         """
         return self._ops["get_context"](self._handle)
 
