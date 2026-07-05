@@ -63,7 +63,7 @@ def _shutdown_prior_ctx_if_any() -> None:
 
 
 def _smart_base_for_exporter(cfg: Config) -> Path:
-    """Return the folder that receives SMART run directories."""
+    """Return the folder that receives ZMART run directories."""
     if cfg.smart_output_root is not None:
         return Path(cfg.smart_output_root)
     exporter = cfg.save_exporter

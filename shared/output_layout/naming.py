@@ -1,4 +1,4 @@
-"""Lab-wide canonical naming and layout for smart-microscopy outputs.
+"""Lab-wide canonical naming and layout for zmart-microscopy outputs.
 
 Layout::
 

@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 _TARGET_ACQ = Path(__file__).resolve().parents[1]  # .../target_acquisition/
-_REPO_ROOT = _TARGET_ACQ.parents[1]  # .../smart-microscopy/
+_REPO_ROOT = _TARGET_ACQ.parents[1]  # .../zmart-microscopy/
 _DRIVER_PARENT = _REPO_ROOT / "zmart_drivers" / "leica" / "stellaris5_y42h93"
 
 for p in [str(_DRIVER_PARENT), str(_REPO_ROOT), str(_TARGET_ACQ)]:

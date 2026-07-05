@@ -91,7 +91,7 @@ class Config:
     stage_y_min_um: float | None = None
     stage_y_max_um: float | None = None
 
-    # Save source. ``navigator_expert`` stores SMART output under
+    # Save source. ``navigator_expert`` stores ZMART output under
     # <Navigator MediaPath>/smart; ``lasx_native_autosave`` stores it beside
     # the native AutoSave base folder. If set, ``smart_output_root`` is the
     # exact folder that receives <experiment>_<hash6> run directories; no
