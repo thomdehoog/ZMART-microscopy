@@ -12,6 +12,8 @@ channels:
 dependencies:
   # --- interpreter ---
   - python=3.11
+  - pip                      # conda-forge python ships without pip; needed for
+                             # `pip install -r requirements-dev.txt` (test tools)
   # --- compute core (registration, focusing, image I/O, calibration) ---
   - numpy>=1.24
   - scipy>=1.10
