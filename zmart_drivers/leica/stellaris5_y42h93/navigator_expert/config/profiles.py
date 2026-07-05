@@ -25,6 +25,7 @@ Import restrictions: command prechecks/confirmations, runtime errors/utilities,
 and stdlib. Nothing from dispatch or command wrappers.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 
@@ -223,19 +224,19 @@ class CommandProfile:
             False only for a command that must hard-fail on unconfirmed - none do.
     """
 
-    pre_check_fn: callable = None
-    error_check_fn: callable = _default_error_check
-    confirm_fn: callable = None
+    pre_check_fn: Callable[..., dict] | None = None
+    error_check_fn: Callable[..., dict] | None = _default_error_check
+    confirm_fn: Callable[..., dict] | None = None
     max_retries: int = 3
     max_confirm_attempts: int = 3
     refire_on_unconfirmed: bool = True
     confirm_poll_s: float = CONFIRM_POLL_S  # Per-attempt readback poll window (s).
-    confirm_tolerance: float = None
-    poll_interval: float = None
-    poll_timeout: float = None
-    start_timeout: float = None
-    heartbeat_interval: float = None
-    retry_backoff: float = None
+    confirm_tolerance: float | None = None
+    poll_interval: float | None = None
+    poll_timeout: float | None = None
+    start_timeout: float | None = None
+    heartbeat_interval: float | None = None
+    retry_backoff: float | None = None
     retry_escalate: bool = False
     skip_echo: bool = False
     receipt_timeout: float = RECEIPT_TIMEOUT  # UpdateAwaitReceipt ACK deadline (s).

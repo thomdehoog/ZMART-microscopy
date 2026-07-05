@@ -20,7 +20,9 @@ This module is deliberately pure data + pure functions — it imports nothing
 from the driver, so ``confirmations`` can import it without a cycle.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 # -- exception tuples caught while extracting the readback value -------------
 # Each matches the ``except (...)`` clause of the original bespoke confirm:
@@ -139,10 +141,10 @@ class ConfirmSpec:
     """One readback-confirmation descriptor. See module docstring for fields."""
 
     label: str
-    extract: callable
-    compare: callable
-    errors: tuple
-    default_tolerance: float = None
+    extract: Callable[..., Any]
+    compare: Callable[..., bool]
+    errors: tuple[type, ...]
+    default_tolerance: float | None = None
 
 
 # Field order: label, extract, compare, errors, default_tolerance.

@@ -6,7 +6,7 @@ template LRP files.
 
 Editors here follow the same pattern as the main editors module:
 string replacement on raw LRP text, designed for use with
-``templates.transaction.apply_lrp_change``.
+``scanfields.transaction.apply_lrp_change``.
 
 Dependency direction:
     - Imports: ``_primitives``, stdlib.

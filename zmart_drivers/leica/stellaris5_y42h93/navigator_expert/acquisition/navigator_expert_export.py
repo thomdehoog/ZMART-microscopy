@@ -32,8 +32,8 @@ log = logging.getLogger(__name__)
 
 DEFAULT_FILE_STABILITY_TIMEOUT_S = 120
 # Completeness (all timepoints/planes present) gets a budget in the same
-# regime as file stability (120 s): a long time-series still flushing to
-# disk after the job finished is healthy, not a failure.
+# regime as file stability: a long time-series still flushing to disk
+# after the job finished is healthy, not a failure.
 DEFAULT_EXPORT_COMPLETION_TIMEOUT_S = 60.0
 DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S = 0.5
 

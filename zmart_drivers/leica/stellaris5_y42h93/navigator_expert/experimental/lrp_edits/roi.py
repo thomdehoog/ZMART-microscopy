@@ -86,7 +86,7 @@ RoiType values: ``8`` = polygon, ``16`` = rectangle, ``32`` = ellipse,
 ``64`` = line.
 
 Dependency direction:
-    - Imports: ``_primitives``, ``positions.parsers``, stdlib.
+    - Imports: ``_primitives``, ``scanfields`` (files, transaction), stdlib.
     - Imported by: driver facade re-exports.
 """
 

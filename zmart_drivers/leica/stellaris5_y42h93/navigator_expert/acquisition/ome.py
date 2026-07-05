@@ -17,7 +17,8 @@ Fix strategy:
 
 Dependency direction:
     - Imports: stdlib only (re, struct, logging).
-    - Imported by: ``__init__`` (re-export).
+    - Imported by: ``acquisition.materialize`` (in-place repair at save)
+      and ``acquisition.ome_canonical`` (tag-270 read helper).
 """
 
 import logging

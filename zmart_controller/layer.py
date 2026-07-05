@@ -74,7 +74,7 @@ class Session:
         """
         return self._ops["get_state"](self._handle)
 
-    def set_state(self, state: dict):
+    def set_state(self, state: dict) -> dict:
         """Reapply captured state; return whatever the driver reports.
 
         The driver acts on the ``"changeable"`` part only; ``"observed"`` is
@@ -86,7 +86,7 @@ class Session:
         """The named procedures the driver offers (e.g. hardware autofocus)."""
         return self._ops["get_procedures"](self._handle)
 
-    def set_procedure(self, procedure: dict):
+    def set_procedure(self, procedure: dict) -> dict:
         """Run a procedure; return whatever the driver reports.
 
         Its meaning is encoded in the dict and run by the driver.
@@ -113,7 +113,7 @@ class Session:
         """
         return self._ops["get_xyz"](self._handle, with_actuators=with_actuators)
 
-    def set_xyz(self, x: float, y: float, z: float, with_actuators: dict | None = None):
+    def set_xyz(self, x: float, y: float, z: float, with_actuators: dict | None = None) -> dict:
         """Move to an absolute target in the frame (micrometers from the origin).
 
         Returns whatever the driver reports (e.g. a move record / confirmation).

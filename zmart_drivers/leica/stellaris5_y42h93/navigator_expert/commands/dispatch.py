@@ -228,6 +228,13 @@ def _fire_block(
         retry_escalate: If True, double the delay after each retry
             (exponential backoff: 0s, base, 2×base, 4×base, ...).
             If False, use a fixed delay. Ignored when retry_backoff is None.
+        skip_echo: If True, skip the echo error check step entirely (the
+            confirm_fn is then the authoritative completion signal).
+        receipt_timeout: Seconds for the UpdateAwaitReceipt transport ACK.
+            None uses the module-level RECEIPT_TIMEOUT default. Ignored when
+            fire_async is True.
+        fire_async: If True, fire via UpdateAsync (blanking the echo) instead
+            of UpdateAwaitReceipt.
 
     Returns:
         {

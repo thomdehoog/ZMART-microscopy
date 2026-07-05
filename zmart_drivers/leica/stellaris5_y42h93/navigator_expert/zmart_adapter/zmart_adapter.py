@@ -131,14 +131,17 @@ class ZmartHandle:
         used_p: Naming ``p`` slots already consumed this session, so
             auto-assigned positions never collide with explicit numeric
             position labels.
+        translations: Per-objective-slot translation triples (µm) from the
+            active calibration, loaded at connect; ``None`` when it could not
+            be read (cross-objective moves are then refused, reads warn).
         closed: Set by :func:`disconnect`; every op refuses a closed
             handle.
     """
 
     client: Any
-    connection: dict
+    connection: dict[str, Any]
     hash6: str
-    origin: dict = field(
+    origin: dict[str, Any] = field(
         default_factory=lambda: {
             "x_um": 0.0,
             "y_um": 0.0,
@@ -148,11 +151,8 @@ class ZmartHandle:
             "objective": None,
         }
     )
-    used_p: set = field(default_factory=set)
-    # Per-objective-slot translation triples (µm) from the active calibration,
-    # loaded at connect; None when the calibration could not be read (cross-
-    # objective moves are then refused, reads warn).
-    translations: dict | None = None
+    used_p: set[int] = field(default_factory=set)
+    translations: dict[int, tuple[float, float, float]] | None = None
     closed: bool = False
 
 
@@ -246,7 +246,7 @@ def _objective_delta_um(handle: ZmartHandle, current_objective: dict | None) -> 
     translations are unavailable — the caller decides whether that refuses
     (moves) or warns (reads).
     """
-    origin_slot = ((handle.origin.get("objective") or {}) or {}).get("slotIndex")
+    origin_slot = (handle.origin.get("objective") or {}).get("slotIndex")
     current_slot = (current_objective or {}).get("slotIndex")
     if origin_slot is None or current_slot == origin_slot:
         return (0.0, 0.0, 0.0)
