@@ -472,8 +472,9 @@ def phase_reader_modes(client, rec, job):
     modes against each other. A log-mode None is the router's fail-closed
     answer (no fresh-enough log value) and is recorded as SKIP -- a finding,
     not a failure; the read-only parity phase grades raw log correctness
-    separately. A hybrid None while api delivered would be a CF-01-class
-    in-flight block and is recorded as a structured failure, not a crash.
+    separately. A hybrid None while api delivered means the hybrid leg was
+    blocked or the API hung mid-race; recorded as a structured failure, not
+    a crash.
     """
     print("\n=== ROUTED READER MODES (api / log / hybrid per datum) ===")
     rec.phase = "routed reader modes"
@@ -513,13 +514,13 @@ def phase_reader_modes(client, rec, job):
                     key,
                     False,
                     "hybrid returned no value while api did -- "
-                    "blocked (known CF-01-class issue) or API hang",
+                    "hybrid leg blocked or API hang",
                     latency=lat,
                     reader_mode=mode,
                 )
                 rec.report.note(
                     f"hybrid read of {datum!r} returned no value while the api leg "
-                    "delivered -- CF-01-class in-flight block suspected."
+                    "delivered -- hybrid leg blocked or API hang; investigate."
                 )
             else:
                 rec.row(
