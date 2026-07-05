@@ -261,6 +261,38 @@ def main() -> int:
         adapter_gate = (
             ["--yes", "--allow-move", "--allow-state"] if args.live_writes else ["--read-only"]
         )
+        # SAFETY GATE (hard abort): prove the fail-closed limits machinery works
+        # in THIS install against the in-process mock BEFORE connecting to real
+        # LAS X or moving the stage. If it fails (bad env, regressed code,
+        # missing/invalid limits files), we DO NOT run any hardware validator —
+        # the run aborts here, before a single hardware command. In pure
+        # `online` mode the offline suite is skipped, so this is the only place
+        # the gate is proven ahead of hardware. Unlike the other fatal steps
+        # (which record failure but still run), this one short-circuits: a
+        # broken limits gate must never reach the physical stage.
+        limits_selftest = run_step(
+            "limits: mock self-check (fail-closed gate proven before any hardware)",
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                str(DRIVER_ROOT / "tests" / "unit" / "test_limits_adversarial.py"),
+            ],
+            env,
+            fatal=True,
+        )
+        steps.append(limits_selftest)
+        if limits_selftest["returncode"] != 0:
+            print(
+                "\n  ABORT: the limits mock self-check FAILED. Refusing to run any "
+                "hardware validator — the stage is not touched. Fix the limits "
+                "gate (see the pytest output above) and re-run.",
+                flush=True,
+            )
+            run_hardware = False  # skip the whole hardware block below
+
+    if run_hardware:
         hardware_steps = [
             (
                 "hardware: passive readers (api / log / hybrid)",
