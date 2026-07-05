@@ -84,6 +84,87 @@ def ping(client):
 # Read functions
 # =============================================================================
 
+# Verdicts a reader's ``validate`` hook can return to ``_flush_fire_poll``.
+_ACCEPT, _STALE, _RETRY = "accept", "stale", "retry"
+
+
+def _flush_fire_poll(
+    client,
+    *,
+    command,
+    flush,
+    read,
+    validate=None,
+    label=None,
+    context="",
+    timeout=1.0,
+    poll_interval=0.01,
+    max_retries=3,
+):
+    """Shared CAM read cycle: flush sentinel -> fire -> poll (-> validate).
+
+    Single home of the flush-fire-poll skeleton the module header
+    describes. The vendor quirk it works around: LAS X delivers read
+    results by writing into a shared data-object model with no
+    request/response correlation, so fresh data is only detectable as a
+    transition away from a sentinel flushed before the fire — and a
+    delayed response to an *earlier* fire can still land after the flush.
+    Where the payload carries a correlating field, the reader's
+    ``validate`` hook rejects such strays (see ``get_job_settings``); the
+    other readers accept the first non-sentinel value.
+
+    Args:
+        client: Live LAS X CAM client.
+        command: Command-channel command name to fire.
+        flush: ``flush(client)`` — commit any query parameters and reset
+            the data model to its sentinel (None/NaN).
+        read: ``read(client)`` — return the parsed value, or None while
+            the model still holds the sentinel.
+        validate: Optional ``validate(value, attempt)`` returning
+            ``_ACCEPT`` (return the value), ``_STALE`` (keep polling: the
+            response belongs to an earlier fire), or ``_RETRY`` (abandon
+            this attempt: transient half-populated payload).
+        label: Reader name used in log messages.
+        context: Optional log-message suffix (e.g. ``" for 'JobName'"``).
+        timeout: Per-attempt poll window in seconds.
+        poll_interval: Poll sleep in seconds.
+        max_retries: Full flush->fire->poll cycles to attempt.
+
+    Returns:
+        The accepted value, or None when every attempt failed.
+    """
+    label = label or command
+    for attempt in range(1, max_retries + 1):
+        try:
+            flush(client)
+
+            client.PyApiCommand.Model.Command = ""
+            client.PyApiCommand.Model.Command = command
+            if not client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
+                log.warning(
+                    "%s: attempt %d/%d receipt failed%s", label, attempt, max_retries, context
+                )
+                continue
+
+            deadline = time.perf_counter() + timeout
+            while time.perf_counter() < deadline:
+                value = read(client)
+                if value is not None:
+                    verdict = _ACCEPT if validate is None else validate(value, attempt)
+                    if verdict is _ACCEPT:
+                        return value
+                    if verdict is _RETRY:
+                        break
+                    # _STALE: fall through to the sleep and keep polling.
+                time.sleep(poll_interval)
+
+            log.warning("%s: attempt %d/%d timed out%s", label, attempt, max_retries, context)
+        except Exception as e:
+            log.error("%s attempt %d/%d failed: %s", label, attempt, max_retries, e)
+
+    log.error("%s: all %d attempts failed%s", label, max_retries, context)
+    return None
+
 
 def get_job_settings(client, job_name, timeout=1.0, poll_interval=0.01, max_retries=3):
     """Read full job settings JSON from LAS X.
@@ -93,70 +174,62 @@ def get_job_settings(client, job_name, timeout=1.0, poll_interval=0.01, max_retr
     command channel and polls until data arrives.  Retries the full
     commit->flush->fire->poll cycle up to *max_retries* times.
     """
-    for attempt in range(1, max_retries + 1):
+
+    def flush(c):
+        c.PyApiGetJobSettingsByName.Model.JobName = job_name
         try:
-            client.PyApiGetJobSettingsByName.Model.JobName = job_name
-            try:
-                client.PyApiGetJobSettingsByName.UpdateAwaitReceipt(RECEIPT_TIMEOUT)
-            except Exception:
-                pass  # best-effort; command channel is the real transport
+            c.PyApiGetJobSettingsByName.UpdateAwaitReceipt(RECEIPT_TIMEOUT)
+        except Exception:
+            pass  # best-effort; command channel is the real transport
+        c.PyApiGetJobSettingsByName.Model.Settings = None
 
-            client.PyApiGetJobSettingsByName.Model.Settings = None
+    def read(c):
+        raw = c.PyApiGetJobSettingsByName.Model.Settings
+        if raw is None:
+            return None
+        return json.loads(raw) if isinstance(raw, str) else raw
 
-            client.PyApiCommand.Model.Command = ""
-            client.PyApiCommand.Model.Command = "GetJobSettingsByName"
-            if not client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
-                log.warning(
-                    "get_job_settings: attempt %d/%d receipt failed for '%s'",
-                    attempt,
-                    max_retries,
-                    job_name,
-                )
-                continue
-
-            deadline = time.perf_counter() + timeout
-            while time.perf_counter() < deadline:
-                raw = client.PyApiGetJobSettingsByName.Model.Settings
-                if raw is not None:
-                    parsed = json.loads(raw) if isinstance(raw, str) else raw
-                    # Correlate the response with *this* query: a delayed
-                    # response for an earlier job can land after our flush
-                    # and would otherwise be returned as this job's settings.
-                    if (
-                        isinstance(parsed, dict)
-                        and parsed.get("jobName") is not None
-                        and parsed.get("jobName") != job_name
-                    ):
-                        log.debug(
-                            "get_job_settings: stale response for '%s' while polling '%s'",
-                            parsed.get("jobName"),
-                            job_name,
-                        )
-                        time.sleep(poll_interval)
-                        continue
-                    # LAS X occasionally returns a populated dict whose
-                    # geometry fields are blank - happens right after a
-                    # zoom or format change while the engine is still
-                    # repopulating. Treat that the same as None and let
-                    # the retry loop wait for the real values.
-                    if isinstance(parsed, dict) and not derived.settings_geometry_ready(parsed):
-                        log.debug(
-                            "get_job_settings: empty imageSize on attempt %d/%d; retrying",
-                            attempt,
-                            max_retries,
-                        )
-                        break
-                    return parsed
-                time.sleep(poll_interval)
-
-            log.warning(
-                "get_job_settings: attempt %d/%d timed out for '%s'", attempt, max_retries, job_name
+    def validate(parsed, attempt):
+        # Correlate the response with *this* query: a delayed
+        # response for an earlier job can land after our flush
+        # and would otherwise be returned as this job's settings.
+        if (
+            isinstance(parsed, dict)
+            and parsed.get("jobName") is not None
+            and parsed.get("jobName") != job_name
+        ):
+            log.debug(
+                "get_job_settings: stale response for '%s' while polling '%s'",
+                parsed.get("jobName"),
+                job_name,
             )
-        except Exception as e:
-            log.error("get_job_settings attempt %d/%d failed: %s", attempt, max_retries, e)
+            return _STALE
+        # LAS X occasionally returns a populated dict whose
+        # geometry fields are blank - happens right after a
+        # zoom or format change while the engine is still
+        # repopulating. Treat that the same as None and let
+        # the retry loop wait for the real values.
+        if isinstance(parsed, dict) and not derived.settings_geometry_ready(parsed):
+            log.debug(
+                "get_job_settings: empty imageSize on attempt %d/%d; retrying",
+                attempt,
+                max_retries,
+            )
+            return _RETRY
+        return _ACCEPT
 
-    log.error("get_job_settings: all %d attempts failed for '%s'", max_retries, job_name)
-    return None
+    return _flush_fire_poll(
+        client,
+        command="GetJobSettingsByName",
+        flush=flush,
+        read=read,
+        validate=validate,
+        label="get_job_settings",
+        context=f" for '{job_name}'",
+        timeout=timeout,
+        poll_interval=poll_interval,
+        max_retries=max_retries,
+    )
 
 
 def get_hardware_info(client, timeout=1.0, poll_interval=0.01, max_retries=3):
@@ -166,32 +239,29 @@ def get_hardware_info(client, timeout=1.0, poll_interval=0.01, max_retries=3):
     UpdateAwaitReceipt, then polls until data arrives. Retries up to
     *max_retries* times.
     """
-    for attempt in range(1, max_retries + 1):
+
+    def flush(c):
         try:
-            try:
-                client.PyApiGetConfocalHardwareInfo.Model.HWInfo = None
-            except Exception:
-                pass
+            c.PyApiGetConfocalHardwareInfo.Model.HWInfo = None
+        except Exception:
+            pass
 
-            client.PyApiCommand.Model.Command = ""
-            client.PyApiCommand.Model.Command = "GetConfocalHardwareInfo"
-            if not client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
-                log.warning("get_hardware_info: attempt %d/%d receipt failed", attempt, max_retries)
-                continue
+    def read(c):
+        raw = c.PyApiGetConfocalHardwareInfo.Model.HWInfo
+        if raw is None:
+            return None
+        return json.loads(raw) if isinstance(raw, str) else raw
 
-            deadline = time.perf_counter() + timeout
-            while time.perf_counter() < deadline:
-                raw = client.PyApiGetConfocalHardwareInfo.Model.HWInfo
-                if raw is not None:
-                    return json.loads(raw) if isinstance(raw, str) else raw
-                time.sleep(poll_interval)
-
-            log.warning("get_hardware_info: attempt %d/%d timed out", attempt, max_retries)
-        except Exception as e:
-            log.error("get_hardware_info attempt %d/%d failed: %s", attempt, max_retries, e)
-
-    log.error("get_hardware_info: all %d attempts failed", max_retries)
-    return None
+    return _flush_fire_poll(
+        client,
+        command="GetConfocalHardwareInfo",
+        flush=flush,
+        read=read,
+        label="get_hardware_info",
+        timeout=timeout,
+        poll_interval=poll_interval,
+        max_retries=max_retries,
+    )
 
 
 def get_xy(client, timeout=1.0, poll_interval=0.01, max_retries=3):
@@ -204,37 +274,33 @@ def get_xy(client, timeout=1.0, poll_interval=0.01, max_retries=3):
     Returns:
         dict with x/y in meters and microns, or None on failure.
     """
-    for attempt in range(1, max_retries + 1):
-        try:
-            client.PyApiGetXY.Model.XPosition = float("nan")
-            client.PyApiGetXY.Model.YPosition = float("nan")
 
-            client.PyApiCommand.Model.Command = ""
-            client.PyApiCommand.Model.Command = "GetXY"
-            if not client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
-                log.warning("get_xy: attempt %d/%d receipt failed", attempt, max_retries)
-                continue
+    def flush(c):
+        c.PyApiGetXY.Model.XPosition = float("nan")
+        c.PyApiGetXY.Model.YPosition = float("nan")
 
-            deadline = time.perf_counter() + timeout
-            while time.perf_counter() < deadline:
-                x = client.PyApiGetXY.Model.XPosition
-                y = client.PyApiGetXY.Model.YPosition
+    def read(c):
+        x = c.PyApiGetXY.Model.XPosition
+        y = c.PyApiGetXY.Model.YPosition
+        if math.isnan(x) or math.isnan(y):
+            return None
+        return {
+            "x": x,
+            "y": y,
+            "x_um": x * 1e6,
+            "y_um": y * 1e6,
+        }
 
-                if not (math.isnan(x) or math.isnan(y)):
-                    return {
-                        "x": x,
-                        "y": y,
-                        "x_um": x * 1e6,
-                        "y_um": y * 1e6,
-                    }
-                time.sleep(poll_interval)
-
-            log.warning("get_xy: attempt %d/%d timed out", attempt, max_retries)
-        except Exception as e:
-            log.error("get_xy attempt %d/%d failed: %s", attempt, max_retries, e)
-
-    log.error("get_xy: all %d attempts failed", max_retries)
-    return None
+    return _flush_fire_poll(
+        client,
+        command="GetXY",
+        flush=flush,
+        read=read,
+        label="get_xy",
+        timeout=timeout,
+        poll_interval=poll_interval,
+        max_retries=max_retries,
+    )
 
 
 def get_jobs(client, timeout=1.0, poll_interval=0.01, max_retries=3):
@@ -244,32 +310,29 @@ def get_jobs(client, timeout=1.0, poll_interval=0.01, max_retries=3):
     UpdateAwaitReceipt, then polls until data arrives. Retries up to
     *max_retries* times.
     """
-    for attempt in range(1, max_retries + 1):
+
+    def flush(c):
         try:
-            try:
-                client.PyApiGetJobsInformation.Model.Jobs = None
-            except Exception:
-                pass
+            c.PyApiGetJobsInformation.Model.Jobs = None
+        except Exception:
+            pass
 
-            client.PyApiCommand.Model.Command = ""
-            client.PyApiCommand.Model.Command = "GetJobsInformation"
-            if not client.PyApiCommand.UpdateAwaitReceipt(RECEIPT_TIMEOUT):
-                log.warning("get_jobs: attempt %d/%d receipt failed", attempt, max_retries)
-                continue
+    def read(c):
+        raw = c.PyApiGetJobsInformation.Model.Jobs
+        if raw is None:
+            return None
+        return json.loads(raw) if isinstance(raw, str) else raw
 
-            deadline = time.perf_counter() + timeout
-            while time.perf_counter() < deadline:
-                raw = client.PyApiGetJobsInformation.Model.Jobs
-                if raw is not None:
-                    return json.loads(raw) if isinstance(raw, str) else raw
-                time.sleep(poll_interval)
-
-            log.warning("get_jobs: attempt %d/%d timed out", attempt, max_retries)
-        except Exception as e:
-            log.error("get_jobs attempt %d/%d failed: %s", attempt, max_retries, e)
-
-    log.error("get_jobs: all %d attempts failed", max_retries)
-    return None
+    return _flush_fire_poll(
+        client,
+        command="GetJobsInformation",
+        flush=flush,
+        read=read,
+        label="get_jobs",
+        timeout=timeout,
+        poll_interval=poll_interval,
+        max_retries=max_retries,
+    )
 
 
 def get_job_by_name(client, job_name, **kwargs):

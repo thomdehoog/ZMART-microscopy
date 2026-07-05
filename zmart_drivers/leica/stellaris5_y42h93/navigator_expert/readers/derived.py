@@ -63,14 +63,15 @@ def settings_geometry_ready(settings):
     return bool(settings.get("imageSize"))
 
 
-def zwide_um_from_settings(settings):
-    """Return the live z-wide position (µm) parsed from raw job settings.
+def z_um_from_settings(settings, key):
+    """Return one z drive's live position (µm) parsed from raw job settings.
 
-    Flattens the API JSON via :func:`make_changeable_copy`, reads
-    ``zPosition['z-wide']``, and applies the dict-shape guard: LAS X
-    sometimes nests the value as ``{'position': ...}`` rather than a bare
-    float. Raises ``RuntimeError`` when ``zPosition`` or the z-wide value
-    is unavailable (almost always means the job is not selected or the
+    Canonical home of the z-readback shape quirk: LAS X sometimes nests the
+    value as ``{'position': ...}`` rather than a bare float, so after
+    flattening the API JSON via :func:`make_changeable_copy` and reading
+    ``zPosition[key]``, the dict-shape guard unwraps ``'position'``. Raises
+    ``RuntimeError`` when ``zPosition`` or the per-drive value is
+    unavailable (almost always means the job is not selected or the
     LAS X version does not expose Z readback in this shape).
     """
     from ..commands.settings import make_changeable_copy
@@ -78,9 +79,14 @@ def zwide_um_from_settings(settings):
     ch = make_changeable_copy(settings)
     if not ch or "zPosition" not in ch:
         raise RuntimeError("zPosition not in job settings - LAS X version mismatch?")
-    val = ch["zPosition"].get("z-wide")
+    val = ch["zPosition"].get(key)
     if isinstance(val, dict):
         val = val.get("position")
     if val is None:
-        raise RuntimeError(f"z-wide readback missing; got {ch['zPosition']!r}")
+        raise RuntimeError(f"{key} readback missing; got {ch['zPosition']!r}")
     return float(val)
+
+
+def zwide_um_from_settings(settings):
+    """Return the live z-wide position (µm); see :func:`z_um_from_settings`."""
+    return z_um_from_settings(settings, "z-wide")
