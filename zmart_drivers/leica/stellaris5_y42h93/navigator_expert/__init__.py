@@ -22,42 +22,16 @@ Package layout::
 __version__ = "6.0.0"
 
 __all__ = [
-    # version
-    "__version__",
+    # logging
     "log",
-    # config
-    "RECEIPT_TIMEOUT",
-    "CONFIRM_POLL_S",
-    "PAN_LIMIT",
-    "GALVO_FIELD_FRACTION",
-    "pan_scale_um_from_base_fov",
     # utils
-    "_safe_float",
-    "_hw_get",
-    "parse_format",
-    "_make_timing",
-    "_make_log_entry",
     "parse_tile_geometry",
-    # errors
-    "_is_transient_error",
-    "_check_api_error",
-    "_default_error_check",
-    "_PERMANENT_PATTERNS",
-    "_TRANSIENT_PATTERNS",
     # limits
-    "_stage_limits",
-    "STAGE_BACKSTOP_UM",
     "set_stage_limits",
     "get_stage_limits",
     "apply_stage_limits_from_config",
-    "check_envelope_within_backstop",
-    "_check_xy_limits",
-    "_check_z_limits",
     # function-keyed limits gate (commands layer)
     "connect_limits_handshake",
-    "GateState",
-    "MUTATING_COMMANDS",
-    "FUNCTION_LIMIT_KEYS",
     # readers
     "Reading",
     "get_scan_status",
@@ -73,23 +47,8 @@ __all__ = [
     "get_base_fov",
     "get_lasx_settings",
     "get_pending_dialog",
-    # OME metadata checks/fixes
-    "extract_wavelength_from_id",
-    "check_ome_xml_bytes",
-    "check_ome_tiff",
-    "check_ome_xml_file",
-    "fix_ome_xml_bytes",
-    "fix_ome_tiff",
-    "fix_ome_xml_file",
     # settings
     "make_changeable_copy",
-    # prechecks
-    "check_idle",
-    # confirmations (public readback helper only; _confirm_* are private)
-    "_readback",
-    # dispatch
-    "confirm_and_fire",
-    "_fire_with_receipt",
     # commands
     "set_zoom",
     "set_scan_speed",
@@ -128,7 +87,6 @@ __all__ = [
     "get_template_state",
     "strip_template_in_place",
     "apply_lrp_change",
-    "correct_backlash",
     "move_xy_with_backlash",
     "reorder_jobs",
     "save_and_read_lrp",
@@ -142,99 +100,34 @@ __all__ = [
     "parse_rgn_tile_colors",
     "parse_matrix_settings",
     "plan_tiles_from_geometries",
-    # experimental LRP edits (general)
-    "lrp_set_line_average",
-    "lrp_set_line_accumulation",
-    "lrp_set_frame_average",
-    "lrp_set_frame_accumulation",
-    "lrp_set_scan_mode",
-    "SEQUENTIAL_MODES",
-    "lrp_set_sequential_mode",
-    # experimental LRP edits (focus)
-    "STACK_MODES",
-    "lrp_set_stack_calculation_mode",
-    "lrp_set_pinhole_airy",
-    "lrp_set_autofocus_active",
     # experimental LRP edits (scan)
     "lrp_set_zoom",
-    "lrp_set_scan_speed",
-    "lrp_set_image_format",
-    "SCAN_DIRECTIONS",
-    "lrp_set_scan_direction",
-    "lrp_set_phase_x",
-    "lrp_set_resonant_scanner",
-    "lrp_set_bit_depth",
-    "lrp_set_scan_field_rotation",
-    "lrp_set_pan",
-    "lrp_verify_pan",
-    "lrp_get_pan",
     "reset_pan",
     # experimental LRP edits (ROI)
-    "ROI_POLYGON",
-    "ROI_RECTANGLE",
-    "ROI_ELLIPSE",
-    "ROI_LINE",
-    "argb_color",
-    "COLOR_RED",
-    "COLOR_GREEN",
-    "COLOR_BLUE",
-    "COLOR_YELLOW",
-    "lrp_enable_roi_scan",
-    "lrp_verify_roi_scan",
     "lrp_clear_rois",
     "lrp_add_roi",
     "make_rectangle",
     "make_ellipse",
     "make_polygon",
-    "make_star",
-    "make_line",
-    "lrp_find_aotf_template",
     "roi_translation_to_pan",
     "galvo_pan_for_pixel",
     "mask_contour_to_roi",
-    # experimental LRP edits (Z)
-    "Z_STACK_DIRECTIONS",
-    "lrp_set_z_stack_direction",
-    "lrp_set_sections",
-    "lrp_set_z_stack_active",
-    "Z_USE_MODES",
-    "lrp_set_z_use_mode",
-    "lrp_set_z_position",
-    "lrp_set_z_stack_range",
-    "lrp_set_z_stack_size",
-    # acquisition file handling
-    "read_relative_path",
-    "parse_lasx_filename",
-    "wait_all_stable",
     # session helpers
     "connect_python_client",
-    "configure_lasx_api_delay",
     "require_canonical_scan_orientation",
     "disable_roi_scan",
-    "LIMITS_SCHEMA_VERSION",
-    "CALIBRATION_SCHEMA_VERSION",
     "LIMITS_SOURCE_DEFAULTS",
     "LIMITS_SOURCE_BOUNDARY_MARKERS",
     "LIMITS_SOURCE_CFG_FALLBACK",
     "LIMITS_SOURCE_SCAN_FIELD",
-    "LIMITS_SOURCE_MIGRATION",
-    "LIMITS_SOURCES",
     "current_stage_limits_path",
-    "default_stage_limits_path",
     "load_stage_config",
     "write_stage_limits_config",
     # acquisition workflow
     "AcquisitionResult",
     "PlaneIndex",
     "PositionIndex",
-    "PlaneSource",
-    "ChannelMetadata",
-    "AcquisitionMetadata",
-    "VendorMetadataSource",
     "SavedAcquisition",
-    "native_autosave_base_folder",
-    "native_autosave_enabled",
-    "active_save_exporter",
     "save_source_root",
     "save",
 ]
@@ -258,23 +151,14 @@ del _sys, _Path, _here, _machine_root, _repo_root, _path
 # -- shared utilities + commands/ - helpers and command mechanics
 from .utils import (
     _safe_float,
-    _hw_get,
     parse_format,
-    _make_timing,
     _make_log_entry,
     parse_tile_geometry,
-    RECEIPT_TIMEOUT,
-    CONFIRM_POLL_S,
-    PAN_LIMIT,
-    GALVO_FIELD_FRACTION,
-    pan_scale_um_from_base_fov,
 )
 from .commands.errors import (
     _is_transient_error,
     _check_api_error,
     _default_error_check,
-    _PERMANENT_PATTERNS,
-    _TRANSIENT_PATTERNS,
 )
 from .readers import (
     Reading,
@@ -293,9 +177,7 @@ from .readers import (
     get_pending_dialog,
 )
 from .commands.settings import make_changeable_copy
-from .commands.prechecks import check_idle
 from .commands.confirmations import _readback
-from .commands.dispatch import _fire_with_receipt, confirm_and_fire
 from .commands.commands import (
     set_zoom,
     set_scan_speed,
@@ -325,41 +207,30 @@ from .commands.commands import (
 )
 from .connection.session import (
     connect_python_client,
-    configure_lasx_api_delay,
     require_canonical_scan_orientation,
 )
 
 # -- commands/gate - function-keyed limits gate + connect handshake
 from .commands.gate import (
-    FUNCTION_LIMIT_KEYS,
-    GateState,
-    MUTATING_COMMANDS,
     connect_handshake as connect_limits_handshake,
 )
 
 # -- motion/ - stage safety + movement
 from .motion.limits import (
     _stage_limits,
-    STAGE_BACKSTOP_UM,
     set_stage_limits,
     get_stage_limits,
     apply_stage_limits_from_config,
-    check_envelope_within_backstop,
     _check_xy_limits,
     _check_z_limits,
 )
-from .motion.movement import correct_backlash, move_xy_with_backlash
+from .motion.movement import move_xy_with_backlash
 from .motion.stage_config import (
-    LIMITS_SCHEMA_VERSION,
-    CALIBRATION_SCHEMA_VERSION,
     LIMITS_SOURCE_DEFAULTS,
     LIMITS_SOURCE_BOUNDARY_MARKERS,
     LIMITS_SOURCE_CFG_FALLBACK,
     LIMITS_SOURCE_SCAN_FIELD,
-    LIMITS_SOURCE_MIGRATION,
-    LIMITS_SOURCES,
     current_path as current_stage_limits_path,
-    defaults_path as default_stage_limits_path,
     load as load_stage_config,
     write_limits as write_stage_limits_config,
 )
@@ -388,20 +259,6 @@ from .scanfields.parsers import (
 from .scanfields.planning import plan_tiles_from_geometries
 
 # -- acquisition/ - capture, file arrival, and save handling
-from .acquisition.ome import (
-    extract_wavelength_from_id,
-    check_ome_xml_bytes,
-    check_ome_tiff,
-    check_ome_xml_file,
-    fix_ome_xml_bytes,
-    fix_ome_tiff,
-    fix_ome_xml_file,
-)
-from .acquisition.files import (
-    read_relative_path,
-    parse_lasx_filename,
-    wait_all_stable,
-)
 from .acquisition.capture import AcquisitionResult, acquire
 from .acquisition.product import (
     AcquisitionMetadata,
@@ -412,78 +269,23 @@ from .acquisition.product import (
     SavedAcquisition,
     VendorMetadataSource,
 )
-from .acquisition.lasx_native_autosave import (
-    native_autosave_base_folder,
-    native_autosave_enabled,
-)
 from .acquisition.save import active_save_exporter, save_source_root, save
 
 # -- experimental/lrp_edits/ - LRP mutation helpers
-from .experimental.lrp_edits.general import (
-    lrp_set_line_average,
-    lrp_set_line_accumulation,
-    lrp_set_frame_average,
-    lrp_set_frame_accumulation,
-    lrp_set_scan_mode,
-    SEQUENTIAL_MODES,
-    lrp_set_sequential_mode,
-)
-from .experimental.lrp_edits.focus import (
-    STACK_MODES,
-    lrp_set_stack_calculation_mode,
-    lrp_set_pinhole_airy,
-    lrp_set_autofocus_active,
-)
 from .experimental.lrp_edits.scan import (
     lrp_set_zoom,
-    lrp_set_scan_speed,
-    lrp_set_image_format,
-    SCAN_DIRECTIONS,
-    lrp_set_scan_direction,
-    lrp_set_phase_x,
-    lrp_set_resonant_scanner,
-    lrp_set_bit_depth,
-    lrp_set_scan_field_rotation,
-    lrp_set_pan,
-    lrp_verify_pan,
-    lrp_get_pan,
     reset_pan,
 )
 from .experimental.lrp_edits.roi import (
-    ROI_POLYGON,
-    ROI_RECTANGLE,
-    ROI_ELLIPSE,
-    ROI_LINE,
-    argb_color,
-    COLOR_RED,
-    COLOR_GREEN,
-    COLOR_BLUE,
-    COLOR_YELLOW,
-    lrp_enable_roi_scan,
-    lrp_verify_roi_scan,
     lrp_clear_rois,
     lrp_add_roi,
     make_rectangle,
     make_ellipse,
     make_polygon,
-    make_star,
-    make_line,
-    lrp_find_aotf_template,
     roi_translation_to_pan,
     galvo_pan_for_pixel,
     mask_contour_to_roi,
     disable_roi_scan,
-)
-from .experimental.lrp_edits.z import (
-    Z_STACK_DIRECTIONS,
-    lrp_set_z_stack_direction,
-    lrp_set_sections,
-    lrp_set_z_stack_active,
-    Z_USE_MODES,
-    lrp_set_z_use_mode,
-    lrp_set_z_position,
-    lrp_set_z_stack_range,
-    lrp_set_z_stack_size,
 )
 
 # -- logging
