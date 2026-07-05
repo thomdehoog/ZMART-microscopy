@@ -39,6 +39,7 @@ the gate, readers, and confirmations. The ``prechecks`` import is used in
 """
 
 import logging
+import math
 import time
 from functools import partial
 
@@ -1321,6 +1322,14 @@ def move_galvo_to_pixel(client, px, py, *, job_name=None, pixel_size_um=None, im
         cur_x, cur_y = lrp_get_pan(p, job_name)
         new_pan[0] = cur_x + d_pan_x
         new_pan[1] = cur_y + d_pan_y
+        # NaN compares False against the angular limit below, so a poisoned
+        # pixel target (or a corrupt current pan) would otherwise be written
+        # into the LRP verbatim — refuse non-finite pans outright.
+        if not (math.isfinite(new_pan[0]) and math.isfinite(new_pan[1])):
+            raise RuntimeError(
+                f"resulting pan ({new_pan[0]!r}, {new_pan[1]!r}) is not finite; "
+                f"refusing the galvo pan (poisoned pixel target or corrupt current pan)"
+            )
         if abs(new_pan[0]) > _PAN_LIMIT or abs(new_pan[1]) > _PAN_LIMIT:
             raise RuntimeError(
                 f"resulting pan ({new_pan[0]:+.5f}, {new_pan[1]:+.5f}) "

@@ -255,6 +255,44 @@ def test_poisoned_move_z_targets_refuse(governed_client, z, z_mode):
     assert result["message"]
 
 
+@pytest.mark.parametrize("px,py", [(float("nan"), 10), (10, float("nan"))])
+def test_poisoned_pixel_target_cannot_compose_a_nan_galvo_pan(governed_client, px, py):
+    """NaN compares False against the angular pan limit, and the default
+    machine file's ``move_galvo_to_pixel`` entry is ``null`` — so a NaN pixel
+    target must be refused by the composed-pan finiteness check, never
+    written into the LRP that LAS X executes."""
+    from unittest.mock import patch
+
+    from navigator_expert import readers
+    from navigator_expert.experimental.lrp_edits import scan as lrp_scan
+    from navigator_expert.scanfields import transaction as lrp_transaction
+
+    written = []
+
+    def fake_apply_lrp_change(client, template_xml, edit_fn):
+        # Mirror the real transaction's contract: run the edit; an exception
+        # from the edit propagates (load_experiment then never fires).
+        edit_fn("dummy.lrp")
+        return {"success": True}
+
+    with (
+        patch.object(readers, "get_selected_job", return_value={"Name": "Overview"}),
+        patch.object(readers, "get_job_settings", return_value={"settings": "raw"}),
+        patch.object(readers, "get_base_fov", return_value=(0.000512, 0.000512)),
+        patch(
+            "navigator_expert.utils.parse_tile_geometry",
+            return_value={"pixel_w_um": 1.0, "pixels_x": 512},
+        ),
+        patch.object(lrp_scan, "lrp_get_pan", return_value=(0.0, 0.0)),
+        patch.object(lrp_scan, "lrp_set_pan", side_effect=lambda *a: written.append(a)),
+        patch.object(lrp_transaction, "apply_lrp_change", side_effect=fake_apply_lrp_change),
+    ):
+        result = commands_mod.move_galvo_to_pixel(governed_client, px, py)
+    assert result["success"] is False, result
+    assert "not finite" in result["message"], result["message"]
+    assert written == []  # the poisoned pan never reached the LRP
+
+
 def test_nan_never_slips_past_a_bounded_constraint():
     """NaN compares False against every bound; the constraint must still refuse."""
     limits = shared_limits.parse(
@@ -592,12 +630,18 @@ def test_every_dispatching_wrapper_declares_and_calls_the_gate():
     source = (DRIVER_ROOT / "commands" / "commands.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     fire_names = {"_dispatch", "_dispatch_setting", "confirm_and_fire", "apply_lrp_change"}
+    # Raw-receipt fires (the scanfields/files.py shape) must not escape the
+    # sweep either: a wrapper that skips the dispatch helpers and calls
+    # api_obj.UpdateAwaitReceipt()/UpdateAsync() directly still reaches
+    # hardware.
+    fire_attrs = {"UpdateAwaitReceipt", "UpdateAsync"}
     checked = []
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef) or node.name.startswith("_"):
             continue
         referenced = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
-        if not (referenced & fire_names):
+        referenced_attrs = {n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)}
+        if not (referenced & fire_names) and not (referenced_attrs & fire_attrs):
             continue
         assert node.name in gate.MUTATING_COMMANDS, (
             f"{node.name} dispatches to the fire path but has no MUTATING_COMMANDS entry"
