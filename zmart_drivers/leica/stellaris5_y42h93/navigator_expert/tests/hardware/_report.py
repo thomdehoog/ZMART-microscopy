@@ -29,6 +29,7 @@ at ``tests/_report/``).
 
 from __future__ import annotations
 
+import logging
 import platform
 import socket
 import statistics
@@ -136,6 +137,44 @@ class RunReport:
     notes: list[str] = field(default_factory=list)
     started: datetime = field(default_factory=datetime.now)
     written_path: Path | None = None
+    log_path: Path | None = None
+    _log_handler: logging.Handler | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        self._start_driver_log_capture()
+
+    def _start_driver_log_capture(self) -> None:
+        """Persist every driver log line (navigator_expert.* via the root
+        logger) to a file next to the report.
+
+        The evaluation needs the raw log — e.g. proving the *absence* of
+        ``api read not started`` warnings during select_job confirmation —
+        and console output is lost when the terminal closes. Root capture
+        is best-effort: a failure to open the file never blocks the run.
+        """
+        try:
+            directory = Path(self.report_dir) if self.report_dir else Path.cwd()
+            directory.mkdir(parents=True, exist_ok=True)
+            stamp = self.started.strftime("%Y%m%d-%H%M%S")
+            path = directory / f"driver_log_{stamp}.log"
+            n = 2
+            while path.exists():
+                path = directory / f"driver_log_{stamp}_{n}.log"
+                n += 1
+            handler = logging.FileHandler(path, encoding="utf-8")
+            handler.setLevel(logging.INFO)
+            handler.setFormatter(
+                logging.Formatter("%(asctime)s %(levelname)s %(name)s | %(message)s")
+            )
+            root = logging.getLogger()
+            if root.level > logging.INFO:  # default WARNING would drop INFO records
+                root.setLevel(logging.INFO)
+            root.addHandler(handler)
+            self._log_handler = handler
+            self.log_path = path
+        except Exception:  # noqa: BLE001 -- log capture must never block a bench run
+            self._log_handler = None
+            self.log_path = None
 
     def add(
         self,
@@ -311,6 +350,8 @@ class RunReport:
             f"- **Driver commit**: {commit} on {branch}"
             + (" (working tree has local changes)" if dirty else ""),
         ]
+        if self.log_path is not None:
+            lines.append(f"- **Driver log**: `{self.log_path}` (full log-line capture)")
         if crashed:
             lines.append(f"- **CRASHED**: `{_cell(crashed)}` -- entries below are partial.")
         lines += ["", "## Summary", ""]
@@ -364,4 +405,6 @@ class RunReport:
                 n += 1
             self.written_path = path
         self.written_path.write_text(self.render(crashed=crashed), encoding="utf-8")
+        if self._log_handler is not None:
+            self._log_handler.flush()
         return self.written_path
