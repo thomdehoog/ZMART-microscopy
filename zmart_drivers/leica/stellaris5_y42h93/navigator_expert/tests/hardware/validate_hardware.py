@@ -67,7 +67,7 @@ from typing import Any
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _report import RunReport, attempts_of, confirmation_of  # noqa: E402
+from _report import RunReport, attempts_of, confirmation_of, replay_envelope_logs  # noqa: E402
 
 # --- Record + classification ------------------------------------------------
 
@@ -201,6 +201,7 @@ class Validator:
             )
             return result
 
+        replay_envelope_logs(result, label=name)
         self._emit(
             Record(
                 name=name,

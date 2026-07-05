@@ -52,7 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/hardware
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "helpers"))  # mock
 
 import navigator_expert as drv
-from _report import RunReport, attempts_of, confirmation_of
+from _report import RunReport, attempts_of, confirmation_of, replay_envelope_logs
 from navigator_expert import readers
 from navigator_expert.commands.settings import make_changeable_copy
 from navigator_expert.config import profiles
@@ -633,6 +633,8 @@ def phase_changes(client, job, rec):
 
         try:
             res, set_ms, set_err = _timed(lambda f=setfn, t=target: f(job, t))
+            if isinstance(res, dict):
+                replay_envelope_logs(res, label=f"change[{name}]")
             if set_err is not None or not (res or {}).get("success"):
                 rec.row(
                     f"change[{name}] -> {target}",

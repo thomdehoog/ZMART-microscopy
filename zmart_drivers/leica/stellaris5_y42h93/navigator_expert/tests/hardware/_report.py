@@ -62,6 +62,29 @@ def confirmation_of(result: dict) -> str:
     return "success"  # command has no readback confirmation concept
 
 
+_ENVELOPE_LOG = logging.getLogger("navigator_expert.envelope")
+_ENVELOPE_LEVELS = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+}
+
+
+def replay_envelope_logs(result: dict, *, label: str = "") -> None:
+    """Replay a command result envelope's structured ``logs`` into logging.
+
+    The dispatch backbone accumulates its trace (including which race leg
+    confirmed, and any leg warnings) in ``result["logs"]`` — those entries
+    never pass through the ``logging`` module, so without this bridge they
+    are invisible in the persisted driver log the evaluation greps.
+    """
+    prefix = f"[{label}] " if label else ""
+    for entry in result.get("logs") or []:
+        level = _ENVELOPE_LEVELS.get(str(entry.get("level", "info")).lower(), logging.INFO)
+        _ENVELOPE_LOG.log(level, "%s%s", prefix, entry.get("msg", entry))
+
+
 def attempts_of(result: dict) -> str:
     """Compact attempt/retry counts from a driver result envelope."""
     timing = result.get("timing") or {}
