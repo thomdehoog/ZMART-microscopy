@@ -13,12 +13,20 @@ remain available as standalone modes. **The default mode for routed state reads 
 correctness artifacts continue to pin `mode="api"` explicitly at their call sites,
 per the profile's own rule — the hybrid default governs cold/status reads.
 
+Design rationale (maintainer, 2026-07-05): both sources can be stale, but for
+**different fields** — their staleness profiles are complementary, so a hybrid read
+wins in the far majority of cases. And when a **change** is commanded, the target
+value is known, so confirmation needs only **one** of the two readers to witness the
+expected value (guarded by the transition-witness gate); it does not need both to
+agree, and the other leg's staleness is irrelevant.
+
 Consequences for the findings:
 - CF-01 (hybrid confirmation race's API leg self-blocks on its own in-flight claim):
   fix the mechanism (re-entrant claim / claim handoff) — do **not** delete the hybrid
-  machinery. RF-03(b)'s "or delete" branch is off the table.
-- LC-11/FD-11 (passive hybrid read race unreachable at shipped `"api"` defaults): keep
-  all three modes selectable; making hybrid operative is the goal.
+  machinery. RF-03(b)'s "or delete" branch is off the table. The race semantics to
+  preserve: first leg to admissibly witness the target confirms.
+- LC-11/FD-11 (passive hybrid read race unreachable at shipped `"api"` defaults):
+  resolved — hybrid is now the default for routed reads (see above).
 
 ## 2. Backlash is a simple procedure, not acquisition logic
 
