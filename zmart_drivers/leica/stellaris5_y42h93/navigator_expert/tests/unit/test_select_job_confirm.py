@@ -295,6 +295,49 @@ class TestLegsBuilder(SelectJobCase):
         self.assertIsNotNone(log_leg)
         self.assertEqual(budget, 5.0)
 
+    def test_hybrid_api_leg_poll_window_fits_inside_budget(self):
+        """CF-05: the hybrid api leg's poll window must end strictly before
+        the race budget so an abandoned leg drains by race end instead of
+        reading the CAM alongside the correction re-fire."""
+        self._use(
+            selected_job_confirm_source="hybrid",
+            selected_job_hybrid_budget_s=6.0,
+        )
+        api_leg, _, budget = confirm_select_job.select_job_confirm_legs(
+            "HiRes",
+            command_started_at=100.0,
+            api_baseline_name="Overview",
+            timeout=5.0,
+        )
+        self.assertEqual(budget, 5.0)
+        self.assertEqual(api_leg.keywords["timeout"], 4.5)
+
+    def test_hybrid_api_leg_poll_window_keeps_half_of_a_small_budget(self):
+        self._use(
+            selected_job_confirm_source="hybrid",
+            selected_job_hybrid_budget_s=6.0,
+        )
+        api_leg, _, budget = confirm_select_job.select_job_confirm_legs(
+            "HiRes",
+            command_started_at=100.0,
+            api_baseline_name="Overview",
+            timeout=0.5,
+        )
+        self.assertEqual(budget, 0.5)
+        self.assertEqual(api_leg.keywords["timeout"], 0.25)
+
+    def test_api_source_keeps_the_full_poll_window(self):
+        """Pure api mode has no race to fit inside: the leg keeps the
+        caller's window unchanged."""
+        self._use(selected_job_confirm_source="api")
+        api_leg, _, budget = confirm_select_job.select_job_confirm_legs(
+            "HiRes",
+            command_started_at=100.0,
+            timeout=5.0,
+        )
+        self.assertIsNone(budget)
+        self.assertEqual(api_leg.keywords["timeout"], 5.0)
+
     def test_unknown_source_raises_before_firing(self):
         self._use(selected_job_confirm_source="nonsense")
         with self.assertRaises(ValueError):
