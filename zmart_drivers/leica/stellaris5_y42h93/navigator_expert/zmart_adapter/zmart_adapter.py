@@ -78,12 +78,12 @@ from ..acquisition import capture as _capture
 from ..acquisition import save as _save
 from ..calibration.core import model as _cal_model
 from ..commands import commands as _commands
-from ..commands import settings as _cmd_settings
 from ..config import machine as _machine
 from ..connection import session as _session
 from ..motion import limits as _limits
 from ..motion import movement as _motion
 from ..motion import stage_config as _stage_config
+from ..readers.derived import z_um_from_settings as _z_um_from_settings
 
 log = logging.getLogger(__name__)
 
@@ -369,19 +369,6 @@ def disconnect(handle: ZmartHandle) -> None:
 # =============================================================================
 # Frame and movement
 # =============================================================================
-
-
-def _z_um_from_settings(settings: dict, key: str) -> float:
-    """One z drive's live position (um) from raw job settings."""
-    ch = _cmd_settings.make_changeable_copy(settings)
-    if not ch or "zPosition" not in ch:
-        raise RuntimeError("zPosition not in job settings - LAS X version mismatch?")
-    val = ch["zPosition"].get(key)
-    if isinstance(val, dict):
-        val = val.get("position")
-    if val is None:
-        raise RuntimeError(f"{key} readback missing; got {ch['zPosition']!r}")
-    return float(val)
 
 
 def _hardware_snapshot(handle: ZmartHandle) -> dict:

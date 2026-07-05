@@ -39,7 +39,7 @@ to resolve per-job tile sizes. Shared string-to-number converters live
 in ``_convert.py``.
 
 Dependency direction:
-    - Imports: stdlib, ``_convert``, ``lrp``, ``planning``
+    - Imports: stdlib, ``_convert``, ``lrp``, ``planning``, ``utils``
       (+ optional ``readers`` for tile sizes).
     - Imported by: ``__init__`` (re-export).
 """
@@ -51,6 +51,7 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
 
+from ..utils import normalize_unit_mojibake
 from ._convert import _to_float, _to_int
 
 # parse_lrp lives in lrp.py; re-exported here so the (untouched) experimental
@@ -82,7 +83,8 @@ def _parse_size_string(size_str):
     if not size_str:
         return None
     try:
-        size_str = size_str.replace("\u00c2\u00b5m", "um").replace("\u00b5m", "um")
+        # Micron mojibake is normalized once, in utils.normalize_unit_mojibake.
+        size_str = normalize_unit_mojibake(size_str)
         parts = size_str.lower().split("x")
         if len(parts) != 2:
             return None

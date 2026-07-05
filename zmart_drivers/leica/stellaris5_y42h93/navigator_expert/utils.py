@@ -127,6 +127,22 @@ def parse_format(format_str):
 # =============================================================================
 
 
+def normalize_unit_mojibake(text):
+    """Map LAS X micron-unit spellings — including mojibake — to ASCII ``um``.
+
+    LAS X emits size strings like ``'290.63 µm x 290.63 µm'``; on some
+    delivery paths the UTF-8 ``µ`` (0xC2 0xB5) is re-decoded as Latin-1 and
+    arrives as ``'Âµm'``. Normalize ``'Âµm'``, ``'µm'``, and Greek-mu
+    ``'μm'`` to plain ``'um'`` so unit parsers see one shape. Canonical home
+    of this vendor quirk — parsers must not re-handle ``'Â'`` themselves.
+    """
+    return (
+        text.replace("Âµm", "um")  # 'Âµm': UTF-8 'µm' re-decoded as Latin-1
+        .replace("µm", "um")  # 'µm': micro sign
+        .replace("μm", "um")  # 'μm': Greek small letter mu
+    )
+
+
 def parse_tile_geometry(settings):
     """Extract complete tile geometry from raw job settings.
 
@@ -152,13 +168,14 @@ def parse_tile_geometry(settings):
 
     def _parse_dim_um(raw):
         """Parse 'W unit x H unit' → (w_um, h_um). Supports mm, µm, nm."""
+        raw = normalize_unit_mojibake(raw)
         if "mm" in raw:
             scale = 1000.0
         elif "nm" in raw:
             scale = 0.001
         else:  # µm (default)
             scale = 1.0
-        cleaned = re.sub(r"[\u00c2nmu\u00b5\u03bc]*m", "", raw)
+        cleaned = re.sub(r"[nmu]*m", "", raw)
         parts = cleaned.split("x")
         if len(parts) != 2:
             return None, None

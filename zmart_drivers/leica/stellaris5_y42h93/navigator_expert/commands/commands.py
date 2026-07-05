@@ -66,7 +66,7 @@ from ..config.profiles import (
     ZOOM,
 )
 from ..motion.limits import _check_xy_limits, _check_z_limits
-from ..utils import _hw_get, _make_log_entry, _make_timing, parse_format
+from ..utils import PAN_LIMIT, _hw_get, _make_log_entry, _make_timing, parse_format
 from .confirm_select_job import prepare_select_job, select_job_confirm_legs
 from .confirmations import (
     _confirm_detector_gain,
@@ -1135,8 +1135,9 @@ def move_xy(client, x, y, unit="um", *, max_retries=None, pre_check_timeout=None
 
 
 # ── Galvo pan limits ────────────────────────────────────────────────
-_PAN_LIMIT = 0.00775  # max pan value in either axis (objective-
-# independent: fraction of galvo deflection)
+# Single source: utils.PAN_LIMIT (max pan value in either axis, objective-
+# independent; see the galvo pan calibration header in utils.py).
+_PAN_LIMIT = PAN_LIMIT
 
 
 def move_galvo_to_pixel(client, px, py, *, job_name=None, pixel_size_um=None, image_size=None):
