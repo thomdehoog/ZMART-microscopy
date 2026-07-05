@@ -18,9 +18,10 @@ import time
 from functools import partial
 
 from .. import readers as _readers
+from .. import utils as _utils
 from ..readers import log_wait
 from ..readers import router as _router
-from ..utils import CONFIRM_POLL_S, _make_log_entry
+from ..utils import _make_log_entry
 from .confirmations import _reading_value_after
 
 log = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ def confirm_select_job(
         {"success": bool, "logs": [...]}
     """
     if timeout is None:
-        timeout = CONFIRM_POLL_S
+        timeout = _utils.CONFIRM_POLL_S
     logs = []
     if require_transition_witness and inadmissible_baseline is None:
         msg = (
@@ -204,7 +205,7 @@ def select_job_confirm_legs(
     if source in ("log", "hybrid"):
         log_leg = partial(_confirm_select_job_log, job_name, command_started_at, timeout=timeout)
     if api_confirm is not None and log_leg is not None:
-        effective_timeout = CONFIRM_POLL_S if timeout is None else timeout
+        effective_timeout = _utils.CONFIRM_POLL_S if timeout is None else timeout
         budget_s = min(
             profile.selected_job_hybrid_budget_s,
             max(0.0, effective_timeout),

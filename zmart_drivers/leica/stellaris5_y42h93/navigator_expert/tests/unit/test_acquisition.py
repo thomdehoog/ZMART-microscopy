@@ -817,6 +817,7 @@ class TestCollectNavigatorExpertExport:
             exported = exporter.collect_navigator_expert_export(
                 None,
                 successful_acq,
+                path_poll_timeout=0.1,
                 mtime_poll_timeout=0.1,
             )
 

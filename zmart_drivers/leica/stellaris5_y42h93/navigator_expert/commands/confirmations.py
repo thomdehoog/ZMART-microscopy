@@ -41,9 +41,10 @@ import threading
 import time
 
 from .. import readers as _readers
+from .. import utils as _utils
 from ..commands.errors import _check_api_error, _is_transient_error
 from ..readers import router as _router
-from ..utils import CONFIRM_POLL_S, _make_log_entry
+from ..utils import _make_log_entry
 from .confirm_specs import CONFIRM_SPECS
 from .settings import make_changeable_copy
 
@@ -320,7 +321,7 @@ def _confirm_readback(
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = CONFIRM_POLL_S
+        poll_window = _utils.CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + poll_window
@@ -402,7 +403,7 @@ def confirm_move_z(
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = CONFIRM_POLL_S
+        poll_window = _utils.CONFIRM_POLL_S
     logs = []
     key = ZMODE_KEY[z_mode]
     t_start = time.perf_counter()
@@ -450,7 +451,7 @@ def _confirm_zoom(client, job_name, target, tolerance=0.1, poll_window=None, pol
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = CONFIRM_POLL_S
+        poll_window = _utils.CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + poll_window
@@ -540,7 +541,7 @@ def _confirm_z_stack_definition(
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = CONFIRM_POLL_S
+        poll_window = _utils.CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + poll_window
@@ -635,7 +636,7 @@ def _confirm_z_stack_size(
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = CONFIRM_POLL_S
+        poll_window = _utils.CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + poll_window
@@ -821,7 +822,7 @@ def _confirm_image_format(client, job_name, w, h, poll_window=None, poll_interva
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = CONFIRM_POLL_S
+        poll_window = _utils.CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + poll_window
@@ -865,7 +866,7 @@ def confirm_objective(
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = CONFIRM_POLL_S
+        poll_window = _utils.CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + poll_window
@@ -1005,7 +1006,7 @@ def confirm_move_xy(
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = CONFIRM_POLL_S
+        poll_window = _utils.CONFIRM_POLL_S
     logs = []
     observed_after = time.time()
     t_start = time.perf_counter()
