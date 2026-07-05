@@ -7,6 +7,8 @@ microscope PC)::
 
     python run_ci.py             # OFFLINE (default): env header + lint + offline tests + coverage
     python run_ci.py online      # ONLINE: just the live LAS X validators (needs live LAS X)
+    python run_ci.py online --live-writes  # ONLINE + reversible write phases (the bench run);
+                                 #   writes Markdown run reports to tests/_report/
     python run_ci.py both        # BOTH:   offline suite + the live LAS X validators
     python run_ci.py --no-lint   # skip ruff (add to any mode)
     python run_ci.py --no-cov    # skip coverage (faster; no pytest-cov needed)
@@ -147,12 +149,28 @@ def main() -> int:
     parser.add_argument(
         "--no-cov", action="store_true", help="skip coverage (no pytest-cov required)"
     )
+    parser.add_argument(
+        "--live-writes",
+        action="store_true",
+        help=(
+            "online/both only: run the validators' reversible write phases "
+            "(settings + job-selection round-trips per reader route, the XY "
+            "pattern + Z round-trip, and the adapter move/state round-trips) "
+            "instead of read-only. Everything is restored in finally blocks; "
+            "objective switches and acquisitions stay opt-in via the scripts' "
+            "own --allow-* flags. This is the canonical bench validation."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.live_writes and args.mode == "offline":
+        parser.error("--live-writes needs mode 'online' or 'both' (it drives live LAS X)")
 
     run_offline = args.mode in ("offline", "both")
     run_hardware = args.mode in ("online", "both")
 
     overall_start = time.perf_counter()
+    run_reports_since = time.time()  # wall-clock mark for this run's markdown reports
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     env = build_env()
 
@@ -227,48 +245,66 @@ def main() -> int:
         steps.append(run_step(label, pytest_cmd, env, fatal=True))
 
     # --- live LAS X validators (fatal) -- runs for mode 'online' | 'both' -----
-    # Read-only live validators, through this same step framework: streamed
-    # output, per-step timing, CI SUMMARY. All read-only and non-interactive --
-    # no moves, writes, acquisitions, or prompts. Use the scripts directly with
-    # their --yes / --allow-* flags for the write / move / acquire phases.
+    # Live validators, through this same step framework: streamed output,
+    # per-step timing, CI SUMMARY. Read-only and non-interactive by default --
+    # no moves, writes, acquisitions, or prompts. --live-writes switches the
+    # validators to their reversible write phases (the canonical bench run);
+    # objective switches / acquisitions still need the scripts' own --allow-*
+    # flags in a manual run. Every validator writes a Markdown run report of
+    # every attempted instrument change into tests/_report/ (paths printed in
+    # the summary below).
     if run_hardware:
         hw = DRIVER_ROOT / "tests" / "hardware"
+        write_mode = "writes" if args.live_writes else "read-only"
+        sxs_gate = ["--yes"] if args.live_writes else ["--read-only"]
+        vh_gate = ["--yes", "--allow-xy", "--allow-z"] if args.live_writes else ["--read-only"]
+        adapter_gate = (
+            ["--yes", "--allow-move", "--allow-state"] if args.live_writes else ["--read-only"]
+        )
         hardware_steps = [
             (
                 "hardware: passive readers (api / log / hybrid)",
                 [sys.executable, str(hw / "probe_four_readers.py"), "--read-only"],
             ),
             (
-                "hardware: reader parity (api vs log)",
-                [sys.executable, str(hw / "validate_readers_side_by_side.py"), "--read-only"],
+                f"hardware: reader parity + routed modes ({write_mode})",
+                [
+                    sys.executable,
+                    str(hw / "validate_readers_side_by_side.py"),
+                    *sxs_gate,
+                    f"--report-dir={REPORT_DIR}",
+                ],
             ),
             (
-                "hardware: zmart adapter (controller round-trip, read-only)",
+                f"hardware: zmart adapter (controller round-trip, {write_mode})",
                 [
                     sys.executable,
                     str(hw / "validate_zmart_adapter.py"),
-                    "--read-only",
+                    *adapter_gate,
                     "--allow-missing-lasx",  # SKIP (not FAIL) if no live LAS X
                     f"--output={REPORT_DIR / 'zmart_adapter_validate.jsonl'}",
+                    f"--report-dir={REPORT_DIR}",
                 ],
             ),
         ]
         # End-to-end driver validation once PER reader route, so the driver's own
         # read/gating behaviour is exercised under api, log, AND hybrid -- not
-        # just the passive reader comparison above. (Read-only: the write /
-        # confirm phases per mode need --allow-* and are left to a manual run.)
+        # just the passive reader comparison above. With --live-writes each route
+        # also runs the reversible settings + job-selection round-trips (and the
+        # XY/Z movement phases), so command confirmations are exercised per mode.
         for mode in ("api", "log", "hybrid"):
             hardware_steps.append(
                 (
-                    f"hardware: end-to-end validator [{mode} reader]",
+                    f"hardware: end-to-end validator [{mode} reader] ({write_mode})",
                     [
                         sys.executable,
                         str(hw / "validate_hardware.py"),
-                        "--read-only",
+                        *vh_gate,
                         "--allow-missing-lasx",  # SKIP (not FAIL) if no live LAS X
                         "--state-reader-mode",
                         mode,
                         f"--output={REPORT_DIR / f'hardware_validate_{mode}.jsonl'}",
+                        f"--report-dir={REPORT_DIR}",
                     ],
                 )
             )
@@ -301,6 +337,21 @@ def main() -> int:
             "    hardware_validate_{api,log,hybrid}.jsonl  end-to-end validator checks per reader route"
         )
     print("    ci_summary.json   this step summary")
+
+    if run_hardware:
+        # Markdown run reports: one per validator run, every attempted
+        # instrument change (incl. restores) with confirmation + timing.
+        run_reports = sorted(
+            p
+            for p in REPORT_DIR.glob("hardware_run_report_*.md")
+            if p.stat().st_mtime >= run_reports_since
+        )
+        print("\n  markdown run reports (every attempted instrument change):")
+        if run_reports:
+            for p in run_reports:
+                print(f"    {p}")
+        else:
+            print("    (none produced -- validators did not reach their report step)")
 
     summary = {
         "total_seconds": round(total_elapsed, 2),
