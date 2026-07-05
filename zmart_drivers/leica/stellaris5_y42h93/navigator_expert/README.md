@@ -90,15 +90,19 @@ runtime where possible. Override via the profile, not at call sites.
   move/acquire is refusing, check that warning and this file first.
 - **Canonical orientation** — call `require_canonical_scan_orientation()` at session start; it fails
   fast unless LAS X image export is `TOPLEFT` (any other transform silently breaks pixel↔stage math).
+  Be aware of its real strength: no code path calls it automatically (the zmart adapter's `connect()`
+  does not), and it passes when the LAS X settings file is missing or unreadable — a best-effort
+  check you must invoke yourself, not an enforced gate.
 
 ## 4. Quick start
 
 ```python
 from navigator_expert import (
     connect_python_client, ping, require_canonical_scan_orientation,
-    set_stage_limits, select_job, set_zoom, set_scan_speed,
+    apply_stage_limits_from_config, select_job, set_zoom, set_scan_speed,
     move_xy, acquire, save,
 )
+from navigator_expert.motion import stage_config
 from shared.output_layout import Naming, run_hash
 
 # 1. Connect and validate the scope
@@ -106,11 +110,9 @@ client = connect_python_client()
 assert ping(client)
 require_canonical_scan_orientation()
 
-# 2. Configure safety limits (REQUIRED before movement), micrometers
-set_stage_limits(
-    x_min=0, x_max=130_000, y_min=0, y_max=130_000,
-    z_galvo_min=-200, z_galvo_max=200, z_wide_min=-5000, z_wide_max=5000,
-)
+# 2. Configure safety limits (REQUIRED before movement) from the machine config
+#    (newest machine snapshot, falling back to the bundled limits/defaults/limits.json)
+apply_stage_limits_from_config(stage_config.load())
 
 # 3. Select and configure a job (live commands return a result dict)
 select_job(client, "MyExperiment")
@@ -130,6 +132,10 @@ print(saved.image_paths)                                  # {PlaneIndex(t,z,c): 
 
 > `acquire()` returns an `AcquisitionResult` dataclass and **raises** on failure — it is *not* a
 > `{"success": ...}` dict. Saving is a deliberate second step (see §6).
+
+> No machine config yet? Fall back to raw `set_stage_limits(x_min=1_000, x_max=130_000,
+> y_min=1_000, y_max=100_000, z_galvo_min=-200, z_galvo_max=200, z_wide_min=0, z_wide_max=25_000)`
+> — these are the bundled machine values (`limits/defaults/limits.json`); never widen them by hand.
 
 ## 5. Core concepts
 
@@ -173,7 +179,9 @@ stale), `hybrid` (race them, first *admissible* evidence wins). **Freshness rule
 or what metadata/calibration is persisted — those must use the API leg. The CAM API can hang; the log
 mirror is the hang-proof fallback.
 
-**Units.** Public API is micrometers (`unit="um"`/`"mm"`/`"m"` where accepted).
+**Units.** Public API *inputs* are micrometers (`unit="um"`/`"mm"`/`"m"` where accepted). Returned
+positions are mixed: `get_xy` and `move_xy`'s `position` carry raw meters under bare `x`/`y` —
+use the `*_um` keys.
 
 **Common per-call overrides** (`None` = use the profile): `max_retries` (transient-retry ceiling),
 `pre_check_timeout` (idle-wait when the profile pre-checks), `tolerance` (readback tolerance, numeric
@@ -190,20 +198,24 @@ All setting commands take `(client, job_name, ...)` and return the result dict o
 ```python
 connect_python_client(client_name="PythonClient", api_delay_ms=None) -> client
 ping(client) -> bool
-require_canonical_scan_orientation() -> None          # raises unless export is TOPLEFT
+require_canonical_scan_orientation() -> None          # raises when export transform != TOPLEFT; passes if settings are unreadable (§3)
 ```
 
 ### State readers
 
-All return a value or `None` (never raise). Pass `diagnostics=True` for a source-tagged `Reading`
-(value + `source` + `observed_at`); pass `mode="api"|"log"|"hybrid"` to override the profile backend.
+The routed readers return a value or `None` (never raise) and accept `diagnostics=True` for a
+source-tagged `Reading` (value + `source` + `observed_at`) plus `mode="api"|"log"|"hybrid"` to
+override the profile backend. Exceptions: `ping` and `get_lasx_settings` take exactly the calls
+shown; `read_zwide_um` takes only `(client, job_name, *, mode=None)` — no `diagnostics` — and
+**can raise** (`RuntimeError`/`ValueError`) when job settings are readable but incomplete or
+schema-mismatched (it returns `None` only when the settings cannot be read at all).
 
 | Function | Call | Returns |
 |---|---|---|
 | `ping` | `(client)` | `bool` |
 | `get_scan_status` | `(client, mode=None)` | status string (e.g. `"eIdle"`) |
 | `get_xy` | `(client, mode=None)` | `{"x","y","x_um","y_um"}` |
-| `read_zwide_um` | `(client, ...)` | `float` (µm) |
+| `read_zwide_um` | `(client, job_name, mode=None)` | `float` (µm); can raise — see above |
 | `get_jobs` | `(client, ...)` | list of job dicts |
 | `get_job_by_name` | `(client, job_name, ...)` | job dict |
 | `get_selected_job` | `(client, ...)` | selected job dict |
@@ -297,7 +309,8 @@ except `parse_lrp` in `scanfields/lrp.py`):
 
 **Active experiment:** `save_experiment` (fires save, confirms via file mtime + stable size) ·
 `load_experiment` (receipt only — verify with a follow-up save) · `save_and_read_lrp` (save +
-`parse_lrp` in one call) · `get_template_state` (`"fresh"`/`"unstripped"`/`"stripped"`) ·
+`parse_lrp` in one call) · `get_template_state` (`"fresh"`/`"unstripped"`/`"stripped"`/`"unreadable"`
+— the adapter treats `"unreadable"` as a hard pre-acquire error) ·
 `find_scanning_templates_dir` · `strip_template` / `restore_template` / `strip_template_in_place`
 (remove/restore operator-drawn scan fields, regions, focus points around an automated run).
 
@@ -325,7 +338,7 @@ zmart_drivers/leica/stellaris5_y42h93/navigator_expert/
 ├── scanfields/   .lrp/.rgn/.xml parsing + templates    experimental/lrp_edits/  offline template editors
 ├── calibration/  image↔stage + objective-pair (data machine-local; defaults/ inside)   limits/  current.json · defaults/ · notebooks/
 ├── zmart_adapter/  ops table plugging this driver into zmart_controller (import to register)
-├── tests/        unit/ (offline) + hardware/ (@pytest.mark.hardware)
+├── tests/        unit/ (offline) + hardware/ (validate_*.py live scripts + mock-backed test_* gates)
 └── run_ci.py · pytest.ini   (package root)
 ```
 
@@ -393,11 +406,16 @@ python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py both    
 position parsers, stage/limits, log & state readers, acquisition, runtime loading). Follow the project
 TDD practice: add a failing offline test first, and assert real values, not just shapes.
 
-**Live hardware validation** (gated, requires a live LAS X — simulator or scope; hardware-moving
-sections run only with their `--allow-*` flags):
+**Live hardware validation** (requires a live LAS X — simulator or scope) runs through the
+`validate_*.py` *scripts* in `tests/hardware/`, invoked directly or via `run_ci.py online` —
+not through pytest. Everything pytest collects is mock-backed and offline, including the
+`test_*.py` files in `tests/hardware/`, which drive the same validators against
+`MockLasxClient`. (The `hardware`/`slow` markers registered in `pytest.ini` are used by zero
+tests today; the offline/online split is file-based, not marker-based.) Hardware-moving
+sections run only with their `--allow-*` flags:
 
 ```powershell
-python -m pytest -q zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware
+python -m pytest -q zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware   # offline mock gates
 python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware/validate_hardware.py --yes --allow-xy --allow-z --allow-objective --allow-acquire --state-reader-mode hybrid
 ```
 Validator JSONL outputs are runtime artifacts, ignored by default.
@@ -410,7 +428,8 @@ These **silently misbehave** instead of failing loudly — respect them or resul
 2. **`acquire()` returns an `AcquisitionResult` and raises on failure** — not a dict; read timing via
    `acq.command_result["timing"]`. Persisting is a separate `save()` call.
 3. **Image export must be `TOPLEFT`** — call `require_canonical_scan_orientation()`; any other transform
-   rotates/flips the saved TIFF and silently misnavigates all pixel↔stage math.
+   rotates/flips the saved TIFF and silently misnavigates all pixel↔stage math. Nothing calls the
+   check for you, and it passes when the settings file is unreadable (see §3).
 4. **For setting commands, check `confirmed`, not just `success`** — most `set_*` return
    `success=True, confirmed=False` when readback never matched (mismatch is in `logs`).
 5. **Reads that gate control flow or get persisted must use the API leg** — never let a fresh-by-age

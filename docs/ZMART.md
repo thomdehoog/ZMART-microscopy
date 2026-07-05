@@ -65,8 +65,8 @@ time someone uses them.
   `navigator_expert/tests/hardware/validate_zmart_adapter.py`. Workflows do not
   yet run through it (they use the Leica driver directly), and the
   vendor-neutral verb contract is not frozen. Drivers today: Leica
-  (production-tested), Zeiss (MVP, offline-green), Nikon + Evident
-  (investigation / spike).
+  (production-tested), mesoSPIM (demo-validated, near production), Zeiss
+  (MVP, offline-green), Nikon + Evident (investigation / spike).
 - **The name is set; the code rename is under way.** The project is **ZMART
   Microscopy** (repo `ZMART-microscopy`). The top-level package rename
   `controller/` → `zmart_controller/` is done; still deferred are renaming the repo,

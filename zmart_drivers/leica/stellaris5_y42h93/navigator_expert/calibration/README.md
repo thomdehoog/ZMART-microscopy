@@ -3,7 +3,10 @@
 Measure the optical state of the microscope: the image-to-stage rotation
 for the reference objective, then the translation between each objective
 pair the scope should support. Workflows consume only the adopted calibration
-in the newest machine snapshot; nothing in this folder is a runtime dependency.
+in the newest machine snapshot. The notebooks and session artifacts in this
+folder are not runtime dependencies — but `core/model.py` and the bundled
+`defaults/` are: the driver imports the model and loads the calibration
+(newest snapshot, falling back to `defaults/`) at every connect.
 
 Operator-facing calibration is notebook driven. The notebooks stay thin:
 each cell calls one procedure function, while reusable code lives in
