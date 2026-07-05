@@ -270,7 +270,8 @@ in place, preserving byte formatting; `acquisition/ome_canonical.py` writes clea
 
 ### Templates / scan-fields (offline-capable)
 
-**Parse saved templates** (read-only, stdlib ElementTree — no fragile regex; `scanfields/parsers.py`):
+**Parse saved templates** (read-only, stdlib ElementTree — no fragile regex; `scanfields/parsers.py`,
+except `parse_lrp` in `scanfields/lrp.py`):
 `parse_lrp` (full job-settings tree) · `parse_scan_positions` · `parse_acquisition_positions` ·
 `parse_base_grid` · `parse_focus_points` · `parse_rgn_geometries` · `parse_rgn_tile_colors` ·
 `parse_matrix_settings` · `plan_tiles_from_geometries` (planning).

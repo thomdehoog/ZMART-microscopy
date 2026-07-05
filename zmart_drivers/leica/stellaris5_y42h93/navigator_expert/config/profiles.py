@@ -124,9 +124,6 @@ class StateReaderProfile:
     scan_status_log_max_age_s: float = 0.5
     scan_status_timeout_s: float = 2.0
 
-    # XY min-delta (um) below which a stage move is treated as encoder jitter, not motion.
-    xy_min_delta_um: float = 0.5
-
 
 LOG_READER = LogReaderProfile()
 STATE_READERS = StateReaderProfile()

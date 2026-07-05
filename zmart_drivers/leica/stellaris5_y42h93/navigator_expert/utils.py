@@ -13,8 +13,10 @@ import re
 import time
 
 # ---------------------------------------------------------------------------
-# Configurable timeouts (seconds).
-# Import and override these to tune for your hardware.
+# Timeouts (seconds).
+# NOTE: consumers bind these values at import time (``from ..utils import
+# CONFIRM_POLL_S``), so reassigning them here after import has no effect.
+# To tune for your hardware, edit these constants before starting Python.
 # ---------------------------------------------------------------------------
 RECEIPT_TIMEOUT = 2  # UpdateAwaitReceipt transport ACK deadline (a true timeout:
 # expiry after transport retries is a hard delivery failure)

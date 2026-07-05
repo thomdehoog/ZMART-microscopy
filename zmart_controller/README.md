@@ -79,9 +79,10 @@ opens the session. After this, every `zmart` call goes to that microscope.
 
 ```python
 instrument = zmart_controller.get_instruments()[0]
-# {"vendor": "leica", "microscope": "stellaris5-01", "api": "navigator-expert",
-#  "client": "PythonClient", "api_delay_ms": 250}
+# {"vendor": "leica", "microscope": "stellaris5-y42h93", "api": "navigator-expert",
+#  "client": "PythonClient", "api_delay_ms": None, "output_root": None}
 
+instrument["output_root"] = r"D:\smart_output"   # required by acquire()
 zmart_controller.set_instrument(instrument)
 ```
 
@@ -182,8 +183,8 @@ any connect params):
 from zmart_controller.registry import register
 
 register(
-    {"vendor": "leica", "microscope": "stellaris5-01", "api": "navigator-expert",
-     "client": "PythonClient", "api_delay_ms": 250},
+    {"vendor": "leica", "microscope": "stellaris5-y42h93", "api": "navigator-expert",
+     "client": "PythonClient", "api_delay_ms": None, "output_root": None},
     ops={"connect": ..., "get_acquisition_options": ..., "set_origin": ...,
          "get_actuators": ..., "get_xyz": ..., "set_xyz": ..., "acquire": ...,
          "get_state": ..., "set_state": ..., "get_procedures": ...,
