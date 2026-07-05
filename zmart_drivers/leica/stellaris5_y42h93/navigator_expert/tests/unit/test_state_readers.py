@@ -46,6 +46,24 @@ class TestStateReaders(unittest.TestCase):
             self.assertEqual(readers.get_xy(object()), expected)
         api.assert_called_once()
 
+    def test_hybrid_empty_list_is_a_valid_value_not_a_failure(self):
+        # An empty jobs list is a real answer ("no jobs"), not a missing
+        # one: only None means no value. The log leg cannot represent
+        # "empty" (no evidence == None), so [] must arrive via the api leg
+        # and win the hybrid race instead of being retried or dropped.
+        snapshot = SimpleNamespace(now=100.0)
+        with (
+            patch.object(router.api_reader, "get_jobs", return_value=[]) as api,
+            patch.object(router.log_reader, "parse_log", return_value=snapshot),
+            patch.object(router.log_reader, "get_jobs", return_value=None),
+            patch.object(router.log_reader, "ages", return_value={}),
+        ):
+            reading = readers.get_jobs(object(), diagnostics=True)
+        self.assertEqual(reading.value, [])
+        self.assertEqual(reading.source, "api")
+        self.assertIsNone(reading.error)
+        api.assert_called_once()
+
     def test_diagnostics_returns_reading(self):
         expected = {"x_um": 1.0, "y_um": 2.0}
         with patch.object(router.api_reader, "get_xy", return_value=expected):
