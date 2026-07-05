@@ -82,10 +82,10 @@ against each other (xy within 1 µm; discrete values equal). Router-level
 hybrid reads are verified working against the mock (they degrade to the api
 leg when no fresh log value exists). A log-mode `None` is the router's
 fail-closed answer for a stale/absent log and is recorded as SKIP; a hybrid
-`None` while api delivered is recorded as "blocked (known CF-01-class
-issue)" — a structured finding, not a crash. (The separate hybrid
-*confirmation* race self-block, CF-01/LC-11, is a known production issue and
-is not exercised here.)
+`None` while api delivered is recorded as a structured FAIL, not a crash.
+(The hybrid *confirmation* race's API-leg self-block, CF-01, is fixed; the
+select_job round-trips in `--live-writes` exercise the repaired race — check
+the report for which leg confirmed, and how fast.)
 
 ## Offline gates (no LAS X)
 
