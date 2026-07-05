@@ -101,7 +101,7 @@ plus setup and docs:
   register a new driver.
 - **`shared/`** — vendor-independent utilities: the lab-wide output layout and
   image algorithms (registration, focus) used across drivers and workflows.
-- **`workflows/`** — the smart-microscopy workflows themselves (current:
+- **`workflows/`** — the zmart-microscopy workflows themselves (current:
   `workflows/target_acquisition/`).
 - **`getting_started/`** — setup and orientation: the one-step environment build,
   the conda-forge / PyPI rationale, and the typical path through the repo.
@@ -114,8 +114,8 @@ Install the Python environment. We use [conda-forge](https://conda-forge.org) to
 avoid licensing issues. Build it in one step, then activate:
 
 ```powershell
-python build_env.py            # creates the "smart-microscopy" conda-forge env
-conda activate smart-microscopy
+python build_env.py            # creates the "zmart-microscopy" conda-forge env
+conda activate zmart-microscopy
 ```
 
 This targets **Python 3.10-3.12** and installs the minimum needed to drive a

@@ -1,11 +1,11 @@
-# Conda environment for SMART Microscopy (Windows + LAS X).
+# Conda environment for ZMART Microscopy (Windows + LAS X).
 #
 # Every package comes from conda-forge; the conda `defaults` channel is never
 # used (`nodefaults` strips it even if the base config adds it implicitly).
 #
 # Build:  conda env create -f environment.yml      (or: python build_env.py)
 # Update: conda env update -f environment.yml --prune
-name: smart-microscopy
+name: zmart-microscopy
 channels:
   - conda-forge
   - nodefaults

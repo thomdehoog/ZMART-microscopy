@@ -1,6 +1,6 @@
 # Getting Started
 
-First-time Python setup for SMART Microscopy and the typical path through the
+First-time Python setup for ZMART Microscopy and the typical path through the
 repo. The environment files referenced here live at the **repo root**:
 [`environment.yml`](../environment.yml), [`requirements.txt`](../requirements.txt),
 and [`build_env.py`](../build_env.py) (manifests stay at the root so the
@@ -8,14 +8,14 @@ toolchain auto-discovers them).
 
 ## Python environment
 
-SMART Microscopy targets **Python 3.10-3.12**. The live system runs on
+ZMART Microscopy targets **Python 3.10-3.12**. The live system runs on
 **Windows** (the LAS X PC); registration, focusing, and image processing run on
 any OS. Build the environment from conda-forge in one step (run from the repo
 root):
 
 ```powershell
-python build_env.py            # creates the conda-forge "smart-microscopy" env
-conda activate smart-microscopy
+python build_env.py            # creates the conda-forge "zmart-microscopy" env
+conda activate zmart-microscopy
 ```
 
 `build_env.py` creates the env from `environment.yml`, verifies the core
@@ -55,4 +55,4 @@ Typical path through the repo:
    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/`.
 2. Run the Leica driver validator against the simulator or microscope.
 3. Run the target-acquisition workflow from
-   `workflows/target_acquisition/smart_microscopy_v3.2.ipynb`.
+   `workflows/target_acquisition/zmart_microscopy_v3.2.ipynb`.

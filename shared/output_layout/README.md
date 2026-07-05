@@ -1,6 +1,6 @@
 # output_layout
 
-Lab-wide canonical **naming and directory layout** for smart-microscopy outputs.
+Lab-wide canonical **naming and directory layout** for zmart-microscopy outputs.
 Vendor-independent: drivers and workflows across the repo write their acquisition
 products through this one module so every run lands in the same, sortable shape.
 

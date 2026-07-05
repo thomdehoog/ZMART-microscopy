@@ -1,6 +1,6 @@
 """Lab-wide output naming convention.
 
-Vendor-neutral schema for smart-microscopy acquisition outputs. Drivers
+Vendor-neutral schema for zmart-microscopy acquisition outputs. Drivers
 and workflows import from here; the schema does not depend on any
 vendor's API. Vendor-specific extraction logic (e.g. parsing source
 filenames into canonical Naming slots) lives in each driver.

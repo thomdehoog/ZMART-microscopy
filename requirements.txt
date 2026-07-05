@@ -1,4 +1,4 @@
-# Minimum runtime environment for SMART Microscopy -- pip fallback.
+# Minimum runtime environment for ZMART Microscopy -- pip fallback.
 #
 # The CANONICAL install is the conda-forge environment in environment.yml
 # (build it with build_env.py). This pip list mirrors the same packages for

@@ -11,7 +11,7 @@ Pick cells from a low-magnification overview, re-image each at the high-magnific
 
 ## Entry Point
 
-Open `smart_microscopy_v3.2.ipynb`. The notebook is the operator UI; implementation lives in `pipeline/`.
+Open `zmart_microscopy_v3.2.ipynb`. The notebook is the operator UI; implementation lives in `pipeline/`.
 
 ## Layout
 

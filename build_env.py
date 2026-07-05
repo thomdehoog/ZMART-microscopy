@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the SMART Microscopy Python environment.
+"""Build the ZMART Microscopy Python environment.
 
 Creates (or updates) the conda environment defined in environment.yml,
 verifies the core packages import, and asserts every package came from
@@ -8,7 +8,7 @@ list itself lives in environment.yml; this script only orchestrates conda
 and checks the result.
 
 Usage:
-    python build_env.py                 # create env "smart-microscopy"
+    python build_env.py                 # create env "zmart-microscopy"
     python build_env.py --recreate      # remove an existing env, then create
     python build_env.py --update        # update an existing env in place
     python build_env.py --name sm-test  # override the env name
@@ -26,7 +26,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ENV_FILE = HERE / "environment.yml"
-DEFAULT_NAME = "smart-microscopy"
+DEFAULT_NAME = "zmart-microscopy"
 
 # Imports the env must satisfy after a successful build.
 VERIFY = {
