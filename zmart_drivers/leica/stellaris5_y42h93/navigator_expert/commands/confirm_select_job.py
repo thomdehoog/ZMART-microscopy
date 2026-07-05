@@ -175,8 +175,10 @@ def select_job_confirm_legs(
     - ``log``: the post-command ``CurrentBlock`` wait alone.
     - ``hybrid``: both legs race (first admissible evidence wins); the api
       leg gets the transition-admissibility gate fed by
-      *api_baseline_name*, and the race is bounded by
-      ``selected_job_hybrid_budget_s``.
+      *api_baseline_name*, the race is bounded by
+      ``selected_job_hybrid_budget_s``, and the api leg's own poll window
+      is sized strictly inside that budget so a leg the race abandons
+      drains by race end (CF-05).
 
     Returns ``(api_confirm_fn, log_leg, budget_s)`` where ``api_confirm_fn``
     takes ``client`` (dispatch binds it), ``log_leg`` is zero-arg, and
@@ -192,11 +194,24 @@ def select_job_confirm_legs(
     api_confirm = None
     log_leg = None
     budget_s = None
+    api_timeout = timeout
+    if source == "hybrid":
+        effective_timeout = _utils.CONFIRM_POLL_S if timeout is None else timeout
+        budget_s = min(
+            profile.selected_job_hybrid_budget_s,
+            max(0.0, effective_timeout),
+        )
+        # CF-05: size the api leg's poll window strictly inside the race
+        # budget so an abandoned leg drains at (not after) race end instead
+        # of polling the CAM alongside the correction re-fire or the next
+        # attempt's legs. The race takes no claim of its own (CF-01), so
+        # this window is the only thing bounding a leg the race abandoned.
+        api_timeout = max(budget_s - 0.5, budget_s * 0.5)
     if source in ("api", "hybrid"):
         api_confirm = partial(
             confirm_select_job,
             job_name=job_name,
-            timeout=timeout,
+            timeout=api_timeout,
             poll_interval=poll_interval,
             command_started_at=command_started_at,
             inadmissible_baseline=(api_baseline_name if source == "hybrid" else None),
@@ -204,12 +219,6 @@ def select_job_confirm_legs(
         )
     if source in ("log", "hybrid"):
         log_leg = partial(_confirm_select_job_log, job_name, command_started_at, timeout=timeout)
-    if api_confirm is not None and log_leg is not None:
-        effective_timeout = _utils.CONFIRM_POLL_S if timeout is None else timeout
-        budget_s = min(
-            profile.selected_job_hybrid_budget_s,
-            max(0.0, effective_timeout),
-        )
     return api_confirm, log_leg, budget_s
 
 

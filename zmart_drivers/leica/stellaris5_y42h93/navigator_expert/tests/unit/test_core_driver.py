@@ -18,6 +18,7 @@ Usage::
 """
 
 import inspect
+import threading
 import time
 import unittest
 from functools import partial
@@ -2460,7 +2461,7 @@ class TestConfirmSelectJob(unittest.TestCase):
         dispatched = {"success": True, "confirmed": True, "message": "sent"}
         with (
             patch.object(profiles, "STATE_READERS", profile),
-            patch.object(commands._readers, "get_jobs", side_effect=fake_get_jobs),
+            patch.object(readers, "get_jobs", side_effect=fake_get_jobs),
             patch.object(commands, "_dispatch", return_value=dispatched) as dispatch_mock,
         ):
             result = commands.select_job(client, "Overview")
@@ -2479,7 +2480,7 @@ class TestConfirmSelectJob(unittest.TestCase):
         with (
             patch.object(profiles, "STATE_READERS", profile),
             patch.object(confirm_select_job, "_selected_job_name_from_log", return_value=None),
-            patch.object(commands._readers, "get_jobs") as get_jobs,
+            patch.object(readers, "get_jobs") as get_jobs,
             patch.object(commands, "_dispatch", return_value=dispatched) as dispatch_mock,
         ):
             result = commands.select_job(client, "Overview")
@@ -2532,6 +2533,90 @@ class TestConfirmSelectJob(unittest.TestCase):
         log_leg = dispatch_mock.call_args.kwargs["log_confirm_fn"]
         self.assertIsNotNone(log_leg)
         self.assertIsInstance(log_leg.args[1], float)
+
+
+class TestHybridSelectJobApiLegEndToEnd(unittest.TestCase):
+    """CF-01 regression: the hybrid race's api leg must actually reach the
+    CAM client through the routed readers while the race is running.
+
+    Wires ``commands.select_job`` through the real dispatch backbone and
+    the real reader router — only the raw CAM reader and the log poll are
+    faked. Before the fix, the race held the client's in-flight claim for
+    the api leg's entire duration, so the leg's own routed ``get_jobs``
+    reads were refused for their full timeout: the raw reader was never
+    called inside the race and hybrid select_job was log-only in practice.
+    """
+
+    def test_api_leg_confirms_when_log_has_no_evidence(self):
+        from navigator_expert.readers import log_wait
+
+        client = make_client()
+        api_obj = make_api_obj()
+        client.PyApiSelectJobByName = api_obj
+        fired = threading.Event()
+
+        def fire(receipt_timeout):
+            # Simulate LAS X processing: echo settles, job switches.
+            client.PyApiCommandEcho.Model.Result = 1
+            fired.set()
+            return True
+
+        api_obj.UpdateAwaitReceipt = MagicMock(side_effect=fire)
+
+        raw_reads_after_fire = []
+
+        def raw_get_jobs(c, **kwargs):
+            if fired.is_set():
+                raw_reads_after_fire.append(1)
+                return [
+                    {"Name": "Overview", "IsSelected": False},
+                    {"Name": "HiRes", "IsSelected": True},
+                ]
+            return [
+                {"Name": "Overview", "IsSelected": True},
+                {"Name": "HiRes", "IsSelected": False},
+            ]
+
+        silent_log = log_wait.LogPollResult(
+            success=False,
+            value=None,
+            matched_at=None,
+            elapsed_s=0.05,
+            attempts=1,
+            reason="timeout",
+            diagnostics={"last_reason": "timeout"},
+        )
+        profile = profiles.StateReaderProfile(
+            selected_job_confirm_source="hybrid",
+            selected_job_hybrid_budget_s=1.0,
+            selected_job_log_confirm_timeout_s=0.05,
+            jobs_timeout_s=0.5,
+        )
+        with (
+            patch.object(profiles, "STATE_READERS", profile),
+            patch.object(readers.router.api_reader, "get_jobs", side_effect=raw_get_jobs),
+            patch.object(confirm_select_job, "_selected_job_name_from_log", return_value=None),
+            patch.object(
+                confirm_select_job.log_wait,
+                "wait_for_selected_job_log",
+                return_value=silent_log,
+            ),
+        ):
+            result = commands.select_job(client, "HiRes", poll_timeout=1.0)
+
+        self.assertTrue(result["success"])
+        self.assertTrue(
+            result.get("confirmed"),
+            "hybrid select_job did not confirm although the API could "
+            "witness the transition (api leg starved inside the race?)",
+        )
+        self.assertGreater(
+            len(raw_reads_after_fire),
+            0,
+            "the api leg's routed reads never reached the raw CAM reader",
+        )
+        messages = [entry["msg"] for entry in result["logs"]]
+        self.assertTrue(any("confirmed by api leg" in m for m in messages))
 
 
 class TestCommandReaderSafety(unittest.TestCase):

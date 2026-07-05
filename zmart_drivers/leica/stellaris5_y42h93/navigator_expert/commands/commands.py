@@ -36,7 +36,6 @@ import logging
 import time
 from functools import partial
 
-from .. import readers as _readers
 from ..commands.errors import _check_api_error, _is_transient_error
 from ..config.profiles import (
     ACQUIRE,
@@ -213,7 +212,6 @@ def _dispatch(
         log_leg=log_confirm_fn,
         label=description,
         budget_s=confirm_race_budget_s,
-        api_key=(_readers.router._client_api_key(client) if log_confirm_fn is not None else None),
     )
 
     return confirm_and_fire(

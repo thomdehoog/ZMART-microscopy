@@ -43,7 +43,6 @@ import time
 from .. import readers as _readers
 from .. import utils as _utils
 from ..commands.errors import _check_api_error, _is_transient_error
-from ..readers import router as _router
 from ..utils import _make_log_entry
 from .confirm_specs import CONFIRM_SPECS
 from .settings import make_changeable_copy
@@ -56,7 +55,7 @@ log = logging.getLogger(__name__)
 # =============================================================================
 
 
-def race_confirmations(api_leg=None, log_leg=None, *, label="", budget_s=None, api_key=None):
+def race_confirmations(api_leg=None, log_leg=None, *, label="", budget_s=None):
     """Compose confirmation legs into one dispatch-compatible callable.
 
     Every command's confirmation routes through here. A single leg passes
@@ -73,15 +72,20 @@ def race_confirmations(api_leg=None, log_leg=None, *, label="", budget_s=None, a
     - a WARNING (driver log + ``logs[]``) when the other leg had already
       failed - source disagreement is surfaced, never hidden,
     - abandonment of a still-pending leg (the CAM read is non-cancellable,
-      so abandonment, not cancellation, is the honest option; the in-flight
-      cap keeps an abandoned api leg from being overlapped),
+      so abandonment, not cancellation, is the honest option),
     - fail-closed ``success=False`` when no leg confirms or ``budget_s``
       expires. ``budget_s`` is mandatory for a dual-leg race and must fit
       inside one dispatcher confirm attempt.
 
-    The api leg holds the in-flight API claim for its duration when
-    *api_key* is given; if another API read is already in flight, the api
-    leg is skipped (log-only race) rather than overlapped.
+    The race itself never touches the CAM and takes NO in-flight claim:
+    the api leg performs all its CAM access through the routed readers,
+    whose per-read in-flight cap already provides the single-flight
+    guarantee. (Wrapping the whole leg in the client's claim starved the
+    leg's own routed reads - CF-01.) An abandoned api leg can therefore
+    hold at most one raw CAM read in flight, and the cap keeps that read
+    from being overlapped; select_job additionally sizes the api leg's
+    poll window inside the budget so an abandoned leg drains promptly
+    (CF-05).
     """
     if log_leg is None:
         return api_leg
@@ -93,58 +97,53 @@ def race_confirmations(api_leg=None, log_leg=None, *, label="", budget_s=None, a
     def _failed_outcome(level, msg):
         return {"success": False, "logs": [_make_log_entry(level, msg)]}
 
-    def _outcome_from_api_reading(reading):
-        if reading.error is not None:
-            return _failed_outcome(
+    def _run_leg(tag, leg, results):
+        try:
+            outcome = leg()
+        except Exception as exc:
+            outcome = _failed_outcome(
                 "warning",
-                f"{label} | api confirmation leg raised: "
-                f"{type(reading.error).__name__}: {reading.error}",
+                f"{label} | {tag} confirmation leg raised: {type(exc).__name__}: {exc}",
             )
-        if not isinstance(reading.value, dict):
-            return _failed_outcome(
-                "warning",
-                f"{label} | api confirmation leg returned "
-                f"{type(reading.value).__name__}, expected dict",
-            )
-        return reading.value
-
-    def run_race():
-        log_results = queue.Queue()
-        api_results = _router._fire_api_read(api_leg, api_key)
-
-        def run_log_leg():
-            try:
-                outcome = log_leg()
-            except Exception as exc:
+        else:
+            if not isinstance(outcome, dict):
                 outcome = _failed_outcome(
                     "warning",
-                    f"{label} | log confirmation leg raised: {type(exc).__name__}: {exc}",
+                    f"{label} | {tag} confirmation leg returned "
+                    f"{type(outcome).__name__}, expected dict",
                 )
-            log_results.put(outcome)
+        results.put(outcome)
 
-        threading.Thread(target=run_log_leg, name="lasx-confirm-log", daemon=True).start()
+    def run_race():
+        api_results = queue.Queue()
+        log_results = queue.Queue()
+        threading.Thread(
+            target=_run_leg,
+            args=("api", api_leg, api_results),
+            name="lasx-confirm-api",
+            daemon=True,
+        ).start()
+        threading.Thread(
+            target=_run_leg,
+            args=("log", log_leg, log_results),
+            name="lasx-confirm-log",
+            daemon=True,
+        ).start()
 
         started = time.monotonic()
         deadline = started + budget_s
         outcomes = {}
-        api_skipped = api_results is None
-        if api_skipped:
-            outcomes["api"] = _failed_outcome(
-                "info",
-                f"{label} | api confirmation leg skipped: api read in flight",
-            )
         winner = None
         while len(outcomes) < 2:
             now = time.monotonic()
             if now >= deadline:
                 break
-            if "api" not in outcomes and api_results is not None:
+            if "api" not in outcomes:
                 try:
-                    reading = api_results.get_nowait()
+                    outcomes["api"] = api_results.get_nowait()
                 except queue.Empty:
                     pass
                 else:
-                    outcomes["api"] = _outcome_from_api_reading(reading)
                     if outcomes["api"].get("success"):
                         winner = "api"
                         break
@@ -167,15 +166,10 @@ def race_confirmations(api_leg=None, log_leg=None, *, label="", budget_s=None, a
                 # poll and the win — one bounded drain so a completed leg is
                 # reported as disagreement, not misreported as abandoned.
                 pending_q = log_results if loser == "log" else api_results
-                if pending_q is not None:
-                    try:
-                        late = pending_q.get(timeout=0.05)
-                    except queue.Empty:
-                        pass
-                    else:
-                        outcomes[loser] = (
-                            late if loser == "log" else _outcome_from_api_reading(late)
-                        )
+                try:
+                    outcomes[loser] = pending_q.get(timeout=0.05)
+                except queue.Empty:
+                    pass
 
         elapsed = time.monotonic() - started
         logs = []
@@ -188,12 +182,7 @@ def race_confirmations(api_leg=None, log_leg=None, *, label="", budget_s=None, a
             logs.append(
                 _make_log_entry("info", f"{label} | confirmed by {winner} leg ({elapsed:.3f}s)")
             )
-            if loser == "api" and api_skipped:
-                # A skipped leg is no disagreement — it never ran.
-                logs.append(
-                    _make_log_entry("info", f"{label} | api leg was skipped; log leg confirmed")
-                )
-            elif loser in outcomes:
+            if loser in outcomes:
                 msg = f"{label} | {loser} leg had not confirmed when the {winner} leg confirmed"
                 log.warning(msg)
                 logs.append(_make_log_entry("warning", msg))
