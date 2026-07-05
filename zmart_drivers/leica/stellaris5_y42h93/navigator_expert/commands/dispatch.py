@@ -47,10 +47,16 @@ and stdlib. Nothing from command wrappers, profiles, prechecks, or confirmations
 import logging
 import time
 
+from .. import utils as _utils
 from ..readers import log_reader as _log_reader
-from ..utils import RECEIPT_TIMEOUT, _make_log_entry, _make_timing
+from ..utils import _make_log_entry, _make_timing
 
 log = logging.getLogger(__name__)
+
+# Echo settle window (seconds): how long ``_await_echo_result`` polls the echo
+# model after transport delivery before giving up. Read at call time (like
+# ``utils.RECEIPT_TIMEOUT``/``CONFIRM_POLL_S``) so tests can shrink it.
+ECHO_SETTLE_TIMEOUT_S = 1.0
 
 
 def _confirmation_detail(result):
@@ -109,7 +115,7 @@ def _fire_with_receipt(api_obj, receipt_timeout=None, max_attempts=3, retry_dela
         True if delivered, False if transport failed after all attempts.
     """
     if receipt_timeout is None:
-        receipt_timeout = RECEIPT_TIMEOUT
+        receipt_timeout = _utils.RECEIPT_TIMEOUT
     for attempt in range(max_attempts):
         receipt = api_obj.UpdateAwaitReceipt(receipt_timeout)
         if receipt:
@@ -125,7 +131,7 @@ def _fire_with_receipt(api_obj, receipt_timeout=None, max_attempts=3, retry_dela
 # =============================================================================
 
 
-def _await_echo_result(client, timeout=1.0, poll_interval=0.01):
+def _await_echo_result(client, timeout=None, poll_interval=0.01):
     """Poll echo model until LAS X finishes processing.
 
     After UpdateAwaitReceipt confirms transport delivery, LAS X still
@@ -139,13 +145,16 @@ def _await_echo_result(client, timeout=1.0, poll_interval=0.01):
 
     Args:
         client: LAS X API client.
-        timeout: Max seconds to wait for echo settlement.
+        timeout: Max seconds to wait for echo settlement. None uses the
+            module-level ECHO_SETTLE_TIMEOUT_S default.
         poll_interval: Seconds between polls.
 
     Returns:
         True if the echo settled (ready for error check),
         False if timeout expired (echo still in cleared state).
     """
+    if timeout is None:
+        timeout = ECHO_SETTLE_TIMEOUT_S
     deadline = time.perf_counter() + timeout
 
     while True:

@@ -49,6 +49,24 @@ def pytest_report_header(config):
         return [f"navigator_expert context: diagnostics unavailable ({exc!r})"]
 
 
+@pytest.fixture(autouse=True)
+def fast_timing_windows(monkeypatch):
+    """Shrink the real-time confirm/echo poll windows for the offline suite.
+
+    The shipped defaults (``utils.CONFIRM_POLL_S = 3`` s per confirm attempt,
+    ``dispatch.ECHO_SETTLE_TIMEOUT_S = 1`` s per fire) are real hardware
+    windows; against mocks they are pure sleep (~35 s of the suite, LT-03).
+    The consumers read both values at call time, so patching here reaches
+    every poll loop. Shipped values are unchanged; a test that needs a
+    specific window passes an explicit ``poll_window=``/``timeout=``.
+    """
+    from navigator_expert import utils
+    from navigator_expert.commands import dispatch
+
+    monkeypatch.setattr(utils, "CONFIRM_POLL_S", 0.05)
+    monkeypatch.setattr(dispatch, "ECHO_SETTLE_TIMEOUT_S", 0.05)
+
+
 @pytest.fixture
 def general_workflow_data(tmp_path):
     """Return a writable temp copy of the canonical offline workflow bundle."""

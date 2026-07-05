@@ -14,9 +14,13 @@ import time
 
 # ---------------------------------------------------------------------------
 # Timeouts (seconds).
-# NOTE: consumers bind these values at import time (``from ..utils import
-# CONFIRM_POLL_S``), so reassigning them here after import has no effect.
-# To tune for your hardware, edit these constants before starting Python.
+# NOTE: runtime consumers (commands.dispatch, commands.confirmations,
+# commands.confirm_select_job) read these at call time (``utils.CONFIRM_POLL_S``),
+# so reassigning ``utils.RECEIPT_TIMEOUT``/``utils.CONFIRM_POLL_S`` at runtime
+# (e.g. a test monkeypatch) takes effect. Exception: ``config.profiles``
+# captures them into dataclass field defaults at import, so profile fields
+# keep the values from process start. To tune for your hardware, edit these
+# constants.
 # ---------------------------------------------------------------------------
 RECEIPT_TIMEOUT = 2  # UpdateAwaitReceipt transport ACK deadline (a true timeout:
 # expiry after transport retries is a hard delivery failure)
