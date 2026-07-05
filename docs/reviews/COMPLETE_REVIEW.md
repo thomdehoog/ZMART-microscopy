@@ -6,6 +6,40 @@
 
 ---
 
+## Status addendum (2026-07-05)
+
+This document describes commit `c7964dd`. The following action-plan items were since
+resolved on branch `claude/smart-drivers-code-review-ky4phc` (offline-verified; bench
+validation pending). Maintainer policy calls are in `MAINTAINER_DECISIONS.md`.
+
+| Plan item | Status | Commit(s) |
+|---|---|---|
+| P0-1 controller CI path (LT-01) | fixed | `dd31a0f` |
+| P0-4 `strip_template` warn-and-succeed (OP-01) | fixed (fail-closed) | `dd31a0f` |
+| P0-6 orientation gate (FD-03/DD-03) | docs honest; wiring still open | `9de8590` |
+| P1-8 hybrid machinery (CF-01; cluster 7) | race API-leg deadlock fixed; hybrid now default read mode | `edb4393`, `a89c35e` |
+| P2-15 dead evidence subsystem (LC-01/FD-01) | deleted | `dd31a0f` |
+| P2-16 dead `lrp_edits` surface (FD-02) | dead wrappers/helpers deleted; load-bearing promotion still open | `6b3c822` |
+| P2-17 orphan hardware scripts (FD-04) | six deleted; `validate_readers_side_by_side` crash (FD-12) fixed | `be26a37`, `d831ae8` |
+| P2-19 fossil self-referential tests (cluster 13) | deleted | `6b3c822` |
+| P3-21 test sleeps (cluster 8) | injectable; suite ~124 s → ~10 s | `6453e12` |
+| P3-22 untested byte-level code (cluster 9) | LRP parser + TIFF patcher tested (93%/93%), `fail_under=63` | `227e952` |
+| P3-24 marker fiction (cluster 18) | prose fixed; registrations kept | `9de8590` |
+| P3-25 broken tuning advice (cluster 15) | constants late-bound; docs truthful | `6453e12`, `dd31a0f` |
+| P3-26 on-ramps (ZC-01/02/05, DD set) | fixed | `dd31a0f`, `9de8590`, `5f5a53d` |
+| Quirk duplication (OP-12/13/14/22; cluster 14 structural half) | one canonical home each | `7239372` |
+| Hardware validation + run reports (new work) | 3 reader modes, timing/confirmation-first reports, run_ci canonical | `d831ae8`, `e0010ae` |
+
+Still open, needing bench or maintainer decision: backlash wiring (cluster 1 — to become
+a driver procedure + controller acquisition option per decisions §2), accepted-vs-confirmed
+seam enforcement for acquire idle (cluster 2 + decisions §6), unbounded waits CF-02/CF-03
+(cluster 5), teardown gap (cluster 12), flush-fire-poll stale-response correlation for the
+three uncorrelated readers (RF-04 behavioral half), facade pruning (cluster 17),
+`LIMITS_SOURCE_MIGRATION` rig-file check, packaging gap (cluster 16), `lrp_edits` promotion
+(RF-05), cooperative race-leg cancellation (CF-05 residue).
+
+---
+
 ## 1. Overall verdict
 
 **The architecture is sound; the codebase needs subtraction, not rework.** Both components are design-driven at their core: the controller's ops-table registry is a rare example of an abstraction proven by two independent real consumers, and the driver's dispatch backbone (`confirm_and_fire` + the `CONFIRM_SPECS` table), fail-closed log reader, machine-snapshot config, and atomic materialization are deliberate, well-tested engineering. The refactor review's conclusion — upheld by verification — is that **no architectural rework is warranted**.
