@@ -70,6 +70,14 @@ class TestSetJobAttrSiblingSafety:
         assert el.get("BaseZoom") == "0.75"
 
 
+class TestSetJobAttrMissingJob:
+    def test_missing_job_changes_nothing(self, tmp_path):
+        path = _write_lrp(tmp_path, _template("", _job_block("Job A", 1)))
+        before = path.read_bytes()
+        assert _set_job_attr(path, "Zoom", "2.5", "No Such Job", "test") == 0
+        assert path.read_bytes() == before
+
+
 class TestVerifyJobAttr:
     def test_absent_attribute_fails_verification(self, tmp_path):
         # _set_job_attr never adds attributes; absent must not verify as True.
@@ -83,6 +91,12 @@ class TestVerifyJobAttr:
         path = _write_lrp(tmp_path, _template("", _job_block("Job A", 1, settings)))
         assert _verify_job_attr(path, "Zoom", "2.5", "Job A") is True
         assert _verify_job_attr_float(path, "Zoom", 2.5, "Job A", 0.001) is True
+
+    def test_float_verification_fails_on_non_numeric_value(self, tmp_path):
+        # A string-valued attribute must fail float verification, not raise.
+        settings = '<ATLConfocalSettingDefinition ScanMode="xyz" />'
+        path = _write_lrp(tmp_path, _template("", _job_block("Job A", 1, settings)))
+        assert _verify_job_attr_float(path, "ScanMode", 1.0, "Job A", 0.1) is False
 
 
 class TestReorderJobs:

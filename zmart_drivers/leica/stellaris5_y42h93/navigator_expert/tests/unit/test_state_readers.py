@@ -506,5 +506,227 @@ class TestAgeForSnapshot(unittest.TestCase):
         self.assertEqual(self._age(ages, age_key="xy"), 0.9)
 
 
+class TestRoutedErrorAndDiagnosticShapes(unittest.TestCase):
+    """Failure paths must return error-carrying Readings (diagnostics) and
+    fail closed to None (plain), never leak values or raise."""
+
+    def setUp(self):
+        self._state_profile = profiles.STATE_READERS
+
+    def tearDown(self):
+        profiles.STATE_READERS = self._state_profile
+
+    def test_unknown_mode_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            readers.get_xy(object(), mode="bogus")
+
+    def test_replace_value_none_strips_value_and_keeps_provenance(self):
+        err = RuntimeError("boom")
+        reading = readers.Reading(
+            value={"x_um": 1.0}, source="api", observed_at=42.0, age_s=0.5, error=err
+        )
+        stripped = reading._replace_value_none()
+        self.assertIsNone(stripped.value)
+        self.assertEqual(stripped.source, "api")
+        self.assertEqual(stripped.observed_at, 42.0)
+        self.assertEqual(stripped.age_s, 0.5)
+        self.assertIs(stripped.error, err)
+
+    def test_replace_value_none_is_identity_when_value_already_none(self):
+        reading = readers.Reading(value=None, source="log", observed_at=1.0, age_s=0.1)
+        self.assertIs(reading._replace_value_none(), reading)
+
+    def test_log_mode_reader_exception_carries_error_in_diagnostics(self):
+        profiles.STATE_READERS = profiles.StateReaderProfile(xy_mode="log")
+        with patch.object(
+            router.log_reader, "parse_log", side_effect=RuntimeError("log unreadable")
+        ):
+            reading = readers.get_xy(object(), diagnostics=True)
+            self.assertEqual(reading.source, "log")
+            self.assertIsNone(reading.value)
+            self.assertIsInstance(reading.error, RuntimeError)
+            # the plain-value contract fails closed to None
+            self.assertIsNone(readers.get_xy(object()))
+
+    def test_log_mode_without_log_leg_fails_closed_with_reason(self):
+        api_only = dataclasses.replace(capabilities.spec("xy"), log_fn=None)
+        with patch.dict(capabilities.DATUMS, {"xy": api_only}):
+            reading = readers.get_xy(object(), mode="log", diagnostics=True)
+            self.assertIsNone(reading.value)
+            self.assertIsInstance(reading.error, capabilities.UnsupportedSource)
+            self.assertIn("no log leg", str(reading.error))
+            self.assertIsNone(readers.get_xy(object(), mode="log"))
+
+    def test_hybrid_without_any_leg_fails_closed_with_reason(self):
+        no_legs = dataclasses.replace(capabilities.spec("xy"), api_fn=None, log_fn=None)
+        with patch.dict(capabilities.DATUMS, {"xy": no_legs}):
+            reading = readers.get_xy(object(), mode="hybrid", diagnostics=True)
+        self.assertIsNone(reading.value)
+        self.assertIsInstance(reading.error, capabilities.UnsupportedSource)
+        self.assertIn("no hybrid leg", str(reading.error))
+
+    def test_hybrid_api_only_hung_read_returns_none_after_timeout(self):
+        profiles.STATE_READERS = profiles.StateReaderProfile(xy_timeout_s=0.1)
+        api_only = dataclasses.replace(capabilities.spec("xy"), log_fn=None)
+        release = threading.Event()
+
+        def hung_api(*_args, **_kwargs):
+            release.wait(5.0)
+            return {"x_um": 1.0, "y_um": 2.0}
+
+        try:
+            with (
+                patch.dict(capabilities.DATUMS, {"xy": api_only}),
+                patch.object(router.api_reader, "get_xy", side_effect=hung_api),
+            ):
+                self.assertIsNone(readers.get_xy(object(), mode="hybrid"))
+        finally:
+            release.set()
+
+    def test_hybrid_log_only_error_reading_carries_error(self):
+        log_only = dataclasses.replace(capabilities.spec("xy"), api_fn=None)
+        with (
+            patch.dict(capabilities.DATUMS, {"xy": log_only}),
+            patch.object(router.log_reader, "parse_log", side_effect=RuntimeError("gone")),
+        ):
+            reading = readers.get_xy(object(), mode="hybrid", diagnostics=True)
+        self.assertEqual(reading.source, "log")
+        self.assertIsNone(reading.value)
+        self.assertIsInstance(reading.error, RuntimeError)
+
+
+class TestHybridGraceWindow(unittest.TestCase):
+    """Log wins within the grace window; API wins once it expires."""
+
+    def setUp(self):
+        self._state_profile = profiles.STATE_READERS
+
+    def tearDown(self):
+        profiles.STATE_READERS = self._state_profile
+
+    def test_api_wins_after_grace_expires_without_a_log_result(self):
+        profiles.STATE_READERS = profiles.StateReaderProfile(
+            xy_mode="hybrid",
+            xy_log_max_age_s=1.0,
+            xy_timeout_s=5.0,
+            hybrid_log_grace_s=0.05,
+        )
+        api_value = {"x_um": 100.0, "y_um": 200.0}
+
+        def slow_log(*_args, **_kwargs):
+            time.sleep(1.0)  # never lands inside the grace window
+            return {"x_um": 5.0, "y_um": 6.0}
+
+        snapshot = SimpleNamespace(now=100.0)
+        with (
+            patch.object(router.api_reader, "get_xy", return_value=api_value),
+            patch.object(router.log_reader, "parse_log", return_value=snapshot),
+            patch.object(router.log_reader, "get_xy", side_effect=slow_log),
+            patch.object(router.log_reader, "ages", return_value={"xy": 0.1}),
+        ):
+            t0 = time.monotonic()
+            reading = readers.get_xy(object(), diagnostics=True)
+            elapsed = time.monotonic() - t0
+        self.assertEqual(reading.source, "api")
+        self.assertEqual(reading.value, api_value)
+        self.assertLess(elapsed, 0.9)  # bounded by the grace window, not the log
+
+    def test_untrusted_log_after_api_candidate_returns_api_before_grace_expires(self):
+        profiles.STATE_READERS = profiles.StateReaderProfile(
+            xy_mode="hybrid",
+            xy_log_max_age_s=1.0,
+            xy_timeout_s=5.0,
+            hybrid_log_grace_s=2.0,
+        )
+        api_value = {"x_um": 7.0, "y_um": 8.0}
+
+        def stale_log(*_args, **_kwargs):
+            time.sleep(0.05)
+            return None  # untrustworthy: no fresh evidence
+
+        snapshot = SimpleNamespace(now=100.0)
+        with (
+            patch.object(router.api_reader, "get_xy", return_value=api_value),
+            patch.object(router.log_reader, "parse_log", return_value=snapshot),
+            patch.object(router.log_reader, "get_xy", side_effect=stale_log),
+            patch.object(router.log_reader, "ages", return_value={"xy": 9.0}),
+        ):
+            t0 = time.monotonic()
+            reading = readers.get_xy(object(), diagnostics=True)
+            elapsed = time.monotonic() - t0
+        self.assertEqual(reading.source, "api")
+        self.assertEqual(reading.value, api_value)
+        self.assertLess(elapsed, 1.5)  # untrusted log releases the grace wait
+
+
+class TestDerivedReaderFamilies(unittest.TestCase):
+    """get_job_by_name / get_fov / get_base_fov / read_zwide_um /
+    get_pending_dialog derive values while preserving the underlying
+    reading's provenance."""
+
+    _SETTINGS = {
+        "imageSize": "100.0 um x 100.0 um",
+        "format": "512 x 512",
+        "zoom": {"current": 2.0},
+        "scanSpeed": {"value": 400, "isResonant": False},
+        "activeSettings": [],
+        "zPosition": {"z-wide": {"position": 42.5}},
+    }
+
+    def test_get_job_by_name_returns_named_job_with_provenance(self):
+        jobs = [{"Name": "Overview"}, {"Name": "HiRes", "IsSelected": True}]
+        with patch.object(router.api_reader, "get_jobs", return_value=jobs):
+            plain = readers.get_job_by_name(object(), "HiRes", mode="api")
+            reading = readers.get_job_by_name(object(), "HiRes", mode="api", diagnostics=True)
+        self.assertEqual(plain, jobs[1])
+        self.assertEqual(reading.value, jobs[1])
+        self.assertEqual(reading.source, "api")
+        self.assertIsNotNone(reading.observed_at)
+
+    def test_get_job_by_name_unknown_name_is_none_with_provenance(self):
+        jobs = [{"Name": "Overview"}]
+        with patch.object(router.api_reader, "get_jobs", return_value=jobs):
+            self.assertIsNone(readers.get_job_by_name(object(), "Nope", mode="api"))
+            reading = readers.get_job_by_name(object(), "Nope", mode="api", diagnostics=True)
+        self.assertIsNone(reading.value)
+        self.assertEqual(reading.source, "api")
+
+    def test_get_fov_and_base_fov_derive_metres_from_settings(self):
+        with patch.object(router.api_reader, "get_job_settings", return_value=self._SETTINGS):
+            fov = readers.get_fov(object(), "HiRes", mode="api")
+            base = readers.get_base_fov(object(), "HiRes", mode="api", diagnostics=True)
+        self.assertAlmostEqual(fov[0], 100.0e-6)
+        self.assertAlmostEqual(fov[1], 100.0e-6)
+        # base FOV backs out the zoom: 100 um image at zoom 2 -> 200 um base
+        self.assertAlmostEqual(base.value[0], 200.0e-6)
+        self.assertEqual(base.source, "api")
+
+    def test_read_zwide_um_returns_position_from_settings(self):
+        with patch.object(router.api_reader, "get_job_settings", return_value=self._SETTINGS):
+            self.assertEqual(readers.read_zwide_um(object(), "HiRes", mode="api"), 42.5)
+
+    def test_read_zwide_um_unreadable_settings_returns_none(self):
+        with patch.object(
+            router.api_reader, "get_job_settings", side_effect=RuntimeError("COM fault")
+        ):
+            self.assertIsNone(readers.read_zwide_um(object(), "HiRes", mode="api"))
+
+    def test_get_pending_dialog_reports_log_provenance_and_age(self):
+        snapshot = SimpleNamespace(now=100.0)
+        dialog = {"title": "Warning", "text": "Stage limit"}
+        with (
+            patch.object(router.log_reader, "parse_msgbox_log", return_value=snapshot),
+            patch.object(router.log_reader, "get_pending_dialog", return_value=dialog),
+            patch.object(router.log_reader, "ages", return_value={"dialog": 0.5}),
+        ):
+            plain = readers.get_pending_dialog()
+            reading = readers.get_pending_dialog(diagnostics=True)
+        self.assertEqual(plain, dialog)
+        self.assertEqual(reading.value, dialog)
+        self.assertEqual(reading.source, "log")
+        self.assertEqual(reading.age_s, 0.5)
+        self.assertAlmostEqual(reading.observed_at, 99.5)
+
+
 if __name__ == "__main__":
     unittest.main()
