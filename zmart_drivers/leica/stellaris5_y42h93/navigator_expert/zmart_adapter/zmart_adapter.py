@@ -39,7 +39,8 @@ Scope of v1 (grow as needed):
     - ``get_state``/``set_state`` round-trip the selected job (the job
       is LAS X's unit of configuration, so reapplying the selection
       restores the whole setup).
-    - ``get_procedures`` offers backlash takeup only.
+    - ``get_procedures`` offers backlash takeup and autofocus (with
+      job discovery); ``set_procedure`` runs them.
     - ``acquire`` selects the job, captures, and saves in one step;
       ``acquisition_type``/``position_label`` map onto the driver's
       Naming slots and travel verbatim in the save lineage.

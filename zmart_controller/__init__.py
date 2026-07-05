@@ -22,6 +22,14 @@ to use it, both giving ``zmart_controller.<call>()``:
     mic_a.set_origin()
     mic_a.acquire(acquisition_type="prescan", position_label="A1")
 
+Two caveats on the module-level surface:
+
+- Call through the module attribute (``zmart_controller.set_xyz(...)``); do not
+  capture a call into a variable across ``set_instrument`` calls — the captured
+  method stays bound to the previous, now-disconnected session.
+- The module-level surface (and registry mutation) assumes a single thread.
+  From multiple threads, hold explicit ``Session`` handles owned by one thread.
+
 Requires the repository root (the package's parent) on sys.path.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),

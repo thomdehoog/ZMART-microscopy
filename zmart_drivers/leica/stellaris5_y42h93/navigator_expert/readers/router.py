@@ -435,7 +435,11 @@ def get_xy(
 def read_zwide_um(client, job_name, *, mode=None):
     """Z-wide position (um) from the job settings, or None when unreadable.
 
-    Like every routed reader this fails closed with None instead of raising.
+    Returns None only when the job settings cannot be read at all. Readable
+    but incomplete settings raise: ``derived.zwide_um_from_settings`` raises
+    ``RuntimeError`` when ``zPosition``/z-wide is missing, and its settings
+    normalization can raise ``ValueError`` on a schema mismatch — unlike the
+    routed readers, which never raise.
     """
     settings = get_job_settings(client, job_name, mode=mode)
     if not settings:

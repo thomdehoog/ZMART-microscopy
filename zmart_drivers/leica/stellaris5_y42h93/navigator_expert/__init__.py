@@ -11,7 +11,11 @@ Package layout::
     - scanfields/   LAS X scan-field files, parsing, planning, strip/restore
     - acquisition/  acquire-only capture, LAS X file export, OME fixes, save
     - motion/       stage limits, backlash-aware movement, stage config
+    - calibration/  image-stage + objective-pair calibration (model + defaults consumed at connect)
+    - limits/       bundled stage/function limits defaults + operator notebook
+    - zmart_adapter/ ops table plugging this driver into zmart_controller
     - experimental/ LRP mutation helpers without live-state readback
+    - tests/        offline unit suite + hardware validators
 """
 
 __version__ = "6.0.0"
@@ -103,6 +107,8 @@ __all__ = [
     "move_xy",
     "move_galvo_to_pixel",
     "move_z",
+    # acquisition, not a command: acquire RAISES on failure and returns an
+    # AcquisitionResult, never a result dict (see acquisition.capture)
     "acquire",
     "select_job",
     # scan fields
