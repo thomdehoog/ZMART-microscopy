@@ -57,6 +57,19 @@ The unused one-shot **test scripts** (FD-04's zero-reference list under
 The `experimental/lrp_edits` content may be touched/promoted (RF-05); it does **not**
 need to be validated against hardware yet.
 
+## 7. Limits are enforced at the lowest layer (decided 2026-07-05, evening)
+
+Limits must be enforced as low as possible — in the command wrappers around the
+native CAM functions — so nothing built on top can bypass them. Consequences:
+the function-keyed gate moves from the adapter into `commands/`; **no bundled
+default limits file is trusted for enforcement** (a wrong-machine default breaks
+safety — the bundled file becomes a template; the notebook creates the real,
+machine-local file, and connect verifies it is in place); a **hardcoded physical
+backstop** for the motoric stage bounds everything independently; "no limit" is
+an explicit `[]`, absent keys fail closed; calibration lives in the same config
+area but is applied at the objective-change path. Mock + adversarial offline
+gates precede any hardware use. Full plan: `docs/design/limits-enforcement.md`.
+
 ## 6. `confirmed` is best-effort — except acquire's idle gate
 
 - `confirmed` does **not** have to be enforced on command paths: after **3 retries**,
