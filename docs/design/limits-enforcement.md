@@ -1,7 +1,48 @@
 # Limits enforcement redesign — plan
 
-Status: PLANNED (maintainer design decision 2026-07-05; see
-`docs/reviews/MAINTAINER_DECISIONS.md` §7). Not yet implemented.
+Status: PLANNED, amended after adversarial plan review (see
+`limits-enforcement-review.md`, findings PR-01..PR-10). Maintainer design
+decision 2026-07-05, `docs/reviews/MAINTAINER_DECISIONS.md` §7.
+
+## Amendments (adversarial review outcomes)
+
+1. **Wrapper→key mapping defined (PR-01):** every mutating command wrapper
+   declares a `function_limits` key; the file keeps its existing op-level key
+   vocabulary, each wrapper mapping to one key. A completeness test enumerates
+   all mutating wrappers (those dispatching through the fire path) and fails
+   if any lacks a declared key — the commands-layer successor of the adapter's
+   `_MUTATING_OPS` guard.
+2. **Adapter whole-move pre-flight STAYS (PR-02):** only the function-keyed
+   gate relocates down. The adapter's atomic XY+Z pre-flight (refuse before
+   either axis fires) is protection the per-command checks cannot replicate
+   and remains as defense in depth. Commands-level limit refusals never fire
+   the native call and return the fail-closed result-dict idiom; the
+   adapter/controller translate to raises per the ops error contract.
+3. **Explicit-unlimited spelling is `null`, not `[]` (PR-03/PR-10):** the
+   shipped shared schema already implements the maintainer's concept —
+   explicit `null` = deliberately unlimited, absent key = fail closed, lists
+   rejected — and is shared with the zeiss driver. Concept kept, spelling kept.
+4. **Gate state location pinned (PR-04):** connect installs the validated
+   limits/gate state in a module-level registry keyed by client identity
+   (commands see `client`, not the adapter handle); single-process,
+   single-writer invariant documented and asserted.
+5. **No-fallback covers BOTH files (PR-05/PR-06):** `limits.json` and
+   `function_limits.json` lose the bundled fallback together;
+   `machine.py` resolution returns explicit provenance (`is_fallback`) and
+   enforcement refuses on fallback; `workflows/.../preflight.py` and the
+   calibration workflow provision explicit machine-local files instead of
+   inheriting the bundled ones. Calibration *values* application stays
+   out of scope (objective-change path), but calibration moves execute
+   through `commands.move_*` and are therefore gated like everything else.
+6. **Known bypasses covered or explicitly dispositioned (PR-07):**
+   save/load-experiment (PyApiSave/LoadExperiment) and `move_galvo_to_pixel`
+   (LRP pan write) get function-limit keys; offline `lrp_edits`/template file
+   edits do not command hardware at write time and are documented as gated at
+   the point LAS X executes them (job selection/acquire), not at file-write.
+7. **Backstop (PR-08):** physical-envelope constants live in
+   `motion/limits.py` (values from the historical machine envelope, loud
+   verify-on-rig comment); runtime checks apply backstop after the file
+   envelope; the connect handshake validates file-envelope containment.
 
 ## Design philosophy (maintainer)
 
