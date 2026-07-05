@@ -13,11 +13,14 @@ to use it, both giving ``zmart_controller.<call>()``:
     zmart_controller.acquire(acquisition_type="prescan", position_label="A1")
     zmart_controller.disconnect()
 
-    # or hold the session object explicitly (needed for >1 microscope at once)
-    from zmart_controller import set_instrument
-    mic = set_instrument(instrument)
-    mic.set_origin()
-    mic.acquire(acquisition_type="prescan", position_label="A1")
+    # or hold session objects explicitly (needed for >1 microscope at once).
+    # Use layer.set_instrument here: the module-level set_instrument above
+    # manages a single active microscope and disconnects the previous one.
+    from zmart_controller.layer import set_instrument
+    mic_a = set_instrument(instrument_a)
+    mic_b = set_instrument(instrument_b)
+    mic_a.set_origin()
+    mic_a.acquire(acquisition_type="prescan", position_label="A1")
 
 Requires the repository root (the package's parent) on sys.path.
 
@@ -40,15 +43,17 @@ __all__ = ["Session", "disconnect", "get_instruments", "set_instrument"]
 _active: Session | None = None
 
 
-def set_instrument(*args, **kwargs) -> Session:
+def set_instrument(instrument) -> Session:
     """Select an instrument, set the module's active microscope, return the session.
 
     The returned :class:`Session` is the explicit handle. The module also
     delegates calls (``zmart_controller.acquire()``, …) to it, so a notebook can drive
-    one microscope without holding the object.
+    one microscope without holding the object. The previous active session, if
+    any, is disconnected; to drive several microscopes at once, use
+    :func:`zmart_controller.layer.set_instrument` and hold each session.
     """
     global _active
-    new = _set_instrument(*args, **kwargs)
+    new = _set_instrument(instrument)
     # Resolve the new session first; only then tear down the previous active one,
     # so a failed set_instrument never disconnects a working session. Track the
     # new session before the teardown, so it never leaks if teardown raises.

@@ -141,12 +141,13 @@ def strip_template(client, *, save_timeout=120):
 
     sf, si, fp = _count_objects(stripped_xml, stripped_rgn)
     if sf > 0 or si > 0 or fp > 0:
-        log.warning(
+        log.error(
             "Stripped template still has objects after confirm-save: %d fields, %d items, %d focus",
             sf,
             si,
             fp,
         )
+        return None
 
     total_t = time.perf_counter() - t0
     log.info("Strip complete in %.1fs — template is now editable", total_t)

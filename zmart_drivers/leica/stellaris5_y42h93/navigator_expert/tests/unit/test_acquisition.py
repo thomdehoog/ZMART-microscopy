@@ -589,6 +589,7 @@ class TestSave:
                 tmp_path / "run_000001",
                 naming,
                 exporter="navigator_expert",
+                export_completion_timeout_s=0.01,
             )
 
     def test_corrupt_ome_tiff_raises(
