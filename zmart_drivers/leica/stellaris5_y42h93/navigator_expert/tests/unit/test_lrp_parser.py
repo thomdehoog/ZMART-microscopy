@@ -240,9 +240,7 @@ class TestParseLrpSyntheticEdgeCases:
     def test_sted_and_laser_line_beam_routes(self, synthetic):
         master = parse_lrp(synthetic)["jobs"]["ROI Job"]["Master"]
         assert master["_STED"]["Wavelength"] == "775"
-        assert master["_STED"]["_BeamRoute"] == [
-            {"BeamPositionLevel": "0", "BeamPosition": "7"}
-        ]
+        assert master["_STED"]["_BeamRoute"] == [{"BeamPositionLevel": "0", "BeamPosition": "7"}]
         line = master["_Aotfs"][0]["_LaserLines"][0]
         assert line["_BeamRoute"] == [{"BeamPositionLevel": "0", "BeamPosition": "2"}]
 

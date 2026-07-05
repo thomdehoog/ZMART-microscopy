@@ -155,6 +155,7 @@ class TestDualLegRace(unittest.TestCase):
         result = race()
         self.assertTrue(result["success"])
 
+
 class TestApiLegRoutedReads(unittest.TestCase):
     """CF-01/CF-05 contracts: the race takes no in-flight claim, so an api
     leg's routed reads reach the client while the race runs; the per-read

@@ -513,8 +513,7 @@ def phase_reader_modes(client, rec, job):
                 rec.row(
                     key,
                     False,
-                    "hybrid returned no value while api did -- "
-                    "hybrid leg blocked or API hang",
+                    "hybrid returned no value while api did -- hybrid leg blocked or API hang",
                     latency=lat,
                     reader_mode=mode,
                 )
