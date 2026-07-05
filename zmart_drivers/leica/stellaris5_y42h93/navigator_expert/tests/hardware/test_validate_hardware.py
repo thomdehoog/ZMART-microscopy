@@ -150,8 +150,7 @@ def test_validate_hardware_full_mock_run(tmp_path):
 
     names = {record["name"] for record in records}
     assert {
-        "stage config: load",
-        "stage limits: apply",
+        "limits: connect handshake",
         "job selection: select job",
         "settings: read",
         "zoom: write alternate",

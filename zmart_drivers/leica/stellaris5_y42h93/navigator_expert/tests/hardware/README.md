@@ -30,8 +30,18 @@ Hardware validation uses only production driver modules — nothing under
   10-position pattern (±25 µm around the current position) and does a ±2 µm
   z-galvo round-trip. Park the stage inside the calibrated envelope first —
   the validators refuse to move if the start position is outside limits.
-- Machine limits config present (snapshot or bundled
-  `limits/defaults/limits.json`); it is applied before any movement.
+- **Machine-local limits provisioned** (`limits.json` + `function_limits.json`
+  in the newest snapshot under `C:\ProgramData\smart_microscopy\...`). There
+  is **no bundled fallback**: the files under `limits/defaults/` are templates
+  and are refused for enforcement. Every validator runs the connect-time
+  limits handshake first (`limits: connect handshake` in the report) — it
+  validates schema, finite numbers, and containment within the hardcoded
+  physical backstop (`motion.limits.STAGE_BACKSTOP_UM`). On an unprovisioned
+  machine the handshake FAILs with a message naming the path tried and every
+  mutating step refuses fail-closed; run
+  `limits/notebooks/set_stage_limits.ipynb` once to create the files, then
+  re-run. (`--mock` runs provision a hermetic fixture snapshot automatically
+  and exercise the same real handshake.)
 - Driver requirements installed (`pip install -r requirements-dev.txt`).
 
 ## What `--live-writes` changes on the instrument (all restored in `finally`)
@@ -98,3 +108,9 @@ python -m pytest -q tests/hardware   # test_validate_*.py + test_stress_hardware
 python tests/hardware/validate_readers_side_by_side.py --mock --yes   # offline smoke
 python tests/hardware/validate_hardware.py --mock --allow-xy --allow-z --allow-objective --allow-acquire
 ```
+
+The limits enforcement itself has a permanent adversarial gate in normal CI
+(`tests/unit/test_limits_adversarial.py`): malformed/poisoned limits files,
+NaN/inf targets, unset-envelope refusals, backstop containment, and
+gate-bypass attempts through every entry point (commands, adapter,
+controller). It must stay green before any bench run.

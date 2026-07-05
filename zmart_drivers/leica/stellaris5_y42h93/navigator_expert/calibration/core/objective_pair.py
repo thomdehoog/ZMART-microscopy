@@ -155,8 +155,13 @@ def start_session(
     i2s = _load_image_to_stage(resolved_path)
 
     client = drv.connect_python_client()
-    stage_cfg = drv.load_stage_config(limits_path=drv.default_stage_limits_path())
-    drv.apply_stage_limits_from_config(stage_cfg)
+    # Connect-time limits handshake: calibration moves the stage through the
+    # gated drv.move_* wrappers, so it needs validated machine-local limits
+    # (no bundled fallback) exactly like any other session.
+    limits_state = drv.connect_limits_handshake(client)
+    if not limits_state.ok:
+        raise RuntimeError(limits_state.error)
+    stage_cfg = limits_state.stage_cfg
     hw = drv.get_hardware_info(client, mode="api")
     if hw is None:
         raise RuntimeError("get_hardware_info returned None; LAS X unreachable")

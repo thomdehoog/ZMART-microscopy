@@ -1182,7 +1182,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--api-delay-ms", type=int, help="override profiles.LASX_API.delay_ms for LasxApi"
     )
-    parser.add_argument("--limits-config", help="limits JSON; default is limits/.../defaults.json")
+    parser.add_argument(
+        "--limits-config",
+        help="explicit stage-limits JSON for the handshake; default is the "
+        "machine-local snapshot (no bundled fallback)",
+    )
     parser.add_argument(
         "--rounds", type=int, default=30, help="stress steps per cycle; first step is a job sweep"
     )
@@ -1291,7 +1295,7 @@ def main(argv: list[str] | None = None) -> int:
             log=log,
             strict_confirmation=args.strict_confirmation,
         )
-        if not vh._apply_stage_limits(drv, validator, args):
+        if not vh._apply_stage_limits(drv, validator, client, args):
             recorder.emit(
                 StressRecord(
                     kind="stress_step",

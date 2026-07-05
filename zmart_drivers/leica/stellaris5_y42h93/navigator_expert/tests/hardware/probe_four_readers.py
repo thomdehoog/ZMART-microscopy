@@ -443,8 +443,11 @@ def phase_xy_positions(
     step_um: float,
     tolerance_um: float,
 ) -> None:
-    stage_cfg = drv.load_stage_config()
-    drv.apply_stage_limits_from_config(stage_cfg)
+    # This phase moves the stage, so it needs the full connect-time limits
+    # handshake (machine-local files; the gated move_xy refuses without it).
+    limits_state = drv.connect_limits_handshake(client)
+    if not limits_state.ok:
+        raise RuntimeError(limits_state.error)
     limits = drv.get_stage_limits()
     original = _api_xy(client)
     if original is None:

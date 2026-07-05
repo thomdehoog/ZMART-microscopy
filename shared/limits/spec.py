@@ -37,9 +37,11 @@ or an inline constraint object). A constraint bounds a numeric value with
 entry names and the call provides — partial calls (e.g. a move touching one
 axis) check only what they touch.
 
-The loaded :class:`FunctionLimits` is per-session state: hang it off the
-driver handle, never off a module — two instruments in one process must not
-share an envelope. This module holds no state and does no IO beyond
+The loaded :class:`FunctionLimits` is per-session state: keep it keyed to the
+session it governs — off the driver handle, or (when enforcement lives below
+the handle, e.g. a commands-layer gate) in a registry keyed by client
+identity. Never share ONE object module-wide: two instruments in one process
+must not share an envelope. This module holds no state and does no IO beyond
 :func:`load` reading one file.
 
 Import convention: ``from shared.limits import FunctionLimits, load, ...``
@@ -49,6 +51,7 @@ Requires the repository root on sys.path.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,6 +92,10 @@ class Constraint:
                 number = float(value)
             except (TypeError, ValueError):
                 return f"is not numeric (bounded [{self.min}, {self.max}])"
+            if not math.isfinite(number):
+                # NaN compares False against every bound, so without this
+                # check a NaN target would sail through a bounded range.
+                return f"is not finite (bounded [{self.min}, {self.max}])"
             if self.min is not None and number < self.min:
                 return f"outside [{self.min}, {self.max}]"
             if self.max is not None and number > self.max:
@@ -109,8 +116,12 @@ def _parse_constraint(name: str, raw: Any, *, where: str) -> Constraint:
         allowed = tuple(allowed)
     if low is not None:
         low = float(low)
+        if not math.isfinite(low):
+            raise LimitsError(f"{where}: constraint {name!r} min is not finite: {low!r}")
     if high is not None:
         high = float(high)
+        if not math.isfinite(high):
+            raise LimitsError(f"{where}: constraint {name!r} max is not finite: {high!r}")
     if low is not None and high is not None and low > high:
         raise LimitsError(f"{where}: constraint {name!r} has min > max: [{low}, {high}]")
     if low is None and high is None and allowed is None:
@@ -272,9 +283,7 @@ def parse(
                 bound[param] = _parse_constraint(f"{fn}.{param}", spec, where=where)
         parsed[fn] = bound
 
-    return FunctionLimits(
-        functions=parsed, source=source, path=path, is_fallback=is_fallback
-    )
+    return FunctionLimits(functions=parsed, source=source, path=path, is_fallback=is_fallback)
 
 
 def load(

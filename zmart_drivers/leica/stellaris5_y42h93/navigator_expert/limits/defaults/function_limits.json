@@ -1,34 +1,37 @@
 {
-  "schema_version": 1,
-  "source": "defaults",
   "constraints": {
     "stage.x": {
-      "min": 1000,
-      "max": 130000
+      "max": 130000,
+      "min": 1000
     },
     "stage.y": {
-      "min": 1000,
-      "max": 100000
+      "max": 100000,
+      "min": 1000
     },
     "stage.z_galvo": {
-      "min": -200,
-      "max": 200
+      "max": 200,
+      "min": -200
     },
     "stage.z_wide": {
-      "min": 0,
-      "max": 25000
+      "max": 25000,
+      "min": 0
     }
   },
   "functions": {
+    "acquire": null,
+    "load_experiment": null,
+    "move_galvo_to_pixel": null,
+    "save_experiment": null,
     "set_origin": null,
+    "set_procedure": null,
+    "set_state": null,
     "set_xyz": {
       "x_um": "@stage.x",
       "y_um": "@stage.y",
       "z_galvo_um": "@stage.z_galvo",
       "z_wide_um": "@stage.z_wide"
-    },
-    "set_state": null,
-    "set_procedure": null,
-    "acquire": null
-  }
+    }
+  },
+  "schema_version": 1,
+  "source": "defaults"
 }

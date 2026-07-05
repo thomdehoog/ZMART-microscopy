@@ -19,6 +19,7 @@ import shutil
 from types import SimpleNamespace
 
 import pytest
+from limits_fixtures import install_permissive_limits
 from navigator_expert.scanfields import files
 from navigator_expert.utils import RECEIPT_TIMEOUT
 
@@ -55,6 +56,7 @@ class _SaveClient:
     def __init__(self, receipts=(True,), on_receipt=None):
         self._receipts = list(receipts)
         self._on_receipt = on_receipt
+        install_permissive_limits(self)
         self.receipt_calls = 0
         self.receipt_timeouts = []
         self.PyApiSaveExperiment = SimpleNamespace(
@@ -77,6 +79,7 @@ class _LoadClient:
     """Fake CAM client for ``load_experiment`` (receipt only)."""
 
     def __init__(self, receipts=(True,)):
+        install_permissive_limits(self)
         self._receipts = list(receipts)
         self.receipt_calls = 0
         self.PyApiLoadExperiment = SimpleNamespace(

@@ -77,17 +77,28 @@ runtime where possible. Override via the profile, not at call sites.
 - **Log reader** — `LogReaderProfile`: the `lcsCommand.log` / `MatrixScreener.log` paths + freshness windows.
 - **Machine-local calibration & limits** — `config/machine.py` resolves the instrument's calibration
   (image↔stage matrix, per-objective translation) and stage limits from a **machine-local system config
-  dir** (out of the repo); the committed `calibration/defaults/calibration.json` and
-  `limits/defaults/limits.json` are a **real last-known-good calibration** (never an
-  identity/zero placeholder — see `config/machine.py`).
-- **Stage limits (required before any move)** — `set_stage_limits(...)` or
-  `apply_stage_limits_from_config(...)`, in micrometers.
-- **Function-keyed limits (fail-closed gate)** — `function_limits.json` (bundled at
-  `limits/defaults/`, overridden by the newest machine snapshot, validated by `shared.limits`).
-  Every mutating op on the zmart-adapter surface (`set_origin`, `set_xyz`, `set_state`,
-  `set_procedure`, `acquire`) is checked against it and **refuses to run if the file failed to
-  load or validate at connect** — the only clue is a connect-time log warning. If every
-  move/acquire is refusing, check that warning and this file first.
+  dir** (out of the repo). Calibration keeps a loud bundled fallback
+  (`calibration/defaults/calibration.json`, a real last-known-good calibration); the two **limits**
+  files do **not**: `limits/defaults/limits.json` and `limits/defaults/function_limits.json` are
+  **templates only** — a bundled envelope can be the wrong machine's envelope, so enforcement refuses
+  them. `limits/notebooks/set_stage_limits.ipynb` is the file factory: it measures the envelope and
+  publishes the machine-local `limits.json` + `function_limits.json` snapshot.
+- **Limits handshake (required before any mutation)** — `connect_limits_handshake(client)` (run
+  automatically by the zmart adapter's `connect()`; workflows/validators/notebooks call it once after
+  connecting). It requires the machine-local files, validates them (schema, finite numbers only,
+  min ≤ max, envelope **within the hardcoded physical backstop** `motion.limits.STAGE_BACKSTOP_UM`),
+  applies the stage envelope, and installs the function-keyed gate for that client. On failure the
+  session stays usable **read-only** and every mutating command returns a fail-closed refusal that
+  names the file tried and points at the notebook. Manual `set_stage_limits(...)` still adjusts the
+  in-memory envelope, but it does not open the gate — only a successful handshake does — and the
+  backstop bounds every move regardless.
+- **Function-keyed limits (fail-closed gate, commands layer)** — `commands/gate.py`. Every mutating
+  command wrapper (`set_*`, `move_*`, `acquire`, `select_job`, plus `save_experiment` /
+  `load_experiment`) declares one key in `gate.MUTATING_COMMANDS` and checks it **before the native
+  call fires** — nothing built on top (adapter, controller, workflows, notebooks) can bypass it.
+  The machine-local `function_limits.json` must carry an entry for every key (`null` =
+  reviewed-and-unlimited; an **absent** key fails closed at load). If every move/acquire is refusing,
+  read the refusal message: it says exactly which file is missing/invalid and how to create it.
 - **Canonical orientation** — call `require_canonical_scan_orientation()` at session start; it fails
   fast unless LAS X image export is `TOPLEFT` (any other transform silently breaks pixel↔stage math).
   Be aware of its real strength: no code path calls it automatically (the zmart adapter's `connect()`
@@ -99,10 +110,9 @@ runtime where possible. Override via the profile, not at call sites.
 ```python
 from navigator_expert import (
     connect_python_client, ping, require_canonical_scan_orientation,
-    apply_stage_limits_from_config, select_job, set_zoom, set_scan_speed,
+    connect_limits_handshake, select_job, set_zoom, set_scan_speed,
     move_xy, acquire, save,
 )
-from navigator_expert.motion import stage_config
 from shared.output_layout import Naming, run_hash
 
 # 1. Connect and validate the scope
@@ -110,9 +120,12 @@ client = connect_python_client()
 assert ping(client)
 require_canonical_scan_orientation()
 
-# 2. Configure safety limits (REQUIRED before movement) from the machine config
-#    (newest machine snapshot, falling back to the bundled limits/defaults/limits.json)
-apply_stage_limits_from_config(stage_config.load())
+# 2. Limits handshake (REQUIRED before any mutating command): validates the
+#    machine-local limits.json + function_limits.json (newest machine snapshot;
+#    NO bundled fallback — the limits/defaults/ files are templates) and
+#    installs the fail-closed gate for this client.
+state = connect_limits_handshake(client)
+assert state.ok, state.error   # points at limits/notebooks/set_stage_limits.ipynb
 
 # 3. Select and configure a job (live commands return a result dict)
 select_job(client, "MyExperiment")
@@ -133,9 +146,14 @@ print(saved.image_paths)                                  # {PlaneIndex(t,z,c): 
 > `acquire()` returns an `AcquisitionResult` dataclass and **raises** on failure — it is *not* a
 > `{"success": ...}` dict. Saving is a deliberate second step (see §6).
 
-> No machine config yet? Fall back to raw `set_stage_limits(x_min=1_000, x_max=130_000,
-> y_min=1_000, y_max=100_000, z_galvo_min=-200, z_galvo_max=200, z_wide_min=0, z_wide_max=25_000)`
-> — these are the bundled machine values (`limits/defaults/limits.json`); never widen them by hand.
+> No machine config yet? Every mutating command **refuses** (fail-closed) until the machine-local
+> limits exist — run `limits/notebooks/set_stage_limits.ipynb` once on the rig; it drives to the
+> physical corners and publishes `limits.json` + `function_limits.json` into the machine snapshot.
+> A refusal looks like: `move_xy refused: no machine-local limits.json for the physical stage
+> envelope: tried <snapshot path> … Create the machine-local file with
+> limits/notebooks/set_stage_limits.ipynb`. Raw `set_stage_limits(...)` only narrows/adjusts the
+> in-memory envelope; it cannot open the gate, and the hardcoded backstop
+> (`motion.limits.STAGE_BACKSTOP_UM`) bounds every move no matter what.
 
 ## 5. Core concepts
 

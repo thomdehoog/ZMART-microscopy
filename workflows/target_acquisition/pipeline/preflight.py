@@ -119,9 +119,17 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
             "connected successfully."
         )
 
-    # 0.3 -- calibration + stage config + hardware
+    # 0.3 -- calibration + limits handshake + hardware
     calibration = calib.load_calibration()
-    stage_config = drv.load_stage_config(limits_path=drv.default_stage_limits_path())
+    # The connect-time limits handshake: machine-local limits.json +
+    # function_limits.json (no bundled fallback — the templates are refused),
+    # validated and installed for this client. Without them every mutating
+    # driver command refuses, so the workflow aborts here with the
+    # actionable error (it names the notebook that creates the files).
+    limits_state = drv.connect_limits_handshake(client)
+    if not limits_state.ok:
+        raise RuntimeError(f"preflight: {limits_state.error}")
+    stage_config = limits_state.stage_cfg
     hw = drv.get_hardware_info(client, mode="api")
     if not hw:
         raise RuntimeError("drv.get_hardware_info returned nothing.")

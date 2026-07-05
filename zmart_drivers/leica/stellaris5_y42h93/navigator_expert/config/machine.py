@@ -17,12 +17,23 @@ to snapshot immutability: it is ephemeral operator state (the current frame
 zero point), written into the *newest* snapshot in place by ``set_origin`` and
 carried forward on adopt, so it stays the truth until set again.
 
-When no snapshot exists (fresh machine, or a wiped ProgramData tree) the driver
-falls back - loudly - to the defaults bundled in the driver, each owned by its
-subsystem: ``calibration/defaults/calibration.json`` and
-``limits/defaults/limits.json``. Those are a real last-known-good calibration
-for this microscope, never an identity/zero placeholder, so the driver stays
-usable while warning that a re-calibration is due.
+When no snapshot exists (fresh machine, or a wiped ProgramData tree), what
+happens depends on the file:
+
+- ``calibration.json`` falls back - loudly - to the bundled
+  ``calibration/defaults/calibration.json``: a real last-known-good
+  calibration for this microscope (never an identity/zero placeholder), so
+  read/compensation paths stay usable while warning that a re-calibration
+  is due.
+- ``limits.json`` and ``function_limits.json`` do NOT fall back for
+  enforcement. The bundled copies under ``limits/defaults/`` are TEMPLATES
+  only - a bundled envelope can be the wrong machine's envelope, which
+  breaks safety rather than providing it. The connect-time limits handshake
+  (``commands/gate.py``) refuses the fallback and every mutating command
+  then refuses until the machine-local files exist; the file factory is
+  ``limits/notebooks/set_stage_limits.ipynb``. ``resolve()`` still returns
+  the bundled path with ``is_fallback=True`` so callers (tests, template
+  tooling) can reach the template deliberately.
 
 ``<datetime>`` is UTC with microsecond precision, formatted so it is both a
 legal Windows path segment (no colons) and lexicographically == chronologically
@@ -175,10 +186,12 @@ class MachineProfile:
         return snaps[-1] if snaps else None
 
     def resolve(self, filename: str) -> tuple[Path, bool]:
-        """Resolve *filename* to ``(path, is_fallback)``.
+        """Resolve *filename* to ``(path, is_fallback)`` - explicit provenance.
 
         Prefer the newest snapshot's copy; fall back to the bundled default when
-        there is no snapshot, or the newest snapshot lacks that file.
+        there is no snapshot, or the newest snapshot lacks that file. Callers
+        that enforce safety must check ``is_fallback`` and refuse the bundled
+        copy (see :meth:`require_machine_local`).
         """
         latest = self.latest_snapshot()
         if latest is not None:
@@ -186,6 +199,27 @@ class MachineProfile:
             if candidate.exists():
                 return candidate, False
         return self.bundled_default_path(filename), True
+
+    def require_machine_local(self, filename: str, kind: str) -> Path:
+        """Resolve *filename* strictly: the machine-local snapshot copy or raise.
+
+        The no-fallback rule for limits enforcement: a bundled default that
+        silently applies can be the wrong machine's envelope, so enforcement
+        refuses it. The error names the location tried and the notebook that
+        creates the machine-local file.
+        """
+        path, is_fallback = self.resolve(filename)
+        if is_fallback:
+            latest = self.latest_snapshot()
+            tried = (latest / filename) if latest is not None else self.snapshot_root()
+            raise RuntimeError(
+                f"no machine-local {filename} for {kind}: tried {tried} "
+                f"(newest snapshot under {self.snapshot_root()}). The bundled "
+                f"{path} is a TEMPLATE and is never trusted for enforcement. "
+                f"Create the machine-local file with "
+                f"limits/notebooks/set_stage_limits.ipynb, then reconnect."
+            )
+        return path
 
     def _resolve_logged(self, filename: str, kind: str) -> Path:
         path, is_fallback = self.resolve(filename)
@@ -262,15 +296,23 @@ class MachineProfile:
             )
         return self.snapshot_root() / name
 
-    def _seed_file(self, staging: Path, filename: str, override: dict | None) -> None:
+    def _seed_file(
+        self, staging: Path, filename: str, override: dict | None, *, bundled_ok: bool = True
+    ) -> None:
         """Place *filename* in the staging snapshot: the provided dict, else the
-        latest snapshot's copy carried forward (bundled default if none)."""
+        latest snapshot's copy carried forward (bundled default if none and
+        ``bundled_ok``). With ``bundled_ok=False`` and no machine-local source,
+        the file is omitted — enforcement files (limits / function limits) are
+        never minted from the bundled template by a side-effect publish; only
+        an explicit override (the set_stage_limits notebook) creates them."""
         dest = staging / filename
         if override is not None:
             _write_json(dest, override)
-        else:
-            src, _ = self.resolve(filename)
-            shutil.copy2(src, dest)
+            return
+        src, is_fallback = self.resolve(filename)
+        if is_fallback and not bundled_ok:
+            return
+        shutil.copy2(src, dest)
 
     def publish_snapshot(
         self,
@@ -278,23 +320,30 @@ class MachineProfile:
         *,
         calibration: dict | None = None,
         limits: dict | None = None,
+        function_limits: dict | None = None,
         notebook_paths: Iterable[str | Path] = (),
     ) -> Path:
         """Publish a new cumulative machine-state snapshot (copy-forward + atomic).
 
         Seeds the new dated folder by carrying the latest snapshot's
-        ``calibration.json`` and ``limits.json`` forward (from the bundled
-        default when there is no snapshot), overrides whichever of *calibration*
-        / *limits* is provided, carries a persisted ``origin.json`` forward when
-        one exists (so an adopt never silently drops the operator's frame
-        origin), copies the given executed notebook(s) in, then atomically
-        renames the folder into place. The live snapshot is never mutated, so a
-        crash mid-publish cannot corrupt the calibration the driver is currently
-        reading.
+        ``calibration.json``, ``limits.json``, and ``function_limits.json``
+        forward, overrides whichever of *calibration* / *limits* /
+        *function_limits* is provided, carries a persisted ``origin.json``
+        forward when one exists (so an adopt never silently drops the
+        operator's frame origin), copies the given executed notebook(s) in,
+        then atomically renames the folder into place. The live snapshot is
+        never mutated, so a crash mid-publish cannot corrupt the calibration
+        the driver is currently reading.
+
+        Seeding provenance: ``calibration.json`` may seed from the bundled
+        default (a real last-known-good calibration). The two limits files may
+        NOT — with no machine-local prior and no override they are omitted, so
+        a calibration adopt can never mint an enforceable envelope out of the
+        bundled template (the set_stage_limits notebook is the only factory).
 
         *moment* must stamp strictly after the latest snapshot
         (see :meth:`new_snapshot_dir`); callers pass ``datetime.now(timezone.utc)``.
-        Domain validation of *calibration* / *limits* is the caller's job.
+        Domain validation of the payloads is the caller's job.
         """
         target = self.new_snapshot_dir(moment)  # monotonic guard
         root = self.snapshot_root()
@@ -305,7 +354,8 @@ class MachineProfile:
         staging.mkdir()
         try:
             self._seed_file(staging, CALIBRATION_FILENAME, calibration)
-            self._seed_file(staging, LIMITS_FILENAME, limits)
+            self._seed_file(staging, LIMITS_FILENAME, limits, bundled_ok=False)
+            self._seed_file(staging, FUNCTION_LIMITS_FILENAME, function_limits, bundled_ok=False)
             prior = self.latest_snapshot()
             if prior is not None and (prior / ORIGIN_FILENAME).exists():
                 shutil.copy2(prior / ORIGIN_FILENAME, staging / ORIGIN_FILENAME)

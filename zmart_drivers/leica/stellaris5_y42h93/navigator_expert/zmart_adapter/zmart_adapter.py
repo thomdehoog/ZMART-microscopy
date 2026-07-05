@@ -67,7 +67,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from shared import limits as _shared_limits
 from shared.output_layout import Naming
 from shared.output_layout.naming import run_hash
 from zmart_controller import registry as _registry
@@ -78,11 +77,11 @@ from ..acquisition import capture as _capture
 from ..acquisition import save as _save
 from ..calibration.core import model as _cal_model
 from ..commands import commands as _commands
+from ..commands import gate as _gate
 from ..config import machine as _machine
 from ..connection import session as _session
 from ..motion import limits as _limits
 from ..motion import movement as _motion
-from ..motion import stage_config as _stage_config
 from ..readers.derived import z_um_from_settings as _z_um_from_settings
 
 log = logging.getLogger(__name__)
@@ -106,10 +105,14 @@ _DEFAULT_ACTUATORS = {"x": "motoric", "y": "motoric", "z": "z-wide"}
 # controller actuator name -> driver move_z z_mode
 _Z_MODES = {"z-wide": "zwide", "z-galvo": "galvo"}
 
-# The ops that change something about the microscope. Each MUST have an entry
-# in function_limits.json (null = reviewed-and-unlimited); the loader rejects
-# a file that misses one, so a new mutating op cannot ship silently unlimited.
-_MUTATING_OPS = ("set_origin", "set_xyz", "set_state", "set_procedure", "acquire")
+# Function-keyed limits are enforced BELOW this adapter, in the command
+# wrappers themselves (commands/gate.py; maintainer decision §7) — the
+# adapter no longer carries its own gate. connect() runs the limits
+# handshake; a failed handshake leaves the session read-only and every
+# mutating command underneath refuses with the recorded reason. What the
+# adapter keeps is the whole-move XY+Z pre-flight in set_xyz (both legs
+# checked before any motion), deliberate defense in depth the per-command
+# checks cannot replicate.
 
 
 @dataclass
@@ -150,10 +153,6 @@ class ZmartHandle:
     # loaded at connect; None when the calibration could not be read (cross-
     # objective moves are then refused, reads warn).
     translations: dict | None = None
-    # Function-keyed limits for this session (shared.limits.FunctionLimits),
-    # loaded at connect; None when the file could not be loaded — every
-    # mutating op then refuses (fail-closed), read-only use still works.
-    function_limits: Any | None = None
     closed: bool = False
 
 
@@ -168,87 +167,17 @@ def _require_open(handle: ZmartHandle) -> None:
 # =============================================================================
 
 
-def _configure_stage_limits() -> dict | None:
-    """Load and apply the machine's physical stage envelope for this session.
+def _refuse_if_gated(handle: ZmartHandle, command: str, values: dict) -> None:
+    """Pre-flight one command leg against the commands-layer limits gate.
 
-    ``move_xy`` / ``move_z`` refuse to run until ``set_stage_limits()`` has
-    been called, and the controller contract has no limits hook — so the
-    adapter (the one component that knows the machine) configures the hard
-    safety envelope here, once at connect, from the machine config
-    (``stage_config.load()`` — newest snapshot or bundled default).
-
-    Returns the loaded machine config so :func:`connect` can overlay the
-    same envelope onto the function-keyed limits without a second read.
-
-    Best-effort: a missing/invalid config is logged rather than failing the
-    connect (returning None), so read-only controller use still works; a
-    later ``set_xyz`` then fails loudly with the driver's own "Stage limits
-    not configured" message instead of moving unbounded.
+    The gate itself lives below the adapter (``commands/gate.py``) and would
+    refuse anyway when the command fires; calling it here lets :func:`set_xyz`
+    pre-flight the WHOLE move (both legs) before any motion, and raise the
+    ops-contract RuntimeError with the gate's own actionable message.
     """
-    try:
-        stage_cfg = _stage_config.load()
-        _limits.apply_stage_limits_from_config(stage_cfg)
-        return stage_cfg
-    except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
-        log.warning(
-            "could not configure stage limits from machine config (%s); "
-            "set_xyz will fail until limits are configured",
-            exc,
-        )
-        return None
-
-
-def _load_function_limits(stage_cfg: dict | None) -> Any | None:
-    """Load the session's function-keyed limits (``shared.limits``), fail-closed.
-
-    Resolves ``function_limits.json`` through the machine profile — the
-    newest ProgramData snapshot's copy, else the driver-bundled default —
-    and overlays the machine's physical stage envelope onto the file's
-    ``stage.*`` constraints, so the numbers that govern ``set_xyz`` are the
-    snapshot's, never a stale bundled copy. The loader also enforces
-    completeness: every op in :data:`_MUTATING_OPS` must have an entry.
-
-    Returns None when the file cannot be loaded or fails validation; every
-    mutating op then refuses via :func:`_check_limits` while read-only
-    controller use still works — same degradation posture as
-    :func:`_configure_stage_limits`, but never fail-open.
-    """
-    try:
-        path, is_fallback = _machine.MACHINE.resolve(_machine.FUNCTION_LIMITS_FILENAME)
-        overrides = None
-        if stage_cfg is not None:
-            overrides = {
-                f"stage.{axis}": {"min": bounds[0], "max": bounds[1]}
-                for axis, bounds in stage_cfg["stage_um"].items()
-            }
-        return _shared_limits.load(
-            path,
-            functions=_MUTATING_OPS,
-            constraint_overrides=overrides,
-            is_fallback=is_fallback,
-        )
-    except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
-        log.warning(
-            "function limits unavailable (%s); every mutating op will refuse until %s loads",
-            exc,
-            _machine.FUNCTION_LIMITS_FILENAME,
-        )
-        return None
-
-
-def _check_limits(handle: ZmartHandle, function: str, values: dict) -> None:
-    """Gate one mutating op on the session's function-keyed limits.
-
-    Fail-closed: with no limits loaded the op refuses outright. An
-    out-of-bounds value raises ``shared.limits.LimitViolation`` (a
-    RuntimeError) naming the value, the constraint, and the governing file.
-    """
-    if handle.function_limits is None:
-        raise RuntimeError(
-            f"{function} refused: function limits are not configured — connect() "
-            f"could not load {_machine.FUNCTION_LIMITS_FILENAME} (see the connect warning)"
-        )
-    handle.function_limits.check(function, values)
+    refusal = _gate.check_refusal(handle.client, command, values)
+    if refusal is not None:
+        raise RuntimeError(refusal)
 
 
 def connect(connection: dict) -> ZmartHandle:
@@ -260,11 +189,17 @@ def connect(connection: dict) -> ZmartHandle:
             ``output_root`` (edited in by the caller) is where
             :func:`acquire` saves and :func:`set_origin` persists.
 
-    Applies the machine's physical stage limits once here so
-    :func:`set_xyz` can move (see :func:`_configure_stage_limits`), and
-    restores the machine-local frame origin persisted by :func:`set_origin`
-    (the origin stays the frame truth across sessions until set again; with
-    none persisted, the frame is absolute stage coordinates).
+    Runs the connect-time limits handshake (``commands.gate``): the
+    machine-local ``limits.json`` / ``function_limits.json`` must exist in
+    the newest machine snapshot, validate, and sit within the hardcoded
+    physical backstop. On success the stage envelope is applied so
+    :func:`set_xyz` can move; on failure the session still connects for
+    read-only use and every mutating command refuses with an error naming
+    the file tried and the notebook that creates it
+    (``limits/notebooks/set_stage_limits.ipynb``). Also restores the
+    machine-local frame origin persisted by :func:`set_origin` (the origin
+    stays the frame truth across sessions until set again; with none
+    persisted, the frame is absolute stage coordinates).
 
     Raises whatever :func:`connect_python_client` raises when LAS X is
     unreachable — the controller surfaces that to the caller unchanged.
@@ -273,10 +208,9 @@ def connect(connection: dict) -> ZmartHandle:
         client_name=connection.get("client", "PythonClient"),
         api_delay_ms=connection.get("api_delay_ms"),
     )
-    stage_cfg = _configure_stage_limits()
+    _gate.connect_handshake(client)
     handle = ZmartHandle(client=client, connection=dict(connection), hash6=run_hash())
     handle.translations = _load_objective_translations()
-    handle.function_limits = _load_function_limits(stage_cfg)
     _restore_persisted_origin(handle)
     return handle
 
@@ -439,9 +373,14 @@ def set_origin(handle: ZmartHandle) -> dict:
     by :func:`connect`, so it stays the frame truth until set again. On a
     machine with no snapshot yet (never calibrated) the origin is kept in
     memory only, with a warning.
+
+    Not limits-gated: this op fires no native command — it reads the current
+    position and persists a machine-local reference file. (The commands-layer
+    gate governs everything that commands hardware; ``set_origin`` stays in
+    the ``function_limits.json`` vocabulary so machine files remain explicit
+    about it.)
     """
     _require_open(handle)
-    _check_limits(handle, "set_origin", {})
     snap = _hardware_snapshot(handle)
     handle.origin = {
         "x_um": snap["x_um"],
@@ -566,16 +505,17 @@ def set_xyz(
         z_target = target_focus - snap["z_wide_um"]
     z_mode = _Z_MODES[chosen["z"]]
 
-    # Pre-flight the WHOLE move against the session's function limits and the
-    # stage envelope before anything travels, so a doomed z leg can never
-    # leave the stage at a new XY with the old focus. Two layers on purpose:
-    # the function limits carry provenance (which file, which constraint),
-    # the driver's own Phase A checks stay as the safety net underneath.
+    # Pre-flight the WHOLE move (XY and Z legs) before anything travels, so a
+    # doomed z leg can never leave the stage at a new XY with the old focus.
+    # Two layers on purpose: the commands-layer function gate carries
+    # provenance (which file, which constraint) and would refuse each leg at
+    # fire time anyway; checking both legs here first preserves whole-move
+    # atomicity, with the driver's own Phase A checks as the net underneath.
     z_param = "z_galvo_um" if chosen["z"] == "z-galvo" else "z_wide_um"
-    _check_limits(handle, "set_xyz", {"x_um": abs_x, "y_um": abs_y})
+    _refuse_if_gated(handle, "move_xy", {"x_um": abs_x, "y_um": abs_y})
     _limits._check_xy_limits(abs_x, abs_y)
     try:
-        _check_limits(handle, "set_xyz", {z_param: z_target})
+        _refuse_if_gated(handle, "move_z", {z_param: z_target})
         _limits._check_z_limits(z_target, z_mode)
     except RuntimeError as exc:
         alternative = "z-wide" if chosen["z"] == "z-galvo" else "z-galvo"
@@ -722,7 +662,6 @@ def acquire(
             "instrument dict before set_instrument()"
         )
     resolved = _with_defaults(handle, options)
-    _check_limits(handle, "acquire", dict(resolved))
     job = resolved["job"]
     if not job:
         raise RuntimeError("no LAS X job selected and none passed via options['job']")
@@ -811,12 +750,10 @@ def get_state(handle: ZmartHandle) -> dict:
             "jobs": normal,
             "autofocus_jobs": autofocus,
             # Which function-limits file governs this session (evidence, not
-            # an instruction): path, source tag, and whether it is the
-            # bundled fallback. None when limits failed to load (every
-            # mutating op is then refusing).
-            "limits": (
-                None if handle.function_limits is None else handle.function_limits.describe()
-            ),
+            # an instruction): path, source tag, is_fallback — reported by
+            # the commands-layer gate. None when the limits handshake failed
+            # (every mutating command underneath is then refusing).
+            "limits": _gate.describe(handle.client),
         },
     }
 
@@ -832,7 +769,6 @@ def set_state(handle: ZmartHandle, state: dict) -> dict:
     that lists what is available.
     """
     _require_open(handle)
-    _check_limits(handle, "set_state", dict(state.get("changeable") or {}))
     applied: dict[str, Any] = {}
     job = (state.get("changeable") or {}).get("job")
     if job and job != _selected_job_name(handle):
@@ -874,7 +810,6 @@ def get_procedures(handle: ZmartHandle) -> dict:
 def set_procedure(handle: ZmartHandle, procedure: dict) -> dict:
     """Run a procedure from :func:`get_procedures`; report what ran."""
     _require_open(handle)
-    _check_limits(handle, "set_procedure", dict(procedure))
     name = procedure.get("name")
     if name == "backlash_takeup":
         _motion.correct_backlash(handle.client)

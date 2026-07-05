@@ -422,7 +422,14 @@ def _bootstrap() -> tuple[Any, type]:
 def _connect(args: argparse.Namespace, MockClient: type, log: logging.Logger) -> Any | None:
     """Build the LAS X client. Mock if --mock else LasxApi. Returns None on failure."""
     if args.mock:
+        # Enforcement has no bundled fallback: provision a hermetic,
+        # machine-local fixture snapshot so the REAL limits handshake runs
+        # (and the developer machine's real ProgramData is never read).
+        from limits_fixtures import hermetic_mock_machine_root  # noqa: PLC0415
+
+        root = hermetic_mock_machine_root()
         log.info("client | python in-process mock | latency=%.4fs", args.mock_latency)
+        log.info("limits | hermetic machine root provisioned at %s", root)
         return MockClient(latency=args.mock_latency)
     try:
         from navigator_expert.connection.lasx_runtime import (  # noqa: PLC0415
@@ -459,48 +466,25 @@ def _connect(args: argparse.Namespace, MockClient: type, log: logging.Logger) ->
     return client
 
 
-def _apply_stage_limits(drv: Any, v: Validator, args: argparse.Namespace) -> bool:
-    """Apply calibrated safety limits before any movement happens."""
-    stage_cfg = v.callable(
-        "stage config: load",
-        lambda: (
-            drv.load_stage_config(limits_path=args.limits_config)
-            if args.limits_config
-            else drv.load_stage_config()
-        ),
-        context={"limits_path": args.limits_config or "<defaults>"},
+def _apply_stage_limits(drv: Any, v: Validator, client: Any, args: argparse.Namespace) -> bool:
+    """Run the connect-time limits handshake before any movement happens.
+
+    The REAL handshake (machine-local limits + function limits, validated,
+    backstop-contained, gate installed for this client) — the same check the
+    adapter's connect performs, so a bench run proves the machine is
+    provisioned. There is no bundled fallback; on an unprovisioned machine
+    this records the actionable refusal (which names the notebook) and stops.
+    """
+    state = v.callable(
+        "limits: connect handshake",
+        lambda: drv.connect_limits_handshake(client, stage_limits_path=args.limits_config),
+        context={"limits_path": args.limits_config or "<machine-local snapshot>"},
     )
-    if not stage_cfg:
-        v.fail("stage limits: apply", "could not load stage configuration")
+    if state is None:
         return False
-
-    try:
-        lim = stage_cfg["stage_um"]
-        limits = dict(
-            x_min=lim["x"][0],
-            x_max=lim["x"][1],
-            y_min=lim["y"][0],
-            y_max=lim["y"][1],
-            z_galvo_min=lim["z_galvo"][0],
-            z_galvo_max=lim["z_galvo"][1],
-            z_wide_min=lim["z_wide"][0],
-            z_wide_max=lim["z_wide"][1],
-        )
-    except (KeyError, TypeError, IndexError) as exc:
-        v.fail("stage limits: apply", f"invalid stage configuration: {exc}")
+    if not state.ok:
+        v.fail("limits: connect handshake", state.error)
         return False
-
-    applied = v.callable(
-        "stage limits: apply",
-        lambda: _set_stage_limits(drv, limits),
-        context={"limits": limits},
-    )
-    return bool(applied)
-
-
-def _set_stage_limits(drv: Any, limits: dict[str, float]) -> bool:
-    # Truthy wrapper so v.callable can record a successful setup step.
-    drv.set_stage_limits(**limits)
     return True
 
 
@@ -1353,8 +1337,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--limits-config",
-        help="limits JSON; default is the machine profile "
-        "(snapshot, else bundled limits/defaults/limits.json)",
+        help="explicit stage-limits JSON for the handshake; default is the "
+        "machine-local snapshot (no bundled fallback — the templates under "
+        "limits/defaults/ are refused for enforcement)",
     )
 
     # Phase gates
@@ -1602,7 +1587,7 @@ def main(argv: list[str] | None = None) -> int:
                 v.fail("client: connect", "could not establish client")
             return v.exit_code()
 
-        if not _apply_stage_limits(drv, v, args):
+        if not _apply_stage_limits(drv, v, client, args):
             return v.exit_code()
 
         job_name = phase_readonly(drv, v, client, args)
