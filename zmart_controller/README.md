@@ -18,7 +18,8 @@ controller stays a thin, easy surface for humans and AI agents alike.
 > example notebook registers from the test side.
 
 > **This is the `zmart` surface.** The controller is ZMART's vendor-agnostic API
-> — the layer the outside world is meant to import (`import zmart`), with vendor
+> — the layer the outside world will eventually import as `zmart` (today the
+> package is `zmart_controller`; no `zmart` package exists yet), with vendor
 > drivers plugged in underneath. See [`docs/ZMART.md`](../docs/ZMART.md) for the
 > identity and the "brand-surface" principle.
 
@@ -64,7 +65,8 @@ Most steps follow the same pattern: **discover, then apply.** Call a `get_*`
 function to see what the microscope supports, each option lists its allowed
 values and the one currently active. Then pass your choice to the matching call.
 Omit an option and the driver keeps its active default, so you only specify what
-you want to change.
+you want to change. In this vocabulary `set_*` means "apply — or run": `set_state`
+reapplies a snapshot, `set_procedure` *runs* a procedure, `set_instrument` connects.
 
 ## The workflow, step by step
 
@@ -108,6 +110,10 @@ zmart_controller.get_actuators()                 # {"x": ["motoric"], "y": ["mot
 zmart_controller.set_xyz(10, 20, 5, with_actuators={"z": "piezo"})
 ```
 
+The actuator names above are the bundled mock's — always discover first. The
+Leica driver, for example, offers `{"z": ["z-wide", "z-galvo"]}`; copy-pasting
+`{"z": "piezo"}` there raises `ValueError`.
+
 ### 4. Capture and reapply state
 
 A *state* is a snapshot of the instrument you can capture now and reapply
@@ -127,14 +133,21 @@ zmart_controller.set_state(prescan)                     # reapply it later
 instrument supports. For example: `backlash_correction` (settles the actuators
 before the image is captured), `format`, and `procedure`. `acquire()` captures one
 dataset and saves it in one call: `acquisition_type` is the kind of scan,
-`position_label` names the output file, and `options` carries the settings. Omit a
-setting and the driver uses its active default.
+`position_label` labels the position in the driver's output records (how it
+appears — filename slot, lineage — is driver-defined), and `options` carries the
+settings. Omit a setting and the driver uses its active default.
 
 ```python
 zmart_controller.get_acquisition_options()
-# {"backlash_correction": {...}, "format": {...}, "procedure": {...}}
+# {"backlash_correction": {...}, "format": {...}, "procedure": {...}}   <- mock's menu
 zmart_controller.acquire(acquisition_type="prescan", position_label="A1", options={"format": "ome-tiff"})
 ```
+
+The option menu shown is the bundled mock's; each driver owns its own menu
+(the Leica driver's has `job`, `strip_scan_fields`, `exporter`, `cleanup_source`
+and no `procedure`) and its own naming rules — see the driver README for
+constraints such as the Leica kebab-case `acquisition_type` rule and
+numeric-label overwrites.
 
 ### 6. Run a procedure
 
@@ -149,11 +162,16 @@ zmart_controller.set_procedure({"name": "autofocus"})
 
 ### 7. Get additional context
 
-`get_context()` returns whatever extra read-only context the driver provides — for
-example the initial positions captured at connect.
+`get_context()` returns whatever extra context the driver provides. The keys are
+driver-defined — inspect the dict before relying on one: the mock (and the
+mesoSPIM driver) expose `initial_positions`, while the Leica driver instead
+exposes stored positions under `scan_field` (alongside `selected_job`,
+`output_root`, ...). The call is read-only *with respect to instrument state*,
+but a driver may persist working files while gathering it (the Leica driver
+flushes the live experiment to disk, which can block up to a minute).
 
 ```python
-zmart_controller.get_context()["initial_positions"]     # [{"x": 0.0, "y": 0.0, "z": 0.0}, ...]
+zmart_controller.get_context()["initial_positions"]     # mock driver; on Leica use ["scan_field"]
 ```
 
 ### 8. Close the session
@@ -195,6 +213,14 @@ register(
 `connect` receives the whole `connection` dict and returns the driver handle;
 every other function takes that handle as its first argument. `tests/mock_driver.py`
 is a complete, readable reference implementation.
+
+**How ops report failure: they raise.** Ops must raise an exception on failure
+(`ValueError` for caller mistakes, `RuntimeError` for instrument failures or
+driver refusals) and must never encode failure in the returned dict — the
+controller inspects nothing and propagates driver exceptions to the caller
+unchanged. Both real adapters and the mock follow this. Keep error text
+credential-safe: connection dicts may carry credentials, so name keys, never
+echo values (the registry's own errors follow this rule).
 
 ## Tests
 

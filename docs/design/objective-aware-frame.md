@@ -17,7 +17,7 @@
 frame value regardless of how the actuators realize it.** Actuator positions are
 how a coordinate is *realized*, never what it *means*: frame z is computed from
 the focus sum (`z_wide + z_galvo`), so it is invariant under re-decomposition
-between the drives (including `rebase_galvo`); `with_actuators` selects how a
+between the drives (including a future `rebase_galvo` — no such operation exists yet); `with_actuators` selects how a
 move is executed, never what a coordinate denotes; and — once this design lands —
 an objective change re-anchors the mapping via ΔT without moving the frame value
 of a fixed sample point. Actuator state matters in exactly two places, both
