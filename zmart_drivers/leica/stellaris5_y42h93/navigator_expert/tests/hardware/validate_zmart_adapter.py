@@ -228,11 +228,17 @@ def _restore(
                 raise RuntimeError(f"z-wide restore not accepted: {r}")
             return True
 
-        v.callable("move: restore z-wide", do_zwide, context={"z_wide_um": orig["z_wide_um"]})
+        v.callable(
+            "move: restore z-wide",
+            do_zwide,
+            context={"z_wide_um": orig["z_wide_um"]},
+            mutating=True,
+        )
     v.callable(
         "move: restore XY + focus (frame 0,0,0)",
         lambda: sess.set_xyz(0.0, 0.0, 0.0, with_actuators={"z": "z-galvo"}),
         context=dict(orig, job=job),
+        mutating=True,
     )
 
 
@@ -255,7 +261,7 @@ def phase_move(v: vh.Validator, sess: Any, drv: Any, args: argparse.Namespace) -
 
     with v.phase("move (set_origin + set_xyz)"):
         try:
-            v.callable("set_origin", sess.set_origin)
+            v.callable("set_origin", sess.set_origin, mutating=True)
             f = v.callable("get_xyz after set_origin", sess.get_xyz)
             if f is not None:
                 v.compare("origin: frame x -> 0", f["x"]["value"], 0.0, tolerance=XY_TOL_UM)
@@ -266,6 +272,8 @@ def phase_move(v: vh.Validator, sess: Any, drv: Any, args: argparse.Namespace) -
             v.callable(
                 "set_xyz: XY move",
                 lambda: sess.set_xyz(dx, dy, 0.0, with_actuators={"z": "z-galvo"}),
+                context={"to_frame": (dx, dy, 0.0), "z_actuator": "z-galvo"},
+                mutating=True,
             )
             f = v.callable("get_xyz after XY", sess.get_xyz)
             if f is not None:
@@ -278,6 +286,8 @@ def phase_move(v: vh.Validator, sess: Any, drv: Any, args: argparse.Namespace) -
             v.callable(
                 "set_xyz: z-galvo move",
                 lambda: sess.set_xyz(dx, dy, dzg, with_actuators={"z": "z-galvo"}),
+                context={"to_frame": (dx, dy, dzg), "z_actuator": "z-galvo"},
+                mutating=True,
             )
             f = v.callable("get_xyz after z-galvo", sess.get_xyz)
             if f is not None:
@@ -303,6 +313,8 @@ def phase_move(v: vh.Validator, sess: Any, drv: Any, args: argparse.Namespace) -
                 v.callable(
                     "set_xyz: z-wide move",
                     lambda: sess.set_xyz(dx, dy, total, with_actuators={"z": "z-wide"}),
+                    context={"to_frame": (dx, dy, total), "z_actuator": "z-wide"},
+                    mutating=True,
                 )
                 restore_zwide = True
                 f = v.callable("get_xyz after z-wide", sess.get_xyz)
@@ -368,11 +380,18 @@ def phase_state(v: vh.Validator, sess: Any) -> None:
         v.callable(
             "set_state: switch job",
             lambda: sess.set_state({**captured, "changeable": {"job": other}}),
+            context={"to": other, "from": original},
+            mutating=True,
         )
         after = v.callable("get_state: after switch (settled)", lambda: _get_state_settled(sess))
         if after:
             v.compare("state: switched", after["changeable"]["job"], other)
-        v.callable("set_state: restore", lambda: sess.set_state(captured))
+        v.callable(
+            "set_state: restore",
+            lambda: sess.set_state(captured),
+            context={"restore_to": original},
+            mutating=True,
+        )
         restored = v.callable(
             "get_state: after restore (settled)", lambda: _get_state_settled(sess)
         )
@@ -394,6 +413,8 @@ def phase_autofocus(v: vh.Validator, sess: Any) -> None:
         result = v.callable(
             "autofocus: run",
             lambda: sess.set_procedure({"name": "autofocus", "job": af_jobs[0]}),
+            context={"job": af_jobs[0]},
+            mutating=True,
         )
         if result:
             v.compare(
@@ -426,6 +447,7 @@ def phase_acquire(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
                 options=options,
             ),
             context={"exporter": args.exporter or active},
+            mutating=True,
         )
         if not rec:
             return
@@ -478,6 +500,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # output + gating
     p.add_argument("--output", default=None, help="JSONL output path; '-' for stdout")
+    p.add_argument(
+        "--report-dir",
+        default=None,
+        help="directory for the Markdown run report "
+        "(hardware_run_report_<YYYYMMDD-HHMMSS>.md; default: working directory)",
+    )
     p.add_argument("--strict-confirmation", action="store_true")
     p.add_argument("--yes", action="store_true", help="skip the interactive confirm before writes")
     p.add_argument(
@@ -494,7 +522,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     log = vh._configure_logging(args.log_level, jsonl_to_stdout=(args.output == "-"))
     sink = vh._make_sink(args.output, log)
-    v = vh.Validator(sink=sink, log=log, strict_confirmation=args.strict_confirmation)
+    report = vh.RunReport(
+        script="validate_zmart_adapter",
+        backend=(
+            "mock (in-process MockLasxClient; no instrument touched)"
+            if args.mock
+            else "live LAS X (simulator or scope)"
+        ),
+        report_dir=args.report_dir,
+        argv=list(argv) if argv is not None else sys.argv[1:],
+    )
+    v = vh.Validator(
+        sink=sink, log=log, strict_confirmation=args.strict_confirmation, report=report
+    )
 
     adapter = _register_adapter()
     vh._apply_state_reader_mode(args.state_reader_mode, log)
@@ -510,6 +550,7 @@ def main(argv: list[str] | None = None) -> int:
         output_root,
     )
 
+    crash: str | None = None
     try:
         try:
             sess = _connect_session(args, adapter, output_root)
@@ -548,8 +589,17 @@ def main(argv: list[str] | None = None) -> int:
             sess.disconnect()
         except Exception:  # noqa: BLE001
             pass
+    except BaseException as exc:
+        crash = f"{type(exc).__name__}: {exc}"
+        raise
     finally:
         v.summary()
+        try:
+            report_path = report.write(crashed=crash)
+        except OSError as exc:  # never mask the run result with a report error
+            log.error("could not write markdown run report: %s", exc)
+        else:
+            log.info("markdown run report: %s", report_path)
 
     return v.exit_code()
 

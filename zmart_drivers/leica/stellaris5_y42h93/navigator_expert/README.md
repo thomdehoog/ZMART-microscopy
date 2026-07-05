@@ -398,7 +398,8 @@ python -m pytest -q zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calib
 
 # Self-contained gate (lint + offline pytest + coverage)
 python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py           # offline (default)
-python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py online     # live LAS X validators only
+python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py online     # live LAS X validators, read-only
+python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py online --live-writes  # bench validation (reversible writes, restored)
 python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py both       # offline suite + live validators
 ```
 
@@ -418,7 +419,12 @@ sections run only with their `--allow-*` flags:
 python -m pytest -q zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware   # offline mock gates
 python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware/validate_hardware.py --yes --allow-xy --allow-z --allow-objective --allow-acquire --state-reader-mode hybrid
 ```
-Validator JSONL outputs are runtime artifacts, ignored by default.
+Validator JSONL outputs are runtime artifacts, ignored by default. Every validator run also
+writes a **Markdown run report** (`hardware_run_report_<timestamp>.md`, in `tests/_report/` when
+launched via run_ci) listing every attempted instrument change — including failures and
+restores — with confirmation status and timing. **Bench-run instructions** (prerequisites, what
+`--live-writes` changes on the scope, expected duration, report locations) live in
+[`tests/hardware/README.md`](tests/hardware/README.md).
 
 ## 10. Invariants & gotchas
 

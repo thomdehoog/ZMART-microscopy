@@ -132,6 +132,8 @@ def test_validate_hardware_full_mock_run(tmp_path):
             "--allow-acquire",
             "--output",
             str(output),
+            "--report-dir",
+            str(tmp_path),
         ]
     )
 
@@ -185,6 +187,22 @@ def test_validate_hardware_full_mock_run(tmp_path):
         record["name"].removeprefix("job selection: confirmed ") for record in selected_job_records
     } == {"HiRes", "Overview"}
 
+    # The Markdown run report is produced and carries the summary table,
+    # the timing overview, and every instrument change incl. restores.
+    reports = sorted(tmp_path.glob("hardware_run_report_*.md"))
+    assert len(reports) == 1
+    text = reports[0].read_text(encoding="utf-8")
+    assert "## Run metadata" in text
+    assert "- **Backend**: mock (in-process MockLasxClient" in text
+    assert "- **Driver commit**: " in text
+    assert "| Phase | Actions attempted | Passed | Warned | Failed | Skipped " in text
+    assert "## Timing overview" in text
+    assert "## Chronological detail (every attempted action)" in text
+    assert "xy: move 01" in text
+    assert "xy: restore" in text
+    assert "objective: restore" in text
+    assert "success+CONFIRMED" in text
+
 
 def test_state_reader_mode_argument_overrides_profile(tmp_path):
     output = tmp_path / "reader_mode.jsonl"
@@ -198,6 +216,8 @@ def test_state_reader_mode_argument_overrides_profile(tmp_path):
                 "api",
                 "--output",
                 str(output),
+                "--report-dir",
+                str(tmp_path),
             ]
         )
         assert exit_code == 0

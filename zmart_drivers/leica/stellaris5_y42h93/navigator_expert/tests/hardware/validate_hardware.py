@@ -64,6 +64,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _report import RunReport, attempts_of, confirmation_of  # noqa: E402
+
 # --- Record + classification ------------------------------------------------
 
 
@@ -116,6 +121,23 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
+def _report_args(context: dict | None) -> str:
+    """Compact 'exact command args' rendering of a record context."""
+    if not context:
+        return ""
+    return " ".join(f"{k}={v!r}" for k, v in context.items())
+
+
+def _report_expected(context: dict | None) -> str:
+    """Best-effort expected-outcome column from a record context."""
+    if not context:
+        return ""
+    for key in ("target", "to", "restore_to", "expected"):
+        if key in context:
+            return f"{key}={context[key]!r}"
+    return ""
+
+
 # --- Validator --------------------------------------------------------------
 
 
@@ -129,12 +151,15 @@ class Validator:
         log: logging.Logger,
         strict_confirmation: bool = False,
         show_driver_log: bool = False,
+        report: RunReport | None = None,
     ):
         self.records: list[Record] = []
         self._sink = sink
         self._log = log
         self.strict_confirmation = strict_confirmation
         self.show_driver_log = show_driver_log
+        self.report = report
+        self.current_phase = "setup"
 
     # Public recording surface ----------------------------------------------
 
@@ -154,7 +179,9 @@ class Validator:
                     elapsed_s=time.monotonic() - t0,
                     message=f"{type(exc).__name__}: {exc}",
                     context=context or {},
-                )
+                ),
+                mutating=True,
+                confirmation="FAILED",
             )
             return None
 
@@ -168,7 +195,9 @@ class Validator:
                     elapsed_s=elapsed,
                     message=f"driver returned {type(result).__name__}, not dict",
                     context=context or {},
-                )
+                ),
+                mutating=True,
+                confirmation="FAILED",
             )
             return result
 
@@ -183,12 +212,27 @@ class Validator:
                 driver_message=result.get("message"),
                 driver_logs=list(result.get("logs") or []) if self.show_driver_log else [],
                 context=context or {},
-            )
+            ),
+            mutating=True,
+            confirmation=confirmation_of(result),
+            attempts=attempts_of(result),
         )
         return result
 
-    def callable(self, name: str, run: Callable[[], Any], *, context: dict | None = None) -> Any:
-        """Run a non-command function (reader, helper). PASS unless it raises."""
+    def callable(
+        self,
+        name: str,
+        run: Callable[[], Any],
+        *,
+        context: dict | None = None,
+        mutating: bool = False,
+    ) -> Any:
+        """Run a non-command function (reader, helper). PASS unless it raises.
+
+        ``mutating=True`` flags calls that change instrument state through a
+        non-command surface (e.g. controller ``Session`` methods) so the run
+        report lists them among the attempted instrument changes.
+        """
         started, t0 = _now_iso(), time.monotonic()
         try:
             value = run()
@@ -201,7 +245,9 @@ class Validator:
                     elapsed_s=time.monotonic() - t0,
                     message=f"{type(exc).__name__}: {exc}",
                     context=context or {},
-                )
+                ),
+                mutating=mutating,
+                confirmation="FAILED" if mutating else "",
             )
             return None
         self._emit(
@@ -211,7 +257,8 @@ class Validator:
                 started_at=started,
                 elapsed_s=time.monotonic() - t0,
                 context=context or {},
-            )
+            ),
+            mutating=mutating,
         )
         return value
 
@@ -265,9 +312,17 @@ class Validator:
 
     @contextmanager
     def phase(self, name: str) -> Iterator[None]:
-        """Marker for a phase boundary in the human log (no record)."""
+        """Marker for a phase boundary in the human log (no record).
+
+        Also names the phase for run-report entries emitted inside it.
+        """
         self._log.info("--- %s ---", name)
-        yield
+        previous = self.current_phase
+        self.current_phase = name
+        try:
+            yield
+        finally:
+            self.current_phase = previous
 
     def summary(self) -> Record:
         """Emit the final summary record and return it."""
@@ -302,10 +357,30 @@ class Validator:
 
     # Internal ---------------------------------------------------------------
 
-    def _emit(self, rec: Record) -> None:
+    def _emit(
+        self,
+        rec: Record,
+        *,
+        mutating: bool = False,
+        confirmation: str = "",
+        attempts: str = "",
+    ) -> None:
         self.records.append(rec)
         self._sink(rec)
         self._log_human(rec)
+        if self.report is not None and rec.name != "__summary__":
+            self.report.add(
+                phase=self.current_phase,
+                action=rec.name,
+                args=_report_args(rec.context),
+                expected=_report_expected(rec.context),
+                observed=rec.message,
+                status=rec.status,
+                duration_s=rec.elapsed_s,
+                mutates_scope=mutating,
+                confirmation=confirmation,
+                attempts=attempts,
+            )
 
     def _log_human(self, rec: Record) -> None:
         head = f"{rec.status:4s} | {rec.name}"
@@ -1301,6 +1376,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # Output + interaction
     p.add_argument("--output", default=None, help="JSONL output path; '-' for stdout")
     p.add_argument(
+        "--report-dir",
+        default=None,
+        help="directory for the Markdown run report "
+        "(hardware_run_report_<YYYYMMDD-HHMMSS>.md; default: working directory)",
+    )
+    p.add_argument(
         "--strict-confirmation",
         action="store_true",
         help="treat WARN (success but unconfirmed) as exit 1",
@@ -1483,11 +1564,22 @@ def main(argv: list[str] | None = None) -> int:
     _apply_state_reader_mode(args.state_reader_mode, log)
     _apply_log_select_confirmation(args, log)
 
+    report = RunReport(
+        script="validate_hardware",
+        backend=(
+            "mock (in-process MockLasxClient; no instrument touched)"
+            if args.mock
+            else "live LAS X (simulator or scope)"
+        ),
+        report_dir=args.report_dir,
+        argv=list(argv) if argv is not None else sys.argv[1:],
+    )
     v = Validator(
         sink=sink,
         log=log,
         strict_confirmation=args.strict_confirmation,
         show_driver_log=args.show_driver_log,
+        report=report,
     )
 
     log.info("=== smart-microscopy hardware validator ===")
@@ -1499,6 +1591,7 @@ def main(argv: list[str] | None = None) -> int:
         args.state_reader_mode or "<profile>",
     )
 
+    crash: str | None = None
     try:
         client = _connect(args, MockClient, log)
         if client is None:
@@ -1550,8 +1643,17 @@ def main(argv: list[str] | None = None) -> int:
         else:
             v.skip("phase: acquire", "use --allow-acquire to enable")
 
+    except BaseException as exc:
+        crash = f"{type(exc).__name__}: {exc}"
+        raise
     finally:
         v.summary()
+        try:
+            report_path = report.write(crashed=crash)
+        except OSError as exc:  # never mask the run result with a report error
+            log.error("could not write markdown run report: %s", exc)
+        else:
+            log.info("markdown run report: %s", report_path)
 
     return v.exit_code()
 
