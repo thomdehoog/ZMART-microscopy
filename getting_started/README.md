@@ -53,6 +53,12 @@ Typical path through the repo:
 
 1. Review or update calibration under
    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/`.
-2. Run the Leica driver validator against the simulator or microscope.
+2. Run the Leica driver validation against the simulator or microscope —
+   `run_ci.py` is the entry point (offline / online / `--live-writes`); see the
+   [driver testing guide](../zmart_drivers/leica/stellaris5_y42h93/navigator_expert/README.md#9-testing)
+   and the bench runbook at
+   [`tests/hardware/README.md`](../zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware/README.md).
+   Running the offline suite additionally needs the dev tools:
+   `pip install -r zmart_drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt`.
 3. Run the target-acquisition workflow from
    `workflows/target_acquisition/zmart_microscopy_v3.2.ipynb`.
