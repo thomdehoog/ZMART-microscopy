@@ -85,19 +85,19 @@ class StateReaderProfile:
 
     hybrid_log_grace_s: float = 0.25
 
-    xy_mode: str = "api"
+    xy_mode: str = "hybrid"
     xy_log_max_age_s: float = 1.0
     xy_timeout_s: float = 2.0
 
-    job_settings_mode: str = "api"
+    job_settings_mode: str = "hybrid"
     job_settings_log_max_age_s: float = 2.0
     job_settings_timeout_s: float = 2.0
 
-    jobs_mode: str = "api"
+    jobs_mode: str = "hybrid"
     jobs_log_max_age_s: float = 2.0
     jobs_timeout_s: float = 2.0
 
-    selected_job_mode: str = "api"
+    selected_job_mode: str = "hybrid"
     selected_job_log_max_age_s: float = 2.0
     selected_job_timeout_s: float = 2.0
     # Selected-job confirmation source: "api" | "log" | "hybrid".
@@ -116,11 +116,11 @@ class StateReaderProfile:
     selected_job_log_poll_interval_s: float = 0.1
     selected_job_log_cluster_max_age_s: float | None = None
 
-    hardware_info_mode: str = "api"
+    hardware_info_mode: str = "hybrid"
     hardware_info_log_max_age_s: float = 2.0
     hardware_info_timeout_s: float = 2.0
 
-    scan_status_mode: str = "api"
+    scan_status_mode: str = "hybrid"
     scan_status_log_max_age_s: float = 0.5
     scan_status_timeout_s: float = 2.0
 

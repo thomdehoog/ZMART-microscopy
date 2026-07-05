@@ -22,24 +22,29 @@ class TestStateReaders(unittest.TestCase):
     def tearDown(self):
         profiles.STATE_READERS = self._state_profile
 
-    def test_default_profile_uses_api_readers(self):
+    def test_default_profile_uses_hybrid_readers(self):
+        # Maintainer decision (docs/reviews/MAINTAINER_DECISIONS.md §1):
+        # hybrid is the default for all routed cold reads; api/log stay
+        # selectable per datum.
         profile = profiles.STATE_READERS
-        self.assertEqual(profile.xy_mode, "api")
-        self.assertEqual(profile.job_settings_mode, "api")
-        self.assertEqual(profile.jobs_mode, "api")
-        self.assertEqual(profile.selected_job_mode, "api")
-        self.assertEqual(profile.hardware_info_mode, "api")
-        self.assertEqual(profile.scan_status_mode, "api")
+        self.assertEqual(profile.xy_mode, "hybrid")
+        self.assertEqual(profile.job_settings_mode, "hybrid")
+        self.assertEqual(profile.jobs_mode, "hybrid")
+        self.assertEqual(profile.selected_job_mode, "hybrid")
+        self.assertEqual(profile.hardware_info_mode, "hybrid")
+        self.assertEqual(profile.scan_status_mode, "hybrid")
 
-    def test_default_xy_uses_api(self):
+    def test_default_xy_hybrid_degrades_to_api_without_fresh_log(self):
         expected = {"x_um": 1.0, "y_um": 2.0}
+        snapshot = SimpleNamespace(now=100.0)
         with (
             patch.object(router.api_reader, "get_xy", return_value=expected) as api,
-            patch.object(router.log_reader, "parse_log") as parse_log,
+            patch.object(router.log_reader, "parse_log", return_value=snapshot),
+            patch.object(router.log_reader, "get_xy", return_value=None),
+            patch.object(router.log_reader, "ages", return_value={}),
         ):
             self.assertEqual(readers.get_xy(object()), expected)
         api.assert_called_once()
-        parse_log.assert_not_called()
 
     def test_diagnostics_returns_reading(self):
         expected = {"x_um": 1.0, "y_um": 2.0}
