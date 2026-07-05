@@ -7,7 +7,11 @@ these decisions rather than the reviews' open-ended "decide" actions.
 ## 1. Hybrid reader stays — and must actually work
 
 Having a hybrid reader is **essential**. The api-only and log-only readers must also
-remain available as standalone modes.
+remain available as standalone modes. **The default mode for routed state reads is
+`hybrid`** (decided 2026-07-05; applied to all six `*_mode` fields in
+`StateReaderProfile`). Reads that decide command control flow or produce persisted
+correctness artifacts continue to pin `mode="api"` explicitly at their call sites,
+per the profile's own rule — the hybrid default governs cold/status reads.
 
 Consequences for the findings:
 - CF-01 (hybrid confirmation race's API leg self-blocks on its own in-flight claim):
