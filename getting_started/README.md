@@ -24,6 +24,12 @@ packages import, and asserts every package came from conda-forge; the Anaconda
 or `--update` to update it in place. Manual equivalent:
 `conda env create -f environment.yml`.
 
+> On a **fresh Miniconda** install, `conda env create` refuses to run until the
+> Anaconda default channels' Terms of Service are accepted — even though this
+> env never uses them. If the build fails with a ToS message, run the two
+> `conda tos accept …` commands it prints and re-run `build_env.py`
+> (Miniforge installs don't have this gate).
+
 The environment is the minimum needed to drive the microscope and process its
 images:
 
