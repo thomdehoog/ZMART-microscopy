@@ -25,7 +25,6 @@ License: MIT
 from __future__ import annotations
 
 import logging
-import secrets
 import socket
 import threading
 from typing import Any
@@ -171,8 +170,7 @@ class MesospimClient:
         """
         if self._sock is None:
             raise ConnectionError("not connected; call connect() first")
-        nonce = secrets.token_hex(8)
-        script = build_script(cmd, dict(args), nonce)
+        script = build_script(cmd, dict(args))
         with self._lock:
             if read_timeout is not None:
                 self._sock.settimeout(read_timeout)
@@ -188,7 +186,7 @@ class MesospimClient:
             finally:
                 if read_timeout is not None and self._sock is not None:
                     self._sock.settimeout(self._timeout)
-        return parse_result(console, nonce)
+        return parse_result(console)
 
     # -- transport (length-framed) -------------------------------------------
 
