@@ -25,7 +25,7 @@ notebook for each objective pair that the scope should support.
 ## Snapshots
 
 Adopting a calibration publishes a dated, machine-local **snapshot** under
-`C:\ProgramData\smart_microscopy\<vendor>\<microscope>\<api>\<datetime>\`, holding
+`C:\ProgramData\zmart-microscopy\<vendor>\<microscope>\<api>\<datetime>\`, holding
 `calibration.json` + the physical `limits.json` (+ the operator's `origin.json`
 frame zero point, carried forward) + the executed notebook. The
 driver reads the newest snapshot (`config/machine.py`); with no snapshot it

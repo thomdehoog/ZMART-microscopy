@@ -2,7 +2,7 @@
 
 The physical stage envelope and the calibration backlash are machine state:
 they resolve through the machine profile - the newest snapshot under
-``C:\\ProgramData\\smart_microscopy\\...`` (see
+``C:\\ProgramData\\zmart-microscopy\\...`` (see
 :mod:`navigator_expert.config.machine`). ``adopt_limits`` publishes a new
 physical-envelope snapshot (limits + function limits) from the
 ``set_stage_limits`` notebook - the notebook is the file factory.

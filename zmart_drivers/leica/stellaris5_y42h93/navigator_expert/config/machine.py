@@ -61,8 +61,8 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-DEFAULT_PROGRAMDATA_ROOT = Path(r"C:\ProgramData\smart_microscopy")
-PROGRAMDATA_ROOT_ENV = "SMART_MICROSCOPY_ROOT"
+DEFAULT_PROGRAMDATA_ROOT = Path(r"C:\ProgramData\zmart-microscopy")
+PROGRAMDATA_ROOT_ENV = "ZMART_MICROSCOPY_ROOT"
 
 # UTC, microsecond precision, Windows-path-safe, lexical order == chronological.
 _SNAPSHOT_FORMAT = "%Y-%m-%dT%H-%M-%S-%fZ"
@@ -107,7 +107,7 @@ def _write_json(path: Path, payload: dict) -> None:
 class MachineProfile:
     """Where this microscope's calibration + limits live on disk.
 
-    ``programdata_root=None`` resolves to the ``SMART_MICROSCOPY_ROOT`` env var
+    ``programdata_root=None`` resolves to the ``ZMART_MICROSCOPY_ROOT`` env var
     if set, else :data:`DEFAULT_PROGRAMDATA_ROOT`. Tests inject an explicit
     ``programdata_root=tmp_path`` to stay hermetic.
     """

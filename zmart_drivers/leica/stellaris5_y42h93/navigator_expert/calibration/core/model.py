@@ -1,7 +1,7 @@
 """Load and apply the current objective calibration.
 
 The calibration is resolved through the machine profile - the newest snapshot
-under ``C:\\ProgramData\\smart_microscopy\\...`` or the driver-bundled default
+under ``C:\\ProgramData\\zmart-microscopy\\...`` or the driver-bundled default
 (see :mod:`navigator_expert.config.machine`). Schema v11 keeps only
 consumer-facing state: the image-to-stage matrix, one objective translation
 triple per slot, and calibrated backlash parameters. Diagnostic sub-deltas from

@@ -17,8 +17,8 @@ no calibration-adopt workflow to write history, so the machine dir holds the
 current copy of each file, edited or written in place. If a snapshot-producing
 workflow ever lands, this profile is the seam to grow it behind.
 
-``<programdata_root>`` defaults to ``C:\\ProgramData\\smart_microscopy`` and can
-be overridden with the ``SMART_MICROSCOPY_ROOT`` env var, or per session with
+``<programdata_root>`` defaults to ``C:\\ProgramData\\zmart-microscopy`` and can
+be overridden with the ``ZMART_MICROSCOPY_ROOT`` env var, or per session with
 ``connection["machine_root"]`` (which is also how tests stay hermetic).
 
 Author: Thom de Hoog (ZMB, University of Zurich)
@@ -36,8 +36,8 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-DEFAULT_PROGRAMDATA_ROOT = Path(r"C:\ProgramData\smart_microscopy")
-PROGRAMDATA_ROOT_ENV = "SMART_MICROSCOPY_ROOT"
+DEFAULT_PROGRAMDATA_ROOT = Path(r"C:\ProgramData\zmart-microscopy")
+PROGRAMDATA_ROOT_ENV = "ZMART_MICROSCOPY_ROOT"
 
 STAGE_LIMITS_FILENAME = "stage_limits.json"
 FUNCTION_LIMITS_FILENAME = "function_limits.json"
@@ -64,7 +64,7 @@ def _atomic_write_json(path: Path, payload: dict) -> None:
 class MachineProfile:
     """Where this mesoSPIM's machine-local config lives on disk.
 
-    ``programdata_root=None`` resolves to the ``SMART_MICROSCOPY_ROOT`` env var
+    ``programdata_root=None`` resolves to the ``ZMART_MICROSCOPY_ROOT`` env var
     if set, else :data:`DEFAULT_PROGRAMDATA_ROOT`. Tests (and the controller's
     ``connection["machine_root"]``) inject an explicit root to stay hermetic.
     """

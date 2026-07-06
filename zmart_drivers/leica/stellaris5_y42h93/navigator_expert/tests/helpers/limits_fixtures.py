@@ -43,7 +43,7 @@ def provision_machine_limits(
 ) -> MachineProfile:
     """Publish a machine-local snapshot carrying limits + function limits.
 
-    ``root`` is the ProgramData root (point ``SMART_MICROSCOPY_ROOT`` at it,
+    ``root`` is the ProgramData root (point ``ZMART_MICROSCOPY_ROOT`` at it,
     or pass the returned profile explicitly). The connect handshake then
     resolves REAL machine-local files — the honest replacement for the old
     silent bundled fallback.
@@ -64,13 +64,13 @@ def hermetic_mock_machine_root() -> Path:
     """Provision a throwaway, provisioned machine root and make it active.
 
     For the ``--mock`` validators: creates a fresh temp ProgramData root,
-    points ``SMART_MICROSCOPY_ROOT`` at it (so the global ``MACHINE`` resolves
+    points ``ZMART_MICROSCOPY_ROOT`` at it (so the global ``MACHINE`` resolves
     there and a developer machine's real ProgramData is never read), and
     publishes a fixture snapshot — the connect-time limits handshake then
     runs for REAL against machine-local files.
     """
-    root = Path(tempfile.mkdtemp(prefix="smart_microscopy_mock_root_"))
-    os.environ["SMART_MICROSCOPY_ROOT"] = str(root)
+    root = Path(tempfile.mkdtemp(prefix="zmart_microscopy_mock_root_"))
+    os.environ["ZMART_MICROSCOPY_ROOT"] = str(root)
     provision_machine_limits(root)
     return root
 

@@ -150,7 +150,7 @@ def test_limits_paths_are_separate_from_calibration_state():
 def test_defaults_path_returns_the_machine_local_snapshot_copy(tmp_path, monkeypatch):
     import navigator_expert.config.machine as machine_mod
 
-    monkeypatch.setenv("SMART_MICROSCOPY_ROOT", str(tmp_path))
+    monkeypatch.setenv("ZMART_MICROSCOPY_ROOT", str(tmp_path))
     m = machine_mod.MachineProfile()
     m.publish_snapshot(
         _SEED_MOMENT,

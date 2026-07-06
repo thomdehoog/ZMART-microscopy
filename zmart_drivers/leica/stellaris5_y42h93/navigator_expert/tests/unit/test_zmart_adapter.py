@@ -900,7 +900,7 @@ class TestLifecycle(unittest.TestCase):
 
         _clear_limits()
         self.addCleanup(_clear_limits)
-        provision_machine_limits(os.environ["SMART_MICROSCOPY_ROOT"])
+        provision_machine_limits(os.environ["ZMART_MICROSCOPY_ROOT"])
         with patch.object(adapter._session, "connect_python_client", return_value=object()):
             h = adapter.connect(dict(adapter.CONNECTION))
         self.assertIsInstance(h, adapter.ZmartHandle)
@@ -929,7 +929,7 @@ class TestLifecycle(unittest.TestCase):
 
         _clear_limits()
         self.addCleanup(_clear_limits)
-        provision_machine_limits(os.environ["SMART_MICROSCOPY_ROOT"])
+        provision_machine_limits(os.environ["ZMART_MICROSCOPY_ROOT"])
         patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0)
         with (
             patch.object(adapter._session, "connect_python_client", return_value=object()),
@@ -1079,7 +1079,7 @@ class TestFunctionLimits(unittest.TestCase):
         _clear_limits()
         self.addCleanup(_clear_limits)
         provision_machine_limits(
-            os.environ["SMART_MICROSCOPY_ROOT"],
+            os.environ["ZMART_MICROSCOPY_ROOT"],
             stage_um=dict(DEFAULT_STAGE_UM, x=[2000.0, 50000.0]),
         )
         client = object()
@@ -1097,7 +1097,7 @@ class TestFunctionLimits(unittest.TestCase):
         import os
 
         provision_machine_limits(
-            os.environ["SMART_MICROSCOPY_ROOT"],
+            os.environ["ZMART_MICROSCOPY_ROOT"],
             stage_um=dict(DEFAULT_STAGE_UM, theta=[0.0, 360.0]),
         )
         client = object()
