@@ -65,7 +65,7 @@ _install_fake_acquisitions()
 
 
 # =============================================================================
-# A Core-shaped fake: the surface the injected scripts touch (== self).
+# A Core-shaped fake: the surface the command handlers touch (== core).
 # =============================================================================
 
 

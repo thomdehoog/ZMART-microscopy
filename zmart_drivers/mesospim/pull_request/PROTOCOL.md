@@ -41,6 +41,23 @@ client ──▶  frame({"<method>": {args}})
   unknown method, or a handler error, the reply is the error text (no marker line),
   and the connection stays open.
 
+## MCP (LLM) front end
+
+The same socket also accepts **MCP** (JSON-RPC 2.0) — for an LLM instead of a
+script. A frame whose object has `"jsonrpc": "2.0"` is routed to the MCP handler;
+anything else is a named call (above). Both land on the *same* allowlist dispatch:
+
+- `initialize` → server info + `{"capabilities": {"tools": {}}}`.
+- `tools/list` → one tool per `COMMANDS` entry (the allowlist *is* the tool list),
+  each with an argument hint in its `description`.
+- `tools/call` `{name, arguments}` → runs that one method and returns its JSON as
+  MCP text content (`isError` set on failure). Unknown tool = an error result, not
+  a crash.
+- a notification (no `id`, e.g. `notifications/initialized`) gets no reply.
+
+So an LLM and a script reach the exact same validated call surface; neither can
+invoke anything outside `COMMANDS`.
+
 ## Getting a result back
 
 The reply is already a clean line: `__ZMART_OK__<json>`. Extract it with the regex

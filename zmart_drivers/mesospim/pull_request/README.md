@@ -14,11 +14,16 @@ matching `mesoSPIM_Core` call — the same methods the GUI's own buttons call. I
 returns a JSON result line. **No client Python is ever run**: the "method" is only
 ever a dict-key lookup, so a client can only invoke operations the allowlist names.
 
+The same socket also speaks **MCP** (JSON-RPC), so an LLM can drive the scope the
+same way: `tools/list` *is* the allowlist, and a `tools/call` runs one method —
+the same validated dispatch, just a different envelope. Two doors, one lock.
+
 ```
   OUTSIDE program                    TCP/IP socket                 INSIDE mesoSPIM
   ───────────────                   127.0.0.1:42000               (Core context)
   {"move_absolute": {…}}  ───────────────▶───────────────▶   COMMANDS["move_absolute"](core, …)
   __ZMART_OK__{…}         ◀───────────────◀───────────────   json result
+   (or MCP tools/call)  ───────────────────▶                    (same dispatch)
 ```
 
 ## What the PR does — 3 files

@@ -197,14 +197,13 @@ now fixed on this branch):
 ## 7. Upstream 🟢
 
 - [x] **Draft the upstream PR (minimal)** — an opt-in, off-by-default
-      **Tools → Remote Scripting…** server: an external process sends a Python
-      script, it runs via the existing `Core.execute_script`, and the console
-      output is returned (text in / text out). No command vocabulary in mesoSPIM —
-      all of that stays on the ZMART side, injected as scripts. Token-gated,
-      localhost-default, ~450 lines / 3 files, reuses `execute_script` unmodified.
-      Built + validated live against the `-D` demo Core via the button's signal
-      path (auth, read state, **move the demo stage**, structured output, error →
-      traceback). Packaged in [`pull_request/`](pull_request/) (patch + README +
+      **Tools → Remote Scripting…** server: an external process sends a named JSON
+      call `{"<method>": {args}}` (or an MCP `tools/call`), the server validates it
+      and runs the matching `Core` method from a fixed `COMMANDS` allowlist, and
+      returns a JSON result. No client code runs. Token-gated, localhost-default,
+      ~450 lines / 3 files. Framing/token/dispatch carry Qt-free unit tests
+      (incl. a hostile-payload sweep); the live `-D` end-to-end run is the open
+      check. Packaged in [`pull_request/`](pull_request/) (patch + README +
       PROTOCOL + demo_client). **Submitted upstream as
       [mesoSPIM/mesoSPIM-control#105](https://github.com/mesoSPIM/mesoSPIM-control/pull/105)
       (open).**
