@@ -1145,12 +1145,17 @@ def phase_xy(drv: Any, v: Validator, client: Any, args: argparse.Namespace) -> N
         limits = drv.get_stage_limits()
         start_error = _xy_limit_error(x0, y0, limits)
         if start_error:
-            v.fail(
+            # Precondition not met, not a driver fault: the stage is parked
+            # outside the calibrated envelope (the LAS X simulator commonly
+            # homes at 0,0, which is outside a real machine's envelope). The
+            # gate would correctly refuse the moves and the end-of-phase
+            # restore, so skip the phase with an actionable message -- same
+            # severity the validator already gives a target that won't fit.
+            v.skip(
                 "xy: pattern",
-                f"starting position outside limits: {start_error}. "
-                "Configure LAS X simulator/hardware inside the calibrated "
-                "envelope, or omit --allow-xy.",
-                context={"position": (x0, y0), "limits": limits},
+                f"start position ({x0:.1f}, {y0:.1f}) um outside the calibrated "
+                f"envelope ({start_error}); reposition LAS X inside the envelope "
+                "to exercise XY, or omit --allow-xy.",
             )
             return
         targets = _xy_pattern_positions(
@@ -1160,17 +1165,11 @@ def phase_xy(drv: Any, v: Validator, client: Any, args: argparse.Namespace) -> N
             radius_um=args.xy_delta_um,
         )
         if not targets:
-            v.fail(
+            v.skip(
                 "xy: pattern",
                 "not enough room for a bounded XY pattern around the current "
-                "stage position. Use a smaller --xy-delta-um or reposition "
-                "the stage away from calibrated limits.",
-                context={
-                    "from": (x0, y0),
-                    "positions": args.xy_positions,
-                    "radius_um": args.xy_delta_um,
-                    "limits": limits,
-                },
+                f"stage position ({x0:.1f}, {y0:.1f}) um. Use a smaller "
+                "--xy-delta-um or reposition the stage away from the limits.",
             )
             return
         try:
@@ -1240,21 +1239,21 @@ def phase_z(drv: Any, v: Validator, client: Any, job_name: str, args: argparse.N
         limits = drv.get_stage_limits()
         start_error = _z_limit_error(z0, "galvo", limits)
         if start_error:
-            v.fail(
+            # Precondition not met (setup/positioning), not a driver fault --
+            # skip with an actionable message rather than reddening the run.
+            v.skip(
                 "z: round-trip",
-                f"starting position outside limits: {start_error}. "
-                "Configure LAS X simulator/hardware inside the calibrated "
-                "envelope, or omit --allow-z.",
-                context={"position": z0, "limits": limits},
+                f"start Z {z0:.1f} um outside the calibrated envelope "
+                f"({start_error}); reposition Z inside the envelope to exercise "
+                "it, or omit --allow-z.",
             )
             return
         target_error = _z_limit_error(z1, "galvo", limits)
         if target_error:
-            v.fail(
+            v.skip(
                 "z: round-trip",
-                f"target position outside limits: {target_error}. "
-                "Use a smaller --z-delta-um or reposition Z.",
-                context={"from": z0, "to": z1, "limits": limits},
+                f"target Z {z1:.1f} um outside the calibrated envelope "
+                f"({target_error}). Use a smaller --z-delta-um or reposition Z.",
             )
             return
         ctx = {"job": job_name, "from": z0, "to": z1}

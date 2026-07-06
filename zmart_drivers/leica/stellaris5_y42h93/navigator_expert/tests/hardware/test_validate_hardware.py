@@ -385,3 +385,94 @@ def test_mock_set_dispatch_table_matches_surface():
     for command_name, handler_name in sorted(_SET_DISPATCH.items()):
         assert hasattr(mock, command_name), command_name
         assert callable(getattr(mock, handler_name)), handler_name
+
+
+_ENVELOPE = {
+    "x_min": 1000.0,
+    "x_max": 130000.0,
+    "y_min": 1000.0,
+    "y_max": 100000.0,
+    "z_galvo_min": -200.0,
+    "z_galvo_max": 200.0,
+    "z_wide_min": 0.0,
+    "z_wide_max": 25000.0,
+}
+
+
+def test_xy_start_outside_envelope_is_skip_not_fail():
+    """A stage parked outside the envelope (the sim homes at 0,0, outside a
+    real machine's envelope) is a positioning precondition, not a driver
+    fault: phase_xy SKIPs, never FAILs, and never asks the gate to move."""
+
+    class DummyDrv:
+        moved = False
+
+        @staticmethod
+        def get_xy(_client, **_kwargs):
+            return {"x_um": 0.0, "y_um": 0.0}
+
+        @staticmethod
+        def get_stage_limits():
+            return dict(_ENVELOPE)
+
+        @staticmethod
+        def move_xy(*_args, **_kwargs):
+            DummyDrv.moved = True
+            return {"success": True}
+
+    records = []
+    validator = validate_hardware.Validator(
+        sink=records.append,
+        log=validate_hardware._configure_logging("ERROR", jsonl_to_stdout=False),
+    )
+    args = validate_hardware.parse_args(["--allow-xy"])
+
+    validate_hardware.phase_xy(DummyDrv, validator, object(), args)
+
+    counts = validator.counts()
+    assert counts["FAIL"] == 0 and counts["SKIP"] == 1
+    assert validator.exit_code() == 0
+    assert not DummyDrv.moved  # the gate is never asked to move from out of bounds
+    row = next(r for r in records if r.name == "xy: pattern")
+    assert row.status == "SKIP"
+    assert "outside the calibrated envelope" in row.message
+
+
+def test_z_start_outside_envelope_is_skip_not_fail():
+    """Z parked outside the envelope is the same precondition class: SKIP,
+    not FAIL, and no move attempted."""
+
+    class DummyDrv:
+        moved = False
+
+        @staticmethod
+        def make_changeable_copy(raw):
+            return dict(raw or {})
+
+        @staticmethod
+        def get_job_settings(_client, _job, **_kwargs):
+            return {"zPosition": {"z-galvo": 500.0}}  # outside [-200, 200]
+
+        @staticmethod
+        def get_stage_limits():
+            return dict(_ENVELOPE)
+
+        @staticmethod
+        def move_z(*_args, **_kwargs):
+            DummyDrv.moved = True
+            return {"success": True}
+
+    records = []
+    validator = validate_hardware.Validator(
+        sink=records.append,
+        log=validate_hardware._configure_logging("ERROR", jsonl_to_stdout=False),
+    )
+    args = validate_hardware.parse_args(["--allow-z"])
+
+    validate_hardware.phase_z(DummyDrv, validator, object(), "HiRes", args)
+
+    counts = validator.counts()
+    assert counts["FAIL"] == 0 and counts["SKIP"] == 1
+    assert not DummyDrv.moved
+    row = next(r for r in records if r.name == "z: round-trip")
+    assert row.status == "SKIP"
