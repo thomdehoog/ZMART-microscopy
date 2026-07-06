@@ -95,6 +95,42 @@ def test_empty_token_counts_as_no_token():
     assert rs.AuthGate("").required is False
 
 
+# -- restricted mode: named calls dispatched against the fixed allowlist -------
+
+def _fake_core():
+    class Sig:
+        def __init__(self, fn=None):
+            self.fn = fn
+
+        def emit(self, x):
+            (self.fn or (lambda *_: None))(x)
+
+    class Core:
+        def __init__(self):
+            self.state = {"filter": "515/30"}
+            self.sig_state_request_and_wait_until_done = Sig(self.state.update)
+
+    return Core()
+
+
+def test_a_named_call_is_dispatched_and_state_changes():
+    core = _fake_core()
+    reply = rs.run_command(core, '{"call": "set_state", "args": {"settings": {"filter": "561/LP"}}}')
+    assert reply == "__ZMART_OK__{}"  # the write ack
+    assert core.state["filter"] == "561/LP"  # ...and the change landed
+
+
+def test_an_unknown_call_is_rejected_before_running():
+    # the COMMANDS table IS the allowlist: a name not in it never runs
+    reply = rs.run_command(_fake_core(), '{"call": "rm_rf", "args": {}}')
+    assert "unknown command" in reply and "__ZMART_OK__" not in reply
+
+
+def test_a_non_json_payload_is_a_bad_request_not_a_crash():
+    reply = rs.run_command(_fake_core(), "not json at all")
+    assert reply.startswith("bad request") and "__ZMART_OK__" not in reply
+
+
 if __name__ == "__main__":  # runnable without pytest, for a quick check next to the PR
     import pytest
     raise SystemExit(pytest.main([__file__, "-q"]))

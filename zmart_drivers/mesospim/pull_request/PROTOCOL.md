@@ -56,12 +56,30 @@ script = (
 # client parses the reply between <<<RESULT>>> ... <<<END>>>
 ```
 
+## Restricted mode (no exec)
+
+Set `MESOSPIM_RS_RESTRICTED=1` before starting the server (or pass
+`restricted=True` to `RemoteScriptingServer`). The server then runs **no client
+Python**. Each message after the token is a named call:
+
+```json
+{"call": "<name>", "args": {...}}
+```
+
+The server looks `<name>` up in a fixed allowlist (`COMMANDS` in
+`mesoSPIM_RemoteScripting.py`) and runs the matching `Core` call. Unknown names
+never run. The reply is one line, `__ZMART_OK__<json>`; on a bad payload, an
+unknown call, or a handler error, the reply is the error text (no marker line) —
+so a client handles success and failure the same way in both modes. This is the
+surface the ZMART mesoSPIM driver uses; framing, auth, and one-client-at-a-time
+are unchanged.
+
 ## Errors
 
 - Bad framing (a non-integer length line) → the server sends a short error frame
   and closes the connection.
-- A script that raises → its traceback is in the returned text; the connection
-  stays open.
+- A script that raises (exec mode) / a handler that raises (restricted) → its
+  traceback is in the returned text; the connection stays open.
 - A second concurrent client → the NEW connection wins: the server drops the
   old socket and serves the newcomer (which must still pass the token gate).
   One client at a time, but a crashed client's half-open socket can never hold
