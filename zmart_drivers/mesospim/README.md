@@ -18,12 +18,12 @@ drivers.
 - **Author:** Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch · thomdehoog@gmail.com
 - **License:** **MIT** (the whole driver). The only GPL-3.0 code is the generic **Remote Scripting** feature
   *in mesoSPIM* (the upstream patch under [`pull_request/`](pull_request/)) — see [§10](#10-licensing--how-this-stays-mit).
-- **Status:** The driver rides mesoSPIM's **Remote Scripting** bridge — a generic "run this Python, return the
-  console" socket ([`pull_request/`](pull_request/), validated against real mesoSPIM `-D` demo, v1.20.0). The
-  driver injects small scripts and parses a structured result back; all command vocabulary is client-side
-  ([`connection/scripts.py`](connection/scripts.py)). **115 offline tests** green — the mock server `exec`s the
-  real injected scripts against a Core-shaped fake, so framing/harness/vocabulary are exercised for real.
-  Remaining: re-run the live round-trip on this transport and **real-hardware** validation (see [TODO.md](TODO.md)).
+- **Status:** The driver rides mesoSPIM's **Remote Scripting** bridge ([`pull_request/`](pull_request/), v1.20.0)
+  run in **restricted mode**: the wire carries a named call, `{"call": <name>, "args": {...}}` — data, not code —
+  and the server dispatches it against a fixed allowlist ([`connection/command_api.py`](connection/command_api.py)).
+  No client Python is ever `exec`d. **134 offline tests** green — the mock server dispatches the real calls through
+  that same allowlist against a Core-shaped fake, so framing/auth/vocabulary are exercised for real. Remaining:
+  add restricted mode to the server patch, then the live round-trip + **real-hardware** validation (see [TODO.md](TODO.md)).
 
 ## How it controls the microscope — in plain terms
 
@@ -72,19 +72,19 @@ send it commands from outside.
 **Reading it top to bottom:**
 
 1. **Your code / the ZMART driver (MIT).** You call something plain like
-   `drv.move_xy(client, 1000, 2000)`. The driver turns it into a tiny Python
-   **script** (built in [`connection/scripts.py`](connection/scripts.py)) that
-   calls the Core and prints its result.
-2. **A localhost network socket (`127.0.0.1:42000`).** That script is sent over an
-   ordinary TCP socket and the script's console output comes back. This socket is
+   `drv.move_xy(client, 1000, 2000)`. The driver turns it into one **named call** —
+   `{"call": "move_absolute", "args": {...}}` — plain JSON data, not code.
+2. **A localhost network socket (`127.0.0.1:42000`).** That call is sent over an
+   ordinary TCP socket and a JSON result comes back. This socket is
    the *only* connection between the MIT driver and the GPL mesoSPIM program —
    which is also what keeps the licensing clean (see [§10](#10-licensing--how-this-stays-mit)).
-3. **The Remote Scripting server, running _inside_ mesoSPIM.** mesoSPIM has a
-   built-in "Script Window" that runs a Python snippet inside the live program. A
-   small, generic upstream feature (**Tools → Remote Scripting…**; the patch under
-   [`pull_request/`](pull_request/)) puts a socket in front of it — it runs the
-   received script via the *existing* `Core.execute_script` and returns the console.
-4. **`mesoSPIM_Core` — the program's control brain.** The injected script calls
+3. **The Remote Scripting server, running _inside_ mesoSPIM (restricted mode).**
+   The upstream feature (**Tools → Remote Scripting…**; the patch under
+   [`pull_request/`](pull_request/)) puts a socket in front of the live program. In
+   restricted mode it does **not** `exec` the payload — it looks the call name up in
+   a fixed allowlist ([`connection/command_api.py`](connection/command_api.py)) and
+   runs the matching `Core` method. An unknown name is rejected before anything runs.
+4. **`mesoSPIM_Core` — the program's control brain.** The dispatched call invokes
    **the exact same `Core` methods that mesoSPIM's own buttons call**
    (`self.move_absolute(...)`, `self.start(...)` to run an acquisition, …). So a
    move sent by the driver runs the *identical code path* as a scientist clicking
@@ -133,10 +133,10 @@ a received Python script through the *existing* `Core.execute_script` and return
 in, console text out; **no command vocabulary, no data format in mesoSPIM**. The GPL edge is that one small,
 reusable feature.
 
-**All the vocabulary lives client-side (MIT).** A "command" here is a Python **script** the driver injects
-([`connection/scripts.py`](connection/scripts.py)) — `move_absolute`, a state read, an `Acquisition` run.
-Each is wrapped in a harness that prints its result as a **per-call-nonce + base64(JSON)** block, so the
-driver extracts a clean structured `{ok, data, error}` from the console even though other threads may print
+**The vocabulary is a fixed allowlist (the server's `COMMANDS` table).** A "command" here is one named call
+([`connection/command_api.py`](connection/command_api.py)) — `move_absolute`, a state read, an `Acquisition` run.
+The server replies with a single `__ZMART_OK__<json>` line, so the driver extracts a clean structured
+`{ok, data, error}` even though other threads may print
 into it (exactly as the Script Window console does). The framing is length-prefixed (see
 [`pull_request/PROTOCOL.md`](pull_request/PROTOCOL.md)). Nothing ZMART-specific runs inside mesoSPIM.
 
@@ -414,7 +414,7 @@ zmart_drivers/mesospim/
 │                   limits.py    fail-closed 5-axis µm/deg envelope     stage_limits.json  bundled default
 ├── acquisition/    product.py   typed results     capture.py  build/acquire/snap/run_acquisition_list
 │                   save.py      relocate the writer's frames into <output_root>/data/ + JSON sidecar
-│                   connection/scripts.py  the injected-script templates (the mesoSPIM vocabulary, client-side)
+│                   connection/command_api.py  the named-call allowlist (the mesoSPIM vocabulary the server accepts)
 ├── controller.py   ZMART controller adapter — ops table (connect, set_xyz, acquire, get/set_state, …) + register()
 ├── pull_request/   the upstream mesoSPIM Remote Scripting patch (GPL) + PROTOCOL.md + demo_client.py
 └── tests/          unit/  offline vs a mock server     integration/  vs mesoSPIM -D demo     helpers/mock_mesospim_server.py
@@ -437,9 +437,9 @@ read normally sees the arrived state.
 **GPL/MIT split.** The whole driver is MIT and imports nothing from mesoSPIM. The only GPL code is the
 generic **Remote Scripting** feature *in mesoSPIM* (the upstream patch under [`pull_request/`](pull_request/));
 the driver reaches it over a socket. Nothing ZMART-specific runs inside the mesoSPIM process — the injected
-scripts are just text the MIT client sends (see [§10](#10-licensing--how-this-stays-mit)).
+calls are just JSON data the MIT client sends (see [§10](#10-licensing--how-this-stays-mit)).
 
-**Dependency direction:** `utils` (stdlib) → `protocol` → `connection.scripts` → `connection.client` →
+**Dependency direction:** `utils` (stdlib) → `protocol` → `connection.command_api` → `connection.client` →
 `commands.dispatch` → `config.profiles`/`config.limits` → `commands.commands`; `readers`, `acquisition`, and
 `controller` sit above. No circular imports.
 
@@ -534,16 +534,16 @@ These **silently misbehave** instead of failing loudly — respect them or resul
    preempts the old one (it lives in mesoSPIM's Qt event loop). Don't open two concurrent clients.
 6. **Process-global stage limits.** Limits live in a module-level dict, so this driver assumes one instrument
    per process; a second session in the same process would share (and overwrite) them.
-7. **The injected scripts must match your mesoSPIM version.** The `Core`-binding names (state keys, move API,
+7. **The allowlist handlers must match your mesoSPIM version.** The `Core`-binding names (state keys, move API,
    `cfg` attributes, `start(row=…)`, the image-writer path) are verified against v1.20.0 and all live in one
-   place — `connection/scripts.py`; re-verify there if your installed version differs (run the live round-trip
+   place — `connection/command_api.py`; re-verify there if your installed version differs (run the live round-trip
    against `-D` demo mode first). `acquire` imports mesoSPIM's `Acquisition` from `mesoSPIM.src.utils.acquisitions`
    (with a bare-`utils` fallback).
 
 ## 12. Extending the driver
 
-- **New command** — add an injected-script template in `connection/scripts.py` (a body that reads `_a` and
-  sets `_result`), a wrapper in `commands/commands.py` (three phases: validate + limit-check →
+- **New command** — add a handler to the `COMMANDS` allowlist in `connection/command_api.py` (a
+  `fn(core, args) -> dict`), a wrapper in `commands/commands.py` (three phases: validate + limit-check →
   `confirm_and_fire(...)` with the profile + a `fire_fn` and target-bound `confirm_fn` → return the envelope),
   a `CommandProfile` in `config/profiles.py` if the defaults don't fit, and the export in `__init__.py`. The
   mock covers it automatically (it `exec`s the template); extend `FakeCore` only if the template calls a new

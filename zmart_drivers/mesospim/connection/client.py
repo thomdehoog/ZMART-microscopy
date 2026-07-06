@@ -6,11 +6,11 @@ Scripting** server (the upstream PR under ``pull_request/``). It is a
 process-boundary transport that keeps ZMART MIT while mesoSPIM-control stays GPL
 behind the socket.
 
-There is no command vocabulary on the wire: a "command" is a Python **script**
-the client injects (built by :mod:`mesospim.connection.scripts`), which mesoSPIM
-runs in the live Core context and whose console output is returned. The client
-frames the script, reads back the console, and extracts the structured
-``{ok, data, error}`` result the harness printed (see :mod:`mesospim.protocol`).
+The server runs in **restricted mode**: a "command" is a named call on the wire,
+``{"call": <name>, "args": {...}}`` (data, not code), which the server dispatches
+against a fixed allowlist (:mod:`mesospim.connection.command_api`). The client
+frames the call, reads back the reply, and extracts the structured
+``{ok, data, error}`` result (see :mod:`mesospim.protocol`).
 
 The public surface -- ``connect`` / ``request`` / ``try_request`` / ``close`` and
 the ``Reply`` shape -- is unchanged from the previous transport, so the driver's
@@ -29,8 +29,7 @@ import socket
 import threading
 from typing import Any
 
-from ..protocol import Reply, frame, parse_result
-from .scripts import build_script
+from ..protocol import Reply, encode_call, frame, parse_result
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +38,7 @@ DEFAULT_PORT = 42000  # mesoSPIM Remote Scripting default (configurable per prof
 
 
 class MesospimError(RuntimeError):
-    """A command failed (the injected script reported ``ok=false``) or the
+    """A command failed (the server reported an error for the call) or the
     server refused/garbled the exchange."""
 
 
@@ -149,9 +148,9 @@ class MesospimClient:
     # -- request/reply -------------------------------------------------------
 
     def request(self, cmd: str, *, read_timeout: float | None = None, **args: Any) -> Reply:
-        """Inject the script for ``cmd`` with ``args`` and return the result.
+        """Send the named call ``cmd`` with ``args`` and return the result.
 
-        Raises :class:`MesospimError` if the script reported ``ok=false``; use
+        Raises :class:`MesospimError` if the server reported an error; use
         :meth:`try_request` when a failure is an expected, inspectable outcome.
         ``read_timeout`` overrides the socket deadline for this one call (used for
         long-running commands like ``acquire``); the base timeout is restored after.
@@ -162,7 +161,7 @@ class MesospimClient:
         return reply
 
     def try_request(self, cmd: str, *, read_timeout: float | None = None, **args: Any) -> Reply:
-        """Inject the script for ``cmd`` and return the result without raising.
+        """Send the named call ``cmd`` and return the result without raising.
 
         ``read_timeout`` (seconds) overrides the socket deadline for this call
         only -- acquisitions can run far longer than the default. It is
@@ -170,12 +169,12 @@ class MesospimClient:
         """
         if self._sock is None:
             raise ConnectionError("not connected; call connect() first")
-        script = build_script(cmd, dict(args))
+        payload = encode_call(cmd, dict(args))
         with self._lock:
             if read_timeout is not None:
                 self._sock.settimeout(read_timeout)
             try:
-                self._send_frame(script)
+                self._send_frame(payload)
                 console = self._read_frame()
             except OSError:
                 # Transport failure (dropped link / timeout mid-frame): invalidate

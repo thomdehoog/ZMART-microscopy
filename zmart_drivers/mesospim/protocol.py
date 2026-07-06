@@ -1,12 +1,11 @@
 """
-Remote-scripting transport + structured-result envelope.
-========================================================
+Restricted remote-scripting transport + structured-result envelope.
+===================================================================
 The mesoSPIM driver talks to mesoSPIM-control through its **Remote Scripting**
-server (an upstream contribution under ``pull_request/``):
-a tiny, generic bridge that runs a Python script in the live ``mesoSPIM_Core``
-context and returns whatever the script prints. There is **no command vocabulary
-on the wire** -- the driver injects a script, mesoSPIM runs it (``self`` == Core),
-and the console output comes back.
+server (an upstream contribution under ``pull_request/``) run in **restricted
+mode**: the wire carries a *named call* -- data, not code -- and the server
+dispatches it against a fixed allowlist (:mod:`mesospim.connection.command_api`).
+The client never sends Python; the server never ``exec``s client input.
 
 This module is the pure, socket-free core of that transport:
 
@@ -15,18 +14,15 @@ This module is the pure, socket-free core of that transport:
        message = b"<decimal-byte-count>\\n" + <payload bytes>
 
    This is the framing the Remote Scripting PR speaks (see
-   ``pull_request/PROTOCOL.md``). It suits arbitrary script text (which contains
-   newlines) where a line-delimited framing would not.
+   ``pull_request/PROTOCOL.md``).
 
-2. **A minimal result line.** Every command is wrapped by :func:`wrap_script`
-   into a *flat* script (no ``try/except``, no indentation) that runs the body
-   and prints one line, ``__ZMART_OK__<json>``. That keeps the injected script as
-   short and plain as possible -- easy to read, tweak, and ``regex`` by hand in
-   mesoSPIM's Script Window. On any error the body just raises: mesoSPIM's own
-   ``Core.execute_script`` prints the traceback to the console, and
-   :func:`parse_result` -- finding no ``__ZMART_OK__`` line -- returns that whole
-   console text as the error. So failures still surface without the harness
-   carrying its own try/except.
+2. **A named call.** The request payload is one JSON object,
+   ``{"call": <name>, "args": {...}}`` (:func:`encode_call` /
+   :func:`decode_call`). The reply is one line, ``__ZMART_OK__<json>``
+   (:func:`encode_reply`), which :func:`parse_result` reads back. On any
+   server-side error the reply is the traceback text (no marker line); finding no
+   ``__ZMART_OK__`` line, :func:`parse_result` returns that whole text as the
+   error. So failures still surface without a success payload.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -41,7 +37,7 @@ from typing import Any
 
 ENCODING = "utf-8"
 
-# Bumped only if the framing or harness contract changes.
+# Bumped only if the framing or call/reply contract changes.
 PROTOCOL_VERSION = 1
 
 # Result marker. A distinctive prefix on one line; the JSON result follows on the
@@ -78,28 +74,36 @@ def frame(payload: str | bytes) -> bytes:
     return str(len(payload)).encode("ascii") + b"\n" + payload
 
 
-# -- structured result harness ------------------------------------------------
+# -- named-call codec ---------------------------------------------------------
 
 
-def wrap_script(body: str) -> str:
-    """Wrap a command ``body`` into a minimal, flat print-the-result script.
+def encode_call(cmd: str, args: dict | None = None) -> str:
+    """Serialise one request: ``{"call": cmd, "args": {...}}`` -- data, not code."""
+    return json.dumps({"call": cmd, "args": dict(args or {})})
 
-    ``body`` is Python that runs in the Core context (``self`` == Core) and must
-    assign the result to a local named ``_result`` (a JSON-serialisable dict).
-    The returned script is flat -- no ``try/except``, no indentation -- and just
-    prints ``__ZMART_OK__<json>``. If the body raises, mesoSPIM's
-    ``Core.execute_script`` prints the traceback and :func:`parse_result` (finding
-    no ``__ZMART_OK__`` line) returns it as the error.
-    """
-    return f"import json\n{body}\nprint({OK_MARKER!r} + json.dumps(_result))\n"
+
+def decode_call(payload: str) -> tuple[str, dict]:
+    """Parse a request payload into ``(call, args)``; raise on a malformed object."""
+    obj = _loads(payload)
+    if not isinstance(obj, dict) or not isinstance(obj.get("call"), str):
+        raise ProtocolError("expected a {'call': <name>, 'args': {...}} object")
+    args = obj.get("args") or {}
+    if not isinstance(args, dict):
+        raise ProtocolError("'args' must be an object")
+    return obj["call"], args
+
+
+def encode_reply(result: dict) -> str:
+    """Serialise a successful result the way the server sends it: the OK line."""
+    return OK_MARKER + json.dumps(result)
 
 
 def parse_result(console: str) -> Reply:
-    """Turn the script's console output into a :class:`Reply`.
+    """Turn the server's reply text into a :class:`Reply`.
 
-    Scans for the last ``__ZMART_OK__`` line. If there is none (the body raised,
-    or a syntax/auth/plumbing failure), the whole console text -- the traceback
-    mesoSPIM printed -- is returned as the error.
+    Scans for the last ``__ZMART_OK__`` line. If there is none (the handler
+    raised, an unknown call, or an auth/plumbing failure), the whole reply text
+    -- the traceback the server sent -- is returned as the error.
     """
     for line in reversed(console.splitlines()):
         if line.startswith(OK_MARKER):

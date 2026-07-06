@@ -2,13 +2,13 @@
 
 > **⚠ SUPERSEDED (transport changed).** This document records the bench validation of the earlier
 > **bespoke command-server** transport (a ZMART-specific JSON command server loaded into the Core via a
-> Script-Window loader). That transport has since been **retired**: the driver now rides mesoSPIM's generic
-> **Remote Scripting** bridge (the upstream patch under `pull_request/`), injecting Python scripts and
-> parsing a structured result. Kept as history — it is why the design moved to Remote Scripting (the loader's
-> `exec()`-scope `NameError` and the two live-only bugs below are exactly the sharp edges the generic bridge
-> avoids). The findings about the live Core API (config/state/move/`start(row=…)`/image-writer path) still
-> hold and now live in `connection/scripts.py`; the live round-trip on the *new* transport is the open item
-> in `TODO.md`.
+> Script-Window loader). That transport has since been **retired**: the driver now rides mesoSPIM's
+> **Remote Scripting** bridge (the upstream patch under `pull_request/`) in **restricted mode** — the wire
+> carries a named call and the server dispatches it against a fixed allowlist, with no client-code execution.
+> Kept as history — it is why the design moved on (the loader's `exec()`-scope `NameError` and the two
+> live-only bugs below are exactly the sharp edges avoided). The findings about the live Core API
+> (config/state/move/`start(row=…)`/image-writer path) still hold and now live in
+> `connection/command_api.py`; the live round-trip on the current transport is the open item in `TODO.md`.
 
 **Date:** 2026-07-02
 **Tester:** Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch · thomdehoog@gmail.com
