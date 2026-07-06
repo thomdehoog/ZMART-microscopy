@@ -1,37 +1,38 @@
 # Getting Started
 
-First-time Python setup for ZMART Microscopy and the typical path through the
-repo. The environment files referenced here live at the **repo root**:
-[`environment.yml`](../environment.yml), [`requirements.txt`](../requirements.txt),
-and [`build_env.py`](../build_env.py) (manifests stay at the root so the
-toolchain auto-discovers them).
+First-time setup for ZMART Microscopy, in three steps. The environment files
+referenced here live at the **repo root**: [`environment.yml`](../environment.yml),
+[`requirements.txt`](../requirements.txt), and [`build_env.py`](../build_env.py)
+(manifests stay at the root so the toolchain auto-discovers them).
 
-## Python environment
+ZMART Microscopy targets **Python 3.10-3.12**. The live system runs on **Windows**
+(the LAS X PC); registration, focusing, and image processing run on any OS. The
+code runs directly from the source checkout — there is no `pip install .`;
+notebooks and tools add the packages to `sys.path` via small `_bootstrap.py`
+modules.
 
-ZMART Microscopy targets **Python 3.10-3.12**. The live system runs on
-**Windows** (the LAS X PC); registration, focusing, and image processing run on
-any OS. Build the environment from conda-forge in one step (run from the repo
-root):
+## Step 1 — Install the environment
+
+Build the conda-forge environment in one step (run from the repo root), then
+activate it:
 
 ```powershell
 python build_env.py            # creates the conda-forge "zmart-microscopy" env
 conda activate zmart-microscopy
 ```
 
-`build_env.py` creates the env from `environment.yml`, verifies the core
-packages import, and asserts every package came from conda-forge; the Anaconda
-`defaults` channel is never used. Re-run with `--recreate` to rebuild it clean,
-or `--update` to update it in place. Manual equivalent:
-`conda env create -f environment.yml`.
+`build_env.py` creates the env from `environment.yml`, verifies the core packages
+import, and asserts every package came from conda-forge (the Anaconda `defaults`
+channel is never used). Re-run with `--recreate` to rebuild it clean or `--update`
+to update in place. Manual equivalent: `conda env create -f environment.yml`.
 
-> On a **fresh Miniconda** install, `conda env create` refuses to run until the
-> Anaconda default channels' Terms of Service are accepted — even though this
-> env never uses them. If the build fails with a ToS message, run the two
-> `conda tos accept …` commands it prints and re-run `build_env.py`
-> (Miniforge installs don't have this gate).
+For **live** control, LAS X must be installed and running — the CAM API DLLs ship
+with LAS X and load from its install dir, so the env carries only the `pythonnet`
+bridge. Add the dev/test tools (needed to run the driver's validation):
 
-The environment is the minimum needed to drive the microscope and process its
-images:
+```powershell
+pip install -r zmart_drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt
+```
 
 | Capability             | Packages                          |
 |------------------------|-----------------------------------|
@@ -40,31 +41,44 @@ images:
 | Focusing, calibration  | `numpy`, `scipy`                  |
 | Image I/O (OME-TIFF)   | `tifffile`                        |
 
-For **live** API interaction LAS X must be installed and running: the CAM API
-DLLs ship with LAS X and load from the install dir, so the env carries only the
-`pythonnet` bridge.
+> On a **fresh Miniconda** install, `conda env create` refuses to run until the
+> Anaconda default channels' Terms of Service are accepted — even though this env
+> never uses them. If the build fails with a ToS message, run the two
+> `conda tos accept …` commands it prints and re-run `build_env.py` (Miniforge
+> installs don't have this gate). Non-conda machines can install the same
+> packages from PyPI: `python -m pip install -r requirements.txt` (conda-forge is
+> canonical; PyPI is the licensing-safe fallback).
 
-Non-conda machines (e.g. CI) can install the same packages from PyPI:
-`python -m pip install -r requirements.txt`. conda-forge is the canonical path;
-PyPI is a licensing-safe fallback (only the conda `defaults` channel is
-avoided). Test/lint tools are separate (see the driver's `requirements-dev.txt`).
+## Step 2 — Set the stage limits
 
-## Working in the checkout
+The driver **refuses every move until machine-local stage limits are provisioned**
+— there is no bundled fallback (a wrong-machine envelope would be unsafe). Create
+them once by running the notebook:
 
-The code runs directly from the source checkout (no `pip install .`). Notebooks
-and hardware tools use small `_bootstrap.py` modules to add the driver and
-shared packages to `sys.path`.
+```
+zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb
+```
 
-Typical path through the repo:
+The pre-filled values are this machine's known-good envelope; adjust only if you
+have better numbers. Running the cell publishes a single machine-local
+`limits.json` (the stage envelope + the function gate) under
+`C:\ProgramData\zmart-microscopy\leica\stellaris5_y42h93\navigator_expert\<datetime>\`.
+Calibration is separate and keeps a loud last-known-good fallback; run the
+calibration notebooks under `.../calibration/notebooks/` if you want a fresh one.
 
-1. Review or update calibration under
-   `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/`.
-2. Run the Leica driver validation against the simulator or microscope —
-   `run_ci.py` is the entry point (offline / online / `--live-writes`); see the
-   [driver testing guide](../zmart_drivers/leica/stellaris5_y42h93/navigator_expert/README.md#9-testing)
-   and the bench runbook at
-   [`tests/hardware/README.md`](../zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware/README.md).
-   Running the offline suite additionally needs the dev tools:
-   `pip install -r zmart_drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt`.
-3. Run the target-acquisition workflow from
-   `workflows/target_acquisition/zmart_microscopy_v3.2.ipynb`.
+## Step 3 — Run it
+
+Drive the microscope through the driver's entry point (`run_ci.py`), starting
+read-only:
+
+```powershell
+cd zmart_drivers/leica/stellaris5_y42h93/navigator_expert
+python run_ci.py online                 # read-only pass, no instrument changes
+python run_ci.py online --live-writes    # full validation (reversible, restored)
+```
+
+The bench runbook — prerequisites, what each pass does, where the reports land —
+is at
+[`tests/hardware/README.md`](../zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware/README.md).
+To run an actual experiment, open the operator notebook
+`workflows/target_acquisition/zmart_microscopy_v3.2.ipynb`.
