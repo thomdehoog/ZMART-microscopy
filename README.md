@@ -122,6 +122,8 @@ conda activate zmart-microscopy
 
 Targets **Python 3.10-3.12**. Live control needs the microscope's own software
 installed (e.g. LAS X for the Leica driver); registration/focusing run on any OS.
+Pick a different env name with `python build_env.py --name my-env` (it prints the
+matching `conda activate` line).
 
 **2. Set the stage limits** — the driver refuses to move until machine-local
 limits exist (no bundled fallback). 
