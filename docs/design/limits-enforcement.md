@@ -44,6 +44,30 @@ decision 2026-07-05, `docs/reviews/MAINTAINER_DECISIONS.md` §7.
    verify-on-rig comment); runtime checks apply backstop after the file
    envelope; the connect handshake validates file-envelope containment.
 
+8. **One `limits.json`; three files per snapshot (decision §7b,
+   2026-07-06 — supersedes the "BOTH files" wording in amendment 5):**
+   `function_limits.json` and `limits.json` were redundant (the stage
+   envelope appeared in both). They are collapsed into **one** `limits.json`
+   in the function-keyed format — `constraints` (the `stage.*` envelope) +
+   `functions` (the gate policy) + a `backlash` block — and
+   `function_limits.json` is removed everywhere (constant, publish write,
+   handshake read, bundled template, fixtures, tests). Both readers now read
+   this single file: `motion/stage_config.load()` derives the envelope from
+   `constraints.stage.*` and reads backlash from the `backlash` block; the
+   commands gate (`commands/gate`) parses `constraints` + `functions` via
+   `shared/limits` (which ignores the unknown top-level `backlash` section
+   without loosening its strict validation). Each machine snapshot dir holds
+   exactly three files: `limits.json`, `calibration.json`, `origin.json`. The
+   limits adopt no longer seeds a bundled `calibration.json`
+   (`bundled_ok=False` for calibration too): a fresh-machine limits adopt
+   writes only `limits.json` and carries a *real* prior calibration forward if
+   present, never mints one from the template — calibration keeps its loud
+   in-memory READ fallback (`machine.calibration_path()`) until an explicit
+   calibration adopt. The backstop, the connect handshake
+   (schema/finite/backstop-containment/read-only-on-fail), the commands-layer
+   gate, the completeness AST-sweep, and all fail-closed semantics are
+   preserved exactly.
+
 ## Design philosophy (maintainer)
 
 Limits are enforced **as low as possible** — at the command wrapper that

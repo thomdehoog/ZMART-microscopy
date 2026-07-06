@@ -1,4 +1,10 @@
-"""Unit tests for the split stage safety/backlash loader."""
+"""Unit tests for the single merged limits.json loader (§7b).
+
+The one ``limits.json`` holds ``constraints`` (the stage envelope) +
+``functions`` (the gate policy) + a ``backlash`` block. ``stage_config``
+reads the envelope from ``constraints.stage.*`` and the backlash from the
+``backlash`` block, both of the same file.
+"""
 
 import json
 from datetime import datetime, timezone
@@ -6,6 +12,7 @@ from pathlib import Path
 
 import navigator_expert.motion.stage_config as stage_config
 import pytest
+from limits_fixtures import merged_limits_payload
 from navigator_expert.config.machine import MachineProfile
 
 
@@ -13,7 +20,7 @@ def _write_json(path, payload):
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-# --- adopt_limits: publish a physical-envelope snapshot ---
+# --- adopt_limits: publish a merged-limits snapshot ---
 
 # Envelopes must sit WITHIN the hardcoded physical backstop
 # (motion.limits.STAGE_BACKSTOP_UM) or adopt_limits refuses them.
@@ -22,42 +29,55 @@ _ENV_B = {"x": [1200, 120000], "y": [1200, 95000], "z_galvo": [-10, 10], "z_wide
 _SEED_MOMENT = datetime(2026, 1, 1, tzinfo=timezone.utc)
 _ADOPT_MOMENT = datetime(2026, 2, 1, tzinfo=timezone.utc)
 
+_CUSTOM_BACKLASH = {
+    "approach": "-X-Y",
+    "overshoot_um": 42.0,
+    "settle_ms": 111,
+    "tolerance_um": 7.0,
+    "session_id": "prior-session",
+}
 
-def test_adopt_limits_publishes_snapshot_carrying_calibration_forward(tmp_path):
+
+def test_adopt_limits_publishes_merged_file_carrying_calibration_and_backlash(tmp_path):
     m = MachineProfile(programdata_root=tmp_path)
+    prior_limits = merged_limits_payload(_ENV_A)
+    prior_limits["backlash"] = dict(_CUSTOM_BACKLASH)
     m.publish_snapshot(
         _SEED_MOMENT,
         calibration={"marker": "cal-A"},
-        limits={"schema_version": 1, "source": "defaults", "stage_um": _ENV_A},
+        limits=prior_limits,
     )
     out = stage_config.adopt_limits(_ENV_B, machine=m, moment=_ADOPT_MOMENT)
     snap = m.latest_snapshot()
     assert Path(out["snapshot"]) == snap
+    assert "function_limits_path" not in out  # single file only
+
     lim = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
     assert lim["schema_version"] == 1
-    assert lim["stage_um"]["x"] == [1200.0, 120000.0]  # validated to floats
-    # calibration carried forward untouched
+    # envelope stated by name under constraints (validated to floats)
+    assert lim["constraints"]["stage.x"] == {"min": 1200.0, "max": 120000.0}
+    assert lim["functions"]["set_xyz"]["x_um"] == "@stage.x"
+    # backlash carried forward from the prior limits.json's block
+    assert lim["backlash"] == _CUSTOM_BACKLASH
+    # a REAL prior calibration carried forward untouched
     assert json.loads((snap / "calibration.json").read_text(encoding="utf-8")) == {
         "marker": "cal-A"
     }
-    # the machine-local function_limits.json is published alongside (generated
-    # from the adopted envelope on first adopt; the bundled file is a template)
-    fl = json.loads((snap / "function_limits.json").read_text(encoding="utf-8"))
-    assert fl["constraints"]["stage.x"] == {"min": 1200.0, "max": 120000.0}
-    assert fl["functions"]["set_xyz"]["x_um"] == "@stage.x"
+    # no function_limits.json anywhere
+    assert not (snap / "function_limits.json").exists()
 
 
-def test_adopt_limits_first_time_carries_bundled_calibration(tmp_path):
-    from navigator_expert.calibration.core import model
-
+def test_adopt_limits_first_time_writes_only_limits_no_seeded_calibration(tmp_path):
     m = MachineProfile(programdata_root=tmp_path)
     assert m.latest_snapshot() is None
     stage_config.adopt_limits(_ENV_B, machine=m, moment=_ADOPT_MOMENT)
     snap = m.latest_snapshot()
-    cal = model.load_calibration(snap / "calibration.json")  # bundled default carried in
-    assert model.get_reference_slot(cal) == 1
+    files = sorted(p.name for p in snap.iterdir())
+    assert files == ["limits.json"]  # §7b: no bundled calibration minted
     lim = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
-    assert lim["stage_um"]["z_wide"] == [0.0, 60.0]
+    assert lim["constraints"]["stage.z_wide"] == {"min": 0.0, "max": 60.0}
+    # first adopt has no prior limits.json -> default backlash block
+    assert lim["backlash"]["overshoot_um"] == 50.0
 
 
 def test_adopt_limits_validates_envelope(tmp_path):
@@ -75,37 +95,24 @@ def test_adopt_limits_refuses_an_envelope_outside_the_backstop(tmp_path):
     assert m.latest_snapshot() is None  # nothing published
 
 
-def test_load_combines_limits_and_calibrated_backlash(tmp_path):
-    limits = tmp_path / "limits.json"
-    calibration = tmp_path / "calibration.json"
-    _write_json(
-        limits,
-        {
-            "schema_version": 1,
-            "source": "defaults",
-            "stage_um": {
-                "x": [1, 2],
-                "y": [3, 4],
-                "z_galvo": [-5, 5],
-                "z_wide": [0, 100],
-            },
-        },
-    )
-    _write_json(
-        calibration,
-        {
-            "schema_version": 11,
-            "backlash": {
-                "approach": "+X+Y",
-                "overshoot_um": 50,
-                "settle_ms": 100,
-                "tolerance_um": 20,
-                "session_id": "session-1",
-            },
-        },
-    )
+# --- load: envelope from constraints, backlash from the backlash block ---
 
-    cfg = stage_config.load(limits_path=limits, calibration_path=calibration)
+
+def test_load_reads_envelope_from_constraints_and_backlash_from_same_file(tmp_path):
+    limits = tmp_path / "limits.json"
+    payload = merged_limits_payload(
+        {"x": [1, 2], "y": [3, 4], "z_galvo": [-5, 5], "z_wide": [0, 100]}
+    )
+    payload["backlash"] = {
+        "approach": "+X+Y",
+        "overshoot_um": 50,
+        "settle_ms": 100,
+        "tolerance_um": 20,
+        "session_id": "session-1",
+    }
+    _write_json(limits, payload)
+
+    cfg = stage_config.load(limits_path=limits)
 
     assert cfg == {
         "stage_um": {
@@ -125,26 +132,24 @@ def test_load_combines_limits_and_calibrated_backlash(tmp_path):
 
 
 def test_limits_paths_are_separate_from_calibration_state():
-    # With no machine snapshot (hermetic root fixture): the calibration keeps
-    # its loud bundled fallback (values, not enforcement), the physical limits
+    # With no machine snapshot (hermetic root fixture): the physical limits
     # REFUSE the bundled template (no-fallback rule), and the per-run working
     # envelope path stays under the driver tree (its file is untracked/per-run,
     # so only the path is asserted here).
     driver_root = Path(__file__).resolve().parents[2]
     current_limits = driver_root / "limits" / "current.json"
     template_limits = driver_root / "limits" / "defaults" / "limits.json"
-    calibration = driver_root / "calibration" / "defaults" / "calibration.json"
 
     assert stage_config.current_path() == current_limits
-    assert stage_config.default_calibration_path() == calibration
-    assert calibration.exists()
     with pytest.raises(RuntimeError, match="set_stage_limits.ipynb"):
         stage_config.defaults_path()
     # The bundled template stays shipped (it seeds the notebook), but is
     # never returned as the enforceable envelope.
     assert template_limits.exists()
-    assert json.loads(template_limits.read_text(encoding="utf-8"))["schema_version"] == 1
-    assert json.loads(template_limits.read_text(encoding="utf-8"))["source"] == "defaults"
+    template = json.loads(template_limits.read_text(encoding="utf-8"))
+    assert template["schema_version"] == 1
+    assert template["source"] == "defaults"
+    assert set(template) >= {"constraints", "functions", "backlash"}
 
 
 def test_defaults_path_returns_the_machine_local_snapshot_copy(tmp_path, monkeypatch):
@@ -152,63 +157,17 @@ def test_defaults_path_returns_the_machine_local_snapshot_copy(tmp_path, monkeyp
 
     monkeypatch.setenv("ZMART_MICROSCOPY_ROOT", str(tmp_path))
     m = machine_mod.MachineProfile()
-    m.publish_snapshot(
-        _SEED_MOMENT,
-        limits={"schema_version": 1, "source": "defaults", "stage_um": _ENV_A},
-    )
+    m.publish_snapshot(_SEED_MOMENT, limits=merged_limits_payload(_ENV_A))
     assert stage_config.defaults_path() == m.latest_snapshot() / "limits.json"
 
 
 def test_load_defaults_to_defaults_path(tmp_path, monkeypatch):
     defaults = tmp_path / "defaults.json"
-    current = tmp_path / "current.json"
-    calibration = tmp_path / "calibration.json"
     _write_json(
         defaults,
-        {
-            "schema_version": 1,
-            "source": "defaults",
-            "stage_um": {
-                "x": [1, 2],
-                "y": [3, 4],
-                "z_galvo": [-5, 5],
-                "z_wide": [0, 100],
-            },
-        },
-    )
-    _write_json(
-        current,
-        {
-            "schema_version": 1,
-            "source": "boundary_markers",
-            "stage_um": {
-                "x": [10, 20],
-                "y": [30, 40],
-                "z_galvo": [-50, 50],
-                "z_wide": [0, 200],
-            },
-        },
-    )
-    _write_json(
-        calibration,
-        {
-            "schema_version": 11,
-            "backlash": {
-                "approach": "+X+Y",
-                "overshoot_um": 50,
-                "settle_ms": 100,
-                "tolerance_um": 20,
-                "session_id": "session-1",
-            },
-        },
+        merged_limits_payload({"x": [1, 2], "y": [3, 4], "z_galvo": [-5, 5], "z_wide": [0, 100]}),
     )
     monkeypatch.setattr(stage_config, "defaults_path", lambda: defaults)
-    monkeypatch.setattr(stage_config, "current_path", lambda: current)
-    monkeypatch.setattr(
-        stage_config,
-        "default_calibration_path",
-        lambda: calibration,
-    )
 
     cfg = stage_config.load()
 
@@ -216,86 +175,54 @@ def test_load_defaults_to_defaults_path(tmp_path, monkeypatch):
     assert cfg["stage_um"]["y"] == [3.0, 4.0]
 
 
-def test_load_requires_limits_schema_name(tmp_path):
-    legacy_shaped_limits = tmp_path / "limits.json"
-    calibration = tmp_path / "calibration.json"
-    _write_json(
-        legacy_shaped_limits,
-        {
-            "schema_version": 1,
-            "source": "defaults",
-            "limits_um": {
-                "x": [1000, 130000],
-                "y": [1000, 100000],
-                "z_galvo": [-200, 200],
-                "z_wide": [0, 25000],
-            },
-        },
-    )
-    _write_json(
-        calibration,
-        {
-            "schema_version": 11,
-            "backlash": {
-                "approach": "+X+Y",
-                "overshoot_um": 50,
-                "settle_ms": 100,
-                "tolerance_um": 20,
-                "session_id": "session-1",
-            },
-        },
-    )
-
-    with pytest.raises(ValueError, match="stage_um"):
-        stage_config.load(
-            limits_path=legacy_shaped_limits,
-            calibration_path=calibration,
-        )
-
-
-def test_load_requires_limits_source(tmp_path):
+def test_load_requires_constraints_section(tmp_path):
     limits = tmp_path / "limits.json"
-    calibration = tmp_path / "calibration.json"
-    _write_json(
-        limits,
-        {
-            "schema_version": 1,
-            "stage_um": {
-                "x": [1, 2],
-                "y": [3, 4],
-                "z_galvo": [-5, 5],
-                "z_wide": [0, 100],
-            },
-        },
-    )
-    _write_json(
-        calibration,
-        {
-            "schema_version": 11,
-            "backlash": {
-                "approach": "+X+Y",
-                "overshoot_um": 50,
-                "settle_ms": 100,
-                "tolerance_um": 20,
-                "session_id": "session-1",
-            },
-        },
-    )
+    _write_json(limits, {"schema_version": 1, "source": "defaults", "functions": {}})
+    with pytest.raises(ValueError, match="constraints"):
+        stage_config.load(limits_path=limits)
 
+
+def test_load_requires_source(tmp_path):
+    limits = tmp_path / "limits.json"
+    payload = merged_limits_payload(
+        {"x": [1, 2], "y": [3, 4], "z_galvo": [-5, 5], "z_wide": [0, 100]}
+    )
+    del payload["source"]
+    _write_json(limits, payload)
     with pytest.raises(ValueError, match="source"):
-        stage_config.load(limits_path=limits, calibration_path=calibration)
+        stage_config.load(limits_path=limits)
+
+
+def test_load_requires_backlash_block(tmp_path):
+    limits = tmp_path / "limits.json"
+    payload = merged_limits_payload(
+        {"x": [1, 2], "y": [3, 4], "z_galvo": [-5, 5], "z_wide": [0, 100]}
+    )  # merged_limits_payload includes a backlash block...
+    del payload["backlash"]  # ...remove it
+    _write_json(limits, payload)
+    with pytest.raises(ValueError, match="backlash"):
+        stage_config.load(limits_path=limits)
+
+
+def test_load_requires_complete_backlash_block(tmp_path):
+    limits = tmp_path / "limits.json"
+    payload = merged_limits_payload(
+        {"x": [1, 2], "y": [3, 4], "z_galvo": [-5, 5], "z_wide": [0, 100]}
+    )
+    payload["backlash"] = {"overshoot_um": 50, "settle_ms": 100, "tolerance_um": 20}
+    _write_json(limits, payload)
+    with pytest.raises(ValueError, match="backlash missing field"):
+        stage_config.load(limits_path=limits)
+
+
+# --- write_limits: the legacy per-run working envelope (flat stage_um) ---
 
 
 def test_write_limits_validates_and_writes_current_shape(tmp_path):
     path = tmp_path / "current.json"
 
     written = stage_config.write_limits(
-        {
-            "x": [10, 20],
-            "y": [30, 40],
-            "z_galvo": [-2, 2],
-            "z_wide": [0, 100],
-        },
+        {"x": [10, 20], "y": [30, 40], "z_galvo": [-2, 2], "z_wide": [0, 100]},
         source="cfg_fallback",
         path=path,
     )
@@ -318,44 +245,7 @@ def test_write_limits_requires_source(tmp_path):
 
     with pytest.raises(ValueError, match="source"):
         stage_config.write_limits(
-            {
-                "x": [10, 20],
-                "y": [30, 40],
-                "z_galvo": [-2, 2],
-                "z_wide": [0, 100],
-            },
+            {"x": [10, 20], "y": [30, 40], "z_galvo": [-2, 2], "z_wide": [0, 100]},
             source="",
             path=path,
         )
-
-
-def test_load_requires_complete_backlash_block(tmp_path):
-    limits = tmp_path / "limits.json"
-    calibration = tmp_path / "calibration.json"
-    _write_json(
-        limits,
-        {
-            "schema_version": 1,
-            "source": "defaults",
-            "stage_um": {
-                "x": [1, 2],
-                "y": [3, 4],
-                "z_galvo": [-5, 5],
-                "z_wide": [0, 100],
-            },
-        },
-    )
-    _write_json(
-        calibration,
-        {
-            "schema_version": 11,
-            "backlash": {
-                "overshoot_um": 50,
-                "settle_ms": 100,
-                "tolerance_um": 20,
-            },
-        },
-    )
-
-    with pytest.raises(ValueError, match="backlash missing field"):
-        stage_config.load(limits_path=limits, calibration_path=calibration)

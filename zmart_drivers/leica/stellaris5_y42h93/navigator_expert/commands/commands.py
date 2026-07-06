@@ -28,7 +28,7 @@ command was *accepted*, not that it took effect. A caller that needs
 proof the setting/move landed must check ``result["confirmed"]``.
 
 Function-keyed limits gate: every mutating wrapper here declares its
-``function_limits`` key in ``gate.MUTATING_COMMANDS`` and calls
+``limits.json`` functions key in ``gate.MUTATING_COMMANDS`` and calls
 ``_limits_refusal`` in Phase A — fail-closed BEFORE the native call can
 fire (no limits handshake / invalid machine-local limits / constraint
 violation all refuse with a result dict). See ``commands/gate.py``.

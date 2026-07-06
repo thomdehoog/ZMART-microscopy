@@ -9,9 +9,9 @@ in ``scanfields/files.py``) call :func:`check_refusal` before anything fires.
 
 Wrapper -> key mapping
 ----------------------
-``function_limits.json`` keeps the op-level key vocabulary shared with the
-zmart adapter (plus the PR-07 additions); every mutating command wrapper
-declares exactly one key in :data:`MUTATING_COMMANDS`:
+The single ``limits.json`` (its ``functions`` block) keeps the op-level key
+vocabulary shared with the zmart adapter (plus the PR-07 additions); every
+mutating command wrapper declares exactly one key in :data:`MUTATING_COMMANDS`:
 
 - all ``set_*`` job setters and ``select_job``  -> ``set_state`` (the job is
   LAS X's unit of configuration; selecting/configuring it is the state
@@ -41,10 +41,11 @@ during an already-gated ``acquire``.
 State model
 -----------
 :func:`connect_handshake` performs the connect-time limits handshake — the
-machine-local ``limits.json`` and ``function_limits.json`` must exist in the
-newest machine snapshot (the bundled ``limits/defaults/`` files are TEMPLATES
-and are refused), be schema-valid with finite numbers only, and sit within
-the hardcoded physical backstop (``motion.limits.STAGE_BACKSTOP_UM``). On
+single machine-local ``limits.json`` must exist in the newest machine snapshot
+(the bundled ``limits/defaults/limits.json`` is a TEMPLATE and is refused), be
+schema-valid with finite numbers only (both its ``constraints``/``functions``
+and its stage envelope), and sit within the hardcoded physical backstop
+(``motion.limits.STAGE_BACKSTOP_UM``). On
 success it applies the stage envelope and installs the validated
 ``FunctionLimits`` in a module-level registry keyed by client identity; on
 failure the session stays usable read-only, and every gated wrapper refuses
@@ -82,7 +83,7 @@ log = logging.getLogger(__name__)
 
 NOTEBOOK_POINTER = "limits/notebooks/set_stage_limits.ipynb"
 
-# The function_limits.json key vocabulary this driver declares. The shared
+# The limits.json ``functions`` key vocabulary this driver declares. The shared
 # parser requires the file's ``functions`` block to match this set EXACTLY
 # (missing and unknown keys are both load errors), so a machine file must
 # make an explicit decision — a constraint object or an explicit ``null``
@@ -99,7 +100,7 @@ FUNCTION_LIMIT_KEYS = (
     "load_experiment",
 )
 
-# Every mutating command wrapper -> its function_limits key. The completeness
+# Every mutating command wrapper -> its limits.json functions key. The completeness
 # suite (tests/unit/test_limits_adversarial.py) enumerates the wrappers that
 # dispatch through the fire path and fails if any is missing here — the
 # commands-layer successor of the adapter's old _MUTATING_OPS guard.
@@ -221,14 +222,15 @@ def check_refusal(client: Any, command: str, values: Mapping[str, Any]) -> str |
 
 
 def build_function_limits_payload(stage_um: Mapping[str, Any], *, source: str = "machine") -> dict:
-    """A machine-local function_limits.json payload for the given envelope.
+    """The ``constraints`` + ``functions`` of a machine-local limits.json.
 
-    Used by ``stage_config.adopt_limits`` (the set_stage_limits notebook) on
-    first adopt: the ``stage.*`` constraints are the measured machine envelope
-    and every non-stage key starts as explicit ``null`` (reviewed, deliberately
+    Used by ``stage_config.adopt_limits`` (the set_stage_limits notebook) to
+    build the merged limits.json — it adds the ``backlash`` block on top of
+    this. The ``stage.*`` constraints are the measured machine envelope and
+    every non-stage key starts as explicit ``null`` (reviewed, deliberately
     unlimited — the same policy as the bundled template). Operators tighten
-    entries by editing the machine-local file; the connect handshake re-validates
-    it on every session.
+    entries by editing the machine-local file; the connect handshake
+    re-validates it on every session.
     """
     constraints = {
         f"stage.{axis}": {"min": float(bounds[0]), "max": float(bounds[1])}
@@ -255,50 +257,53 @@ def connect_handshake(client: Any, *, machine: Any = None, stage_limits_path: An
     Steps (any failure -> a fail-closed :class:`GateState` whose ``error``
     names the file tried and points at limits/notebooks/set_stage_limits.ipynb):
 
-    1. ``limits.json`` must be machine-local (newest snapshot; the bundled
-       template is refused), schema-valid with finite numbers, min <= max,
-       exactly this machine's axes. ``stage_limits_path`` overrides the
-       resolution with an explicit operator-chosen file (still validated).
-       The calibration/backlash leg keeps its bundled fallback (values, not
-       enforcement).
+    1. The single ``limits.json`` must be machine-local (newest snapshot; the
+       bundled template is refused), schema-valid with finite numbers, min <=
+       max, exactly this machine's axes (envelope derived from
+       ``constraints.stage.*``). ``stage_limits_path`` overrides the resolution
+       with an explicit operator-chosen file (still validated).
     2. The envelope must sit WITHIN the hardcoded physical backstop
        (``motion.limits.STAGE_BACKSTOP_UM``).
-    3. ``function_limits.json`` must be machine-local, parse under
+    3. The SAME file's ``constraints`` + ``functions`` must parse under
        ``shared.limits`` (finite numbers, exact key vocabulary =
-       :data:`FUNCTION_LIMIT_KEYS`), with the machine envelope overlaid onto
-       its ``stage.*`` constraints so the numbers governing moves are the
-       snapshot's, never a stale copy.
+       :data:`FUNCTION_LIMIT_KEYS`), with the validated envelope overlaid onto
+       its ``stage.*`` constraints so the numbers governing moves are exactly
+       what stage_config validated. Its ``backlash`` section is ignored by the
+       shared parser.
     4. On success: apply the stage envelope (module-global, single instrument
        per process) and install the gate state for *client*.
 
     On failure the session still works read-only; every mutating command
-    refuses with the recorded error until the machine-local files exist and a
+    refuses with the recorded error until the machine-local file exists and a
     new handshake runs.
     """
     machine = machine if machine is not None else _machine.MACHINE
     try:
-        # -- 1. stage envelope (limits.json), strict machine-local
+        # -- 1. the single limits.json, strict machine-local. Its
+        #       constraints.stage.* is the physical envelope; stage_config
+        #       derives stage_um from it (and reads the backlash block).
         if stage_limits_path is not None:
-            stage_cfg = _stage_config.load(limits_path=stage_limits_path)
+            limits_file = stage_limits_path
         else:
-            limits_path = machine.require_machine_local(
+            limits_file = machine.require_machine_local(
                 _machine.LIMITS_FILENAME, "the physical stage envelope"
             )
-            stage_cfg = _stage_config.load(limits_path=limits_path)
+        stage_cfg = _stage_config.load(limits_path=limits_file)
 
         # -- 2. backstop containment
         _limits.check_envelope_within_backstop(stage_cfg["stage_um"])
 
-        # -- 3. function-keyed limits (function_limits.json), strict machine-local
-        fl_path = machine.require_machine_local(
-            _machine.FUNCTION_LIMITS_FILENAME, "the function-keyed limits"
-        )
+        # -- 3. function-keyed limits (constraints + functions of the SAME
+        #       file), strict machine-local. The validated envelope is overlaid
+        #       onto the stage.* constraints so the numbers governing moves are
+        #       exactly the ones stage_config validated. The file's backlash
+        #       section is ignored by the shared parser.
         overrides = {
             f"stage.{axis}": {"min": bounds[0], "max": bounds[1]}
             for axis, bounds in stage_cfg["stage_um"].items()
         }
         function_limits = _shared_limits.load(
-            fl_path,
+            limits_file,
             functions=FUNCTION_LIMIT_KEYS,
             constraint_overrides=overrides,
             is_fallback=False,

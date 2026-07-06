@@ -256,13 +256,13 @@ def _write(path: Path, obj) -> None:
     path.write_text(json.dumps(obj), encoding="utf-8")
 
 
-def test_publish_first_snapshot_carries_bundled_default_forward(tmp_path):
+def test_publish_first_snapshot_does_not_seed_bundled_calibration(tmp_path):
     p = _profile(tmp_path)
-    new_limits = {"schema_version": 1, "source": "defaults", "stage_um": {"x": [0, 1]}}
+    new_limits = {"schema_version": 1, "source": "defaults", "constraints": {}}
     snap = p.publish_snapshot(_AT_1430, limits=new_limits)
-    # No prior snapshot -> calibration.json comes from the bundled default.
-    bundled = json.loads(p.bundled_default_path("calibration.json").read_text())
-    assert json.loads((snap / "calibration.json").read_text()) == bundled
+    # §7b: no prior snapshot and no calibration override -> calibration.json is
+    # NOT minted from the bundled template (the READ fallback still applies).
+    assert not (snap / "calibration.json").exists()
     assert json.loads((snap / "limits.json").read_text()) == new_limits
     assert p.latest_snapshot() == snap
 

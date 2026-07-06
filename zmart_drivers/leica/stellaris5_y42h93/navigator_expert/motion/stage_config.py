@@ -1,24 +1,30 @@
-"""Load stage limits and calibrated backlash.
+"""Load the stage envelope and calibrated backlash from the single limits file.
 
-The physical stage envelope and the calibration backlash are machine state:
-they resolve through the machine profile - the newest snapshot under
+The physical stage envelope, the function-keyed gate policy, and the
+calibrated backlash all live in ONE machine-local ``limits.json`` (decision
+§7b) that resolves through the machine profile - the newest snapshot under
 ``C:\\ProgramData\\zmart-microscopy\\...`` (see
-:mod:`navigator_expert.config.machine`). ``adopt_limits`` publishes a new
-physical-envelope snapshot (limits + function limits) from the
-``set_stage_limits`` notebook - the notebook is the file factory.
+:mod:`navigator_expert.config.machine`). The file is the function-keyed
+format: ``constraints`` (the ``stage.*`` envelope) + ``functions`` (the gate
+policy, read by ``commands/gate``) + a ``backlash`` block. This module reads
+the envelope from ``constraints.stage.*`` and backlash from the ``backlash``
+block; the commands gate reads ``constraints`` + ``functions`` from the same
+file. There is no separate ``function_limits.json``.
+
+``adopt_limits`` publishes a new snapshot holding this merged ``limits.json``
+from the ``set_stage_limits`` notebook - the notebook is the file factory.
 
 No-fallback rule (limits enforcement): the bundled
 ``limits/defaults/limits.json`` is a TEMPLATE, never a runtime fallback -
 a bundled envelope can be the wrong machine's envelope. With no machine-local
 snapshot copy, :func:`defaults_path` / :func:`load` raise a clear error that
 points at the notebook instead of silently substituting the template.
-Calibration *values* (the backlash leg read here, and calibration.json
-generally) keep their loud bundled fallback - they are not enforcement.
 
 The per-run *working* envelope (boundary-marker / scan-field limits) is not
 machine state - it belongs to the acquisition workflow, above the vendor
 driver - so it is not resolved here. The legacy ``current_path`` /
-``write_limits`` helpers remain only until that lift into the workflow lands.
+``write_limits`` helpers keep the flat ``stage_um`` per-run shape and remain
+only until that lift into the workflow lands.
 """
 
 from __future__ import annotations
@@ -30,10 +36,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..calibration.core.model import SCHEMA_VERSION as CALIBRATION_SCHEMA_VERSION
-
 LIMITS_SCHEMA_VERSION = 1
 LIMITS_SOURCE_DEFAULTS = "defaults"
+LIMITS_SOURCE_MACHINE = "machine"
 LIMITS_SOURCE_BOUNDARY_MARKERS = "boundary_markers"
 LIMITS_SOURCE_CFG_FALLBACK = "cfg_fallback"
 LIMITS_SOURCE_SCAN_FIELD = "scan_field"
@@ -41,6 +46,7 @@ LIMITS_SOURCE_MIGRATION = "migration"
 LIMITS_SOURCES = frozenset(
     {
         LIMITS_SOURCE_DEFAULTS,
+        LIMITS_SOURCE_MACHINE,
         LIMITS_SOURCE_BOUNDARY_MARKERS,
         LIMITS_SOURCE_CFG_FALLBACK,
         LIMITS_SOURCE_SCAN_FIELD,
@@ -49,6 +55,7 @@ LIMITS_SOURCES = frozenset(
 )
 
 _REQUIRED_AXES = ("x", "y", "z_galvo", "z_wide")
+_STAGE_CONSTRAINT_PREFIX = "stage."
 _REQUIRED_BACKLASH = (
     "approach",
     "overshoot_um",
@@ -56,6 +63,20 @@ _REQUIRED_BACKLASH = (
     "tolerance_um",
     "session_id",
 )
+
+# Fallback backlash for the FIRST adopt of a machine that has no prior
+# limits.json to carry a backlash block forward from. These are the historical
+# ZMB STELLARIS values (the same block the bundled limits/defaults template and
+# calibration/defaults ship). Backlash is a simple move-out-and-back procedure
+# (decision §2); a wrong-but-safe default never commands an unsafe move because
+# every leg still routes through the gated move_xy + the hardcoded backstop.
+_DEFAULT_BACKLASH = {
+    "approach": "+X+Y",
+    "overshoot_um": 50.0,
+    "settle_ms": 100,
+    "tolerance_um": 20.0,
+    "session_id": None,
+}
 
 
 def _driver_root() -> Path:
@@ -87,13 +108,6 @@ def defaults_path() -> Path:
     from ..config.machine import LIMITS_FILENAME, MACHINE
 
     return MACHINE.require_machine_local(LIMITS_FILENAME, "the physical stage envelope")
-
-
-def default_calibration_path() -> Path:
-    """Path to the active calibration config (machine snapshot / bundled default)."""
-    from ..config.machine import MACHINE
-
-    return MACHINE.calibration_path()
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -174,56 +188,87 @@ def _validate_backlash(
     }
 
 
-def _read_limits(path: Path) -> dict[str, list[float]]:
+def _stage_um_from_constraints(constraints: Any, *, path: Path) -> dict[str, list[float]]:
+    """Derive the flat ``stage_um`` envelope from the file's ``constraints``.
+
+    The merged limits.json states the envelope once, under ``constraints`` by
+    name (``stage.x`` = ``{"min": .., "max": ..}``). This lifts the ``stage.*``
+    constraints into the ``{"x": [min, max], ...}`` shape the motion check
+    consumes; non-``stage.`` constraints (if any) are not the motion envelope
+    and are ignored here (the commands gate consumes the full constraint set).
+    Downstream :func:`_validate_limits` enforces exactly this machine's axes,
+    finite numbers, and min <= max.
+    """
+    if not isinstance(constraints, dict):
+        raise ValueError(f"{path} constraints must be an object, got {constraints!r}")
+    stage: dict[str, list[float]] = {}
+    for name, bound in constraints.items():
+        if not name.startswith(_STAGE_CONSTRAINT_PREFIX):
+            continue
+        axis = name[len(_STAGE_CONSTRAINT_PREFIX) :]
+        if not isinstance(bound, dict) or "min" not in bound or "max" not in bound:
+            raise ValueError(
+                f"{path} constraint {name!r} must be an object with 'min' and 'max', got {bound!r}"
+            )
+        stage[axis] = [bound["min"], bound["max"]]
+    return stage
+
+
+def _read_payload(path: Path) -> dict[str, Any]:
+    """Read + schema/source-validate the merged limits.json once."""
     payload = _read_json(path)
     if payload.get("schema_version") != LIMITS_SCHEMA_VERSION:
         raise ValueError(
             f"unsupported limits.json schema_version {payload.get('schema_version')!r} in {path}"
         )
-    if "stage_um" not in payload:
-        raise ValueError(f"{path} missing stage_um section")
     _validate_source(payload.get("source"), path=path)
-    return _validate_limits(payload["stage_um"], path=path)
+    return payload
+
+
+def _read_limits(path: Path) -> dict[str, list[float]]:
+    """The validated ``stage_um`` envelope from the merged limits.json."""
+    payload = _read_payload(path)
+    if "constraints" not in payload:
+        raise ValueError(f"{path} missing constraints section")
+    stage = _stage_um_from_constraints(payload["constraints"], path=path)
+    return _validate_limits(stage, path=path)
 
 
 def _read_backlash(path: Path) -> dict[str, Any]:
-    payload = _read_json(path)
-    if payload.get("schema_version") != CALIBRATION_SCHEMA_VERSION:
-        raise ValueError(
-            f"unsupported calibration.json schema_version "
-            f"{payload.get('schema_version')!r} in {path}; expected "
-            f"{CALIBRATION_SCHEMA_VERSION}"
-        )
+    """The validated ``backlash`` block from the merged limits.json."""
+    payload = _read_payload(path)
     if "backlash" not in payload:
         raise ValueError(f"{path} missing backlash section")
     return _validate_backlash(payload["backlash"], path=path)
 
 
-def load(
-    limits_path: str | Path | None = None,
-    calibration_path: str | Path | None = None,
-) -> dict[str, Any]:
-    """Load stage limits and calibrated backlash.
+def load(limits_path: str | Path | None = None) -> dict[str, Any]:
+    """Load the stage envelope + calibrated backlash from the single limits.json.
 
-    Without an explicit ``limits_path``, this reads the configured physical
-    envelope via ``defaults_path()`` — the machine-local limits snapshot,
-    STRICT: it raises (with a pointer to the ``set_stage_limits`` notebook)
-    when only the bundled template exists, never silently substituting it.
-    An explicit ``limits_path`` is the caller's deliberate choice and is read
-    as given (e.g. ``current_path()`` for the target-acquisition working
-    envelope). The calibration/backlash leg keeps its bundled fallback —
-    calibration values are not enforcement.
+    Without an explicit ``limits_path``, this reads the configured file via
+    ``defaults_path()`` — the machine-local limits snapshot, STRICT: it raises
+    (with a pointer to the ``set_stage_limits`` notebook) when only the bundled
+    template exists, never silently substituting it. An explicit ``limits_path``
+    is the caller's deliberate choice and is read as given.
+
+    Returns ``{"stage_um": {axis: [min, max]}, "backlash": {...}}``; the
+    envelope is derived from ``constraints.stage.*`` and the backlash from the
+    ``backlash`` block, both of the same file (decision §7b).
     """
-    selected_limits = Path(limits_path) if limits_path is not None else defaults_path()
-    selected_calibration = (
-        Path(calibration_path) if calibration_path is not None else default_calibration_path()
-    )
+    selected = Path(limits_path) if limits_path is not None else defaults_path()
+    payload = _read_payload(selected)
 
-    limits = _read_limits(selected_limits)
-    backlash = _read_backlash(selected_calibration)
+    if "constraints" not in payload:
+        raise ValueError(f"{selected} missing constraints section")
+    stage = _validate_limits(
+        _stage_um_from_constraints(payload["constraints"], path=selected), path=selected
+    )
+    if "backlash" not in payload:
+        raise ValueError(f"{selected} missing backlash section")
+    backlash = _validate_backlash(payload["backlash"], path=selected)
 
     return {
-        "stage_um": limits,
+        "stage_um": stage,
         "backlash": backlash,
     }
 
@@ -249,6 +294,24 @@ def write_limits(
     return selected
 
 
+def _carry_backlash(machine: Any) -> dict[str, Any]:
+    """Backlash for a new snapshot: the prior limits.json's block, else default.
+
+    Reads the ``backlash`` block of the resolved prior ``limits.json`` (the
+    newest machine-local snapshot, or the bundled template on a fresh machine —
+    both ship a backlash block) and carries it forward. A prior in an older
+    shape without a readable backlash block degrades to :data:`_DEFAULT_BACKLASH`
+    rather than failing the adopt.
+    """
+    from ..config.machine import LIMITS_FILENAME
+
+    prior_path, _ = machine.resolve(LIMITS_FILENAME)
+    try:
+        return _read_backlash(prior_path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return dict(_DEFAULT_BACKLASH)
+
+
 def adopt_limits(
     stage_um: dict[str, Any],
     *,
@@ -257,19 +320,20 @@ def adopt_limits(
     moment: datetime | None = None,
     notebook_paths: Any = (),
 ) -> dict:
-    """Publish a new machine snapshot holding an updated physical stage envelope.
+    """Publish a new machine snapshot holding the merged ``limits.json`` (§7b).
 
     Validates *stage_um* against the limits schema (finite numbers, min <= max,
     exactly the machine's axes) AND against the hardcoded physical backstop
-    (:data:`navigator_expert.motion.limits.STAGE_BACKSTOP_UM`), carries the
-    latest snapshot's calibration forward untouched, and publishes a
-    copy-forward snapshot whose ``limits.json`` is the new physical envelope.
-    A matching machine-local ``function_limits.json`` is published alongside it
-    (carrying the previous snapshot's copy forward, or generating one from the
-    adopted envelope on first adopt), so the connect-time limits handshake
-    finds both files. This is the writer for the ``set_stage_limits`` notebook
-    - THE file factory for enforcement; the bundled ``limits/defaults/`` files
-    are templates only.
+    (:data:`navigator_expert.motion.limits.STAGE_BACKSTOP_UM`), then publishes a
+    copy-forward snapshot whose single ``limits.json`` is the function-keyed
+    format: ``constraints`` (the adopted envelope, stated by name), the standard
+    ``functions`` gate map, and a ``backlash`` block carried forward from the
+    prior file (or the default on first adopt). A *real* prior calibration is
+    carried forward if one exists; a fresh-machine adopt writes only
+    ``limits.json`` (calibration is never minted from the bundled template — it
+    keeps its loud in-memory READ fallback until an explicit calibration adopt).
+    This is the writer for the ``set_stage_limits`` notebook - THE file factory
+    for enforcement; the bundled ``limits/defaults/limits.json`` is a template.
 
     Args:
         stage_um: ``{"x": [min, max], "y": ..., "z_galvo": ..., "z_wide": ...}``.
@@ -280,41 +344,30 @@ def adopt_limits(
         notebook_paths: Executed notebook(s) to archive in the snapshot.
 
     Returns:
-        ``{"snapshot": str, "limits_path": str, "function_limits_path": str}``.
+        ``{"snapshot": str, "limits_path": str}``.
     """
     from ..commands import gate as _gate
-    from ..config.machine import FUNCTION_LIMITS_FILENAME
     from . import limits as _limits
 
     validated = _validate_limits(stage_um, path=Path("limits.json"))
     _limits.check_envelope_within_backstop(validated)
-    payload = {
-        "schema_version": LIMITS_SCHEMA_VERSION,
-        "source": _validate_source(source),
-        "stage_um": validated,
-    }
     if machine is None:
         from ..config.machine import MACHINE
 
         machine = MACHINE
     if moment is None:
         moment = datetime.now(timezone.utc)
-    # Carry the previous machine-local function_limits.json forward when one
-    # exists; generate the machine-local file from the adopted envelope on the
-    # first adopt (a deliberate operator action via the notebook, never a
-    # silent runtime fallback).
-    function_limits = None
-    _prior_fl, is_fallback = machine.resolve(FUNCTION_LIMITS_FILENAME)
-    if is_fallback:
-        function_limits = _gate.build_function_limits_payload(validated)
+
+    # The merged limits.json: constraints + functions (the gate map) + backlash.
+    payload = _gate.build_function_limits_payload(validated, source=_validate_source(source))
+    payload["backlash"] = _carry_backlash(machine)
+
     snapshot = machine.publish_snapshot(
         moment,
         limits=payload,
-        function_limits=function_limits,
         notebook_paths=notebook_paths,
     )
     return {
         "snapshot": str(snapshot),
         "limits_path": str(snapshot / "limits.json"),
-        "function_limits_path": str(snapshot / FUNCTION_LIMITS_FILENAME),
     }
