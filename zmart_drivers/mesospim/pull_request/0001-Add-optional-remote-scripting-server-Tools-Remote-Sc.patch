@@ -52,8 +52,8 @@ crashing). The live -D end-to-end run against a real Core is the remaining check
 ---
  mesoSPIM/src/mesoSPIM_Core.py            |  31 +++
  mesoSPIM/src/mesoSPIM_MainWindow.py      | 135 +++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 435 ++++++++++++++++++++++++++++++++++++++++
- 3 files changed, 601 insertions(+)
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 447 ++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 613 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
@@ -274,10 +274,10 @@ index 75ff770..cd1ef5c 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteScripting.py b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 new file mode 100644
-index 0000000..06ab7e5
+index 0000000..755ccf6
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,435 @@
+@@ -0,0 +1,447 @@
 +"""
 +mesoSPIM remote scripting server.
 +==================================
@@ -480,6 +480,18 @@ index 0000000..06ab7e5
 +    "procedure": _procedure,
 +}
 +
++# Argument shape per call, so an LLM's tools/list is self-describing. A call not
++# listed here takes no args and just uses its bare name.
++_HINTS = {
++    "move_absolute": "move axes to absolute targets. args: {targets: {x,y,z,f,theta: um/deg}}",
++    "move_relative": "move axes by relative offsets. args: {deltas: {axis: um/deg}}",
++    "zero": "define the current position as zero. args: {axes: [..]} (omit = all)",
++    "set_state": "change settings. args: {settings: {filter,zoom,laser,intensity,shutterconfig,etl_*}}",
++    "acquire_start": "start one acquisition. args: {acquisition: {...}}",
++    "stat_files": "report which output files exist and their sizes. args: {files: [path,..]}",
++    "procedure": "run a named site procedure. args: {name: <procedure>}",
++}
++
 +
 +def _dispatch(core, call, args):
 +    """One allowlisted call -> result dict (unknown method -> KeyError). The single
@@ -510,9 +522,9 @@ index 0000000..06ab7e5
 +    method = msg.get("method")
 +    if method == "initialize":
 +        result = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
-+                  "serverInfo": {"name": "mesoSPIM", "version": 1}}
++                  "serverInfo": {"name": "mesoSPIM", "version": "1.0"}}
 +    elif method == "tools/list":
-+        result = {"tools": [{"name": n, "description": f"mesoSPIM {n} call",
++        result = {"tools": [{"name": n, "description": _HINTS.get(n, f"mesoSPIM {n}"),
 +                             "inputSchema": {"type": "object"}} for n in COMMANDS]}
 +    elif method == "tools/call":
 +        p = msg.get("params") or {}

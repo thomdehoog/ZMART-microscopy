@@ -4,9 +4,9 @@
 [**mesoSPIM-control**](https://github.com/mesoSPIM/mesoSPIM-control) (the GPL PyQt5 acquisition app),
 has **no external control API** — all control is in-process, inside its Qt event loop. So the boundary is
 added *in mesoSPIM* by a small, generic upstream feature — **Remote Scripting** (Tools → Remote Scripting…;
-the patch under [`pull_request/`](pull_request/)) — that runs a received Python script in the live Core and
-returns its console. This driver is a thin **MIT client** that injects scripts and parses a structured result
-back; all command vocabulary stays client-side. That process boundary keeps ZMART MIT while mesoSPIM-control
+the patch under [`pull_request/`](pull_request/)) — that accepts a named JSON call and runs the matching Core
+method from a fixed allowlist (no code). This driver is a thin **MIT client** that sends named calls and parses
+the JSON result back. That process boundary keeps ZMART MIT while mesoSPIM-control
 stays GPL (see [§10](#10-licensing--how-this-stays-mit)).
 
 It is a vendor sibling to the Leica `navigator_expert` and ZEISS `zenapi` drivers and mirrors their
@@ -126,12 +126,12 @@ runs on its own thread and drives everything through **signals/slots**; a proces
 waveforms, lasers, filter wheels) are config-driven and **swappable for `Demo` backends**. Crucially, it
 exposes **no socket, ZMQ, REST, or RPC** — nothing a separate OS process can connect to out of the box.
 
-**The hook (no fork, minimal upstream).** mesoSPIM's **Script Window** (Core menu) `exec()`s a Python
-snippet with the live `Core` bound as `self`. A tiny, **generic** upstream contribution
-([`pull_request/`](pull_request/)) — **Tools → Remote Scripting…** — puts a socket in front of that: it runs
-a received Python script through the *existing* `Core.execute_script` and returns the console output. Text
-in, console text out; **no command vocabulary, no data format in mesoSPIM**. The GPL edge is that one small,
-reusable feature.
+**The hook (no fork, minimal upstream).** mesoSPIM's `Core` exposes the very methods its own GUI buttons
+call (`move_absolute`, `set_state`, an acquisition, a state read, …). A tiny, **generic** upstream
+contribution ([`pull_request/`](pull_request/)) — **Tools → Remote Scripting…** — puts a socket in front of a
+**fixed allowlist** of those methods: a client sends a named JSON call, the server validates it and runs the
+matching `Core` method, and returns the JSON result. **No client code ever runs** — the allowlist is the
+whole surface. The GPL edge is that one small, reusable feature.
 
 **The vocabulary is a fixed allowlist (the server's `COMMANDS` table).** A "command" here is one named call
 ([`connection/command_api.py`](connection/command_api.py)) — `move_absolute`, a state read, an `Acquisition` run.
@@ -140,17 +140,18 @@ The server replies with a single `__ZMART_OK__<json>` line, so the driver extrac
 into it (exactly as the Script Window console does). The framing is length-prefixed (see
 [`pull_request/PROTOCOL.md`](pull_request/PROTOCOL.md)). Nothing ZMART-specific runs inside mesoSPIM.
 
-> **Why this shape.** Putting only a transport in mesoSPIM (and keeping the vocabulary in the MIT client)
-> makes the upstream patch trivial to review and accept, keeps the GPL/MIT boundary clean, and means new
-> capability is a new injected script — not a mesoSPIM change. The alternative (a bespoke ZMART command
-> server loaded into the Core) was retired in favour of this after the PR proved out on the bench.
+> **Why this shape.** The allowlist lives *in* mesoSPIM (the patch's `COMMANDS`): a bounded, auditable
+> control surface instead of arbitrary remote code. The tradeoff is deliberate — adding a command is a small
+> mesoSPIM change (one allowlist entry), not a client trick, and that is the point: nothing the operator
+> hasn't approved can run. An earlier exec-based transport and a bespoke ZMART command server were both
+> retired in favour of this.
 
 **Why this is a good fit.** Because mesoSPIM ships a **`-D` demo mode** (all `Demo` backends, zero hardware),
 the *entire* control loop — including a real acquisition through the real image writer — can be exercised
 against the actual acquisition software with no microscope. That is unique among the ZMART drivers (see
-[§9](#9-testing)). Offline, the mock server **`exec`s the very same injected scripts** against a Core-shaped
-fake, so the framing, harness, and vocabulary are all exercised for real; only the live hardware Core is
-absent.
+[§9](#9-testing)). Offline, the mock server **dispatches the very same named calls** through the shared
+allowlist against a Core-shaped fake, so the framing, validation, and vocabulary are all exercised for real;
+only the live hardware Core is absent.
 
 ## 2. Requirements & installation
 
@@ -436,7 +437,7 @@ read normally sees the arrived state.
 
 **GPL/MIT split.** The whole driver is MIT and imports nothing from mesoSPIM. The only GPL code is the
 generic **Remote Scripting** feature *in mesoSPIM* (the upstream patch under [`pull_request/`](pull_request/));
-the driver reaches it over a socket. Nothing ZMART-specific runs inside the mesoSPIM process — the injected
+the driver reaches it over a socket. Nothing ZMART-specific runs inside the mesoSPIM process — the named
 calls are just JSON data the MIT client sends (see [§10](#10-licensing--how-this-stays-mit)).
 
 **Dependency direction:** `utils` (stdlib) → `protocol` → `connection.command_api` → `connection.client` →
@@ -479,9 +480,9 @@ python zmart_drivers/mesospim/run_ci.py both       # BOTH:    the offline gate f
 
 The two layers it runs, portable to most-faithful:
 
-1. **Offline suite (115 tests)** — the MIT client vs a **mock Remote Scripting server** over a real socket;
-   no mesoSPIM, no hardware. The mock is a *faithful* double: it `exec`s the very injected scripts the driver
-   sends against a Core-shaped fake and returns the captured console, so the framing, harness, and command
+1. **Offline suite (134 tests)** — the MIT client vs a **mock Remote Scripting server** over a real socket;
+   no mesoSPIM, no hardware. The mock is a *faithful* double: it dispatches the very named calls the driver
+   sends through the shared allowlist against a Core-shaped fake, so the framing, validation, and command
    vocabulary are all exercised for real. `python -m pytest zmart_drivers/mesospim/tests` runs it directly
    (`-m "not integration"` is the default).
 2. **Live round-trip** — the `-m integration` suite against a **running mesoSPIM `-D` demo** (real software,
@@ -510,7 +511,7 @@ Follow the project TDD practice: add a failing offline test first, and assert re
 - The **GPL edge lives in mesoSPIM, not in ZMART:** the generic Remote Scripting feature (the patch under
   [`pull_request/`](pull_request/)). It uses the GPL `Core` API and imports **nothing** from ZMART; its home
   is an upstream contribution to the mesoSPIM project, so it is a feature mesoSPIM *ships and runs* rather
-  than a patch anyone maintains. The ZMART client injects only *text* (scripts) across the socket.
+  than a patch anyone maintains. The ZMART client sends only *named JSON calls* across the socket.
 - GPL does **not** restrict *use* (including commercial) — only distribution of derivatives. Driving mesoSPIM
   at arm's length from a commercial ZMART product is fine; folding modified mesoSPIM source into a closed
   product is not. *(Not legal advice — confirm with UZH tech-transfer.)*
@@ -546,10 +547,10 @@ These **silently misbehave** instead of failing loudly — respect them or resul
   `fn(core, args) -> dict`), a wrapper in `commands/commands.py` (three phases: validate + limit-check →
   `confirm_and_fire(...)` with the profile + a `fire_fn` and target-bound `confirm_fn` → return the envelope),
   a `CommandProfile` in `config/profiles.py` if the defaults don't fit, and the export in `__init__.py`. The
-  mock covers it automatically (it `exec`s the template); extend `FakeCore` only if the template calls a new
-  Core method.
-- **Real procedures** — `autofocus` / `find_sample` currently NAK (the `procedure` template raises); implement
-  them as their own injected scripts (e.g. an ETL/remote-focus sweep) or drop them from
+  mock covers it automatically (it dispatches through the same allowlist); extend `FakeCore` only if the
+  handler calls a new Core method. For a real deployment, mirror the handler into the server's `COMMANDS`.
+- **Real procedures** — `autofocus` / `find_sample` currently NAK (the `procedure` handler raises); implement
+  them as their own allowlist entries (e.g. an ETL/remote-focus sweep) or drop them from
   `config.profiles.ACQUISITION.procedures`.
 - **Acquisition features** — multi-channel captures and XY-tiling by building an `AcquisitionList`; an OME-TIFF
   re-encode in `acquisition/save.py` (today it copies the writer's frames verbatim + a JSON sidecar — the

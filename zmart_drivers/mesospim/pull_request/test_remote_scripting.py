@@ -133,8 +133,11 @@ def test_an_mcp_tools_call_reaches_the_same_dispatch():
 
 def test_mcp_tools_list_is_exactly_the_allowlist():
     reply = rs.handle_message(None, '{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}')
-    tools = [t["name"] for t in json.loads(reply)["result"]["tools"]]
-    assert tools == list(rs.COMMANDS)  # every tool is a mesoSPIM call, nothing else
+    tools = json.loads(reply)["result"]["tools"]
+    assert [t["name"] for t in tools] == list(rs.COMMANDS)  # every tool is a call, nothing else
+    # tools that take args are self-describing, so the LLM knows the arg shape
+    move = next(t for t in tools if t["name"] == "move_absolute")
+    assert "targets" in move["description"]
 
 
 def test_an_mcp_notification_gets_no_reply():

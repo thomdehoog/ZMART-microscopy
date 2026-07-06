@@ -1,8 +1,8 @@
 """MesospimClient <-> MockMesospimServer round-trip over a real localhost socket.
 
-The mock is a faithful Remote Scripting double: it ``exec``s the injected scripts
-against a Core-shaped fake and returns the captured console, so these exercise the
-real framing + harness + vocabulary, only without a live hardware Core.
+The mock is a faithful Remote Scripting double: it dispatches each named call
+through the shared allowlist against a Core-shaped fake, so these exercise the real
+framing + validation + vocabulary, only without a live hardware Core.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ def test_request_returns_data(client):
 
 
 def test_try_request_returns_nak_without_raising(client):
-    # A command whose injected script fails comes back as a clean NAK, not a
+    # A command whose handler fails comes back as a clean NAK, not a
     # client-side crash: the server NAKs named procedures (TODO §5).
     reply = client.try_request("procedure", name="autofocus")
     assert not reply.ok and reply.error
