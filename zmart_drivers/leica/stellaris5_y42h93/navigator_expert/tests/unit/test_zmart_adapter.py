@@ -394,6 +394,50 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(record["settle"], "direct")
         self.assertEqual([Path(p) for p in record["images"]], [Path("/tmp/out/img.ome.tif")])
 
+    def test_acquire_runs_backlash_correction_before_capture_when_enabled(self):
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
+        order = []
+
+        def fake_select_job(client, job, **kwargs):
+            order.append(("select", job))
+            return {"success": True}
+
+        def fake_correct_backlash(client, **kwargs):
+            order.append(("backlash", client))
+
+        def fake_capture(client, job, **kwargs):
+            order.append(("capture", job))
+            return SimpleNamespace(job=job)
+
+        def fake_save(client, acq, output_root, naming, **kwargs):
+            return SimpleNamespace(
+                image_paths={0: Path("/tmp/out/img.ome.tif")},
+                xml_paths={0: Path("/tmp/out/img.xml")},
+                naming=naming,
+            )
+
+        patches = _patch_position(job="Overview")
+        with (
+            patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(adapter._commands, "select_job", fake_select_job),
+            patch.object(adapter._motion, "correct_backlash", fake_correct_backlash),
+            patch.object(adapter._capture, "acquire", fake_capture),
+            patch.object(adapter._save, "save", fake_save),
+            patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
+            patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
+            patches[2],
+        ):
+            record = adapter.acquire(
+                h,
+                acquisition_type="prescan",
+                position_label="7",
+                options={"job": "HiRes", "backlash_correction": True},
+            )
+        # select -> backlash takeup -> capture, in that order (backlash pins the
+        # slack-state right before the image is taken, not before job selection).
+        self.assertEqual(order, [("select", "HiRes"), ("backlash", h.client), ("capture", "HiRes")])
+        self.assertEqual(record["settle"], "backlash-corrected")
+
     def _acquire_with_template_state(self, state, strip_result=None, options=None):
         """Run acquire with the scanfield layer patched; returns the calls list."""
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
@@ -887,6 +931,12 @@ class TestLifecycle(unittest.TestCase):
         adapter.disconnect(h)
         with self.assertRaisesRegex(RuntimeError, "disconnected"):
             adapter.get_actuators(h)
+
+    def test_disconnect_uninstalls_the_commands_layer_gate_state(self):
+        h = _handle()
+        self.assertIsNotNone(adapter._gate.state_for(h.client))
+        adapter.disconnect(h)
+        self.assertIsNone(adapter._gate.state_for(h.client))
 
     def test_connect_runs_the_limits_handshake(self):
         """connect must run the machine-local limits handshake, or set_xyz can't move.

@@ -431,7 +431,7 @@ def phase_acquire(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
     with v.phase("acquire (capture + save)"):
         # Use the instrument's active exporter unless one is forced: the live
         # LAS X session decides where it writes (this sim uses native autosave).
-        options: dict[str, Any] = {}
+        options: dict[str, Any] = {"backlash_correction": True}
         if args.exporter:
             options["exporter"] = args.exporter
         active = (sess.get_acquisition_options().get("exporter") or {}).get("active")
@@ -442,7 +442,7 @@ def phase_acquire(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
                 position_label="1",
                 options=options,
             ),
-            context={"exporter": args.exporter or active},
+            context={"exporter": args.exporter or active, "backlash_correction": True},
             mutating=True,
         )
         if not rec:
@@ -453,6 +453,7 @@ def phase_acquire(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
         v.compare("acquire: at least one xml", len(xml) >= 1, True)
         non_empty = all(Path(p).is_file() and Path(p).stat().st_size > 0 for p in images)
         v.compare("acquire: image files exist and are non-empty", non_empty, True)
+        v.compare("acquire: backlash_correction ran", rec.get("settle"), "backlash-corrected")
 
 
 # --- CLI --------------------------------------------------------------------

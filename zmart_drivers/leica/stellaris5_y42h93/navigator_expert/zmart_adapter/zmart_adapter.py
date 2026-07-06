@@ -296,7 +296,15 @@ def _restore_persisted_origin(handle: ZmartHandle) -> None:
 
 
 def disconnect(handle: ZmartHandle) -> None:
-    """Mark the handle closed; the CAM client itself has no teardown."""
+    """Mark the handle closed and drop its commands-layer gate state.
+
+    The CAM client itself has no teardown (process-lifetime). Without this,
+    a disconnected client's ``FunctionLimits`` stayed installed in the gate's
+    module-level registry indefinitely; a reconnect on a new handle re-runs
+    the handshake and installs its own state regardless, but a stale entry
+    left behind after disconnect is real teardown debt, not just cosmetic.
+    """
+    _gate.uninstall(handle.client)
     handle.closed = True
 
 

@@ -114,7 +114,6 @@ __all__ = [
     "mask_contour_to_roi",
     # session helpers
     "connect_python_client",
-    "require_canonical_scan_orientation",
     "disable_roi_scan",
     "LIMITS_SOURCE_DEFAULTS",
     "LIMITS_SOURCE_BOUNDARY_MARKERS",
@@ -205,10 +204,7 @@ from .commands.commands import (
     move_z,
     select_job,
 )
-from .connection.session import (
-    connect_python_client,
-    require_canonical_scan_orientation,
-)
+from .connection.session import connect_python_client
 
 # -- commands/gate - function-keyed limits gate + connect handshake
 from .commands.gate import (

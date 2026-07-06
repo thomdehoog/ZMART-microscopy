@@ -105,17 +105,12 @@ runtime where possible. Override via the profile, not at call sites.
   The machine-local `limits.json` (its `functions` block) must carry an entry for every key (`null` =
   reviewed-and-unlimited; an **absent** key fails closed at load). If every move/acquire is refusing,
   read the refusal message: it says exactly which file is missing/invalid and how to create it.
-- **Canonical orientation** — call `require_canonical_scan_orientation()` at session start; it fails
-  fast unless LAS X image export is `TOPLEFT` (any other transform silently breaks pixel↔stage math).
-  Be aware of its real strength: no code path calls it automatically (the zmart adapter's `connect()`
-  does not), and it passes when the LAS X settings file is missing or unreadable — a best-effort
-  check you must invoke yourself, not an enforced gate.
 
 ## 4. Quick start
 
 ```python
 from navigator_expert import (
-    connect_python_client, ping, require_canonical_scan_orientation,
+    connect_python_client, ping,
     connect_limits_handshake, select_job, set_zoom, set_scan_speed,
     move_xy, acquire, save,
 )
@@ -124,7 +119,6 @@ from shared.output_layout import Naming, run_hash
 # 1. Connect and validate the scope
 client = connect_python_client()
 assert ping(client)
-require_canonical_scan_orientation()
 
 # 2. Limits handshake (REQUIRED before any mutating command): validates the
 #    single machine-local limits.json (newest machine snapshot; NO bundled
@@ -223,7 +217,6 @@ All setting commands take `(client, job_name, ...)` and return the result dict o
 ```python
 connect_python_client(client_name="PythonClient", api_delay_ms=None) -> client
 ping(client) -> bool
-require_canonical_scan_orientation() -> None          # raises when export transform != TOPLEFT; passes if settings are unreadable (§3)
 ```
 
 ### State readers
@@ -458,25 +451,22 @@ These **silently misbehave** instead of failing loudly — respect them or resul
 1. **Configure stage limits before any movement** — `move_xy`/`move_z` fail immediately if unset.
 2. **`acquire()` returns an `AcquisitionResult` and raises on failure** — not a dict; read timing via
    `acq.command_result["timing"]`. Persisting is a separate `save()` call.
-3. **Image export must be `TOPLEFT`** — call `require_canonical_scan_orientation()`; any other transform
-   rotates/flips the saved TIFF and silently misnavigates all pixel↔stage math. Nothing calls the
-   check for you, and it passes when the settings file is unreadable (see §3).
-4. **For setting commands, check `confirmed`, not just `success`** — most `set_*` return
+3. **For setting commands, check `confirmed`, not just `success`** — most `set_*` return
    `success=True, confirmed=False` when readback never matched (mismatch is in `logs`).
-5. **Reads that gate control flow or get persisted must use the API leg** — never let a fresh-by-age
+4. **Reads that gate control flow or get persisted must use the API leg** — never let a fresh-by-age
    log value decide whether a command fires or what metadata/calibration is written.
-6. **The CAM API can hang** — that's why `readers` has a log mirror and an in-flight API-read cap.
-7. **`select_job` confirmation defaults to `hybrid`** — a stale API readback can report the wrong job
+5. **The CAM API can hang** — that's why `readers` has a log mirror and an in-flight API-read cap.
+6. **`select_job` confirmation defaults to `hybrid`** — a stale API readback can report the wrong job
    after a switch; the hybrid race only accepts evidence of an actual transition.
-8. **Objective changes are best-effort** — a manual turret may pop a "turn the turret manually" dialog
+7. **Objective changes are best-effort** — a manual turret may pop a "turn the turret manually" dialog
    (surfaced in `MatrixScreener.log` / `get_pending_dialog`); prefer binding the objective via the job.
-9. **`PyApiAcquireJob` silently no-ops without `m.JobName`** — returns in ~0 s with no error; the driver
+8. **`PyApiAcquireJob` silently no-ops without `m.JobName`** — returns in ~0 s with no error; the driver
    sets it in the command's `setup_fn`. Check the setup callback before assuming a LAS X bug.
-10. **Edit templates only through `apply_lrp_change`** — a raw `.lrp` edit won't take effect and can
-    select the wrong job after reload.
-11. **`load_experiment` confirms only the receipt, not on-disk state** — follow with `save_experiment`
+9. **Edit templates only through `apply_lrp_change`** — a raw `.lrp` edit won't take effect and can
+   select the wrong job after reload.
+10. **`load_experiment` confirms only the receipt, not on-disk state** — follow with `save_experiment`
     (or use `apply_lrp_change`, which does).
-12. **Adapter mutating ops are gated by `limits.json` (its `functions` block), fail-closed** — if it
+11. **Adapter mutating ops are gated by `limits.json` (its `functions` block), fail-closed** — if it
     fails to load/validate at connect, every `set_*`/`acquire` on the zmart-adapter surface refuses; the only
     hint is the connect-time warning (see §3).
 
