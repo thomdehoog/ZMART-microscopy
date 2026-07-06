@@ -227,7 +227,12 @@ def test_state_reader_mode_argument_overrides_profile(tmp_path):
         profiles.STATE_READERS = prior
 
 
-def test_explicit_log_mode_fails_when_no_jobs():
+def test_explicit_log_mode_treats_empty_job_list_as_expected():
+    """The job LIST is API-only (no log leg): a log-mode read returning
+    nothing is the declared capability, not a driver fault. phase_readonly
+    must record it as an expected SKIP and enumerate the list via the API
+    leg (selected-job confirmation still exercises the log leg elsewhere)."""
+
     class DummyDrv:
         @staticmethod
         def ping(_client):
@@ -238,8 +243,10 @@ def test_explicit_log_mode_fails_when_no_jobs():
             return "eScanIdle"
 
         @staticmethod
-        def get_jobs(_client, **_kwargs):
-            return None
+        def get_jobs(_client, *, mode=None, **_kwargs):
+            # The log profile (mode is None here) has no job-list leg; only the
+            # API fallback (mode="api") can enumerate the full list.
+            return [{"Name": "HiRes", "IsSelected": True}] if mode == "api" else None
 
         @staticmethod
         def get_hardware_info(_client):
@@ -248,6 +255,14 @@ def test_explicit_log_mode_fails_when_no_jobs():
         @staticmethod
         def get_xy(_client):
             return {"x_um": 1.0, "y_um": 1.0}
+
+        @staticmethod
+        def make_changeable_copy(raw):
+            return dict(raw or {})
+
+        @staticmethod
+        def get_job_settings(_client, _job, **_kwargs):
+            return {}
 
     records = []
     validator = validate_hardware.Validator(
@@ -258,10 +273,10 @@ def test_explicit_log_mode_fails_when_no_jobs():
 
     job = validate_hardware.phase_readonly(DummyDrv, validator, object(), args)
 
-    assert job is None
-    assert validator.exit_code() == 1
+    assert job == "HiRes"  # resolved via the API fallback
+    assert validator.exit_code() == 0  # an empty log job list is not a failure
     resolve = next(r for r in records if r.name == "job: resolve")
-    assert resolve.status == "FAIL"
+    assert resolve.status == "SKIP"
 
 
 def test_selected_job_api_lag_after_log_confirm_is_warn():
@@ -370,3 +385,94 @@ def test_mock_set_dispatch_table_matches_surface():
     for command_name, handler_name in sorted(_SET_DISPATCH.items()):
         assert hasattr(mock, command_name), command_name
         assert callable(getattr(mock, handler_name)), handler_name
+
+
+_ENVELOPE = {
+    "x_min": 1000.0,
+    "x_max": 130000.0,
+    "y_min": 1000.0,
+    "y_max": 100000.0,
+    "z_galvo_min": -200.0,
+    "z_galvo_max": 200.0,
+    "z_wide_min": 0.0,
+    "z_wide_max": 25000.0,
+}
+
+
+def test_xy_start_outside_envelope_is_skip_not_fail():
+    """A stage parked outside the envelope (the sim homes at 0,0, outside a
+    real machine's envelope) is a positioning precondition, not a driver
+    fault: phase_xy SKIPs, never FAILs, and never asks the gate to move."""
+
+    class DummyDrv:
+        moved = False
+
+        @staticmethod
+        def get_xy(_client, **_kwargs):
+            return {"x_um": 0.0, "y_um": 0.0}
+
+        @staticmethod
+        def get_stage_limits():
+            return dict(_ENVELOPE)
+
+        @staticmethod
+        def move_xy(*_args, **_kwargs):
+            DummyDrv.moved = True
+            return {"success": True}
+
+    records = []
+    validator = validate_hardware.Validator(
+        sink=records.append,
+        log=validate_hardware._configure_logging("ERROR", jsonl_to_stdout=False),
+    )
+    args = validate_hardware.parse_args(["--allow-xy"])
+
+    validate_hardware.phase_xy(DummyDrv, validator, object(), args)
+
+    counts = validator.counts()
+    assert counts["FAIL"] == 0 and counts["SKIP"] == 1
+    assert validator.exit_code() == 0
+    assert not DummyDrv.moved  # the gate is never asked to move from out of bounds
+    row = next(r for r in records if r.name == "xy: pattern")
+    assert row.status == "SKIP"
+    assert "outside the calibrated envelope" in row.message
+
+
+def test_z_start_outside_envelope_is_skip_not_fail():
+    """Z parked outside the envelope is the same precondition class: SKIP,
+    not FAIL, and no move attempted."""
+
+    class DummyDrv:
+        moved = False
+
+        @staticmethod
+        def make_changeable_copy(raw):
+            return dict(raw or {})
+
+        @staticmethod
+        def get_job_settings(_client, _job, **_kwargs):
+            return {"zPosition": {"z-galvo": 500.0}}  # outside [-200, 200]
+
+        @staticmethod
+        def get_stage_limits():
+            return dict(_ENVELOPE)
+
+        @staticmethod
+        def move_z(*_args, **_kwargs):
+            DummyDrv.moved = True
+            return {"success": True}
+
+    records = []
+    validator = validate_hardware.Validator(
+        sink=records.append,
+        log=validate_hardware._configure_logging("ERROR", jsonl_to_stdout=False),
+    )
+    args = validate_hardware.parse_args(["--allow-z"])
+
+    validate_hardware.phase_z(DummyDrv, validator, object(), "HiRes", args)
+
+    counts = validator.counts()
+    assert counts["FAIL"] == 0 and counts["SKIP"] == 1
+    assert not DummyDrv.moved
+    row = next(r for r in records if r.name == "z: round-trip")
+    assert row.status == "SKIP"

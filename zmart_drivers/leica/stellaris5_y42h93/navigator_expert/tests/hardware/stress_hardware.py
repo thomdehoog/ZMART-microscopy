@@ -653,7 +653,9 @@ def op_xy(
     start_error = vh._xy_limit_error(x0, y0, limits)
     target_error = vh._xy_limit_error(x1, y1, limits)
     if start_error:
-        return "FAIL", f"starting position outside limits: {start_error}", None, None, context
+        # Setup/positioning precondition, not a driver fault (the sim often
+        # homes at 0,0, outside a real envelope) -- SKIP, like target-outside.
+        return "SKIP", f"starting position outside limits: {start_error}", None, None, context
     if target_error:
         return "SKIP", f"target position outside limits: {target_error}", None, None, context
     status = "PASS"
@@ -707,7 +709,9 @@ def op_z(
     start_error = vh._z_limit_error(z0, "galvo", limits)
     target_error = vh._z_limit_error(z1, "galvo", limits)
     if start_error:
-        return "FAIL", f"starting position outside limits: {start_error}", None, None, context
+        # Setup/positioning precondition, not a driver fault -- SKIP, matching
+        # the target-outside case below.
+        return "SKIP", f"starting position outside limits: {start_error}", None, None, context
     if target_error:
         return "SKIP", f"target position outside limits: {target_error}", None, None, context
     status = "PASS"
