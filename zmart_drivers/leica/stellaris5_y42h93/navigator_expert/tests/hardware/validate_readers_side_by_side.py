@@ -56,6 +56,7 @@ from _report import RunReport, attempts_of, confirmation_of, replay_envelope_log
 from navigator_expert import readers
 from navigator_expert.commands.settings import make_changeable_copy
 from navigator_expert.config import profiles
+from navigator_expert.readers import capabilities
 from navigator_expert.readers import log_reader as L
 from navigator_expert.utils import parse_tile_geometry
 
@@ -164,9 +165,22 @@ class Rec:
             )
         return ok
 
-    def parity(self, key, ok, extra="", *, log_missing=False, latency=0.0, hang=False):
-        """A parity check that SKIPs (with reason) when the log leg cannot
-        exist -- the --mock backend has no LAS X log stream."""
+    def parity(
+        self, key, ok, extra="", *, log_missing=False, log_unsupported=False, latency=0.0, hang=False
+    ):
+        """A parity check that SKIPs (with reason) when the log side cannot
+        answer: either the datum has no authoritative log leg at all
+        (``log_unsupported`` -- e.g. the job LIST is API-only, so a log-vs-api
+        comparison has nothing trustworthy to compare against), or the --mock
+        backend simply has no LAS X log stream (``log_missing``)."""
+        if log_unsupported:
+            return self.row(
+                key,
+                True,
+                "no authoritative log leg for this datum (API-only); " + extra,
+                skip=True,
+                latency=latency,
+            )
         if log_missing and self.mock:
             return self.row(
                 key,
@@ -316,25 +330,35 @@ def phase_readonly(client, rec):
             latency=alat,
         )
 
+    jobs_log_leg = capabilities.DATUMS["jobs"].log_fn is not None
     ajobs, alat, _ = _timed(lambda: drv.get_jobs(client, mode="api"))
     ljobs = L.get_jobs(snap)
     an = sorted(j["Name"] for j in (ajobs or []))
     ln = sorted(j["Name"] for j in (ljobs or []))
-    asel = sorted(j["Name"] for j in (ajobs or []) if j.get("IsSelected"))
-    lsel = sorted(j["Name"] for j in (ljobs or []) if j.get("IsSelected"))
+    # The job LIST is API-only: the log stream's job-name cluster omits jobs
+    # not re-dumped this session, so an api-vs-log list comparison is expected
+    # to disagree on real hardware. Skip the list parity when jobs has no log
+    # leg -- the routed reader-modes phase still exercises jobs via api/hybrid.
     rec.parity(
         "get_jobs (names)",
         an == ln,
         f"api={an} log={ln}",
         log_missing=ljobs is None,
+        log_unsupported=not jobs_log_leg,
         latency=alat,
         hang=alat > API_HANG_MS,
     )
+    # Selection DOES have an authoritative log leg (the selected_job datum),
+    # unlike the job list -- compare the API selection against the log's
+    # selected-job reader directly, not against the incomplete job-name cluster.
+    api_selected = next((j["Name"] for j in (ajobs or []) if j.get("IsSelected")), None)
+    lsel_job = L.get_selected_job(snap)
+    log_selected = lsel_job.get("Name") if lsel_job else None
     rec.parity(
         "get_selected_job",
-        asel == lsel,
-        f"api={asel} log={lsel}",
-        log_missing=ljobs is None,
+        api_selected == log_selected,
+        f"api={api_selected!r} log={log_selected!r}",
+        log_missing=log_selected is None,
     )
 
     astat = drv.get_scan_status(client, mode="api")
@@ -398,7 +422,7 @@ def phase_readonly(client, rec):
             f"api={az} log={lz}",
             log_missing=lz is None,
         )
-    return [j["Name"] for j in (ajobs or [])], next(iter(asel), None)
+    return [j["Name"] for j in (ajobs or [])], api_selected
 
 
 # --- routed reader modes (api / log / hybrid) --------------------------------

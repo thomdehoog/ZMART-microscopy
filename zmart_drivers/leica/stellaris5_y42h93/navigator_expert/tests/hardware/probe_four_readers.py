@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # vendor/leica
 
 import navigator_expert as drv
 from navigator_expert import readers
+from navigator_expert.readers import capabilities
 
 HERE = Path(__file__).resolve().parent
 PASSIVE_MODES = ("api", "log", "hybrid")
@@ -159,6 +160,8 @@ def _brief_read(record: dict[str, Any]) -> str:
     status = record["status"]
     source = record.get("source") or "-"
     ms = record["elapsed_ms"]
+    if status == "skipped":
+        return f"skip ({record.get('error')})"
     if status not in {"ok", "none"}:
         return f"{status}@{ms:.0f}ms {record.get('error')}"
     summary = record.get("summary") or {}
@@ -179,7 +182,30 @@ def _emit(records: list[dict[str, Any]], output: Path, record: dict[str, Any]) -
         f.write(json.dumps(record, default=repr) + "\n")
 
 
+def _expected_no_leg(datum: str, mode: str) -> dict[str, Any]:
+    """A read the capability table declares unsupported for this mode.
+
+    The job LIST is API-only (no log leg), so a log-mode jobs read has no
+    source to answer from. That is a declared capability, not a fault -- record
+    it as an expected skip so the probe doesn't grade a missing leg red.
+    """
+    return {
+        "status": "skipped",
+        "elapsed_ms": 0.0,
+        "source": mode,
+        "error": f"datum {datum!r} has no {mode} leg (expected)",
+        "value": None,
+        "summary": {"kind": "skipped"},
+    }
+
+
 def _read_passive(client, datum: str, mode: str, job_name: str | None) -> dict[str, Any]:
+    spec = capabilities.DATUMS.get(datum)
+    if spec is not None:
+        if mode == "log" and spec.log_fn is None:
+            return _expected_no_leg(datum, mode)
+        if mode == "api" and spec.api_fn is None:
+            return _expected_no_leg(datum, mode)
     if datum == "selected_job":
         return _timed_read(lambda: readers.get_selected_job(client, mode=mode, diagnostics=True))
     if datum == "xy":
