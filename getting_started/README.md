@@ -26,6 +26,11 @@ import, and asserts every package came from conda-forge (the Anaconda `defaults`
 channel is never used). Re-run with `--recreate` to rebuild it clean or `--update`
 to update in place. Manual equivalent: `conda env create -f environment.yml`.
 
+> Prefer a different env name? `python build_env.py --name my-env` uses it instead
+> of `zmart-microscopy`; the script prints the exact `conda activate <name>` line
+> to run when it finishes. (The env name is just a conda label — nothing in the
+> code depends on it.)
+
 For **live** control, LAS X must be installed and running — the CAM API DLLs ship
 with LAS X and load from its install dir, so the env carries only the `pythonnet`
 bridge. Add the dev/test tools (needed to run the driver's validation):
