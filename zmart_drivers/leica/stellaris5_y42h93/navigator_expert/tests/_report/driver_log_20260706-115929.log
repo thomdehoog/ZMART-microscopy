@@ -1,0 +1,21 @@
+2026-07-06 11:59:30,178 INFO navigator_expert.connection.session | LAS X runtime=C:\Program Files\Leica Microsystems CMS GmbH\LAS X\AddIns\NavigatorExpert version=1.0.108.0 api_delay_ms=250
+2026-07-06 11:59:30,182 INFO navigator_expert.commands.gate | limits handshake ok: {'schema_version': 1, 'source': 'defaults', 'path': 'C:\\ProgramData\\zmart-microscopy\\leica\\stellaris5_y42h93\\navigator_expert\\2026-07-06T09-17-14-792088Z\\limits.json', 'is_fallback': False} governs this session
+2026-07-06 11:59:30,190 WARNING navigator_expert.config.machine | No machine snapshot for leica/stellaris5_y42h93 under C:\ProgramData\zmart-microscopy\leica\stellaris5_y42h93\navigator_expert; using bundled default \\zmbstaff.core.uzh.ch\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\smart-microscopy\zmart_drivers\leica\stellaris5_y42h93\navigator_expert\calibration\defaults\calibration.json (calibration may be stale - re-calibrate).
+2026-07-06 11:59:30,194 INFO navigator_expert.zmart_adapter.zmart_adapter | restored persisted origin (captured_at=1783331747.3904378, objective=HC PL APO  CS    10x/0.40 DRY )
+2026-07-06 11:59:31,036 INFO navigator_expert.commands.dispatch | MoveXY -> (64195.0, 41155.0) um | OK (0.024s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:31,154 INFO navigator_expert.commands.dispatch | MoveXY -> (64245.0, 41205.0) um | OK (0.017s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:31,175 INFO navigator_expert.commands.dispatch | Z -> -0.5 um (galvo) | OK (0.019s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:31,271 INFO navigator_expert.commands.dispatch | MoveXY -> (64195.0, 41155.0) um | OK (0.013s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:31,385 INFO navigator_expert.commands.dispatch | MoveXY -> (64245.0, 41205.0) um | OK (0.013s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:31,400 INFO navigator_expert.commands.dispatch | Z -> 1.5 um (galvo) | OK (0.014s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:31,512 INFO navigator_expert.commands.dispatch | MoveXY -> (64195.0, 41155.0) um | OK (0.017s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:31,626 INFO navigator_expert.commands.dispatch | MoveXY -> (64245.0, 41205.0) um | OK (0.013s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:31,641 INFO navigator_expert.commands.dispatch | Z -> 3.0 um (zwide) | OK (0.015s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:31,697 INFO navigator_expert.commands.dispatch | Z -> 0.0 um (zwide) | OK (0.014s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:31,749 INFO navigator_expert.commands.dispatch | MoveXY -> (64170.0, 41130.0) um | OK (0.013s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:31,862 INFO navigator_expert.commands.dispatch | MoveXY -> (64220.0, 41180.0) um | OK (0.013s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:31,882 INFO navigator_expert.commands.dispatch | Z -> -0.5 um (galvo) | OK (0.019s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:32,780 INFO navigator_expert.commands.confirm_select_job | Job 'HiRes' confirmed from LAS X log (719ms, attempts=5)
+2026-07-06 11:59:32,846 INFO navigator_expert.commands.dispatch | SelectJob 'HiRes' | OK (0.800s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:33,776 INFO navigator_expert.commands.confirm_select_job | Job 'Overview' confirmed from LAS X log (735ms, attempts=5)
+2026-07-06 11:59:33,837 INFO navigator_expert.commands.dispatch | SelectJob 'Overview' | OK (0.799s) attempts=1 confirm_attempts=1

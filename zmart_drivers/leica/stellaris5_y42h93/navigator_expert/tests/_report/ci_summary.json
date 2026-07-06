@@ -1,12 +1,11 @@
 {
-  "total_seconds": 39.2,
+  "total_seconds": 40.08,
   "passed": false,
   "fatal_failures": [
+    "hardware: passive readers (api / log / hybrid)",
     "hardware: reader parity + routed modes (writes)",
     "hardware: zmart adapter (controller round-trip, writes)",
-    "hardware: end-to-end validator [api reader] (writes)",
-    "hardware: end-to-end validator [log reader] (writes)",
-    "hardware: end-to-end validator [hybrid reader] (writes)"
+    "hardware: end-to-end validator [log reader] (writes)"
   ],
   "warnings": [],
   "steps": [
@@ -15,7 +14,7 @@
       "ok": true,
       "fatal": true,
       "returncode": 0,
-      "seconds": 2.41,
+      "seconds": 2.57,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
@@ -27,10 +26,10 @@
     },
     {
       "name": "hardware: passive readers (api / log / hybrid)",
-      "ok": true,
+      "ok": false,
       "fatal": true,
-      "returncode": 0,
-      "seconds": 2.24,
+      "returncode": 1,
+      "seconds": 2.21,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
@@ -43,7 +42,7 @@
       "ok": false,
       "fatal": true,
       "returncode": 1,
-      "seconds": 6.23,
+      "seconds": 8.52,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
@@ -57,7 +56,7 @@
       "ok": false,
       "fatal": true,
       "returncode": 1,
-      "seconds": 5.07,
+      "seconds": 5.34,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
@@ -72,10 +71,10 @@
     },
     {
       "name": "hardware: end-to-end validator [api reader] (writes)",
-      "ok": false,
+      "ok": true,
       "fatal": true,
-      "returncode": 1,
-      "seconds": 7.65,
+      "returncode": 0,
+      "seconds": 8.71,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
@@ -95,7 +94,7 @@
       "ok": false,
       "fatal": true,
       "returncode": 1,
-      "seconds": 6.37,
+      "seconds": 5.92,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
@@ -112,10 +111,10 @@
     },
     {
       "name": "hardware: end-to-end validator [hybrid reader] (writes)",
-      "ok": false,
+      "ok": true,
       "fatal": true,
-      "returncode": 1,
-      "seconds": 8.46,
+      "returncode": 0,
+      "seconds": 6.02,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
