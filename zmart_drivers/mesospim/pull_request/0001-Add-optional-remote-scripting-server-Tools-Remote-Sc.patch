@@ -278,38 +278,38 @@ index 75ff770..cd1ef5c 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteScripting.py b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 new file mode 100644
-index 0000000..915c198
+index 0000000..40c2e6c
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 @@ -0,0 +1,515 @@
 +"""
 +mesoSPIM remote scripting server.
 +==================================
-+Lets an external program control mesoSPIM by **named calls, not code**, two lanes
-+over the one port, both landing on the same :func:`_dispatch`:
++Lets an external program control mesoSPIM by **named calls, not code**. Two lanes
++over one port, both ending at the same allowlist:
 +
-+- **scripts** (framed TCP): a single-key JSON object ``{"<method>": {args}}`` -> ``__ZMART_OK__<json>``.
-+- **LLMs** (MCP over HTTP): the client POSTs a JSON-RPC ``tools/call`` -> a JSON-RPC result.
++- scripts (framed TCP): send ``{"<method>": {args}}``, get ``__ZMART_OK__<json>`` back.
++- LLMs (MCP over HTTP): POST a JSON-RPC ``tools/call``, get a JSON-RPC result.
 +
-+Either way the method is looked up in the fixed :data:`COMMANDS` allowlist and the
-+matching ``mesoSPIM_Core`` call runs -- the same methods the GUI's buttons call. An
-+unknown method is rejected before anything touches the instrument. No client Python
-+is ever run. Safety: off by default, binds 127.0.0.1, an optional shared token
-+(constant-time; a Bearer header over HTTP), and an Origin check on HTTP so a web
-+page in the operator's browser can't drive the instrument (DNS-rebinding / CSRF).
++The method name is looked up in the fixed :data:`COMMANDS` table and the matching
++``mesoSPIM_Core`` call runs -- the same methods the GUI's own buttons call. An
++unknown name is rejected before anything moves. No client Python is ever run.
 +
-+Security: the server is off until an operator starts it, listens on 127.0.0.1 by
-+default, and can require a shared token (checked in constant time, so timing can't
-+reveal it byte by byte). A call still controls the microscope (moves the stage,
-+runs acquisitions), so use a token to expose it on a network.
++Safety (a call still moves the stage / runs acquisitions, so this matters):
++- off until an operator starts it from the GUI; binds 127.0.0.1 by default;
++- optional shared token, compared in constant time (a Bearer header over HTTP);
++- over HTTP, any non-localhost ``Origin`` is rejected, so a web page open in the
++  operator's browser can't drive the instrument (DNS-rebinding / CSRF).
++A call runs on the Core's own (GUI) thread, so the GUI is busy until it returns --
++keep calls short.
 +
-+Blocking: a call runs on the Core's own thread -- the same thread the GUI runs on
-+-- so the GUI is busy until it returns. Calls are short.
-+
-+Wire format, both directions: b"<byte-count>\\n" + payload. If a token is set, the
-+client's first message must be it; the server replies "OK" or "AUTH-FAILED". Every
-+message after that is a call; the reply is one line, ``__ZMART_OK__<json>`` (or the
-+error text on a bad payload / unknown call / handler error).
++Map of this file, top to bottom:
++  frame() / FrameDecoder   the "<byte-count>\\n<payload>" wire framing (TCP lane)
++  AuthGate                 the constant-time token check
++  COMMANDS + _dispatch     the allowlist: a name -> one Core call (READ THIS FIRST)
++  handle_message           the TCP lane: {"<method>": {args}} -> reply text
++  _mcp_reply               the HTTP lane's brain: JSON-RPC in -> JSON-RPC out
++  RemoteScriptingServer    the Qt glue: accept a client, read bytes, route to the above
 +
 +Author: Thom de Hoog (ZMB, University of Zurich). License: GPL-3.0 (part of
 +mesoSPIM-control; it uses the GPL Core API).
