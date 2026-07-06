@@ -1,18 +1,18 @@
 """
 State readers.
 ==============
-Read-only queries against the mesoSPIM command server. Every reader maps to one
-protocol ``get_*`` request and parses the reply's ``data`` into a plain value or
-dict; none of them mutate instrument state.
+Read-only queries against the mesoSPIM server. Every reader maps to one ``get_*``
+named call and parses the reply's ``data`` into a plain value or dict; none of
+them mutate instrument state.
 
 Values are source-tagged with a :class:`Reading` when ``diagnostics=True`` so the
 confirmation layer can apply its freshness gate (a readback taken before a
 command fired can never confirm it). Plain reads return the bare value.
 
-mesoSPIM has a single evidence source -- the command server reading the
-process-wide ``mesoSPIM_StateSingleton`` -- so ``source`` is always ``"server"``
-today. The field is kept so a second source (e.g. a direct stage poll) can be
-added without changing the confirmation contract.
+mesoSPIM has a single evidence source -- the server reading the process-wide
+``mesoSPIM_StateSingleton`` -- so ``source`` is always ``"server"`` today. The
+field is kept so a second source (e.g. a direct stage poll) can be added without
+changing the confirmation contract.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com

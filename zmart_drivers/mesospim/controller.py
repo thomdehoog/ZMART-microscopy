@@ -417,7 +417,7 @@ def set_procedure(handle: MesospimHandle, procedure: dict) -> dict:
         result = _cmd.zero_axes(handle.client, ["x", "y", "z"])
     elif name in ("autofocus", "find_sample"):
         _check_limits(handle, "set_procedure", {})
-        # Server-side named procedures: forwarded verbatim to the command server.
+        # Server-side named procedures: forwarded verbatim to the server.
         reply = handle.client.request("procedure", name=name, args=procedure.get("args", {}))
         return {"ran": name, "data": dict(reply.data)}
     else:
@@ -508,8 +508,8 @@ def acquire(
         raise RuntimeError(f"acquire: stack Z range outside stage limits: {exc}") from exc
 
     # Give the image writer an explicit, per-acquisition output location so the
-    # resident server can resolve the frame paths and repeated/same-label
-    # captures never collide. Cleaned up after the frames are relocated.
+    # server can resolve the frame paths and repeated/same-label captures never
+    # collide. Cleaned up after the frames are relocated.
     handle._acq_seq += 1
     stem = _acq.canonical_stem(acquisition_type, position_label)
     staging = handle.output_root / "_staging" / f"{stem}_{handle._acq_seq:04d}"

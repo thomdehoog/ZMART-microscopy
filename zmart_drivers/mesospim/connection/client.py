@@ -65,7 +65,7 @@ class MesospimClient:
         self._sock: socket.socket | None = None
         self._buf = b""
         self._lock = threading.Lock()
-        # Filled from a ``hello`` script so callers can report server identity.
+        # Filled from a ``hello`` call so callers can report server identity.
         self.server_info: dict[str, Any] = {}
 
     # -- identity / introspection --------------------------------------------
@@ -95,7 +95,7 @@ class MesospimClient:
         """Open the socket, authenticate if a token is set, and read server info.
 
         Raises ``ConnectionError`` if the socket cannot open, and
-        :class:`MesospimError` if authentication fails or the first script does
+        :class:`MesospimError` if authentication fails or the first call does
         not round-trip (e.g. the Remote Scripting server is not running).
         """
         if self._sock is not None:

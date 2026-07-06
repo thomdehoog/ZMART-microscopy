@@ -11,11 +11,8 @@ one folder per instrument::
 
 Each file resolves machine copy first, then the driver-bundled default in
 ``config/`` -- so the defaults ship with the driver and a machine-specific
-envelope never requires editing the checkout (the same model as the Leica
-sibling). Unlike Leica there are no dated snapshots: mesoSPIM has no
-calibration-adopt workflow to write history, so the machine dir holds the
-current copy of each file, edited or written in place. If a snapshot-producing
-workflow ever lands, this profile is the seam to grow it behind.
+envelope never requires editing the checkout. The machine dir holds the current
+copy of each file, edited or written in place (no dated snapshots).
 
 ``<programdata_root>`` defaults to ``C:\\ProgramData\\smart_microscopy`` and can
 be overridden with the ``SMART_MICROSCOPY_ROOT`` env var, or per session with
