@@ -225,8 +225,9 @@ def build_function_limits_payload(stage_um: Mapping[str, Any], *, source: str = 
     """The ``constraints`` + ``functions`` of a machine-local limits.json.
 
     Used by ``stage_config.adopt_limits`` (the set_stage_limits notebook) to
-    build the merged limits.json — it adds the ``backlash`` block on top of
-    this. The ``stage.*`` constraints are the measured machine envelope and
+    build the single limits.json (there is no ``backlash`` block — backlash is
+    a motion utility with baked-in defaults, decision §2b). The ``stage.*``
+    constraints are the measured machine envelope and
     every non-stage key starts as explicit ``null`` (reviewed, deliberately
     unlimited — the same policy as the bundled template). Operators tighten
     entries by editing the machine-local file; the connect handshake
@@ -268,8 +269,8 @@ def connect_handshake(client: Any, *, machine: Any = None, stage_limits_path: An
        ``shared.limits`` (finite numbers, exact key vocabulary =
        :data:`FUNCTION_LIMIT_KEYS`), with the validated envelope overlaid onto
        its ``stage.*`` constraints so the numbers governing moves are exactly
-       what stage_config validated. Its ``backlash`` section is ignored by the
-       shared parser.
+       what stage_config validated. Any stray ``backlash`` key left in an older
+       file is ignored by the shared parser (backlash is not config, §2b).
     4. On success: apply the stage envelope (module-global, single instrument
        per process) and install the gate state for *client*.
 
@@ -281,7 +282,7 @@ def connect_handshake(client: Any, *, machine: Any = None, stage_limits_path: An
     try:
         # -- 1. the single limits.json, strict machine-local. Its
         #       constraints.stage.* is the physical envelope; stage_config
-        #       derives stage_um from it (and reads the backlash block).
+        #       derives stage_um from it.
         if stage_limits_path is not None:
             limits_file = stage_limits_path
         else:
@@ -296,8 +297,8 @@ def connect_handshake(client: Any, *, machine: Any = None, stage_limits_path: An
         # -- 3. function-keyed limits (constraints + functions of the SAME
         #       file), strict machine-local. The validated envelope is overlaid
         #       onto the stage.* constraints so the numbers governing moves are
-        #       exactly the ones stage_config validated. The file's backlash
-        #       section is ignored by the shared parser.
+        #       exactly the ones stage_config validated. Any stray backlash key
+        #       left in an older file is ignored by the shared parser.
         overrides = {
             f"stage.{axis}": {"min": bounds[0], "max": bounds[1]}
             for axis, bounds in stage_cfg["stage_um"].items()

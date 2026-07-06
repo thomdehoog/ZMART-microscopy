@@ -49,14 +49,17 @@ decision 2026-07-05, `docs/reviews/MAINTAINER_DECISIONS.md` §7.
    `function_limits.json` and `limits.json` were redundant (the stage
    envelope appeared in both). They are collapsed into **one** `limits.json`
    in the function-keyed format — `constraints` (the `stage.*` envelope) +
-   `functions` (the gate policy) + a `backlash` block — and
+   `functions` (the gate policy) — and
    `function_limits.json` is removed everywhere (constant, publish write,
    handshake read, bundled template, fixtures, tests). Both readers now read
    this single file: `motion/stage_config.load()` derives the envelope from
-   `constraints.stage.*` and reads backlash from the `backlash` block; the
+   `constraints.stage.*`; the
    commands gate (`commands/gate`) parses `constraints` + `functions` via
-   `shared/limits` (which ignores the unknown top-level `backlash` section
-   without loosening its strict validation). Each machine snapshot dir holds
+   `shared/limits`. (Decision §2b, 2026-07-06 — supersedes the "`backlash`
+   block" wording above: backlash was removed from `limits.json` entirely; it
+   is a plain motion utility with baked-in default params, not config. A stray
+   `backlash` key left in an older file is ignored by both readers.) Each
+   machine snapshot dir holds
    exactly three files: `limits.json`, `calibration.json`, `origin.json`. The
    limits adopt no longer seeds a bundled `calibration.json`
    (`bundled_ok=False` for calibration too): a fresh-machine limits adopt

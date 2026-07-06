@@ -35,11 +35,4 @@ def minimal_calibration(
             "session_id": "test-image-to-stage",
         },
         "objectives": objectives,
-        "backlash": {
-            "approach": "negative_xy",
-            "overshoot_um": 50.0,
-            "settle_ms": 100,
-            "tolerance_um": 1.0,
-            "session_id": "test-backlash",
-        },
     }

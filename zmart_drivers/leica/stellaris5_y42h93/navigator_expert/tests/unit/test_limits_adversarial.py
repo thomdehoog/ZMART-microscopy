@@ -54,7 +54,7 @@ def _raw_snapshot(root: Path, *, limits_text: str | None = None) -> MachineProfi
 
 
 def _valid_payload(stage_um: dict | None = None, functions: dict | None = None) -> dict:
-    """A valid merged limits.json payload: constraints + functions + backlash."""
+    """A valid single limits.json payload: constraints + functions (no backlash)."""
     return merged_limits_payload(stage_um or DEFAULT_STAGE_UM, functions=functions)
 
 
@@ -584,9 +584,9 @@ def test_bundled_template_declares_exactly_the_key_vocabulary():
         (DRIVER_ROOT / "limits" / "defaults" / "limits.json").read_text(encoding="utf-8")
     )
     assert set(template["functions"]) == set(gate.FUNCTION_LIMIT_KEYS)
-    # the merged template carries a backlash block the gate parser ignores...
-    assert "backlash" in template
-    # ...and it still parses under the shared spec against the declared vocabulary
+    # §2b: the template carries no backlash block — envelope + gate only...
+    assert "backlash" not in template
+    # ...and it parses under the shared spec against the declared vocabulary
     shared_limits.parse(template, functions=gate.FUNCTION_LIMIT_KEYS)
 
 
@@ -710,14 +710,30 @@ def test_calibration_values_keep_their_loud_in_memory_read_fallback():
     assert machine.calibration_path() == path  # loud fallback, still usable
 
 
-def test_backlash_comes_from_the_same_limits_file():
-    """§7b: the merged limits.json's backlash block is what stage_config reads
-    (envelope from constraints.stage.*, backlash from the backlash block)."""
+def test_backlash_is_not_config_and_the_primitive_uses_its_default_params():
+    """§2b (resolves MR-01/MR-02): backlash left limits.json entirely. The
+    published limits.json has NO backlash block, stage_config.load reads only
+    the envelope, and the motion primitive carries its own baked-in defaults —
+    there is no config path (and so no NaN-backlash path) left in limits."""
+    import inspect
+
+    from navigator_expert.motion import movement
+
     profile = provision_machine_limits(_machine_root())
-    cfg = stage_config.load(limits_path=profile.latest_snapshot() / "limits.json")
+    limits_path = profile.latest_snapshot() / "limits.json"
+    on_disk = json.loads(limits_path.read_text(encoding="utf-8"))
+    assert "backlash" not in on_disk
+
+    cfg = stage_config.load(limits_path=limits_path)
+    assert set(cfg) == {"stage_um"}  # no backlash key returned
     assert set(cfg["stage_um"]) == {"x", "y", "z_galvo", "z_wide"}
     assert cfg["stage_um"]["x"] == DEFAULT_STAGE_UM["x"]
-    assert "overshoot_um" in cfg["backlash"] and "approach" in cfg["backlash"]
+
+    # the primitive's params are baked into its signature, not read from config
+    defaults = inspect.signature(movement.move_xy_with_backlash).parameters
+    assert defaults["overshoot_um"].default == 50.0
+    assert defaults["settle_ms"].default == 100
+    assert defaults["tolerance_um"].default is None
 
 
 def test_a_calibration_adopt_cannot_mint_enforceable_limits_from_the_template():
@@ -755,9 +771,10 @@ def test_fresh_limits_adopt_writes_only_limits_json_no_seeded_calibration():
 
 
 def test_merged_limits_round_trip_adopt_handshake_gated_move(mock_client):
-    """(§7b end-to-end) adopt -> one limits.json with constraints+functions+
-    backlash -> handshake ok -> a legal move works, an out-of-envelope move is
-    refused naming limits.json."""
+    """(§7b/§2b end-to-end) adopt -> one limits.json with constraints+functions
+    and NO backlash -> handshake ok (resolving MR-01: no backlash block to fail
+    it) -> a legal move works, an out-of-envelope move is refused naming
+    limits.json."""
     from datetime import datetime, timezone
 
     profile = MachineProfile(programdata_root=_machine_root())
@@ -766,7 +783,7 @@ def test_merged_limits_round_trip_adopt_handshake_gated_move(mock_client):
     )
     snap = profile.latest_snapshot()
     merged = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
-    assert set(merged) >= {"schema_version", "source", "constraints", "functions", "backlash"}
+    assert set(merged) == {"schema_version", "source", "constraints", "functions"}
     assert merged["constraints"]["stage.x"] == {"min": 1000.0, "max": 130000.0}
     assert merged["functions"]["set_xyz"]["x_um"] == "@stage.x"
 

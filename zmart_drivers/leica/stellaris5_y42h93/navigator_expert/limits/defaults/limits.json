@@ -1,11 +1,4 @@
 {
-  "backlash": {
-    "approach": "+X+Y",
-    "overshoot_um": 50,
-    "session_id": null,
-    "settle_ms": 100,
-    "tolerance_um": 20
-  },
   "constraints": {
     "stage.x": {
       "max": 130000,

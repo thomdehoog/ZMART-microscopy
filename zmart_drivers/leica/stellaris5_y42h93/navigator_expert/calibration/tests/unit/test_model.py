@@ -37,13 +37,6 @@ def _config():
                 "session_id": "sess_target",
             },
         },
-        "backlash": {
-            "approach": "+X+Y",
-            "overshoot_um": 50.0,
-            "settle_ms": 100,
-            "tolerance_um": 20.0,
-            "session_id": None,
-        },
     }
 
 
@@ -215,6 +208,30 @@ def test_validate_calibration_does_not_mutate():
     before = json.loads(json.dumps(cfg))
     cal.validate_calibration(cfg)
     assert cfg == before
+
+
+def test_calibration_has_no_backlash_field(tmp_path):
+    """§2b: backlash is a motion utility, not calibration state. The bundled
+    default calibration.json carries no backlash block."""
+    cal = _load_calibration_module()
+    bundled = _repo_root() / "navigator_expert" / "calibration" / "defaults" / "calibration.json"
+    assert "backlash" not in json.loads(bundled.read_text(encoding="utf-8"))
+    cal.validate_calibration(_config())  # a config without backlash validates
+
+
+def test_stray_backlash_block_is_tolerated(tmp_path):
+    """Backward compat (§2b): an older machine-local calibration.json may still
+    carry a backlash block. The model IGNORES it — it neither requires nor
+    validates it — so the file keeps loading without a re-adopt."""
+    cal = _load_calibration_module()
+    cfg = _config()
+    # A stray block, deliberately malformed — must NOT be validated.
+    cfg["backlash"] = {"overshoot_um": "not-a-number", "junk": True}
+    cal.validate_calibration(cfg)  # tolerated, no raise
+    path = tmp_path / "calibration.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    loaded = cal.load_calibration(path)
+    assert loaded["objectives"]["1"]["translation_um"] == [0.0, 0.0, 0.0]
 
 
 def test_save_load_semantic_round_trip(tmp_path):

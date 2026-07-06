@@ -1,21 +1,23 @@
 """Machine-local resolution of this microscope's coordinate-system config.
 
 Runtime coordinate config - the optical calibration, the physical stage
-envelope + calibrated backlash, and the operator-set frame origin - lives in
-dated snapshots under a machine-wide ProgramData root, newest wins. Each
-snapshot dir holds exactly three files (plus the executed notebook)::
+envelope, and the operator-set frame origin - lives in dated snapshots under a
+machine-wide ProgramData root, newest wins. Each snapshot dir holds exactly
+three files (plus the executed notebook)::
 
     <programdata_root>/<vendor>/<microscope_id>/<api>/<datetime>/
         calibration.json    # optical calibration (image<->stage, per-objective)
-        limits.json         # physical envelope + function gate + backlash (schema v1)
+        limits.json         # physical envelope + function gate (schema v1)
         origin.json         # frame zero point (set_origin; updated in place)
         <executed>.ipynb    # the notebook that produced this adopt
 
 ``limits.json`` is the single function-keyed limits file (decision §7b):
 ``constraints`` (the ``stage.*`` physical envelope) + ``functions`` (the
-per-command gate policy) + a ``backlash`` block. Both readers - the motion
-check (``motion/stage_config``) and the commands gate (``commands/gate``) -
-read this one file; there is no separate ``function_limits.json``.
+per-command gate policy). Both readers - the motion check
+(``motion/stage_config``) and the commands gate (``commands/gate``) - read this
+one file; there is no separate ``function_limits.json``. Backlash appears in
+none of these files: it is a plain motion utility with baked-in defaults
+(decision §2b), not machine state.
 
 Each snapshot is a complete, cumulative machine-state record; the calibration
 workflow writes one per adopt by copying the latest snapshot forward and

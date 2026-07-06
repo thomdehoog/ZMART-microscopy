@@ -322,14 +322,9 @@ def build_focus_map(ctx: Context) -> FocusMap:
                 end="",
                 flush=True,
             )
-            backlash = ctx.stage_config["backlash"]
-            r = drv.move_xy_with_backlash(
-                client,
-                x_um,
-                y_um,
-                overshoot_um=backlash["overshoot_um"],
-                settle_ms=backlash["settle_ms"],
-            )
+            # Backlash is a motion utility with baked-in default params
+            # (decision §2b), not config; call it bare.
+            r = drv.move_xy_with_backlash(client, x_um, y_um)
             if not r or not r.get("success"):
                 raise RuntimeError(f"move_xy({x_um}, {y_um}) failed: {r!r}")
             drv_acquire(client, cfg.af_job)

@@ -84,7 +84,8 @@ runtime where possible. Override via the profile, not at call sites.
   the wrong machine's envelope, so enforcement refuses it. `limits/notebooks/set_stage_limits.ipynb`
   is the file factory: it measures the envelope and publishes the machine-local `limits.json` snapshot
   — the single function-keyed file (`constraints` = the `stage.*` envelope + `functions` = the gate
-  policy + a `backlash` block). A fresh-machine limits adopt writes only `limits.json` and never mints
+  policy; no `backlash` block — backlash is a motion utility with baked-in defaults, §2b). A
+  fresh-machine limits adopt writes only `limits.json` and never mints
   a `calibration.json` from the template (calibration stays the loud read fallback until an explicit
   calibration adopt).
 - **Limits handshake (required before any mutation)** — `connect_limits_handshake(client)` (run

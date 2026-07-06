@@ -7,8 +7,9 @@ the connect-time handshake then validates for real) or install a permissive
 in-memory gate state for a specific client (``install_permissive_limits``, the
 unit-test seam for command-mechanics tests that are not about limits).
 
-The snapshot holds the single merged ``limits.json`` (§7b): ``constraints`` +
-``functions`` + a ``backlash`` block. There is no separate function_limits.json.
+The snapshot holds the single ``limits.json`` (§7b): ``constraints`` +
+``functions``. There is no separate function_limits.json and no ``backlash``
+block (backlash is a motion utility with baked-in defaults, decision §2b).
 """
 
 from __future__ import annotations
@@ -35,23 +36,12 @@ DEFAULT_STAGE_UM = {
 
 _SEED_MOMENT = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
-# A valid backlash block for the merged limits.json (matches the fields
-# motion.stage_config._REQUIRED_BACKLASH validates).
-_FIXTURE_BACKLASH = {
-    "approach": "+X+Y",
-    "overshoot_um": 50.0,
-    "settle_ms": 100,
-    "tolerance_um": 20.0,
-    "session_id": None,
-}
-
 
 def merged_limits_payload(stage_um: dict, *, functions: dict | None = None) -> dict:
-    """The single merged limits.json payload: constraints + functions + backlash."""
+    """The single limits.json payload: constraints + functions (no backlash)."""
     payload = _gate.build_function_limits_payload(stage_um)
     if functions is not None:
         payload["functions"] = functions
-    payload["backlash"] = dict(_FIXTURE_BACKLASH)
     return payload
 
 
