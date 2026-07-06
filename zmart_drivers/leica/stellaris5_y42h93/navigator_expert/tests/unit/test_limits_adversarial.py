@@ -40,7 +40,7 @@ DRIVER_ROOT = Path(__file__).resolve().parents[2]
 
 def _machine_root() -> Path:
     """The hermetic ProgramData root the autouse conftest fixture points at."""
-    return Path(os.environ["SMART_MICROSCOPY_ROOT"])
+    return Path(os.environ["ZMART_MICROSCOPY_ROOT"])
 
 
 def _raw_snapshot(

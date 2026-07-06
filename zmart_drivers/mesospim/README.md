@@ -209,7 +209,7 @@ the acquisition PC, the server is off by default and started by an operator. See
 - **Machine-local config (ProgramData wins, bundled defaults fall back)** — the controller path resolves each
   config file machine copy first, then the bundled default under `limits/defaults/` ([`calibration/machine.py`](calibration/machine.py)):
   `<programdata_root>/mesospim/<microscope_id>/{stage_limits.json, function_limits.json, origin.json}` with
-  `programdata_root` = `C:\ProgramData\smart_microscopy` (override: `SMART_MICROSCOPY_ROOT` env var, or
+  `programdata_root` = `C:\ProgramData\zmart-microscopy` (override: `ZMART_MICROSCOPY_ROOT` env var, or
   `connection["machine_root"]`). So a machine-specific envelope never means editing the checkout. The
   **function-keyed limits** (`function_limits.json`, the shared `shared/limits` schema — same as the Leica
   driver) gate every mutating controller op, with the stage envelope overlaid onto their `stage.*`

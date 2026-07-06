@@ -35,7 +35,7 @@ Hardware validation uses only production driver modules — nothing under
   z-galvo round-trip. Park the stage inside the calibrated envelope first —
   the validators refuse to move if the start position is outside limits.
 - **Machine-local limits provisioned** (`limits.json` + `function_limits.json`
-  in the newest snapshot under `C:\ProgramData\smart_microscopy\...`). There
+  in the newest snapshot under `C:\ProgramData\zmart-microscopy\...`). There
   is **no bundled fallback**: the files under `limits/defaults/` are templates
   and are refused for enforcement. Every validator runs the connect-time
   limits handshake first (`limits: connect handshake` in the report) — it
