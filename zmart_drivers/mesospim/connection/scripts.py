@@ -7,11 +7,15 @@ the state" means in terms of the live ``mesoSPIM_Core`` API -- lives here, on th
 **MIT client side**, as small Python snippets the driver injects. mesoSPIM itself
 learns no ZMART concepts; it just runs the snippet with ``self`` == Core.
 
-Each template is Python that runs in the Core context and assigns its result to a
-local ``_result`` (a JSON-serialisable dict). :func:`build_script` embeds the
-call's arguments as a plain Python literal (``_a = {...}``) and wraps the body in
-the minimal print-the-result harness (see :func:`mesospim.protocol.wrap_script`),
-so the whole injected script stays readable in the Script Window.
+Two shapes, both as minimal as they can be:
+
+- **Writes** (move / set_state / zero / stop): one inlined Core call plus a bare
+  ``print('__ZMART_OK__{}')`` ack -- three lines, no import, no result to build
+  (the driver confirms by reading state back). Built by :func:`_write_line`.
+- **Reads** (state / config / acquire / ...): a small body that assigns
+  ``_result`` (a JSON dict), wrapped by :func:`mesospim.protocol.wrap_script` into
+  ``import json`` + body + ``print('__ZMART_OK__' + json.dumps(_result))``. Args,
+  when needed, are embedded as a literal ``_a = {...}``.
 
 These snippets touch the real mesoSPIM Core surface (``self.move_absolute``,
 ``self.state['position']['x_pos']``, ``self.cfg.laserdict``,
@@ -98,33 +102,9 @@ _result = {'state': _st.get('state'),
            'current_acquisition': _st.get('current_acquisition'),
            'total_acquisitions': _st.get('total_acquisitions')}
 """,
-    # -- movement ------------------------------------------------------------
-    "move_absolute": """
-_sdict = {a + '_abs': float(v) for a, v in _a['targets'].items()}
-self.move_absolute(_sdict, wait_until_done=True)
-_pos = (self.state or {}).get('position', {}) or {}
-_result = {'position': {a: _pos.get(a, _pos.get(a + '_pos')) for a in ('x', 'y', 'z', 'f', 'theta')}}
-""",
-    "move_relative": """
-_ddict = {a + '_rel': float(v) for a, v in _a['deltas'].items()}
-self.move_relative(_ddict, wait_until_done=True)
-_pos = (self.state or {}).get('position', {}) or {}
-_result = {'position': {a: _pos.get(a, _pos.get(a + '_pos')) for a in ('x', 'y', 'z', 'f', 'theta')}}
-""",
-    "zero": """
-self.zero_axes(list(_a.get('axes') or ['x', 'y', 'z', 'f', 'theta']))
-_result = {}
-""",
-    "stop": """
-self.sig_stop_movement.emit()
-_result = {}
-""",
-    # -- state settings ------------------------------------------------------
-    "set_state": """
-_settings = dict(_a['settings'])
-self.sig_state_request_and_wait_until_done.emit(_settings)
-_result = {'applied': _settings}
-""",
+    # Movement and state settings are pure WRITES -- see ``_write_line`` below;
+    # they inject one Core call + a bare ``__ZMART_OK__{}`` ack (no data to
+    # return; the driver confirms by reading state back separately).
     # -- acquisition ---------------------------------------------------------
     # A capture is three scripts, so no script ever sleeps inside mesoSPIM's
     # event loop waiting for its own acquisition:
@@ -201,20 +181,46 @@ raise RuntimeError('procedure ' + repr(_a.get('name')) + ' is not implemented se
 }
 
 
+# Pure writes: one Core call, no data returned. The args are computed here and
+# inlined as a literal, so the injected script is just the call + a bare ack.
+_WRITE_CMDS: tuple[str, ...] = ("move_absolute", "move_relative", "zero", "stop", "set_state")
+
+
+def _write_line(cmd: str, args: dict) -> str:
+    if cmd == "set_state":
+        return f"self.sig_state_request_and_wait_until_done.emit({dict(args['settings'])!r})"
+    if cmd == "move_absolute":
+        sdict = {a + "_abs": float(v) for a, v in args["targets"].items()}
+        return f"self.move_absolute({sdict!r}, wait_until_done=True)"
+    if cmd == "move_relative":
+        ddict = {a + "_rel": float(v) for a, v in args["deltas"].items()}
+        return f"self.move_relative({ddict!r}, wait_until_done=True)"
+    if cmd == "zero":
+        return f"self.zero_axes({list(args.get('axes') or ['x', 'y', 'z', 'f', 'theta'])!r})"
+    if cmd == "stop":
+        return "self.sig_stop_movement.emit()"
+    raise KeyError(cmd)
+
+
 def known_commands() -> tuple[str, ...]:
-    """The command names for which an injected-script template exists."""
-    return tuple(_TEMPLATES)
+    """Every command name that can be injected."""
+    return tuple(_TEMPLATES) + _WRITE_CMDS
 
 
 def build_script(cmd: str, args: dict) -> str:
     """Build the full injected script for ``cmd`` with ``args``.
 
-    Raises ``KeyError`` for an unknown command. The args are embedded as a plain
-    Python literal (``_a = {...}``) so the script reads cleanly. The leading
-    ``# zmart-cmd`` comment is inert Python that lets a server log (or a test
-    double) see which command a script implements without parsing it.
+    Writes inject one Core call + ``print('__ZMART_OK__{}')``; reads embed their
+    args as a literal (``_a = {...}``) and print the JSON result. The leading
+    ``# zmart-cmd`` comment is inert Python that lets a filter/log see which
+    command a script implements without parsing it. Raises ``KeyError`` for an
+    unknown command.
     """
+    args = dict(args)
+    if cmd in _WRITE_CMDS:
+        return f"# zmart-cmd: {cmd}\n{_write_line(cmd, args)}\nprint('__ZMART_OK__{{}}')\n"
     if cmd not in _TEMPLATES:
         raise KeyError(f"no injected-script template for command {cmd!r}")
-    body = f"_a = {args!r}\n" + _TEMPLATES[cmd].strip("\n")
+    prefix = f"_a = {args!r}\n" if args else ""  # only reads that take args need it
+    body = prefix + _TEMPLATES[cmd].strip("\n")
     return f"# zmart-cmd: {cmd}\n" + wrap_script(body)

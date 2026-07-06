@@ -5,23 +5,34 @@ only the `# zmart-cmd:` name, the `_a = {...}` args, and one or two body lines
 change. This is the complete list of what the ZMART client can run in the Remote
 Scripting window — nothing else is ever sent.
 
-## The envelope (identical for every command)
+## Two shapes, both minimal
 
-Flat — no `try/except`, no indentation — so it's the leanest thing that works:
+**Writes** (move / set_state / zero / stop) — one Core call + a bare ack, three
+lines, no import:
 
 ```python
-# zmart-cmd: <name>
+# zmart-cmd: set_state
+self.sig_state_request_and_wait_until_done.emit({'filter': '561/LP'})
+print('__ZMART_OK__{}')
+```
+
+**Reads** (state / config / acquire / ...) — `import json`, build the result,
+print it:
+
+```python
+# zmart-cmd: get_position
 import json
-_a = { ...args as a plain literal... }
-<body>                                   # the per-command line(s) below
+_pos = (self.state or {}).get('position', {}) or {}
+_result = {a: _pos.get(a, _pos.get(a + '_pos')) for a in ('x', 'y', 'z', 'f', 'theta')}
 print('__ZMART_OK__' + json.dumps(_result))
 ```
 
-Each script is self-contained (its own `import`, args as a literal); only `self`
-(the live Core) comes from the Script Window. The reply is a single line,
-`__ZMART_OK__<json>`, extracted with `^__ZMART_OK__(.*)$`. **On error** the body
-just raises: mesoSPIM's `Core.execute_script` prints the traceback, and the
-client — seeing no `__ZMART_OK__` line — returns that text as the error.
+Each script is self-contained (its own `import` if needed, args inlined as
+literals); only `self` (the live Core) comes from the Script Window. The reply is
+a single line, `__ZMART_OK__<json>`, extracted with `^__ZMART_OK__(.*)$`. **On
+error** the body just raises: mesoSPIM's `Core.execute_script` prints the
+traceback, and the client — seeing no `__ZMART_OK__` line — returns that text as
+the error.
 
 ## Reads — no hardware effect (just build `_result` from `self`)
 

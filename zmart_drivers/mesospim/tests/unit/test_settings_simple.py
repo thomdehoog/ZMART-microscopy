@@ -15,14 +15,10 @@ def test_setting_change_injects_this_script():
     # build the script for one setting change (here: the emission filter)
     script = build_script("set_state", {"settings": {"filter": "561/LP"}})
 
-    # this is exactly what gets injected and run inside mesoSPIM -- flat, and
-    # self-contained (its own import + args literal; only `self` is the Core)
+    # this is exactly what gets injected and run inside mesoSPIM: one Core call
+    # plus a bare ack -- three lines, self-contained (only `self` is the Core)
     assert script == (
         "# zmart-cmd: set_state\n"
-        "import json\n"
-        "_a = {'settings': {'filter': '561/LP'}}\n"
-        "_settings = dict(_a['settings'])\n"
-        "self.sig_state_request_and_wait_until_done.emit(_settings)\n"
-        "_result = {'applied': _settings}\n"
-        "print('__ZMART_OK__' + json.dumps(_result))\n"
+        "self.sig_state_request_and_wait_until_done.emit({'filter': '561/LP'})\n"
+        "print('__ZMART_OK__{}')\n"
     )
