@@ -11,7 +11,7 @@ Usage:
     python build_env.py                 # create env "zmart-microscopy"
     python build_env.py --recreate      # remove an existing env, then create
     python build_env.py --update        # update an existing env in place
-    python build_env.py --name sm-test  # override the env name
+    python build_env.py --name my-env   # override the default "zmart-microscopy"
 
 Requires conda on PATH (MinicondaZMB).
 """
