@@ -28,6 +28,19 @@ Consequences for the findings:
 - LC-11/FD-11 (passive hybrid read race unreachable at shipped `"api"` defaults):
   resolved — hybrid is now the default for routed reads (see above).
 
+## 2b. Backlash is a plain utility function, not config (decided 2026-07-06)
+
+Backlash is **a utility function with baked-in default parameters** — nowhere near
+limits, calibration, or any config/snapshot file. The `backlash` block is removed
+from `limits.json` AND from the calibration schema/`calibration.json` (it was read
+and validated in both but never consumed at runtime — a fossil). The motion
+primitives `move_xy_with_backlash`/`correct_backlash` keep their default params
+(`overshoot_um=50`, `settle_ms=100`, `tolerance_um=None`) and read no config. This
+retires the "thread calibrated backlash from the snapshot" cluster (LA-01/LM-01):
+there is no calibrated backlash to thread. Resolves the merge-review flags MR-01/MR-02
+(no backlash block can fail the handshake, none to validate). `limits.json` becomes
+`{schema_version, source, constraints, functions}`.
+
 ## 2. Backlash is a simple procedure, not acquisition logic
 
 Backlash correction is simple: move somewhere, come back to the same position.
