@@ -61,8 +61,6 @@ import zmart_controller
 # (confirm_move_xy default 20 um, confirm_move_z default 1.0 um).
 XY_TOL_UM = 20.0
 Z_TOL_UM = 1.0
-# Frame value must equal the raw hardware reading when no origin is set.
-EXACT_TOL_UM = 0.05
 
 
 # --- setup ------------------------------------------------------------------
@@ -162,19 +160,12 @@ def phase_readonly(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None
             hw = xyz.get("hardware") or {}
             needed = {"x_um", "y_um", "z_wide_um", "z_galvo_um", "objective", "job"}
             v.compare("get_xyz: hardware block complete", needed.issubset(hw), True)
-            # With no origin set, the frame value is the raw hardware reading.
-            v.compare(
-                "get_xyz: frame x == hardware x_um",
-                xyz["x"]["value"],
-                hw.get("x_um"),
-                tolerance=EXACT_TOL_UM,
-            )
-            v.compare(
-                "get_xyz: frame z == z_wide + z_galvo",
-                xyz["z"]["value"],
-                (hw.get("z_wide_um") or 0.0) + (hw.get("z_galvo_um") or 0.0),
-                tolerance=EXACT_TOL_UM,
-            )
+            # frame == hardware - origin only holds when origin is (0, 0, 0) --
+            # true on a never-originated machine, false once set_origin has ever
+            # persisted a non-zero origin.json (it stays the frame truth across
+            # reconnects). That invariant is verified unconditionally instead in
+            # phase_move, right after set_origin, via the "origin: frame -> 0"
+            # checks below.
             v.compare(
                 "get_xyz: objective has a name",
                 bool((hw.get("objective") or {}).get("name")),

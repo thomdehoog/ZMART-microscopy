@@ -65,7 +65,7 @@ def test_readonly_mock_run(tmp_path):
     assert counts["WARN"] == 0
     names = {r["name"] for r in records}
     assert "registry: leica adapter registered" in names
-    assert "get_xyz: frame z == z_wide + z_galvo" in names
+    assert "get_xyz: hardware block complete" in names
 
 
 def test_full_mock_run_move_and_acquire(tmp_path):

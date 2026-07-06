@@ -1,0 +1,29 @@
+2026-07-06 14:00:43,308 INFO navigator_expert.connection.session | LAS X runtime=C:\Program Files\Leica Microsystems CMS GmbH\LAS X\AddIns\NavigatorExpert version=1.0.108.0 api_delay_ms=250
+2026-07-06 14:00:43,308 INFO navigator_expert.commands.gate | limits handshake ok: {'schema_version': 1, 'source': 'defaults', 'path': 'C:\\ProgramData\\zmart-microscopy\\leica\\stellaris5_y42h93\\navigator_expert\\2026-07-06T09-17-14-792088Z\\limits.json', 'is_fallback': False} governs this session
+2026-07-06 14:00:43,308 WARNING navigator_expert.config.machine | No machine snapshot for leica/stellaris5_y42h93 under C:\ProgramData\zmart-microscopy\leica\stellaris5_y42h93\navigator_expert; using bundled default \\zmbstaff.core.uzh.ch\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\smart-microscopy\zmart_drivers\leica\stellaris5_y42h93\navigator_expert\calibration\defaults\calibration.json (calibration may be stale - re-calibrate).
+2026-07-06 14:00:43,324 INFO navigator_expert.zmart_adapter.zmart_adapter | restored persisted origin (captured_at=1783337177.7041268, objective=HC PL APO  CS    10x/0.40 DRY )
+2026-07-06 14:00:44,170 INFO navigator_expert.commands.dispatch | MoveXY -> (64195.0, 41155.0) um | OK (0.025s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:44,285 INFO navigator_expert.commands.dispatch | MoveXY -> (64245.0, 41205.0) um | OK (0.014s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:44,307 INFO navigator_expert.commands.dispatch | Z -> -0.5 um (galvo) | OK (0.020s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:44,406 INFO navigator_expert.commands.dispatch | MoveXY -> (64195.0, 41155.0) um | OK (0.013s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:44,521 INFO navigator_expert.commands.dispatch | MoveXY -> (64245.0, 41205.0) um | OK (0.014s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:44,537 INFO navigator_expert.commands.dispatch | Z -> 1.5 um (galvo) | OK (0.016s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:44,637 INFO navigator_expert.commands.dispatch | MoveXY -> (64195.0, 41155.0) um | OK (0.014s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:44,753 INFO navigator_expert.commands.dispatch | MoveXY -> (64245.0, 41205.0) um | OK (0.014s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:44,769 INFO navigator_expert.commands.dispatch | Z -> 3.0 um (zwide) | OK (0.016s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:44,833 INFO navigator_expert.commands.dispatch | Z -> 0.0 um (zwide) | OK (0.019s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:44,882 INFO navigator_expert.commands.dispatch | MoveXY -> (64170.0, 41130.0) um | OK (0.008s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:45,102 INFO navigator_expert.commands.dispatch | MoveXY -> (64220.0, 41180.0) um | OK (0.119s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:45,127 INFO navigator_expert.commands.dispatch | Z -> -0.5 um (galvo) | OK (0.025s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:46,033 INFO navigator_expert.commands.confirm_select_job | Job 'HiRes' confirmed from LAS X log (734ms, attempts=5)
+2026-07-06 14:00:46,116 INFO navigator_expert.commands.dispatch | SelectJob 'HiRes' | OK (0.817s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:47,150 INFO navigator_expert.commands.confirm_select_job | Job 'Overview' confirmed from LAS X log (734ms, attempts=5)
+2026-07-06 14:00:47,216 INFO navigator_expert.commands.dispatch | SelectJob 'Overview' | OK (0.796s) attempts=1 confirm_attempts=1
+2026-07-06 14:00:48,354 WARNING navigator_expert.readers.api_reader | get_jobs: attempt 1/3 timed out
+2026-07-06 14:00:49,347 WARNING navigator_expert.readers.router | api read timed out after 2.0s
+2026-07-06 14:00:49,366 WARNING navigator_expert.readers.api_reader | get_jobs: attempt 2/3 timed out
+2026-07-06 14:00:50,377 WARNING navigator_expert.readers.api_reader | get_jobs: attempt 3/3 timed out
+2026-07-06 14:00:50,377 ERROR navigator_expert.readers.api_reader | get_jobs: all 3 attempts failed
+2026-07-06 14:00:51,384 WARNING navigator_expert.readers.api_reader | get_hardware_info: attempt 1/3 timed out
+2026-07-06 14:00:51,859 WARNING navigator_expert.readers.router | api read timed out after 2.0s
+2026-07-06 14:00:52,392 WARNING navigator_expert.readers.api_reader | get_hardware_info: attempt 2/3 timed out
