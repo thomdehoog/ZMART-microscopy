@@ -8,16 +8,22 @@ The harness is tested end to end: build a script with ``wrap_script``, actually
 from __future__ import annotations
 
 import io
-from contextlib import redirect_stdout
+import traceback
+from contextlib import redirect_stderr, redirect_stdout
 
 import pytest
 from mesospim import protocol as p
 
 
 def _run(script: str) -> str:
+    # Mimic mesoSPIM's Core.execute_script: exec, and on error print the
+    # traceback to the console (which is what the client parses).
     buf = io.StringIO()
-    with redirect_stdout(buf):
-        exec(script, {})  # noqa: S102 - exercising the harness the server runs
+    with redirect_stdout(buf), redirect_stderr(buf):
+        try:
+            exec(script, {})  # noqa: S102 - exercising the harness the server runs
+        except Exception:
+            traceback.print_exc()
     return buf.getvalue()
 
 
@@ -42,7 +48,9 @@ def test_wrap_and_parse_ok():
     assert reply.ok and reply.data == {"x": 42}
 
 
-def test_wrap_and_parse_error_is_structured():
+def test_error_surfaces_as_console_text():
+    # No try/except in the harness: the body raises, mesoSPIM prints the
+    # traceback, and parse_result (no OK line) returns it as the error.
     reply = p.parse_result(_run(p.wrap_script("raise ValueError('boom')")))
     assert not reply.ok and "boom" in reply.error
 
