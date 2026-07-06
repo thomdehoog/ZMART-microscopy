@@ -20,10 +20,8 @@ from __future__ import annotations
 
 import time
 
-# The five mesoSPIM axes. Linear axes are micrometers; theta is degrees.
-LINEAR_AXES = ("x", "y", "z", "f")
-ROTARY_AXES = ("theta",)
-AXES = LINEAR_AXES + ROTARY_AXES
+# The five mesoSPIM axes: x, y, z, f are micrometers; theta is degrees.
+AXES = ("x", "y", "z", "f", "theta")
 
 
 def _safe_float(val, default=None):

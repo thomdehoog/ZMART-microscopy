@@ -41,22 +41,26 @@ client ──▶  frame({"<method>": {args}})
   unknown method, or a handler error, the reply is the error text (no marker line),
   and the connection stays open.
 
-## MCP (LLM) front end
+## MCP (LLM) front end — over HTTP
 
-The same socket also accepts **MCP** (JSON-RPC 2.0) — for an LLM instead of a
-script. A frame whose object has `"jsonrpc": "2.0"` is routed to the MCP handler;
-anything else is a named call (above). Both land on the *same* allowlist dispatch:
+The **same port** also speaks **MCP** (JSON-RPC 2.0) for an LLM instead of a
+script, using the MCP *Streamable HTTP* transport. The server decides per
+connection from the first bytes: an HTTP request line (`POST … HTTP/1.1`) is the
+MCP lane; anything else is a framed named call (above). Both land on the *same*
+allowlist dispatch. The client POSTs one JSON-RPC message and gets one back:
 
 - `initialize` → server info + `{"capabilities": {"tools": {}}}`.
 - `tools/list` → one tool per `COMMANDS` entry (the allowlist *is* the tool list),
   each with an argument hint in its `description`.
-- `tools/call` `{name, arguments}` → runs that one method and returns its JSON as
-  MCP text content (`isError` set on failure). Unknown tool = an error result, not
-  a crash.
-- a notification (no `id`, e.g. `notifications/initialized`) gets no reply.
+- `tools/call` `{name, arguments}` → runs that one method, returns its JSON as MCP
+  text content (`isError` on failure). Unknown tool = an error result, not a crash.
+- a notification (no `id`) → `202 Accepted`, no body. `GET` → `405` (no SSE stream).
 
-So an LLM and a script reach the exact same validated call surface; neither can
-invoke anything outside `COMMANDS`.
+**HTTP safety** (the framed lane's token still applies here too): bind `127.0.0.1`;
+require the token as `Authorization: Bearer <token>` (constant-time) when one is
+set; and **reject any non-localhost `Origin`** so a web page in the operator's
+browser can't drive the instrument (DNS-rebinding / CSRF). An LLM and a script
+reach the exact same validated surface; neither can invoke anything outside `COMMANDS`.
 
 ## Getting a result back
 

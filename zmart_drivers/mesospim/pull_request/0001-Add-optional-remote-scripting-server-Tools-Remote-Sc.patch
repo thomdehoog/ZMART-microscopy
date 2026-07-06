@@ -38,22 +38,26 @@ Kept deliberately small and plain, since this is a proposal to an external
 project: every function does one thing, every non-obvious line has a short
 comment saying why it's there.
 
-Two front ends over the one socket, both landing on the same dispatch:
-- a scripting client sends {"<method>": {args}} and gets "__ZMART_OK__<json>";
-- an LLM speaks MCP (JSON-RPC): tools/list is the allowlist, tools/call runs one
-  method. Same COMMANDS lookup, same validation, same "no code" guarantee.
+Two lanes over the one port, both landing on the same dispatch (decided per
+connection from the first bytes):
+- scripts (framed TCP): {"<method>": {args}} -> "__ZMART_OK__<json>";
+- LLMs (MCP over HTTP, Streamable-HTTP transport): tools/list is the allowlist,
+  tools/call runs one method. Same COMMANDS lookup, same validation, same "no
+  code" guarantee. HTTP adds two guards: the token as a Bearer header (constant
+  time), and an Origin check rejecting any non-localhost web origin so a page in
+  the operator's browser can't drive the instrument (DNS-rebinding / CSRF).
 
-The framing, token gate, and dispatch carry Qt-free unit tests (frame boundaries,
-negative/oversized length prefixes, constant-time compare incl. a non-ASCII token,
-both front ends reaching the same dispatch, and a hostile-payload sweep -- unknown
-method, a Python-expression method name, a __dunder__ name, a multi-key object,
-malformed JSON, MCP edge cases -- all rejected without running anything or
-crashing). The live -D end-to-end run against a real Core is the remaining check.
+The framing, token gate, dispatch, and HTTP path carry Qt-free unit tests (frame
+boundaries, negative/oversized length prefixes, constant-time compare incl. a
+non-ASCII token, a hostile-payload sweep -- unknown method, a Python-expression
+method name, a __dunder__ name, a multi-key object, malformed JSON -- and the two
+HTTP guards, all rejecting without running anything or crashing). The live -D
+end-to-end run against a real Core is the remaining check.
 ---
  mesoSPIM/src/mesoSPIM_Core.py            |  31 +++
  mesoSPIM/src/mesoSPIM_MainWindow.py      | 135 +++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 447 ++++++++++++++++++++++++++++++++++++++++
- 3 files changed, 613 insertions(+)
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 520 ++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 686 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
@@ -274,23 +278,25 @@ index 75ff770..cd1ef5c 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteScripting.py b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 new file mode 100644
-index 0000000..755ccf6
+index 0000000..eb4e70b
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,447 @@
+@@ -0,0 +1,520 @@
 +"""
 +mesoSPIM remote scripting server.
 +==================================
-+Lets an external program control mesoSPIM over TCP by **named calls, not code**,
-+two ways over the one socket, both landing on the same :func:`_dispatch`:
++Lets an external program control mesoSPIM by **named calls, not code**, two lanes
++over the one port, both landing on the same :func:`_dispatch`:
 +
-+- **scripting**: a single-key JSON object ``{"<method>": {args}}`` -> ``__ZMART_OK__<json>``.
-+- **LLM (MCP)**: a JSON-RPC ``tools/call`` -> a JSON-RPC result.
++- **scripts** (framed TCP): a single-key JSON object ``{"<method>": {args}}`` -> ``__ZMART_OK__<json>``.
++- **LLMs** (MCP over HTTP): the client POSTs a JSON-RPC ``tools/call`` -> a JSON-RPC result.
 +
 +Either way the method is looked up in the fixed :data:`COMMANDS` allowlist and the
 +matching ``mesoSPIM_Core`` call runs -- the same methods the GUI's buttons call. An
 +unknown method is rejected before anything touches the instrument. No client Python
-+is ever run.
++is ever run. Safety: off by default, binds 127.0.0.1, an optional shared token
++(constant-time; a Bearer header over HTTP), and an Origin check on HTTP so a web
++page in the operator's browser can't drive the instrument (DNS-rebinding / CSRF).
 +
 +Security: the server is off until an operator starts it, listens on 127.0.0.1 by
 +default, and can require a shared token (checked in constant time, so timing can't
@@ -502,13 +508,10 @@ index 0000000..755ccf6
 +
 +
 +def handle_message(core, payload):
-+    """Route one message to _dispatch: MCP (jsonrpc) or a named call {'<method>': {args}}.
-+    Returns the reply text, or None for an MCP notification. Any failure -> error text."""
++    """A framed named call ``{"<method>": {args}}`` -> ``__ZMART_OK__<json>`` / error text.
++    (The MCP/LLM lane is HTTP -- see :meth:`RemoteScriptingServer._http_handle`.)"""
 +    try:
-+        msg = json.loads(payload)
-+        if msg.get("jsonrpc") == "2.0":
-+            return _mcp_reply(core, msg)
-+        (call, args), = msg.items()  # exactly one key: method -> args
++        (call, args), = json.loads(payload).items()  # exactly one key: method -> args
 +        return OK_MARKER + json.dumps(_dispatch(core, call, args))
 +    except Exception as exc:
 +        return f"error: {exc}"
@@ -647,6 +650,8 @@ index 0000000..755ccf6
 +        self._conn = conn
 +        self._decoder = FrameDecoder()  # fresh decoder/auth state for the new connection
 +        self._auth = AuthGate(self._token)
++        self._mode = None  # "framed" (scripts/named calls) or "http" (MCP) -- decided from the first bytes
++        self._httpbuf = b""
 +        conn.readyRead.connect(self._on_ready_read)  # call us back whenever this client sends bytes
 +        # partial(), not a lambda, so the callback keeps its OWN reference to this exact conn.
 +        # self._conn can already have moved on by the time the callback actually runs (e.g. _close()
@@ -680,10 +685,22 @@ index 0000000..755ccf6
 +    # -- framing / dispatch --------------------------------------------------
 +
 +    def _on_ready_read(self):
-+        """Called by Qt whenever the client has sent more bytes."""
++        """Called by Qt whenever the client has sent more bytes.
++
++        The one socket carries two shapes. We decide once, from the first bytes:
++        an HTTP request line (``POST ... HTTP/1.1``) means an MCP-over-HTTP client
++        (off-the-shelf LLM tools); anything else is the length-framed protocol
++        (scripts / named calls). Both end up on the same allowlist dispatch.
++        """
 +        if self._conn is None:
 +            return
-+        self._decoder.feed(self._conn.readAll())
++        data = bytes(self._conn.readAll())
++        if self._mode is None:
++            self._mode = "http" if data[:5] in (b"POST ", b"GET /", b"HEAD ", b"OPTIO") else "framed"
++        if self._mode == "http":
++            self._http_feed(data)
++            return
++        self._decoder.feed(data)
 +        try:
 +            for payload in self._decoder.frames():  # usually zero or one frame, but handle several at once too
 +                self._handle(payload.decode(ENCODING, "replace"))
@@ -715,9 +732,69 @@ index 0000000..755ccf6
 +                self._send("AUTH-FAILED")
 +                self._close()
 +            return
-+        reply = handle_message(self.core, message)  # named call or MCP -> allowlist; no client code runs
-+        if reply is not None:  # None = an MCP notification, which gets no reply
-+            self._send(reply)
++        self._send(handle_message(self.core, message))  # named call -> allowlist; no client code runs
++
++    # -- MCP over HTTP (off-the-shelf LLM clients) ---------------------------
++    # The MCP Streamable-HTTP transport: the client POSTs a JSON-RPC message and
++    # gets a JSON-RPC response. Same dispatch as everything else -- HTTP only adds
++    # a request envelope, and two HTTP-specific guards (Origin + Bearer token).
++
++    def _http_feed(self, data):
++        """Accumulate bytes and handle each complete HTTP request (supports keep-alive)."""
++        self._httpbuf += data
++        while b"\r\n\r\n" in self._httpbuf:  # a full header block is in
++            head, _, rest = self._httpbuf.partition(b"\r\n\r\n")
++            lines = head.split(b"\r\n")
++            method = lines[0].split(b" ", 1)[0].decode("latin1")
++            headers = {}
++            for ln in lines[1:]:
++                k, _, v = ln.partition(b":")
++                headers[k.strip().lower()] = v.strip()
++            length = int(headers.get(b"content-length", b"0") or b"0")
++            if len(rest) < length:
++                return  # body not fully arrived yet -- wait for more bytes
++            body = rest[:length]
++            self._httpbuf = rest[length:]
++            self._http_handle(method, headers, body)
++            if self._conn is None:
++                return
++
++    def _http_handle(self, method, headers, body):
++        """One HTTP request -> one JSON-RPC response, after the two HTTP guards."""
++        # Guard 1 (DNS-rebinding / CSRF): a browser attaches an Origin header. A
++        # malicious page could POST to http://127.0.0.1 from the operator's browser;
++        # reject any Origin that isn't localhost so only real MCP clients get through.
++        origin = headers.get(b"origin", b"").decode("latin1")
++        local = ("http://127.0.0.1", "http://localhost", "https://127.0.0.1", "https://localhost")
++        if origin and not origin.startswith(local):
++            return self._http_respond(403, b'{"error":"origin not allowed"}')
++        # Guard 2 (auth): when a token is set, require it as a Bearer header --
++        # the same shared secret as the framed path, compared in constant time.
++        if self._token is not None:
++            auth = headers.get(b"authorization", b"")
++            supplied = auth[7:] if auth[:7].lower() == b"bearer " else b""
++            if not hmac.compare_digest(supplied, str(self._token).encode(ENCODING)):
++                return self._http_respond(401, b'{"error":"unauthorized"}')
++        if method != "POST":  # no server-initiated SSE stream; POST JSON-RPC only
++            return self._http_respond(405, b'{"error":"POST a JSON-RPC message"}')
++        try:
++            msg = json.loads(body.decode(ENCODING))
++        except ValueError:
++            return self._http_respond(400, b'{"error":"invalid JSON"}')
++        reply = _mcp_reply(self.core, msg) if isinstance(msg, dict) else None
++        if reply is None:  # a notification -> accepted, no body
++            return self._http_respond(202, b"")
++        self._http_respond(200, reply.encode(ENCODING))
++
++    def _http_respond(self, status, body):
++        """Write a minimal HTTP/1.1 JSON response."""
++        reason = {200: "OK", 202: "Accepted", 400: "Bad Request", 401: "Unauthorized",
++                  403: "Forbidden", 405: "Method Not Allowed"}.get(status, "OK")
++        header = (f"HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\n"
++                  f"Content-Length: {len(body)}\r\n\r\n").encode("latin1")
++        if self._conn is not None:
++            self._conn.write(header + body)
++            self._conn.flush()
 +
 +    def stop(self):
 +        """Close the listening socket. Safe to call more than once."""

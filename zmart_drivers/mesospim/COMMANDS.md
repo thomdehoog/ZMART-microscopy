@@ -14,9 +14,9 @@ mesoSPIM Core call. A method not in the table never runs. No client Python is ev
 `^__ZMART_OK__(.*)$`; on error the reply is the error text (no marker line), which
 the client surfaces as the error.
 
-> The mesoSPIM server also exposes this same allowlist over **MCP** for LLMs
-> (`tools/list` = these methods, `tools/call` runs one). This driver uses the TCP
-> named-call path; the LLM path is the identical dispatch behind a JSON-RPC envelope.
+> The mesoSPIM server also exposes this same allowlist over **MCP (HTTP)** for LLMs
+> (`tools/list` = these methods, `tools/call` runs one). This driver uses the framed
+> TCP named-call lane; the LLM lane is the identical dispatch behind a JSON-RPC/HTTP envelope.
 
 ## Writes — the only calls that touch the instrument
 
@@ -78,5 +78,5 @@ server: `COMMANDS.get(method)` — unknown ⇒ rejected before anything runs. Th
 no exec path in the server at all. Regenerate the accepted list with:
 
 ```
-python -c "from mesospim.connection import command_api as c; print(c.known_commands())"
+python -c "from mesospim.connection import command_api as c; print(list(c.COMMANDS))"
 ```

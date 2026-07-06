@@ -122,17 +122,8 @@ def test_a_named_call_is_dispatched_and_state_changes():
     assert core.state["filter"] == "561/LP"  # ...and the change landed
 
 
-def test_an_mcp_tools_call_reaches_the_same_dispatch():
-    # the LLM path and the scripting path converge on one COMMANDS lookup
-    core = _fake_core()
-    reply = rs.handle_message(core, json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": "set_state", "arguments": {"settings": {"filter": "647-LP"}}}}))
-    assert core.state["filter"] == "647-LP"  # the same Core call ran
-    assert json.loads(reply)["result"]["isError"] is False
-
-
 def test_mcp_tools_list_is_exactly_the_allowlist():
-    reply = rs.handle_message(None, '{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}')
+    reply = rs._mcp_reply(None, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     tools = json.loads(reply)["result"]["tools"]
     assert [t["name"] for t in tools] == list(rs.COMMANDS)  # every tool is a call, nothing else
     # tools that take args are self-describing, so the LLM knows the arg shape
@@ -141,11 +132,11 @@ def test_mcp_tools_list_is_exactly_the_allowlist():
 
 
 def test_an_mcp_notification_gets_no_reply():
-    assert rs.handle_message(None, '{"jsonrpc": "2.0", "method": "notifications/initialized"}') is None
+    assert rs._mcp_reply(None, {"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
 
 
 def test_an_mcp_unknown_method_is_a_json_rpc_error():
-    reply = rs.handle_message(None, '{"jsonrpc": "2.0", "id": 3, "method": "resources/list"}')
+    reply = rs._mcp_reply(None, {"jsonrpc": "2.0", "id": 3, "method": "resources/list"})
     assert json.loads(reply)["error"]["code"] == -32601
 
 
@@ -159,7 +150,7 @@ _HOSTILE = [
     '{}', '[1,2,3]', '"hi"', '42', 'null',               # non-single-key / non-object JSON
     'not json', '{"ping":',                              # malformed JSON
     '{"set_state": "not-a-dict"}',                       # args that aren't an object
-    '{"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "evil"}}',  # MCP unknown tool
+    '{"jsonrpc": "2.0", "method": "tools/call"}',        # an MCP payload on the script lane (wrong door)
 ]
 
 
@@ -170,9 +161,71 @@ def test_no_hostile_payload_runs_anything_or_crashes():
         core = _fake_core()
         before = dict(core.state)
         reply = rs.handle_message(core, payload)  # must never raise
-        assert reply is None or isinstance(reply, str)
+        assert isinstance(reply, str)
         assert core.state == before  # nothing touched the instrument
-        assert "__ZMART_OK__" not in (reply or "")  # no success ack for a bad/unknown call
+        assert "__ZMART_OK__" not in reply  # no success ack for a bad/unknown call
+
+
+# -- MCP over HTTP (off-the-shelf LLM clients) + its two safety guards ----------
+
+class _FakeConn:
+    """Captures whatever the server writes back, so HTTP tests need no real socket."""
+
+    def __init__(self):
+        self.out = b""
+
+    def write(self, b):
+        self.out += bytes(b)
+
+    def flush(self):
+        pass
+
+
+def _http(token=None, core=None, *, body="", origin=None, auth=None, method="POST", path="/mcp"):
+    """Drive one HTTP request through a bare server instance; return (status_line, body_text)."""
+    srv = rs.RemoteScriptingServer.__new__(rs.RemoteScriptingServer)  # skip __init__ (no Qt)
+    srv._token, srv.core, srv._conn = token, (core or _fake_core()), _FakeConn()
+    srv._httpbuf, srv._mode = b"", "http"
+    head = f"{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {len(body)}\r\n"
+    if origin:
+        head += f"Origin: {origin}\r\n"
+    if auth:
+        head += f"Authorization: Bearer {auth}\r\n"
+    srv._http_feed((head + "\r\n" + body).encode("latin1"))
+    raw = srv._conn.out.decode("latin1")
+    status, _, rest = raw.partition("\r\n")
+    return status, rest.split("\r\n\r\n", 1)[-1]
+
+
+def test_http_tools_call_reaches_the_same_dispatch():
+    core = _fake_core()
+    status, _ = _http(core=core, body=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "set_state", "arguments": {"settings": {"filter": "647-LP"}}}}))
+    assert status == "HTTP/1.1 200 OK"
+    assert core.state["filter"] == "647-LP"  # HTTP door, same COMMANDS lookup
+
+
+def test_http_rejects_a_foreign_browser_origin():
+    # DNS-rebinding / CSRF guard: a web page in the operator's browser must NOT drive
+    # the scope. A foreign Origin is 403'd before dispatch -- nothing runs.
+    core = _fake_core()
+    status, _ = _http(core=core, origin="http://evil.example", body=json.dumps({"jsonrpc": "2.0",
+        "id": 1, "method": "tools/call", "params": {"name": "set_state",
+        "arguments": {"settings": {"filter": "HACKED"}}}}))
+    assert status == "HTTP/1.1 403 Forbidden"
+    assert core.state["filter"] == "515/30"  # untouched
+
+
+def test_http_requires_the_bearer_token_when_one_is_set():
+    ok_body = '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}'
+    assert _http(token="s3cret", body=ok_body)[0] == "HTTP/1.1 401 Unauthorized"          # no token
+    assert _http(token="s3cret", body=ok_body, auth="nope")[0] == "HTTP/1.1 401 Unauthorized"  # wrong
+    assert _http(token="s3cret", body=ok_body, auth="s3cret")[0] == "HTTP/1.1 200 OK"      # right
+
+
+def test_http_get_has_no_stream_and_a_notification_is_accepted():
+    assert _http(method="GET", body="")[0] == "HTTP/1.1 405 Method Not Allowed"
+    assert _http(body='{"jsonrpc": "2.0", "method": "notifications/initialized"}')[0] == "HTTP/1.1 202 Accepted"
 
 
 if __name__ == "__main__":  # runnable without pytest, for a quick check next to the PR

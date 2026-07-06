@@ -51,17 +51,12 @@ class ProtocolError(ValueError):
 
 @dataclass(frozen=True)
 class Reply:
-    """A parsed structured result.
-
-    ``ok`` reports success; ``data`` carries the payload of a successful reply
-    and ``error`` the message of a failed one. ``id`` is unused by the
-    remote-scripting transport (kept for API compatibility with callers).
-    """
+    """A parsed structured result: ``ok`` reports success; ``data`` carries a
+    successful reply's payload and ``error`` a failed one's message."""
 
     ok: bool
     data: dict[str, Any] = field(default_factory=dict)
     error: str = ""
-    id: int | None = None
 
 
 # -- framing ------------------------------------------------------------------
