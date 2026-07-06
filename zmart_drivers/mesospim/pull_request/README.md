@@ -7,8 +7,9 @@ console output back. One small feature — **Tools → Remote Scripting…** —
 driver (ZMART included) can build on.
 
 **Status:** built and **validated against the real mesoSPIM software in `-D` demo
-mode** (v1.20.0). Not yet submitted upstream. Nothing here changes the ZMART
-driver — it is a patch *for mesoSPIM*.
+mode** (v1.20.0). Submitted upstream as
+[mesoSPIM/mesoSPIM-control#105](https://github.com/mesoSPIM/mesoSPIM-control/pull/105)
+(open). Nothing here changes the ZMART driver — it is a patch *for mesoSPIM*.
 
 ## The idea (why it is this small)
 
@@ -88,6 +89,13 @@ git am 0001-Add-optional-remote-scripting-server-Tools-Remote-Sc.patch
 ```
 
 Then launch mesoSPIM and use **Tools → Remote Scripting… → Start**.
+
+A second, purely additive commit was later pushed to the PR:
+[`0002-Add-remote-scripting-full-demo-test.patch`](0002-Add-remote-scripting-full-demo-test.patch)
+adds `mesoSPIM/scripts/remote_scripting_full_test.py`, a standalone script that
+exercises the server end-to-end against a running mesoSPIM instance. It touches
+none of the 3 files above and is optional — apply it with the same `git am` if you
+want the demo script alongside the server.
 
 ## How it was validated
 

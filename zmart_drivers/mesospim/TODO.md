@@ -190,14 +190,15 @@ now fixed on this branch):
       Built + validated live against the `-D` demo Core via the button's signal
       path (auth, read state, **move the demo stage**, structured output, error →
       traceback). Packaged in [`pull_request/`](pull_request/) (patch + README +
-      PROTOCOL + demo_client). **Not yet submitted upstream.**
+      PROTOCOL + demo_client). **Submitted upstream as
+      [mesoSPIM/mesoSPIM-control#105](https://github.com/mesoSPIM/mesoSPIM-control/pull/105)
+      (open).**
       *(An earlier, larger draft that put the whole command vocabulary upstream was
       replaced by this minimal version — smaller PR, fewer decisions, easier to
       merge; the vocabulary belongs to ZMART, not mesoSPIM.)*
-- [ ] Open an issue with the mesoSPIM maintainers to gauge interest, then submit
-      the PR from `pull_request/`. If accepted, operators start the server from the
-      GUI and the Script-Window loader becomes the fallback for older installs; the
-      ZMART client is unchanged either way.
+- [ ] Await maintainer review of PR #105. If accepted, operators start the server
+      from the GUI and the Script-Window loader becomes the fallback for older
+      installs; the ZMART client is unchanged either way.
 
 ## 8. Docs consistency 🟢
 
