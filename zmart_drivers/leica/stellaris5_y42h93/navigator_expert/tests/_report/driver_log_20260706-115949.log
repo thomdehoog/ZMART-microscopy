@@ -1,0 +1,63 @@
+2026-07-06 11:59:49,996 INFO navigator_expert.commands.gate | limits handshake ok: {'schema_version': 1, 'source': 'defaults', 'path': 'C:\\ProgramData\\zmart-microscopy\\leica\\stellaris5_y42h93\\navigator_expert\\2026-07-06T09-17-14-792088Z\\limits.json', 'is_fallback': False} governs this session
+2026-07-06 11:59:51,021 INFO navigator_expert.commands.confirm_select_job | Job 'AF Job' confirmed from LAS X log (563ms, attempts=4)
+2026-07-06 11:59:51,028 WARNING navigator_expert.commands.confirmations | SelectJob 'AF Job' | api leg had not confirmed when the log leg confirmed
+2026-07-06 11:59:51,029 INFO navigator_expert.commands.dispatch | SelectJob 'AF Job' | OK (0.575s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:51,030 INFO navigator_expert.envelope | [job selection: select job] Job 'AF Job' confirmed from LAS X log (563ms, attempts=4)
+2026-07-06 11:59:51,030 INFO navigator_expert.envelope | [job selection: select job] SelectJob 'AF Job' | confirmed by log leg (0.563s)
+2026-07-06 11:59:51,031 WARNING navigator_expert.envelope | [job selection: select job] SelectJob 'AF Job' | api leg had not confirmed when the log leg confirmed
+2026-07-06 11:59:51,854 INFO navigator_expert.commands.confirm_select_job | Job 'HiRes' confirmed from LAS X log (719ms, attempts=5)
+2026-07-06 11:59:51,913 INFO navigator_expert.commands.dispatch | SelectJob 'HiRes' | OK (0.785s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:51,914 INFO navigator_expert.envelope | [job selection: select job] Job 'HiRes' confirmed from LAS X log (719ms, attempts=5)
+2026-07-06 11:59:51,914 INFO navigator_expert.envelope | [job selection: select job] SelectJob 'HiRes' | confirmed by log leg (0.781s)
+2026-07-06 11:59:51,914 INFO navigator_expert.envelope | [job selection: select job] SelectJob 'HiRes' | api leg still pending at win; abandoned
+2026-07-06 11:59:52,851 INFO navigator_expert.commands.confirm_select_job | Job 'Overview' confirmed from LAS X log (735ms, attempts=5)
+2026-07-06 11:59:52,916 INFO navigator_expert.commands.dispatch | SelectJob 'Overview' | OK (0.792s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:52,916 INFO navigator_expert.envelope | [job selection: select job] Job 'Overview' confirmed from LAS X log (735ms, attempts=5)
+2026-07-06 11:59:52,918 INFO navigator_expert.envelope | [job selection: select job] SelectJob 'Overview' | confirmed by log leg (0.797s)
+2026-07-06 11:59:52,918 INFO navigator_expert.envelope | [job selection: select job] SelectJob 'Overview' | api leg still pending at win; abandoned
+2026-07-06 11:59:53,023 INFO navigator_expert.commands.dispatch | Zoom -> 2.0 | OK (0.032s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,033 INFO navigator_expert.commands.dispatch | Zoom -> 5.0 | OK (0.007s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,081 INFO navigator_expert.commands.dispatch | Zoom -> 2.0 | OK (0.030s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,119 INFO navigator_expert.commands.dispatch | ScanSpeed -> 400 | OK (0.019s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,135 INFO navigator_expert.commands.dispatch | ScanSpeed -> 600 | OK (0.014s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,170 INFO navigator_expert.commands.dispatch | ScanSpeed -> 400 | OK (0.018s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,206 INFO navigator_expert.commands.dispatch | Resonant -> False | OK (0.017s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,224 INFO navigator_expert.commands.dispatch | Resonant -> True | OK (0.015s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,259 INFO navigator_expert.commands.dispatch | Resonant -> False | OK (0.019s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,308 INFO navigator_expert.commands.dispatch | SequentialMode -> Line | OK (0.018s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,458 INFO navigator_expert.commands.dispatch | SequentialMode -> Frame | OK (0.147s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,514 INFO navigator_expert.commands.dispatch | SequentialMode -> Line | OK (0.025s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,548 INFO navigator_expert.commands.dispatch | Rotation -> 0.0 | OK (0.018s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,570 INFO navigator_expert.commands.dispatch | Rotation -> 5.0 | OK (0.020s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,600 INFO navigator_expert.commands.dispatch | Rotation -> 0.0 | OK (0.014s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,627 INFO navigator_expert.commands.dispatch | Format -> 512 x 512 | OK (0.012s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,650 INFO navigator_expert.commands.dispatch | Format -> 1024 x 1024 | OK (0.021s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,680 INFO navigator_expert.commands.dispatch | Format -> 512 x 512 | OK (0.014s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,713 INFO navigator_expert.commands.dispatch | Setting[0].FrameAccumulation -> 1 | OK (0.017s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,733 INFO navigator_expert.commands.dispatch | Setting[0].FrameAccumulation -> 2 | OK (0.018s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,764 INFO navigator_expert.commands.dispatch | Setting[0].FrameAccumulation -> 1 | OK (0.014s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,810 INFO navigator_expert.commands.dispatch | Setting[0].FrameAverage -> 1 | OK (0.029s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,830 INFO navigator_expert.commands.dispatch | Setting[0].FrameAverage -> 2 | OK (0.018s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,860 INFO navigator_expert.commands.dispatch | Setting[0].FrameAverage -> 1 | OK (0.014s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,896 INFO navigator_expert.commands.dispatch | Setting[0].LineAccumulation -> 1 | OK (0.017s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,912 INFO navigator_expert.commands.dispatch | Setting[0].LineAccumulation -> 2 | OK (0.014s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,943 INFO navigator_expert.commands.dispatch | Setting[0].LineAccumulation -> 1 | OK (0.015s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:53,990 INFO navigator_expert.commands.dispatch | Setting[0].LineAverage -> 1 | OK (0.028s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,009 INFO navigator_expert.commands.dispatch | Setting[0].LineAverage -> 2 | OK (0.018s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,040 INFO navigator_expert.commands.dispatch | Setting[0].LineAverage -> 1 | OK (0.014s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,072 INFO navigator_expert.commands.dispatch | Setting[0].PinholeAiry -> 1.0 | OK (0.017s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,091 INFO navigator_expert.commands.dispatch | Setting[0].PinholeAiry -> 1.2 | OK (0.017s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,125 INFO navigator_expert.commands.dispatch | Setting[0].PinholeAiry -> 1.0 | OK (0.017s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,178 INFO navigator_expert.commands.dispatch | MoveXY -> (64245.0, 41180.0) um | OK (0.022s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,211 INFO navigator_expert.commands.dispatch | MoveXY -> (64240.225, 41194.695) um | OK (0.013s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,240 INFO navigator_expert.commands.dispatch | MoveXY -> (64227.725, 41203.776) um | OK (0.012s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,261 INFO navigator_expert.commands.dispatch | MoveXY -> (64212.275, 41203.776) um | OK (0.005s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,290 INFO navigator_expert.commands.dispatch | MoveXY -> (64199.775, 41194.695) um | OK (0.012s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,319 INFO navigator_expert.commands.dispatch | MoveXY -> (64195.0, 41180.0) um | OK (0.013s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,348 INFO navigator_expert.commands.dispatch | MoveXY -> (64199.775, 41165.305) um | OK (0.012s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,378 INFO navigator_expert.commands.dispatch | MoveXY -> (64212.275, 41156.224) um | OK (0.013s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,407 INFO navigator_expert.commands.dispatch | MoveXY -> (64227.725, 41156.224) um | OK (0.012s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,436 INFO navigator_expert.commands.dispatch | MoveXY -> (64240.225, 41165.305) um | OK (0.013s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,466 INFO navigator_expert.commands.dispatch | MoveXY -> (64220.0, 41180.0) um | OK (0.013s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,554 INFO navigator_expert.commands.dispatch | Z -> 1.5 um (galvo) | OK (0.020s) attempts=1 confirm_attempts=1
+2026-07-06 11:59:54,588 INFO navigator_expert.commands.dispatch | Z -> -0.5 um (galvo) | OK (0.014s) attempts=1 confirm_attempts=1
