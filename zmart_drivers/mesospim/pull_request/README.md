@@ -29,7 +29,7 @@ opinionated (a command set, error semantics, structured results) lives in the
   read output text   ◀───────────────────◀────────────────────   sends the text back
 ```
 
-## What the PR does — 3 files, ~410 lines
+## What the PR does — 3 files, ~460 lines
 
 | File | Change |
 |---|---|

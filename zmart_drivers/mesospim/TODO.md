@@ -186,7 +186,7 @@ now fixed on this branch):
       script, it runs via the existing `Core.execute_script`, and the console
       output is returned (text in / text out). No command vocabulary in mesoSPIM —
       all of that stays on the ZMART side, injected as scripts. Token-gated,
-      localhost-default, ~276 lines / 3 files, reuses `execute_script` unmodified.
+      localhost-default, ~460 lines / 3 files, reuses `execute_script` unmodified.
       Built + validated live against the `-D` demo Core via the button's signal
       path (auth, read state, **move the demo stage**, structured output, error →
       traceback). Packaged in [`pull_request/`](pull_request/) (patch + README +
