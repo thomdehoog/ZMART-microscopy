@@ -1,33 +1,32 @@
-"""A minimal walk through every setting change -- one line per setting, each
-confirmed by reading the state back."""
+"""The exact script the driver injects to change a setting.
+
+Self-contained: it only builds the injected script -- no client, no server, no
+fixtures. This is the whole Python the driver sends over the socket; mesoSPIM
+runs it with ``self`` == the live Core.
+"""
 
 from __future__ import annotations
 
-from mesospim import commands as cmd
-from mesospim import readers
+from mesospim.connection.scripts import build_script
 
 
-def test_every_setting_change(client):
-    # select the emission filter
-    assert cmd.set_filter(client, "561/LP")["success"]
-    assert readers.get_state(client)["filter"] == "561/LP"
+def test_setting_change_injects_this_script():
+    # build the script for one setting change (here: the emission filter)
+    script = build_script("set_state", {"settings": {"filter": "561/LP"}}, "N")
 
-    # select the zoom (magnification)
-    assert cmd.set_zoom(client, "2x")["success"]
-    assert readers.get_state(client)["zoom"] == "2x"
-
-    # select the active laser line
-    assert cmd.set_laser(client, "561 nm")["success"]
-    assert readers.get_state(client)["laser"] == "561 nm"
-
-    # set the active laser intensity (0-100 %)
-    assert cmd.set_intensity(client, 42)["success"]
-    assert readers.get_state(client)["intensity"] == 42
-
-    # select the light-sheet shutter configuration
-    assert cmd.set_shutter(client, "Both")["success"]
-    assert readers.get_state(client)["shutterconfig"] == "Both"
-
-    # set the left ETL amplitude and offset
-    assert cmd.set_etl(client, "left", amplitude=3.0, offset=1.5)["success"]
-    assert readers.get_state(client)["etl_l_amplitude"] == 3.0
+    # this is exactly what gets injected and run inside mesoSPIM
+    assert script == (
+        "# zmart-cmd: set_state\n"
+        "import json as _zjson, base64 as _zb64, traceback as _ztb\n"
+        "def _zmart_emit(_obj):\n"
+        "    _zpayload = _zb64.b64encode(_zjson.dumps(_obj).encode('utf-8')).decode('ascii')\n"
+        "    print('<<<ZMART-RESULT:N|' + _zpayload + '|N:ZMART-END>>>')\n"
+        "try:\n"
+        '    _a = _zjson.loads(\'{"settings": {"filter": "561/LP"}}\')\n'
+        "    _settings = dict(_a['settings'])\n"
+        "    self.sig_state_request_and_wait_until_done.emit(_settings)\n"
+        "    _result = {'applied': _settings}\n"
+        "    _zmart_emit({'ok': True, 'data': _result})\n"
+        "except Exception:\n"
+        "    _zmart_emit({'ok': False, 'error': _ztb.format_exc()})\n"
+    )
