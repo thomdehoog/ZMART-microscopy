@@ -8,10 +8,10 @@ the state" means in terms of the live ``mesoSPIM_Core`` API -- lives here, on th
 learns no ZMART concepts; it just runs the snippet with ``self`` == Core.
 
 Each template is Python that runs in the Core context and assigns its result to a
-local ``_result`` (a JSON-serialisable dict). :func:`build_script` decodes the
-call's arguments from an embedded JSON literal into ``_a``, then wraps the body
-in the emit/try-except harness (see :func:`mesospim.protocol.wrap_script`) so the
-result comes back as a nonce-delimited base64(JSON) block.
+local ``_result`` (a JSON-serialisable dict). :func:`build_script` embeds the
+call's arguments as a plain Python literal (``_a = {...}``) and wraps the body in
+the minimal print-the-result harness (see :func:`mesospim.protocol.wrap_script`),
+so the whole injected script stays readable in the Script Window.
 
 These snippets touch the real mesoSPIM Core surface (``self.move_absolute``,
 ``self.state['position']['x_pos']``, ``self.cfg.laserdict``,
@@ -26,8 +26,6 @@ License: MIT
 """
 
 from __future__ import annotations
-
-import json
 
 from ..protocol import wrap_script
 
@@ -208,14 +206,15 @@ def known_commands() -> tuple[str, ...]:
     return tuple(_TEMPLATES)
 
 
-def build_script(cmd: str, args: dict, nonce: str) -> str:
-    """Build the full injected script for ``cmd`` with ``args`` and ``nonce``.
+def build_script(cmd: str, args: dict) -> str:
+    """Build the full injected script for ``cmd`` with ``args``.
 
-    Raises ``KeyError`` for an unknown command. The leading ``# zmart-cmd``
-    comment is inert Python that lets a server log (or a test double) see which
-    command a script implements without parsing it.
+    Raises ``KeyError`` for an unknown command. The args are embedded as a plain
+    Python literal (``_a = {...}``) so the script reads cleanly. The leading
+    ``# zmart-cmd`` comment is inert Python that lets a server log (or a test
+    double) see which command a script implements without parsing it.
     """
     if cmd not in _TEMPLATES:
         raise KeyError(f"no injected-script template for command {cmd!r}")
-    body = f"_a = _zjson.loads({json.dumps(args)!r})\n" + _TEMPLATES[cmd].strip("\n")
-    return f"# zmart-cmd: {cmd}\n" + wrap_script(body, nonce)
+    body = f"_a = {args!r}\n" + _TEMPLATES[cmd].strip("\n")
+    return f"# zmart-cmd: {cmd}\n" + wrap_script(body)

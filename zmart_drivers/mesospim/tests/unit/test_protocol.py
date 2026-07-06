@@ -1,8 +1,8 @@
-"""Remote-scripting framing + the structured-result harness (pure, no sockets).
+"""Remote-scripting framing + the simple print-the-result harness (pure).
 
 The harness is tested end to end: build a script with ``wrap_script``, actually
-``exec`` it capturing stdout (exactly as the server does), then extract the
-result with ``parse_result``.
+``exec`` it capturing stdout (as the server does), then extract the result with
+``parse_result``.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from mesospim import protocol as p
 
 
 def _run(script: str) -> str:
-    """Exec a wrapped script the way the server does, returning captured stdout."""
     buf = io.StringIO()
     with redirect_stdout(buf):
         exec(script, {})  # noqa: S102 - exercising the harness the server runs
@@ -39,43 +38,33 @@ def test_frame_counts_bytes_not_chars():
 
 
 def test_wrap_and_parse_ok():
-    reply = p.parse_result(_run(p.wrap_script("_result = {'x': 42}", "n1")), "n1")
+    reply = p.parse_result(_run(p.wrap_script("_result = {'x': 42}")))
     assert reply.ok and reply.data == {"x": 42}
 
 
 def test_wrap_and_parse_error_is_structured():
-    reply = p.parse_result(_run(p.wrap_script("raise ValueError('boom')", "n2")), "n2")
+    reply = p.parse_result(_run(p.wrap_script("raise ValueError('boom')")))
     assert not reply.ok and "boom" in reply.error
 
 
 def test_missing_marker_becomes_error():
-    # A pre-harness failure (syntax error, auth text, ...) has no marker; the
+    # A pre-harness failure (syntax error, auth text, ...) has no marker line; the
     # whole console text is surfaced as the error, not a parse crash.
-    reply = p.parse_result("Traceback: SyntaxError somewhere", "n3")
+    reply = p.parse_result("Traceback: SyntaxError somewhere")
     assert not reply.ok and "Traceback" in reply.error
 
 
-def test_nonce_isolation():
-    # A result emitted under a different nonce must not be accepted.
-    console = _run(p.wrap_script("_result = {'a': 1}", "AAA"))
-    assert not p.parse_result(console, "BBB").ok
-
-
-def test_result_survives_interleaved_output():
+def test_last_marker_wins_over_interleaved_output():
     body = "print('noise from another thread')\n_result = {'v': 1}"
-    reply = p.parse_result(_run(p.wrap_script(body, "n4")), "n4")
+    reply = p.parse_result(_run(p.wrap_script(body)))
     assert reply.ok and reply.data == {"v": 1}
 
 
-def test_payload_with_marker_text_is_safe():
-    # Because the payload is base64, data may itself contain the delimiter text
-    # without breaking extraction.
-    body = "_result = {'s': '<<<ZMART-RESULT:n5|x|n5:ZMART-END>>>'}"
-    reply = p.parse_result(_run(p.wrap_script(body, "n5")), "n5")
-    assert reply.ok and reply.data["s"].startswith("<<<ZMART")
-
-
 def test_malformed_payload_raises_protocol_error():
-    start, end = p._markers("n6")
     with pytest.raises(p.ProtocolError):
-        p.parse_result(f"{start}not-base64!!{end}", "n6")
+        p.parse_result(p.OK_MARKER + "not-json")
+
+
+def test_ok_result_must_be_an_object():
+    with pytest.raises(p.ProtocolError):
+        p.parse_result(p.OK_MARKER + "[1, 2, 3]")

@@ -18,22 +18,15 @@ This module is the pure, socket-free core of that transport:
    ``pull_request/PROTOCOL.md``). It suits arbitrary script text (which contains
    newlines) where a line-delimited framing would not.
 
-2. **A structured result over an unstructured channel.** The reply is raw
-   console text and may interleave output from other threads (loggers, the demo
-   thread), exactly as mesoSPIM's Script Window console does. So every command
-   the driver injects is wrapped in :func:`wrap_script`, which:
-
-     - emits its result as ``<nonce>`` + base64(JSON) + ``<nonce-end>`` -- a
-       **per-call nonce** so no other output can be mistaken for ours, and
-       **base64** so the payload can never contain the delimiter; and
-     - catches any exception and emits a structured ``{"ok": false, "error":
-       <traceback>}`` instead, so a failing script comes back as a clean NAK, not
-       a client-side parse crash.
-
-   :func:`parse_result` extracts that block from the console text and returns a
-   :class:`Reply`. If no block is present (e.g. a syntax error before the harness
-   ran, which mesoSPIM prints as a bare traceback), the whole console text is
-   returned as the error.
+2. **A simple, readable result line.** Every command is wrapped in
+   :func:`wrap_script`, which runs the body and prints one line -- either
+   ``__ZMART_OK__<json>`` (the result dict) or ``__ZMART_ERR__<json-string>``
+   (a traceback) if it raised. That keeps the injected script plain enough to
+   read, tweak, and ``regex`` by hand in mesoSPIM's Script Window, while still
+   giving the client a structured ``{ok, data, error}`` back. :func:`parse_result`
+   scans the console for the last such line (so it wins over any earlier stray
+   output) and returns a :class:`Reply`; if there is none (a syntax/import error
+   before the harness ran), the whole console text becomes the error.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -42,9 +35,7 @@ License: MIT
 
 from __future__ import annotations
 
-import base64
 import json
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -52,6 +43,11 @@ ENCODING = "utf-8"
 
 # Bumped only if the framing or harness contract changes.
 PROTOCOL_VERSION = 1
+
+# Result markers. A distinctive prefix on one line; the JSON follows on the same
+# line (so a single regex `^__ZMART_(OK|ERR)__(.*)$` extracts it).
+OK_MARKER = "__ZMART_OK__"
+ERR_MARKER = "__ZMART_ERR__"
 
 
 class ProtocolError(ValueError):
@@ -85,57 +81,47 @@ def frame(payload: str | bytes) -> bytes:
 
 # -- structured result harness ------------------------------------------------
 
-_MARKER_PREFIX = "<<<ZMART-RESULT:"
-_MARKER_SUFFIX = ":ZMART-END>>>"
 
-
-def _markers(nonce: str) -> tuple[str, str]:
-    return f"{_MARKER_PREFIX}{nonce}|", f"|{nonce}{_MARKER_SUFFIX}"
-
-
-def wrap_script(body: str, nonce: str) -> str:
-    """Wrap a command ``body`` in the emit/try-except harness.
+def wrap_script(body: str) -> str:
+    """Wrap a command ``body`` in a minimal print-the-result harness.
 
     ``body`` is Python that runs in the Core context (``self`` == Core) and must
-    assign the result to a local named ``_result``. ``nonce`` must be unique per
-    call. The returned script prints exactly one delimited base64(JSON) block.
+    assign the result to a local named ``_result`` (a JSON-serialisable dict).
+    The returned script prints one marker line -- ``__ZMART_OK__<json>`` on
+    success, or ``__ZMART_ERR__<json>`` (a traceback) if the body raised.
     """
-    start, end = _markers(nonce)
     indented = "\n".join("    " + line for line in body.splitlines()) or "    pass"
     return (
-        "import json as _zjson, base64 as _zb64, traceback as _ztb\n"
-        "def _zmart_emit(_obj):\n"
-        "    _zpayload = _zb64.b64encode(_zjson.dumps(_obj).encode('utf-8')).decode('ascii')\n"
-        f"    print({start!r} + _zpayload + {end!r})\n"
+        "import json, traceback\n"
         "try:\n"
         f"{indented}\n"
-        "    _zmart_emit({'ok': True, 'data': _result})\n"
+        f"    print({OK_MARKER!r} + json.dumps(_result))\n"
         "except Exception:\n"
-        "    _zmart_emit({'ok': False, 'error': _ztb.format_exc()})\n"
+        f"    print({ERR_MARKER!r} + json.dumps(traceback.format_exc()))\n"
     )
 
 
-def parse_result(console: str, nonce: str) -> Reply:
-    """Extract the delimited base64(JSON) result block from console text.
+def parse_result(console: str) -> Reply:
+    """Turn the script's console output into a :class:`Reply`.
 
-    Returns a :class:`Reply`. If the block is absent, the whole console text is
-    returned as an error (this is how a pre-harness failure -- a syntax error, an
-    import error, an auth/plumbing issue -- surfaces).
+    Scans for the last ``__ZMART_OK__`` / ``__ZMART_ERR__`` line. If neither is
+    present (a pre-harness failure -- syntax/import error, an auth/plumbing
+    issue), the whole console text is returned as the error.
     """
-    start, end = _markers(nonce)
-    match = re.search(re.escape(start) + "(.*?)" + re.escape(end), console, re.DOTALL)
-    if not match:
-        text = console.strip()
-        return Reply(ok=False, error=text or "no result marker in server reply")
+    for line in reversed(console.splitlines()):
+        if line.startswith(OK_MARKER):
+            data = _loads(line[len(OK_MARKER):])
+            if not isinstance(data, dict):
+                raise ProtocolError(f"result must be an object, got {type(data).__name__}")
+            return Reply(ok=True, data=data)
+        if line.startswith(ERR_MARKER):
+            return Reply(ok=False, error=str(_loads(line[len(ERR_MARKER):])))
+    text = console.strip()
+    return Reply(ok=False, error=text or "no result marker in server reply")
+
+
+def _loads(payload: str):
     try:
-        payload = base64.b64decode(match.group(1)).decode("utf-8")
-        obj = json.loads(payload)
-    except (ValueError, json.JSONDecodeError) as exc:
+        return json.loads(payload)
+    except json.JSONDecodeError as exc:
         raise ProtocolError(f"could not decode result payload: {exc}") from exc
-    if not isinstance(obj, dict) or "ok" not in obj:
-        raise ProtocolError(f"malformed result object: {obj!r}")
-    ok = bool(obj["ok"])
-    data = obj.get("data", {}) or {}
-    if not isinstance(data, dict):
-        raise ProtocolError(f"result 'data' must be an object, got {type(data).__name__}")
-    return Reply(ok=ok, data=data, error=str(obj.get("error", "")))
