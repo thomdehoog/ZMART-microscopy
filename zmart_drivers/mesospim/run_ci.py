@@ -166,7 +166,7 @@ def main() -> int:
 
     # --- OFFLINE: mock-server suite (+coverage) and the headless Qt validator -
     if run_offline:
-        pytest_cmd = [sys.executable, "-m", "pytest", "tests", "-m", "not integration",
+        pytest_cmd = [sys.executable, "-m", "pytest", "tests", "pull_request", "-m", "not integration",
                       f"--junit-xml={REPORT_DIR / 'junit.xml'}"]
         if not args.no_cov and has("pytest_cov"):
             pytest_cmd += ["--cov=mesospim", "--cov-branch", "--cov-report=term-missing:skip-covered",

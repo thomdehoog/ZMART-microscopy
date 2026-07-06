@@ -17,6 +17,13 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import socket
+import sys
+import tempfile
+import threading
+import time
+import types
 from pathlib import Path
 
 _PATCH = Path(__file__).with_name("0001-Add-optional-remote-scripting-server-Tools-Remote-Sc.patch")
@@ -90,6 +97,12 @@ def test_right_token_passes_wrong_token_fails():
     assert gate.check("nope") is False  # wrong guess is rejected
     assert gate.check("s3cret") is True  # correct token passes
     assert gate.passed is True  # ...and the gate remembers it
+
+
+def test_a_non_ascii_token_works():
+    # the token is encoded to bytes before compare_digest -- a str with non-ASCII
+    # would otherwise raise. This is why AuthGate.check() encodes.
+    assert rs.AuthGate("pä55wörd").check("pä55wörd")
 
 
 def test_empty_token_counts_as_no_token():
@@ -226,6 +239,238 @@ def test_http_requires_the_bearer_token_when_one_is_set():
 def test_http_get_has_no_stream_and_a_notification_is_accepted():
     assert _http(method="GET", body="")[0] == "HTTP/1.1 405 Method Not Allowed"
     assert _http(body='{"jsonrpc": "2.0", "method": "notifications/initialized"}')[0] == "HTTP/1.1 202 Accepted"
+
+
+# =============================================================================
+# End-to-end: the REAL server over real sockets, both lanes, every command.
+# Starts the actual RemoteScriptingServer (needs PyQt5 + a Qt event loop) against
+# a full Core-shaped fake, then drives it from a real TCP client. Only the live
+# hardware Core is absent; framing, HTTP, dispatch, and the whole vocabulary run
+# for real. Skips cleanly where PyQt5 is unavailable.
+# =============================================================================
+
+_AXES = ("x", "y", "z", "f", "theta")
+
+# The real mesoSPIM Core is a QObject, and the server parents its socket to it
+# (`QTcpServer(core)`), so our fake must be a QObject too. Fall back to a plain
+# object when PyQt5 is absent -- the e2e tests skip in that case anyway.
+try:
+    from PyQt5.QtCore import QObject as _QObject
+except ImportError:
+    _QObject = object
+
+
+def _install_fake_acquisitions():
+    """A stand-in ``utils.acquisitions`` so the acquire handler's import resolves offline."""
+    if "utils.acquisitions" in sys.modules:
+        return
+    pkg = sys.modules.setdefault("utils", types.ModuleType("utils"))
+    mod = types.ModuleType("utils.acquisitions")
+    mod.Acquisition = type("Acquisition", (dict,), {"__init__": lambda s: dict.__init__(s, planes=1, folder="", filename="")})
+    mod.AcquisitionList = type("AcquisitionList", (list,), {})
+    pkg.acquisitions = mod
+    sys.modules["utils.acquisitions"] = mod
+
+
+class _Sig:
+    """A stand-in pyqtSignal whose emit() runs a bound handler."""
+
+    def __init__(self, fn=None):
+        self.fn = fn or (lambda *a: None)
+
+    def emit(self, *a):
+        self.fn(*a)
+
+
+class _FullCore(_QObject):
+    """A Core-shaped fake with the whole surface every COMMANDS handler touches."""
+
+    def __init__(self):
+        super().__init__()
+        self.state = {"state": "idle", "position": {a + "_pos": 0.0 for a in _AXES},
+                      "laser": "488 nm", "intensity": 10.0, "filter": "515/30", "zoom": "1x",
+                      "shutterconfig": "Left", "etl_l_amplitude": 1.0, "etl_l_offset": 2.0,
+                      "etl_r_amplitude": 1.0, "etl_r_offset": 2.0}
+        self.cfg = type("Cfg", (), {"laserdict": {"488 nm": "PWM", "561 nm": "PWM"},
+            "filterdict": {"515/30": 1, "561/LP": 2, "647-LP": 3}, "zoomdict": {"1x": 6.55},
+            "shutteroptions": ("Left", "Right", "Both"), "version": "1.20.0-fake",
+            "camera_x_pixels": 64, "camera_y_pixels": 64})()
+        self.sig_stop_movement = _Sig()
+        self.sig_state_request_and_wait_until_done = _Sig(self.state.update)
+
+    def move_absolute(self, sdict, wait_until_done=False):
+        for k, v in sdict.items():
+            self.state["position"][k.replace("_abs", "") + "_pos"] = float(v)
+
+    def move_relative(self, ddict, wait_until_done=False):
+        for k, v in ddict.items():
+            self.state["position"][k.replace("_rel", "") + "_pos"] += float(v)
+
+    def zero_axes(self, axes):
+        for a in axes:
+            self.state["position"][a + "_pos"] = 0.0
+
+    def start(self, row=0):
+        acq = self.state["acq_list"][row]
+        os.makedirs(acq.get("folder") or ".", exist_ok=True)
+        with open(os.path.join(acq.get("folder") or ".", acq.get("filename") or "s.tiff"), "wb") as f:
+            f.write(b"II*\x00")  # minimal file so stat_files sees it
+        self.state["state"] = "idle"
+
+
+def _run(token, client_fn):
+    """Start the real server, drive it with client_fn, and return the fake Core.
+
+    The awkward bit: the server's sockets are Qt objects, and Qt only does socket
+    work while its event loop is turning. But our client also needs to block on
+    recv(). We can't do both on one thread, so:
+      - the CLIENT runs on a background thread (it can block on the socket there);
+      - THIS thread just spins the Qt event loop (processEvents) so the server can
+        actually accept the connection and answer -- until the client says it's done.
+    `box` is the mailbox the two threads pass results/errors through. `port=0` lets
+    Qt pick any free port; we read the real one back with serverPort().
+    """
+    QtCore = __import__("pytest").importorskip("PyQt5.QtCore")  # skip the whole test if no PyQt5
+    _install_fake_acquisitions()
+    app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+    core = _FullCore()
+    server = rs.RemoteScriptingServer(core, "127.0.0.1", 0, token=token)
+    box = {}
+
+    def run():
+        try:
+            client_fn(server._server.serverPort(), box)
+        except BaseException as exc:  # stash it; we re-raise on the main thread so pytest sees it
+            box["error"] = exc
+        finally:
+            box["done"] = True  # tell the main loop below it can stop pumping
+
+    th = threading.Thread(target=run)
+    th.start()
+    deadline = time.time() + 10  # safety net: never hang the suite if the client wedges
+    while not box.get("done"):
+        app.processEvents()  # let the server accept/read/reply
+        if time.time() > deadline:
+            break
+        time.sleep(0.001)  # don't burn a whole CPU spinning
+    th.join(timeout=2)
+    server.stop()
+    if "error" in box:
+        raise box["error"]
+    assert box.get("ok"), "client did not finish"
+    return core
+
+
+def _framed_conn(port):
+    """A tiny length-framed client bound to one socket: returns (call, send, recv, sock)."""
+    s = socket.create_connection(("127.0.0.1", port), timeout=5)
+    buf = bytearray()
+
+    def send(text):
+        b = text.encode()
+        s.sendall(str(len(b)).encode() + b"\n" + b)
+
+    def recv():
+        # read the "<n>\n" length line, then exactly n payload bytes
+        while b"\n" not in buf:
+            buf.extend(s.recv(4096))
+        i = buf.index(b"\n")
+        n = int(buf[:i])
+        del buf[:i + 1]
+        while len(buf) < n:
+            buf.extend(s.recv(4096))
+        out = bytes(buf[:n])
+        del buf[:n]
+        return out.decode()
+
+    def call(method, **args):
+        send(json.dumps({method: args}))
+        r = recv()
+        assert r.startswith("__ZMART_OK__"), r
+        return json.loads(r[len("__ZMART_OK__"):])
+
+    return call, send, recv, s
+
+
+def _framed_client(port, box):
+    call, send, recv, s = _framed_conn(port)
+    try:
+        send("tok")
+        assert recv() == "OK"                                             # auth
+        assert call("ping")["pong"] is True                              # reads
+        assert call("hello")["app"] == "mesoSPIM-control"
+        assert set(call("get_position")) == set(_AXES)
+        assert call("get_state")["filter"] == "515/30"
+        cfg = call("get_config")
+        assert "515/30" in cfg["filters"] and cfg["lasers"] and cfg["zooms"]
+        assert "state" in call("get_progress")
+        call("move_absolute", targets={"x": 1000.0, "z": -50.0})         # writes + readback
+        assert call("get_position")["x"] == 1000.0
+        call("move_relative", deltas={"z": 5.0})
+        assert call("get_position")["z"] == -45.0
+        call("set_state", settings={"filter": "561/LP"})
+        assert call("get_state")["filter"] == "561/LP"
+        call("zero", axes=["x"])
+        assert call("get_position")["x"] == 0.0
+        call("stop")
+        folder = tempfile.mkdtemp()                                      # acquisition round-trip
+        started = call("acquire_start", acquisition={"folder": folder, "filename": "A.tiff", "planes": 1})
+        assert started["started"] and started["files"]
+        assert not call("stat_files", files=started["files"])["missing"]
+        call("acquire_finish")
+        send(json.dumps({"procedure": {"name": "autofocus"}}))           # advertised-but-unimplemented -> NAK
+        assert "__ZMART_OK__" not in recv()
+        box["ok"] = True
+    finally:
+        s.close()
+
+
+def _http_post(s, body, token="tok", origin=None):
+    head = f"POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {len(body)}\r\n"
+    if token:
+        head += f"Authorization: Bearer {token}\r\n"
+    if origin:
+        head += f"Origin: {origin}\r\n"
+    s.sendall((head + "\r\n" + body).encode())
+    raw = b""
+    while b"\r\n\r\n" not in raw:
+        raw += s.recv(4096)
+    head_b, _, rest = raw.partition(b"\r\n\r\n")
+    length = 0
+    for ln in head_b.split(b"\r\n")[1:]:
+        if ln.lower().startswith(b"content-length:"):
+            length = int(ln.split(b":", 1)[1])
+    while len(rest) < length:
+        rest += s.recv(4096)
+    return head_b.split(b"\r\n")[0].decode(), rest[:length].decode()
+
+
+def _http_client(port, box):
+    s = socket.create_connection(("127.0.0.1", port), timeout=5)
+    try:
+        status, body = _http_post(s, '{"jsonrpc": "2.0", "id": 1, "method": "initialize"}')
+        assert status == "HTTP/1.1 200 OK"
+        assert json.loads(body)["result"]["serverInfo"]["name"] == "mesoSPIM"
+        _, body = _http_post(s, '{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}')
+        assert [t["name"] for t in json.loads(body)["result"]["tools"]] == list(rs.COMMANDS)
+        _, body = _http_post(s, json.dumps({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "set_state", "arguments": {"settings": {"filter": "647-LP"}}}}))
+        assert json.loads(body)["result"]["isError"] is False
+        assert _http_post(s, '{"jsonrpc":"2.0","id":4,"method":"tools/list"}', token="wrong")[0] == "HTTP/1.1 401 Unauthorized"
+        assert _http_post(s, '{"jsonrpc":"2.0","id":5,"method":"tools/list"}', origin="http://evil.example")[0] == "HTTP/1.1 403 Forbidden"
+        box["ok"] = True
+    finally:
+        s.close()
+
+
+def test_e2e_every_command_over_framed_tcp():
+    core = _run("tok", _framed_client)
+    assert core.state["filter"] == "561/LP"  # the framed set_state persisted
+
+
+def test_e2e_mcp_over_http_end_to_end():
+    core = _run("tok", _http_client)
+    assert core.state["filter"] == "647-LP"  # the HTTP tools/call persisted
 
 
 if __name__ == "__main__":  # runnable without pytest, for a quick check next to the PR
