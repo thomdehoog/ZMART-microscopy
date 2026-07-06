@@ -189,10 +189,10 @@ def connect(connection: dict) -> ZmartHandle:
             ``output_root`` (edited in by the caller) is where
             :func:`acquire` saves and :func:`set_origin` persists.
 
-    Runs the connect-time limits handshake (``commands.gate``): the
-    machine-local ``limits.json`` / ``function_limits.json`` must exist in
-    the newest machine snapshot, validate, and sit within the hardcoded
-    physical backstop. On success the stage envelope is applied so
+    Runs the connect-time limits handshake (``commands.gate``): the single
+    machine-local ``limits.json`` must exist in the newest machine snapshot,
+    validate (its ``constraints``/``functions`` and stage envelope), and sit
+    within the hardcoded physical backstop. On success the stage envelope is applied so
     :func:`set_xyz` can move; on failure the session still connects for
     read-only use and every mutating command refuses with an error naming
     the file tried and the notebook that creates it
@@ -377,8 +377,8 @@ def set_origin(handle: ZmartHandle) -> dict:
     Not limits-gated: this op fires no native command — it reads the current
     position and persists a machine-local reference file. (The commands-layer
     gate governs everything that commands hardware; ``set_origin`` stays in
-    the ``function_limits.json`` vocabulary so machine files remain explicit
-    about it.)
+    the ``limits.json`` ``functions`` vocabulary so machine files remain
+    explicit about it.)
     """
     _require_open(handle)
     snap = _hardware_snapshot(handle)

@@ -49,6 +49,28 @@ class TestParseValidation:
         assert isinstance(limits, FunctionLimits)
         assert limits.source == "defaults"
 
+    def test_unknown_top_level_section_is_ignored(self):
+        """A driver may co-locate extra sections (e.g. the leica limits.json
+        carries a ``backlash`` block the motion loader reads). The parser reads
+        only schema_version/source/constraints/functions and must ignore any
+        other top-level key WITHOUT loosening its validation of the sections it
+        does read (a poisoned constraint/function still fails)."""
+        limits = parse(
+            _payload(backlash={"approach": "+X+Y", "overshoot_um": 50}),
+            functions=OPS,
+        )
+        assert isinstance(limits, FunctionLimits)
+        # the ignored section does not smuggle past constraint validation
+        with pytest.raises(LimitsError, match="finite"):
+            parse(
+                _payload(
+                    backlash={"whatever": float("nan")},
+                    constraints={"stage.x": {"min": float("nan"), "max": 1}},
+                    functions={"set_origin": None, "set_xyz": None, "set_state": None},
+                ),
+                functions=OPS,
+            )
+
     def test_wrong_schema_version_rejected(self):
         with pytest.raises(LimitsError, match="schema_version"):
             parse(_payload(schema_version=2), functions=OPS)

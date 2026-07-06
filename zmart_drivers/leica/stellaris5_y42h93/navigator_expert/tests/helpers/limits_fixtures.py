@@ -1,12 +1,14 @@
 """Limits fixtures for the offline suite and the mock validators.
 
-Enforcement no longer falls back to the bundled ``limits/defaults/`` files
-(they are templates), so anything that exercises mutating commands must
-either provision a real machine-local snapshot (``provision_machine_limits``,
-which the connect-time handshake then validates for real) or install a
-permissive in-memory gate state for a specific client
-(``install_permissive_limits``, the unit-test seam for command-mechanics
-tests that are not about limits).
+Enforcement no longer falls back to the bundled ``limits/defaults/limits.json``
+(it is a template), so anything that exercises mutating commands must either
+provision a real machine-local snapshot (``provision_machine_limits``, which
+the connect-time handshake then validates for real) or install a permissive
+in-memory gate state for a specific client (``install_permissive_limits``, the
+unit-test seam for command-mechanics tests that are not about limits).
+
+The snapshot holds the single merged ``limits.json`` (§7b): ``constraints`` +
+``functions`` + a ``backlash`` block. There is no separate function_limits.json.
 """
 
 from __future__ import annotations
@@ -33,6 +35,25 @@ DEFAULT_STAGE_UM = {
 
 _SEED_MOMENT = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
+# A valid backlash block for the merged limits.json (matches the fields
+# motion.stage_config._REQUIRED_BACKLASH validates).
+_FIXTURE_BACKLASH = {
+    "approach": "+X+Y",
+    "overshoot_um": 50.0,
+    "settle_ms": 100,
+    "tolerance_um": 20.0,
+    "session_id": None,
+}
+
+
+def merged_limits_payload(stage_um: dict, *, functions: dict | None = None) -> dict:
+    """The single merged limits.json payload: constraints + functions + backlash."""
+    payload = _gate.build_function_limits_payload(stage_um)
+    if functions is not None:
+        payload["functions"] = functions
+    payload["backlash"] = dict(_FIXTURE_BACKLASH)
+    return payload
+
 
 def provision_machine_limits(
     root: str | Path,
@@ -41,21 +62,19 @@ def provision_machine_limits(
     function_limits: dict | None = None,
     moment: datetime | None = None,
 ) -> MachineProfile:
-    """Publish a machine-local snapshot carrying limits + function limits.
+    """Publish a machine-local snapshot carrying the single merged limits.json.
 
     ``root`` is the ProgramData root (point ``ZMART_MICROSCOPY_ROOT`` at it,
     or pass the returned profile explicitly). The connect handshake then
-    resolves REAL machine-local files — the honest replacement for the old
-    silent bundled fallback.
+    resolves the REAL machine-local file — the honest replacement for the old
+    silent bundled fallback. ``function_limits`` overrides the file's
+    ``functions`` block for gate-abuse tests.
     """
     profile = MachineProfile(programdata_root=Path(root))
     stage_um = dict(stage_um or DEFAULT_STAGE_UM)
-    limits_payload = {"schema_version": 1, "source": "defaults", "stage_um": stage_um}
-    fl_payload = function_limits or _gate.build_function_limits_payload(stage_um)
     profile.publish_snapshot(
         moment or _SEED_MOMENT,
-        limits=limits_payload,
-        function_limits=fl_payload,
+        limits=merged_limits_payload(stage_um, functions=function_limits),
     )
     return profile
 

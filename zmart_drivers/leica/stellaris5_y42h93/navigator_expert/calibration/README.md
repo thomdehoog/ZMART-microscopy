@@ -25,13 +25,19 @@ notebook for each objective pair that the scope should support.
 ## Snapshots
 
 Adopting a calibration publishes a dated, machine-local **snapshot** under
-`C:\ProgramData\zmart-microscopy\<vendor>\<microscope>\<api>\<datetime>\`, holding
-`calibration.json` + the physical `limits.json` (+ the operator's `origin.json`
-frame zero point, carried forward) + the executed notebook. The
-driver reads the newest snapshot (`config/machine.py`); with no snapshot it
-falls back, loudly, to the driver-bundled defaults (`calibration/defaults/`
-and `limits/defaults/`). The physical stage envelope has its own operator
-notebook, `set_stage_limits` under `limits/notebooks/`.
+`C:\ProgramData\zmart-microscopy\<vendor>\<microscope>\<api>\<datetime>\`. Each
+snapshot dir holds exactly three files: `calibration.json` (optical
+calibration), the physical `limits.json` (the single function-keyed limits
+file: `constraints` + `functions` + `backlash`), and the operator's
+`origin.json` (frame zero point, carried forward) — plus the executed notebook.
+The driver reads the newest snapshot (`config/machine.py`). `calibration.json`
+keeps a loud bundled **read** fallback (`calibration/defaults/`) when no
+snapshot exists; `limits.json` does **not** fall back for enforcement
+(`limits/defaults/limits.json` is a template, refused). Note the split of
+concerns: a **limits** adopt (the `set_stage_limits` notebook under
+`limits/notebooks/`) writes only `limits.json` and never mints a
+`calibration.json` from the template; a **calibration** adopt writes
+`calibration.json` and carries the prior `limits.json` forward.
 
 The per-run *working* envelope (a boundary-marker sample area) is not machine
 state - it belongs to the acquisition workflow, not here.

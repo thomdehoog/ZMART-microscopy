@@ -77,17 +77,22 @@ runtime where possible. Override via the profile, not at call sites.
 - **Log reader** — `LogReaderProfile`: the `lcsCommand.log` / `MatrixScreener.log` paths + freshness windows.
 - **Machine-local calibration & limits** — `config/machine.py` resolves the instrument's calibration
   (image↔stage matrix, per-objective translation) and stage limits from a **machine-local system config
-  dir** (out of the repo). Calibration keeps a loud bundled fallback
-  (`calibration/defaults/calibration.json`, a real last-known-good calibration); the two **limits**
-  files do **not**: `limits/defaults/limits.json` and `limits/defaults/function_limits.json` are
-  **templates only** — a bundled envelope can be the wrong machine's envelope, so enforcement refuses
-  them. `limits/notebooks/set_stage_limits.ipynb` is the file factory: it measures the envelope and
-  publishes the machine-local `limits.json` + `function_limits.json` snapshot.
+  dir** (out of the repo). Each snapshot dir holds exactly three files: `limits.json`,
+  `calibration.json`, `origin.json`. Calibration keeps a loud bundled **read** fallback
+  (`calibration/defaults/calibration.json`, a real last-known-good calibration); the single **limits**
+  file does **not**: `limits/defaults/limits.json` is a **template only** — a bundled envelope can be
+  the wrong machine's envelope, so enforcement refuses it. `limits/notebooks/set_stage_limits.ipynb`
+  is the file factory: it measures the envelope and publishes the machine-local `limits.json` snapshot
+  — the single function-keyed file (`constraints` = the `stage.*` envelope + `functions` = the gate
+  policy + a `backlash` block). A fresh-machine limits adopt writes only `limits.json` and never mints
+  a `calibration.json` from the template (calibration stays the loud read fallback until an explicit
+  calibration adopt).
 - **Limits handshake (required before any mutation)** — `connect_limits_handshake(client)` (run
   automatically by the zmart adapter's `connect()`; workflows/validators/notebooks call it once after
-  connecting). It requires the machine-local files, validates them (schema, finite numbers only,
-  min ≤ max, envelope **within the hardcoded physical backstop** `motion.limits.STAGE_BACKSTOP_UM`),
-  applies the stage envelope, and installs the function-keyed gate for that client. On failure the
+  connecting). It requires the single machine-local `limits.json`, validates it (schema, finite numbers
+  only, min ≤ max, its `constraints`/`functions`, envelope **within the hardcoded physical backstop**
+  `motion.limits.STAGE_BACKSTOP_UM`), applies the stage envelope, and installs the function-keyed gate
+  for that client. On failure the
   session stays usable **read-only** and every mutating command returns a fail-closed refusal that
   names the file tried and points at the notebook. Manual `set_stage_limits(...)` still adjusts the
   in-memory envelope, but it does not open the gate — only a successful handshake does — and the
@@ -96,7 +101,7 @@ runtime where possible. Override via the profile, not at call sites.
   command wrapper (`set_*`, `move_*`, `acquire`, `select_job`, plus `save_experiment` /
   `load_experiment`) declares one key in `gate.MUTATING_COMMANDS` and checks it **before the native
   call fires** — nothing built on top (adapter, controller, workflows, notebooks) can bypass it.
-  The machine-local `function_limits.json` must carry an entry for every key (`null` =
+  The machine-local `limits.json` (its `functions` block) must carry an entry for every key (`null` =
   reviewed-and-unlimited; an **absent** key fails closed at load). If every move/acquire is refusing,
   read the refusal message: it says exactly which file is missing/invalid and how to create it.
 - **Canonical orientation** — call `require_canonical_scan_orientation()` at session start; it fails
@@ -121,9 +126,9 @@ assert ping(client)
 require_canonical_scan_orientation()
 
 # 2. Limits handshake (REQUIRED before any mutating command): validates the
-#    machine-local limits.json + function_limits.json (newest machine snapshot;
-#    NO bundled fallback — the limits/defaults/ files are templates) and
-#    installs the fail-closed gate for this client.
+#    single machine-local limits.json (newest machine snapshot; NO bundled
+#    fallback — limits/defaults/limits.json is a template) and installs the
+#    fail-closed gate for this client.
 state = connect_limits_handshake(client)
 assert state.ok, state.error   # points at limits/notebooks/set_stage_limits.ipynb
 
@@ -148,7 +153,7 @@ print(saved.image_paths)                                  # {PlaneIndex(t,z,c): 
 
 > No machine config yet? Every mutating command **refuses** (fail-closed) until the machine-local
 > limits exist — run `limits/notebooks/set_stage_limits.ipynb` once on the rig; it drives to the
-> physical corners and publishes `limits.json` + `function_limits.json` into the machine snapshot.
+> physical corners and publishes the single `limits.json` into the machine snapshot.
 > A refusal looks like: `move_xy refused: no machine-local limits.json for the physical stage
 > envelope: tried <snapshot path> … Create the machine-local file with
 > limits/notebooks/set_stage_limits.ipynb`. Raw `set_stage_limits(...)` only narrows/adjusts the
@@ -470,8 +475,8 @@ These **silently misbehave** instead of failing loudly — respect them or resul
     select the wrong job after reload.
 11. **`load_experiment` confirms only the receipt, not on-disk state** — follow with `save_experiment`
     (or use `apply_lrp_change`, which does).
-12. **Adapter mutating ops are gated by `function_limits.json`, fail-closed** — if it fails to
-    load/validate at connect, every `set_*`/`acquire` on the zmart-adapter surface refuses; the only
+12. **Adapter mutating ops are gated by `limits.json` (its `functions` block), fail-closed** — if it
+    fails to load/validate at connect, every `set_*`/`acquire` on the zmart-adapter surface refuses; the only
     hint is the connect-time warning (see §3).
 
 ## 11. Extending the driver

@@ -34,10 +34,11 @@ Hardware validation uses only production driver modules — nothing under
   10-position pattern (±25 µm around the current position) and does a ±2 µm
   z-galvo round-trip. Park the stage inside the calibrated envelope first —
   the validators refuse to move if the start position is outside limits.
-- **Machine-local limits provisioned** (`limits.json` + `function_limits.json`
-  in the newest snapshot under `C:\ProgramData\zmart-microscopy\...`). There
-  is **no bundled fallback**: the files under `limits/defaults/` are templates
-  and are refused for enforcement. Every validator runs the connect-time
+- **Machine-local limits provisioned** (the single `limits.json` in the newest
+  snapshot under `C:\ProgramData\zmart-microscopy\...`, alongside
+  `calibration.json` + `origin.json` — three files per snapshot). There is
+  **no bundled fallback**: `limits/defaults/limits.json` is a template and is
+  refused for enforcement. Every validator runs the connect-time
   limits handshake first (`limits: connect handshake` in the report) — it
   validates schema, finite numbers, and containment within the hardcoded
   physical backstop (`motion.limits.STAGE_BACKSTOP_UM`). On an unprovisioned

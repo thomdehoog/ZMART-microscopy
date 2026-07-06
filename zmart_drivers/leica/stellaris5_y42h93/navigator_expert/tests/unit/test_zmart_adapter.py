@@ -974,9 +974,7 @@ class TestFunctionLimits(unittest.TestCase):
         """THE completeness guard on the template: a new key cannot ship absent."""
         from shared import limits as shared_limits
 
-        path = adapter._machine.MACHINE.bundled_default_path(
-            adapter._machine.FUNCTION_LIMITS_FILENAME
-        )
+        path = adapter._machine.MACHINE.bundled_default_path(adapter._machine.LIMITS_FILENAME)
         limits = shared_limits.load(path, functions=_gate.FUNCTION_LIMIT_KEYS, is_fallback=True)
         self.assertEqual(limits.source, "defaults")
         self.assertTrue(limits.is_fallback)  # provenance: template, not machine

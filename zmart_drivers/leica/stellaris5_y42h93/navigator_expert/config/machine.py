@@ -1,39 +1,48 @@
 """Machine-local resolution of this microscope's coordinate-system config.
 
 Runtime coordinate config - the optical calibration, the physical stage
-envelope, and the operator-set frame origin - lives in dated snapshots under a
-machine-wide ProgramData root, newest wins::
+envelope + calibrated backlash, and the operator-set frame origin - lives in
+dated snapshots under a machine-wide ProgramData root, newest wins. Each
+snapshot dir holds exactly three files (plus the executed notebook)::
 
     <programdata_root>/<vendor>/<microscope_id>/<api>/<datetime>/
-        calibration.json    # optical calibration + backlash (schema v11)
-        limits.json         # physical stage envelope (schema v1)
+        calibration.json    # optical calibration (image<->stage, per-objective)
+        limits.json         # physical envelope + function gate + backlash (schema v1)
         origin.json         # frame zero point (set_origin; updated in place)
-        <executed>.ipynb    # the calibration notebook that produced this adopt
+        <executed>.ipynb    # the notebook that produced this adopt
+
+``limits.json`` is the single function-keyed limits file (decision §7b):
+``constraints`` (the ``stage.*`` physical envelope) + ``functions`` (the
+per-command gate policy) + a ``backlash`` block. Both readers - the motion
+check (``motion/stage_config``) and the commands gate (``commands/gate``) -
+read this one file; there is no separate ``function_limits.json``.
 
 Each snapshot is a complete, cumulative machine-state record; the calibration
-workflow writes one per adopt by copying the latest snapshot (or the bundled
-default) forward and merging its delta. ``origin.json`` is the one exception
-to snapshot immutability: it is ephemeral operator state (the current frame
-zero point), written into the *newest* snapshot in place by ``set_origin`` and
-carried forward on adopt, so it stays the truth until set again.
+workflow writes one per adopt by copying the latest snapshot forward and
+merging its delta. ``origin.json`` is the one exception to snapshot
+immutability: it is ephemeral operator state (the current frame zero point),
+written into the *newest* snapshot in place by ``set_origin`` and carried
+forward on adopt, so it stays the truth until set again.
 
 When no snapshot exists (fresh machine, or a wiped ProgramData tree), what
 happens depends on the file:
 
 - ``calibration.json`` falls back - loudly - to the bundled
-  ``calibration/defaults/calibration.json``: a real last-known-good
-  calibration for this microscope (never an identity/zero placeholder), so
-  read/compensation paths stay usable while warning that a re-calibration
-  is due.
-- ``limits.json`` and ``function_limits.json`` do NOT fall back for
-  enforcement. The bundled copies under ``limits/defaults/`` are TEMPLATES
-  only - a bundled envelope can be the wrong machine's envelope, which
-  breaks safety rather than providing it. The connect-time limits handshake
-  (``commands/gate.py``) refuses the fallback and every mutating command
-  then refuses until the machine-local files exist; the file factory is
-  ``limits/notebooks/set_stage_limits.ipynb``. ``resolve()`` still returns
-  the bundled path with ``is_fallback=True`` so callers (tests, template
-  tooling) can reach the template deliberately.
+  ``calibration/defaults/calibration.json`` on READ
+  (:meth:`calibration_path`): a real last-known-good calibration for this
+  microscope (never an identity/zero placeholder), so read/compensation paths
+  stay usable while warning that a re-calibration is due. Publishing, however,
+  never seeds calibration from the bundled template (decision §7b): a limits
+  adopt writes only ``limits.json`` and carries a *real* prior calibration
+  forward if one exists, never mints one from the template.
+- ``limits.json`` does NOT fall back for enforcement. The bundled copy under
+  ``limits/defaults/`` is a TEMPLATE only - a bundled envelope can be the
+  wrong machine's envelope, which breaks safety rather than providing it. The
+  connect-time limits handshake (``commands/gate.py``) refuses the fallback
+  and every mutating command then refuses until the machine-local file exists;
+  the file factory is ``limits/notebooks/set_stage_limits.ipynb``.
+  ``resolve()`` still returns the bundled path with ``is_fallback=True`` so
+  callers (tests, template tooling) can reach the template deliberately.
 
 ``<datetime>`` is UTC with microsecond precision, formatted so it is both a
 legal Windows path segment (no colons) and lexicographically == chronologically
@@ -70,7 +79,6 @@ _SNAPSHOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}Z$")
 
 CALIBRATION_FILENAME = "calibration.json"
 LIMITS_FILENAME = "limits.json"
-FUNCTION_LIMITS_FILENAME = "function_limits.json"
 ORIGIN_FILENAME = "origin.json"
 
 # Driver-bundled last-known-good defaults, each owned by its subsystem.
@@ -79,7 +87,6 @@ ORIGIN_FILENAME = "origin.json"
 _BUNDLED_SUBSYSTEM = {
     CALIBRATION_FILENAME: "calibration",
     LIMITS_FILENAME: "limits",
-    FUNCTION_LIMITS_FILENAME: "limits",
 }
 
 
@@ -302,9 +309,11 @@ class MachineProfile:
         """Place *filename* in the staging snapshot: the provided dict, else the
         latest snapshot's copy carried forward (bundled default if none and
         ``bundled_ok``). With ``bundled_ok=False`` and no machine-local source,
-        the file is omitted — enforcement files (limits / function limits) are
-        never minted from the bundled template by a side-effect publish; only
-        an explicit override (the set_stage_limits notebook) creates them."""
+        the file is omitted — neither ``limits.json`` nor ``calibration.json``
+        is minted from the bundled template by a side-effect publish (§7b);
+        only an explicit override (a calibration adopt, or the set_stage_limits
+        notebook for limits) creates one, or a real machine-local prior is
+        carried forward."""
         dest = staging / filename
         if override is not None:
             _write_json(dest, override)
@@ -320,26 +329,26 @@ class MachineProfile:
         *,
         calibration: dict | None = None,
         limits: dict | None = None,
-        function_limits: dict | None = None,
         notebook_paths: Iterable[str | Path] = (),
     ) -> Path:
         """Publish a new cumulative machine-state snapshot (copy-forward + atomic).
 
         Seeds the new dated folder by carrying the latest snapshot's
-        ``calibration.json``, ``limits.json``, and ``function_limits.json``
-        forward, overrides whichever of *calibration* / *limits* /
-        *function_limits* is provided, carries a persisted ``origin.json``
-        forward when one exists (so an adopt never silently drops the
-        operator's frame origin), copies the given executed notebook(s) in,
-        then atomically renames the folder into place. The live snapshot is
-        never mutated, so a crash mid-publish cannot corrupt the calibration
-        the driver is currently reading.
+        ``calibration.json`` and ``limits.json`` forward, overrides whichever
+        of *calibration* / *limits* is provided, carries a persisted
+        ``origin.json`` forward when one exists (so an adopt never silently
+        drops the operator's frame origin), copies the given executed
+        notebook(s) in, then atomically renames the folder into place. The
+        live snapshot is never mutated, so a crash mid-publish cannot corrupt
+        the calibration the driver is currently reading.
 
-        Seeding provenance: ``calibration.json`` may seed from the bundled
-        default (a real last-known-good calibration). The two limits files may
-        NOT — with no machine-local prior and no override they are omitted, so
-        a calibration adopt can never mint an enforceable envelope out of the
-        bundled template (the set_stage_limits notebook is the only factory).
+        Seeding provenance (decision §7b): NEITHER file seeds from the bundled
+        template. With no machine-local prior and no override, the file is
+        omitted — so a limits adopt can never mint an enforceable envelope out
+        of the bundled template (the set_stage_limits notebook is the only
+        factory), and it never mints a calibration.json either (a real prior
+        calibration is carried forward if present; otherwise calibration stays
+        the loud in-memory READ fallback until an explicit calibration adopt).
 
         *moment* must stamp strictly after the latest snapshot
         (see :meth:`new_snapshot_dir`); callers pass ``datetime.now(timezone.utc)``.
@@ -353,9 +362,8 @@ class MachineProfile:
             shutil.rmtree(staging)
         staging.mkdir()
         try:
-            self._seed_file(staging, CALIBRATION_FILENAME, calibration)
+            self._seed_file(staging, CALIBRATION_FILENAME, calibration, bundled_ok=False)
             self._seed_file(staging, LIMITS_FILENAME, limits, bundled_ok=False)
-            self._seed_file(staging, FUNCTION_LIMITS_FILENAME, function_limits, bundled_ok=False)
             prior = self.latest_snapshot()
             if prior is not None and (prior / ORIGIN_FILENAME).exists():
                 shutil.copy2(prior / ORIGIN_FILENAME, staging / ORIGIN_FILENAME)

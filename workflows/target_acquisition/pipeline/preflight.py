@@ -121,11 +121,11 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
 
     # 0.3 -- calibration + limits handshake + hardware
     calibration = calib.load_calibration()
-    # The connect-time limits handshake: machine-local limits.json +
-    # function_limits.json (no bundled fallback — the templates are refused),
-    # validated and installed for this client. Without them every mutating
-    # driver command refuses, so the workflow aborts here with the
-    # actionable error (it names the notebook that creates the files).
+    # The connect-time limits handshake: the single machine-local limits.json
+    # (no bundled fallback — the template is refused), validated and installed
+    # for this client. Without it every mutating driver command refuses, so the
+    # workflow aborts here with the actionable error (it names the notebook
+    # that creates the file).
     limits_state = drv.connect_limits_handshake(client)
     if not limits_state.ok:
         raise RuntimeError(f"preflight: {limits_state.error}")
