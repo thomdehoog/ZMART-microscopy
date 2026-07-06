@@ -125,17 +125,3 @@ processing — registration, focusing — runs on any OS. Full setup, dependency
 rationale, and the typical path through the repo are in
 **[`getting_started/`](getting_started/README.md)**.
 
-## Tests
-
-Every component ships its own **offline** test suite that runs without a
-microscope or any vendor software, and documents how to run it in its own README:
-
-- **ZMART Controller** — [tests](zmart_controller/README.md#tests)
-- **Target-acquisition workflow** — [tests](workflows/target_acquisition/README.md#tests)
-- **Output layout** (`shared/`) — [tests](shared/output_layout/README.md#tests)
-- **Leica driver** — [tests](zmart_drivers/leica/stellaris5_y42h93/navigator_expert/README.md#9-testing)
-- **mesoSPIM driver** — [tests](zmart_drivers/mesospim/README.md#9-testing) (offline / online / both via `run_ci.py`)
-- **Zeiss driver** — [tests](zmart_drivers/zeiss/zenapi/README.md#9-testing)
-
-Live-hardware validation, where a driver supports it, is always explicit, gated,
-and safe by default.
