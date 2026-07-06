@@ -33,7 +33,10 @@ Hardware validation uses only production driver modules — nothing under
 - Stage clear (no sample you care about): `--live-writes` moves XY in a
   10-position pattern (±25 µm around the current position) and does a ±2 µm
   z-galvo round-trip. Park the stage inside the calibrated envelope first —
-  the validators refuse to move if the start position is outside limits.
+  the validators refuse to move if the start position is outside limits. That
+  refusal is a **SKIP**, not a failure (the LAS X simulator commonly homes at
+  0,0, outside a real machine's envelope): it means "reposition to exercise
+  this phase," not "the driver is broken."
 - **Machine-local limits provisioned** (the single `limits.json` in the newest
   snapshot under `C:\ProgramData\zmart-microscopy\...`, alongside
   `calibration.json` + `origin.json` — three files per snapshot). There is
