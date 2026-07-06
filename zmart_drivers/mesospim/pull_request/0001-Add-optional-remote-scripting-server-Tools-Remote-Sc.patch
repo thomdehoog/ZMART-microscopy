@@ -56,8 +56,8 @@ end-to-end run against a real Core is the remaining check.
 ---
  mesoSPIM/src/mesoSPIM_Core.py            |  31 +++
  mesoSPIM/src/mesoSPIM_MainWindow.py      | 135 +++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 520 ++++++++++++++++++++++++++++++++++++++++
- 3 files changed, 686 insertions(+)
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 515 ++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 681 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
@@ -278,10 +278,10 @@ index 75ff770..cd1ef5c 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteScripting.py b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 new file mode 100644
-index 0000000..eb4e70b
+index 0000000..915c198
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,520 @@
+@@ -0,0 +1,515 @@
 +"""
 +mesoSPIM remote scripting server.
 +==================================
@@ -558,11 +558,6 @@ index 0000000..eb4e70b
 +    def feed(self, data):
 +        """Add newly-arrived bytes to the buffer; call frames() afterwards to collect any full ones."""
 +        self._buf += bytes(data)
-+
-+    @property
-+    def buffered(self):
-+        """How many bytes are waiting on an incomplete frame."""
-+        return len(self._buf)
 +
 +    def frames(self):
 +        """Yield each complete frame's payload, oldest first, removing it from the buffer."""
