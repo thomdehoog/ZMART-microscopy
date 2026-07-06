@@ -108,7 +108,7 @@ Severity: **High** = the doc teaches something broken or dangerous; **Medium** =
 
 #### DD-15 — Medium — `function_limits.json` — the fail-closed gate on *every* mutating controller op — is documented nowhere user-facing
 - **Doc:** absent. Driver `README.md` §3 "Configuration" lists connection, log reader, calibration & limits, stage limits, orientation — never `function_limits.json` or `shared.limits`; §10's invariants don't mention it; the controller README and both notebooks are silent.
-- **Reality:** `zmart_adapter.py:110-111, 200-250` — every op in `_MUTATING_OPS` (`set_origin`, `set_xyz`, `set_state`, `set_procedure`, `acquire`) is gated through `_check_limits`, **fail-closed**: if `function_limits.json` fails to resolve/validate at connect, *every mutating op refuses* ("function limits are not configured — connect() could not load function_limits.json (see the connect warning)"). The governing file surfaces only in `get_state()["observed"]["limits"]`. A user whose every move/acquire refuses finds zero documentation naming the mechanism, the file (`limits/defaults/function_limits.json` / newest snapshot), or the fix.
+- **Reality:** `zmart_adapter.py:110-111, 200-250` — every op in `_MUTATING_OPS` (`set_origin`, `set_xyz`, `set_state`, `run_procedure`, `acquire`) is gated through `_check_limits`, **fail-closed**: if `function_limits.json` fails to resolve/validate at connect, *every mutating op refuses* ("function limits are not configured — connect() could not load function_limits.json (see the connect warning)"). The governing file surfaces only in `get_state()["observed"]["limits"]`. A user whose every move/acquire refuses finds zero documentation naming the mechanism, the file (`limits/defaults/function_limits.json` / newest snapshot), or the fix.
 - **Fix:** add a §3 bullet ("Function-keyed limits — `function_limits.json`, resolved like calibration; fail-closed: mutating ops refuse without it") and a §10 invariant; mention it in the controller README's Leica notes.
 
 #### DD-16 — Medium — Default `acquire()` silently empties the operator's scanning template; nothing user-facing says so
@@ -135,7 +135,7 @@ Severity: **High** = the doc teaches something broken or dangerous; **Medium** =
 
 #### DD-20 — Low — Adapter docstring: "`get_procedures` offers backlash takeup only" — it also offers autofocus
 - **Doc:** `zmart_adapter/zmart_adapter.py:42` (module docstring, "Scope of v1" bullet).
-- **Reality:** `get_procedures` returns `backlash_takeup` **and** `autofocus` (with job discovery), `zmart_adapter.py:869-883`; `set_procedure` runs both (`:886-896`). Stale scope bullet in an otherwise date-stamped, accurate docstring.
+- **Reality:** `get_procedures` returns `backlash_takeup` **and** `autofocus` (with job discovery), `zmart_adapter.py:869-883`; `run_procedure` runs both (`:886-896`). Stale scope bullet in an otherwise date-stamped, accurate docstring.
 - **Fix:** update the bullet.
 
 #### DD-21 — Low — `navigator_expert/__init__.py` package-layout docstring omits four load-bearing directories; facade groups `acquire` under "# commands"

@@ -41,7 +41,7 @@ No Critical findings. One High, seven Medium, twenty Low.
 
 ### LA-01 — High — calibrated backlash parameters are silently ignored on the controller path
 **File:** zmart_adapter.py:600, 753, 892 (with connect at 271-280).
-**Problem:** `set_xyz` calls `_motion.move_xy_with_backlash(handle.client, abs_x, abs_y)` and `acquire`/`set_procedure` call `_motion.correct_backlash(handle.client)` with no backlash arguments, so the hard-coded fallbacks run (`overshoot_um=50, settle_ms=100`, profile tolerance). `motion/movement.py:24-26` and 131-135 state explicitly: "Production paths should pass calibrated values from `stage_cfg['backlash']` loaded via `motion.stage_config.load`". The adapter *has* that config in hand — `_configure_stage_limits()` returns the loaded `stage_cfg` (zmart_adapter.py:188-190) — and then uses it only for the limits overlay, dropping the `backlash` block that `stage_config.load()` validates and returns (motion/stage_config.py:129-142, 188-192).
+**Problem:** `set_xyz` calls `_motion.move_xy_with_backlash(handle.client, abs_x, abs_y)` and `acquire`/`run_procedure` call `_motion.correct_backlash(handle.client)` with no backlash arguments, so the hard-coded fallbacks run (`overshoot_um=50, settle_ms=100`, profile tolerance). `motion/movement.py:24-26` and 131-135 state explicitly: "Production paths should pass calibrated values from `stage_cfg['backlash']` loaded via `motion.stage_config.load`". The adapter *has* that config in hand — `_configure_stage_limits()` returns the loaded `stage_cfg` (zmart_adapter.py:188-190) — and then uses it only for the limits overlay, dropping the `backlash` block that `stage_config.load()` validates and returns (motion/stage_config.py:129-142, 188-192).
 **Why it matters:** Today the bundled calibration's backlash (`calibration/defaults/calibration.json`: 50/100/20) coincides with the fallbacks, so nothing visibly breaks — which is precisely the trap. The first machine snapshot that adopts a different measured backlash (larger overshoot, tighter tolerance) will be silently ignored by every controller-driven move and settle, defeating the point of the snapshot system and of the `tolerance_um` confirmation contract.
 **Action:** Keep `stage_cfg` (or just its `backlash` block) on `ZmartHandle` at connect, and thread it through: `move_xy_with_backlash(..., overshoot_um=b["overshoot_um"], settle_ms=b["settle_ms"], tolerance_um=b["tolerance_um"])` and the same for both `correct_backlash` call sites. Add a unit test asserting the calibrated values reach the motion layer.
 
@@ -93,7 +93,7 @@ No Critical findings. One High, seven Medium, twenty Low.
 **Why it matters:** The suite pins the adapter against a fiction. A change to the normalizer's output contract passes the whole adapter suite and fails on hardware.
 **Action:** Have `_patch_position` return raw-shaped settings and let the *real* `make_changeable_copy` run (it is pure), or patch it with a faithful fake producing floats/None. Add one test for the "zPosition missing" and "readback None" error branches (zmart_adapter.py:376-382).
 
-### LA-10 — Low — `set_procedure` result shape is inconsistent across procedures
+### LA-10 — Low — `run_procedure` result shape is inconsistent across procedures
 **File:** zmart_adapter.py:891-896 vs 939-945.
 **Problem:** `backlash_takeup` returns `{"ran": dict(procedure)}` (a dict), `autofocus` returns `{"ran": "autofocus", ...}` (a string). The tests pin both shapes (test_zmart_adapter.py:553-555, 595), cementing the inconsistency. Mesospim returns `{"ran": name, ...}` uniformly (mesospim_zmart_adapter.py:426, 431).
 **Why it matters:** A controller-side caller cannot handle procedure results generically.
@@ -210,7 +210,7 @@ No Critical findings. One High, seven Medium, twenty Low.
 | LA-07 | Medium | "Import and override" tuning for `RECEIPT_TIMEOUT`/`CONFIRM_POLL_S` cannot work (import-time value binding) |
 | LA-08 | Medium | Galvo pan constants measured on STELLARIS 8, hard-coded outside the machine-snapshot system |
 | LA-09 | Medium | Adapter tests patch `make_changeable_copy` to identity — production seam shape untested |
-| LA-10 | Low | `set_procedure` result `"ran"` is a dict for one procedure, a string for the other |
+| LA-10 | Low | `run_procedure` result `"ran"` is a dict for one procedure, a string for the other |
 | LA-11 | Low | Redundant double `or {}` in `_objective_delta_um` |
 | LA-12 | Low | `_hardware_snapshot` overclaims atomicity; normalizer run twice per snapshot |
 | LA-13 | Low | `get_context` degrade rules uneven; can block ~60 s on the scan-field save |

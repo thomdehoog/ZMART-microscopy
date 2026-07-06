@@ -41,7 +41,7 @@ Controller contract: `zmart_controller/registry.py:32-45` (`OPS`, `disconnect` o
 | `get_state` | opaque `{"changeable": ..., "observed": ...}` (62-70) | 790-833: `changeable={"job": name}`, rich observed report | **Match**; observed report is half-translated (AS-15); raises where `get_context` degrades (AS-17) |
 | `set_state` | driver acts on `changeable` only; returns driver report (72-78) | 836-866: reapplies job selection with referent guard, returns `{"applied": ...}` | **Shape match**; unknown changeable keys silently ignored (AS-08); `confirmed` dropped (AS-01) |
 | `get_procedures` | named procedures menu (80-82) | 869-883: `backlash_takeup`, `autofocus` (+`args`, `jobs`) | **Match**; descriptor schema unspecified controller-side (AS-21) |
-| `set_procedure` | run a procedure dict (84-89) | 886-896 + `_run_autofocus` 899-945 | **Match**; result `"ran"` shape inconsistent (LA-10 → AS-12); `{"name": ...}` convention undocumented (AS-13) |
+| `run_procedure` | run a procedure dict (84-89) | 886-896 + `_run_autofocus` 899-945 | **Match**; result `"ran"` shape inconsistent (LA-10 → AS-12); `{"name": ...}` convention undocumented (AS-13) |
 | `get_context` | read-only extras, opaque (155-160) | 1040-1065: `selected_job`, `scan_field`, `client`, `output_root`, `session_hash6` | **Match**; a `get_` op that writes files and can block ~60 s (LA-13 → AS-17) |
 
 **Ops the adapter exposes that the controller never calls:** none. `zmart_adapter/__init__.py` exports exactly the 13 ops + `CONNECTION`, `ZmartHandle`, `register` — a coherent, minimal seam package. The [YAGNI] weight lives one level up, in the 216-name driver facade (AS-20, cross-ref LA-05/FD-05/RF-06).
@@ -85,16 +85,16 @@ Three result idioms coexist on the driver's public surface — result-dict envel
 | position in frame µm | axis → `{"value": ..., "unit": "um"}` vs `{"x_um": ...}` vs flat `focus_um`/`frame_z_um` | zmart_adapter.py:535-538 vs 984-994 vs 939-945 — AS-05 |
 | stage XY position | `x`/`y` **metres** and `x_um`/`y_um` in one dict | api_reader.py:224-229 — AS-07 |
 | backlash-settle choice | option `backlash_correction` (bool) → record key `settle: "backlash-corrected"\|"direct"` | zmart_adapter.py:639,779; mock_driver.py:201,208 — AS-14 |
-| "procedure" | named routine (`get_procedures`/`set_procedure`) vs saving-mode acquisition option (`"procedure": {"options": ["direct","tiled"]}`) | layer.py:80-89 vs layer.py:127, mock_driver.py:119, README.md:127,134 — AS-16 |
+| "procedure" | named routine (`get_procedures`/`run_procedure`) vs saving-mode acquisition option (`"procedure": {"options": ["direct","tiled"]}`) | layer.py:80-89 vs layer.py:127, mock_driver.py:119, README.md:127,134 — AS-16 |
 | saved output paths | Leica `images`/`xml` vs mock `filename` vs mesoSPIM `image_files`/`metadata_file` (context) | zmart_adapter.py:780-781; mock_driver.py:205 — no canonical shape; noted under AS-14 |
 | job identity keys | adapter snake_case (`serial_number`) vs raw LAS X PascalCase (`Name`, `IsSelected`, `IsAutofocus`) in the same `observed` dict | zmart_adapter.py:812-824 — AS-15 |
 
 ### 3.2 Verb conventions
 
-- Controller ops: strict `get_*`/`set_*` discover-then-apply (with the known `set_procedure`-runs / `set_instrument`-connects wrinkle, ZC-10).
+- Controller ops: strict `get_*`/`set_*` discover-then-apply. The `set_procedure`-runs half of the ZC-10 wrinkle was resolved by renaming it to `run_procedure` (verb now matches the side effect); `set_instrument`-connects remains.
 - Routed readers: `get_*` ×12 + **`read_zwide_um`** + `ping` — one odd verb in an otherwise uniform family (readers/__init__.py:20-35) — AS-18.
 - Commands: `set_*` ×21, `move_*` ×3, `acquire`, `select_job` — coherent.
-- Symmetric pairs: `connect`/`disconnect` ✓, `save_experiment`/`load_experiment` ✓, `strip_template`/`restore_template` ✓, `lrp_set_*`/`lrp_verify_*` ✓. Asymmetries: `set_origin` has no `get_origin` (the reference is only visible in `set_origin`'s return and `get_state` is silent about it); `get_procedures` (plural) / `set_procedure` (singular); `move_xy_with_backlash` returns a result dict, `correct_backlash` returns `None`.
+- Symmetric pairs: `connect`/`disconnect` ✓, `save_experiment`/`load_experiment` ✓, `strip_template`/`restore_template` ✓, `lrp_set_*`/`lrp_verify_*` ✓. Asymmetries: `set_origin` has no `get_origin` (the reference is only visible in `set_origin`'s return and `get_state` is silent about it); `get_procedures` (plural) / `run_procedure` (singular) — now the intentional discover-then-run pair after the `set_procedure`→`run_procedure` rename, though the plural/singular split remains; `move_xy_with_backlash` returns a result dict, `correct_backlash` returns `None`.
 - Boolean option grammar mixes noun (`backlash_correction`), imperative (`strip_scan_fields`), and verb-noun (`cleanup_source`) in one menu (zmart_adapter.py:637-647) — AS-14.
 
 ### 3.3 Units
@@ -187,7 +187,7 @@ Severity: **High** (wrong result reported across the seam), **Medium** (contract
 **Why it matters:** Small, but it is exactly the kind of token that gets typed into config/procedure dicts by hand; three near-identical spellings guarantee occasional `ValueError`s and grep misses.
 **Action:** Pick the kebab actuator names as the public tokens (they are what `get_actuators` advertises) and accept them in `move_z`'s `z_mode` (alias, one release), or at minimum note the mapping in `get_actuators`'s docstring. The `_um` snake keys can stay (suffix convention governs them).
 
-### AS-12 — Low — `set_procedure` result `"ran"` has three shapes across the ecosystem and two within Leica
+### AS-12 — Low — `run_procedure` result `"ran"` has three shapes across the ecosystem and two within Leica
 
 **File:** zmart_adapter.py:893 (`{"ran": dict(procedure)}`) vs 939-945 (`{"ran": "autofocus", ...}`); zmart_controller/tests/mock_driver.py:255 (`{"ran": dict(procedure)}`); mesoSPIM `{"ran": name, ...}` (context). Extends LA-10.
 **Problem:** LA-10 filed the intra-Leica split. The seam-wide addition: the controller's reference mock pins the *dict* shape while the other real adapter pins the *string* shape, so there is no canonical to converge on — each new driver flips a coin.
@@ -197,7 +197,7 @@ Severity: **High** (wrong result reported across the seam), **Medium** (contract
 
 **File:** zmart_controller/layer.py:84-89 ("Its meaning is encoded in the dict and run by the driver"); consumers: zmart_adapter.py:890 (`procedure.get("name")`), mock (implicitly any dict), mesoSPIM :412 (context); the convention appears only in a README example (README.md:146).
 **Problem:** Both real adapters dispatch on `procedure["name"]` matched against `get_procedures()` keys, and raise `ValueError` otherwise — that *is* the seam contract, but the controller calls the dict opaque. A driver author reading only `layer.py` has no reason to use `"name"`, and a workflow author has no promise that `get_procedures()` keys are valid `"name"` values.
-**Action:** Two sentences in `layer.py:84-89` / README §6: `set_procedure` takes `{"name": <key from get_procedures()>, **args}`; extra keys are procedure-specific per the descriptor's `args`.
+**Action:** Two sentences in `layer.py:84-89` / README §6: `run_procedure` takes `{"name": <key from get_procedures()>, **args}`; extra keys are procedure-specific per the descriptor's `args`.
 
 ### AS-14 — Low — the acquire record re-encodes one option under an invented name (`settle`) and echoes the rest partially
 
@@ -213,7 +213,7 @@ Severity: **High** (wrong result reported across the seam), **Medium** (contract
 
 ### AS-16 — Low — "procedure" means two unrelated things on the controller surface
 
-**File:** zmart_controller/layer.py:80-89 (`get_procedures`/`set_procedure`: named routines) vs layer.py:127 and tests/mock_driver.py:119, README.md:127,134 (acquisition *saving* option `"procedure": {"options": ["direct","tiled"]}`).
+**File:** zmart_controller/layer.py:80-89 (`get_procedures`/`run_procedure`: named routines) vs layer.py:127 and tests/mock_driver.py:119, README.md:127,134 (acquisition *saving* option `"procedure": {"options": ["direct","tiled"]}`).
 **Problem:** The mock's acquisition-options menu — the offline reference every new user runs — contains an option literally named `procedure`, in the same docs that define procedures as runnable routines. The Leica adapter had to avoid the collision (`exporter`, zmart_adapter.py:642-645).
 **Action:** Rename the mock option (`save_procedure`, or align with Leica's `exporter`) and fix the example key in layer.py:127 and README.md:127/134. Pure controller-side doc/mock change.
 
@@ -244,7 +244,7 @@ Severity: **High** (wrong result reported across the seam), **Medium** (contract
 ### AS-21 — Low — `get_procedures` descriptor schema is unspecified; `args` declarations already diverge
 
 **File:** zmart_adapter.py:869-883 (`backlash_takeup`: description only; `autofocus`: `description` + `args: ["job"]` + `jobs: [...]`); mock_driver.py:243-249 (description only); mesoSPIM `args: ["value"]` (context); controller says only "The named procedures the driver offers" (layer.py:80-82).
-**Problem:** The descriptor is the discover half of discover-then-apply for procedures, and nothing defines its keys: is `args` a list of accepted dict keys? Are extra menu keys (Leica's `jobs`) allowed? Can a caller programmatically build the `set_procedure` dict from the descriptor? Today the answer differs per driver, so generic procedure UIs cannot exist.
+**Problem:** The descriptor is the discover half of discover-then-apply for procedures, and nothing defines its keys: is `args` a list of accepted dict keys? Are extra menu keys (Leica's `jobs`) allowed? Can a caller programmatically build the `run_procedure` dict from the descriptor? Today the answer differs per driver, so generic procedure UIs cannot exist.
 **Action:** Controller-side, minimal: document `{"<name>": {"description": str, "args": [accepted keys...], ...driver extras}}` in `layer.py:80-82`, with `args` optional-empty. Leica already fits; the mock gains nothing but conformity.
 
 ---
@@ -264,7 +264,7 @@ Severity: **High** (wrong result reported across the seam), **Medium** (contract
 | AS-09 | Medium | Both | `set_origin`'s `"origin"` key: frame zeros (Leica) vs raw stage position (reference mock) — same key, opposite meanings |
 | AS-10 | Medium | Controller | Docs promise `position_label` names the output file; Leica filenames carry the Naming `p` slot (label only in `summary.json`) |
 | AS-11 | Low | Leica | z drives have three public spellings (`z-wide` / `zwide` / `z_wide_um`) |
-| AS-12 | Low | Both | `set_procedure` `"ran"` shape: three variants across ecosystem, no canonical (extends LA-10) |
+| AS-12 | Low | Both | `run_procedure` `"ran"` shape: three variants across ecosystem, no canonical (extends LA-10) |
 | AS-13 | Low | Controller | Load-bearing `{"name": ...}` procedure convention undocumented in the contract |
 | AS-14 | Low | Both | Acquire record renames one option (`settle`) and echoes the rest partially; mixed option-name grammar |
 | AS-15 | Low | Leica | `observed` state half-translated: snake_case scalars beside PascalCase LAS X records and unlabeled pairs |

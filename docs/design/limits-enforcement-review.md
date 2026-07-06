@@ -27,7 +27,7 @@ test: every mutating command wrapper must carry the gate (enumerated)."
 **Evidence.** `function_limits.json` is keyed by **five adapter op names**, not
 command-wrapper names:
 `zmart_adapter/zmart_adapter.py:112`
-`_MUTATING_OPS = ("set_origin", "set_xyz", "set_state", "set_procedure", "acquire")`
+`_MUTATING_OPS = ("set_origin", "set_xyz", "set_state", "run_procedure", "acquire")`
 and `limits/defaults/function_limits.json` `functions` block enumerates exactly
 those five. The commands layer has **~30 mutating wrappers** —
 `set_zoom`, `set_scan_speed`, `set_scan_resonant`, `set_scan_mode`,
@@ -37,12 +37,12 @@ those five. The commands layer has **~30 mutating wrappers** —
 `set_laser_shutter`, `set_filter_wheel_*` (x2), `move_xy`, `move_galvo_to_pixel`,
 `move_z`, `acquire`, `select_job` (`commands/commands.py:319..1446`). One adapter
 op (`set_state`) fans out to *all* the `set_*` setters; `set_xyz` fans out to
-`move_xy` **and** `move_z`; `set_procedure` to `select_job`/objective/job-setup.
+`move_xy` **and** `move_z`; `run_procedure` to `select_job`/objective/job-setup.
 There is no 1:1 "wrapper = op" mapping, so "every wrapper carries *the* gate"
 is not well defined against the current schema.
 
 Second-order fact worth stating plainly: today **every non-`set_xyz` entry in
-`function_limits.json` is `null`** (`set_origin`, `set_state`, `set_procedure`,
+`function_limits.json` is `null`** (`set_origin`, `set_state`, `run_procedure`,
 `acquire` all `null`), and `set_xyz`'s constraints are `@stage.x/@stage.y/…`
 which are overlaid from the *same* `stage_cfg` envelope that already drives
 `_check_xy_limits`/`_check_z_limits` (`zmart_adapter.py:219-223`). So the
