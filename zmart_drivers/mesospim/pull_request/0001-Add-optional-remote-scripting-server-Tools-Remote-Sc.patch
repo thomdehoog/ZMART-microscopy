@@ -1,4 +1,4 @@
-From 3d4be6e1de9b4f1ac40f3aa325ac78ff71d24520 Mon Sep 17 00:00:00 2001
+From 613086d7f8589bb7f850ba51f4f6ba4f20ef9560 Mon Sep 17 00:00:00 2001
 From: Thom de Hoog <thom.dehoog@zmb.uzh.ch>
 Date: Fri, 3 Jul 2026 14:12:45 +0200
 Subject: [PATCH 1/2] Add optional remote scripting server (Tools -> Remote
@@ -43,17 +43,17 @@ from the GUI signal path, a client authenticates, reads state, drives the demo
 stage, gets structured output via print(json), runs an acquisition, and sees a
 raising script's traceback as text (no crash). execute_script is reused unmodified.
 ---
- mesoSPIM/src/mesoSPIM_Core.py            |  34 +++
+ mesoSPIM/src/mesoSPIM_Core.py            |  31 +++
  mesoSPIM/src/mesoSPIM_MainWindow.py      | 135 +++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 288 +++++++++++++++++++++++
- 3 files changed, 457 insertions(+)
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 280 +++++++++++++++++++++++
+ 3 files changed, 446 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
-index cb159e4..4c309c7 100644
+index cb159e4..e01b267 100644
 --- a/mesoSPIM/src/mesoSPIM_Core.py
 +++ b/mesoSPIM/src/mesoSPIM_Core.py
-@@ -1178,6 +1178,40 @@ class mesoSPIM_Core(QtCore.QObject):
+@@ -1178,6 +1178,37 @@ class mesoSPIM_Core(QtCore.QObject):
          self.state['state']='idle'
          self.sig_update_gui_from_state.emit()
  
@@ -85,11 +85,8 @@ index cb159e4..4c309c7 100644
 +        '''Stop the remote scripting server, if one is running (safe to call anytime).'''
 +        srv = getattr(self, '_remote_scripting_server', None)
 +        if srv is not None:
-+            try:
-+                srv.stop()
-+            except Exception:
-+                logger.exception('Error stopping remote scripting server')
-+            self._remote_scripting_server = None  # clear either way -- a failed stop() shouldn't wedge a restart
++            srv.stop()
++            self._remote_scripting_server = None
 +
      def lightsheet_alignment_mode(self):
          """Continuous live mode that alternates left/right shutters for dual-lightsheet co-alignment.
@@ -270,10 +267,10 @@ index 75ff770..cd1ef5c 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteScripting.py b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 new file mode 100644
-index 0000000..0d0b37a
+index 0000000..5e9f4cc
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,288 @@
+@@ -0,0 +1,280 @@
 +"""
 +mesoSPIM remote scripting server.
 +==================================
@@ -303,13 +300,11 @@ index 0000000..0d0b37a
 +import logging
 +import sys
 +import threading
-+import traceback
 +from functools import partial
 +
 +logger = logging.getLogger(__name__)
 +
 +ENCODING = "utf-8"
-+MAX_FRAME_BYTES = 16 * 1024 * 1024  # cap a client that never sends a valid frame, so it can't grow this forever
 +
 +
 +class FramingError(ValueError):
@@ -343,7 +338,7 @@ index 0000000..0d0b37a
 +
 +    @property
 +    def buffered(self):
-+        """How many bytes are waiting on an incomplete frame (used to cap a runaway client)."""
++        """How many bytes are waiting on an incomplete frame."""
 +        return len(self._buf)
 +
 +    def frames(self):
@@ -437,11 +432,10 @@ index 0000000..0d0b37a
 +
 +        self.core = core  # the live mesoSPIM Core; execute_script runs scripts against this
 +        self._token = token or None  # an empty string counts as "no token"
-+        bind_host = "127.0.0.1" if host in ("localhost", "") else host  # QHostAddress can't resolve names
 +        self._server = QtNetwork.QTcpServer(core)  # parented to Core, so Qt destroys it when Core is destroyed
-+        if not self._server.listen(QtNetwork.QHostAddress(bind_host), int(port)):
++        if not self._server.listen(QtNetwork.QHostAddress(host), int(port)):
 +            raise RuntimeError(f"cannot listen on {host}:{port}: {self._server.errorString()}")
-+        self._host, self._port = bind_host, int(port)  # remembered only for the log line below
++        self._host, self._port = host, int(port)  # remembered only for the log line below
 +        self._server.newConnection.connect(self._on_new_connection)  # call us back whenever a client connects
 +        self._conn = None  # the one active client socket, if any
 +        self._decoder = FrameDecoder()  # reassembles that client's bytes into whole messages
@@ -504,9 +498,6 @@ index 0000000..0d0b37a
 +        if self._conn is None:
 +            return
 +        self._decoder.feed(self._conn.readAll())
-+        if self._decoder.buffered > MAX_FRAME_BYTES:
-+            self._close()  # a client that never completes a frame could otherwise grow this forever
-+            return
 +        try:
 +            for payload in self._decoder.frames():  # usually zero or one frame, but handle several at once too
 +                self._handle(payload.decode(ENCODING, "replace"))
@@ -546,9 +537,7 @@ index 0000000..0d0b37a
 +        self._out_tee.register(buf)  # from here on, THIS thread's prints also land in buf
 +        self._err_tee.register(buf)
 +        try:
-+            self.core.execute_script(script)  # the same call the Script Window itself uses
-+        except Exception:  # execute_script already catches script errors; this is a last resort
-+            buf.write(traceback.format_exc())
++            self.core.execute_script(script)  # the same call the Script Window itself uses; it catches script errors itself
 +        finally:
 +            self._out_tee.unregister()  # stop capturing before returning, whether it succeeded or not
 +            self._err_tee.unregister()
