@@ -23,15 +23,16 @@ against a Core-shaped fake, so framing/auth/vocabulary are exercised for real of
 
 ---
 
-## 0. Add restricted (named-call) mode to the Remote Scripting server patch 🔴
+## 0. Add restricted (named-call) mode to the Remote Scripting server patch ✅
 
-The ZMART side is done: the client sends `{"call", "args"}` and the mock dispatches
-it through `connection/command_api.py`. The **server patch under `pull_request/`
-still only does exec mode.** To close the loop, the server needs a restricted mode
-that: decodes `{"call", "args"}`, looks the name up in a fixed table (the same
-vocabulary as `command_api.COMMANDS`, but server-side/GPL), runs the `Core` call,
-and replies `__ZMART_OK__<json>` — never `exec`ing the payload. A flag selects
-exec (dev) vs restricted (production). Then §1's round-trip runs against it.
+**Done.** The server patch (`pull_request/0001-*.patch`, `mesoSPIM_RemoteScripting.py`)
+now has a restricted mode: set `MESOSPIM_RS_RESTRICTED=1` (or pass `restricted=True`)
+and each message is a named call `{"call", "args"}` dispatched against a fixed
+server-side `COMMANDS` allowlist — no `exec`. Reply is `__ZMART_OK__<json>`; unknown
+call / bad payload / handler error surface as error text. Verified Qt-free by
+`pull_request/test_remote_scripting.py` (dispatch + framing + auth), and the new-file
+hunk `git apply`s cleanly. Exec mode is still the default (backward-compatible).
+Remaining for this: the live `-D` round-trip in §1 exercises it end-to-end on a real Core.
 
 Legend: 🔴 blocker for live use · 🟠 needed for a real run · 🟢 polish / nice-to-have.
 

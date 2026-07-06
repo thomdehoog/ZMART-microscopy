@@ -67,7 +67,7 @@ all pre-existing in the original design:
 ---
  mesoSPIM/src/mesoSPIM_Core.py            |  31 +++
  mesoSPIM/src/mesoSPIM_MainWindow.py      | 135 +++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 297 +++++++++++++++++++++++
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 487 ++++++++++++++++++++++++++++++++++++++++
  3 files changed, 463 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
@@ -289,10 +289,10 @@ index 75ff770..cd1ef5c 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteScripting.py b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 new file mode 100644
-index 0000000..6c77023
+index 0000000..deb4476
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,297 @@
+@@ -0,0 +1,487 @@
 +"""
 +mesoSPIM remote scripting server.
 +==================================
@@ -313,20 +313,33 @@ index 0000000..6c77023
 +"AUTH-FAILED". Every message after that is a script; the reply is its
 +captured console output.
 +
++Restricted mode (recommended for external control): set the environment variable
++``MESOSPIM_RS_RESTRICTED=1`` before starting the server. The server then runs **no
++client Python** -- each message is a named call, ``{"call": <name>, "args": {...}}``
++(JSON), dispatched against the fixed :data:`COMMANDS` allowlist below. An unknown
++name is rejected before anything touches the instrument, and the reply is one line,
++``__ZMART_OK__<json>`` (or a traceback on error). This is the surface the ZMART
++mesoSPIM driver uses.
++
 +Author: Thom de Hoog (ZMB, University of Zurich). License: GPL-3.0 (part of
 +mesoSPIM-control; it uses the GPL Core API).
 +"""
 +
 +import hmac
 +import io
++import json
 +import logging
++import os
 +import sys
 +import threading
++import traceback
 +from functools import partial
 +
 +logger = logging.getLogger(__name__)
 +
 +ENCODING = "utf-8"
++OK_MARKER = "__ZMART_OK__"  # restricted-mode reply prefix; the JSON result follows on the same line
++_AXES = ("x", "y", "z", "f", "theta")
 +
 +
 +class FramingError(ValueError):
@@ -339,6 +352,174 @@ index 0000000..6c77023
 +        payload = payload.encode(ENCODING)  # the wire only carries bytes, so text has to be encoded first
 +    # "<how many bytes follow>\n" then the bytes themselves, so the reader knows exactly where it ends
 +    return str(len(payload)).encode("ascii") + b"\n" + payload
++
++
++# ==========================================================================
++# Restricted mode: a fixed allowlist of named calls (no exec).
++# ==========================================================================
++# Each handler is fn(core, args) -> dict. Writes return {} (the client confirms
++# by reading state back); reads build the result from `core`. `core` is the live
++# mesoSPIM_Core -- the same object execute_script sees as `self`. This table IS
++# the allowlist: a name not in it never runs. Verified against v1.20.0.
++
++
++def _move_absolute(core, a):
++    core.move_absolute({k + "_abs": float(v) for k, v in a["targets"].items()}, wait_until_done=True)
++    return {}
++
++
++def _move_relative(core, a):
++    core.move_relative({k + "_rel": float(v) for k, v in a["deltas"].items()}, wait_until_done=True)
++    return {}
++
++
++def _zero(core, a):
++    core.zero_axes(list(a.get("axes") or _AXES))
++    return {}
++
++
++def _stop(core, a):
++    core.sig_stop_movement.emit()
++    return {}
++
++
++def _set_state(core, a):
++    core.sig_state_request_and_wait_until_done.emit(dict(a["settings"]))
++    return {}
++
++
++def _hello(core, a):
++    cfg = getattr(core, "cfg", None)
++    return {"app": "mesoSPIM-control", "version": getattr(cfg, "version", None),
++            "protocol": 1, "state": (core.state or {}).get("state")}
++
++
++def _ping(core, a):
++    return {"pong": True, "state": (core.state or {}).get("state")}
++
++
++def _get_position(core, a):
++    pos = (core.state or {}).get("position", {}) or {}
++    return {ax: pos.get(ax, pos.get(ax + "_pos")) for ax in _AXES}
++
++
++def _get_state(core, a):
++    st = core.state or {}
++    pos = st.get("position", {}) or {}
++    keys = ("laser", "intensity", "filter", "zoom", "shutterconfig",
++            "etl_l_amplitude", "etl_l_offset", "etl_r_amplitude", "etl_r_offset")
++    out = {"state": st.get("state"),
++           "position": {ax: pos.get(ax, pos.get(ax + "_pos")) for ax in _AXES}}
++    out.update({k: st.get(k) for k in keys})
++    return out
++
++
++def _get_config(core, a):
++    cfg = getattr(core, "cfg", None)
++    get = lambda n: (getattr(cfg, n, None) or {})  # noqa: E731
++    ld = get("laserdict")
++    lasers = [{"name": n, "wavelength_nm": int("".join(c for c in str(n) if c.isdigit()) or 0) or None}
++              for n in ld]
++    zd = get("zoomdict")
++    zooms = [{"name": z, "pixel_size_um": zd.get(z) if isinstance(zd, dict)
++              and isinstance(zd.get(z), (int, float)) else None} for z in zd]
++    return {"app": "mesoSPIM-control", "version": getattr(cfg, "version", None),
++            "lasers": lasers, "filters": list(get("filterdict")), "zooms": zooms,
++            "shutter_configs": list(getattr(cfg, "shutteroptions", ["Left", "Right", "Both"])),
++            "axes": list(_AXES),
++            "camera": {"pixels_x": int(getattr(cfg, "camera_x_pixels", 2048) or 2048),
++                       "pixels_y": int(getattr(cfg, "camera_y_pixels", 2048) or 2048)}}
++
++
++def _get_progress(core, a):
++    st = core.state or {}
++    return {"state": st.get("state"), "current_plane": st.get("current_framenumber"),
++            "total_planes": st.get("snap_count"), "current_acquisition": st.get("current_acquisition"),
++            "total_acquisitions": st.get("total_acquisitions")}
++
++
++def _acquire_start(core, a):
++    try:
++        from .utils.acquisitions import Acquisition, AcquisitionList
++    except ImportError:
++        from utils.acquisitions import Acquisition, AcquisitionList
++    acq = dict(a["acquisition"])
++    obj = Acquisition()
++    obj.update({k: v for k, v in acq.items() if v is not None})
++    st = core.state
++    try:
++        core._zmart_prev_acq_list = (True, st["acq_list"])
++    except (KeyError, TypeError):
++        core._zmart_prev_acq_list = (False, None)
++    st["acq_list"] = AcquisitionList([obj])
++    core.start(row=0)
++    cfg = getattr(core, "cfg", None)
++    fname = acq.get("filename") or ""
++    return {"started": True,
++            "files": [os.path.join(acq.get("folder") or "", fname)] if fname else [],
++            "planes": int(acq.get("planes", 1) or 1),
++            "pixels": [int(getattr(cfg, "camera_x_pixels", 2048) or 2048),
++                       int(getattr(cfg, "camera_y_pixels", 2048) or 2048)]}
++
++
++def _stat_files(core, a):
++    files = [str(f) for f in (a.get("files") or [])]
++    return {"missing": [f for f in files if not os.path.isfile(f)],
++            "sizes": {f: os.path.getsize(f) for f in files if os.path.isfile(f)}}
++
++
++def _acquire_finish(core, a):
++    st = core.state
++    had, prev = getattr(core, "_zmart_prev_acq_list", (False, None))
++    if had:
++        st["acq_list"] = prev
++    else:
++        try:
++            del st["acq_list"]
++        except Exception:
++            st["acq_list"] = prev
++    try:
++        del core._zmart_prev_acq_list
++    except AttributeError:
++        pass
++    return {"state": (core.state or {}).get("state")}
++
++
++def _procedure(core, a):
++    raise RuntimeError(f"procedure {a.get('name')!r} is not implemented server-side")
++
++
++COMMANDS = {
++    "hello": _hello, "ping": _ping,
++    "get_state": _get_state, "get_position": _get_position,
++    "get_config": _get_config, "get_progress": _get_progress,
++    "move_absolute": _move_absolute, "move_relative": _move_relative,
++    "zero": _zero, "stop": _stop, "set_state": _set_state,
++    "acquire_start": _acquire_start, "stat_files": _stat_files, "acquire_finish": _acquire_finish,
++    "procedure": _procedure,
++}
++
++
++def run_command(core, payload):
++    """Dispatch one ``{"call", "args"}`` message against COMMANDS; return the reply text.
++
++    On success the reply is one ``__ZMART_OK__<json>`` line. On a bad payload,
++    an unknown call, or a handler error, the reply is the error text (no marker
++    line) -- exactly how a script error surfaces in exec mode, so the client
++    handles both the same way. No client code is ever executed.
++    """
++    try:
++        msg = json.loads(payload)
++        call, args = msg["call"], (msg.get("args") or {})
++    except (ValueError, KeyError, TypeError):
++        return "bad request: expected {'call': <name>, 'args': {...}}"
++    handler = COMMANDS.get(call)
++    if handler is None:
++        return f"unknown command {call!r}; not in the allowlist"
++    try:
++        return OK_MARKER + json.dumps(handler(core, args))
++    except Exception:
++        return traceback.format_exc()
 +
 +
 +class FrameDecoder:
@@ -461,11 +642,16 @@ index 0000000..6c77023
 +    the caller can report that instead of showing a false "running".
 +    """
 +
-+    def __init__(self, core, host="127.0.0.1", port=42000, token=None):
++    def __init__(self, core, host="127.0.0.1", port=42000, token=None, restricted=None):
 +        from PyQt5 import QtNetwork  # imported here, not at module load, so this file stays Qt-free for tests
 +
 +        self.core = core  # the live mesoSPIM Core; execute_script runs scripts against this
 +        self._token = token or None  # an empty string counts as "no token"
++        # Restricted mode: accept only named calls from the COMMANDS allowlist, never
++        # exec client Python. Explicit arg wins; otherwise MESOSPIM_RS_RESTRICTED=1.
++        if restricted is None:
++            restricted = os.environ.get("MESOSPIM_RS_RESTRICTED", "").strip().lower() not in ("", "0", "false", "no")
++        self._restricted = bool(restricted)
 +        self._server = QtNetwork.QTcpServer(core)  # parented to Core, so Qt destroys it when Core is destroyed
 +        if not self._server.listen(QtNetwork.QHostAddress(host), int(port)):
 +            raise RuntimeError(f"cannot listen on {host}:{port}: {self._server.errorString()}")
@@ -481,8 +667,9 @@ index 0000000..6c77023
 +        self._err_tee = _ThreadTee(sys.stderr)
 +        sys.stdout, sys.stderr = self._out_tee, self._err_tee
 +        logger.info(
-+            "Remote scripting listening on %s:%d (token %s)",
++            "Remote scripting listening on %s:%d (token %s, mode %s)",
 +            self._host, self._port, "required" if self._token else "off",
++            "restricted" if self._restricted else "exec",
 +        )
 +
 +    # -- connection lifecycle ------------------------------------------------
@@ -563,7 +750,10 @@ index 0000000..6c77023
 +                self._send("AUTH-FAILED")
 +                self._close()
 +            return
-+        self._send(self._run_script(message))
++        if self._restricted:
++            self._send(run_command(self.core, message))  # named call -> allowlist; no exec
++        else:
++            self._send(self._run_script(message))
 +
 +    def _run_script(self, script):
 +        """Run script via the existing Core.execute_script, capturing what it prints."""
