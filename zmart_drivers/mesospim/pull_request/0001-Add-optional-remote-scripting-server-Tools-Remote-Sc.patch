@@ -1,4 +1,4 @@
-From 613086d7f8589bb7f850ba51f4f6ba4f20ef9560 Mon Sep 17 00:00:00 2001
+From b17bb7ce1d4747b53104fe8bb3f62dfbf467840f Mon Sep 17 00:00:00 2001
 From: Thom de Hoog <thom.dehoog@zmb.uzh.ch>
 Date: Fri, 3 Jul 2026 14:12:45 +0200
 Subject: [PATCH 1/2] Add optional remote scripting server (Tools -> Remote
@@ -35,18 +35,40 @@ Kept deliberately small and plain, since this is a proposal to an external
 project: every function does one thing, every non-obvious line has a short
 comment saying why it's there, and the one closure that needed to capture a
 variable (the disconnect handler) uses functools.partial instead of a lambda
-default-argument trick. Also dropped an unused parameter on the internal
-_close() helper that never did anything.
+default-argument trick.
 
-Validated against -D demo mode (both v1.20.0 and release/candidate-py312): started
+Validated against -D demo mode (v1.20.0, release/candidate-py312, and live
+against a real running instance with a real operator-generated token): started
 from the GUI signal path, a client authenticates, reads state, drives the demo
 stage, gets structured output via print(json), runs an acquisition, and sees a
-raising script's traceback as text (no crash). execute_script is reused unmodified.
+raising script's traceback as text (no crash).
+
+Adversarial testing against the live demo instance (malformed frames, negative
+length prefixes, connection stealing, abrupt disconnects, oversized claimed
+frame lengths, non-ASCII/invalid-byte script output, rapid connection churn,
+a real concurrent connection race, multi-MB payloads, byte-at-a-time trickle,
+and a script that reassigns sys.stdout itself) turned up and fixed three bugs,
+all pre-existing in the original design:
+- FrameDecoder.frames() now rejects a negative byte-count instead of silently
+  mis-slicing the buffer (Python's negative indexing let "-5\n..." desync the
+  frame boundary instead of raising FramingError).
+- _ThreadTee.write() now falls back to a backslash-escaped version for the real
+  console when the console's encoding (e.g. a legacy Windows codepage) can't
+  display what was printed, instead of letting UnicodeEncodeError propagate out
+  of an otherwise-successful print() call. The client's own captured copy is
+  always the exact original text.
+- _run_script now reasserts sys.stdout/sys.stderr to our own tees at the start
+  of every run. A script has full access to `sys` and can reassign stdout
+  itself (by accident -- e.g. a library that redirects output -- or on
+  purpose); previously that persisted globally, silently swallowing every
+  print() from every script on every future connection until the whole
+  process restarted (CPython's print() no-ops rather than raising when
+  sys.stdout is None, so this failed silently, not with a traceback).
 ---
  mesoSPIM/src/mesoSPIM_Core.py            |  31 +++
  mesoSPIM/src/mesoSPIM_MainWindow.py      | 135 +++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 280 +++++++++++++++++++++++
- 3 files changed, 446 insertions(+)
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 297 +++++++++++++++++++++++
+ 3 files changed, 463 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
@@ -267,10 +289,10 @@ index 75ff770..cd1ef5c 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteScripting.py b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 new file mode 100644
-index 0000000..5e9f4cc
+index 0000000..6c77023
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,280 @@
+@@ -0,0 +1,297 @@
 +"""
 +mesoSPIM remote scripting server.
 +==================================
@@ -352,6 +374,10 @@ index 0000000..5e9f4cc
 +                length = int(head)
 +            except ValueError as exc:
 +                raise FramingError("expected '<byte-count>\\n<payload>'") from exc
++            if length < 0:
++                # int() accepts a leading "-", but a negative length isn't a byte count --
++                # letting it through would slice rest[] from the wrong end below
++                raise FramingError(f"byte-count can't be negative: {length}")
 +            if len(rest) < length:
 +                return  # the payload hasn't fully arrived yet -- stop here and wait for more feed()
 +            self._buf = rest[length:]  # drop the frame we're about to yield, keep anything after it
@@ -406,8 +432,16 @@ index 0000000..5e9f4cc
 +    def write(self, text):
 +        buf = self._buffers.get(threading.get_ident())  # only this thread's own buffer, if it registered one
 +        if buf is not None:
-+            buf.write(text)
-+        return self._real.write(text)  # the real console still sees output from every thread, as normal
++            buf.write(text)  # the client's copy is exact, regardless of what the real console can show
++        try:
++            return self._real.write(text)  # the real console still sees output from every thread, as normal
++        except UnicodeEncodeError:
++            # The real console's encoding (e.g. a legacy Windows codepage) can't display
++            # everything that was printed -- that's a console limitation, not a reason to
++            # blow up the script, so show a safe, escaped version there instead.
++            encoding = getattr(self._real, "encoding", None) or "ascii"
++            safe_text = text.encode(encoding, "backslashreplace").decode(encoding)
++            return self._real.write(safe_text)
 +
 +    def flush(self):
 +        self._real.flush()
@@ -533,6 +567,11 @@ index 0000000..5e9f4cc
 +
 +    def _run_script(self, script):
 +        """Run script via the existing Core.execute_script, capturing what it prints."""
++        # A script has full access to `sys` and can reassign sys.stdout/stderr itself
++        # (by accident -- e.g. a library that redirects output -- or on purpose). Put
++        # our own tees back before every run, so that can only ever affect the script
++        # that did it, not every script that runs after it.
++        sys.stdout, sys.stderr = self._out_tee, self._err_tee
 +        buf = io.StringIO()
 +        self._out_tee.register(buf)  # from here on, THIS thread's prints also land in buf
 +        self._err_tee.register(buf)
