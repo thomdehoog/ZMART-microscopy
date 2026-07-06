@@ -109,6 +109,18 @@ fallback until an explicit calibration adopt.
 - **Exception — acquire:** the **idle** state must be **confirmed** for acquisition,
   because an acquisition can legitimately take a long time; treating "unknown/busy" as
   ignorable there is not acceptable.
-- Relevant findings: AS-01, LM-02, OP-01-adjacent seam checks, CF-02/CF-03 (the idle
-  and acquire waits still need real deadlines so "confirmed idle" cannot become "hang
-  forever" — a dead LAS X must produce an error, not an eternal wait).
+- **No deadline on the idle wait (decided 2026-07-06) — a narrow exception, not a
+  general no-deadlines policy.** The wait for confirmed idle is deliberately
+  **unbounded** — no timeout, ever. A real acquisition can legitimately take an
+  arbitrarily long time; a deadline that fires while it is still genuinely in progress
+  would abort a live, valid acquisition, which is worse than waiting. This overrides
+  CF-02/CF-03's "needs a real deadline" framing *for this one wait only*: a dead LAS X
+  hanging forever is an acceptable failure mode here (nothing recoverable can be done
+  about a dead LAS X anyway); killing a slow-but-alive acquisition to avoid that is
+  not. Do not add a timeout to `check_idle`/`confirm_acquire`'s idle wait. This does
+  **not** change anything else: other waits (command confirmation's 3-retry rule
+  above, reader polling, settle waits) keep their existing bounded/best-effort
+  behavior — the exception is scoped to the acquire idle-confirmation wait alone.
+- Relevant findings: AS-01, LM-02, OP-01-adjacent seam checks, CF-02/CF-03 (superseded
+  for the idle wait specifically by the no-deadline decision above; still applicable
+  to any other unbounded wait that is not gating a live acquisition).

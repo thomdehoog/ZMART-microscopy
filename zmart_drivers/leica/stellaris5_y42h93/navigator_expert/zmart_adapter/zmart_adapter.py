@@ -298,11 +298,19 @@ def _restore_persisted_origin(handle: ZmartHandle) -> None:
 def disconnect(handle: ZmartHandle) -> None:
     """Mark the handle closed and drop its commands-layer gate state.
 
-    The CAM client itself has no teardown (process-lifetime). Without this,
-    a disconnected client's ``FunctionLimits`` stayed installed in the gate's
-    module-level registry indefinitely; a reconnect on a new handle re-runs
-    the handshake and installs its own state regardless, but a stale entry
-    left behind after disconnect is real teardown debt, not just cosmetic.
+    The CAM client itself has no teardown, and none exists to call: verified
+    by reflection that ``LasxApiClientPyModel`` (the client `connect_python_client`
+    returns) exposes only ``Connect``/``ConnectAsync`` (plus a COM-style
+    ``Release``, not a session close) -- there is no ``Disconnect``/``Close``/
+    ``Dispose``. Reconnecting without disconnecting the previous handle was
+    also verified live (both connections independently ping and read state
+    correctly; the first stays usable after the second connects) -- a
+    resource leak on the LAS X side, not a corruption/dead-end risk. Without
+    this function's ``uninstall`` call, a disconnected client's
+    ``FunctionLimits`` stayed installed in the gate's module-level registry
+    indefinitely; a reconnect on a new handle re-runs the handshake and
+    installs its own state regardless, but a stale entry left behind after
+    disconnect is real teardown debt, not just cosmetic.
     """
     _gate.uninstall(handle.client)
     handle.closed = True
