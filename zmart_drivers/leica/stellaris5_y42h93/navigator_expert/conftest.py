@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+import matplotlib
 import pytest
+
+# Headless before any test imports matplotlib.pyplot -- calibration's overlay
+# plots (calibration/core/common.py:plot_overlay) otherwise pull in whatever
+# GUI backend matplotlib auto-selects (Tk here), which needs a working Tk/Tcl
+# install the test env doesn't carry. Must run before the first pyplot
+# import anywhere in the process, so this is the earliest conftest in the tree.
+matplotlib.use("Agg")
 
 
 @pytest.fixture(autouse=True)

@@ -122,7 +122,9 @@ def test_stress_hardware_mock_run_records_step_characteristics(tmp_path):
     assert {step["operation"] for step in first_steps} == {"job_selection"}
     assert len(first_steps) == 2
     for step in first_steps:
-        assert step["context"]["selected_jobs"] == ["HiRes", "Overview"]
+        # The sweep selects every job the mock reports, unfiltered -- HiRes,
+        # Overview, and the autofocus "AF Job" entry all in catalog order.
+        assert step["context"]["selected_jobs"] == ["HiRes", "Overview", "AF Job"]
         assert step["context"]["restore_to"] == "HiRes"
 
     terminal_ops = {
