@@ -16,8 +16,8 @@ This module is the pure, socket-free core of that transport:
    This is the framing the Remote Scripting PR speaks (see
    ``pull_request/PROTOCOL.md``).
 
-2. **A named call.** The request payload is one JSON object,
-   ``{"call": <name>, "args": {...}}`` (:func:`encode_call` /
+2. **A named call.** The request payload is one single-key JSON object,
+   ``{"<method>": {args}}`` (:func:`encode_call` /
    :func:`decode_call`). The reply is one line, ``__ZMART_OK__<json>``
    (:func:`encode_reply`), which :func:`parse_result` reads back. On any
    server-side error the reply is the traceback text (no marker line); finding no
@@ -78,19 +78,19 @@ def frame(payload: str | bytes) -> bytes:
 
 
 def encode_call(cmd: str, args: dict | None = None) -> str:
-    """Serialise one request: ``{"call": cmd, "args": {...}}`` -- data, not code."""
-    return json.dumps({"call": cmd, "args": dict(args or {})})
+    """Serialise one request: ``{"<method>": {args}}`` -- data, not code."""
+    return json.dumps({cmd: dict(args or {})})
 
 
 def decode_call(payload: str) -> tuple[str, dict]:
-    """Parse a request payload into ``(call, args)``; raise on a malformed object."""
+    """Parse a single-key ``{"<method>": {args}}`` request into ``(method, args)``."""
     obj = _loads(payload)
-    if not isinstance(obj, dict) or not isinstance(obj.get("call"), str):
-        raise ProtocolError("expected a {'call': <name>, 'args': {...}} object")
-    args = obj.get("args") or {}
+    if not isinstance(obj, dict) or len(obj) != 1:
+        raise ProtocolError("expected a single-key {'<method>': {args}} object")
+    (call, args), = obj.items()
     if not isinstance(args, dict):
-        raise ProtocolError("'args' must be an object")
-    return obj["call"], args
+        raise ProtocolError("the method's value (its args) must be an object")
+    return call, args
 
 
 def encode_reply(result: dict) -> str:

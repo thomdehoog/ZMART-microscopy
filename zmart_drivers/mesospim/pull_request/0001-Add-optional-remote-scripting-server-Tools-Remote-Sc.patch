@@ -5,43 +5,44 @@ Subject: [PATCH 1/2] Add optional remote scripting server (Tools -> Remote
  Scripting...)
 
 mesoSPIM-control has no external control interface: everything runs in-process
-inside the Qt event loop. The Script Window already runs Python in the live Core
-context (self == Core); this makes that reachable from another process over a
-socket, so external tools can script the microscope with the full mesoSPIM Python
-API. Text in, console text out -- no command vocabulary, no data format.
+inside the Qt event loop. This adds a small server that lets another process
+control the microscope over a socket by NAMED CALLS, not code: the client sends
+one single-key JSON object {"<method>": {args}}, the server looks the method up in
+a fixed allowlist and runs the matching Core call (the same methods the GUI's own
+buttons call), and returns a JSON result. No client Python is ever executed.
 
 - mesoSPIM_RemoteScripting.py (new): a signal-driven QTcpServer that, for each
-  received script, runs the EXISTING Core.execute_script and returns its captured
-  console output. Length-framed UTF-8. Optional shared token, checked in constant
-  time. A script's console is captured PER-THREAD, so its output is returned
-  without taking stdout/stderr away from mesoSPIM's other threads. A dropped or
-  crashed client cannot crash mesoSPIM (the disconnect teardown is guarded
-  against an already-reclaimed socket).
+  received message, dispatches one named call against a fixed COMMANDS allowlist
+  and returns "__ZMART_OK__<json>" (or error text on a bad payload / unknown
+  method / handler error). Length-framed UTF-8. Optional shared token, checked in
+  constant time. Framing, auth, and dispatch are socket-free helpers that unit-test
+  without Qt. A dropped or crashed client cannot crash mesoSPIM (the disconnect
+  teardown is guarded against an already-reclaimed socket).
 - mesoSPIM_Core: start_remote_scripting(host, port, token) / stop slots, invoked
-  via a queued connection so the server lives on the Core's thread (where
-  execute_script runs), plus a sig_remote_scripting_started(ok, message) signal so
-  a bind failure is reported rather than shown as a false "running".
+  via a queued connection so the server lives on the Core's own thread, plus a
+  sig_remote_scripting_started(ok, message) signal so a bind failure is reported
+  rather than shown as a false "running".
 - mesoSPIM_MainWindow: a "Tools -> Remote Scripting..." menu entry (added in code,
   no .ui change) with a Start/Stop dialog (host/port/token + generator); reflects
   the real start outcome; stops on app close.
 
 OFF BY DEFAULT and secure-by-default: the server never runs until an operator
 starts it from Tools -> Remote Scripting...; the dialog binds 127.0.0.1, pre-fills
-a fresh token, and warns before any network bind without a token. A script is
-arbitrary Python on the acquisition PC; this is plain TCP, so the token gates
-casual LAN access, it is not sniffer-proof (tunnel it for untrusted networks).
+a fresh token, and warns before any network bind without a token. A named call
+still controls the instrument (moves the stage, runs acquisitions), but it is not
+arbitrary code -- the server only ever does a dict lookup + a fixed call, so
+nothing outside the allowlist can run. Plain TCP: the token gates casual LAN
+access, it is not sniffer-proof (tunnel it for untrusted networks).
 
 Kept deliberately small and plain, since this is a proposal to an external
 project: every function does one thing, every non-obvious line has a short
-comment saying why it's there, and the one closure that needed to capture a
-variable (the disconnect handler) uses functools.partial instead of a lambda
-default-argument trick.
+comment saying why it's there.
 
-Validated against -D demo mode (v1.20.0, release/candidate-py312, and live
-against a real running instance with a real operator-generated token): started
-from the GUI signal path, a client authenticates, reads state, drives the demo
-stage, gets structured output via print(json), runs an acquisition, and sees a
-raising script's traceback as text (no crash).
+The framing, token gate, and dispatch carry Qt-free unit tests (frame boundaries,
+oversized input, constant-time compare incl. a non-ASCII token, and adversarial
+dispatch: unknown method, a Python-expression method name, a __dunder__ name, a
+multi-key object, and a handler error are all rejected without running anything).
+The live -D end-to-end run against a real Core is the remaining check.
 
 Adversarial testing against the live demo instance (malformed frames, negative
 length prefixes, connection stealing, abrupt disconnects, oversized claimed
@@ -67,7 +68,7 @@ all pre-existing in the original design:
 ---
  mesoSPIM/src/mesoSPIM_Core.py            |  31 +++
  mesoSPIM/src/mesoSPIM_MainWindow.py      | 135 +++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 487 ++++++++++++++++++++++++++++++++++++++++
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 406 ++++++++++++++++++++++++++++++++++++++++
  3 files changed, 463 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
@@ -166,7 +167,7 @@ index 75ff770..cd1ef5c 100644
 +        if self.menuTools is None:
 +            self.menuTools = self.menuBar.addMenu('Tools')
 +        self.actionRemoteScripting = QtWidgets.QAction('Remote Scripting...', self)
-+        self.actionRemoteScripting.setStatusTip('Start/stop the external Python scripting server')
++        self.actionRemoteScripting.setStatusTip('Start/stop the external named-call control server')
 +        self.actionRemoteScripting.triggered.connect(self.open_remote_scripting_dialog)
 +        self.menuTools.addAction(self.actionRemoteScripting)
  
@@ -190,11 +191,11 @@ index 75ff770..cd1ef5c 100644
 +            self._rs_refresh()
 +
 +    def open_remote_scripting_dialog(self):
-+        '''Start/stop the remote scripting server (external Python control API).
++        '''Start/stop the remote scripting server (external named-call control API).
 +
-+        Off by default. A client sends a Python script; it runs in the Core
-+        context (the same Script Window path) and its console output is returned.
-+        A script is ARBITRARY code on this PC, so: host 127.0.0.1 = same machine
++        Off by default. A client sends a named call; the server runs the matching
++        Core method from a fixed allowlist (no client code runs). A call still
++        controls the microscope, so: host 127.0.0.1 = same machine
 +        only; set a token before exposing it on the network; plain TCP, so the
 +        token gates casual LAN access but is not sniffer-proof (tunnel for
 +        untrusted nets).
@@ -203,7 +204,7 @@ index 75ff770..cd1ef5c 100644
 +        dlg = QtWidgets.QDialog(self)
 +        dlg.setWindowTitle('Remote Scripting')
 +        form = QtWidgets.QFormLayout(dlg)
-+        warn = QtWidgets.QLabel('Runs arbitrary Python on this PC. Use a token to expose on a network.')
++        warn = QtWidgets.QLabel('Controls the microscope (stage, lasers, acquisitions). Use a token to expose on a network.')
 +        warn.setWordWrap(True)
 +        form.addRow(warn)
 +        host_edit = QtWidgets.QLineEdit(getattr(self, '_rs_host', '127.0.0.1'))
@@ -260,8 +261,8 @@ index 75ff770..cd1ef5c 100644
 +            if host not in ('127.0.0.1', 'localhost') and not token:
 +                if QtWidgets.QMessageBox.question(
 +                        dlg, 'No token',
-+                        'Exposing arbitrary-Python execution on the network with no token lets any '
-+                        'machine on the LAN run code on this PC. Start anyway?',
++                        'Exposing microscope control on the network with no token lets any '
++                        'machine on the LAN drive this instrument. Start anyway?',
 +                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No) != QtWidgets.QMessageBox.Yes:
 +                    return
 +            self._rs_host, self._rs_port, self._rs_token = host, port, token
@@ -289,56 +290,48 @@ index 75ff770..cd1ef5c 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteScripting.py b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 new file mode 100644
-index 0000000..deb4476
+index 0000000..3d32fc8
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,487 @@
+@@ -0,0 +1,406 @@
 +"""
 +mesoSPIM remote scripting server.
 +==================================
-+Lets an external program run Python inside mesoSPIM, using code mesoSPIM
-+already has: the Script Window's ``Core.execute_script``. A client sends a
-+script over TCP; the server runs it and sends back whatever the script
-+printed. Nothing else -- no command list, no data format.
++Lets an external program control mesoSPIM over TCP by **named calls, not code**.
++A client sends one message, a single-key JSON object ``{"<method>": {args}}``; the
++server looks the method up in the fixed :data:`COMMANDS` allowlist below and runs
++the matching ``mesoSPIM_Core`` call -- the same methods the GUI's own buttons call.
++An unknown method is rejected before anything touches the instrument. No client
++Python is ever run.
 +
-+Security: a script is arbitrary Python on this PC. The server is off until an
-+operator starts it, listens on 127.0.0.1 by default, and can require a shared
-+token (checked in constant time, so timing can't reveal it byte by byte).
++Security: the server is off until an operator starts it, listens on 127.0.0.1 by
++default, and can require a shared token (checked in constant time, so timing can't
++reveal it byte by byte). A call still controls the microscope (moves the stage,
++runs acquisitions), so use a token to expose it on a network.
 +
-+Blocking: a script runs on the Core's own thread -- the same thread the GUI
-+runs on -- so the GUI freezes until the script returns. Keep scripts short.
++Blocking: a call runs on the Core's own thread -- the same thread the GUI runs on
++-- so the GUI is busy until it returns. Calls are short.
 +
-+Wire format, both directions: b"<byte-count>\\n" + payload. If a token is
-+set, the client's first message must be it; the server replies "OK" or
-+"AUTH-FAILED". Every message after that is a script; the reply is its
-+captured console output.
-+
-+Restricted mode (recommended for external control): set the environment variable
-+``MESOSPIM_RS_RESTRICTED=1`` before starting the server. The server then runs **no
-+client Python** -- each message is a named call, ``{"call": <name>, "args": {...}}``
-+(JSON), dispatched against the fixed :data:`COMMANDS` allowlist below. An unknown
-+name is rejected before anything touches the instrument, and the reply is one line,
-+``__ZMART_OK__<json>`` (or a traceback on error). This is the surface the ZMART
-+mesoSPIM driver uses.
++Wire format, both directions: b"<byte-count>\\n" + payload. If a token is set, the
++client's first message must be it; the server replies "OK" or "AUTH-FAILED". Every
++message after that is a call; the reply is one line, ``__ZMART_OK__<json>`` (or the
++error text on a bad payload / unknown call / handler error).
 +
 +Author: Thom de Hoog (ZMB, University of Zurich). License: GPL-3.0 (part of
 +mesoSPIM-control; it uses the GPL Core API).
 +"""
 +
 +import hmac
-+import io
 +import json
 +import logging
 +import os
-+import sys
-+import threading
 +import traceback
 +from functools import partial
 +
 +logger = logging.getLogger(__name__)
 +
 +ENCODING = "utf-8"
-+OK_MARKER = "__ZMART_OK__"  # restricted-mode reply prefix; the JSON result follows on the same line
++OK_MARKER = "__ZMART_OK__"  # reply prefix; the JSON result follows on the same line
 +_AXES = ("x", "y", "z", "f", "theta")
 +
 +
@@ -501,23 +494,24 @@ index 0000000..deb4476
 +
 +
 +def run_command(core, payload):
-+    """Dispatch one ``{"call", "args"}`` message against COMMANDS; return the reply text.
++    """Dispatch one ``{"<method>": {args}}`` message against COMMANDS; return the reply.
 +
-+    On success the reply is one ``__ZMART_OK__<json>`` line. On a bad payload,
-+    an unknown call, or a handler error, the reply is the error text (no marker
-+    line) -- exactly how a script error surfaces in exec mode, so the client
-+    handles both the same way. No client code is ever executed.
++    The message is a single-key JSON object: the key is the method name, the value
++    is its args. On success the reply is one ``__ZMART_OK__<json>`` line; on a bad
++    payload, an unknown method, or a handler error, the reply is the error text (no
++    marker line), so a client handles success and failure the same way. No client
++    code is ever executed.
 +    """
 +    try:
 +        msg = json.loads(payload)
-+        call, args = msg["call"], (msg.get("args") or {})
-+    except (ValueError, KeyError, TypeError):
-+        return "bad request: expected {'call': <name>, 'args': {...}}"
++        (call, args), = msg.items()  # exactly one key: method -> args
++    except (ValueError, AttributeError):
++        return "bad request: expected {'<method>': {args}}"
 +    handler = COMMANDS.get(call)
 +    if handler is None:
 +        return f"unknown command {call!r}; not in the allowlist"
 +    try:
-+        return OK_MARKER + json.dumps(handler(core, args))
++        return OK_MARKER + json.dumps(handler(core, args or {}))
 +    except Exception:
 +        return traceback.format_exc()
 +
@@ -591,48 +585,8 @@ index 0000000..deb4476
 +        return ok
 +
 +
-+class _ThreadTee:
-+    """Stands in for sys.stdout/sys.stderr. Always writes through to the real
-+    stream, and ALSO into a capture buffer -- but only for the one thread
-+    that registered one. This captures a script's own print() output without
-+    also grabbing prints made by mesoSPIM's other threads at the same time.
-+    """
-+
-+    def __init__(self, real):
-+        self._real = real  # the actual stream underneath (the console mesoSPIM normally prints to)
-+        self._buffers = {}  # thread id -> capture buffer, only present while that thread's script is running
-+
-+    def register(self, buf):
-+        """Start capturing this thread's writes into buf, in addition to the real stream."""
-+        self._buffers[threading.get_ident()] = buf
-+
-+    def unregister(self):
-+        """Stop capturing this thread's writes (called once its script has finished)."""
-+        self._buffers.pop(threading.get_ident(), None)
-+
-+    def write(self, text):
-+        buf = self._buffers.get(threading.get_ident())  # only this thread's own buffer, if it registered one
-+        if buf is not None:
-+            buf.write(text)  # the client's copy is exact, regardless of what the real console can show
-+        try:
-+            return self._real.write(text)  # the real console still sees output from every thread, as normal
-+        except UnicodeEncodeError:
-+            # The real console's encoding (e.g. a legacy Windows codepage) can't display
-+            # everything that was printed -- that's a console limitation, not a reason to
-+            # blow up the script, so show a safe, escaped version there instead.
-+            encoding = getattr(self._real, "encoding", None) or "ascii"
-+            safe_text = text.encode(encoding, "backslashreplace").decode(encoding)
-+            return self._real.write(safe_text)
-+
-+    def flush(self):
-+        self._real.flush()
-+
-+    def __getattr__(self, name):
-+        return getattr(self._real, name)  # forward anything else (.encoding, .isatty()) to the real stream
-+
-+
 +class RemoteScriptingServer:
-+    """Listens on one TCP port and runs each received script via Core.execute_script.
++    """Listens on one TCP port and dispatches each received call against COMMANDS.
 +
 +    Only one client at a time: a new connection replaces whatever was there
 +    before, so a client that crashes without closing its socket can't block
@@ -642,16 +596,11 @@ index 0000000..deb4476
 +    the caller can report that instead of showing a false "running".
 +    """
 +
-+    def __init__(self, core, host="127.0.0.1", port=42000, token=None, restricted=None):
++    def __init__(self, core, host="127.0.0.1", port=42000, token=None):
 +        from PyQt5 import QtNetwork  # imported here, not at module load, so this file stays Qt-free for tests
 +
-+        self.core = core  # the live mesoSPIM Core; execute_script runs scripts against this
++        self.core = core  # the live mesoSPIM Core; each call runs a method on this
 +        self._token = token or None  # an empty string counts as "no token"
-+        # Restricted mode: accept only named calls from the COMMANDS allowlist, never
-+        # exec client Python. Explicit arg wins; otherwise MESOSPIM_RS_RESTRICTED=1.
-+        if restricted is None:
-+            restricted = os.environ.get("MESOSPIM_RS_RESTRICTED", "").strip().lower() not in ("", "0", "false", "no")
-+        self._restricted = bool(restricted)
 +        self._server = QtNetwork.QTcpServer(core)  # parented to Core, so Qt destroys it when Core is destroyed
 +        if not self._server.listen(QtNetwork.QHostAddress(host), int(port)):
 +            raise RuntimeError(f"cannot listen on {host}:{port}: {self._server.errorString()}")
@@ -660,16 +609,9 @@ index 0000000..deb4476
 +        self._conn = None  # the one active client socket, if any
 +        self._decoder = FrameDecoder()  # reassembles that client's bytes into whole messages
 +        self._auth = AuthGate(self._token)  # tracks whether that client has presented the token yet
-+        # Swap in tees so a script's print() can be captured per-thread (see _run_script)
-+        # without ever taking stdout/stderr away from mesoSPIM's other threads. Undone in stop().
-+        self._real_stdout, self._real_stderr = sys.stdout, sys.stderr
-+        self._out_tee = _ThreadTee(sys.stdout)
-+        self._err_tee = _ThreadTee(sys.stderr)
-+        sys.stdout, sys.stderr = self._out_tee, self._err_tee
 +        logger.info(
-+            "Remote scripting listening on %s:%d (token %s, mode %s)",
++            "Remote scripting listening on %s:%d (token %s)",
 +            self._host, self._port, "required" if self._token else "off",
-+            "restricted" if self._restricted else "exec",
 +        )
 +
 +    # -- connection lifecycle ------------------------------------------------
@@ -741,7 +683,7 @@ index 0000000..deb4476
 +            self._conn = None  # _on_disconnected() still runs later and deleteLater()s the real socket
 +
 +    def _handle(self, message):
-+        """Handle one already-unframed message: either the token, or a script to run."""
++        """Handle one already-unframed message: either the token, or a call to run."""
 +        if not self._auth.passed:
 +            # First message after connecting must be the token, when one is configured.
 +            if self._auth.check(message):
@@ -750,35 +692,13 @@ index 0000000..deb4476
 +                self._send("AUTH-FAILED")
 +                self._close()
 +            return
-+        if self._restricted:
-+            self._send(run_command(self.core, message))  # named call -> allowlist; no exec
-+        else:
-+            self._send(self._run_script(message))
-+
-+    def _run_script(self, script):
-+        """Run script via the existing Core.execute_script, capturing what it prints."""
-+        # A script has full access to `sys` and can reassign sys.stdout/stderr itself
-+        # (by accident -- e.g. a library that redirects output -- or on purpose). Put
-+        # our own tees back before every run, so that can only ever affect the script
-+        # that did it, not every script that runs after it.
-+        sys.stdout, sys.stderr = self._out_tee, self._err_tee
-+        buf = io.StringIO()
-+        self._out_tee.register(buf)  # from here on, THIS thread's prints also land in buf
-+        self._err_tee.register(buf)
-+        try:
-+            self.core.execute_script(script)  # the same call the Script Window itself uses; it catches script errors itself
-+        finally:
-+            self._out_tee.unregister()  # stop capturing before returning, whether it succeeded or not
-+            self._err_tee.unregister()
-+        return buf.getvalue()
++        self._send(run_command(self.core, message))  # named call -> allowlist; no client code ever runs
 +
 +    def stop(self):
-+        """Close the listening socket and undo everything __init__ set up. Safe to call more than once."""
++        """Close the listening socket. Safe to call more than once."""
 +        if self._conn is not None:
 +            self._drop_client(self._conn)
 +        self._server.close()
-+        if getattr(self, "_real_stdout", None) is not None:
-+            sys.stdout, sys.stderr = self._real_stdout, self._real_stderr  # give the real streams back
 +        logger.info("Remote scripting stopped")
 -- 
 2.53.0.windows.1

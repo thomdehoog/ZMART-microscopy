@@ -2,10 +2,10 @@
 Command allowlist -- the mesoSPIM API the server accepts (no exec).
 ==================================================================
 Restricted Remote Scripting runs **no client Python**. The client sends one
-named call, ``{"call": <name>, "args": {...}}``; the server looks the name up in
-:data:`COMMANDS` -- a fixed table -- and runs the matching mesoSPIM Core call. An
-unknown name is rejected before anything touches the instrument, so this table
-*is* the allowlist. In every handler ``core`` is the live ``mesoSPIM_Core``.
+named call -- a single-key JSON object ``{"<method>": {args}}``; the server looks
+the method up in :data:`COMMANDS` -- a fixed table -- and runs the matching mesoSPIM
+Core call. An unknown method is rejected before anything touches the instrument, so
+this table *is* the allowlist. In every handler ``core`` is the live ``mesoSPIM_Core``.
 
 Each handler is ``fn(core, args) -> dict`` (the JSON result). Writes return
 ``{}`` (the driver confirms by reading state back); reads build the result from

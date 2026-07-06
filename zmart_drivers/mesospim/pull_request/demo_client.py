@@ -1,10 +1,9 @@
 """
 Demo client for the mesoSPIM Remote Scripting server.
 =====================================================
-Shows how an external tool (e.g. the ZMART driver) builds on the minimal PR: it
-sends Python scripts and reads back console output, using MARKERS to extract a
-clean machine-readable result (the reply may also carry other threads' console
-output, as the Script Window console does).
+The server accepts named calls, not code: you send one single-key JSON object
+``{"<method>": {args}}`` and read back a ``__ZMART_OK__<json>`` line. This tiny
+client shows the whole protocol -- framing, the optional token, and a call.
 
 Run mesoSPIM (-D demo is fine), start Tools -> Remote Scripting..., then:
 
@@ -17,20 +16,21 @@ import argparse
 import json
 import socket
 
+OK = "__ZMART_OK__"
+
 
 class RemoteScripting:
-    """Tiny client for the length-framed remote-scripting protocol."""
+    """Tiny client for the length-framed named-call protocol."""
 
     def __init__(self, host="127.0.0.1", port=42000, token=None, timeout=10.0):
         self._sock = socket.create_connection((host, port), timeout=timeout)
         self._buf = b""
         if token:
             self._send(token)
-            reply = self._recv()
-            if reply.strip() != "OK":
-                raise PermissionError(f"authentication failed: {reply!r}")
+            if self._recv().strip() != "OK":
+                raise PermissionError("authentication failed")
 
-    # -- framing -------------------------------------------------------------
+    # -- framing: "<byte-count>\n" + payload --------------------------------
     def _send(self, text):
         b = text.encode("utf-8")
         self._sock.sendall(str(len(b)).encode("ascii") + b"\n" + b)
@@ -45,26 +45,15 @@ class RemoteScripting:
         self._buf = rest[length:]
         return rest[:length].decode("utf-8")
 
-    # -- API -----------------------------------------------------------------
-    def run(self, script):
-        """Send a script; return its raw captured console output."""
-        self._send(script)
-        return self._recv()
-
-    def eval(self, expr):
-        """Evaluate a Python expression in the Core context and return it as JSON.
-
-        Wraps the expression so it prints a marker-delimited JSON payload, then
-        extracts it from the reply -- robust to interleaved console output.
-        """
-        script = (
-            "import json as _json\n"
-            f"print('<<<R>>>' + _json.dumps({expr}) + '<<<E>>>')\n"
-        )
-        out = self.run(script)
-        start = out.index("<<<R>>>") + len("<<<R>>>")
-        end = out.index("<<<E>>>", start)
-        return json.loads(out[start:end])
+    # -- one named call -> its JSON result ----------------------------------
+    def call(self, method, **args):
+        """Send ``{method: args}``; return the JSON result, or raise on an error reply."""
+        self._send(json.dumps({method: args}))
+        reply = self._recv()
+        for line in reply.splitlines():
+            if line.startswith(OK):
+                return json.loads(line[len(OK):])
+        raise RuntimeError(reply.strip())  # no OK line -> the reply IS the error
 
     def close(self):
         self._sock.close()
@@ -79,13 +68,9 @@ def main():
 
     c = RemoteScripting(args.host, args.port, args.token)
     try:
-        # A clean structured read via the marker pattern:
-        pos = c.eval("self.state['position']")
-        print("position:", pos)
-        lasers = c.eval("list(self.cfg.laserdict.keys())")
-        print("lasers:", lasers)
-        # A raw run (console text, may interleave):
-        print("raw:", c.run("print('hello from', self.cfg.laserdict and 'the Core')").strip())
+        print("state:", c.call("get_state"))
+        print("config:", c.call("get_config"))
+        print("set filter:", c.call("set_state", settings={"filter": "561/LP"}))
     finally:
         c.close()
 

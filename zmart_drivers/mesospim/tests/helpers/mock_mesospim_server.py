@@ -4,7 +4,7 @@ Mock mesoSPIM Remote Scripting server (offline test double).
 A faithful **MIT** re-implementation of the *restricted-mode* Remote Scripting
 bridge for offline testing. Like the real server, it speaks the length-framed
 protocol, optionally gates on a token, and -- for each received call -- **decodes
-the ``{call, args}`` JSON and dispatches it through the shared allowlist**
+the single-key ``{method: args}`` JSON and dispatches it through the shared allowlist**
 (:mod:`mesospim.connection.command_api`) against a Core-shaped fake, sending the
 JSON result back. No ``exec``: the server runs only names it recognises.
 

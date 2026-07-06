@@ -95,7 +95,7 @@ def test_empty_token_counts_as_no_token():
     assert rs.AuthGate("").required is False
 
 
-# -- restricted mode: named calls dispatched against the fixed allowlist -------
+# -- named calls: dispatched against the fixed allowlist -----------------------
 
 def _fake_core():
     class Sig:
@@ -109,26 +109,57 @@ def _fake_core():
         def __init__(self):
             self.state = {"filter": "515/30"}
             self.sig_state_request_and_wait_until_done = Sig(self.state.update)
+            self.hit = False  # trip-wire: set only if code below actually runs
 
     return Core()
 
 
 def test_a_named_call_is_dispatched_and_state_changes():
     core = _fake_core()
-    reply = rs.run_command(core, '{"call": "set_state", "args": {"settings": {"filter": "561/LP"}}}')
+    reply = rs.run_command(core, '{"set_state": {"settings": {"filter": "561/LP"}}}')
     assert reply == "__ZMART_OK__{}"  # the write ack
     assert core.state["filter"] == "561/LP"  # ...and the change landed
 
 
-def test_an_unknown_call_is_rejected_before_running():
+# -- adversarial: the server must never run anything not in the allowlist ------
+
+def test_an_unknown_method_is_rejected_before_running():
     # the COMMANDS table IS the allowlist: a name not in it never runs
-    reply = rs.run_command(_fake_core(), '{"call": "rm_rf", "args": {}}')
+    reply = rs.run_command(_fake_core(), '{"rm_rf": {}}')
+    assert "unknown command" in reply and "__ZMART_OK__" not in reply
+
+
+def test_a_python_expression_as_the_method_name_is_just_an_unknown_key():
+    # a client trying to smuggle code gets a dict LOOKUP, never an eval/exec:
+    # the "method" is only ever used as COMMANDS.get(key), so this cannot run.
+    core = _fake_core()
+    reply = rs.run_command(core, '{"__import__(\'os\').system(\'echo pwned\')": {}}')
+    assert "unknown command" in reply
+    assert core.hit is False  # nothing executed
+
+
+def test_a_dunder_attribute_name_is_not_dispatchable():
+    # method names are matched against COMMANDS only -- getattr on the Core is
+    # never used, so "__class__", "start", etc. are not reachable unless allowlisted.
+    reply = rs.run_command(_fake_core(), '{"__class__": {}}')
     assert "unknown command" in reply and "__ZMART_OK__" not in reply
 
 
 def test_a_non_json_payload_is_a_bad_request_not_a_crash():
     reply = rs.run_command(_fake_core(), "not json at all")
     assert reply.startswith("bad request") and "__ZMART_OK__" not in reply
+
+
+def test_a_multi_key_object_is_rejected():
+    # exactly one method per message; a two-key object is ambiguous -> rejected
+    reply = rs.run_command(_fake_core(), '{"ping": {}, "stop": {}}')
+    assert reply.startswith("bad request") and "__ZMART_OK__" not in reply
+
+
+def test_a_handler_error_surfaces_as_text_not_a_crash():
+    # a known method whose Core call raises returns the traceback, no OK line
+    reply = rs.run_command(_fake_core(), '{"move_absolute": {"targets": {"x": 1}}}')
+    assert "__ZMART_OK__" not in reply  # the fake Core has no move_absolute -> error text
 
 
 if __name__ == "__main__":  # runnable without pytest, for a quick check next to the PR
