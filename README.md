@@ -110,18 +110,25 @@ plus setup and docs:
 
 ## Getting Started
 
-Install the Python environment. We use [conda-forge](https://conda-forge.org) to
-avoid licensing issues. Build it in one step, then activate:
+Three steps to go from a clone to driving the microscope (full detail in
+**[`getting_started/`](getting_started/README.md)**).
+
+**1. Install the environment** — conda-forge, built in one step, then activate:
 
 ```powershell
 python build_env.py            # creates the "zmart-microscopy" conda-forge env
 conda activate zmart-microscopy
 ```
 
-This targets **Python 3.10-3.12** and installs the minimum needed to drive a
-microscope and process its images. Driving a microscope *live* also needs that
-microscope's own software installed (e.g. LAS X for the Leica driver); image
-processing — registration, focusing — runs on any OS. Full setup, dependency
-rationale, and the typical path through the repo are in
-**[`getting_started/`](getting_started/README.md)**.
+Targets **Python 3.10-3.12**. Live control needs the microscope's own software
+installed (e.g. LAS X for the Leica driver); registration/focusing run on any OS.
+
+**2. Set the stage limits** — the driver refuses to move until machine-local
+limits exist (no bundled fallback). Run
+`zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb`
+once; it publishes a single `limits.json` for this machine.
+
+**3. Run it** — from the Leica driver dir, `python run_ci.py online` (read-only),
+then `python run_ci.py online --live-writes` for the full bench validation. Each
+driver's README documents its own run steps.
 
