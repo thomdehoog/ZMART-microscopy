@@ -1,17 +1,16 @@
 """
 Mock mesoSPIM Remote Scripting server (offline test double).
 ============================================================
-A faithful **MIT** re-implementation of the mesoSPIM Remote Scripting bridge for
-offline testing. Like the real server, it speaks the length-framed protocol,
-optionally gates on a token, and -- for each received script -- **runs it with
-``exec`` in a context where ``self`` is a Core-shaped fake**, capturing stdout +
-stderr and sending the captured console back.
+A faithful **MIT** re-implementation of the *restricted-mode* Remote Scripting
+bridge for offline testing. Like the real server, it speaks the length-framed
+protocol, optionally gates on a token, and -- for each received call -- **decodes
+the ``{call, args}`` JSON and dispatches it through the shared allowlist**
+(:mod:`mesospim.connection.command_api`) against a Core-shaped fake, sending the
+JSON result back. No ``exec``: the server runs only names it recognises.
 
-This is a much more honest double than a hand-rolled command switch: the driver's
-tests run the *actual injected scripts* (`connection.scripts` templates) through a
-*real ``exec`` + stdout capture*, against a Core whose method/signal/state surface
-matches mesoSPIM-control v1.20.0. Only the live hardware Core is absent; the whole
-transport, harness, and vocabulary are exercised for real.
+This exercises the whole path the real server does -- framing, auth, the fixed
+dispatch table, and a Core whose method/signal/state surface matches
+mesoSPIM-control v1.20.0. Only the live hardware Core is absent.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -20,7 +19,6 @@ License: MIT
 
 from __future__ import annotations
 
-import io
 import os
 import socket
 import sys
@@ -28,16 +26,17 @@ import tempfile
 import threading
 import traceback
 import types
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import numpy as np
 import tifffile
+from mesospim.connection import command_api
+from mesospim.protocol import ProtocolError, decode_call, encode_reply
 
 _AXES = ("x", "y", "z", "f", "theta")
 
 
-# A fake ``utils.acquisitions`` so the injected acquire script's
+# A fake ``utils.acquisitions`` so the acquire handler's
 # ``from utils.acquisitions import Acquisition, AcquisitionList`` resolves
 # offline (the real ones are GPL mesoSPIM classes).
 class _FakeAcquisition(dict):
@@ -177,9 +176,8 @@ class MockMesospimServer:
             (read ``.port`` after construction).
         output_dir: where synthetic frame files are written; a temp dir by default.
         token: if set, the first frame a client sends must be this token.
-        errors: command names (from the injected ``# zmart-cmd:`` marker) that
-            should reply with an error instead of running -- to exercise the
-            client/dispatch failure paths.
+        errors: call names that should reply with an error instead of running --
+            to exercise the client/dispatch failure paths.
     """
 
     def __init__(self, host="127.0.0.1", port=0, *, output_dir=None, token=None, errors=None):
@@ -279,30 +277,22 @@ class MockMesospimServer:
                 else:
                     conn.sendall(_frame(self._run(payload)))
 
-    # -- run a received script ----------------------------------------------
+    # -- run a received call -------------------------------------------------
 
-    def _run(self, script: str) -> str:
-        cmd = _sniff_cmd(script)
-        if cmd in self.errors:
-            # A plain (unmarked) reply: the client's parse_result surfaces it as
-            # a failed Reply, exactly like a server-side error would.
-            return f"injected error for command {cmd!r}"
-        buf = io.StringIO()
-        namespace = {"self": self.core}
-        with redirect_stdout(buf), redirect_stderr(buf):
-            try:
-                exec(script, namespace)  # noqa: S102 - this IS the bridge under test
-            except Exception:
-                traceback.print_exc()
-        return buf.getvalue()
+    def _run(self, payload: str) -> str:
+        try:
+            call, args = decode_call(payload)
+        except ProtocolError as exc:
+            return f"bad call: {exc}"  # no OK line -> client surfaces it as an error
+        if call in self.errors:
+            return f"injected error for command {call!r}"
+        try:
+            result = command_api.run(self.core, call, args)
+        except Exception:
+            return traceback.format_exc()  # unknown call / handler error -> error reply
+        return encode_reply(result)
 
 
 def _frame(text: str) -> bytes:
     b = text.encode("utf-8")
     return str(len(b)).encode("ascii") + b"\n" + b
-
-
-def _sniff_cmd(script: str) -> str | None:
-    first = script.split("\n", 1)[0].strip()
-    prefix = "# zmart-cmd:"
-    return first[len(prefix):].strip() if first.startswith(prefix) else None

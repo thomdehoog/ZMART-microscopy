@@ -1,24 +1,37 @@
 # mesoSPIM driver — what's left to do
 
-Status as of this branch: the driver is **implemented and offline-tested** (115
-tests green). It now rides mesoSPIM's generic **Remote Scripting** bridge (the
-upstream patch under `pull_request/`): the driver injects Python scripts and
-parses a structured result back, with all command vocabulary client-side in
-`connection/scripts.py`. The mock server `exec`s those very scripts against a
-Core-shaped fake, so framing/harness/vocabulary are exercised for real offline.
+Status as of this branch: the driver is **implemented and offline-tested** (134
+tests green). It rides mesoSPIM's **Remote Scripting** bridge (the upstream patch
+under `pull_request/`) in **restricted mode**: the wire carries a named call,
+`{"call": <name>, "args": {...}}` — data, not code — and the server dispatches it
+against a fixed allowlist in `connection/command_api.py`. No client Python is
+`exec`d. The mock server dispatches the real calls through that same allowlist
+against a Core-shaped fake, so framing/auth/vocabulary are exercised for real offline.
 
 > **Transport change.** An earlier iteration used a bespoke ZMART command server
-> loaded into the Core; it was live-validated in `-D` demo but had sharp edges (an
-> `exec()`-scope `NameError` on load; two live-only bugs). It has been **retired**
-> in favour of the generic Remote Scripting bridge (which reuses `Core.execute_script`
-> unmodified). See [`LIVE_BENCH_VALIDATION.md`](LIVE_BENCH_VALIDATION.md) (marked
-> superseded) for that history and why the design moved here.
+> loaded into the Core; a second used the Remote Scripting bridge in **exec mode**
+> (injecting Python scripts). Both are retired. The driver now sends **named calls**
+> the server dispatches against the `command_api` allowlist — a standard, filterable
+> call surface with no client-code execution. See
+> [`LIVE_BENCH_VALIDATION.md`](LIVE_BENCH_VALIDATION.md) (superseded) for the history.
 >
 > The Core-API findings below (config/state/move/`start(row=…)`/image-writer path)
 > were verified against a live v1.20.0 Core and still hold — they now live in the
-> injected scripts (`connection/scripts.py`). What is **not** yet re-run is the
-> live round-trip on this **new** transport (§1); that plus **real-hardware**
-> validation are the open blockers.
+> allowlist handlers (`connection/command_api.py`). Two open blockers: **(§0)** add
+> restricted mode to the server patch, and **(§1)** the live round-trip + real-hardware
+> validation.
+
+---
+
+## 0. Add restricted (named-call) mode to the Remote Scripting server patch 🔴
+
+The ZMART side is done: the client sends `{"call", "args"}` and the mock dispatches
+it through `connection/command_api.py`. The **server patch under `pull_request/`
+still only does exec mode.** To close the loop, the server needs a restricted mode
+that: decodes `{"call", "args"}`, looks the name up in a fixed table (the same
+vocabulary as `command_api.COMMANDS`, but server-side/GPL), runs the `Core` call,
+and replies `__ZMART_OK__<json>` — never `exec`ing the payload. A flag selects
+exec (dev) vs restricted (production). Then §1's round-trip runs against it.
 
 Legend: 🔴 blocker for live use · 🟠 needed for a real run · 🟢 polish / nice-to-have.
 
@@ -27,10 +40,10 @@ Legend: 🔴 blocker for live use · 🟠 needed for a real run · 🟢 polish /
 ## 1. Bench validation against mesoSPIM `-D` demo mode 🔴
 
 The one thing that cannot be done in CI (needs the GPL app + a display). Two parts:
-**(a)** apply the Remote Scripting patch (`pull_request/`) and start it (Tools →
-Remote Scripting), then **(b)** re-run the `-m integration` round-trip on the new
-injected-script transport. The Core-name checklist below was confirmed on the old
-transport and carried into `connection/scripts.py`; re-confirm it end-to-end here.
+**(a)** apply the Remote Scripting patch (`pull_request/`) with restricted mode (§0)
+and start it (Tools → Remote Scripting), then **(b)** re-run the `-m integration`
+round-trip over named calls. The Core-name checklist below was confirmed on an
+earlier transport and carried into `connection/command_api.py`; re-confirm it here.
 (The items marked done were validated against a live Core previously; the ☐ ones
 are the new-transport re-run.)
 

@@ -5,7 +5,7 @@ The one suite that cannot run in CI: it drives a **real** mesoSPIM through its
 Remote Scripting server (``Tools -> Remote Scripting...``; the upstream PR under
 ``pull_request/``) -- ideally in ``-D`` demo mode (all Demo backends, no
 hardware). It is the bench check for the pieces the offline mock cannot prove:
-the injected-script vocabulary (``connection/scripts.py``) against a live Core,
+the named-call allowlist (``connection/command_api.py``) against a live Core,
 and the acquisition run + image-writer path resolution.
 
 Run it (mesoSPIM ``-D`` running with Remote Scripting started, listening on 42000)::

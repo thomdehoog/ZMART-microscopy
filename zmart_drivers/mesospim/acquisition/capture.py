@@ -116,8 +116,8 @@ def _run_acquisition(client, acq: dict, *, label: str) -> dict:
     """Fire one ``Acquisition`` and wait for its stack, without ever blocking
     a script inside mesoSPIM's event loop.
 
-    Three injected scripts (see ``connection.scripts``): ``acquire_start``
-    fires ``self.start(row=0)`` and returns immediately; the client then polls
+    Three named calls (see ``connection.command_api``): ``acquire_start``
+    fires ``core.start(row=0)`` and returns immediately; the client then polls
     ``get_progress`` + ``stat_files`` until the run is idle AND the stack
     exists on disk (which also covers a run that finished before the first
     poll); ``acquire_finish`` restores the operator's acquisition list. On

@@ -1,31 +1,16 @@
-"""Remote-scripting framing + the simple print-the-result harness (pure).
+"""Framing + the named-call codec (pure, socket-free).
 
-The harness is tested end to end: build a script with ``wrap_script``, actually
-``exec`` it capturing stdout (as the server does), then extract the result with
-``parse_result``.
+The transport carries one JSON call each way: the client sends
+``{"call", "args"}`` (:func:`encode_call`), the server dispatches and replies
+with the ``__ZMART_OK__<json>`` line (:func:`encode_reply`), and the client reads
+it back (:func:`parse_result`). On error the reply has no marker line and the
+whole text surfaces as the error.
 """
 
 from __future__ import annotations
 
-import io
-import traceback
-from contextlib import redirect_stderr, redirect_stdout
-
 import pytest
 from mesospim import protocol as p
-
-
-def _run(script: str) -> str:
-    # Mimic mesoSPIM's Core.execute_script: exec, and on error print the
-    # traceback to the console (which is what the client parses).
-    buf = io.StringIO()
-    with redirect_stdout(buf), redirect_stderr(buf):
-        try:
-            exec(script, {})  # noqa: S102 - exercising the harness the server runs
-        except Exception:
-            traceback.print_exc()
-    return buf.getvalue()
-
 
 # -- framing ------------------------------------------------------------------
 
@@ -40,31 +25,46 @@ def test_frame_counts_bytes_not_chars():
     assert p.frame("é") == b"2\n\xc3\xa9"
 
 
-# -- harness: ok / error ------------------------------------------------------
+# -- request codec: encode_call / decode_call ---------------------------------
 
 
-def test_wrap_and_parse_ok():
-    reply = p.parse_result(_run(p.wrap_script("_result = {'x': 42}")))
+def test_encode_call_is_plain_json_data():
+    assert p.encode_call("set_state", {"settings": {"filter": "561/LP"}}) == (
+        '{"call": "set_state", "args": {"settings": {"filter": "561/LP"}}}'
+    )
+
+
+def test_encode_then_decode_round_trips():
+    call, args = p.decode_call(p.encode_call("move_absolute", {"targets": {"x": 1.0}}))
+    assert call == "move_absolute" and args == {"targets": {"x": 1.0}}
+
+
+def test_encode_call_defaults_args_to_empty_object():
+    assert p.encode_call("ping") == '{"call": "ping", "args": {}}'
+
+
+def test_decode_rejects_a_non_call_object():
+    with pytest.raises(p.ProtocolError):
+        p.decode_call('{"nope": 1}')
+
+
+# -- reply codec: encode_reply / parse_result ---------------------------------
+
+
+def test_reply_round_trips():
+    reply = p.parse_result(p.encode_reply({"x": 42}))
     assert reply.ok and reply.data == {"x": 42}
 
 
-def test_error_surfaces_as_console_text():
-    # No try/except in the harness: the body raises, mesoSPIM prints the
-    # traceback, and parse_result (no OK line) returns it as the error.
-    reply = p.parse_result(_run(p.wrap_script("raise ValueError('boom')")))
+def test_error_reply_has_no_marker_and_surfaces_as_text():
+    # the server sends a traceback (no OK line); parse_result returns it as error
+    reply = p.parse_result("Traceback (most recent call last):\nValueError: boom")
     assert not reply.ok and "boom" in reply.error
 
 
-def test_missing_marker_becomes_error():
-    # A pre-harness failure (syntax error, auth text, ...) has no marker line; the
-    # whole console text is surfaced as the error, not a parse crash.
-    reply = p.parse_result("Traceback: SyntaxError somewhere")
-    assert not reply.ok and "Traceback" in reply.error
-
-
 def test_last_marker_wins_over_interleaved_output():
-    body = "print('noise from another thread')\n_result = {'v': 1}"
-    reply = p.parse_result(_run(p.wrap_script(body)))
+    console = "noise from another thread\n" + p.encode_reply({"v": 1})
+    reply = p.parse_result(console)
     assert reply.ok and reply.data == {"v": 1}
 
 

@@ -48,11 +48,11 @@ def test_request_raises_on_nak(client):
         client.request("procedure", name="autofocus")
 
 
-def test_unknown_command_is_a_programming_error(client):
-    # There is no injected-script template for an unknown command; that is a bug
-    # in the caller, surfaced as KeyError (not a wire NAK).
-    with pytest.raises(KeyError):
-        client.try_request("bogus_command")
+def test_unknown_command_is_rejected_by_the_server_allowlist(client):
+    # An unknown call is not in the server's fixed allowlist, so it never runs;
+    # the server replies with an error and the client surfaces it as a failed Reply.
+    reply = client.try_request("bogus_command")
+    assert not reply.ok and "bogus_command" in reply.error
 
 
 def test_injected_error(server):

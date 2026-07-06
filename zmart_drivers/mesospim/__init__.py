@@ -4,13 +4,13 @@ mesospim -- mesoSPIM light-sheet microscope driver (ZMART).
 A vendor sibling to the Leica ``navigator_expert`` and ZEISS ``zenapi`` drivers,
 targeting **mesoSPIM-control** (the GPL PyQt5 acquisition app) from an external
 MIT client. mesoSPIM-control has no external control API, so this driver talks to
-its **Remote Scripting** server (a tiny generic bridge -- see ``pull_request/`` --
-that runs a Python script in the live Core and returns the console) over a
-localhost TCP socket. The driver injects small scripts (``connection/scripts.py``)
-and parses a structured result back, keeping ZMART MIT behind the process boundary
-while all the command vocabulary stays client-side. See ``README.md`` for the
-architecture and licensing rationale, and ``pull_request/PROTOCOL.md`` for the
-wire framing.
+its **Remote Scripting** server (see ``pull_request/``) run in **restricted mode**:
+the wire carries a named call, ``{"call": <name>, "args": {...}}`` -- data, not
+code -- and the server dispatches it against a fixed allowlist
+(``connection/command_api.py``). No client Python is ever ``exec``d. This keeps
+ZMART MIT behind the process boundary and gives a standard, filterable call
+surface. See ``README.md`` for the architecture and licensing rationale, and
+``pull_request/PROTOCOL.md`` for the wire framing.
 
 The public surface is **synchronous**, so operator notebooks keep the thin
 1-3-line invocation style used across the ZMART drivers::
@@ -92,7 +92,7 @@ from .connection.session import close, connect
 from .controller import register
 
 # --- protocol (for advanced callers / server authors) ---
-from .protocol import Reply, frame, parse_result, wrap_script
+from .protocol import Reply, encode_call, encode_reply, frame, parse_result
 
 # --- state readers ---
 from .readers import (
@@ -121,7 +121,8 @@ __all__ = [
     # protocol
     "Reply",
     "frame",
-    "wrap_script",
+    "encode_call",
+    "encode_reply",
     "parse_result",
     # readers
     "Reading",
