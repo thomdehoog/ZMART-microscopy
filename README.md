@@ -124,11 +124,12 @@ Targets **Python 3.10-3.12**. Live control needs the microscope's own software
 installed (e.g. LAS X for the Leica driver); registration/focusing run on any OS.
 
 **2. Set the stage limits** — the driver refuses to move until machine-local
-limits exist (no bundled fallback). Run
+limits exist (no bundled fallback). 
+
+For the Leica Stellaris driver run:
 `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb`
 once; it publishes a single `limits.json` for this machine.
 
 **3. Run it** — from the Leica driver dir, `python run_ci.py online` (read-only),
 then `python run_ci.py online --live-writes` for the full bench validation. Each
 driver's README documents its own run steps.
-
