@@ -47,7 +47,7 @@ OPS: tuple[str, ...] = (
     "get_state",
     "set_state",
     "get_procedures",
-    "set_procedure",
+    "run_procedure",
     "get_context",
 )
 

@@ -120,8 +120,8 @@ class TestProcedures:
     def test_get_procedures_lists_available(self, mic):
         assert "autofocus" in mic.get_procedures()
 
-    def test_set_procedure_returns_driver_record(self, mic):
-        assert mic.set_procedure({"name": "autofocus"})["ran"]["name"] == "autofocus"
+    def test_run_procedure_returns_driver_record(self, mic):
+        assert mic.run_procedure({"name": "autofocus"})["ran"]["name"] == "autofocus"
 
 
 class TestContext:

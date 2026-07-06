@@ -23,8 +23,8 @@ from .zmart_adapter import (  # noqa: F401 -- re-exported public surface
     get_state,
     get_xyz,
     register,
+    run_procedure,
     set_origin,
-    set_procedure,
     set_state,
     set_xyz,
 )

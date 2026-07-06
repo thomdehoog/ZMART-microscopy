@@ -52,7 +52,7 @@ zmart_controller.acquire(acquisition_type=String, position_label=String, options
 
 # 6) Run a procedure specific to the microscope (e.g. hardware autofocus)
 zmart_controller.get_procedures()
-zmart_controller.set_procedure(Dict)
+zmart_controller.run_procedure(Dict)
 
 # 7) Get additional context the driver provides (e.g. initial positions)
 zmart_controller.get_context()
@@ -65,8 +65,8 @@ Most steps follow the same pattern: **discover, then apply.** Call a `get_*`
 function to see what the microscope supports, each option lists its allowed
 values and the one currently active. Then pass your choice to the matching call.
 Omit an option and the driver keeps its active default, so you only specify what
-you want to change. In this vocabulary `set_*` means "apply — or run": `set_state`
-reapplies a snapshot, `set_procedure` *runs* a procedure, `set_instrument` connects.
+you want to change. `set_*` applies a snapshot or value (`set_state`, `set_xyz`,
+`set_instrument`); `run_procedure` runs a named procedure instead.
 
 ## The workflow, step by step
 
@@ -152,12 +152,12 @@ numeric-label overwrites.
 ### 6. Run a procedure
 
 `get_procedures()` lists the named jobs the driver offers (e.g. hardware
-autofocus); `set_procedure()` runs one. Procedures are opaque dicts the driver
+autofocus); `run_procedure()` runs one. Procedures are opaque dicts the driver
 interprets.
 
 ```python
 zmart_controller.get_procedures()                       # {"autofocus": {...}, ...}
-zmart_controller.set_procedure({"name": "autofocus"})
+zmart_controller.run_procedure({"name": "autofocus"})
 ```
 
 ### 7. Get additional context
@@ -206,7 +206,7 @@ register(
     ops={"connect": ..., "get_acquisition_options": ..., "set_origin": ...,
          "get_actuators": ..., "get_xyz": ..., "set_xyz": ..., "acquire": ...,
          "get_state": ..., "set_state": ..., "get_procedures": ...,
-         "set_procedure": ..., "get_context": ...},
+         "run_procedure": ..., "get_context": ...},
 )
 ```
 

@@ -181,13 +181,13 @@ def test_procedures(session):
 
     procs = session.get_procedures()
     assert "autofocus" in procs and "move_focus" in procs
-    assert session.set_procedure({"name": "move_focus", "value": 12.0})["ran"] == "move_focus"
+    assert session.run_procedure({"name": "move_focus", "value": 12.0})["ran"] == "move_focus"
     # autofocus/find_sample are advertised but the resident server NAKs them today
     # (TODO §5), so forwarding raises rather than silently "succeeding".
     with pytest.raises(MesospimError):
-        session.set_procedure({"name": "autofocus"})
+        session.run_procedure({"name": "autofocus"})
     with pytest.raises(ValueError):
-        session.set_procedure({"name": "nope"})
+        session.run_procedure({"name": "nope"})
 
 
 def test_context(session):
@@ -286,11 +286,11 @@ def test_machine_stage_envelope_overrides_bundled(server, tmp_path):
 
 def test_focus_and_rotation_procedures_are_limit_gated(session):
     with pytest.raises(RuntimeError, match="stage.f"):
-        session.set_procedure({"name": "move_focus", "value": 99999.0})
+        session.run_procedure({"name": "move_focus", "value": 99999.0})
     with pytest.raises(RuntimeError, match="stage.theta"):
-        session.set_procedure({"name": "move_rotation", "value": 720.0})
+        session.run_procedure({"name": "move_rotation", "value": 720.0})
     # In-bounds still runs.
-    assert session.set_procedure({"name": "move_rotation", "value": 15.0})["ran"] == "move_rotation"
+    assert session.run_procedure({"name": "move_rotation", "value": 15.0})["ran"] == "move_rotation"
 
 
 def test_mutating_ops_refuse_without_function_limits(session):
@@ -300,7 +300,7 @@ def test_mutating_ops_refuse_without_function_limits(session):
         lambda: session.set_origin(),
         lambda: session.set_xyz(1, 1, 1),
         lambda: session.set_state({"changeable": {}}),
-        lambda: session.set_procedure({"name": "zero_stage"}),
+        lambda: session.run_procedure({"name": "zero_stage"}),
     ):
         with pytest.raises(RuntimeError, match="function limits are not configured"):
             call()

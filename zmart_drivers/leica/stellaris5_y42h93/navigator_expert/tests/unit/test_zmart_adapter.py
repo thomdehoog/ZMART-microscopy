@@ -539,11 +539,11 @@ class TestStateAndProcedures(unittest.TestCase):
         self.assertEqual(procedures["autofocus"]["jobs"], ["AF Job"])
         with patch.object(adapter._motion, "correct_backlash", lambda client, **k: None):
             self.assertEqual(
-                adapter.set_procedure(h, {"name": "backlash_takeup"})["ran"]["name"],
+                adapter.run_procedure(h, {"name": "backlash_takeup"})["ran"]["name"],
                 "backlash_takeup",
             )
         with self.assertRaises(ValueError):
-            adapter.set_procedure(h, {"name": "nope"})
+            adapter.run_procedure(h, {"name": "nope"})
 
     def test_autofocus_runs_capture_only_and_restores_the_selection(self):
         from types import SimpleNamespace
@@ -575,7 +575,7 @@ class TestStateAndProcedures(unittest.TestCase):
                 ),
             ),
         ):
-            result = adapter.set_procedure(h, {"name": "autofocus"})  # single AF job: no arg
+            result = adapter.run_procedure(h, {"name": "autofocus"})  # single AF job: no arg
         # select AF -> capture -> restore the original selection, in order
         self.assertEqual(
             calls, [("select", "AF Job"), ("acquire", "AF Job"), ("select", "Overview")]
@@ -606,7 +606,7 @@ class TestStateAndProcedures(unittest.TestCase):
                 return_value=SimpleNamespace(job="AF Job", started_at=0.0, finished_at=1.0),
             ),
         ):
-            adapter.set_procedure(h, {"name": "autofocus"})
+            adapter.run_procedure(h, {"name": "autofocus"})
         strip.assert_called_once()
 
     def test_autofocus_rejects_a_normal_job(self):
@@ -614,21 +614,21 @@ class TestStateAndProcedures(unittest.TestCase):
         p = self._state_patches()
         with p[2]:
             with self.assertRaisesRegex(ValueError, "not an autofocus job"):
-                adapter.set_procedure(h, {"name": "autofocus", "job": "Overview"})
+                adapter.run_procedure(h, {"name": "autofocus", "job": "Overview"})
 
     def test_autofocus_requires_a_choice_when_several_exist(self):
         h = _handle()
         p = self._state_patches(af_jobs=("AF Job", "AF Fine"))
         with p[2]:
             with self.assertRaisesRegex(ValueError, "multiple autofocus jobs"):
-                adapter.set_procedure(h, {"name": "autofocus"})
+                adapter.run_procedure(h, {"name": "autofocus"})
 
     def test_autofocus_without_af_jobs_is_a_clear_error(self):
         h = _handle()
         p = self._state_patches(af_jobs=())
         with p[2]:
             with self.assertRaisesRegex(RuntimeError, "no autofocus job"):
-                adapter.set_procedure(h, {"name": "autofocus"})
+                adapter.run_procedure(h, {"name": "autofocus"})
 
 
 class TestScanFieldContext(unittest.TestCase):
@@ -1046,7 +1046,7 @@ class TestFunctionLimits(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "refused"):
                 adapter.set_state(h, {"changeable": {"job": "HiRes"}})
             with self.assertRaisesRegex(RuntimeError, "refused"):
-                adapter.set_procedure(h, {"name": "backlash_takeup"})
+                adapter.run_procedure(h, {"name": "backlash_takeup"})
             self.assertIn("backlash_takeup", adapter.get_procedures(h))  # reads fine
 
     def test_get_state_reports_limits_provenance(self):

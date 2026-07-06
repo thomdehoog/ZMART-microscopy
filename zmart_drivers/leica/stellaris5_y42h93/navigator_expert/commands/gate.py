@@ -28,7 +28,7 @@ mutating command wrapper declares exactly one key in :data:`MUTATING_COMMANDS`:
 
 Two keys are vocabulary-only (no wrapper maps to them): ``set_origin`` (the
 adapter op fires no native command — it reads and persists origin.json) and
-``set_procedure`` (its effects run through gated wrappers: backlash ->
+``run_procedure`` (its effects run through gated wrappers: backlash ->
 ``move_xy``, autofocus -> ``select_job``/``acquire``). They stay in the
 vocabulary so a machine file must still make an explicit decision for them.
 
@@ -93,7 +93,7 @@ FUNCTION_LIMIT_KEYS = (
     "set_origin",
     "set_xyz",
     "set_state",
-    "set_procedure",
+    "run_procedure",
     "acquire",
     "move_galvo_to_pixel",
     "save_experiment",

@@ -86,12 +86,12 @@ class Session:
         """The named procedures the driver offers (e.g. hardware autofocus)."""
         return self._ops["get_procedures"](self._handle)
 
-    def set_procedure(self, procedure: dict) -> dict:
+    def run_procedure(self, procedure: dict) -> dict:
         """Run a procedure; return whatever the driver reports.
 
         Its meaning is encoded in the dict and run by the driver.
         """
-        return self._ops["set_procedure"](self._handle, procedure)
+        return self._ops["run_procedure"](self._handle, procedure)
 
     # --- movement -----------------------------------------------------------
 
