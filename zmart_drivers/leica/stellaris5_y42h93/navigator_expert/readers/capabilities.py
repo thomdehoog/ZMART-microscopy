@@ -130,10 +130,12 @@ DATUMS = {
     "jobs": DatumSpec(
         mode_attr="jobs_mode",
         timeout_attr="jobs_timeout_s",
+        # API only: there is no log source for the full job LIST. The log
+        # stream reports only the ACTIVE job (that is the `selected_job`
+        # datum, which keeps its log/hybrid legs); its job-list derivation is
+        # a passive cluster that omits jobs not re-dumped this session, so it
+        # is incomplete. Confirmed on the bench (2026-07-06). No log_fn.
         api_fn=lambda client, **kw: api_reader.get_jobs(client, **kw),
-        log_fn=lambda snapshot, *, max_age_s: log_reader.get_jobs(snapshot, max_age_s=max_age_s),
-        log_max_age_attr="jobs_log_max_age_s",
-        age_key="jobs",
     ),
     "selected_job": DatumSpec(
         mode_attr="selected_job_mode",
