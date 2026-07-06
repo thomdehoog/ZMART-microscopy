@@ -1,10 +1,11 @@
-"""Minimal test for the Remote Scripting PR -- framing + the token gate.
+"""Minimal test for the Remote Scripting PR -- framing, token, and dispatch.
 
 Self-contained: it rebuilds ``mesoSPIM_RemoteScripting.py`` straight from the
 ``0001-*.patch`` new-file hunk (one source of truth -- the patch itself), then
-checks the two things the wire protocol promises: frames round-trip, and the
-shared token is enforced in constant time. No Qt, no mesoSPIM, no ZMART imports
--- the framing/auth classes are Qt-free on purpose. Run it either way::
+checks what the server promises: frames round-trip, the token is enforced in
+constant time, and both front ends (a named call and an MCP tools/call) reach the
+same allowlist -- with a hostile-payload sweep proving nothing outside it ever
+runs. No Qt, no mesoSPIM, no ZMART imports. Run it either way::
 
     pytest pull_request/test_remote_scripting.py
     python  pull_request/test_remote_scripting.py
@@ -15,6 +16,7 @@ License: MIT (test-side; imports nothing from mesoSPIM).
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 _PATCH = Path(__file__).with_name("0001-Add-optional-remote-scripting-server-Tools-Remote-Sc.patch")
@@ -95,7 +97,7 @@ def test_empty_token_counts_as_no_token():
     assert rs.AuthGate("").required is False
 
 
-# -- named calls: dispatched against the fixed allowlist -----------------------
+# -- dispatch: named calls AND MCP, one shared allowlist -----------------------
 
 def _fake_core():
     class Sig:
@@ -109,57 +111,65 @@ def _fake_core():
         def __init__(self):
             self.state = {"filter": "515/30"}
             self.sig_state_request_and_wait_until_done = Sig(self.state.update)
-            self.hit = False  # trip-wire: set only if code below actually runs
 
     return Core()
 
 
 def test_a_named_call_is_dispatched_and_state_changes():
     core = _fake_core()
-    reply = rs.run_command(core, '{"set_state": {"settings": {"filter": "561/LP"}}}')
+    reply = rs.handle_message(core, '{"set_state": {"settings": {"filter": "561/LP"}}}')
     assert reply == "__ZMART_OK__{}"  # the write ack
     assert core.state["filter"] == "561/LP"  # ...and the change landed
 
 
-# -- adversarial: the server must never run anything not in the allowlist ------
-
-def test_an_unknown_method_is_rejected_before_running():
-    # the COMMANDS table IS the allowlist: a name not in it never runs
-    reply = rs.run_command(_fake_core(), '{"rm_rf": {}}')
-    assert "unknown command" in reply and "__ZMART_OK__" not in reply
-
-
-def test_a_python_expression_as_the_method_name_is_just_an_unknown_key():
-    # a client trying to smuggle code gets a dict LOOKUP, never an eval/exec:
-    # the "method" is only ever used as COMMANDS.get(key), so this cannot run.
+def test_an_mcp_tools_call_reaches_the_same_dispatch():
+    # the LLM path and the scripting path converge on one COMMANDS lookup
     core = _fake_core()
-    reply = rs.run_command(core, '{"__import__(\'os\').system(\'echo pwned\')": {}}')
-    assert "unknown command" in reply
-    assert core.hit is False  # nothing executed
+    reply = rs.handle_message(core, json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "set_state", "arguments": {"settings": {"filter": "647-LP"}}}}))
+    assert core.state["filter"] == "647-LP"  # the same Core call ran
+    assert json.loads(reply)["result"]["isError"] is False
 
 
-def test_a_dunder_attribute_name_is_not_dispatchable():
-    # method names are matched against COMMANDS only -- getattr on the Core is
-    # never used, so "__class__", "start", etc. are not reachable unless allowlisted.
-    reply = rs.run_command(_fake_core(), '{"__class__": {}}')
-    assert "unknown command" in reply and "__ZMART_OK__" not in reply
+def test_mcp_tools_list_is_exactly_the_allowlist():
+    reply = rs.handle_message(None, '{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}')
+    tools = [t["name"] for t in json.loads(reply)["result"]["tools"]]
+    assert tools == list(rs.COMMANDS)  # every tool is a mesoSPIM call, nothing else
 
 
-def test_a_non_json_payload_is_a_bad_request_not_a_crash():
-    reply = rs.run_command(_fake_core(), "not json at all")
-    assert reply.startswith("bad request") and "__ZMART_OK__" not in reply
+def test_an_mcp_notification_gets_no_reply():
+    assert rs.handle_message(None, '{"jsonrpc": "2.0", "method": "notifications/initialized"}') is None
 
 
-def test_a_multi_key_object_is_rejected():
-    # exactly one method per message; a two-key object is ambiguous -> rejected
-    reply = rs.run_command(_fake_core(), '{"ping": {}, "stop": {}}')
-    assert reply.startswith("bad request") and "__ZMART_OK__" not in reply
+def test_an_mcp_unknown_method_is_a_json_rpc_error():
+    reply = rs.handle_message(None, '{"jsonrpc": "2.0", "id": 3, "method": "resources/list"}')
+    assert json.loads(reply)["error"]["code"] == -32601
 
 
-def test_a_handler_error_surfaces_as_text_not_a_crash():
-    # a known method whose Core call raises returns the traceback, no OK line
-    reply = rs.run_command(_fake_core(), '{"move_absolute": {"targets": {"x": 1}}}')
-    assert "__ZMART_OK__" not in reply  # the fake Core has no move_absolute -> error text
+# -- adversarial: nothing outside the allowlist ever runs, nothing ever crashes -
+
+_HOSTILE = [
+    '{"rm_rf": {}}',                                     # unknown method
+    '{"__import__(\'os\').system(\'x\')": {}}',          # code smuggled as a method name
+    '{"__class__": {}}',                                 # a dunder name
+    '{"ping": {}, "stop": {}}',                          # two methods in one message
+    '{}', '[1,2,3]', '"hi"', '42', 'null',               # non-single-key / non-object JSON
+    'not json', '{"ping":',                              # malformed JSON
+    '{"set_state": "not-a-dict"}',                       # args that aren't an object
+    '{"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "evil"}}',  # MCP unknown tool
+]
+
+
+def test_no_hostile_payload_runs_anything_or_crashes():
+    # The method is only ever a dict key into COMMANDS -- never eval/exec/getattr --
+    # so every hostile input is a lookup miss: an error reply, state untouched.
+    for payload in _HOSTILE:
+        core = _fake_core()
+        before = dict(core.state)
+        reply = rs.handle_message(core, payload)  # must never raise
+        assert reply is None or isinstance(reply, str)
+        assert core.state == before  # nothing touched the instrument
+        assert "__ZMART_OK__" not in (reply or "")  # no success ack for a bad/unknown call
 
 
 if __name__ == "__main__":  # runnable without pytest, for a quick check next to the PR

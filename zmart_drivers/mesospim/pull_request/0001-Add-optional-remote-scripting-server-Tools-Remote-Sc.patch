@@ -38,38 +38,22 @@ Kept deliberately small and plain, since this is a proposal to an external
 project: every function does one thing, every non-obvious line has a short
 comment saying why it's there.
 
-The framing, token gate, and dispatch carry Qt-free unit tests (frame boundaries,
-oversized input, constant-time compare incl. a non-ASCII token, and adversarial
-dispatch: unknown method, a Python-expression method name, a __dunder__ name, a
-multi-key object, and a handler error are all rejected without running anything).
-The live -D end-to-end run against a real Core is the remaining check.
+Two front ends over the one socket, both landing on the same dispatch:
+- a scripting client sends {"<method>": {args}} and gets "__ZMART_OK__<json>";
+- an LLM speaks MCP (JSON-RPC): tools/list is the allowlist, tools/call runs one
+  method. Same COMMANDS lookup, same validation, same "no code" guarantee.
 
-Adversarial testing against the live demo instance (malformed frames, negative
-length prefixes, connection stealing, abrupt disconnects, oversized claimed
-frame lengths, non-ASCII/invalid-byte script output, rapid connection churn,
-a real concurrent connection race, multi-MB payloads, byte-at-a-time trickle,
-and a script that reassigns sys.stdout itself) turned up and fixed three bugs,
-all pre-existing in the original design:
-- FrameDecoder.frames() now rejects a negative byte-count instead of silently
-  mis-slicing the buffer (Python's negative indexing let "-5\n..." desync the
-  frame boundary instead of raising FramingError).
-- _ThreadTee.write() now falls back to a backslash-escaped version for the real
-  console when the console's encoding (e.g. a legacy Windows codepage) can't
-  display what was printed, instead of letting UnicodeEncodeError propagate out
-  of an otherwise-successful print() call. The client's own captured copy is
-  always the exact original text.
-- _run_script now reasserts sys.stdout/sys.stderr to our own tees at the start
-  of every run. A script has full access to `sys` and can reassign stdout
-  itself (by accident -- e.g. a library that redirects output -- or on
-  purpose); previously that persisted globally, silently swallowing every
-  print() from every script on every future connection until the whole
-  process restarted (CPython's print() no-ops rather than raising when
-  sys.stdout is None, so this failed silently, not with a traceback).
+The framing, token gate, and dispatch carry Qt-free unit tests (frame boundaries,
+negative/oversized length prefixes, constant-time compare incl. a non-ASCII token,
+both front ends reaching the same dispatch, and a hostile-payload sweep -- unknown
+method, a Python-expression method name, a __dunder__ name, a multi-key object,
+malformed JSON, MCP edge cases -- all rejected without running anything or
+crashing). The live -D end-to-end run against a real Core is the remaining check.
 ---
  mesoSPIM/src/mesoSPIM_Core.py            |  31 +++
  mesoSPIM/src/mesoSPIM_MainWindow.py      | 135 +++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 406 ++++++++++++++++++++++++++++++++++++++++
- 3 files changed, 463 insertions(+)
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 435 ++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 601 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
@@ -290,19 +274,23 @@ index 75ff770..cd1ef5c 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteScripting.py b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 new file mode 100644
-index 0000000..3d32fc8
+index 0000000..06ab7e5
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,406 @@
+@@ -0,0 +1,435 @@
 +"""
 +mesoSPIM remote scripting server.
 +==================================
-+Lets an external program control mesoSPIM over TCP by **named calls, not code**.
-+A client sends one message, a single-key JSON object ``{"<method>": {args}}``; the
-+server looks the method up in the fixed :data:`COMMANDS` allowlist below and runs
-+the matching ``mesoSPIM_Core`` call -- the same methods the GUI's own buttons call.
-+An unknown method is rejected before anything touches the instrument. No client
-+Python is ever run.
++Lets an external program control mesoSPIM over TCP by **named calls, not code**,
++two ways over the one socket, both landing on the same :func:`_dispatch`:
++
++- **scripting**: a single-key JSON object ``{"<method>": {args}}`` -> ``__ZMART_OK__<json>``.
++- **LLM (MCP)**: a JSON-RPC ``tools/call`` -> a JSON-RPC result.
++
++Either way the method is looked up in the fixed :data:`COMMANDS` allowlist and the
++matching ``mesoSPIM_Core`` call runs -- the same methods the GUI's buttons call. An
++unknown method is rejected before anything touches the instrument. No client Python
++is ever run.
 +
 +Security: the server is off until an operator starts it, listens on 127.0.0.1 by
 +default, and can require a shared token (checked in constant time, so timing can't
@@ -493,27 +481,50 @@ index 0000000..3d32fc8
 +}
 +
 +
-+def run_command(core, payload):
-+    """Dispatch one ``{"<method>": {args}}`` message against COMMANDS; return the reply.
++def _dispatch(core, call, args):
++    """One allowlisted call -> result dict (unknown method -> KeyError). The single
++    point where a request becomes a Core call, shared by both front ends."""
++    if call not in COMMANDS:
++        raise KeyError(f"unknown command {call!r}")
++    return COMMANDS[call](core, args or {})
 +
-+    The message is a single-key JSON object: the key is the method name, the value
-+    is its args. On success the reply is one ``__ZMART_OK__<json>`` line; on a bad
-+    payload, an unknown method, or a handler error, the reply is the error text (no
-+    marker line), so a client handles success and failure the same way. No client
-+    code is ever executed.
-+    """
++
++def handle_message(core, payload):
++    """Route one message to _dispatch: MCP (jsonrpc) or a named call {'<method>': {args}}.
++    Returns the reply text, or None for an MCP notification. Any failure -> error text."""
 +    try:
 +        msg = json.loads(payload)
++        if msg.get("jsonrpc") == "2.0":
++            return _mcp_reply(core, msg)
 +        (call, args), = msg.items()  # exactly one key: method -> args
-+    except (ValueError, AttributeError):
-+        return "bad request: expected {'<method>': {args}}"
-+    handler = COMMANDS.get(call)
-+    if handler is None:
-+        return f"unknown command {call!r}; not in the allowlist"
-+    try:
-+        return OK_MARKER + json.dumps(handler(core, args or {}))
-+    except Exception:
-+        return traceback.format_exc()
++        return OK_MARKER + json.dumps(_dispatch(core, call, args))
++    except Exception as exc:
++        return f"error: {exc}"
++
++
++def _mcp_reply(core, msg):
++    """MCP (LLM) path: a JSON-RPC request -> a response string (None for a notification)."""
++    rid = msg.get("id")
++    if rid is None:
++        return None  # a notification (e.g. notifications/initialized) gets no reply
++    method = msg.get("method")
++    if method == "initialize":
++        result = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
++                  "serverInfo": {"name": "mesoSPIM", "version": 1}}
++    elif method == "tools/list":
++        result = {"tools": [{"name": n, "description": f"mesoSPIM {n} call",
++                             "inputSchema": {"type": "object"}} for n in COMMANDS]}
++    elif method == "tools/call":
++        p = msg.get("params") or {}
++        try:
++            text, err = json.dumps(_dispatch(core, p.get("name"), p.get("arguments") or {})), False
++        except Exception as exc:
++            text, err = json.dumps({"error": str(exc)}), True
++        result = {"content": [{"type": "text", "text": text}], "isError": err}
++    else:
++        return json.dumps({"jsonrpc": "2.0", "id": rid,
++                           "error": {"code": -32601, "message": f"method not found: {method}"}})
++    return json.dumps({"jsonrpc": "2.0", "id": rid, "result": result})
 +
 +
 +class FrameDecoder:
@@ -692,7 +703,9 @@ index 0000000..3d32fc8
 +                self._send("AUTH-FAILED")
 +                self._close()
 +            return
-+        self._send(run_command(self.core, message))  # named call -> allowlist; no client code ever runs
++        reply = handle_message(self.core, message)  # named call or MCP -> allowlist; no client code runs
++        if reply is not None:  # None = an MCP notification, which gets no reply
++            self._send(reply)
 +
 +    def stop(self):
 +        """Close the listening socket. Safe to call more than once."""
