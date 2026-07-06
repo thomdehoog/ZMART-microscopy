@@ -20,12 +20,12 @@ Two primitives for the two physical patterns:
       when you're already at the target and just need to pin the
       slack-state without net displacement.
 
-Calibrated parameters live in ``stage_cfg["backlash"]`` from
-``motion.stage_config.load``, but the production caller — the ZMART
-adapter — currently calls both helpers with no backlash arguments, so the
-function defaults below are the operative values on that path.
-Recalibrating the ``backlash`` block changes nothing until callers thread
-it through.
+These are plain utility functions with baked-in default params (decision §2b):
+``overshoot_um=50``, ``settle_ms=100``, ``tolerance_um`` per the move profile.
+Backlash is not config — it lives in neither ``limits.json`` nor
+``calibration.json``. Callers that want non-default takeup pass the params
+explicitly; the ZMART adapter calls both helpers bare, so the signature
+defaults below are the operative values.
 
 The mechanical rule is simple: every compensated move finishes from the same
 direction, so the stage enters the same backlash state before acquisition.
@@ -70,10 +70,9 @@ def move_xy_with_backlash(
         Pause between the overshoot waypoint and the final approach.
     tolerance_um
         Position confirmation tolerance for both legs; None uses the
-        move profile's default. Callers may pass the calibrated
-        ``backlash["tolerance_um"]`` from the machine snapshot; the
-        ZMART adapter currently does not, so the profile default is
-        operative there.
+        move profile's default. Callers may pass an explicit tolerance;
+        the ZMART adapter does not, so the profile default is operative
+        there.
 
     Returns
     -------
@@ -134,10 +133,9 @@ def correct_backlash(client, *, overshoot_um=50.0, settle_ms=100, tolerance_um=2
         Pass-through to ``move_xy``. Loose by default; the takeup
         does not need precision.
 
-    Callers may pass calibrated values from ``stage_cfg["backlash"]``
-    (via ``motion.stage_config.load``); the ZMART adapter currently
-    calls this with no arguments, so the defaults above are the
-    operative values on that path.
+    Callers may pass explicit params for non-default takeup; the ZMART
+    adapter calls this with no arguments, so the signature defaults above
+    are the operative values on that path.
     """
     # This read parameterizes the two corrective moves below, so bypass the
     # passive reader profile and use the authoritative API path.

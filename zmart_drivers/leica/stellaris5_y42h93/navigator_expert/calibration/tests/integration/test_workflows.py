@@ -277,7 +277,7 @@ def _patch_driver(
         lambda client, **k: SimpleNamespace(
             ok=True,
             error=None,
-            stage_cfg={"backlash": {"x_um": 50.0, "y_um": 50.0}},
+            stage_cfg={"stage_um": {"x": [1000.0, 130000.0], "y": [1000.0, 100000.0]}},
         ),
     )
     monkeypatch.setattr(
@@ -661,13 +661,6 @@ def _current_calibration_payload(matrix=None):
                 "translation_um": [100.0, 100.0, 10.0],
                 "session_id": "target",
             },
-        },
-        "backlash": {
-            "approach": "+X+Y",
-            "overshoot_um": 50.0,
-            "settle_ms": 100,
-            "tolerance_um": 20.0,
-            "session_id": None,
         },
     }
 
@@ -1251,7 +1244,7 @@ def _patch_objective_driver(
         lambda client, **k: SimpleNamespace(
             ok=True,
             error=None,
-            stage_cfg={"backlash": {"x_um": 50.0, "y_um": 50.0}},
+            stage_cfg={"stage_um": {"x": [1000.0, 130000.0], "y": [1000.0, 100000.0]}},
         ),
     )
     monkeypatch.setattr(

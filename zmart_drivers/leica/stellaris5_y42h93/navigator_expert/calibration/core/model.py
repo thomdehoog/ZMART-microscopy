@@ -3,9 +3,15 @@
 The calibration is resolved through the machine profile - the newest snapshot
 under ``C:\\ProgramData\\zmart-microscopy\\...`` or the driver-bundled default
 (see :mod:`navigator_expert.config.machine`). Schema v11 keeps only
-consumer-facing state: the image-to-stage matrix, one objective translation
-triple per slot, and calibrated backlash parameters. Diagnostic sub-deltas from
-calibration sessions stay in the session reports instead of the canonical JSON.
+consumer-facing state: the image-to-stage matrix and one objective translation
+triple per slot. Diagnostic sub-deltas from calibration sessions stay in the
+session reports instead of the canonical JSON.
+
+Backlash is a plain motion utility with baked-in default params (decision §2b,
+:mod:`navigator_expert.motion.movement`), not calibration state. It is no
+longer part of the schema. A ``backlash`` block left over in an older
+machine-local ``calibration.json`` is tolerated (ignored), not rejected, so an
+existing file keeps loading without a re-adopt.
 """
 
 from __future__ import annotations
@@ -95,19 +101,9 @@ def validate_calibration(config: dict[str, Any]) -> None:
             if key not in entry:
                 raise ValueError(f"calibration objective {slot!r} missing field: {key!r}")
 
-    backlash = _require_block(config, "backlash")
-    for key in (
-        "approach",
-        "overshoot_um",
-        "settle_ms",
-        "tolerance_um",
-        "session_id",
-    ):
-        if key not in backlash:
-            raise ValueError(f"calibration backlash missing field: {key!r}")
-    float(backlash["overshoot_um"])
-    int(backlash["settle_ms"])
-    float(backlash["tolerance_um"])
+    # No backlash block: backlash is a motion utility with baked-in defaults
+    # (decision §2b), not calibration state. A stray ``backlash`` key in an
+    # older machine-local file is ignored, not validated.
 
 
 def load_calibration(path: str | Path | None = None) -> dict[str, Any]:

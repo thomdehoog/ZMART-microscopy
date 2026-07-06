@@ -69,10 +69,10 @@ CONFIRM_POLL_S = 3  # Per-attempt readback poll window (NOT a timeout): poll the
 # scope.
 #
 # WARNING: the committed value was measured on the ZMB STELLARIS 8 while
-# this driver targets the STELLARIS 5 (y42h93). Unlike image_to_stage and
-# backlash it does not route through the machine calibration snapshots, so
-# a per-scope error can only be corrected by editing this constant —
-# verify it before trusting galvo-pan targeting on a new instrument.
+# this driver targets the STELLARIS 5 (y42h93). Unlike image_to_stage it
+# does not route through the machine calibration snapshots, so a per-scope
+# error can only be corrected by editing this constant — verify it before
+# trusting galvo-pan targeting on a new instrument.
 PAN_LIMIT = 0.00775  # max pan value per axis (software limit)
 GALVO_FIELD_FRACTION = 0.667  # sample shift at max pan, as fraction of base FOV
 

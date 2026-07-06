@@ -301,7 +301,7 @@ def test_stage_limit_update_writes_loads_and_applies_current(monkeypatch):
         "z_galvo": [-2.0, 2.0],
         "z_wide": [0.0, 100.0],
     }
-    loaded_cfg = {"stage_um": stage_um, "backlash": {"session_id": "b1"}}
+    loaded_cfg = {"stage_um": stage_um}
     active = {
         "x_min": 10.0,
         "x_max": 20.0,

@@ -28,8 +28,9 @@ Adopting a calibration publishes a dated, machine-local **snapshot** under
 `C:\ProgramData\zmart-microscopy\<vendor>\<microscope>\<api>\<datetime>\`. Each
 snapshot dir holds exactly three files: `calibration.json` (optical
 calibration), the physical `limits.json` (the single function-keyed limits
-file: `constraints` + `functions` + `backlash`), and the operator's
-`origin.json` (frame zero point, carried forward) — plus the executed notebook.
+file: `constraints` + `functions`; no `backlash` block — backlash is a motion
+utility with baked-in defaults, §2b), and the operator's `origin.json` (frame
+zero point, carried forward) — plus the executed notebook.
 The driver reads the newest snapshot (`config/machine.py`). `calibration.json`
 keeps a loud bundled **read** fallback (`calibration/defaults/`) when no
 snapshot exists; `limits.json` does **not** fall back for enforcement

@@ -10,7 +10,7 @@ Package layout::
     - readers/      API/log/hybrid state readers
     - scanfields/   LAS X scan-field files, parsing, planning, strip/restore
     - acquisition/  acquire-only capture, LAS X file export, OME fixes, save
-    - motion/       stage limits, backlash-aware movement, stage config
+    - motion/       stage limits, backlash motion utilities, stage config
     - calibration/  image-stage + objective-pair calibration (model + defaults consumed at connect)
     - limits/       stage/function limits TEMPLATES + the operator notebook that
                     creates the machine-local (enforceable) files
