@@ -112,7 +112,7 @@ sess.set_state({"laser": "488 nm", "intensity": 20, "filter": "Empty", "zoom": "
 
 # Focus / rotation / autofocus etc. are exposed as procedures:
 sess.get_procedures()                       # move_focus, move_rotation, zero_stage, ...
-sess.set_procedure({"name": "move_focus", "value": 5100.0})
+sess.run_procedure({"name": "move_focus", "value": 5100.0})
 
 # Acquire one frame at a labelled position; returns the written files.
 r = sess.acquire("snap", "A1", options={"format": "ome-tiff"})

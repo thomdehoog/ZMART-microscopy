@@ -249,7 +249,7 @@ def get_procedures(handle: MockHandle) -> dict:
     }
 
 
-def set_procedure(handle: MockHandle, procedure: dict) -> dict:
+def run_procedure(handle: MockHandle, procedure: dict) -> dict:
     """Run a procedure and report what ran."""
     _require_open(handle)
     return {"ran": dict(procedure)}
@@ -286,7 +286,7 @@ def register_mock() -> None:
             "get_state": get_state,
             "set_state": set_state,
             "get_procedures": get_procedures,
-            "set_procedure": set_procedure,
+            "run_procedure": run_procedure,
             "get_context": get_context,
         },
     )

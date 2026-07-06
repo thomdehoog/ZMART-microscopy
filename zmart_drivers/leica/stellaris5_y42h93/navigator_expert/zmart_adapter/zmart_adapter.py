@@ -40,7 +40,7 @@ Scope of v1 (grow as needed):
       is LAS X's unit of configuration, so reapplying the selection
       restores the whole setup).
     - ``get_procedures`` offers backlash takeup and autofocus (with
-      job discovery); ``set_procedure`` runs them.
+      job discovery); ``run_procedure`` runs them.
     - ``acquire`` selects the job, captures, and saves in one step;
       ``acquisition_type``/``position_label`` map onto the driver's
       Naming slots and travel verbatim in the save lineage.
@@ -777,7 +777,7 @@ def set_state(handle: ZmartHandle, state: dict) -> dict:
         if job in (j.get("Name") for j in autofocus):
             raise ValueError(
                 f"{job!r} is an autofocus job — run it via the 'autofocus' "
-                "procedure (set_procedure), not as state"
+                "procedure (run_procedure), not as state"
             )
         if job not in names:
             raise ValueError(
@@ -807,7 +807,7 @@ def get_procedures(handle: ZmartHandle) -> dict:
     }
 
 
-def set_procedure(handle: ZmartHandle, procedure: dict) -> dict:
+def run_procedure(handle: ZmartHandle, procedure: dict) -> dict:
     """Run a procedure from :func:`get_procedures`; report what ran."""
     _require_open(handle)
     name = procedure.get("name")
@@ -1004,7 +1004,7 @@ def register() -> None:
             "get_state": get_state,
             "set_state": set_state,
             "get_procedures": get_procedures,
-            "set_procedure": set_procedure,
+            "run_procedure": run_procedure,
             "get_context": get_context,
         },
     )

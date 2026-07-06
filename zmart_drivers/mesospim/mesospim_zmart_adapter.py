@@ -55,7 +55,7 @@ log = logging.getLogger(__name__)
 # The ops that change something about the microscope. Each MUST have an entry
 # in function_limits.json (null = reviewed-and-unlimited); the loader rejects
 # a file that misses one, so a new mutating op cannot ship silently unlimited.
-_MUTATING_OPS = ("set_origin", "set_xyz", "set_state", "set_procedure", "acquire")
+_MUTATING_OPS = ("set_origin", "set_xyz", "set_state", "run_procedure", "acquire")
 
 # Per-axis actuator options this instrument exposes to the controller. mesoSPIM
 # linear axes are single-motoric; focus/rotation are separate axes reached via
@@ -402,7 +402,7 @@ def get_procedures(handle: MesospimHandle) -> dict:
     return procs
 
 
-def set_procedure(handle: MesospimHandle, procedure: dict) -> dict:
+def run_procedure(handle: MesospimHandle, procedure: dict) -> dict:
     """Run a procedure. ``procedure`` is ``{"name": ..., ...args}``.
 
     The focus / rotation moves are gated by the function-keyed limits under
@@ -411,16 +411,16 @@ def set_procedure(handle: MesospimHandle, procedure: dict) -> dict:
     """
     name = procedure.get("name")
     if name == "move_focus":
-        _check_limits(handle, "set_procedure", {"f": float(procedure["value"])})
+        _check_limits(handle, "run_procedure", {"f": float(procedure["value"])})
         result = _cmd.move_focus(handle.client, float(procedure["value"]))
     elif name == "move_rotation":
-        _check_limits(handle, "set_procedure", {"theta": float(procedure["value"])})
+        _check_limits(handle, "run_procedure", {"theta": float(procedure["value"])})
         result = _cmd.move_rotation(handle.client, float(procedure["value"]))
     elif name == "zero_stage":
-        _check_limits(handle, "set_procedure", {})
+        _check_limits(handle, "run_procedure", {})
         result = _cmd.zero_axes(handle.client, ["x", "y", "z"])
     elif name in ("autofocus", "find_sample"):
-        _check_limits(handle, "set_procedure", {})
+        _check_limits(handle, "run_procedure", {})
         # Server-side named procedures: forwarded verbatim to the command server.
         reply = handle.client.request("procedure", name=name, args=procedure.get("args", {}))
         return {"ran": name, "data": dict(reply.data)}
@@ -606,7 +606,7 @@ OPS = {
     "get_state": get_state,
     "set_state": set_state,
     "get_procedures": get_procedures,
-    "set_procedure": set_procedure,
+    "run_procedure": run_procedure,
     "get_context": get_context,
 }
 

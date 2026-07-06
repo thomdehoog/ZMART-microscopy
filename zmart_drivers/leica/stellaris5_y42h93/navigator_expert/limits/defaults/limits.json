@@ -21,9 +21,9 @@
     "acquire": null,
     "load_experiment": null,
     "move_galvo_to_pixel": null,
+    "run_procedure": null,
     "save_experiment": null,
     "set_origin": null,
-    "set_procedure": null,
     "set_state": null,
     "set_xyz": {
       "x_um": "@stage.x",

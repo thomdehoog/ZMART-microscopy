@@ -408,7 +408,7 @@ def phase_autofocus(v: vh.Validator, sess: Any) -> None:
         before = _get_state_settled(sess)["changeable"]["job"]
         result = v.callable(
             "autofocus: run",
-            lambda: sess.set_procedure({"name": "autofocus", "job": af_jobs[0]}),
+            lambda: sess.run_procedure({"name": "autofocus", "job": af_jobs[0]}),
             context={"job": af_jobs[0]},
             mutating=True,
         )

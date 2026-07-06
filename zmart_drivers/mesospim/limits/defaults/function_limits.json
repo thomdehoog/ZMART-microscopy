@@ -31,7 +31,7 @@
       "z": "@stage.z"
     },
     "set_state": null,
-    "set_procedure": {
+    "run_procedure": {
       "f": "@stage.f",
       "theta": "@stage.theta"
     },

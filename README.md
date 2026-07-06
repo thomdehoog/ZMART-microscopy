@@ -50,7 +50,7 @@ zmart_controller.acquire(acquisition_type=String, position_label=String, options
 
 # 6) Run a procedure specific to the microscope (e.g. hardware autofocus)
 zmart_controller.get_procedures()
-zmart_controller.set_procedure(Dict)
+zmart_controller.run_procedure(Dict)
 
 # 7) Get additional context the driver provides (e.g. initial positions)
 zmart_controller.get_context()
