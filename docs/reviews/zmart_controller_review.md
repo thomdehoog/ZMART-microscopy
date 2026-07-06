@@ -108,19 +108,21 @@ But `from zmart_controller import set_instrument` resolves to the module wrapper
 
 ### ZC-09 — Low — Inconsistent return annotations on `Session` setters
 
-**Where:** `layer.py:72` (`set_state`), `layer.py:84` (`set_procedure`), `layer.py:109` (`set_xyz`).
+**Where:** `layer.py:72` (`set_state`), `layer.py:84` (`run_procedure`), `layer.py:109` (`set_xyz`).
 
 **Problem:** Every `get_*` is annotated `-> dict`, and the setters' docstrings all say "return whatever the driver reports", but the three setters carry no return annotation. Copy-paste drift within one class.
 
 **Action:** Annotate all three `-> dict` (or `-> Any` if the contract is genuinely "whatever" — but the mock and both adapters always return dicts, so `-> dict` matches reality).
 
-### ZC-10 — Low — `set_procedure` runs; `set_instrument` connects
+### ZC-10 — Low — `set_instrument` connects (procedure half resolved)
 
 **Where:** `layer.py:84-89`; `layer.py:177`.
 
-**Problem:** `set_procedure`'s own docstring opens with "Run a procedure" — nothing is set or persisted; both real adapters implement it as command dispatch (mesoSPIM adapter `set_procedure` moves the focus axis). The get/set symmetry is clearly a deliberate vocabulary choice (`layer.py:8-10`), but this one verb misleads about side effects, which matters when the side effect is hardware motion.
+**Resolved (procedure half):** the misleading `set_procedure` verb was renamed to `run_procedure` across the controller and both adapters; its docstring opens with "Run a procedure", so the verb now matches the side effect (command dispatch — e.g. the mesoSPIM adapter's `run_procedure` moves the focus axis). What remains of this finding is `set_instrument`.
 
-**Action:** Either rename to `run_procedure` (with a deprecation alias if churn is a concern), or state the "get discovers / set applies-or-runs" convention once in the README so the asymmetry is a documented rule rather than a surprise.
+**Problem:** `set_instrument`'s get/set framing implies it stores a chosen instrument, but it establishes the session/connection. The get/set symmetry is a deliberate vocabulary choice (`layer.py:8-10`), but this one verb still misleads about side effects, which matters when the side effect is hardware motion.
+
+**Action:** State the "get discovers / set applies / `run_procedure` runs / `set_instrument` connects" convention once in the README so the asymmetry is a documented rule rather than a surprise.
 
 ### ZC-11 — Low **[YAGNI]** — `resolve()` returns its own argument
 
@@ -206,8 +208,8 @@ But `from zmart_controller import set_instrument` resolves to the module wrapper
 | ZC-06 | Medium | Module `__getattr__` delegates private session attributes |
 | ZC-07 | Low | Captured module-level methods go stale after instrument swap |
 | ZC-08 | Low | Unstated single-threaded assumption around `_active` / `REGISTRY` |
-| ZC-09 | Low | Missing return annotations on `set_state` / `set_xyz` / `set_procedure` |
-| ZC-10 | Low | `set_procedure` runs, `set_instrument` connects — misleading verbs |
+| ZC-09 | Low | Missing return annotations on `set_state` / `set_xyz` / `run_procedure` |
+| ZC-10 | Low | `set_instrument` connects — misleading verb (the `set_procedure`→`run_procedure` rename resolved the procedure half) |
 | ZC-11 | Low | `resolve()` returns its own argument **[YAGNI]** |
 | ZC-12 | Low | `register()` doesn't check ops are callable |
 | ZC-13 | Low | Tests reset state through private internals, leaking sessions |
