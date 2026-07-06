@@ -94,7 +94,12 @@ class StateReaderProfile:
     job_settings_log_max_age_s: float = 2.0
     job_settings_timeout_s: float = 2.0
 
-    jobs_mode: str = "hybrid"
+    # jobs is API-pinned, NOT hybrid: the log stream only reports the ACTIVE
+    # job, so its list is incomplete (a job not re-dumped this session is
+    # absent) — only the API enumerates the full job list. Confirmed on the
+    # bench (2026-07-06). selected_job (which job is active) stays hybrid: that
+    # is exactly what the log can see.
+    jobs_mode: str = "api"
     jobs_log_max_age_s: float = 2.0
     jobs_timeout_s: float = 2.0
 

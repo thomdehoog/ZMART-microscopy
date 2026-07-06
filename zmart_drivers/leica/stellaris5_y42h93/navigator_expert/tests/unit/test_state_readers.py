@@ -24,12 +24,13 @@ class TestStateReaders(unittest.TestCase):
 
     def test_default_profile_uses_hybrid_readers(self):
         # Maintainer decision (docs/reviews/MAINTAINER_DECISIONS.md §1):
-        # hybrid is the default for all routed cold reads; api/log stay
-        # selectable per datum.
+        # hybrid is the default for routed cold reads; api/log stay selectable
+        # per datum. Exception: `jobs` is API-pinned because the log only sees
+        # the active job, so its list is incomplete (bench 2026-07-06).
         profile = profiles.STATE_READERS
         self.assertEqual(profile.xy_mode, "hybrid")
         self.assertEqual(profile.job_settings_mode, "hybrid")
-        self.assertEqual(profile.jobs_mode, "hybrid")
+        self.assertEqual(profile.jobs_mode, "api")
         self.assertEqual(profile.selected_job_mode, "hybrid")
         self.assertEqual(profile.hardware_info_mode, "hybrid")
         self.assertEqual(profile.scan_status_mode, "hybrid")
@@ -209,21 +210,26 @@ class TestStateReaders(unittest.TestCase):
         self.assertEqual(second.value, log_value)
         self.assertEqual(first_result[0].source, "log")
 
-    def test_jobs_mode_can_use_log_for_select_job_readback(self):
-        profiles.STATE_READERS = profiles.StateReaderProfile(
-            jobs_mode="log",
-            jobs_log_max_age_s=2.0,
-        )
-        snapshot = SimpleNamespace(now=100.0)
-        jobs = [{"Name": "Overview", "IsSelected": True}]
-        ages = {"jobs": {"Overview": 0.3}, "selected": 0.2}
-        with (
-            patch.object(router.log_reader, "parse_log", return_value=snapshot),
-            patch.object(router.log_reader, "get_jobs", return_value=jobs) as log_jobs,
-            patch.object(router.log_reader, "ages", return_value=ages),
-        ):
-            self.assertEqual(readers.get_jobs(object()), jobs)
-        log_jobs.assert_called_once_with(snapshot, max_age_s=2.0)
+    def test_jobs_has_no_log_leg_and_always_comes_from_api(self):
+        # Bench 2026-07-06: the log stream only reports the ACTIVE job, so the
+        # job LIST has no log source. jobs is API-only — mode="log" fails
+        # closed (UnsupportedSource), and mode="hybrid" degrades to api.
+        profiles.STATE_READERS = profiles.StateReaderProfile(jobs_mode="log")
+        reading = readers.get_jobs(object(), diagnostics=True)
+        self.assertIsNone(reading.value)
+        self.assertIsInstance(reading.error, capabilities.UnsupportedSource)
+
+        full = [{"Name": "A"}, {"Name": "B"}, {"Name": "C"}]
+        for mode in ("api", "hybrid"):
+            profiles.STATE_READERS = profiles.StateReaderProfile(jobs_mode=mode)
+            with (
+                patch.object(router.api_reader, "get_jobs", return_value=full) as api,
+                patch.object(router.log_reader, "parse_log"),
+                patch.object(router.log_reader, "get_jobs") as log_jobs,
+            ):
+                self.assertEqual(readers.get_jobs(object()), full)
+            api.assert_called_once()
+            log_jobs.assert_not_called()
 
     def test_selected_job_log_route_is_independent_from_job_list_route(self):
         profiles.STATE_READERS = profiles.StateReaderProfile(
