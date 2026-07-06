@@ -6,11 +6,11 @@ Scripting** server (the upstream PR under ``pull_request/``). It is a
 process-boundary transport that keeps ZMART MIT while mesoSPIM-control stays GPL
 behind the socket.
 
-The server runs in **restricted mode**: a "command" is a named call on the wire,
-``{"call": <name>, "args": {...}}`` (data, not code), which the server dispatches
-against a fixed allowlist (:mod:`mesospim.connection.command_api`). The client
-frames the call, reads back the reply, and extracts the structured
-``{ok, data, error}`` result (see :mod:`mesospim.protocol`).
+A "command" is a named call on the wire -- a single-key JSON object
+``{"<method>": {args}}`` (data, not code) -- which the server dispatches against a
+fixed allowlist (:mod:`mesospim.connection.command_api`). The client frames the
+call, reads back the reply, and extracts the structured ``{ok, data, error}``
+result (see :mod:`mesospim.protocol`).
 
 The public surface -- ``connect`` / ``request`` / ``try_request`` / ``close`` and
 the ``Reply`` shape -- is unchanged from the previous transport, so the driver's

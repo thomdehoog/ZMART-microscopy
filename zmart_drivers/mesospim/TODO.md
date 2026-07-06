@@ -2,11 +2,11 @@
 
 Status as of this branch: the driver is **implemented and offline-tested** (134
 tests green). It rides mesoSPIM's **Remote Scripting** bridge (the upstream patch
-under `pull_request/`) in **restricted mode**: the wire carries a named call,
-`{"call": <name>, "args": {...}}` — data, not code — and the server dispatches it
-against a fixed allowlist in `connection/command_api.py`. No client Python is
-`exec`d. The mock server dispatches the real calls through that same allowlist
-against a Core-shaped fake, so framing/auth/vocabulary are exercised for real offline.
+under `pull_request/`), which accepts **only named calls**: the wire carries a
+single-key JSON object `{"<method>": {args}}` — data, not code — dispatched against
+a fixed allowlist in `connection/command_api.py`. No client Python is `exec`d. The
+mock server dispatches the real calls through that same allowlist against a
+Core-shaped fake, so framing/auth/vocabulary are exercised for real offline.
 
 > **Transport change.** An earlier iteration used a bespoke ZMART command server
 > loaded into the Core; a second used the Remote Scripting bridge in **exec mode**
@@ -23,16 +23,17 @@ against a Core-shaped fake, so framing/auth/vocabulary are exercised for real of
 
 ---
 
-## 0. Add restricted (named-call) mode to the Remote Scripting server patch ✅
+## 0. Named-call-only Remote Scripting server ✅
 
 **Done.** The server patch (`pull_request/0001-*.patch`, `mesoSPIM_RemoteScripting.py`)
-now has a restricted mode: set `MESOSPIM_RS_RESTRICTED=1` (or pass `restricted=True`)
-and each message is a named call `{"call", "args"}` dispatched against a fixed
-server-side `COMMANDS` allowlist — no `exec`. Reply is `__ZMART_OK__<json>`; unknown
-call / bad payload / handler error surface as error text. Verified Qt-free by
-`pull_request/test_remote_scripting.py` (dispatch + framing + auth), and the new-file
-hunk `git apply`s cleanly. Exec mode is still the default (backward-compatible).
-Remaining for this: the live `-D` round-trip in §1 exercises it end-to-end on a real Core.
+accepts **only named calls** — one single-key JSON object `{"<method>": {args}}`
+dispatched against a fixed server-side `COMMANDS` allowlist. There is **no exec path
+at all**: the whole `execute_script` / per-thread stdout-capture machine was removed,
+so the server is just framing + token + dispatch. Reply is `__ZMART_OK__<json>`;
+unknown method / bad payload / handler error surface as error text. Verified Qt-free
+by `pull_request/test_remote_scripting.py` (dispatch + framing + auth), and the
+new-file hunk `git apply`s cleanly. Remaining: the live `-D` round-trip in §1
+exercises it end-to-end on a real Core.
 
 Legend: 🔴 blocker for live use · 🟠 needed for a real run · 🟢 polish / nice-to-have.
 

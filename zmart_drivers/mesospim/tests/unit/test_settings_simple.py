@@ -16,8 +16,8 @@ def test_setting_change_sends_this_call():
     # one setting change (here: the emission filter) becomes one named call
     call = encode_call("set_state", {"settings": {"filter": "561/LP"}})
 
-    # this exact JSON is the whole request -- data, not code
-    assert call == '{"call": "set_state", "args": {"settings": {"filter": "561/LP"}}}'
+    # this exact JSON is the whole request -- data, not code: {method: args}
+    assert call == '{"set_state": {"settings": {"filter": "561/LP"}}}'
 
 
 def test_the_call_is_dispatched_and_the_state_reads_back():

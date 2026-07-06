@@ -1,8 +1,9 @@
 # Remote scripting protocol
 
 The wire protocol for the mesoSPIM **Remote Scripting** server
-(`mesoSPIM_RemoteScripting.py`). Deliberately tiny: it is a transport for
-"run this script, give me the console output," not a control vocabulary.
+(`mesoSPIM_RemoteScripting.py`). Deliberately tiny: the server accepts **named
+calls, not code** — it validates a small JSON message and translates it into one
+`mesoSPIM_Core` call from a fixed allowlist. No client Python is ever run.
 
 ## Framing
 
@@ -24,62 +25,44 @@ client ── connect
 client ──▶  frame(token)
        ◀──  frame("OK")            # or frame("AUTH-FAILED"), then close
                                      (repeat, or from the start if no token)
-client ──▶  frame(<python script>)
-       ◀──  frame(<console output during the run>)
+client ──▶  frame({"<method>": {args}})
+       ◀──  frame("__ZMART_OK__" + <json result>)   # or error text
 ```
 
 - **Auth.** When the server has a token, the **first** frame must be that token
-  (compared in constant time over UTF-8 bytes). `OK` = authenticated; any script
-  before a successful token frame is refused. When the server has no token, every
-  frame is a script from the start.
-- **Script.** The payload is Python run in the live Core context — the same as
-  mesoSPIM's Script Window, so `self` is the `mesoSPIM_Core`. It may use the full
-  mesoSPIM API (`self.move_absolute(...)`, `self.state[...]`, `self.cfg`, run an
-  acquisition, …).
-- **Reply.** The captured **stdout + stderr** produced while the script ran, as
-  text. A script error is caught and its traceback is included in that text (the
-  connection is not dropped).
+  (compared in constant time over UTF-8 bytes). `OK` = authenticated; any call
+  before a successful token frame is refused. With no token, every frame is a call.
+- **Call.** The payload is one single-key JSON object: the key is the method, the
+  value is its args. The server (1) parses it, (2) validates it is a single-key
+  object whose key is in the `COMMANDS` allowlist, and (3) translates it into the
+  matching `Core` call — the same methods the GUI's own buttons call
+  (`move_absolute`, `set_state`, an acquisition, a state read, …).
+- **Reply.** One line, `__ZMART_OK__` + the JSON result. On a bad payload, an
+  unknown method, or a handler error, the reply is the error text (no marker line),
+  and the connection stays open.
 
 ## Getting a result back
 
-There is no result format on purpose. To return data, have the script `print()`
-it — e.g. a JSON line. Because the reply is the process console (and may include
-concurrent output from other threads, as the Script Window console does),
-delimit a machine-readable result with markers and extract between them:
+The reply is already a clean line: `__ZMART_OK__<json>`. Extract it with the regex
+`^__ZMART_OK__(.*)$` and parse the JSON. If no such line is present, the whole
+reply text is the error. (The `__ZMART_OK__` marker survives even if another thread
+prints to the console, as the Script Window console can.)
 
-```python
-# client sends:
-script = (
-  "import json\n"
-  "print('<<<RESULT>>>' + json.dumps({'x': self.state['position']['x_pos']}) + '<<<END>>>')\n"
-)
-# client parses the reply between <<<RESULT>>> ... <<<END>>>
-```
+## Why this shape (vs. running scripts)
 
-## Restricted mode (no exec)
-
-Set `MESOSPIM_RS_RESTRICTED=1` before starting the server (or pass
-`restricted=True` to `RemoteScriptingServer`). The server then runs **no client
-Python**. Each message after the token is a named call:
-
-```json
-{"call": "<name>", "args": {...}}
-```
-
-The server looks `<name>` up in a fixed allowlist (`COMMANDS` in
-`mesoSPIM_RemoteScripting.py`) and runs the matching `Core` call. Unknown names
-never run. The reply is one line, `__ZMART_OK__<json>`; on a bad payload, an
-unknown call, or a handler error, the reply is the error text (no marker line) —
-so a client handles success and failure the same way in both modes. This is the
-surface the ZMART mesoSPIM driver uses; framing, auth, and one-client-at-a-time
-are unchanged.
+An earlier draft of this feature ran arbitrary client Python via
+`Core.execute_script` and returned the console. That is maximally flexible but is
+**arbitrary remote code execution** on the acquisition PC. The named-call form
+gives the same control surface (every `Core` operation the driver needs) while the
+server only ever does a dict lookup + a fixed call — so a client can never run code
+that is not in the allowlist. See `COMMANDS` in `mesoSPIM_RemoteScripting.py`.
 
 ## Errors
 
 - Bad framing (a non-integer length line) → the server sends a short error frame
   and closes the connection.
-- A script that raises (exec mode) / a handler that raises (restricted) → its
-  traceback is in the returned text; the connection stays open.
+- A bad payload / unknown method / handler that raises → the error text is the
+  reply; the connection stays open.
 - A second concurrent client → the NEW connection wins: the server drops the
   old socket and serves the newcomer (which must still pass the token gate).
   One client at a time, but a crashed client's half-open socket can never hold

@@ -18,12 +18,12 @@ drivers.
 - **Author:** Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch · thomdehoog@gmail.com
 - **License:** **MIT** (the whole driver). The only GPL-3.0 code is the generic **Remote Scripting** feature
   *in mesoSPIM* (the upstream patch under [`pull_request/`](pull_request/)) — see [§10](#10-licensing--how-this-stays-mit).
-- **Status:** The driver rides mesoSPIM's **Remote Scripting** bridge ([`pull_request/`](pull_request/), v1.20.0)
-  run in **restricted mode**: the wire carries a named call, `{"call": <name>, "args": {...}}` — data, not code —
-  and the server dispatches it against a fixed allowlist ([`connection/command_api.py`](connection/command_api.py)).
+- **Status:** The driver rides mesoSPIM's **Remote Scripting** bridge ([`pull_request/`](pull_request/), v1.20.0),
+  which accepts **only named calls** — the wire carries a single-key JSON object `{"<method>": {args}}` (data, not
+  code) — dispatched against a fixed allowlist ([`connection/command_api.py`](connection/command_api.py)).
   No client Python is ever `exec`d. **134 offline tests** green — the mock server dispatches the real calls through
   that same allowlist against a Core-shaped fake, so framing/auth/vocabulary are exercised for real. Remaining:
-  add restricted mode to the server patch, then the live round-trip + **real-hardware** validation (see [TODO.md](TODO.md)).
+  the live round-trip + **real-hardware** validation (see [TODO.md](TODO.md)).
 
 ## How it controls the microscope — in plain terms
 
@@ -73,7 +73,7 @@ send it commands from outside.
 
 1. **Your code / the ZMART driver (MIT).** You call something plain like
    `drv.move_xy(client, 1000, 2000)`. The driver turns it into one **named call** —
-   `{"call": "move_absolute", "args": {...}}` — plain JSON data, not code.
+   `{"move_absolute": {"targets": {...}}}` — plain JSON data, not code.
 2. **A localhost network socket (`127.0.0.1:42000`).** That call is sent over an
    ordinary TCP socket and a JSON result comes back. This socket is
    the *only* connection between the MIT driver and the GPL mesoSPIM program —

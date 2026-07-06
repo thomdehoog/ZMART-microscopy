@@ -1,7 +1,7 @@
 """Framing + the named-call codec (pure, socket-free).
 
-The transport carries one JSON call each way: the client sends
-``{"call", "args"}`` (:func:`encode_call`), the server dispatches and replies
+The transport carries one JSON call each way: the client sends the single-key
+``{"<method>": {args}}`` (:func:`encode_call`), the server dispatches and replies
 with the ``__ZMART_OK__<json>`` line (:func:`encode_reply`), and the client reads
 it back (:func:`parse_result`). On error the reply has no marker line and the
 whole text surfaces as the error.
@@ -28,9 +28,9 @@ def test_frame_counts_bytes_not_chars():
 # -- request codec: encode_call / decode_call ---------------------------------
 
 
-def test_encode_call_is_plain_json_data():
+def test_encode_call_is_single_key_json_data():
     assert p.encode_call("set_state", {"settings": {"filter": "561/LP"}}) == (
-        '{"call": "set_state", "args": {"settings": {"filter": "561/LP"}}}'
+        '{"set_state": {"settings": {"filter": "561/LP"}}}'
     )
 
 
@@ -40,12 +40,12 @@ def test_encode_then_decode_round_trips():
 
 
 def test_encode_call_defaults_args_to_empty_object():
-    assert p.encode_call("ping") == '{"call": "ping", "args": {}}'
+    assert p.encode_call("ping") == '{"ping": {}}'
 
 
-def test_decode_rejects_a_non_call_object():
+def test_decode_rejects_a_non_single_key_object():
     with pytest.raises(p.ProtocolError):
-        p.decode_call('{"nope": 1}')
+        p.decode_call('{"a": {}, "b": {}}')
 
 
 # -- reply codec: encode_reply / parse_result ---------------------------------
