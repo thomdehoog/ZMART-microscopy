@@ -101,10 +101,11 @@ def current_block_lines(offset, name, block_id):
     ]
 
 
-def hw_line(offset):
+def hw_line(offset, payload=None):
+    payload = payload if payload is not None else {"Microscope": {"name": "DM Manual-6"}}
     return (
         f"{ts(offset)} Result of command Scanner GetConfocalHardwareInfoAsJson "
-        f"'<Result Error=\"\">{json.dumps({'Microscope': {'name': 'DM Manual-6'}})}''"
+        f"'<Result Error=\"\">{json.dumps(payload)}''"
     )
 
 
@@ -332,6 +333,36 @@ class TestLogReader(unittest.TestCase):
         hw = L.get_hardware_info(s)
         self.assertIsNotNone(hw)
         self.assertEqual(hw["Microscope"]["name"], "DM Manual-6")
+
+    def test_hardware_info_survives_the_round_trip_complete_not_just_one_field(self):
+        # The log captures one atomic JSON dump of the real GetConfocalHardwareInfo
+        # result (unlike jobs' incremental cluster reconstruction), so nothing
+        # should be lost between what LAS X wrote and what get_hardware_info reads
+        # back -- multiple objectives, turret slots, and the sibling light-source
+        # lists all included, not just the one field the thin version of this test
+        # checked.
+        payload = {
+            "Microscope": {
+                "name": "DM Manual-6",
+                "objectives": [
+                    {"name": "HC PL APO 10x/0.40 CS2", "magnification": 10, "slotIndex": 1,
+                     "objectiveNumber": 1},
+                    {"name": "HC PL APO 40x/1.30 OIL CS2", "magnification": 40, "slotIndex": 2,
+                     "objectiveNumber": 2},
+                    {"name": "HC PL APO 63x/1.40 OIL CS2", "magnification": 63, "slotIndex": 3,
+                     "objectiveNumber": 3},
+                ],
+            },
+            "LightSources": [],
+            "LightSinks": [],
+        }
+        s = parse([hw_line(0, payload)])
+        hw = L.get_hardware_info(s)
+        self.assertEqual(hw, payload)
+        self.assertEqual(len(hw["Microscope"]["objectives"]), 3)
+        self.assertEqual(
+            [o["slotIndex"] for o in hw["Microscope"]["objectives"]], [1, 2, 3]
+        )
 
     def test_latin1_micro_in_imagesize(self):
         line = atl_line(0, 242, "HiRes", image="290.63 µm x 290.63 µm")
