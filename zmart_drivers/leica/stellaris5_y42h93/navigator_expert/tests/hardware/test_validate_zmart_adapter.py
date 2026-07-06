@@ -10,9 +10,12 @@ the validator logic.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 _HERE = Path(__file__).resolve().parent
 _HELPERS = _HERE.parent / "helpers"
@@ -107,3 +110,55 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     assert "set_xyz: XY move" in text
     assert "move: restore XY + focus (frame 0,0,0)" in text
     assert "set_state: restore" in text
+
+
+def test_acquire_backlash_correction_through_the_controller_seam(tmp_path):
+    """acquire(options={"backlash_correction": True}) through the real Session.
+
+    Unlike the adapter-direct unit tests (which patch driver internals and pass
+    ``object()`` as the client), this opens a real ``zmart_controller.Session``
+    against the in-process mock CAM (same connect path ``phase_acquire`` would
+    use live) and only patches the I/O boundary (``_capture``/``_save``) that a
+    mock CAM cannot satisfy -- so the seam decision #3 cares about (Session ->
+    ops table -> adapter) is what is actually exercised for the
+    ``backlash_correction`` acquisition option.
+    """
+    from navigator_expert.config import profiles
+
+    original_connect = adapter._session.connect_python_client
+    original_profile = profiles.STATE_READERS
+    args = argparse.Namespace(mock=True, mock_latency=0.0, client_name="PythonClient", api_delay_ms=None)
+    order = []
+    try:
+        session = validate_zmart_adapter._connect_session(args, adapter, str(tmp_path))
+        active_job = session.get_state()["changeable"]["job"]
+
+        def fake_correct_backlash(client, **kwargs):
+            order.append(("backlash", client))
+
+        def fake_capture(client, job, **kwargs):
+            order.append(("capture", job))
+            return SimpleNamespace(job=job)
+
+        def fake_save(client, acq, output_root, naming, **kwargs):
+            return SimpleNamespace(image_paths={}, xml_paths={}, naming=naming)
+
+        with (
+            patch.object(adapter._motion, "correct_backlash", fake_correct_backlash),
+            patch.object(adapter._capture, "acquire", fake_capture),
+            patch.object(adapter._save, "save", fake_save),
+        ):
+            record = session.acquire(
+                acquisition_type="prescan",
+                position_label="1",
+                options={"backlash_correction": True},
+            )
+    finally:
+        adapter._session.connect_python_client = original_connect
+        profiles.STATE_READERS = original_profile
+        zmart_controller.disconnect()
+
+    # backlash takeup fires before capture, through the real Session -> ops
+    # table -> adapter seam (not the adapter called in isolation).
+    assert order == [("backlash", order[0][1]), ("capture", active_job)]
+    assert record["settle"] == "backlash-corrected"
