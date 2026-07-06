@@ -7,20 +7,21 @@ Scripting window — nothing else is ever sent.
 
 ## The envelope (identical for every command)
 
+Flat — no `try/except`, no indentation — so it's the leanest thing that works:
+
 ```python
 # zmart-cmd: <name>
-import json, traceback
-try:
-    _a = { ...args as a plain literal... }
-    <body>                                   # the per-command line(s) below
-    print('__ZMART_OK__' + json.dumps(_result))
-except Exception:
-    print('__ZMART_ERR__' + json.dumps(traceback.format_exc()))
+import json
+_a = { ...args as a plain literal... }
+<body>                                   # the per-command line(s) below
+print('__ZMART_OK__' + json.dumps(_result))
 ```
 
-The reply is a single line: `__ZMART_OK__<json>` on success, or
-`__ZMART_ERR__<json>` (a traceback string) if the body raised. Extract it with
-`^__ZMART_(OK|ERR)__(.*)$`.
+Each script is self-contained (its own `import`, args as a literal); only `self`
+(the live Core) comes from the Script Window. The reply is a single line,
+`__ZMART_OK__<json>`, extracted with `^__ZMART_OK__(.*)$`. **On error** the body
+just raises: mesoSPIM's `Core.execute_script` prints the traceback, and the
+client — seeing no `__ZMART_OK__` line — returns that text as the error.
 
 ## Reads — no hardware effect (just build `_result` from `self`)
 
