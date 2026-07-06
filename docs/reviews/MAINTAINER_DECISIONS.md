@@ -70,6 +70,24 @@ an explicit `[]`, absent keys fail closed; calibration lives in the same config
 area but is applied at the objective-change path. Mock + adversarial offline
 gates precede any hardware use. Full plan: `docs/design/limits-enforcement.md`.
 
+## 7b. One `limits.json`; three files per snapshot dir (decided 2026-07-06)
+
+`function_limits.json` and `limits.json` are redundant (the stage envelope appears
+in both). Collapse to **one `limits.json`** in the function-keyed format
+(`constraints` + `functions` + `backlash`); `function_limits.json` is removed. Both
+readers — the motion check (`motion/stage_config`) and the commands gate
+(`commands/gate`) — read this single file (envelope from `constraints.stage.*`,
+backlash from the `backlash` block). Each machine snapshot directory (mirroring the
+driver path) therefore holds exactly three files: `limits.json`, `calibration.json`,
+`origin.json`. Limits and calibration are separate concerns applied at different
+points (limits = physical envelope at the command gate on every move, objective-
+independent; calibration = per-objective translation applied at the objective-change
+path), but they co-locate in the snapshot dir. The limits adopt no longer seeds a
+bundled `calibration.json` (calibration `bundled_ok=False` too): a fresh-machine
+limits adopt writes only `limits.json` and carries forward a *real* prior calibration
+if present, never mints one from the template — calibration stays a loud in-memory
+fallback until an explicit calibration adopt.
+
 ## 6. `confirmed` is best-effort — except acquire's idle gate
 
 - `confirmed` does **not** have to be enforced on command paths: after **3 retries**,
