@@ -135,10 +135,6 @@ def get_config(client, *, diagnostics: bool = False) -> Reading | dict:
     return _wrap(data, diagnostics)
 
 
-# get_hardware_info is the cross-driver name for the same read.
-get_hardware_info = get_config
-
-
 def get_lasers(client) -> list[dict]:
     """List available laser lines as ``[{name, wavelength_nm}, ...]``."""
     return list(get_config(client).get("lasers", []))

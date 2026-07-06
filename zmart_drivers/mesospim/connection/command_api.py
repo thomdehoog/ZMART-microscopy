@@ -177,8 +177,3 @@ def run(core, call: str, args: dict | None = None) -> dict:
     if handler is None:
         raise KeyError(f"unknown command {call!r}; not in the allowlist")
     return handler(core, args or {})
-
-
-def known_commands() -> tuple[str, ...]:
-    """Every call name the server accepts."""
-    return tuple(COMMANDS)
