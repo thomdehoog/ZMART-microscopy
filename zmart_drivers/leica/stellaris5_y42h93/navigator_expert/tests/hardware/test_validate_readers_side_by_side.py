@@ -96,3 +96,30 @@ def test_read_only_mock_run(tmp_path, capsys):
     assert "change[" not in out
     assert "select[" not in out
     assert sorted(tmp_path.glob("hardware_run_report_*.md"))
+
+
+def test_jobs_names_parity_skips_when_job_list_has_no_log_leg(tmp_path, capsys):
+    """The job LIST is API-only: the api-vs-log names parity has no
+    authoritative log source to compare against, so it must SKIP (never FAIL)
+    -- even on real hardware where the log's partial job cluster is non-empty.
+    """
+    _run_mock(tmp_path, "--read-only")
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines() if "get_jobs (names)" in ln)
+    assert line.lstrip().startswith("--")  # skipped, not OK/XX
+    assert "no authoritative log leg" in line
+
+
+def test_parity_log_unsupported_skips_regardless_of_backend():
+    """Rec.parity(log_unsupported=True) skips even on a live backend (mock=False):
+    a datum with no log leg cannot be graded against the log side."""
+
+    class _NullReport:
+        def add(self, **_kwargs):
+            pass
+
+    rec = sxs.Rec(_NullReport(), mock=False)
+    returned = rec.parity("get_jobs (names)", ok=False, extra="api=[...] log=[]", log_unsupported=True)
+    assert returned is True  # skip is not a failure
+    fails, skips, _ = rec.counts()
+    assert not fails and skips == 1

@@ -227,7 +227,12 @@ def test_state_reader_mode_argument_overrides_profile(tmp_path):
         profiles.STATE_READERS = prior
 
 
-def test_explicit_log_mode_fails_when_no_jobs():
+def test_explicit_log_mode_treats_empty_job_list_as_expected():
+    """The job LIST is API-only (no log leg): a log-mode read returning
+    nothing is the declared capability, not a driver fault. phase_readonly
+    must record it as an expected SKIP and enumerate the list via the API
+    leg (selected-job confirmation still exercises the log leg elsewhere)."""
+
     class DummyDrv:
         @staticmethod
         def ping(_client):
@@ -238,8 +243,10 @@ def test_explicit_log_mode_fails_when_no_jobs():
             return "eScanIdle"
 
         @staticmethod
-        def get_jobs(_client, **_kwargs):
-            return None
+        def get_jobs(_client, *, mode=None, **_kwargs):
+            # The log profile (mode is None here) has no job-list leg; only the
+            # API fallback (mode="api") can enumerate the full list.
+            return [{"Name": "HiRes", "IsSelected": True}] if mode == "api" else None
 
         @staticmethod
         def get_hardware_info(_client):
@@ -248,6 +255,14 @@ def test_explicit_log_mode_fails_when_no_jobs():
         @staticmethod
         def get_xy(_client):
             return {"x_um": 1.0, "y_um": 1.0}
+
+        @staticmethod
+        def make_changeable_copy(raw):
+            return dict(raw or {})
+
+        @staticmethod
+        def get_job_settings(_client, _job, **_kwargs):
+            return {}
 
     records = []
     validator = validate_hardware.Validator(
@@ -258,10 +273,10 @@ def test_explicit_log_mode_fails_when_no_jobs():
 
     job = validate_hardware.phase_readonly(DummyDrv, validator, object(), args)
 
-    assert job is None
-    assert validator.exit_code() == 1
+    assert job == "HiRes"  # resolved via the API fallback
+    assert validator.exit_code() == 0  # an empty log job list is not a failure
     resolve = next(r for r in records if r.name == "job: resolve")
-    assert resolve.status == "FAIL"
+    assert resolve.status == "SKIP"
 
 
 def test_selected_job_api_lag_after_log_confirm_is_warn():
