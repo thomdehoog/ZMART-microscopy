@@ -181,10 +181,11 @@ def test_validate_hardware_full_mock_run(tmp_path):
     assert {record["context"]["job"] for record in select_job_records} == {
         "HiRes",
         "Overview",
+        "AF Job",
     }
     assert {
         record["name"].removeprefix("job selection: confirmed ") for record in selected_job_records
-    } == {"HiRes", "Overview"}
+    } == {"HiRes", "Overview", "AF Job"}
 
     # The Markdown run report is produced and carries the summary table,
     # the timing overview, and every instrument change incl. restores.

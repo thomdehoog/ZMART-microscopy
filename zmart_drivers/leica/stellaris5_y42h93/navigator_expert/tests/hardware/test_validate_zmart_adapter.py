@@ -127,7 +127,9 @@ def test_acquire_backlash_correction_through_the_controller_seam(tmp_path):
 
     original_connect = adapter._session.connect_python_client
     original_profile = profiles.STATE_READERS
-    args = argparse.Namespace(mock=True, mock_latency=0.0, client_name="PythonClient", api_delay_ms=None)
+    args = argparse.Namespace(
+        mock=True, mock_latency=0.0, client_name="PythonClient", api_delay_ms=None
+    )
     order = []
     try:
         session = validate_zmart_adapter._connect_session(args, adapter, str(tmp_path))

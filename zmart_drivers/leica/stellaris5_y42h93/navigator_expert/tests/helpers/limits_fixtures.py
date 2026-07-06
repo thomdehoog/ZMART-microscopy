@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from navigator_expert.commands import gate as _gate
+from navigator_expert.config import profiles
 from navigator_expert.config.machine import MachineProfile
 from navigator_expert.motion import limits as _motion_limits
 
@@ -77,10 +78,25 @@ def hermetic_mock_machine_root() -> Path:
     there and a developer machine's real ProgramData is never read), and
     publishes a fixture snapshot — the connect-time limits handshake then
     runs for REAL against machine-local files.
+
+    Also redirects ``profiles.LOG_READER`` to nonexistent paths under the
+    same throwaway root. The mock CAM client has no log stream (by design —
+    see every validator's own "no LAS X log stream" framing), but
+    ``LogReaderProfile``'s defaults are the *real* LAS X log paths
+    (``config/profiles.py``); left alone, a machine with genuine LAS X log
+    history (e.g. the actual bench PC, right after a live session) makes log
+    reads succeed with real, stale data instead of correctly reading absent.
+    Callers running under pytest must restore ``profiles.LOG_READER``
+    afterwards (see ``tests/hardware/conftest.py``'s autouse fixture); this
+    function only sets it.
     """
     root = Path(tempfile.mkdtemp(prefix="zmart_microscopy_mock_root_"))
     os.environ["ZMART_MICROSCOPY_ROOT"] = str(root)
     provision_machine_limits(root)
+    profiles.LOG_READER = profiles.LogReaderProfile(
+        lcs_log_path=str(root / "no_such_lcsCommand.log"),
+        msgbox_log_path=str(root / "no_such_MatrixScreener.log"),
+    )
     return root
 
 

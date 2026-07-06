@@ -269,7 +269,9 @@ class TestGetJobSettingsCorrelationGuard(unittest.TestCase):
                 Model=_Model(), UpdateAwaitReceipt=lambda timeout: True
             )
         )
-        result = A.get_job_settings(client, "NEW_JOB", timeout=0.05, poll_interval=0.001, max_retries=1)
+        result = A.get_job_settings(
+            client, "NEW_JOB", timeout=0.05, poll_interval=0.001, max_retries=1
+        )
         self.assertIsNotNone(result)
         self.assertEqual(result["jobName"], "NEW_JOB")
 
@@ -293,7 +295,9 @@ class TestGetJobSettingsCorrelationGuard(unittest.TestCase):
                 Model=_Model(), UpdateAwaitReceipt=lambda timeout: True
             )
         )
-        result = A.get_job_settings(client, "NEW_JOB", timeout=0.02, poll_interval=0.001, max_retries=1)
+        result = A.get_job_settings(
+            client, "NEW_JOB", timeout=0.02, poll_interval=0.001, max_retries=1
+        )
         self.assertIsNone(result)
 
 

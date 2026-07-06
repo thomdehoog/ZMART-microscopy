@@ -105,6 +105,49 @@ _DEFAULT_JOBS = {
             }
         ],
     },
+    "AF Job": {
+        "zoom": {"current": 1.0},
+        "scanSpeed": {"value": 800, "isResonant": False},
+        "scanMode": "xy",
+        "sequentialMode": "Frame",
+        "scanFieldRotation": {"value": 0.0},
+        "format": "128 x 128",
+        "imageSize": "1200.0 um x 1200.0 um",
+        "pixelSize": "9.375 um x 9.375 um",
+        "xyStage": {"posX": 50000.0, "posY": 30000.0},
+        "objective": {
+            "name": "HC PL APO 10x/0.40 CS2",
+            "magnification": 10,
+            "slotIndex": 1,
+        },
+        "zPosition": {
+            "z-galvo": {"position": 0.0},
+            "z-wide": {"position": 0.0},
+        },
+        "activeSettings": [
+            {
+                "index": 0,
+                "name": "PMT1",
+                "frameAccumulation": 1,
+                "frameAverage": 1,
+                "lineAccumulation": 1,
+                "lineAverage": 1,
+                "pinholeAiry": {"value": 1.0},
+                "activeDetectors": [
+                    {"beamRoute": "40;3", "name": "HyD S1", "gain": {"value": 100.0}}
+                ],
+                "activeLaserLines": [
+                    {
+                        "beamRoute": "30",
+                        "lineIndex": 0,
+                        "wavelength": 488,
+                        "intensity": {"value": 0.05},
+                        "shutterOpen": True,
+                    }
+                ],
+            }
+        ],
+    },
 }
 
 _DEFAULT_HARDWARE = {
