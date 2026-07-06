@@ -36,7 +36,7 @@ def connect(
     timeout: float | None = None,
     token: str | None = None,
 ) -> MesospimClient:
-    """Connect to a running mesoSPIM command server.
+    """Connect to a running mesoSPIM Remote Scripting server.
 
     Args:
         connection: the ZMART controller connection dict; ``host`` / ``port`` /

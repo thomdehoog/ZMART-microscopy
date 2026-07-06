@@ -8,8 +8,8 @@ sockets, or the wire protocol.
 
 Unit convention: the mesoSPIM driver speaks **micrometers** for the linear axes
 (x, y, z, focus) and **degrees** for the rotation axis (theta), on both the
-public API and the wire. The resident command server is responsible for any
-conversion to mesoSPIM's internal units.
+public API and the wire. The server is responsible for any conversion to
+mesoSPIM's internal units.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -37,12 +37,7 @@ def _safe_float(val, default=None):
 
 
 def _make_log_entry(level: str, msg: str) -> dict:
-    """Build a timestamped structured log entry.
-
-    Every command result carries a ``logs`` list of these so callers get an
-    ordered trace of what happened. ``level`` is one of
-    ``debug|info|warning|error``.
-    """
+    """Build a timestamped log entry (``level`` is ``debug|info|warning|error``)."""
     return {"ts": time.time(), "level": level, "msg": msg}
 
 

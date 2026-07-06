@@ -2,10 +2,10 @@
 Capture: snap and acquisition-list runs.
 ========================================
 Microscope-only capture. These helpers build a mesoSPIM ``Acquisition`` dict
-from the current instrument state plus caller options, fire it at the command
-server, and return a save-agnostic :class:`AcquisitionResult` referencing the
-frame files the mesoSPIM image writer produced. No file relocation, OME
-rewriting, or canonical naming happens here -- that is ``acquisition.save``.
+from the current instrument state plus caller options, fire it at the server, and
+return a save-agnostic :class:`AcquisitionResult` referencing the frame files the
+mesoSPIM image writer produced. No file relocation, OME rewriting, or canonical
+naming happens here -- that is ``acquisition.save``.
 
 An ``Acquisition`` is the real mesoSPIM data class (``utils/acquisitions.py``):
 ``x_pos, y_pos, z_start, z_end, z_step, planes, rot, f_start, f_end, laser,
@@ -32,17 +32,11 @@ from .product import AcquisitionMetadata, AcquisitionResult, ChannelMetadata
 log = logging.getLogger(__name__)
 
 
-def _pixel_size_for_zoom(zoom: str | None) -> float | None:
-    for name, px in HARDWARE.zoom_pixel_size_um:
-        if name == zoom:
-            return px
-    return None
-
-
-def _wavelength_for_laser(laser: str | None) -> float | None:
-    for name, wl in HARDWARE.lasers:
-        if name == laser:
-            return float(wl)
+def _lookup(pairs, key, cast=lambda v: v):
+    """First value in ``pairs`` whose name == ``key`` (``cast`` applied), else None."""
+    for name, val in pairs:
+        if name == key:
+            return cast(val)
     return None
 
 
@@ -91,13 +85,13 @@ def build_acquisition(state: dict, options: dict | None = None) -> dict:
 
 
 def _metadata_from(acq: dict, server_data: dict) -> AcquisitionMetadata:
-    px = _pixel_size_for_zoom(acq.get("zoom"))
+    px = _lookup(HARDWARE.zoom_pixel_size_um, acq.get("zoom"))
     pixels = server_data.get("pixels") or list(HARDWARE.camera_pixels)
     channel = ChannelMetadata(
         index=0,
         laser=acq.get("laser"),
         filter=acq.get("filter"),
-        wavelength_nm=_wavelength_for_laser(acq.get("laser")),
+        wavelength_nm=_lookup(HARDWARE.lasers, acq.get("laser"), float),
         intensity=_safe_float(acq.get("intensity")),
     )
     return AcquisitionMetadata(
@@ -113,17 +107,10 @@ def _metadata_from(acq: dict, server_data: dict) -> AcquisitionMetadata:
 
 
 def _run_acquisition(client, acq: dict, *, label: str) -> dict:
-    """Fire one ``Acquisition`` and wait for its stack, without ever blocking
-    a script inside mesoSPIM's event loop.
-
-    Three named calls (see ``connection.command_api``): ``acquire_start``
-    fires ``core.start(row=0)`` and returns immediately; the client then polls
-    ``get_progress`` + ``stat_files`` until the run is idle AND the stack
-    exists on disk (which also covers a run that finished before the first
-    poll); ``acquire_finish`` restores the operator's acquisition list. On
-    timeout the acquisition list is still restored, and this raises with the
-    last observed progress -- a capture can never silently "succeed" without
-    its file.
+    """Run one ``Acquisition`` via the three ``acquire_*`` calls and wait for its
+    stack (``acquire_start`` fires and returns; poll until idle AND the file
+    exists; ``acquire_finish`` restores the operator's list -- even on timeout,
+    which then raises so a capture can never "succeed" without its file).
 
     Returns the ``acquire_start`` reply data (files, planes, pixels).
     """
@@ -171,8 +158,8 @@ def acquire(
     state = state if state is not None else get_state(client)
     # The image writer needs a concrete folder + filename to write the stack to;
     # the controller supplies a staging path, but a direct capture() caller may
-    # not, so default to a fresh temp folder here. The injected acquire script
-    # returns exactly this path, and save() relocates from it.
+    # not, so default to a fresh temp folder here. The acquire_start call returns
+    # exactly this path, and save() relocates from it.
     options = dict(options or {})
     options.setdefault("folder", tempfile.mkdtemp(prefix="mesospim_capture_"))
     options.setdefault("filename", f"{acquisition_type}.tiff")
@@ -222,7 +209,7 @@ def run_acquisition_list(client, acquisitions: list[dict]) -> dict:
     per: list[dict] = []
     for index, one in enumerate(acquisitions):
         # Give every acquisition a concrete folder/filename the image writer can
-        # use (and the injected script can report back), unless the caller set one.
+        # use (and acquire_start can report back), unless the caller set one.
         acq = dict(one)
         acq.setdefault("folder", tempfile.mkdtemp(prefix="mesospim_list_"))
         acq.setdefault("filename", f"acq_{index:04d}.tiff")

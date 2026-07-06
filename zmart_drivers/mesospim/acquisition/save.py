@@ -92,7 +92,7 @@ def save(
         "planes": acq.planes,
         "duration_s": acq.duration_s,
         "acquisition": acq.acquisition,
-        "metadata": _metadata_dict(acq),
+        "metadata": asdict(acq.metadata),  # recurses into the channels tuple
         "image_files": [p.name for p in image_paths],
     }
     tmp = metadata_path.with_suffix(".json.tmp")
@@ -128,8 +128,3 @@ def _unique_stem(data_dir: Path, stem: str) -> str:
         candidate = f"{stem}_{n}"
         n += 1
     return candidate
-
-
-def _metadata_dict(acq: AcquisitionResult) -> dict:
-    # asdict recurses into the channels tuple, converting each ChannelMetadata.
-    return asdict(acq.metadata)
