@@ -796,9 +796,23 @@ def phase_readonly(drv: Any, v: Validator, client: Any, args: argparse.Namespace
         v.callable("get_hardware_info", lambda: drv.get_hardware_info(client))
         v.callable("get_xy", lambda: drv.get_xy(client))
 
+        from navigator_expert.readers import capabilities  # noqa: PLC0415
+
+        jobs_has_log_leg = capabilities.DATUMS["jobs"].log_fn is not None
         if not jobs:
             msg = "no jobs returned"
-            if args.state_reader_mode in {"log", "hybrid"}:
+            if args.state_reader_mode == "log" and not jobs_has_log_leg:
+                # The job LIST is API-only (no log leg); a log-mode read
+                # returning nothing is the declared capability, not a driver
+                # fault. Enumerate the list via API so the write phases have
+                # candidates -- selected-job confirmation still exercises log.
+                v.skip("job: resolve", "job list is API-only (no log leg); enumerating via API")
+                if args.read_only:
+                    return None
+                jobs = _api_control_jobs_for_log_experiment(drv, v, client)
+                if not jobs:
+                    return None
+            elif args.state_reader_mode in {"log", "hybrid"}:
                 v.fail("job: resolve", f"{msg} with --state-reader-mode {args.state_reader_mode}")
                 if args.state_reader_mode == "log" and not args.read_only:
                     jobs = _api_control_jobs_for_log_experiment(drv, v, client)
