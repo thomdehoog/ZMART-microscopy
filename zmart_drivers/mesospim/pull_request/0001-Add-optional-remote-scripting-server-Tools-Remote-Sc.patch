@@ -59,8 +59,8 @@ end-to-end run against a real Core is the remaining check.
 ---
  mesoSPIM/src/mesoSPIM_Core.py            |  31 +++
  mesoSPIM/src/mesoSPIM_MainWindow.py      | 135 +++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 590 ++++++++++++++++++++++++++++++++++++++++
- 3 files changed, 756 insertions(+)
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 627 ++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 793 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
@@ -281,10 +281,10 @@ index 75ff770..cd1ef5c 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteScripting.py b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 new file mode 100644
-index 0000000..6ba0006
+index 0000000..48d4295
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,590 @@
+@@ -0,0 +1,627 @@
 +"""
 +mesoSPIM remote scripting server.
 +==================================
@@ -355,6 +355,17 @@ index 0000000..6ba0006
 +# the allowlist: a name not in it never runs. Verified against v1.20.0.
 +
 +
++# -- writes: the only calls that touch the instrument -----------------------
++# WHY these look the way they do (the mesoSPIM Core API contract, verified v1.20.0):
++#   * move_absolute/move_relative want a dict keyed "<axis>_abs" / "<axis>_rel"
++#     (hence the +"_abs" / +"_rel"); wait_until_done=True makes the move
++#     SYNCHRONOUS, so when we return {} the move has actually finished.
++#   * set_state is fired through the GUI's own signal, not called directly, so a
++#     setting is applied exactly as a button press would be -- on the Core's
++#     thread, through mesoSPIM's own state machine. HOW we know it worked: we
++#     don't guess here, the client reads the state back and compares.
++
++
 +def _move_absolute(core, a):
 +    core.move_absolute({k + "_abs": float(v) for k, v in a["targets"].items()}, wait_until_done=True)
 +    return {}
@@ -366,18 +377,25 @@ index 0000000..6ba0006
 +
 +
 +def _zero(core, a):
-+    core.zero_axes(list(a.get("axes") or _AXES))
++    core.zero_axes(list(a.get("axes") or _AXES))  # no "axes" given -> zero all of them
 +    return {}
 +
 +
 +def _stop(core, a):
-+    core.sig_stop_movement.emit()
++    core.sig_stop_movement.emit()  # a signal, so it interrupts a move already running on the Core thread
 +    return {}
 +
 +
 +def _set_state(core, a):
 +    core.sig_state_request_and_wait_until_done.emit(dict(a["settings"]))
 +    return {}
++
++
++# -- reads: build a JSON result from `core`, touch no hardware ---------------
++# `core.state` is mesoSPIM's live state dict and `core.cfg` its loaded config;
++# every getattr/.get is defensive so a partially-initialised Core reads back a
++# null field instead of raising. Positions are stored under "x_pos" etc., but we
++# also accept a bare "x" key so a version that renames them still reads.
 +
 +
 +def _hello(core, a):
@@ -392,7 +410,7 @@ index 0000000..6ba0006
 +
 +def _get_position(core, a):
 +    pos = (core.state or {}).get("position", {}) or {}
-+    return {ax: pos.get(ax, pos.get(ax + "_pos")) for ax in _AXES}
++    return {ax: pos.get(ax, pos.get(ax + "_pos")) for ax in _AXES}  # "x" or "x_pos" (see note above)
 +
 +
 +def _get_state(core, a):
@@ -407,12 +425,16 @@ index 0000000..6ba0006
 +
 +
 +def _get_config(core, a):
++    # WHY: normalise mesoSPIM's loose config dicts into ONE stable JSON shape a
++    # client can rely on, instead of leaking raw cfg internals. HOW: read each
++    # dict defensively (missing -> {}), and since a laser is named by its
++    # wavelength as text ("488 nm"), pull the digits out to give a real number.
 +    cfg = getattr(core, "cfg", None)
-+    get = lambda n: (getattr(cfg, n, None) or {})  # noqa: E731
++    get = lambda n: (getattr(cfg, n, None) or {})  # noqa: E731 - terse local, used 3x just below
 +    ld = get("laserdict")
 +    lasers = [{"name": n, "wavelength_nm": int("".join(c for c in str(n) if c.isdigit()) or 0) or None}
 +              for n in ld]
-+    zd = get("zoomdict")
++    zd = get("zoomdict")  # zoom -> pixel size (um); some configs store no size, hence the isinstance guard
 +    zooms = [{"name": z, "pixel_size_um": zd.get(z) if isinstance(zd, dict)
 +              and isinstance(zd.get(z), (int, float)) else None} for z in zd]
 +    return {"app": "mesoSPIM-control", "version": getattr(cfg, "version", None),
@@ -430,21 +452,32 @@ index 0000000..6ba0006
 +            "total_acquisitions": st.get("total_acquisitions")}
 +
 +
++# -- acquisition: THREE calls, on purpose -----------------------------------
++# WHY split it: a call runs on the Core's GUI thread, so a single "acquire and
++# block until done" would freeze mesoSPIM for the whole run. Instead:
++#   acquire_start  swap in a one-item acq_list, fire core.start(), return at once;
++#   stat_files     the client polls this (+ get_progress) to see the file appear;
++#   acquire_finish put the operator's original acq_list back.
++# HOW we restore: we temporarily replace state['acq_list'] with our own, so we
++# stash the original on the Core OBJECT (core._zmart_prev_acq_list) -- a plain
++# local wouldn't survive between the two separate calls.
++
++
 +def _acquire_start(core, a):
-+    try:
++    try:  # mesoSPIM's own Acquisition classes -- import path differs by how it's launched
 +        from .utils.acquisitions import Acquisition, AcquisitionList
 +    except ImportError:
 +        from utils.acquisitions import Acquisition, AcquisitionList
 +    acq = dict(a["acquisition"])
 +    obj = Acquisition()
-+    obj.update({k: v for k, v in acq.items() if v is not None})
++    obj.update({k: v for k, v in acq.items() if v is not None})  # keep Acquisition's own defaults for missing keys
 +    st = core.state
-+    try:
++    try:  # remember the operator's list (and whether there even was one) so finish can restore it
 +        core._zmart_prev_acq_list = (True, st["acq_list"])
 +    except (KeyError, TypeError):
 +        core._zmart_prev_acq_list = (False, None)
 +    st["acq_list"] = AcquisitionList([obj])
-+    core.start(row=0)
++    core.start(row=0)  # mesoSPIM's real acquisition entry point; the image writer writes to folder/filename
 +    cfg = getattr(core, "cfg", None)
 +    fname = acq.get("filename") or ""
 +    return {"started": True,
@@ -455,6 +488,8 @@ index 0000000..6ba0006
 +
 +
 +def _stat_files(core, a):
++    # a cheap, idempotent poll: which of these paths exist yet, and how big -- the
++    # client uses it to tell "acquisition still writing" from "done".
 +    files = [str(f) for f in (a.get("files") or [])]
 +    return {"missing": [f for f in files if not os.path.isfile(f)],
 +            "sizes": {f: os.path.getsize(f) for f in files if os.path.isfile(f)}}
@@ -463,21 +498,23 @@ index 0000000..6ba0006
 +def _acquire_finish(core, a):
 +    st = core.state
 +    had, prev = getattr(core, "_zmart_prev_acq_list", (False, None))
-+    if had:
++    if had:  # there was an operator list -> put it back exactly
 +        st["acq_list"] = prev
-+    else:
++    else:  # there wasn't -> remove the one we injected (fall back to leaving prev if delete fails)
 +        try:
 +            del st["acq_list"]
 +        except Exception:
 +            st["acq_list"] = prev
 +    try:
-+        del core._zmart_prev_acq_list
++        del core._zmart_prev_acq_list  # clear our stash so a later run starts clean
 +    except AttributeError:
 +        pass
 +    return {"state": (core.state or {}).get("state")}
 +
 +
 +def _procedure(core, a):
++    # advertised so the vocabulary is honest, but no generic procedure exists in
++    # mesoSPIM -- raise so the client gets a clear "not implemented", never a no-op.
 +    raise RuntimeError(f"procedure {a.get('name')!r} is not implemented server-side")
 +
 +
