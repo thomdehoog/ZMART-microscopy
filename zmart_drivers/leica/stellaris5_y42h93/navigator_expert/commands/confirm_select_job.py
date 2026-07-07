@@ -173,17 +173,21 @@ def select_job_confirm_legs(
 
     - ``api``: the API poll alone, exactly today's semantics.
     - ``log``: the post-command ``CurrentBlock`` wait alone.
-    - ``hybrid``: both legs race (first admissible evidence wins); the api
-      leg gets the transition-admissibility gate fed by
-      *api_baseline_name*, the race is bounded by
-      ``selected_job_hybrid_budget_s``, and the api leg's own poll window
-      is sized strictly inside that budget so a leg the race abandons
-      drains by race end (CF-05).
+    - ``hybrid``: both legs race for one confirm window (first admissible
+      evidence wins); the api leg gets the transition-admissibility gate fed
+      by *api_baseline_name*. Both legs poll for the whole window
+      (``CONFIRM_POLL_S``); an abandoned api read is bounded by that window
+      and cannot stack into the next attempt because the shared in-flight
+      CAM cap (CF-01) serialises reads.
+
+    The dispatcher runs this leg-set once per confirm attempt
+    (``max_confirm_attempts``), re-firing between: the uniform 3x3 posture
+    (``CONFIRM_POLL_S`` per attempt, N attempts) shared with every command.
 
     Returns ``(api_confirm_fn, log_leg, budget_s)`` where ``api_confirm_fn``
     takes ``client`` (dispatch binds it), ``log_leg`` is zero-arg, and
-    either may be None. Raises ``ValueError`` on an unknown source BEFORE
-    anything fires.
+    either may be None. ``budget_s`` (the race window) is just the confirm
+    window. Raises ``ValueError`` on an unknown source BEFORE anything fires.
     """
     profile = _state_reader_profile()
     source = profile.selected_job_confirm_source
@@ -191,34 +195,22 @@ def select_job_confirm_legs(
         raise ValueError(
             f"unknown selected-job confirmation source {source!r}; expected api, log, or hybrid"
         )
+    window_s = _utils.CONFIRM_POLL_S if timeout is None else timeout
     api_confirm = None
     log_leg = None
-    budget_s = None
-    api_timeout = timeout
-    if source == "hybrid":
-        effective_timeout = _utils.CONFIRM_POLL_S if timeout is None else timeout
-        budget_s = min(
-            profile.selected_job_hybrid_budget_s,
-            max(0.0, effective_timeout),
-        )
-        # CF-05: size the api leg's poll window strictly inside the race
-        # budget so an abandoned leg drains at (not after) race end instead
-        # of polling the CAM alongside the correction re-fire or the next
-        # attempt's legs. The race takes no claim of its own (CF-01), so
-        # this window is the only thing bounding a leg the race abandoned.
-        api_timeout = max(budget_s - 0.5, budget_s * 0.5)
+    budget_s = window_s if source == "hybrid" else None
     if source in ("api", "hybrid"):
         api_confirm = partial(
             confirm_select_job,
             job_name=job_name,
-            timeout=api_timeout,
+            timeout=window_s,
             poll_interval=poll_interval,
             command_started_at=command_started_at,
             inadmissible_baseline=(api_baseline_name if source == "hybrid" else None),
             require_transition_witness=(source == "hybrid"),
         )
     if source in ("log", "hybrid"):
-        log_leg = partial(_confirm_select_job_log, job_name, command_started_at, timeout=timeout)
+        log_leg = partial(_confirm_select_job_log, job_name, command_started_at, timeout=window_s)
     return api_confirm, log_leg, budget_s
 
 

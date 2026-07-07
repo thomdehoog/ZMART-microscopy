@@ -52,7 +52,6 @@ class TestHybridAdmissibility(SelectJobCase):
         produces no post-command event -> hybrid must NOT confirm."""
         self._use(
             selected_job_confirm_source="hybrid",
-            selected_job_hybrid_budget_s=1.0,
             selected_job_log_confirm_timeout_s=0.05,
         )
         api_leg, log_leg, budget = confirm_select_job.select_job_confirm_legs(
@@ -90,7 +89,6 @@ class TestHybridAdmissibility(SelectJobCase):
         not admissible evidence."""
         self._use(
             selected_job_confirm_source="hybrid",
-            selected_job_hybrid_budget_s=1.0,
             selected_job_log_confirm_timeout_s=0.05,
         )
         api_leg, log_leg, budget = confirm_select_job.select_job_confirm_legs(
@@ -125,7 +123,6 @@ class TestHybridAdmissibility(SelectJobCase):
     def test_log_wins_while_api_stale(self):
         self._use(
             selected_job_confirm_source="hybrid",
-            selected_job_hybrid_budget_s=2.0,
             selected_job_log_confirm_timeout_s=1.0,
         )
         api_leg, log_leg, budget = confirm_select_job.select_job_confirm_legs(
@@ -162,7 +159,6 @@ class TestHybridAdmissibility(SelectJobCase):
     def test_api_wins_while_log_silent(self):
         self._use(
             selected_job_confirm_source="hybrid",
-            selected_job_hybrid_budget_s=2.0,
             selected_job_log_confirm_timeout_s=0.05,
         )
         api_leg, log_leg, budget = confirm_select_job.select_job_confirm_legs(
@@ -201,7 +197,6 @@ class TestDefaultPolicy(unittest.TestCase):
         fits both without environment detection (validated 2026-06-11)."""
         profile = profiles.StateReaderProfile()
         self.assertEqual(profile.selected_job_confirm_source, "hybrid")
-        self.assertEqual(profile.selected_job_hybrid_budget_s, 6.0)
 
 
 class TestLegsBuilder(SelectJobCase):
@@ -264,67 +259,31 @@ class TestLegsBuilder(SelectJobCase):
         self.assertFalse(outcome["success"])
         self.assertEqual(outcome["source"], "log")
 
-    def test_hybrid_builds_both_legs_with_profile_budget(self):
-        self._use(
-            selected_job_confirm_source="hybrid",
-            selected_job_hybrid_budget_s=4.5,
-        )
-        # Pass the confirm ceiling the wrapper binds in production
-        # (SELECT_JOB.poll_timeout). Budget < ceiling, so it is not capped -
-        # this exercises the profile-budget branch of min(budget, ceiling),
-        # while test_hybrid_budget_is_capped_by_confirm_timeout covers the other.
+    def test_hybrid_builds_both_legs_with_window_budget(self):
+        """Hybrid builds api + log legs; the race budget and the api leg's
+        poll window are both just the confirm window -- one window, no
+        separate budget and no fractional sizing."""
+        self._use(selected_job_confirm_source="hybrid")
         api_leg, log_leg, budget = confirm_select_job.select_job_confirm_legs(
             "HiRes", command_started_at=100.0, api_baseline_name="Overview", timeout=5.0
         )
         self.assertIsNotNone(api_leg)
         self.assertIsNotNone(log_leg)
-        self.assertEqual(budget, 4.5)
-
-    def test_hybrid_budget_is_capped_by_confirm_timeout(self):
-        self._use(
-            selected_job_confirm_source="hybrid",
-            selected_job_hybrid_budget_s=6.0,
-        )
-        api_leg, log_leg, budget = confirm_select_job.select_job_confirm_legs(
-            "HiRes",
-            command_started_at=100.0,
-            api_baseline_name="Overview",
-            timeout=5.0,
-        )
-        self.assertIsNotNone(api_leg)
-        self.assertIsNotNone(log_leg)
         self.assertEqual(budget, 5.0)
+        self.assertEqual(api_leg.keywords["timeout"], 5.0)
 
-    def test_hybrid_api_leg_poll_window_fits_inside_budget(self):
-        """CF-05: the hybrid api leg's poll window must end strictly before
-        the race budget so an abandoned leg drains by race end instead of
-        reading the CAM alongside the correction re-fire."""
-        self._use(
-            selected_job_confirm_source="hybrid",
-            selected_job_hybrid_budget_s=6.0,
-        )
+    def test_hybrid_window_defaults_to_confirm_poll_s(self):
+        """With no explicit timeout the window is the shared CONFIRM_POLL_S --
+        the same 3x3 window every command uses."""
+        self._use(selected_job_confirm_source="hybrid")
         api_leg, _, budget = confirm_select_job.select_job_confirm_legs(
-            "HiRes",
-            command_started_at=100.0,
-            api_baseline_name="Overview",
-            timeout=5.0,
+            "HiRes", command_started_at=100.0, api_baseline_name="Overview"
         )
-        self.assertEqual(budget, 5.0)
-        self.assertEqual(api_leg.keywords["timeout"], 4.5)
-
-    def test_hybrid_api_leg_poll_window_keeps_half_of_a_small_budget(self):
-        self._use(
-            selected_job_confirm_source="hybrid",
-            selected_job_hybrid_budget_s=6.0,
-        )
-        api_leg, _, budget = confirm_select_job.select_job_confirm_legs(
-            "HiRes",
-            command_started_at=100.0,
-            api_baseline_name="Overview",
-            timeout=0.5,
-        )
-        self.assertEqual(budget, 0.5)
-        self.assertEqual(api_leg.keywords["timeout"], 0.25)
+        # Read the live module constant the code reads (a conftest patches it
+        # down for suite speed), not the import-time value.
+        expected = confirm_select_job._utils.CONFIRM_POLL_S
+        self.assertEqual(budget, expected)
+        self.assertEqual(api_leg.keywords["timeout"], expected)
 
     def test_api_source_keeps_the_full_poll_window(self):
         """Pure api mode has no race to fit inside: the leg keeps the

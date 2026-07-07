@@ -877,7 +877,12 @@ class TestRetryBackoff(unittest.TestCase):
             profiles.ACQUIRE.poll_interval,
         )
 
-        self.assertEqual(profiles.SELECT_JOB.poll_timeout, 5.0)
+        # select_job is the uniform 3x3, not an outlier: no bespoke poll_timeout;
+        # the per-attempt window is the shared confirm_poll_s (CONFIRM_POLL_S),
+        # over max_confirm_attempts attempts, re-fire between.
+        self.assertIsNone(profiles.SELECT_JOB.poll_timeout)
+        self.assertEqual(profiles.SELECT_JOB.confirm_poll_s, profiles.CONFIRM_POLL_S)
+        self.assertEqual(profiles.SELECT_JOB.max_confirm_attempts, 3)
 
 
 class TestCommandProfileGuard(unittest.TestCase):
@@ -2640,7 +2645,6 @@ class TestHybridSelectJobApiLegEndToEnd(unittest.TestCase):
         )
         profile = profiles.StateReaderProfile(
             selected_job_confirm_source="hybrid",
-            selected_job_hybrid_budget_s=1.0,
             selected_job_log_confirm_timeout_s=0.05,
             jobs_timeout_s=0.5,
         )
