@@ -1,21 +1,29 @@
 """Lab-wide canonical naming and layout for zmart-microscopy outputs.
 
-Layout::
+Image layout is FLAT — one folder per acquisition type, one 2-D plane per
+file, no sidecar XML::
 
-    media_path/smart/[experiment]_[hash6]/[acquisition-type]/{data,analysis,feedback}/
+    <output_root>/<acquisition_type>/<acquisition_type>_<hash6>_<position_label>_c<cc>_z<zzzzz>.ome.tiff
 
-Filenames carry eight dimensional slots (k, m, g, p, t, v, c, z), each
-zero-padded to a fixed width so listings sort sensibly. The XML companion
-omits c and z (one XML per (k, m, g, p, t, v) position; it describes the
-c x z grid). The 6-char `hash6` is base36-encoded seconds-since-EPOCH
-(2026-01-01 UTC), so it is chronologically meaningful AND
-lexicographically sortable.
+Each file is a single 2-D plane keyed only by channel (`c`) and z-slice
+(`z`). `hash6` is minted PER ACQUISITION (not per session) and is a 6-char
+base36 encoding of seconds-since-EPOCH (2026-01-01 UTC), so it is
+chronologically meaningful AND lexicographically sortable. `position_label`
+names the position; it is sanitized to ``[A-Za-z0-9_-]`` and length-capped.
 
-Length caps on `experiment` and `acquisition_type` keep total paths under
-Windows MAX_PATH (260) for a shallow output_root.
+There is no longer a companion ``.ome.xml``: the state of the
+machine/software at export time is embedded directly in each plane's
+OME-XML (a driver concern).
+
+Length caps on `experiment`, `acquisition_type`, and `position_label` keep
+total paths under Windows MAX_PATH (260) for a shallow output_root.
 
 Pure functions plus frozen `Naming` / `LayoutPlan` dataclasses. Only
 `build_layout` performs I/O (creates the run directory).
+
+``build_xml_name`` and ``build_position_analysis_name`` remain for the
+per-position analysis / legacy-companion workflow (a later migration
+commit); they are not part of the current flat image contract.
 """
 
 from __future__ import annotations
@@ -35,6 +43,7 @@ ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"  # base36 lowercase, ASCII-sor
 # with a shallow output_root. 40+25 leaves comfortable budget.
 MAX_EXPERIMENT_LEN = 40
 MAX_ACQUISITION_TYPE_LEN = 25
+MAX_POSITION_LABEL_LEN = 40
 
 _HASH_LEN = 6
 _COLLISION_RETRY_CAP = 10
@@ -44,6 +53,8 @@ _ACQUISITION_TYPE_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 # experiment: alnum, underscore, hyphen (operator-facing freeform but bounded)
 _EXPERIMENT_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _HASH_RE = re.compile(r"^[0-9a-z]{6}$")
+# position_label: any char outside this set is sanitized to '_'
+_POSITION_LABEL_UNSAFE_RE = re.compile(r"[^A-Za-z0-9_-]")
 
 
 def run_hash(start_time: float | None = None) -> str:
@@ -67,21 +78,18 @@ def run_hash(start_time: float | None = None) -> str:
 
 @dataclass(frozen=True)
 class Naming:
-    """Slot values for a single acquisition file.
+    """Slot values for a single canonical 2-D image plane.
 
-    All 8 dimensional slots default to 0 when unused. Filename includes
-    every slot; XML companion omits c and z (one XML per (k,m,g,p,t,v)
-    position describes the c×z grid).
+    A flat image file is identified by its ``acquisition_type``, the
+    per-acquisition ``hash6``, a ``position_label``, and the channel/z-slice
+    coordinates (``c``, ``z``). ``position_label`` is sanitized in-place to
+    ``[A-Za-z0-9_-]`` (any other char -> ``_``); the RAW label is
+    length-capped at :data:`MAX_POSITION_LABEL_LEN`.
     """
 
     acquisition_type: str
     hash6: str
-    k: int = 0
-    m: int = 0
-    g: int = 0
-    p: int = 0
-    t: int = 0
-    v: int = 0
+    position_label: str
     c: int = 0
     z: int = 0
 
@@ -98,14 +106,25 @@ class Naming:
             )
         if not _HASH_RE.match(self.hash6):
             raise ValueError(f"hash6 must be 6 base36 chars (0-9, a-z), got: {self.hash6!r}")
+        if len(self.position_label) > MAX_POSITION_LABEL_LEN:
+            raise ValueError(
+                f"position_label too long "
+                f"({len(self.position_label)} > {MAX_POSITION_LABEL_LEN}): "
+                f"{self.position_label!r}"
+            )
+        # Frozen dataclass: sanitize the label in place. Reject a label that
+        # is empty (or becomes so — it never does, since '_' is a safe char).
+        sanitized = _POSITION_LABEL_UNSAFE_RE.sub("_", self.position_label)
+        if not sanitized:
+            raise ValueError("position_label must be non-empty")
+        object.__setattr__(self, "position_label", sanitized)
 
 
 def build_image_name(n: Naming) -> str:
-    """Canonical image filename. All 8 slots present, fixed-width zero-padded."""
+    """Canonical flat image filename: one 2-D plane keyed by ``c`` and ``z``."""
     return (
-        f"{n.acquisition_type}_{n.hash6}"
-        f"_k{n.k:05d}_m{n.m:05d}_g{n.g:05d}_p{n.p:05d}"
-        f"_t{n.t:05d}_v{n.v:02d}_c{n.c:02d}_z{n.z:05d}.ome.tiff"
+        f"{n.acquisition_type}_{n.hash6}_{n.position_label}"
+        f"_c{n.c:02d}_z{n.z:05d}.ome.tiff"
     )
 
 
@@ -124,12 +143,20 @@ def acquisition_dir(output_root: Path | str, kind: str) -> Path:
 
 
 def acquisition_data_dir(output_root: Path | str, kind: str) -> Path:
-    """Canonical data directory for one acquisition kind."""
+    """Legacy nested ``data/`` directory for one acquisition kind.
+
+    Retained for drivers/workflows not yet migrated to the flat layout. The
+    flat image contract writes directly under :func:`acquisition_dir`.
+    """
     return acquisition_dir(output_root, kind) / "data"
 
 
 def acquisition_metadata_dir(output_root: Path | str, kind: str) -> Path:
-    """Canonical metadata directory for one acquisition kind."""
+    """Legacy nested metadata directory for one acquisition kind.
+
+    Retired by the flat, no-sidecar layout (state is embedded per-plane).
+    Retained only so unmigrated callers keep importing cleanly.
+    """
     return acquisition_data_dir(output_root, kind) / "metadata"
 
 
@@ -144,8 +171,7 @@ def build_position_analysis_name(n: Naming) -> str:
 
 _IMAGE_NAME_RE = re.compile(
     r"^(?P<acq>[a-z0-9]+(?:-[a-z0-9]+)*)_(?P<hash>[0-9a-z]{6})"
-    r"_k(?P<k>\d{5})_m(?P<m>\d{5})_g(?P<g>\d{5})_p(?P<p>\d{5})"
-    r"_t(?P<t>\d{5})_v(?P<v>\d{2})_c(?P<c>\d{2})_z(?P<z>\d{5})"
+    r"_(?P<position_label>[A-Za-z0-9_-]+)_c(?P<c>\d{2})_z(?P<z>\d{5})"
     r"\.ome\.tiff$"
 )
 
@@ -158,12 +184,7 @@ def parse_image_name(filename: str) -> Naming | None:
     return Naming(
         acquisition_type=m.group("acq"),
         hash6=m.group("hash"),
-        k=int(m.group("k")),
-        m=int(m.group("m")),
-        g=int(m.group("g")),
-        p=int(m.group("p")),
-        t=int(m.group("t")),
-        v=int(m.group("v")),
+        position_label=m.group("position_label"),
         c=int(m.group("c")),
         z=int(m.group("z")),
     )

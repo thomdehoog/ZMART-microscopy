@@ -27,13 +27,14 @@ from .product import Naming, SavedAcquisition
 
 
 def _czi_name(naming: Naming) -> str:
-    """CZI filename: position slots (k,m,g,p,t,v), omitting c/z, ``.czi`` extension."""
+    """CZI filename: ``{acquisition_type}_{hash}_{position_label}.czi``.
+
+    Minimal compatibility port to the shared ``Naming`` (flat contract). The
+    full Zeiss flat/state alignment is deferred; this only tracks the shared
+    field set so the driver keeps building valid names.
+    """
     n = naming
-    return (
-        f"{n.acquisition_type}_{n.hash6}"
-        f"_k{n.k:05d}_m{n.m:05d}_g{n.g:05d}_p{n.p:05d}"
-        f"_t{n.t:05d}_v{n.v:02d}.czi"
-    )
+    return f"{n.acquisition_type}_{n.hash6}_{n.position_label}.czi"
 
 
 def _resolve_czi_path(client, output_name: str) -> Path:

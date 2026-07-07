@@ -64,12 +64,18 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from shared.output_layout import Naming
 from shared.output_layout.naming import run_hash
 from zmart_controller import registry as _registry
+
+try:  # driver version for embedded export state; never fail acquire over it
+    from .. import __version__ as _DRIVER_VERSION
+except Exception:  # noqa: BLE001 -- best-effort provenance
+    _DRIVER_VERSION = None
 
 from .. import readers as _readers
 from .. import scanfields as _scanfields
@@ -123,14 +129,16 @@ class ZmartHandle:
         client: Connected LAS X CAM client (process-lifetime, no close).
         connection: The connection dict this session was opened with
             (carries ``output_root`` and the connect params).
-        hash6: Session hash used in output Naming and provenance records.
+        hash6: SESSION hash, minted at connect. Travels in lineage /
+            ``session_hash6`` provenance only — each :func:`acquire` mints
+            its OWN per-acquisition hash for the output Naming.
         origin: The frame zero point captured by :func:`set_origin` —
             stage XY, both z drives, their focus sum, and the objective
             it was captured under. Defaults to all-zero (frame ==
             absolute stage coordinates) until ``set_origin`` runs.
-        used_p: Naming ``p`` slots already consumed this session, so
-            auto-assigned positions never collide with explicit numeric
-            position labels.
+        position_counter: Next per-session position index handed to an
+            unlabeled :func:`acquire` (formatted 6-digit zero-padded). An
+            explicit ``position_label`` does not consume a counter value.
         translations: Per-objective-slot translation triples (µm) from the
             active calibration, loaded at connect; ``None`` when it could not
             be read (cross-objective moves are then refused, reads warn).
@@ -151,7 +159,7 @@ class ZmartHandle:
             "objective": None,
         }
     )
-    used_p: set[int] = field(default_factory=set)
+    position_counter: int = 0
     translations: dict[int, tuple[float, float, float]] | None = None
     closed: bool = False
 
@@ -624,47 +632,93 @@ def _ensure_scan_fields_stripped(handle: ZmartHandle) -> None:
         raise RuntimeError("could not strip the scanning template before acquiring")
 
 
-def _assign_p_slot(handle: ZmartHandle, position_label: str) -> int:
-    """Map a position label onto an unused Naming ``p`` slot.
+def _next_position_label(handle: ZmartHandle) -> str:
+    """The next per-session position label ("000000", "000001", ...).
 
-    Numeric labels claim their value directly (an intentional re-acquire
-    of the same position overwrites, matching the driver's upsert
-    semantics). Non-numeric labels take the next never-used slot, so an
-    auto-assigned position can never collide with an explicit one.
+    Consumes one counter value. Only used when :func:`acquire` gets no
+    explicit ``position_label``.
     """
-    if str(position_label).isdigit():
-        p = int(position_label)
-    else:
-        p = 1
-        while p in handle.used_p:
-            p += 1
-    handle.used_p.add(p)
-    return p
+    label = f"{handle.position_counter:06d}"
+    handle.position_counter += 1
+    return label
+
+
+def _try(fn):
+    """Call ``fn()``; degrade any failure to ``None`` (state must not fail save)."""
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001 -- provenance capture is best-effort
+        log.debug("export-state field unavailable: %s", exc)
+        return None
+
+
+def _export_state(
+    handle: ZmartHandle,
+    *,
+    acquisition_type: str,
+    position_label: str,
+    acquisition_hash: str,
+    job: str,
+) -> dict:
+    """A JSON-serialisable snapshot of machine/software state at export time.
+
+    Every field is captured best-effort: a missing reader degrades to
+    ``None`` rather than failing the save. Embedded per-plane by ``save``.
+    """
+    machine_state = _try(lambda: get_state(handle))
+    return {
+        "software": {
+            "driver_version": _DRIVER_VERSION,
+            "client": handle.connection.get("client"),
+            "api": handle.connection.get("api"),
+        },
+        "hardware": _try(lambda: _readers.get_hardware_info(handle.client, mode="api")),
+        "job_settings": _try(
+            lambda: _readers.get_job_settings(handle.client, job, mode="api")
+        ),
+        "job_state": (machine_state or {}).get("changeable") if machine_state else None,
+        "position": _try(lambda: get_xyz(handle)),
+        "provenance": {
+            "acquisition_type": acquisition_type,
+            "position_label": position_label,
+            "job": job,
+            "session_hash6": handle.hash6,
+            "acquisition_hash": acquisition_hash,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
 
 
 def acquire(
     handle: ZmartHandle,
     *,
-    acquisition_type: str,
-    position_label: str,
+    acquisition_type: str = "scan",
+    position_label: str | None = None,
     options: dict | None = None,
 ) -> dict:
     """Run the job, wait for the export, and persist the OME-TIFF product.
 
     Args:
-        acquisition_type: Kind of scan; becomes the Naming slot that names
-            the output folder/files, so it must be kebab-case lowercase
-            (``Naming`` raises a clear ``ValueError`` otherwise).
-        position_label: Free text naming this position. A numeric label
-            maps directly onto the Naming ``p`` slot; anything else gets
-            the next unused ``p``. Either way the label travels verbatim
-            in the lineage record ``save()`` writes to ``summary.json``.
+        acquisition_type: Kind of scan; names the output folder/files, so it
+            must be kebab-case lowercase (``Naming`` raises a clear
+            ``ValueError`` otherwise). Defaults to ``"scan"``.
+        position_label: Free text naming this position; sanitized into the
+            filename by ``Naming``. When omitted, the next per-session
+            counter value ("000000", "000001", ...) is used (an explicit
+            label does NOT consume a counter value). The label travels
+            verbatim in the lineage record ``save()`` writes to
+            ``summary.json`` and in the embedded per-plane state.
         options: Values from :func:`get_acquisition_options`; omitted
             options use the active defaults, unknown keys/values raise.
 
-    Returns a record with the resolved job/options and the saved image
-    and XML paths. Raises on any unrecoverable step — job selection,
-    capture, export detection, or persistence.
+    A fresh per-acquisition hash is minted here (``run_hash()``) and used as
+    ``Naming.hash6``; the session hash (``handle.hash6``) rides along only in
+    lineage/provenance. The machine/software state at export time is captured
+    and embedded in each saved plane's OME-XML (no sidecar).
+
+    Returns a record with the resolved job/options and the saved image paths.
+    Raises on any unrecoverable step — job selection, capture, export
+    detection, or persistence.
     """
     _require_open(handle)
     output_root = handle.connection.get("output_root")
@@ -693,8 +747,20 @@ def acquire(
 
     acq = _capture.acquire(handle.client, job)
 
-    p = _assign_p_slot(handle, position_label)
-    naming = Naming(acquisition_type=acquisition_type, hash6=handle.hash6, p=p)
+    label = position_label if position_label is not None else _next_position_label(handle)
+    acquisition_hash = run_hash()
+    naming = Naming(
+        acquisition_type=acquisition_type,
+        hash6=acquisition_hash,
+        position_label=label,
+    )
+    state = _export_state(
+        handle,
+        acquisition_type=acquisition_type,
+        position_label=label,
+        acquisition_hash=acquisition_hash,
+        job=job,
+    )
     saved = _save.save(
         handle.client,
         acq,
@@ -702,21 +768,22 @@ def acquire(
         naming,
         lineage={
             "acquisition_type": acquisition_type,
-            "position_label": str(position_label),
+            "position_label": label,
             "job": job,
             "session_hash6": handle.hash6,
+            "acquisition_hash": acquisition_hash,
         },
+        state=state,
         cleanup_source=resolved["cleanup_source"],
     )
 
     return {
         "acquisition_type": acquisition_type,
-        "position_label": position_label,
+        "position_label": label,
         "job": job,
         "format": resolved["format"],
         "settle": "backlash-corrected" if resolved["backlash_correction"] else "direct",
         "images": sorted(str(path) for path in saved.image_paths.values()),
-        "xml": sorted(str(path) for path in saved.xml_paths.values()),
     }
 
 

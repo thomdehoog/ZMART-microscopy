@@ -7,12 +7,11 @@ from shared.output_layout.naming import (
     EPOCH,
     MAX_ACQUISITION_TYPE_LEN,
     MAX_EXPERIMENT_LEN,
+    MAX_POSITION_LABEL_LEN,
     LayoutPlan,
     Naming,
     build_image_name,
     build_layout,
-    build_position_analysis_name,
-    build_xml_name,
     parse_image_name,
     run_hash,
 )
@@ -54,166 +53,122 @@ class TestRunHash:
 
 class TestNaming:
     def test_valid_kebab_case(self):
-        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m")
+        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m", position_label="000000")
         assert n.acquisition_type == "overview-scan"
 
     def test_single_token(self):
-        n = Naming(acquisition_type="overview", hash6="0a3k7m")
+        n = Naming(acquisition_type="overview", hash6="0a3k7m", position_label="A1")
         assert n.acquisition_type == "overview"
 
     def test_multi_hyphen(self):
-        n = Naming(acquisition_type="overview-scan-fast", hash6="0a3k7m")
+        n = Naming(acquisition_type="overview-scan-fast", hash6="0a3k7m", position_label="A1")
         assert n.acquisition_type == "overview-scan-fast"
 
     def test_rejects_uppercase(self):
         with pytest.raises(ValueError, match="kebab-case"):
-            Naming(acquisition_type="Overview-Scan", hash6="0a3k7m")
+            Naming(acquisition_type="Overview-Scan", hash6="0a3k7m", position_label="A1")
 
     def test_rejects_underscore(self):
         with pytest.raises(ValueError, match="kebab-case"):
-            Naming(acquisition_type="overview_scan", hash6="0a3k7m")
+            Naming(acquisition_type="overview_scan", hash6="0a3k7m", position_label="A1")
 
     def test_rejects_leading_hyphen(self):
         with pytest.raises(ValueError, match="kebab-case"):
-            Naming(acquisition_type="-overview", hash6="0a3k7m")
+            Naming(acquisition_type="-overview", hash6="0a3k7m", position_label="A1")
 
     def test_rejects_trailing_hyphen(self):
         with pytest.raises(ValueError, match="kebab-case"):
-            Naming(acquisition_type="overview-", hash6="0a3k7m")
+            Naming(acquisition_type="overview-", hash6="0a3k7m", position_label="A1")
 
     def test_rejects_double_hyphen(self):
         with pytest.raises(ValueError, match="kebab-case"):
-            Naming(acquisition_type="overview--scan", hash6="0a3k7m")
+            Naming(acquisition_type="overview--scan", hash6="0a3k7m", position_label="A1")
 
     def test_rejects_space(self):
         with pytest.raises(ValueError, match="kebab-case"):
-            Naming(acquisition_type="overview scan", hash6="0a3k7m")
+            Naming(acquisition_type="overview scan", hash6="0a3k7m", position_label="A1")
 
     def test_at_length_cap_accepted(self):
         at_cap = "a" * MAX_ACQUISITION_TYPE_LEN
-        n = Naming(acquisition_type=at_cap, hash6="0a3k7m")
+        n = Naming(acquisition_type=at_cap, hash6="0a3k7m", position_label="A1")
         assert len(n.acquisition_type) == MAX_ACQUISITION_TYPE_LEN
 
     def test_rejects_too_long(self):
         too_long = "a" * (MAX_ACQUISITION_TYPE_LEN + 1)
         with pytest.raises(ValueError, match="too long"):
-            Naming(acquisition_type=too_long, hash6="0a3k7m")
+            Naming(acquisition_type=too_long, hash6="0a3k7m", position_label="A1")
 
     def test_rejects_uppercase_hash(self):
         with pytest.raises(ValueError, match="hash6"):
-            Naming(acquisition_type="overview-scan", hash6="ABC123")
+            Naming(acquisition_type="overview-scan", hash6="ABC123", position_label="A1")
 
     def test_rejects_short_hash(self):
         with pytest.raises(ValueError, match="hash6"):
-            Naming(acquisition_type="overview-scan", hash6="abc12")
+            Naming(acquisition_type="overview-scan", hash6="abc12", position_label="A1")
 
     def test_rejects_long_hash(self):
         with pytest.raises(ValueError, match="hash6"):
-            Naming(acquisition_type="overview-scan", hash6="abc1234")
+            Naming(acquisition_type="overview-scan", hash6="abc1234", position_label="A1")
+
+    # --- position_label ------------------------------------------------------
+
+    def test_counter_label_is_preserved(self):
+        n = Naming(acquisition_type="scan", hash6="0a3k7m", position_label="000000")
+        assert n.position_label == "000000"
+
+    def test_label_with_safe_chars_preserved(self):
+        n = Naming(acquisition_type="scan", hash6="0a3k7m", position_label="well_A1-2")
+        assert n.position_label == "well_A1-2"
+
+    def test_unsafe_chars_sanitized_to_underscore(self):
+        n = Naming(acquisition_type="scan", hash6="0a3k7m", position_label="well A1/2")
+        assert n.position_label == "well_A1_2"
+
+    def test_rejects_empty_label(self):
+        with pytest.raises(ValueError, match="non-empty"):
+            Naming(acquisition_type="scan", hash6="0a3k7m", position_label="")
+
+    def test_label_at_length_cap_accepted(self):
+        at_cap = "a" * MAX_POSITION_LABEL_LEN
+        n = Naming(acquisition_type="scan", hash6="0a3k7m", position_label=at_cap)
+        assert len(n.position_label) == MAX_POSITION_LABEL_LEN
+
+    def test_rejects_too_long_label(self):
+        too_long = "a" * (MAX_POSITION_LABEL_LEN + 1)
+        with pytest.raises(ValueError, match="position_label too long"):
+            Naming(acquisition_type="scan", hash6="0a3k7m", position_label=too_long)
 
 
-# --- build_image_name / build_xml_name --------------------------------------
+# --- build_image_name --------------------------------------------------------
 
 
 class TestBuildNames:
     def test_image_name_all_zero(self):
-        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m")
-        assert build_image_name(n) == (
-            "overview-scan_0a3k7m_k00000_m00000_g00000_p00000_t00000_v00_c00_z00000.ome.tiff"
-        )
+        n = Naming(acquisition_type="scan", hash6="9k2m4p", position_label="000000")
+        assert build_image_name(n) == "scan_9k2m4p_000000_c00_z00000.ome.tiff"
 
     def test_image_name_with_values(self):
         n = Naming(
             acquisition_type="target-acquisition",
             hash6="bf2x91",
-            k=1,
-            m=47,
-            g=2,
-            p=123,
-            t=5,
-            v=1,
+            position_label="well_A1",
             c=2,
             z=10,
         )
         assert build_image_name(n) == (
-            "target-acquisition_bf2x91_k00001_m00047_g00002_p00123_t00005_v01_c02_z00010.ome.tiff"
+            "target-acquisition_bf2x91_well_A1_c02_z00010.ome.tiff"
         )
-
-    def test_xml_omits_c_and_z(self):
-        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m", c=5, z=42)
-        xml = build_xml_name(n)
-        assert xml == ("overview-scan_0a3k7m_k00000_m00000_g00000_p00000_t00000_v00.ome.xml")
 
     def test_max_widths_fit(self):
         n = Naming(
             acquisition_type="a" * MAX_ACQUISITION_TYPE_LEN,
             hash6="zzzzzz",
-            k=99999,
-            m=99999,
-            g=99999,
-            p=99999,
-            t=99999,
-            v=99,
+            position_label="z" * MAX_POSITION_LABEL_LEN,
             c=99,
             z=99999,
         )
         # Sanity: the literal max filename is well under 255-char component limit
         assert len(build_image_name(n)) < 255
-
-
-# --- build_position_analysis_name -------------------------------------------
-
-
-class TestBuildPositionAnalysisName:
-    def test_all_zero(self):
-        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m")
-        assert build_position_analysis_name(n) == (
-            "overview-scan_0a3k7m_k00000_m00000_g00000_p00000_t00000_v00.npz"
-        )
-
-    def test_with_values(self):
-        n = Naming(
-            acquisition_type="overview-scan",
-            hash6="bf2x91",
-            g=2,
-            p=123,
-            t=5,
-            v=1,
-            c=7,
-            z=42,
-        )
-        assert build_position_analysis_name(n) == (
-            "overview-scan_bf2x91_k00000_m00000_g00002_p00123_t00005_v01.npz"
-        )
-
-    def test_c_and_z_omitted(self):
-        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m", c=99, z=99999)
-        name = build_position_analysis_name(n)
-        assert "_c" not in name
-        assert "_z" not in name
-        assert name.endswith(".npz")
-
-    def test_same_slots_as_xml(self):
-        n = Naming(
-            acquisition_type="target-acquisition",
-            hash6="abc123",
-            k=1,
-            m=2,
-            g=3,
-            p=4,
-            t=5,
-            v=6,
-            c=7,
-            z=8,
-        )
-        xml = build_xml_name(n)
-        npz = build_position_analysis_name(n)
-        # Same prefix (all slots except extension), different extension
-        assert xml.rsplit(".", 2)[0] == npz.rsplit(".", 1)[0]
-
-    def test_extension_is_npz(self):
-        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m")
-        assert build_position_analysis_name(n).endswith(".npz")
 
 
 # --- parse_image_name -------------------------------------------------------
@@ -224,35 +179,25 @@ class TestParseImageName:
         n = Naming(
             acquisition_type="target-acquisition",
             hash6="bf2x91",
-            k=1,
-            m=47,
-            g=2,
-            p=123,
-            t=5,
-            v=1,
+            position_label="well_A1-2",
             c=2,
             z=10,
         )
         assert parse_image_name(build_image_name(n)) == n
 
     def test_round_trip_all_zero(self):
-        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m")
+        n = Naming(acquisition_type="scan", hash6="0a3k7m", position_label="000000")
         assert parse_image_name(build_image_name(n)) == n
 
     def test_round_trip_multi_hyphen(self):
-        n = Naming(acquisition_type="my-cool-scan", hash6="abcdef", k=42)
+        n = Naming(acquisition_type="my-cool-scan", hash6="abcdef", position_label="P1", z=42)
         assert parse_image_name(build_image_name(n)) == n
 
     def test_round_trip_at_max_values(self):
         n = Naming(
             acquisition_type="overview-scan",
             hash6="zzzzzz",
-            k=99999,
-            m=99999,
-            g=99999,
-            p=99999,
-            t=99999,
-            v=99,
+            position_label="z" * MAX_POSITION_LABEL_LEN,
             c=99,
             z=99999,
         )
@@ -263,20 +208,19 @@ class TestParseImageName:
 
     def test_rejects_missing_slot(self):
         # missing _z[NNNNN]
-        bad = "overview-scan_0a3k7m_k00000_m00000_g00000_p00000_t00000_v00_c00.ome.tiff"
+        bad = "scan_0a3k7m_000000_c00.ome.tiff"
         assert parse_image_name(bad) is None
 
     def test_rejects_wrong_extension(self):
-        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m")
+        n = Naming(acquisition_type="scan", hash6="0a3k7m", position_label="000000")
         wrong_ext = build_image_name(n).replace(".ome.tiff", ".tif")
         assert parse_image_name(wrong_ext) is None
 
     def test_rejects_xml_filename(self):
-        n = Naming(acquisition_type="overview-scan", hash6="0a3k7m")
-        assert parse_image_name(build_xml_name(n)) is None
+        assert parse_image_name("scan_0a3k7m_000000.ome.xml") is None
 
-    def test_rejects_underscore_in_acquisition_type(self):
-        bad = "over_scan_0a3k7m_k00000_m00000_g00000_p00000_t00000_v00_c00_z00000.ome.tiff"
+    def test_rejects_uppercase_in_acquisition_type(self):
+        bad = "Over_0a3k7m_000000_c00_z00000.ome.tiff"
         assert parse_image_name(bad) is None
 
 

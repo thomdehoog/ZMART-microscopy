@@ -21,15 +21,12 @@ from typing import Any
 
 from shared.output_layout import (
     Naming,
-    acquisition_data_dir,
-    acquisition_metadata_dir,
+    acquisition_dir,
     build_image_name,
-    build_xml_name,
 )
 
 from . import files as _files
 from . import materialize as _materialize
-from . import ome_canonical as _canonical
 from .capture import AcquisitionResult
 from .files import (
     DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S,
@@ -44,7 +41,6 @@ from .lasx_native_autosave import (
 from .product import (
     ExportedAcquisition,
     PlaneIndex,
-    PositionIndex,
     SavedAcquisition,
 )
 
@@ -71,6 +67,7 @@ def save(
     naming: Naming,
     *,
     lineage: dict | None = None,
+    state: dict | None = None,
     fix_ome: bool = True,
     cleanup_source: bool = False,
     file_stability_timeout_s: int = DEFAULT_FILE_STABILITY_TIMEOUT_S,
@@ -80,8 +77,10 @@ def save(
     """Persist the files produced for *acq* into *output_root*.
 
     LAS X native AutoSave produces a writer-agnostic
-    ``ExportedAcquisition``. This function persists that product into
-    the flat SMART OME-TIFF/XML workflow layout.
+    ``ExportedAcquisition``. This function persists that product into the
+    flat SMART OME-TIFF layout (one 2-D plane per file, no sidecar XML).
+    When *state* is provided, the machine/software state at export time is
+    embedded in each plane's OME-XML.
     """
     exported = collect_lasx_native_autosave(
         client,
@@ -95,6 +94,7 @@ def save(
         Path(output_root),
         naming,
         lineage=lineage,
+        state=state,
         fix_ome=fix_ome,
         cleanup_source=cleanup_source,
     )
@@ -106,10 +106,16 @@ def _persist_export(
     naming: Naming,
     *,
     lineage: dict | None,
+    state: dict | None = None,
     fix_ome: bool,
     cleanup_source: bool,
 ) -> SavedAcquisition:
-    """Shared persistence for stable exported source paths."""
+    """Shared persistence for stable exported source paths.
+
+    Flat: each 2-D plane is written directly under
+    ``acquisition_dir(output_root, acquisition_type)`` and its OME-XML is
+    embedded (no sidecar companion). *state* is embedded per-plane.
+    """
     if cleanup_source and not exported.cleanup_source_supported:
         raise RuntimeError(
             f"cleanup_source is not supported for "
@@ -119,7 +125,6 @@ def _persist_export(
         )
 
     image_paths: dict[PlaneIndex, Path] = {}
-    xml_paths: dict[PositionIndex, Path] = {}
     vendor_records = _persist_vendor_metadata(exported, output_root, naming)
 
     # One load + one write instead of a full read-modify-write per plane
@@ -130,32 +135,11 @@ def _persist_export(
     summary_dirty = False
     try:
         for pos in exported.positions:
-            xml_naming = replace(naming, t=pos.t)
-            xml_dest = acquisition_metadata_dir(
-                output_root, xml_naming.acquisition_type
-            ) / build_xml_name(xml_naming)
-            xml_dest.parent.mkdir(parents=True, exist_ok=True)
-
-            plane_names = {
-                idx: build_image_name(replace(naming, t=idx.t, z=idx.z, c=idx.c))
-                for idx in sorted(pos.planes)
-            }
-            companion = _canonical.companion_xml(
-                exported.metadata,
-                image_name=xml_dest.name,
-                plane_filenames=plane_names,
-            )
-            _materialize.save_xml_bytes_atomic(companion, xml_dest, fix_ome=fix_ome)
-            xml_paths[PositionIndex(t=pos.t, v=naming.v)] = xml_dest
-
             for idx, image_src in sorted(pos.planes.items()):
-                plane_naming = replace(
-                    naming,
-                    t=idx.t,
-                    z=idx.z,
-                    c=idx.c,
-                )
-                image_dest = acquisition_data_dir(
+                # The flat image name carries only c and z; the source
+                # timepoint (idx.t) still drives which page is materialized.
+                plane_naming = replace(naming, c=idx.c, z=idx.z)
+                image_dest = acquisition_dir(
                     output_root, plane_naming.acquisition_type
                 ) / build_image_name(plane_naming)
                 image_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -166,13 +150,13 @@ def _persist_export(
                     metadata=exported.metadata,
                     index=idx,
                     fix_ome=fix_ome,
+                    state=state,
                 )
                 image_paths[idx] = image_dest
 
                 record = {
                     "naming": _naming_to_dict(plane_naming),
                     "image_path": _rel_posix(image_dest, output_root),
-                    "xml_path": _rel_posix(xml_dest, output_root),
                     "source": _rel_posix(image_src.path, exported.source_root),
                     "source_exporter": exported.source_exporter,
                     "canonical_metadata": True,
@@ -196,7 +180,6 @@ def _persist_export(
 
     return SavedAcquisition(
         image_paths=image_paths,
-        xml_paths=xml_paths,
         naming=naming,
     )
 
@@ -209,7 +192,7 @@ def _persist_vendor_metadata(
     if not exported.vendor_metadata_sources:
         return []
     vendor_dir = (
-        acquisition_metadata_dir(output_root, naming.acquisition_type)
+        acquisition_dir(output_root, naming.acquisition_type)
         / "vendor"
         / _safe_component(exported.source_exporter)
     )
@@ -275,12 +258,7 @@ def _naming_to_dict(n: Naming) -> dict:
     return {
         "acquisition_type": n.acquisition_type,
         "hash6": n.hash6,
-        "k": n.k,
-        "m": n.m,
-        "g": n.g,
-        "p": n.p,
-        "t": n.t,
-        "v": n.v,
+        "position_label": n.position_label,
         "c": n.c,
         "z": n.z,
     }

@@ -1,13 +1,13 @@
 """Neutral acquisition product contracts produced by the acquisition source collector.
 
 ``Exported*`` types are collector -> save inputs and are writer-agnostic.
-``SavedAcquisition`` is the current flat OME-TIFF/XML save -> caller
-output manifest.
+``SavedAcquisition`` is the flat, one-plane-per-file OME-TIFF save -> caller
+output manifest (state is embedded per-plane; there is no sidecar XML).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from shared.output_layout import Naming
@@ -127,8 +127,13 @@ class ExportedAcquisition:
 
 @dataclass(frozen=True)
 class SavedAcquisition:
-    """Manifest for one persisted acquisition product."""
+    """Manifest for one persisted acquisition product.
+
+    The flat, no-sidecar layout embeds state per-plane, so ``xml_paths`` is
+    now empty by default; the field is retained for back-compat with callers
+    that still inspect legacy companion-XML manifests.
+    """
 
     image_paths: dict[PlaneIndex, Path]
-    xml_paths: dict[PositionIndex, Path]
     naming: Naming
+    xml_paths: dict[PositionIndex, Path] = field(default_factory=dict)

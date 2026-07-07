@@ -22,7 +22,6 @@ from navigator_expert.acquisition.product import (
 from shared.output_layout import (
     Naming,
     build_image_name,
-    build_xml_name,
     parse_image_name,
 )
 
@@ -32,8 +31,7 @@ def naming() -> Naming:
     return Naming(
         acquisition_type="overview-scan",
         hash6="000001",
-        g=1,
-        p=3,
+        position_label="000003",
     )
 
 
@@ -334,7 +332,7 @@ class TestCanonicalPhysicalMetadataAuthority:
 
 
 class TestSave:
-    def test_save_persists_image_xml_and_summary(
+    def test_save_persists_image_and_summary_flat(
         self,
         patched_export,
         successful_acq,
@@ -350,25 +348,25 @@ class TestSave:
             naming,
         )
 
-        expected_image = output_root / "overview-scan" / "data" / build_image_name(naming)
-        expected_xml = output_root / "overview-scan" / "data" / "metadata" / build_xml_name(naming)
+        # Flat: one 2-D plane per file directly under the acquisition folder,
+        # no sidecar XML.
+        expected_image = output_root / "overview-scan" / build_image_name(naming)
         assert isinstance(result, drv.SavedAcquisition)
         assert set(result.image_paths) == set(patched_export["plane_paths"])
         assert result.image_paths[drv.PlaneIndex(t=0, z=0, c=0)] == expected_image
-        assert result.xml_paths == {drv.PositionIndex(t=0, v=0): expected_xml}
+        assert result.xml_paths == {}
         assert tifffile.imread(expected_image).shape == (16, 16)
         assert all(p.is_file() for p in result.image_paths.values())
-        assert expected_xml.is_file()
 
         summary = json.loads((output_root / "summary.json").read_text())
         assert len(summary["acquisitions"]) == 4
         rec = next(
             r for r in summary["acquisitions"] if r["naming"]["c"] == 0 and r["naming"]["z"] == 0
         )
-        assert rec["image_path"] == ("overview-scan/data/" + build_image_name(naming))
-        assert rec["xml_path"] == ("overview-scan/data/metadata/" + build_xml_name(naming))
+        assert rec["image_path"] == ("overview-scan/" + build_image_name(naming))
+        assert "xml_path" not in rec
         assert rec["source_exporter"] == "lasx_native_autosave"
-        assert rec["naming"]["p"] == 3
+        assert rec["naming"]["position_label"] == "000003"
 
     def test_save_does_not_issue_microscope_acquire(
         self,
@@ -444,37 +442,59 @@ class TestSave:
         assert all(not p.is_file() for p in patched_export["image_paths"])
         assert not patched_export["xml_path"].is_file()
 
-    def test_save_preserves_caller_owned_view_slot(
+    def test_save_embeds_state_in_plane_ome_xml_when_provided(
         self,
         patched_export,
         successful_acq,
         tmp_path,
         naming,
     ):
-        naming = replace(naming, v=5)
+        state = {
+            "software": {"driver_version": "6.0.0"},
+            "hardware": {"Microscope": {"name": "DM Manual-6"}},
+            "provenance": {
+                "acquisition_type": "overview-scan",
+                "position_label": "000003",
+                "acquisition_hash": "9k2m4p",
+                "session_hash6": "000abc",
+                "exported_at": "2026-07-07T00:00:00+00:00",
+            },
+        }
 
         saved = drv.save(
             None,
             successful_acq,
             tmp_path / "run_000001",
             naming,
+            state=state,
         )
 
-        assert saved.xml_paths == {
-            drv.PositionIndex(t=0, v=5): tmp_path
-            / "run_000001"
-            / "overview-scan"
-            / "data"
-            / "metadata"
-            / build_xml_name(replace(naming, t=0))
-        }
-        for idx, path in saved.image_paths.items():
-            parsed = parse_image_name(path.name)
-            assert parsed is not None
-            assert parsed.v == 5
-            assert parsed.t == idx.t
-            assert parsed.z == idx.z
-            assert parsed.c == idx.c
+        for image_path in saved.image_paths.values():
+            embedded = tifffile.TiffFile(str(image_path)).pages[0].description
+            assert "StructuredAnnotations" in embedded
+            assert 'ID="Annotation:zmart-state-map"' in embedded
+            assert 'ID="Annotation:zmart-state-json"' in embedded
+            assert 'Namespace="https://zmart-microscopy/state"' in embedded
+            # the flat JSON highlights and the full JSON dump are both present
+            assert 'K="position_label"' in embedded
+            assert '"driver_version": "6.0.0"' in embedded
+
+    def test_save_omits_state_annotations_when_not_provided(
+        self,
+        patched_export,
+        successful_acq,
+        tmp_path,
+        naming,
+    ):
+        saved = drv.save(
+            None,
+            successful_acq,
+            tmp_path / "run_000001",
+            naming,
+        )
+        for image_path in saved.image_paths.values():
+            embedded = tifffile.TiffFile(str(image_path)).pages[0].description
+            assert "StructuredAnnotations" not in embedded
 
     def test_save_has_no_channel_selector(
         self,
@@ -511,7 +531,7 @@ class TestSave:
         assert tifffile.imread(z0).shape == (16, 16)
         assert tifffile.imread(z1).shape == (16, 16)
 
-    def test_save_preserves_caller_owned_position_slots(
+    def test_save_preserves_caller_owned_position_label(
         self,
         patched_export,
         successful_acq,
@@ -520,10 +540,7 @@ class TestSave:
         naming = Naming(
             acquisition_type="overview-scan",
             hash6="000001",
-            k=7,
-            m=8,
-            g=9,
-            p=10,
+            position_label="well_B7",
         )
 
         saved = drv.save(
@@ -536,11 +553,9 @@ class TestSave:
         for idx, path in saved.image_paths.items():
             parsed = parse_image_name(path.name)
             assert parsed is not None
-            assert parsed.k == 7
-            assert parsed.m == 8
-            assert parsed.g == 9
-            assert parsed.p == 10
-            assert parsed.t == idx.t
+            assert parsed.acquisition_type == "overview-scan"
+            assert parsed.hash6 == "000001"
+            assert parsed.position_label == "well_B7"
             assert parsed.z == idx.z
             assert parsed.c == idx.c
 
@@ -620,15 +635,13 @@ class TestSave:
                 cleanup_source=False,
             )
 
-        out_img = next((tmp_path / "out" / "overview-scan" / "data").glob("*.ome.tiff"))
-        out_xml = next((tmp_path / "out" / "overview-scan" / "data" / "metadata").glob("*.ome.xml"))
+        out_img = next((tmp_path / "out" / "overview-scan").glob("*.ome.tiff"))
         assert image_path.read_bytes() == source_before
         assert b'Wavelength="0"' not in out_img.read_bytes()
-        assert b'Wavelength="0"' not in out_xml.read_bytes()
         assert fix_ome_tiff.call_count == 0
         assert fix_ome_xml_file.call_count == 0
 
-    def test_canonical_output_references_canonical_filenames(
+    def test_embedded_plane_ome_references_its_own_filename(
         self,
         patched_export,
         successful_acq,
@@ -642,10 +655,10 @@ class TestSave:
             naming,
         )
 
-        xml = next(iter(saved.xml_paths.values())).read_text(encoding="utf-8")
         for image_path in saved.image_paths.values():
-            assert f'FileName="{image_path.name}"' in xml
-        assert "image--L0000" not in xml
+            embedded = tifffile.TiffFile(str(image_path)).pages[0].description
+            assert f'FileName="{image_path.name}"' in embedded
+            assert "image--L0000" not in embedded
 
     def test_canonical_output_is_valid_under_ome_types(
         self,
@@ -654,20 +667,28 @@ class TestSave:
         tmp_path,
         naming,
     ):
-        pytest.importorskip("ome_types")
-        from ome_types import from_tiff, from_xml
+        # ome-types + lxml are firm dependencies (environment.yml /
+        # requirements.txt / requirements-dev.txt): the driver's OME-TIFF
+        # output — including the embedded machine-state block — MUST validate
+        # against the OME schema, so this gate never silently skips.
+        from ome_types import from_tiff
 
+        state = {
+            "software": {"driver_version": "6.0.0"},
+            "provenance": {"acquisition_type": "overview-scan", "position_label": "000003"},
+        }
         saved = drv.save(
             None,
             successful_acq,
             tmp_path / "run_000001",
             naming,
+            state=state,
         )
 
+        # The embedded per-plane OME (with the StructuredAnnotations block)
+        # must validate against the OME schema.
         for image_path in saved.image_paths.values():
             from_tiff(str(image_path), validate=True)
-        for xml_path in saved.xml_paths.values():
-            from_xml(xml_path.read_text(encoding="utf-8"), validate=True)
 
     def test_canonical_output_preserves_pixels(
         self,

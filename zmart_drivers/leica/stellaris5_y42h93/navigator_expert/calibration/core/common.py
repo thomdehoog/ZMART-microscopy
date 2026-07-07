@@ -281,11 +281,11 @@ def _capture_for_calibration(
     acquisition_type: str,
 ):
     """Use the public driver acquire/save workflow for calibration captures."""
-    p = len(session.exported_files)
+    position_label = f"{len(session.exported_files):06d}"
     naming = Naming(
         acquisition_type=acquisition_type,
         hash6=run_hash(),
-        p=p,
+        position_label=position_label,
     )
     acq = drv.acquire(session.client, session.job_name)
     return drv.save(
