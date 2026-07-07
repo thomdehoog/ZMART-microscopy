@@ -33,13 +33,30 @@ client ──▶  frame({"<method>": {args}})
   (compared in constant time over UTF-8 bytes). `OK` = authenticated; any call
   before a successful token frame is refused. With no token, every frame is a call.
 - **Call.** The payload is one single-key JSON object: the key is the method, the
-  value is its args. The server (1) parses it, (2) validates it is a single-key
-  object whose key is in the `COMMANDS` allowlist, and (3) translates it into the
-  matching `Core` call — the same methods the GUI's own buttons call
-  (`move_absolute`, `set_state`, an acquisition, a state read, …).
+  value is its args. The server (1) parses it, (2) checks the key is in the
+  `COMMANDS` allowlist, (3) **validates the args** (see below), and (4) translates
+  it into the matching `Core` call — the same methods the GUI's own buttons call.
 - **Reply.** One line, `__ZMART_OK__` + the JSON result. On a bad payload, an
-  unknown method, or a handler error, the reply is the error text (no marker line),
-  and the connection stays open.
+  unknown method, a rejected value, or a handler error, the reply is the error text
+  (no marker line), and the connection stays open.
+
+### Input validation (`_validate`)
+
+Beyond "known method," the server checks each call's **args** before touching the
+instrument, and returns a *specific* error if they're off:
+
+- **shape** — `targets`/`deltas` must be an object of `axis → number`, `settings`
+  an object, etc. (`"targets" must be a non-empty object of axis -> number`).
+- **allowed options** — `set_state` values are checked against the **live `cfg`**
+  (`filter` ∈ `filterdict`, `zoom` ∈ `zoomdict`, `laser` ∈ `laserdict`,
+  `shutterconfig` ∈ `shutteroptions`); `intensity` ∈ `[0, 100]`.
+- **range** — `move_absolute` targets are checked against optional per-axis soft
+  limits, set via `MESOSPIM_RS_LIMITS` (a JSON object `{"x": [lo, hi], …}` or a
+  path to one) or the `limits=` constructor arg. Unset → no soft limit (the Core's
+  own hardware bound is the backstop).
+
+This is what makes the LLM lane safe: a bad *value* (not just a bad name) is
+refused at the door, with a message the caller can act on.
 
 ## MCP (LLM) front end — over HTTP
 

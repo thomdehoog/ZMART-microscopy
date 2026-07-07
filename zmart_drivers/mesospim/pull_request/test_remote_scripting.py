@@ -179,6 +179,68 @@ def test_no_hostile_payload_runs_anything_or_crashes():
         assert "__ZMART_OK__" not in reply  # no success ack for a bad/unknown call
 
 
+# -- input validation: right shape, an allowed option, an in-range value -------
+# A bad VALUE (not just a bad name) is refused before it reaches the Core, with a
+# specific message. This is what protects the instrument from the MCP/LLM lane.
+
+class _CfgCore:
+    """A tiny Core with a cfg, so set_state options can be checked against it."""
+
+    class _Sig:
+        def __init__(self, fn):
+            self.fn = fn
+
+        def emit(self, x):
+            self.fn(x)
+
+    class _Cfg:
+        filterdict = {"515/30": 1, "561/LP": 2}
+        zoomdict = {"1x": 6.55}
+        laserdict = {"488 nm": "PWM"}
+        shutteroptions = ("Left", "Right", "Both")
+
+    def __init__(self):
+        self.state = {"filter": "515/30", "position": {a + "_pos": 0.0 for a in _AXES}}
+        self.cfg = self._Cfg()
+        self.sig_state_request_and_wait_until_done = self._Sig(self.state.update)
+
+    def move_absolute(self, sdict, wait_until_done=False):
+        for k, v in sdict.items():
+            self.state["position"][k.replace("_abs", "") + "_pos"] = float(v)
+
+
+def test_wrong_arg_shape_is_refused_with_a_specific_message():
+    core = _CfgCore()
+    r = rs.handle_message(core, '{"move_absolute": {"targets": "not-an-object"}}')
+    assert "__ZMART_OK__" not in r and "'targets' must be" in r
+    r = rs.handle_message(core, '{"move_absolute": {"targets": {"q": 1}}}')  # unknown axis
+    assert "unknown axis 'q'" in r
+    r = rs.handle_message(core, '{"move_absolute": {"targets": {"x": "abc"}}}')  # not a number
+    assert "must be a number" in r
+
+
+def test_a_value_not_in_the_configs_options_is_refused():
+    core = _CfgCore()
+    r = rs.handle_message(core, '{"set_state": {"settings": {"filter": "NOPE"}}}')
+    assert "__ZMART_OK__" not in r
+    assert "not one of" in r and "515/30" in r  # the message lists the real options
+    assert core.state["filter"] == "515/30"  # unchanged
+    # and a value that IS in the cfg goes through
+    assert rs.handle_message(core, '{"set_state": {"settings": {"filter": "561/LP"}}}') == "__ZMART_OK__{}"
+    assert rs.handle_message(core, '{"set_state": {"settings": {"intensity": 250}}}').endswith("[0, 100]")
+
+
+def test_a_move_outside_the_limit_envelope_is_refused_and_the_stage_does_not_move():
+    core = _CfgCore()
+    limits = {"x": (-1000.0, 1000.0)}
+    r = rs.handle_message(core, '{"move_absolute": {"targets": {"x": 1e9}}}', limits)
+    assert "__ZMART_OK__" not in r and "outside the allowed range" in r
+    assert core.state["position"]["x_pos"] == 0.0  # never moved
+    # an in-range move still works
+    assert rs.handle_message(core, '{"move_absolute": {"targets": {"x": 500}}}', limits) == "__ZMART_OK__{}"
+    assert core.state["position"]["x_pos"] == 500.0
+
+
 # -- MCP over HTTP (off-the-shelf LLM clients) + its two safety guards ----------
 
 class _FakeConn:
@@ -198,7 +260,7 @@ def _http(token=None, core=None, *, body="", origin=None, auth=None, method="POS
     """Drive one HTTP request through a bare server instance; return (status_line, body_text)."""
     srv = rs.RemoteScriptingServer.__new__(rs.RemoteScriptingServer)  # skip __init__ (no Qt)
     srv._token, srv.core, srv._conn = token, (core or _fake_core()), _FakeConn()
-    srv._httpbuf, srv._mode = b"", "http"
+    srv._httpbuf, srv._mode, srv._limits = b"", "http", {}
     head = f"{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {len(body)}\r\n"
     if origin:
         head += f"Origin: {origin}\r\n"
@@ -318,7 +380,7 @@ class _FullCore(_QObject):
         self.state["state"] = "idle"
 
 
-def _run(token, client_fn):
+def _run(token, client_fn, limits=None):
     """Start the real server, drive it with client_fn, and return the fake Core.
 
     The awkward bit: the server's sockets are Qt objects, and Qt only does socket
@@ -334,7 +396,7 @@ def _run(token, client_fn):
     _install_fake_acquisitions()
     app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
     core = _FullCore()
-    server = rs.RemoteScriptingServer(core, "127.0.0.1", 0, token=token)
+    server = rs.RemoteScriptingServer(core, "127.0.0.1", 0, token=token, limits=limits)
     box = {}
 
     def run():
@@ -471,6 +533,28 @@ def test_e2e_every_command_over_framed_tcp():
 def test_e2e_mcp_over_http_end_to_end():
     core = _run("tok", _http_client)
     assert core.state["filter"] == "647-LP"  # the HTTP tools/call persisted
+
+
+def _limits_client(port, box):
+    call, send, recv, s = _framed_conn(port)
+    try:
+        send("tok")
+        assert recv() == "OK"
+        send(json.dumps({"move_absolute": {"targets": {"x": 1e9}}}))  # far outside the envelope
+        r = recv()
+        assert "__ZMART_OK__" not in r and "outside the allowed range" in r
+        call("move_absolute", targets={"x": 500.0})  # in range -> allowed
+        assert call("get_position")["x"] == 500.0
+        box["ok"] = True
+    finally:
+        s.close()
+
+
+def test_e2e_a_move_outside_the_limits_is_refused_by_the_real_server():
+    # end-to-end proof of the whole path: __init__ takes the limits map, _validate
+    # refuses the out-of-range value over a real socket, the demo stage never moves.
+    core = _run("tok", _limits_client, limits={"x": (-1000.0, 1000.0)})
+    assert core.state["position"]["x_pos"] == 500.0  # only the in-range move landed
 
 
 if __name__ == "__main__":  # runnable without pytest, for a quick check next to the PR
