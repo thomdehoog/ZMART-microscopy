@@ -1585,7 +1585,10 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
         job_name,
         command_started_at=command_started_at,
         api_baseline_name=context["api_baseline_name"],
-        timeout=_profile_value(SELECT_JOB, "poll_timeout", poll_timeout),
+        # The per-attempt confirm window is the shared profile knob
+        # (confirm_poll_s = CONFIRM_POLL_S), same 3x3 as every other command;
+        # an explicit poll_timeout arg still overrides for a one-off call.
+        timeout=poll_timeout if poll_timeout is not None else SELECT_JOB.confirm_poll_s,
         poll_interval=_profile_value(SELECT_JOB, "poll_interval", poll_interval),
     )
     result = _dispatch(

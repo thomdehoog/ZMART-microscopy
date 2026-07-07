@@ -109,13 +109,14 @@ class StateReaderProfile:
     # Selected-job confirmation source: "api" | "log" | "hybrid".
     # hybrid races the api leg (transition-admissible: a stale API readback
     # cannot witness a transition to a target it already read pre-command)
-    # against the log leg (post-command CurrentBlock event); the race is
-    # bounded by ``selected_job_hybrid_budget_s`` inside one confirm attempt.
+    # against the log leg (post-command CurrentBlock event). The race runs for
+    # one confirm window (the shared CONFIRM_POLL_S), so the whole confirmation
+    # is the uniform 3x3: CONFIRM_POLL_S per attempt, max_confirm_attempts
+    # attempts, re-fire between — same as every other command.
     # Default hybrid: the api confirm is measured-wrong on the real scope
     # (stale 15 s+, wrong job) and log-only is insufficient on the
     # simulator; hybrid fits both without environment detection.
     selected_job_confirm_source: str = "hybrid"
-    selected_job_hybrid_budget_s: float = 6.0
     selected_job_log_prime_cluster: bool = False
     selected_job_log_confirm_timeout_s: float = 2.0
     selected_job_log_poll_timeout_s: float = 5.0
@@ -438,8 +439,11 @@ SELECT_JOB = CommandProfile(
     # select_job's confirmation legs are built per call by
     # confirm_select_job.select_job_confirm_legs (api / log / hybrid policy from
     # StateReaderProfile.selected_job_confirm_source), not by this profile.
+    # Same 3x3 posture as every other command: max_confirm_attempts confirm
+    # windows of confirm_poll_s seconds each (the shared CONFIRM_POLL_S), re-fire
+    # between, unconfirmed-not-fail. No bespoke poll_timeout — the window comes
+    # from the profile like every setting command.
     confirm_fn=None,
     max_confirm_attempts=3,
     poll_interval=0.01,
-    poll_timeout=5.0,
 )
