@@ -1,0 +1,19 @@
+2026-07-07 09:33:52,360 INFO navigator_expert.connection.session | LAS X runtime=C:\Program Files\Leica Microsystems CMS GmbH\LAS X\AddIns\NavigatorExpert version=1.0.108.0 api_delay_ms=250
+2026-07-07 09:33:52,364 INFO navigator_expert.commands.gate | limits handshake ok: {'schema_version': 1, 'source': 'defaults', 'path': 'C:\\ProgramData\\zmart-microscopy\\leica\\stellaris5_y42h93\\navigator_expert\\2026-07-07T07-22-31-729769Z\\limits.json', 'is_fallback': False} governs this session
+2026-07-07 09:33:52,369 WARNING navigator_expert.config.machine | No machine snapshot for leica/stellaris5_y42h93 under C:\ProgramData\zmart-microscopy\leica\stellaris5_y42h93\navigator_expert; using bundled default \\zmbstaff.core.uzh.ch\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\smart-microscopy\zmart_drivers\leica\stellaris5_y42h93\navigator_expert\calibration\defaults\calibration.json (calibration may be stale - re-calibrate).
+2026-07-07 09:33:53,558 INFO navigator_expert.commands.dispatch | MoveXY -> (63475.0, 41474.99999999999) um | OK (0.142s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:53,769 INFO navigator_expert.commands.dispatch | MoveXY -> (63525.0, 41524.99999999999) um | OK (0.109s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:53,801 INFO navigator_expert.commands.dispatch | Z -> 0.0 um (galvo) | OK (0.030s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:53,983 INFO navigator_expert.commands.dispatch | MoveXY -> (63475.0, 41474.99999999999) um | OK (0.097s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:54,193 INFO navigator_expert.commands.dispatch | MoveXY -> (63525.0, 41524.99999999999) um | OK (0.108s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:54,212 INFO navigator_expert.commands.dispatch | Z -> 2.0 um (galvo) | OK (0.018s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:54,407 INFO navigator_expert.commands.dispatch | MoveXY -> (63475.0, 41474.99999999999) um | OK (0.108s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:54,617 INFO navigator_expert.commands.dispatch | MoveXY -> (63525.0, 41524.99999999999) um | OK (0.108s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:54,751 INFO navigator_expert.commands.dispatch | Z -> 3.0 um (zwide) | OK (0.134s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:54,909 INFO navigator_expert.commands.dispatch | Z -> 0.0 um (zwide) | OK (0.111s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:55,080 INFO navigator_expert.commands.dispatch | MoveXY -> (63450.0, 41449.99999999999) um | OK (0.129s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:55,290 INFO navigator_expert.commands.dispatch | MoveXY -> (63500.0, 41499.99999999999) um | OK (0.108s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:55,308 INFO navigator_expert.commands.dispatch | Z -> 0.0 um (galvo) | OK (0.017s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:55,905 INFO navigator_expert.commands.confirm_select_job | Job 'Overview' confirmed from LAS X log (344ms, attempts=2)
+2026-07-07 09:33:55,969 INFO navigator_expert.commands.dispatch | SelectJob 'Overview' | OK (0.435s) attempts=1 confirm_attempts=1
+2026-07-07 09:33:56,747 ERROR navigator_expert.readers.api_reader | get_jobs attempt 1/3 failed: 'PropertyObject' object has no attribute 'Model'

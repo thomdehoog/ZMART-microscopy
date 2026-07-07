@@ -1,74 +1,21 @@
 {
-  "total_seconds": 130.63,
-  "passed": true,
-  "fatal_failures": [],
-  "warnings": [
-    "lint: ruff format --check"
+  "total_seconds": 104.47,
+  "passed": false,
+  "fatal_failures": [
+    "hardware: zmart adapter (controller round-trip, writes)",
+    "hardware: end-to-end validator [api reader] (writes)"
   ],
+  "warnings": [],
   "steps": [
-    {
-      "name": "lint: ruff check",
-      "ok": true,
-      "fatal": false,
-      "returncode": 0,
-      "seconds": 0.34,
-      "error": null,
-      "command": [
-        "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
-        "-m",
-        "ruff",
-        "check",
-        "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert"
-      ]
-    },
-    {
-      "name": "lint: ruff format --check",
-      "ok": false,
-      "fatal": false,
-      "returncode": 1,
-      "seconds": 0.24,
-      "error": null,
-      "command": [
-        "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
-        "-m",
-        "ruff",
-        "format",
-        "--check",
-        "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert"
-      ]
-    },
-    {
-      "name": "tests: offline suite + coverage",
-      "ok": true,
-      "fatal": true,
-      "returncode": 0,
-      "seconds": 89.57,
-      "error": null,
-      "command": [
-        "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
-        "-m",
-        "pytest",
-        "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert\\tests",
-        "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert\\calibration\\tests",
-        "-m",
-        "not hardware",
-        "--junit-xml=\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert\\tests\\_report\\junit.xml",
-        "--cov=navigator_expert",
-        "--cov-config=\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert\\.coveragerc",
-        "--cov-report=term-missing:skip-covered",
-        "--cov-report=xml:\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert\\tests\\_report\\coverage.xml",
-        "--cov-report=html:\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert\\tests\\_report\\htmlcov"
-      ]
-    },
     {
       "name": "limits: mock self-check (fail-closed gate proven before any hardware)",
       "ok": true,
       "fatal": true,
       "returncode": 0,
-      "seconds": 3.93,
+      "seconds": 2.49,
       "error": null,
       "command": [
-        "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
+        "C:\\ProgramData\\MinicondaZMB\\envs\\sm-citest\\python.exe",
         "-m",
         "pytest",
         "-q",
@@ -80,10 +27,10 @@
       "ok": true,
       "fatal": true,
       "returncode": 0,
-      "seconds": 2.18,
+      "seconds": 2.94,
       "error": null,
       "command": [
-        "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
+        "C:\\ProgramData\\MinicondaZMB\\envs\\sm-citest\\python.exe",
         "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert\\tests\\hardware\\probe_four_readers.py",
         "--read-only"
       ]
@@ -93,10 +40,10 @@
       "ok": true,
       "fatal": true,
       "returncode": 0,
-      "seconds": 8.34,
+      "seconds": 7.9,
       "error": null,
       "command": [
-        "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
+        "C:\\ProgramData\\MinicondaZMB\\envs\\sm-citest\\python.exe",
         "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert\\tests\\hardware\\validate_readers_side_by_side.py",
         "--yes",
         "--report-dir=\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert\\tests\\_report"
@@ -104,13 +51,13 @@
     },
     {
       "name": "hardware: zmart adapter (controller round-trip, writes)",
-      "ok": true,
+      "ok": false,
       "fatal": true,
-      "returncode": 0,
-      "seconds": 5.59,
+      "returncode": 1,
+      "seconds": 5.53,
       "error": null,
       "command": [
-        "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
+        "C:\\ProgramData\\MinicondaZMB\\envs\\sm-citest\\python.exe",
         "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert\\tests\\hardware\\validate_zmart_adapter.py",
         "--yes",
         "--allow-move",
@@ -122,13 +69,13 @@
     },
     {
       "name": "hardware: end-to-end validator [api reader] (writes)",
-      "ok": true,
+      "ok": false,
       "fatal": true,
-      "returncode": 0,
-      "seconds": 6.04,
+      "returncode": 1,
+      "seconds": 50.18,
       "error": null,
       "command": [
-        "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
+        "C:\\ProgramData\\MinicondaZMB\\envs\\sm-citest\\python.exe",
         "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert\\tests\\hardware\\validate_hardware.py",
         "--yes",
         "--allow-xy",
@@ -145,10 +92,10 @@
       "ok": true,
       "fatal": true,
       "returncode": 0,
-      "seconds": 6.27,
+      "seconds": 15.03,
       "error": null,
       "command": [
-        "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
+        "C:\\ProgramData\\MinicondaZMB\\envs\\sm-citest\\python.exe",
         "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert\\tests\\hardware\\validate_hardware.py",
         "--yes",
         "--allow-xy",
@@ -165,10 +112,10 @@
       "ok": true,
       "fatal": true,
       "returncode": 0,
-      "seconds": 6.58,
+      "seconds": 19.17,
       "error": null,
       "command": [
-        "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
+        "C:\\ProgramData\\MinicondaZMB\\envs\\sm-citest\\python.exe",
         "\\\\zmbstaff.core.uzh.ch\\zmbstaff\\10374\\Protocols_Notes\\thom\\notes\\repositories\\smart-microscopy\\zmart_drivers\\leica\\stellaris5_y42h93\\navigator_expert\\tests\\hardware\\validate_hardware.py",
         "--yes",
         "--allow-xy",
