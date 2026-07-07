@@ -30,4 +30,4 @@ python -m pytest -q workflows/target_acquisition/tests
 
 ## Output
 
-Acquisition artifacts write to the operator-selected `media_path/smart/` tree (see `shared/output_layout/`), not into this package.
+Acquisition artifacts write to a `smart/` tree beside the LAS X native AutoSave base folder (or to `Config.smart_output_root` when set), not into this package.

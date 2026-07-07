@@ -1,9 +1,8 @@
 """Collect files produced by LAS X native AutoSave.
 
-Native AutoSave writes into a LAS X project folder instead of the
-Navigator Expert flat export tree. The observed product is one
-multipage OME-TIFF per acquisition with embedded OME-XML plus XLEF/XLIF
-project metadata. This module only maps that source product to the
+Native AutoSave writes into a LAS X project folder. The observed
+product is one multipage OME-TIFF per acquisition with embedded OME-XML
+plus XLEF/XLIF project metadata. This module only maps that source product to the
 writer-agnostic acquisition contract; persistence stays in ``save``.
 """
 

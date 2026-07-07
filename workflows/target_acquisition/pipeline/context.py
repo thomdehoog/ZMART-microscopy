@@ -4,8 +4,8 @@
   in the notebook config cell. Stage XY limits come from LAS X boundary
   markers by default; the `stage_*_um` cfg fields are an opt-in escape
   hatch when markers cannot be used. The physical envelope comes from
-  `limits/.../defaults.json`; Step 2 writes the active working envelope
-  to `limits/.../current.json`.
+  the machine-local `limits.json` (its `stage.*` constraints); Step 2
+  writes the active working envelope to `limits/.../current.json`.
 - `Context` is the mutable runtime state that steps read and update in
   place: connected LAS X client, run naming, scan-field geometry, focus
   map, per-step result handles, job-state cache.
@@ -30,13 +30,15 @@ class Config:
     """Operator inputs -- constructed once in the notebook config cell.
 
     Stage XY limits come from boundary point markers placed in
-    Navigator Expert (preferred); the physical envelope from
-    `limits/.../defaults.json` is used as the safety ceiling. The cfg
+    Navigator Expert (preferred); the physical envelope from the
+    machine-local `limits.json` (its `stage.*` constraints) is used as
+    the safety ceiling. The cfg
     `stage_*_um` fields are an opt-in fallback only (escape hatch when LAS X
     markers cannot be used) -- the notebook does not surface them.
 
-    Z-wide limits always come from `limits/.../defaults.json` (the physical
-    envelope); there is no operator-typed override -- focus behaviour
+    Z-wide limits always come from the machine-local `limits.json` (its
+    `stage.*` constraints; the physical envelope); there is no
+    operator-typed override -- focus behaviour
     is controlled by the focus map in Step 3.
     """
 
@@ -78,8 +80,8 @@ class Config:
 
     # Stage XY fallback (escape hatch -- prefer LAS X markers).
     # All four must be set together. They are validated against the
-    # physical envelope from limits/.../defaults.json; a ValueError is raised if
-    # any value falls outside.
+    # physical envelope from the machine-local `limits.json` (its `stage.*`
+    # constraints); a ValueError is raised if any value falls outside.
     stage_x_min_um: float | None = None
     stage_x_max_um: float | None = None
     stage_y_min_um: float | None = None

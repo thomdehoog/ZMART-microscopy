@@ -97,6 +97,8 @@ must not depend on which entry point a caller used.
    then redundant and is removed; its `_MUTATING_OPS` completeness idea
    survives as a test: *every mutating command wrapper must carry the gate*
    (enumerated, so a new command cannot ship without it).
+
+   > Superseded by Amendment 8 / §7b (collapsed into the single `limits.json`).
 2. **No default limits file for enforcement.** A bundled default that silently
    applies can be the wrong machine's envelope — that breaks safety rather
    than providing it. `limits/defaults/limits.json` stops being a runtime
@@ -123,6 +125,8 @@ must not depend on which entry point a caller used.
    "deliberately unlimited"; an **absent** key means "no decision" and fails
    closed. Schema validation enforces finite numbers, min ≤ max, and rejects
    NaN/Infinity.
+
+   > Superseded by Amendment 3 (the spelling is `null`; lists are rejected).
 7. **Calibration co-located, enforced elsewhere.** Calibration values live in
    the same machine-local config area but are applied at their own natural
    chokepoint — the objective-change path (per-objective translation onto the

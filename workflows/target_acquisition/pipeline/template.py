@@ -12,8 +12,8 @@ read_scan_field (Step 2b): parse the scan field the operator drew,
 plot_scan_field: visualise tiles, boundary, and focus markers.
 
 Z-galvo is never commanded by this pipeline; drv.set_stage_limits still
-receives the z-galvo envelope from limits/.../defaults.json because the
-API requires all axes together.
+receives the z-galvo envelope from the machine-local `limits.json` (its
+`stage.*` constraints) because the API requires all axes together.
 """
 
 from __future__ import annotations
@@ -47,8 +47,9 @@ def prepare_template(ctx: Context) -> None:
 
     Limits priority:
       1. Boundary point markers in Navigator Expert (preferred).
-         Marker-derived XY is clamped to the physical envelope from
-         limits/.../defaults.json with a printed report of any clamp.
+         Marker-derived XY is clamped to the physical envelope from the
+         machine-local `limits.json` (its `stage.*` constraints) with a
+         printed report of any clamp.
       2. Explicit cfg.stage_x/y_min/max_um (escape hatch -- not
          surfaced in the notebook). Validated against the physical
          envelope; ValueError if any value falls outside.
@@ -93,7 +94,7 @@ def prepare_template(ctx: Context) -> None:
         if g.get("type") == "Point" and "center_um" in g
     ]
 
-    # --- Z limits always from physical envelope (limits/.../defaults.json) ---
+    # --- Z limits always from physical envelope (machine-local `limits.json`, its `stage.*` constraints) ---
     z_galvo_min, z_galvo_max = stage_cfg["stage_um"]["z_galvo"]
     z_wide_min, z_wide_max = stage_cfg["stage_um"]["z_wide"]
 
