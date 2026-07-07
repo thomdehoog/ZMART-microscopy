@@ -17,7 +17,9 @@ Re-exports:
 - target discovery (``pipeline.discovery``): ``discover_targets``;
 - the shared acquire primitive (``pipeline._capture_run``):
   ``capture_positions``;
-- the pixel->frame geometry (``pipeline._geom``): ``overview_pixel_to_frame``.
+- the pixel->frame geometry (``pipeline._geom``): ``overview_pixel_to_frame``;
+- run summary + plots (``pipeline.viz``): ``summarize_run``, ``write_summary``,
+  ``plot_focus_surface``, ``plot_frame_layout`` (plots lazy-import matplotlib).
 
 Importing this package pulls in no driver code. Simulation-mode helpers
 (``hijack_frame`` / ``get_provider``) live in ``pipeline._hijack`` /
@@ -34,13 +36,19 @@ from ._capture_run import capture_positions
 from ._focus_run import measure_focus
 from ._focus_surface import FocusSurface, fit_focus_surface
 from ._geom import overview_pixel_to_frame
-from .discovery import discover_targets
+from .discovery import build_overview_inputs, discover_targets
 from .steps import (
     acquire_targets,
     connect,
     load_positions,
     run_overview,
     with_focus_z,
+)
+from .viz import (
+    plot_focus_surface,
+    plot_frame_layout,
+    summarize_run,
+    write_summary,
 )
 
 __all__ = [
@@ -51,8 +59,13 @@ __all__ = [
     "fit_focus_surface",
     "FocusSurface",
     "run_overview",
+    "build_overview_inputs",
     "discover_targets",
     "acquire_targets",
     "capture_positions",
     "overview_pixel_to_frame",
+    "summarize_run",
+    "write_summary",
+    "plot_focus_surface",
+    "plot_frame_layout",
 ]

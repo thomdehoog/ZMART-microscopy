@@ -20,6 +20,47 @@ def _identity_image_to_stage(pixel_size_um: float) -> list[list[float]]:
     return [[size, 0.0], [0.0, size]]
 
 
+def build_overview_inputs(
+    overview_positions: list[dict],
+    image_paths: list[Any],
+    *,
+    pixel_size_um: float,
+    image_size_px: tuple[int, int],
+    labels: list[Any] | None = None,
+) -> list[dict]:
+    """Pair captured overview frame positions with their saved images.
+
+    Bridges the overview step to :func:`discover_targets`. The workflow owns
+    the frame positions it captured at (``overview_positions`` -- the placed
+    ``[{"x", "y", ...}]``) and, per driver, the saved image path for each
+    (the driver's ``acquire`` record shape is driver-defined: the Leica adapter
+    returns ``{"images": [...]}``, so ``image_paths`` is what the caller pulls
+    out of each record). ``pixel_size_um`` / ``image_size_px`` (H, W) describe
+    the overview job's geometry, shared by every tile.
+
+    Returns the ``[{"image_path", "center_frame_um", "pixel_size_um",
+    "image_size_px", "label"}]`` list :func:`discover_targets` consumes.
+
+    Raises ``ValueError`` if the positions and image paths differ in length.
+    """
+    if len(overview_positions) != len(image_paths):
+        raise ValueError(
+            f"overview_positions ({len(overview_positions)}) and image_paths "
+            f"({len(image_paths)}) must be the same length"
+        )
+    labels = labels if labels is not None else list(range(len(overview_positions)))
+    return [
+        {
+            "image_path": path,
+            "center_frame_um": (float(pos["x"]), float(pos["y"])),
+            "pixel_size_um": float(pixel_size_um),
+            "image_size_px": (int(image_size_px[0]), int(image_size_px[1])),
+            "label": label,
+        }
+        for pos, path, label in zip(overview_positions, image_paths, labels, strict=True)
+    ]
+
+
 def discover_targets(
     engine: Any,
     overviews: list[dict],
