@@ -121,7 +121,12 @@ def test_read_geometry_pixel_size_and_shape(tmp_path):
 def test_read_geometry_converts_nm_unit(tmp_path):
     img = tmp_path / "ov.ome.tiff"
     _write_geom_tiff(
-        img, h=8, w=8, phys_x=500, phys_y=500, unit_attr=' PhysicalSizeXUnit="nm" PhysicalSizeYUnit="nm"'
+        img,
+        h=8,
+        w=8,
+        phys_x=500,
+        phys_y=500,
+        unit_attr=' PhysicalSizeXUnit="nm" PhysicalSizeYUnit="nm"',
     )
     assert read_overview_geometry(img)["pixel_size_um"] == pytest.approx(0.5)
 
