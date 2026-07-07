@@ -32,8 +32,8 @@ from navigator_expert.scanfields.files import (
     get_template_state,
 )
 
-from ._figsave import save_figure
-from ._log_capture import _logged
+from .._figsave import save_figure
+from .._log_capture import _logged
 from .context import Context
 
 

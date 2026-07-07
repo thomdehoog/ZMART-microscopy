@@ -25,12 +25,12 @@ from navigator_expert.calibration.core import model as calib
 
 from shared.output_layout import Naming, build_position_analysis_name
 
+from .._hijack import NonSimulatorFrameError, hijack_frame
+from .._log_capture import _logged
+from .._mock_provider import get_provider
+from .._saved import require_single_plane
 from ._acquire import acquire
-from ._hijack import NonSimulatorFrameError, hijack_frame
 from ._job_state import ensure_job_state
-from ._log_capture import _logged
-from ._mock_provider import get_provider
-from ._saved import require_single_plane
 from .context import Context
 from .focus import FocusMap
 

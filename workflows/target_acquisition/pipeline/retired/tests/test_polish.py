@@ -54,7 +54,7 @@ def test_tile_style_alpha_default_and_rgba_passthrough():
     composites with the rgba's own alpha channel rather than
     overriding it).
     """
-    from pipeline.visualize import TileStyle, render_scan_field_panel
+    from pipeline.retired.visualize import TileStyle, render_scan_field_panel
 
     # Default-construction sanity
     assert TileStyle(facecolor="none", edgecolor="white").alpha is None
@@ -96,7 +96,7 @@ def test_render_scan_field_panel_padding_factor_scales_linearly():
     A broken implementation that doubled padding regardless of input
     would pass a "greater than" check; the ratio assertion catches it.
     """
-    from pipeline.visualize import render_scan_field_panel
+    from pipeline.retired.visualize import render_scan_field_panel
 
     tile_size = 100.0
     scan_field = {
@@ -151,7 +151,7 @@ def test_plot_stage_envelope_with_stage_limits(tmp_path, monkeypatch):
     """
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
     import navigator_expert as drv
-    from pipeline.template import plot_stage_envelope
+    from pipeline.retired.template import plot_stage_envelope
 
     boundary = {"x_min": 0.0, "x_max": 1000.0, "y_min": 0.0, "y_max": 800.0}
     ctx = _envelope_ctx(tmp_path, stage_limits=boundary)
@@ -170,7 +170,7 @@ def test_plot_stage_envelope_falls_back_to_driver(tmp_path, monkeypatch):
     """
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
     import navigator_expert as drv
-    from pipeline.template import plot_stage_envelope
+    from pipeline.retired.template import plot_stage_envelope
 
     ctx = _envelope_ctx(tmp_path, stage_limits=None)
     physical = {"x_min": -500.0, "x_max": 500.0, "y_min": -400.0, "y_max": 400.0}
@@ -188,7 +188,7 @@ def test_plot_stage_envelope_falls_back_to_driver(tmp_path, monkeypatch):
 def test_plot_scan_field_uses_portrait_stage_limit_aspect(tmp_path, monkeypatch):
     """A portrait stage envelope should produce a portrait Step 2b figure."""
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
-    from pipeline.template import plot_scan_field
+    from pipeline.retired.template import plot_scan_field
 
     created_sizes = []
     original_figure = plt.figure
@@ -240,7 +240,7 @@ def test_focus_map_uses_portrait_stage_limit_aspect(tmp_path, monkeypatch):
     """Step 2c uses the same stage-envelope aspect as Steps 2a/2b."""
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
     import numpy as np
-    from pipeline.focus import FocusMap
+    from pipeline.retired.focus import FocusMap
 
     created_sizes = []
     original_figure = plt.figure
@@ -292,7 +292,7 @@ def test_focus_map_uses_portrait_stage_limit_aspect(tmp_path, monkeypatch):
 
 def test_stage_limit_update_writes_loads_and_applies_current(monkeypatch):
     """The workflow updates limits current through the driver before use."""
-    from pipeline import template as template_mod
+    from pipeline.retired import template as template_mod
 
     ctx = mock.MagicMock()
     stage_um = {
@@ -364,7 +364,7 @@ def test_read_scan_field_geometry_without_tiles_explains_lifecycle(
     monkeypatch,
 ):
     """A geometry without grid counts still needs an operator action."""
-    from pipeline import template as template_mod
+    from pipeline.retired import template as template_mod
 
     ctx = _template_ctx(tmp_path)
     monkeypatch.setattr(
@@ -395,7 +395,7 @@ def test_read_scan_field_empty_template_explains_lifecycle(
     monkeypatch,
 ):
     """An empty template points the operator to the same Step 2 action."""
-    from pipeline import template as template_mod
+    from pipeline.retired import template as template_mod
 
     ctx = _template_ctx(tmp_path)
     monkeypatch.setattr(
@@ -424,8 +424,8 @@ def test_show_template_state_reports_lifecycle_fields(
     capsys,
 ):
     """show_template_state is a diagnostic view, not a parser fallback."""
-    from pipeline import show_template_state
-    from pipeline import template as template_mod
+    from pipeline.retired import template as template_mod
+    from pipeline.retired.template import show_template_state
 
     ctx = _template_ctx(tmp_path)
     monkeypatch.setattr(
@@ -463,7 +463,7 @@ def test_scatter_layers_other_then_selected():
     """_LAYERS is the structural invariant for the scatter: two entries,
     "other" (gray background) drawn first, then "selected" (red) on top.
     """
-    from pipeline.visualize import _LAYERS
+    from pipeline.retired.visualize import _LAYERS
 
     assert len(_LAYERS) == 2
     assert _LAYERS[0].key == "other"
@@ -484,10 +484,10 @@ def test_plot_results_skips_picks_without_records(tmp_path, monkeypatch):
     survives palette changes.
     """
     monkeypatch.setattr(plt, "show", lambda *a, **k: None)
-    from pipeline.overview import Pick
-    from pipeline.selection import Picks
-    from pipeline.summary import plot_results
-    from pipeline.target import TargetRecord
+    from pipeline.retired.overview import Pick
+    from pipeline.retired.selection import Picks
+    from pipeline.retired.summary import plot_results
+    from pipeline.retired.target import TargetRecord
 
     # Three picks, only one has a record (success). Two are orphans.
     picks_items = [

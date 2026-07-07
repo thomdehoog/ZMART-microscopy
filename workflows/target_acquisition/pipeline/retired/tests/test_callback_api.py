@@ -22,7 +22,7 @@ import pytest
 
 class TestValidateCallbackFlags:
     def test_raises_when_on_tile_with_live_display_true(self):
-        from pipeline.overview import _validate_callback_flags
+        from pipeline.retired.overview import _validate_callback_flags
 
         with pytest.raises(ValueError, match=r"Cannot pass on_tile"):
             _validate_callback_flags(
@@ -33,7 +33,7 @@ class TestValidateCallbackFlags:
             )
 
     def test_raises_when_on_tile_with_save_png_true(self):
-        from pipeline.overview import _validate_callback_flags
+        from pipeline.retired.overview import _validate_callback_flags
 
         with pytest.raises(ValueError, match=r"Cannot pass on_tile"):
             _validate_callback_flags(
@@ -47,7 +47,7 @@ class TestValidateCallbackFlags:
         """Same validator, parametrized by callback name. Pin the
         on_target wording for the acquire_targets path.
         """
-        from pipeline.overview import _validate_callback_flags
+        from pipeline.retired.overview import _validate_callback_flags
 
         with pytest.raises(ValueError, match=r"Cannot pass on_target"):
             _validate_callback_flags(
@@ -71,7 +71,7 @@ class TestBuildDefaultOnTileCallback:
         # Patch the renderer at its module path; the local import inside
         # _build_default_on_tile_callback resolves to this patched ref.
         fake_display_tile = MagicMock(name="display_tile")
-        import pipeline.visualize as viz_mod
+        import pipeline.retired.visualize as viz_mod
 
         monkeypatch.setattr(viz_mod, "display_tile", fake_display_tile)
 
@@ -80,7 +80,7 @@ class TestBuildDefaultOnTileCallback:
         ctx.stage_limits = "fake_limits_dict"
         ctx.run.layout.logs_dir.return_value = Path("/fake/logs")
 
-        from pipeline.overview import _build_default_on_tile_callback
+        from pipeline.retired.overview import _build_default_on_tile_callback
 
         callback = _build_default_on_tile_callback(
             ctx,
@@ -109,7 +109,7 @@ class TestBuildDefaultOnTargetCallback:
         operator notebook), so a single dict is reused across calls.
         """
         fake_display_target = MagicMock(name="display_target")
-        import pipeline.visualize as viz_mod
+        import pipeline.retired.visualize as viz_mod
 
         monkeypatch.setattr(viz_mod, "display_target", fake_display_target)
 
@@ -117,7 +117,7 @@ class TestBuildDefaultOnTargetCallback:
         ctx.run.layout.analysis_dir.return_value = Path("/fake/analysis")
         ctx.run.layout.logs_dir.return_value = Path("/fake/logs")
 
-        from pipeline.target import _build_default_on_target_callback
+        from pipeline.retired.target import _build_default_on_target_callback
 
         callback = _build_default_on_target_callback(
             ctx,
@@ -150,8 +150,8 @@ class TestAcquireTargetsEmptyPicks:
         unowned executor.
         """
         from pipeline import _save_queue as save_queue_mod
-        from pipeline import target as target_mod
-        from pipeline.selection import Picks
+        from pipeline.retired import target as target_mod
+        from pipeline.retired.selection import Picks
 
         construct_count = {"n": 0}
         real_init = save_queue_mod._FigureSaveQueue.__init__
