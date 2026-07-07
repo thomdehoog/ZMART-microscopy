@@ -229,3 +229,32 @@ def crop_overview_at_target_fov(
         dst_x0 = xs - x0
         crop[dst_y0 : dst_y0 + (ye - ys), dst_x0 : dst_x0 + (xe - xs)] = overview[ys:ye, xs:xe]
     return crop
+
+
+def overview_pixel_to_frame(
+    *,
+    centroid_col_row_px: tuple[float, float],
+    image_shape_px: tuple[int, int],
+    pixel_size_um: float,
+    image_center_frame_um: tuple[float, float],
+) -> tuple[float, float]:
+    """Map an overview pixel ``(col, row)`` to a frame ``(x, y)`` target in um.
+
+    The overview image was captured centred on ``image_center_frame_um`` (the
+    frame position the workflow moved to before acquiring), so a pixel's frame
+    position is that centre plus its offset from the image centre scaled by the
+    pixel size. Image axes align with frame axes (no orientation transform):
+    ``col`` -> frame ``x``, ``row`` -> frame ``y``.
+
+    Parameters
+    ----------
+    centroid_col_row_px : (col, row) pixel coordinates in the overview.
+    image_shape_px : (H, W) of the overview image.
+    pixel_size_um : overview pixel size in micrometres (square pixels).
+    image_center_frame_um : frame (x, y) um the overview was captured at.
+    """
+    height, width = int(image_shape_px[0]), int(image_shape_px[1])
+    col, row = float(centroid_col_row_px[0]), float(centroid_col_row_px[1])
+    x_um = image_center_frame_um[0] + (col - width / 2.0) * pixel_size_um
+    y_um = image_center_frame_um[1] + (row - height / 2.0) * pixel_size_um
+    return (x_um, y_um)
