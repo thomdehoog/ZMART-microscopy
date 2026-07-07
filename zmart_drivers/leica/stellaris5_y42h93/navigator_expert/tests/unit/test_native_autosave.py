@@ -24,8 +24,7 @@ def naming() -> Naming:
     return Naming(
         acquisition_type="overview-scan",
         hash6="000001",
-        g=1,
-        p=3,
+        position_label="000003",
     )
 
 
@@ -81,6 +80,15 @@ def _native_data() -> np.ndarray:
         for z in range(2):
             for c in range(3):
                 data[t, z, c, :, :] = 100 * t + 10 * z + c
+    return data
+
+
+def _native_data_single_t() -> np.ndarray:
+    """Single-timepoint variant: the flat name keys only c and z (no t)."""
+    data = np.zeros((1, 2, 3, 8, 8), dtype=np.uint8)
+    for z in range(2):
+        for c in range(3):
+            data[0, z, c, :, :] = 10 * z + c
     return data
 
 
@@ -346,7 +354,7 @@ class TestNativeSave:
     ):
         root = tmp_path / "native-root"
         project = _native_project(root)
-        tiff = _write_native_ome_tiff(project / "Overview001.ome.tif", _native_data())
+        tiff = _write_native_ome_tiff(project / "Overview001.ome.tif", _native_data_single_t())
         exported = native.ExportedAcquisition(
             source_root=root,
             source_dir=project,
@@ -371,21 +379,19 @@ class TestNativeSave:
         )
 
         collect.assert_called_once()
-        assert len(saved.image_paths) == 12
-        assert set(saved.xml_paths) == {
-            drv.PositionIndex(t=0, v=0),
-            drv.PositionIndex(t=1, v=0),
-        }
+        # Flat: one 2-D plane per (c, z); no sidecar XML.
+        assert len(saved.image_paths) == 6
+        assert saved.xml_paths == {}
+        run_dir = tmp_path / "run_000001"
         for idx, image_path in saved.image_paths.items():
+            # Flat write directly under the acquisition-type folder.
+            assert image_path.parent == run_dir / "overview-scan"
             arr = tifffile.imread(str(image_path))
             assert arr.shape == (8, 8)
-            assert arr[0, 0] == 100 * idx.t + 10 * idx.z + idx.c
-        for xml_path in saved.xml_paths.values():
-            assert b"<OME" in xml_path.read_bytes()
-            assert b"Overview001.ome.tif" not in xml_path.read_bytes()
+            assert arr[0, 0] == 10 * idx.z + idx.c
 
-        summary = json.loads((tmp_path / "run_000001" / "summary.json").read_text())
-        assert len(summary["acquisitions"]) == 12
+        summary = json.loads((run_dir / "summary.json").read_text())
+        assert len(summary["acquisitions"]) == 6
         assert {r["source_exporter"] for r in summary["acquisitions"]} == {"lasx_native_autosave"}
         assert all(r["canonical_metadata"] is True for r in summary["acquisitions"])
         assert all(r["vendor_metadata"] for r in summary["acquisitions"])

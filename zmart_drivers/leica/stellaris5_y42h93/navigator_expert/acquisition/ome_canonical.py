@@ -6,6 +6,7 @@ use this module as the output metadata contract.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 import xml.etree.ElementTree as ET
@@ -27,6 +28,11 @@ XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
 MICROMETER = "\u00b5m"
 JOB_SETTINGS_READ_TIMEOUT_S = 1.0
 JOB_SETTINGS_API_TIMEOUT_S = 0.25
+
+# Namespace + annotation IDs for the embedded machine/software state block.
+STATE_NS = "https://zmart-microscopy/state"
+STATE_MAP_ID = "Annotation:zmart-state-map"
+STATE_JSON_ID = "Annotation:zmart-state-json"
 
 ET.register_namespace("", OME_NS)
 ET.register_namespace("xsi", XSI_NS)
@@ -154,8 +160,13 @@ def plane_xml(
     index: PlaneIndex,
     filename: str,
     shape_yx: tuple[int, int],
+    state: dict | None = None,
 ) -> bytes:
-    """Return valid single-plane OME XML for one canonical image file."""
+    """Return valid single-plane OME XML for one canonical image file.
+
+    When *state* is provided, the machine/software state at export time is
+    embedded as a ``StructuredAnnotations`` block (no sidecar XML).
+    """
     plane_meta = metadata_with_shape_and_grid(
         metadata,
         size_x=shape_yx[1],
@@ -179,6 +190,7 @@ def plane_xml(
         image_name=filename,
         channels=(replace(channel, index=0),),
         tiff_entries=[(0, 0, 0, filename)],
+        state=state,
     )
 
 
@@ -246,6 +258,7 @@ def _ome_xml(
     image_name: str,
     channels: tuple[ChannelMetadata, ...],
     tiff_entries: list[tuple[int, int, int, str]],
+    state: dict | None = None,
 ) -> bytes:
     root = ET.Element(
         _tag("OME"),
@@ -285,7 +298,101 @@ def _ome_xml(
         )
         uuid_el = ET.SubElement(tiff_data, _tag("UUID"), {"FileName": filename})
         uuid_el.text = "urn:uuid:" + str(uuid.uuid5(uuid.NAMESPACE_URL, filename))
+
+    if state is not None:
+        _append_state_annotations(root, image, state)
+
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def _append_state_annotations(root: ET.Element, image: ET.Element, state: dict) -> None:
+    """Embed the machine/software state as schema-valid StructuredAnnotations.
+
+    Two annotations under a single ``StructuredAnnotations`` block (the LAST
+    child of the OME root): a ``MapAnnotation`` of flat human-readable
+    highlights and a ``CommentAnnotation`` carrying the full JSON dump. The
+    ``<Image>`` gets an ``AnnotationRef`` (after ``<Pixels>``) to each.
+
+    All emitted text is forced to 7-bit ASCII: the per-plane XML rides in
+    TIFF tag 270, which tifffile requires to be ASCII.
+    """
+    # AnnotationRefs come AFTER Pixels in the Image element (schema order).
+    ET.SubElement(image, _tag("AnnotationRef"), {"ID": STATE_MAP_ID})
+    ET.SubElement(image, _tag("AnnotationRef"), {"ID": STATE_JSON_ID})
+
+    # StructuredAnnotations comes AFTER Image in the OME element (schema order).
+    annotations = ET.SubElement(root, _tag("StructuredAnnotations"))
+    map_ann = ET.SubElement(
+        annotations, _tag("MapAnnotation"), {"ID": STATE_MAP_ID, "Namespace": STATE_NS}
+    )
+    value = ET.SubElement(map_ann, _tag("Value"))
+    for key, text in _state_map_entries(state):
+        m = ET.SubElement(value, _tag("M"), {"K": key})
+        m.text = _ascii(text)
+
+    comment = ET.SubElement(
+        annotations, _tag("CommentAnnotation"), {"ID": STATE_JSON_ID, "Namespace": STATE_NS}
+    )
+    comment_value = ET.SubElement(comment, _tag("Value"))
+    comment_value.text = json.dumps(state, ensure_ascii=True, default=str, sort_keys=True)
+
+
+def _state_map_entries(state: dict) -> list[tuple[str, str]]:
+    """Flat human-readable highlights pulled defensively from *state*."""
+    entries: list[tuple[str, str]] = []
+    if not isinstance(state, dict):
+        return entries
+
+    software = state.get("software")
+    if isinstance(software, dict):
+        for key, val in software.items():
+            if val is not None:
+                entries.append((f"software.{key}", str(val)))
+
+    hardware = state.get("hardware")
+    if isinstance(hardware, dict):
+        microscope = hardware.get("Microscope")
+        if isinstance(microscope, dict) and microscope.get("name"):
+            entries.append(("microscope", str(microscope["name"])))
+
+    objective = _state_objective_name(state)
+    if objective:
+        entries.append(("objective", objective))
+
+    provenance = state.get("provenance")
+    if isinstance(provenance, dict):
+        for key in (
+            "acquisition_type",
+            "position_label",
+            "acquisition_hash",
+            "session_hash6",
+            "exported_at",
+        ):
+            val = provenance.get(key)
+            if val is not None:
+                entries.append((key, str(val)))
+    return entries
+
+
+def _state_objective_name(state: dict) -> str | None:
+    """Best-effort objective name from a few known state shapes."""
+    for candidate in (state.get("position"), state.get("job_settings"), state.get("hardware")):
+        if not isinstance(candidate, dict):
+            continue
+        objective = candidate.get("objective")
+        if isinstance(objective, dict) and objective.get("name"):
+            return str(objective["name"])
+        hardware = candidate.get("hardware")
+        if isinstance(hardware, dict):
+            objective = hardware.get("objective")
+            if isinstance(objective, dict) and objective.get("name"):
+                return str(objective["name"])
+    return None
+
+
+def _ascii(text: str) -> str:
+    """Force 7-bit ASCII (TIFF tag 270 requirement); escape the rest."""
+    return text.encode("ascii", "backslashreplace").decode("ascii")
 
 
 def _channel_attrs(channel: ChannelMetadata) -> dict[str, str]:

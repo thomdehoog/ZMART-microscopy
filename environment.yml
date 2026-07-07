@@ -20,6 +20,9 @@ dependencies:
   - scikit-image>=0.22      # registration: ORB, RANSAC, phase_cross_correlation
   - opencv>=4.8             # registration: cv2 feature matching
   - tifffile>=2024.1        # read/write OME-TIFF image data
+  - ome-types>=0.5          # OME-XML model: validates the driver's OME-TIFF
+                            # output (incl. the embedded machine-state block)
+  - lxml>=4.9               # ome-types schema-validation backend (validate=True)
   # --- live LAS X API (Python <-> .NET bridge) ---
   # The LAS X CAM API DLLs ship with LAS X and load from the install dir;
   # only the bridge itself is a package.

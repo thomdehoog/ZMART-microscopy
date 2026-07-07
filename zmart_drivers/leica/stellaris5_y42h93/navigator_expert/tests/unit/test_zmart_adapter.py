@@ -355,26 +355,30 @@ class TestAcquire(unittest.TestCase):
         def fake_save(client, acq, output_root, naming, **kwargs):
             calls["saved"] = (str(output_root), naming)
             calls["lineage"] = kwargs.get("lineage")
+            calls["state"] = kwargs.get("state")
             return SimpleNamespace(
                 image_paths={0: Path("/tmp/out/img.ome.tif")},
-                xml_paths={0: Path("/tmp/out/img.xml")},
                 naming=naming,
             )
 
         patches = _patch_position(job="Overview")
         with (
             patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(adapter._readers, "get_hardware_info", return_value={}),
             patch.object(adapter._commands, "select_job", fake_select_job),
             patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
             patch.object(adapter._capture, "acquire", fake_capture),
             patch.object(adapter._save, "save", fake_save),
             patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
+            patches[0],
+            patches[1],
             patches[2],
+            patches[3],
         ):
             record = adapter.acquire(
                 h,
                 acquisition_type="prescan",
-                position_label="7",
+                position_label="well-7",
                 options={"job": "HiRes", "backlash_correction": False},
             )
         self.assertEqual(calls["selected"], "HiRes")
@@ -382,11 +386,75 @@ class TestAcquire(unittest.TestCase):
         saved_root, naming = calls["saved"]
         self.assertEqual(Path(saved_root), Path("/tmp/out"))  # OS-agnostic separators
         self.assertEqual(naming.acquisition_type, "prescan")
-        self.assertEqual(naming.p, 7)  # numeric label maps onto the p slot
-        self.assertEqual(calls["lineage"]["position_label"], "7")
+        self.assertEqual(naming.position_label, "well-7")  # explicit label travels verbatim
+        self.assertEqual(calls["lineage"]["position_label"], "well-7")
         self.assertEqual(calls["lineage"]["acquisition_type"], "prescan")
+        # per-acquisition hash: the Naming hash is NOT the session hash
+        self.assertNotEqual(naming.hash6, h.hash6)
+        self.assertEqual(calls["lineage"]["acquisition_hash"], naming.hash6)
+        self.assertEqual(calls["lineage"]["session_hash6"], h.hash6)
+        # the machine/software state is captured and threaded into save()
+        self.assertIsInstance(calls["state"], dict)
+        self.assertEqual(calls["state"]["provenance"]["position_label"], "well-7")
         self.assertEqual(record["settle"], "direct")
         self.assertEqual([Path(p) for p in record["images"]], [Path("/tmp/out/img.ome.tif")])
+
+    def _fake_acquire_env(self, calls):
+        """Patches for a fully-mocked acquire; records each save's naming."""
+
+        def fake_save(client, acq, output_root, naming, **kwargs):
+            calls.setdefault("namings", []).append(naming)
+            return SimpleNamespace(image_paths={0: Path("/tmp/out/img.ome.tif")}, naming=naming)
+
+        patches = _patch_position(job="Overview")
+        return (
+            patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(adapter._readers, "get_hardware_info", return_value={}),
+            patch.object(adapter._commands, "select_job", return_value={"success": True}),
+            patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
+            patch.object(adapter._capture, "acquire", lambda client, job, **k: SimpleNamespace(job=job)),
+            patch.object(adapter._save, "save", fake_save),
+            patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        )
+
+    def test_acquire_defaults_to_scan_type_and_counter_label(self):
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
+        calls = {}
+        env = self._fake_acquire_env(calls)
+        # A fresh hash is minted per acquire; stub run_hash (1s real resolution)
+        # to prove two acquires get distinct per-acquisition hashes.
+        with (
+            env[0], env[1], env[2], env[3], env[4], env[5], env[6],
+            env[7], env[8], env[9], env[10],
+            patch.object(adapter, "run_hash", side_effect=["0000a1", "0000a2"]),
+        ):
+            record0 = adapter.acquire(h)
+            record1 = adapter.acquire(h)
+        self.assertEqual(record0["acquisition_type"], "scan")
+        # unlabeled acquires consume the per-session counter, zero-padded
+        self.assertEqual(record0["position_label"], "000000")
+        self.assertEqual(record1["position_label"], "000001")
+        namings = calls["namings"]
+        self.assertEqual(namings[0].position_label, "000000")
+        self.assertEqual(namings[1].position_label, "000001")
+        # a fresh per-acquisition hash each time
+        self.assertEqual(namings[0].hash6, "0000a1")
+        self.assertEqual(namings[1].hash6, "0000a2")
+        self.assertNotEqual(namings[0].hash6, namings[1].hash6)
+
+    def test_explicit_label_does_not_consume_counter(self):
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
+        calls = {}
+        env = self._fake_acquire_env(calls)
+        with (env[0], env[1], env[2], env[3], env[4], env[5], env[6], env[7], env[8], env[9], env[10]):
+            adapter.acquire(h, position_label="named")  # must not bump the counter
+            record = adapter.acquire(h)  # still gets 000000
+        self.assertEqual(calls["namings"][0].position_label, "named")
+        self.assertEqual(record["position_label"], "000000")
 
     def test_acquire_runs_backlash_correction_before_capture_when_enabled(self):
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})

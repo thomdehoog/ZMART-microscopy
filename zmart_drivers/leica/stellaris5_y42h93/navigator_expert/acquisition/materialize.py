@@ -19,8 +19,13 @@ def save_image_source_atomic(
     metadata: AcquisitionMetadata,
     index: PlaneIndex,
     fix_ome: bool = False,
+    state: dict | None = None,
 ) -> None:
-    """Read one source plane and write a canonical SMART OME-TIFF."""
+    """Read one source plane and write a canonical SMART OME-TIFF.
+
+    When *state* is provided, the machine/software state at export time is
+    embedded in the plane's OME-XML (no sidecar).
+    """
     image_tmp = _with_tmp_suffix(image_dest)
     try:
         import tifffile
@@ -35,6 +40,7 @@ def save_image_source_atomic(
             index=index,
             filename=image_dest.name,
             shape_yx=(int(arr.shape[0]), int(arr.shape[1])),
+            state=state,
         )
         tifffile.imwrite(str(image_tmp), arr, description=xml.decode("utf-8"))
         _validate_tiff(image_tmp, fix_ome=fix_ome)
