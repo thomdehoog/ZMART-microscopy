@@ -347,7 +347,6 @@ class TestStateReaders(unittest.TestCase):
             set(settings),
             {"export", "export_formats", "image_orientation"},
         )
-        self.assertEqual(settings["export"]["media_path"], "C:\\data")
         self.assertTrue(settings["export_formats"]["ome_tif"])
         self.assertEqual(
             settings["image_orientation"]["transformation"],

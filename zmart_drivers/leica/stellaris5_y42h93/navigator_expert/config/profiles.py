@@ -156,13 +156,9 @@ LASX_API = LasxApiProfile()
 class AcquisitionProfile:
     """Acquisition persistence defaults.
 
-    ``save_exporter`` selects the file producer that ``save()`` reads from.
-    Each exporter owns its own source-root discovery: Navigator Expert uses
-    the configured export media path; native AutoSave uses the active LAS X
-    StartUp ``AutoSaveBaseFolder``.
+    ``save()`` reads from LAS X native AutoSave, whose source root is the
+    active LAS X StartUp ``AutoSaveBaseFolder``.
     """
-
-    save_exporter: str = "lasx_native_autosave"
 
 
 ACQUISITION = AcquisitionProfile()

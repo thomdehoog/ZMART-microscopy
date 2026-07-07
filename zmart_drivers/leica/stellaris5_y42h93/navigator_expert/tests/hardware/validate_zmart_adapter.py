@@ -190,11 +190,6 @@ def phase_readonly(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None
                 ),
                 True,
             )
-            v.compare(
-                "get_acquisition_options: active exporter is offered",
-                opts["exporter"]["active"] in opts["exporter"]["options"],
-                True,
-            )
 
         ctx = v.callable("get_context", sess.get_context)
         if ctx is not None:
@@ -429,12 +424,9 @@ def phase_acquire(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
         v.skip("phase: acquire", "save requires real LAS X export files; run live")
         return
     with v.phase("acquire (capture + save)"):
-        # Use the instrument's active exporter unless one is forced: the live
-        # LAS X session decides where it writes (this sim uses native autosave).
+        # The live LAS X session decides where it writes; save collects from
+        # the single native AutoSave path.
         options: dict[str, Any] = {"backlash_correction": True}
-        if args.exporter:
-            options["exporter"] = args.exporter
-        active = (sess.get_acquisition_options().get("exporter") or {}).get("active")
         rec = v.callable(
             "acquire: capture + save",
             lambda: sess.acquire(
@@ -442,7 +434,7 @@ def phase_acquire(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
                 position_label="1",
                 options=options,
             ),
-            context={"exporter": args.exporter or active, "backlash_correction": True},
+            context={"backlash_correction": True},
             mutating=True,
         )
         if not rec:
@@ -485,12 +477,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--z-galvo-delta-um", type=float, default=2.0)
 
     # acquire
-    p.add_argument(
-        "--exporter",
-        default=None,
-        choices=["navigator_expert", "lasx_native_autosave"],
-        help="force a save exporter for --allow-acquire (default: the instrument's active one)",
-    )
     p.add_argument(
         "--output-root", default=None, help="where acquire/set_origin write (default: temp)"
     )

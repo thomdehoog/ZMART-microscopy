@@ -96,13 +96,13 @@ class ExportedPosition:
 class ExportedAcquisition:
     """Stable source product produced by an exporter."""
 
-    media_path: Path
+    source_root: Path
     source_dir: Path
     positions: list[ExportedPosition]
     metadata: AcquisitionMetadata
     method: str
     relative_path: str | None = None
-    source_exporter: str = "navigator_expert_exporter"
+    source_exporter: str = "lasx_native_autosave"
     cleanup_source_supported: bool = True
     vendor_metadata_sources: tuple[VendorMetadataSource, ...] = ()
 

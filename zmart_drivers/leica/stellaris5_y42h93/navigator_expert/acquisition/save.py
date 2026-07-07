@@ -31,17 +31,15 @@ from . import files as _files
 from . import materialize as _materialize
 from . import ome_canonical as _canonical
 from .capture import AcquisitionResult
+from .files import (
+    DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S,
+    DEFAULT_EXPORT_COMPLETION_TIMEOUT_S,
+    DEFAULT_FILE_STABILITY_TIMEOUT_S,
+)
 from .lasx_native_autosave import (
     collect_lasx_native_autosave,
     native_autosave_base_folder,
     native_autosave_enabled,
-)
-from .navigator_expert_export import (
-    DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S,
-    DEFAULT_EXPORT_COMPLETION_TIMEOUT_S,
-    DEFAULT_FILE_STABILITY_TIMEOUT_S,
-    collect_navigator_expert_export,
-    navigator_expert_media_path,
 )
 from .product import (
     ExportedAcquisition,
@@ -52,40 +50,18 @@ from .product import (
 
 log = logging.getLogger(__name__)
 
-_EXPORTERS = {
-    "navigator_expert": collect_navigator_expert_export,
-    "lasx_native_autosave": collect_lasx_native_autosave,
-}
 
+def save_source_root() -> Path:
+    """Return the LAS X native AutoSave source root.
 
-def active_save_exporter(exporter: str | None = None) -> str:
-    """Return the explicit exporter or the active profile's save exporter."""
-    if exporter is not None:
-        return exporter
-    from ..config import profiles
-
-    return profiles.ACQUISITION.save_exporter
-
-
-def save_source_root(exporter: str | None = None) -> Path:
-    """Return the LAS X source root used by *exporter*.
-
-    ``navigator_expert`` sources come from the Navigator Expert exporter
-    media path. ``lasx_native_autosave`` sources come from the native
-    AutoSave base folder in the active LAS X StartUp configuration.
-    ``exporter=None`` means use ``config.profiles.ACQUISITION.save_exporter``.
+    Sources come from the native AutoSave base folder in the active
+    LAS X StartUp configuration.
     """
-    exporter = active_save_exporter(exporter)
-    _collector_for_exporter(exporter)
-    if exporter == "navigator_expert":
-        return navigator_expert_media_path()
-    if exporter == "lasx_native_autosave":
-        if not native_autosave_enabled():
-            raise RuntimeError(
-                "LAS X native AutoSave is not enabled in the active StartUp configuration."
-            )
-        return native_autosave_base_folder()
-    raise AssertionError(f"Unhandled save exporter: {exporter!r}")
+    if not native_autosave_enabled():
+        raise RuntimeError(
+            "LAS X native AutoSave is not enabled in the active StartUp configuration."
+        )
+    return native_autosave_base_folder()
 
 
 def save(
@@ -100,19 +76,14 @@ def save(
     file_stability_timeout_s: int = DEFAULT_FILE_STABILITY_TIMEOUT_S,
     export_completion_timeout_s: float = DEFAULT_EXPORT_COMPLETION_TIMEOUT_S,
     export_completion_poll_interval_s: float = (DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S),
-    exporter: str | None = None,
 ) -> SavedAcquisition:
     """Persist the files produced for *acq* into *output_root*.
 
-    The chosen source exporter produces a writer-agnostic
+    LAS X native AutoSave produces a writer-agnostic
     ``ExportedAcquisition``. This function persists that product into
-    the flat SMART OME-TIFF/XML workflow layout. ``exporter=None`` means
-    use ``config.profiles.ACQUISITION.save_exporter``.
+    the flat SMART OME-TIFF/XML workflow layout.
     """
-    exporter = active_save_exporter(exporter)
-    collect = _collector_for_exporter(exporter)
-
-    exported = collect(
+    exported = collect_lasx_native_autosave(
         client,
         acq,
         file_stability_timeout_s=file_stability_timeout_s,
@@ -127,16 +98,6 @@ def save(
         fix_ome=fix_ome,
         cleanup_source=cleanup_source,
     )
-
-
-def _collector_for_exporter(exporter: str):
-    try:
-        return _EXPORTERS[exporter]
-    except KeyError as e:
-        available = ", ".join(sorted(_EXPORTERS))
-        raise ValueError(
-            f"Unknown LAS X save exporter '{exporter}'. Available exporters: {available}"
-        ) from e
 
 
 def _persist_export(
@@ -212,7 +173,7 @@ def _persist_export(
                     "naming": _naming_to_dict(plane_naming),
                     "image_path": _rel_posix(image_dest, output_root),
                     "xml_path": _rel_posix(xml_dest, output_root),
-                    "source": _rel_posix(image_src.path, exported.media_path),
+                    "source": _rel_posix(image_src.path, exported.source_root),
                     "source_exporter": exported.source_exporter,
                     "canonical_metadata": True,
                     "vendor_metadata": vendor_records,
@@ -265,7 +226,7 @@ def _persist_vendor_metadata(
                 "path": _rel_posix(dest, output_root),
                 "sha256": _sha256(dest),
                 "source": (
-                    _rel_posix(source.path, exported.media_path)
+                    _rel_posix(source.path, exported.source_root)
                     if source.path is not None
                     else None
                 ),

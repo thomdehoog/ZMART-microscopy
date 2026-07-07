@@ -265,7 +265,7 @@ from .acquisition.product import (
     SavedAcquisition,
     VendorMetadataSource,
 )
-from .acquisition.save import active_save_exporter, save_source_root, save
+from .acquisition.save import save_source_root, save
 
 # -- experimental/lrp_edits/ - LRP mutation helpers
 from .experimental.lrp_edits.scan import (

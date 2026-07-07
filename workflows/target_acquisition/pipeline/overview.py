@@ -22,6 +22,7 @@ from typing import Any
 import navigator_expert as drv
 import numpy as np
 from navigator_expert.calibration.core import model as calib
+
 from shared.output_layout import Naming, build_position_analysis_name
 
 from ._acquire import acquire
@@ -319,7 +320,6 @@ def run_overview(
                     acq,
                     ctx.run.layout.run_dir,
                     naming,
-                    exporter=cfg.save_exporter,
                 )
                 plane = require_single_plane(result, context="overview-scan")
                 n_tiles_acquired += 1

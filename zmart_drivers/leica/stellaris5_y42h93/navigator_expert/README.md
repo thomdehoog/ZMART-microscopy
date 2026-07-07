@@ -295,10 +295,9 @@ select_job(client, job_name, poll_timeout=None, poll_interval=None) -> dict     
 acquire(client, job, *, poll_interval=None, poll_timeout=None, heartbeat_interval=None,
         start_timeout=None, pre_check_timeout=None) -> AcquisitionResult          # RAISES on failure
 save(client, acq, output_root, naming, *, lineage=None, fix_ome=True,
-     cleanup_source=False, exporter=None) -> SavedAcquisition                     # image_paths / xml_paths / naming
+     cleanup_source=False) -> SavedAcquisition                                    # image_paths / xml_paths / naming
 ```
-`save()` selects a source exporter (`config.profiles.ACQUISITION.save_exporter`, default
-`lasx_native_autosave`; the other is `navigator_expert`), collects LAS X output into a neutral product,
+`save()` collects LAS X native AutoSave output into a neutral product,
 and writes canonical single-plane OME-TIFFs + per-position OME-XML into the `shared.output_layout` tree.
 **OME metadata:** `acquisition/ome.py` repairs known Leica OME violations (e.g. laser `Wavelength="0"`)
 in place, preserving byte formatting; `acquisition/ome_canonical.py` writes clean canonical SMART OME;
@@ -352,7 +351,7 @@ zmart_drivers/leica/stellaris5_y42h93/navigator_expert/
 ├── readers/      router.py (api/log/hybrid) · api_reader.py · log_reader.py · capabilities.py · derived.py
 ├── config/       profiles.py (CommandProfile + per-command instances, LasxApi/LogReader profiles) · machine.py
 ├── motion/       limits.py (µm safety envelope) · movement.py (backlash) · stage_config.py
-├── acquisition/  product.py (neutral types) · capture.py (acquire) · save.py (exporters) · ome.py
+├── acquisition/  product.py (neutral types) · capture.py (acquire) · save.py (persistence) · ome.py
 ├── scanfields/   .lrp/.rgn/.xml parsing + templates    experimental/lrp_edits/  offline template editors
 ├── calibration/  image↔stage + objective-pair (data machine-local; defaults/ inside)   limits/  current.json · defaults/ · notebooks/
 ├── zmart_adapter/  ops table plugging this driver into zmart_controller (import to register)
