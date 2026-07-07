@@ -11,16 +11,16 @@ from pathlib import Path
 from unittest import mock
 
 import numpy as np
-from pipeline.context import LimitsContext
-from pipeline.overview import OverviewResult, Pick
-from pipeline.selection import (
+from pipeline.retired.context import LimitsContext
+from pipeline.retired.overview import OverviewResult, Pick
+from pipeline.retired.selection import (
     MODE_NO_QUALIFYING,
     MODE_THRESHOLD,
     Picks,
     SelectionResult,
     select_targets,
 )
-from pipeline.summary import write_summary
+from pipeline.retired.summary import write_summary
 from support import minimal_calibration
 
 
@@ -41,7 +41,7 @@ def _build_ctx_like(out_dir: Path, *, scan_field=None):
     cfg.stage_y_min_um = None
     cfg.stage_y_max_um = None
     # asdict() walks fields via __dataclass_fields__, so use a real Config
-    from pipeline.context import Config
+    from pipeline.retired.context import Config
 
     cfg = Config(
         acquisition_job="Overview",
@@ -74,7 +74,7 @@ def _build_ctx_like(out_dir: Path, *, scan_field=None):
         "z_wide_min": 0.0,
         "z_wide_max": 100.0,
     }
-    from pipeline.context import TargetState
+    from pipeline.retired.context import TargetState
 
     ctx.target_state = TargetState()
     return ctx
@@ -282,7 +282,7 @@ class TestSelectionJsonStrictness:
         """
         # Identity translation so picks survive the limits filter.
         monkeypatch.setattr(
-            "pipeline.selection.calib.translate_xyz_between_objectives",
+            "pipeline.retired.selection.calib.translate_xyz_between_objectives",
             lambda x, y, z, calibration, *, from_slot, to_slot: (x, y, z),
         )
 

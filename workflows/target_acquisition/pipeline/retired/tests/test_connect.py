@@ -19,7 +19,7 @@ def test_connect_lasx_returns_connected_client(monkeypatch):
         connect_python_client,
     )
 
-    from pipeline import connect_lasx
+    from pipeline.retired.connect import connect_lasx
 
     result = connect_lasx()
 
@@ -36,7 +36,7 @@ def test_connect_lasx_passes_role_through(monkeypatch):
         connect_python_client,
     )
 
-    from pipeline import connect_lasx
+    from pipeline.retired.connect import connect_lasx
 
     result = connect_lasx(role="OtherClient")
 

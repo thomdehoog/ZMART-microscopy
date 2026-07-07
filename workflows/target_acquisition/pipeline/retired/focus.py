@@ -23,9 +23,9 @@ from navigator_expert.scanfields.files import (
     TEMPLATE_XML,
 )
 
-from ._figsave import save_figure
+from .._figsave import save_figure
+from .._log_capture import _logged
 from ._job_state import ensure_job_state
-from ._log_capture import _logged
 from .context import Context
 
 FLAT_TOLERANCE_UM = 0.1

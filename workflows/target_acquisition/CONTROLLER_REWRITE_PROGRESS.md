@@ -70,19 +70,43 @@ Tests: `tests/test_capture_run.py`, `test_pixel_to_frame.py`, `test_focus_surfac
           hijack_frame(rec["images"][0], rec["xml"][0], provider, naming=Naming("overview", hash6, p=i))
   ```
 
-## Remaining (the rewire phase)
+## Rewire phase — status
 
-1. Thin **v4 notebook** (`zmart_microscopy_v4.ipynb`) — markdown + 1–3 line invocations, one cell per step.
-2. New `pipeline/__init__.py` exporting the new step functions.
-3. **Adapt** `visualize.py` / `summary.py` (option a) to the new data (overview images + `discover_targets`
-   output + `FocusSurface`), replacing `OverviewResult`/`Pick`/`scan_field` inputs.
-4. **Delete** the driver-coupled control modules + their tests: `connect`, `context`, `preflight`,
-   `focus`, `overview`, `target`, `selection`, `template`, `_job_state`, `_acquire`.
-   **Keep:** `_hijack`, `_mock_provider`, `_geom`, `_figsave`, `_save_queue`, `_saved`, `_log_capture`
-   (adapt as needed).
-5. Full offline suite green (only the new tests remain).
-6. **Sim fidelity end-to-end** run: real Leica adapter on the LAS X simulator + hijack →
-   acquire → segment → discover → target, on the real code path.
+**Decision (locked):** retire the driver-coupled modules, do **not** delete them. They move
+under `pipeline/retired/` (preserved reference + safety-net tests), and the active
+`pipeline` package exports the controller-only surface only.
+
+Done:
+
+1. ✅ **`pipeline/__init__.py` rewired** to the controller-only surface: `connect`,
+   `load_positions`, `with_focus_z`, `measure_focus`, `fit_focus_surface`, `FocusSurface`,
+   `run_overview`, `discover_targets`, `acquire_targets`, `capture_positions`,
+   `overview_pixel_to_frame`. `import pipeline` pulls **no** driver code (verified);
+   `zmart_controller` loads lazily inside `steps.connect()`.
+2. ✅ **Retired** (moved to `pipeline/retired/`, not deleted): `connect`, `context`,
+   `preflight`, `focus`, `overview`, `target`, `selection`, `template`, `_job_state`,
+   `_acquire`, plus `visualize` / `summary` (welded to the retired data types).
+   **Kept active:** `_hijack`, `_mock_provider`, `_geom`, `_figsave`, `_save_queue`,
+   `_saved`, `_log_capture`, plus the new `steps`, `discovery`, `_capture_run`,
+   `_focus_run`, `_focus_surface`. Retired modules import the kept helpers via `..`.
+3. ✅ **Tests split.** Controller-only tests stay in `tests/`; the retired-coupled tests
+   moved to `pipeline/retired/tests/` (own `conftest.py` + `support.py`). Both suites green
+   (active 76 passed / 2 skipped; retired 183 passed / 11 skipped — same 259/13 as before).
+4. ✅ **`_bootstrap.py`** (v3 notebook entry) repointed: `Config` now comes from
+   `pipeline.retired.context`. The v3 notebook remains as the retired flow's reference.
+
+Still open (not blocking "workflow uses the controller only"):
+
+1. Thin **v4 notebook** (`zmart_microscopy_v4.ipynb`) — markdown + 1–3 line invocations,
+   one cell per step, over the new `pipeline` surface.
+2. **New `visualize` / `summary`** adapted to the new data (overview record dicts +
+   `discover_targets` output + `FocusSurface`). The retired ones are welded to
+   `OverviewResult` / `Pick` / `SelectionResult` / `scan_field`; new figures are a
+   follow-up once the v4 record schema is exercised end-to-end.
+3. **Sim caller wiring** for the new flow (apply `hijack_frame` over the paths the
+   controller `acquire` returns; step functions stay simulation-unaware).
+4. **Sim fidelity end-to-end** run: real Leica adapter on the LAS X simulator + hijack →
+   acquire → segment → discover → target, on the real controller-only code path.
 
 ## Controller surface (reference)
 

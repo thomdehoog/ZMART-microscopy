@@ -19,9 +19,9 @@ def _install_fake_analysis_repo(tmp_path: Path) -> Path:
 
 
 def _preflight_module():
-    import pipeline.preflight  # noqa: F401  -- ensure submodule is loaded
+    import pipeline.retired.preflight  # noqa: F401  -- ensure submodule is loaded
 
-    return sys.modules["pipeline.preflight"]
+    return sys.modules["pipeline.retired.preflight"]
 
 
 @pytest.fixture(autouse=True)
@@ -136,7 +136,7 @@ def _cfg(
     *,
     smart_output_root=None,
 ):
-    from pipeline.context import Config
+    from pipeline.retired.context import Config
 
     kwargs = {
         "acquisition_job": "Overview",

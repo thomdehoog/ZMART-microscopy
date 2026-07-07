@@ -12,14 +12,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from pipeline.overview import (
+from pipeline.retired.overview import (
     Pick,
     _build_npz_extra_arrays,
     _picks_from_result,
     _save_single_tile_analysis,
     _write_overview_meta,
 )
-from pipeline.selection import load_overview_result
+from pipeline.retired.selection import load_overview_result
 
 
 def _make_pick(
@@ -439,7 +439,7 @@ class TestAnalysisImageSourceSingleTrace:
     # identifier in active code. Only this structural test is allowed.
     ALLOWLIST = frozenset(
         {
-            "target_acquisition/tests/test_overview_persistence.py",  # this test file
+            "target_acquisition/pipeline/retired/tests/test_overview_persistence.py",  # this test file
         }
     )
 
@@ -506,7 +506,7 @@ class TestAnalysisImageSourceSingleTrace:
         return refs
 
     def test_only_this_structural_test_uses_field(self):
-        notebooks_root = Path(__file__).resolve().parents[2]
+        notebooks_root = Path(__file__).resolve().parents[4]
         offenders: list[str] = []
         for path in notebooks_root.rglob("*.py"):
             if "__pycache__" in path.parts:

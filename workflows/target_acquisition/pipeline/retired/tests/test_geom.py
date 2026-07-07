@@ -326,7 +326,7 @@ class TestNoDriftAgainstCallers:
         return path
 
     def _make_pick(self, *, centroid, position=0):
-        from pipeline.overview import Pick
+        from pipeline.retired.overview import Pick
 
         cx, cy = centroid
         return Pick(
@@ -346,7 +346,7 @@ class TestNoDriftAgainstCallers:
         )
 
     def _make_target_record(self, *, target_pixel_size_um=0.13):
-        from pipeline.target import TargetRecord
+        from pipeline.retired.target import TargetRecord
 
         return TargetRecord(
             pick_id=("0", 0, 0, 1),
@@ -396,7 +396,7 @@ class TestNoDriftAgainstCallers:
         (centred works either way; the asymmetric and edge cases
         catch the bugs).
         """
-        from pipeline.visualize import _centroid_crop_at_target_fov
+        from pipeline.retired.visualize import _centroid_crop_at_target_fov
 
         overview = np.full((400, 400), 10000, dtype=np.uint16)
         cy, cx = int(centroid[1]), int(centroid[0])
@@ -486,7 +486,7 @@ class TestNoDriftAgainstCallers:
         identical output by coincidence) would still fail this test.
         """
         from pipeline._mock_provider import build_target_provider
-        from pipeline.visualize import _centroid_crop_at_target_fov
+        from pipeline.retired.visualize import _centroid_crop_at_target_fov
 
         layout = self._make_layout(tmp_path)
         overview = np.full((400, 400), 10000, dtype=np.uint16)
@@ -504,7 +504,7 @@ class TestNoDriftAgainstCallers:
 
         # ── visualize side ───────────────────────────────────────
         with mock.patch(
-            "pipeline.visualize.crop_overview_at_target_fov",
+            "pipeline.retired.visualize.crop_overview_at_target_fov",
             return_value=sentinel,
         ) as viz_spy:
             _centroid_crop_at_target_fov(

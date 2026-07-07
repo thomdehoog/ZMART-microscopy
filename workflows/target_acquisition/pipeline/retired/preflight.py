@@ -27,8 +27,8 @@ from navigator_expert.commands.objectives import validate_slots
 
 from shared.output_layout import build_layout
 
+from .._log_capture import capture_console_deferred
 from ._job_state import _read_objective_slot, ensure_job_state
-from ._log_capture import capture_console_deferred
 from .context import Config, Context, WorkflowRun
 
 # A non-zero source z-galvo is operator-visible drift; warn before target

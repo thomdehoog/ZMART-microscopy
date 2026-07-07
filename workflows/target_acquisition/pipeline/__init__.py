@@ -1,88 +1,58 @@
-"""Public surface for the target-acquisition pipeline.
+"""Public surface for the target-acquisition pipeline (controller-only).
 
-The notebook imports only from this package. Re-exports:
+The workflow drives the microscope through the ``zmart_controller`` Session
+surface only -- no ``import navigator_expert`` in the operator path. The
+notebook imports the numbered step functions from this package and runs
+them in order:
 
-- the six numbered step functions executed in order from the notebook:
-  preflight -> prepare_template -> build_focus_map -> run_overview ->
-  select_targets -> acquire_targets -> finish;
-- the run-scoped types (`Config`, `Context`, `LimitsContext`, `TargetState`),
-  the dataclasses each step produces (`Picks`, `OverviewResult`,
-  `SelectionResult`, `TargetRecord`, `FocusMap`), and the selection-mode
-  constants;
-- the visualization and diagnostic helpers used both live in the notebook
-  and offline.
+  connect -> load_positions -> measure_focus / fit_focus_surface ->
+  run_overview -> discover_targets -> acquire_targets
 
-Modules whose names start with `_` are internal.
+Re-exports:
+
+- the step functions (``pipeline.steps``): ``connect``, ``load_positions``,
+  ``with_focus_z``, ``run_overview``, ``acquire_targets``;
+- focus (``pipeline._focus_run`` / ``pipeline._focus_surface``):
+  ``measure_focus``, ``fit_focus_surface``, ``FocusSurface``;
+- target discovery (``pipeline.discovery``): ``discover_targets``;
+- the shared acquire primitive (``pipeline._capture_run``):
+  ``capture_positions``;
+- the pixel->frame geometry (``pipeline._geom``): ``overview_pixel_to_frame``.
+
+Importing this package pulls in no driver code. Simulation-mode helpers
+(``hijack_frame`` / ``get_provider``) live in ``pipeline._hijack`` /
+``pipeline._mock_provider`` and are imported on demand by the sim caller,
+so the default operator path stays driver-free.
+
+The pre-controller driver-coupled flow is preserved under
+``pipeline.retired`` (see that package's docstring).
+
+Modules whose names start with ``_`` are internal.
 """
 
-from .connect import connect_lasx
-from .context import Config, Context, LimitsContext, TargetState
-from .focus import FocusMap, build_focus_map
-from .overview import OverviewResult, Pick, TileEvent, run_overview
-from .preflight import preflight
-from .selection import (
-    MODE_EMPTY,
-    MODE_NO_QUALIFYING,
-    MODE_SPARSE,
-    MODE_THRESHOLD,
-    Picks,
-    SelectionResult,
-    load_overview_result,
-    select_targets,
-)
-from .summary import finish, plot_results, write_summary
-from .target import TargetRecord, acquire_targets
-from .template import (
-    archive_and_strip,
-    plot_scan_field,
-    plot_stage_envelope,
-    prepare_template,
-    read_scan_field,
-    show_template_state,
-)
-from .visualize import (
-    display_selection,
-    display_target,
-    display_tile,
-    plot_overview_tiles,
-    plot_target_pairs,
+from ._capture_run import capture_positions
+from ._focus_run import measure_focus
+from ._focus_surface import FocusSurface, fit_focus_surface
+from ._geom import overview_pixel_to_frame
+from .discovery import discover_targets
+from .steps import (
+    acquire_targets,
+    connect,
+    load_positions,
+    run_overview,
+    with_focus_z,
 )
 
 __all__ = [
-    "Config",
-    "Context",
-    "LimitsContext",
-    "TargetState",
-    "connect_lasx",
-    "FocusMap",
-    "build_focus_map",
-    "OverviewResult",
-    "Pick",
-    "Picks",
-    "TileEvent",
+    "connect",
+    "load_positions",
+    "with_focus_z",
+    "measure_focus",
+    "fit_focus_surface",
+    "FocusSurface",
     "run_overview",
-    "SelectionResult",
-    "select_targets",
-    "load_overview_result",
-    "MODE_THRESHOLD",
-    "MODE_SPARSE",
-    "MODE_NO_QUALIFYING",
-    "MODE_EMPTY",
-    "TargetRecord",
+    "discover_targets",
     "acquire_targets",
-    "write_summary",
-    "plot_results",
-    "finish",
-    "preflight",
-    "prepare_template",
-    "archive_and_strip",
-    "read_scan_field",
-    "show_template_state",
-    "plot_scan_field",
-    "plot_stage_envelope",
-    "display_tile",
-    "display_target",
-    "display_selection",
-    "plot_overview_tiles",
-    "plot_target_pairs",
+    "capture_positions",
+    "overview_pixel_to_frame",
 ]

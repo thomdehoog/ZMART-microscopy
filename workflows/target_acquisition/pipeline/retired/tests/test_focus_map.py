@@ -13,7 +13,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pipeline.focus import FocusMap, _fit_focus_model
+from pipeline.retired.focus import FocusMap, _fit_focus_model
 
 
 def _point(x_um, y_um, zwide_um):

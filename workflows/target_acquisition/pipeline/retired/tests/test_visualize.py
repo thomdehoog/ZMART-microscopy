@@ -65,7 +65,7 @@ def _make_pick(
     tile_id, label, centroid_rc=(15.0, 15.0), bbox=(10, 10, 20, 20), cell_xy=(1005.0, 2005.0)
 ):
     """Build a minimal Pick-like object with the fields visualize.py needs."""
-    from pipeline.overview import Pick
+    from pipeline.retired.overview import Pick
 
     return Pick(
         pick_id=(str(tile_id[0]), int(tile_id[1]), int(tile_id[2]), label),
@@ -85,7 +85,7 @@ def _make_pick(
 
 def _make_picks(items, **kwargs):
     """Build a Picks container from a list of Pick objects."""
-    from pipeline.selection import Picks
+    from pipeline.retired.selection import Picks
 
     return Picks(items=items, n_picks_raw=len(items), **kwargs)
 
@@ -95,7 +95,7 @@ def _make_selection(n_cells, n_selected, tile_id=("0", 0, 0)):
 
     Module-level so the classify tests and the display tests share it.
     """
-    from pipeline.selection import MODE_THRESHOLD, SelectionResult
+    from pipeline.retired.selection import MODE_THRESHOLD, SelectionResult
 
     picks = [_make_pick(tile_id, label=i + 1) for i in range(n_selected)]
     return SelectionResult(
@@ -160,7 +160,7 @@ class TestStyleTokenCoverage:
     _FONTSIZE_RE = re.compile(r"\bfontsize\s*=\s*\d+(?:\.\d+)?\b")
 
     def _read_source(self) -> str:
-        import pipeline.visualize as viz_mod
+        import pipeline.retired.visualize as viz_mod
 
         return inspect.getsource(viz_mod)
 
@@ -218,7 +218,7 @@ def _make_tile_event(n_cells: int = 0, *, position=None, simulated: bool = False
     prefixes the figure title with "(mock)" and behaves identically
     to a real-run event otherwise.
     """
-    from pipeline.overview import TileEvent
+    from pipeline.retired.overview import TileEvent
 
     return TileEvent(
         image_2d=np.zeros((8, 8)),
@@ -235,7 +235,7 @@ def _make_target_record(*, tif_path=None, success: bool = True):
     will be found (analysis_dir empty), so the renderer falls back to
     its "N/A" placeholders without touching tile npz files.
     """
-    from pipeline.target import TargetRecord
+    from pipeline.retired.target import TargetRecord
 
     return TargetRecord(
         pick_id=("0", 0, 0, 1),
@@ -261,7 +261,7 @@ class TestDisplayTileFlags:
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
 
-        from pipeline.visualize import display_tile
+        from pipeline.retired.visualize import display_tile
 
         display_tile(
             _make_tile_event(),
@@ -283,7 +283,7 @@ class TestDisplayTileFlags:
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
 
-        from pipeline.visualize import display_tile
+        from pipeline.retired.visualize import display_tile
 
         display_tile(
             _make_tile_event(),
@@ -320,7 +320,7 @@ class TestDisplayTileSaveQueue:
 
         ipy_display = pytest.importorskip("IPython.display")
         from pipeline._save_queue import _FigureSaveQueue
-        from pipeline.visualize import display_tile
+        from pipeline.retired.visualize import display_tile
 
         monkeypatch.setattr(ipy_display, "display", MagicMock())
 
@@ -372,7 +372,7 @@ class TestDisplayTileSaveQueue:
 
         monkeypatch.setattr(plt, "close", counting_close)
 
-        from pipeline.visualize import display_tile
+        from pipeline.retired.visualize import display_tile
 
         display_tile(
             _make_tile_event(),
@@ -407,7 +407,7 @@ class TestDisplayTileSaveQueue:
         monkeypatch.setattr(plt, "close", counting_close)
 
         from pipeline._save_queue import _FigureSaveQueue
-        from pipeline.visualize import display_tile
+        from pipeline.retired.visualize import display_tile
 
         with _FigureSaveQueue() as queue:
             display_tile(
@@ -461,7 +461,7 @@ class TestDisplayTargetSaveQueue:
         monkeypatch.setattr(plt, "close", counting_close)
 
         from pipeline._save_queue import _FigureSaveQueue
-        from pipeline.visualize import display_target
+        from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -495,7 +495,7 @@ class TestDisplayTargetFlags:
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
 
-        from pipeline.visualize import display_target
+        from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -522,7 +522,7 @@ class TestDisplayTargetFlags:
         fake_display = MagicMock(name="ipy_display")
         monkeypatch.setattr(ipy_display, "display", fake_display)
 
-        from pipeline.visualize import display_target
+        from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -552,7 +552,7 @@ class TestPlotOverviewTiles:
         matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        from pipeline.visualize import plot_overview_tiles
+        from pipeline.retired.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         n0 = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -577,7 +577,7 @@ class TestPlotOverviewTiles:
         matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        from pipeline.visualize import plot_overview_tiles
+        from pipeline.retired.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -593,7 +593,7 @@ class TestPlotOverviewTiles:
         matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        from pipeline.visualize import plot_overview_tiles
+        from pipeline.retired.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir(parents=True)
@@ -608,7 +608,7 @@ class TestPlotOverviewTiles:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import plot_overview_tiles
+        from pipeline.retired.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -634,7 +634,7 @@ class TestPlotOverviewTiles:
         matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        from pipeline.visualize import plot_overview_tiles
+        from pipeline.retired.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -651,7 +651,7 @@ class TestPlotOverviewTiles:
         matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        from pipeline.visualize import _picked_overlay
+        from pipeline.retired.visualize import _picked_overlay
 
         image_2d = np.zeros((64, 64), dtype=np.float64)
         masks = np.zeros((64, 64), dtype=np.int32)
@@ -677,7 +677,7 @@ class TestPlotOverviewTiles:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import plot_overview_tiles
+        from pipeline.retired.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -711,7 +711,7 @@ class TestPlotOverviewTiles:
 
 class TestCentroidCropAtTargetFov:
     def _make_rec(self, target_pixel_size_um=0.25):
-        from pipeline.target import TargetRecord
+        from pipeline.retired.target import TargetRecord
 
         return TargetRecord(
             pick_id=("0", 0, 0, 1),
@@ -726,7 +726,7 @@ class TestCentroidCropAtTargetFov:
         )
 
     def test_center_crop_correct_size(self):
-        from pipeline.visualize import _centroid_crop_at_target_fov
+        from pipeline.retired.visualize import _centroid_crop_at_target_fov
 
         image = np.zeros((100, 100))
         # target: 20x20 px at 0.25 um/px = 5x5 um FOV
@@ -739,7 +739,7 @@ class TestCentroidCropAtTargetFov:
         assert crop.shape == (10, 10)
 
     def test_center_crop_centered_on_centroid(self):
-        from pipeline.visualize import _centroid_crop_at_target_fov
+        from pipeline.retired.visualize import _centroid_crop_at_target_fov
 
         image = np.arange(10000).reshape(100, 100).astype(float)
         target_img = np.zeros((20, 20))
@@ -754,7 +754,7 @@ class TestCentroidCropAtTargetFov:
         np.testing.assert_array_equal(crop, expected)
 
     def test_corner_clamp_shifts_window(self):
-        from pipeline.visualize import _centroid_crop_at_target_fov
+        from pipeline.retired.visualize import _centroid_crop_at_target_fov
 
         image = np.zeros((100, 100))
         target_img = np.zeros((20, 20))
@@ -767,7 +767,7 @@ class TestCentroidCropAtTargetFov:
         assert crop.shape == (10, 10)
 
     def test_bottom_right_clamp(self):
-        from pipeline.visualize import _centroid_crop_at_target_fov
+        from pipeline.retired.visualize import _centroid_crop_at_target_fov
 
         image = np.zeros((100, 100))
         target_img = np.zeros((20, 20))
@@ -779,7 +779,7 @@ class TestCentroidCropAtTargetFov:
         assert crop.shape == (10, 10)
 
     def test_fallback_to_bbox_when_no_target(self):
-        from pipeline.visualize import _centroid_crop_at_target_fov
+        from pipeline.retired.visualize import _centroid_crop_at_target_fov
 
         image = np.zeros((100, 100))
         pick = _make_pick(("0", 0, 0), label=1, centroid_rc=(50.0, 50.0), bbox=(40, 42, 60, 58))
@@ -791,7 +791,7 @@ class TestCentroidCropAtTargetFov:
 
     def test_col_row_mapping(self):
         """Verify col maps to x-axis and row maps to y-axis."""
-        from pipeline.visualize import _centroid_crop_at_target_fov
+        from pipeline.retired.visualize import _centroid_crop_at_target_fov
 
         image = np.zeros((200, 300))
         image[50, 150] = 1.0  # marker at row=50, col=150
@@ -828,8 +828,8 @@ class TestStep5PanelInterpolation:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.target import TargetRecord
-        from pipeline.visualize import _render_target_crop_panel
+        from pipeline.retired.target import TargetRecord
+        from pipeline.retired.visualize import _render_target_crop_panel
 
         image = np.zeros((100, 100), dtype=np.uint16)
         target_img = np.zeros((20, 20), dtype=np.uint16)
@@ -865,7 +865,7 @@ class TestStep5PanelInterpolation:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import _render_highres_target_panel
+        from pipeline.retired.visualize import _render_highres_target_panel
 
         target_img = np.zeros((200, 200), dtype=np.uint16)
         fig, ax = plt.subplots()
@@ -888,31 +888,31 @@ class TestStep5PanelInterpolation:
 
 class TestEnsure2D:
     def test_2d_passthrough(self):
-        from pipeline.visualize import _ensure_2d
+        from pipeline.retired.visualize import _ensure_2d
 
         img = np.zeros((64, 64))
         assert _ensure_2d(img).shape == (64, 64)
 
     def test_3d_first_plane(self):
-        from pipeline.visualize import _ensure_2d
+        from pipeline.retired.visualize import _ensure_2d
 
         img = np.zeros((5, 64, 64))
         assert _ensure_2d(img).shape == (64, 64)
 
     def test_3d_channel_last(self):
-        from pipeline.visualize import _ensure_2d
+        from pipeline.retired.visualize import _ensure_2d
 
         img = np.zeros((64, 64, 3))
         assert _ensure_2d(img).shape == (64, 64)
 
     def test_4d_tczyx_style(self):
-        from pipeline.visualize import _ensure_2d
+        from pipeline.retired.visualize import _ensure_2d
 
         img = np.zeros((2, 3, 64, 64))
         assert _ensure_2d(img).shape == (64, 64)
 
     def test_4d_channel_last(self):
-        from pipeline.visualize import _ensure_2d
+        from pipeline.retired.visualize import _ensure_2d
 
         img = np.zeros((5, 64, 64, 3))
         result = _ensure_2d(img)
@@ -927,8 +927,8 @@ class TestPlotTargetPairs:
         matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        from pipeline.target import TargetRecord
-        from pipeline.visualize import plot_target_pairs
+        from pipeline.retired.target import TargetRecord
+        from pipeline.retired.visualize import plot_target_pairs
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -961,8 +961,8 @@ class TestPlotTargetPairs:
         matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        from pipeline.target import TargetRecord
-        from pipeline.visualize import plot_target_pairs
+        from pipeline.retired.target import TargetRecord
+        from pipeline.retired.visualize import plot_target_pairs
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -995,7 +995,7 @@ class TestPlotTargetPairs:
         matplotlib = pytest.importorskip("matplotlib")
 
         matplotlib.use("Agg")
-        from pipeline.visualize import plot_target_pairs
+        from pipeline.retired.visualize import plot_target_pairs
 
         analysis_dir = tmp_path / "analysis"
         picks = _make_picks([])
@@ -1040,7 +1040,7 @@ class TestDisplayTilePanelLayout:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import display_tile
+        from pipeline.retired.visualize import display_tile
 
         widths: list = []
         real_close = plt.close
@@ -1083,7 +1083,7 @@ class TestSharedScanFieldRenderer:
 
     def test_context_matches_across_call_styles(self):
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import TileStyle, render_scan_field_panel
+        from pipeline.retired.visualize import TileStyle, render_scan_field_panel
 
         scan_field = {
             "tile_positions": {
@@ -1130,7 +1130,7 @@ class TestLoadTileNpzWarning:
     """_load_tile_npz logs a warning and returns None on corrupt input."""
 
     def test_warns_on_unreadable_file(self, tmp_path, capsys):
-        from pipeline.visualize import _load_tile_npz
+        from pipeline.retired.visualize import _load_tile_npz
 
         bad_npz = tmp_path / "corrupt.npz"
         bad_npz.write_bytes(b"not a valid npz file")
@@ -1148,14 +1148,14 @@ class TestLoadTileNpzPosition:
     the integer written by the current NPZ schema."""
 
     def test_returns_position_when_present(self, tmp_path):
-        from pipeline.visualize import _load_tile_npz
+        from pipeline.retired.visualize import _load_tile_npz
 
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00007")
         npz = _make_npz(tmp_path / "a", naming=naming, tile_id=("0", 0, 0), position=7)
         assert _load_tile_npz(npz).position == 7
 
     def test_missing_position_is_invalid(self, tmp_path, capsys):
-        from pipeline.visualize import _load_tile_npz
+        from pipeline.retired.visualize import _load_tile_npz
 
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
         npz = _make_npz(tmp_path / "a", naming=naming, tile_id=("0", 0, 0))
@@ -1173,8 +1173,8 @@ class TestRenderCropBoundary:
     def test_image_smaller_than_crop_size_renders_whole_image(self):
         plt = pytest.importorskip("matplotlib.pyplot")
         Rectangle = pytest.importorskip("matplotlib.patches").Rectangle
-        from pipeline.overview import Pick
-        from pipeline.visualize import _render_crop
+        from pipeline.retired.overview import Pick
+        from pipeline.retired.visualize import _render_crop
 
         # 32x32 image, smaller than _CROP_SIZE_PX.
         img = np.zeros((32, 32), dtype=np.uint8)
@@ -1212,7 +1212,7 @@ class TestRenderCropBoundary:
 
 class TestClassifyCellsForScatter:
     def test_returns_both_masks(self):
-        from pipeline.visualize import _classify_cells_for_scatter
+        from pipeline.retired.visualize import _classify_cells_for_scatter
 
         selection = _make_selection(n_cells=10, n_selected=3)
         masks = _classify_cells_for_scatter(selection, [])
@@ -1221,7 +1221,7 @@ class TestClassifyCellsForScatter:
         assert "other" in masks
 
     def test_masks_are_complementary(self):
-        from pipeline.visualize import _classify_cells_for_scatter
+        from pipeline.retired.visualize import _classify_cells_for_scatter
 
         selection = _make_selection(n_cells=10, n_selected=3)
         masks = _classify_cells_for_scatter(selection, [])
@@ -1232,7 +1232,7 @@ class TestClassifyCellsForScatter:
         assert not np.any(masks["selected"] & masks["other"])
 
     def test_empty_returns_both_keys(self):
-        from pipeline.visualize import _classify_cells_for_scatter
+        from pipeline.retired.visualize import _classify_cells_for_scatter
 
         selection = _make_selection(n_cells=0, n_selected=0)
         masks = _classify_cells_for_scatter(selection, [])
@@ -1258,8 +1258,8 @@ class TestDisplaySelectionCropStrip:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.selection import MODE_THRESHOLD, SelectionResult
-        from pipeline.visualize import display_selection
+        from pipeline.retired.selection import MODE_THRESHOLD, SelectionResult
+        from pipeline.retired.visualize import display_selection
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(
@@ -1347,7 +1347,7 @@ class TestFrameAspectPadding:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import render_scan_field_panel
+        from pipeline.retired.visualize import render_scan_field_panel
 
         fig, ax = plt.subplots(figsize=(14, 7.875))
         try:
@@ -1371,7 +1371,7 @@ class TestFrameAspectPadding:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import render_scan_field_panel
+        from pipeline.retired.visualize import render_scan_field_panel
 
         fig, ax = plt.subplots(figsize=(14, 7.875))
         try:
@@ -1395,7 +1395,7 @@ class TestFrameAspectPadding:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import render_scan_field_panel
+        from pipeline.retired.visualize import render_scan_field_panel
 
         fig, ax = plt.subplots(figsize=(14, 7.875))
         try:
@@ -1420,7 +1420,7 @@ class TestFrameAspectPadding:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import render_scan_field_panel
+        from pipeline.retired.visualize import render_scan_field_panel
 
         fig, ax = plt.subplots(figsize=(14, 7.875))
         try:
@@ -1477,7 +1477,7 @@ class TestFigureWidth:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import _FRAME_WIDTH_IN, display_tile
+        from pipeline.retired.visualize import _FRAME_WIDTH_IN, display_tile
 
         scan_field = {
             "tile_positions": {
@@ -1502,7 +1502,7 @@ class TestFigureWidth:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import _FRAME_WIDTH_IN, display_selection
+        from pipeline.retired.visualize import _FRAME_WIDTH_IN, display_selection
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -1529,7 +1529,7 @@ class TestFigureWidth:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import _FRAME_WIDTH_IN, plot_overview_tiles
+        from pipeline.retired.visualize import _FRAME_WIDTH_IN, plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -1547,7 +1547,7 @@ class TestFigureWidth:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import _FRAME_WIDTH_IN, display_target
+        from pipeline.retired.visualize import _FRAME_WIDTH_IN, display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -1569,8 +1569,8 @@ class TestFigureWidth:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.target import TargetRecord
-        from pipeline.visualize import _FRAME_WIDTH_IN, plot_target_pairs
+        from pipeline.retired.target import TargetRecord
+        from pipeline.retired.visualize import _FRAME_WIDTH_IN, plot_target_pairs
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -1610,10 +1610,10 @@ class TestNoHardcodedFigureWidth:
         import importlib
 
         for modname in (
-            "pipeline.visualize",
-            "pipeline.template",
-            "pipeline.focus",
-            "pipeline.summary",
+            "pipeline.retired.visualize",
+            "pipeline.retired.template",
+            "pipeline.retired.focus",
+            "pipeline.retired.summary",
         ):
             src = inspect.getsource(importlib.import_module(modname))
             hits = self._NUMERIC_FIGSIZE.findall(src)
@@ -1633,7 +1633,7 @@ class TestSelectionCropRow:
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
         GridSpec = pytest.importorskip("matplotlib.gridspec").GridSpec
-        from pipeline.visualize import _build_selection_figure_layout
+        from pipeline.retired.visualize import _build_selection_figure_layout
 
         fig, _, crop_axes, _ = _build_selection_figure_layout(True, plt, GridSpec)
         try:
@@ -1667,7 +1667,7 @@ class TestScatterCropAnnotations:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import display_selection
+        from pipeline.retired.visualize import display_selection
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -1714,7 +1714,7 @@ class TestPickExampleCrops:
     cells."""
 
     def test_returns_all_when_at_most_n(self):
-        from pipeline.visualize import _pick_example_crops
+        from pipeline.retired.visualize import _pick_example_crops
 
         picks = [_make_pick(("0", 0, 0), label=i + 1) for i in range(4)]
         chosen = _pick_example_crops(picks, n=6)
@@ -1725,13 +1725,13 @@ class TestPickExampleCrops:
         )
 
     def test_non_positive_n_returns_empty(self):
-        from pipeline.visualize import _pick_example_crops
+        from pipeline.retired.visualize import _pick_example_crops
 
         picks = [_make_pick(("0", 0, 0), label=i + 1) for i in range(5)]
         assert _pick_example_crops(picks, n=0) == []
 
     def test_spreads_across_distinct_locations(self):
-        from pipeline.visualize import _pick_example_crops
+        from pipeline.retired.visualize import _pick_example_crops
 
         # Six distinct stage locations, each with a co-located twin.
         spots = [
@@ -1756,7 +1756,7 @@ class TestPickExampleCrops:
         )
 
     def test_deterministic(self):
-        from pipeline.visualize import _pick_example_crops
+        from pipeline.retired.visualize import _pick_example_crops
 
         picks = [
             _make_pick(
@@ -1771,7 +1771,7 @@ class TestPickExampleCrops:
     def test_returns_scatter_reading_order_le_n_branch(self):
         """<= n branch: crops come back largest-area-first so the
         strip / badge 1..N numbering reads top-down on the scatter."""
-        from pipeline.visualize import _pick_example_crops
+        from pipeline.retired.visualize import _pick_example_crops
 
         picks = [_make_pick(("0", 0, 0), label=i + 1) for i in range(4)]
         for p, area in zip(picks, [100, 400, 200, 300], strict=False):
@@ -1782,7 +1782,7 @@ class TestPickExampleCrops:
     def test_returns_scatter_reading_order_fps_branch(self):
         """FPS branch (> n picks): the returned six are also ordered
         largest-area-first."""
-        from pipeline.visualize import _pick_example_crops
+        from pipeline.retired.visualize import _pick_example_crops
 
         picks = [
             _make_pick(
@@ -1799,7 +1799,7 @@ class TestPickExampleCrops:
         """Equal area_px -> lower mean_intensity sorts first, pinning
         the (-area_px, mean_intensity) key. area_px is integer-valued
         so this tie is reachable."""
-        from pipeline.visualize import _pick_example_crops
+        from pipeline.retired.visualize import _pick_example_crops
 
         a = _make_pick(("0", 0, 0), label=1)
         b = _make_pick(("0", 0, 0), label=2)
@@ -1819,13 +1819,13 @@ class TestTileLabelWording:
     _format_tile_label; the Step 2b / Step 3 console output must match."""
 
     def test_format_tile_label(self):
-        from pipeline.visualize import _format_tile_label
+        from pipeline.retired.visualize import _format_tile_label
 
         assert _format_tile_label(0, 41) == "Group 0, Position 41"
         assert _format_tile_label(0, None) == "Group 0, Position unknown"
 
     def test_position_label(self):
-        from pipeline.visualize import _position_label
+        from pipeline.retired.visualize import _position_label
 
         assert _position_label(0) == "Position 0"
         assert _position_label(41) == "Position 41"
@@ -1834,8 +1834,8 @@ class TestTileLabelWording:
     def test_target_position_label_twin_matches_visualize(self):
         """target.py carries a one-line twin of _position_label to dodge
         an import cycle -- pin that it has not drifted."""
-        from pipeline.target import _position_label as tgt
-        from pipeline.visualize import _position_label as viz
+        from pipeline.retired.target import _position_label as tgt
+        from pipeline.retired.visualize import _position_label as viz
 
         for v in (0, 41, None):
             assert viz(v) == tgt(v)
@@ -1847,8 +1847,8 @@ class TestTileLabelWording:
         import importlib
         import inspect
 
-        template_src = inspect.getsource(importlib.import_module("pipeline.template"))
-        overview_src = inspect.getsource(importlib.import_module("pipeline.overview"))
+        template_src = inspect.getsource(importlib.import_module("pipeline.retired.template"))
+        overview_src = inspect.getsource(importlib.import_module("pipeline.retired.overview"))
 
         assert "region(s)" not in template_src
         assert "Region {rid}" not in template_src
@@ -1888,8 +1888,8 @@ class TestTargetZoomCallout:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.target import TargetRecord
-        from pipeline.visualize import display_target
+        from pipeline.retired.target import TargetRecord
+        from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -1918,7 +1918,7 @@ class TestTargetZoomCallout:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import display_target
+        from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -1955,8 +1955,8 @@ class TestTargetMultiCueRendering:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.target import TargetRecord
-        from pipeline.visualize import display_target
+        from pipeline.retired.target import TargetRecord
+        from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -2086,8 +2086,8 @@ class TestTargetCropBorder:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.target import TargetRecord
-        from pipeline.visualize import display_target
+        from pipeline.retired.target import TargetRecord
+        from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
@@ -2116,7 +2116,7 @@ class TestTargetCropBorder:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import display_target
+        from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -2161,8 +2161,8 @@ class TestTargetSuptitlePosition:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.target import TargetRecord
-        from pipeline.visualize import display_target
+        from pipeline.retired.target import TargetRecord
+        from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -2196,7 +2196,7 @@ class TestTargetSuptitlePosition:
 
         matplotlib.use("Agg")
         plt = pytest.importorskip("matplotlib.pyplot")
-        from pipeline.visualize import display_target
+        from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()
@@ -2215,8 +2215,8 @@ class TestTargetSuptitlePosition:
         assert "Position unknown" in seen[0], seen
 
     def test_serialize_target_includes_source_tile_position(self, tmp_path):
-        from pipeline.summary import _serialize_target
-        from pipeline.target import TargetRecord
+        from pipeline.retired.summary import _serialize_target
+        from pipeline.retired.target import TargetRecord
 
         rec = TargetRecord(
             pick_id=("0", 0, 0, 3),
@@ -2233,7 +2233,7 @@ class TestTargetSuptitlePosition:
         assert _serialize_target(rec, tmp_path)["source_tile_position"] == 41
 
     def test_serialize_pick_includes_position(self):
-        from pipeline.summary import _serialize_pick
+        from pipeline.retired.summary import _serialize_pick
 
         pick = _make_pick(("0", 0, 0), label=1)
         pick.position = 7
@@ -2251,7 +2251,7 @@ class TestPngNaming:
     re-render."""
 
     def test_overview_tile_png_name_canonical(self):
-        from pipeline.visualize import _overview_tile_png_name, _position_stem
+        from pipeline.retired.visualize import _overview_tile_png_name, _position_stem
 
         from shared.output_layout.naming import Naming
 
@@ -2261,14 +2261,14 @@ class TestPngNaming:
     def test_overview_tile_png_name_fallback(self):
         """No position or no hash6 -> pick-address name, never a wrong
         canonical stem."""
-        from pipeline.visualize import _overview_tile_png_name
+        from pipeline.retired.visualize import _overview_tile_png_name
 
         assert _overview_tile_png_name(0, 1, 2, None, "abc123") == "live_tile_R0_r1c2.png"
         assert _overview_tile_png_name(0, 1, 2, 7, None) == "live_tile_R0_r1c2.png"
 
     def test_target_png_name_canonical(self, tmp_path):
-        from pipeline.target import TargetRecord
-        from pipeline.visualize import _target_png_name
+        from pipeline.retired.target import TargetRecord
+        from pipeline.retired.visualize import _target_png_name
 
         tif = tmp_path / ("target-acquisition_abc123_g00000-p00003_c00_z00000.ome.tiff")
         rec = TargetRecord(
@@ -2289,8 +2289,8 @@ class TestPngNaming:
     def test_target_png_name_fallback_no_tif(self):
         """A target with no TIFF (failed / pick-less) -> pick-address name,
         no AttributeError on record.tif_path is None."""
-        from pipeline.target import TargetRecord
-        from pipeline.visualize import _target_png_name
+        from pipeline.retired.target import TargetRecord
+        from pipeline.retired.visualize import _target_png_name
 
         rec = TargetRecord(
             pick_id=("0", 1, 2, 5),
@@ -2310,7 +2310,7 @@ class TestPngNaming:
 
         matplotlib.use("Agg")
         monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
-        from pipeline.visualize import _position_stem, display_tile
+        from pipeline.retired.visualize import _position_stem, display_tile
 
         from shared.output_layout.naming import Naming
 
@@ -2332,7 +2332,7 @@ class TestPngNaming:
 
         matplotlib.use("Agg")
         monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
-        from pipeline.visualize import display_target
+        from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
         analysis_dir.mkdir()

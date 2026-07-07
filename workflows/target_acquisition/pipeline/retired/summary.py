@@ -20,7 +20,7 @@ from typing import Any
 
 import numpy as np
 
-from ._figsave import save_figure
+from .._figsave import save_figure
 from ._job_state import ensure_job_state
 from .context import Config, Context
 from .focus import FocusMap

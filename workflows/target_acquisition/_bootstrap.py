@@ -30,6 +30,9 @@ import navigator_expert  # noqa: E402,F401
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from pipeline import Config  # noqa: E402
+# v3 notebook entry: ``Config`` belongs to the retired driver-coupled flow
+# (the active controller-only pipeline no longer defines it). See
+# pipeline/retired/.
+from pipeline.retired.context import Config  # noqa: E402
 
 __all__ = ["Config", "Path"]

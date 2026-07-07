@@ -44,7 +44,7 @@ import pytest
 import tifffile
 from pipeline._hijack import NonSimulatorFrameError
 from pipeline._mock_provider import build_target_provider
-from pipeline.overview import Pick
+from pipeline.retired.overview import Pick
 from support import minimal_calibration
 
 from shared.output_layout import Naming, build_image_name
@@ -462,7 +462,7 @@ def _integration_ctx(tmp_path, *, simulate: bool):
     acquire_targets needs to run through one pick. Real-driver calls
     are patched at the module level in the test; this helper only
     sets up the data structures."""
-    from pipeline.context import Config, Context, TargetState
+    from pipeline.retired.context import Config, Context, TargetState
 
     cfg = Config(
         acquisition_job="Overview",
@@ -503,11 +503,11 @@ class TestAcquireTargetsIntegration:
         save writes a real fake target TIFF that
         hijack_frame can read."""
         import navigator_expert as drv
-        from pipeline import target as target_mod
+        from pipeline.retired import target as target_mod
 
         monkeypatch.setattr(target_mod, "drv", drv)
         monkeypatch.setattr(
-            "pipeline.target.calib.translate_xyz_between_objectives",
+            "pipeline.retired.target.calib.translate_xyz_between_objectives",
             lambda x, y, z, cal, **k: (x, y, z),
         )
 
@@ -580,7 +580,7 @@ class TestAcquireTargetsIntegration:
         """Build a Picks container with 2 picks at distinct centroids,
         each referencing a (distinct) source overview tile we've
         written."""
-        from pipeline.selection import Picks
+        from pipeline.retired.selection import Picks
 
         # Two overview tiles, two distinct picks.
         ov_a = np.full((400, 400), 10000, dtype=np.uint16)
@@ -621,7 +621,7 @@ class TestAcquireTargetsIntegration:
         picks = self._two_picks(tmp_path, ctx.run.layout)
 
         # Spy on hijack_frame: capture the provider arg per call.
-        from pipeline import target as target_mod
+        from pipeline.retired import target as target_mod
 
         seen_providers = []
         real_hijack = target_mod.hijack_frame
@@ -632,7 +632,7 @@ class TestAcquireTargetsIntegration:
 
         monkeypatch.setattr(target_mod, "hijack_frame", _spy)
 
-        from pipeline.target import acquire_targets
+        from pipeline.retired.target import acquire_targets
 
         records = acquire_targets(
             ctx,
@@ -670,7 +670,7 @@ class TestAcquireTargetsIntegration:
         self._drv_mocks(monkeypatch, tmp_path)
         ctx = _integration_ctx(tmp_path, simulate=False)
         # Picks with simulated=False; one pick is enough.
-        from pipeline.selection import Picks
+        from pipeline.retired.selection import Picks
 
         pick = _make_pick(
             centroid_col_row_px=(100.0, 100.0),
@@ -683,7 +683,7 @@ class TestAcquireTargetsIntegration:
         # Sentinel: any call to build_target_provider or hijack_frame
         # on a non-simulate run is a regression.
         from pipeline import _mock_provider as mp_mod
-        from pipeline import target as target_mod
+        from pipeline.retired import target as target_mod
 
         def _build_sentinel(*args, **kwargs):
             raise AssertionError(
@@ -707,7 +707,7 @@ class TestAcquireTargetsIntegration:
         )
         monkeypatch.setattr(target_mod, "hijack_frame", _hijack_sentinel)
 
-        from pipeline.target import acquire_targets
+        from pipeline.retired.target import acquire_targets
 
         records = acquire_targets(
             ctx,

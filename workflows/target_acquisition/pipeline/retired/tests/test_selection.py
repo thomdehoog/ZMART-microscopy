@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from pipeline.context import LimitsContext
-from pipeline.overview import OverviewResult, Pick
-from pipeline.selection import (
+from pipeline.retired.context import LimitsContext
+from pipeline.retired.overview import OverviewResult, Pick
+from pipeline.retired.selection import (
     MODE_EMPTY,
     MODE_NO_QUALIFYING,
     MODE_SPARSE,
@@ -105,11 +105,11 @@ def _patch_translate(monkeypatch):
     so the filter exercises only the limits-checking branches, not the
     driver-internal calibration math.
 
-    Patched at the import site (pipeline.overview) because that's where
+    Patched at the import site (pipeline.retired.overview) because that's where
     _filter_out_of_limits looks it up via `calib.translate_xyz_between_objectives`.
     """
     monkeypatch.setattr(
-        "pipeline.selection.calib.translate_xyz_between_objectives",
+        "pipeline.retired.selection.calib.translate_xyz_between_objectives",
         lambda x, y, z, calibration, *, from_slot, to_slot: (x, y, z),
     )
 
@@ -470,14 +470,14 @@ class TestFilterOutOfLimitsTakesLimitsContext:
 
 class TestLoadOverviewResultFromSelectionModule:
     def test_import_path_is_selection(self):
-        """load_overview_result lives in pipeline.selection, no underscore."""
-        from pipeline.selection import load_overview_result as f
+        """load_overview_result lives in pipeline.retired.selection, no underscore."""
+        from pipeline.retired.selection import load_overview_result as f
 
         assert callable(f)
 
     def test_load_overview_picks_is_not_importable(self):
         """The deleted helper name is not part of the public module API."""
-        from pipeline import selection as sel_mod
+        from pipeline.retired import selection as sel_mod
 
         assert not hasattr(sel_mod, "load_overview_picks")
 
@@ -490,7 +490,7 @@ class TestKernelRestartSelectionLoadsFromDisk:
         """Simulate fresh kernel: write npz + meta manually, then run only
         load_overview_result + select_targets. The test does NOT import or
         call run_overview anywhere."""
-        from pipeline.overview import (
+        from pipeline.retired.overview import (
             _build_npz_extra_arrays,
             _save_single_tile_analysis,
             _write_overview_meta,
@@ -540,7 +540,7 @@ class TestKernelRestartSelectionLoadsFromDisk:
                     ],
                 },
             }
-            from pipeline.overview import _picks_from_result
+            from pipeline.retired.overview import _picks_from_result
 
             assert _save_single_tile_analysis(
                 result,
