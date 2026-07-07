@@ -19,12 +19,15 @@ Re-exports:
   ``capture_positions``;
 - the pixel->frame geometry (``pipeline._geom``): ``overview_pixel_to_frame``;
 - run summary + plots (``pipeline.viz``): ``summarize_run``, ``write_summary``,
-  ``plot_focus_surface``, ``plot_frame_layout`` (plots lazy-import matplotlib).
+  ``plot_focus_surface``, ``plot_frame_layout`` (plots lazy-import matplotlib);
+- simulation-mode hijack (``pipeline._hijack`` / ``pipeline._mock_provider``):
+  ``hijack_records``, ``get_provider``, ``NonSimulatorFrameError``.
 
-Importing this package pulls in no driver code. Simulation-mode helpers
-(``hijack_frame`` / ``get_provider``) live in ``pipeline._hijack`` /
-``pipeline._mock_provider`` and are imported on demand by the sim caller,
-so the default operator path stays driver-free.
+Importing this package pulls in no driver code. The sim hijack overwrites the
+pixels of the ``.ome.tiff`` files ``acquire`` saved (gated per-frame on a
+positive ``SystemTypeName == "SIMULATOR"`` allowlist); the driver's OME check
+it uses is lazy-imported, so ``import pipeline`` stays driver-free and the
+operator step functions never learn about simulation.
 
 The pre-controller driver-coupled flow is preserved under
 ``pipeline.retired`` (see that package's docstring).
@@ -36,6 +39,8 @@ from ._capture_run import capture_positions
 from ._focus_run import measure_focus
 from ._focus_surface import FocusSurface, fit_focus_surface
 from ._geom import overview_pixel_to_frame
+from ._hijack import NonSimulatorFrameError, hijack_records
+from ._mock_provider import get_provider
 from .discovery import build_overview_inputs, discover_targets
 from .steps import (
     acquire_targets,
@@ -68,4 +73,7 @@ __all__ = [
     "write_summary",
     "plot_focus_surface",
     "plot_frame_layout",
+    "get_provider",
+    "hijack_records",
+    "NonSimulatorFrameError",
 ]

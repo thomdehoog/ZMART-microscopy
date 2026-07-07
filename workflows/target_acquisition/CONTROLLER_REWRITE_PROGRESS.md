@@ -95,18 +95,39 @@ Done:
 4. ✅ **`_bootstrap.py`** (v3 notebook entry) repointed: `Config` now comes from
    `pipeline.retired.context`. The v3 notebook remains as the retired flow's reference.
 
-Still open (not blocking "workflow uses the controller only"):
+Also done:
 
-1. Thin **v4 notebook** (`zmart_microscopy_v4.ipynb`) — markdown + 1–3 line invocations,
-   one cell per step, over the new `pipeline` surface.
-2. **New `visualize` / `summary`** adapted to the new data (overview record dicts +
-   `discover_targets` output + `FocusSurface`). The retired ones are welded to
-   `OverviewResult` / `Pick` / `SelectionResult` / `scan_field`; new figures are a
-   follow-up once the v4 record schema is exercised end-to-end.
-3. **Sim caller wiring** for the new flow (apply `hijack_frame` over the paths the
-   controller `acquire` returns; step functions stay simulation-unaware).
-4. **Sim fidelity end-to-end** run: real Leica adapter on the LAS X simulator + hijack →
-   acquire → segment → discover → target, on the real controller-only code path.
+5. ✅ **v4 notebook** (`zmart_microscopy_v4.ipynb`) — thin, markdown + 1–3 line
+   invocations, one cell per step, over the new `pipeline` surface. Guarded by
+   `tests/test_v4_notebook.py` (valid nbformat, every cell parses, every
+   `pipeline.<attr>` it calls is exported, no direct driver calls).
+6. ✅ **New `pipeline.viz`** (driver-agnostic): `summarize_run` / `write_summary`
+   (pure JSON) + `plot_focus_surface` / `plot_frame_layout` (lazy matplotlib).
+   Works at the workflow's altitude (frame positions + `FocusSurface` +
+   `discover_targets` output), not the driver's opaque record. `test_viz.py`.
+7. ✅ **`pipeline.build_overview_inputs`** — bridges the overview step to
+   `discover_targets` (pairs captured positions + saved image paths + geometry).
+8. ✅ **Sim-caller wiring** — `pipeline.hijack_records(records, provider)`:
+   controller-only entry that overwrites the pixels of the planes `acquire`
+   saved (derives the acquisition dir from each path, `Naming` from each
+   filename), gated per-frame on the `SystemTypeName == "SIMULATOR"` allowlist.
+   Wired into the v4 notebook (5b / 7 sim cells); the step functions stay
+   simulation-unaware. `test_sim_hijack.py`. The driver's OME check is
+   lazy-imported so `import pipeline` stays driver-free.
+9. ✅ **Offline integration** — `test_v4_flow.py` runs the whole flow
+   (connect → … → discover → acquire → summary) on the mock driver + a fake engine.
+
+Still open (needs the bench / real cells):
+
+1. **Richer `summary` figures** beyond `viz` (overview thumbnails, per-target crops)
+   once a v4 run's on-disk artifacts are exercised end-to-end. The retired
+   `visualize` / `summary` (welded to `OverviewResult` / `Pick` / `scan_field`)
+   stay in `pipeline.retired` for reference.
+2. **Overview geometry** in the notebook (`PIXEL_SIZE_UM` / `IMAGE_SIZE_PX`) is
+   operator-supplied; a follow-up can read it from the saved OME-TIFF.
+3. **Sim fidelity end-to-end** run: real Leica adapter on the LAS X simulator + hijack →
+   acquire → segment → discover → target, on the real controller-only code path
+   (the offline pieces are all green; this is the on-instrument rehearsal).
 
 ## Controller surface (reference)
 
