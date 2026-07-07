@@ -1,13 +1,20 @@
 """Per-frame simulation-mode pixel hijack.
 
-After ``save`` returns a canonical ``.ome.tiff``, the
-workflow calls ``hijack_frame(...)`` to overwrite that file's pixels
-with mock content. The flat, no-sidecar layout dropped the companion
-``.ome.xml``; the overwrite is now gated by a per-frame allowlist on the
-copied native AutoSave vendor metadata's ``SystemTypeName`` -- the XLIF
-the driver copies under
-``acquisition_dir(kind)/vendor/lasx_native_autosave``, which is the
-frame's own ground-truth metadata.
+After ``acquire`` saves a canonical ``.ome.tiff``, the sim caller overwrites
+that file's pixels with mock content so the workflow/analysis runs the real
+code path on realistic-looking data. Two entry points share one recipe:
+
+- :func:`hijack_records` -- the controller-only flow's entry: takes the records
+  ``run_overview`` / ``acquire_targets`` return (each with ``"images"`` paths)
+  and derives everything from the paths. This is what the v4 notebook calls.
+- :func:`hijack_frame` -- the retired driver-coupled entry (``result`` +
+  ``layout`` + ``kind``), kept for ``pipeline.retired``.
+
+The flat, no-sidecar layout dropped the companion ``.ome.xml``; the overwrite
+is gated by a per-frame allowlist on the copied native AutoSave vendor
+metadata's ``SystemTypeName`` -- the XLIF the driver copies under
+``<acquisition_dir>/vendor/lasx_native_autosave``, which is the frame's own
+ground-truth metadata.
 
 Safety properties:
 
@@ -64,8 +71,9 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
 
-import navigator_expert.acquisition.ome as ome_tiff
 import tifffile
+
+from shared.output_layout.naming import parse_image_name
 
 # Descendant-XPath for ``OriginalMetadata`` across any namespace. LAS X
 # actually places these elements inside a ``<CustomAttributes>`` block
@@ -153,101 +161,81 @@ def _read_native_autosave_system_type(base_dir: Path) -> str | None:
     return None
 
 
-def hijack_frame(
-    result,
-    *,
-    kind: str,
-    layout,
-    provider: Callable,
-) -> None:
-    """Simulator allowlist + OME-preserving overwrite, indivisible.
+def _assert_simulator(base_dir: Path, display_name: str) -> None:
+    """Fail closed unless ``base_dir``'s vendor metadata says ``SIMULATOR``.
 
-    Parameters
-    ----------
-    result
-        Workflow-selected single-plane result (carries ``image_path`` and
-        ``naming``). The driver ``SavedAcquisition`` manifest must be
-        reduced by the workflow before pixel hijacking.
-    kind
-        The acquisition kind -- ``"overview-scan"`` or
-        ``"target-acquisition"``. Used to locate the copied native
-        AutoSave vendor metadata under
-        ``layout.acquisition_dir(kind)/vendor/lasx_native_autosave``.
-    layout
-        ``ctx.run.layout`` -- ``LayoutPlan`` for the run.
-    provider
-        Mock-image callable; see ``pipeline._mock_provider``. Signature:
-        ``provider(shape, dtype, *, naming) -> ndarray``.
+    The flat, no-sidecar layout dropped the companion ``.ome.xml``; the
+    driver copies the source LAS X XLIF under
+    ``<base_dir>/vendor/lasx_native_autosave`` (see
+    driver/acquisition/save.py::_persist_vendor_metadata), which is the sole
+    ground-truth for the frame's ``SystemTypeName``. ``base_dir`` is the flat
+    ``acquisition_dir`` -- i.e. the directory the saved plane lives in.
 
-    Raises
-    ------
-    NonSimulatorFrameError
-        Allowlist failure: the native AutoSave vendor metadata's
-        ``SystemTypeName`` is not exactly ``"SIMULATOR"``, is missing,
-        conflicting, or unreadable. **Run-fatal** -- caller must let it
-        propagate.
-    RuntimeError
-        Provider / overwrite / validate failure (e.g. shape mismatch,
-        OME description not preserved, atomic-replace failure).
-        Per-tile -- caller records it in ``hijack_failures`` and
-        continues.
+    Timing: this read is synchronous with respect to save -- the driver
+    persists the vendor metadata before ``save`` returns, so the XLIF is on
+    disk by the time we get here. A missing/unreadable/conflicting read fails
+    closed (``None`` -> not-a-simulator), never a silent overwrite.
     """
-    # Per-frame allowlist on the copied native AutoSave vendor metadata.
-    # The flat, no-sidecar layout dropped the companion ``.ome.xml``; the
-    # driver copies the source LAS X XLIF under
-    # ``acquisition_dir(kind)/vendor/lasx_native_autosave`` (see
-    # driver/acquisition/save.py::_persist_vendor_metadata), which is now
-    # the sole ground-truth for the frame's ``SystemTypeName``.
-    #
-    # Timing: this read is synchronous with respect to save -- the driver
-    # persists the vendor metadata before ``save`` returns, so by the time
-    # we get here the XLIF is on disk. A missing read here fails closed
-    # (``None`` -> not-a-simulator), never a silent overwrite.
-    acquisition_dir = layout.acquisition_dir(kind)
-    system_type = _read_native_autosave_system_type(acquisition_dir)
+    system_type = _read_native_autosave_system_type(base_dir)
     if system_type != "SIMULATOR":
         raise NonSimulatorFrameError(
-            f"refusing to overwrite {result.image_path.name}: "
-            f"native AutoSave vendor metadata SystemTypeName is "
-            f"{system_type!r}, not 'SIMULATOR'. (cfg.simulate=True can "
-            f"only run on the LAS X simulator.)"
+            f"refusing to overwrite {display_name}: native AutoSave vendor "
+            f"metadata SystemTypeName is {system_type!r}, not 'SIMULATOR'. "
+            f"(simulation-mode hijack can only run on the LAS X simulator.)"
         )
 
-    # OME-preserving pixel overwrite.
-    saved = tifffile.imread(result.image_path)  # closes its own handle
-    with tifffile.TiffFile(result.image_path) as tif:  # explicit -- no leak
+
+def _overwrite_preserving_ome(image_path: Path, naming, provider: Callable) -> None:
+    """OME-preserving pixel overwrite of one single-plane saved TIFF.
+
+    Reads the saved array + its tag-270 OME-XML, asks ``provider`` for mock
+    content of the same shape/dtype, writes it with ``ome=False`` (so the
+    original description survives verbatim), asserts byte-equality of the
+    description and the driver's OME check, then atomically replaces the file.
+
+    The caller MUST run the simulator allowlist (:func:`_assert_simulator`)
+    first -- this function does not check it.
+
+    Raises ``RuntimeError`` on any provider/overwrite/validate failure
+    (per-frame; never ``NonSimulatorFrameError``).
+    """
+    image_path = Path(image_path)
+    saved = tifffile.imread(image_path)  # closes its own handle
+    with tifffile.TiffFile(image_path) as tif:  # explicit -- no leak
         desc = tif.pages[0].description
 
     # 2D-only scope guard. The provider returns a 2-D image; downstream
-    # cellpose / pixel-to-stage chains have been validated for 2-D
-    # frames only (single-plane, single-channel). A multi-plane saved
-    # frame is a per-tile failure (RuntimeError -- recorded in
-    # hijack_failures and the loop continues), NOT a NonSimulatorFrame
-    # (which would hard-abort the run). The allowlist above runs FIRST
-    # so a real-hardware multi-plane frame still aborts on the
-    # allowlist as it should.
+    # cellpose / pixel-to-stage chains have been validated for 2-D frames
+    # only (single-plane, single-channel). A multi-plane saved frame is a
+    # per-frame failure (RuntimeError), NOT a NonSimulatorFrame (which would
+    # hard-abort the run). The allowlist the caller runs FIRST still aborts a
+    # real-hardware multi-plane frame as it should.
     if saved.ndim != 2:
         raise RuntimeError(
-            f"multi-plane simulator hijack unsupported; "
-            f"{result.image_path.name} has shape {saved.shape}. Current "
-            f"overview/target jobs are single-plane single-channel; extend "
-            f"pipeline/_mock_provider.py for >2D content."
+            f"multi-plane simulator hijack unsupported; {image_path.name} has "
+            f"shape {saved.shape}. Current overview/target jobs are "
+            f"single-plane single-channel; extend pipeline/_mock_provider.py "
+            f"for >2D content."
         )
 
-    mock = provider(saved.shape, saved.dtype, naming=result.naming)
+    mock = provider(saved.shape, saved.dtype, naming=naming)
     if mock.shape != saved.shape or mock.dtype != saved.dtype:
         raise RuntimeError(
-            f"mock shape/dtype mismatch for {result.image_path.name}: "
-            f"got {mock.shape}/{mock.dtype}, expected "
-            f"{saved.shape}/{saved.dtype}"
+            f"mock shape/dtype mismatch for {image_path.name}: "
+            f"got {mock.shape}/{mock.dtype}, expected {saved.shape}/{saved.dtype}"
         )
 
-    # Same-directory temp so os.replace is atomic (only atomic within
-    # one filesystem).
-    parent = Path(result.image_path).parent
+    # Driver's OME check, lazy-imported so importing this module (and the
+    # controller-only pipeline that re-exports the hijack) pulls in no driver
+    # code until a simulation hijack actually fires.
+    import navigator_expert.acquisition.ome as ome_tiff
+
+    # Same-directory temp so os.replace is atomic (only atomic within one
+    # filesystem).
+    parent = image_path.parent
     tmp_fd, tmp_name = tempfile.mkstemp(
         suffix=".tmp",
-        prefix=Path(result.image_path).name + ".",
+        prefix=image_path.name + ".",
         dir=str(parent),
     )
     os.close(tmp_fd)
@@ -261,28 +249,27 @@ def hijack_frame(
             ome=False,  # preserve existing OME XML
             photometric="minisblack",
         )
-        # Tag-270 byte-equality is the load-bearing assertion: a
-        # silently-regenerated description would still pass
-        # check_ome_tiff's schema check but lose SystemTypeName.
+        # Tag-270 byte-equality is the load-bearing assertion: a silently-
+        # regenerated description would still pass check_ome_tiff's schema
+        # check but lose SystemTypeName.
         with tifffile.TiffFile(tmp_path) as tif:
             new_desc = tif.pages[0].description
         if new_desc != desc:
             raise RuntimeError(
-                f"hijack would corrupt OME description on {result.image_path.name} -- aborting"
+                f"hijack would corrupt OME description on {image_path.name} -- aborting"
             )
         chk = ome_tiff.check_ome_tiff(str(tmp_path))
-        # check_ome_tiff returns {corrupted: bool, error: str|None, ...}
-        # -- the driver convention treats `error` (e.g. unreadable tag
-        # 270, encoding error) as a check failure distinct from a known
-        # schema violation. Honour both.
+        # check_ome_tiff returns {corrupted: bool, error: str|None, ...} -- the
+        # driver convention treats `error` (e.g. unreadable tag 270, encoding
+        # error) as a check failure distinct from a known schema violation.
+        # Honour both.
         if chk.get("corrupted") or chk.get("error"):
             raise RuntimeError(
-                f"hijacked OME-TIFF failed check on "
-                f"{result.image_path.name}: "
+                f"hijacked OME-TIFF failed check on {image_path.name}: "
                 f"violations={chk.get('violations')} error={chk.get('error')}"
             )
 
-        os.replace(tmp_path, result.image_path)
+        os.replace(tmp_path, image_path)
         tmp_path = None  # owned by destination now
     finally:
         if tmp_path is not None:
@@ -290,3 +277,58 @@ def hijack_frame(
                 tmp_path.unlink()
             except OSError:
                 pass
+
+
+def hijack_frame(
+    result,
+    *,
+    kind: str,
+    layout,
+    provider: Callable,
+) -> None:
+    """Simulator allowlist + OME-preserving overwrite, indivisible (retired path).
+
+    Retired driver-coupled entry point (``pipeline.retired.overview`` /
+    ``target``): takes a workflow-selected single-plane ``result`` (with
+    ``image_path`` / ``naming``) and the run ``layout``, locating the vendor
+    metadata under ``layout.acquisition_dir(kind)/vendor/lasx_native_autosave``.
+    The controller-only flow uses :func:`hijack_records` instead.
+
+    Raises ``NonSimulatorFrameError`` (allowlist failure -- run-fatal) or
+    ``RuntimeError`` (provider/overwrite/validate failure -- per-frame).
+    """
+    _assert_simulator(layout.acquisition_dir(kind), result.image_path.name)
+    _overwrite_preserving_ome(result.image_path, result.naming, provider)
+
+
+def hijack_records(records: list[dict], provider: Callable) -> int:
+    """Simulator-gated pixel hijack over the images the controller returned.
+
+    Controller-only entry point. ``records`` is the list
+    ``run_overview`` / ``acquire_targets`` returns; each record's ``"images"``
+    is a list of saved single-plane ``.ome.tiff`` paths. For every plane:
+
+    1. Derive the flat acquisition dir as the file's own parent, and run the
+       positive ``SystemTypeName == "SIMULATOR"`` allowlist against the vendor
+       metadata there (:func:`_assert_simulator`).
+    2. Reconstruct the plane's :class:`~shared.output_layout.naming.Naming`
+       from its filename (the provider's only input).
+    3. Overwrite the pixels, preserving the OME-XML (:func:`_overwrite_preserving_ome`).
+
+    ``provider`` is a mock-image callable (see ``pipeline._mock_provider``;
+    e.g. ``get_provider("skimage_human_mitosis")``).
+
+    Returns the number of planes overwritten. Re-raises
+    ``NonSimulatorFrameError`` on the first non-simulator frame (run-fatal --
+    the allowlist guarantees a real-hardware frame is never overwritten).
+    ``RuntimeError`` from a provider/overwrite failure also propagates.
+    """
+    count = 0
+    for record in records:
+        for image_path in record.get("images", []):
+            image_path = Path(image_path)
+            _assert_simulator(image_path.parent, image_path.name)
+            naming = parse_image_name(image_path.name)
+            _overwrite_preserving_ome(image_path, naming, provider)
+            count += 1
+    return count
