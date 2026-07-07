@@ -1,0 +1,29 @@
+2026-07-07 09:39:38,166 INFO navigator_expert.connection.session | LAS X runtime=C:\Program Files\Leica Microsystems CMS GmbH\LAS X\AddIns\NavigatorExpert version=1.0.108.0 api_delay_ms=250
+2026-07-07 09:39:38,170 INFO navigator_expert.commands.gate | limits handshake ok: {'schema_version': 1, 'source': 'defaults', 'path': 'C:\\ProgramData\\zmart-microscopy\\leica\\stellaris5_y42h93\\navigator_expert\\2026-07-07T07-22-31-729769Z\\limits.json', 'is_fallback': False} governs this session
+2026-07-07 09:39:38,175 WARNING navigator_expert.config.machine | No machine snapshot for leica/stellaris5_y42h93 under C:\ProgramData\zmart-microscopy\leica\stellaris5_y42h93\navigator_expert; using bundled default \\zmbstaff.core.uzh.ch\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\smart-microscopy\zmart_drivers\leica\stellaris5_y42h93\navigator_expert\calibration\defaults\calibration.json (calibration may be stale - re-calibrate).
+2026-07-07 09:39:38,180 INFO navigator_expert.zmart_adapter.zmart_adapter | restored persisted origin (captured_at=1783409826.0954921, objective=HC PL APO CS2    10x/0.40 DRY )
+2026-07-07 09:39:39,117 INFO navigator_expert.commands.dispatch | MoveXY -> (63475.0, 41474.99999999999) um | OK (0.113s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:39,327 INFO navigator_expert.commands.dispatch | MoveXY -> (63525.0, 41524.99999999999) um | OK (0.109s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:39,351 INFO navigator_expert.commands.dispatch | Z -> 0.0 um (galvo) | OK (0.022s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:39,542 INFO navigator_expert.commands.dispatch | MoveXY -> (63475.0, 41474.99999999999) um | OK (0.107s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:39,751 INFO navigator_expert.commands.dispatch | MoveXY -> (63525.0, 41524.99999999999) um | OK (0.108s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:39,769 INFO navigator_expert.commands.dispatch | Z -> 2.0 um (galvo) | OK (0.017s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:39,991 INFO navigator_expert.commands.dispatch | MoveXY -> (63475.0, 41474.99999999999) um | OK (0.129s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:40,201 INFO navigator_expert.commands.dispatch | MoveXY -> (63525.0, 41524.99999999999) um | OK (0.108s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:40,218 INFO navigator_expert.commands.dispatch | Z -> 3.0 um (zwide) | OK (0.016s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:40,278 INFO navigator_expert.commands.dispatch | Z -> 0.0 um (zwide) | OK (0.016s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:40,445 INFO navigator_expert.commands.dispatch | MoveXY -> (63450.0, 41449.99999999999) um | OK (0.128s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:40,655 INFO navigator_expert.commands.dispatch | MoveXY -> (63500.0, 41499.99999999999) um | OK (0.108s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:40,672 INFO navigator_expert.commands.dispatch | Z -> 0.0 um (galvo) | OK (0.016s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:42,929 WARNING navigator_expert.commands.confirm_select_job | Log-backed job selection timeout after 2.0s for 'Overview'
+2026-07-07 09:39:45,378 WARNING navigator_expert.commands.confirm_select_job | Job selection timeout after 4.5s for 'Overview'
+2026-07-07 09:39:45,383 INFO navigator_expert.commands.dispatch | SelectJob 'Overview' | Confirm failed, re-firing (attempt 2/3)
+2026-07-07 09:39:47,429 WARNING navigator_expert.commands.confirm_select_job | Log-backed job selection timeout after 2.0s for 'Overview'
+2026-07-07 09:39:49,905 WARNING navigator_expert.commands.confirm_select_job | Job selection timeout after 4.5s for 'Overview'
+2026-07-07 09:39:49,907 INFO navigator_expert.commands.dispatch | SelectJob 'Overview' | Confirm failed, re-firing (attempt 3/3)
+2026-07-07 09:39:51,964 WARNING navigator_expert.commands.confirm_select_job | Log-backed job selection timeout after 2.0s for 'Overview'
+2026-07-07 09:39:54,415 WARNING navigator_expert.commands.confirm_select_job | Job selection timeout after 4.5s for 'Overview'
+2026-07-07 09:39:54,447 WARNING navigator_expert.commands.dispatch | SelectJob 'Overview' | UNCONFIRMED after 3 readback attempt(s); command was sent successfully, but LAS X state readback did not confirm the requested value (13.587s)
+2026-07-07 09:39:54,756 INFO navigator_expert.commands.dispatch | MoveXY -> (63450.0, 41449.99999999999) um | OK (0.161s) attempts=1 confirm_attempts=1
+2026-07-07 09:39:54,955 INFO navigator_expert.commands.dispatch | MoveXY -> (63500.0, 41499.99999999999) um | OK (0.098s) attempts=1 confirm_attempts=1
+2026-07-07 09:40:00,750 INFO navigator_expert.commands.dispatch | Acquire 'HiRes' | OK (5.793s) attempts=1 confirm_attempts=1

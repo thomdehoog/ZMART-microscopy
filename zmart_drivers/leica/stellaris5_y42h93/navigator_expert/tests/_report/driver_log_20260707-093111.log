@@ -1,0 +1,1 @@
+2026-07-07 09:31:12,554 INFO navigator_expert.commands.gate | limits handshake ok: {'schema_version': 1, 'source': 'defaults', 'path': 'C:\\ProgramData\\zmart-microscopy\\leica\\stellaris5_y42h93\\navigator_expert\\2026-07-07T07-22-31-729769Z\\limits.json', 'is_fallback': False} governs this session
