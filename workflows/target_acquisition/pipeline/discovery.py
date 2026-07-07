@@ -9,9 +9,29 @@ calibration, no ``navigator_expert`` import); the engine is used only to find ce
 from __future__ import annotations
 
 import time
+import xml.etree.ElementTree as ET
 from typing import Any
 
 from ._geom import overview_pixel_to_frame
+
+# OME PhysicalSize is µm by default (no Unit attribute); support the handful of
+# length units a real native file might carry, expressed as µm-per-unit.
+_UM_PER_UNIT = {
+    None: 1.0,
+    "µm": 1.0,
+    "um": 1.0,
+    "micron": 1.0,
+    "micrometer": 1.0,
+    "micrometre": 1.0,
+    "nm": 1e-3,
+    "nanometer": 1e-3,
+    "nanometre": 1e-3,
+    "mm": 1e3,
+    "millimeter": 1e3,
+    "millimetre": 1e3,
+    "cm": 1e4,
+    "m": 1e6,
+}
 
 
 def _identity_image_to_stage(pixel_size_um: float) -> list[list[float]]:
@@ -20,12 +40,68 @@ def _identity_image_to_stage(pixel_size_um: float) -> list[list[float]]:
     return [[size, 0.0], [0.0, size]]
 
 
+def _physical_size_um(pixels: ET.Element, axis: str) -> float | None:
+    """Read ``PhysicalSize{axis}`` (µm) off an OME ``<Pixels>`` element, or None."""
+    raw = pixels.attrib.get(f"PhysicalSize{axis}")
+    if raw is None:
+        return None
+    unit = pixels.attrib.get(f"PhysicalSize{axis}Unit")
+    factor = _UM_PER_UNIT.get(unit.strip().lower() if unit else None)
+    if factor is None:
+        raise ValueError(f"unsupported PhysicalSize{axis}Unit {unit!r}")
+    return float(raw) * factor
+
+
+def read_overview_geometry(image_path: Any, *, pixel_tol: float = 1e-6) -> dict:
+    """Read ``{pixel_size_um, image_size_px}`` from a saved OME-TIFF.
+
+    The pixel grid ``image_size_px`` is ``(H, W)`` from the first page's array
+    shape; ``pixel_size_um`` is the OME ``PhysicalSizeX`` (the driver writes it
+    in µm, the OME default). The pipeline treats pixel size as an isotropic
+    scalar, so ``PhysicalSizeX`` and ``PhysicalSizeY`` must agree within
+    ``pixel_tol`` (relative); otherwise ``ValueError``.
+
+    Driver-agnostic: reads the embedded OME-XML (TIFF tag 270) with the stdlib
+    parser, no ``navigator_expert`` import. ``tifffile`` is lazy-imported.
+
+    Raises ``ValueError`` when the OME ``<Pixels>`` element or its
+    ``PhysicalSizeX``/``PhysicalSizeY`` is missing, or the pixel size is
+    anisotropic.
+    """
+    import tifffile
+
+    with tifffile.TiffFile(image_path) as tif:
+        page = tif.pages[0]
+        shape = page.shape
+        desc = page.description
+    h, w = int(shape[-2]), int(shape[-1])
+
+    try:
+        root = ET.fromstring(desc)
+    except ET.ParseError as exc:
+        raise ValueError(f"{image_path}: tag-270 OME-XML is unparseable: {exc}") from exc
+    pixels = root.find(".//{*}Pixels")
+    if pixels is None:
+        raise ValueError(f"{image_path}: no OME <Pixels> element in tag 270")
+
+    sx = _physical_size_um(pixels, "X")
+    sy = _physical_size_um(pixels, "Y")
+    if sx is None or sy is None:
+        raise ValueError(f"{image_path}: OME PhysicalSizeX/Y missing")
+    if abs(sx - sy) > pixel_tol * max(abs(sx), abs(sy)):
+        raise ValueError(
+            f"{image_path}: anisotropic pixel size (X={sx} µm, Y={sy} µm); the "
+            f"pipeline treats pixel size as an isotropic scalar"
+        )
+    return {"pixel_size_um": float(sx), "image_size_px": (h, w)}
+
+
 def build_overview_inputs(
     overview_positions: list[dict],
     image_paths: list[Any],
     *,
-    pixel_size_um: float,
-    image_size_px: tuple[int, int],
+    pixel_size_um: float | None = None,
+    image_size_px: tuple[int, int] | None = None,
     labels: list[Any] | None = None,
 ) -> list[dict]:
     """Pair captured overview frame positions with their saved images.
@@ -35,8 +111,12 @@ def build_overview_inputs(
     ``[{"x", "y", ...}]``) and, per driver, the saved image path for each
     (the driver's ``acquire`` record shape is driver-defined: the Leica adapter
     returns ``{"images": [...]}``, so ``image_paths`` is what the caller pulls
-    out of each record). ``pixel_size_um`` / ``image_size_px`` (H, W) describe
-    the overview job's geometry, shared by every tile.
+    out of each record).
+
+    ``pixel_size_um`` / ``image_size_px`` (H, W) describe the overview job's
+    geometry. Leave either as ``None`` to read it per-image from the saved
+    OME-TIFF via :func:`read_overview_geometry` -- so the caller supplies
+    nothing by default; pass an explicit value only to override.
 
     Returns the ``[{"image_path", "center_frame_um", "pixel_size_um",
     "image_size_px", "label"}]`` list :func:`discover_targets` consumes.
@@ -49,16 +129,23 @@ def build_overview_inputs(
             f"({len(image_paths)}) must be the same length"
         )
     labels = labels if labels is not None else list(range(len(overview_positions)))
-    return [
-        {
-            "image_path": path,
-            "center_frame_um": (float(pos["x"]), float(pos["y"])),
-            "pixel_size_um": float(pixel_size_um),
-            "image_size_px": (int(image_size_px[0]), int(image_size_px[1])),
-            "label": label,
-        }
-        for pos, path, label in zip(overview_positions, image_paths, labels, strict=True)
-    ]
+    inputs = []
+    for pos, path, label in zip(overview_positions, image_paths, labels, strict=True):
+        ps, sz = pixel_size_um, image_size_px
+        if ps is None or sz is None:
+            geo = read_overview_geometry(path)
+            ps = geo["pixel_size_um"] if ps is None else ps
+            sz = geo["image_size_px"] if sz is None else sz
+        inputs.append(
+            {
+                "image_path": path,
+                "center_frame_um": (float(pos["x"]), float(pos["y"])),
+                "pixel_size_um": float(ps),
+                "image_size_px": (int(sz[0]), int(sz[1])),
+                "label": label,
+            }
+        )
+    return inputs
 
 
 def discover_targets(
