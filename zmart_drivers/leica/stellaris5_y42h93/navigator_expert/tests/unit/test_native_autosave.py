@@ -187,6 +187,66 @@ class TestCollectNativeAutoSave:
                     export_completion_timeout=0.01,
                 )
 
+    def test_autosave_off_produces_actionable_warning(self, tmp_path, successful_acq):
+        """.lcf reports AutoSave enabled but the live session has it off: the
+        scan completes and nothing is written. Fail with a clear, actionable
+        message naming the disabled session -- not the generic 'no file found'.
+        """
+        root = tmp_path / "native-root"
+        root.mkdir()
+        with patch.object(native._files, "read_relative_path", return_value=""):
+            with pytest.raises(RuntimeError, match="disabled in the running LAS X"):
+                native.collect_lasx_native_autosave(
+                    None,
+                    successful_acq,
+                    autosave_root=root,
+                    lcf_path=_native_lcf(tmp_path, root),
+                    export_completion_timeout=0.0,
+                    export_completion_poll_interval=0.001,
+                )
+
+    def test_slow_autosave_file_is_awaited_past_the_detection_window(
+        self,
+        tmp_path,
+        successful_acq,
+    ):
+        """Once a fresh project exists (AutoSave engaged), the OME-TIFF is
+        awaited with no premature timeout: a file that only appears after the
+        detection deadline still resolves, rather than failing closed."""
+        root = tmp_path / "native-root"
+        project = _native_project(root)  # fresh project dir => AutoSave engaged
+        tiff = project / "Overview001.ome.tif"
+        real_fresh = native._fresh_native_tiffs
+        calls = {"n": 0}
+
+        def delayed_fresh(base, acq):
+            calls["n"] += 1
+            if calls["n"] <= 3:
+                return []  # file not flushed yet
+            _write_native_ome_tiff(tiff, _native_data())
+            return real_fresh(base, acq)
+
+        with (
+            patch.object(native, "_fresh_native_tiffs", side_effect=delayed_fresh),
+            patch.object(native._files, "read_relative_path", return_value=""),
+            patch.object(
+                native._files,
+                "wait_all_stable",
+                return_value={"success": True},
+            ),
+        ):
+            exported = native.collect_lasx_native_autosave(
+                None,
+                successful_acq,
+                autosave_root=root,
+                lcf_path=_native_lcf(tmp_path, root),
+                export_completion_timeout=0.0,  # detection deadline already passed
+                export_completion_poll_interval=0.001,
+            )
+
+        assert exported.image_files == [tiff]
+        assert calls["n"] >= 4  # kept polling past the detection deadline
+
     def test_native_project_config_is_optional_when_tiff_is_valid(
         self,
         tmp_path,
