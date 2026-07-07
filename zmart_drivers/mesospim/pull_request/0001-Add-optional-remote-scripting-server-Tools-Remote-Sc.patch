@@ -80,8 +80,8 @@ index cb159e4..e01b267 100644
 +        '''Start the remote scripting server (Tools -> Remote Scripting...).
 +
 +        Called via a queued connection, so this runs on the Core's own thread --
-+        the same thread execute_script runs on, which is where the server needs
-+        to live. See mesoSPIM_RemoteScripting.py for what the server itself does.
++        the thread the Core does all its work on, which is where the server's
++        sockets must live. See mesoSPIM_RemoteScripting.py for what it does.
 +        '''
 +        from .mesoSPIM_RemoteScripting import RemoteScriptingServer
 +        self.stop_remote_scripting()  # restart-safe: never leave two servers running at once
