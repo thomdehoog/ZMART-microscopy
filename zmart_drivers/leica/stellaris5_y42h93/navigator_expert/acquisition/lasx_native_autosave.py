@@ -8,6 +8,7 @@ writer-agnostic acquisition contract; persistence stays in ``save``.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import time
@@ -33,7 +34,13 @@ from .product import (
     VendorMetadataSource,
 )
 
+log = logging.getLogger(__name__)
+
 _PROJECT_CONFIG_NAME = "IOManagerConfiguation.xlif"
+
+# How often to log a heartbeat while waiting (without a deadline) for AutoSave
+# to flush a detected project's OME-TIFF.
+_FLUSH_HEARTBEAT_S = 30.0
 
 
 @dataclass(frozen=True)
@@ -69,7 +76,7 @@ def collect_lasx_native_autosave(
         anchor = _detect_from_mtime(
             base,
             acq,
-            timeout=export_completion_timeout,
+            detect_timeout=export_completion_timeout,
             poll_interval=export_completion_poll_interval,
         )
         method = "mtime"
@@ -176,10 +183,28 @@ def _detect_from_mtime(
     base: Path,
     acq: AcquisitionResult,
     *,
-    timeout: float,
+    detect_timeout: float,
     poll_interval: float,
 ) -> Path:
-    deadline = time.perf_counter() + timeout
+    """Wait for the native AutoSave OME-TIFF, in two phases.
+
+    Phase A (bounded by *detect_timeout*): wait for evidence that AutoSave
+    engaged for this acquisition -- a fresh candidate OME-TIFF, or a fresh
+    project directory. If none appears, native AutoSave is almost certainly
+    disabled in the *running* LAS X session (the StartUp ``.lcf`` can report
+    it enabled while the live session has it off); raise an actionable error
+    naming that cause rather than a generic "no file found".
+
+    Phase B (unbounded once engaged): the scan has already completed and a
+    project exists, so the OME-TIFF is being flushed -- a slow or large write
+    is healthy, not a failure. Wait without a deadline (mirroring the acquire
+    idle-wait's deliberate no-deadline policy) until the single fresh
+    candidate appears.
+    """
+    detect_deadline = time.perf_counter() + detect_timeout
+    t_start = time.perf_counter()
+    last_heartbeat = t_start
+    engaged = False
     while True:
         candidates = _fresh_native_tiffs(base, acq)
         if len(candidates) == 1:
@@ -192,11 +217,39 @@ def _detect_from_mtime(
                 "Multiple fresh LAS X native AutoSave OME-TIFF candidates "
                 f"after acquisition; refusing to guess: {names}"
             )
-        if time.perf_counter() >= deadline:
+        # No file yet. A fresh project directory is the earliest sign that
+        # AutoSave engaged; once seen, the file is on its way -- wait for it
+        # without a deadline (Phase B).
+        if not engaged and _has_fresh_project(base, acq):
+            engaged = True
+        if not engaged and time.perf_counter() >= detect_deadline:
             raise RuntimeError(
-                f"No LAS X native AutoSave OME-TIFF found after acquisition (scanned {base})"
+                "LAS X native AutoSave produced no project or OME-TIFF under "
+                f"{base} within {detect_timeout:.0f}s after the scan completed. "
+                "Native AutoSave is most likely disabled in the running LAS X "
+                "session -- the StartUp configuration can report it enabled "
+                "while the live session has it off. Enable AutoSave in LAS X "
+                "and re-run."
             )
+        now = time.perf_counter()
+        if engaged and now - last_heartbeat >= _FLUSH_HEARTBEAT_S:
+            log.info(
+                "Waiting for LAS X native AutoSave to flush the OME-TIFF "
+                "(project detected, %.0fs elapsed)",
+                now - t_start,
+            )
+            last_heartbeat = now
         time.sleep(poll_interval)
+
+
+def _has_fresh_project(base: Path, acq: AcquisitionResult) -> bool:
+    """True when a native AutoSave project folder was created for *acq*.
+
+    A fresh project directory (its ``.xlef`` / IOManager config written at or
+    after the acquisition started) is the earliest on-disk sign that AutoSave
+    engaged -- LAS X creates it before the OME-TIFF is flushed.
+    """
+    return any(_is_from_acquisition(project, acq) for project in _project_dirs(base))
 
 
 def _fresh_native_tiffs(base: Path, acq: AcquisitionResult) -> list[Path]:

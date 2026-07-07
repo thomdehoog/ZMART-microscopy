@@ -27,9 +27,10 @@ log = logging.getLogger(__name__)
 
 
 DEFAULT_FILE_STABILITY_TIMEOUT_S = 120
-# Completeness (all timepoints/planes present) gets a budget in the same
-# regime as file stability: a long time-series still flushing to disk
-# after the job finished is healthy, not a failure.
+# Detection window: how long to wait for native AutoSave to produce ANY output
+# (a project directory or OME-TIFF) after the scan completes before concluding
+# AutoSave is disabled. Once a project appears the collector waits WITHOUT a
+# deadline for the file to flush -- a long/large save is healthy, not a failure.
 DEFAULT_EXPORT_COMPLETION_TIMEOUT_S = 60.0
 DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S = 0.5
 
