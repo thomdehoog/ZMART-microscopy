@@ -48,7 +48,9 @@ line (or error text). See [`PROTOCOL.md`](PROTOCOL.md).
 
 A named call still **controls the microscope** (moves the stage, runs
 acquisitions), but it is **not** arbitrary code — the server only ever does a dict
-lookup + a fixed call, so nothing outside `COMMANDS` can run. Still:
+lookup + a fixed call, so nothing outside `COMMANDS` can run. And a bad *value* is
+refused too: the args are **validated** (right shape, an option the live `cfg`
+allows, an in-range number) before the Core is touched. Still:
 
 - **Off by default**; started by an operator from the GUI.
 - **Binds `127.0.0.1`** unless changed; the dialog warns before a network bind

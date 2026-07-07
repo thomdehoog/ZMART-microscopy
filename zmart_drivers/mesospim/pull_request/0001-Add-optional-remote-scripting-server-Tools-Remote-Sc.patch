@@ -14,10 +14,13 @@ buttons call), and returns a JSON result. No client Python is ever executed.
 - mesoSPIM_RemoteScripting.py (new): a signal-driven QTcpServer that, for each
   received message, dispatches one named call against a fixed COMMANDS allowlist
   and returns "__ZMART_OK__<json>" (or error text on a bad payload / unknown
-  method / handler error). Length-framed UTF-8. Optional shared token, checked in
-  constant time. Framing, auth, and dispatch are socket-free helpers that unit-test
-  without Qt. A dropped or crashed client cannot crash mesoSPIM (the disconnect
-  teardown is guarded against an already-reclaimed socket).
+  method / handler error). Before running, each call's ARGS are validated -- right
+  shape, an option the live cfg allows (filter/zoom/laser/shutter), an in-range
+  number (per-axis soft limits from MESOSPIM_RS_LIMITS) -- so a bad VALUE, not just
+  a bad name, is refused at the door with a specific message. Length-framed UTF-8.
+  Optional shared token, checked in constant time. Framing, auth, validation, and
+  dispatch are socket-free helpers that unit-test without Qt. A dropped or crashed
+  client cannot crash mesoSPIM (the disconnect teardown is guarded).
 - mesoSPIM_Core: start_remote_scripting(host, port, token) / stop slots, invoked
   via a queued connection so the server lives on the Core's own thread, plus a
   sig_remote_scripting_started(ok, message) signal so a bind failure is reported
@@ -56,8 +59,8 @@ end-to-end run against a real Core is the remaining check.
 ---
  mesoSPIM/src/mesoSPIM_Core.py            |  31 +++
  mesoSPIM/src/mesoSPIM_MainWindow.py      | 135 +++++++++++
- mesoSPIM/src/mesoSPIM_RemoteScripting.py | 515 ++++++++++++++++++++++++++++++++++++++++
- 3 files changed, 681 insertions(+)
+ mesoSPIM/src/mesoSPIM_RemoteScripting.py | 590 ++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 756 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteScripting.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
@@ -278,10 +281,10 @@ index 75ff770..cd1ef5c 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteScripting.py b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
 new file mode 100644
-index 0000000..40c2e6c
+index 0000000..6ba0006
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteScripting.py
-@@ -0,0 +1,515 @@
+@@ -0,0 +1,590 @@
 +"""
 +mesoSPIM remote scripting server.
 +==================================
@@ -306,7 +309,9 @@ index 0000000..40c2e6c
 +Map of this file, top to bottom:
 +  frame() / FrameDecoder   the "<byte-count>\\n<payload>" wire framing (TCP lane)
 +  AuthGate                 the constant-time token check
-+  COMMANDS + _dispatch     the allowlist: a name -> one Core call (READ THIS FIRST)
++  COMMANDS                 the allowlist: a name -> one Core call (READ THIS FIRST)
++  _validate                checks each call's args: right shape, allowed option, in range
++  _dispatch                allowlist-check the name, _validate the args, then run it
 +  handle_message           the TCP lane: {"<method>": {args}} -> reply text
 +  _mcp_reply               the HTTP lane's brain: JSON-RPC in -> JSON-RPC out
 +  RemoteScriptingServer    the Qt glue: accept a client, read bytes, route to the above
@@ -499,25 +504,78 @@ index 0000000..40c2e6c
 +}
 +
 +
-+def _dispatch(core, call, args):
-+    """One allowlisted call -> result dict (unknown method -> KeyError). The single
-+    point where a request becomes a Core call, shared by both front ends."""
++def _num(v):
++    """True if v is a real number (JSON true/false are ints in Python -- exclude them)."""
++    return isinstance(v, (int, float)) and not isinstance(v, bool)
++
++
++def _validate(core, call, args, limits):
++    """Reject a call whose ARGS are the wrong shape, not an allowed option, or out of
++    range -- with a clear message -- BEFORE the handler runs, so a bad value never
++    reaches the instrument. Allowed options come from the live ``cfg`` (so we accept
++    exactly what this scope has); axis ranges come from ``limits`` (per-axis
++    ``{axis: (lo, hi)}``, empty = no soft limit -- the Core is the hardware backstop).
++    """
++    def bad(msg):
++        raise ValueError(f"{call}: {msg}")
++
++    if call in ("move_absolute", "move_relative"):
++        key = "targets" if call == "move_absolute" else "deltas"
++        moves = args.get(key)
++        if not isinstance(moves, dict) or not moves:
++            bad(f"'{key}' must be a non-empty object of axis -> number")
++        for axis, value in moves.items():
++            if axis not in _AXES:
++                bad(f"unknown axis {axis!r}; allowed: {list(_AXES)}")
++            if not _num(value):
++                bad(f"axis {axis!r} value must be a number, got {value!r}")
++            lo_hi = limits.get(axis)
++            if call == "move_absolute" and lo_hi and not (lo_hi[0] <= value <= lo_hi[1]):
++                bad(f"{axis}={value} is outside the allowed range {tuple(lo_hi)}")
++    elif call == "zero":
++        axes = args.get("axes")
++        if axes is not None and (not isinstance(axes, list) or any(a not in _AXES for a in axes)):
++            bad(f"'axes' must be a list of {list(_AXES)}")
++    elif call == "set_state":
++        settings = args.get("settings")
++        if not isinstance(settings, dict) or not settings:
++            bad("'settings' must be a non-empty object")
++        cfg = getattr(core, "cfg", None)
++        options = {"filter": list(getattr(cfg, "filterdict", {}) or {}),
++                   "zoom": list(getattr(cfg, "zoomdict", {}) or {}),
++                   "laser": list(getattr(cfg, "laserdict", {}) or {}),
++                   "shutterconfig": list(getattr(cfg, "shutteroptions", []) or [])}
++        for k, v in settings.items():
++            if options.get(k) and v not in options[k]:  # only check keys the cfg knows the options for
++                bad(f"{k}={v!r} is not one of {options[k]}")
++            if k == "intensity" and not (_num(v) and 0 <= v <= 100):
++                bad("intensity must be a number in [0, 100]")
++    elif call == "acquire_start" and not isinstance(args.get("acquisition"), dict):
++        bad("'acquisition' must be an object")
++    # reads / stop / hello / ping / stat_files / acquire_finish / procedure: no arg contract
++
++
++def _dispatch(core, call, args, limits=None):
++    """One allowlisted call -> result dict. The single point where a request becomes a
++    Core call: check the NAME against the allowlist, VALIDATE the args, then run it."""
 +    if call not in COMMANDS:
 +        raise KeyError(f"unknown command {call!r}")
-+    return COMMANDS[call](core, args or {})
++    args = args or {}
++    _validate(core, call, args, limits or {})
++    return COMMANDS[call](core, args)
 +
 +
-+def handle_message(core, payload):
++def handle_message(core, payload, limits=None):
 +    """A framed named call ``{"<method>": {args}}`` -> ``__ZMART_OK__<json>`` / error text.
 +    (The MCP/LLM lane is HTTP -- see :meth:`RemoteScriptingServer._http_handle`.)"""
 +    try:
 +        (call, args), = json.loads(payload).items()  # exactly one key: method -> args
-+        return OK_MARKER + json.dumps(_dispatch(core, call, args))
++        return OK_MARKER + json.dumps(_dispatch(core, call, args, limits))
 +    except Exception as exc:
 +        return f"error: {exc}"
 +
 +
-+def _mcp_reply(core, msg):
++def _mcp_reply(core, msg, limits=None):
 +    """MCP (LLM) path: a JSON-RPC request -> a response string (None for a notification)."""
 +    rid = msg.get("id")
 +    if rid is None:
@@ -532,7 +590,7 @@ index 0000000..40c2e6c
 +    elif method == "tools/call":
 +        p = msg.get("params") or {}
 +        try:
-+            text, err = json.dumps(_dispatch(core, p.get("name"), p.get("arguments") or {})), False
++            text, err = json.dumps(_dispatch(core, p.get("name"), p.get("arguments") or {}, limits)), False
 +        except Exception as exc:
 +            text, err = json.dumps({"error": str(exc)}), True
 +        result = {"content": [{"type": "text", "text": text}], "isError": err}
@@ -540,6 +598,24 @@ index 0000000..40c2e6c
 +        return json.dumps({"jsonrpc": "2.0", "id": rid,
 +                           "error": {"code": -32601, "message": f"method not found: {method}"}})
 +    return json.dumps({"jsonrpc": "2.0", "id": rid, "result": result})
++
++
++def _limits_from_env():
++    """Optional per-axis soft travel limits, so ``move_absolute`` refuses out-of-range
++    targets. Read from ``MESOSPIM_RS_LIMITS`` -- a JSON object ``{"x": [lo, hi], ...}``
++    or a path to a file containing one. Unset or invalid -> no soft limit (the Core's
++    own hardware limit is the backstop)."""
++    raw = os.environ.get("MESOSPIM_RS_LIMITS", "").strip()
++    if not raw:
++        return {}
++    try:
++        if os.path.isfile(raw):
++            with open(raw, encoding="utf-8") as f:
++                raw = f.read()
++        return {axis: (float(lo), float(hi)) for axis, (lo, hi) in json.loads(raw).items()}
++    except Exception:
++        logger.warning("MESOSPIM_RS_LIMITS ignored (want JSON of axis -> [lo, hi])")
++        return {}
 +
 +
 +class FrameDecoder:
@@ -617,11 +693,13 @@ index 0000000..40c2e6c
 +    the caller can report that instead of showing a false "running".
 +    """
 +
-+    def __init__(self, core, host="127.0.0.1", port=42000, token=None):
++    def __init__(self, core, host="127.0.0.1", port=42000, token=None, limits=None):
 +        from PyQt5 import QtNetwork  # imported here, not at module load, so this file stays Qt-free for tests
 +
 +        self.core = core  # the live mesoSPIM Core; each call runs a method on this
 +        self._token = token or None  # an empty string counts as "no token"
++        # per-axis {axis: (lo, hi)} soft travel limits; explicit arg, else the env, else none
++        self._limits = limits if limits is not None else _limits_from_env()
 +        self._server = QtNetwork.QTcpServer(core)  # parented to Core, so Qt destroys it when Core is destroyed
 +        if not self._server.listen(QtNetwork.QHostAddress(host), int(port)):
 +            raise RuntimeError(f"cannot listen on {host}:{port}: {self._server.errorString()}")
@@ -727,7 +805,7 @@ index 0000000..40c2e6c
 +                self._send("AUTH-FAILED")
 +                self._close()
 +            return
-+        self._send(handle_message(self.core, message))  # named call -> allowlist; no client code runs
++        self._send(handle_message(self.core, message, self._limits))  # allowlist + validate; no client code runs
 +
 +    # -- MCP over HTTP (off-the-shelf LLM clients) ---------------------------
 +    # The MCP Streamable-HTTP transport: the client POSTs a JSON-RPC message and
@@ -776,7 +854,7 @@ index 0000000..40c2e6c
 +            msg = json.loads(body.decode(ENCODING))
 +        except ValueError:
 +            return self._http_respond(400, b'{"error":"invalid JSON"}')
-+        reply = _mcp_reply(self.core, msg) if isinstance(msg, dict) else None
++        reply = _mcp_reply(self.core, msg, self._limits) if isinstance(msg, dict) else None
 +        if reply is None:  # a notification -> accepted, no body
 +            return self._http_respond(202, b"")
 +        self._http_respond(200, reply.encode(ENCODING))

@@ -19,6 +19,17 @@ git am /path/to/zmart_drivers/mesospim/pull_request/0001-Add-optional-remote-scr
 Launch mesoSPIM in demo mode, then **Tools → Remote Scripting… → Start**.
 Note the **token** it pre-fills (host `127.0.0.1`, port `42000` by default).
 
+**Optional — turn on soft travel limits.** Shape + option (enum) validation is
+always on. To also reject out-of-range moves, set per-axis limits before launching:
+
+```bash
+export MESOSPIM_RS_LIMITS='{"x":[-25000,25000],"y":[-25000,25000],"z":[-5000,5000]}'
+```
+
+(use your stage's real envelope). Unset → no soft limit; the Core's hardware bound
+is the backstop. Verify with an out-of-range `move_absolute` — it should return an
+"outside the allowed range" error and the stage should not move.
+
 ## 2. Run the gated integration suite (framed TCP lane)
 
 From the ZMART repo, pointed at the running server:
