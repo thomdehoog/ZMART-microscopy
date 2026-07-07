@@ -60,7 +60,9 @@ def _saved_plane(
     acq_dir.mkdir(parents=True, exist_ok=True)
     if system_type is not None:
         _write_vendor_system_type(acq_dir, system_type)
-    naming = Naming(acquisition_type=acquisition_type, hash6="abcdef", position_label=position_label)
+    naming = Naming(
+        acquisition_type=acquisition_type, hash6="abcdef", position_label=position_label
+    )
     path = acq_dir / build_image_name(naming)
     arr = np.full(shape, fill, dtype=np.uint16)
     tifffile.imwrite(path, arr, description=_OME_DESC, ome=False, photometric="minisblack")
