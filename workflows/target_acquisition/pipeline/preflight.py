@@ -24,6 +24,7 @@ from typing import Any
 import navigator_expert as drv
 from navigator_expert.calibration.core import model as calib
 from navigator_expert.commands.objectives import validate_slots
+
 from shared.output_layout import build_layout
 
 from ._job_state import _read_objective_slot, ensure_job_state
@@ -62,19 +63,11 @@ def _shutdown_prior_ctx_if_any() -> None:
             print(f"[preflight] prior ctx.shutdown() raised: {exc}")
 
 
-def _smart_base_for_exporter(cfg: Config) -> Path:
+def _smart_base(cfg: Config) -> Path:
     """Return the folder that receives ZMART run directories."""
     if cfg.smart_output_root is not None:
         return Path(cfg.smart_output_root)
-    exporter = cfg.save_exporter
-    if exporter == "navigator_expert":
-        return drv.save_source_root(exporter) / "smart"
-    if exporter == "lasx_native_autosave":
-        return drv.save_source_root(exporter).parent / "smart"
-    raise ValueError(
-        f"Unknown save_exporter {exporter!r}. Expected 'navigator_expert' "
-        "or 'lasx_native_autosave'."
-    )
+    return drv.save_source_root().parent / "smart"
 
 
 def preflight(cfg: Config, client: Any) -> Context:
@@ -184,7 +177,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
 
         # 0.7 -- run dir. The workflow owns the run layout; driver save()
         # receives this run directory as output_root.
-        layout = build_layout(_smart_base_for_exporter(cfg), cfg.experiment)
+        layout = build_layout(_smart_base(cfg), cfg.experiment)
         run = WorkflowRun(layout=layout)
         out_dir = layout.run_dir
         _cap.bind(run.layout.logs_dir("initialization") / "initialization.log")

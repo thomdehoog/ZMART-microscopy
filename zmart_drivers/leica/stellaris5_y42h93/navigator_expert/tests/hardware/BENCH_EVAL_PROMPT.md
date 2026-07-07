@@ -138,7 +138,7 @@ report rows/log lines):
    of the 7 live steps (limits self-check, passive readers, reader parity,
    zmart adapter, and the api/log/hybrid end-to-end validators) passed?
 2. **Backlash acquisition option, live:** run
-   `validate_zmart_adapter.py --yes --allow-move --allow-state --allow-acquire --allow-missing-lasx --exporter navigator_expert`
+   `validate_zmart_adapter.py --yes --allow-move --allow-state --allow-acquire --allow-missing-lasx`
    (real capture — do not interrupt it) and confirm `settle` reads
    `"backlash-corrected"` in the record, with the sequence select → backlash
    → capture visible in the driver log.

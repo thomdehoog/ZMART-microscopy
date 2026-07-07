@@ -134,7 +134,6 @@ def test_shutdown_prior_ctx_clears_slot_even_when_shutdown_raises(monkeypatch):
 def _cfg(
     tmp_path,
     *,
-    save_exporter=None,
     smart_output_root=None,
 ):
     from pipeline.context import Config
@@ -147,36 +146,7 @@ def _cfg(
         "experiment": "test",
         "smart_output_root": smart_output_root,
     }
-    if save_exporter is not None:
-        kwargs["save_exporter"] = save_exporter
     return Config(**kwargs)
-
-
-def test_smart_base_for_navigator_expert_uses_media_path(monkeypatch, tmp_path):
-    mod = _preflight_module()
-    media_path = tmp_path / "navigator-export"
-    monkeypatch.setattr(
-        mod.drv,
-        "save_source_root",
-        lambda exporter: media_path,
-    )
-
-    assert (
-        mod._smart_base_for_exporter(_cfg(tmp_path, save_exporter="navigator_expert"))
-        == media_path / "smart"
-    )
-
-
-def test_config_default_save_exporter_comes_from_profile(monkeypatch, tmp_path):
-    from navigator_expert.config import profiles
-
-    monkeypatch.setattr(
-        profiles,
-        "ACQUISITION",
-        profiles.AcquisitionProfile(save_exporter="navigator_expert"),
-    )
-
-    assert _cfg(tmp_path).save_exporter == "navigator_expert"
 
 
 def test_smart_base_for_native_autosave_is_next_to_autosave_root(
@@ -188,29 +158,22 @@ def test_smart_base_for_native_autosave_is_next_to_autosave_root(
     monkeypatch.setattr(
         mod.drv,
         "save_source_root",
-        lambda exporter: autosave_root,
+        lambda: autosave_root,
     )
 
-    assert mod._smart_base_for_exporter(_cfg(tmp_path)) == autosave_root.parent / "smart"
-
-
-def test_smart_base_rejects_unknown_save_exporter(tmp_path):
-    mod = _preflight_module()
-
-    with pytest.raises(ValueError, match="Unknown save_exporter"):
-        mod._smart_base_for_exporter(_cfg(tmp_path, save_exporter="unknown"))
+    assert mod._smart_base(_cfg(tmp_path)) == autosave_root.parent / "smart"
 
 
 def test_smart_base_native_autosave_requires_enabled(monkeypatch, tmp_path):
     mod = _preflight_module()
 
-    def fail(_exporter):
+    def fail():
         raise RuntimeError("native AutoSave is not enabled")
 
     monkeypatch.setattr(mod.drv, "save_source_root", fail)
 
     with pytest.raises(RuntimeError, match="native AutoSave is not enabled"):
-        mod._smart_base_for_exporter(_cfg(tmp_path))
+        mod._smart_base(_cfg(tmp_path))
 
 
 def test_smart_base_manual_override_wins(tmp_path):
@@ -218,10 +181,9 @@ def test_smart_base_manual_override_wins(tmp_path):
     manual = tmp_path / "manual-smart-root"
 
     assert (
-        mod._smart_base_for_exporter(
+        mod._smart_base(
             _cfg(
                 tmp_path,
-                save_exporter="lasx_native_autosave",
                 smart_output_root=manual,
             )
         )

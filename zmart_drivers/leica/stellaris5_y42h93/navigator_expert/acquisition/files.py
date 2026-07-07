@@ -1,7 +1,7 @@
 """LAS X source-side file primitives.
 
 This module stays deliberately small. Exporter-specific collection lives
-in ``navigator_expert_export``; persistence and OME checks live in
+in ``lasx_native_autosave``; persistence and OME checks live in
 ``save`` / ``ome``.
 
 Source naming (LAS X auto-export)::
@@ -25,6 +25,14 @@ if TYPE_CHECKING:
     from .capture import AcquisitionResult
 
 log = logging.getLogger(__name__)
+
+
+DEFAULT_FILE_STABILITY_TIMEOUT_S = 120
+# Completeness (all timepoints/planes present) gets a budget in the same
+# regime as file stability: a long time-series still flushing to disk
+# after the job finished is healthy, not a failure.
+DEFAULT_EXPORT_COMPLETION_TIMEOUT_S = 60.0
+DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S = 0.5
 
 
 _RE_LASX_IMAGE = re.compile(

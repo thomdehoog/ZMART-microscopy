@@ -477,7 +477,6 @@ def get_lasx_settings(settings_path=None):
         exporter = nav.find("SettingsDataExporter")
         if exporter is not None:
             result["export"] = {
-                "media_path": _xml_text(exporter, "MediaPath"),
                 "auto_export": _xml_bool(exporter, "ExportDataAutomatically"),
                 "delete_after_export": _xml_bool(exporter, "DeleteExportedExperiments"),
                 "auto_save": _xml_bool(exporter, "UseAutoSave"),

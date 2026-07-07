@@ -14,9 +14,7 @@ import pytest
 import tifffile
 from navigator_expert.acquisition import capture, materialize
 from navigator_expert.acquisition import lasx_native_autosave as native
-from navigator_expert.acquisition import navigator_expert_export as exporter
 from navigator_expert.acquisition import save as acquisition
-from navigator_expert.config import profiles
 
 from shared.output_layout import Naming
 
@@ -121,7 +119,7 @@ class TestCollectNativeAutoSave:
         assert [pos.t for pos in exported.positions] == [0, 1]
         wait_all_stable.assert_called_once_with(
             [tiff],
-            timeout=exporter.DEFAULT_FILE_STABILITY_TIMEOUT_S,
+            timeout=native.DEFAULT_FILE_STABILITY_TIMEOUT_S,
         )
 
         with tifffile.TiffFile(str(tiff)) as tif:
@@ -267,37 +265,8 @@ class TestNativeSave:
             "native_autosave_base_folder",
             lambda: root,
         )
-        monkeypatch.setattr(
-            profiles,
-            "ACQUISITION",
-            profiles.AcquisitionProfile(save_exporter="lasx_native_autosave"),
-        )
 
         assert drv.save_source_root() == root
-
-    def test_active_save_exporter_uses_profile(self, monkeypatch):
-        monkeypatch.setattr(
-            profiles,
-            "ACQUISITION",
-            profiles.AcquisitionProfile(save_exporter="navigator_expert"),
-        )
-
-        assert drv.active_save_exporter() == "navigator_expert"
-        assert drv.active_save_exporter("lasx_native_autosave") == ("lasx_native_autosave")
-
-    def test_save_source_root_uses_navigator_media_path(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        media_path = tmp_path / "navigator-export"
-        monkeypatch.setattr(
-            exporter._readers,
-            "get_lasx_settings",
-            lambda: {"export": {"media_path": str(media_path)}},
-        )
-
-        assert drv.save_source_root("navigator_expert") == media_path
 
     def test_save_source_root_requires_native_autosave_enabled(
         self,
@@ -306,20 +275,6 @@ class TestNativeSave:
         monkeypatch.setattr(acquisition, "native_autosave_enabled", lambda: False)
 
         with pytest.raises(RuntimeError, match="native AutoSave is not enabled"):
-            drv.save_source_root("lasx_native_autosave")
-
-    def test_save_source_root_rejects_unknown_exporter(self):
-        with pytest.raises(ValueError, match="Unknown LAS X save exporter"):
-            drv.save_source_root("unknown")
-
-    def test_save_source_root_rejects_unknown_profile_exporter(self, monkeypatch):
-        monkeypatch.setattr(
-            profiles,
-            "ACQUISITION",
-            profiles.AcquisitionProfile(save_exporter="unknown"),
-        )
-
-        with pytest.raises(ValueError, match="Unknown LAS X save exporter"):
             drv.save_source_root()
 
     def test_save_materializes_native_multipage_tiff_to_flat_output(
@@ -332,8 +287,8 @@ class TestNativeSave:
         root = tmp_path / "native-root"
         project = _native_project(root)
         tiff = _write_native_ome_tiff(project / "Overview001.ome.tif", _native_data())
-        exported = exporter.ExportedAcquisition(
-            media_path=root,
+        exported = native.ExportedAcquisition(
+            source_root=root,
             source_dir=project,
             positions=native._positions_from_native_tiff(tiff),
             metadata=native._metadata_from_native_tiff(
@@ -347,13 +302,12 @@ class TestNativeSave:
         )
 
         collect = Mock(return_value=exported)
-        monkeypatch.setitem(acquisition._EXPORTERS, "lasx_native_autosave", collect)
+        monkeypatch.setattr(acquisition, "collect_lasx_native_autosave", collect)
         saved = drv.save(
             None,
             successful_acq,
             tmp_path / "run_000001",
             naming,
-            exporter="lasx_native_autosave",
         )
 
         collect.assert_called_once()
@@ -386,8 +340,8 @@ class TestNativeSave:
         root = tmp_path / "native-root"
         project = _native_project(root)
         tiff = _write_native_ome_tiff(project / "Overview001.ome.tif", _native_data())
-        exported = exporter.ExportedAcquisition(
-            media_path=root,
+        exported = native.ExportedAcquisition(
+            source_root=root,
             source_dir=project,
             positions=native._positions_from_native_tiff(tiff),
             metadata=native._metadata_from_native_tiff(
@@ -400,9 +354,9 @@ class TestNativeSave:
             vendor_metadata_sources=native._vendor_metadata_sources(project, tiff),
         )
 
-        monkeypatch.setitem(
-            acquisition._EXPORTERS,
-            "lasx_native_autosave",
+        monkeypatch.setattr(
+            acquisition,
+            "collect_lasx_native_autosave",
             Mock(return_value=exported),
         )
         with pytest.raises(RuntimeError, match="cleanup_source"):
@@ -411,7 +365,6 @@ class TestNativeSave:
                 successful_acq,
                 tmp_path / "run_000001",
                 naming,
-                exporter="lasx_native_autosave",
                 cleanup_source=True,
             )
         assert tiff.is_file()

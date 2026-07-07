@@ -20,11 +20,11 @@ from typing import Any
 from . import files as _files
 from . import ome_canonical as _canonical
 from .capture import AcquisitionResult
-from .files import _is_from_acquisition
-from .navigator_expert_export import (
+from .files import (
     DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S,
     DEFAULT_EXPORT_COMPLETION_TIMEOUT_S,
     DEFAULT_FILE_STABILITY_TIMEOUT_S,
+    _is_from_acquisition,
 )
 from .product import (
     ExportedAcquisition,
@@ -94,7 +94,7 @@ def collect_lasx_native_autosave(
     )
 
     return ExportedAcquisition(
-        media_path=base,
+        source_root=base,
         source_dir=project_dir,
         positions=positions,
         metadata=metadata,

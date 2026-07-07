@@ -25,12 +25,6 @@ from typing import Any
 from shared.output_layout import LayoutPlan
 
 
-def _profile_save_exporter() -> str:
-    from navigator_expert.config import profiles
-
-    return profiles.ACQUISITION.save_exporter
-
-
 @dataclass(frozen=True)
 class Config:
     """Operator inputs -- constructed once in the notebook config cell.
@@ -53,7 +47,7 @@ class Config:
 
     # Paths + run identity
     analysis_repo: Path
-    experiment: str  # operator-typed; output_root is derived from the save exporter
+    experiment: str  # operator-typed; output_root is derived from the AutoSave base folder
 
     # Optional behaviour flags (defaults)
     settle_after_job_switch_s: float = 3.0
@@ -91,12 +85,10 @@ class Config:
     stage_y_min_um: float | None = None
     stage_y_max_um: float | None = None
 
-    # Save source. ``navigator_expert`` stores ZMART output under
-    # <Navigator MediaPath>/smart; ``lasx_native_autosave`` stores it beside
-    # the native AutoSave base folder. If set, ``smart_output_root`` is the
+    # Save source. LAS X native AutoSave stores ZMART output beside the
+    # native AutoSave base folder. If set, ``smart_output_root`` is the
     # exact folder that receives <experiment>_<hash6> run directories; no
     # extra "smart" suffix is added.
-    save_exporter: str = field(default_factory=_profile_save_exporter)
     smart_output_root: Path | None = None
 
 

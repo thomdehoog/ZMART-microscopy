@@ -568,7 +568,7 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
     """The acquisition + saving options this instrument offers (options + active).
 
     Discovered live on every call: ``job`` lists the LAS X jobs with the
-    selected one active; ``exporter`` and ``cleanup_source`` are forwarded
+    selected one active; ``cleanup_source`` is forwarded
     to the driver's ``save()``; ``backlash_correction`` runs an XY slack
     takeup before capture; ``strip_scan_fields`` (Leica-specific, default
     on) empties the scanning template before the capture so LAS X acquires
@@ -583,10 +583,6 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
         "backlash_correction": {"options": [True, False], "active": True},
         "strip_scan_fields": {"options": [True, False], "active": True},
         "format": {"options": ["ome-tiff"], "active": "ome-tiff"},
-        "exporter": {
-            "options": ["navigator_expert", "lasx_native_autosave"],
-            "active": _save.active_save_exporter(),
-        },
         "cleanup_source": {"options": [True, False], "active": False},
     }
 
@@ -710,7 +706,6 @@ def acquire(
             "job": job,
             "session_hash6": handle.hash6,
         },
-        exporter=resolved["exporter"],
         cleanup_source=resolved["cleanup_source"],
     )
 

@@ -15,6 +15,7 @@ from pathlib import Path
 
 import navigator_expert as drv
 from navigator_expert.calibration.core import model as calib
+
 from shared.output_layout import Naming
 
 from ._acquire import acquire
@@ -266,7 +267,6 @@ def acquire_targets(
                     ctx.run.layout.run_dir,
                     naming,
                     lineage=lineage,
-                    exporter=cfg.save_exporter,
                 )
                 plane = require_single_plane(result, context="target-acquisition")
                 tif_path = plane.image_path

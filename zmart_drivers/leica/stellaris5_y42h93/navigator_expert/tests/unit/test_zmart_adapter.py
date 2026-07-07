@@ -312,7 +312,6 @@ class TestAcquire(unittest.TestCase):
         h = _handle()
         with (
             patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
-            patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
         ):
             opts = adapter.get_acquisition_options(h)
         # autofocus jobs are a separate category, never acquisition options
@@ -320,14 +319,12 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(opts["job"]["active"], "Overview")
         self.assertEqual(opts["strip_scan_fields"]["active"], True)  # default on
         self.assertEqual(opts["format"]["active"], "ome-tiff")
-        self.assertEqual(opts["exporter"]["active"], "navigator_expert")
         self.assertEqual(opts["cleanup_source"]["active"], False)
 
     def test_unknown_or_invalid_option_rejected(self):
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
         with (
             patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
-            patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
         ):
             with self.assertRaisesRegex(ValueError, "unknown acquisition option"):
                 adapter.acquire(
@@ -358,7 +355,6 @@ class TestAcquire(unittest.TestCase):
         def fake_save(client, acq, output_root, naming, **kwargs):
             calls["saved"] = (str(output_root), naming)
             calls["lineage"] = kwargs.get("lineage")
-            calls["exporter"] = kwargs.get("exporter")
             return SimpleNamespace(
                 image_paths={0: Path("/tmp/out/img.ome.tif")},
                 xml_paths={0: Path("/tmp/out/img.xml")},
@@ -372,7 +368,6 @@ class TestAcquire(unittest.TestCase):
             patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
             patch.object(adapter._capture, "acquire", fake_capture),
             patch.object(adapter._save, "save", fake_save),
-            patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
             patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
             patches[2],
         ):
@@ -390,7 +385,6 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(naming.p, 7)  # numeric label maps onto the p slot
         self.assertEqual(calls["lineage"]["position_label"], "7")
         self.assertEqual(calls["lineage"]["acquisition_type"], "prescan")
-        self.assertEqual(calls["exporter"], "navigator_expert")
         self.assertEqual(record["settle"], "direct")
         self.assertEqual([Path(p) for p in record["images"]], [Path("/tmp/out/img.ome.tif")])
 
@@ -423,7 +417,6 @@ class TestAcquire(unittest.TestCase):
             patch.object(adapter._motion, "correct_backlash", fake_correct_backlash),
             patch.object(adapter._capture, "acquire", fake_capture),
             patch.object(adapter._save, "save", fake_save),
-            patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
             patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
             patches[2],
         ):
@@ -459,7 +452,6 @@ class TestAcquire(unittest.TestCase):
                 "save",
                 return_value=SimpleNamespace(image_paths={}, xml_paths={}, naming=None),
             ),
-            patch.object(adapter._save, "active_save_exporter", return_value="navigator_expert"),
             patch.object(adapter._scanfields, "get_template_state", return_value=state),
             patch.object(
                 adapter._scanfields,
