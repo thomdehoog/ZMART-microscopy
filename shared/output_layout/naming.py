@@ -161,12 +161,12 @@ def acquisition_metadata_dir(output_root: Path | str, kind: str) -> Path:
 
 
 def build_position_analysis_name(n: Naming) -> str:
-    """Per-position analysis artifact. Same slots as XML (k,m,g,p,t,v), .npz extension."""
-    return (
-        f"{n.acquisition_type}_{n.hash6}"
-        f"_k{n.k:05d}_m{n.m:05d}_g{n.g:05d}_p{n.p:05d}"
-        f"_t{n.t:05d}_v{n.v:02d}.npz"
-    )
+    """Per-position analysis artifact (.npz), keyed by ``position_label``.
+
+    Flat naming: ``{acquisition_type}_{hash6}_{position_label}.npz``. Omits
+    ``c``/``z`` — one analysis file per position, not per 2-D plane.
+    """
+    return f"{n.acquisition_type}_{n.hash6}_{n.position_label}.npz"
 
 
 _IMAGE_NAME_RE = re.compile(

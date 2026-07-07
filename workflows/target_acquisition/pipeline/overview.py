@@ -311,8 +311,7 @@ def run_overview(
                 naming = Naming(
                     acquisition_type="overview-scan",
                     hash6=ctx.run.layout.hash6,
-                    g=int(rid),
-                    p=i,
+                    position_label=f"g{int(rid):05d}-p{int(i):05d}",
                 )
                 acq = drv.acquire(ctx.client, cfg.acquisition_job)
                 result = drv.save(
@@ -764,8 +763,7 @@ def _save_single_tile_analysis(
         naming = Naming(
             acquisition_type=acquisition_type,
             hash6=hash6,
-            g=int(rid),
-            p=int(naming_p),
+            position_label=f"g{int(rid):05d}-p{int(naming_p):05d}",
         )
         dest = analysis_dir / build_position_analysis_name(naming)
 

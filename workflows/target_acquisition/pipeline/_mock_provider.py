@@ -4,8 +4,9 @@ Two flavours of provider, distinguished by what determines the mock
 content:
 
   Overview providers (``get_provider(name)``):
-    Invent content from scratch, deterministic from (Naming.g,
-    Naming.p). The returned array becomes the pixel content of the
+    Invent content from scratch, deterministic from the (region id,
+    position) recovered from ``Naming.position_label``. The returned
+    array becomes the pixel content of the
     canonical overview .ome.tiff in simulation mode -- see
     pipeline/_hijack.py for the OME-preserving overwrite. Each
     overview tile gets distinct content; that's what an overview
@@ -37,13 +38,31 @@ missing source overview file for the target provider) raise as
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
 import numpy as np
+
 from shared.output_layout import Naming, build_image_name
 
 from ._geom import crop_overview_at_target_fov
+
+# Canonical overview position_label shape: ``gNNNNN-pNNNNN`` (region id,
+# flat tile index). The overview content generators recover the (region,
+# position) ints from here now that Naming no longer carries g/p slots.
+_POSITION_LABEL_GP_RE = re.compile(r"g(\d+)-p(\d+)")
+
+
+def _region_position_from_naming(naming) -> tuple[int, int]:
+    """Recover (region_id, position) ints from a canonical
+    ``gNNNNN-pNNNNN`` position_label. Falls back to a deterministic
+    (0, hash-derived) pair for any non-matching label so the mock content
+    generator stays total (never raises on a well-formed Naming)."""
+    m = _POSITION_LABEL_GP_RE.fullmatch(naming.position_label)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return 0, abs(hash(naming.position_label)) % 10_000
 
 
 def get_provider(name: str) -> Callable:
@@ -61,8 +80,24 @@ def _skimage_human_mitosis(
     *,
     naming,
 ) -> np.ndarray:
-    """Tile skimage's human_mitosis() image by (g, p), cropped to
-    `shape` and cast to `dtype`. Deterministic from (naming.g, naming.p).
+    """Provider entry point matching the ``(shape, dtype, *, naming)``
+    contract. Recovers the (region id, position) ints from
+    ``naming.position_label`` and defers to the pure content generator.
+    """
+    region_id, position = _region_position_from_naming(naming)
+    return _human_mitosis_tile(shape, dtype, region_id=region_id, position=position)
+
+
+def _human_mitosis_tile(
+    shape: tuple,
+    dtype,
+    *,
+    region_id: int,
+    position: int,
+) -> np.ndarray:
+    """Tile skimage's human_mitosis() image by (region_id, position),
+    cropped to `shape` and cast to `dtype`. Deterministic from the two
+    ints passed in directly (no longer read off Naming slots).
     """
     # Lazy: skimage import is heavy and only needed when the provider
     # is actually selected.
@@ -71,7 +106,7 @@ def _skimage_human_mitosis(
     src = human_mitosis()  # uint8, typically 512x512
     sh, sw = src.shape
     th, tw = shape[:2]
-    g, p = int(naming.g), int(naming.p)
+    g, p = int(region_id), int(position)
 
     # Deterministic per-(g, p) origin within the source, modulo the
     # available slack. The exact stride does not matter -- the goal is
@@ -112,7 +147,7 @@ def build_target_provider(
     where the cell is in that file).
 
     Summary:
-      1. Read source overview tile (``layout.data_dir("overview-scan")
+      1. Read source overview tile (``layout.acquisition_dir("overview-scan")
          / build_image_name(overview_naming)``).
       2. Crop a window centred on ``pick.centroid_col_row_px``, sized
          in overview pixels to match the target job's physical FOV
@@ -161,10 +196,11 @@ def build_target_provider(
         overview_naming = Naming(
             acquisition_type="overview-scan",
             hash6=layout.hash6,
-            g=int(pick.pick_id[0]),
-            p=int(pick.position),
+            position_label=f"g{int(pick.pick_id[0]):05d}-p{int(pick.position):05d}",
+            c=0,
+            z=0,
         )
-        overview_path = layout.data_dir("overview-scan") / build_image_name(overview_naming)
+        overview_path = layout.acquisition_dir("overview-scan") / build_image_name(overview_naming)
 
         # Lazy: tifffile + skimage.transform are both lazy-imported so
         # the cost is paid only when simulation mode actually fires.

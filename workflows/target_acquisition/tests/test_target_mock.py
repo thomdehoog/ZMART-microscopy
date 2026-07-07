@@ -54,15 +54,15 @@ from shared.output_layout import Naming, build_image_name
 
 def _make_layout(tmp_dir: Path, *, hash6: str = "abcdef") -> SimpleNamespace:
     """Layout stub matching the LayoutPlan surface the provider needs:
-    ``hash6``, ``run_dir``, ``data_dir(kind)``, ``metadata_dir(kind)``.
-    The directory shape matches LayoutPlan: run/kind/data/metadata."""
+    ``hash6``, ``run_dir``, ``acquisition_dir(kind)``. FLAT layout: image
+    files land directly under ``acquisition_dir(kind)`` (no nested
+    ``data/``)."""
     run_dir = tmp_dir
-    (run_dir / "overview-scan" / "data").mkdir(parents=True, exist_ok=True)
+    (run_dir / "overview-scan").mkdir(parents=True, exist_ok=True)
     return SimpleNamespace(
         hash6=hash6,
         run_dir=run_dir,
-        data_dir=lambda kind: run_dir / kind / "data",
-        metadata_dir=lambda kind: run_dir / kind / "data" / "metadata",
+        acquisition_dir=lambda kind: run_dir / kind,
     )
 
 
@@ -73,15 +73,16 @@ def _write_overview_file(
     g: int = 0,
     p: int = 0,
 ) -> Path:
-    """Write a synthetic overview tile to disk at the canonical
+    """Write a synthetic overview tile to disk at the canonical (flat)
     pipeline path. The provider reads this with tifffile.imread."""
     naming = Naming(
         acquisition_type="overview-scan",
         hash6=layout.hash6,
-        g=g,
-        p=p,
+        position_label=f"g{int(g):05d}-p{int(p):05d}",
+        c=0,
+        z=0,
     )
-    path = layout.data_dir("overview-scan") / build_image_name(naming)
+    path = layout.acquisition_dir("overview-scan") / build_image_name(naming)
     tifffile.imwrite(path, image, photometric="minisblack")
     return path
 
@@ -124,8 +125,7 @@ def _dummy_naming() -> Naming:
     return Naming(
         acquisition_type="target-acquisition",
         hash6="abcdef",
-        g=0,
-        p=0,
+        position_label="g00000-p00000",
     )
 
 
@@ -531,21 +531,16 @@ class TestAcquireTargetsIntegration:
         # import in target.py.
         monkeypatch.setattr(target_mod, "acquire", lambda ctx, job, x, y, z: None)
 
-        # acquire/save: write a real fake target TIFF + companion XML
-        # that hijack_frame can read and the SystemTypeName guard will
-        # accept (SIMULATOR).
-        from shared.output_layout import build_xml_name
-
+        # acquire/save: write a real fake target TIFF (FLAT layout) plus
+        # the native AutoSave vendor XLIF that the hijack SystemTypeName
+        # guard now reads and will accept (SIMULATOR).
         def _fake_driver_acquire(client, job):
             return SimpleNamespace(job=job, command_result={"success": True})
 
         def _fake_save(client, acq, output_root, naming, lineage=None, **kw):
-            data_dir = Path(output_root) / "target-acquisition" / "data"
-            meta_dir = data_dir / "metadata"
-            data_dir.mkdir(parents=True, exist_ok=True)
-            meta_dir.mkdir(parents=True, exist_ok=True)
-            image_path = data_dir / build_image_name(naming)
-            xml_path = meta_dir / build_xml_name(naming)
+            acq_dir = Path(output_root) / naming.acquisition_type
+            acq_dir.mkdir(parents=True, exist_ok=True)
+            image_path = acq_dir / build_image_name(naming)
             # 64x64 placeholder target frame.
             tifffile.imwrite(
                 image_path,
@@ -561,17 +556,20 @@ class TestAcquireTargetsIntegration:
                 ome=False,
                 photometric="minisblack",
             )
-            xml_path.write_bytes(
-                b'<?xml version="1.0"?>'
-                b'<OME xmlns="http://example.org/o">'
-                b"<OriginalMetadata "
-                b'Name="Data - Image - Attachment - SystemTypeName" '
-                b'Value="SIMULATOR"/>'
-                b"</OME>"
+            # Copied native AutoSave vendor metadata carrying SystemTypeName.
+            vendor_dir = acq_dir / "vendor" / "lasx_native_autosave"
+            vendor_dir.mkdir(parents=True, exist_ok=True)
+            (vendor_dir / "metadata.xlif").write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                "<Metadata>"
+                '<Attachment Name="HardwareSetting" SystemTypeName="SIMULATOR">'
+                '<ATLConfocalSettingDefinition SystemSerialNumber="TEST" />'
+                "</Attachment>"
+                "</Metadata>",
+                encoding="utf-8",
             )
             return SimpleNamespace(
                 image_paths={drv.PlaneIndex(t=0, z=0, c=0): image_path},
-                xml_paths={drv.PositionIndex(t=0, v=0): xml_path},
                 naming=naming,
             )
 

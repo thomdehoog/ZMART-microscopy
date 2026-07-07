@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 import numpy as np
+
 from shared.output_layout import Naming, build_position_analysis_name
 
 from ._figsave import save_figure
@@ -1866,7 +1867,11 @@ def _overview_tile_png_name(rid, row, col, position, hash6) -> str:
     stem + `_live` when the run hash and position are known."""
     if position is not None and hash6 is not None:
         stem = _position_stem(
-            Naming(acquisition_type="overview-scan", hash6=hash6, g=int(rid), p=int(position))
+            Naming(
+                acquisition_type="overview-scan",
+                hash6=hash6,
+                position_label=f"g{int(rid):05d}-p{int(position):05d}",
+            )
         )
         return f"{stem}_live.png"
     return f"live_tile_R{rid}_r{row}c{col}.png"
