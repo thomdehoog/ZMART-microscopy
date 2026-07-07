@@ -13,7 +13,6 @@ Source naming (LAS X auto-export)::
 from __future__ import annotations
 
 import logging
-import re
 import time
 from typing import TYPE_CHECKING
 
@@ -33,50 +32,6 @@ DEFAULT_FILE_STABILITY_TIMEOUT_S = 120
 # after the job finished is healthy, not a failure.
 DEFAULT_EXPORT_COMPLETION_TIMEOUT_S = 60.0
 DEFAULT_EXPORT_COMPLETION_POLL_INTERVAL_S = 0.5
-
-
-_RE_LASX_IMAGE = re.compile(
-    r"^image"
-    r"--L(?P<L>\d+)"
-    r"--J(?P<J>\d+)"
-    r"--E(?P<E>\d+)"
-    r"--X(?P<X>\d+)"
-    r"--Y(?P<Y>\d+)"
-    r"--T(?P<T>\d+)"
-    r"--Z(?P<Z>\d+)"
-    r"--C(?P<C>\d+)"
-    r"(?:--(?P<repeat>\d{3}))?"
-    r"\.ome\.tif$"
-)
-
-_RE_LASX_XML = re.compile(
-    r"^image"
-    r"--L(?P<L>\d+)"
-    r"--J(?P<J>\d+)"
-    r"--E(?P<E>\d+)"
-    r"--T(?P<T>\d+)"
-    r"(?:--(?P<repeat>\d{3}))?"
-    r"\.ome\.xml$"
-)
-
-
-def parse_lasx_filename(name):
-    """Parse a LAS X export filename into integer segment values.
-
-    Handles both image files and companion XML. Returns ``None`` for
-    filenames outside the LAS X export convention. ``repeat`` is ``None``
-    for the first acquisition in a reused export folder.
-    """
-    m = _RE_LASX_IMAGE.match(name)
-    if m is None:
-        m = _RE_LASX_XML.match(name)
-    if m is None:
-        return None
-    d = m.groupdict()
-    for k, v in d.items():
-        if v is not None:
-            d[k] = int(v)
-    return d
 
 
 def read_relative_path(client):

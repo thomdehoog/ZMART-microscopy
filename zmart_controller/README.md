@@ -144,7 +144,7 @@ zmart_controller.acquire(acquisition_type="prescan", position_label="A1", option
 ```
 
 The option menu shown is the bundled mock's; each driver owns its own menu
-(the Leica driver's has `job`, `strip_scan_fields`, `exporter`, `cleanup_source`
+(the Leica driver's has `job`, `backlash_correction`, `strip_scan_fields`, `cleanup_source`
 and no `procedure`) and its own naming rules — see the driver README for
 constraints such as the Leica kebab-case `acquisition_type` rule and
 numeric-label overwrites.

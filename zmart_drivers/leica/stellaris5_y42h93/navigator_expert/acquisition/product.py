@@ -1,6 +1,6 @@
-"""Neutral acquisition product contracts shared by save exporters.
+"""Neutral acquisition product contracts produced by the acquisition source collector.
 
-``Exported*`` types are exporter -> save inputs and are writer-agnostic.
+``Exported*`` types are collector -> save inputs and are writer-agnostic.
 ``SavedAcquisition`` is the current flat OME-TIFF/XML save -> caller
 output manifest.
 """

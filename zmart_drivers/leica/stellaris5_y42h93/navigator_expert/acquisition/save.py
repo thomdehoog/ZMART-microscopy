@@ -5,8 +5,8 @@ Public workflow:
     acq = acquire(client, job)
     saved = save(client, acq, output_root, naming)
 
-``save`` owns persistence only. Exporter-specific source collection
-lives in dedicated collector modules; OME checks live in ``ome``.
+``save`` owns persistence only. Source collection lives in
+``lasx_native_autosave``; OME checks live in ``ome``.
 """
 
 from __future__ import annotations
@@ -265,13 +265,6 @@ def _upsert_summary_record(data: dict, record: dict) -> None:
             break
     else:
         acqs.append(record)
-
-
-def _append_summary_atomic(summary_path: Path, record: dict) -> None:
-    """Upsert *record* into ``summary.json`` atomically."""
-    data = _load_summary(summary_path)
-    _upsert_summary_record(data, record)
-    _write_summary_atomic(summary_path, data)
 
 
 def _rel_posix(p: Path, base: Path) -> str:

@@ -755,19 +755,6 @@ class TestHelpers:
         with pytest.raises(KeyError):
             materialize.ome_ok({"success": True})
 
-    def test_append_summary_creates_file_and_replaces_same_image_path(self, tmp_path):
-        summary = tmp_path / "summary.json"
-        acquisition._append_summary_atomic(
-            summary,
-            {"image_path": "a/b.tif", "v": 1},
-        )
-        acquisition._append_summary_atomic(
-            summary,
-            {"image_path": "a/b.tif", "v": 2},
-        )
-        data = json.loads(summary.read_text())
-        assert data["acquisitions"] == [{"image_path": "a/b.tif", "v": 2}]
-
     def test_image_source_materialization_cleans_tmp_on_copy_failure(
         self,
         tmp_path,

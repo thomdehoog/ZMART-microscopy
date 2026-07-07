@@ -153,18 +153,6 @@ LASX_API = LasxApiProfile()
 
 
 @dataclass(frozen=True)
-class AcquisitionProfile:
-    """Acquisition persistence defaults.
-
-    ``save()`` reads from LAS X native AutoSave, whose source root is the
-    active LAS X StartUp ``AutoSaveBaseFolder``.
-    """
-
-
-ACQUISITION = AcquisitionProfile()
-
-
-@dataclass(frozen=True)
 class CommandProfile:
     """Complete recipe for a single command's backbone behaviour.
 
