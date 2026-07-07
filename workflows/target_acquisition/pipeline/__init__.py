@@ -41,7 +41,7 @@ from ._focus_surface import FocusSurface, fit_focus_surface
 from ._geom import overview_pixel_to_frame
 from ._hijack import NonSimulatorFrameError, hijack_records
 from ._mock_provider import get_provider
-from .discovery import build_overview_inputs, discover_targets
+from .discovery import build_overview_inputs, discover_targets, read_overview_geometry
 from .steps import (
     acquire_targets,
     connect,
@@ -65,6 +65,7 @@ __all__ = [
     "FocusSurface",
     "run_overview",
     "build_overview_inputs",
+    "read_overview_geometry",
     "discover_targets",
     "acquire_targets",
     "capture_positions",
