@@ -11,6 +11,10 @@ extend-exclude = [
     # driver lint baseline.
     "zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/notebooks",
     "zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/sessions",
+    # Operator notebooks: a config cell legitimately sets sys.path before
+    # importing the pipeline, which the import-sorter can't express. Cell
+    # syntax + API drift are guarded by tests/test_v4_notebook.py instead.
+    "workflows/target_acquisition/*.ipynb",
 ]
 
 [tool.ruff.lint]
