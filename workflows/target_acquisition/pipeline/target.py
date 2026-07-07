@@ -249,8 +249,7 @@ def acquire_targets(
                 naming = Naming(
                     acquisition_type="target-acquisition",
                     hash6=ctx.run.layout.hash6,
-                    g=int(rid),
-                    p=i,
+                    position_label=f"g{int(rid):05d}-p{int(i):05d}",
                 )
                 lineage = {
                     "source_tile_rid": rid,

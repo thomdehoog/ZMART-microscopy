@@ -2,12 +2,15 @@
 
 Two surfaces under test:
 
-  Guard (per-frame allowlist on the companion XML's SystemTypeName):
+  Guard (per-frame allowlist on the native AutoSave vendor metadata's
+  SystemTypeName, copied under acquisition_dir(kind)/vendor/
+  lasx_native_autosave):
     - Refuses to overwrite when the value isn't exactly "SIMULATOR" --
-      including missing element, unreadable XML, and a real-instrument
-      identifier like "STELLARIS 8". This is the load-bearing safety
-      property; a regression here would let cfg.simulate=True silently
-      replace real-hardware pixels with mock content.
+      including missing element, missing/unreadable vendor metadata, and
+      a real-instrument identifier like "STELLARIS 8". This is the
+      load-bearing safety property; a regression here would let
+      cfg.simulate=True silently replace real-hardware pixels with mock
+      content.
 
   OME-rewrite (overwrite path):
     - Tag 270 (ImageDescription, the OME-XML) survives the rewrite
@@ -44,7 +47,7 @@ from pipeline._hijack import (
 )
 from pipeline._mock_provider import get_provider
 
-from shared.output_layout import Naming, build_xml_name
+from shared.output_layout import Naming
 
 # ─── Helpers ──────────────────────────────────────────────────────
 
@@ -86,19 +89,6 @@ def _make_companion_xml(system_type: str) -> bytes:
     return body.encode("utf-8")
 
 
-def _make_companion_xml_without_system_type() -> bytes:
-    """Build a valid minimal companion .ome.xml without SystemTypeName."""
-    body = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
-        '<Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYCZT" '
-        'Type="uint16" SizeX="16" SizeY="16" SizeC="1" SizeZ="1" '
-        'SizeT="1"/></Image>'
-        "</OME>"
-    )
-    return body.encode("utf-8")
-
-
 def _make_image_description(system_type: str) -> str:
     """tag-270 OME-XML that includes the inline OriginalMetadata line so
     the hijack's per-frame guard could (in principle) read either the
@@ -122,31 +112,44 @@ def _write_ome_tiff(path: Path, arr: np.ndarray, desc: str) -> None:
     tifffile.imwrite(path, arr, description=desc, ome=False, photometric="minisblack")
 
 
-def _build_result(tmp_dir: Path, system_type: str, *, shape=(16, 16), dtype=np.uint16):
+def _build_result(
+    tmp_dir: Path,
+    system_type: str | None = None,
+    *,
+    shape=(16, 16),
+    dtype=np.uint16,
+):
     """Build a (layout, result) pair for a fake one-tile acquisition.
 
     Returns a SimpleNamespace shaped like the workflow-selected
     single-plane result (image, image_path, naming) plus a layout stub
-    whose metadata_dir() points at tmp_dir/metadata so the companion XML
-    resolves there.
+    whose acquisition_dir() points at the flat kind directory so the
+    native AutoSave vendor metadata resolves under
+    ``acquisition_dir/vendor/lasx_native_autosave``.
+
+    When ``system_type`` is given, a vendor XLIF carrying that
+    SystemTypeName is written. Pass ``None`` to write no vendor metadata
+    (the test then controls the vendor folder explicitly).
     """
     naming = Naming(
         acquisition_type="overview-scan",
         hash6="abcdef",
-        g=0,
-        p=0,
+        position_label="g00000-p00000",
     )
-    metadata_dir = tmp_dir / "metadata"
-    metadata_dir.mkdir(parents=True, exist_ok=True)
-    xml_path = metadata_dir / build_xml_name(naming)
-    xml_path.write_bytes(_make_companion_xml(system_type))
+    acq_dir = tmp_dir / "overview-scan"
+    acq_dir.mkdir(parents=True, exist_ok=True)
+    if system_type is not None:
+        _write_native_autosave_vendor_system_type(acq_dir, system_type)
 
     image_path = tmp_dir / "frame.ome.tiff"
     arr = np.full(shape, 100, dtype=dtype)
-    _write_ome_tiff(image_path, arr, _make_image_description(system_type))
+    # The image's own tag-270 OME desc is independent of the vendor
+    # SystemTypeName (the guard reads only the vendor XLIF now); a valid
+    # SIMULATOR envelope keeps check_ome_tiff happy on the overwrite path.
+    _write_ome_tiff(image_path, arr, _make_image_description("SIMULATOR"))
 
     layout = SimpleNamespace(
-        metadata_dir=lambda kind: metadata_dir,
+        acquisition_dir=lambda kind: acq_dir,
     )
     result = SimpleNamespace(
         image=arr,
@@ -168,12 +171,12 @@ def _constant_provider(value: int):
 
 
 def _write_native_autosave_vendor_system_type(
-    metadata_dir: Path,
+    base_dir: Path,
     system_type: str,
     *,
     name: str = "metadata_Overview001.xlif",
 ) -> Path:
-    vendor_dir = metadata_dir / "vendor" / "lasx_native_autosave"
+    vendor_dir = base_dir / "vendor" / "lasx_native_autosave"
     vendor_dir.mkdir(parents=True, exist_ok=True)
     path = vendor_dir / name
     path.write_text(
@@ -202,26 +205,23 @@ class TestGuardRejectsNonSimulator:
             )
 
     def test_rejects_missing_systemtype_element(self, tmp_path):
-        """A companion XML without the SystemTypeName OriginalMetadata
-        element -- unknown system -- must abort."""
+        """Vendor metadata without any SystemTypeName attribute -- unknown
+        system -- must abort."""
         layout, result = _build_result(tmp_path, "SIMULATOR")
-        # Overwrite the companion XML with one that lacks the
-        # SystemTypeName element entirely.
-        metadata_dir = layout.metadata_dir("overview-scan")
-        xml_path = metadata_dir / build_xml_name(result.naming)
-        xml_path.write_bytes(b'<?xml version="1.0"?><OME></OME>')
+        # Overwrite the vendor XLIF with one that lacks the SystemTypeName
+        # attribute entirely.
+        vendor_dir = layout.acquisition_dir("overview-scan") / "vendor" / "lasx_native_autosave"
+        for p in vendor_dir.glob("*.xlif"):
+            p.write_text('<?xml version="1.0"?><Metadata></Metadata>', encoding="utf-8")
         with pytest.raises(NonSimulatorFrameError):
             hijack_frame(
                 result, kind="overview-scan", layout=layout, provider=_constant_provider(42)
             )
 
-    def test_rejects_missing_xml_file(self, tmp_path):
-        """An unreadable companion XML (file does not exist on disk)
-        must abort -- never silently overwrite."""
-        layout, result = _build_result(tmp_path, "SIMULATOR")
-        metadata_dir = layout.metadata_dir("overview-scan")
-        xml_path = metadata_dir / build_xml_name(result.naming)
-        xml_path.unlink()
+    def test_rejects_missing_vendor_metadata(self, tmp_path):
+        """Absent vendor metadata (no XLIF on disk) must abort -- never
+        silently overwrite."""
+        layout, result = _build_result(tmp_path, None)
         with pytest.raises(NonSimulatorFrameError):
             hijack_frame(
                 result, kind="overview-scan", layout=layout, provider=_constant_provider(42)
@@ -249,17 +249,12 @@ class TestGuardRejectsNonSimulator:
 
 
 class TestNativeAutoSaveVendorFallback:
-    def test_accepts_vendor_simulator_when_companion_lacks_systemtype(
-        self,
-        tmp_path,
-    ):
-        """Native AutoSave canonical XML lacks Leica OriginalMetadata, but
-        copied vendor XLIF can still prove the frame is from the simulator."""
-        layout, result = _build_result(tmp_path, "SIMULATOR")
-        metadata_dir = layout.metadata_dir("overview-scan")
-        xml_path = metadata_dir / build_xml_name(result.naming)
-        xml_path.write_bytes(_make_companion_xml_without_system_type())
-        _write_native_autosave_vendor_system_type(metadata_dir, "SIMULATOR")
+    def test_accepts_vendor_simulator(self, tmp_path):
+        """Copied native AutoSave vendor XLIF is the sole SystemTypeName
+        source; a SIMULATOR value proves the frame is from the simulator."""
+        layout, result = _build_result(tmp_path, None)
+        acq_dir = layout.acquisition_dir("overview-scan")
+        _write_native_autosave_vendor_system_type(acq_dir, "SIMULATOR")
 
         hijack_frame(
             result,
@@ -272,15 +267,10 @@ class TestNativeAutoSaveVendorFallback:
         assert new_arr.min() == 42
         assert new_arr.max() == 42
 
-    def test_rejects_vendor_real_instrument_when_companion_lacks_systemtype(
-        self,
-        tmp_path,
-    ):
-        layout, result = _build_result(tmp_path, "SIMULATOR")
-        metadata_dir = layout.metadata_dir("overview-scan")
-        xml_path = metadata_dir / build_xml_name(result.naming)
-        xml_path.write_bytes(_make_companion_xml_without_system_type())
-        _write_native_autosave_vendor_system_type(metadata_dir, "STELLARIS 8")
+    def test_rejects_vendor_real_instrument(self, tmp_path):
+        layout, result = _build_result(tmp_path, None)
+        acq_dir = layout.acquisition_dir("overview-scan")
+        _write_native_autosave_vendor_system_type(acq_dir, "STELLARIS 8")
         original_bytes = result.image_path.read_bytes()
 
         with pytest.raises(NonSimulatorFrameError):
@@ -293,17 +283,15 @@ class TestNativeAutoSaveVendorFallback:
         assert result.image_path.read_bytes() == original_bytes
 
     def test_rejects_conflicting_vendor_system_types(self, tmp_path):
-        layout, result = _build_result(tmp_path, "SIMULATOR")
-        metadata_dir = layout.metadata_dir("overview-scan")
-        xml_path = metadata_dir / build_xml_name(result.naming)
-        xml_path.write_bytes(_make_companion_xml_without_system_type())
+        layout, result = _build_result(tmp_path, None)
+        acq_dir = layout.acquisition_dir("overview-scan")
         _write_native_autosave_vendor_system_type(
-            metadata_dir,
+            acq_dir,
             "SIMULATOR",
             name="metadata_A.xlif",
         )
         _write_native_autosave_vendor_system_type(
-            metadata_dir,
+            acq_dir,
             "STELLARIS 8",
             name="metadata_B.xlif",
         )
@@ -532,8 +520,7 @@ class TestMockProvider:
         naming = Naming(
             acquisition_type="overview-scan",
             hash6="abcdef",
-            g=2,
-            p=5,
+            position_label="g00002-p00005",
         )
         out = provider((128, 96), np.uint16, naming=naming)
         assert out.shape == (128, 96)
@@ -545,8 +532,8 @@ class TestMockProvider:
         content. A deterministic mapping is what makes the mock
         tile-stitchable and reproducible across runs."""
         provider = get_provider("skimage_human_mitosis")
-        n_a = Naming(acquisition_type="overview-scan", hash6="abcdef", g=0, p=0)
-        n_b = Naming(acquisition_type="overview-scan", hash6="abcdef", g=0, p=1)
+        n_a = Naming(acquisition_type="overview-scan", hash6="abcdef", position_label="g00000-p00000")
+        n_b = Naming(acquisition_type="overview-scan", hash6="abcdef", position_label="g00000-p00001")
 
         a1 = provider((128, 128), np.uint16, naming=n_a)
         a2 = provider((128, 128), np.uint16, naming=n_a)

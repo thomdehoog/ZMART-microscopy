@@ -16,5 +16,5 @@ def require_single_plane(saved, *, context: str):
     idx, path = next(iter(saved.image_paths.items()))
     return SimpleNamespace(
         image_path=path,
-        naming=replace(saved.naming, t=idx.t, z=idx.z, c=idx.c),
+        naming=replace(saved.naming, z=idx.z, c=idx.c),
     )

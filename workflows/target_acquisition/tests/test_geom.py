@@ -296,16 +296,17 @@ class TestNoDriftAgainstCallers:
     """
 
     def _make_layout(self, tmp_dir: Path, hash6: str = "abcdef"):
-        data = tmp_dir / "data" / "overview-scan"
-        data.mkdir(parents=True, exist_ok=True)
+        # FLAT layout: image files land directly under
+        # ``acquisition_dir(kind)`` (no nested ``data/``).
+        acq = tmp_dir / "overview-scan"
+        acq.mkdir(parents=True, exist_ok=True)
 
-        def _data_dir(kind):
-            return tmp_dir / "data" / kind
+        def _acquisition_dir(kind):
+            return tmp_dir / kind
 
         return SimpleNamespace(
             hash6=hash6,
-            data_dir=_data_dir,
-            metadata_dir=lambda kind: tmp_dir / "metadata" / kind,
+            acquisition_dir=_acquisition_dir,
         )
 
     def _write_overview(self, layout, image, *, g=0, p=0):
@@ -316,10 +317,11 @@ class TestNoDriftAgainstCallers:
         naming = Naming(
             acquisition_type="overview-scan",
             hash6=layout.hash6,
-            g=g,
-            p=p,
+            position_label=f"g{int(g):05d}-p{int(p):05d}",
+            c=0,
+            z=0,
         )
-        path = layout.data_dir("overview-scan") / build_image_name(naming)
+        path = layout.acquisition_dir("overview-scan") / build_image_name(naming)
         tifffile.imwrite(path, image, photometric="minisblack")
         return path
 
@@ -364,8 +366,7 @@ class TestNoDriftAgainstCallers:
         return Naming(
             acquisition_type="target-acquisition",
             hash6="abcdef",
-            g=0,
-            p=0,
+            position_label="g00000-p00000",
         )
 
     # Output-equality pins.
