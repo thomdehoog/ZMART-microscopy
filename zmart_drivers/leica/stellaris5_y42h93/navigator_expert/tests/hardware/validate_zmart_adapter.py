@@ -442,9 +442,25 @@ def phase_acquire(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
         images = rec.get("images") or []
         xml = rec.get("xml") or []
         v.compare("acquire: at least one image", len(images) >= 1, True)
-        v.compare("acquire: at least one xml", len(xml) >= 1, True)
+        # Canonical SMART output is flat and no-sidecar: the OME-XML (incl. the
+        # embedded machine-state block) lives inside each plane's TIFF, so the
+        # manifest carries no companion XML. Contract: acquisition/product.py
+        # SavedAcquisition.xml_paths; offline tests assert xml_paths == {}.
+        v.compare("acquire: no sidecar xml (state embedded per-plane)", len(xml), 0)
         non_empty = all(Path(p).is_file() and Path(p).stat().st_size > 0 for p in images)
         v.compare("acquire: image files exist and are non-empty", non_empty, True)
+        if images:
+            from navigator_expert.acquisition import materialize  # noqa: PLC0415
+
+            # The no-sidecar contract means the metadata must be INSIDE the
+            # image; prove it on the real produced TIFF (offline tests only
+            # exercise the mock export).
+            embedded = v.callable(
+                "acquire: extract embedded OME-XML",
+                lambda: materialize.extract_embedded_ome_xml(Path(images[0])),
+            )
+            if embedded is not None:
+                v.compare("acquire: image carries embedded OME-XML", b"<OME" in embedded, True)
         v.compare("acquire: backlash_correction ran", rec.get("settle"), "backlash-corrected")
 
 
