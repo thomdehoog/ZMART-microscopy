@@ -5,8 +5,10 @@ from __future__ import annotations
 import os
 import shutil
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
+from ..orientation import Orientation, reorient_array
 from . import ome as _ome
 from . import ome_canonical as _canonical
 from .product import AcquisitionMetadata, PlaneIndex, PlaneSource, VendorMetadataSource
@@ -20,11 +22,16 @@ def save_image_source_atomic(
     index: PlaneIndex,
     fix_ome: bool = False,
     state: dict | None = None,
+    orientation: Orientation | None = None,
 ) -> None:
     """Read one source plane and write a canonical SMART OME-TIFF.
 
     When *state* is provided, the machine/software state at export time is
-    embedded in the plane's OME-XML (no sidecar).
+    embedded in the plane's OME-XML (no sidecar). When *orientation* is a
+    non-identity rig D4, the plane pixels are reoriented losslessly to
+    stage-aligned axes before the OME is generated, so the written file is
+    self-consistent (a 90/270 swaps SizeX/SizeY via the rotated shape and
+    swaps PhysicalSizeX/Y via the metadata below).
     """
     image_tmp = _with_tmp_suffix(image_dest)
     try:
@@ -35,6 +42,16 @@ def save_image_source_atomic(
             raise RuntimeError(
                 f"Expected a single 2-D image plane, got shape {arr.shape} from {image_src.path}"
             )
+        if orientation is not None and not orientation.is_identity:
+            arr = reorient_array(arr, orientation)
+            if orientation.swaps_axes:
+                # 90/270 transposes the grid: SizeX/SizeY follow the rotated
+                # shape_yx below; swap the physical pixel sizes to match.
+                metadata = replace(
+                    metadata,
+                    physical_size_x_um=metadata.physical_size_y_um,
+                    physical_size_y_um=metadata.physical_size_x_um,
+                )
         xml = _canonical.plane_xml(
             metadata,
             index=index,
