@@ -8,7 +8,8 @@
 > Kept as history — it is why the design moved on (the loader's `exec()`-scope `NameError` and the two
 > live-only bugs below are exactly the sharp edges avoided). The findings about the live Core API
 > (config/state/move/`start(row=…)`/image-writer path) still hold and now live in
-> `connection/command_api.py`; the live round-trip on the current transport is the open item in `TODO.md`.
+> `connection/command_api.py`; the current (Remote Control) transport was **validated against the live `-D`
+> demo Core on 2026-07-08, both TCP and MCP, as-is** (see `TODO.md` §1).
 
 **Date:** 2026-07-02
 **Tester:** Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch · thomdehoog@gmail.com
