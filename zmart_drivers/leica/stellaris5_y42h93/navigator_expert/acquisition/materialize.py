@@ -71,22 +71,6 @@ def save_image_source_atomic(
     os.replace(str(image_tmp), str(image_dest))
 
 
-def save_xml_bytes_atomic(xml_bytes: bytes, xml_dest: Path, *, fix_ome: bool = False) -> None:
-    """Write canonical companion OME-XML atomically."""
-    xml_tmp = _with_tmp_suffix(xml_dest)
-    try:
-        xml_tmp.write_bytes(xml_bytes)
-        _validate_xml(xml_tmp, fix_ome=fix_ome)
-    except BaseException:
-        try:
-            xml_tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
-
-    os.replace(str(xml_tmp), str(xml_dest))
-
-
 def save_vendor_metadata_atomic(source: VendorMetadataSource, dest: Path) -> None:
     """Persist raw vendor metadata as provenance, not output truth."""
     tmp = _with_tmp_suffix(dest)
@@ -121,17 +105,6 @@ def _validate_tiff(image_path: Path, *, fix_ome: bool) -> None:
             img_check = _ome.check_ome_tiff(image_path)
         if not ome_ok(img_check):
             raise RuntimeError(f"OME-TIFF validation failed: {image_path} :: {img_check}")
-
-
-def _validate_xml(xml_path: Path, *, fix_ome: bool) -> None:
-    """Check companion OME-XML; optionally repair in place."""
-    xml_check = _ome.check_ome_xml_file(xml_path)
-    if not ome_ok(xml_check):
-        if fix_ome:
-            _ome.fix_ome_xml_file(xml_path)
-            xml_check = _ome.check_ome_xml_file(xml_path)
-        if not ome_ok(xml_check):
-            raise RuntimeError(f"OME-XML validation failed: {xml_path} :: {xml_check}")
 
 
 def _read_source_plane(image_src: PlaneSource):

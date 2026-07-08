@@ -21,7 +21,6 @@ from typing import Any
 
 import navigator_expert as drv
 import numpy as np
-from navigator_expert.calibration.core import model as calib
 
 from shared.output_layout import Naming, build_position_analysis_name
 
@@ -359,7 +358,10 @@ def run_overview(
                         "tile_zwide_um": zwide_um,
                         "source_pixel_size_um": pixel_size_um,
                         "source_image_size_px": image_size_px,
-                        "image_to_stage": calib.get_image_to_stage(ctx.calibration),
+                        # (This is the retired, driver-coupled overview flow.)
+                        # The image-to-stage turn used to be passed here; it now
+                        # lives in the orientation module and is applied to the
+                        # saved image by the driver, so it is no longer needed.
                         "n_picks": None,
                         "feature": "area",
                         # Engine-ignored provenance keys -- they reach

@@ -1,17 +1,23 @@
-"""Measure the rig's image->stage orientation (the ``set_orientation`` step).
+"""Measure how the camera is turned relative to the stage (the ``set_orientation`` step).
 
-Acquire three **raw** frames under the reference objective (home, +X, +Y),
-register each pair, fit the 2x2 stage->image Jacobian, snap it to the nearest
-D4 element, reject reflections and high residuals, and convert the accepted D4
-rotation to an :class:`~navigator_expert.orientation.Orientation`. The value is
-written to a staging ``orientation.json`` that :func:`adopt_orientation` folds
-into ``orientation/current.json`` -- the value the driver reads at save time.
+The idea is simple: take three pictures -- one at the start, one after nudging
+the stage a little in X, and one after nudging it in Y -- and watch which way the
+picture shifts each time. If moving the stage right makes the picture shift down,
+the camera is turned a quarter-turn, and so on. From those two shifts we work out
+the turn and record it.
 
-Frames are acquired **raw** (``orientation=Orientation()``) so a re-measure
-always measures the physical rig, never a partially-reoriented image. The
-orientation is a pure D4 (rotation + optional mirror); a non-D4 skew or a
-reflection is a physical rig-alignment problem, surfaced here and never
-resampled away.
+Under the hood this registers each pair of pictures to get the shift, builds a
+small 2x2 matrix from the two shifts, and matches it to the nearest whole
+quarter-turn (0, 90, 180, or 270 degrees). The result is written to a staging
+``orientation.json`` that :func:`adopt_orientation` copies into
+``orientation/current.json``, which is the value the driver reads at save time.
+
+The three pictures are taken **without** applying any turn, so re-running the
+measurement always looks at the real microscope rather than an image that has
+already been straightened. If the shifts do not line up with a clean
+quarter-turn -- or come out mirrored -- that means the camera is physically
+misaligned. We report that and stop, rather than blur the picture by rotating it
+onto a fraction of a pixel.
 
 Author: Thom de Hoog (ZMB, University of Zurich).
 License: MIT
@@ -275,7 +281,6 @@ def measure(session: OrientationSession) -> OrientationSession:
         {
             "schema_version": STAGING_SCHEMA_VERSION,
             "rotate_deg": int(session.orientation.rotate_deg),
-            "mirror": bool(session.orientation.mirror),
         },
     )
     session.config_written = True
@@ -293,7 +298,6 @@ def measure(session: OrientationSession) -> OrientationSession:
             "d4_label": session.d4_label,
             "residual_from_d4": session.residual_from_d4,
             "rotate_deg": int(session.orientation.rotate_deg),
-            "mirror": bool(session.orientation.mirror),
         },
     )
     return session
@@ -318,7 +322,6 @@ def adopt_orientation(session: OrientationSession) -> dict:
         {
             "schema_version": STAGING_SCHEMA_VERSION,
             "rotate_deg": int(data["rotate_deg"]),
-            "mirror": bool(data["mirror"]),
         },
     )
     return {"source": str(source), "current": str(_CURRENT)}

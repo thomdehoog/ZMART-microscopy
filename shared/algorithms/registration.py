@@ -23,10 +23,10 @@ Sign convention (read this before changing anything)
     ``phase_cross_correlation`` output (which returns the shift you'd
     APPLY TO TGT to align it with REF).
 
-    Why this convention: ``classify_d4`` and the calibration
-    sign-convention phase fit ``image_to_stage_um`` against this
-    sign. Flipping the sign in any one method silently rotates that
-    matrix and the cookbook will land cells in the wrong place.
+    Why this convention: ``classify_d4`` and the orientation measurement
+    fit the image-to-stage matrix against this sign. Flipping the sign in
+    any one method silently rotates that matrix, and cells would then land
+    in the wrong place.
 
 Quality conventions per method
     - PCC / masked PCC: ``1 - error`` from skimage's residual; higher

@@ -30,21 +30,23 @@ scope should support.
 
 ## Snapshots
 
-Adopting a calibration publishes a dated, machine-local **snapshot** under
+When you adopt a calibration, the driver saves a dated **snapshot** folder on
+the machine, under
 `C:\ProgramData\zmart-microscopy\<vendor>\<microscope>\<api>\<datetime>\`. Each
-snapshot dir holds exactly three files: `calibration.json` (optical
-calibration), the physical `limits.json` (the single function-keyed limits
-file: `constraints` + `functions`; no `backlash` block — backlash is a motion
-utility with baked-in defaults, §2b), and the operator's `origin.json` (frame
-zero point, carried forward) — plus the executed notebook.
-The driver reads the newest snapshot (`config/machine.py`). `calibration.json`
-keeps a loud bundled **read** fallback (`calibration/defaults/`) when no
-snapshot exists; `limits.json` does **not** fall back for enforcement
-(`limits/defaults/limits.json` is a template, refused). Note the split of
-concerns: a **limits** adopt (the `set_stage_limits` notebook under
-`limits/notebooks/`) writes only `limits.json` and never mints a
-`calibration.json` from the template; a **calibration** adopt writes
-`calibration.json` and carries the prior `limits.json` forward.
+snapshot keeps everything the microscope needs together: `calibration.json`
+(the objective positions measured here), `limits.json` (how far the stage is
+allowed to move), and `origin.json` (the operator's zero point) — plus a copy of
+the notebook that produced it, so you can always see how the numbers were made.
+The driver simply reads the newest snapshot.
+
+The two configs behave differently on purpose. If no calibration snapshot exists
+yet, the driver falls back to the bundled example in `calibration/defaults/` and
+says so loudly. The stage limits never fall back like that: the bundled
+`limits/defaults/limits.json` is only a template and is refused, because running
+with a guessed physical envelope could drive the stage into the sample or the
+hardware. So each setup step stays in its own lane: running the stage-limits
+notebook writes only `limits.json`, and adopting a calibration writes only
+`calibration.json` and carries the existing `limits.json` forward untouched.
 
 The per-run *working* envelope (a boundary-marker sample area) is not machine
 state - it belongs to the acquisition workflow, not here.
