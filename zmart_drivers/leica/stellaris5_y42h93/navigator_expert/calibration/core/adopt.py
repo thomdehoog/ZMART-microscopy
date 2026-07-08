@@ -23,7 +23,7 @@ from typing import Any
 from . import model as calibration_model
 from .common import STAGING_SCHEMA_VERSION
 
-_VALID_KINDS = {"image_to_stage", "objective_translation"}
+_VALID_KINDS = {"objective_translation"}
 
 
 def _expected_kind_for(staging_name: str) -> str | None:
@@ -33,8 +33,6 @@ def _expected_kind_for(staging_name: str) -> str | None:
     caller still gets the regular ``_VALID_KINDS`` check.
     """
     stem = staging_name[:-5] if staging_name.endswith(".json") else staging_name
-    if stem == "image_to_stage":
-        return "image_to_stage"
     if stem.startswith("objective_") and "_to_" in stem:
         return "objective_translation"
     return None
@@ -86,34 +84,6 @@ def _objective_slot_for_label(config: dict[str, Any], label: str) -> int:
 def _apply_staging_payload(
     config: dict[str, Any], data: dict[str, Any], *, session_id: str
 ) -> None:
-    kind = data["kind"]
-    if kind == "image_to_stage":
-        calibration_model.set_image_to_stage(
-            config,
-            data["image_to_stage"],
-            session_id=session_id,
-        )
-        return
-
-    # Provenance gate: the staged correction_xy was computed as
-    # image_to_stage @ image_shift under the session's matrix. Pairing it
-    # with a different active matrix silently corrupts the translation.
-    staged_hash = data.get("image_to_stage_hash")
-    if staged_hash is None:
-        raise ValueError(
-            "staging config records no image_to_stage_hash, so the matrix its "
-            "correction was measured under cannot be verified; re-run the "
-            "objective-pair session against the current calibration"
-        )
-    current_hash = calibration_model.matrix_hash(calibration_model.get_image_to_stage(config))
-    if staged_hash != current_hash:
-        raise ValueError(
-            "staged translation was measured under a different image_to_stage "
-            f"matrix (measured {staged_hash[:12]}, active {current_hash[:12]}); "
-            "an intervening image_to_stage adoption invalidated the staged "
-            "correction_xy - re-run the objective-pair session"
-        )
-
     from_slot = _objective_slot_for_label(config, data["from_objective"])
     to_slot = _objective_slot_for_label(config, data["to_objective"])
     base = calibration_model.get_translation_um(config, from_slot)

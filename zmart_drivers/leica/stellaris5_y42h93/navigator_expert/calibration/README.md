@@ -1,12 +1,18 @@
 # Calibration
 
-Measure the optical state of the microscope: the image-to-stage rotation
-for the reference objective, then the translation between each objective
-pair the scope should support. Workflows consume only the adopted calibration
-in the newest machine snapshot. The notebooks and session artifacts in this
-folder are not runtime dependencies — but `core/model.py` and the bundled
-`defaults/` are: the driver imports the model and loads the calibration
+Measure the optical state of the microscope: the translation between each
+objective pair the scope should support. Workflows consume only the adopted
+calibration in the newest machine snapshot. The notebooks and session artifacts
+in this folder are not runtime dependencies — but `core/model.py` and the
+bundled `defaults/` are: the driver imports the model and loads the calibration
 (newest snapshot, falling back to `defaults/`) at every connect.
+
+The rig's **image→stage orientation** is a separate concern owned by
+`navigator_expert/orientation/` (measured by
+`orientation/notebooks/set_orientation.ipynb`, applied to exported planes at
+save time), not part of this calibration. Because calibration frames are
+already stage-aligned when saved, the objective-pair workflow registers image
+shifts directly in the stage frame — no image-to-stage matrix lives here.
 
 Operator-facing calibration is notebook driven. The notebooks stay thin:
 each cell calls one procedure function, while reusable code lives in
@@ -14,13 +20,13 @@ each cell calls one procedure function, while reusable code lives in
 
 ## Entry Points
 
-- `notebooks/calibrate_image_to_stage.ipynb` measures the image-to-stage
-  orientation matrix for the reference objective.
 - `notebooks/calibrate_objective_pair.ipynb` measures the translation
   between one objective pair.
 
-Run image-to-stage first, adopt the result, then run the objective-pair
-notebook for each objective pair that the scope should support.
+Set up a new rig in order: `limits/notebooks/set_stage_limits.ipynb` (physical
+envelope), then `orientation/notebooks/set_orientation.ipynb` (image→stage
+rotation), then run the objective-pair notebook for each objective pair the
+scope should support.
 
 ## Snapshots
 

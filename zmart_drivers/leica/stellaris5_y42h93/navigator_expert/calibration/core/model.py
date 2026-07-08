@@ -2,10 +2,13 @@
 
 The calibration is resolved through the machine profile - the newest snapshot
 under ``C:\\ProgramData\\zmart-microscopy\\...`` or the driver-bundled default
-(see :mod:`navigator_expert.config.machine`). Schema v11 keeps only
-consumer-facing state: the image-to-stage matrix and one objective translation
-triple per slot. Diagnostic sub-deltas from calibration sessions stay in the
-session reports instead of the canonical JSON.
+(see :mod:`navigator_expert.config.machine`). The schema keeps only
+consumer-facing state: one objective translation triple per slot. The rig's
+image->stage orientation is a separate concern owned by
+:mod:`navigator_expert.orientation` (measured by the ``set_orientation``
+notebook, applied at save time), not part of this calibration. Diagnostic
+sub-deltas from calibration sessions stay in the session reports instead of the
+canonical JSON.
 
 Backlash is a plain motion utility with baked-in default params (decision §2b,
 :mod:`navigator_expert.motion.movement`), not calibration state. It is no
@@ -16,7 +19,6 @@ existing file keeps loading without a re-adopt.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from copy import deepcopy
@@ -24,7 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 class OldSchemaError(ValueError):
@@ -88,8 +90,7 @@ def _validate_schema_version(cfg: dict[str, Any], path: Path) -> None:
 
 
 def validate_calibration(config: dict[str, Any]) -> None:
-    """Validate the v11 canonical calibration schema."""
-    get_image_to_stage(config)
+    """Validate the canonical calibration schema."""
     get_reference_slot(config)
 
     objectives = _require_block(config, "objectives")
@@ -153,22 +154,6 @@ def save_calibration(
     return current
 
 
-def set_image_to_stage(
-    config: dict[str, Any],
-    matrix: list[list[float]],
-    *,
-    session_id: str | None = None,
-) -> None:
-    """Set the 2x2 image-to-stage Jacobian."""
-    config["image_to_stage"] = {
-        "matrix": [
-            [float(matrix[0][0]), float(matrix[0][1])],
-            [float(matrix[1][0]), float(matrix[1][1])],
-        ],
-        "session_id": session_id,
-    }
-
-
 def update_objective(
     config: dict[str, Any],
     slot: int,
@@ -198,42 +183,6 @@ def update_objective(
         ]
     if session_id is not None:
         entry["session_id"] = session_id
-
-
-def get_image_to_stage(config: dict[str, Any]) -> list[list[float]]:
-    """Return the 2x2 image-to-stage matrix as floats."""
-    block = config.get("image_to_stage")
-    if not isinstance(block, dict):
-        raise ValueError(
-            "calibration config is missing v11 image_to_stage block with matrix/session_id"
-        )
-    matrix = block.get("matrix")
-    if matrix is None:
-        raise ValueError("calibration config is missing image_to_stage.matrix")
-    if len(matrix) != 2 or any(len(row) != 2 for row in matrix):
-        raise ValueError(f"image_to_stage.matrix must be 2x2, got {matrix!r}")
-    return [
-        [float(matrix[0][0]), float(matrix[0][1])],
-        [float(matrix[1][0]), float(matrix[1][1])],
-    ]
-
-
-def matrix_hash(matrix) -> str:
-    """Content fingerprint (sha256 hex) of a 2x2 image-to-stage matrix.
-
-    Measurement sessions record it next to their staged corrections and
-    adoption verifies it against the active matrix: a ``correction_xy`` is
-    ``image_to_stage @ image_shift``, so it is only valid under the matrix
-    it was measured with -- an intervening image-to-stage adoption must not
-    silently pair it with a different one.
-    """
-    canonical = json.dumps(
-        [
-            [float(matrix[0][0]), float(matrix[0][1])],
-            [float(matrix[1][0]), float(matrix[1][1])],
-        ]
-    )
-    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
 
 
 def _entry(config: dict[str, Any], slot: int) -> dict[str, Any]:
@@ -375,23 +324,3 @@ def reference_to_objective_command_xy(
         from_slot=get_reference_slot(config),
         to_slot=target_slot,
     )
-
-
-def pixel_to_stage_xy_um(
-    px: float,
-    py: float,
-    stage_xy_um: tuple[float, float],
-    pixel_size_um: float,
-    image_size: int,
-    config: dict[str, Any],
-) -> tuple[float, float]:
-    """Convert image pixel coordinates to absolute stage XY in micrometres."""
-    matrix = get_image_to_stage(config)
-    centre = image_size / 2.0
-    dx_image_um = (px - centre) * pixel_size_um
-    dy_image_um = (py - centre) * pixel_size_um
-
-    stage_dx = matrix[0][0] * dx_image_um + matrix[0][1] * dy_image_um
-    stage_dy = matrix[1][0] * dx_image_um + matrix[1][1] * dy_image_um
-
-    return float(stage_xy_um[0]) + stage_dx, float(stage_xy_um[1]) + stage_dy

@@ -7,8 +7,8 @@ analyzes what comes back. See CALIBRATION_REF_STACK_UPDATE_PLAN.md.
 
 Five operator steps, each one workflow call:
 
-1. ``start_session`` -- connect, load current ``calibration.json``,
-   prepare folders.
+1. ``start_session`` -- connect, record the source ``calibration.json``
+   path (for report provenance), prepare folders.
 2. ``measure_parfocality_reference`` -- under the reference objective,
    record home XY and home z-wide (diagnostic), trigger the configured
    reference z-stack, fit the Brenner peak ``focus_z_ref_um``. The
@@ -48,7 +48,6 @@ import numpy as np
 import navigator_expert as drv
 from shared.algorithms import VOTING_METHODS, brenner, register_voting
 
-from . import model as calib
 from .common import (
     STAGING_SCHEMA_VERSION,
     SessionPaths,
@@ -79,13 +78,10 @@ class ObjectivePairSession:
     to_objective: str
     objective_config_name: str
     calibration_path: Path
-    image_to_stage: np.ndarray
     kind: str
     # Recorded when the reference XY image is acquired (Step 4). The
     # target XY image (Step 5) must match this pixel size so voting
-    # registration sees the same scale on both sides. image_to_stage
-    # itself is dimensionless -- it carries only the X/Y sign, not the
-    # rig's pixel size or image format.
+    # registration sees the same scale on both sides.
     ref_xy_pixel_size_um: float | None = None
     home_xy: tuple[float, float] | None = None
     home_z: float | None = None
@@ -121,17 +117,6 @@ class ObjectivePairSession:
 # ---------------------------------------------------------------------
 
 
-def _load_image_to_stage(path: Path):
-    if not path.exists():
-        raise FileNotFoundError(
-            f"calibration not found at {path}. Run "
-            "calibrate_image_to_stage.ipynb first and adopt, or pass an "
-            "explicit calibration path."
-        )
-    config = calib.load_calibration(path)
-    return calib.get_image_to_stage(config)
-
-
 def start_session(
     *,
     session_id: str,
@@ -152,7 +137,6 @@ def start_session(
     # absolute(), not resolve(): keep the operator's drive letter intact
     # for the report's source_calibration_file field.
     resolved_path = Path(calibration_path).absolute()
-    image_to_stage = _load_image_to_stage(resolved_path)
 
     client = drv.connect_python_client()
     # Connect-time limits handshake: calibration moves the stage through the
@@ -176,7 +160,6 @@ def start_session(
         to_objective=to_objective,
         objective_config_name=objective_config_name,
         calibration_path=resolved_path,
-        image_to_stage=np.asarray(image_to_stage, dtype=float),
         kind=kind,
     )
 
@@ -688,9 +671,7 @@ def measure_parcentricity_target_and_save(
     session.target_image = target_image
 
     # Reference and target XY must be at the same scale so voting
-    # registration sees identical magnification on both sides. The
-    # workflow does NOT require either image to match image_to_stage's
-    # pixel size -- image_to_stage carries only the X/Y sign.
+    # registration sees identical magnification on both sides.
     if tuple(target_image.shape[-2:]) != tuple(session.ref_image.shape[-2:]):
         raise ValueError(
             f"target XY image shape {target_image.shape[-2:]} does not "
@@ -722,7 +703,10 @@ def measure_parcentricity_target_and_save(
             [float(vote["dx_um"]), float(vote["dy_um"])],
             dtype=float,
         )
-        correction_xy = session.image_to_stage @ image_shift
+        # Calibration frames are acquired stage-aligned (the driver reorients
+        # at save time per the rig's measured orientation), so the registered
+        # image shift is already in the stage frame -- no rotation needed.
+        correction_xy = image_shift
         translation_xy = np.asarray(session.motor_shift_xy_um, dtype=float) + correction_xy
         session.correction_xy_um = (
             float(correction_xy[0]),
@@ -765,11 +749,6 @@ def measure_parcentricity_target_and_save(
             "to_objective": session.to_objective,
             "translation_xy_um": list(session.translation_xy_um),
             "translation_z_um": float(session.translation_z_um),
-            # Provenance: the correction_xy baked into this translation is
-            # image_to_stage @ image_shift, valid only under the matrix it
-            # was measured with. Adoption verifies this fingerprint against
-            # the active matrix and refuses a mismatch.
-            "image_to_stage_hash": calib.matrix_hash(session.image_to_stage),
         }
         write_json_atomic(out, payload)
         # Absolute path: sessions_root is operator-supplied and may live
@@ -809,7 +788,6 @@ def measure_parcentricity_target_and_save(
         "calibration_file": session.objective_config_name,
         "config_written": config_written,
         "source_calibration_file": source_calibration_file,
-        "image_to_stage_hash": calib.matrix_hash(session.image_to_stage),
         "from_objective": session.from_objective,
         "to_objective": session.to_objective,
         "home_xy_um": [_f(session.home_xy[0]), _f(session.home_xy[1])],
