@@ -47,7 +47,5 @@ def test_jobs_api_and_hybrid_legs_are_not_skipped():
         # These would attempt a real read; assert the guard does NOT short it to
         # a skip by checking the capability table the guard consults.
         spec = capabilities.DATUMS["jobs"]
-        guarded = (mode == "log" and spec.log_fn is None) or (
-            mode == "api" and spec.api_fn is None
-        )
+        guarded = (mode == "log" and spec.log_fn is None) or (mode == "api" and spec.api_fn is None)
         assert not guarded
