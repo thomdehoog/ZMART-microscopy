@@ -1,0 +1,1520 @@
+From a8124d8cb9038237ce7937ad695a94c816046839 Mon Sep 17 00:00:00 2001
+From: Thom de Hoog <thom.dehoog@zmb.uzh.ch>
+Date: Wed, 8 Jul 2026 16:08:32 +0200
+Subject: [PATCH] Add optional Remote Control tab: TCP + MCP named-call server
+ (validated)
+
+mesoSPIM-control has no external control interface -- everything runs in-process
+inside the Qt event loop. This adds an optional Remote Control tab that lets
+another process drive the microscope over a socket by NAMED CALLS, not code: the
+client sends one single-key JSON object {"<method>": {args}}, the server
+validates it, looks the method up in a fixed allowlist, and runs the matching
+Core call (the same methods the GUI's own buttons call). No client Python is ever
+executed.
+
+- mesoSPIM_RemoteControl_ValidateAndRunCommands.py (new): the command vocabulary
+  (the COMMANDS allowlist) and _validate, which rejects a call whose args are the
+  wrong shape, name an option the live cfg does not allow (filter/zoom/laser/
+  shutterconfig), or move an axis outside the per-axis soft limits (from
+  MESOSPIM_RS_LIMITS) -- with a clear message, BEFORE the Core is touched. run()
+  is the single choke point both transports share.
+- mesoSPIM_RemoteControl_Servers.py (new): a framed-TCP server hosted by the Core
+  and a standalone MCP-over-HTTP server (a separate process) that forwards MCP
+  tool calls to the same TCP command path, so both protocols share one validated
+  dispatch. Length-framed UTF-8; constant-time token; MCP adds a Bearer token and
+  an Origin guard (rejects any non-localhost web origin).
+- mesoSPIM_Core: start_remote_control(host, port, token) / stop_remote_control()
+  slots (queued, so the server lives on the Core's own thread), plus a
+  sig_remote_control_started(ok, message) signal so a bind failure is reported
+  rather than shown as a false "running".
+- mesoSPIM_MainWindow: a Remote Control tab (TCP / MCP mode, host / port / token +
+  generator) that reflects the real start outcome and stops on app close.
+- test_remote_control_validation.py: Qt-free tests for the validation gate.
+
+OFF BY DEFAULT and secure-by-default: the server never runs until an operator
+starts it from the tab; it binds 127.0.0.1 and pre-fills a fresh token. A named
+call controls the instrument (moves the stage, runs acquisitions) but is not
+arbitrary code -- the server only ever does a dict lookup + a fixed call, so
+nothing outside the allowlist can run. Plain TCP: the token gates casual LAN
+access, it is not sniffer-proof (tunnel it for untrusted networks).
+---
+ mesoSPIM/src/mesoSPIM_Core.py                 |  34 +-
+ mesoSPIM/src/mesoSPIM_MainWindow.py           | 214 +++++-
+ .../src/mesoSPIM_RemoteControl_Servers.py     | 347 +++++++++
+ ...IM_RemoteControl_ValidateAndRunCommands.py | 673 ++++++++++++++++++
+ .../src/test_remote_control_validation.py     | 102 +++
+ pyproject.toml                                |   1 +
+ 6 files changed, 1369 insertions(+), 2 deletions(-)
+ create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
+ create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
+ create mode 100644 mesoSPIM/src/test_remote_control_validation.py
+
+diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
+index cb159e4..1ad5e45 100644
+--- a/mesoSPIM/src/mesoSPIM_Core.py
++++ b/mesoSPIM/src/mesoSPIM_Core.py
+@@ -1178,6 +1178,38 @@ class mesoSPIM_Core(QtCore.QObject):
+         self.state['state']='idle'
+         self.sig_update_gui_from_state.emit()
+ 
++    # Tells the GUI how a remote-control start attempt actually went, so the
++    # dialog never shows "running" after a failed bind (e.g. port already in use).
++    sig_remote_control_started = QtCore.pyqtSignal(bool, str)
++
++    @QtCore.pyqtSlot(str, int, str)
++    def start_remote_control(self, host, port, token):
++        '''Start the TCP remote-control server.
++
++        Called via a queued connection, so this runs on the Core's own thread --
++        the same thread execute_script runs on, which is where the server needs
++        to live.
++        '''
++        from .mesoSPIM_RemoteControl_Servers import RemoteControlTCPServer
++        self.stop_remote_control()  # restart-safe: never leave two servers running at once
++        try:
++            self._remote_control_server = RemoteControlTCPServer(self, host, int(port), token or None)
++        except Exception as exc:
++            logger.exception('Remote-control server failed to start')
++            self.sig_remote_control_started.emit(False, str(exc))  # False: let the dialog report the failure
++            return
++        actual_port = self._remote_control_server.port
++        logger.info(f'Remote-control TCP server on {host}:{actual_port} (token {"set" if token else "off"})')
++        self.sig_remote_control_started.emit(True, f'{host}:{actual_port}')
++
++    @QtCore.pyqtSlot()
++    def stop_remote_control(self):
++        '''Stop the remote-control server, if one is running (safe to call anytime).'''
++        srv = getattr(self, '_remote_control_server', None)
++        if srv is not None:
++            srv.stop()
++            self._remote_control_server = None
++
+     def lightsheet_alignment_mode(self):
+         """Continuous live mode that alternates left/right shutters for dual-lightsheet co-alignment.
+ 
+@@ -1340,4 +1372,4 @@ class mesoSPIM_Core(QtCore.QObject):
+         self.timelapse_waiting_for_finish = False
+         self.time_counter = 0
+         if was_active:
+-            self.sig_time_lapse_cancelled.emit()
+\ No newline at end of file
++            self.sig_time_lapse_cancelled.emit()
+diff --git a/mesoSPIM/src/mesoSPIM_MainWindow.py b/mesoSPIM/src/mesoSPIM_MainWindow.py
+index 75ff770..e6fc8c2 100644
+--- a/mesoSPIM/src/mesoSPIM_MainWindow.py
++++ b/mesoSPIM/src/mesoSPIM_MainWindow.py
+@@ -1,6 +1,8 @@
+ # mesoSPIM MainWindow
+ import os
+ import re
++import secrets
++import sys
+ import tifffile
+ import logging
+ import time
+@@ -77,6 +79,10 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+ 
+     sig_save_etl_config = QtCore.pyqtSignal()
+     sig_poke_demo_thread = QtCore.pyqtSignal()
++    # Remote-control server. Emitted to the Core
++    # (queued) so the server's socket lives on the Core's own thread.
++    sig_start_remote_control = QtCore.pyqtSignal(str, int, str)
++    sig_stop_remote_control = QtCore.pyqtSignal()
+     sig_launch_optimizer = QtCore.pyqtSignal(dict)
+     sig_launch_contrast_window = QtCore.pyqtSignal()
+     sig_launch_processor_chain_window = QtCore.pyqtSignal()
+@@ -196,6 +202,9 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+         self.sig_launch_optimizer.connect(self.launch_optimizer)
+         self.sig_launch_contrast_window.connect(self.launch_contrast_window)
+         self.sig_launch_processor_chain_window.connect(self.launch_processor_chain_window)
++        self.sig_start_remote_control.connect(self.core.start_remote_control, type=QtCore.Qt.QueuedConnection)
++        self.sig_stop_remote_control.connect(self.core.stop_remote_control, type=QtCore.Qt.QueuedConnection)
++        self.core.sig_remote_control_started.connect(self.on_remote_control_started)
+ 
+         ''' Start the thread '''
+         self.core_thread.start(QtCore.QThread.HighestPriority)
+@@ -273,6 +282,10 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+     def close_app(self):
+         #self.log_display_handler.flushOnClose = False #discontinued
+         logger.info('Closing the application')
++        if getattr(self, '_remote_control_running', False):
++            self._stop_mcp_server()
++            self.sig_stop_remote_control.emit()
++            self._remote_control_running = False
+         self.camera_window.close()
+         self.acquisition_manager_window.close()
+         if self.optimizer:
+@@ -419,7 +432,6 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+         self.actionOpen_Acquisition_Manager.triggered.connect(self.acquisition_manager_window.show)
+         self.actionOpen_Tile_Overview.triggered.connect(self.tile_view_window.show)
+         self.actionCascade_windows.triggered.connect(self.cascade_all_windows)
+-
+         # Add Processor Chain menu item to View menu
+         self.actionProcessor_Chain = QtWidgets.QAction("Processor Chain", self)
+         self.actionProcessor_Chain.setShortcut(QtGui.QKeySequence("Ctrl+Shift+P"))
+@@ -589,6 +601,8 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+ 
+         self.checkBoxScaleWZoom.stateChanged.connect(self.scale_galvo_amp_w_zoom)
+ 
++        self.setup_remote_control_tab()
++
+         ''' Timelapse tab '''
+         self.AsFastAsPossibleCheckBox.toggled.connect(self.toggle_timelapse_interval)
+         self.toggle_timelapse_interval(self.AsFastAsPossibleCheckBox.isChecked())  # sync initial state set in the .ui file
+@@ -1138,6 +1152,204 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+     def display_warning(self, string):
+         warning = QtWidgets.QMessageBox.warning(None,'mesoSPIM Warning', string, QtWidgets.QMessageBox.Ok)
+ 
++    def _start_mcp_server(self, host, port, token, tcp_token, tcp_port):
++        from .mesoSPIM_RemoteControl_Servers import start_mcp_server_process
++
++        ok, message, proc = start_mcp_server_process(
++            self, self.package_directory, host, port, token, tcp_token, tcp_port)
++        if not ok:
++            return False, message
++        self._mcp_server_process = proc
++        return True, message
++
++    def _stop_mcp_server(self):
++        from .mesoSPIM_RemoteControl_Servers import stop_mcp_server_process
++
++        proc = getattr(self, '_mcp_server_process', None)
++        if proc is not None:
++            stop_mcp_server_process(proc)
++            self._mcp_server_process = None
++
++    def on_remote_control_started(self, ok, message):
++        '''Result of a start attempt from the Core (queued): update state + dialog.
++
++        On failure (e.g. the port is in use) the server did NOT start, so the
++        dialog must not show "running". Warn the operator with the reason.
++        '''
++        pending_mcp = getattr(self, '_pending_mcp_server', None)
++        self._pending_mcp_server = None
++        if ok and pending_mcp is not None:
++            try:
++                tcp_port = int(str(message).rsplit(':', 1)[1])
++            except (IndexError, ValueError):
++                ok, message = False, f'Could not read internal TCP port from: {message}'
++            else:
++                ok, message = self._start_mcp_server(*pending_mcp, tcp_port)
++            if not ok:
++                self.sig_stop_remote_control.emit()
++                self._remote_mode = 'Off'
++        self._remote_control_running = ok
++        if not ok:
++            QtWidgets.QMessageBox.warning(
++                self, 'Remote Control', f'Could not start the server: {message}')
++        if self._remote_control_refresh is not None:
++            self._remote_control_refresh()
++
++    def setup_remote_control_tab(self):
++        '''Add TCP/MCP remote-control settings to the main right-side tab widget.'''
++        self._remote_control_running = False
++        self._remote_mode = getattr(self, '_remote_mode', 'TCP')
++        self._remote_control_host = getattr(self, '_remote_control_host', '127.0.0.1')
++        self._remote_control_port = getattr(self, '_remote_control_port', 42000)
++        self._remote_control_token = (
++            getattr(self, '_remote_control_token', '') or secrets.token_urlsafe(16))
++        self._remote_control_refresh = self.refresh_remote_control_tab
++
++        tab = QtWidgets.QWidget(self.TabWidget)
++        tab.setObjectName('RemoteControlTabWidget')
++        layout = QtWidgets.QVBoxLayout(tab)
++        layout.setContentsMargins(10, 10, 10, 10)
++        layout.setSpacing(10)
++
++        setup_group = QtWidgets.QGroupBox('Setup remote control', tab)
++        setup_group.setObjectName('RemoteControlSetupGroupBox')
++        group_font = setup_group.font()
++        group_font.setPointSize(12)
++        setup_group.setFont(group_font)
++        form = QtWidgets.QFormLayout(setup_group)
++        form.setContentsMargins(10, 30, 10, 10)
++        form.setSpacing(8)
++
++        self.RemoteControlModeComboBox = QtWidgets.QComboBox(setup_group)
++        self.RemoteControlModeComboBox.addItems(['TCP', 'MCP'])
++        self.RemoteControlModeComboBox.setCurrentText(
++            self._remote_mode if self._remote_mode in ('TCP', 'MCP') else 'TCP')
++        self.RemoteControlHostLineEdit = QtWidgets.QLineEdit(self._remote_control_host, setup_group)
++        default_port = 42000 if self.RemoteControlModeComboBox.currentText() == 'TCP' else 42100
++        self.RemoteControlPortLineEdit = QtWidgets.QLineEdit(
++            str(self._remote_control_port or default_port), setup_group)
++        self.RemoteControlTokenLineEdit = QtWidgets.QLineEdit(self._remote_control_token, setup_group)
++        self.RemoteControlGenerateButton = QtWidgets.QPushButton('Generate', setup_group)
++        for widget in (
++                self.RemoteControlModeComboBox,
++                self.RemoteControlHostLineEdit,
++                self.RemoteControlPortLineEdit,
++                self.RemoteControlTokenLineEdit,
++                self.RemoteControlGenerateButton,
++        ):
++            widget.setFont(group_font)
++
++        token_row = QtWidgets.QHBoxLayout()
++        token_row.addWidget(self.RemoteControlTokenLineEdit)
++        token_row.addWidget(self.RemoteControlGenerateButton)
++
++        self.RemoteControlStatusLabel = QtWidgets.QLabel(setup_group)
++        self.RemoteControlStatusLabel.setFont(group_font)
++
++        def form_label(text):
++            label = QtWidgets.QLabel(text, setup_group)
++            label.setFont(group_font)
++            return label
++
++        form.addRow(form_label('Protocol'), self.RemoteControlModeComboBox)
++        form.addRow(form_label('Host'), self.RemoteControlHostLineEdit)
++        form.addRow(form_label('Port'), self.RemoteControlPortLineEdit)
++        form.addRow(form_label('Token'), token_row)
++        form.addRow(form_label('Status'), self.RemoteControlStatusLabel)
++
++        self.RemoteControlStartButton = QtWidgets.QPushButton('Start', setup_group)
++        self.RemoteControlStopButton = QtWidgets.QPushButton('Stop', setup_group)
++        self.RemoteControlStartButton.setFont(group_font)
++        self.RemoteControlStopButton.setFont(group_font)
++        btns = QtWidgets.QHBoxLayout()
++        btns.addWidget(self.RemoteControlStartButton)
++        btns.addWidget(self.RemoteControlStopButton)
++        form.addRow(btns)
++        layout.addWidget(setup_group)
++        layout.addStretch(1)
++
++        self.RemoteControlGenerateButton.clicked.connect(self.generate_remote_control_token)
++        self.RemoteControlStartButton.clicked.connect(self.start_remote_control)
++        self.RemoteControlStopButton.clicked.connect(self.stop_remote_control)
++        self.RemoteControlModeComboBox.currentTextChanged.connect(self.on_remote_control_mode_changed)
++
++        index = self.TabWidget.indexOf(self.TimelapseTabWidget)
++        if index >= 0:
++            self.TabWidget.insertTab(index + 1, tab, 'Remote Control')
++        else:
++            self.TabWidget.addTab(tab, 'Remote Control')
++
++        self.update_remote_control_mode_note()
++        self.refresh_remote_control_tab()
++
++    def generate_remote_control_token(self):
++        self.RemoteControlTokenLineEdit.setText(secrets.token_urlsafe(16))
++
++    def on_remote_control_mode_changed(self, _mode):
++        self.update_remote_control_mode_note()
++        self.refresh_remote_control_tab()
++
++    def update_remote_control_mode_note(self):
++        mode = self.RemoteControlModeComboBox.currentText()
++        if mode == 'MCP':
++            if self.RemoteControlPortLineEdit.text() == '42000':
++                self.RemoteControlPortLineEdit.setText('42100')
++        else:
++            if self.RemoteControlPortLineEdit.text() == '42100':
++                self.RemoteControlPortLineEdit.setText('42000')
++
++    def refresh_remote_control_tab(self):
++        if not hasattr(self, 'RemoteControlStatusLabel'):
++            return
++        running = self._remote_control_running
++        mode = getattr(self, '_remote_mode', self.RemoteControlModeComboBox.currentText())
++        if running:
++            self.RemoteControlStatusLabel.setText(
++                f"{mode} running on {getattr(self, '_remote_control_host', '')}:"
++                f"{getattr(self, '_remote_control_port', '')}")
++        else:
++            self.RemoteControlStatusLabel.setText('stopped')
++        self.RemoteControlStartButton.setEnabled(not running)
++        self.RemoteControlStopButton.setEnabled(running)
++        for widget in (
++                self.RemoteControlModeComboBox,
++                self.RemoteControlHostLineEdit,
++                self.RemoteControlPortLineEdit,
++                self.RemoteControlTokenLineEdit,
++                self.RemoteControlGenerateButton,
++        ):
++            widget.setEnabled(not running)
++
++    def start_remote_control(self):
++        try:
++            port = int(self.RemoteControlPortLineEdit.text())
++        except ValueError:
++            QtWidgets.QMessageBox.warning(self, 'Remote Control', 'Port must be a number.')
++            return
++        host = self.RemoteControlHostLineEdit.text().strip() or '127.0.0.1'
++        token = self.RemoteControlTokenLineEdit.text().strip()
++        if not token:
++            QtWidgets.QMessageBox.warning(self, 'Remote Control', 'Token is required.')
++            return
++        mode = self.RemoteControlModeComboBox.currentText()
++        self._remote_control_host = host
++        self._remote_control_port = port
++        self._remote_control_token = token
++        self._remote_mode = mode
++        if mode == 'MCP':
++            internal_token = secrets.token_urlsafe(32)
++            self._pending_mcp_server = (host, port, token, internal_token)
++            self.sig_start_remote_control.emit('127.0.0.1', 0, internal_token)
++        else:
++            self._pending_mcp_server = None
++            self.sig_start_remote_control.emit(host, port, token)
++
++    def stop_remote_control(self):
++        self._stop_mcp_server()
++        self.sig_stop_remote_control.emit()
++        self._remote_control_running = False
++        self.refresh_remote_control_tab()
++
+     def choose_snap_folder(self):
+         path = QtWidgets.QFileDialog.getExistingDirectory(self, 'Open csv File', self.state['snap_folder'])
+         if path:
+diff --git a/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py b/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
+new file mode 100644
+index 0000000..b419669
+--- /dev/null
++++ b/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
+@@ -0,0 +1,347 @@
++"""Remote-control TCP and MCP servers for mesoSPIM.
++
++The TCP server runs inside mesoSPIM-control and executes validated JSON
++commands. The MCP server is a small standalone HTTP server that forwards MCP
++tool calls to that same TCP server, so both protocols share one command path.
++"""
++
++from __future__ import annotations
++
++import argparse
++import hmac
++import json
++import logging
++import socket
++import sys
++from functools import partial
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++from pathlib import Path
++
++if __package__ in (None, ""):
++    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
++    from mesoSPIM.src.mesoSPIM_RemoteControl_ValidateAndRunCommands import parse_call, run, tool_specs
++else:
++    from .mesoSPIM_RemoteControl_ValidateAndRunCommands import parse_call, run, tool_specs
++
++logger = logging.getLogger(__name__)
++
++ENCODING = "utf-8"
++OK_MARKER = "__ZMART_OK__"
++
++
++class FramingError(ValueError):
++    pass
++
++
++def frame(payload):
++    """Return the simple '<byte-count>\\n<payload>' frame used by TCP clients."""
++    if isinstance(payload, str):
++        payload = payload.encode(ENCODING)
++    return str(len(payload)).encode("ascii") + b"\n" + payload
++
++
++def read_frame(sock):
++    """Read one length-framed TCP reply from a socket."""
++    buf = b""
++    while b"\n" not in buf:
++        chunk = sock.recv(4096)
++        if not chunk:
++            raise ConnectionError("TCP server closed the connection")
++        buf += chunk
++    head, _, rest = buf.partition(b"\n")
++    length = int(head)
++    while len(rest) < length:
++        chunk = sock.recv(4096)
++        if not chunk:
++            raise ConnectionError("TCP server closed the connection")
++        rest += chunk
++    return rest[:length].decode(ENCODING, "replace")
++
++
++def handle_tcp_message(core, payload):
++    try:
++        call, args = parse_call(payload)
++        return OK_MARKER + json.dumps(run(core, call, args))
++    except Exception as exc:
++        return f"error: {exc}"
++
++
++class FrameDecoder:
++    """Incremental decoder for TCP frames arriving from Qt sockets."""
++
++    def __init__(self):
++        self._buf = b""
++
++    def feed(self, data):
++        self._buf += bytes(data)
++
++    def frames(self):
++        while b"\n" in self._buf:
++            head, _, rest = self._buf.partition(b"\n")
++            try:
++                length = int(head)
++            except ValueError as exc:
++                raise FramingError("expected '<byte-count>\\n<payload>'") from exc
++            if length < 0:
++                raise FramingError(f"byte-count can't be negative: {length}")
++            if len(rest) < length:
++                return
++            self._buf = rest[length:]
++            yield rest[:length]
++
++
++class AuthGate:
++    """One-token gate; after a correct token, later frames are commands."""
++
++    def __init__(self, token=None):
++        self._token = token or None
++        self.passed = self._token is None
++
++    def check(self, supplied):
++        if isinstance(supplied, str):
++            supplied = supplied.encode(ENCODING)
++        ok = hmac.compare_digest(supplied, str(self._token).encode(ENCODING))
++        if ok:
++            self.passed = True
++        return ok
++
++
++class RemoteControlTCPServer:
++    """Single-client framed JSON TCP server hosted by mesoSPIM Core."""
++
++    def __init__(self, core, host="127.0.0.1", port=42000, token=None):
++        from PyQt5 import QtNetwork
++
++        self.core = core
++        self._token = token or None
++        self._server = QtNetwork.QTcpServer(core)
++        if not self._server.listen(QtNetwork.QHostAddress(host), int(port)):
++            raise RuntimeError(f"cannot listen on {host}:{port}: {self._server.errorString()}")
++        self._host = host
++        self._port = int(self._server.serverPort())
++        self._server.newConnection.connect(self._on_new_connection)
++        self._conn = None
++        self._decoder = FrameDecoder()
++        self._auth = AuthGate(self._token)
++        logger.info("Remote control TCP listening on %s:%d", self._host, self._port)
++
++    @property
++    def port(self):
++        return self._port
++
++    def _on_new_connection(self):
++        conn = self._server.nextPendingConnection()
++        if self._conn is not None:
++            self._drop_client(self._conn)
++        self._conn = conn
++        self._decoder = FrameDecoder()
++        self._auth = AuthGate(self._token)
++        conn.readyRead.connect(self._on_ready_read)
++        conn.disconnected.connect(partial(self._on_disconnected, conn))
++
++    def _on_disconnected(self, conn):
++        if conn is self._conn:
++            self._conn = None
++        try:
++            conn.deleteLater()
++        except RuntimeError:
++            pass
++
++    def _drop_client(self, conn):
++        if conn is self._conn:
++            self._conn = None
++        try:
++            conn.disconnected.disconnect()
++        except (TypeError, RuntimeError):
++            pass
++        try:
++            conn.disconnectFromHost()
++            conn.deleteLater()
++        except RuntimeError:
++            pass
++
++    def _on_ready_read(self):
++        if self._conn is None:
++            return
++        self._decoder.feed(bytes(self._conn.readAll()))
++        try:
++            for payload in self._decoder.frames():
++                self._handle(payload.decode(ENCODING, "replace"))
++                if self._conn is None:
++                    return
++        except FramingError as exc:
++            self._send(f"framing error: {exc}")
++            self._close()
++
++    def _send(self, text):
++        if self._conn is not None:
++            self._conn.write(frame(text))
++            self._conn.flush()
++
++    def _close(self):
++        if self._conn is not None:
++            self._conn.disconnectFromHost()
++            self._conn = None
++
++    def _handle(self, message):
++        if not self._auth.passed:
++            if self._auth.check(message):
++                self._send("OK")
++            else:
++                self._send("AUTH-FAILED")
++                self._close()
++            return
++        self._send(handle_tcp_message(self.core, message))
++
++    def stop(self):
++        if self._conn is not None:
++            self._drop_client(self._conn)
++        self._server.close()
++        logger.info("Remote control TCP stopped")
++
++
++def tcp_call(host, port, token, name, arguments, timeout):
++    """Call the mesoSPIM TCP server from the MCP server."""
++    with socket.create_connection((host, port), timeout=timeout) as sock:
++        sock.settimeout(timeout)
++        if token:
++            sock.sendall(frame(token))
++            auth = read_frame(sock).strip()
++            if auth != "OK":
++                raise RuntimeError(f"TCP authentication failed: {auth}")
++        sock.sendall(frame(json.dumps({name: arguments or {}})))
++        reply = read_frame(sock)
++    if not reply.startswith(OK_MARKER):
++        raise RuntimeError(reply)
++    return json.loads(reply[len(OK_MARKER):])
++
++
++def json_response(handler, status, payload):
++    body = json.dumps(payload).encode(ENCODING)
++    handler.send_response(status)
++    handler.send_header("Content-Type", "application/json")
++    handler.send_header("Content-Length", str(len(body)))
++    handler.end_headers()
++    handler.wfile.write(body)
++
++
++def allowed_origin(origin):
++    return origin in {
++        "http://127.0.0.1", "http://localhost",
++        "https://127.0.0.1", "https://localhost",
++    }
++
++
++def make_mcp_handler(config):
++    class MCPHandler(BaseHTTPRequestHandler):
++        server_version = "mesoSPIM-MCP/1.0"
++
++        def log_message(self, fmt, *args):
++            if not config.quiet:
++                super().log_message(fmt, *args)
++
++        def do_POST(self):
++            if self.path != "/mcp":
++                return json_response(self, 404, {"error": "not found"})
++            origin = self.headers.get("Origin", "")
++            if origin and not allowed_origin(origin):
++                return json_response(self, 403, {"error": "origin not allowed"})
++            auth = self.headers.get("Authorization", "")
++            supplied = auth[7:] if auth.lower().startswith("bearer ") else ""
++            if not hmac.compare_digest(supplied, config.token):
++                return json_response(self, 401, {"error": "unauthorized"})
++            try:
++                length = int(self.headers.get("Content-Length", "0") or "0")
++                msg = json.loads(self.rfile.read(length).decode(ENCODING))
++            except ValueError:
++                return json_response(self, 400, {"error": "invalid JSON"})
++            reply = mcp_reply(config, msg) if isinstance(msg, dict) else None
++            if reply is None:
++                self.send_response(202)
++                self.send_header("Content-Length", "0")
++                self.end_headers()
++                return
++            json_response(self, 200, reply)
++
++    return MCPHandler
++
++
++def mcp_reply(config, msg):
++    rid = msg.get("id")
++    if rid is None:
++        return None
++    method = msg.get("method")
++    if method == "initialize":
++        result = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
++                  "serverInfo": {"name": "mesoSPIM MCP server", "version": "1.0"}}
++    elif method == "tools/list":
++        result = {"tools": tool_specs()}
++    elif method == "tools/call":
++        params = msg.get("params") or {}
++        try:
++            data = tcp_call(
++                config.mesospim_host, config.mesospim_port, config.mesospim_token,
++                params.get("name"), params.get("arguments") or {}, config.timeout,
++            )
++            text, is_error = json.dumps(data), False
++        except Exception as exc:
++            text, is_error = json.dumps({"error": str(exc)}), True
++        result = {"content": [{"type": "text", "text": text}], "isError": is_error}
++    else:
++        return {"jsonrpc": "2.0", "id": rid,
++                "error": {"code": -32601, "message": f"method not found: {method}"}}
++    return {"jsonrpc": "2.0", "id": rid, "result": result}
++
++
++def start_mcp_server_process(parent, package_directory, host, port, token, tcp_token, tcp_port):
++    """Start this file as the standalone MCP server used by the GUI."""
++    from PyQt5 import QtCore
++
++    script = str(Path(package_directory) / "src" / "mesoSPIM_RemoteControl_Servers.py")
++    proc = QtCore.QProcess(parent)
++    proc.start(sys.executable, [
++        script,
++        "--host", host,
++        "--port", str(port),
++        "--token", token,
++        "--mesospim-host", "127.0.0.1",
++        "--mesospim-port", str(tcp_port),
++        "--mesospim-token", tcp_token,
++    ])
++    if not proc.waitForStarted(3000):
++        return False, proc.errorString(), None
++    QtCore.QThread.msleep(300)
++    if proc.state() == QtCore.QProcess.NotRunning:
++        stderr = bytes(proc.readAllStandardError()).decode(ENCODING, "replace").strip()
++        return False, stderr or "MCP server exited during startup", None
++    return True, f"{host}:{port}", proc
++
++
++def stop_mcp_server_process(proc):
++    """Stop a QProcess returned by start_mcp_server_process."""
++    if proc is None:
++        return
++    proc.terminate()
++    if not proc.waitForFinished(2000):
++        proc.kill()
++
++
++def main(argv=None):
++    parser = argparse.ArgumentParser(description="Expose mesoSPIM Remote Control as MCP.")
++    parser.add_argument("--host", default="127.0.0.1")
++    parser.add_argument("--port", type=int, default=42100)
++    parser.add_argument("--token", required=True, help="Bearer token for MCP clients")
++    parser.add_argument("--mesospim-host", default="127.0.0.1")
++    parser.add_argument("--mesospim-port", type=int, default=42000)
++    parser.add_argument("--mesospim-token", help="mesoSPIM TCP token; defaults to --token")
++    parser.add_argument("--timeout", type=float, default=30.0)
++    parser.add_argument("--quiet", action="store_true")
++    args = parser.parse_args(argv)
++    args.mesospim_token = args.mesospim_token if args.mesospim_token is not None else args.token
++    server = ThreadingHTTPServer((args.host, args.port), make_mcp_handler(args))
++    print(f"mesoSPIM MCP server listening on http://{args.host}:{args.port}/mcp", flush=True)
++    server.serve_forever()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
+new file mode 100644
+index 0000000..093ba12
+--- /dev/null
++++ b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
+@@ -0,0 +1,673 @@
++"""Remote-control command vocabulary and execution.
++
++Network transports hand this module a decoded command name plus arguments. This
++module validates the name against a fixed allowlist and executes the matching
++mesoSPIM Core action.
++"""
++
++import json
++import logging
++import os
++
++logger = logging.getLogger(__name__)
++
++_AXES = ("x", "y", "z", "f", "theta")
++_POSITION_KEYS = {"x": "x_pos", "y": "y_pos", "z": "z_pos", "f": "f_pos", "theta": "theta_pos"}
++_STATE_REQUEST_KEYS = (
++    "filter", "zoom", "laser", "intensity", "shutterconfig", "state",
++    "camera_exposure_time", "camera_line_interval",
++    "samplerate", "sweeptime", "ETL_cfg_file",
++    "etl_l_delay_%", "etl_l_ramp_rising_%", "etl_l_ramp_falling_%",
++    "etl_l_amplitude", "etl_l_offset",
++    "etl_r_delay_%", "etl_r_ramp_rising_%", "etl_r_ramp_falling_%",
++    "etl_r_amplitude", "etl_r_offset",
++    "galvo_l_frequency", "galvo_l_amplitude", "galvo_l_offset",
++    "galvo_l_duty_cycle", "galvo_l_phase",
++    "galvo_r_frequency", "galvo_r_offset", "galvo_r_duty_cycle", "galvo_r_phase",
++    "laser_l_delay_%", "laser_l_pulse_%",
++    "laser_r_delay_%", "laser_r_pulse_%",
++    "camera_delay_%", "camera_pulse_%",
++    "camera_display_live_subsampling", "camera_display_acquisition_subsampling",
++    "camera_sensor_mode", "camera_binning", "galvo_amp_scale_w_zoom",
++)
++_MODES = (
++    "live", "snap", "run_selected_acquisition", "run_acquisition_list",
++    "preview_acquisition_with_z_update", "preview_acquisition_without_z_update",
++    "idle", "lightsheet_alignment_mode", "visual_mode",
++)
++_ACQUISITION_FIELDS = (
++    "x_pos", "y_pos", "z_start", "z_end", "z_step", "planes", "rot",
++    "f_start", "f_end", "laser", "intensity", "filter", "zoom",
++    "shutterconfig", "folder", "filename", "image_writer_plugin",
++    "etl_l_offset", "etl_l_amplitude", "etl_r_offset", "etl_r_amplitude",
++    "processing",
++)
++_ETL_READBACK_KEYS = (
++    "ETL_cfg_file", "laser", "zoom",
++    "etl_l_delay_%", "etl_l_ramp_rising_%", "etl_l_ramp_falling_%",
++    "etl_l_amplitude", "etl_l_offset",
++    "etl_r_delay_%", "etl_r_ramp_rising_%", "etl_r_ramp_falling_%",
++    "etl_r_amplitude", "etl_r_offset",
++)
++
++
++def parse_call(payload):
++    msg = json.loads(payload)
++    if not isinstance(msg, dict) or len(msg) != 1:
++        raise ValueError("expected one JSON object: {'command': {args}}")
++    (call, args), = msg.items()
++    if not isinstance(call, str):
++        raise ValueError("command name must be a string")
++    if args is None:
++        args = {}
++    if not isinstance(args, dict):
++        raise ValueError("command arguments must be an object")
++    return call, args
++
++
++def tool_specs():
++    return [{"name": n, "description": _HINTS.get(n, f"mesoSPIM {n}"),
++             "inputSchema": {"type": "object"}} for n in COMMANDS]
++
++
++def _item_get(obj, key, default=None):
++    if obj is None:
++        return default
++    get = getattr(obj, "get", None)
++    if callable(get):
++        return get(key, default)
++    try:
++        return obj[key]
++    except (KeyError, TypeError, AttributeError):
++        return default
++
++
++def _state_get(core, key, default=None):
++    return _item_get(getattr(core, "state", None), key, default)
++
++
++def _state_position(core):
++    pos = _state_get(core, "position", {}) or {}
++    return {ax: _item_get(pos, ax, _item_get(pos, ax + "_pos")) for ax in _AXES}
++
++
++def _jsonable(value):
++    if value is None or isinstance(value, (bool, int, float, str)):
++        return value
++    if isinstance(value, dict):
++        return {str(k): _jsonable(v) for k, v in value.items()}
++    if isinstance(value, (list, tuple)):
++        return [_jsonable(v) for v in value]
++    items = getattr(value, "items", None)
++    if callable(items):
++        return {str(k): _jsonable(v) for k, v in items()}
++    return str(value)
++
++
++def _defer(func, *args, **kwargs):
++    from PyQt5 import QtCore
++    QtCore.QTimer.singleShot(0, lambda: func(*args, **kwargs))
++
++
++def _state_snapshot(core, keys=None):
++    state = getattr(core, "state", None)
++    if keys is None:
++        raw = getattr(state, "_state_dict", None)
++        keys = list(raw.keys()) if isinstance(raw, dict) else ()
++    get_parameter_dict = getattr(state, "get_parameter_dict", None)
++    if callable(get_parameter_dict):
++        return _jsonable(get_parameter_dict(list(keys)))
++    return {k: _jsonable(_state_get(core, k)) for k in keys}
++
++
++def _cfg_dict(cfg, name):
++    value = getattr(cfg, name, None)
++    return value if isinstance(value, dict) else {}
++
++
++def _camera_pixels(cfg):
++    params = _cfg_dict(cfg, "camera_parameters")
++    x = params.get("x_pixels", getattr(cfg, "camera_x_pixels", 2048))
++    y = params.get("y_pixels", getattr(cfg, "camera_y_pixels", 2048))
++    return int(x or 2048), int(y or 2048)
++
++
++def _move_absolute(core, a):
++    core.move_absolute({k + "_abs": float(v) for k, v in a["targets"].items()}, wait_until_done=True)
++    return {}
++
++
++def _move_relative(core, a):
++    core.move_relative({k + "_rel": float(v) for k, v in a["deltas"].items()}, wait_until_done=True)
++    return {}
++
++
++def _zero(core, a):
++    core.zero_axes(list(a.get("axes") or _AXES))
++    return {}
++
++
++def _stop(core, a):
++    core.sig_stop_movement.emit()
++    return {}
++
++
++def _set_state(core, a):
++    settings = dict(a["settings"])
++    invalid = sorted(set(settings) - set(_STATE_REQUEST_KEYS))
++    if invalid:
++        raise ValueError(f"unknown state setting(s): {', '.join(invalid)}")
++    core.state_request_handler(settings)
++    return {}
++
++
++def _settings_from_args(a, keys):
++    settings = {key: a[key] for key in keys if key in a}
++    if not settings:
++        raise ValueError(f"expected one or more of: {', '.join(keys)}")
++    return settings
++
++
++def _set_filter(core, a):
++    core.set_filter(str(a["filter"]), wait_until_done=bool(a.get("wait", False)))
++    return {}
++
++
++def _set_zoom(core, a):
++    core.set_zoom(str(a["zoom"]), wait_until_done=bool(a.get("wait", True)),
++                  update_etl=bool(a.get("update_etl", True)))
++    return {}
++
++
++def _set_laser(core, a):
++    core.set_laser(str(a["laser"]), wait_until_done=bool(a.get("wait", False)),
++                   update_etl=bool(a.get("update_etl", True)))
++    return {}
++
++
++def _set_intensity(core, a):
++    core.set_intensity(a["intensity"], wait_until_done=bool(a.get("wait", False)))
++    return {}
++
++
++def _set_shutterconfig(core, a):
++    core.set_shutterconfig(str(a["shutterconfig"]))
++    return {}
++
++
++def _set_camera(core, a):
++    keys = ("camera_exposure_time", "camera_line_interval", "camera_delay_%",
++            "camera_pulse_%", "camera_display_live_subsampling",
++            "camera_display_acquisition_subsampling", "camera_sensor_mode", "camera_binning")
++    core.state_request_handler(_settings_from_args(a, keys))
++    return {}
++
++
++def _set_etl(core, a):
++    keys = ("etl_l_delay_%", "etl_l_ramp_rising_%", "etl_l_ramp_falling_%",
++            "etl_l_amplitude", "etl_l_offset", "etl_r_delay_%",
++            "etl_r_ramp_rising_%", "etl_r_ramp_falling_%",
++            "etl_r_amplitude", "etl_r_offset")
++    core.state_request_handler(_settings_from_args(a, keys))
++    return {}
++
++
++def _set_galvo(core, a):
++    keys = ("galvo_l_frequency", "galvo_l_amplitude", "galvo_l_offset",
++            "galvo_l_duty_cycle", "galvo_l_phase", "galvo_r_frequency",
++            "galvo_r_offset", "galvo_r_duty_cycle", "galvo_r_phase",
++            "galvo_amp_scale_w_zoom")
++    core.state_request_handler(_settings_from_args(a, keys))
++    return {}
++
++
++def _set_laser_timing(core, a):
++    keys = ("laser_l_delay_%", "laser_l_pulse_%",
++            "laser_r_delay_%", "laser_r_pulse_%")
++    core.state_request_handler(_settings_from_args(a, keys))
++    return {}
++
++
++def _etl_request(core, settings, wait=True):
++    if wait:
++        core.sig_state_request_and_wait_until_done.emit(settings)
++    else:
++        core.sig_state_request.emit(settings)
++    return _state_snapshot(core, _ETL_READBACK_KEYS)
++
++
++def _reload_etl_config(core, a):
++    cfg_file = a.get("path", _state_get(core, "ETL_cfg_file"))
++    if not cfg_file:
++        raise ValueError("path is required when ETL_cfg_file is not set")
++    return _etl_request(core, {"ETL_cfg_file": str(cfg_file)},
++                        wait=bool(a.get("wait", True)))
++
++
++def _update_etl_from_laser(core, a):
++    laser = a.get("laser", _state_get(core, "laser"))
++    if not laser:
++        raise ValueError("laser is required when state['laser'] is not set")
++    return _etl_request(core, {"set_etls_according_to_laser": str(laser)},
++                        wait=bool(a.get("wait", True)))
++
++
++def _update_etl_from_zoom(core, a):
++    zoom = a.get("zoom", _state_get(core, "zoom"))
++    if not zoom:
++        raise ValueError("zoom is required when state['zoom'] is not set")
++    return _etl_request(core, {"set_etls_according_to_zoom": str(zoom)},
++                        wait=bool(a.get("wait", True)))
++
++
++def _hello(core, a):
++    cfg = getattr(core, "cfg", None)
++    return {"app": "mesoSPIM-control", "version": getattr(cfg, "version", None),
++            "protocol": 1, "state": _state_get(core, "state")}
++
++
++def _ping(core, a):
++    return {"pong": True, "state": _state_get(core, "state")}
++
++
++def _get_position(core, a):
++    return _state_position(core)
++
++
++def _get_state(core, a):
++    keys = ("laser", "intensity", "filter", "zoom", "shutterconfig",
++            "etl_l_amplitude", "etl_l_offset", "etl_r_amplitude", "etl_r_offset")
++    out = {"state": _state_get(core, "state"), "position": _state_position(core)}
++    out.update({k: _state_get(core, k) for k in keys})
++    return out
++
++
++def _get_state_all(core, a):
++    keys = a.get("keys")
++    if keys is not None and not isinstance(keys, list):
++        raise ValueError("keys must be a list")
++    return _state_snapshot(core, keys)
++
++
++def _get_config(core, a):
++    cfg = getattr(core, "cfg", None)
++    lasers = [{"name": n, "wavelength_nm": int("".join(c for c in str(n) if c.isdigit()) or 0) or None}
++              for n in _cfg_dict(cfg, "laserdict")]
++    pixelsizes = _cfg_dict(cfg, "pixelsize")
++    zooms = []
++    for z, raw in _cfg_dict(cfg, "zoomdict").items():
++        zooms.append({"name": z, "pixel_size_um": pixelsizes.get(z, raw if isinstance(raw, (int, float)) else None)})
++    pixels_x, pixels_y = _camera_pixels(cfg)
++    return {"app": "mesoSPIM-control", "version": getattr(cfg, "version", None),
++            "lasers": lasers, "filters": list(_cfg_dict(cfg, "filterdict")), "zooms": zooms,
++            "shutter_configs": list(getattr(cfg, "shutteroptions", ["Left", "Right", "Both"])),
++            "axes": list(_AXES),
++            "camera": {"pixels_x": pixels_x, "pixels_y": pixels_y}}
++
++
++def _get_limits(core, a):
++    cfg = getattr(core, "cfg", None)
++    return {"stage": _jsonable(getattr(cfg, "stage_parameters", {})),
++            "camera": _jsonable(getattr(cfg, "camera_parameters", {})),
++            "startup": _jsonable(getattr(cfg, "startup", {}))}
++
++
++def _get_capabilities(core, a):
++    return {
++        "commands": list(COMMANDS),
++        "axes": list(_AXES),
++        "position_keys": dict(_POSITION_KEYS),
++        "settable_state_keys": list(_STATE_REQUEST_KEYS),
++        "modes": list(_MODES),
++        "acquisition_fields": list(_ACQUISITION_FIELDS),
++    }
++
++
++def _get_progress(core, a):
++    return {"state": _state_get(core, "state"),
++            "current_plane": _state_get(core, "current_framenumber"),
++            "total_planes": _state_get(core, "snap_count"),
++            "current_acquisition": _state_get(core, "current_acquisition"),
++            "total_acquisitions": _state_get(core, "total_acquisitions")}
++
++
++def _acquire_start(core, a):
++    try:
++        from .utils.acquisitions import Acquisition, AcquisitionList
++    except ImportError:
++        from utils.acquisitions import Acquisition, AcquisitionList
++    acq = dict(a["acquisition"])
++    obj = Acquisition()
++    obj.update({k: v for k, v in acq.items() if v is not None})
++    st = core.state
++    try:
++        core._zmart_prev_acq_list = (True, st["acq_list"])
++    except (KeyError, TypeError):
++        core._zmart_prev_acq_list = (False, None)
++    st["acq_list"] = AcquisitionList([obj])
++    core.start(row=0)
++    fname = acq.get("filename") or ""
++    return {"started": True,
++            "files": [os.path.join(acq.get("folder") or "", fname)] if fname else [],
++            "planes": int(acq.get("planes", 1) or 1),
++            "pixels": list(_camera_pixels(getattr(core, "cfg", None)))}
++
++
++def _make_acquisition_list(acquisitions):
++    try:
++        from .utils.acquisitions import Acquisition, AcquisitionList
++    except ImportError:
++        from utils.acquisitions import Acquisition, AcquisitionList
++    out = AcquisitionList([])
++    for raw in acquisitions:
++        obj = Acquisition()
++        obj.update({k: v for k, v in dict(raw).items() if v is not None})
++        out.append(obj)
++    return out
++
++
++def _get_acquisition_list(core, a):
++    return {"acquisitions": _jsonable(_state_get(core, "acq_list", []))}
++
++
++def _set_acquisition_list(core, a):
++    acquisitions = a.get("acquisitions")
++    if not isinstance(acquisitions, list):
++        raise ValueError("acquisitions must be a list")
++    core.state["acq_list"] = _make_acquisition_list(acquisitions)
++    row = a.get("selected_row")
++    if row is not None:
++        core.state["selected_row"] = int(row)
++    return {"count": len(core.state["acq_list"])}
++
++
++def _run_acquisition_list(core, a):
++    _defer(core.start, row=None)
++    return {"scheduled": True}
++
++
++def _run_selected_acquisition(core, a):
++    row = int(a.get("row", _state_get(core, "selected_row", 0)))
++    core.state["selected_row"] = row
++    _defer(core.start, row=row)
++    return {"scheduled": True, "row": row}
++
++
++def _preview_acquisition(core, a):
++    row = int(a.get("row", _state_get(core, "selected_row", 0)))
++    core.state["selected_row"] = row
++    _defer(core.preview_acquisition, z_update=bool(a.get("z_update", True)))
++    return {"scheduled": True, "row": row}
++
++
++def _stat_files(core, a):
++    files = [str(f) for f in (a.get("files") or [])]
++    return {"missing": [f for f in files if not os.path.isfile(f)],
++            "sizes": {f: os.path.getsize(f) for f in files if os.path.isfile(f)}}
++
++
++def _get_disk_space(core, a):
++    acq_list = _make_acquisition_list(a["acquisitions"]) if "acquisitions" in a else _state_get(core, "acq_list")
++    return {"free_bytes": int(core.get_free_disk_space(acq_list)),
++            "required_bytes": int(core.get_required_disk_space(acq_list))}
++
++
++def _check_motion_limits(core, a):
++    acq_list = _make_acquisition_list(a["acquisitions"]) if "acquisitions" in a else _state_get(core, "acq_list")
++    return {"outside_limits": list(core.check_motion_limits(acq_list))}
++
++
++def _acquire_finish(core, a):
++    st = core.state
++    had, prev = getattr(core, "_zmart_prev_acq_list", (False, None))
++    if had:
++        st["acq_list"] = prev
++    else:
++        try:
++            del st["acq_list"]
++        except Exception:
++            st["acq_list"] = prev
++    try:
++        del core._zmart_prev_acq_list
++    except AttributeError:
++        pass
++    return {"state": _state_get(core, "state")}
++
++
++def _procedure(core, a):
++    raise RuntimeError(f"procedure {a.get('name')!r} is not implemented server-side")
++
++
++def _unzero(core, a):
++    core.unzero_axes(list(a.get("axes") or _AXES))
++    return {}
++
++
++def _open_shutters(core, a):
++    core.open_shutters()
++    return {"shutterstate": _state_get(core, "shutterstate")}
++
++
++def _close_shutters(core, a):
++    core.close_shutters()
++    return {"shutterstate": _state_get(core, "shutterstate")}
++
++
++def _stop_activity(core, a):
++    core.stop()
++    return {"state": _state_get(core, "state")}
++
++
++def _snap(core, a):
++    _defer(core.snap, write_flag=bool(a.get("write", True)),
++           laser_blanking=bool(a.get("laser_blanking", True)))
++    return {"scheduled": True}
++
++
++def _set_mode(core, a):
++    mode = a["mode"]
++    if mode not in _MODES:
++        raise ValueError(f"unknown mode {mode!r}")
++    if mode == "idle":
++        core.stop()
++        return {"mode": mode}
++    _defer(core.set_state, mode)
++    return {"scheduled": True, "mode": mode}
++
++
++def _start_live(core, a):
++    return _set_mode(core, {"mode": "live"})
++
++
++def _start_visual_mode(core, a):
++    return _set_mode(core, {"mode": "visual_mode"})
++
++
++def _start_lightsheet_alignment_mode(core, a):
++    return _set_mode(core, {"mode": "lightsheet_alignment_mode"})
++
++
++def _load_sample(core, a):
++    core.sig_load_sample.emit()
++    return {}
++
++
++def _unload_sample(core, a):
++    core.sig_unload_sample.emit()
++    return {}
++
++
++def _center_sample(core, a):
++    core.sig_center_sample.emit()
++    return {}
++
++
++def _execute_stage_program(core, a):
++    core.execute_galil_program()
++    return {}
++
++
++def _save_etl_config(core, a):
++    core.sig_save_etl_config.emit()
++    return {}
++
++
++def _time_lapse_start(core, a):
++    core.run_time_lapse(tpoints=int(a.get("timepoints", 1)),
++                        time_interval_sec=int(a.get("interval_sec", 0)))
++    return {"started": True}
++
++
++def _time_lapse_stop(core, a):
++    core.stop_time_lapse()
++    return {"stopped": True}
++
++
++COMMANDS = {
++    "hello": _hello, "ping": _ping,
++    "get_state": _get_state, "get_position": _get_position,
++    "get_state_all": _get_state_all, "get_config": _get_config, "get_limits": _get_limits,
++    "get_capabilities": _get_capabilities, "get_progress": _get_progress,
++    "move_absolute": _move_absolute, "move_relative": _move_relative,
++    "zero": _zero, "unzero": _unzero,
++    "stop": _stop, "stop_activity": _stop_activity, "set_state": _set_state,
++    "set_filter": _set_filter, "set_zoom": _set_zoom, "set_laser": _set_laser,
++    "set_intensity": _set_intensity, "set_shutterconfig": _set_shutterconfig,
++    "set_camera": _set_camera, "set_etl": _set_etl, "set_galvo": _set_galvo,
++    "set_laser_timing": _set_laser_timing,
++    "reload_etl_config": _reload_etl_config,
++    "update_etl_from_laser": _update_etl_from_laser,
++    "update_etl_from_zoom": _update_etl_from_zoom,
++    "open_shutters": _open_shutters, "close_shutters": _close_shutters,
++    "snap": _snap, "set_mode": _set_mode, "start_live": _start_live,
++    "start_visual_mode": _start_visual_mode,
++    "start_lightsheet_alignment_mode": _start_lightsheet_alignment_mode,
++    "load_sample": _load_sample, "unload_sample": _unload_sample,
++    "center_sample": _center_sample, "execute_stage_program": _execute_stage_program,
++    "save_etl_config": _save_etl_config,
++    "get_acquisition_list": _get_acquisition_list, "set_acquisition_list": _set_acquisition_list,
++    "run_acquisition_list": _run_acquisition_list, "run_selected_acquisition": _run_selected_acquisition,
++    "preview_acquisition": _preview_acquisition,
++    "acquire_start": _acquire_start, "stat_files": _stat_files, "acquire_finish": _acquire_finish,
++    "get_disk_space": _get_disk_space, "check_motion_limits": _check_motion_limits,
++    "time_lapse_start": _time_lapse_start, "time_lapse_stop": _time_lapse_stop,
++    "procedure": _procedure,
++}
++
++_HINTS = {
++    "move_absolute": "move axes to absolute targets. args: {targets: {x,y,z,f,theta: um/deg}}",
++    "move_relative": "move axes by relative offsets. args: {deltas: {axis: um/deg}}",
++    "zero": "define the current position as zero. args: {axes: [..]} (omit = all)",
++    "unzero": "restore physical coordinates for axes. args: {axes: [..]} (omit = all)",
++    "set_state": "change settings. args: {settings: {one or more settable_state_keys}}",
++    "set_camera": "change camera timing/display settings. args: one or more camera_* keys",
++    "set_etl": "change ETL timing/amplitude/offset settings. args: one or more etl_* keys",
++    "set_galvo": "change galvo waveform settings. args: one or more galvo_* keys",
++    "set_laser_timing": "change laser waveform timing/amplitude settings.",
++    "reload_etl_config": "reload ETL values from a CSV. args: {path?: str, wait?: bool}",
++    "update_etl_from_laser": "load ETL values for a laser. args: {laser?: str, wait?: bool}",
++    "update_etl_from_zoom": "load ETL values for a zoom. args: {zoom?: str, wait?: bool}",
++    "set_mode": "run a named mesoSPIM mode. args: {mode: live|snap|run_acquisition_list|...}",
++    "acquire_start": "start one acquisition. args: {acquisition: {...}}",
++    "set_acquisition_list": "replace the acquisition list. args: {acquisitions: [{...}], selected_row?: int}",
++    "stat_files": "report which output files exist and their sizes. args: {files: [path,..]}",
++    "procedure": "run a named site procedure. args: {name: <procedure>}",
++}
++
++
++def _num(v):
++    """True if v is a real number (JSON booleans are ints in Python -- exclude them)."""
++    return isinstance(v, (int, float)) and not isinstance(v, bool)
++
++
++def _cfg_options(core):
++    """The options the live cfg allows, so we accept exactly what this scope has."""
++    cfg = getattr(core, "cfg", None)
++    return {"filter": list(_cfg_dict(cfg, "filterdict")),
++            "zoom": list(_cfg_dict(cfg, "zoomdict")),
++            "laser": list(_cfg_dict(cfg, "laserdict")),
++            "shutterconfig": list(getattr(cfg, "shutteroptions", []) or [])}
++
++
++def _validate(core, call, args, limits):
++    """Reject a call whose ARGS are the wrong shape, not an allowed option, or out of
++    range -- with a clear message -- BEFORE the handler runs, so a bad value never
++    reaches the instrument. Allowed options come from the live ``cfg``; axis ranges
++    come from ``limits`` (per-axis ``{axis: (lo, hi)}``, empty = no soft limit -- the
++    Core is the hardware backstop).
++    """
++    def bad(msg):
++        raise ValueError(f"{call}: {msg}")
++
++    if call in ("move_absolute", "move_relative"):
++        key = "targets" if call == "move_absolute" else "deltas"
++        moves = args.get(key)
++        if not isinstance(moves, dict) or not moves:
++            bad(f"'{key}' must be a non-empty object of axis -> number")
++        for axis, value in moves.items():
++            if axis not in _AXES:
++                bad(f"unknown axis {axis!r}; allowed: {list(_AXES)}")
++            if not _num(value):
++                bad(f"axis {axis!r} value must be a number, got {value!r}")
++            lo_hi = limits.get(axis)
++            if call == "move_absolute" and lo_hi and not (lo_hi[0] <= value <= lo_hi[1]):
++                bad(f"{axis}={value} is outside the allowed range {tuple(lo_hi)}")
++    elif call in ("zero", "unzero"):
++        axes = args.get("axes")
++        if axes is not None and (not isinstance(axes, list) or any(a not in _AXES for a in axes)):
++            bad(f"'axes' must be a list of {list(_AXES)}")
++    elif call in ("set_filter", "set_zoom", "set_laser", "set_shutterconfig"):
++        field = call[len("set_"):]
++        if field not in args:
++            bad(f"'{field}' is required")
++        allowed = _cfg_options(core).get(field)
++        if allowed and args[field] not in allowed:
++            bad(f"{field}={args[field]!r} is not one of {allowed}")
++    elif call == "set_intensity":
++        v = args.get("intensity")
++        if not (_num(v) and 0 <= v <= 100):
++            bad("intensity must be a number in [0, 100]")
++    elif call == "set_state":
++        settings = args.get("settings")
++        if not isinstance(settings, dict) or not settings:
++            bad("'settings' must be a non-empty object")
++        options = _cfg_options(core)
++        for k, v in settings.items():
++            if options.get(k) and v not in options[k]:  # only keys with cfg-known options
++                bad(f"{k}={v!r} is not one of {options[k]}")
++            if k == "intensity" and not (_num(v) and 0 <= v <= 100):
++                bad("intensity must be a number in [0, 100]")
++    elif call == "acquire_start" and not isinstance(args.get("acquisition"), dict):
++        bad("'acquisition' must be an object")
++    # reads / stop / hello / ping / mode changes / stat_files / procedure: no arg contract
++
++
++def _limits_from_env():
++    """Optional per-axis soft travel limits so ``move_absolute`` refuses out-of-range
++    targets. Read from ``MESOSPIM_RS_LIMITS`` -- a JSON object ``{"x": [lo, hi], ...}``
++    or a path to a file holding one. Unset or invalid -> no soft limit (the Core's own
++    hardware limit is the backstop).
++    """
++    raw = os.environ.get("MESOSPIM_RS_LIMITS", "").strip()
++    if not raw:
++        return {}
++    try:
++        if os.path.isfile(raw):
++            with open(raw, encoding="utf-8") as f:
++                raw = f.read()
++        return {axis: (float(lo), float(hi)) for axis, (lo, hi) in json.loads(raw).items()}
++    except Exception:
++        logger.warning("MESOSPIM_RS_LIMITS ignored (want JSON of axis -> [lo, hi])")
++        return {}
++
++
++_LIMITS = _limits_from_env()
++
++
++def run(core, call, args=None):
++    handler = COMMANDS.get(call)
++    if handler is None:
++        raise KeyError(f"unknown command {call!r}; not in the allowlist")
++    args = args or {}
++    _validate(core, call, args, _LIMITS)
++    return handler(core, args)
+diff --git a/mesoSPIM/src/test_remote_control_validation.py b/mesoSPIM/src/test_remote_control_validation.py
+new file mode 100644
+index 0000000..44b16e9
+--- /dev/null
++++ b/mesoSPIM/src/test_remote_control_validation.py
+@@ -0,0 +1,102 @@
++"""Validation tests for the Remote Control command module.
++
++Qt-free and no live Core: exercises ``_validate`` (the arg gate that runs at the
++single ``run()`` choke point, so both the TCP and MCP lanes enforce it) against a
++tiny fake ``cfg``, plus the ``MESOSPIM_RS_LIMITS`` env parser. Run either way::
++
++    pytest mesoSPIM/src/test_remote_control_validation.py
++    python  mesoSPIM/src/test_remote_control_validation.py
++"""
++import importlib.util
++import os
++from pathlib import Path
++
++_MOD = Path(__file__).with_name("mesoSPIM_RemoteControl_ValidateAndRunCommands.py")
++_spec = importlib.util.spec_from_file_location("_rc_vrc", _MOD)
++vrc = importlib.util.module_from_spec(_spec)
++_spec.loader.exec_module(vrc)
++
++
++class _Cfg:
++    filterdict = {"Empty": 0, "515LP": 1}
++    zoomdict = {"1x": 1, "2x": 2}
++    laserdict = {"488 nm": 0, "561 nm": 1}
++    shutteroptions = ["Left", "Right", "Both"]
++
++
++class _Core:
++    cfg = _Cfg()
++
++
++_core = _Core()
++_LIMITS = {"x": (-1000.0, 1000.0), "y": (-1000.0, 1000.0), "z": (-1000.0, 1000.0)}
++
++
++def _rejects(call, args):
++    try:
++        vrc._validate(_core, call, args, _LIMITS)
++    except ValueError:
++        return True
++    return False
++
++
++def test_valid_calls_pass():
++    vrc._validate(_core, "move_absolute", {"targets": {"x": 100, "y": -50}}, _LIMITS)
++    vrc._validate(_core, "set_filter", {"filter": "Empty"}, _LIMITS)
++    vrc._validate(_core, "set_zoom", {"zoom": "2x"}, _LIMITS)
++    vrc._validate(_core, "set_intensity", {"intensity": 50}, _LIMITS)
++    vrc._validate(_core, "get_state", {}, _LIMITS)  # no arg contract -> passes
++
++
++def test_out_of_range_move_rejected():
++    assert _rejects("move_absolute", {"targets": {"x": 999999}})
++
++
++def test_unknown_axis_rejected():
++    assert _rejects("move_absolute", {"targets": {"q": 1}})
++
++
++def test_non_number_move_rejected():
++    assert _rejects("move_absolute", {"targets": {"x": "far"}})
++
++
++def test_empty_targets_rejected():
++    assert _rejects("move_absolute", {"targets": {}})
++
++
++def test_bad_filter_option_rejected():
++    assert _rejects("set_filter", {"filter": "NOPE"})
++
++
++def test_bad_zoom_option_rejected():
++    assert _rejects("set_zoom", {"zoom": "99x"})
++
++
++def test_bad_shutter_option_rejected():
++    assert _rejects("set_shutterconfig", {"shutterconfig": "Sideways"})
++
++
++def test_bad_intensity_rejected():
++    assert _rejects("set_intensity", {"intensity": 250})
++
++
++def test_bad_set_state_option_rejected():
++    assert _rejects("set_state", {"settings": {"zoom": "77x"}})
++
++
++def test_limits_from_env_parses_json():
++    os.environ["MESOSPIM_RS_LIMITS"] = '{"x": [-5, 5], "y": [-5, 5]}'
++    try:
++        assert vrc._limits_from_env() == {"x": (-5.0, 5.0), "y": (-5.0, 5.0)}
++    finally:
++        del os.environ["MESOSPIM_RS_LIMITS"]
++
++
++if __name__ == "__main__":
++    _passed = 0
++    for _name, _fn in sorted(globals().items()):
++        if _name.startswith("test_") and callable(_fn):
++            _fn()
++            print(f"ok   {_name}")
++            _passed += 1
++    print(f"\nALL {_passed} VALIDATION TESTS PASSED")
+diff --git a/pyproject.toml b/pyproject.toml
+index 06b49a5..966d31c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -37,3 +37,4 @@ dependencies = [
+ 
+ [project.scripts]
+ mesospim-control = "mesoSPIM.mesoSPIM_Control:run"
++mesospim-mcp-server = "mesoSPIM.src.mesoSPIM_RemoteControl_Servers:main"
+-- 
+2.53.0.windows.1
+
