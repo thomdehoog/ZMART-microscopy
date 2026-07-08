@@ -206,8 +206,8 @@ now fixed on this branch):
       and runs the matching `Core` method from a fixed `COMMANDS` allowlist, and
       returns a JSON result. No client code runs. Token-gated, localhost-default,
       ~450 lines / 3 files. Framing/token/dispatch carry Qt-free unit tests
-      (incl. a hostile-payload sweep); the live `-D` end-to-end run is the open
-      check. Packaged in [`pull_request/`](pull_request/) (patch + README +
+      (incl. a hostile-payload sweep); **validated against the live `-D` demo Core
+      (both TCP and MCP, as-is).** Packaged in [`pull_request/`](pull_request/) (patch + README +
       PROTOCOL + demo_client). **Submitted upstream as
       [mesoSPIM/mesoSPIM-control#105](https://github.com/mesoSPIM/mesoSPIM-control/pull/105)
       (open).**
