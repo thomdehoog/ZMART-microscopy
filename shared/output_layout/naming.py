@@ -21,9 +21,8 @@ total paths under Windows MAX_PATH (260) for a shallow output_root.
 Pure functions plus frozen `Naming` / `LayoutPlan` dataclasses. Only
 `build_layout` performs I/O (creates the run directory).
 
-``build_xml_name`` and ``build_position_analysis_name`` remain for the
-per-position analysis / legacy-companion workflow (a later migration
-commit); they are not part of the current flat image contract.
+`build_position_analysis_name` names the per-position analysis file (.npz);
+it is not part of the flat image contract but shares the same naming style.
 """
 
 from __future__ import annotations
@@ -128,36 +127,9 @@ def build_image_name(n: Naming) -> str:
     )
 
 
-def build_xml_name(n: Naming) -> str:
-    """Canonical XML companion filename. Omits c and z (one XML per position)."""
-    return (
-        f"{n.acquisition_type}_{n.hash6}"
-        f"_k{n.k:05d}_m{n.m:05d}_g{n.g:05d}_p{n.p:05d}"
-        f"_t{n.t:05d}_v{n.v:02d}.ome.xml"
-    )
-
-
 def acquisition_dir(output_root: Path | str, kind: str) -> Path:
     """Canonical acquisition-kind directory under a run root."""
     return Path(output_root) / kind
-
-
-def acquisition_data_dir(output_root: Path | str, kind: str) -> Path:
-    """Legacy nested ``data/`` directory for one acquisition kind.
-
-    Retained for drivers/workflows not yet migrated to the flat layout. The
-    flat image contract writes directly under :func:`acquisition_dir`.
-    """
-    return acquisition_dir(output_root, kind) / "data"
-
-
-def acquisition_metadata_dir(output_root: Path | str, kind: str) -> Path:
-    """Legacy nested metadata directory for one acquisition kind.
-
-    Retired by the flat, no-sidecar layout (state is embedded per-plane).
-    Retained only so unmigrated callers keep importing cleanly.
-    """
-    return acquisition_data_dir(output_root, kind) / "metadata"
 
 
 def build_position_analysis_name(n: Naming) -> str:
@@ -205,12 +177,6 @@ class LayoutPlan:
 
     def acquisition_dir(self, kind: str) -> Path:
         return acquisition_dir(self.run_dir, kind)
-
-    def data_dir(self, kind: str) -> Path:
-        return acquisition_data_dir(self.run_dir, kind)
-
-    def metadata_dir(self, kind: str) -> Path:
-        return acquisition_metadata_dir(self.run_dir, kind)
 
     def analysis_dir(self, kind: str) -> Path:
         return self.acquisition_dir(kind) / "analysis"

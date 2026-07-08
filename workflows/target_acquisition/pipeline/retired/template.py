@@ -577,7 +577,7 @@ def archive_and_strip(ctx: Context) -> None:
     Saves the current LAS X experiment to flush operator edits, waits
     for xml / lrp / rgn to settle on disk (the driver only confirms one
     file per save -- xml / lrp / rgn complete on different schedules),
-    copies all three into ``run.layout.metadata_dir("initialization")``,
+    copies all three into ``run.layout.acquisition_dir("initialization")/metadata``,
     then calls ``drv.strip_template_in_place`` -- the *final* strip.
     Step 3 and Step 5 no longer strip-or-restore; LAS X stays on the
     stripped canonical template through the rest of the run.
@@ -595,7 +595,7 @@ def archive_and_strip(ctx: Context) -> None:
             f"configured template exists on disk."
         )
 
-    archive_dir = ctx.run.layout.metadata_dir("initialization")
+    archive_dir = ctx.run.layout.acquisition_dir("initialization") / "metadata"
     archive_dir.mkdir(parents=True, exist_ok=True)
 
     existing = [
