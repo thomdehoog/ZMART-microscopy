@@ -95,6 +95,55 @@ def rig_orientation() -> Orientation:
     return Orientation()
 
 
+def _displacement_transform(orientation: Orientation):
+    """The 2x2 map ``reorient_array`` applies to an image displacement (dcol, drow).
+
+    Derived by probing :func:`reorient_array` on unit offsets so it always
+    matches the actual raster op (no CW/CCW hand-reasoning). Columns are the
+    images of ``(+1, 0)`` and ``(0, +1)``.
+    """
+    import numpy as np
+
+    def _offset(a):
+        r, c = np.argwhere(a == 1)[0]
+        h, w = a.shape
+        return np.array([c - (w - 1) / 2.0, r - (h - 1) / 2.0])  # (dcol, drow)
+
+    east = np.zeros((3, 3), int)
+    east[1, 2] = 1  # offset (dcol=+1, drow=0)
+    south = np.zeros((3, 3), int)
+    south[2, 1] = 1  # offset (dcol=0, drow=+1)
+    col_e = _offset(reorient_array(east, orientation))
+    col_s = _offset(reorient_array(south, orientation))
+    return np.column_stack([col_e, col_s])
+
+
+def orientation_from_image_to_stage(matrix) -> Orientation:
+    """Convert a measured ``image_to_stage`` D4 matrix to an :class:`Orientation`.
+
+    The ``image_to_stage`` matrix M maps an image-frame displacement to the
+    stage frame (``stage = M @ image``). Reorienting the raster so its axes
+    match the stage is exactly applying M to the pixel grid, so we return the
+    D4 rotation whose raster displacement-transform equals M. Reflections
+    (``det < 0``) raise -- a proper rig is a pure rotation.
+    """
+    import numpy as np
+
+    m = np.asarray(matrix, dtype=float)
+    if m.shape != (2, 2):
+        raise ValueError(f"image_to_stage must be 2x2, got shape {m.shape}")
+    if np.linalg.det(m) < 0:
+        raise ValueError(
+            f"image_to_stage {matrix} is a reflection (det<0), not a proper "
+            f"rotation -- check the rig / registration, do not resample"
+        )
+    for deg in _VALID_ROTATIONS:
+        o = Orientation(rotate_deg=deg)
+        if np.allclose(_displacement_transform(o), m):
+            return o
+    raise ValueError(f"image_to_stage {matrix} is not a D4 rotation")
+
+
 def reorient_array(array, orientation: Orientation):
     """Apply the D4 orientation to a 2-D array, losslessly. Returns a new array.
 

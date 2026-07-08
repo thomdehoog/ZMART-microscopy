@@ -76,6 +76,42 @@ def test_reorient_mirror_is_applied_first():
     assert np.array_equal(got, expected)
 
 
+# --- image_to_stage matrix -> Orientation converter -----------------------
+
+
+def test_converter_anchor_bundled_default_is_90():
+    # The bundled calibration image_to_stage ([[0,-1],[1,0]], a 90-deg rig)
+    # corrects with a 90-deg clockwise image rotation.
+    assert orient.orientation_from_image_to_stage([[0, -1], [1, 0]]) == Orientation(rotate_deg=90)
+
+
+@pytest.mark.parametrize(
+    "matrix,expected",
+    [
+        ([[1, 0], [0, 1]], Orientation(rotate_deg=0)),
+        ([[0, -1], [1, 0]], Orientation(rotate_deg=90)),
+        ([[-1, 0], [0, -1]], Orientation(rotate_deg=180)),
+        ([[0, 1], [-1, 0]], Orientation(rotate_deg=270)),
+    ],
+)
+def test_converter_maps_each_rotation(matrix, expected):
+    assert orient.orientation_from_image_to_stage(matrix) == expected
+
+
+def test_converter_is_the_transform_reorient_applies():
+    # Correctness by construction: reorient by O maps an image displacement
+    # through exactly M, so a feature's reoriented pixel offset equals the
+    # stage offset M @ image_offset -> objective_pair correction becomes identity.
+    for matrix in ([[1, 0], [0, 1]], [[0, -1], [1, 0]], [[-1, 0], [0, -1]], [[0, 1], [-1, 0]]):
+        o = orient.orientation_from_image_to_stage(matrix)
+        assert np.array_equal(orient._displacement_transform(o), np.asarray(matrix, float))
+
+
+def test_converter_rejects_reflection():
+    with pytest.raises(ValueError, match="reflection"):
+        orient.orientation_from_image_to_stage([[1, 0], [0, -1]])  # det = -1
+
+
 # --- materialize integration ----------------------------------------------
 
 
