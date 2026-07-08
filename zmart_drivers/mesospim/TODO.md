@@ -31,23 +31,27 @@ dispatched against a fixed server-side `COMMANDS` allowlist. There is **no exec 
 at all**: the whole `execute_script` / per-thread stdout-capture machine was removed,
 so the server is just framing + token + dispatch. Reply is `__ZMART_OK__<json>`;
 unknown method / bad payload / handler error surface as error text. Verified Qt-free
-by `pull_request/test_remote_scripting.py` (dispatch + framing + auth), and the
-new-file hunk `git apply`s cleanly. Remaining: the live `-D` round-trip in §1
-exercises it end-to-end on a real Core.
+by `pull_request/test_remote_control.py`, and **confirmed end-to-end against the live
+`-D` demo Core (§1), both TCP and MCP lanes, as-is.**
 
 Legend: 🔴 blocker for live use · 🟠 needed for a real run · 🟢 polish / nice-to-have.
 
 ---
 
-## 1. Bench validation against mesoSPIM `-D` demo mode 🔴
+## 1. Bench validation against mesoSPIM `-D` demo mode ✅
 
-The one thing that cannot be done in CI (needs the GPL app + a display). Two parts:
-**(a)** apply the Remote Scripting patch (`pull_request/`) with restricted mode (§0)
-and start it (Tools → Remote Scripting), then **(b)** re-run the `-m integration`
-round-trip over named calls. The Core-name checklist below was confirmed on an
-earlier transport and carried into `connection/command_api.py`; re-confirm it here.
-(The items marked done were validated against a live Core previously; the ☐ ones
-are the new-transport re-run.)
+**Done (2026-07-08).** Applied the Remote Control patch, started the **Remote
+Control tab**, and drove the demo Core end to end over **both lanes — framed TCP
+and MCP-over-HTTP** — and it **worked as-is**: the handlers matched the real Core,
+no binding changes were needed. So the named-call allowlist, the `_validate` arg
+gate, and both transports are confirmed against the actual mesoSPIM software.
+Remaining: **real-hardware** validation (§below) — demo mode uses simulated
+backends, so a physical stage/camera/laser run is the last step.
+
+The one thing that cannot be done in CI (needs the GPL app + a display). It was:
+**(a)** apply the patch (`pull_request/`) and start the Remote Control tab, then
+**(b)** run the `-m integration` round-trip over named calls (TCP) and the MCP
+process. The Core-name checklist below was confirmed against the live demo Core.
 
 **Environment (how/where to run this).** mesoSPIM-control is a pure-Python PyQt5
 app but is effectively **Windows-only** (docs: Windows ≥7 64-bit; Python ≥3.12).
