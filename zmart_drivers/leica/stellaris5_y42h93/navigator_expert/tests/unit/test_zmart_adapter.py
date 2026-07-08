@@ -7,6 +7,8 @@ option validation, and closed-handle semantics — including a full
 end-to-end pass through a real controller ``Session``.
 """
 
+import json
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -398,6 +400,61 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(calls["state"]["provenance"]["position_label"], "well-7")
         self.assertEqual(record["settle"], "direct")
         self.assertEqual([Path(p) for p in record["images"]], [Path("/tmp/out/img.ome.tif")])
+
+    def test_acquire_applies_the_rigs_measured_orientation(self):
+        """The microscope's measured turn reaches ``save``, so saved planes are
+        already lined up with the stage.
+
+        This is the safety seam the whole orientation feature rests on. The
+        ``set_orientation`` notebook measures how the camera is turned relative to
+        the stage and writes it to ``orientation/current.json``. Every acquire
+        must read that turn and hand it to ``save`` so the images that land on
+        disk are stage-aligned. If this one wire were dropped, all the other
+        tests would still pass, yet the machine would quietly save quarter-turned
+        pictures -- and the workflow would then chase every feature the wrong way.
+        Here we plant a measured 90-degree turn and prove it arrives at ``save``.
+        """
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
+        seen = {}
+
+        def fake_save(client, acq, output_root, naming, **kwargs):
+            seen["orientation"] = kwargs.get("orientation")
+            return SimpleNamespace(image_paths={0: Path("/tmp/out/img.ome.tif")}, naming=naming)
+
+        patches = _patch_position(job="Overview")
+        with tempfile.TemporaryDirectory() as tmp:
+            current = Path(tmp) / "current.json"
+            current.write_text(
+                json.dumps({"schema_version": 1, "rotate_deg": 90}), encoding="utf-8"
+            )
+            with (
+                patch.object(adapter._orientation, "_CURRENT", current),
+                patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+                patch.object(adapter._readers, "get_hardware_info", return_value={}),
+                patch.object(
+                    adapter._commands, "select_job", lambda client, job, **k: {"success": True}
+                ),
+                patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
+                patch.object(
+                    adapter._capture, "acquire", lambda client, job, **k: SimpleNamespace(job=job)
+                ),
+                patch.object(adapter._save, "save", fake_save),
+                patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
+                patches[0],
+                patches[1],
+                patches[2],
+                patches[3],
+            ):
+                adapter.acquire(
+                    h,
+                    acquisition_type="overview",
+                    position_label="A1",
+                    options={"backlash_correction": False},
+                )
+
+        # The measured 90-degree turn was read from current.json and threaded
+        # into save -- not the shipped "no turn" placeholder.
+        self.assertEqual(seen["orientation"], adapter._orientation.Orientation(rotate_deg=90))
 
     def _fake_acquire_env(self, calls):
         """Patches for a fully-mocked acquire; records each save's naming."""
