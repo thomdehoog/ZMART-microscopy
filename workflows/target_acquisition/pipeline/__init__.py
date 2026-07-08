@@ -41,7 +41,6 @@ from ._focus_surface import FocusSurface, fit_focus_surface
 from ._geom import overview_pixel_to_frame
 from ._hijack import NonSimulatorFrameError, hijack_records
 from ._mock_provider import get_provider
-from ._orientation import Orientation, apply_orientation, load_orientation
 from .discovery import build_overview_inputs, discover_targets, read_overview_geometry
 from .steps import (
     acquire_targets,
@@ -78,7 +77,4 @@ __all__ = [
     "get_provider",
     "hijack_records",
     "NonSimulatorFrameError",
-    "Orientation",
-    "load_orientation",
-    "apply_orientation",
 ]

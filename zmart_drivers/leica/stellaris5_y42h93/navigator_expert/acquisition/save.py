@@ -25,6 +25,7 @@ from shared.output_layout import (
     build_image_name,
 )
 
+from ..orientation import Orientation
 from . import files as _files
 from . import materialize as _materialize
 from .capture import AcquisitionResult
@@ -68,6 +69,7 @@ def save(
     *,
     lineage: dict | None = None,
     state: dict | None = None,
+    orientation: Orientation | None = None,
     fix_ome: bool = True,
     cleanup_source: bool = False,
     file_stability_timeout_s: int = DEFAULT_FILE_STABILITY_TIMEOUT_S,
@@ -80,7 +82,9 @@ def save(
     ``ExportedAcquisition``. This function persists that product into the
     flat SMART OME-TIFF layout (one 2-D plane per file, no sidecar XML).
     When *state* is provided, the machine/software state at export time is
-    embedded in each plane's OME-XML.
+    embedded in each plane's OME-XML. When *orientation* is a non-identity rig
+    D4, each plane is reoriented losslessly to stage-aligned axes as it is
+    written (default: no reorientation).
     """
     exported = collect_lasx_native_autosave(
         client,
@@ -95,6 +99,7 @@ def save(
         naming,
         lineage=lineage,
         state=state,
+        orientation=orientation,
         fix_ome=fix_ome,
         cleanup_source=cleanup_source,
     )
@@ -107,6 +112,7 @@ def _persist_export(
     *,
     lineage: dict | None,
     state: dict | None = None,
+    orientation: Orientation | None = None,
     fix_ome: bool,
     cleanup_source: bool,
 ) -> SavedAcquisition:
@@ -151,6 +157,7 @@ def _persist_export(
                     index=idx,
                     fix_ome=fix_ome,
                     state=state,
+                    orientation=orientation,
                 )
                 image_paths[idx] = image_dest
 

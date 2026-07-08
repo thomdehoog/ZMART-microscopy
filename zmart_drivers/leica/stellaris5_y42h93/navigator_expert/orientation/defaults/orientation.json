@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "rotate_deg": 90,
+  "rotate_deg": 0,
   "mirror": false,
-  "_notes": "Image->stage orientation for STELLARIS 5 (Y42H93), applied to the exported plane after acquisition so its axes match the stage (a D4 element; measured once by the image_to_stage calibration). rotate_deg is the clockwise rotation in {0,90,180,270}; mirror is a horizontal flip applied first. This rig is 90 degrees. A 90/270 is an axis swap -- a sign flip alone cannot express it. Separate concern from pixel-scale calibration and from limits."
+  "_notes": "TEMPLATE -- not the machine value. The image->stage orientation is a rig property MEASURED by orientation/notebooks/set_orientation.ipynb (acquire home/+X/+Y, register, fit the 2x2 Jacobian, snap to the nearest D4). The notebook writes the measured value to orientation/current.json, which the driver reads at save time. Until measured, this identity template means 'no reorientation'. rotate_deg is a clockwise 90-degree increment in {0,90,180,270}; mirror is a horizontal flip. A separate concern from pixel-scale calibration and from limits."
 }

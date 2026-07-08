@@ -77,6 +77,7 @@ try:  # driver version for embedded export state; never fail acquire over it
 except Exception:  # noqa: BLE001 -- best-effort provenance
     _DRIVER_VERSION = None
 
+from .. import orientation as _orientation
 from .. import readers as _readers
 from .. import scanfields as _scanfields
 from ..acquisition import capture as _capture
@@ -774,6 +775,11 @@ def acquire(
             "acquisition_hash": acquisition_hash,
         },
         state=state,
+        # Rig image->stage orientation, applied to the saved planes behind the
+        # scenes so the workflow only ever sees stage-aligned images. Measured
+        # once by the set_orientation setup notebook; a separate concern from
+        # pixel-scale calibration and limits.
+        orientation=_orientation.rig_orientation(),
         cleanup_source=resolved["cleanup_source"],
     )
 
