@@ -57,12 +57,13 @@ all three reader routes), and one real capture+save — against the real STELLAR
 cd <repo-root>
 python build_env.py --name zmart-microscopy      # conda-forge env; ~2-5 min
 conda activate zmart-microscopy
-pip install -r zmart_drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt
 ```
 
-`build_env.py` asserts every package came from conda-forge (never `defaults`).
-The `pip install` adds the test/lint deps `run_ci.py` needs — without it the
-first CI step fails closed with "No module named pytest".
+`build_env.py` builds the full conda-forge env from `environment.yml` — runtime
+plus the test/lint tools `run_ci.py` needs (pytest, pytest-cov, matplotlib,
+ipython, ruff) — and asserts every package came from conda-forge (never
+`defaults`). No separate `pip install` is required. (`requirements-dev.txt` is
+the dependency list for the non-conda GitHub CI matrix.)
 
 ## Step 1 — machine-local stage limits
 
