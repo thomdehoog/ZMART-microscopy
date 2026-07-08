@@ -674,9 +674,7 @@ def _export_state(
             "api": handle.connection.get("api"),
         },
         "hardware": _try(lambda: _readers.get_hardware_info(handle.client, mode="api")),
-        "job_settings": _try(
-            lambda: _readers.get_job_settings(handle.client, job, mode="api")
-        ),
+        "job_settings": _try(lambda: _readers.get_job_settings(handle.client, job, mode="api")),
         "job_state": (machine_state or {}).get("changeable") if machine_state else None,
         "position": _try(lambda: get_xyz(handle)),
         "provenance": {

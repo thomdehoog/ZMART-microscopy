@@ -469,7 +469,9 @@ class TestAcquire(unittest.TestCase):
             patch.object(adapter._readers, "get_hardware_info", return_value={}),
             patch.object(adapter._commands, "select_job", return_value={"success": True}),
             patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
-            patch.object(adapter._capture, "acquire", lambda client, job, **k: SimpleNamespace(job=job)),
+            patch.object(
+                adapter._capture, "acquire", lambda client, job, **k: SimpleNamespace(job=job)
+            ),
             patch.object(adapter._save, "save", fake_save),
             patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
             patches[0],
@@ -485,8 +487,17 @@ class TestAcquire(unittest.TestCase):
         # A fresh hash is minted per acquire; stub run_hash (1s real resolution)
         # to prove two acquires get distinct per-acquisition hashes.
         with (
-            env[0], env[1], env[2], env[3], env[4], env[5], env[6],
-            env[7], env[8], env[9], env[10],
+            env[0],
+            env[1],
+            env[2],
+            env[3],
+            env[4],
+            env[5],
+            env[6],
+            env[7],
+            env[8],
+            env[9],
+            env[10],
             patch.object(adapter, "run_hash", side_effect=["0000a1", "0000a2"]),
         ):
             record0 = adapter.acquire(h)
@@ -507,7 +518,19 @@ class TestAcquire(unittest.TestCase):
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
         calls = {}
         env = self._fake_acquire_env(calls)
-        with (env[0], env[1], env[2], env[3], env[4], env[5], env[6], env[7], env[8], env[9], env[10]):
+        with (
+            env[0],
+            env[1],
+            env[2],
+            env[3],
+            env[4],
+            env[5],
+            env[6],
+            env[7],
+            env[8],
+            env[9],
+            env[10],
+        ):
             adapter.acquire(h, position_label="named")  # must not bump the counter
             record = adapter.acquire(h)  # still gets 000000
         self.assertEqual(calls["namings"][0].position_label, "named")

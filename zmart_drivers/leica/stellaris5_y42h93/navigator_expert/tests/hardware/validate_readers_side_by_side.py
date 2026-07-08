@@ -166,7 +166,15 @@ class Rec:
         return ok
 
     def parity(
-        self, key, ok, extra="", *, log_missing=False, log_unsupported=False, latency=0.0, hang=False
+        self,
+        key,
+        ok,
+        extra="",
+        *,
+        log_missing=False,
+        log_unsupported=False,
+        latency=0.0,
+        hang=False,
     ):
         """A parity check that SKIPs (with reason) when the log side cannot
         answer: either the datum has no authoritative log leg at all

@@ -119,9 +119,7 @@ def fake_export(tmp_path: Path) -> dict:
         metadata=_grid_metadata(),
         method="test",
         source_exporter="lasx_native_autosave",
-        vendor_metadata_sources=(
-            drv.VendorMetadataSource(name="source.ome.xml", path=xml_path),
-        ),
+        vendor_metadata_sources=(drv.VendorMetadataSource(name="source.ome.xml", path=xml_path),),
     )
 
     return {

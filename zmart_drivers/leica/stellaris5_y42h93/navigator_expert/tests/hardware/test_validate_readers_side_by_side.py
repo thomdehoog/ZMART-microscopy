@@ -119,7 +119,9 @@ def test_parity_log_unsupported_skips_regardless_of_backend():
             pass
 
     rec = sxs.Rec(_NullReport(), mock=False)
-    returned = rec.parity("get_jobs (names)", ok=False, extra="api=[...] log=[]", log_unsupported=True)
+    returned = rec.parity(
+        "get_jobs (names)", ok=False, extra="api=[...] log=[]", log_unsupported=True
+    )
     assert returned is True  # skip is not a failure
     fails, skips, _ = rec.counts()
     assert not fails and skips == 1
