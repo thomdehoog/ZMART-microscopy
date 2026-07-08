@@ -1,11 +1,11 @@
 """
-Demo client for the mesoSPIM Remote Scripting server.
-=====================================================
+Demo client for the mesoSPIM Remote Control server.
+===================================================
 The server accepts named calls, not code: you send one single-key JSON object
 ``{"<method>": {args}}`` and read back a ``__ZMART_OK__<json>`` line. This tiny
 client shows the whole protocol -- framing, the optional token, and a call.
 
-Run mesoSPIM (-D demo is fine), start Tools -> Remote Scripting..., then:
+Run mesoSPIM (-D demo is fine), start the Remote Control tab (TCP mode), then:
 
     python demo_client.py --host 127.0.0.1 --port 42000 --token <token>
 
@@ -19,7 +19,7 @@ import socket
 OK = "__ZMART_OK__"
 
 
-class RemoteScripting:
+class RemoteControl:
     """Tiny client for the length-framed named-call protocol."""
 
     def __init__(self, host="127.0.0.1", port=42000, token=None, timeout=10.0):
@@ -66,11 +66,11 @@ def main():
     ap.add_argument("--token", default=None)
     args = ap.parse_args()
 
-    c = RemoteScripting(args.host, args.port, args.token)
+    c = RemoteControl(args.host, args.port, args.token)
     try:
         print("state:", c.call("get_state"))
         print("config:", c.call("get_config"))
-        print("set filter:", c.call("set_state", settings={"filter": "561/LP"}))
+        print("capabilities:", c.call("get_capabilities"))
     finally:
         c.close()
 
