@@ -1,29 +1,31 @@
-"""Rig image->stage orientation, applied to exported planes at save time.
+"""Record and apply how the camera is turned relative to the stage.
 
-The image->stage relation on a well-built rig is a **D4 element** -- a
-90-degree-increment rotation plus an optional mirror (the ``set_orientation``
-setup notebook measures it: acquire home/+X/+Y, register, fit the 2x2 Jacobian,
-snap to the nearest D4 and accept only a small residual; a non-D4 skew is a
-physical alignment problem, never interpolated away). Because it is pure D4, the
-driver aligns the saved image to the stage by **rotating the exported raster
-losslessly** (``np.rot90`` / ``np.flip`` -- no resampling) as it persists each
-plane. Downstream then treats image axes as stage axes with no rotation math.
+A camera or scanner is often mounted a quarter- or half-turn away from the
+stage's own X and Y directions. When that happens, telling the stage to "move
+right" shows up in the picture as a shift in some other direction, and the
+software would end up chasing features the wrong way. This module records that
+fixed turn -- measured once per microscope by the ``set_orientation`` notebook --
+and turns each saved image so that its left-right and up-down line up with the
+stage's X and Y. After that, the rest of the software can treat image directions
+and stage directions as the same thing, with no rotation maths anywhere.
 
-This is a *separate concern* from pixel-scale calibration and from limits, and
-it lives entirely inside the driver: workflows never see it -- ``acquire``
-returns already-stage-aligned images.
+The turn is always a whole quarter-turn: 0, 90, 180, or 270 degrees. A real
+microscope never sits at an odd in-between angle. If the measurement ever finds
+one, something is physically misaligned, and we stop rather than blur the picture
+by rotating it onto a fraction of a pixel. Because the turn is a whole quarter,
+rotating the image is lossless -- it only moves pixels to new positions, it never
+resamples them.
 
-Config (mirrors ``limits/``): the measured machine value in
-``orientation/current.json`` if present, else the shipped identity template
-``orientation/defaults/orientation.json``:
+This is a separate thing from pixel-size calibration and from the stage limits,
+and it lives entirely inside the driver. Workflows never deal with it: the images
+they receive are already lined up with the stage.
 
-    {"schema_version": 1, "rotate_deg": <0|90|180|270>, "mirror": <bool>}
+The measured value lives in ``orientation/current.json`` once the
+``set_orientation`` notebook has run. Until then the shipped
+``orientation/defaults/orientation.json`` is a placeholder that means "no turn,"
+so an un-measured microscope is never turned by guesswork::
 
-The value is **measured** by the ``set_orientation`` notebook, never hard-coded.
-``rotate_deg`` is a clockwise 90-degree increment; ``mirror`` applies a
-horizontal flip first (a reflection-type D4). Identity is a no-op. A quarter-turn
-swaps the axes (a transpose) and cannot be expressed by sign flips alone --
-hence a rotation, not two signs.
+    {"schema_version": 1, "rotate_deg": 0}
 
 Author: Thom de Hoog (ZMB, University of Zurich).
 License: MIT
@@ -41,31 +43,41 @@ _CURRENT = _HERE / "current.json"
 _DEFAULT = _HERE / "defaults" / "orientation.json"
 _VALID_ROTATIONS = (0, 90, 180, 270)
 
+# How a clockwise turn of ``rotate_deg`` moves an image displacement (column,
+# row): each entry is the 2x2 matrix that sends (+1 column, 0 rows) and
+# (0 columns, +1 row) to their new places. A measured image->stage matrix, if
+# the rig is turned by a whole quarter, is exactly one of these.
+_STAGE_FROM_ROTATION: dict[int, tuple[tuple[int, int], tuple[int, int]]] = {
+    0: ((1, 0), (0, 1)),
+    90: ((0, -1), (1, 0)),
+    180: ((-1, 0), (0, -1)),
+    270: ((0, 1), (-1, 0)),
+}
+
 
 @dataclass(frozen=True)
 class Orientation:
-    """A D4 image->stage orientation applied to exported planes.
+    """How far the camera is turned relative to the stage.
 
-    ``rotate_deg`` is a clockwise rotation in {0, 90, 180, 270}; ``mirror``
-    applies a horizontal flip (``fliplr``) before the rotation. Together they
-    span all eight D4 elements. ``is_identity`` is the 0/no-mirror no-op;
-    ``swaps_axes`` is True for 90/270 (the transpose cases).
+    ``rotate_deg`` is a clockwise quarter-turn: one of 0, 90, 180, or 270.
+    ``is_identity`` means no turn at all (nothing to do). ``swaps_axes`` is true
+    for 90 and 270, where the turn swaps the image's width and height.
     """
 
     rotate_deg: int = 0
-    mirror: bool = False
 
     def __post_init__(self) -> None:
         if self.rotate_deg not in _VALID_ROTATIONS:
             raise ValueError(
-                f"rotate_deg must be one of {_VALID_ROTATIONS} (a 90-degree "
-                f"increment -- a non-D4 skew is a rig-alignment problem, not "
-                f"something to resample); got {self.rotate_deg!r}"
+                f"rotate_deg must be a whole quarter-turn -- one of "
+                f"{_VALID_ROTATIONS}. An in-between angle means the camera is "
+                f"physically misaligned, which is a rig problem to fix, not "
+                f"something to rotate around. Got {self.rotate_deg!r}."
             )
 
     @property
     def is_identity(self) -> bool:
-        return self.rotate_deg == 0 and not self.mirror
+        return self.rotate_deg == 0
 
     @property
     def swaps_axes(self) -> bool:
@@ -73,21 +85,19 @@ class Orientation:
 
 
 def load_orientation(path: Any) -> Orientation:
-    """Load an :class:`Orientation` from an ``orientation.json`` file."""
+    """Read an :class:`Orientation` from an ``orientation.json`` file."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    return Orientation(
-        rotate_deg=int(data.get("rotate_deg", 0)), mirror=bool(data.get("mirror", False))
-    )
+    return Orientation(rotate_deg=int(data.get("rotate_deg", 0)))
 
 
 def rig_orientation() -> Orientation:
-    """The machine's orientation: ``current.json`` if adopted, else the default.
+    """The microscope's turn: the measured ``current.json`` if it exists, else none.
 
-    The ``set_orientation`` notebook measures the rig's D4 and writes it to
-    ``current.json``; the shipped ``defaults/orientation.json`` is an identity
-    template (no value asserted -- the orientation is discovered, not hard-coded).
-    Until the notebook has run, this returns identity -- fail safe (never rotate
-    an unmeasured rig).
+    The ``set_orientation`` notebook measures the turn and writes it to
+    ``current.json``. The shipped ``defaults/orientation.json`` is only a
+    placeholder that means "no turn" -- the real value is measured, never
+    hard-coded. Until the notebook has run this returns "no turn," so an
+    un-measured microscope is left exactly as it is.
     """
     for candidate in (_CURRENT, _DEFAULT):
         if candidate.is_file():
@@ -95,67 +105,42 @@ def rig_orientation() -> Orientation:
     return Orientation()
 
 
-def _displacement_transform(orientation: Orientation):
-    """The 2x2 map ``reorient_array`` applies to an image displacement (dcol, drow).
-
-    Derived by probing :func:`reorient_array` on unit offsets so it always
-    matches the actual raster op (no CW/CCW hand-reasoning). Columns are the
-    images of ``(+1, 0)`` and ``(0, +1)``.
-    """
-    import numpy as np
-
-    def _offset(a):
-        r, c = np.argwhere(a == 1)[0]
-        h, w = a.shape
-        return np.array([c - (w - 1) / 2.0, r - (h - 1) / 2.0])  # (dcol, drow)
-
-    east = np.zeros((3, 3), int)
-    east[1, 2] = 1  # offset (dcol=+1, drow=0)
-    south = np.zeros((3, 3), int)
-    south[2, 1] = 1  # offset (dcol=0, drow=+1)
-    col_e = _offset(reorient_array(east, orientation))
-    col_s = _offset(reorient_array(south, orientation))
-    return np.column_stack([col_e, col_s])
-
-
 def orientation_from_image_to_stage(matrix) -> Orientation:
-    """Convert a measured ``image_to_stage`` D4 matrix to an :class:`Orientation`.
+    """Turn a measured image-to-stage matrix into an :class:`Orientation`.
 
-    The ``image_to_stage`` matrix M maps an image-frame displacement to the
-    stage frame (``stage = M @ image``). Reorienting the raster so its axes
-    match the stage is exactly applying M to the pixel grid, so we return the
-    D4 rotation whose raster displacement-transform equals M. Reflections
-    (``det < 0``) raise -- a proper rig is a pure rotation.
+    The ``set_orientation`` measurement produces a small 2x2 matrix that
+    describes how directions in the image map onto directions on the stage. This
+    finds the matching quarter-turn. A mirrored result (its determinant is
+    negative) is refused: a genuine camera turn is never a mirror image, so that
+    points to a rig or measurement problem rather than something to paper over.
     """
     import numpy as np
 
     m = np.asarray(matrix, dtype=float)
     if m.shape != (2, 2):
-        raise ValueError(f"image_to_stage must be 2x2, got shape {m.shape}")
+        raise ValueError(f"image-to-stage matrix must be 2x2, got shape {m.shape}")
     if np.linalg.det(m) < 0:
         raise ValueError(
-            f"image_to_stage {matrix} is a reflection (det<0), not a proper "
-            f"rotation -- check the rig / registration, do not resample"
+            f"image-to-stage matrix {matrix} is a mirror image (negative "
+            f"determinant), not a plain turn -- check the rig and the "
+            f"measurement rather than rotating the picture."
         )
-    for deg in _VALID_ROTATIONS:
-        o = Orientation(rotate_deg=deg)
-        if np.allclose(_displacement_transform(o), m):
-            return o
-    raise ValueError(f"image_to_stage {matrix} is not a D4 rotation")
+    for deg, expected in _STAGE_FROM_ROTATION.items():
+        if np.allclose(np.asarray(expected, dtype=float), m):
+            return Orientation(rotate_deg=deg)
+    raise ValueError(f"image-to-stage matrix {matrix} is not a whole quarter-turn")
 
 
 def reorient_array(array, orientation: Orientation):
-    """Apply the D4 orientation to a 2-D array, losslessly. Returns a new array.
+    """Turn a 2-D image by the orientation, without losing any detail.
 
-    Mirror (``fliplr``) first, then a clockwise rotation by ``rotate_deg``.
-    ``np.rot90``'s positive k is counter-clockwise, so clockwise uses ``-k``.
+    A whole quarter-turn only moves pixels to new positions (via ``np.rot90``),
+    so nothing is blurred or resampled. Returns a new array; the original is
+    left untouched.
     """
     import numpy as np
 
-    out = array
-    if orientation.mirror:
-        out = np.fliplr(out)
-    k = (orientation.rotate_deg // 90) % 4
+    k = orientation.rotate_deg // 90
     if k:
-        out = np.rot90(out, k=-k)  # clockwise
-    return np.ascontiguousarray(out)
+        array = np.rot90(array, k=-k)  # negative k turns clockwise
+    return np.ascontiguousarray(array)

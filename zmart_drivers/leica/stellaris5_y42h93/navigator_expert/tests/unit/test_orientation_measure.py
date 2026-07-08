@@ -142,7 +142,7 @@ def test_measure_success_writes_staging_orientation(monkeypatch, sessions_root):
     staging = session.paths.configs_dir / wf.STAGING_NAME
     assert staging.is_file()
     payload = json.loads(staging.read_text(encoding="utf-8"))
-    assert payload == {"schema_version": 1, "rotate_deg": 90, "mirror": False}
+    assert payload == {"schema_version": 1, "rotate_deg": 90}
 
 
 def test_measure_weak_vote_stops_without_config(monkeypatch, sessions_root):
@@ -231,7 +231,7 @@ def test_adopt_writes_current_json(monkeypatch, sessions_root, tmp_path):
 
     assert Path(out["current"]) == current
     payload = json.loads(current.read_text(encoding="utf-8"))
-    assert payload == {"schema_version": 1, "rotate_deg": 90, "mirror": False}
+    assert payload == {"schema_version": 1, "rotate_deg": 90}
 
 
 def test_adopt_missing_staging_raises(monkeypatch, sessions_root):

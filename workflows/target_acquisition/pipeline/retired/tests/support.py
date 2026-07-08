@@ -1,16 +1,20 @@
-"""Shared test data builders for target-acquisition tests."""
+"""Shared test data builders for the retired target-acquisition tests."""
 
 
 def minimal_calibration(
     *,
     source_slot: int = 1,
     target_slot: int = 2,
-    image_to_stage: list[list[float]] | None = None,
 ) -> dict:
-    """Small valid v11 calibration document for tests."""
+    """A small, valid calibration document for tests.
+
+    It holds two objectives: the source at the origin (0, 0, 0) and the target
+    a little away from it. That is all these tests need. The reference objective
+    is simply whichever one sits at the origin -- it is derived from the data,
+    not stored.
+    """
     source_slot = int(source_slot)
     target_slot = int(target_slot)
-    matrix = image_to_stage or [[1.0, 0.0], [0.0, 1.0]]
 
     objectives = {
         str(source_slot): {
@@ -27,12 +31,7 @@ def minimal_calibration(
         }
 
     return {
-        "schema_version": 11,
+        "schema_version": 12,
         "last_updated": "test",
-        "reference_objective_slot": source_slot,
-        "image_to_stage": {
-            "matrix": matrix,
-            "session_id": "test-image-to-stage",
-        },
         "objectives": objectives,
     }

@@ -1,6 +1,5 @@
 {
   "schema_version": 1,
   "rotate_deg": 0,
-  "mirror": false,
-  "_notes": "TEMPLATE -- not the machine value. The image->stage orientation is a rig property MEASURED by orientation/notebooks/set_orientation.ipynb (acquire home/+X/+Y, register, fit the 2x2 Jacobian, snap to the nearest D4). The notebook writes the measured value to orientation/current.json, which the driver reads at save time. Until measured, this identity template means 'no reorientation'. rotate_deg is a clockwise 90-degree increment in {0,90,180,270}; mirror is a horizontal flip. A separate concern from pixel-scale calibration and from limits."
+  "_notes": "Placeholder, not this microscope's real value. How the camera is turned relative to the stage is measured once by orientation/notebooks/set_orientation.ipynb, which writes the answer to orientation/current.json; the driver reads that when it saves each image. Until the measurement has run, this placeholder means 'no turn', so an un-measured microscope is left as it is. rotate_deg is a clockwise quarter-turn: one of 0, 90, 180, or 270. This is a separate thing from pixel-size calibration and from the stage limits."
 }

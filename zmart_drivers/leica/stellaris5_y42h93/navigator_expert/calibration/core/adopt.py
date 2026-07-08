@@ -86,12 +86,16 @@ def _apply_staging_payload(
 ) -> None:
     from_slot = _objective_slot_for_label(config, data["from_objective"])
     to_slot = _objective_slot_for_label(config, data["to_objective"])
-    try:
+    from_entry = (config.get("objectives") or {}).get(str(from_slot), {})
+    if "translation_um" in from_entry:
+        # The FROM objective already has a position, so place the new one
+        # relative to it -- this keeps every objective consistent with the same
+        # origin.
         base = calibration_model.get_translation_um(config, from_slot)
-    except ValueError:
-        # Fresh config: the FROM objective has not been calibrated yet, so the
-        # first objective used becomes the [0, 0, 0] origin. Translations are
-        # relative -- there is no privileged reference to specify.
+    else:
+        # Nothing has been calibrated yet, so the first objective used becomes
+        # the [0, 0, 0] origin. There is no privileged reference to pick;
+        # objective positions are always relative to one another.
         calibration_model.update_objective(config, from_slot, translation_um=(0.0, 0.0, 0.0))
         base = (0.0, 0.0, 0.0)
     translation_xy = data["translation_xy_um"]
