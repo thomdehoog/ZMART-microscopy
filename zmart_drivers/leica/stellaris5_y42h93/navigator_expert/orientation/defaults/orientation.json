@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "rotate_deg": 90,
+  "mirror": false,
+  "_notes": "Image->stage orientation for STELLARIS 5 (Y42H93), applied to the exported plane after acquisition so its axes match the stage (a D4 element; measured once by the image_to_stage calibration). rotate_deg is the clockwise rotation in {0,90,180,270}; mirror is a horizontal flip applied first. This rig is 90 degrees. A 90/270 is an axis swap -- a sign flip alone cannot express it. Separate concern from pixel-scale calibration and from limits."
+}
