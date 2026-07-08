@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -35,6 +36,8 @@ VERIFY = {
     "scikit-image": "import skimage",
     "opencv": "import cv2",
     "tifffile": "import tifffile",
+    "matplotlib": "import matplotlib",
+    "pytest": "import pytest",
     "pythonnet": "import clr",
 }
 
@@ -58,14 +61,29 @@ def _env_exists(conda: str, name: str) -> bool:
 
 
 def _env_prefix(conda: str, name: str) -> Path:
-    out = subprocess.run(
-        [conda, "run", "-n", name, "python", "-c", "import sys; print(sys.prefix)"],
-        capture_output=True, text=True,
-    )
-    lines = [ln for ln in out.stdout.splitlines() if ln.strip()]
-    if out.returncode != 0 or not lines:
-        sys.exit(f"could not resolve prefix for env '{name}'.")
-    return Path(lines[-1].strip())
+    """Resolve the env prefix from `conda env list` (never `conda run`).
+
+    `conda run` misreports its exit code on Windows when stdout/stderr are
+    redirected, which made the verify steps below report false failures for a
+    perfectly healthy env. Reading the prefix from the env list and invoking
+    the interpreter directly sidesteps that entirely.
+    """
+    out = subprocess.run([conda, "env", "list", "--json"], capture_output=True, text=True)
+    try:
+        envs = json.loads(out.stdout).get("envs", [])
+    except json.JSONDecodeError:
+        envs = []
+    for p in envs:
+        if Path(p).name == name:
+            return Path(p)
+    sys.exit(f"could not resolve prefix for env '{name}'.")
+
+
+def _env_python(prefix: Path) -> Path:
+    py = prefix / "python.exe" if os.name == "nt" else prefix / "bin" / "python"
+    if not py.exists():
+        sys.exit(f"env interpreter not found at {py}.")
+    return py
 
 
 def build(name: str, update: bool, recreate: bool) -> None:
@@ -93,12 +111,12 @@ def build(name: str, update: bool, recreate: bool) -> None:
 
 
 def verify_imports(name: str) -> None:
-    conda = _conda()
+    py = _env_python(_env_prefix(_conda(), name))
     print(f"\nVerifying imports in env '{name}':")
     failures = []
     for pkg, stmt in VERIFY.items():
         rc = subprocess.call(
-            [conda, "run", "-n", name, "python", "-c", stmt],
+            [str(py), "-c", stmt],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         print(f"  [{'ok' if rc == 0 else 'FAIL'}] {pkg}")

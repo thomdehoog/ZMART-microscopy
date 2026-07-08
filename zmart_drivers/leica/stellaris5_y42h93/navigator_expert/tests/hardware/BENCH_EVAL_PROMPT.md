@@ -85,15 +85,15 @@ detect which and say so in your report).
 cd <repo-root>
 python build_env.py --name zmart-microscopy   # creates the conda-forge env; ~2-5 min
 conda activate zmart-microscopy
-pip install -r zmart_drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt
 ```
 
-`build_env.py` verifies core imports and asserts every package came from
-conda-forge (never `defaults`). The `pip install` step adds `pytest`,
-`pytest-cov`, `ruff`, and the other dev/test-only deps `run_ci.py` needs —
-without it, the very first CI step fails closed with "No module named
-pytest" (this is itself a safety gate: a broken test toolchain must never
-let a hardware run start).
+`build_env.py` builds the full conda-forge env from `environment.yml` (runtime
+plus the test/lint tools `run_ci.py` needs — `pytest`, `pytest-cov`,
+`matplotlib`, `ipython`, `ruff`), verifies core imports, and asserts every
+package came from conda-forge (never `defaults`). No separate `pip install` is
+required; `requirements-dev.txt` is the dependency list for the non-conda
+GitHub CI matrix. A missing test toolchain still fails the first CI step closed
+("No module named pytest"), so a broken env can never let a hardware run start.
 
 ## Step 1: Stage limits
 

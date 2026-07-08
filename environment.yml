@@ -27,6 +27,18 @@ dependencies:
   # The LAS X CAM API DLLs ship with LAS X and load from the install dir;
   # only the bridge itself is a package.
   - pythonnet>=3.0
-  # Optional: diagnostic plots / visualization (lazy-imported; not required
-  # for API / registration / focusing). Uncomment to enable the plot paths.
-  # - matplotlib>=3.7
+  # --- diagnostic plots / visualization ---
+  # matplotlib drives the calibration report figures and the optional driver
+  # diagnostic plots. Runtime code lazy-imports it; the calibration test suite
+  # requires it.
+  - matplotlib>=3.7
+  # --- test / lint tooling ---
+  # Folded in so a single `build_env.py` yields a test-ready env: run_ci.py
+  # needs pytest + coverage, the calibration tests need ipython, and ruff is
+  # pinned explicitly rather than relying on it arriving transitively through
+  # ome-types -> xsdata. These are light, and this machine both runs and tests
+  # the driver, so there is no lean-production env to keep them out of.
+  - pytest>=8
+  - pytest-cov>=5
+  - ipython>=8
+  - ruff>=0.6
