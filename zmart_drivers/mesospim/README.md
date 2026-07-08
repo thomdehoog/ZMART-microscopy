@@ -21,9 +21,9 @@ drivers.
 - **Status:** The driver rides mesoSPIM's **Remote Scripting** bridge ([`pull_request/`](pull_request/), v1.20.0),
   which accepts **only named calls** — the wire carries a single-key JSON object `{"<method>": {args}}` (data, not
   code) — dispatched against a fixed allowlist ([`connection/command_api.py`](connection/command_api.py)).
-  No client Python is ever `exec`d. **134 offline tests** green — the mock server dispatches the real calls through
-  that same allowlist against a Core-shaped fake, so framing/auth/vocabulary are exercised for real. Remaining:
-  the live round-trip + **real-hardware** validation (see [TODO.md](TODO.md)).
+  No client Python is ever `exec`d. Offline tests green, and **validated on the bench against mesoSPIM `-D`
+  demo mode (2026-07-08): both lanes — framed TCP and MCP-over-HTTP — drove the demo Core end to end, as-is.**
+  Remaining: **real-hardware** validation (see [TODO.md](TODO.md)).
 
 ## How it controls the microscope — in plain terms
 

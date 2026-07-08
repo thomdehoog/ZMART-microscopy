@@ -86,8 +86,11 @@ framing round-trips, the token is constant-time, bad **values** are refused
 (unknown method, a Python-expression name, a `__dunder__`, a multi-key object,
 malformed JSON) is rejected without running anything. The shipped
 `test_remote_control_validation.py` covers the same `_validate` gate against the
-real module. The live `-D` end-to-end run (a real Core moving the demo stage, over
-both TCP and MCP) is the remaining check.
+real module. **Validated on the bench against mesoSPIM `-D` demo mode
+(2026-07-08):** the Remote Control tab starts and drives the demo Core end to end
+over **both lanes — framed TCP and MCP-over-HTTP — and it worked as-is** (the
+handlers matched the real Core, no changes needed). **Real-hardware** validation
+is the only remaining step.
 
 ## How to apply
 

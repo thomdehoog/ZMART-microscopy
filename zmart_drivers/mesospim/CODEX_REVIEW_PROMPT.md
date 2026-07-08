@@ -74,6 +74,7 @@ suggested fix. Separate **must-fix** (correctness/security) from **nice-to-have*
 If a claim in the docs/comments is wrong, flag it. If you find nothing in a
 dimension, say so explicitly rather than padding.
 
-Note: the offline suite (`python zmart_drivers/mesospim/run_ci.py`) is green and a
-live-hardware bench run is still pending (see `BENCH_RUN.md`) — so "untested
-against a real Core" is known; focus on what the code itself guarantees.
+Note: the offline suite (`python zmart_drivers/mesospim/run_ci.py`) is green, and
+it was **validated on the bench against mesoSPIM `-D` demo mode (2026-07-08), both
+TCP and MCP lanes, as-is**. Only **real-hardware** validation remains (see
+`BENCH_RUN.md`) — focus your review on what the code itself guarantees.
