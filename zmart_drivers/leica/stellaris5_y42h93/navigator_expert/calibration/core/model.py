@@ -226,20 +226,23 @@ def get_reference_slot_from_data(config: dict[str, Any]) -> int:
 
 
 def get_reference_slot(config: dict[str, Any]) -> int:
-    """Return and validate the cached reference objective slot."""
-    if "reference_objective_slot" not in config:
-        raise ValueError("calibration config is missing 'reference_objective_slot'")
-    cached = int(config["reference_objective_slot"])
-    derived = get_reference_slot_from_data(config)
-    if cached != derived:
-        raise ValueError(
-            f"reference_objective_slot={cached} disagrees with zero-translation slot {derived}"
-        )
-    return cached
+    """The reference (origin) objective slot -- the one at translation [0, 0, 0].
+
+    There is no privileged, operator-specified reference: translations are
+    relative, so the origin is simply whichever objective reads [0, 0, 0] (the
+    first objective calibrated on a fresh config). Derived from the data, not
+    stored.
+    """
+    return get_reference_slot_from_data(config)
 
 
 def set_reference(config: dict[str, Any], new_ref_slot: int) -> None:
-    """Re-origin all objective translations around ``new_ref_slot``."""
+    """Re-origin all objective translations around ``new_ref_slot``.
+
+    Subtracts ``new_ref_slot``'s translation from every objective, so it becomes
+    the [0, 0, 0] origin. The reference is derived from the data (the zero
+    entry), never stored.
+    """
     ref = get_translation_um(config, new_ref_slot)
     for entry in (config.get("objectives") or {}).values():
         value = entry.get("translation_um")
@@ -250,8 +253,7 @@ def set_reference(config: dict[str, Any], new_ref_slot: int) -> None:
             float(value[1]) - ref[1],
             float(value[2]) - ref[2],
         ]
-    config["reference_objective_slot"] = int(new_ref_slot)
-    get_reference_slot(config)
+    get_reference_slot(config)  # sanity: exactly one zero entry now
 
 
 def translate_xy_between_objectives(
