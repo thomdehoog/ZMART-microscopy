@@ -7,9 +7,7 @@ Covers:
 - non-square pixel rejection
 - adoption behavior (publishes a copy-forward snapshot, snapshot history,
   missing staging source, wrong kind, bundled-default fallback)
-- image_to_stage success path with mocked driver + register_voting
-- weak-vote and D4-residual-failure paths block the staging config
-- report image paths are session-root-relative
+- objective-pair workflow (parfocality / parcentricity, rerun invalidation)
 - overlay smoke test
 """
 
@@ -17,7 +15,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,10 +29,6 @@ from navigator_expert.calibration.core import (
     adopt as wf_adopt,
 )
 from navigator_expert.calibration.core import common as cm
-from navigator_expert.calibration.core import (
-    image_to_stage as wf_i2s,
-)
-from navigator_expert.calibration.core import model as calib_model
 from navigator_expert.calibration.core import (
     objective_pair as wf_obj,
 )
@@ -247,120 +241,6 @@ def test_plot_overlay_smoke():
 # ---------------------------------------------------------------------
 
 
-def _patch_driver(
-    monkeypatch,
-    *,
-    pixel_size_um=0.5,
-    image_shape=(64, 64),
-    home_xy=(1000.0, 2000.0),
-    acquire_side_effects=None,
-):
-    """Patch driver + register_voting hooks used by image_to_stage.
-
-    Returns the mutable ``pos`` dict so tests can inspect stage position
-    after a failure path.
-
-    ``acquire_side_effects`` is an optional list; the N-th acquire call
-    uses entry N. ``None`` entries return the default frame; an
-    ``Exception`` instance is raised instead. The list is padded with
-    ``None`` if shorter than the number of calls.
-    """
-
-    monkeypatch.setattr(
-        wf_i2s.drv,
-        "connect_python_client",
-        lambda *a, **k: object(),
-    )
-    monkeypatch.setattr(
-        wf_i2s.drv,
-        "connect_limits_handshake",
-        lambda client, **k: SimpleNamespace(
-            ok=True,
-            error=None,
-            stage_cfg={"stage_um": {"x": [1000.0, 130000.0], "y": [1000.0, 100000.0]}},
-        ),
-    )
-    monkeypatch.setattr(
-        wf_i2s.drv,
-        "get_hardware_info",
-        lambda client, **kw: {"ok": True},
-    )
-
-    pos = {"x": home_xy[0], "y": home_xy[1]}
-
-    def _get_xy(client, **kw):
-        return {"x_um": pos["x"], "y_um": pos["y"]}
-
-    def _move_xy(client, x, y, unit="um", **kw):
-        pos["x"] = x
-        pos["y"] = y
-        return {"success": True}
-
-    monkeypatch.setattr(wf_i2s.drv, "get_xy", _get_xy)
-    monkeypatch.setattr(cm.drv, "get_xy", _get_xy)
-    monkeypatch.setattr(cm.drv, "move_xy", _move_xy)
-
-    monkeypatch.setattr(
-        cm.drv,
-        "get_job_settings",
-        lambda *a, **k: {"some": "settings"},
-    )
-    monkeypatch.setattr(
-        cm.drv,
-        "parse_tile_geometry",
-        lambda settings: {
-            "pixel_w_um": pixel_size_um,
-            "pixel_h_um": pixel_size_um,
-            "pixels_x": image_shape[1],
-            "pixels_y": image_shape[0],
-        },
-    )
-
-    rng = np.random.RandomState(42)
-    img_template = (rng.rand(*image_shape) * 255).astype(np.uint16)
-    side_effects = list(acquire_side_effects or [])
-    call_count = {"n": 0}
-
-    def _acquire(client, job, **kw):
-        return SimpleNamespace(job=job, command_result={"success": True})
-
-    def _save(client, acq, output_root, naming, **kw):
-        idx = call_count["n"]
-        call_count["n"] += 1
-        if idx < len(side_effects) and side_effects[idx] is not None:
-            effect = side_effects[idx]
-            if isinstance(effect, Exception):
-                raise effect
-            image = effect
-        else:
-            image = img_template.copy()
-        return _saved_manifest(output_root, naming, image)
-
-    monkeypatch.setattr(cm.drv, "acquire", _acquire)
-    monkeypatch.setattr(cm.drv, "save", _save)
-    return pos
-
-
-def _install_register_voting(monkeypatch, votes):
-    """votes is a list consumed FIFO; each entry is dict returned."""
-    iterator = iter(votes)
-
-    def _rv(ref, tgt, pixel_um, **kw):
-        return next(iterator)
-
-    monkeypatch.setattr(wf_i2s, "register_voting", _rv)
-
-
-def _trusted(dx_um, dy_um):
-    return {
-        "dx_um": dx_um,
-        "dy_um": dy_um,
-        "trusted": True,
-        "confidence": 4,
-        "agreeing": ["pcc", "masked_pcc", "ncc", "orb"],
-    }
-
-
 def _write_saved_image(output_root, naming, image):
     image_path = Path(output_root) / build_image_name(naming)
     image_path.parent.mkdir(parents=True, exist_ok=True)
@@ -386,219 +266,6 @@ def _saved_manifest(output_root, naming, image):
         xml_paths={cm.drv.PositionIndex(t=0, v=0): Path(output_root) / "mock.ome.xml"},
         naming=naming,
     )
-
-
-def _untrusted():
-    return {
-        "dx_um": float("nan"),
-        "dy_um": float("nan"),
-        "trusted": False,
-        "confidence": 0,
-        "agreeing": [],
-    }
-
-
-def test_start_session_requires_sessions_root_image_to_stage(monkeypatch):
-    # No driver patches: start_session must raise BEFORE any driver
-    # call. TypeError comes from the keyword-only signature when
-    # sessions_root is missing.
-    with pytest.raises(TypeError):
-        wf_i2s.start_session(
-            session_id="needs_root",
-            job_name="Overview",
-            reference_objective="10x",
-            stage_move_um=30.0,
-            settle_s=0.0,
-        )
-
-
-def test_start_session_fails_fast_on_uncreatable_sessions_root(
-    monkeypatch,
-    tmp_path,
-):
-    # Place a regular file where sessions_root expects a directory. The
-    # next mkdir call inside make_session_paths must raise -- and it
-    # must raise BEFORE any driver connection, stage movement, or
-    # acquisition call.
-    blocker = tmp_path / "blocker"
-    blocker.write_text("not a directory")
-    bad_root = blocker / "sessions"
-
-    connect_calls = {"n": 0}
-
-    def _no_driver(*a, **kw):
-        connect_calls["n"] += 1
-        raise AssertionError("driver must not be called when sessions_root is invalid")
-
-    monkeypatch.setattr(wf_i2s.drv, "connect_python_client", _no_driver)
-    monkeypatch.setattr(wf_i2s.drv, "connect_limits_handshake", _no_driver)
-    monkeypatch.setattr(wf_i2s.drv, "get_hardware_info", _no_driver)
-
-    with pytest.raises(RuntimeError) as exc_info:
-        wf_i2s.start_session(
-            session_id="bad_root",
-            job_name="Overview",
-            reference_objective="10x",
-            stage_move_um=30.0,
-            settle_s=0.0,
-            sessions_root=bad_root,
-        )
-    assert (
-        str(bad_root) in str(exc_info.value)
-        or "bad_root" in str(exc_info.value)
-        or "blocker" in str(exc_info.value)
-    )
-    assert connect_calls["n"] == 0
-
-
-def test_image_to_stage_success_writes_config_and_report(monkeypatch, sessions_root):
-    _patch_driver(monkeypatch)
-    # Perfect canonical "-Y +X" orientation:
-    # stage +X (30 um) -> image (0, +30) um
-    # stage +Y (30 um) -> image (-30, 0) um
-    _install_register_voting(
-        monkeypatch,
-        [
-            _trusted(0.0, 30.0),
-            _trusted(-30.0, 0.0),
-        ],
-    )
-
-    session = wf_i2s.start_session(
-        session_id="sess_ok",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=30.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-    session = wf_i2s.measure(session)
-    summary = wf_i2s.save_and_visualize(session)
-
-    assert summary["config_written"] is True
-    assert summary["d4_accepted"] is True
-    assert summary["status"].startswith("OK")
-    assert summary["d4_label"] == "-Y +X"
-    assert session.image_to_stage == [[0.0, -1.0], [1.0, 0.0]]
-    assert session.residual_from_d4 == pytest.approx(0.0, abs=1e-9)
-
-    cfg_path = session.paths.configs_dir / "image_to_stage.json"
-    assert cfg_path.is_file()
-    payload = json.loads(cfg_path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == cm.STAGING_SCHEMA_VERSION
-    assert payload["kind"] == "image_to_stage"
-    assert payload["image_to_stage"] == [[0.0, -1.0], [1.0, 0.0]]
-    assert payload["pixel_size_um"] == 0.5
-    assert payload["image_size_px"] == [64, 64]
-
-    report_path = session.paths.reports_dir / "image_to_stage_report.json"
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["config_written"] is True
-    assert report["d4_accepted"] is True
-    assert report["residual_from_d4"] == pytest.approx(0.0, abs=1e-9)
-
-
-def test_image_to_stage_weak_vote_blocks_config(monkeypatch, sessions_root):
-    _patch_driver(monkeypatch)
-    _install_register_voting(
-        monkeypatch,
-        [
-            _untrusted(),
-            _trusted(-30.0, 0.0),
-        ],
-    )
-
-    session = wf_i2s.start_session(
-        session_id="sess_weak",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=30.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-    session = wf_i2s.measure(session)
-    summary = wf_i2s.save_and_visualize(session)
-
-    assert summary["config_written"] is False
-    assert "WEAK VOTE" in summary["status"]
-    assert not (session.paths.configs_dir / "image_to_stage.json").exists()
-    report = json.loads(
-        (session.paths.reports_dir / "image_to_stage_report.json").read_text(encoding="utf-8")
-    )
-    assert report["config_written"] is False
-    assert report["registrations"]["home_to_plus_x"]["trusted"] is False
-
-
-def test_image_to_stage_d4_residual_failure_blocks_config(monkeypatch, sessions_root):
-    _patch_driver(monkeypatch)
-    # The fitted matrix from these shifts -- computed via
-    # M = [[10/30, -25/30], [25/30, 10/30]], fitted = -inv(M) --
-    # lands closest to "-Y +X" (rotation, det +1) with Frobenius
-    # residual ~= 0.587, well above D4_RESIDUAL_MAX (0.3). The
-    # rotation winner sidesteps the PR 7 reflection guard so this
-    # test still exercises the residual-rejection path specifically.
-    _install_register_voting(
-        monkeypatch,
-        [
-            _trusted(10.0, 25.0),
-            _trusted(-25.0, 10.0),
-        ],
-    )
-
-    session = wf_i2s.start_session(
-        session_id="sess_d4",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=30.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-    session = wf_i2s.measure(session)
-    summary = wf_i2s.save_and_visualize(session)
-
-    assert summary["config_written"] is False
-    assert summary["d4_accepted"] is False
-    assert "D4 RESIDUAL" in summary["status"]
-    assert not (session.paths.configs_dir / "image_to_stage.json").exists()
-
-    report_path = session.paths.reports_dir / "image_to_stage_report.json"
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["config_written"] is False
-    assert report["d4_accepted"] is False
-    assert report["residual_from_d4"] is not None
-
-
-def test_report_image_paths_are_session_relative(monkeypatch, sessions_root):
-    _patch_driver(monkeypatch)
-    _install_register_voting(
-        monkeypatch,
-        [
-            _trusted(0.0, 30.0),
-            _trusted(-30.0, 0.0),
-        ],
-    )
-
-    session = wf_i2s.start_session(
-        session_id="sess_paths",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=30.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-    session = wf_i2s.measure(session)
-    wf_i2s.save_and_visualize(session)
-
-    report = json.loads(
-        (session.paths.reports_dir / "image_to_stage_report.json").read_text(encoding="utf-8")
-    )
-    for key, rel in report["images"].items():
-        # Must not be absolute, must resolve against session_dir
-        assert not Path(rel).is_absolute(), (key, rel)
-        full = session.paths.session_dir / rel
-        assert full.is_file(), (key, full)
-        # Must live under the session's data/<kind>/ folder
-        assert rel.startswith("data/image_to_stage/"), (key, rel)
 
 
 # ---------------------------------------------------------------------
@@ -629,27 +296,11 @@ def _make_staging_session(
     return s, cfg
 
 
-def _valid_i2s_payload():
+def _current_calibration_payload():
     return {
-        "schema_version": cm.STAGING_SCHEMA_VERSION,
-        "kind": "image_to_stage",
-        "created_at": "2026-05-22T14:30:00+02:00",
-        "reference_objective": "10x",
-        "image_size_px": [1024, 1024],
-        "pixel_size_um": 0.5,
-        "image_to_stage": [[0.0, -1.0], [1.0, 0.0]],
-    }
-
-
-def _current_calibration_payload(matrix=None):
-    return {
-        "schema_version": 11,
+        "schema_version": 12,
         "last_updated": "20260527_120000",
         "reference_objective_slot": 1,
-        "image_to_stage": {
-            "matrix": (matrix if matrix is not None else [[1.0, 0.0], [0.0, 1.0]]),
-            "session_id": "existing_i2s",
-        },
         "objectives": {
             "1": {
                 "name": "10x",
@@ -665,70 +316,28 @@ def _current_calibration_payload(matrix=None):
     }
 
 
-def _seed_snapshot(machine, *, matrix=None, moment=_SEED_MOMENT):
-    """Publish an initial snapshot holding a full valid v11 calibration.
+def _valid_obj_payload():
+    return {
+        "schema_version": cm.STAGING_SCHEMA_VERSION,
+        "kind": "objective_translation",
+        "created_at": "2026-05-22T15:10:00+02:00",
+        "from_objective": "10x",
+        "to_objective": "20x",
+        "translation_xy_um": [12.0, 17.0],
+        "translation_z_um": 3.0,
+    }
+
+
+def _seed_snapshot(machine, *, moment=_SEED_MOMENT):
+    """Publish an initial snapshot holding a full valid calibration.
 
     Later adopts stamp with a strictly later moment (see ``_ADOPT_MOMENT``)
     so the monotonic snapshot guard is satisfied.
     """
     return machine.publish_snapshot(
         moment,
-        calibration=_current_calibration_payload(matrix=matrix),
+        calibration=_current_calibration_payload(),
     )
-
-
-def test_adoption_updates_current_calibration_and_history(sessions_root, machine):
-    _seed_snapshot(machine)
-    assert len(machine.snapshots()) == 1
-    session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
-    out = wf_adopt.adopt_calibration(
-        session,
-        "image_to_stage.json",
-        machine=machine,
-        moment=_ADOPT_MOMENT,
-    )
-
-    # Snapshot history is the calibration log: adoption appended one new
-    # cumulative snapshot, and the newest holds the merged result.
-    assert len(machine.snapshots()) == 2
-    current = machine.calibration_path()
-    assert current == machine.latest_snapshot() / "calibration.json"
-    assert current.is_file()
-    assert out["snapshot"] == str(machine.latest_snapshot())
-
-    payload = json.loads(current.read_text(encoding="utf-8"))
-    assert payload["image_to_stage"]["matrix"] == [[0.0, -1.0], [1.0, 0.0]]
-    assert payload["image_to_stage"]["session_id"] == session.session_id
-    # Returned paths are absolute strings.
-    assert Path(out["calibration_path"]).is_absolute()
-    assert Path(out["calibration_path"]) == current
-    assert Path(out["source"]).is_absolute()
-
-
-def test_adoption_archives_existing_current(sessions_root, machine):
-    seed = _seed_snapshot(machine)
-    session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
-
-    out = wf_adopt.adopt_calibration(
-        session,
-        "image_to_stage.json",
-        machine=machine,
-        moment=_ADOPT_MOMENT,
-    )
-    # Snapshot history IS the archive: the pre-adopt snapshot survives
-    # intact while the newest snapshot holds the merged calibration.
-    snaps = machine.snapshots()
-    assert len(snaps) == 2
-    previous, newest = snaps
-    assert previous == seed
-    assert Path(out["snapshot"]) == newest
-    # Previous snapshot still holds the pre-adopt identity matrix.
-    prev_payload = json.loads((previous / "calibration.json").read_text(encoding="utf-8"))
-    assert prev_payload["image_to_stage"]["matrix"] == [[1.0, 0.0], [0.0, 1.0]]
-    # Newest holds the merged matrix, and its calibration.json is in place.
-    assert (newest / "calibration.json").is_file()
-    new_payload = json.loads((newest / "calibration.json").read_text(encoding="utf-8"))
-    assert new_payload["image_to_stage"]["matrix"] == [[0.0, -1.0], [1.0, 0.0]]
 
 
 def test_adoption_objective_translation_updates_canonical_calibration(
@@ -744,8 +353,6 @@ def test_adoption_objective_translation_updates_canonical_calibration(
         "to_objective": "20x",
         "translation_xy_um": [12.0, 17.0],
         "translation_z_um": 3.0,
-        # measured under the seeded identity matrix
-        "image_to_stage_hash": calib_model.matrix_hash([[1.0, 0.0], [0.0, 1.0]]),
     }
     session, _ = _make_staging_session(
         sessions_root,
@@ -763,83 +370,6 @@ def test_adoption_objective_translation_updates_canonical_calibration(
     current = json.loads(machine.calibration_path().read_text(encoding="utf-8"))
     assert current["objectives"]["2"]["translation_um"] == [12.0, 17.0, 3.0]
     assert current["objectives"]["2"]["session_id"] == session.session_id
-
-
-def test_adoption_objective_translation_refuses_matrix_mismatch(sessions_root, machine):
-    """A correction measured under matrix A must not adopt onto matrix B.
-
-    correction_xy = image_to_stage @ image_shift, so an intervening
-    image-to-stage adoption invalidates any staged objective translation.
-    """
-    _seed_snapshot(machine)  # active matrix: identity
-    payload = {
-        "schema_version": cm.STAGING_SCHEMA_VERSION,
-        "kind": "objective_translation",
-        "created_at": "2026-05-22T15:10:00+02:00",
-        "from_objective": "10x",
-        "to_objective": "20x",
-        "translation_xy_um": [12.0, 17.0],
-        "translation_z_um": 3.0,
-        # measured under a rotated matrix, NOT the active identity
-        "image_to_stage_hash": calib_model.matrix_hash([[0.0, -1.0], [1.0, 0.0]]),
-    }
-    session, _ = _make_staging_session(sessions_root, payload, "objective_10x_to_20x.json")
-
-    with pytest.raises(ValueError, match="different image_to_stage"):
-        wf_adopt.adopt_calibration(
-            session,
-            "objective_10x_to_20x.json",
-            machine=machine,
-            moment=_ADOPT_MOMENT,
-        )
-    # Fail-closed: nothing was published on top of the seed.
-    assert len(machine.snapshots()) == 1
-
-
-def test_adoption_objective_translation_requires_matrix_provenance(sessions_root, machine):
-    """A staging payload without the matrix fingerprint cannot be verified."""
-    _seed_snapshot(machine)
-    payload = {
-        "schema_version": cm.STAGING_SCHEMA_VERSION,
-        "kind": "objective_translation",
-        "created_at": "2026-05-22T15:10:00+02:00",
-        "from_objective": "10x",
-        "to_objective": "20x",
-        "translation_xy_um": [12.0, 17.0],
-        "translation_z_um": 3.0,
-    }
-    session, _ = _make_staging_session(sessions_root, payload, "objective_10x_to_20x.json")
-
-    with pytest.raises(ValueError, match="image_to_stage_hash"):
-        wf_adopt.adopt_calibration(
-            session,
-            "objective_10x_to_20x.json",
-            machine=machine,
-            moment=_ADOPT_MOMENT,
-        )
-    assert len(machine.snapshots()) == 1
-
-
-def test_adoption_first_adopt_falls_back_to_bundled_default(
-    sessions_root,
-    machine,
-):
-    # No snapshot present: the first adopt reads the driver-bundled
-    # default calibration, merges, and publishes the first snapshot
-    # (it must NOT raise FileNotFoundError).
-    assert machine.latest_snapshot() is None
-    session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
-    out = wf_adopt.adopt_calibration(
-        session,
-        "image_to_stage.json",
-        machine=machine,
-        moment=_ADOPT_MOMENT,
-    )
-    assert machine.latest_snapshot() is not None
-    assert Path(out["snapshot"]) == machine.latest_snapshot()
-    payload = json.loads(machine.calibration_path().read_text(encoding="utf-8"))
-    assert payload["image_to_stage"]["matrix"] == [[0.0, -1.0], [1.0, 0.0]]
-    assert payload["image_to_stage"]["session_id"] == session.session_id
 
 
 def test_adoption_missing_staging_raises(sessions_root, machine):
@@ -866,7 +396,7 @@ def test_adoption_missing_staging_raises(sessions_root, machine):
 
 
 def test_adoption_wrong_kind_rejected(sessions_root, machine):
-    bad = dict(_valid_i2s_payload())
+    bad = dict(_valid_obj_payload())
     bad["kind"] = "garbage"
     session, _ = _make_staging_session(sessions_root, bad)
     with pytest.raises(ValueError, match="unsupported kind"):
@@ -881,19 +411,7 @@ def test_adoption_seeds_from_bundled_default_when_no_snapshot(sessions_root, mac
     # With a fresh machine (no snapshot) an objective-pair adopt reads the
     # bundled default, merges the delta, and publishes the first snapshot.
     assert machine.latest_snapshot() is None
-    # The adopt below merges into the bundled default calibration, so the
-    # staged correction must fingerprint the bundled default's matrix.
-    bundled = calib_model.load_calibration(machine.calibration_path())
-    payload = {
-        "schema_version": cm.STAGING_SCHEMA_VERSION,
-        "kind": "objective_translation",
-        "created_at": "2026-05-22T15:10:00+02:00",
-        "from_objective": "10x",
-        "to_objective": "20x",
-        "translation_xy_um": [12.0, 17.0],
-        "translation_z_um": 3.0,
-        "image_to_stage_hash": calib_model.matrix_hash(calib_model.get_image_to_stage(bundled)),
-    }
+    payload = _valid_obj_payload()
     session, _ = _make_staging_session(
         sessions_root,
         payload,
@@ -915,33 +433,6 @@ def test_adoption_seeds_from_bundled_default_when_no_snapshot(sessions_root, mac
     assert merged["objectives"]["2"]["session_id"] == session.session_id
 
 
-def test_adoption_writes_to_snapshot(sessions_root, machine):
-    _seed_snapshot(machine)
-    session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
-    out = wf_adopt.adopt_calibration(
-        session,
-        "image_to_stage.json",
-        machine=machine,
-        moment=_ADOPT_MOMENT,
-    )
-
-    # Source lives under the session's configs/ dir.
-    source = Path(out["source"])
-    assert source == session.paths.configs_dir / "image_to_stage.json"
-
-    # The new snapshot lives under the machine's snapshot root and is the
-    # newest snapshot; its calibration.json is the returned path.
-    snapshot = Path(out["snapshot"])
-    assert snapshot == machine.latest_snapshot()
-    assert snapshot.parent == machine.snapshot_root()
-    calibration_path = Path(out["calibration_path"])
-    assert calibration_path == snapshot / "calibration.json"
-    assert calibration_path.is_file()
-
-    # Returned paths are absolute strings.
-    assert calibration_path.is_absolute()
-
-
 # ---------------------------------------------------------------------
 # Post-review fixes (PR 1 polish)
 # ---------------------------------------------------------------------
@@ -956,162 +447,8 @@ def _strict_json_parse(text: str):
     return json.loads(text, parse_constant=_no_constants)
 
 
-def test_weak_vote_report_round_trips_strict_json(monkeypatch, sessions_root):
-    _patch_driver(monkeypatch)
-    _install_register_voting(
-        monkeypatch,
-        [
-            _untrusted(),
-            _trusted(-30.0, 0.0),
-        ],
-    )
-
-    session = wf_i2s.start_session(
-        session_id="sess_nan",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=30.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-    session = wf_i2s.measure(session)
-    wf_i2s.save_and_visualize(session)
-
-    report_path = session.paths.reports_dir / "image_to_stage_report.json"
-    text = report_path.read_text(encoding="utf-8")
-    # No raw NaN tokens should have hit disk.
-    assert "NaN" not in text
-    assert "Infinity" not in text
-
-    report = _strict_json_parse(text)
-    weak = report["registrations"]["home_to_plus_x"]
-    assert weak["trusted"] is False
-    assert weak["image_shift_um"] == [None, None]
-    # The strong vote's shifts stay floats.
-    strong = report["registrations"]["home_to_plus_y"]
-    assert strong["trusted"] is True
-    assert strong["image_shift_um"] == [-30.0, 0.0]
-    # Weak vote never evaluates D4.
-    assert report["d4_accepted"] is None
-
-
-def test_collinear_votes_singular_matrix(monkeypatch, sessions_root):
-    _patch_driver(monkeypatch)
-    # Both shifts along image-X with no Y component: M is rank-1 / singular.
-    # vote_x = (30, 0) means stage +X moved the image (30, 0) um.
-    # vote_y = (60, 0) means stage +Y also moved the image only along X.
-    _install_register_voting(
-        monkeypatch,
-        [
-            _trusted(30.0, 0.0),
-            _trusted(60.0, 0.0),
-        ],
-    )
-
-    session = wf_i2s.start_session(
-        session_id="sess_singular",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=30.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-    session = wf_i2s.measure(session)
-    summary = wf_i2s.save_and_visualize(session)
-
-    assert summary["config_written"] is False
-    # Could-not-complete is distinct from "evaluated and rejected".
-    assert summary["d4_accepted"] is None
-    assert session.d4_accepted is None
-    assert session.failure_reason is not None
-    assert "singular" in session.failure_reason
-
-    cfg = session.paths.configs_dir / "image_to_stage.json"
-    assert not cfg.exists()
-
-    report = _strict_json_parse(
-        (session.paths.reports_dir / "image_to_stage_report.json").read_text(encoding="utf-8")
-    )
-    assert report["config_written"] is False
-    assert report["d4_accepted"] is None
-    # Voting was trusted, so both shifts are real numbers.
-    assert report["registrations"]["home_to_plus_x"]["trusted"] is True
-    assert report["registrations"]["home_to_plus_y"]["trusted"] is True
-
-
-def test_acquire_failure_returns_stage_to_home(monkeypatch, sessions_root):
-    boom = RuntimeError("acquire_frame failed")
-    home_xy = (1000.0, 2000.0)
-    # 1st call (home) succeeds (None -> default frame).
-    # 2nd call (plus_x) raises.
-    pos = _patch_driver(
-        monkeypatch,
-        home_xy=home_xy,
-        acquire_side_effects=[None, boom],
-    )
-
-    session = wf_i2s.start_session(
-        session_id="sess_recover",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=30.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-
-    with pytest.raises(RuntimeError, match="acquire_frame failed"):
-        wf_i2s.measure(session)
-
-    # The original exception propagated and the best-effort recovery
-    # move returned the stage to home.
-    assert pos["x"] == home_xy[0]
-    assert pos["y"] == home_xy[1]
-
-
-def test_double_adopt_keeps_prior_snapshots(sessions_root, machine):
-    """Repeated adoption must not lose data: every prior snapshot survives.
-
-    Each adopt publishes a fresh cumulative snapshot at a strictly later
-    moment; the earlier snapshots remain intact as the archive/history.
-    """
-    seed = _seed_snapshot(machine)
-    session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
-
-    # Adopt 1: publishes the second snapshot.
-    out1 = wf_adopt.adopt_calibration(
-        session,
-        "image_to_stage.json",
-        machine=machine,
-        moment=_ADOPT_MOMENT,
-    )
-    snap1 = Path(out1["snapshot"])
-    assert snap1.is_dir()
-
-    # Adopt 2: a strictly later moment publishes a distinct third snapshot
-    # without overwriting the previous one.
-    out2 = wf_adopt.adopt_calibration(
-        session,
-        "image_to_stage.json",
-        machine=machine,
-        moment=_ADOPT_MOMENT + timedelta(seconds=1),
-    )
-    snap2 = Path(out2["snapshot"])
-    assert snap2.is_dir()
-    assert snap1 != snap2
-    assert snap1.exists()  # still there, not overwritten
-
-    # All three snapshots coexist, oldest first.
-    assert machine.snapshots() == [seed, snap1, snap2]
-    # The seed keeps the pre-adopt identity matrix; both adopts hold merged.
-    seed_payload = json.loads((seed / "calibration.json").read_text(encoding="utf-8"))
-    assert seed_payload["image_to_stage"]["matrix"] == [[1.0, 0.0], [0.0, 1.0]]
-    for snap in (snap1, snap2):
-        merged = json.loads((snap / "calibration.json").read_text(encoding="utf-8"))
-        assert merged["image_to_stage"]["matrix"] == [[0.0, -1.0], [1.0, 0.0]]
-
-
 def test_adoption_staging_name_with_separator_rejected(sessions_root, machine):
-    session, _ = _make_staging_session(sessions_root, _valid_i2s_payload())
+    session, _ = _make_staging_session(sessions_root, _valid_obj_payload())
     with pytest.raises(ValueError, match="bare filename"):
         wf_adopt.adopt_calibration(
             session,
@@ -1122,75 +459,6 @@ def test_adoption_staging_name_with_separator_rejected(sessions_root, machine):
         wf_adopt.adopt_calibration(
             session,
             "..\\evil.json",
-            machine=machine,
-        )
-
-
-def test_adoption_staging_name_prefix_must_match_kind(sessions_root, machine):
-    # The file is a valid objective_translation, but the operator passes
-    # the wrong staging_name. Refuse to adopt rather than silently
-    # writing it to the image_to_stage.json slot.
-    payload = {
-        "schema_version": cm.STAGING_SCHEMA_VERSION,
-        "kind": "objective_translation",
-        "created_at": "2026-05-22T15:10:00+02:00",
-        "from_objective": "10x",
-        "to_objective": "20x",
-        "translation_xy_um": [1.0, 2.0],
-        "translation_z_um": 0.5,
-    }
-    session, _ = _make_staging_session(sessions_root, payload)
-    # The file on disk is named image_to_stage.json (because that's how
-    # _make_staging_session writes it), but the kind is objective_translation.
-    with pytest.raises(ValueError, match="expects kind"):
-        wf_adopt.adopt_calibration(
-            session,
-            "image_to_stage.json",
-            machine=machine,
-        )
-
-
-def test_failed_rerun_removes_stale_staging_config(monkeypatch, sessions_root, machine):
-    # Run 1: success -> writes configs/image_to_stage.json.
-    # Run 2 (same session): weak vote -> stale config must be removed,
-    # config_written=False, d4_accepted=None, adopt raises.
-    _patch_driver(monkeypatch)
-    _install_register_voting(
-        monkeypatch,
-        [
-            # Run 1: trusted shifts that produce the "-Y +X" orientation.
-            _trusted(0.0, 30.0),
-            _trusted(-30.0, 0.0),
-            # Run 2: weak vote on the first registration.
-            _untrusted(),
-            _trusted(-30.0, 0.0),
-        ],
-    )
-
-    session = wf_i2s.start_session(
-        session_id="sess_rerun",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=30.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-
-    summary1 = wf_i2s.save_and_visualize(wf_i2s.measure(session))
-    assert summary1["config_written"] is True
-    cfg = session.paths.configs_dir / "image_to_stage.json"
-    assert cfg.is_file()
-
-    summary2 = wf_i2s.save_and_visualize(wf_i2s.measure(session))
-    assert summary2["config_written"] is False
-    assert summary2["d4_accepted"] is None
-    assert not cfg.exists()
-    assert session.config_written is False
-
-    with pytest.raises(FileNotFoundError):
-        wf_adopt.adopt_calibration(
-            session,
-            "image_to_stage.json",
             machine=machine,
         )
 
@@ -1429,26 +697,6 @@ def _install_obj_vote(monkeypatch, vote):
     monkeypatch.setattr(wf_obj, "register_voting", _rv)
 
 
-def test_objective_pair_missing_image_to_stage_raises(
-    monkeypatch,
-    sessions_root,
-    machine,
-):
-    _patch_objective_driver(monkeypatch)
-    # No current config written. start_session must raise with a clear
-    # message that points the operator at Notebook 1.
-    missing = machine.snapshot_root() / "calibration.json"
-    with pytest.raises(FileNotFoundError, match="calibrate_image_to_stage"):
-        wf_obj.start_session(
-            session_id="obj_missing",
-            job_name="Overview",
-            from_objective="10x",
-            to_objective="20x",
-            sessions_root=sessions_root,
-            calibration_path=missing,
-        )
-
-
 def test_start_session_requires_sessions_root_objective_pair(monkeypatch):
     # No driver patches: start_session must raise BEFORE any driver
     # call. TypeError comes from the keyword-only signature.
@@ -1486,7 +734,7 @@ def test_objective_pair_override_calibration_path_recorded(
     override.parent.mkdir(parents=True, exist_ok=True)
     cm.write_json_atomic(
         override,
-        _current_calibration_payload(matrix=[[1.0, 0.0], [0.0, 1.0]]),
+        _current_calibration_payload(),
     )
 
     state = _patch_objective_driver(monkeypatch)
@@ -1590,8 +838,9 @@ def test_objective_pair_xy_translation_arithmetic_identity(
     sessions_root,
     machine,
 ):
-    # image_to_stage = identity, motor_shift = (10, 20), image shift = (2, -3)
-    # -> correction = (2, -3); translation = (12, 17).
+    # Frames are stage-aligned (reoriented at save time), so the registered
+    # image shift is already the stage-frame correction: motor_shift = (10, 20),
+    # image shift = (2, -3) -> correction = (2, -3); translation = (12, 17).
     home_xy = (1000.0, 2000.0)
     xy_post = (1010.0, 2020.0)
     state = _patch_objective_driver(
@@ -1613,7 +862,7 @@ def test_objective_pair_xy_translation_arithmetic_identity(
             "agreeing": ["pcc"],
         },
     )
-    _seed_snapshot(machine, matrix=[[1.0, 0.0], [0.0, 1.0]])
+    _seed_snapshot(machine)
 
     session = wf_obj.start_session(
         session_id="obj_xy_id",
@@ -1643,8 +892,6 @@ def test_objective_pair_xy_translation_arithmetic_identity(
     assert payload["kind"] == "objective_translation"
     assert payload["translation_xy_um"] == [12.0, 17.0]
     assert payload["translation_z_um"] == pytest.approx(3.0, abs=1e-6)
-    # The writer fingerprints the matrix the session measured under.
-    assert payload["image_to_stage_hash"] == calib_model.matrix_hash([[1.0, 0.0], [0.0, 1.0]])
 
 
 def test_objective_pair_weak_xy_vote_blocks_config(monkeypatch, sessions_root, machine):
@@ -1933,7 +1180,7 @@ def _full_objective_run(
             "agreeing": ["pcc"],
         },
     )
-    _seed_snapshot(machine, matrix=[[1.0, 0.0], [0.0, 1.0]])
+    _seed_snapshot(machine)
 
     session = wf_obj.start_session(
         session_id=session_id,
@@ -2159,54 +1406,6 @@ def test_objective_pair_rerun_2b_wipes_target_z_stack_dir(
 # Exception-path stale-config invariants (Section 15 invariant on the
 # partial-failure-during-rerun path)
 # ---------------------------------------------------------------------
-
-
-def test_image_to_stage_rerun_with_measure_failure_removes_stale_config(
-    monkeypatch, sessions_root, machine
-):
-    """Run 1: full success writes config. Run 2: measure() raises
-    mid-execution. The stale staging config must be gone BEFORE the
-    exception propagates, so a downstream adopt cannot ship the
-    previous run's matrix.
-    """
-    boom = RuntimeError("acquire_frame failed")
-    # Run 1: home / plus_x / plus_y all OK (indices 0,1,2).
-    # Run 2: home OK (index 3), plus_x raises (index 4).
-    _patch_driver(
-        monkeypatch,
-        acquire_side_effects=[None, None, None, None, boom],
-    )
-    _install_register_voting(
-        monkeypatch,
-        [
-            _trusted(0.0, 30.0),
-            _trusted(-30.0, 0.0),
-        ],
-    )
-
-    session = wf_i2s.start_session(
-        session_id="sess_partial_rerun",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=30.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-    wf_i2s.save_and_visualize(wf_i2s.measure(session))
-    cfg = session.paths.configs_dir / "image_to_stage.json"
-    assert cfg.is_file()
-
-    with pytest.raises(RuntimeError, match="acquire_frame failed"):
-        wf_i2s.measure(session)
-
-    assert not cfg.exists()
-    assert session.config_written is False
-    with pytest.raises(FileNotFoundError):
-        wf_adopt.adopt_calibration(
-            session,
-            "image_to_stage.json",
-            machine=machine,
-        )
 
 
 def test_objective_pair_rerun_3b_acquire_failure_removes_stale_config(
@@ -2436,7 +1635,7 @@ def test_objective_pair_parcentricity_xy_pixel_size_mismatch_raises(
             "agreeing": ["pcc"],
         },
     )
-    _seed_snapshot(machine, matrix=[[1.0, 0.0], [0.0, 1.0]])
+    _seed_snapshot(machine)
 
     session = wf_obj.start_session(
         session_id="obj_xy_pix_mismatch",
@@ -3072,190 +2271,6 @@ def test_plot_d4_candidates_no_redundant_axis_titles():
     plt.close(fig)
 
 
-def test_image_to_stage_save_and_visualize_writes_png_diagnostics(monkeypatch, sessions_root):
-    _patch_driver(monkeypatch)
-    _install_register_voting(
-        monkeypatch,
-        [
-            _trusted(0.0, 30.0),
-            _trusted(-30.0, 0.0),
-        ],
-    )
-    session = wf_i2s.start_session(
-        session_id="sess_diag_ok",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=30.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-    session = wf_i2s.measure(session)
-
-    # Record every figure passed to IPython.display.display. Exactly
-    # one must be displayed (the D4 candidate grid). Raw triplet and
-    # overlays are saved to reports/ but never shown inline.
-    displayed: list = []
-
-    def _recorder(obj, *a, **kw):
-        displayed.append(obj)
-
-    import IPython.display as ipy_display
-
-    monkeypatch.setattr(ipy_display, "display", _recorder)
-
-    summary = wf_i2s.save_and_visualize(session)
-    assert summary["config_written"] is True
-
-    assert len(displayed) == 1, f"expected exactly 1 inline displayed figure, got {len(displayed)}"
-    sup = displayed[0]._suptitle.get_text() if displayed[0]._suptitle else ""
-    assert (
-        sup.startswith("Winner:")
-        or sup.startswith("NO WINNER")
-        or sup.startswith("REFLECTION REJECTED")
-        or sup.startswith("SINGULAR FIT")
-    ), sup
-
-    report_path = session.paths.reports_dir / "image_to_stage_report.json"
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    figures = report.get("figures")
-    assert isinstance(figures, dict)
-    expected_keys = {
-        "raw_triplet",
-        "overlay_home_plus_x",
-        "overlay_home_plus_y",
-        "d4_candidates",
-    }
-    assert set(figures.keys()) == expected_keys
-
-    for key, rel in figures.items():
-        # Session-root-relative string under reports/.
-        assert isinstance(rel, str)
-        assert not Path(rel).is_absolute(), (key, rel)
-        assert rel.startswith("reports/"), (key, rel)
-        # The corresponding PNG file exists and is non-empty.
-        png_path = session.paths.session_dir / rel
-        assert png_path.is_file(), (key, png_path)
-        assert png_path.stat().st_size > 0, (key, png_path)
-
-
-def test_image_to_stage_save_and_visualize_operator_summary_format(
-    monkeypatch,
-    capsys,
-    sessions_root,
-):
-    # Success path: stdout carries the new human-readable operator
-    # block and does NOT carry the old dev-style keys.
-    _patch_driver(monkeypatch)
-    _install_register_voting(
-        monkeypatch,
-        [
-            _trusted(0.0, 30.0),
-            _trusted(-30.0, 0.0),
-        ],
-    )
-    session = wf_i2s.start_session(
-        session_id="sess_op_summary_ok",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=30.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-    session = wf_i2s.measure(session)
-    capsys.readouterr()
-    wf_i2s.save_and_visualize(session)
-    out = capsys.readouterr().out
-
-    assert "Image-to-stage calibration: OK" in out, out
-    assert "Orientation winner:" in out, out
-    assert "D4 residual:" in out, out
-    assert "Staging config written:" in out, out
-    # Old dev-style keys must be gone.
-    assert "fitted_image_to_stage:" not in out, out
-    assert "residual_from_d4:" not in out, out
-    assert "d4_label:" not in out, out
-
-    # Reflection-rejection path: stdout carries the REFLECTION REJECTED
-    # header and explicitly says no staging config was written.
-    _install_register_voting(
-        monkeypatch,
-        [
-            _trusted(40.0, 0.0),
-            _trusted(0.0, -40.0),
-        ],
-    )
-    session = wf_i2s.start_session(
-        session_id="sess_op_summary_refl",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=40.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-    session = wf_i2s.measure(session)
-    capsys.readouterr()
-    wf_i2s.save_and_visualize(session)
-    out = capsys.readouterr().out
-
-    assert "REFLECTION REJECTED" in out, out
-    assert "No staging config written." in out, out
-    assert "fitted_image_to_stage:" not in out, out
-    assert "residual_from_d4:" not in out, out
-    assert "d4_label:" not in out, out
-
-
-def test_image_to_stage_weak_vote_writes_review_pngs_but_no_config(monkeypatch, sessions_root):
-    _patch_driver(monkeypatch)
-    _install_register_voting(
-        monkeypatch,
-        [
-            _untrusted(),
-            _trusted(-30.0, 0.0),
-        ],
-    )
-    session = wf_i2s.start_session(
-        session_id="sess_diag_weak",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=30.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-    session = wf_i2s.measure(session)
-    summary = wf_i2s.save_and_visualize(session)
-
-    assert summary["config_written"] is False
-    assert not (session.paths.configs_dir / "image_to_stage.json").exists()
-
-    report_path = session.paths.reports_dir / "image_to_stage_report.json"
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    figures = report.get("figures")
-    assert isinstance(figures, dict)
-    # Raw triplet must exist on the weak-vote path.
-    assert "raw_triplet" in figures
-    raw_png = session.paths.session_dir / figures["raw_triplet"]
-    assert raw_png.is_file()
-    assert raw_png.stat().st_size > 0
-
-    # Both measured-overlay PNGs land on disk because both home and
-    # plus_x / plus_y images were acquired before the weak vote was
-    # produced.
-    for key in ("overlay_home_plus_x", "overlay_home_plus_y"):
-        assert key in figures, key
-        png = session.paths.session_dir / figures[key]
-        assert png.is_file(), key
-        assert png.stat().st_size > 0, key
-
-    # D4 grid may be present but must not imply an accepted winner --
-    # the report's d4_accepted is None on the weak-vote path, which is
-    # what plot_d4_candidates checks before highlighting.
-    assert report["d4_accepted"] is None
-    if "d4_candidates" in figures:
-        d4_png = session.paths.session_dir / figures["d4_candidates"]
-        assert d4_png.is_file()
-        assert d4_png.stat().st_size > 0
-
-
 def _collect_all_titles(fig) -> list[str]:
     """Return every title surface on the rotation-only grid.
 
@@ -3381,85 +2396,3 @@ def test_plot_d4_candidates_suptitle_names_rotation_winner():
     plt = pytest.importorskip("matplotlib.pyplot")
 
     plt.close(fig)
-
-
-def test_image_to_stage_rejects_reflection_candidate(monkeypatch, sessions_root):
-    # Votes designed so the fitted matrix snaps to the reflection
-    # "-X +Y" with zero residual. measure() must reject in-place
-    # (Step 2 needs to see the rejected state), and Step 3 must not
-    # write a staging config.
-    _patch_driver(monkeypatch)
-    _install_register_voting(
-        monkeypatch,
-        [
-            _trusted(40.0, 0.0),
-            _trusted(0.0, -40.0),
-        ],
-    )
-
-    session = wf_i2s.start_session(
-        session_id="sess_reflection",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=40.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-    session = wf_i2s.measure(session)
-
-    # Rejection must be visible immediately after measure().
-    assert session.d4_label == "-X +Y"
-    assert session.d4_accepted is False
-    assert session.failure_reason is not None
-    assert "reflection-free" in session.failure_reason
-
-    summary = wf_i2s.save_and_visualize(session)
-    assert summary["config_written"] is False
-    assert not (session.paths.configs_dir / "image_to_stage.json").exists()
-    assert "REFLECTION REJECTED" in summary["status"]
-
-    report = json.loads(
-        (session.paths.reports_dir / "image_to_stage_report.json").read_text(encoding="utf-8")
-    )
-    assert report["config_written"] is False
-    assert report["d4_accepted"] is False
-    assert report["d4_label"] == "-X +Y"
-    # Persisted rejection reason -- future readers of the report can
-    # tell WHY config was withheld without having to re-run.
-    assert report["failure_reason"] is not None
-    assert "reflection-free" in report["failure_reason"]
-    assert "REFLECTION REJECTED" in report["status"]
-
-
-def test_save_and_visualize_raises_when_png_save_fails(monkeypatch, sessions_root):
-    # A figure's savefig may fail (full disk, permissions, broken
-    # backend, etc.). The workflow must surface that as a clear
-    # RuntimeError rather than silently writing a report that
-    # references a PNG which is not on disk.
-    _patch_driver(monkeypatch)
-    _install_register_voting(
-        monkeypatch,
-        [
-            _trusted(0.0, 30.0),
-            _trusted(-30.0, 0.0),
-        ],
-    )
-    session = wf_i2s.start_session(
-        session_id="sess_png_fail",
-        job_name="Overview",
-        reference_objective="10x",
-        stage_move_um=30.0,
-        settle_s=0.0,
-        sessions_root=sessions_root,
-    )
-    session = wf_i2s.measure(session)
-
-    mpl_figure = pytest.importorskip("matplotlib.figure")
-
-    def _boom(self, *a, **kw):
-        raise OSError("disk on fire")
-
-    monkeypatch.setattr(mpl_figure.Figure, "savefig", _boom)
-
-    with pytest.raises(RuntimeError, match="failed to write diagnostic PNG"):
-        wf_i2s.save_and_visualize(session)

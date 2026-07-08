@@ -220,14 +220,19 @@ def zero_z_galvo(client: Any, job_name: str) -> None:
 # -- Acquisition helper ------------------------------------------------
 
 
-def acquire_frame_to(session: Any, name: str) -> np.ndarray:
+def acquire_frame_to(session: Any, name: str, *, orientation=None) -> np.ndarray:
     """Acquire one frame, save into ``session.paths.data_dir``, track paths.
 
     Any parent directories implied by ``name`` are created as needed.
+    ``orientation`` is threaded to the driver save path; ``None`` defaults
+    to the rig orientation. Pass ``Orientation()`` for a raw, unreoriented
+    frame (the orientation measurement acquires raw frames so it always
+    measures the physical rig).
     """
     saved = _capture_for_calibration(
         session,
         acquisition_type="calibration-frame",
+        orientation=orientation,
     )
     img = _single_plane_image(saved, context=name)
     out = session.paths.data_dir / f"{name}.tif"
@@ -240,7 +245,7 @@ def acquire_frame_to(session: Any, name: str) -> np.ndarray:
     return img
 
 
-def acquire_stack_to(session: Any, dirname: str) -> np.ndarray:
+def acquire_stack_to(session: Any, dirname: str, *, orientation=None) -> np.ndarray:
     """Trigger the operator-configured LAS X z-stack, save slices, track paths.
 
     The workflow never configures the stack (range, step, sections,
@@ -250,10 +255,13 @@ def acquire_stack_to(session: Any, dirname: str) -> np.ndarray:
 
     Slices land in ``session.paths.data_dir / dirname / z_<index>.tif``
     and are tracked under session-root-relative ``raw_files`` keys.
+    ``orientation`` is threaded to the driver save path (``None`` = rig
+    orientation).
     """
     saved = _capture_for_calibration(
         session,
         acquisition_type="calibration-stack",
+        orientation=orientation,
     )
     arr = _stack_from_saved_planes(saved, context=dirname)
     if arr.ndim != 3:
@@ -279,8 +287,13 @@ def _capture_for_calibration(
     session: Any,
     *,
     acquisition_type: str,
+    orientation=None,
 ):
     """Use the public driver acquire/save workflow for calibration captures."""
+    if orientation is None:
+        from ... import orientation as _orientation
+
+        orientation = _orientation.rig_orientation()
     position_label = f"{len(session.exported_files):06d}"
     naming = Naming(
         acquisition_type=acquisition_type,
@@ -293,6 +306,7 @@ def _capture_for_calibration(
         acq,
         session.paths.session_dir / "driver-save",
         naming,
+        orientation=orientation,
     )
 
 

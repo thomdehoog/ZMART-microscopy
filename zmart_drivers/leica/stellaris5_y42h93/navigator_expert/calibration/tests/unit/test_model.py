@@ -18,13 +18,9 @@ def _load_calibration_module():
 
 def _config():
     return {
-        "schema_version": 11,
+        "schema_version": 12,
         "last_updated": "20260527_120000",
         "reference_objective_slot": 1,
-        "image_to_stage": {
-            "matrix": [[0.0, -1.0], [1.0, 0.0]],
-            "session_id": None,
-        },
         "objectives": {
             "1": {
                 "name": "ref",
@@ -130,19 +126,6 @@ def test_set_reference_reorigins_all_translations():
     assert cfg["objectives"]["1"]["translation_um"] == [6.0, -13.0, 123.0]
 
 
-def test_pixel_to_stage_uses_image_to_stage_matrix():
-    cal = _load_calibration_module()
-    xy = cal.pixel_to_stage_xy_um(
-        60,
-        40,
-        stage_xy_um=(100.0, 200.0),
-        pixel_size_um=1.0,
-        image_size=100,
-        config=_config(),
-    )
-    assert xy == (110.0, 210.0)
-
-
 def test_missing_translation_raises_clearly():
     cal = _load_calibration_module()
     cfg = _config()
@@ -179,16 +162,6 @@ def test_update_objective_requires_name_for_new_slot():
     cal = _load_calibration_module()
     with pytest.raises(ValueError, match="without a name"):
         cal.update_objective({"objectives": {}}, 2, session_id="sess")
-
-
-def test_set_image_to_stage_coerces_to_v11_block():
-    cal = _load_calibration_module()
-    cfg = {}
-    cal.set_image_to_stage(cfg, [[0, -1], [1, 0]], session_id="sess_i2s")
-    assert cfg["image_to_stage"] == {
-        "matrix": [[0.0, -1.0], [1.0, 0.0]],
-        "session_id": "sess_i2s",
-    }
 
 
 def test_old_schema_raises_pointing_at_recalibration(tmp_path):
@@ -243,28 +216,3 @@ def test_save_load_semantic_round_trip(tmp_path):
     cal.save_calibration(loaded, path=path)
     loaded_again = cal.load_calibration(path)
     assert _semantically_equal(loaded, loaded_again)
-
-
-def test_matrix_hash_is_deterministic_and_type_insensitive():
-    cal = _load_calibration_module()
-    a = cal.matrix_hash([[1.0, 0.0], [0.0, 1.0]])
-    b = cal.matrix_hash([[1, 0], [0, 1]])  # ints coerce to the same floats
-    assert a == b
-    assert len(a) == 64  # sha256 hex
-
-
-def test_matrix_hash_differs_for_different_matrices():
-    cal = _load_calibration_module()
-    identity = cal.matrix_hash([[1.0, 0.0], [0.0, 1.0]])
-    rotated = cal.matrix_hash([[0.0, -1.0], [1.0, 0.0]])
-    scaled = cal.matrix_hash([[1.0000001, 0.0], [0.0, 1.0]])
-    assert identity != rotated
-    assert identity != scaled
-
-
-def test_matrix_hash_matches_config_matrix():
-    cal = _load_calibration_module()
-    cfg = _config()
-    assert cal.matrix_hash(cal.get_image_to_stage(cfg)) == cal.matrix_hash(
-        [[0.0, -1.0], [1.0, 0.0]]
-    )

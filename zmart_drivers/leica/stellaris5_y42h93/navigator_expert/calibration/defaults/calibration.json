@@ -1,17 +1,4 @@
 {
-  "image_to_stage": {
-    "matrix": [
-      [
-        0.0,
-        -1.0
-      ],
-      [
-        1.0,
-        0.0
-      ]
-    ],
-    "session_id": null
-  },
   "last_updated": "20260527_152752",
   "objectives": {
     "0": {
@@ -43,5 +30,5 @@
     }
   },
   "reference_objective_slot": 1,
-  "schema_version": 11
+  "schema_version": 12
 }
