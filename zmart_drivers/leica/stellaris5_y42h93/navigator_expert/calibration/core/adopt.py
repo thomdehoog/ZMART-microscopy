@@ -86,7 +86,14 @@ def _apply_staging_payload(
 ) -> None:
     from_slot = _objective_slot_for_label(config, data["from_objective"])
     to_slot = _objective_slot_for_label(config, data["to_objective"])
-    base = calibration_model.get_translation_um(config, from_slot)
+    try:
+        base = calibration_model.get_translation_um(config, from_slot)
+    except ValueError:
+        # Fresh config: the FROM objective has not been calibrated yet, so the
+        # first objective used becomes the [0, 0, 0] origin. Translations are
+        # relative -- there is no privileged reference to specify.
+        calibration_model.update_objective(config, from_slot, translation_um=(0.0, 0.0, 0.0))
+        base = (0.0, 0.0, 0.0)
     translation_xy = data["translation_xy_um"]
     translation = [
         base[0] + float(translation_xy[0]),

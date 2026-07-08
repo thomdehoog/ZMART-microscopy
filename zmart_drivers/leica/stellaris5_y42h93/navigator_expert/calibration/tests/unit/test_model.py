@@ -20,7 +20,6 @@ def _config():
     return {
         "schema_version": 12,
         "last_updated": "20260527_120000",
-        "reference_objective_slot": 1,
         "objectives": {
             "1": {
                 "name": "ref",
@@ -53,12 +52,13 @@ def test_reference_slot_derived_from_zero_translation():
     assert cal.get_reference_slot(_config()) == 1
 
 
-def test_reference_slot_mismatch_raises():
+def test_reference_slot_ignores_stale_stored_field():
+    # The reference is derived from the [0,0,0] entry, not stored. A stale
+    # reference_objective_slot on an older file is ignored, not honored.
     cal = _load_calibration_module()
     cfg = _config()
-    cfg["reference_objective_slot"] = 2
-    with pytest.raises(ValueError, match="disagrees"):
-        cal.get_reference_slot(cfg)
+    cfg["reference_objective_slot"] = 2  # stale; slot 1 is actually [0,0,0]
+    assert cal.get_reference_slot(cfg) == 1
 
 
 def test_translate_xy_uses_translation_xy():
@@ -121,9 +121,51 @@ def test_set_reference_reorigins_all_translations():
     cal = _load_calibration_module()
     cfg = _config()
     cal.set_reference(cfg, 2)
-    assert cfg["reference_objective_slot"] == 2
+    assert cal.get_reference_slot(cfg) == 2  # derived: slot 2 is now the origin
     assert cfg["objectives"]["2"]["translation_um"] == [0.0, 0.0, 0.0]
     assert cfg["objectives"]["1"]["translation_um"] == [6.0, -13.0, 123.0]
+
+
+def test_translate_between_two_non_reference_objectives():
+    # Translations are relative: any pair's difference is derivable from
+    # measurements against a common objective (here slot 1 is the origin).
+    cal = _load_calibration_module()
+    cfg = {
+        "schema_version": 12,
+        "last_updated": "20260527_120000",
+        "objectives": {
+            "1": {"name": "a", "translation_um": [0.0, 0.0, 0.0], "session_id": None},
+            "2": {"name": "b", "translation_um": [10.0, 20.0, 1.0], "session_id": None},
+            "3": {"name": "c", "translation_um": [30.0, 5.0, -2.0], "session_id": None},
+        },
+    }
+    # 2 -> 3 uses (t3 - t2) even though neither is the reference.
+    x, y = cal.translate_xy_between_objectives(100.0, 200.0, cfg, from_slot=2, to_slot=3)
+    assert (x, y) == (100.0 + 20.0, 200.0 + -15.0)
+
+
+def test_adopt_seeds_first_used_objective_at_origin():
+    # Fresh config (FROM objective has no translation yet): the first objective
+    # used becomes the [0,0,0] origin; the pair's translation lands on TO.
+    sys.path.insert(0, str(_repo_root()))
+    from navigator_expert.calibration.core import adopt
+
+    config = {
+        "schema_version": 12,
+        "objectives": {
+            "1": {"name": "first", "session_id": None},  # no translation_um yet
+            "2": {"name": "second", "session_id": None},
+        },
+    }
+    payload = {
+        "from_objective": "first",
+        "to_objective": "second",
+        "translation_xy_um": [4.0, -3.0],
+        "translation_z_um": 2.0,
+    }
+    adopt._apply_staging_payload(config, payload, session_id="s0")
+    assert config["objectives"]["1"]["translation_um"] == [0.0, 0.0, 0.0]
+    assert config["objectives"]["2"]["translation_um"] == [4.0, -3.0, 2.0]
 
 
 def test_missing_translation_raises_clearly():
