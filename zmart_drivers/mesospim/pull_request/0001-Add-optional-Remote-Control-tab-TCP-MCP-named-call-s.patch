@@ -1,4 +1,4 @@
-From a8124d8cb9038237ce7937ad695a94c816046839 Mon Sep 17 00:00:00 2001
+From d688b0e0b3803c07cb442880d13404e6979e57b1 Mon Sep 17 00:00:00 2001
 From: Thom de Hoog <thom.dehoog@zmb.uzh.ch>
 Date: Wed, 8 Jul 2026 16:08:32 +0200
 Subject: [PATCH] Add optional Remote Control tab: TCP + MCP named-call server
@@ -49,10 +49,10 @@ nothing outside the allowlist can run. Plain TCP: the token gates casual LAN
 access, it is not sniffer-proof (tunnel it for untrusted networks).
 ---
  mesoSPIM/src/mesoSPIM_Core.py                 |  34 +-
- mesoSPIM/src/mesoSPIM_MainWindow.py           | 203 +++++-
- .../src/mesoSPIM_RemoteControl_Servers.py     | 358 +++++++++
+ mesoSPIM/src/mesoSPIM_MainWindow.py           | 203 ++++-
+ .../src/mesoSPIM_RemoteControl_Servers.py     | 358 ++++++++
  ...IM_RemoteControl_ValidateAndRunCommands.py | 842 ++++++++++++++++++
- .../src/test_remote_control_validation.py     | 184 +++++
+ .../src/test_remote_control_validation.py     | 184 ++++
  pyproject.toml                                |   1 +
  6 files changed, 1620 insertions(+), 2 deletions(-)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
@@ -110,7 +110,7 @@ index cb159e4..1ad5e45 100644
 \ No newline at end of file
 +            self.sig_time_lapse_cancelled.emit()
 diff --git a/mesoSPIM/src/mesoSPIM_MainWindow.py b/mesoSPIM/src/mesoSPIM_MainWindow.py
-index 75ff770..e6fc8c2 100644
+index 1c0242b..9bbcf2a 100644
 --- a/mesoSPIM/src/mesoSPIM_MainWindow.py
 +++ b/mesoSPIM/src/mesoSPIM_MainWindow.py
 @@ -1,6 +1,8 @@
@@ -159,10 +159,10 @@ index 75ff770..e6fc8c2 100644
          self.actionOpen_Tile_Overview.triggered.connect(self.tile_view_window.show)
          self.actionCascade_windows.triggered.connect(self.cascade_all_windows)
 -
-         # Add Processor Chain menu item to View menu
+         # Add Processor Chain menu item to Plugins menu
          self.actionProcessor_Chain = QtWidgets.QAction("Processor Chain", self)
          self.actionProcessor_Chain.setShortcut(QtGui.QKeySequence("Ctrl+Shift+P"))
-@@ -589,6 +601,8 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -586,6 +598,8 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
  
          self.checkBoxScaleWZoom.stateChanged.connect(self.scale_galvo_amp_w_zoom)
  
@@ -171,7 +171,7 @@ index 75ff770..e6fc8c2 100644
          ''' Timelapse tab '''
          self.AsFastAsPossibleCheckBox.toggled.connect(self.toggle_timelapse_interval)
          self.toggle_timelapse_interval(self.AsFastAsPossibleCheckBox.isChecked())  # sync initial state set in the .ui file
-@@ -1138,6 +1152,193 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -1202,6 +1216,193 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
      def display_warning(self, string):
          warning = QtWidgets.QMessageBox.warning(None,'mesoSPIM Warning', string, QtWidgets.QMessageBox.Ok)
  
@@ -1777,5 +1777,5 @@ index 06b49a5..966d31c 100644
  mesospim-control = "mesoSPIM.mesoSPIM_Control:run"
 +mesospim-mcp-server = "mesoSPIM.src.mesoSPIM_RemoteControl_Servers:main"
 -- 
-2.53.0.windows.1
+2.43.0
 
