@@ -5,13 +5,9 @@ One command runs the driver's full offline quality gate anywhere Python and the
 driver import work (a developer laptop, a GitHub runner, the new institute's
 microscope PC)::
 
-    python run_ci.py             # OFFLINE (default): env header + lint + offline tests + coverage
-    python run_ci.py online      # ONLINE: just the live LAS X validators (needs live LAS X)
-    python run_ci.py online --live-writes  # ONLINE + reversible write phases (the bench run);
-                                 #   writes Markdown run reports to tests/_report/
-    python run_ci.py both        # BOTH:   offline suite + the live LAS X validators
-    python run_ci.py --no-lint   # skip ruff (add to any mode)
-    python run_ci.py --no-cov    # skip coverage (faster; no pytest-cov needed)
+    python run_ci.py             # MOCK/OFFLINE (default): lint + offline tests + coverage
+    python run_ci.py --mock      # explicit spelling of the default
+    python run_ci.py --hardware  # LIVE: LAS X validators + acquire smoke
 
 Design goals (matching the suite's standard):
 
@@ -128,47 +124,22 @@ def run_step(name: str, cmd: list[str], env: dict, *, fatal: bool) -> dict:
     }
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Navigator Expert driver CI (offline suite + coverage + reports)."
     )
-    parser.add_argument(
-        "mode",
-        nargs="?",
-        choices=["offline", "online", "both"],
-        default="offline",
-        help=(
-            "which suite to run (default: offline). 'offline' -- no microscope, "
-            "no LAS X (the portable gate); 'online' -- the live LAS X validators "
-            "only (api/log/hybrid passive readers, api-vs-log parity, and the "
-            "read-only end-to-end validator per reader route; needs live LAS X); "
-            "'both' -- the offline suite followed by the live validators"
-        ),
-    )
-    parser.add_argument("--no-lint", action="store_true", help="skip ruff lint/format checks")
-    parser.add_argument(
-        "--no-cov", action="store_true", help="skip coverage (no pytest-cov required)"
-    )
-    parser.add_argument(
-        "--live-writes",
-        action="store_true",
-        help=(
-            "online/both only: run the validators' reversible write phases "
-            "(settings + job-selection round-trips per reader route, the XY "
-            "pattern + Z round-trip, and the adapter move/state round-trips) "
-            "instead of read-only. Everything is restored in finally blocks; "
-            "objective switches and acquisitions stay opt-in via the scripts' "
-            "own --allow-* flags. This is the canonical bench validation."
-        ),
-    )
-    args = parser.parse_args()
+    parser.add_argument("--mock", action="store_true", help="run the mock/offline suite (default)")
+    parser.add_argument("--hardware", action="store_true", help="run the live LAS X hardware suite")
+    args = parser.parse_args(argv)
+    if args.mock and args.hardware:
+        parser.error("--mock and --hardware are mutually exclusive")
+    return args
 
-    if args.live_writes and args.mode == "offline":
-        parser.error("--live-writes needs mode 'online' or 'both' (it drives live LAS X)")
 
-    run_offline = args.mode in ("offline", "both")
-    run_hardware = args.mode in ("online", "both")
-
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    run_mock = not args.hardware
+    run_hardware = bool(args.hardware)
     overall_start = time.perf_counter()
     run_reports_since = time.time()  # wall-clock mark for this run's markdown reports
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -182,10 +153,8 @@ def main() -> int:
 
     steps: list[dict] = []
 
-    # --- lint (non-fatal: report style debt without masking test results;
-    # online mode is 'just the live validators', so lint runs only when the
-    # offline suite does) ----
-    if not args.no_lint and run_offline:
+    # --- lint (non-fatal: report style debt without masking test results) ----
+    if run_mock:
         ruff_available = importlib.util.find_spec("ruff") is not None
         if ruff_available:
             steps.append(
@@ -207,14 +176,13 @@ def main() -> int:
         else:
             print("\n  (ruff not installed -- skipping lint; `pip install ruff` to enable)")
 
-    cov_requested = not args.no_cov
     cov_available = importlib.util.find_spec("pytest_cov") is not None
 
-    # --- offline suite + coverage (fatal) -- runs for mode 'offline' | 'both' -
+    # --- mock/offline suite + coverage (fatal) -------------------------------
     # The portable gate: no microscope, no LAS X, so it runs everywhere.
     # Excludes @pytest.mark.hardware; the mock-backed validator/stress tests run
     # here (they are not marked hardware).
-    if run_offline:
+    if run_mock:
         pytest_cmd = [
             sys.executable,
             "-m",
@@ -226,7 +194,7 @@ def main() -> int:
             # cwd, so pin it to the report dir regardless of launch dir.
             f"--junit-xml={REPORT_DIR / 'junit.xml'}",
         ]
-        if cov_requested and cov_available:
+        if cov_available:
             pytest_cmd += [
                 "--cov=navigator_expert",
                 f"--cov-config={DRIVER_ROOT / '.coveragerc'}",
@@ -234,39 +202,30 @@ def main() -> int:
                 f"--cov-report=xml:{REPORT_DIR / 'coverage.xml'}",
                 f"--cov-report=html:{REPORT_DIR / 'htmlcov'}",
             ]
-        elif cov_requested and not cov_available:
+        else:
             print(
                 "\n  (pytest-cov not installed -- running without coverage; `pip install pytest-cov` to enable)"
             )
 
         label = "tests: offline suite"
-        if cov_requested and cov_available:
+        if cov_available:
             label += " + coverage"
         steps.append(run_step(label, pytest_cmd, env, fatal=True))
 
-    # --- live LAS X validators (fatal) -- runs for mode 'online' | 'both' -----
-    # Live validators, through this same step framework: streamed output,
-    # per-step timing, CI SUMMARY. Read-only and non-interactive by default --
-    # no moves, writes, acquisitions, or prompts. --live-writes switches the
-    # validators to their reversible write phases (the canonical bench run);
-    # objective switches / acquisitions still need the scripts' own --allow-*
-    # flags in a manual run. Every validator writes a Markdown run report of
-    # every attempted instrument change into tests/_report/ (paths printed in
-    # the summary below).
+    # --- live LAS X validators (fatal) ---------------------------------------
+    # --hardware is the canonical bench run: it connects to live LAS X, proves
+    # the fail-closed limits gate with a mock first, then runs reader parity,
+    # reversible move/state checks, and a real acquire+save smoke. The lower-level
+    # validator scripts keep their granular --allow-* flags for manual debugging;
+    # run_ci exposes only the two operational modes: mock or hardware.
     if run_hardware:
         hw = DRIVER_ROOT / "tests" / "hardware"
-        write_mode = "writes" if args.live_writes else "read-only"
-        sxs_gate = ["--yes"] if args.live_writes else ["--read-only"]
-        vh_gate = ["--yes", "--allow-xy", "--allow-z"] if args.live_writes else ["--read-only"]
-        adapter_gate = (
-            ["--yes", "--allow-move", "--allow-state"] if args.live_writes else ["--read-only"]
-        )
         # SAFETY GATE (hard abort): prove the fail-closed limits machinery works
         # in THIS install against the in-process mock BEFORE connecting to real
         # LAS X or moving the stage. If it fails (bad env, regressed code,
         # missing/invalid limits files), we DO NOT run any hardware validator —
         # the run aborts here, before a single hardware command. In pure
-        # `online` mode the offline suite is skipped, so this is the only place
+        # hardware mode skips the offline suite, so this is the only place
         # the gate is proven ahead of hardware. Unlike the other fatal steps
         # (which record failure but still run), this one short-circuits: a
         # broken limits gate must never reach the physical stage.
@@ -299,21 +258,23 @@ def main() -> int:
                 [sys.executable, str(hw / "probe_four_readers.py"), "--read-only"],
             ),
             (
-                f"hardware: reader parity + routed modes ({write_mode})",
+                "hardware: reader parity + routed modes",
                 [
                     sys.executable,
                     str(hw / "validate_readers_side_by_side.py"),
-                    *sxs_gate,
+                    "--yes",
                     f"--report-dir={REPORT_DIR}",
                 ],
             ),
             (
-                f"hardware: zmart adapter (controller round-trip, {write_mode})",
+                "hardware: zmart adapter (move/state/acquire)",
                 [
                     sys.executable,
                     str(hw / "validate_zmart_adapter.py"),
-                    *adapter_gate,
-                    "--allow-missing-lasx",  # SKIP (not FAIL) if no live LAS X
+                    "--yes",
+                    "--allow-move",
+                    "--allow-state",
+                    "--allow-acquire",
                     f"--output={REPORT_DIR / 'zmart_adapter_validate.jsonl'}",
                     f"--report-dir={REPORT_DIR}",
                 ],
@@ -321,18 +282,20 @@ def main() -> int:
         ]
         # End-to-end driver validation once PER reader route, so the driver's own
         # read/gating behaviour is exercised under api, log, AND hybrid -- not
-        # just the passive reader comparison above. With --live-writes each route
-        # also runs the reversible settings + job-selection round-trips (and the
-        # XY/Z movement phases), so command confirmations are exercised per mode.
+        # just the passive reader comparison above. Each route runs the
+        # reversible settings + job-selection round-trips, XY/Z movement phases,
+        # and an acquire command.
         for mode in ("api", "log", "hybrid"):
             hardware_steps.append(
                 (
-                    f"hardware: end-to-end validator [{mode} reader] ({write_mode})",
+                    f"hardware: end-to-end validator [{mode} reader]",
                     [
                         sys.executable,
                         str(hw / "validate_hardware.py"),
-                        *vh_gate,
-                        "--allow-missing-lasx",  # SKIP (not FAIL) if no live LAS X
+                        "--yes",
+                        "--allow-xy",
+                        "--allow-z",
+                        "--allow-acquire",
                         "--state-reader-mode",
                         mode,
                         f"--output={REPORT_DIR / f'hardware_validate_{mode}.jsonl'}",
@@ -359,9 +322,9 @@ def main() -> int:
     print(
         "    env.json          environment context for this run (read this first on a remote failure)"
     )
-    if run_offline:
+    if run_mock:
         print("    junit.xml         machine-readable offline test results")
-        if cov_requested and cov_available:
+        if cov_available:
             print("    coverage.xml      coverage for CI tooling")
             print("    htmlcov/index.html  browsable coverage report")
     if run_hardware:

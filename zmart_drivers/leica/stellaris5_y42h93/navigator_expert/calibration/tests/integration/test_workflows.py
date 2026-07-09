@@ -362,13 +362,17 @@ def test_adoption_objective_translation_updates_canonical_calibration(
     wf_adopt.adopt_calibration(
         session,
         "objective_10x_to_20x.json",
+        calibration_name="water_lens_set",
         machine=machine,
         moment=_ADOPT_MOMENT,
     )
 
-    current = json.loads(machine.calibration_path().read_text(encoding="utf-8"))
+    current = json.loads(machine.calibration_path("water_lens_set").read_text(encoding="utf-8"))
     assert current["objectives"]["2"]["translation_um"] == [12.0, 17.0, 3.0]
     assert current["objectives"]["2"]["session_id"] == session.session_id
+    assert (
+        machine.latest_snapshot() / "calibrations" / "water_lens_set" / "calibration.json"
+    ).exists()
 
 
 def test_adoption_missing_staging_raises(sessions_root, machine):
@@ -419,6 +423,7 @@ def test_adoption_seeds_from_bundled_default_when_no_snapshot(sessions_root, mac
     out = wf_adopt.adopt_calibration(
         session,
         "objective_10x_to_20x.json",
+        calibration_name="lens_config_A",
         machine=machine,
         moment=_ADOPT_MOMENT,
     )
@@ -427,7 +432,10 @@ def test_adoption_seeds_from_bundled_default_when_no_snapshot(sessions_root, mac
     assert Path(out["snapshot"]) == machine.latest_snapshot()
     # The bundled default's slot 1 is the "10x" reference ([0,0,0]); the
     # merged snapshot records the "20x" (slot 2) translation delta.
-    merged = json.loads(machine.calibration_path().read_text(encoding="utf-8"))
+    assert Path(out["calibration_path"]) == (
+        machine.latest_snapshot() / "calibrations" / "lens_config_A" / "calibration.json"
+    )
+    merged = json.loads(machine.calibration_path("lens_config_A").read_text(encoding="utf-8"))
     assert merged["objectives"]["2"]["translation_um"] == [12.0, 17.0, 3.0]
     assert merged["objectives"]["2"]["session_id"] == session.session_id
 
@@ -721,6 +729,50 @@ def test_objective_pair_requires_explicit_calibration_path(monkeypatch):
             to_objective="20x",
             sessions_root="ignored",
         )
+
+
+def test_objective_pair_rejects_conflicting_calibration_selectors(monkeypatch):
+    # The source file and adoption target must not be ambiguous.
+    with pytest.raises(ValueError, match="either calibration_name or calibration_path"):
+        wf_obj.start_session(
+            session_id="obj_conflict",
+            job_name="Overview",
+            from_objective="10x",
+            to_objective="20x",
+            sessions_root="ignored",
+            calibration_path="calibration.json",
+            calibration_name="lens_A",
+        )
+
+
+def test_objective_pair_can_select_named_machine_calibration(
+    monkeypatch,
+    sessions_root,
+    machine,
+):
+    cal = _current_calibration_payload()
+    snap = machine.publish_snapshot(
+        _SEED_MOMENT,
+        calibration=cal,
+        calibration_name="lens_A",
+    )
+    monkeypatch.setattr("navigator_expert.config.machine.MACHINE", machine)
+    _patch_objective_driver(monkeypatch)
+
+    session = wf_obj.start_session(
+        session_id="obj_named",
+        job_name="Overview",
+        from_objective="10x",
+        to_objective="20x",
+        sessions_root=sessions_root,
+        calibration_name="lens_A",
+    )
+
+    assert session.calibration_name == "lens_A"
+    assert (
+        session.calibration_path
+        == (snap / "calibrations" / "lens_A" / "calibration.json").absolute()
+    )
 
 
 def test_objective_pair_override_calibration_path_recorded(

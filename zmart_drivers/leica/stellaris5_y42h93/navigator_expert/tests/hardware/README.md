@@ -6,21 +6,22 @@ scripts stay directly runnable for debugging):
 ```powershell
 cd zmart_drivers/leica/stellaris5_y42h93/navigator_expert
 
-# 1. safe first pass: read-only, no instrument changes
-python run_ci.py online
+# Mock/offline gate: no microscope, no LAS X
+python run_ci.py
 
-# 2. the bench validation: reversible write phases, everything restored
-python run_ci.py online --live-writes
+# Hardware gate: live LAS X validators, reversible moves/settings, and acquire smoke
+python run_ci.py --hardware
 ```
 
-`online` runs, in order: **first a mock limits self-check** (the fail-closed
+`--hardware` runs, in order: **first a mock limits self-check** (the fail-closed
 limits gate proven against the in-process mock, in THIS install, before LAS X
 is touched — if it fails the run **hard-aborts and no hardware validator
 runs**, so a broken limits gate can never reach the stage), then the passive
 reader probe (api/log/hybrid), the side-by-side reader parity + routed
-reader-mode validator, the zmart_controller↔adapter round-trip, and the
+reader-mode validator, the zmart_controller↔adapter move/state/acquire
+round-trip, and the
 end-to-end driver validator once per reader route (`--state-reader-mode api`,
-`log`, and `hybrid` explicitly).
+`log`, and `hybrid` explicitly), each with an acquire command.
 Hardware validation uses only production driver modules — nothing under
 `experimental/` (maintainer decision).
 
@@ -30,29 +31,27 @@ Hardware validation uses only production driver modules — nothing under
   no modal dialog open (a dialog blocks the whole CAM API).
 - A template/experiment loaded with **at least two jobs** (e.g. Overview +
   HiRes) so job-selection round-trips have a target.
-- Stage clear (no sample you care about): `--live-writes` moves XY in a
+- Stage clear (no sample you care about): `--hardware` moves XY in a
   10-position pattern (±25 µm around the current position) and does a ±2 µm
-  z-galvo round-trip. Park the stage inside the calibrated envelope first —
-  the validators refuse to move if the start position is outside limits. That
-  refusal is a **SKIP**, not a failure (the LAS X simulator commonly homes at
-  0,0, outside a real machine's envelope): it means "reposition to exercise
-  this phase," not "the driver is broken."
-- **Machine-local limits provisioned** (the single `limits.json` in the newest
-  snapshot under `C:\ProgramData\zmart-microscopy\...`, alongside
-  `calibration.json`, `orientation.json` + `origin.json`). There is
-  **no bundled fallback**: `limits/defaults/limits.json` is a template and is
-  refused for enforcement. Every validator runs the connect-time
-  limits handshake first (`limits: connect handshake` in the report) — it
-  validates schema, finite numbers, and containment within the hardcoded
-  physical backstop (`motion.limits.STAGE_BACKSTOP_UM`). On an unprovisioned
-  machine the handshake FAILs with a message naming the path tried and every
-  mutating step refuses fail-closed; run
-  `limits/notebooks/set_stage_limits.ipynb` once to create the files, then
-  re-run. (`--mock` runs provision a hermetic fixture snapshot automatically
-  and exercise the same real handshake.)
+  z-galvo round-trip, plus one or more capture+save smoke checks. Park the
+  stage inside the calibrated envelope first — the validators refuse to move
+  if the start position is outside limits. That refusal is a **SKIP**, not a
+  failure (the LAS X simulator commonly homes at 0,0, outside a real machine's
+  envelope): it means "reposition to exercise this phase," not "the driver is
+  broken."
+- **Machine-local limits available in ProgramData** (the single `limits.json`
+  in the newest snapshot under `C:\ProgramData\zmart-microscopy\...`, alongside
+  `calibration.json` or `calibrations/<name>/calibration.json`,
+  `orientation.json` + `origin.json`). If ProgramData is empty, the repo
+  defaults are copied there first. Every validator runs the connect-time limits
+  handshake (`limits: connect handshake` in the report): it validates schema,
+  finite numbers, and containment within the hardcoded physical backstop
+  (`motion.limits.STAGE_BACKSTOP_UM`). Run the three setup notebooks on the rig
+  to replace defaults with measured values. (`--mock` uses a hermetic
+  ProgramData root and exercises the same real handshake.)
 - Driver requirements installed (`pip install -r requirements-dev.txt`).
 
-## What `--live-writes` changes on the instrument (all restored in `finally`)
+## What `--hardware` changes on the instrument (all restored in `finally`)
 
 - Reversible per-job settings: zoom, scan speed, resonant flip, sequential
   mode, scan-field rotation, image format, frame/line accumulation+average,
@@ -62,8 +61,10 @@ Hardware validation uses only production driver modules — nothing under
   the run_ci set — it pops the manual-turret dialog; run it manually if wanted.)
 - Stage: the XY pattern and z-galvo round-trip above; the adapter validator
   additionally does `set_origin` + small frame moves and a job switch, restored.
-- **NOT touched by default**: objective turret and acquisitions. Opt in via a
-  direct run, e.g.
+- Acquisition: the adapter validator and each end-to-end reader route run an
+  acquire+save smoke through LAS X native AutoSave.
+- **NOT touched by run_ci**: objective turret. Opt in via a direct run only
+  when the operator wants it, e.g.
   `python tests/hardware/validate_hardware.py --yes --allow-objective --allow-acquire`.
 
 Every attempted change — including failed attempts and every restore — is
@@ -72,8 +73,9 @@ success+UNCONFIRMED / FAILED result, attempt counts, and timing.
 
 ## Expected duration
 
-- `online` (read-only): ~2–5 min against a live LAS X session.
-- `online --live-writes`: ~15–30 min (dominated by per-command confirmation
+- `python run_ci.py`: mock/offline, no LAS X required.
+- `python run_ci.py --hardware`: ~15–30 min against a live LAS X session
+  (dominated by per-command confirmation
   polling: up to 3 × 3 s readback windows per setting write, × 3 reader
   routes). Against the in-process mock the same paths run in seconds.
 
@@ -102,7 +104,7 @@ leg when no fresh log value exists). A log-mode `None` is the router's
 fail-closed answer for a stale/absent log and is recorded as SKIP; a hybrid
 `None` while api delivered is recorded as a structured FAIL, not a crash.
 (The hybrid *confirmation* race's API-leg self-block, CF-01, is fixed; the
-select_job round-trips in `--live-writes` exercise the repaired race — check
+select_job round-trips in `--hardware` exercise the repaired race — check
 the report for which leg confirmed, and how fast.)
 
 ## Offline gates (no LAS X)

@@ -76,25 +76,20 @@ runtime where possible. Override via the profile, not at call sites.
   `delay_ms` (Leica's client-side pacing knob `DelayInMilliseconds`, default 250 ms).
 - **Log reader** — `LogReaderProfile`: the `lcsCommand.log` / `MatrixScreener.log` paths + freshness windows.
 - **Machine-local calibration & limits** — `config/machine.py` resolves the instrument's calibration
-  (image↔stage matrix, per-objective translation) and stage limits from a **machine-local system config
-  dir** (out of the repo). Each snapshot dir holds up to four files: `limits.json`,
-  `calibration.json`, `orientation.json` (how the camera is turned relative to the
-  stage), and `origin.json`. Calibration keeps a loud bundled **read** fallback
-  (`calibration/defaults/calibration.json`, a real last-known-good calibration); the single **limits**
-  file does **not**: `limits/defaults/limits.json` is a **template only** — a bundled envelope can be
-  the wrong machine's envelope, so enforcement refuses it. `limits/notebooks/set_stage_limits.ipynb`
-  is the file factory: it measures the envelope and publishes the machine-local `limits.json` snapshot
-  — the single function-keyed file (`constraints` = the `stage.*` envelope + `functions` = the gate
-  policy; no `backlash` block — backlash is a motion utility with baked-in defaults, §2b). A
-  fresh-machine limits adopt writes only `limits.json` and never mints
-  a `calibration.json` from the template (calibration stays the loud read fallback until an explicit
-  calibration adopt).
+  (image↔stage matrix, per-objective translation), stage limits, orientation, and origin from a
+  **machine-local ProgramData snapshot** (out of the repo). The repo ships defaults only. If
+  ProgramData is empty, those defaults are copied into the first local snapshot so runtime reads still
+  use ProgramData paths. Each snapshot holds `limits.json`, `calibration.json` or
+  `calibrations/<name>/calibration.json`, `orientation.json`, and `origin.json`. The notebooks publish
+  measured replacements by copying the latest snapshot forward and changing only their part. The
+  single `limits.json` is function-keyed (`constraints` = the `stage.*` envelope + `functions` = the
+  gate policy; no `backlash` block — backlash is a motion utility with baked-in defaults, §2b).
 - **Limits handshake (required before any mutation)** — `connect_limits_handshake(client)` (run
   automatically by the zmart adapter's `connect()`; workflows/validators/notebooks call it once after
-  connecting). It requires the single machine-local `limits.json`, validates it (schema, finite numbers
-  only, min ≤ max, its `constraints`/`functions`, envelope **within the hardcoded physical backstop**
-  `motion.limits.STAGE_BACKSTOP_UM`), applies the stage envelope, and installs the function-keyed gate
-  for that client. On failure the
+  connecting). It resolves the ProgramData `limits.json` (seeding defaults there first when needed),
+  validates it (schema, finite numbers only, min ≤ max, its `constraints`/`functions`, envelope
+  **within the hardcoded physical backstop** `motion.limits.STAGE_BACKSTOP_UM`), applies the stage
+  envelope, and installs the function-keyed gate for that client. On failure the
   session stays usable **read-only** and every mutating command returns a fail-closed refusal that
   names the file tried and points at the notebook. Manual `set_stage_limits(...)` still adjusts the
   in-memory envelope, but it does not open the gate — only a successful handshake does — and the
@@ -121,10 +116,9 @@ from shared.output_layout import Naming, run_hash
 client = connect_python_client()
 assert ping(client)
 
-# 2. Limits handshake (REQUIRED before any mutating command): validates the
-#    single machine-local limits.json (newest machine snapshot; NO bundled
-#    fallback — limits/defaults/limits.json is a template) and installs the
-#    fail-closed gate for this client.
+# 2. Limits handshake (REQUIRED before any mutating command): resolves and
+#    validates the ProgramData limits.json, seeding repo defaults there first
+#    when needed, then installs the fail-closed gate for this client.
 state = connect_limits_handshake(client)
 assert state.ok, state.error   # points at limits/notebooks/set_stage_limits.ipynb
 
@@ -147,14 +141,11 @@ print(saved.image_paths)                                  # {PlaneIndex(t,z,c): 
 > `acquire()` returns an `AcquisitionResult` dataclass and **raises** on failure — it is *not* a
 > `{"success": ...}` dict. Saving is a deliberate second step (see §6).
 
-> No machine config yet? Every mutating command **refuses** (fail-closed) until the machine-local
-> limits exist — run `limits/notebooks/set_stage_limits.ipynb` once on the rig; it drives to the
-> physical corners and publishes the single `limits.json` into the machine snapshot.
-> A refusal looks like: `move_xy refused: no machine-local limits.json for the physical stage
-> envelope: tried <snapshot path> … Create the machine-local file with
-> limits/notebooks/set_stage_limits.ipynb`. Raw `set_stage_limits(...)` only narrows/adjusts the
-> in-memory envelope; it cannot open the gate, and the hardcoded backstop
-> (`motion.limits.STAGE_BACKSTOP_UM`) bounds every move no matter what.
+> No machine config yet? The first connect seeds ProgramData from the repo defaults so CI and local
+> mock runs work. On the rig, run `limits/notebooks/set_stage_limits.ipynb`,
+> `orientation/notebooks/set_orientation.ipynb`, and the calibration notebook to replace those defaults
+> with measured values. If validation fails, mutating commands refuse fail-closed and the message names
+> the ProgramData file to fix.
 
 ## 5. Core concepts
 
@@ -415,11 +406,10 @@ python -m pip install -r zmart_drivers/leica/stellaris5_y42h93/navigator_expert/
 python -m pytest -q zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/unit
 python -m pytest -q zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/tests
 
-# Self-contained gate (lint + offline pytest + coverage)
-python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py           # offline (default)
-python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py online     # live LAS X validators, read-only
-python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py online --live-writes  # bench validation (reversible writes, restored)
-python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py both       # offline suite + live validators
+# Self-contained gates
+python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py             # mock/offline (default)
+python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py --mock      # explicit mock/offline
+python zmart_drivers/leica/stellaris5_y42h93/navigator_expert/run_ci.py --hardware  # live LAS X validators + acquire smoke
 ```
 
 `tests/unit/` is offline against committed synthetic fixtures (template parsing, strip/restore,
@@ -427,12 +417,12 @@ position parsers, stage/limits, log & state readers, acquisition, runtime loadin
 TDD practice: add a failing offline test first, and assert real values, not just shapes.
 
 **Live hardware validation** (requires a live LAS X — simulator or scope) runs through the
-`validate_*.py` *scripts* in `tests/hardware/`, invoked directly or via `run_ci.py online` —
+`validate_*.py` *scripts* in `tests/hardware/`, invoked directly or via `run_ci.py --hardware` —
 not through pytest. Everything pytest collects is mock-backed and offline, including the
 `test_*.py` files in `tests/hardware/`, which drive the same validators against
 `MockLasxClient`. (The `hardware`/`slow` markers registered in `pytest.ini` are used by zero
-tests today; the offline/online split is file-based, not marker-based.) Hardware-moving
-sections run only with their `--allow-*` flags:
+tests today; the mock/hardware split is file-based, not marker-based.) Direct hardware-moving
+validator sections run only with their `--allow-*` flags:
 
 ```powershell
 python -m pytest -q zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware   # offline mock gates
@@ -442,7 +432,7 @@ Validator JSONL outputs are runtime artifacts, ignored by default. Every validat
 writes a **Markdown run report** (`hardware_run_report_<timestamp>.md`, in `tests/_report/` when
 launched via run_ci) listing every attempted instrument change — including failures and
 restores — with confirmation status and timing. **Bench-run instructions** (prerequisites, what
-`--live-writes` changes on the scope, expected duration, report locations) live in
+`--hardware` changes on the scope, expected duration, report locations) live in
 [`tests/hardware/README.md`](tests/hardware/README.md).
 
 ## 10. Invariants & gotchas

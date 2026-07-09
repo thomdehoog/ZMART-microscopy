@@ -101,6 +101,7 @@ CONNECTION = {
     "client": "PythonClient",
     "api_delay_ms": None,
     "output_root": None,  # required by acquire(): where products are saved
+    "calibration_name": None,  # optional ProgramData calibrations/<name>/calibration.json
 }
 
 _ACTUATORS = {"x": ("motoric",), "y": ("motoric",), "z": ("z-wide", "z-galvo")}
@@ -219,12 +220,12 @@ def connect(connection: dict) -> ZmartHandle:
     )
     _gate.connect_handshake(client)
     handle = ZmartHandle(client=client, connection=dict(connection), hash6=run_hash())
-    handle.translations = _load_objective_translations()
+    handle.translations = _load_objective_translations(connection.get("calibration_name"))
     _restore_persisted_origin(handle)
     return handle
 
 
-def _load_objective_translations() -> dict | None:
+def _load_objective_translations(calibration_name: str | None = None) -> dict | None:
     """Per-slot objective translations (µm) from the active calibration.
 
     The driver ASSUMES (operator decision, 2026-07-02 — calibration.json is
@@ -234,7 +235,7 @@ def _load_objective_translations() -> dict | None:
     cross-objective reads instead of silently computing uncompensated values.
     """
     try:
-        config = _cal_model.load_calibration(_machine.MACHINE.calibration_path())
+        config = _cal_model.load_calibration(_machine.MACHINE.calibration_path(calibration_name))
         return {
             int(slot): _cal_model.get_translation_um(config, int(slot))
             for slot in (config.get("objectives") or {})

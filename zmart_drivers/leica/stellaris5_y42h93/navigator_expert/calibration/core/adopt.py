@@ -1,14 +1,11 @@
 """Adopt a session-staging calibration into a machine snapshot.
 
 Adoption is the explicit operator step that folds a trustworthy session staging
-config into the microscope's calibration. It reads the current calibration - the
-newest machine snapshot, or the driver-bundled default when there is none -
+config into the microscope's calibration. It reads the current ProgramData
+calibration, or the bundled default as seed material when ProgramData is empty,
 merges the one staged delta, and publishes a new cumulative snapshot via
-:meth:`navigator_expert.config.machine.MachineProfile.publish_snapshot`
-(copy-forward: the latest snapshot's ``calibration.json`` + ``limits.json`` are
-carried forward, this adopt's ``calibration.json`` is overwritten, and the
-executed notebook is archived alongside; the write is atomic). Save workflows
-never adopt; this is the only path that writes a calibration snapshot.
+:meth:`navigator_expert.config.machine.MachineProfile.publish_snapshot`.
+Save workflows never adopt; this is the path that writes calibration snapshots.
 """
 
 from __future__ import annotations
@@ -142,10 +139,24 @@ def _load_staging(session: Any, staging_name: str) -> tuple[Path, dict[str, Any]
     return source, data
 
 
+def _base_calibration_path(machine: Any, calibration_name: str | None) -> Path:
+    latest = machine.latest_snapshot()
+    if latest is None:
+        return machine.bundled_default_path("calibration.json")
+
+    snapshot = machine.ensure_snapshot()
+    if calibration_name is not None:
+        named = snapshot / machine.calibration_relpath(calibration_name)
+        if named.exists():
+            return named
+    return snapshot / "calibration.json"
+
+
 def adopt_calibration(
     session: Any,
     staging_name: str,
     *,
+    calibration_name: str | None = None,
     machine: Any = None,
     moment: datetime | None = None,
     notebook_paths: Any = (),
@@ -155,6 +166,10 @@ def adopt_calibration(
     Args:
         session: A workflow session with ``.paths.configs_dir`` and ``.session_id``.
         staging_name: Bare filename inside the session's ``configs/`` folder.
+        calibration_name: Optional named calibration set to update under
+            ``calibrations/<name>/calibration.json`` in the new machine snapshot.
+            When omitted, ``session.calibration_name`` is used. If neither is
+            set, the legacy/default flat ``calibration.json`` is updated.
         machine: ``MachineProfile`` to read the current calibration from and
             publish the snapshot into. ``None`` uses the global ``MACHINE``.
         moment: Snapshot timestamp; ``None`` uses ``datetime.now(timezone.utc)``.
@@ -179,7 +194,11 @@ def adopt_calibration(
     if moment is None:
         moment = datetime.now(timezone.utc)
 
-    config = calibration_model.load_calibration(machine.calibration_path())
+    selected_name = calibration_name
+    if selected_name is None:
+        selected_name = getattr(session, "calibration_name", None)
+
+    config = calibration_model.load_calibration(_base_calibration_path(machine, selected_name))
     _apply_staging_payload(
         config,
         data,
@@ -189,11 +208,18 @@ def adopt_calibration(
     snapshot = machine.publish_snapshot(
         moment,
         calibration=prepared,
+        calibration_name=selected_name,
         notebook_paths=notebook_paths,
+    )
+    calibration_rel = (
+        machine.calibration_relpath(selected_name)
+        if selected_name is not None
+        else Path("calibration.json")
     )
 
     return {
         "source": str(source),
         "snapshot": str(snapshot),
-        "calibration_path": str(snapshot / "calibration.json"),
+        "calibration_name": selected_name,
+        "calibration_path": str(snapshot / calibration_rel),
     }

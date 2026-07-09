@@ -1,8 +1,8 @@
 """Load and apply the current objective calibration.
 
-The calibration is resolved through the machine profile - the newest snapshot
-under ``C:\\ProgramData\\zmart-microscopy\\...`` or the driver-bundled default
-(see :mod:`navigator_expert.config.machine`). The schema keeps only
+The calibration is resolved through the machine profile - the newest ProgramData
+snapshot under ``C:\\ProgramData\\zmart-microscopy\\...``. Repo defaults seed
+ProgramData on first use; runtime reads and writes stay machine-local. The schema keeps only
 consumer-facing state: one objective translation triple per slot. The rig's
 image->stage orientation is a separate concern owned by
 :mod:`navigator_expert.orientation` (measured by the ``set_orientation``
@@ -33,17 +33,18 @@ class OldSchemaError(ValueError):
     """Raised when a calibration file is an older, unsupported schema."""
 
 
-def default_path() -> Path:
+def default_path(calibration_name: str | None = None) -> Path:
     """Path to the active calibration config.
 
     Resolves through the machine profile: the newest ProgramData snapshot for
-    this microscope, or the driver-bundled default when no snapshot exists
-    (see :mod:`navigator_expert.config.machine`). Deferred import keeps this
-    module import-light.
+    this microscope, seeding it from repo defaults when needed.
+    ``calibration_name`` selects ``calibrations/<name>/calibration.json`` in the
+    snapshot; omitting it uses ``ZMART_CALIBRATION_NAME`` when set, otherwise
+    the legacy/default flat ``calibration.json``.
     """
     from ...config.machine import MACHINE
 
-    return MACHINE.calibration_path()
+    return MACHINE.calibration_path(calibration_name)
 
 
 def now_timestamp() -> str:
@@ -107,13 +108,19 @@ def validate_calibration(config: dict[str, Any]) -> None:
     # older machine-local file is ignored, not validated.
 
 
-def load_calibration(path: str | Path | None = None) -> dict[str, Any]:
+def load_calibration(
+    path: str | Path | None = None,
+    *,
+    calibration_name: str | None = None,
+) -> dict[str, Any]:
     """Load calibration.json without mutating it.
 
     Old schemas raise :class:`OldSchemaError`; the operator re-runs the
     calibration notebooks to publish a current-schema snapshot.
     """
-    current = Path(path) if path is not None else default_path()
+    if path is not None and calibration_name is not None:
+        raise ValueError("pass either path or calibration_name, not both")
+    current = Path(path) if path is not None else default_path(calibration_name)
     if not current.exists():
         raise FileNotFoundError(f"calibration config not found: {current}")
     with current.open(encoding="utf-8") as fh:
@@ -146,9 +153,12 @@ def save_calibration(
     config: dict[str, Any],
     *,
     path: str | Path | None = None,
+    calibration_name: str | None = None,
 ) -> Path:
     """Write the current calibration config atomically and bump timestamp."""
-    current = Path(path) if path is not None else default_path()
+    if path is not None and calibration_name is not None:
+        raise ValueError("pass either path or calibration_name, not both")
+    current = Path(path) if path is not None else default_path(calibration_name)
     cfg = prepared_calibration(config, path=current)
     _atomic_write_json(current, cfg)
     return current

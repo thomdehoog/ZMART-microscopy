@@ -775,8 +775,8 @@ def _connect(args):
         from limits_fixtures import hermetic_mock_machine_root  # noqa: PLC0415
         from mock_lasx_api import MockLasxClient  # noqa: PLC0415
 
-        # Enforcement has no bundled fallback: provision a hermetic
-        # machine-local fixture snapshot so the REAL limits handshake runs.
+        # Use a hermetic ProgramData fixture so the REAL limits handshake runs
+        # without touching this developer machine.
         root = hermetic_mock_machine_root()
         print("Connect: mock (in-process MockLasxClient)")
         print(f"Limits: hermetic machine root provisioned at {root}")

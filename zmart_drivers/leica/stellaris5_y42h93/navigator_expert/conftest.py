@@ -20,8 +20,8 @@ def _hermetic_machine_root(tmp_path_factory, monkeypatch):
     The global ``config.machine.MACHINE`` otherwise resolves calibration/limits
     from the real ``C:\\ProgramData\\zmart-microscopy`` tree, which would make
     tests depend on (and potentially write) machine-local state. With an empty
-    root, default resolution deterministically falls back to the driver-bundled
-    defaults. Tests that need snapshots create their own
+    root, default resolution seeds a deterministic local ProgramData snapshot.
+    Tests that need custom snapshots create their own
     ``MachineProfile(programdata_root=...)`` or populate this root.
     """
     root = tmp_path_factory.mktemp("zmart_microscopy_root")

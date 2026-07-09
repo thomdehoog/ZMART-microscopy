@@ -96,9 +96,8 @@ def _connect_session(args: argparse.Namespace, adapter: Any, output_root: str) -
         from mock_lasx_api import MockLasxClient  # noqa: PLC0415
         from navigator_expert.config import profiles  # noqa: PLC0415
 
-        # Enforcement has no bundled fallback: provision a hermetic
-        # machine-local fixture snapshot so the adapter connect's REAL
-        # limits handshake succeeds against machine-local files.
+        # Use a hermetic ProgramData fixture so the adapter connect's REAL
+        # limits handshake succeeds without touching this developer machine.
         hermetic_mock_machine_root()
         adapter._session.connect_python_client = lambda **_kw: MockLasxClient(
             latency=args.mock_latency

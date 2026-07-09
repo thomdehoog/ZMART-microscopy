@@ -41,12 +41,12 @@ during an already-gated ``acquire``.
 State model
 -----------
 :func:`connect_handshake` performs the connect-time limits handshake — the
-single machine-local ``limits.json`` must exist in the newest machine snapshot
-(the bundled ``limits/defaults/limits.json`` is a TEMPLATE and is refused), be
-schema-valid with finite numbers only (both its ``constraints``/``functions``
+single ``limits.json`` resolves to the newest ProgramData snapshot. If
+ProgramData is empty, the repo defaults are copied there first. The file must
+be schema-valid with finite numbers only (both its ``constraints``/``functions``
 and its stage envelope), and sit within the hardcoded physical backstop
-(``motion.limits.STAGE_BACKSTOP_UM``). On
-success it applies the stage envelope and installs the validated
+(``motion.limits.STAGE_BACKSTOP_UM``). On success it applies the stage envelope
+and installs the validated
 ``FunctionLimits`` in a module-level registry keyed by client identity; on
 failure the session stays usable read-only, and every gated wrapper refuses
 with the recorded reason (which names the path tried and the notebook that
@@ -230,7 +230,7 @@ def build_function_limits_payload(stage_um: Mapping[str, Any], *, source: str = 
     constraints are the measured machine envelope and
     every non-stage key starts as explicit ``null`` (reviewed, deliberately
     unlimited — the same policy as the bundled template). Operators tighten
-    entries by editing the machine-local file; the connect handshake
+    entries by editing the ProgramData file; the connect handshake
     re-validates it on every session.
     """
     constraints = {
@@ -258,9 +258,9 @@ def connect_handshake(client: Any, *, machine: Any = None, stage_limits_path: An
     Steps (any failure -> a fail-closed :class:`GateState` whose ``error``
     names the file tried and points at limits/notebooks/set_stage_limits.ipynb):
 
-    1. The single ``limits.json`` must be machine-local (newest snapshot; the
-       bundled template is refused), schema-valid with finite numbers, min <=
-       max, exactly this machine's axes (envelope derived from
+    1. The single ``limits.json`` must resolve through ProgramData, seeding
+       repo defaults there first when needed. It must be schema-valid with
+       finite numbers, min <= max, exactly this machine's axes (envelope derived from
        ``constraints.stage.*``). ``stage_limits_path`` overrides the resolution
        with an explicit operator-chosen file (still validated).
     2. The envelope must sit WITHIN the hardcoded physical backstop
@@ -275,12 +275,12 @@ def connect_handshake(client: Any, *, machine: Any = None, stage_limits_path: An
        per process) and install the gate state for *client*.
 
     On failure the session still works read-only; every mutating command
-    refuses with the recorded error until the machine-local file exists and a
+    refuses with the recorded error until the ProgramData file validates and a
     new handshake runs.
     """
     machine = machine if machine is not None else _machine.MACHINE
     try:
-        # -- 1. the single limits.json, strict machine-local. Its
+        # -- 1. the single ProgramData limits.json. Its
         #       constraints.stage.* is the physical envelope; stage_config
         #       derives stage_um from it.
         if stage_limits_path is not None:
@@ -295,7 +295,7 @@ def connect_handshake(client: Any, *, machine: Any = None, stage_limits_path: An
         _limits.check_envelope_within_backstop(stage_cfg["stage_um"])
 
         # -- 3. function-keyed limits (constraints + functions of the SAME
-        #       file), strict machine-local. The validated envelope is overlaid
+        #       file). The validated envelope is overlaid
         #       onto the stage.* constraints so the numbers governing moves are
         #       exactly the ones stage_config validated. Any stray backlash key
         #       left in an older file is ignored by the shared parser.
@@ -312,7 +312,7 @@ def connect_handshake(client: Any, *, machine: Any = None, stage_limits_path: An
     except Exception as exc:  # noqa: BLE001 -- config IO / schema; fail closed, never crash connect
         error = (
             f"limits handshake failed: {exc} — every mutating command refuses until the "
-            f"machine-local limits files validate (create/update them with {NOTEBOOK_POINTER})."
+            f"ProgramData limits files validate (create/update them with {NOTEBOOK_POINTER})."
         )
         log.warning("%s", error)
         state = GateState(limits=None, stage_cfg=None, error=error)

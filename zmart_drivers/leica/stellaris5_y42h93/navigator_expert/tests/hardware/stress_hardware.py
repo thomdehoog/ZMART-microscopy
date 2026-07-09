@@ -1189,7 +1189,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--limits-config",
         help="explicit stage-limits JSON for the handshake; default is the "
-        "machine-local snapshot (no bundled fallback)",
+        "active ProgramData snapshot, seeding repo defaults there first when needed",
     )
     parser.add_argument(
         "--rounds", type=int, default=30, help="stress steps per cycle; first step is a job sweep"
