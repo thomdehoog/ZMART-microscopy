@@ -7,7 +7,6 @@ option validation, and closed-handle semantics — including a full
 end-to-end pass through a real controller ``Session``.
 """
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -407,13 +406,18 @@ class TestAcquire(unittest.TestCase):
 
         This is the safety seam the whole orientation feature rests on. The
         ``set_orientation`` notebook measures how the camera is turned relative to
-        the stage and writes it to ``orientation/current.json``. Every acquire
-        must read that turn and hand it to ``save`` so the images that land on
-        disk are stage-aligned. If this one wire were dropped, all the other
-        tests would still pass, yet the machine would quietly save quarter-turned
-        pictures -- and the workflow would then chase every feature the wrong way.
-        Here we plant a measured 90-degree turn and prove it arrives at ``save``.
+        the stage and publishes it into the microscope's ProgramData snapshot,
+        next to its calibration and limits. Every acquire must read that turn and
+        hand it to ``save`` so the images that land on disk are stage-aligned. If
+        this one wire were dropped, all the other tests would still pass, yet the
+        machine would quietly save quarter-turned pictures -- and the workflow
+        would then chase every feature the wrong way. Here we publish a measured
+        90-degree turn into a hermetic snapshot and prove it arrives at ``save``.
         """
+        from datetime import datetime, timezone
+
+        from navigator_expert.config.machine import MachineProfile
+
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
         seen = {}
 
@@ -423,12 +427,13 @@ class TestAcquire(unittest.TestCase):
 
         patches = _patch_position(job="Overview")
         with tempfile.TemporaryDirectory() as tmp:
-            current = Path(tmp) / "current.json"
-            current.write_text(
-                json.dumps({"schema_version": 1, "rotate_deg": 90}), encoding="utf-8"
+            machine = MachineProfile(programdata_root=Path(tmp) / "programdata")
+            machine.publish_snapshot(
+                datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
+                orientation={"schema_version": 1, "rotate_deg": 90},
             )
             with (
-                patch.object(adapter._orientation, "_CURRENT", current),
+                patch.object(adapter._machine, "MACHINE", machine),
                 patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
                 patch.object(adapter._readers, "get_hardware_info", return_value={}),
                 patch.object(
@@ -452,7 +457,7 @@ class TestAcquire(unittest.TestCase):
                     options={"backlash_correction": False},
                 )
 
-        # The measured 90-degree turn was read from current.json and threaded
+        # The measured 90-degree turn was read from the snapshot and threaded
         # into save -- not the shipped "no turn" placeholder.
         self.assertEqual(seen["orientation"], adapter._orientation.Orientation(rotate_deg=90))
 

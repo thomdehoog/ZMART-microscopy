@@ -20,10 +20,12 @@ This is a separate thing from pixel-size calibration and from the stage limits,
 and it lives entirely inside the driver. Workflows never deal with it: the images
 they receive are already lined up with the stage.
 
-The measured value lives in ``orientation/current.json`` once the
-``set_orientation`` notebook has run. Until then the shipped
-``orientation/defaults/orientation.json`` is a placeholder that means "no turn,"
-so an un-measured microscope is never turned by guesswork::
+The measured value is machine-specific, so it lives with the microscope's other
+measured settings -- its calibration and its limits -- in a dated snapshot under
+the ProgramData folder, written by the ``set_orientation`` notebook. Keeping it
+there means a driver reinstall or update never loses it. Until the notebook has
+run, the shipped ``orientation/defaults/orientation.json`` is a placeholder that
+means "no turn," so an un-measured microscope is never turned by guesswork::
 
     {"schema_version": 1, "rotate_deg": 0}
 
@@ -38,9 +40,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-_HERE = Path(__file__).resolve().parent
-_CURRENT = _HERE / "current.json"
-_DEFAULT = _HERE / "defaults" / "orientation.json"
 _VALID_ROTATIONS = (0, 90, 180, 270)
 
 # How a clockwise turn of ``rotate_deg`` moves an image displacement (column,
@@ -91,18 +90,18 @@ def load_orientation(path: Any) -> Orientation:
 
 
 def rig_orientation() -> Orientation:
-    """The microscope's turn: the measured ``current.json`` if it exists, else none.
+    """The microscope's measured turn, read from its ProgramData snapshot.
 
-    The ``set_orientation`` notebook measures the turn and writes it to
-    ``current.json``. The shipped ``defaults/orientation.json`` is only a
-    placeholder that means "no turn" -- the real value is measured, never
-    hard-coded. Until the notebook has run this returns "no turn," so an
-    un-measured microscope is left exactly as it is.
+    The ``set_orientation`` notebook measures the turn and writes an
+    ``orientation.json`` into the microscope's newest snapshot, alongside its
+    calibration and limits. The machine profile resolves that file, falling back
+    to the shipped ``defaults/orientation.json`` -- a placeholder that means "no
+    turn" -- when no snapshot has one yet. The real value is measured, never
+    hard-coded, and an un-measured microscope is left exactly as it is.
     """
-    for candidate in (_CURRENT, _DEFAULT):
-        if candidate.is_file():
-            return load_orientation(candidate)
-    return Orientation()
+    from ..config.machine import MACHINE
+
+    return load_orientation(MACHINE.orientation_path())
 
 
 def orientation_from_image_to_stage(matrix) -> Orientation:

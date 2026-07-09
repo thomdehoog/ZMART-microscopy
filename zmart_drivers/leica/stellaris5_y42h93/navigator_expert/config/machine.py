@@ -1,15 +1,21 @@
 """Machine-local resolution of this microscope's coordinate-system config.
 
 Runtime coordinate config - the optical calibration, the physical stage
-envelope, and the operator-set frame origin - lives in dated snapshots under a
-machine-wide ProgramData root, newest wins. Each snapshot dir holds exactly
-three files (plus the executed notebook)::
+envelope, how the camera is turned relative to the stage, and the operator-set
+frame origin - lives in dated snapshots under a machine-wide ProgramData root,
+newest wins. Each snapshot dir holds up to four files (plus the executed
+notebook)::
 
     <programdata_root>/<vendor>/<microscope_id>/<api>/<datetime>/
         calibration.json    # optical calibration (image<->stage, per-objective)
         limits.json         # physical envelope + function gate (schema v1)
+        orientation.json    # camera turn relative to the stage (0/90/180/270)
         origin.json         # frame zero point (set_origin; updated in place)
         <executed>.ipynb    # the notebook that produced this adopt
+
+All four are machine-specific, so keeping them together in one snapshot means a
+driver reinstall or update never loses them: the measured values live in
+ProgramData, not inside the installed code.
 
 ``limits.json`` is the single function-keyed limits file (decision §7b):
 ``constraints`` (the ``stage.*`` physical envelope) + ``functions`` (the
@@ -45,6 +51,11 @@ happens depends on the file:
   the file factory is ``limits/notebooks/set_stage_limits.ipynb``.
   ``resolve()`` still returns the bundled path with ``is_fallback=True`` so
   callers (tests, template tooling) can reach the template deliberately.
+- ``orientation.json`` falls back silently to the bundled
+  ``orientation/defaults/orientation.json``, which is a genuine "no turn"
+  identity. Unlike a calibration or an envelope, an identity turn is always
+  safe: an un-measured microscope is simply left unrotated, never turned by
+  guesswork. The turn is measured by ``orientation/notebooks/set_orientation``.
 
 ``<datetime>`` is UTC with microsecond precision, formatted so it is both a
 legal Windows path segment (no colons) and lexicographically == chronologically
@@ -81,6 +92,7 @@ _SNAPSHOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}Z$")
 
 CALIBRATION_FILENAME = "calibration.json"
 LIMITS_FILENAME = "limits.json"
+ORIENTATION_FILENAME = "orientation.json"
 ORIGIN_FILENAME = "origin.json"
 
 # Driver-bundled last-known-good defaults, each owned by its subsystem.
@@ -89,6 +101,7 @@ ORIGIN_FILENAME = "origin.json"
 _BUNDLED_SUBSYSTEM = {
     CALIBRATION_FILENAME: "calibration",
     LIMITS_FILENAME: "limits",
+    ORIENTATION_FILENAME: "orientation",
 }
 
 
@@ -260,6 +273,19 @@ class MachineProfile:
         """Active physical limits.json (latest snapshot, else bundled default)."""
         return self._resolve_logged(LIMITS_FILENAME, "limits")
 
+    def orientation_path(self) -> Path:
+        """Active orientation.json (latest snapshot, else the bundled "no turn").
+
+        Resolves quietly, without the "may be stale" warning the calibration and
+        limits accessors log on fallback. The bundled orientation default is a
+        genuine identity -- no turn at all -- so falling back to it is always
+        safe: an un-measured microscope is simply left unrotated. The driver
+        reads this for every saved image, so a warning on each acquire would be
+        noise rather than help.
+        """
+        path, _ = self.resolve(ORIENTATION_FILENAME)
+        return path
+
     # --- origin: the operator-set frame zero point -----------------------
 
     def read_origin(self) -> dict | None:
@@ -311,11 +337,11 @@ class MachineProfile:
         """Place *filename* in the staging snapshot: the provided dict, else the
         latest snapshot's copy carried forward (bundled default if none and
         ``bundled_ok``). With ``bundled_ok=False`` and no machine-local source,
-        the file is omitted — neither ``limits.json`` nor ``calibration.json``
-        is minted from the bundled template by a side-effect publish (§7b);
-        only an explicit override (a calibration adopt, or the set_stage_limits
-        notebook for limits) creates one, or a real machine-local prior is
-        carried forward."""
+        the file is omitted — none of ``limits.json``, ``calibration.json`` or
+        ``orientation.json`` is minted from the bundled template by a
+        side-effect publish (§7b); only an explicit override (a calibration or
+        orientation adopt, or the set_stage_limits notebook for limits) creates
+        one, or a real machine-local prior is carried forward."""
         dest = staging / filename
         if override is not None:
             _write_json(dest, override)
@@ -331,26 +357,34 @@ class MachineProfile:
         *,
         calibration: dict | None = None,
         limits: dict | None = None,
+        orientation: dict | None = None,
         notebook_paths: Iterable[str | Path] = (),
     ) -> Path:
         """Publish a new cumulative machine-state snapshot (copy-forward + atomic).
 
         Seeds the new dated folder by carrying the latest snapshot's
-        ``calibration.json`` and ``limits.json`` forward, overrides whichever
-        of *calibration* / *limits* is provided, carries a persisted
-        ``origin.json`` forward when one exists (so an adopt never silently
-        drops the operator's frame origin), copies the given executed
-        notebook(s) in, then atomically renames the folder into place. The
-        live snapshot is never mutated, so a crash mid-publish cannot corrupt
-        the calibration the driver is currently reading.
+        ``calibration.json``, ``limits.json`` and ``orientation.json`` forward,
+        overrides whichever of *calibration* / *limits* / *orientation* is
+        provided, carries a persisted ``origin.json`` forward when one exists
+        (so an adopt never silently drops the operator's frame origin), copies
+        the given executed notebook(s) in, then atomically renames the folder
+        into place. The live snapshot is never mutated, so a crash mid-publish
+        cannot corrupt the config the driver is currently reading.
 
-        Seeding provenance (decision §7b): NEITHER file seeds from the bundled
-        template. With no machine-local prior and no override, the file is
-        omitted — so a limits adopt can never mint an enforceable envelope out
-        of the bundled template (the set_stage_limits notebook is the only
-        factory), and it never mints a calibration.json either (a real prior
+        Because each adopt carries the other three files forward, setting up a
+        machine in the usual order — limits, then orientation, then calibration
+        — leaves the final snapshot holding all three, even though each step
+        only measured one of them.
+
+        Seeding provenance (decision §7b): none of the three seeds from its
+        bundled template. With no machine-local prior and no override, the file
+        is omitted — so a limits adopt can never mint an enforceable envelope
+        out of the bundled template (the set_stage_limits notebook is the only
+        factory), it never mints a calibration.json either (a real prior
         calibration is carried forward if present; otherwise calibration stays
-        the loud in-memory READ fallback until an explicit calibration adopt).
+        the loud in-memory READ fallback until an explicit calibration adopt),
+        and orientation likewise falls back to the bundled "no turn" identity at
+        read time until the set_orientation notebook measures a real turn.
 
         *moment* must stamp strictly after the latest snapshot
         (see :meth:`new_snapshot_dir`); callers pass ``datetime.now(timezone.utc)``.
@@ -366,6 +400,7 @@ class MachineProfile:
         try:
             self._seed_file(staging, CALIBRATION_FILENAME, calibration, bundled_ok=False)
             self._seed_file(staging, LIMITS_FILENAME, limits, bundled_ok=False)
+            self._seed_file(staging, ORIENTATION_FILENAME, orientation, bundled_ok=False)
             prior = self.latest_snapshot()
             if prior is not None and (prior / ORIGIN_FILENAME).exists():
                 shutil.copy2(prior / ORIGIN_FILENAME, staging / ORIGIN_FILENAME)

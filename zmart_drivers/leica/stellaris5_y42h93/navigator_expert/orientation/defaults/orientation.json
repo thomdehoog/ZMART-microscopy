@@ -1,5 +1,5 @@
 {
   "schema_version": 1,
   "rotate_deg": 0,
-  "_notes": "Placeholder, not this microscope's real value. How the camera is turned relative to the stage is measured once by orientation/notebooks/set_orientation.ipynb, which writes the answer to orientation/current.json; the driver reads that when it saves each image. Until the measurement has run, this placeholder means 'no turn', so an un-measured microscope is left as it is. rotate_deg is a clockwise quarter-turn: one of 0, 90, 180, or 270. This is a separate thing from pixel-size calibration and from the stage limits."
+  "_notes": "Placeholder, not this microscope's real value. How the camera is turned relative to the stage is measured once by orientation/notebooks/set_orientation.ipynb, which publishes the answer into this microscope's snapshot under the ProgramData folder, next to its calibration and limits; the driver reads that when it saves each image. Until the measurement has run, this placeholder means 'no turn', so an un-measured microscope is left as it is. rotate_deg is a clockwise quarter-turn: one of 0, 90, 180, or 270. This is a separate thing from pixel-size calibration and from the stage limits."
 }

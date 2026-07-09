@@ -45,10 +45,34 @@ def test_load_orientation(tmp_path):
     assert orient.load_orientation(p) == Orientation(rotate_deg=180)
 
 
-def test_rig_orientation_defaults_to_identity_template():
-    # The shipped default is an identity template -- the rig value is measured
-    # by the set_orientation notebook, never hard-coded.
+def test_rig_orientation_defaults_to_identity_template(monkeypatch, tmp_path):
+    # With no machine snapshot yet, the rig falls back to the shipped identity
+    # template -- "no turn." The real value is measured by the set_orientation
+    # notebook, never hard-coded. A hermetic ProgramData root (no snapshot)
+    # exercises that fallback without touching the machine's real config.
+    from navigator_expert.config.machine import MachineProfile
+
+    monkeypatch.setattr(
+        "navigator_expert.config.machine.MACHINE",
+        MachineProfile(programdata_root=tmp_path / "programdata"),
+    )
     assert orient.rig_orientation() == Orientation()
+
+
+def test_rig_orientation_reads_the_measured_snapshot(monkeypatch, tmp_path):
+    # Once the set_orientation notebook has published a snapshot, the driver
+    # reads the measured turn from it -- not the identity template.
+    from datetime import datetime, timezone
+
+    from navigator_expert.config.machine import MachineProfile
+
+    machine = MachineProfile(programdata_root=tmp_path / "programdata")
+    machine.publish_snapshot(
+        datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
+        orientation={"schema_version": 1, "rotate_deg": 270},
+    )
+    monkeypatch.setattr("navigator_expert.config.machine.MACHINE", machine)
+    assert orient.rig_orientation() == Orientation(rotate_deg=270)
 
 
 # --- reorient_array (lossless D4) -----------------------------------------

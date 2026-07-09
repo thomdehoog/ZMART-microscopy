@@ -296,6 +296,48 @@ def test_publish_archives_notebook(tmp_path):
     assert (snap / "calibrate_objective_pair.ipynb").read_text() == '{"cells": []}'
 
 
+# --- orientation: a machine-specific file, alongside calibration and limits ---
+
+
+def test_orientation_path_falls_back_to_bundled_no_turn(tmp_path):
+    # With no snapshot, orientation resolves quietly to the shipped identity
+    # ("no turn") -- an un-measured microscope is left unrotated, never guessed.
+    p = _profile(tmp_path)
+    resolved = p.orientation_path()
+    assert resolved == p.bundled_default_path("orientation.json")
+    assert json.loads(resolved.read_text())["rotate_deg"] == 0
+
+
+def test_publish_overrides_orientation_carries_calibration_and_limits(tmp_path):
+    p = _profile(tmp_path)
+    first = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-000000Z")
+    _write(first / "calibration.json", {"marker": "cal-A"})
+    _write(first / "limits.json", {"marker": "lim-A"})
+    snap = p.publish_snapshot(_AT_1500, orientation={"schema_version": 1, "rotate_deg": 90})
+    # orientation adopted; the other two machine-specific files ride forward.
+    assert json.loads((snap / "orientation.json").read_text())["rotate_deg"] == 90
+    assert json.loads((snap / "calibration.json").read_text()) == {"marker": "cal-A"}
+    assert json.loads((snap / "limits.json").read_text()) == {"marker": "lim-A"}
+    assert p.orientation_path() == snap / "orientation.json"
+
+
+def test_publish_carries_measured_orientation_forward(tmp_path):
+    # A later limits adopt (orientation not re-measured) must not lose the turn.
+    p = _profile(tmp_path)
+    first = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-000000Z")
+    _write(first / "orientation.json", {"schema_version": 1, "rotate_deg": 270})
+    snap = p.publish_snapshot(_AT_1500, limits={"marker": "lim-B"})
+    assert json.loads((snap / "orientation.json").read_text())["rotate_deg"] == 270
+
+
+def test_publish_first_snapshot_does_not_seed_bundled_orientation(tmp_path):
+    # §7b: like calibration, orientation.json is not minted from the bundled
+    # template on a side-effect publish -- the READ fallback covers "no turn".
+    p = _profile(tmp_path)
+    snap = p.publish_snapshot(_AT_1430, limits={"schema_version": 1, "constraints": {}})
+    assert not (snap / "orientation.json").exists()
+
+
 def test_publish_makes_new_snapshot_the_latest(tmp_path):
     p = _profile(tmp_path)
     _mk_snapshot(tmp_path, "2026-07-01T14-30-00-000000Z")
