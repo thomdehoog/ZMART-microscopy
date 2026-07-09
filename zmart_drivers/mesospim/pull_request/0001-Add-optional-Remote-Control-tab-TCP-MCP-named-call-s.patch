@@ -1,4 +1,4 @@
-From d688b0e0b3803c07cb442880d13404e6979e57b1 Mon Sep 17 00:00:00 2001
+From 7405faab86c162d960383bb6ac6d9eb3c46fe627 Mon Sep 17 00:00:00 2001
 From: Thom de Hoog <thom.dehoog@zmb.uzh.ch>
 Date: Wed, 8 Jul 2026 16:08:32 +0200
 Subject: [PATCH] Add optional Remote Control tab: TCP + MCP named-call server
@@ -48,19 +48,19 @@ arbitrary code -- the server only ever does a dict lookup + a fixed call, so
 nothing outside the allowlist can run. Plain TCP: the token gates casual LAN
 access, it is not sniffer-proof (tunnel it for untrusted networks).
 ---
- mesoSPIM/src/mesoSPIM_Core.py                 |  34 +-
- mesoSPIM/src/mesoSPIM_MainWindow.py           | 203 ++++-
+ mesoSPIM/src/mesoSPIM_Core.py                 |  32 +
+ mesoSPIM/src/mesoSPIM_MainWindow.py           | 201 +++++
  .../src/mesoSPIM_RemoteControl_Servers.py     | 358 ++++++++
  ...IM_RemoteControl_ValidateAndRunCommands.py | 842 ++++++++++++++++++
  .../src/test_remote_control_validation.py     | 184 ++++
  pyproject.toml                                |   1 +
- 6 files changed, 1620 insertions(+), 2 deletions(-)
+ 6 files changed, 1618 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
  create mode 100644 mesoSPIM/src/test_remote_control_validation.py
 
 diff --git a/mesoSPIM/src/mesoSPIM_Core.py b/mesoSPIM/src/mesoSPIM_Core.py
-index cb159e4..1ad5e45 100644
+index cb159e4..39502a9 100644
 --- a/mesoSPIM/src/mesoSPIM_Core.py
 +++ b/mesoSPIM/src/mesoSPIM_Core.py
 @@ -1178,6 +1178,38 @@ class mesoSPIM_Core(QtCore.QObject):
@@ -102,27 +102,19 @@ index cb159e4..1ad5e45 100644
      def lightsheet_alignment_mode(self):
          """Continuous live mode that alternates left/right shutters for dual-lightsheet co-alignment.
  
-@@ -1340,4 +1372,4 @@ class mesoSPIM_Core(QtCore.QObject):
-         self.timelapse_waiting_for_finish = False
-         self.time_counter = 0
-         if was_active:
--            self.sig_time_lapse_cancelled.emit()
-\ No newline at end of file
-+            self.sig_time_lapse_cancelled.emit()
 diff --git a/mesoSPIM/src/mesoSPIM_MainWindow.py b/mesoSPIM/src/mesoSPIM_MainWindow.py
-index 1c0242b..9bbcf2a 100644
+index 1c0242b..eedd5bc 100644
 --- a/mesoSPIM/src/mesoSPIM_MainWindow.py
 +++ b/mesoSPIM/src/mesoSPIM_MainWindow.py
-@@ -1,6 +1,8 @@
+@@ -1,6 +1,7 @@
  # mesoSPIM MainWindow
  import os
  import re
 +import secrets
-+import sys
  import tifffile
  import logging
  import time
-@@ -77,6 +79,10 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -77,6 +78,10 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
  
      sig_save_etl_config = QtCore.pyqtSignal()
      sig_poke_demo_thread = QtCore.pyqtSignal()
@@ -133,7 +125,7 @@ index 1c0242b..9bbcf2a 100644
      sig_launch_optimizer = QtCore.pyqtSignal(dict)
      sig_launch_contrast_window = QtCore.pyqtSignal()
      sig_launch_processor_chain_window = QtCore.pyqtSignal()
-@@ -196,6 +202,9 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -196,6 +201,9 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
          self.sig_launch_optimizer.connect(self.launch_optimizer)
          self.sig_launch_contrast_window.connect(self.launch_contrast_window)
          self.sig_launch_processor_chain_window.connect(self.launch_processor_chain_window)
@@ -143,7 +135,7 @@ index 1c0242b..9bbcf2a 100644
  
          ''' Start the thread '''
          self.core_thread.start(QtCore.QThread.HighestPriority)
-@@ -273,6 +282,10 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -273,6 +281,10 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
      def close_app(self):
          #self.log_display_handler.flushOnClose = False #discontinued
          logger.info('Closing the application')
@@ -154,14 +146,6 @@ index 1c0242b..9bbcf2a 100644
          self.camera_window.close()
          self.acquisition_manager_window.close()
          if self.optimizer:
-@@ -419,7 +432,6 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
-         self.actionOpen_Acquisition_Manager.triggered.connect(self.acquisition_manager_window.show)
-         self.actionOpen_Tile_Overview.triggered.connect(self.tile_view_window.show)
-         self.actionCascade_windows.triggered.connect(self.cascade_all_windows)
--
-         # Add Processor Chain menu item to Plugins menu
-         self.actionProcessor_Chain = QtWidgets.QAction("Processor Chain", self)
-         self.actionProcessor_Chain.setShortcut(QtGui.QKeySequence("Ctrl+Shift+P"))
 @@ -586,6 +598,8 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
  
          self.checkBoxScaleWZoom.stateChanged.connect(self.scale_galvo_amp_w_zoom)
