@@ -35,8 +35,9 @@ the machine, under
 `C:\ProgramData\zmart-microscopy\<vendor>\<microscope>\<api>\<datetime>\`. Each
 snapshot keeps everything the microscope needs together: `calibration.json`
 (the objective positions measured here), `limits.json` (how far the stage is
-allowed to move), and `origin.json` (the operator's zero point) — plus a copy of
-the notebook that produced it, so you can always see how the numbers were made.
+allowed to move), `orientation.json` (how the camera is turned relative to the
+stage), and `origin.json` (the operator's zero point) — plus a copy of the
+notebook that produced it, so you can always see how the numbers were made.
 The driver simply reads the newest snapshot.
 
 The two configs behave differently on purpose. If no calibration snapshot exists
