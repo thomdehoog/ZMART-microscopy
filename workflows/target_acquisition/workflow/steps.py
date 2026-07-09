@@ -1,4 +1,4 @@
-"""Controller-only workflow steps: connect, root/positions, overview, targets.
+"""Controller-only workflow steps: connect, overview, targets.
 
 Thin orchestration over the ``zmart_controller`` session and the driver-free
 helpers (``_capture_run``, ``_focus_surface``). No ``navigator_expert`` import --
@@ -43,21 +43,6 @@ def load_positions(path: Any) -> list[dict]:
     """Load frame positions from a JSON list of ``{"x", "y"[, "z"]}`` (micrometres)."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     return _normalize_positions(data)
-
-
-def get_root(session: Any) -> Path:
-    """Ask the controller driver for the run root."""
-    result = session.run_procedure({"name": "get_root"})
-    root = result.get("output_root") or result.get("root")
-    if not root:
-        raise RuntimeError("get_root procedure did not return output_root")
-    return Path(root)
-
-
-def get_positions(session: Any) -> list[dict]:
-    """Ask the controller driver for overview positions."""
-    result = session.run_procedure({"name": "get_positions"})
-    return _normalize_positions(result.get("positions") or [])
 
 
 def _normalize_positions(data: Any) -> list[dict]:

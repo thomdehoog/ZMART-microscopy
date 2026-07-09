@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import tifffile
-from pipeline.discovery import (
+from workflow.discovery import (
     build_overview_inputs,
     discover_targets,
     read_overview_geometry,

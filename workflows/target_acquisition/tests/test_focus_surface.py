@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from pipeline._focus_surface import fit_focus_surface
+from workflow._focus_surface import fit_focus_surface
 
 
 def _pts(triples):

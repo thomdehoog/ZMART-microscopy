@@ -21,15 +21,15 @@ if str(_REPO_ROOT) not in sys.path:
 # Importing the adapter registers the Leica microscope with zmart_controller.
 import navigator_expert.zmart_adapter  # noqa: E402,F401
 
-# pipeline/ is a sibling package to this bootstrap
+# workflow/ is a sibling package to this bootstrap
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-import pipeline  # noqa: E402
+import workflow  # noqa: E402
 
 # v3 notebook entry: ``Config`` belongs to the retired driver-coupled flow
-# (the active controller-only pipeline no longer defines it). See
-# pipeline/retired/.
-from pipeline.retired.context import Config  # noqa: E402
+# (the active controller-only workflow no longer defines it). See
+# workflow/retired/.
+from workflow.retired.context import Config  # noqa: E402
 
-__all__ = ["Config", "Path", "TARGET_ACQ", "pipeline"]
+__all__ = ["Config", "Path", "TARGET_ACQ", "workflow"]

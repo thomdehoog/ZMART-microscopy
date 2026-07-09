@@ -12,5 +12,5 @@ for p in [str(_DRIVER_PARENT), str(_REPO_ROOT), str(_TARGET_ACQ)]:
         sys.path.insert(0, p)
 
 # Pre-load navigator_expert so its package identity is
-# established before pipeline modules trigger the same import.
+# established before workflow modules trigger the same import.
 import navigator_expert  # noqa: E402,F401
