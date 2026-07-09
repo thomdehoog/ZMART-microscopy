@@ -741,7 +741,7 @@ index 0000000..aa390db
 +    main()
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
 new file mode 100644
-index 0000000..f26904d
+index 0000000..022507d
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
 @@ -0,0 +1,842 @@
@@ -1102,9 +1102,9 @@ index 0000000..f26904d
 +    obj.update({k: v for k, v in acq.items() if v is not None})
 +    st = core.state
 +    try:
-+        core._rc_prev_acq_list = (True, st["acq_list"])
++        core._mesospim_prev_acq_list = (True, st["acq_list"])
 +    except (KeyError, TypeError):
-+        core._rc_prev_acq_list = (False, None)
++        core._mesospim_prev_acq_list = (False, None)
 +    st["acq_list"] = AcquisitionList([obj])
 +    core.start(row=0)
 +    fname = acq.get("filename") or ""
@@ -1180,7 +1180,7 @@ index 0000000..f26904d
 +
 +def _acquire_finish(core, a):
 +    st = core.state
-+    had, prev = getattr(core, "_rc_prev_acq_list", (False, None))
++    had, prev = getattr(core, "_mesospim_prev_acq_list", (False, None))
 +    if had:
 +        st["acq_list"] = prev
 +    else:
@@ -1189,7 +1189,7 @@ index 0000000..f26904d
 +        except Exception:
 +            st["acq_list"] = prev
 +    try:
-+        del core._rc_prev_acq_list
++        del core._mesospim_prev_acq_list
 +    except AttributeError:
 +        pass
 +    return {"state": _state_get(core, "state")}
