@@ -110,25 +110,44 @@ plus setup and docs:
 
 ## Getting Started
 
-Three steps to go from a clone to driving the microscope (full detail in
-**[`getting_started/`](getting_started/README.md)**).
+Follow these four steps to go from a fresh clone to driving the microscope (full detail in `getting_started/`).
 
-**1. Install the environment** — conda-forge, built in one step, then activate:
+### 1. Clone the repository
+First, download the code and enter the project directory:
+```bash
+git clone https://github.com/thomdehoog/ZMART-microscopy
+cd ZMART-microscopy
+```
 
-```powershell
-# create the "zmart-microscopy" env and install packages from conda-forge
+### 2. Install the environment
+The environment is built via `conda-forge`. Run the build script and then activate the environment:
+```bash
+# Create the "zmart-microscopy" env and install packages
 python build_env.py --name zmart-microscopy
 
-# activate the environment
+# Activate the environment
 conda activate zmart-microscopy
 ```
 
-**2. Set the stage limits** — the driver refuses to move until machine-local
-limits exist (no bundled fallback). For the Leica Stellaris driver, run the
-notebook
-`zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb`
-once; it publishes a single `limits.json` for this machine.
+### 3. Machine Setup (Limits, Orientation, & Calibration)
+The driver refuses to move until machine-local configuration exists. You must run the following notebooks in order to publish the required `.json` files for your specific machine:
 
-**3. Run it** — from the `navigator_expert` dir, `python run_ci.py online`
-(read-only), then `python run_ci.py online --live-writes` for the full bench
-validation.
+1.  **Set Stage Limits:** Defines the physical travel range.
+    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb`
+2.  **Set Orientation:** Defines the stage coordinate system relative to the camera/detector.
+    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/orientation/notebooks/set_orientation.ipynb`
+3.  **Set Calibration:** Defines the pixel-to-physical-unit scaling.
+    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/notebooks/set_calibration.ipynb`
+
+### 4. Run it
+Navigate to the `navigator_expert` directory and execute the validation:
+```bash
+cd zmart_drivers/leica/stellaris5_y42h93/navigator_expert
+
+# Start in read-only mode to verify connection
+python run_ci.py online
+
+# Run full bench validation with live writes
+python run_ci.py online --live-writes
+```
+```
