@@ -45,6 +45,26 @@ def test_load_orientation(tmp_path):
     assert orient.load_orientation(p) == Orientation(rotate_deg=180)
 
 
+def test_load_orientation_absent_key_is_no_turn(tmp_path):
+    # A file without rotate_deg means "no turn" -- the shipped placeholder's
+    # shape. The reader defaults it rather than failing.
+    p = tmp_path / "orientation.json"
+    p.write_text('{"schema_version": 1}')
+    assert orient.load_orientation(p) == Orientation()
+
+
+def test_load_orientation_rejects_non_quarter_turn(tmp_path):
+    # The core safety promise: a stored angle that is not a whole quarter-turn is
+    # refused, never quietly rounded, so the driver cannot save a picture turned
+    # onto a fraction of a pixel. This is read on every save, so it must fail
+    # loud -- a "be lenient, default to 0" refactor of the reader would silently
+    # save mis-rotated images, and this test is what stops that.
+    p = tmp_path / "orientation.json"
+    p.write_text('{"schema_version": 1, "rotate_deg": 45}')
+    with pytest.raises(ValueError, match="quarter-turn"):
+        orient.load_orientation(p)
+
+
 def test_rig_orientation_defaults_to_identity_template(monkeypatch, tmp_path):
     # With no machine snapshot yet, the rig falls back to the shipped identity
     # template -- "no turn." The real value is measured by the set_orientation

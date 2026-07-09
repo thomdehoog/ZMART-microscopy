@@ -77,8 +77,9 @@ runtime where possible. Override via the profile, not at call sites.
 - **Log reader** — `LogReaderProfile`: the `lcsCommand.log` / `MatrixScreener.log` paths + freshness windows.
 - **Machine-local calibration & limits** — `config/machine.py` resolves the instrument's calibration
   (image↔stage matrix, per-objective translation) and stage limits from a **machine-local system config
-  dir** (out of the repo). Each snapshot dir holds exactly three files: `limits.json`,
-  `calibration.json`, `origin.json`. Calibration keeps a loud bundled **read** fallback
+  dir** (out of the repo). Each snapshot dir holds up to four files: `limits.json`,
+  `calibration.json`, `orientation.json` (how the camera is turned relative to the
+  stage), and `origin.json`. Calibration keeps a loud bundled **read** fallback
   (`calibration/defaults/calibration.json`, a real last-known-good calibration); the single **limits**
   file does **not**: `limits/defaults/limits.json` is a **template only** — a bundled envelope can be
   the wrong machine's envelope, so enforcement refuses it. `limits/notebooks/set_stage_limits.ipynb`

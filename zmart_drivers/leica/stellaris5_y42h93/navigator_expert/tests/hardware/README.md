@@ -39,7 +39,7 @@ Hardware validation uses only production driver modules — nothing under
   this phase," not "the driver is broken."
 - **Machine-local limits provisioned** (the single `limits.json` in the newest
   snapshot under `C:\ProgramData\zmart-microscopy\...`, alongside
-  `calibration.json` + `origin.json` — three files per snapshot). There is
+  `calibration.json`, `orientation.json` + `origin.json`). There is
   **no bundled fallback**: `limits/defaults/limits.json` is a template and is
   refused for enforcement. Every validator runs the connect-time
   limits handshake first (`limits: connect handshake` in the report) — it

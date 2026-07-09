@@ -338,6 +338,23 @@ def test_publish_first_snapshot_does_not_seed_bundled_orientation(tmp_path):
     assert not (snap / "orientation.json").exists()
 
 
+def test_publish_setup_sequence_ends_with_all_three(tmp_path):
+    # The documented promise, and the real path a biologist walks bringing a new
+    # microscope online: set up limits, then orientation, then calibration --
+    # each step measures only one, yet the final snapshot holds all three,
+    # because every adopt carries the others forward.
+    p = _profile(tmp_path)
+    p.publish_snapshot(_AT_1430, limits={"marker": "lim"})
+    p.publish_snapshot(_AT_1500, orientation={"schema_version": 1, "rotate_deg": 90})
+    snap = p.publish_snapshot(
+        datetime(2026, 7, 1, 15, 30, 0, 0, tzinfo=timezone.utc),
+        calibration={"marker": "cal"},
+    )
+    assert json.loads((snap / "limits.json").read_text()) == {"marker": "lim"}
+    assert json.loads((snap / "orientation.json").read_text())["rotate_deg"] == 90
+    assert json.loads((snap / "calibration.json").read_text()) == {"marker": "cal"}
+
+
 def test_publish_makes_new_snapshot_the_latest(tmp_path):
     p = _profile(tmp_path)
     _mk_snapshot(tmp_path, "2026-07-01T14-30-00-000000Z")
