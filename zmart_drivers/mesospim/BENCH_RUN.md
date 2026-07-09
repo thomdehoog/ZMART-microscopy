@@ -19,16 +19,18 @@ git am /path/to/zmart_drivers/mesospim/pull_request/0001-Add-optional-remote-scr
 Launch mesoSPIM in demo mode, then **Tools → Remote Scripting… → Start**.
 Note the **token** it pre-fills (host `127.0.0.1`, port `42000` by default).
 
-**Optional — turn on soft travel limits.** Shape + option (enum) validation is
-always on. To also reject out-of-range moves, set per-axis limits before launching:
+**Range limits are on by default.** Type + option (enum) validation is always on, and
+range checking uses the per-axis travel envelope of the config you loaded at startup
+(`cfg.stage_parameters`) — so no setup is needed. To *tighten* an axis below the config
+(a soft limit), export an override before launching:
 
 ```bash
-export MESOSPIM_RS_LIMITS='{"x":[-25000,25000],"y":[-25000,25000],"z":[-5000,5000]}'
+export MESOSPIM_RS_LIMITS='{"z":[-5000,5000]}'   # only overrides z; the rest stay at cfg
 ```
 
-(use your stage's real envelope). Unset → no soft limit; the Core's hardware bound
-is the backstop. Verify with an out-of-range `move_absolute` — it should return an
-"outside the allowed range" error and the stage should not move.
+Verify with an out-of-range `move_absolute` — it should return an "outside the allowed
+range" error **naming the limit**, and the stage should not move. `get_limits` reports the
+exact rules in force (an axis with no limit shows `null`).
 
 ## 2. Run the gated integration suite (framed TCP lane)
 
