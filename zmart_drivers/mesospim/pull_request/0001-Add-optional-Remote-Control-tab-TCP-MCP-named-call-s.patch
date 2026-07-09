@@ -377,7 +377,7 @@ index 75ff770..e6fc8c2 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py b/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
 new file mode 100644
-index 0000000..d1bf3e0
+index 0000000..aa390db
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
 @@ -0,0 +1,358 @@
@@ -409,7 +409,7 @@ index 0000000..d1bf3e0
 +logger = logging.getLogger(__name__)
 +
 +ENCODING = "utf-8"
-+OK_MARKER = "__RC_OK__"
++OK_MARKER = "__MESOSPIM_OK__"
 +
 +
 +class FramingError(ValueError):

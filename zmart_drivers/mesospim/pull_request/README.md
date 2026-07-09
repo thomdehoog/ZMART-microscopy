@@ -22,7 +22,7 @@ different envelope.
 ```
   a script (framed TCP)                                        INSIDE mesoSPIM
   {"move_absolute": {…}}  ─────────▶───────────┐              (Core context)
-  __RC_OK__{…}         ◀─────────◀──────────┤
+  __MESOSPIM_OK__{…}         ◀─────────◀──────────┤
                                                ├──▶  COMMANDS["move_absolute"](core, …)
   an LLM (MCP over HTTP)     ┌── forwards ──────┘        (one validated dispatch)
   POST /mcp {"tools/call"} ──┤  a framed TCP call
@@ -44,7 +44,7 @@ different envelope.
 
 Length-framed UTF-8, both directions: `b"<decimal-byte-count>\n" + payload`. If a
 token is set, the **first** frame must be it (`OK` / `AUTH-FAILED`). Every frame
-after that is a call, `{"<method>": {args}}`; the reply is one `__RC_OK__<json>`
+after that is a call, `{"<method>": {args}}`; the reply is one `__MESOSPIM_OK__<json>`
 line (or error text). See [`PROTOCOL.md`](PROTOCOL.md).
 
 ## Security
