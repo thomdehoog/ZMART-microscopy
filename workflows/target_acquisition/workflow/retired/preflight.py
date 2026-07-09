@@ -63,11 +63,11 @@ def _shutdown_prior_ctx_if_any() -> None:
             print(f"[preflight] prior ctx.shutdown() raised: {exc}")
 
 
-def _smart_base(cfg: Config) -> Path:
+def _zmart_base(cfg: Config) -> Path:
     """Return the folder that receives ZMART run directories."""
     if cfg.smart_output_root is not None:
         return Path(cfg.smart_output_root)
-    return drv.save_source_root().parent / "smart"
+    return drv.save_source_root().parent / "zmart"
 
 
 def preflight(cfg: Config, client: Any) -> Context:
@@ -177,7 +177,7 @@ def _preflight_impl(cfg: Config, client: Any, _cap) -> Context:
 
         # 0.7 -- run dir. The workflow owns the run layout; driver save()
         # receives this run directory as output_root.
-        layout = build_layout(_smart_base(cfg), cfg.experiment)
+        layout = build_layout(_zmart_base(cfg), cfg.experiment)
         run = WorkflowRun(layout=layout)
         out_dir = layout.run_dir
         _cap.bind(run.layout.logs_dir("initialization") / "initialization.log")

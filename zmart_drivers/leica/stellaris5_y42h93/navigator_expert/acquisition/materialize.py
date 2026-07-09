@@ -1,4 +1,4 @@
-"""Materialize exported sources into canonical SMART OME files."""
+"""Materialize exported sources into canonical ZMART OME files."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def save_image_source_atomic(
     state: dict | None = None,
     orientation: Orientation | None = None,
 ) -> None:
-    """Read one source plane and write a canonical SMART OME-TIFF.
+    """Read one source plane and write a canonical ZMART OME-TIFF.
 
     When *state* is provided, the machine/software state at export time is
     embedded in the plane's OME-XML (no sidecar). When *orientation* is a

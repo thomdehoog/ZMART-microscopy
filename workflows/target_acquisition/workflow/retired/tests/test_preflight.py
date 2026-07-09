@@ -149,7 +149,7 @@ def _cfg(
     return Config(**kwargs)
 
 
-def test_smart_base_for_native_autosave_is_next_to_autosave_root(
+def test_zmart_base_for_native_autosave_is_next_to_autosave_root(
     monkeypatch,
     tmp_path,
 ):
@@ -161,10 +161,10 @@ def test_smart_base_for_native_autosave_is_next_to_autosave_root(
         lambda: autosave_root,
     )
 
-    assert mod._smart_base(_cfg(tmp_path)) == autosave_root.parent / "smart"
+    assert mod._zmart_base(_cfg(tmp_path)) == autosave_root.parent / "zmart"
 
 
-def test_smart_base_native_autosave_requires_enabled(monkeypatch, tmp_path):
+def test_zmart_base_native_autosave_requires_enabled(monkeypatch, tmp_path):
     mod = _preflight_module()
 
     def fail():
@@ -173,15 +173,15 @@ def test_smart_base_native_autosave_requires_enabled(monkeypatch, tmp_path):
     monkeypatch.setattr(mod.drv, "save_source_root", fail)
 
     with pytest.raises(RuntimeError, match="native AutoSave is not enabled"):
-        mod._smart_base(_cfg(tmp_path))
+        mod._zmart_base(_cfg(tmp_path))
 
 
-def test_smart_base_manual_override_wins(tmp_path):
+def test_zmart_base_manual_override_wins(tmp_path):
     mod = _preflight_module()
-    manual = tmp_path / "manual-smart-root"
+    manual = tmp_path / "manual-zmart-root"
 
     assert (
-        mod._smart_base(
+        mod._zmart_base(
             _cfg(
                 tmp_path,
                 smart_output_root=manual,

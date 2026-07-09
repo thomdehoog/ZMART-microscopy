@@ -32,4 +32,4 @@ python -m pytest -q workflows/target_acquisition/tests
 
 ## Output
 
-Acquisition artifacts write to a `smart/` tree beside the LAS X native AutoSave base folder, not into this package.
+Acquisition artifacts write to a `zmart/` tree beside the LAS X native AutoSave base folder, not into this package.

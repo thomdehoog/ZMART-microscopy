@@ -1,4 +1,4 @@
-"""Generate canonical SMART OME metadata.
+"""Generate canonical ZMART OME metadata.
 
 Vendor OME is parsed as input/provenance. The files written by ``save``
 use this module as the output metadata contract.
@@ -48,7 +48,7 @@ def metadata_from_ome_xml(
     size_c: int | None = None,
     pixel_type: str | None = None,
 ) -> AcquisitionMetadata:
-    """Extract the minimal SMART metadata contract from vendor OME XML."""
+    """Extract the minimal ZMART metadata contract from vendor OME XML."""
     text = xml.decode("utf-8", errors="replace") if isinstance(xml, bytes) else xml
     root = ET.fromstring(text)
     pixels = _first_local(root, "Pixels")

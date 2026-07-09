@@ -123,7 +123,7 @@ Answer each with evidence (quote report rows / log lines):
    restore, and did the final state match the initial (job, settings, XY/Z,
    objective)?
 6. **Acquire + save (the headline):** did `acquire` find and validate its
-   OME-TIFF via native AutoSave and materialise it into the SMART layout under
+   OME-TIFF via native AutoSave and materialise it into the ZMART layout under
    the output root? Is `settle == "backlash-corrected"`? Confirm
    `get_acquisition_options` no longer offers an `exporter` key.
 7. **AutoSave-off diagnostic (optional but valuable):** turn native AutoSave

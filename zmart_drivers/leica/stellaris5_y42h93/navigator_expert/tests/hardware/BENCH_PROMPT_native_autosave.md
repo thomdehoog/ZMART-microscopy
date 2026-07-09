@@ -49,7 +49,7 @@ From the `--hardware` run and its `tests/_report/hardware_run_report_*.md`
   the `AutoSaveBaseFolder` you noted) — **no** path-not-found error, **no**
   "No … OME-TIFF files found".
 - The capture produced OME-TIFF(s) that the collector located and validated
-  (grid/stability/OME checks pass), and the saved product landed in the SMART
+  (grid/stability/OME checks pass), and the saved product landed in the ZMART
   output layout under the machine's output root.
 - `get_acquisition_options` no longer offers an `exporter` key; passing
   `options={"exporter": …}` should raise `unknown acquisition option`.

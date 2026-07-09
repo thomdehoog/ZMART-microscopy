@@ -386,7 +386,7 @@ class TestAcquire(unittest.TestCase):
                 result = adapter.run_procedure(h, {"name": "get_root"})
                 root = Path(result["root"])
         self.assertEqual(result["output_root"], str(root))
-        self.assertEqual(root.parent, Path(tmp) / "lasx" / "smart")
+        self.assertEqual(root.parent, Path(tmp) / "lasx" / "zmart")
         self.assertTrue(root.name.startswith("target-acquisition_"))
         self.assertEqual(h.connection["output_root"], str(root))
 
