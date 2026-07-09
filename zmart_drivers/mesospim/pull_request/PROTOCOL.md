@@ -30,7 +30,7 @@ client ──▶  frame(token)
        ◀──  frame("OK")            # or frame("AUTH-FAILED"), then close
                                      (repeat, or from the start if no token)
 client ──▶  frame({"<method>": {args}})
-       ◀──  frame("__RC_OK__" + <json result>)   # or error text
+       ◀──  frame("__MESOSPIM_OK__" + <json result>)   # or error text
 ```
 
 - **Auth.** When the server has a token, the **first** frame must be that token
@@ -41,7 +41,7 @@ client ──▶  frame({"<method>": {args}})
   in the `COMMANDS` allowlist, (3) **validates the args** (see below), and (4)
   translates it into the matching `Core` call — the same methods the GUI's buttons
   call. Steps 2–4 are the single `run()` choke point both transports share.
-- **Reply.** One line, `__RC_OK__` + the JSON result. On a bad payload, an
+- **Reply.** One line, `__MESOSPIM_OK__` + the JSON result. On a bad payload, an
   unknown method, a rejected value, or a handler error, the reply is the error text
   (no marker line), and the connection stays open.
 
@@ -106,8 +106,8 @@ neither can invoke anything outside `COMMANDS`.
 
 ## Getting a result back
 
-The reply is already a clean line: `__RC_OK__<json>`. Extract it with the regex
-`^__RC_OK__(.*)$` and parse the JSON. If no such line is present, the whole
+The reply is already a clean line: `__MESOSPIM_OK__<json>`. Extract it with the regex
+`^__MESOSPIM_OK__(.*)$` and parse the JSON. If no such line is present, the whole
 reply text is the error.
 
 ## Why this shape (vs. running scripts)
