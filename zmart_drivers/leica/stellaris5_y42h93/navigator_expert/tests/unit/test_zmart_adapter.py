@@ -383,7 +383,9 @@ class TestAcquire(unittest.TestCase):
             autosave = Path(tmp) / "lasx" / "project"
             autosave.mkdir(parents=True)
             with patch.object(adapter._save, "save_source_root", return_value=autosave):
-                root = Path(adapter.run_procedure(h, {"name": "get_root"})["output_root"])
+                result = adapter.run_procedure(h, {"name": "get_root"})
+                root = Path(result["root"])
+        self.assertEqual(result["output_root"], str(root))
         self.assertEqual(root.parent, Path(tmp) / "lasx" / "smart")
         self.assertTrue(root.name.startswith("target-acquisition_"))
         self.assertEqual(h.connection["output_root"], str(root))
@@ -774,6 +776,7 @@ class TestStateAndProcedures(unittest.TestCase):
         self.assertIn("backlash_takeup", procedures)
         self.assertIn("get_root", procedures)
         self.assertIn("get_positions", procedures)
+        self.assertIn("get_focus_points", procedures)
         self.assertEqual(procedures["autofocus"]["jobs"], ["AF Job"])
         with patch.object(adapter._motion, "correct_backlash", lambda client, **k: None):
             self.assertEqual(
@@ -784,12 +787,17 @@ class TestStateAndProcedures(unittest.TestCase):
             "positions": [
                 {"kind": "grid", "frame": {"x_um": 1, "y_um": 2, "z_um": 3}},
                 {"kind": "focus-point", "frame": {"x_um": 4, "y_um": 5, "z_um": 6}},
+                {"kind": "autofocus-point", "frame": {"x_um": 7, "y_um": 8, "z_um": None}},
             ]
         }
         with patch.object(adapter, "_scan_field", return_value=scan_field):
             self.assertEqual(
                 adapter.run_procedure(h, {"name": "get_positions"})["positions"],
                 [{"x": 1.0, "y": 2.0, "z": 3.0}],
+            )
+            self.assertEqual(
+                adapter.run_procedure(h, {"name": "get_focus_points"})["positions"],
+                [{"x": 4.0, "y": 5.0, "z": 6.0}, {"x": 7.0, "y": 8.0}],
             )
         with self.assertRaises(ValueError):
             adapter.run_procedure(h, {"name": "nope"})

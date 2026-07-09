@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from pipeline._geom import overview_pixel_to_frame
+from workflow._geom import overview_pixel_to_frame
 
 
 def test_center_pixel_maps_to_image_center():

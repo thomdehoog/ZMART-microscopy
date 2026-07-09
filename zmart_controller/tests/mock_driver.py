@@ -251,6 +251,7 @@ def get_procedures(handle: MockHandle) -> dict:
         "find_sample": {"description": "locate the sample"},
         "get_root": {"description": "return the run output root"},
         "get_positions": {"description": "return the initial positions"},
+        "get_focus_points": {"description": "return focus positions"},
     }
 
 
@@ -261,8 +262,10 @@ def run_procedure(handle: MockHandle, procedure: dict) -> dict:
     if name == "get_root":
         root = Path(handle.connection.get("output_root") or "mock-output")
         handle.connection["output_root"] = str(root)
-        return {"ran": dict(procedure), "output_root": str(root)}
+        return {"ran": dict(procedure), "root": str(root), "output_root": str(root)}
     if name == "get_positions":
+        return {"ran": dict(procedure), "positions": [dict(pos) for pos in handle.initial]}
+    if name == "get_focus_points":
         return {"ran": dict(procedure), "positions": [dict(pos) for pos in handle.initial]}
     return {"ran": dict(procedure)}
 

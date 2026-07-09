@@ -10,7 +10,7 @@ import pytest
 matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from pipeline._figsave import save_figure  # noqa: E402
+from workflow._figsave import save_figure  # noqa: E402
 
 
 def _toy_figure():

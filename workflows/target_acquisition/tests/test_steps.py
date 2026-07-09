@@ -5,12 +5,10 @@ from __future__ import annotations
 import json
 
 import pytest
-from pipeline._focus_surface import fit_focus_surface
-from pipeline.steps import (
+from workflow._focus_surface import fit_focus_surface
+from workflow.steps import (
     acquire_targets,
     connect,
-    get_positions,
-    get_root,
     hijack_if_simulating,
     load_analysis_engine,
     load_positions,
@@ -55,23 +53,6 @@ def test_load_positions_reads_json(tmp_path):
     path = tmp_path / "positions.json"
     path.write_text(json.dumps([{"x": 1, "y": 2}, {"x": 3, "y": 4, "z": 5}]), encoding="utf-8")
     assert load_positions(path) == [{"x": 1.0, "y": 2.0}, {"x": 3.0, "y": 4.0, "z": 5.0}]
-
-
-def test_get_root_uses_controller_procedure(tmp_path):
-    register_mock()
-    session = connect("mock", output_root=tmp_path)
-    try:
-        assert get_root(session) == tmp_path
-    finally:
-        session.disconnect()
-
-
-def test_get_positions_uses_controller_procedure(mic):
-    assert get_positions(mic) == [
-        {"x": 0.0, "y": 0.0, "z": 0.0},
-        {"x": 120.0, "y": 0.0, "z": 0.0},
-        {"x": 0.0, "y": 120.0, "z": 0.0},
-    ]
 
 
 def test_load_analysis_engine_uses_configured_repo(tmp_path):

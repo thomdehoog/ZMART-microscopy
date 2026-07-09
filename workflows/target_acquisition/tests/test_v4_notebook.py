@@ -2,7 +2,7 @@
 
 Not an execution test (the middle steps need hardware + cellpose). It pins the
 notebook to the real API: valid nbformat, every code cell parses, and every
-``pipeline.<name>`` the notebook calls is actually exported by ``pipeline``.
+``workflow.<name>`` the notebook calls is actually exported by the workflow package.
 This catches the notebook drifting out of sync with the package surface.
 """
 
@@ -15,7 +15,7 @@ import pytest
 
 nbformat = pytest.importorskip("nbformat")
 
-import pipeline  # noqa: E402
+import workflow  # noqa: E402
 
 _NB_PATH = Path(__file__).resolve().parents[1] / "zmart_microscopy_v4.ipynb"
 
@@ -47,25 +47,25 @@ def test_setup_cell_runs_from_repo_root(monkeypatch):
 
     class FakeController:
         def __init__(self):
-            self.origin_set = False
+            self.procedures = []
 
-        def set_origin(self):
-            self.origin_set = True
+        def run_procedure(self, procedure):
+            self.procedures.append(procedure)
+            return {"root": str(root)}
 
     fake = FakeController()
-    monkeypatch.setattr(pipeline, "connect", lambda vendor: fake)
-    monkeypatch.setattr(pipeline, "get_root", lambda session: root)
+    monkeypatch.setattr(workflow, "connect", lambda vendor: fake)
 
     namespace = {}
     monkeypatch.chdir(_NB_PATH.parents[2])
     exec(compile(setup_cell, str(_NB_PATH), "exec"), namespace)
     assert namespace["zmart_controller"] is fake
-    assert fake.origin_set
-    assert namespace["OUTPUT_ROOT"] == root
+    assert fake.procedures == [{"name": "get_root"}]
+    assert namespace["ROOT"] == root
 
 
-def test_pipeline_attributes_used_are_exported():
-    """Every ``pipeline.<attr>`` accessed in the notebook is in pipeline.__all__."""
+def test_workflow_attributes_used_are_exported():
+    """Every ``workflow.<attr>`` accessed in the notebook is in workflow.__all__."""
     nb = _load()
     used: set[str] = set()
     for src in _code_sources(nb):
@@ -74,20 +74,20 @@ def test_pipeline_attributes_used_are_exported():
             if (
                 isinstance(node, ast.Attribute)
                 and isinstance(node.value, ast.Name)
-                and node.value.id == "pipeline"
+                and node.value.id == "workflow"
             ):
                 used.add(node.attr)
     # `__all__` is a legitimate dunder access in the setup cell.
     used.discard("__all__")
-    exported = set(pipeline.__all__)
+    exported = set(workflow.__all__)
     missing = used - exported
-    assert not missing, f"notebook calls pipeline.{sorted(missing)} not in pipeline.__all__"
-    # sanity: the notebook actually drives the pipeline
+    assert not missing, f"notebook calls workflow.{sorted(missing)} not in workflow.__all__"
+    # sanity: the notebook actually drives the workflow
     assert {"connect", "run_overview", "discover_targets", "acquire_targets"} <= used
 
 
 def test_notebook_stays_controller_only():
-    """The visible operator flow stays controller/pipeline-only."""
+    """The visible operator flow stays controller/workflow-only."""
     nb = _load()
     joined = "\n".join(_code_sources(nb))
     bootstrap = (_NB_PATH.parent / "_bootstrap.py").read_text(encoding="utf-8")

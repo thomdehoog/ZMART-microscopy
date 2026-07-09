@@ -1,4 +1,4 @@
-"""Controller-only simulation hijack (pipeline.hijack_records).
+"""Controller-only simulation hijack (workflow.hijack_records).
 
 Exercises the entry point the v4 notebook uses: given the records
 ``run_overview`` / ``acquire_targets`` return (each with ``"images"`` paths),
@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import tifffile
-from pipeline import NonSimulatorFrameError, get_provider, hijack_records
+from workflow import NonSimulatorFrameError, get_provider, hijack_records
 
 from shared.output_layout.naming import Naming, build_image_name
 

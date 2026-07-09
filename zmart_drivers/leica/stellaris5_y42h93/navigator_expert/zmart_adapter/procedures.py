@@ -28,11 +28,24 @@ def output_root(handle: Any, save_source_root: Callable[[], Path]) -> Path:
 
 def positions(scan_field: dict | None) -> list[dict]:
     """Return grid positions as controller frame coordinates."""
+    return _positions(scan_field, kinds={"grid"}, label="grid positions")
+
+
+def focus_points(scan_field: dict | None) -> list[dict]:
+    """Return focus positions as controller frame coordinates."""
+    return _positions(
+        scan_field,
+        kinds={"focus-point", "autofocus-point"},
+        label="focus points",
+    )
+
+
+def _positions(scan_field: dict | None, *, kinds: set[str], label: str) -> list[dict]:
     if not scan_field:
-        raise RuntimeError("no LAS X scan-field positions are available")
+        raise RuntimeError(f"no LAS X scan-field {label} are available")
     out = []
     for entry in scan_field.get("positions") or []:
-        if entry.get("kind") != "grid":
+        if entry.get("kind") not in kinds:
             continue
         frame = entry.get("frame") or {}
         pos = {"x": float(frame["x_um"]), "y": float(frame["y_um"])}
@@ -40,5 +53,5 @@ def positions(scan_field: dict | None) -> list[dict]:
             pos["z"] = float(frame["z_um"])
         out.append(pos)
     if not out:
-        raise RuntimeError("no grid positions found in the LAS X scan field")
+        raise RuntimeError(f"no {label} found in the LAS X scan field")
     return out

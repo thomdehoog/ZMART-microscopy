@@ -1,11 +1,11 @@
 """End-to-end controller-only flow, offline.
 
-Composes the whole v4 pipeline surface against the reference mock driver and a
+Composes the whole v4 workflow surface against the reference mock driver and a
 synchronous fake analysis engine -- no hardware, no cellpose, no
 ``navigator_expert``. This is the integration counterpart to the per-step unit
 tests: it proves the pieces fit together in the order the notebook runs them.
 
-    connect -> get_root/get_positions -> get/set_state -> fit_focus_surface ->
+    connect -> get_root/get_positions -> get_focus_points -> get/set_state -> fit_focus_surface ->
     run_overview -> build_overview_inputs -> discover_targets ->
     acquire_targets -> summarize_run / plots
 """
@@ -13,12 +13,13 @@ tests: it proves the pieces fit together in the order the notebook runs them.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
 
-import pipeline  # noqa: E402
+import workflow  # noqa: E402
 
 from zmart_controller.tests.mock_driver import register_mock  # noqa: E402
 
@@ -49,14 +50,14 @@ def test_full_controller_only_flow(tmp_path):
     register_mock()
 
     # 1. connect
-    zmart_controller = pipeline.connect("mock", output_root=tmp_path)
+    zmart_controller = workflow.connect("mock", output_root=tmp_path)
     try:
         assert zmart_controller.context["vendor"] == "mock"
-        output_root = pipeline.get_root(zmart_controller)
+        output_root = Path(zmart_controller.run_procedure({"name": "get_root"})["root"])
         assert output_root == tmp_path
 
         # 2. initial positions
-        positions = pipeline.get_positions(zmart_controller)[:2]
+        positions = zmart_controller.run_procedure({"name": "get_positions"})["positions"][:2]
         assert len(positions) == 2
 
         # 3. collect + reapply a state (one "state" == a selected job/settings)
@@ -65,16 +66,17 @@ def test_full_controller_only_flow(tmp_path):
 
         # 4. focus surface (measure_focus is unit-tested against a fake session;
         #    here we fit from explicit points -- the same FocusSurface object).
-        focus = pipeline.fit_focus_surface(
+        focus_points = zmart_controller.run_procedure({"name": "get_focus_points"})["positions"]
+        focus = workflow.fit_focus_surface(
             [
-                {"x_um": 0.0, "y_um": 0.0, "z_um": 3.0},
-                {"x_um": 100.0, "y_um": 0.0, "z_um": 3.4},
-                {"x_um": 0.0, "y_um": 100.0, "z_um": 3.1},
+                {"x_um": focus_points[0]["x"], "y_um": focus_points[0]["y"], "z_um": 3.0},
+                {"x_um": focus_points[1]["x"], "y_um": focus_points[1]["y"], "z_um": 3.4},
+                {"x_um": focus_points[2]["x"], "y_um": focus_points[2]["y"], "z_um": 3.1},
             ]
         )
 
         # 5. overview: capture at each position, z from the surface
-        overview_records = pipeline.run_overview(
+        overview_records = workflow.run_overview(
             zmart_controller, positions, state=state, focus=focus
         )
         assert [r["acquisition_type"] for r in overview_records] == ["overview", "overview"]
@@ -83,9 +85,9 @@ def test_full_controller_only_flow(tmp_path):
 
         # 6. bridge overview records -> discover_targets inputs. The mock record
         #    carries "position"; a real driver record carries "images" (paths).
-        placed = pipeline.with_focus_z(positions, focus)
+        placed = workflow.with_focus_z(positions, focus)
         image_paths = [f"overview_{i}.ome.tiff" for i in range(len(overview_records))]
-        overviews = pipeline.build_overview_inputs(
+        overviews = workflow.build_overview_inputs(
             placed,
             image_paths,
             pixel_size_um=0.5,
@@ -100,7 +102,7 @@ def test_full_controller_only_flow(tmp_path):
                 1: [{"centroid_col_row_px": (100, 50), "area_px": 30, "mean_intensity": 8.0}],
             }
         )
-        targets = pipeline.discover_targets(engine, overviews)
+        targets = workflow.discover_targets(engine, overviews)
         assert len(targets) == 2
         # overview 0 centered at (0,0): (110-100)*0.5=+5, (70-50)*0.5=+10
         assert targets[0]["x"] == 5.0
@@ -110,11 +112,11 @@ def test_full_controller_only_flow(tmp_path):
         assert targets[1]["y"] == 0.0
 
         # 8. acquire each target
-        target_records = pipeline.acquire_targets(zmart_controller, targets, focus=focus)
+        target_records = workflow.acquire_targets(zmart_controller, targets, focus=focus)
         assert [r["acquisition_type"] for r in target_records] == ["target", "target"]
 
         # 9. summary + plots
-        summary = pipeline.summarize_run(
+        summary = workflow.summarize_run(
             focus=focus,
             overview_positions=placed,
             overview_records=overview_records,
@@ -125,13 +127,13 @@ def test_full_controller_only_flow(tmp_path):
         assert summary["targets_per_overview"] == {"0": 1, "1": 1}
         assert summary["focus"]["model"] in {"plane", "constant", "spline"}
 
-        out = pipeline.write_summary(summary, tmp_path / "run" / "summary.json")
+        out = workflow.write_summary(summary, tmp_path / "run" / "summary.json")
         assert json.loads(out.read_text()) == summary
 
         focus_png = tmp_path / "run" / "focus.png"
         layout_png = tmp_path / "run" / "layout.png"
-        pipeline.plot_focus_surface(focus, save_path=focus_png)
-        pipeline.plot_frame_layout(
+        workflow.plot_focus_surface(focus, save_path=focus_png)
+        workflow.plot_frame_layout(
             overview_positions=placed, targets=targets, focus=focus, save_path=layout_png
         )
         assert focus_png.exists() and layout_png.exists()

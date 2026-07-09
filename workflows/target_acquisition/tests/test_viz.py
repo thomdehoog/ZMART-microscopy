@@ -1,4 +1,4 @@
-"""Controller-only run summary + plots (pipeline.viz).
+"""Controller-only run summary + plots (workflow.viz).
 
 Summary functions are pure/JSON; plot functions render headless (Agg) to a
 tmp path and must emit the PNG + vector siblings.
@@ -13,8 +13,8 @@ import pytest
 
 matplotlib.use("Agg")
 
-from pipeline._focus_surface import fit_focus_surface  # noqa: E402
-from pipeline.viz import (  # noqa: E402
+from workflow._focus_surface import fit_focus_surface  # noqa: E402
+from workflow.viz import (  # noqa: E402
     plot_focus_surface,
     plot_frame_layout,
     summarize_run,

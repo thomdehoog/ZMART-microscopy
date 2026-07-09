@@ -40,12 +40,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import tifffile
-from pipeline._hijack import (
+from workflow._hijack import (
     NonSimulatorFrameError,
     _read_system_type,
     hijack_frame,
 )
-from pipeline._mock_provider import get_provider
+from workflow._mock_provider import get_provider
 
 from shared.output_layout import Naming
 
@@ -532,8 +532,12 @@ class TestMockProvider:
         content. A deterministic mapping is what makes the mock
         tile-stitchable and reproducible across runs."""
         provider = get_provider("skimage_human_mitosis")
-        n_a = Naming(acquisition_type="overview-scan", hash6="abcdef", position_label="g00000-p00000")
-        n_b = Naming(acquisition_type="overview-scan", hash6="abcdef", position_label="g00000-p00001")
+        n_a = Naming(
+            acquisition_type="overview-scan", hash6="abcdef", position_label="g00000-p00000"
+        )
+        n_b = Naming(
+            acquisition_type="overview-scan", hash6="abcdef", position_label="g00000-p00001"
+        )
 
         a1 = provider((128, 128), np.uint16, naming=n_a)
         a2 = provider((128, 128), np.uint16, naming=n_a)

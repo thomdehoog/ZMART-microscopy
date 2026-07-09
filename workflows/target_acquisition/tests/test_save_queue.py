@@ -1,4 +1,4 @@
-"""Tests for pipeline._save_queue._FigureSaveQueue.
+"""Tests for workflow._save_queue._FigureSaveQueue.
 
 All tests are event-gated. No time.sleep, no real disk I/O. The
 worker's save_fn is a closure that waits on a threading.Event the
@@ -11,7 +11,7 @@ from __future__ import annotations
 import threading
 
 import pytest
-from pipeline._save_queue import _FigureSaveQueue
+from workflow._save_queue import _FigureSaveQueue
 
 # Generous timeout for Event.wait calls -- any blocking longer than
 # this represents a real deadlock, not a slow CI.
