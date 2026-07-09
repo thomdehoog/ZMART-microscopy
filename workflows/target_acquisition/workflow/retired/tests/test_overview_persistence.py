@@ -439,7 +439,7 @@ class TestAnalysisImageSourceSingleTrace:
     # identifier in active code. Only this structural test is allowed.
     ALLOWLIST = frozenset(
         {
-            "target_acquisition/pipeline/retired/tests/test_overview_persistence.py",  # this test file
+            "target_acquisition/workflow/retired/tests/test_overview_persistence.py",  # this test file
         }
     )
 
