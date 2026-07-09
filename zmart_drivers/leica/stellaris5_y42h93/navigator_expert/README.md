@@ -141,6 +141,11 @@ print(saved.image_paths)                                  # {PlaneIndex(t,z,c): 
 > `acquire()` returns an `AcquisitionResult` dataclass and **raises** on failure — it is *not* a
 > `{"success": ...}` dict. Saving is a deliberate second step (see §6).
 
+> The explicit `output_root` above is for the low-level driver API. Through
+> `zmart_controller`, the Leica adapter discovers the run root from LAS X native
+> AutoSave via `run_procedure({"name": "get_root"})`; operator workflows should
+> use that discovered root instead of hard-coding a drive path.
+
 > No machine config yet? The first connect seeds ProgramData from the repo defaults so CI and local
 > mock runs work. On the rig, run `limits/notebooks/set_stage_limits.ipynb`,
 > `orientation/notebooks/set_orientation.ipynb`, and the calibration notebook to replace those defaults
