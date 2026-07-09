@@ -68,6 +68,16 @@ a limit**, and no allowlisted verb can change the limits.
 This is what makes the LLM lane safe: a bad *value* (not just a bad name) is
 refused at the door, with a message the caller can act on.
 
+### Pre-flight self-test (`self_test`)
+
+On **Start** the server runs `self_test` before it binds: it drives the whole `run()`
+dispatch against a mock Core carrying this instrument's real `cfg` and confirms an
+out-of-range move / bad option / unknown command is refused while a valid move is accepted.
+If the loaded limits aren't enforced it **refuses to start** (fail-closed), so a drifted
+config never exposes the instrument. It's also a plain command (`{"self_test": {}}` →
+`{"ok": bool, "report": [...]}`) on both lanes, so a script or LLM can re-verify at any
+time; it never touches real hardware.
+
 ## MCP (LLM) front end — a separate HTTP process
 
 An LLM can drive the same allowlist over **MCP** (JSON-RPC 2.0, the MCP *Streamable

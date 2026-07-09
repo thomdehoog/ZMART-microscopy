@@ -21,12 +21,17 @@ executed.
   0..100. The error names the limit, so a script/LLM can correct itself, and get_limits
   reports the exact rules (range null = check OFF). run() is the single choke point
   both transports share, so TCP and MCP can never breach a limit -- an out-of-range
-  call comes back as an error, never reaching the Core.
+  call comes back as an error, never reaching the Core. A PRE-FLIGHT SELF-TEST
+  (self_test) runs the whole validated dispatch against a SimCore that carries the
+  real cfg but mimics the hardware, proving the loaded limits are enforced before
+  the server goes live; it is also an on-demand command on both lanes.
 - mesoSPIM_RemoteControl_Servers.py (new): a framed-TCP server hosted by the Core
   and a standalone MCP-over-HTTP server (a separate process) that forwards MCP
   tool calls to the same TCP command path, so both protocols share one validated
-  dispatch. Length-framed UTF-8; constant-time token; MCP adds a Bearer token and
-  an Origin guard (rejects any non-localhost web origin).
+  dispatch. The TCP server runs the self-test on start and REFUSES to bind (fail-
+  closed) if the loaded limits are not enforced, so the instrument is never exposed
+  by a drifted config. Length-framed UTF-8; constant-time token; MCP adds a Bearer
+  token and an Origin guard (rejects any non-localhost web origin).
 - mesoSPIM_Core: start_remote_control(host, port, token) / stop_remote_control()
   slots (queued, so the server lives on the Core's own thread), plus a
   sig_remote_control_started(ok, message) signal so a bind failure is reported
@@ -44,11 +49,11 @@ access, it is not sniffer-proof (tunnel it for untrusted networks).
 ---
  mesoSPIM/src/mesoSPIM_Core.py                 |  34 +-
  mesoSPIM/src/mesoSPIM_MainWindow.py           | 214 +++++-
- .../src/mesoSPIM_RemoteControl_Servers.py     | 347 +++++++++
- ...IM_RemoteControl_ValidateAndRunCommands.py | 756 ++++++++++++++++++
- .../src/test_remote_control_validation.py     | 170 +++++
+ .../src/mesoSPIM_RemoteControl_Servers.py     | 358 +++++++++
+ ...IM_RemoteControl_ValidateAndRunCommands.py | 842 ++++++++++++++++++
+ .../src/test_remote_control_validation.py     | 184 +++++
  pyproject.toml                                |   1 +
- 6 files changed, 1520 insertions(+), 2 deletions(-)
+ 6 files changed, 1631 insertions(+), 2 deletions(-)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
  create mode 100644 mesoSPIM/src/test_remote_control_validation.py
@@ -372,10 +377,10 @@ index 75ff770..e6fc8c2 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py b/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
 new file mode 100644
-index 0000000..b419669
+index 0000000..b1c9c38
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
-@@ -0,0 +1,347 @@
+@@ -0,0 +1,358 @@
 +"""Remote-control TCP and MCP servers for mesoSPIM.
 +
 +The TCP server runs inside mesoSPIM-control and executes validated JSON
@@ -397,9 +402,9 @@ index 0000000..b419669
 +
 +if __package__ in (None, ""):
 +    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-+    from mesoSPIM.src.mesoSPIM_RemoteControl_ValidateAndRunCommands import parse_call, run, tool_specs
++    from mesoSPIM.src.mesoSPIM_RemoteControl_ValidateAndRunCommands import parse_call, run, self_test, tool_specs
 +else:
-+    from .mesoSPIM_RemoteControl_ValidateAndRunCommands import parse_call, run, tool_specs
++    from .mesoSPIM_RemoteControl_ValidateAndRunCommands import parse_call, run, self_test, tool_specs
 +
 +logger = logging.getLogger(__name__)
 +
@@ -488,6 +493,17 @@ index 0000000..b419669
 +    """Single-client framed JSON TCP server hosted by mesoSPIM Core."""
 +
 +    def __init__(self, core, host="127.0.0.1", port=42000, token=None):
++        # PRE-FLIGHT SELF-TEST (fail-closed), FIRST -- before we even import Qt or open a
++        # socket: prove -- against a mock Core carrying THIS instrument's real cfg -- that the
++        # loaded limits are actually enforced. If they are not (a drifted limits file, a
++        # validation quirk), we raise here so the server never binds and the Core reports the
++        # failure to the GUI; the real hardware is never exposed. Covers both lanes: MCP
++        # forwards to this server, and every call runs the same validated dispatch this tests.
++        ok, report = self_test(getattr(core, "cfg", None))
++        if not ok:
++            failed = [line for line in report if line.startswith("FAIL")]
++            raise RuntimeError("remote-control self-test failed; not going live: " + "; ".join(failed))
++
 +        from PyQt5 import QtNetwork
 +
 +        self.core = core
@@ -725,10 +741,10 @@ index 0000000..b419669
 +    main()
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
 new file mode 100644
-index 0000000..e712fa8
+index 0000000..aa5e55d
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
-@@ -0,0 +1,756 @@
+@@ -0,0 +1,842 @@
 +"""Remote-control command vocabulary and execution.
 +
 +Network transports hand this module a decoded command name plus arguments. This
@@ -1060,6 +1076,14 @@ index 0000000..e712fa8
 +    }
 +
 +
++def _self_test(core, a):
++    # Re-run the startup self-test on demand (over TCP or MCP): prove -- against a mock
++    # Core carrying THIS server's real cfg -- that the loaded limits are still enforced.
++    # Never touches the real hardware; useful for an LLM/script to confirm before driving.
++    ok, report = self_test(getattr(core, "cfg", None))
++    return {"ok": ok, "report": report}
++
++
 +def _get_progress(core, a):
 +    return {"state": _state_get(core, "state"),
 +            "current_plane": _state_get(core, "current_framenumber"),
@@ -1265,6 +1289,7 @@ index 0000000..e712fa8
 +    "get_state": _get_state, "get_position": _get_position,
 +    "get_state_all": _get_state_all, "get_config": _get_config, "get_limits": _get_limits,
 +    "get_capabilities": _get_capabilities, "get_progress": _get_progress,
++    "self_test": _self_test,
 +    "move_absolute": _move_absolute, "move_relative": _move_relative,
 +    "zero": _zero, "unzero": _unzero,
 +    "stop": _stop, "stop_activity": _stop_activity, "set_state": _set_state,
@@ -1292,6 +1317,8 @@ index 0000000..e712fa8
 +}
 +
 +_HINTS = {
++    "self_test": "verify (against a mock Core with this server's real cfg) that the loaded "
++                 "limits are enforced. args: none. returns {ok, report}. Never moves hardware.",
 +    "move_absolute": "move axes to absolute targets. args: {targets: {x,y,z,f,theta: um/deg}}",
 +    "move_relative": "move axes by relative offsets. args: {deltas: {axis: um/deg}}",
 +    "zero": "define the current position as zero. args: {axes: [..]} (omit = all)",
@@ -1485,12 +1512,87 @@ index 0000000..e712fa8
 +    args = args or {}
 +    _validate(core, call, args, _effective_limits(core))
 +    return handler(core, args)
++
++
++class SimCore:
++    """A stand-in Core that carries the REAL ``cfg`` (so the REAL limits) but SIMULATES the
++    hardware: a move just updates an in-memory position -- nothing physical happens. The
++    startup self-test drives this instead of the instrument, so it can prove -- on THIS
++    machine, with THIS loaded config -- that a good call is accepted and an out-of-limit one
++    is refused, before the real server ever goes live.
++    """
++
++    def __init__(self, cfg):
++        self.cfg = cfg
++        self.state = {"state": "idle", "position": {a + "_pos": 0.0 for a in _AXES}}
++        self.moves = []  # every move that reached the (mock) hardware -- rejected ones never do
++
++    def move_absolute(self, sdict, wait_until_done=False, **_):
++        self.moves.append(sdict)
++        for key, val in sdict.items():
++            self.state["position"][key.replace("_abs", "") + "_pos"] = float(val)
++
++    def set_intensity(self, value, wait_until_done=False, **_):
++        self.state["intensity"] = value
++
++    def set_filter(self, value, wait_until_done=False, **_):
++        self.state["filter"] = value
++
++
++def self_test(cfg):
++    """Pre-flight: prove the loaded config's limits are actually ENFORCED before going live.
++
++    Runs a battery through the SAME ``run()`` dispatch both transports use -- so this one
++    check covers the TCP and the MCP lane alike -- against a :class:`SimCore` that mimics the
++    hardware. A valid move must be accepted (and reach the mock stage); an out-of-limit move,
++    a bad option, and an unknown command must all be refused (and NOT reach the mock stage).
++    This is the guard against a drifted limits file or a validation quirk. Returns
++    ``(ok, report_lines)`` and never touches the real instrument.
++    """
++    sim = SimCore(cfg)
++    report, ok = [], True
++
++    def note(good, line):
++        nonlocal ok
++        ok = ok and good
++        report.append(("PASS " if good else "FAIL ") + line)
++
++    def accepts(call, args):
++        try:
++            run(sim, call, args)
++            return True
++        except Exception:
++            return False
++
++    note(accepts("get_limits", {}), "get_limits responds")
++    note(accepts("get_position", {}), "get_position responds")
++
++    limits = _effective_limits(sim)
++    if not limits:
++        note(False, "no axis has a limit -- cannot verify enforcement (check the config's "
++                    "stage_parameters); refusing to go live")
++        return ok, report
++
++    sim.moves.clear()
++    expected_moves = 0
++    for axis, (lo, hi) in limits.items():
++        note(accepts("move_absolute", {"targets": {axis: hi}}), f"in-range move {axis}={hi} accepted")
++        expected_moves += 1
++        note(not accepts("move_absolute", {"targets": {axis: hi + 1}}), f"over-max move {axis}={hi + 1} refused")
++        note(not accepts("move_absolute", {"targets": {axis: lo - 1}}), f"under-min move {axis}={lo - 1} refused")
++    note(not accepts("set_intensity", {"intensity": 250}), "over-range intensity=250 refused")
++    note(not accepts("move_absolute", {"targets": {"nope": 0}}), "unknown axis refused")
++    note(not accepts("__import__", {}), "unknown command refused")
++    # the clincher: only the in-range moves reached the mock hardware; nothing rejected leaked.
++    note(len(sim.moves) == expected_moves,
++         f"only the {expected_moves} in-range move(s) reached the mock hardware ({len(sim.moves)} recorded)")
++    return ok, report
 diff --git a/mesoSPIM/src/test_remote_control_validation.py b/mesoSPIM/src/test_remote_control_validation.py
 new file mode 100644
-index 0000000..ea01557
+index 0000000..1cc919d
 --- /dev/null
 +++ b/mesoSPIM/src/test_remote_control_validation.py
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,184 @@
 +"""Validation tests for the Remote Control command module.
 +
 +Qt-free and no live Core: exercises ``_validate`` (the arg gate that runs at the
@@ -1642,6 +1744,20 @@ index 0000000..ea01557
 +        assert "100" in str(e)
 +    else:
 +        raise AssertionError("no error raised")
++
++
++def test_self_test_passes_on_a_good_cfg():
++    # the pre-flight the server runs before going live: against a mock Core with this cfg,
++    # every check must pass (limits enforced), and nothing touches real hardware.
++    ok, report = vrc.self_test(_Cfg())
++    assert ok and all(line.startswith("PASS") for line in report)
++
++
++def test_self_test_fails_closed_when_no_limits():
++    class _NoLimits:
++        filterdict = {}; zoomdict = {}; laserdict = {}; shutteroptions = []  # noqa: E702
++    ok, report = vrc.self_test(_NoLimits())
++    assert not ok and any("cannot verify" in line for line in report)  # refuse to go live
 +
 +
 +def test_get_limits_reports_enforced_rules():

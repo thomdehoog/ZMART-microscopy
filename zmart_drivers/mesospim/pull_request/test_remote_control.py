@@ -54,8 +54,8 @@ def _load():
     (tmp / "mesoSPIM_RemoteControl_ValidateAndRunCommands.py").write_text(vrc_body, encoding="utf-8")
     (tmp / "mesoSPIM_RemoteControl_Servers.py").write_text(srv_body, encoding="utf-8")
     sys.path.insert(0, str(tmp))
-    import mesoSPIM_RemoteControl_ValidateAndRunCommands as vrc  # noqa: E402
-    import mesoSPIM_RemoteControl_Servers as srv  # noqa: E402
+    import mesoSPIM_RemoteControl_ValidateAndRunCommands as vrc  # noqa: E402, I001
+    import mesoSPIM_RemoteControl_Servers as srv  # noqa: E402, I001
     return vrc, srv
 
 
@@ -200,6 +200,40 @@ def test_get_limits_exposes_enforced_rules():
     assert enforced["axes"]["x"] == [-25000.0, 25000.0]
     assert enforced["axes"]["theta"] is None  # range OFF -> visible to the caller
     assert enforced["parameters"]["intensity"]["range"] == [0, 100]
+
+
+def test_self_test_command_verifies_limits_against_a_mock():
+    # the pre-flight, callable over either lane: proves the loaded limits enforce, against
+    # a SimCore that mimics the hardware -- and never moves the real stage.
+    out = vrc.run(_core, "self_test")
+    assert out["ok"] is True and all(line.startswith("PASS") for line in out["report"])
+
+
+def test_server_gate_refuses_to_start_when_limits_missing():
+    # RemoteControlTCPServer runs self_test FIRST (before importing Qt); a cfg with no limits
+    # must make construction raise, so the server never binds and hardware is never exposed.
+    class _NoLimitsCore:
+        class cfg:  # noqa: N801 - tiny stand-in
+            filterdict = {}; zoomdict = {}; laserdict = {}; shutteroptions = []  # noqa: E702
+    try:
+        srv.RemoteControlTCPServer(_NoLimitsCore())
+    except RuntimeError as e:
+        assert "self-test failed" in str(e)
+    except ImportError:
+        raise AssertionError("gate did not fire before the PyQt5 import") from None
+    else:
+        raise AssertionError("server bound despite unenforceable limits")
+
+
+def test_server_gate_passes_good_cfg():
+    # with a good cfg the gate must NOT block: construction gets past the self-test into Qt
+    # land (PyQt5 import / QTcpServer), whatever that raises here -- just not a self-test fail.
+    try:
+        srv.RemoteControlTCPServer(_core)
+    except RuntimeError as e:
+        assert "self-test failed" not in str(e), f"gate wrongly blocked a good cfg: {e}"
+    except Exception:
+        pass  # got past the gate (no PyQt5 / not a QObject) -> the self-test passed
 
 
 def test_limits_from_env(monkeypatch=None):

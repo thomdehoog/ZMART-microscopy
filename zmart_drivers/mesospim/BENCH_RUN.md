@@ -28,9 +28,14 @@ range checking uses the per-axis travel envelope of the config you loaded at sta
 export MESOSPIM_RS_LIMITS='{"z":[-5000,5000]}'   # only overrides z; the rest stay at cfg
 ```
 
-**First thing after Start — run the viability check.** It proves both lanes are up and
-that a limit **cannot** be violated, and it never moves the stage (the out-of-limit probe
-is `max + 1`, refused before the Core is touched):
+**On Start the server self-tests itself first.** Before it binds, `RemoteControlTCPServer`
+runs `self_test` against a mock of the loaded `cfg` and **refuses to start** if the limits
+aren't enforced (fail-closed) — so if Start reports a failure mentioning "self-test failed",
+the limits config is the thing to check, and the instrument was never exposed.
+
+**Then, after Start — run the viability check.** It proves both lanes are up and that a
+limit **cannot** be violated, and it never moves the stage (the out-of-limit probe is
+`max + 1`, refused before the Core is touched; it also asks the server to re-run `self_test`):
 
 ```bash
 python pull_request/demo_client.py --self-check --port 42000 --token <token> \

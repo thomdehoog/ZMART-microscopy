@@ -50,9 +50,11 @@ def _serve_tcp(core, token):
     listen.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listen.bind(("127.0.0.1", 0))
     listen.listen(5)
+    listen.settimeout(10)  # bound every server-side wait so a stuck test fails fast, never hangs
     port = listen.getsockname()[1]
 
     def handle(conn):
+        conn.settimeout(10)
         dec, gate = srv.FrameDecoder(), srv.AuthGate(token)
         with conn:
             while True:

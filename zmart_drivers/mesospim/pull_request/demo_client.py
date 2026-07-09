@@ -102,6 +102,11 @@ def self_check(host, port, token, mcp_port=None, mcp_token=None):
         hello = c.call("hello")
         print(f"[TCP] hello ................... OK (version={hello.get('version')}, state={hello.get('state')})")
         print(f"[TCP] get_position ............ OK ({c.call('get_position')})")
+        st = c.call("self_test")  # the server re-runs its pre-flight against a mock of ITS cfg
+        n_fail = sum(1 for line in st.get("report", []) if line.startswith("FAIL"))
+        print(f"[TCP] self_test (server-side) . {'OK' if st.get('ok') else 'FAIL'} "
+              f"({len(st.get('report', []))} checks, {n_fail} failed)")
+        ok = ok and bool(st.get("ok"))
         limits = c.call("get_limits")
         axis, lohi = _first_limited_axis(limits)
         if axis is None:
