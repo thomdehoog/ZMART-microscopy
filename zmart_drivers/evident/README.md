@@ -177,7 +177,7 @@ inspecting the RDK on the bench) before driver work — the OLS5000 names are on
    commands + readers against the pinned verbs, offline-test against a mock RDK TCP server.
 
 The FV4000's motorized XYZ + hardware autofocus (ZDC2) + multi-objective + live-cell incubation make it
-an excellent fit for the smart-microscopy adaptive workflow (2× overview → segment → 40×/60× target).
+an excellent fit for the ZMART adaptive workflow (2× overview → segment → 40×/60× target).
 
 ---
 

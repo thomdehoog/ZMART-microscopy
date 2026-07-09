@@ -84,9 +84,13 @@ instrument = zmart_controller.get_instruments()[0]
 # {"vendor": "leica", "microscope": "stellaris5-y42h93", "api": "navigator-expert",
 #  "client": "PythonClient", "api_delay_ms": None, "output_root": None}
 
-instrument["output_root"] = r"D:\zmart_output"   # optional override; drivers may discover it
 zmart_controller.set_instrument(instrument)
 ```
+
+Do not normally set `output_root` by hand. For Leica, the adapter discovers the
+run root from LAS X native AutoSave when you call
+`run_procedure({"name": "get_root"})`. The `output_root` connection field exists
+only as an advanced override for drivers or tests that cannot discover a root.
 
 ### 2. Set the origin of the frame
 
@@ -214,6 +218,10 @@ register(
          "run_procedure": ..., "get_context": ...},
 )
 ```
+
+Connection dicts may include driver-specific optional fields such as
+`output_root`, but adapters should discover instrument-derived paths when they
+can and expose them through procedures like `get_root`.
 
 `connect` receives the whole `connection` dict and returns the driver handle;
 every other function takes that handle as its first argument. `tests/mock_driver.py`
