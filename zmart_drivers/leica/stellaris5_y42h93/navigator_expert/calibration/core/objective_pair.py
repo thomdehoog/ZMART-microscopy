@@ -73,7 +73,6 @@ class ObjectivePairSession:
     paths: SessionPaths
     job_name: str
     client: Any
-    stage_cfg: dict
     from_objective: str
     to_objective: str
     objective_config_name: str
@@ -145,7 +144,6 @@ def start_session(
     limits_state = drv.connect_limits_handshake(client)
     if not limits_state.ok:
         raise RuntimeError(limits_state.error)
-    stage_cfg = limits_state.stage_cfg
     hw = drv.get_hardware_info(client, mode="api")
     if hw is None:
         raise RuntimeError("get_hardware_info returned None; LAS X unreachable")
@@ -155,7 +153,6 @@ def start_session(
         paths=paths,
         job_name=job_name,
         client=client,
-        stage_cfg=stage_cfg,
         from_objective=from_objective,
         to_objective=to_objective,
         objective_config_name=objective_config_name,
