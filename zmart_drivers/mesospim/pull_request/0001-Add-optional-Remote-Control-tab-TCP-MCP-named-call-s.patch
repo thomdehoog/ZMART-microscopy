@@ -36,24 +36,25 @@ executed.
   slots (queued, so the server lives on the Core's own thread), plus a
   sig_remote_control_started(ok, message) signal so a bind failure is reported
   rather than shown as a false "running".
-- mesoSPIM_MainWindow: a Remote Control tab (TCP / MCP mode, host / port / token +
-  generator) that reflects the real start outcome and stops on app close.
+- mesoSPIM_MainWindow: a Remote Control tab (TCP / MCP mode, host / port / password)
+  that reflects the real start outcome and stops on app close.
 - test_remote_control_validation.py: Qt-free tests for the validation gate.
 
 OFF BY DEFAULT and secure-by-default: the server never runs until an operator
-starts it from the tab; it binds 127.0.0.1 and pre-fills a fresh token. A named
+starts it from the tab; it binds 127.0.0.1 and pre-fills a default password
+(smart_mesospim) the operator can change. A named
 call controls the instrument (moves the stage, runs acquisitions) but is not
 arbitrary code -- the server only ever does a dict lookup + a fixed call, so
 nothing outside the allowlist can run. Plain TCP: the token gates casual LAN
 access, it is not sniffer-proof (tunnel it for untrusted networks).
 ---
  mesoSPIM/src/mesoSPIM_Core.py                 |  34 +-
- mesoSPIM/src/mesoSPIM_MainWindow.py           | 214 +++++-
+ mesoSPIM/src/mesoSPIM_MainWindow.py           | 203 +++++-
  .../src/mesoSPIM_RemoteControl_Servers.py     | 358 +++++++++
  ...IM_RemoteControl_ValidateAndRunCommands.py | 842 ++++++++++++++++++
  .../src/test_remote_control_validation.py     | 184 +++++
  pyproject.toml                                |   1 +
- 6 files changed, 1631 insertions(+), 2 deletions(-)
+ 6 files changed, 1620 insertions(+), 2 deletions(-)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
  create mode 100644 mesoSPIM/src/test_remote_control_validation.py
@@ -170,7 +171,7 @@ index 75ff770..e6fc8c2 100644
          ''' Timelapse tab '''
          self.AsFastAsPossibleCheckBox.toggled.connect(self.toggle_timelapse_interval)
          self.toggle_timelapse_interval(self.AsFastAsPossibleCheckBox.isChecked())  # sync initial state set in the .ui file
-@@ -1138,6 +1152,204 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
+@@ -1138,6 +1152,193 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
      def display_warning(self, string):
          warning = QtWidgets.QMessageBox.warning(None,'mesoSPIM Warning', string, QtWidgets.QMessageBox.Ok)
  
@@ -224,7 +225,7 @@ index 75ff770..e6fc8c2 100644
 +        self._remote_control_host = getattr(self, '_remote_control_host', '127.0.0.1')
 +        self._remote_control_port = getattr(self, '_remote_control_port', 42000)
 +        self._remote_control_token = (
-+            getattr(self, '_remote_control_token', '') or secrets.token_urlsafe(16))
++            getattr(self, '_remote_control_token', '') or 'smart_mesospim')
 +        self._remote_control_refresh = self.refresh_remote_control_tab
 +
 +        tab = QtWidgets.QWidget(self.TabWidget)
@@ -251,19 +252,13 @@ index 75ff770..e6fc8c2 100644
 +        self.RemoteControlPortLineEdit = QtWidgets.QLineEdit(
 +            str(self._remote_control_port or default_port), setup_group)
 +        self.RemoteControlTokenLineEdit = QtWidgets.QLineEdit(self._remote_control_token, setup_group)
-+        self.RemoteControlGenerateButton = QtWidgets.QPushButton('Generate', setup_group)
 +        for widget in (
 +                self.RemoteControlModeComboBox,
 +                self.RemoteControlHostLineEdit,
 +                self.RemoteControlPortLineEdit,
 +                self.RemoteControlTokenLineEdit,
-+                self.RemoteControlGenerateButton,
 +        ):
 +            widget.setFont(group_font)
-+
-+        token_row = QtWidgets.QHBoxLayout()
-+        token_row.addWidget(self.RemoteControlTokenLineEdit)
-+        token_row.addWidget(self.RemoteControlGenerateButton)
 +
 +        self.RemoteControlStatusLabel = QtWidgets.QLabel(setup_group)
 +        self.RemoteControlStatusLabel.setFont(group_font)
@@ -276,7 +271,7 @@ index 75ff770..e6fc8c2 100644
 +        form.addRow(form_label('Protocol'), self.RemoteControlModeComboBox)
 +        form.addRow(form_label('Host'), self.RemoteControlHostLineEdit)
 +        form.addRow(form_label('Port'), self.RemoteControlPortLineEdit)
-+        form.addRow(form_label('Token'), token_row)
++        form.addRow(form_label('Password'), self.RemoteControlTokenLineEdit)
 +        form.addRow(form_label('Status'), self.RemoteControlStatusLabel)
 +
 +        self.RemoteControlStartButton = QtWidgets.QPushButton('Start', setup_group)
@@ -290,7 +285,6 @@ index 75ff770..e6fc8c2 100644
 +        layout.addWidget(setup_group)
 +        layout.addStretch(1)
 +
-+        self.RemoteControlGenerateButton.clicked.connect(self.generate_remote_control_token)
 +        self.RemoteControlStartButton.clicked.connect(self.start_remote_control)
 +        self.RemoteControlStopButton.clicked.connect(self.stop_remote_control)
 +        self.RemoteControlModeComboBox.currentTextChanged.connect(self.on_remote_control_mode_changed)
@@ -303,9 +297,6 @@ index 75ff770..e6fc8c2 100644
 +
 +        self.update_remote_control_mode_note()
 +        self.refresh_remote_control_tab()
-+
-+    def generate_remote_control_token(self):
-+        self.RemoteControlTokenLineEdit.setText(secrets.token_urlsafe(16))
 +
 +    def on_remote_control_mode_changed(self, _mode):
 +        self.update_remote_control_mode_note()
@@ -338,7 +329,6 @@ index 75ff770..e6fc8c2 100644
 +                self.RemoteControlHostLineEdit,
 +                self.RemoteControlPortLineEdit,
 +                self.RemoteControlTokenLineEdit,
-+                self.RemoteControlGenerateButton,
 +        ):
 +            widget.setEnabled(not running)
 +
@@ -351,7 +341,7 @@ index 75ff770..e6fc8c2 100644
 +        host = self.RemoteControlHostLineEdit.text().strip() or '127.0.0.1'
 +        token = self.RemoteControlTokenLineEdit.text().strip()
 +        if not token:
-+            QtWidgets.QMessageBox.warning(self, 'Remote Control', 'Token is required.')
++            QtWidgets.QMessageBox.warning(self, 'Remote Control', 'Password is required.')
 +            return
 +        mode = self.RemoteControlModeComboBox.currentText()
 +        self._remote_control_host = host
