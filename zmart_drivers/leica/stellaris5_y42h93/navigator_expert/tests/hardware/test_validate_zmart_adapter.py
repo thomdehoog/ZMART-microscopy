@@ -86,6 +86,8 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     by_name = {r["name"]: r for r in records}
     # The controller round-trip, z-focus model, and state round-trip are exercised.
     assert {
+        "run_procedure: get_root",
+        "get_root: root returned",
         "set_origin",
         "xy: frame x",
         "zgalvo: frame z",
@@ -97,6 +99,8 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     assert by_name["state: restored"]["status"] == "PASS"
     assert by_name["zgalvo: frame z"]["status"] == "PASS"
     assert by_name["zwide: frame z is additive (z-wide + z-galvo)"]["status"] == "PASS"
+    assert by_name["run_procedure: get_positions"]["status"] == "SKIP"
+    assert by_name["run_procedure: get_focus_points"]["status"] == "SKIP"
     # Acquire needs real LAS X export files, so it is skipped under the mock.
     assert by_name["phase: acquire"]["status"] == "SKIP"
 
@@ -110,6 +114,23 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     assert "set_xyz: XY move" in text
     assert "move: restore XY + focus (frame 0,0,0)" in text
     assert "set_state: restore" in text
+
+
+def test_connect_session_leaves_output_root_for_driver_discovery():
+    from navigator_expert.config import profiles
+
+    original_connect = adapter._session.connect_python_client
+    original_profile = profiles.STATE_READERS
+    args = argparse.Namespace(
+        mock=True, mock_latency=0.0, client_name="PythonClient", api_delay_ms=None
+    )
+    try:
+        session = validate_zmart_adapter._connect_session(args, adapter, None)
+        assert session._handle.connection.get("output_root") is None
+    finally:
+        adapter._session.connect_python_client = original_connect
+        profiles.STATE_READERS = original_profile
+        zmart_controller.disconnect()
 
 
 def test_acquire_backlash_correction_through_the_controller_seam(tmp_path):

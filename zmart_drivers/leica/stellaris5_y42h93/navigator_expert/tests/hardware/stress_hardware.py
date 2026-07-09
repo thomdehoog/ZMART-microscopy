@@ -1257,7 +1257,7 @@ def main(argv: list[str] | None = None) -> int:
         strict_confirmation=args.strict_confirmation,
     )
 
-    log.info("=== smart-microscopy hardware stress ===")
+    log.info("=== ZMART hardware stress ===")
     log.info(
         "client=%s job=%s seed=%s rounds=%s cycles=%s",
         "python-mock" if args.mock else "LasxApi (sim or scope)",

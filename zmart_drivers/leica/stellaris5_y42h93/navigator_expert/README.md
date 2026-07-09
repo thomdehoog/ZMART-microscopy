@@ -292,7 +292,7 @@ save(client, acq, output_root, naming, *, lineage=None, fix_ome=True,
 `save()` collects LAS X native AutoSave output into a neutral product,
 and writes canonical single-plane OME-TIFFs + per-position OME-XML into the `shared.output_layout` tree.
 **OME metadata:** `acquisition/ome.py` repairs known Leica OME violations (e.g. laser `Wavelength="0"`)
-in place, preserving byte formatting; `acquisition/ome_canonical.py` writes clean canonical SMART OME;
+in place, preserving byte formatting; `acquisition/ome_canonical.py` writes clean canonical ZMART OME;
 `save(..., fix_ome=True)` validates/repairs each written file.
 
 **Acquiring empties the scanning template by default.** Through the zmart adapter, every `acquire()`

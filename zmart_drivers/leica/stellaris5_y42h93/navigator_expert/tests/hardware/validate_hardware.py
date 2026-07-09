@@ -1579,7 +1579,7 @@ def main(argv: list[str] | None = None) -> int:
         report=report,
     )
 
-    log.info("=== smart-microscopy hardware validator ===")
+    log.info("=== ZMART hardware validator ===")
     log.info(
         "client=%s job=%s read_only=%s state_reader_mode=%s",
         "python-mock" if args.mock else "LasxApi (sim or scope)",

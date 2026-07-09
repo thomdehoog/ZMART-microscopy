@@ -61,8 +61,11 @@ Hardware validation uses only production driver modules — nothing under
   the run_ci set — it pops the manual-turret dialog; run it manually if wanted.)
 - Stage: the XY pattern and z-galvo round-trip above; the adapter validator
   additionally does `set_origin` + small frame moves and a job switch, restored.
-- Acquisition: the adapter validator and each end-to-end reader route run an
-  acquire+save smoke through LAS X native AutoSave.
+- Acquisition: the adapter validator runs the notebook-critical controller
+  procedures (`get_root`, `get_positions`, `get_focus_points`) and one
+  acquire+save smoke through LAS X native AutoSave. Each end-to-end reader route
+  runs an acquire command in its reader mode; file materialization is proven once
+  through the adapter path.
 - **NOT touched by run_ci**: objective turret. Opt in via a direct run only
   when the operator wants it, e.g.
   `python tests/hardware/validate_hardware.py --yes --allow-objective --allow-acquire`.
