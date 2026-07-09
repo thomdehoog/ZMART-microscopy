@@ -3,8 +3,9 @@
 Ports the D4 measurement guards (weak-vote stop, reflection guard, residual
 guard, singular fit) from the retired ``image_to_stage`` calibration workflow
 to the new ``orientation.measure`` module, plus the success path (writes a
-staging ``orientation.json`` and an :class:`Orientation`) and adoption into
-``current.json``. The converter itself is covered by ``test_orientation.py``.
+staging ``orientation.json`` and an :class:`Orientation`) and adoption -- which
+publishes the measured turn into the microscope's ProgramData snapshot. The
+converter itself is covered by ``test_orientation.py``.
 """
 
 from __future__ import annotations
@@ -220,18 +221,29 @@ def test_measure_acquire_failure_returns_home(monkeypatch, sessions_root):
     assert pos["y"] == home_xy[1]
 
 
-def test_adopt_writes_current_json(monkeypatch, sessions_root, tmp_path):
+def test_adopt_publishes_orientation_snapshot(monkeypatch, sessions_root, tmp_path):
+    from datetime import datetime, timezone
+
+    from navigator_expert.config.machine import MachineProfile
+
     _patch(monkeypatch)
     _install_votes(monkeypatch, [_trusted(0.0, 30.0), _trusted(-30.0, 0.0)])
-    current = tmp_path / "current.json"
-    monkeypatch.setattr(wf, "_CURRENT", current)
+    machine = MachineProfile(programdata_root=tmp_path / "programdata")
 
     session = wf.measure(_start(sessions_root, session_id="adopt"))
-    out = wf.adopt_orientation(session)
+    out = wf.adopt_orientation(
+        session,
+        machine=machine,
+        moment=datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
+    )
 
-    assert Path(out["current"]) == current
-    payload = json.loads(current.read_text(encoding="utf-8"))
+    # The measured turn now lives in the microscope's newest snapshot, and the
+    # machine profile reads it back as the active orientation.
+    written = Path(out["orientation_path"])
+    assert written == machine.latest_snapshot() / "orientation.json"
+    payload = json.loads(written.read_text(encoding="utf-8"))
     assert payload == {"schema_version": 1, "rotate_deg": 90}
+    assert machine.orientation_path() == written
 
 
 def test_adopt_missing_staging_raises(monkeypatch, sessions_root):

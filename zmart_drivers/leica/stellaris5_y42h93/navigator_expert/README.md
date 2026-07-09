@@ -354,6 +354,7 @@ zmart_drivers/leica/stellaris5_y42h93/navigator_expert/
 ├── acquisition/  product.py (neutral types) · capture.py (acquire) · save.py (persistence) · ome.py
 ├── scanfields/   .lrp/.rgn/.xml parsing + templates    experimental/lrp_edits/  offline template editors
 ├── calibration/  image↔stage + objective-pair (data machine-local; defaults/ inside)   limits/  current.json · defaults/ · notebooks/
+├── orientation/  camera↔stage quarter-turn, applied at save; measured by set_orientation, stored in the machine snapshot next to calibration + limits
 ├── zmart_adapter/  ops table plugging this driver into zmart_controller (import to register)
 ├── tests/        unit/ (offline) + hardware/ (validate_*.py live scripts + mock-backed test_* gates)
 └── run_ci.py · pytest.ini   (package root)

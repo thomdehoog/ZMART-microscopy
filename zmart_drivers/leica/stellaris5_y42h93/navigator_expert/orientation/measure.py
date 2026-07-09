@@ -9,8 +9,9 @@ the turn and record it.
 Under the hood this registers each pair of pictures to get the shift, builds a
 small 2x2 matrix from the two shifts, and matches it to the nearest whole
 quarter-turn (0, 90, 180, or 270 degrees). The result is written to a staging
-``orientation.json`` that :func:`adopt_orientation` copies into
-``orientation/current.json``, which is the value the driver reads at save time.
+``orientation.json`` that :func:`adopt_orientation` publishes into the
+microscope's newest ProgramData snapshot -- alongside its calibration and limits
+-- which is the value the driver reads at save time.
 
 The three pictures are taken **without** applying any turn, so re-running the
 measurement always looks at the real microscope rather than an image that has
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +53,6 @@ KIND = "orientation"
 STAGING_NAME = "orientation.json"
 STAGING_SCHEMA_VERSION = 1
 _PER_STEP_IMAGES = ("home", "plus_x", "plus_y")
-_CURRENT = Path(__file__).resolve().parent / "current.json"
 
 
 @dataclass
@@ -303,11 +304,35 @@ def measure(session: OrientationSession) -> OrientationSession:
     return session
 
 
-def adopt_orientation(session: OrientationSession) -> dict:
-    """Fold the staged ``orientation.json`` into ``orientation/current.json``.
+def adopt_orientation(
+    session: OrientationSession,
+    *,
+    machine: Any = None,
+    moment: datetime | None = None,
+    notebook_paths: Any = (),
+) -> dict:
+    """Publish the measured turn into the microscope's newest ProgramData snapshot.
 
-    ``current.json`` is the value :func:`navigator_expert.orientation.rig_orientation`
-    reads at save time. Raises if no accepted staging config exists.
+    Reads the staged ``orientation.json`` and writes it into a fresh dated
+    snapshot -- carrying the microscope's calibration, limits and frame origin
+    forward -- so the turn lives with the machine's other measured settings and
+    survives a driver reinstall. This snapshot is what
+    :func:`navigator_expert.orientation.rig_orientation` reads at save time.
+
+    Args:
+        session: The orientation session holding the staged config.
+        machine: ``MachineProfile`` to publish into; ``None`` uses the global
+            ``MACHINE``. Tests inject a hermetic profile here.
+        moment: Snapshot timestamp; ``None`` uses ``datetime.now(timezone.utc)``.
+            Must sort strictly after the latest snapshot (monotonic guard).
+        notebook_paths: Executed notebook(s) to archive in the snapshot.
+
+    Returns:
+        ``{"source": str, "snapshot": str, "orientation_path": str}`` -- the new
+        snapshot folder and its ``orientation.json``.
+
+    Raises:
+        FileNotFoundError: if no accepted staging config exists.
     """
     source = session.paths.configs_dir / STAGING_NAME
     if not source.exists():
@@ -316,12 +341,24 @@ def adopt_orientation(session: OrientationSession) -> dict:
             "measurement may have failed (weak vote, reflection, or high "
             "residual). Re-run set_orientation before adopting."
         )
+    if machine is None:
+        from ..config.machine import MACHINE
+
+        machine = MACHINE
+    if moment is None:
+        moment = datetime.now(timezone.utc)
+
     data = json.loads(source.read_text(encoding="utf-8"))
-    write_json_atomic(
-        _CURRENT,
-        {
+    snapshot = machine.publish_snapshot(
+        moment,
+        orientation={
             "schema_version": STAGING_SCHEMA_VERSION,
             "rotate_deg": int(data["rotate_deg"]),
         },
+        notebook_paths=notebook_paths,
     )
-    return {"source": str(source), "current": str(_CURRENT)}
+    return {
+        "source": str(source),
+        "snapshot": str(snapshot),
+        "orientation_path": str(snapshot / STAGING_NAME),
+    }
