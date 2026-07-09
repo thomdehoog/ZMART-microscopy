@@ -5,14 +5,14 @@ surface only -- no ``import navigator_expert`` in the operator path. The
 notebook imports the numbered step functions from this package and runs
 them in order:
 
-  connect -> load_positions -> measure_focus / fit_focus_surface ->
+  connect -> get_root/get_positions -> measure_focus / fit_focus_surface ->
   run_overview -> discover_targets -> acquire_targets
 
 Re-exports:
 
 - the step functions (``pipeline.steps``): ``connect``, ``load_positions``,
-  ``load_analysis_engine``, ``with_focus_z``, ``run_overview``,
-  ``overview_inputs_from_records``, ``acquire_targets``,
+  ``get_root``, ``get_positions``, ``load_analysis_engine``, ``with_focus_z``,
+  ``run_overview``, ``overview_inputs_from_records``, ``acquire_targets``,
   ``hijack_if_simulating``, ``write_run_report``;
 - focus (``pipeline._focus_run`` / ``pipeline._focus_surface``):
   ``measure_focus``, ``fit_focus_surface``, ``FocusSurface``;
@@ -47,6 +47,8 @@ from .discovery import build_overview_inputs, discover_targets, read_overview_ge
 from .steps import (
     acquire_targets,
     connect,
+    get_positions,
+    get_root,
     hijack_if_simulating,
     load_analysis_engine,
     load_positions,
@@ -65,6 +67,8 @@ from .viz import (
 __all__ = [
     "connect",
     "load_positions",
+    "get_root",
+    "get_positions",
     "load_analysis_engine",
     "with_focus_z",
     "measure_focus",

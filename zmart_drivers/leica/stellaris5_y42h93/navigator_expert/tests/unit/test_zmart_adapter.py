@@ -377,6 +377,17 @@ class TestAcquire(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "output_root"):
             adapter.acquire(h, acquisition_type="prescan", position_label="A1")
 
+    def test_get_root_procedure_creates_default_run_root(self):
+        h = _handle()
+        with tempfile.TemporaryDirectory() as tmp:
+            autosave = Path(tmp) / "lasx" / "project"
+            autosave.mkdir(parents=True)
+            with patch.object(adapter._save, "save_source_root", return_value=autosave):
+                root = Path(adapter.run_procedure(h, {"name": "get_root"})["output_root"])
+        self.assertEqual(root.parent, Path(tmp) / "lasx" / "smart")
+        self.assertTrue(root.name.startswith("target-acquisition_"))
+        self.assertEqual(h.connection["output_root"], str(root))
+
     def test_acquire_selects_job_captures_and_saves(self):
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
         calls = {}
@@ -761,11 +772,24 @@ class TestStateAndProcedures(unittest.TestCase):
         with p[2]:
             procedures = adapter.get_procedures(h)
         self.assertIn("backlash_takeup", procedures)
+        self.assertIn("get_root", procedures)
+        self.assertIn("get_positions", procedures)
         self.assertEqual(procedures["autofocus"]["jobs"], ["AF Job"])
         with patch.object(adapter._motion, "correct_backlash", lambda client, **k: None):
             self.assertEqual(
                 adapter.run_procedure(h, {"name": "backlash_takeup"})["ran"]["name"],
                 "backlash_takeup",
+            )
+        scan_field = {
+            "positions": [
+                {"kind": "grid", "frame": {"x_um": 1, "y_um": 2, "z_um": 3}},
+                {"kind": "focus-point", "frame": {"x_um": 4, "y_um": 5, "z_um": 6}},
+            ]
+        }
+        with patch.object(adapter, "_scan_field", return_value=scan_field):
+            self.assertEqual(
+                adapter.run_procedure(h, {"name": "get_positions"})["positions"],
+                [{"x": 1.0, "y": 2.0, "z": 3.0}],
             )
         with self.assertRaises(ValueError):
             adapter.run_procedure(h, {"name": "nope"})
