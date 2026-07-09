@@ -84,7 +84,7 @@ instrument = zmart_controller.get_instruments()[0]
 # {"vendor": "leica", "microscope": "stellaris5-y42h93", "api": "navigator-expert",
 #  "client": "PythonClient", "api_delay_ms": None, "output_root": None}
 
-instrument["output_root"] = r"D:\smart_output"   # required by acquire()
+instrument["output_root"] = r"D:\zmart_output"   # required by acquire()
 zmart_controller.set_instrument(instrument)
 ```
 

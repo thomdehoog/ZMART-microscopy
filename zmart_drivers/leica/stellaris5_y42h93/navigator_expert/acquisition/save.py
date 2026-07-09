@@ -80,7 +80,7 @@ def save(
 
     LAS X native AutoSave produces a writer-agnostic
     ``ExportedAcquisition``. This function persists that product into the
-    flat SMART OME-TIFF layout (one 2-D plane per file, no sidecar XML).
+    flat ZMART OME-TIFF layout (one 2-D plane per file, no sidecar XML).
     When *state* is provided, the machine/software state at export time is
     embedded in each plane's OME-XML. When *orientation* is a non-identity rig
     D4, each plane is reoriented losslessly to stage-aligned axes as it is

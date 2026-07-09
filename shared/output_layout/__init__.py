@@ -5,7 +5,7 @@ and workflows import from here; the schema does not depend on any
 vendor's API. Vendor-specific extraction logic (e.g. parsing source
 filenames into canonical Naming slots) lives in each driver.
 
-Canonical spec: auto-memory `smart_microscopy_smart_folder_structure.md`.
+Canonical spec: ZMART output folder structure.
 
 Import convention: `from shared.output_layout import Naming, ...`
 Requires the repository root on sys.path.

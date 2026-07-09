@@ -88,9 +88,9 @@ class Config:
     stage_y_max_um: float | None = None
 
     # Save source. LAS X native AutoSave stores ZMART output beside the
-    # native AutoSave base folder. If set, ``smart_output_root`` is the
+    # native AutoSave base folder. If set, legacy ``smart_output_root`` is the
     # exact folder that receives <experiment>_<hash6> run directories; no
-    # extra "smart" suffix is added.
+    # extra "zmart" suffix is added.
     smart_output_root: Path | None = None
 
 

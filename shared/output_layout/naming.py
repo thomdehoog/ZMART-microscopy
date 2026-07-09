@@ -1,4 +1,4 @@
-"""Lab-wide canonical naming and layout for zmart-microscopy outputs.
+"""Lab-wide canonical naming and layout for ZMART outputs.
 
 Image layout is FLAT — one folder per acquisition type, one 2-D plane per
 file, no sidecar XML::
@@ -121,10 +121,7 @@ class Naming:
 
 def build_image_name(n: Naming) -> str:
     """Canonical flat image filename: one 2-D plane keyed by ``c`` and ``z``."""
-    return (
-        f"{n.acquisition_type}_{n.hash6}_{n.position_label}"
-        f"_c{n.c:02d}_z{n.z:05d}.ome.tiff"
-    )
+    return f"{n.acquisition_type}_{n.hash6}_{n.position_label}_c{n.c:02d}_z{n.z:05d}.ome.tiff"
 
 
 def acquisition_dir(output_root: Path | str, kind: str) -> Path:

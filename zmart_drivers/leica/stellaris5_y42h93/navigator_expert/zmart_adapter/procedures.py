@@ -17,7 +17,7 @@ def output_root(handle: Any, save_source_root: Callable[[], Path]) -> Path:
     if root:
         return Path(root)
     try:
-        layout = build_layout(save_source_root().parent / "smart", _EXPERIMENT)
+        layout = build_layout(save_source_root().parent / "zmart", _EXPERIMENT)
     except Exception as exc:
         raise RuntimeError(
             "output_root is not set and could not be discovered from LAS X native AutoSave"

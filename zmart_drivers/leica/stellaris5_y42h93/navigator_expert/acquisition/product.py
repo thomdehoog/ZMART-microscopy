@@ -45,7 +45,7 @@ class PlaneSource:
 
 @dataclass(frozen=True)
 class ChannelMetadata:
-    """Minimal reusable channel metadata for canonical SMART OME."""
+    """Minimal reusable channel metadata for canonical ZMART OME."""
 
     index: int
     name: str | None = None
@@ -55,7 +55,7 @@ class ChannelMetadata:
 
 @dataclass(frozen=True)
 class AcquisitionMetadata:
-    """Common denominator needed to write valid, reusable SMART OME."""
+    """Common denominator needed to write valid, reusable ZMART OME."""
 
     size_x: int
     size_y: int

@@ -882,7 +882,7 @@ def get_procedures(handle: ZmartHandle) -> dict:
             "args": ["job"],
             "jobs": [j["Name"] for j in autofocus if j.get("Name")],
         },
-        "get_root": {"description": "return the SMART run output root"},
+        "get_root": {"description": "return the ZMART run output root"},
         "get_positions": {"description": "return LAS X scan-field positions in frame um"},
         "get_focus_points": {"description": "return LAS X focus points in frame um"},
     }
