@@ -61,7 +61,6 @@ class OrientationSession:
     paths: SessionPaths
     job_name: str
     client: Any
-    stage_cfg: dict
     reference_objective: str
     stage_move_um: float
     settle_s: float = 1.0
@@ -103,7 +102,6 @@ def start_session(
     limits_state = drv.connect_limits_handshake(client)
     if not limits_state.ok:
         raise RuntimeError(limits_state.error)
-    stage_cfg = limits_state.stage_cfg
     hw = drv.get_hardware_info(client, mode="api")
     if hw is None:
         raise RuntimeError("get_hardware_info returned None; LAS X unreachable")
@@ -113,7 +111,6 @@ def start_session(
         paths=paths,
         job_name=job_name,
         client=client,
-        stage_cfg=stage_cfg,
         reference_objective=reference_objective,
         stage_move_um=float(stage_move_um),
         settle_s=float(settle_s),
