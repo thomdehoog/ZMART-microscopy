@@ -33,8 +33,8 @@ different envelope.
 
 | File | Change |
 |---|---|
-| `mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py` | **New.** The command vocabulary (`COMMANDS` allowlist), the arg gate `_validate` (shape + allowed option + in-range), and `run()` — the **single choke point** both transports share. Pure stdlib; unit-tested without Qt. |
-| `mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py` | **New.** A signal-driven `QTcpServer` (`RemoteControlTCPServer`) hosted by the Core that dispatches framed named calls, **and** a standalone MCP-over-HTTP server (its own process, `--port` default `42100`) that forwards `tools/call` to that TCP server. Framing, auth, and dispatch are socket-free helpers. Constant-time token; HTTP adds a Bearer check and an Origin guard. |
+| `mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py` | **New.** The command vocabulary (`COMMANDS` allowlist), the arg gate `_validate` (type + allowed option + in-range), `run()` — the **single choke point** both transports share — and `self_test()`, a pre-flight that proves the loaded limits are enforced (against a `SimCore` mock of the hardware). Pure stdlib; unit-tested without Qt. |
+| `mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py` | **New.** A signal-driven `QTcpServer` (`RemoteControlTCPServer`) hosted by the Core that dispatches framed named calls, **and** a standalone MCP-over-HTTP server (its own process, `--port` default `42100`) that forwards `tools/call` to that TCP server. **On start the TCP server runs `self_test` and refuses to bind (fail-closed) if the limits aren't enforced**, so a drifted config never exposes the instrument. Framing, auth, and dispatch are socket-free helpers. Constant-time token; HTTP adds a Bearer check and an Origin guard. |
 | `mesoSPIM/src/mesoSPIM_Core.py` | `start_remote_control(host, port, token)` / `stop_remote_control()` slots, plus a `sig_remote_control_started(ok, message)` signal so a bind failure (e.g. port in use) is reported instead of a false "running". |
 | `mesoSPIM/src/mesoSPIM_MainWindow.py` | A **Remote Control tab** (TCP / MCP mode, host / port / token + generator); reflects the real start outcome; stops on app close. |
 | `mesoSPIM/src/test_remote_control_validation.py` | Qt-free tests for the `_validate` gate. |
@@ -88,6 +88,20 @@ the env override) and no allowlisted verb writes them. `get_limits` returns the 
 in force — including which checks are **off** (`range: null` = only the type is checked) —
 so a script or LLM can read the envelope up front.
 
+## Pre-flight self-test (`self_test`)
+
+The worry with any limits system is *drift*: a wrong limits file, a config quirk, a
+validation regression — the limits silently stop matching this machine. So the server
+**proves the limits before it goes live**. On **Start**, `RemoteControlTCPServer` runs
+`self_test` first: it drives the whole validated `run()` dispatch against a **`SimCore`** that
+carries *this instrument's real `cfg`* but simulates the hardware, and checks that a valid
+move is accepted while an out-of-range move / bad option / unknown command is refused — and
+that *only* the in-range moves reached the mock stage. If any check fails (including "no axis
+has a limit"), it **raises and the server never binds** (fail-closed) — the instrument is
+never exposed. It runs the *real* code both lanes share, so one gate covers TCP and MCP, and
+it never touches real hardware. `self_test` is also an on-demand command on both lanes, so a
+script or LLM can ask the server to re-prove its limits at any time.
+
 ## Tests
 
 `test_remote_control.py` (here, in `pull_request/`) rebuilds both modules straight
@@ -102,8 +116,15 @@ never run, every malformed envelope shape, every axis breached in both direction
 `NaN`/`inf`/huge numbers, type confusion in every value slot, attempts to *change* the
 limits, MCP hostile `tools/call` names turned into `isError` JSON, and framing/auth
 tricks — all against a `_RecordingCore` so each refusal is proven to leave the Core
-**untouched**. The shipped `test_remote_control_validation.py` covers the same
-`_validate` gate against the real module. **Validated on the bench against mesoSPIM `-D` demo mode
+**untouched**. `test_viability_check.py` stands up the real server on both lanes and runs
+the operator's viability check; `test_remote_control.py` also proves the start-time
+self-test **gate** (a config with no limits makes construction raise before it ever binds).
+The shipped `test_remote_control_validation.py` covers the same `_validate` gate against the
+real module. The whole `pull_request/` suite (framing, auth, the wide adversarial sweep, the
+socket checks) runs in **well under a second** — harsh but bounded: no `sleep`, no unbounded
+waits, every socket op has a small explicit timeout, and hang-prone inputs (huge frame
+lengths, partial frames) are checked by asserting the decoder returns *immediately*.
+**Validated on the bench against mesoSPIM `-D` demo mode
 (2026-07-08):** the Remote Control tab starts and drives the demo Core end to end
 over **both lanes — framed TCP and MCP-over-HTTP — and it worked as-is** (the
 handlers matched the real Core, no changes needed). **Real-hardware** validation
