@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import socket
 
-from rdk_protocol import Message, TERMINATOR, encode, frame, parse
+from rdk_protocol import TERMINATOR, Message, encode, frame, parse
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 50100  # OLS5000 RDK default; confirm the FV4000 RDK port
@@ -40,7 +40,7 @@ class RdkClient:
         self._sock: socket.socket | None = None
         self._buf = b""
 
-    def __enter__(self) -> "RdkClient":
+    def __enter__(self) -> RdkClient:
         self.connect()
         return self
 

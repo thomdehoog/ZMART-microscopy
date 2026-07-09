@@ -30,8 +30,7 @@ def test_parse_ping() -> None:
 
 def test_parse_calibration_keeps_objective_spaces() -> None:
     line = (
-        "OK|query=Get_Calibration|cal_um_per_px=0.32300|"
-        "aspect=1.0000|unit=0|objective=Plan Apo 20x"
+        "OK|query=Get_Calibration|cal_um_per_px=0.32300|aspect=1.0000|unit=0|objective=Plan Apo 20x"
     )
     r = parse_reply(line)
     assert r.ok
@@ -61,8 +60,7 @@ def test_parse_status_only() -> None:
 _CANNED = {
     "?ping": "OK|pong",
     "?Get_Calibration": (
-        "OK|query=Get_Calibration|cal_um_per_px=0.32300|"
-        "aspect=1.0000|unit=0|objective=Plan Apo 20x"
+        "OK|query=Get_Calibration|cal_um_per_px=0.32300|aspect=1.0000|unit=0|objective=Plan Apo 20x"
     ),
 }
 

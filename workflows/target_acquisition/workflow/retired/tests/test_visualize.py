@@ -555,8 +555,12 @@ class TestPlotOverviewTiles:
         from pipeline.retired.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
-        n0 = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
-        n1 = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00001")
+        n0 = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
+        n1 = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00001"
+        )
         _make_npz(analysis_dir, naming=n0, tile_id=("0", 0, 0))
         _make_npz(analysis_dir, naming=n1, tile_id=("0", 0, 1))
 
@@ -580,7 +584,9 @@ class TestPlotOverviewTiles:
         from pipeline.retired.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
 
         picks = _make_picks([])
@@ -611,7 +617,9 @@ class TestPlotOverviewTiles:
         from pipeline.retired.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0), simulated=True)
 
         captured_titles = []
@@ -637,7 +645,9 @@ class TestPlotOverviewTiles:
         from pipeline.retired.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
 
         logs_dir = tmp_path / "deep" / "nested" / "logs"
@@ -680,7 +690,9 @@ class TestPlotOverviewTiles:
         from pipeline.retired.visualize import plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         _make_npz(analysis_dir, naming=naming, n_cells=3, tile_id=("0", 0, 0), image_size=(64, 64))
 
         # pick_id is (str, int, int, int) — mixed types, must still match
@@ -931,7 +943,9 @@ class TestPlotTargetPairs:
         from pipeline.retired.visualize import plot_target_pairs
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
 
         pick = _make_pick(("0", 0, 0), label=1, bbox=(10, 10, 20, 20))
@@ -965,7 +979,9 @@ class TestPlotTargetPairs:
         from pipeline.retired.visualize import plot_target_pairs
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
 
         pick = _make_pick(("0", 0, 0), label=1)
@@ -1150,14 +1166,18 @@ class TestLoadTileNpzPosition:
     def test_returns_position_when_present(self, tmp_path):
         from pipeline.retired.visualize import _load_tile_npz
 
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00007")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00007"
+        )
         npz = _make_npz(tmp_path / "a", naming=naming, tile_id=("0", 0, 0), position=7)
         assert _load_tile_npz(npz).position == 7
 
     def test_missing_position_is_invalid(self, tmp_path, capsys):
         from pipeline.retired.visualize import _load_tile_npz
 
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         npz = _make_npz(tmp_path / "a", naming=naming, tile_id=("0", 0, 0))
         with np.load(npz, allow_pickle=True) as data:
             kept = {k: data[k] for k in data.files if k != "position"}
@@ -1505,7 +1525,9 @@ class TestFigureWidth:
         from pipeline.retired.visualize import _FRAME_WIDTH_IN, display_selection
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         _make_npz(
             analysis_dir, naming=naming, n_cells=6, tile_id=("0", 0, 0), image_size=(160, 160)
         )
@@ -1532,7 +1554,9 @@ class TestFigureWidth:
         from pipeline.retired.visualize import _FRAME_WIDTH_IN, plot_overview_tiles
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         _make_npz(analysis_dir, naming=naming, n_cells=3, tile_id=("0", 0, 0))
         picks = _make_picks([_make_pick(("0", 0, 0), label=1)])
         widths = self._widths(
@@ -1573,7 +1597,9 @@ class TestFigureWidth:
         from pipeline.retired.visualize import _FRAME_WIDTH_IN, plot_target_pairs
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
         picks = _make_picks([_make_pick(("0", 0, 0), label=1, bbox=(10, 10, 20, 20))])
         records = [
@@ -1670,7 +1696,9 @@ class TestScatterCropAnnotations:
         from pipeline.retired.visualize import display_selection
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         _make_npz(
             analysis_dir, naming=naming, n_cells=6, tile_id=("0", 0, 0), image_size=(160, 160)
         )
@@ -1892,7 +1920,9 @@ class TestTargetZoomCallout:
         from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
         pick = _make_pick(("0", 0, 0), label=1)
         rec = TargetRecord(
@@ -1959,7 +1989,9 @@ class TestTargetMultiCueRendering:
         from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         _make_npz(
             analysis_dir,
             naming=naming,
@@ -2090,7 +2122,9 @@ class TestTargetCropBorder:
         from pipeline.retired.visualize import display_target
 
         analysis_dir = tmp_path / "analysis"
-        naming = Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000")
+        naming = Naming(
+            acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00000"
+        )
         _make_npz(analysis_dir, naming=naming, tile_id=("0", 0, 0))
         pick = _make_pick(("0", 0, 0), label=1)
         rec = TargetRecord(
@@ -2255,7 +2289,9 @@ class TestPngNaming:
 
         from shared.output_layout.naming import Naming
 
-        stem = _position_stem(Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00007"))
+        stem = _position_stem(
+            Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00007")
+        )
         assert _overview_tile_png_name(0, 1, 2, 7, "abc123") == f"{stem}_live.png"
 
     def test_overview_tile_png_name_fallback(self):
@@ -2322,7 +2358,9 @@ class TestPngNaming:
             live_display=False,
             save_png=True,
         )
-        stem = _position_stem(Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00007"))
+        stem = _position_stem(
+            Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00007")
+        )
         assert (logs / f"{stem}_live.png").exists()
 
     def test_display_target_tif_none_fallback(self, tmp_path, monkeypatch):

@@ -41,8 +41,8 @@ import sys
 import time
 from pathlib import Path
 
-DRIVER_ROOT = Path(__file__).resolve().parent          # .../mesospim
-DRIVERS_DIR = DRIVER_ROOT.parent                       # .../zmart_drivers (import root for `import mesospim`)
+DRIVER_ROOT = Path(__file__).resolve().parent  # .../mesospim
+DRIVERS_DIR = DRIVER_ROOT.parent  # .../zmart_drivers (import root for `import mesospim`)
 REPORT_DIR = DRIVER_ROOT / "tests" / "_report"
 
 
@@ -51,7 +51,10 @@ def repo_root() -> Path:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, cwd=str(DRIVER_ROOT), timeout=10,
+            capture_output=True,
+            text=True,
+            cwd=str(DRIVER_ROOT),
+            timeout=10,
         )
         if result.returncode == 0 and result.stdout.strip():
             return Path(result.stdout.strip())
@@ -101,7 +104,9 @@ def env_header(env: dict) -> dict:
         "\nprint(json.dumps(d))"
     )
     try:
-        out = subprocess.run([sys.executable, "-c", probe], env=env, capture_output=True, text=True, timeout=60)
+        out = subprocess.run(
+            [sys.executable, "-c", probe], env=env, capture_output=True, text=True, timeout=60
+        )
         info["packages"] = json.loads(out.stdout.strip() or "{}")
     except Exception as exc:  # noqa: BLE001
         info["packages"] = {"_error": str(exc)}
@@ -132,21 +137,37 @@ def run_step(name: str, cmd: list[str], env: dict, *, fatal: bool) -> dict:
     elapsed = time.perf_counter() - start
     ok = returncode == 0
     print(f"\n  -> {'OK' if ok else 'FAIL'}  (exit {returncode})  in {elapsed:.1f}s", flush=True)
-    return {"name": name, "ok": ok, "fatal": fatal, "returncode": returncode,
-            "seconds": round(elapsed, 2), "error": error, "command": cmd}
+    return {
+        "name": name,
+        "ok": ok,
+        "fatal": fatal,
+        "returncode": returncode,
+        "seconds": round(elapsed, 2),
+        "error": error,
+        "command": cmd,
+    }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="mesoSPIM driver CI (offline suite + live -D demo round-trip).")
+    parser = argparse.ArgumentParser(
+        description="mesoSPIM driver CI (offline suite + live -D demo round-trip)."
+    )
     parser.add_argument(
-        "mode", nargs="?", choices=["offline", "online", "both"], default="offline",
-        help=("which suite to run (default: offline). 'offline' -- no mesoSPIM, no hardware "
-              "(mock command server + the headless Qt validator); 'online' -- the live round-trip "
-              "vs a running mesoSPIM -D demo (needs the command server on MESOSPIM_HOST/PORT); "
-              "'both' -- offline then online."),
+        "mode",
+        nargs="?",
+        choices=["offline", "online", "both"],
+        default="offline",
+        help=(
+            "which suite to run (default: offline). 'offline' -- no mesoSPIM, no hardware "
+            "(mock command server + the headless Qt validator); 'online' -- the live round-trip "
+            "vs a running mesoSPIM -D demo (needs the command server on MESOSPIM_HOST/PORT); "
+            "'both' -- offline then online."
+        ),
     )
     parser.add_argument("--no-lint", action="store_true", help="skip ruff")
-    parser.add_argument("--no-cov", action="store_true", help="skip coverage (no pytest-cov required)")
+    parser.add_argument(
+        "--no-cov", action="store_true", help="skip coverage (no pytest-cov required)"
+    )
     args = parser.parse_args()
 
     run_offline = args.mode in ("offline", "both")
@@ -162,21 +183,43 @@ def main() -> int:
     # --- lint (non-fatal: report style debt without masking test results) ----
     if not args.no_lint:
         if has("ruff"):
-            steps.append(run_step("lint: ruff check", [sys.executable, "-m", "ruff", "check", "."], env, fatal=False))
+            steps.append(
+                run_step(
+                    "lint: ruff check",
+                    [sys.executable, "-m", "ruff", "check", "."],
+                    env,
+                    fatal=False,
+                )
+            )
         else:
             print("\n  (ruff not installed -- skipping lint; `pip install ruff` to enable)")
 
     # --- OFFLINE: mock-server suite (+coverage) and the headless Qt validator -
     if run_offline:
-        pytest_cmd = [sys.executable, "-m", "pytest", "tests", "-m", "not integration",
-                      f"--junit-xml={REPORT_DIR / 'junit.xml'}"]
+        pytest_cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            "tests",
+            "-m",
+            "not integration",
+            f"--junit-xml={REPORT_DIR / 'junit.xml'}",
+        ]
         if not args.no_cov and has("pytest_cov"):
-            pytest_cmd += ["--cov=mesospim", "--cov-branch", "--cov-report=term-missing:skip-covered",
-                           f"--cov-report=xml:{REPORT_DIR / 'coverage.xml'}",
-                           f"--cov-report=html:{REPORT_DIR / 'htmlcov'}"]
+            pytest_cmd += [
+                "--cov=mesospim",
+                "--cov-branch",
+                "--cov-report=term-missing:skip-covered",
+                f"--cov-report=xml:{REPORT_DIR / 'coverage.xml'}",
+                f"--cov-report=html:{REPORT_DIR / 'htmlcov'}",
+            ]
         elif not args.no_cov:
-            print("\n  (pytest-cov not installed -- running without coverage; `pip install pytest-cov` to enable)")
-        label = "tests: offline suite" + (" + coverage" if (not args.no_cov and has("pytest_cov")) else "")
+            print(
+                "\n  (pytest-cov not installed -- running without coverage; `pip install pytest-cov` to enable)"
+            )
+        label = "tests: offline suite" + (
+            " + coverage" if (not args.no_cov and has("pytest_cov")) else ""
+        )
         steps.append(run_step(label, pytest_cmd, env, fatal=True))
 
     # --- ONLINE: live round-trip vs a running mesoSPIM -D demo ----------------
@@ -187,19 +230,36 @@ def main() -> int:
     if run_online:
         host = env.get("MESOSPIM_HOST", "127.0.0.1")
         port = env.get("MESOSPIM_PORT", "42000")
-        print(f"\n  online target: {host}:{port}  "
-              f"(acquire {'ENABLED' if env.get('MESOSPIM_ALLOW_ACQUIRE') == '1' else 'disabled'} "
-              f"-- set MESOSPIM_ALLOW_ACQUIRE=1 to include the capture)")
-        steps.append(run_step("tests: live round-trip (-m integration)",
-                              [sys.executable, "-m", "pytest", "tests", "-m", "integration", "-v",
-                               f"--junit-xml={REPORT_DIR / 'junit-integration.xml'}"],
-                              env, fatal=True))
+        print(
+            f"\n  online target: {host}:{port}  "
+            f"(acquire {'ENABLED' if env.get('MESOSPIM_ALLOW_ACQUIRE') == '1' else 'disabled'} "
+            f"-- set MESOSPIM_ALLOW_ACQUIRE=1 to include the capture)"
+        )
+        steps.append(
+            run_step(
+                "tests: live round-trip (-m integration)",
+                [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "tests",
+                    "-m",
+                    "integration",
+                    "-v",
+                    f"--junit-xml={REPORT_DIR / 'junit-integration.xml'}",
+                ],
+                env,
+                fatal=True,
+            )
+        )
 
     # --- summary --------------------------------------------------------------
     total = round(time.perf_counter() - overall_start, 2)
     fatal_failed = [s for s in steps if s["fatal"] and not s["ok"]]
     summary = {"mode": args.mode, "seconds": total, "ok": not fatal_failed, "steps": steps}
-    (REPORT_DIR / "ci_summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    (REPORT_DIR / "ci_summary.json").write_text(
+        json.dumps(summary, indent=2) + "\n", encoding="utf-8"
+    )
 
     print(f"\n{_rule()}")
     print(f"CI SUMMARY  (mode={args.mode}, {total:.1f}s)")

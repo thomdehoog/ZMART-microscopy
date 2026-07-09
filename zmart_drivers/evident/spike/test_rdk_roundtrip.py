@@ -20,7 +20,6 @@ from mock_rdk_server import MockRdkServer
 from rdk_client import RdkClient, RdkError
 from rdk_protocol import encode, parse
 
-
 # -- pure protocol ------------------------------------------------------------
 
 

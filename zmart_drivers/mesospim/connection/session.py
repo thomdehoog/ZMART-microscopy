@@ -60,7 +60,9 @@ def connect(
     )
     resolved_token = token if token is not None else connection.get("token")
 
-    client = MesospimClient(resolved_host, resolved_port, timeout=resolved_timeout, token=resolved_token)
+    client = MesospimClient(
+        resolved_host, resolved_port, timeout=resolved_timeout, token=resolved_token
+    )
     client.connect()
 
     if not _ping(client):

@@ -23,7 +23,6 @@ from types import SimpleNamespace
 
 from zenapi.connection.client import ZenClient
 
-
 # =============================================================================
 # Fake exception + status helpers
 # =============================================================================
@@ -41,20 +40,26 @@ class FakeGRPCError(Exception):
 def running_status(**progress) -> SimpleNamespace:
     """A status item indicating an acquisition is in progress."""
     return SimpleNamespace(
-        is_experiment_running=True, is_acquisition_running=True,
+        is_experiment_running=True,
+        is_acquisition_running=True,
         tiles_index=progress.get("tiles_index"),
         images_acquired_index=progress.get("images_acquired_index"),
         zstack_slices_index=progress.get("zstack_slices_index"),
-        time_points_index=None, channels_index=None,
+        time_points_index=None,
+        channels_index=None,
     )
 
 
 def idle_status() -> SimpleNamespace:
     """A status item indicating nothing is running."""
     return SimpleNamespace(
-        is_experiment_running=False, is_acquisition_running=False,
-        tiles_index=None, images_acquired_index=None, zstack_slices_index=None,
-        time_points_index=None, channels_index=None,
+        is_experiment_running=False,
+        is_acquisition_running=False,
+        tiles_index=None,
+        images_acquired_index=None,
+        zstack_slices_index=None,
+        time_points_index=None,
+        channels_index=None,
     )
 
 

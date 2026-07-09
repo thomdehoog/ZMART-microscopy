@@ -113,7 +113,6 @@ from ..commands.confirmations import (  # noqa: E402
     confirm_objective,
 )
 
-
 # =============================================================================
 # Device moves. ZEN move_to awaits to completion, so a single confirm window
 # (readback insurance) with no re-fire is the right posture -- not the Leica

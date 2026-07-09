@@ -147,7 +147,9 @@ def connect(connection: dict) -> MesospimHandle:
     else:
         stage_path, stage_fallback = machine.resolve(_machine.STAGE_LIMITS_FILENAME)
         if stage_fallback:
-            log.info("no machine stage envelope under %s; using bundled default", machine.machine_dir())
+            log.info(
+                "no machine stage envelope under %s; using bundled default", machine.machine_dir()
+            )
     stage_cfg = _limits.load_stage_config(stage_path)
     _limits.clear_stage_limits()
     _limits.apply_stage_limits_from_config(stage_cfg)
@@ -205,8 +207,7 @@ def _load_function_limits(machine: Any, stage_cfg: dict | None) -> Any | None:
         )
     except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
         log.warning(
-            "function limits unavailable (%s); every mutating op will refuse "
-            "until %s loads",
+            "function limits unavailable (%s); every mutating op will refuse until %s loads",
             exc,
             _machine.FUNCTION_LIMITS_FILENAME,
         )
@@ -243,7 +244,9 @@ def _restore_persisted_origin(handle: MesospimHandle) -> None:
     except (KeyError, TypeError, ValueError) as exc:
         log.warning("persisted origin is malformed (%s); frame is raw stage coordinates", exc)
         return
-    log.info("restored frame origin from %s", handle.machine.machine_dir() / _machine.ORIGIN_FILENAME)
+    log.info(
+        "restored frame origin from %s", handle.machine.machine_dir() / _machine.ORIGIN_FILENAME
+    )
 
 
 def disconnect(handle: MesospimHandle) -> None:

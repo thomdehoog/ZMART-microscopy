@@ -39,7 +39,9 @@ def _czi_name(naming: Naming) -> str:
 
 def _resolve_czi_path(client, output_name: str) -> Path:
     """Ask ZEN for the on-disk path of the CZI it wrote for ``output_name``."""
-    resp = client.submit(client.experiment.get_image_output_path(client.messages.image_output_path(output_name)))
+    resp = client.submit(
+        client.experiment.get_image_output_path(client.messages.image_output_path(output_name))
+    )
     if isinstance(resp, (str, Path)):
         return Path(resp)
     path = _attr(resp, "path", "output_path", "image_output_path")

@@ -21,12 +21,12 @@ from __future__ import annotations
 import os
 import socket
 
-import pytest
-import zmart_controller
-
 # Import the driver so its adapter self-registers (mesospim, mesospim-01,
 # remote-scripting) with the controller at import time.
 import mesospim  # noqa: F401
+import pytest
+
+import zmart_controller
 
 pytestmark = pytest.mark.integration
 

@@ -44,9 +44,7 @@ class TestRegister:
     def test_connection_dict_is_copied(self, scratch_identity):
         registry.register(scratch_identity, ops=_full_ops())
         scratch_identity["client"] = "mutated-later"
-        stored = next(
-            i for i in registry.get_instruments() if i["microscope"] == "scratch"
-        )
+        stored = next(i for i in registry.get_instruments() if i["microscope"] == "scratch")
         assert "client" not in stored
 
 

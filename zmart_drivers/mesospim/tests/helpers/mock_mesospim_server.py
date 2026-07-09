@@ -127,20 +127,22 @@ class FakeCore:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.cfg = FakeCfg()
-        self.state = _FakeStateSingleton({
-            "state": "idle",
-            "position": {f"{a}_pos": 0.0 for a in _AXES},
-            "laser": "488 nm",
-            "intensity": 10.0,
-            "filter": "515/30",
-            "zoom": "1x",
-            "shutterconfig": "Left",
-            "etl_l_amplitude": 1.0,
-            "etl_l_offset": 2.0,
-            "etl_r_amplitude": 1.0,
-            "etl_r_offset": 2.0,
-            "snap_image_path": None,
-        })
+        self.state = _FakeStateSingleton(
+            {
+                "state": "idle",
+                "position": {f"{a}_pos": 0.0 for a in _AXES},
+                "laser": "488 nm",
+                "intensity": 10.0,
+                "filter": "515/30",
+                "zoom": "1x",
+                "shutterconfig": "Left",
+                "etl_l_amplitude": 1.0,
+                "etl_l_offset": 2.0,
+                "etl_r_amplitude": 1.0,
+                "etl_r_offset": 2.0,
+                "snap_image_path": None,
+            }
+        )
         self.sig_stop_movement = _FakeSignal()
         self.sig_state_request_and_wait_until_done = _FakeSignal(self._apply_state)
         self._seq = 0
@@ -364,4 +366,4 @@ def _frame(text: str) -> bytes:
 def _sniff_cmd(script: str) -> str | None:
     first = script.split("\n", 1)[0].strip()
     prefix = "# zmart-cmd:"
-    return first[len(prefix):].strip() if first.startswith(prefix) else None
+    return first[len(prefix) :].strip() if first.startswith(prefix) else None

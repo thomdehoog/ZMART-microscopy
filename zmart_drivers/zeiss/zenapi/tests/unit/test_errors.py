@@ -1,7 +1,6 @@
 """gRPC status-code classification."""
 
 from mock_zen_api import FakeGRPCError
-
 from zenapi.commands.errors import classify_grpc_error
 
 

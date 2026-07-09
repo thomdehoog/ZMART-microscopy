@@ -1,7 +1,6 @@
 """CommandProfile construction, the coherence guard, and per-command postures."""
 
 import pytest
-
 from zenapi.config.profiles import (
     FOCUS_MOVE,
     OBJECTIVE,

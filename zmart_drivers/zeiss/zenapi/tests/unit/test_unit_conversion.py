@@ -1,7 +1,6 @@
 """Micrometer (public) <-> meter (wire) conversion, at the boundary and scalars."""
 
 import pytest
-
 import zenapi as drv
 from zenapi.utils import m_to_um, to_um, um_to_m
 

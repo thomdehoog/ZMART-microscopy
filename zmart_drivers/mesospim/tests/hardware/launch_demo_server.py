@@ -34,7 +34,7 @@ import sys
 import types
 
 
-def _fail(msg: str) -> "NoReturn":  # noqa: F821
+def _fail(msg: str) -> NoReturn:  # noqa: F821
     print(f"launch_demo_server: {msg}", file=sys.stderr)
     raise SystemExit(2)
 
@@ -42,8 +42,10 @@ def _fail(msg: str) -> "NoReturn":  # noqa: F821
 def main() -> int:
     root = os.environ.get("MESOSPIM_CONTROL_ROOT")
     if not root or not os.path.isdir(root):
-        _fail("set MESOSPIM_CONTROL_ROOT to a mesoSPIM-control checkout with the "
-              "Remote Scripting PR applied (git am pull_request/0001-*.patch)")
+        _fail(
+            "set MESOSPIM_CONTROL_ROOT to a mesoSPIM-control checkout with the "
+            "Remote Scripting PR applied (git am pull_request/0001-*.patch)"
+        )
     host = os.environ.get("MESOSPIM_HOST", "127.0.0.1")
     port = int(os.environ.get("MESOSPIM_PORT", "42000"))
     token = os.environ.get("MESOSPIM_TOKEN") or secrets.token_urlsafe(16)
@@ -63,9 +65,11 @@ def main() -> int:
 
     # Stub the USB webcam window (QtMultimedia + a real camera; irrelevant to control).
     stub = types.ModuleType("mesoSPIM.src.WebcamWindow")
-    stub.WebcamWindow = type("WebcamWindow", (QtWidgets.QWidget,), {
-        "__init__": lambda self, webcam_id=None: QtWidgets.QWidget.__init__(self)
-    })
+    stub.WebcamWindow = type(
+        "WebcamWindow",
+        (QtWidgets.QWidget,),
+        {"__init__": lambda self, webcam_id=None: QtWidgets.QWidget.__init__(self)},
+    )
     sys.modules["mesoSPIM.src.WebcamWindow"] = stub
 
     spec = importlib.util.spec_from_file_location(
@@ -88,6 +92,7 @@ def main() -> int:
     # processors. Guarded so it is a no-op on older builds without this hook.
     try:
         from mesoSPIM.src.plugins import utils as _plugin_utils
+
         _plugin_utils.install_and_import = lambda name, *a, **k: __import__(name)
     except Exception:  # noqa: BLE001 - older mesoSPIM without the plugin utils
         pass
@@ -95,6 +100,7 @@ def main() -> int:
     # PluginRegistry must exist before MainWindow (Acquisition resolves a writer at
     # class-definition time).
     from mesoSPIM.src.plugins.manager import PluginRegistry
+
     PluginRegistry(cfg)
     from mesoSPIM.src.mesoSPIM_MainWindow import mesoSPIM_MainWindow
 
@@ -116,9 +122,7 @@ def main() -> int:
 
     ex.core.sig_remote_scripting_started.connect(on_started)
     # Start the server via the real queued GUI signal path, exactly as the button.
-    QtCore.QTimer.singleShot(
-        1500, lambda: ex.sig_start_remote_scripting.emit(host, port, token)
-    )
+    QtCore.QTimer.singleShot(1500, lambda: ex.sig_start_remote_scripting.emit(host, port, token))
     return app.exec_()
 
 

@@ -20,7 +20,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 SCRIPT_RELATIVE_PATH = Path("mesoSPIM") / "scripts" / "remote_scripting_full_test.py"
 
 

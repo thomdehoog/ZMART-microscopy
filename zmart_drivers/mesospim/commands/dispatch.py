@@ -181,9 +181,7 @@ def confirm_and_fire(
             message=f"{label}: ok",
             data=dict(reply.data),
             logs=logs,
-            timing=_make_timing(
-                fire_s=fire_s, total_s=time.perf_counter() - t0, attempts=attempts
-            ),
+            timing=_make_timing(fire_s=fire_s, total_s=time.perf_counter() - t0, attempts=attempts),
         )
 
     # -- confirm wrapper ------------------------------------------------------

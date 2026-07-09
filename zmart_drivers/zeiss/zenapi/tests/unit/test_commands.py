@@ -1,9 +1,8 @@
 """Command wrappers end-to-end over the fake scope (real bridge + dispatch)."""
 
 import pytest
-from mock_zen_api import FakeGRPCError
-
 import zenapi as drv
+from mock_zen_api import FakeGRPCError
 
 
 def _wide_limits():
@@ -38,7 +37,7 @@ def test_set_objective_by_name(fake_client):
 
 def test_set_objective_by_index(fake_client):
     client, scope = fake_client
-    r = drv.set_objective(client, index=1)
+    drv.set_objective(client, index=1)
     assert scope.objective_index == 1
 
 

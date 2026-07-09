@@ -49,7 +49,7 @@ class MockRdkServer:
 
     # -- lifecycle ------------------------------------------------------------
 
-    def __enter__(self) -> "MockRdkServer":
+    def __enter__(self) -> MockRdkServer:
         self.start()
         return self
 
@@ -76,7 +76,7 @@ class MockRdkServer:
         while not self._stop.is_set():
             try:
                 conn, _ = self._sock.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break
@@ -89,7 +89,7 @@ class MockRdkServer:
         while not self._stop.is_set():
             try:
                 chunk = conn.recv(4096)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 return

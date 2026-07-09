@@ -2,7 +2,6 @@
 
 import pytest
 from mock_zen_api import build_fake_client
-
 from zenapi.commands.dispatch import confirm_and_fire
 
 
@@ -29,9 +28,12 @@ def test_success_without_confirm(client):
 
 def test_confirm_success(client):
     r = confirm_and_fire(
-        client, "op", fire_fn=_ok_fire(),
+        client,
+        "op",
+        fire_fn=_ok_fire(),
         confirm_fn=lambda: {"success": True, "logs": []},
-        max_confirm_attempts=1, refire_on_unconfirmed=False,
+        max_confirm_attempts=1,
+        refire_on_unconfirmed=False,
     )
     assert r["success"] is True and r["confirmed"] is True
 
@@ -64,9 +66,13 @@ def test_permanent_fails_immediately(client):
 
 def test_unconfirmed_is_soft_success(client):
     r = confirm_and_fire(
-        client, "op", fire_fn=_ok_fire(),
+        client,
+        "op",
+        fire_fn=_ok_fire(),
         confirm_fn=lambda: {"success": False, "logs": []},
-        max_confirm_attempts=1, refire_on_unconfirmed=False, success_on_unconfirmed=True,
+        max_confirm_attempts=1,
+        refire_on_unconfirmed=False,
+        success_on_unconfirmed=True,
     )
     assert r["success"] is True
     assert r["confirmed"] is False
@@ -85,8 +91,12 @@ def test_refire_on_unconfirmed_reconfirms(client):
         return {"success": confirms["n"] >= 2, "logs": []}
 
     r = confirm_and_fire(
-        client, "op", fire_fn=fire, confirm_fn=confirm,
-        max_confirm_attempts=3, refire_on_unconfirmed=True,
+        client,
+        "op",
+        fire_fn=fire,
+        confirm_fn=confirm,
+        max_confirm_attempts=3,
+        refire_on_unconfirmed=True,
     )
     assert r["success"] is True and r["confirmed"] is True
     assert fires["n"] == 2  # initial fire + one re-fire before the 2nd confirm
