@@ -74,9 +74,14 @@ The pre-filled values are this machine's known-good envelope; adjust only if you
 have better numbers. Running the cell publishes a machine-local `limits.json`
 (the stage envelope + the function gate) under
 `C:\ProgramData\zmart-microscopy\leica\stellaris5_y42h93\navigator_expert\<datetime>\`.
-Then run `orientation/notebooks/set_orientation.ipynb` and the calibration
-notebook(s) under `calibration/notebooks/` for the lens configurations you will
-use. Calibration can be adopted into the default file or into named
+Then run the orientation notebook:
+`zmart_drivers/leica/stellaris5_y42h93/navigator_expert/orientation/notebooks/set_orientation.ipynb`
+
+For calibration, run the objective-pair notebook for each lens configuration
+you will use:
+`zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/notebooks/calibrate_objective_pair.ipynb`
+
+Calibration can be adopted into the default file or into named
 `calibrations/<name>/calibration.json` entries; ProgramData remains the source
 of truth.
 
