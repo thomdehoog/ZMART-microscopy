@@ -10,7 +10,7 @@ connect.
 
 The rig's **image→stage orientation** is a separate concern owned by
 `navigator_expert/orientation/` (measured by
-`orientation/notebooks/set_orientation.ipynb`, applied to exported planes at
+`../orientation/notebooks/set_orientation.ipynb`, applied to exported planes at
 save time), not part of this calibration. Because calibration frames are
 already stage-aligned when saved, the objective-pair workflow registers image
 shifts directly in the stage frame — no image-to-stage matrix lives here.
@@ -24,8 +24,8 @@ each cell calls one procedure function, while reusable code lives in
 - `notebooks/calibrate_objective_pair.ipynb` measures the translation
   between one objective pair.
 
-Set up a new rig in order: `limits/notebooks/set_stage_limits.ipynb` (physical
-envelope), then `orientation/notebooks/set_orientation.ipynb` (image→stage
+Set up a new rig in order: `../limits/notebooks/set_stage_limits.ipynb` (physical
+envelope), then `../orientation/notebooks/set_orientation.ipynb` (image→stage
 rotation), then run the objective-pair notebook for each objective pair the
 scope should support.
 
@@ -61,4 +61,4 @@ they are not source files and should not be committed.
 - `core/` contains low-level calibration internals.
 - `notebooks/` contains the operator UI.
 
-Runtime code reads only ProgramData paths resolved by `config/machine.py`.
+Runtime code reads only ProgramData paths resolved by `../config/machine.py`.

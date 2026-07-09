@@ -50,11 +50,11 @@ zmart_controller.set_state(Dict)
 zmart_controller.get_acquisition_options()
 zmart_controller.acquire(acquisition_type=String, position_label=String, options=Dict)
 
-# 6) Run a procedure specific to the microscope (e.g. hardware autofocus)
+# 6) Run a procedure specific to the microscope
 zmart_controller.get_procedures()
 zmart_controller.run_procedure(Dict)
 
-# 7) Get additional context the driver provides (e.g. initial positions)
+# 7) Optionally inspect extra diagnostic context the driver provides
 zmart_controller.get_context()
 
 # 8) Close the session
@@ -151,27 +151,32 @@ numeric-label overwrites.
 
 ### 6. Run a procedure
 
-`get_procedures()` lists the named jobs the driver offers (e.g. hardware
-autofocus); `run_procedure()` runs one. Procedures are opaque dicts the driver
-interprets.
+`get_procedures()` lists the named driver procedures; `run_procedure()` runs
+one. Procedures are opaque dicts the driver interprets. The Leica target
+workflow uses this path for microscope-derived setup data:
 
 ```python
-zmart_controller.get_procedures()                       # {"autofocus": {...}, ...}
+zmart_controller.get_procedures()                       # {"get_root": {...}, "get_positions": {...}, ...}
+root = zmart_controller.run_procedure({"name": "get_root"})["root"]
+positions = zmart_controller.run_procedure({"name": "get_positions"})["positions"]
+focus_points = zmart_controller.run_procedure({"name": "get_focus_points"})["positions"]
 zmart_controller.run_procedure({"name": "autofocus"})
 ```
 
 ### 7. Get additional context
 
-`get_context()` returns whatever extra context the driver provides. The keys are
-driver-defined — inspect the dict before relying on one: the mock (and the
-mesoSPIM driver) expose `initial_positions`, while the Leica driver instead
-exposes stored positions under `scan_field` (alongside `selected_job`,
-`output_root`, ...). The call is read-only *with respect to instrument state*,
-but a driver may persist working files while gathering it (the Leica driver
-flushes the live experiment to disk, which can block up to a minute).
+`get_context()` returns extra driver diagnostics. The keys are driver-defined,
+and workflow-critical values should not be guessed from this dict when the
+driver exposes a procedure for them. For Leica, use `run_procedure({"name":
+"get_root"})`, `get_positions`, and `get_focus_points` for the operator
+workflow; `get_context()` remains useful for inspecting selected job,
+scan-field metadata, output-root override state, and other adapter details.
+The call is read-only *with respect to instrument state*, but a driver may
+persist working files while gathering it (the Leica driver can flush the live
+experiment to disk, which may block up to a minute).
 
 ```python
-zmart_controller.get_context()["initial_positions"]     # mock driver; on Leica use ["scan_field"]
+zmart_controller.get_context()                          # diagnostics; driver-defined keys
 ```
 
 ### 8. Close the session

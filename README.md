@@ -48,11 +48,11 @@ zmart_controller.set_state(Dict)
 zmart_controller.get_acquisition_options()
 zmart_controller.acquire(acquisition_type=String, position_label=String, options=Dict)
 
-# 6) Run a procedure specific to the microscope (e.g. hardware autofocus)
+# 6) Run microscope-specific procedures (e.g. get run root / scan positions)
 zmart_controller.get_procedures()
 zmart_controller.run_procedure(Dict)
 
-# 7) Get additional context the driver provides (e.g. initial positions)
+# 7) Optionally inspect extra diagnostic context the driver provides
 zmart_controller.get_context()
 
 # 8) Close the session
@@ -76,15 +76,15 @@ command model, state handling, and gotchas in its own README.
 
 | Microscope | API | Driver | Status |
 |---|---|---|---|
-| mesoSPIM (open-source light-sheet) | mesoSPIM-control (PyQt5; resident socket hook) | [`zmart_drivers/mesospim/`](zmart_drivers/mesospim/README.md) | **Demo-validated — near production** — the full round-trip **incl. `acquire`** passes against a live mesoSPIM `-D` demo (real software, simulated hardware); 111 offline + headless-Qt + live-demo tests green, `run_ci.py` runs offline/online/both. GPL app driven at arm's length via a resident hook + MIT client. Pending real-hardware validation |
+| mesoSPIM (open-source light-sheet) | mesoSPIM-control (PyQt5; resident socket hook) | [`zmart_drivers/mesospim/`](zmart_drivers/mesospim/README.md) | **Demo-validated — near production** — the full round-trip **incl. `acquire`** passes against a live mesoSPIM `-D` demo (real software, simulated hardware); offline suite green, `run_ci.py` runs offline/online/both. GPL app driven at arm's length via a resident hook + MIT client. Pending real-hardware validation |
 | ZEISS (ZEN) | ZEN API (gRPC) | [`zmart_drivers/zeiss/zenapi/`](zmart_drivers/zeiss/zenapi/README.md) | **Minimum viable product** — full offline suite green; not yet bench-validated (see [Risks](zmart_drivers/zeiss/zenapi/README.md#10-risks--bench-verify)) |
 | Nikon (NIS-Elements 6.2) | NIS-Elements macros / NkSocket TCP | [`zmart_drivers/nikon/`](zmart_drivers/nikon/README.md) | **Investigation + spike** — socket round-trip proof landed; no production driver yet (device verbs still to be pinned) |
 | Evident FLUOVIEW FV4000 (IX83) | FLUOVIEW RDK (TCP command server) | [`zmart_drivers/evident/`](zmart_drivers/evident/README.md) | **Investigation + planning** — RDK route mapped (Leica-CAM-symmetric); pending Evident developer-program access to the FV RDK command reference |
 
-The ZMART Controller is meant to be the single surface every workflow drives, but
-it is still under construction — so today's workflows call the Leica driver
-directly. As each driver matures it graduates from **Under construction** to
-**Production-ready**, and workflows move onto the controller.
+The ZMART Controller is the surface workflows should drive. The current Leica
+target-acquisition workflow already uses it; the other adapters are still
+maturing behind the same interface. As each driver matures it graduates from
+**Under construction** to **Production-ready**.
 
 ## Architecture
 
@@ -130,16 +130,20 @@ conda activate zmart-microscopy
 ```
 
 ### 3. Machine Setup (Limits, Orientation, & Calibration)
-The driver refuses to move until machine-local configuration exists. You must run the following notebooks in order to publish the required `.json` files for your specific machine:
+The driver reads machine-local configuration from `C:\ProgramData\zmart-microscopy\...`.
+If ProgramData is empty, repo defaults are copied there so mock CI and first
+connects can run; on the real microscope, replace those defaults with measured
+values by running the setup notebooks:
 
-At the current moment there is only the driver for the Leica Stellaris:
+For the production Leica Stellaris driver:
 
 1.  **Set Stage Limits:** Defines the physical travel range.
     `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb`
 2.  **Set Orientation:** Defines the stage coordinate system relative to the camera/detector.
     `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/orientation/notebooks/set_orientation.ipynb`
-3.  **Set Calibration:** Defines the pixel-to-physical-unit scaling.
-    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/notebooks/set_calibration.ipynb`
+3.  **Calibrate Objective Pair:** Defines the objective-pair translation for one lens configuration.
+    Run it for each lens configuration you need.
+    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/notebooks/calibrate_objective_pair.ipynb`
 
 ### 4. Run it
 
@@ -149,10 +153,9 @@ Navigate to the `navigator_expert` directory and execute the validation:
 ```bash
 cd zmart_drivers/leica/stellaris5_y42h93/navigator_expert
 
-# Start in read-only mode to verify connection
-python run_ci.py online
+# Mock/offline validation; no LAS X required
+python run_ci.py
 
-# Run full bench validation with live writes
-python run_ci.py online --live-writes
-```
+# Live bench validation; LAS X required, moves/acquires, restored where possible
+python run_ci.py --hardware
 ```
