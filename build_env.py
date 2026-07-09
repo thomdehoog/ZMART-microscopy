@@ -38,6 +38,8 @@ VERIFY = {
     "tifffile": "import tifffile",
     "matplotlib": "import matplotlib",
     "pytest": "import pytest",
+    "ipython": "import IPython",
+    "ipykernel": "import ipykernel",
     "pythonnet": "import clr",
 }
 
