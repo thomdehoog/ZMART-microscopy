@@ -28,9 +28,18 @@ range checking uses the per-axis travel envelope of the config you loaded at sta
 export MESOSPIM_RS_LIMITS='{"z":[-5000,5000]}'   # only overrides z; the rest stay at cfg
 ```
 
-Verify with an out-of-range `move_absolute` — it should return an "outside the allowed
-range" error **naming the limit**, and the stage should not move. `get_limits` reports the
-exact rules in force (an axis with no limit shows `null`).
+**First thing after Start — run the viability check.** It proves both lanes are up and
+that a limit **cannot** be violated, and it never moves the stage (the out-of-limit probe
+is `max + 1`, refused before the Core is touched):
+
+```bash
+python pull_request/demo_client.py --self-check --port 42000 --token <token> \
+       --mcp-port 42100 --mcp-token <mcp-token>   # drop the --mcp-* pair to check TCP only
+```
+
+Expect `VIABILITY: PASS  (both lanes up, limits enforced, stage never moved)`. A `FAIL`
+line (an out-of-limit move was accepted) means do not rely on the server. `get_limits`
+also reports the exact rules in force (an axis with no limit shows `null`).
 
 ## 2. Run the gated integration suite (framed TCP lane)
 
