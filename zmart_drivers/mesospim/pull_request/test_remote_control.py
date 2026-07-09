@@ -5,7 +5,7 @@ Rebuilds the two ``mesoSPIM_RemoteControl_*`` modules straight from the
 checks what the server promises: frames round-trip, the token is enforced in
 constant time, bad VALUES are refused (shape / option / range), the MCP reply shape
 is right, and a hostile-payload sweep proves nothing outside the allowlist ever
-runs. No Qt, no mesoSPIM, no ZMART imports. Run either way::
+runs. No Qt, no mesoSPIM, no third-party imports. Run either way::
 
     pytest pull_request/test_remote_control.py
     python  pull_request/test_remote_control.py

@@ -6,7 +6,7 @@ Every input the server accepts over **TCP** or **MCP**. Generated to match
 ## Wire
 
 - **TCP** — one length-framed line `"<byte-count>\n"` + `{"<command>": {args}}`; reply
-  `__ZMART_OK__<json-result>` or an `error: <msg>` line. If a token is set, the first
+  `__RC_OK__<json-result>` or an `error: <msg>` line. If a token is set, the first
   frame must be it (`OK` / `AUTH-FAILED`).
 - **MCP** — `POST /mcp` a JSON-RPC `tools/call` with `{"name":"<command>","arguments":{args}}`;
   reply `result.content[0].text` is the same `<json-result>` (or `{"error":…}` with

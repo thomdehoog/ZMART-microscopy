@@ -11,7 +11,7 @@ It reuses the exact same modules the sibling test rebuilds straight from the
 ``0001-*.patch`` (one source of truth), and drives them through the SAME choke point
 both real transports use (``handle_tcp_message`` -> ``run`` -> ``_validate``) plus the
 MCP reply builder. A ``_RecordingCore`` records every Core call, so we can assert a
-rejected call left the instrument untouched. No Qt, no mesoSPIM, no ZMART imports. Run::
+rejected call left the instrument untouched. No Qt, no mesoSPIM, no third-party imports. Run::
 
     pytest pull_request/test_remote_control_adversarial.py
     python  pull_request/test_remote_control_adversarial.py
