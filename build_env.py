@@ -15,6 +15,7 @@ Usage:
 
 Requires conda on PATH (MinicondaZMB).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -119,7 +120,8 @@ def verify_imports(name: str) -> None:
     for pkg, stmt in VERIFY.items():
         rc = subprocess.call(
             [str(py), "-c", stmt],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         print(f"  [{'ok' if rc == 0 else 'FAIL'}] {pkg}")
         if rc != 0:
@@ -158,10 +160,14 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--name", default=DEFAULT_NAME, help="conda env name")
     mode = ap.add_mutually_exclusive_group()
-    mode.add_argument("--recreate", action="store_true",
-                      help="remove an existing env before creating it")
-    mode.add_argument("--update", action="store_true",
-                      help="update an existing env in place instead of creating it")
+    mode.add_argument(
+        "--recreate", action="store_true", help="remove an existing env before creating it"
+    )
+    mode.add_argument(
+        "--update",
+        action="store_true",
+        help="update an existing env in place instead of creating it",
+    )
     args = ap.parse_args()
     build(args.name, args.update, args.recreate)
     verify_imports(args.name)

@@ -1,7 +1,6 @@
 """Readers: parsing, m->µm, objective enrichment, diagnostics, status, ping."""
 
 import pytest
-
 import zenapi as drv
 from zenapi.readers.reading import Reading
 

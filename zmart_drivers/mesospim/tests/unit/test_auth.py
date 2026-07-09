@@ -8,6 +8,7 @@ server, which mirrors the real server's auth so this runs with no Qt/mesoSPIM.
 
 Author: Thom de Hoog (ZMB, University of Zurich). License: MIT.
 """
+
 from __future__ import annotations
 
 import mesospim as drv

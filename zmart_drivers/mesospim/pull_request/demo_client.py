@@ -13,6 +13,7 @@ Run mesoSPIM (-D demo is fine), start Tools -> Remote Scripting..., then:
 MIT (this is client-side example code; it imports nothing from mesoSPIM).
 Author: Thom de Hoog (ZMB, University of Zurich).
 """
+
 import argparse
 import json
 import socket
@@ -57,10 +58,7 @@ class RemoteScripting:
         Wraps the expression so it prints a marker-delimited JSON payload, then
         extracts it from the reply -- robust to interleaved console output.
         """
-        script = (
-            "import json as _json\n"
-            f"print('<<<R>>>' + _json.dumps({expr}) + '<<<E>>>')\n"
-        )
+        script = f"import json as _json\nprint('<<<R>>>' + _json.dumps({expr}) + '<<<E>>>')\n"
         out = self.run(script)
         start = out.index("<<<R>>>") + len("<<<R>>>")
         end = out.index("<<<E>>>", start)

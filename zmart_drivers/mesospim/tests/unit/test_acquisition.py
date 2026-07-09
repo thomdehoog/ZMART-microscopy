@@ -119,7 +119,9 @@ def _result_from(files, planes=1):
         finished_at=1.0,
         files=tuple(files),
         planes=planes,
-        metadata=AcquisitionMetadata(size_x=8, size_y=8, size_z=planes, channels=(ChannelMetadata(0),)),
+        metadata=AcquisitionMetadata(
+            size_x=8, size_y=8, size_z=planes, channels=(ChannelMetadata(0),)
+        ),
     )
 
 

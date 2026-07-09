@@ -29,7 +29,9 @@ from ..utils import CONFIRM_POLL_S, _make_log_entry
 log = logging.getLogger(__name__)
 
 
-def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=1.0, poll_window=None, poll_interval=0.1):
+def confirm_move_xy(
+    client, *, target_x_um, target_y_um, tolerance=1.0, poll_window=None, poll_interval=0.1
+):
     """Poll ``get_xy`` until |readback - target| < tolerance (µm) on both axes."""
     from .. import readers as _readers
 
@@ -42,7 +44,10 @@ def confirm_move_xy(client, *, target_x_um, target_y_um, tolerance=1.0, poll_win
         pos = _reading_value_after(_readers.get_xy(client, diagnostics=True), observed_after)
         if pos is not None:
             last = pos
-            if abs(pos["x_um"] - target_x_um) < tolerance and abs(pos["y_um"] - target_y_um) < tolerance:
+            if (
+                abs(pos["x_um"] - target_x_um) < tolerance
+                and abs(pos["y_um"] - target_y_um) < tolerance
+            ):
                 return {"success": True, "logs": logs, "last_position": last}
         time.sleep(poll_interval)
     msg = f"MoveXY unconfirmed — target=({target_x_um:.2f}, {target_y_um:.2f}) µm, last={last}"
@@ -96,7 +101,13 @@ def confirm_objective(client, *, target_index, poll_window=None, poll_interval=0
 
 
 def confirm_acquire(
-    client, *, experiment_id, start_timeout=15.0, heartbeat_interval=30.0, timeout=None, poll_interval=0.1
+    client,
+    *,
+    experiment_id,
+    start_timeout=15.0,
+    heartbeat_interval=30.0,
+    timeout=None,
+    poll_interval=0.1,
 ):
     """Consume the experiment status stream until the acquisition completes.
 

@@ -32,7 +32,7 @@ class Reading:
     observed_at: float = 0.0
 
     @staticmethod
-    def now(value: Any, source: str = "api") -> "Reading":
+    def now(value: Any, source: str = "api") -> Reading:
         return Reading(value=value, source=source, observed_at=time.time())
 
 

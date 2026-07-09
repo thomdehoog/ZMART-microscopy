@@ -27,20 +27,16 @@ License: MIT
 
 from __future__ import annotations
 
-# --- connection ---
-from .connection.client import ZenClient
-from .connection.session import close, connect
-
-# --- state readers ---
-from .readers import (
-    get_objective,
-    get_objectives,
-    get_status,
-    get_xy,
-    get_z,
-    monitor,
-    ping,
+# --- acquisition ---
+from .acquisition.capture import AcquisitionResult, acquire
+from .acquisition.product import (
+    AcquisitionMetadata,
+    ChannelMetadata,
+    PlaneIndex,
+    PositionIndex,
+    SavedAcquisition,
 )
+from .acquisition.save import save
 
 # --- commands ---
 from .commands.commands import (
@@ -53,26 +49,6 @@ from .commands.commands import (
     set_objective,
 )
 
-# --- motion ---
-from .motion.limits import (
-    apply_stage_limits_from_config,
-    get_stage_limits,
-    set_stage_limits,
-)
-from .motion.movement import correct_backlash, move_xy_with_backlash
-from .motion.stage_config import load as load_stage_config
-
-# --- acquisition ---
-from .acquisition.capture import AcquisitionResult, acquire
-from .acquisition.product import (
-    AcquisitionMetadata,
-    ChannelMetadata,
-    PlaneIndex,
-    PositionIndex,
-    SavedAcquisition,
-)
-from .acquisition.save import save
-
 # --- profiles (tuning surface) ---
 from .config.profiles import (
     FOCUS_MOVE,
@@ -84,20 +60,73 @@ from .config.profiles import (
     ZEN_API,
 )
 
+# --- connection ---
+from .connection.client import ZenClient
+from .connection.session import close, connect
+
+# --- motion ---
+from .motion.limits import (
+    apply_stage_limits_from_config,
+    get_stage_limits,
+    set_stage_limits,
+)
+from .motion.movement import correct_backlash, move_xy_with_backlash
+from .motion.stage_config import load as load_stage_config
+
+# --- state readers ---
+from .readers import (
+    get_objective,
+    get_objectives,
+    get_status,
+    get_xy,
+    get_z,
+    monitor,
+    ping,
+)
+
 __all__ = [
     # connection
-    "connect", "close", "ZenClient",
+    "connect",
+    "close",
+    "ZenClient",
     # readers
-    "get_xy", "get_z", "get_objective", "get_objectives", "get_status", "monitor", "ping",
+    "get_xy",
+    "get_z",
+    "get_objective",
+    "get_objectives",
+    "get_status",
+    "monitor",
+    "ping",
     # commands
-    "move_xy", "move_z", "set_objective", "load_experiment", "run_snap", "run_experiment",
+    "move_xy",
+    "move_z",
+    "set_objective",
+    "load_experiment",
+    "run_snap",
+    "run_experiment",
     "Experiment",
     # motion
-    "set_stage_limits", "get_stage_limits", "apply_stage_limits_from_config",
-    "move_xy_with_backlash", "correct_backlash", "load_stage_config",
+    "set_stage_limits",
+    "get_stage_limits",
+    "apply_stage_limits_from_config",
+    "move_xy_with_backlash",
+    "correct_backlash",
+    "load_stage_config",
     # acquisition
-    "acquire", "save", "AcquisitionResult", "SavedAcquisition",
-    "PlaneIndex", "PositionIndex", "AcquisitionMetadata", "ChannelMetadata",
+    "acquire",
+    "save",
+    "AcquisitionResult",
+    "SavedAcquisition",
+    "PlaneIndex",
+    "PositionIndex",
+    "AcquisitionMetadata",
+    "ChannelMetadata",
     # profiles
-    "ZEN_API", "READERS", "STAGE_MOVE", "FOCUS_MOVE", "OBJECTIVE", "SNAP", "RUN_EXPERIMENT",
+    "ZEN_API",
+    "READERS",
+    "STAGE_MOVE",
+    "FOCUS_MOVE",
+    "OBJECTIVE",
+    "SNAP",
+    "RUN_EXPERIMENT",
 ]

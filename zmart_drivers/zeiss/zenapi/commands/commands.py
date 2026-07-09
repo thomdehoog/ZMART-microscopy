@@ -116,26 +116,37 @@ def move_xy(client, x, y, unit="um", *, max_retries=None, tolerance=None):
         _check_xy_limits(x_um, y_um)
     except RuntimeError as e:
         return {
-            "success": False, "confirmed": None, "message": str(e), "position": None,
-            "timing": _make_timing(total_s=0.0, attempts=0), "logs": [],
+            "success": False,
+            "confirmed": None,
+            "message": str(e),
+            "position": None,
+            "timing": _make_timing(total_s=0.0, attempts=0),
+            "logs": [],
         }
     x_m, y_m = um_to_m(x_um), um_to_m(y_um)
 
     # Phase B: backbone.
     fire_fn = _rpc_fire(
-        client, "MoveXY",
+        client,
+        "MoveXY",
         lambda: client.stage.move_to(client.messages.stage_move(x_m, y_m)),
         call_timeout=STAGE_MOVE.call_timeout,
     )
     confirm_fn = partial(
-        confirm_move_xy, client,
-        target_x_um=x_um, target_y_um=y_um,
+        confirm_move_xy,
+        client,
+        target_x_um=x_um,
+        target_y_um=y_um,
         tolerance=_profile_value(STAGE_MOVE, "confirm_tolerance", tolerance),
         poll_window=STAGE_MOVE.confirm_poll_s,
     )
     r = _dispatch(
-        client, f"MoveXY -> ({x_um:.2f}, {y_um:.2f}) um", STAGE_MOVE,
-        fire_fn=fire_fn, confirm_fn=confirm_fn, max_retries=max_retries,
+        client,
+        f"MoveXY -> ({x_um:.2f}, {y_um:.2f}) um",
+        STAGE_MOVE,
+        fire_fn=fire_fn,
+        confirm_fn=confirm_fn,
+        max_retries=max_retries,
     )
 
     # Phase C: target position (check r["confirmed"] for verification status).
@@ -150,25 +161,35 @@ def move_z(client, z, unit="um", *, max_retries=None, tolerance=None):
         _check_z_limits(z_um)
     except RuntimeError as e:
         return {
-            "success": False, "confirmed": None, "message": str(e), "z_um": None,
-            "timing": _make_timing(total_s=0.0, attempts=0), "logs": [],
+            "success": False,
+            "confirmed": None,
+            "message": str(e),
+            "z_um": None,
+            "timing": _make_timing(total_s=0.0, attempts=0),
+            "logs": [],
         }
     z_m = um_to_m(z_um)
 
     fire_fn = _rpc_fire(
-        client, "MoveZ",
+        client,
+        "MoveZ",
         lambda: client.focus.move_to(client.messages.focus_move(z_m)),
         call_timeout=FOCUS_MOVE.call_timeout,
     )
     confirm_fn = partial(
-        confirm_move_z, client,
+        confirm_move_z,
+        client,
         target_um=z_um,
         tolerance=_profile_value(FOCUS_MOVE, "confirm_tolerance", tolerance),
         poll_window=FOCUS_MOVE.confirm_poll_s,
     )
     r = _dispatch(
-        client, f"MoveZ -> {z_um:.2f} um", FOCUS_MOVE,
-        fire_fn=fire_fn, confirm_fn=confirm_fn, max_retries=max_retries,
+        client,
+        f"MoveZ -> {z_um:.2f} um",
+        FOCUS_MOVE,
+        fire_fn=fire_fn,
+        confirm_fn=confirm_fn,
+        max_retries=max_retries,
     )
     r["z_um"] = z_um
     return r
@@ -179,7 +200,8 @@ def set_objective(client, *, index=None, name=None, magnification=None, max_retr
     target = resolve_objective_index(client, index=index, name=name, magnification=magnification)
 
     fire_fn = _rpc_fire(
-        client, "SetObjective",
+        client,
+        "SetObjective",
         lambda: client.objective.move_to(client.messages.objective_move(target)),
         call_timeout=OBJECTIVE.call_timeout,
     )
@@ -187,8 +209,12 @@ def set_objective(client, *, index=None, name=None, magnification=None, max_retr
         confirm_objective, client, target_index=target, poll_window=OBJECTIVE.confirm_poll_s
     )
     r = _dispatch(
-        client, f"SetObjective -> index {target}", OBJECTIVE,
-        fire_fn=fire_fn, confirm_fn=confirm_fn, max_retries=max_retries,
+        client,
+        f"SetObjective -> index {target}",
+        OBJECTIVE,
+        fire_fn=fire_fn,
+        confirm_fn=confirm_fn,
+        max_retries=max_retries,
     )
     r["index"] = target
     return r
@@ -210,12 +236,15 @@ def run_snap(client, experiment, *, poll_timeout=None, start_timeout=None):
     """Acquire a single snap for a loaded experiment; block until complete."""
     experiment_id = _exp_id(experiment)
     fire_fn = _rpc_fire(
-        client, "RunSnap",
+        client,
+        "RunSnap",
         lambda: client.experiment.run_snap(client.messages.run_snap(experiment_id)),
         call_timeout=SNAP.call_timeout,
     )
     confirm_fn = partial(
-        confirm_acquire, client, experiment_id=experiment_id,
+        confirm_acquire,
+        client,
+        experiment_id=experiment_id,
         start_timeout=_profile_value(SNAP, "start_timeout", start_timeout),
         heartbeat_interval=SNAP.heartbeat_interval,
         timeout=_profile_value(SNAP, "poll_timeout", poll_timeout),
@@ -225,7 +254,13 @@ def run_snap(client, experiment, *, poll_timeout=None, start_timeout=None):
 
 
 def run_experiment(
-    client, experiment, *, output_name=None, poll_timeout=None, start_timeout=None, heartbeat_interval=None
+    client,
+    experiment,
+    *,
+    output_name=None,
+    poll_timeout=None,
+    start_timeout=None,
+    heartbeat_interval=None,
 ):
     """Run a loaded experiment to completion; block via the status stream.
 
@@ -235,20 +270,31 @@ def run_experiment(
     experiment_id = _exp_id(experiment)
     requested = output_name or getattr(experiment, "name", "experiment")
     fire_fn = _rpc_fire(
-        client, "RunExperiment",
+        client,
+        "RunExperiment",
         lambda: client.experiment.run_experiment(
             client.messages.run_experiment(experiment_id, requested)
         ),
         call_timeout=RUN_EXPERIMENT.call_timeout,
     )
     confirm_fn = partial(
-        confirm_acquire, client, experiment_id=experiment_id,
+        confirm_acquire,
+        client,
+        experiment_id=experiment_id,
         start_timeout=_profile_value(RUN_EXPERIMENT, "start_timeout", start_timeout),
         heartbeat_interval=_profile_value(RUN_EXPERIMENT, "heartbeat_interval", heartbeat_interval),
         timeout=_profile_value(RUN_EXPERIMENT, "poll_timeout", poll_timeout),
         poll_interval=RUN_EXPERIMENT.poll_interval,
     )
-    r = _dispatch(client, f"RunExperiment '{requested}'", RUN_EXPERIMENT, fire_fn=fire_fn, confirm_fn=confirm_fn)
+    r = _dispatch(
+        client,
+        f"RunExperiment '{requested}'",
+        RUN_EXPERIMENT,
+        fire_fn=fire_fn,
+        confirm_fn=confirm_fn,
+    )
     value = r.get("value")
-    r["output_name"] = _attr(value, "output_name", default=requested) if value is not None else requested
+    r["output_name"] = (
+        _attr(value, "output_name", default=requested) if value is not None else requested
+    )
     return r

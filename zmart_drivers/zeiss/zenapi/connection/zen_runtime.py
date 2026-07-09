@@ -70,7 +70,7 @@ def load_config(config_path: str | Path) -> dict:
     }
 
 
-def build_ssl_context(cert_file: str | Path) -> "ssl.SSLContext":
+def build_ssl_context(cert_file: str | Path) -> ssl.SSLContext:
     """Build the mandatory client TLS context (CA pin, HTTP/2 ALPN).
 
     Matches ``zen_api_utils.misc.initialize_zenapi``: verify against the gateway

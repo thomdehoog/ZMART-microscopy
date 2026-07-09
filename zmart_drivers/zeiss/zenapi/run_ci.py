@@ -51,15 +51,20 @@ def main() -> int:
             print("ruff not installed; skipping lint.")
 
     # --- tests ---
-    cmd = [sys.executable, "-m", "pytest", "tests",
-           "--junit-xml", str(REPORT_DIR / "junit.xml")]
+    cmd = [sys.executable, "-m", "pytest", "tests", "--junit-xml", str(REPORT_DIR / "junit.xml")]
     cmd += ["-m", "hardware"] if args.hardware else ["-m", "not hardware"]
 
     if not args.no_cov and find_spec("pytest_cov") is not None:
-        cmd += ["--cov=zenapi", "--cov-branch",
-                "--cov-report", f"xml:{REPORT_DIR / 'coverage.xml'}",
-                "--cov-report", f"html:{REPORT_DIR / 'htmlcov'}",
-                "--cov-report", "term-missing"]
+        cmd += [
+            "--cov=zenapi",
+            "--cov-branch",
+            "--cov-report",
+            f"xml:{REPORT_DIR / 'coverage.xml'}",
+            "--cov-report",
+            f"html:{REPORT_DIR / 'htmlcov'}",
+            "--cov-report",
+            "term-missing",
+        ]
     elif not args.no_cov:
         print("pytest-cov not installed; running without coverage.")
 

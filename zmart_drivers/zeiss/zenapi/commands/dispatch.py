@@ -122,13 +122,20 @@ def _fire_block(
                 delay = retry_backoff * (2 ** (attempt - 1)) if retry_escalate else retry_backoff
                 log.warning(
                     "%s | Transient error (attempt %d/%d), retrying in %.1fs: %s",
-                    description, attempts, max_retries + 1, delay, error_msg,
+                    description,
+                    attempts,
+                    max_retries + 1,
+                    delay,
+                    error_msg,
                 )
                 time.sleep(delay)
             else:
                 log.warning(
                     "%s | Transient error (attempt %d/%d): %s",
-                    description, attempts, max_retries + 1, error_msg,
+                    description,
+                    attempts,
+                    max_retries + 1,
+                    error_msg,
                 )
             continue
 
@@ -183,9 +190,13 @@ def confirm_and_fire(
     confirm_attempts = 0
 
     fb = _fire_block(
-        client, description,
-        fire_fn=fire_fn, pre_check_fn=pre_check_fn,
-        max_retries=max_retries, retry_backoff=retry_backoff, retry_escalate=retry_escalate,
+        client,
+        description,
+        fire_fn=fire_fn,
+        pre_check_fn=pre_check_fn,
+        max_retries=max_retries,
+        retry_backoff=retry_backoff,
+        retry_escalate=retry_escalate,
     )
     all_logs.extend(fb["logs"])
     total_attempts += fb["attempts"]
@@ -195,21 +206,35 @@ def confirm_and_fire(
 
     if not fb["success"]:
         return {
-            "success": False, "confirmed": None, "message": fb["message"], "value": None,
+            "success": False,
+            "confirmed": None,
+            "message": fb["message"],
+            "value": None,
             "timing": _make_timing(
-                pre_check_s=acc_pre, fire_s=acc_fire, total_s=time.perf_counter() - t_wall,
-                attempts=total_attempts, confirm_attempts=0,
+                pre_check_s=acc_pre,
+                fire_s=acc_fire,
+                total_s=time.perf_counter() - t_wall,
+                attempts=total_attempts,
+                confirm_attempts=0,
             ),
             "logs": all_logs,
         }
 
     if confirm_fn is None:
-        log.info("%s | OK (%.3fs) attempts=%d", description, time.perf_counter() - t_wall, total_attempts)
+        log.info(
+            "%s | OK (%.3fs) attempts=%d", description, time.perf_counter() - t_wall, total_attempts
+        )
         return {
-            "success": True, "confirmed": None, "message": description, "value": value,
+            "success": True,
+            "confirmed": None,
+            "message": description,
+            "value": value,
             "timing": _make_timing(
-                pre_check_s=acc_pre, fire_s=acc_fire, total_s=time.perf_counter() - t_wall,
-                attempts=total_attempts, confirm_attempts=0,
+                pre_check_s=acc_pre,
+                fire_s=acc_fire,
+                total_s=time.perf_counter() - t_wall,
+                attempts=total_attempts,
+                confirm_attempts=0,
             ),
             "logs": all_logs,
         }
@@ -232,14 +257,23 @@ def confirm_and_fire(
         if conf["success"]:
             log.info(
                 "%s | OK (%.3fs) attempts=%d confirm_attempts=%d",
-                description, time.perf_counter() - t_wall, total_attempts, confirm_attempts,
+                description,
+                time.perf_counter() - t_wall,
+                total_attempts,
+                confirm_attempts,
             )
             return {
-                "success": True, "confirmed": True, "message": description, "value": value,
+                "success": True,
+                "confirmed": True,
+                "message": description,
+                "value": value,
                 "timing": _make_timing(
-                    pre_check_s=acc_pre, fire_s=acc_fire, confirm_s=t_confirm,
+                    pre_check_s=acc_pre,
+                    fire_s=acc_fire,
+                    confirm_s=t_confirm,
                     total_s=time.perf_counter() - t_wall,
-                    attempts=total_attempts, confirm_attempts=confirm_attempts,
+                    attempts=total_attempts,
+                    confirm_attempts=confirm_attempts,
                 ),
                 "logs": all_logs,
             }
@@ -257,11 +291,20 @@ def confirm_and_fire(
                 acc_pre += time.perf_counter() - t0
                 all_logs.extend(idle.get("logs", []))
 
-            log.info("%s | Confirm failed, re-firing (attempt %d/%d)",
-                     description, confirm_attempts + 1, max_confirm_attempts)
+            log.info(
+                "%s | Confirm failed, re-firing (attempt %d/%d)",
+                description,
+                confirm_attempts + 1,
+                max_confirm_attempts,
+            )
             fb = _fire_block(
-                client, description, fire_fn=fire_fn, pre_check_fn=None,
-                max_retries=max_retries, retry_backoff=retry_backoff, retry_escalate=retry_escalate,
+                client,
+                description,
+                fire_fn=fire_fn,
+                pre_check_fn=None,
+                max_retries=max_retries,
+                retry_backoff=retry_backoff,
+                retry_escalate=retry_escalate,
             )
             all_logs.extend(fb["logs"])
             total_attempts += fb["attempts"]
@@ -270,11 +313,17 @@ def confirm_and_fire(
                 value = fb["value"]
             else:
                 return {
-                    "success": False, "confirmed": False, "message": fb["message"], "value": None,
+                    "success": False,
+                    "confirmed": False,
+                    "message": fb["message"],
+                    "value": None,
                     "timing": _make_timing(
-                        pre_check_s=acc_pre, fire_s=acc_fire, confirm_s=t_confirm,
+                        pre_check_s=acc_pre,
+                        fire_s=acc_fire,
+                        confirm_s=t_confirm,
                         total_s=time.perf_counter() - t_wall,
-                        attempts=total_attempts, confirm_attempts=confirm_attempts,
+                        attempts=total_attempts,
+                        confirm_attempts=confirm_attempts,
                     ),
                     "logs": all_logs,
                 }
@@ -287,12 +336,17 @@ def confirm_and_fire(
     log.warning("%s (%.3fs)", msg, time.perf_counter() - t_wall)
     all_logs.append(_make_log_entry("warning", msg))
     return {
-        "success": success_on_unconfirmed, "confirmed": False,
-        "message": f"{description} (readback unconfirmed)", "value": value,
+        "success": success_on_unconfirmed,
+        "confirmed": False,
+        "message": f"{description} (readback unconfirmed)",
+        "value": value,
         "timing": _make_timing(
-            pre_check_s=acc_pre, fire_s=acc_fire, confirm_s=t_confirm,
+            pre_check_s=acc_pre,
+            fire_s=acc_fire,
+            confirm_s=t_confirm,
             total_s=time.perf_counter() - t_wall,
-            attempts=total_attempts, confirm_attempts=confirm_attempts,
+            attempts=total_attempts,
+            confirm_attempts=confirm_attempts,
         ),
         "logs": all_logs,
     }

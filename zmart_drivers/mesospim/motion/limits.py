@@ -47,7 +47,9 @@ def set_stage_limits(**axis_limits: tuple[float, float]) -> None:
         try:
             low, high = float(bounds[0]), float(bounds[1])
         except (TypeError, IndexError, ValueError) as exc:
-            raise ValueError(f"axis {axis!r} limit must be a (min, max) pair, got {bounds!r}") from exc
+            raise ValueError(
+                f"axis {axis!r} limit must be a (min, max) pair, got {bounds!r}"
+            ) from exc
         if low > high:
             raise ValueError(f"axis {axis!r} limit has min > max: {bounds!r}")
         _stage_limits[axis] = (low, high)

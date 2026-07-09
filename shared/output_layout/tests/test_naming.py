@@ -156,9 +156,7 @@ class TestBuildNames:
             c=2,
             z=10,
         )
-        assert build_image_name(n) == (
-            "target-acquisition_bf2x91_well_A1_c02_z00010.ome.tiff"
-        )
+        assert build_image_name(n) == ("target-acquisition_bf2x91_well_A1_c02_z00010.ome.tiff")
 
     def test_max_widths_fit(self):
         n = Naming(

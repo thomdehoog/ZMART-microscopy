@@ -31,7 +31,9 @@ class AcquisitionResult:
     command_result: dict
 
 
-def acquire(client: Any, experiment: Any, *, mode: str = "experiment", **kwargs) -> AcquisitionResult:
+def acquire(
+    client: Any, experiment: Any, *, mode: str = "experiment", **kwargs
+) -> AcquisitionResult:
     """Acquire ``experiment`` and return save-agnostic context.
 
     ``mode="experiment"`` runs the full experiment (a CZI is written on the ZEN

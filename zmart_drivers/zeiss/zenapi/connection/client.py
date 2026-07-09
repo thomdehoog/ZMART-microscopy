@@ -35,7 +35,8 @@ import concurrent.futures
 import logging
 import queue
 import threading
-from typing import Any, Callable, Iterator
+from collections.abc import Callable, Iterator
+from typing import Any
 
 from ..utils import CALL_TIMEOUT
 
@@ -78,9 +79,7 @@ class ZenClient:
 
         # Start the dedicated event-loop thread.
         self._loop = asyncio.new_event_loop()
-        self._thread = threading.Thread(
-            target=self._run_loop, name="zenapi-loop", daemon=True
-        )
+        self._thread = threading.Thread(target=self._run_loop, name="zenapi-loop", daemon=True)
         self._thread.start()
 
         # Build the channel ON the loop thread so grpclib binds it correctly.
@@ -173,9 +172,7 @@ class ZenClient:
                     try:
                         kind, payload = q.get(timeout=item_timeout)
                     except queue.Empty as exc:
-                        raise TimeoutError(
-                            f"stream item exceeded {item_timeout}s"
-                        ) from exc
+                        raise TimeoutError(f"stream item exceeded {item_timeout}s") from exc
                     if kind == "item":
                         yield payload
                     elif kind == "error":
