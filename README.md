@@ -139,15 +139,17 @@ For the production Leica Stellaris driver:
 
 1.  **Set Stage Limits:** Defines the physical travel range.
     `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb`
-2.  **Set Orientation:** Defines the stage coordinate system relative to the camera/detector.
+    
+3.  **Set Orientation:** Defines the stage coordinate system relative to the camera/detector.
     `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/orientation/notebooks/set_orientation.ipynb`
-3.  **Calibrate Objective Pair:** Defines the objective-pair translation for one lens configuration.
+    
+5.  **Calibrate Objective Pair:** Defines the objective-pair translation for one lens configuration.
     Run it for each lens configuration you need.
     `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/notebooks/calibrate_objective_pair.ipynb`
 
 ### 4. Run it
 
-For the Leica Stellaris:
+For the Leica Stellaris driver:
 
 Navigate to the `navigator_expert` directory and execute the validation:
 ```bash
