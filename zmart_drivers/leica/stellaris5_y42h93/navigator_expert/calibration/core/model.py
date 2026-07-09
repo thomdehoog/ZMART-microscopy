@@ -206,8 +206,14 @@ def get_translation_um(config: dict[str, Any], slot: int) -> tuple[float, float,
     return float(value[0]), float(value[1]), float(value[2])
 
 
-def get_reference_slot_from_data(config: dict[str, Any]) -> int:
-    """Derive the reference slot from the zero translation entry."""
+def get_reference_slot(config: dict[str, Any]) -> int:
+    """The reference (origin) objective slot -- the one at translation [0, 0, 0].
+
+    There is no privileged, operator-specified reference: translations are
+    relative, so the origin is simply whichever objective reads [0, 0, 0] (the
+    first objective calibrated on a fresh config). Derived from the data, not
+    stored.
+    """
     refs = []
     for slot, entry in (config.get("objectives") or {}).items():
         value = entry.get("translation_um")
@@ -223,17 +229,6 @@ def get_reference_slot_from_data(config: dict[str, Any]) -> int:
     if len(refs) > 1:
         raise ValueError(f"calibration config has multiple zero-translation references: {refs}")
     return refs[0]
-
-
-def get_reference_slot(config: dict[str, Any]) -> int:
-    """The reference (origin) objective slot -- the one at translation [0, 0, 0].
-
-    There is no privileged, operator-specified reference: translations are
-    relative, so the origin is simply whichever objective reads [0, 0, 0] (the
-    first objective calibrated on a fresh config). Derived from the data, not
-    stored.
-    """
-    return get_reference_slot_from_data(config)
 
 
 def set_reference(config: dict[str, Any], new_ref_slot: int) -> None:
@@ -310,19 +305,3 @@ def translate_xyz_between_objectives(
         to_slot=to_slot,
     )
     return x_t, y_t, z_t
-
-
-def reference_to_objective_command_xy(
-    x_ref_um: float,
-    y_ref_um: float,
-    config: dict[str, Any],
-    target_slot: int,
-) -> tuple[float, float]:
-    """Translate a reference-frame XY to a command under ``target_slot``."""
-    return translate_xy_between_objectives(
-        x_ref_um,
-        y_ref_um,
-        config,
-        from_slot=get_reference_slot(config),
-        to_slot=target_slot,
-    )
