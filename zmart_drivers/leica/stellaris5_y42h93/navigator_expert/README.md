@@ -290,7 +290,8 @@ save(client, acq, output_root, naming, *, lineage=None, fix_ome=True,
      cleanup_source=False) -> SavedAcquisition                                    # image_paths / xml_paths / naming
 ```
 `save()` collects LAS X native AutoSave output into a neutral product,
-and writes canonical single-plane OME-TIFFs + per-position OME-XML into the `shared.output_layout` tree.
+and writes canonical single-plane OME-TIFFs into the `shared.output_layout` tree, with OME-XML embedded
+in each image file.
 **OME metadata:** `acquisition/ome.py` repairs known Leica OME violations (e.g. laser `Wavelength="0"`)
 in place, preserving byte formatting; `acquisition/ome_canonical.py` writes clean canonical ZMART OME;
 `save(..., fix_ome=True)` validates/repairs each written file.
@@ -298,8 +299,8 @@ in place, preserving byte formatting; `acquisition/ome_canonical.py` writes clea
 **Acquiring empties the scanning template by default.** Through the zmart adapter, every `acquire()`
 (and the autofocus procedure) applies the `strip_scan_fields` acquisition option: operator-drawn scan
 fields, regions, and focus points vanish from LAS X. The strip is sidecar-backed — restore with
-`restore_template` — but read stored positions via `get_context()["scan_field"]` *before* the first
-acquire, or pass `options={"strip_scan_fields": False}`.
+`restore_template` — but read stored positions through the zmart procedures (`get_positions`,
+`get_focus_points`) *before* the first acquire, or pass `options={"strip_scan_fields": False}`.
 
 **`Naming` constraints and slot overwrites.** Name parts (`acquisition_type` etc.) must be
 kebab-case lowercase (`"overview"`, `"target-scan"`); `Naming` raises `ValueError` on `"Prescan"` or
@@ -345,7 +346,8 @@ zmart_drivers/leica/stellaris5_y42h93/navigator_expert/
 ├── motion/       limits.py (µm safety envelope) · movement.py (backlash) · stage_config.py
 ├── acquisition/  product.py (neutral types) · capture.py (acquire) · save.py (persistence) · ome.py
 ├── scanfields/   .lrp/.rgn/.xml parsing + templates    experimental/lrp_edits/  offline template editors
-├── calibration/  image↔stage + objective-pair (data machine-local; defaults/ inside)   limits/  current.json · defaults/ · notebooks/
+├── calibration/  objective-pair calibration (data machine-local; defaults/ + notebooks/ inside)
+├── limits/       stage/function limits defaults + setup notebook; runtime truth is ProgramData
 ├── orientation/  camera↔stage quarter-turn, applied at save; measured by set_orientation, stored in the machine snapshot next to calibration + limits
 ├── zmart_adapter/  ops table plugging this driver into zmart_controller (import to register)
 ├── tests/        unit/ (offline) + hardware/ (validate_*.py live scripts + mock-backed test_* gates)

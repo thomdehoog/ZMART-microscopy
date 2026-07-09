@@ -24,9 +24,10 @@ drivers.
 - **Status:** The driver rides mesoSPIM's **Remote Scripting** bridge — a generic "run this Python, return the
   console" socket ([`pull_request/`](pull_request/), validated against real mesoSPIM `-D` demo, v1.20.0). The
   driver injects small scripts and parses a structured result back; all command vocabulary is client-side
-  ([`connection/scripts.py`](connection/scripts.py)). **115 offline tests** green — the mock server `exec`s the
-  real injected scripts against a Core-shaped fake, so framing/harness/vocabulary are exercised for real.
-  Remaining: re-run the live round-trip on this transport and **real-hardware** validation (see [TODO.md](TODO.md)).
+  ([`connection/scripts.py`](connection/scripts.py)). The offline suite is green — the mock server `exec`s
+  the real injected scripts against a Core-shaped fake, so framing/harness/vocabulary are exercised for
+  real. The live `-D` demo round-trip has been run; **real-hardware** validation remains (see
+  [TODO.md](TODO.md)).
 
 ## How it controls the microscope — in plain terms
 
@@ -492,7 +493,7 @@ python zmart_drivers/mesospim/run_ci.py both       # BOTH:    the offline gate f
 
 The two layers it runs, portable to most-faithful:
 
-1. **Offline suite (115 tests)** — the MIT client vs a **mock Remote Scripting server** over a real socket;
+1. **Offline suite** — the MIT client vs a **mock Remote Scripting server** over a real socket;
    no mesoSPIM, no hardware. The mock is a *faithful* double: it `exec`s the very injected scripts the driver
    sends against a Core-shaped fake and returns the captured console, so the framing, harness, and command
    vocabulary are all exercised for real. `python -m pytest zmart_drivers/mesospim/tests` runs it directly

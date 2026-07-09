@@ -33,7 +33,9 @@ to update in place. Manual equivalent: `conda env create -f environment.yml`.
 
 For **live** control, LAS X must be installed and running — the CAM API DLLs ship
 with LAS X and load from its install dir, so the env carries only the `pythonnet`
-bridge. Add the dev/test tools (needed to run the driver's validation):
+bridge. The conda environment already includes the test/lint tools used by the
+driver validation. If you are using the pip fallback or another minimal env,
+install the driver test requirements explicitly:
 
 ```powershell
 pip install -r zmart_drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt
@@ -54,36 +56,42 @@ pip install -r zmart_drivers/leica/stellaris5_y42h93/navigator_expert/requiremen
 > packages from PyPI: `python -m pip install -r requirements.txt` (conda-forge is
 > canonical; PyPI is the licensing-safe fallback).
 
-## Step 2 — Set the stage limits
+## Step 2 — Publish machine setup
 
-The driver **refuses every move until machine-local stage limits are provisioned**
-— there is no bundled fallback (a wrong-machine envelope would be unsafe). Create
-them once by running the notebook:
+The driver reads limits, orientation, calibration, and origin from the newest
+machine-local snapshot under `C:\ProgramData\zmart-microscopy\...`. If no local
+snapshot exists yet, the driver seeds ProgramData from the repo defaults so CI,
+mock runs, and first connects work without editing the checkout. On the real
+microscope, replace those defaults with measured machine values.
+
+Start with the stage-limit notebook:
 
 ```
 zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb
 ```
 
 The pre-filled values are this machine's known-good envelope; adjust only if you
-have better numbers. Running the cell publishes a single machine-local
-`limits.json` (the stage envelope + the function gate) under
+have better numbers. Running the cell publishes a machine-local `limits.json`
+(the stage envelope + the function gate) under
 `C:\ProgramData\zmart-microscopy\leica\stellaris5_y42h93\navigator_expert\<datetime>\`.
-Calibration is separate and keeps a loud last-known-good fallback; run the
-calibration notebooks under `.../calibration/notebooks/` if you want a fresh one.
+Then run `orientation/notebooks/set_orientation.ipynb` and the calibration
+notebook(s) under `calibration/notebooks/` for the lens configurations you will
+use. Calibration can be adopted into the default file or into named
+`calibrations/<name>/calibration.json` entries; ProgramData remains the source
+of truth.
 
 ## Step 3 — Run it
 
-Drive the microscope through the driver's entry point (`run_ci.py`), starting
-read-only:
+Drive validation through the driver's entry point (`run_ci.py`):
 
 ```powershell
 cd zmart_drivers/leica/stellaris5_y42h93/navigator_expert
-python run_ci.py online                 # read-only pass, no instrument changes
-python run_ci.py online --live-writes    # full validation (reversible, restored)
+python run_ci.py             # mock/offline, no microscope, no LAS X
+python run_ci.py --hardware  # live LAS X validation: moves/acquires, restored where possible
 ```
 
 The bench runbook — prerequisites, what each pass does, where the reports land —
 is at
 [`tests/hardware/README.md`](../zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware/README.md).
 To run an actual experiment, open the operator notebook
-`workflows/target_acquisition/zmart_microscopy_v3.2.ipynb`.
+`workflows/target_acquisition/zmart_microscopy_v4.ipynb`.
