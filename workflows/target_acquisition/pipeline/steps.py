@@ -2,12 +2,14 @@
 
 Thin orchestration over the ``zmart_controller`` session and the driver-free
 helpers (``_capture_run``, ``_focus_surface``). No ``navigator_expert`` import --
-the driver adapter is imported by the notebook only to register the instrument.
+the workflow bootstrap imports the driver adapter only to register the instrument.
 """
 
 from __future__ import annotations
 
+import importlib
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +51,14 @@ def load_positions(path: Any) -> list[dict]:
     return positions
 
 
+def load_analysis_engine(analysis_repo: Any):
+    """Load the smart-analysis Engine from *analysis_repo* and instantiate it."""
+    repo = Path(analysis_repo)
+    if str(repo) not in sys.path:
+        sys.path.insert(0, str(repo))
+    return importlib.import_module("engine").Engine()
+
+
 def with_focus_z(positions: list[dict], focus: Any = None) -> list[dict]:
     """Attach z to each ``{x, y}`` position: from the focus surface, else its own z, else 0."""
     placed = []
@@ -74,6 +84,24 @@ def run_overview(
     return capture_positions(session, placed, "overview", state=state, options=options)
 
 
+def overview_inputs_from_records(
+    positions: list[dict],
+    records: list[dict],
+    *,
+    focus: Any = None,
+    **geometry: Any,
+) -> list[dict]:
+    """Build target-discovery inputs from overview positions and acquire records."""
+    from .discovery import build_overview_inputs
+
+    placed = with_focus_z(positions, focus)
+    return build_overview_inputs(
+        placed,
+        [_first_image(record, index) for index, record in enumerate(records)],
+        **geometry,
+    )
+
+
 def acquire_targets(
     session: Any,
     targets: list[dict],
@@ -85,3 +113,56 @@ def acquire_targets(
     """Step 7: acquire a target at each discovered frame position (z from the focus surface)."""
     placed = with_focus_z(targets, focus)
     return capture_positions(session, placed, "target", state=state, options=options)
+
+
+def hijack_if_simulating(
+    records: list[dict],
+    *,
+    simulate: bool,
+    image_source: str = "skimage_human_mitosis",
+) -> int:
+    """Overwrite saved simulator images with mock cells when simulation is enabled."""
+    if not simulate:
+        return 0
+    from ._hijack import hijack_records
+    from ._mock_provider import get_provider
+
+    return hijack_records(records, get_provider(image_source))
+
+
+def write_run_report(
+    output_root: Any,
+    *,
+    positions: list[dict],
+    focus: Any,
+    overview_records: list[dict],
+    targets: list[dict],
+    show: bool = True,
+) -> dict:
+    """Write the summary JSON and frame-layout plot for the notebook run."""
+    from .viz import plot_frame_layout, summarize_run, write_summary
+
+    output_root = Path(output_root)
+    overview_positions = with_focus_z(positions, focus)
+    summary = summarize_run(
+        focus=focus,
+        overview_positions=overview_positions,
+        overview_records=overview_records,
+        targets=targets,
+    )
+    write_summary(summary, output_root / "summary.json")
+    plot_frame_layout(
+        overview_positions=overview_positions,
+        targets=targets,
+        focus=focus,
+        save_path=output_root / "run_layout.png",
+        show=show,
+    )
+    return summary
+
+
+def _first_image(record: dict, index: int) -> Any:
+    images = record.get("images") or ()
+    if not images:
+        raise ValueError(f"overview record {index} has no saved image path")
+    return images[0]

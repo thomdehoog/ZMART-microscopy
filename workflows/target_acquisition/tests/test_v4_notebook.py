@@ -40,6 +40,16 @@ def test_all_code_cells_parse():
         ast.parse(src)  # SyntaxError fails the test with the cell content
 
 
+def test_setup_cell_runs_from_repo_root(monkeypatch):
+    nb = _load()
+    setup_cell = _code_sources(nb)[0]
+    namespace = {}
+    monkeypatch.chdir(_NB_PATH.parents[2])
+    exec(compile(setup_cell, str(_NB_PATH), "exec"), namespace)
+    assert namespace["TARGET_ACQ"] == _NB_PATH.parent
+    assert "pipeline" in namespace
+
+
 def test_pipeline_attributes_used_are_exported():
     """Every ``pipeline.<attr>`` accessed in the notebook is in pipeline.__all__."""
     nb = _load()
@@ -63,14 +73,12 @@ def test_pipeline_attributes_used_are_exported():
 
 
 def test_notebook_stays_controller_only():
-    """No `import navigator_expert` as a bare driver call in the operator flow.
-
-    The adapter import is allowed (it registers the instrument); what must not
-    appear is a direct `navigator_expert.<op>()` / `drv.` acquisition call.
-    """
+    """The visible operator flow stays controller/pipeline-only."""
     nb = _load()
     joined = "\n".join(_code_sources(nb))
-    assert "navigator_expert.zmart_adapter" in joined  # registration import present
+    bootstrap = (_NB_PATH.parent / "_bootstrap.py").read_text(encoding="utf-8")
+    assert "navigator_expert.zmart_adapter" in bootstrap  # registration import is hidden there
+    assert "navigator_expert" not in joined
     # no direct driver acquisition/motion calls
     for forbidden in ("drv.acquire", "drv.save", "drv.move_", "navigator_expert.acquire"):
         assert forbidden not in joined, f"notebook uses driver call {forbidden!r}"
