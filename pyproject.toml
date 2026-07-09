@@ -7,12 +7,10 @@ extend-exclude = [
     ".venv",
     ".eggs",
     "**/__pycache__",
-    # Calibration / orientation setup notebooks and generated sessions are not
-    # part of the driver lint baseline: a config cell legitimately imports the
-    # _bootstrap sys.path shim before importing the driver, which the
-    # import-sorter can't express.
+    # Calibration / orientation setup notebooks are not part of the driver lint
+    # baseline: a config cell legitimately imports the _bootstrap sys.path shim
+    # before importing the driver, which the import-sorter can't express.
     "zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/notebooks",
-    "zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/sessions",
     "zmart_drivers/leica/stellaris5_y42h93/navigator_expert/orientation/notebooks",
     # Operator notebooks: a config cell legitimately sets sys.path before
     # importing the pipeline, which the import-sorter can't express. Cell
