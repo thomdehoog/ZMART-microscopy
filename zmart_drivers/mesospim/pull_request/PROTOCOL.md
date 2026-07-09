@@ -6,6 +6,9 @@ Deliberately tiny: the server accepts **named calls, not code** — it validates
 small JSON message and translates it into one `mesoSPIM_Core` call from a fixed
 allowlist. No client Python is ever run.
 
+For the full list of commands, args, and returns, see
+[`API_REFERENCE.md`](API_REFERENCE.md).
+
 ## Framing
 
 Length-prefixed UTF-8, both directions:
