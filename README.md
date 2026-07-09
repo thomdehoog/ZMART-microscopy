@@ -132,6 +132,8 @@ conda activate zmart-microscopy
 ### 3. Machine Setup (Limits, Orientation, & Calibration)
 The driver refuses to move until machine-local configuration exists. You must run the following notebooks in order to publish the required `.json` files for your specific machine:
 
+At the current moment there is only the driver for the Leica Stellaris:
+
 1.  **Set Stage Limits:** Defines the physical travel range.
     `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb`
 2.  **Set Orientation:** Defines the stage coordinate system relative to the camera/detector.
@@ -140,6 +142,9 @@ The driver refuses to move until machine-local configuration exists. You must ru
     `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/calibration/notebooks/set_calibration.ipynb`
 
 ### 4. Run it
+
+For the Leica Stellaris:
+
 Navigate to the `navigator_expert` directory and execute the validation:
 ```bash
 cd zmart_drivers/leica/stellaris5_y42h93/navigator_expert
