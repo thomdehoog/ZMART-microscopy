@@ -14,7 +14,7 @@ Safe by default:
   - read-only unless a phase is opted in
   - ``--allow-move`` (set_origin + set_xyz round-trip, incl. the z-focus
     additive sub-check) restores the original XY / both z drives in a finally
-  - ``--allow-acquire`` runs one real capture+save into a scratch output root
+  - ``--allow-acquire`` runs one real capture+save into the controller run root
   - interactive 'yes' prompt before live writes unless --yes or --mock
 
 Reuses the record/logging/JSONL machinery from ``validate_hardware`` so results
@@ -73,7 +73,7 @@ def _register_adapter() -> Any:
     return adapter
 
 
-def _connect_session(args: argparse.Namespace, adapter: Any, output_root: str) -> Any:
+def _connect_session(args: argparse.Namespace, adapter: Any, output_root: str | None) -> Any:
     """Open a controller Session for the leica instrument.
 
     In --mock mode the adapter's CAM connect is swapped for the in-process
@@ -87,7 +87,8 @@ def _connect_session(args: argparse.Namespace, adapter: Any, output_root: str) -
     inst = dict(inst)
     inst["client"] = args.client_name
     inst["api_delay_ms"] = args.api_delay_ms
-    inst["output_root"] = output_root
+    if output_root is not None:
+        inst["output_root"] = output_root
 
     if args.mock:
         from dataclasses import replace  # noqa: PLC0415
@@ -193,6 +194,47 @@ def phase_readonly(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None
         ctx = v.callable("get_context", sess.get_context)
         if ctx is not None:
             v.compare("get_context: has session_hash6", bool(ctx.get("session_hash6")), True)
+
+
+def phase_workflow_procedures(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
+    """Hard-fail the controller procedures the v4 notebook needs."""
+    with v.phase("workflow procedures"):
+        root = v.callable(
+            "run_procedure: get_root",
+            lambda: sess.run_procedure({"name": "get_root"}),
+        )
+        if root is not None:
+            v.compare("get_root: root returned", bool(root.get("root")), True)
+            v.compare("get_root: output_root matches", root.get("output_root"), root.get("root"))
+            if not args.mock and root.get("root"):
+                v.compare("get_root: run directory exists", Path(root["root"]).is_dir(), True)
+
+        if args.mock:
+            v.skip("run_procedure: get_positions", "live LAS X scan-field template required")
+            v.skip("run_procedure: get_focus_points", "live LAS X scan-field template required")
+            return
+
+        positions = v.callable(
+            "run_procedure: get_positions",
+            lambda: sess.run_procedure({"name": "get_positions"}),
+        )
+        if positions is not None:
+            v.compare(
+                "get_positions: at least one grid position",
+                len(positions.get("positions") or []) >= 1,
+                True,
+            )
+
+        focus_points = v.callable(
+            "run_procedure: get_focus_points",
+            lambda: sess.run_procedure({"name": "get_focus_points"}),
+        )
+        if focus_points is not None:
+            v.compare(
+                "get_focus_points: at least one focus point",
+                len(focus_points.get("positions") or []) >= 1,
+                True,
+            )
 
 
 def _within(value: float, lo: float, hi: float) -> bool:
@@ -441,7 +483,7 @@ def phase_acquire(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
         images = rec.get("images") or []
         xml = rec.get("xml") or []
         v.compare("acquire: at least one image", len(images) >= 1, True)
-        # Canonical SMART output is flat and no-sidecar: the OME-XML (incl. the
+        # Canonical ZMART output is flat and no-sidecar: the OME-XML (incl. the
         # embedded machine-state block) lives inside each plane's TIFF, so the
         # manifest carries no companion XML. Contract: acquisition/product.py
         # SavedAcquisition.xml_paths; offline tests assert xml_paths == {}.
@@ -538,14 +580,16 @@ def main(argv: list[str] | None = None) -> int:
     vh._apply_state_reader_mode(args.state_reader_mode, log)
     import navigator_expert as drv  # noqa: PLC0415
 
-    output_root = args.output_root or tempfile.mkdtemp(prefix="zmart_adapter_validate_")
+    output_root = args.output_root
+    if args.mock and output_root is None:
+        output_root = tempfile.mkdtemp(prefix="zmart_adapter_validate_")
 
-    log.info("=== zmart controller<->adapter validator ===")
+    log.info("=== ZMART controller<->adapter validator ===")
     log.info(
         "client=%s read_only=%s output_root=%s",
         "python-mock" if args.mock else "LasxApi (sim or scope)",
         args.read_only,
-        output_root,
+        output_root or "<discovered by run_procedure:get_root>",
     )
 
     crash: str | None = None
@@ -562,10 +606,11 @@ def main(argv: list[str] | None = None) -> int:
         phase_readonly(v, sess, args)
 
         if args.read_only:
-            log.info("read-only mode: skipping move/acquire")
+            log.info("read-only mode: skipping workflow procedures/move/acquire")
         elif not _confirm_live_write(args):
             log.warning("aborted before live writes")
         else:
+            phase_workflow_procedures(v, sess, args)
             if args.allow_move:
                 phase_move(v, sess, drv, args)
             else:
