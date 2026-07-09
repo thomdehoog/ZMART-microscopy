@@ -5,7 +5,7 @@ actual MCP-over-HTTP handler forwarding to it -- against a recording fake Core, 
 the self-check exactly as an operator would right after pressing Start. It asserts the
 check reports PASS and, crucially, that the out-of-limit probe left the Core with **zero
 moves** -- i.e. proving "a limit cannot be violated" never itself moves the stage. Uses
-real localhost sockets but no Qt / mesoSPIM / ZMART. Run::
+real localhost sockets but no Qt / mesoSPIM / third-party code. Run::
 
     pytest pull_request/test_viability_check.py
     python  pull_request/test_viability_check.py

@@ -3,8 +3,8 @@
 A proposed contribution to
 [mesoSPIM-control](https://github.com/mesoSPIM/mesoSPIM-control): let an external
 process control mesoSPIM over a socket by sending **named calls** — a **Remote
-Control** tab that any driver (ZMART included) can build on. Nothing here changes
-the ZMART driver; it is a patch *for mesoSPIM*.
+Control** tab that any external driver or script can build on. Nothing here is
+driver-specific; it is a patch *for mesoSPIM*.
 
 ## The idea (why it is this small)
 
@@ -22,7 +22,7 @@ different envelope.
 ```
   a script (framed TCP)                                        INSIDE mesoSPIM
   {"move_absolute": {…}}  ─────────▶───────────┐              (Core context)
-  __ZMART_OK__{…}         ◀─────────◀──────────┤
+  __RC_OK__{…}         ◀─────────◀──────────┤
                                                ├──▶  COMMANDS["move_absolute"](core, …)
   an LLM (MCP over HTTP)     ┌── forwards ──────┘        (one validated dispatch)
   POST /mcp {"tools/call"} ──┤  a framed TCP call
@@ -44,7 +44,7 @@ different envelope.
 
 Length-framed UTF-8, both directions: `b"<decimal-byte-count>\n" + payload`. If a
 token is set, the **first** frame must be it (`OK` / `AUTH-FAILED`). Every frame
-after that is a call, `{"<method>": {args}}`; the reply is one `__ZMART_OK__<json>`
+after that is a call, `{"<method>": {args}}`; the reply is one `__RC_OK__<json>`
 line (or error text). See [`PROTOCOL.md`](PROTOCOL.md).
 
 ## Security
@@ -140,12 +140,12 @@ git am --3way 0001-Add-optional-Remote-Control-tab-TCP-MCP-named-call-s.patch
 (`--3way` because the patch is cut from the candidate base; it merges cleanly onto
 a newer tip.) Then launch mesoSPIM and use the **Remote Control** tab → **Start**.
 
-## How ZMART builds on it
+## How a driver builds on it
 
-The ZMART mesoSPIM driver is *one client* of this bridge — see
+An external driver is *one client* of this bridge — see
 [`demo_client.py`](demo_client.py) for the whole protocol in ~40 lines (frame a
-call, read the reply line, parse the JSON). The driver's command vocabulary lives
-on the ZMART side as a mirror of `COMMANDS`; mesoSPIM learns no ZMART concepts.
+call, read the reply line, parse the JSON). A driver's command vocabulary lives
+on the client side as a mirror of `COMMANDS`; mesoSPIM learns no client concepts.
 
 ---
 Author: Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch ·

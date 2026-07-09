@@ -2,7 +2,7 @@
 Demo client for the mesoSPIM Remote Control server.
 ===================================================
 The server accepts named calls, not code: you send one single-key JSON object
-``{"<method>": {args}}`` and read back a ``__ZMART_OK__<json>`` line. This tiny
+``{"<method>": {args}}`` and read back a ``__RC_OK__<json>`` line. This tiny
 client shows the whole protocol -- framing, the optional token, and a call.
 
 Run mesoSPIM (-D demo is fine), start the Remote Control tab (TCP mode), then:
@@ -23,7 +23,7 @@ import json
 import socket
 import urllib.request
 
-OK = "__ZMART_OK__"
+OK = "__RC_OK__"
 
 
 class RemoteControl:
