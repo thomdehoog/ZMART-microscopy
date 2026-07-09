@@ -132,13 +132,16 @@ is the only remaining step.
 
 ## How to apply
 
+Cut against **`release/candidate-py312`**, so from that branch it applies cleanly:
+
 ```bash
+git checkout release/candidate-py312
 git checkout -b remote-control
-git am --3way 0001-Add-optional-Remote-Control-tab-TCP-MCP-named-call-s.patch
+git am 0001-Add-optional-Remote-Control-tab-TCP-MCP-named-call-s.patch
 ```
 
-(`--3way` because the patch is cut from the candidate base; it merges cleanly onto
-a newer tip.) Then launch mesoSPIM and use the **Remote Control** tab → **Start**.
+(If your tip has drifted, use `git am --3way`.) Then launch mesoSPIM and use the
+**Remote Control** tab → **Start**.
 
 ## How a driver builds on it
 
