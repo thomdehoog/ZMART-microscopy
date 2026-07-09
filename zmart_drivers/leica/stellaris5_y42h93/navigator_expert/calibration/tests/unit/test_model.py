@@ -1,5 +1,6 @@
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -258,3 +259,37 @@ def test_save_load_semantic_round_trip(tmp_path):
     cal.save_calibration(loaded, path=path)
     loaded_again = cal.load_calibration(path)
     assert _semantically_equal(loaded, loaded_again)
+
+
+def test_save_without_path_seeds_programdata_not_bundled_defaults(tmp_path, monkeypatch):
+    cal = _load_calibration_module()
+    from navigator_expert.config import machine as machine_config
+
+    profile = machine_config.MachineProfile(programdata_root=tmp_path / "programdata")
+    monkeypatch.setattr(machine_config, "MACHINE", profile)
+    bundled = profile.bundled_default_path("calibration.json")
+    before = bundled.read_text(encoding="utf-8")
+
+    path = cal.save_calibration(_config(), calibration_name="lens_A")
+
+    assert path == profile.latest_snapshot() / "calibrations" / "lens_A" / "calibration.json"
+    assert path.exists()
+    assert bundled.read_text(encoding="utf-8") == before
+
+
+def test_save_named_calibration_writes_existing_machine_local_path(tmp_path, monkeypatch):
+    cal = _load_calibration_module()
+    from navigator_expert.config import machine as machine_config
+
+    profile = machine_config.MachineProfile(programdata_root=tmp_path / "programdata")
+    monkeypatch.setattr(machine_config, "MACHINE", profile)
+    snap = profile.publish_snapshot(
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+        calibration=_config(),
+        calibration_name="lens_A",
+    )
+
+    path = cal.save_calibration(_config(), calibration_name="lens_A")
+
+    assert path == snap / "calibrations" / "lens_A" / "calibration.json"
+    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == 12

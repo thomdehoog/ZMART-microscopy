@@ -38,13 +38,11 @@ From `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/`:
 1. `python run_ci.py` — offline gate. Expect `RESULT: PASSED` (the reference on
    Linux is 914 passed, `ruff check` clean; `ruff format --check` WARN is
    non-fatal).
-2. `python run_ci.py online` — read-only live pass.
-3. `python run_ci.py online --live-writes` — full reversible validation, incl.
-   one `acquire`.
+2. `python run_ci.py --hardware` — full live validation, incl. acquire smoke.
 
 ## The one thing to verify: acquire finds + validates its output
 
-From the `--live-writes` run and its `tests/_report/hardware_run_report_*.md`
+From the `--hardware` run and its `tests/_report/hardware_run_report_*.md`
 (and the companion `driver_log_*.log`), confirm the full save round-trip:
 
 - The driver resolved the AutoSave base folder from the `.lcf` (it should match

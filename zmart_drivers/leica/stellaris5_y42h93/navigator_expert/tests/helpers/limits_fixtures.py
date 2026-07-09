@@ -1,11 +1,10 @@
 """Limits fixtures for the offline suite and the mock validators.
 
-Enforcement no longer falls back to the bundled ``limits/defaults/limits.json``
-(it is a template), so anything that exercises mutating commands must either
-provision a real machine-local snapshot (``provision_machine_limits``, which
-the connect-time handshake then validates for real) or install a permissive
-in-memory gate state for a specific client (``install_permissive_limits``, the
-unit-test seam for command-mechanics tests that are not about limits).
+Runtime limits resolve through ProgramData. An empty ProgramData root seeds the
+repo defaults there automatically; tests call ``provision_machine_limits`` only
+when they need a specific fixture envelope or gate policy. Command-mechanics
+unit tests can also install a permissive in-memory gate state for one client
+(``install_permissive_limits``).
 
 The snapshot holds the single ``limits.json`` (§7b): ``constraints`` +
 ``functions``. There is no separate function_limits.json and no ``backlash``
@@ -57,9 +56,8 @@ def provision_machine_limits(
 
     ``root`` is the ProgramData root (point ``ZMART_MICROSCOPY_ROOT`` at it,
     or pass the returned profile explicitly). The connect handshake then
-    resolves the REAL machine-local file — the honest replacement for the old
-    silent bundled fallback. ``function_limits`` overrides the file's
-    ``functions`` block for gate-abuse tests.
+    resolves and validates that ProgramData file. ``function_limits`` overrides
+    the file's ``functions`` block for gate-abuse tests.
     """
     profile = MachineProfile(programdata_root=Path(root))
     stage_um = dict(stage_um or DEFAULT_STAGE_UM)

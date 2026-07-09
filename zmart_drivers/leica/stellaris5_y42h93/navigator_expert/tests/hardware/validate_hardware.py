@@ -422,9 +422,8 @@ def _bootstrap() -> tuple[Any, type]:
 def _connect(args: argparse.Namespace, MockClient: type, log: logging.Logger) -> Any | None:
     """Build the LAS X client. Mock if --mock else LasxApi. Returns None on failure."""
     if args.mock:
-        # Enforcement has no bundled fallback: provision a hermetic,
-        # machine-local fixture snapshot so the REAL limits handshake runs
-        # (and the developer machine's real ProgramData is never read).
+        # Use a hermetic ProgramData fixture so the REAL limits handshake runs
+        # without touching this developer machine's ProgramData.
         from limits_fixtures import hermetic_mock_machine_root  # noqa: PLC0415
 
         root = hermetic_mock_machine_root()
@@ -469,11 +468,11 @@ def _connect(args: argparse.Namespace, MockClient: type, log: logging.Logger) ->
 def _apply_stage_limits(drv: Any, v: Validator, client: Any, args: argparse.Namespace) -> bool:
     """Run the connect-time limits handshake before any movement happens.
 
-    The REAL handshake (machine-local limits + function limits, validated,
-    backstop-contained, gate installed for this client) — the same check the
-    adapter's connect performs, so a bench run proves the machine is
-    provisioned. There is no bundled fallback; on an unprovisioned machine
-    this records the actionable refusal (which names the notebook) and stops.
+    The REAL handshake (ProgramData limits + function limits, validated,
+    backstop-contained, gate installed for this client) - the same check the
+    adapter's connect performs. On an empty ProgramData root, repo defaults are
+    seeded first; on invalid ProgramData this records the actionable refusal
+    and stops.
     """
     state = v.callable(
         "limits: connect handshake",
@@ -1351,8 +1350,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--limits-config",
         help="explicit stage-limits JSON for the handshake; default is the "
-        "machine-local snapshot (no bundled fallback — the templates under "
-        "limits/defaults/ are refused for enforcement)",
+        "active ProgramData snapshot, seeding repo defaults there first when needed",
     )
 
     # Phase gates

@@ -13,13 +13,9 @@ default params (:mod:`navigator_expert.motion.movement`), not config
 (decision §2b).
 
 ``adopt_limits`` publishes a new snapshot holding this ``limits.json`` from the
-``set_stage_limits`` notebook - the notebook is the file factory.
-
-No-fallback rule (limits enforcement): the bundled
-``limits/defaults/limits.json`` is a TEMPLATE, never a runtime fallback -
-a bundled envelope can be the wrong machine's envelope. With no machine-local
-snapshot copy, :func:`defaults_path` / :func:`load` raise a clear error that
-points at the notebook instead of silently substituting the template.
+``set_stage_limits`` notebook. On a fresh install, the bundled defaults are
+copied into ProgramData first, so runtime reads still point at machine-local
+files and CI can run without executing the notebooks.
 
 The per-run *working* envelope (boundary-marker / scan-field limits) is not
 machine state - it belongs to the acquisition workflow, above the vendor
@@ -78,12 +74,11 @@ def current_path() -> Path:
 
 
 def defaults_path() -> Path:
-    """Path to the active physical stage envelope (machine-local, strict).
+    """Path to the active physical stage envelope in ProgramData.
 
     Resolves through the machine profile to the newest ProgramData snapshot's
-    ``limits.json``. Raises ``RuntimeError`` when only the bundled template
-    exists - enforcement never falls back to a bundled envelope; the error
-    points at ``limits/notebooks/set_stage_limits.ipynb``, the file factory.
+    ``limits.json``. If ProgramData is empty, the repo defaults are seeded into
+    a local snapshot before this returns.
     """
     from ..config.machine import LIMITS_FILENAME, MACHINE
 
@@ -201,10 +196,8 @@ def load(limits_path: str | Path | None = None) -> dict[str, Any]:
     """Load the stage envelope from the single limits.json.
 
     Without an explicit ``limits_path``, this reads the configured file via
-    ``defaults_path()`` — the machine-local limits snapshot, STRICT: it raises
-    (with a pointer to the ``set_stage_limits`` notebook) when only the bundled
-    template exists, never silently substituting it. An explicit ``limits_path``
-    is the caller's deliberate choice and is read as given.
+    ``defaults_path()`` - the active ProgramData limits snapshot. An explicit
+    ``limits_path`` is the caller's deliberate choice and is read as given.
 
     Returns ``{"stage_um": {axis: [min, max]}}``; the envelope is derived from
     ``constraints.stage.*`` (decision §7b). Backlash is a motion utility with
@@ -262,13 +255,10 @@ def adopt_limits(
     copy-forward snapshot whose single ``limits.json`` is the function-keyed
     format: ``constraints`` (the adopted envelope, stated by name) and the
     standard ``functions`` gate map. No ``backlash`` block: backlash is a plain
-    motion utility with baked-in defaults (decision §2b), not config. A *real*
-    prior calibration is carried forward if one exists; a fresh-machine adopt
-    writes only ``limits.json`` (calibration is never minted from the bundled
-    template — it keeps its loud in-memory READ fallback until an explicit
-    calibration adopt). This is the writer for the ``set_stage_limits`` notebook
-    - THE file factory for enforcement; the bundled
-    ``limits/defaults/limits.json`` is a template.
+    motion utility with baked-in defaults (decision §2b), not config. Calibration
+    and orientation are carried forward from ProgramData, or seeded from repo
+    defaults on a fresh machine. This is the writer for the ``set_stage_limits``
+    notebook.
 
     Args:
         stage_um: ``{"x": [min, max], "y": ..., "z_galvo": ..., "z_wide": ...}``.

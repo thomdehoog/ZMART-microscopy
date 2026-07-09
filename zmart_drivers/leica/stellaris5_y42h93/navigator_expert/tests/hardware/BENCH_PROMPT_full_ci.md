@@ -2,8 +2,8 @@
 
 Hand everything below this line to a bench agent (or follow it yourself) on the
 LAS X PC. It is self-contained: run the **full** Navigator Expert CI — the
-offline gate, the live LAS X validators (read-only then reversible writes across
-all three reader routes), and one real capture+save — against the real STELLARIS
+mock/offline gate, the live LAS X validators across all three reader routes,
+and real capture+save smoke checks — against the real STELLARIS
 (or the LAS X simulator; detect which and say so), then report a verdict.
 
 ---
@@ -65,11 +65,11 @@ ipython, ruff) — and asserts every package came from conda-forge (never
 `defaults`). No separate `pip install` is required. (`requirements-dev.txt` is
 the dependency list for the non-conda GitHub CI matrix.)
 
-## Step 1 — machine-local stage limits
+## Step 1 - machine-local stage limits
 
-The driver refuses every move until a machine-local `limits.json` exists (no
-bundled fallback). If this machine has never been provisioned, or the connect
-handshake fails naming a missing/unknown function key, run once:
+The driver reads limits from ProgramData. If ProgramData is empty, repo defaults
+are copied there so CI can connect; on the rig, run once to replace those
+defaults with measured stage limits:
 
 ```
 zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb
@@ -91,19 +91,12 @@ From `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/`:
 
 ```powershell
 python run_ci.py                       # 1. offline gate (portable; no LAS X)
-python run_ci.py online                # 2. live read-only pass (~2-5 min)
-python run_ci.py online --live-writes  # 3. full live validation, reversible (~15-30 min)
+python run_ci.py --hardware            # 2. live validation + acquire smoke (~15-30 min)
 ```
 
-(`python run_ci.py both --live-writes` runs the offline suite and the live
-validators in one shot if you prefer a single command.)
-
-Then the one thing `run_ci` does **not** do (acquisitions are opt-in) — one real
-capture+save through the controller:
-
-```powershell
-python tests/hardware/validate_zmart_adapter.py --yes --allow-move --allow-state --allow-acquire --allow-missing-lasx
-```
+`run_ci.py --hardware` does not pass `--allow-missing-lasx`; missing LAS X is a
+hardware-run failure, not a skip. It includes the adapter acquire smoke and the
+end-to-end driver acquire command on each reader route.
 
 Reports land in `tests/_report/hardware_run_report_*.md` (paths printed at the
 end) with companion `driver_log_*.log`. Keep every report and log, including

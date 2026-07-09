@@ -3,9 +3,10 @@
 Measure the optical state of the microscope: the translation between each
 objective pair the scope should support. Workflows consume only the adopted
 calibration in the newest machine snapshot. The notebooks and session artifacts
-in this folder are not runtime dependencies — but `core/model.py` and the
+in this folder are not runtime dependencies - but `core/model.py` and the
 bundled `defaults/` are: the driver imports the model and loads the calibration
-(newest snapshot, falling back to `defaults/`) at every connect.
+(newest ProgramData snapshot, seeded from `defaults/` if needed) at every
+connect.
 
 The rig's **image→stage orientation** is a separate concern owned by
 `navigator_expert/orientation/` (measured by
@@ -40,14 +41,13 @@ stage), and `origin.json` (the operator's zero point) — plus a copy of the
 notebook that produced it, so you can always see how the numbers were made.
 The driver simply reads the newest snapshot.
 
-The two configs behave differently on purpose. If no calibration snapshot exists
-yet, the driver falls back to the bundled example in `calibration/defaults/` and
-says so loudly. The stage limits never fall back like that: the bundled
-`limits/defaults/limits.json` is only a template and is refused, because running
-with a guessed physical envelope could drive the stage into the sample or the
-hardware. So each setup step stays in its own lane: running the stage-limits
-notebook writes only `limits.json`, and adopting a calibration writes only
-`calibration.json` and carries the existing `limits.json` forward untouched.
+ProgramData is the source of truth. If no snapshot exists yet, the driver copies
+the repo defaults for calibration, limits, and orientation into a local
+ProgramData snapshot so CI and mock runs can connect. Each setup step stays in
+its own lane after that: running the stage-limits notebook replaces
+`limits.json`, setting orientation replaces `orientation.json`, and adopting a
+calibration writes either `calibration.json` or a named
+`calibrations/<name>/calibration.json` while carrying the rest forward.
 
 The per-run *working* envelope (a boundary-marker sample area) is not machine
 state - it belongs to the acquisition workflow, not here.
@@ -61,5 +61,4 @@ they are not source files and should not be committed.
 - `core/` contains low-level calibration internals.
 - `notebooks/` contains the operator UI.
 
-Runtime code reads only the adopted calibration in the newest machine snapshot
-(`config/machine.py`), or the bundled `calibration/defaults/` when none exists.
+Runtime code reads only ProgramData paths resolved by `config/machine.py`.

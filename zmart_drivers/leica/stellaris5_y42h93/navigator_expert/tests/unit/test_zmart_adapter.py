@@ -109,6 +109,40 @@ class TestRegistration(unittest.TestCase):
         self.assertIn("disconnect", entry["ops"])
 
 
+class TestCalibrationSelection(unittest.TestCase):
+    def test_named_connection_calibration_is_used_for_objective_translations(self):
+        cfg = {
+            "schema_version": 12,
+            "last_updated": "20260101_000000",
+            "objectives": {
+                "1": {
+                    "name": "10x",
+                    "translation_um": [0.0, 0.0, 0.0],
+                    "session_id": "ref",
+                },
+                "2": {
+                    "name": "20x",
+                    "translation_um": [12.0, 17.0, 3.0],
+                    "session_id": "target",
+                },
+            },
+        }
+
+        profile = SimpleNamespace(
+            calibration_path=MagicMock(return_value=Path("/tmp/lens_A/calibration.json"))
+        )
+
+        with (
+            patch.object(adapter._machine, "MACHINE", profile),
+            patch.object(adapter._cal_model, "load_calibration", return_value=cfg) as load,
+        ):
+            translations = adapter._load_objective_translations("lens_A")
+
+        profile.calibration_path.assert_called_once_with("lens_A")
+        load.assert_called_once_with(Path("/tmp/lens_A/calibration.json"))
+        self.assertEqual(translations[2], (12.0, 17.0, 3.0))
+
+
 class TestFrame(unittest.TestCase):
     def setUp(self):
         _wide_limits()  # set_xyz pre-flights against the stage envelope
@@ -122,7 +156,7 @@ class TestFrame(unittest.TestCase):
         with patches[0], patches[1], patches[2], patches[3]:
             record = adapter.set_origin(h)
             self.assertEqual(record["origin"], {"x": 0.0, "y": 0.0, "z": 0.0})
-            self.assertIsNone(record["origin_file"])  # no machine snapshot (hermetic root)
+            self.assertTrue(record["origin_file"].endswith("origin.json"))
             self.assertEqual(record["reference"]["z_focus_um"], 30.0)
             pos = adapter.get_xyz(h)
         self.assertEqual(pos["x"]["value"], 0.0)
@@ -134,13 +168,15 @@ class TestFrame(unittest.TestCase):
     def test_set_origin_persists_into_newest_machine_snapshot(self):
         import json
         import tempfile
+        from datetime import datetime, timezone
 
         from navigator_expert.config.machine import MachineProfile
 
         with tempfile.TemporaryDirectory() as tmp:
             profile = MachineProfile(programdata_root=Path(tmp))
-            snapshot = profile.snapshot_root() / "2026-07-01T14-30-00-123456Z"
-            snapshot.mkdir(parents=True)
+            snapshot = profile.publish_snapshot(
+                datetime(2026, 7, 1, 14, 30, 0, 123456, tzinfo=timezone.utc)
+            )
             h = _handle()
             patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_galvo_um=2.0)
             with (
@@ -163,13 +199,13 @@ class TestFrame(unittest.TestCase):
     def test_connect_restores_persisted_origin(self):
         """The machine-local origin is the frame truth across sessions."""
         import tempfile
+        from datetime import datetime, timezone
 
         from navigator_expert.config.machine import MachineProfile
 
         with tempfile.TemporaryDirectory() as tmp:
             profile = MachineProfile(programdata_root=Path(tmp))
-            snapshot = profile.snapshot_root() / "2026-07-01T14-30-00-123456Z"
-            snapshot.mkdir(parents=True)
+            profile.publish_snapshot(datetime(2026, 7, 1, 14, 30, 0, 123456, tzinfo=timezone.utc))
             profile.write_origin(
                 {
                     "origin": _origin(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_focus_um=30.0),
@@ -1089,7 +1125,7 @@ class TestLifecycle(unittest.TestCase):
         move_xy/move_z refuse until the stage envelope is applied and the
         function-keyed gate is installed, and the controller has no limits
         hook -- so the adapter's connect must do it, against REAL machine-local
-        files (the bundled templates are refused).
+        files, seeding ProgramData defaults first when needed.
         """
         import os
 
@@ -1099,22 +1135,24 @@ class TestLifecycle(unittest.TestCase):
         with patch.object(adapter._session, "connect_python_client", return_value=object()):
             h = adapter.connect(dict(adapter.CONNECTION))
         self.assertIsInstance(h, adapter.ZmartHandle)
-        # the stage envelope was applied from the machine-local snapshot...
+        # the stage envelope was applied from the ProgramData snapshot...
         self.assertEqual(adapter._limits.get_stage_limits()["x_max"], 130000.0)
         # ...and the commands-layer gate governs this client (with provenance)
         described = _gate.describe(h.client)
         self.assertEqual(described["source"], "machine")
         self.assertFalse(described["is_fallback"])
 
-    def test_connect_degrades_when_limits_are_unprovisioned(self):
-        """No machine-local limits: connect still works read-only, mutations refuse."""
+    def test_connect_seeds_default_limits_when_programdata_is_empty(self):
+        """Empty ProgramData is initialized from defaults, then governs the session."""
         with patch.object(adapter._session, "connect_python_client", return_value=object()):
             h = adapter.connect(dict(adapter.CONNECTION))
         self.assertIsInstance(h, adapter.ZmartHandle)
         self.assertFalse(h.closed)
-        self.assertIsNone(_gate.describe(h.client))  # no limits govern: refusing
+        described = _gate.describe(h.client)
+        self.assertEqual(described["source"], "defaults")
+        self.assertFalse(described["is_fallback"])
         state = _gate.state_for(h.client)
-        self.assertIn("set_stage_limits.ipynb", state.error)
+        self.assertTrue(state.ok)
 
     def test_full_controller_session_flow(self):
         """End to end through a real zmart_controller Session (real handshake)."""

@@ -1,7 +1,7 @@
 """Permanent adversarial suite for the limits enforcement redesign.
 
 Attacks the commands-layer function-keyed gate (``commands/gate.py``), the
-connect-time limits handshake, the no-fallback resolution, and the hardcoded
+connect-time limits handshake, ProgramData resolution, and the hardcoded
 physical backstop — through every entry point (direct commands, adapter op,
 controller Session). Every attack must produce a FAIL-CLOSED refusal with a
 clear error: never silent acceptance, never a crash that bypasses the gate.
@@ -420,7 +420,8 @@ def test_reads_work_while_all_mutations_refuse(mock_client):
     """Failed handshake == read-only session, not a dead session."""
     import navigator_expert as drv
 
-    state = gate.connect_handshake(mock_client)  # empty machine root: fails
+    _raw_snapshot(_machine_root(), limits_text=_BAD_LIMITS_TEXTS["missing_constraints"])
+    state = gate.connect_handshake(mock_client)
     assert not state.ok
     assert drv.ping(mock_client)
     jobs = drv.get_jobs(mock_client, mode="api")
@@ -494,13 +495,14 @@ def test_every_mutating_wrapper_refuses_fail_closed_without_state(wrapper):
 
 
 def test_adapter_bypass_refuses_at_the_commands_layer(clear_stage_limits):
-    """Adapter entry point against an unprovisioned machine: set_xyz raises
-    the ops-contract RuntimeError carrying the gate's actionable message."""
+    """Adapter entry point against invalid ProgramData: set_xyz raises the
+    ops-contract RuntimeError carrying the gate's actionable message."""
     from unittest.mock import patch
 
     from navigator_expert.commands import settings as _cmd_settings
     from navigator_expert.zmart_adapter import zmart_adapter as adapter
 
+    _raw_snapshot(_machine_root(), limits_text=_BAD_LIMITS_TEXTS["missing_constraints"])
     client = MockLasxClient(latency=0.0)
     with patch.object(adapter._session, "connect_python_client", return_value=client):
         handle = adapter.connect(dict(adapter.CONNECTION))
@@ -532,6 +534,7 @@ def test_controller_session_bypass_refuses_at_the_commands_layer(clear_stage_lim
 
     import zmart_controller
 
+    _raw_snapshot(_machine_root(), limits_text=_BAD_LIMITS_TEXTS["missing_constraints"])
     client = MockLasxClient(latency=0.0)
     settings = {
         "objective": {"name": "10x", "magnification": 10, "slotIndex": 1},
@@ -686,28 +689,27 @@ def test_containment_checker_accepts_the_template_and_narrower():
 
 
 # =============================================================================
-# 9. No-fallback resolution — provenance is explicit, templates refused
+# 9. ProgramData seeding — repo defaults become local runtime state
 # =============================================================================
 
 
-def test_resolution_reports_fallback_provenance_and_strict_path_refuses():
+def test_resolution_seeds_programdata_and_returns_local_paths():
     profile = MachineProfile(programdata_root=_machine_root())
     path, is_fallback = profile.resolve("limits.json")
-    assert is_fallback and path.name == "limits.json"
-    with pytest.raises(RuntimeError, match="TEMPLATE"):
-        profile.require_machine_local("limits.json", "the physical stage envelope")
-    with pytest.raises(RuntimeError, match="set_stage_limits.ipynb"):
-        stage_config.load()  # the limits leg is strict with no explicit path
+    assert is_fallback is False
+    assert path == profile.latest_snapshot() / "limits.json"
+    assert path.exists()
+    assert profile.require_machine_local("limits.json", "the physical stage envelope") == path
+    assert stage_config.load()["stage_um"]["x"] == DEFAULT_STAGE_UM["x"]
 
 
-def test_calibration_values_keep_their_loud_in_memory_read_fallback():
-    """§7b: publishing never seeds calibration from the bundled template, but
-    the READ fallback stays — calibration_path() resolves to the bundled file
-    (a real last-known-good calibration) when no snapshot exists."""
+def test_calibration_values_seed_programdata_from_repo_defaults():
     machine = MachineProfile(programdata_root=_machine_root())
     path, is_fallback = machine.resolve("calibration.json")
-    assert is_fallback and path.exists()
-    assert machine.calibration_path() == path  # loud fallback, still usable
+    assert is_fallback is False
+    assert path == machine.latest_snapshot() / "calibration.json"
+    assert path.exists()
+    assert machine.calibration_path() == path
 
 
 def test_backlash_is_not_config_and_the_primitive_uses_its_default_params():
@@ -736,27 +738,22 @@ def test_backlash_is_not_config_and_the_primitive_uses_its_default_params():
     assert defaults["tolerance_um"].default is None
 
 
-def test_a_calibration_adopt_cannot_mint_enforceable_limits_from_the_template():
-    """publish_snapshot must not copy the bundled templates into a machine
-    snapshot as a side effect — that would launder the template into
-    machine-local (enforceable) provenance."""
+def test_a_calibration_adopt_publishes_a_complete_machine_snapshot():
     from datetime import datetime, timezone
 
     profile = MachineProfile(programdata_root=_machine_root())
     snap = profile.publish_snapshot(
         datetime(2026, 3, 1, tzinfo=timezone.utc), calibration={"marker": "cal"}
     )
-    assert not (snap / "limits.json").exists()
+    assert (snap / "limits.json").exists()
+    assert (snap / "orientation.json").exists()
     assert not (snap / "function_limits.json").exists()  # the file is gone entirely
     client = MockLasxClient(latency=0.0)
     state = gate.connect_handshake(client)
-    assert not state.ok  # still refusing: the adopt did not provision limits
+    assert state.ok
 
 
-def test_fresh_limits_adopt_writes_only_limits_json_no_seeded_calibration():
-    """§7b: a fresh-machine limits adopt writes ONLY limits.json (+origin if a
-    prior one exists — here none does). It never mints a calibration.json from
-    the bundled template."""
+def test_fresh_limits_adopt_writes_complete_snapshot():
     from datetime import datetime, timezone
 
     profile = MachineProfile(programdata_root=_machine_root())
@@ -766,7 +763,7 @@ def test_fresh_limits_adopt_writes_only_limits_json_no_seeded_calibration():
     )
     snap = profile.latest_snapshot()
     files = sorted(p.name for p in snap.iterdir())
-    assert files == ["limits.json"]  # exactly one file: no seeded calibration.json
+    assert files == ["calibration.json", "limits.json", "orientation.json"]
     assert not (snap / "function_limits.json").exists()
 
 

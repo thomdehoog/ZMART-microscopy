@@ -15,13 +15,17 @@ from navigator_expert.config.machine import (
 )
 
 
-def _mk_snapshot(root: Path, name: str, *, calibration=True, limits=True) -> Path:
+def _mk_snapshot(root: Path, name: str, *, calibration=True, limits=True, orientation=True) -> Path:
     d = root / "leica" / "stellaris5_y42h93" / "navigator_expert" / name
     d.mkdir(parents=True)
     if calibration:
         (d / "calibration.json").write_text("{}", encoding="utf-8")
     if limits:
         (d / "limits.json").write_text("{}", encoding="utf-8")
+    if orientation:
+        (d / "orientation.json").write_text(
+            '{"schema_version": 1, "rotate_deg": 0}', encoding="utf-8"
+        )
     return d
 
 
@@ -85,7 +89,7 @@ def test_latest_snapshot_ignores_malformed_dirs_and_files(tmp_path):
     assert _profile(tmp_path).latest_snapshot() == valid
 
 
-# --- resolve / fallback ---
+# --- resolve / ProgramData seeding ---
 
 
 def test_resolve_uses_latest_snapshot(tmp_path):
@@ -96,22 +100,28 @@ def test_resolve_uses_latest_snapshot(tmp_path):
     assert cal == p.latest_snapshot() / "calibration.json"
 
 
-def test_resolve_falls_back_to_bundled_default_when_no_snapshot(tmp_path):
+def test_resolve_seeds_programdata_from_defaults_when_no_snapshot(tmp_path):
     p = _profile(tmp_path)
     cal, fb = p.resolve("calibration.json")
-    assert fb is True
-    assert cal == p.bundled_default_path("calibration.json")
-    assert cal.exists()  # the bundled default really ships
+    assert fb is False
+    assert cal == p.latest_snapshot() / "calibration.json"
+    assert cal.exists()
+    assert (p.latest_snapshot() / "limits.json").exists()
+    assert (p.latest_snapshot() / "orientation.json").exists()
+    assert p.bundled_default_path("calibration.json").exists()
 
 
-def test_resolve_falls_back_per_file_when_snapshot_incomplete(tmp_path):
-    _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z", limits=False)
+def test_resolve_repairs_incomplete_snapshot_by_publishing_complete_one(tmp_path):
+    incomplete = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z", limits=False)
     p = _profile(tmp_path)
     _, cal_fb = p.resolve("calibration.json")
     lim, lim_fb = p.resolve("limits.json")
-    assert cal_fb is False  # calibration present in the snapshot
-    assert lim_fb is True  # limits missing -> bundled default
-    assert lim == p.bundled_default_path("limits.json")
+    assert cal_fb is False
+    assert lim_fb is False
+    assert p.latest_snapshot() != incomplete
+    assert lim == p.latest_snapshot() / "limits.json"
+    assert lim.exists()
+    assert json.loads((p.latest_snapshot() / "calibration.json").read_text()) == {}
 
 
 def test_bundled_defaults_are_real_last_known_good(tmp_path):
@@ -169,10 +179,11 @@ def test_origin_round_trips_into_latest_snapshot(tmp_path):
     assert p.read_origin()["origin"] == {"x_um": 9.0}
 
 
-def test_origin_without_snapshot_is_not_persisted(tmp_path):
+def test_origin_without_snapshot_seeds_and_persists(tmp_path):
     p = _profile(tmp_path)
-    assert p.write_origin({"origin": {}}) is None
-    assert p.read_origin() is None
+    path = p.write_origin({"origin": {}})
+    assert path == p.latest_snapshot() / "origin.json"
+    assert p.read_origin() == {"origin": {}}
 
 
 def test_publish_snapshot_carries_origin_forward(tmp_path):
@@ -256,13 +267,12 @@ def _write(path: Path, obj) -> None:
     path.write_text(json.dumps(obj), encoding="utf-8")
 
 
-def test_publish_first_snapshot_does_not_seed_bundled_calibration(tmp_path):
+def test_publish_first_snapshot_seeds_complete_baseline(tmp_path):
     p = _profile(tmp_path)
     new_limits = {"schema_version": 1, "source": "defaults", "constraints": {}}
     snap = p.publish_snapshot(_AT_1430, limits=new_limits)
-    # §7b: no prior snapshot and no calibration override -> calibration.json is
-    # NOT minted from the bundled template (the READ fallback still applies).
-    assert not (snap / "calibration.json").exists()
+    assert (snap / "calibration.json").exists()
+    assert (snap / "orientation.json").exists()
     assert json.loads((snap / "limits.json").read_text()) == new_limits
     assert p.latest_snapshot() == snap
 
@@ -299,12 +309,10 @@ def test_publish_archives_notebook(tmp_path):
 # --- orientation: a machine-specific file, alongside calibration and limits ---
 
 
-def test_orientation_path_falls_back_to_bundled_no_turn(tmp_path):
-    # With no snapshot, orientation resolves quietly to the shipped identity
-    # ("no turn") -- an un-measured microscope is left unrotated, never guessed.
+def test_orientation_path_seeds_programdata_no_turn_default(tmp_path):
     p = _profile(tmp_path)
     resolved = p.orientation_path()
-    assert resolved == p.bundled_default_path("orientation.json")
+    assert resolved == p.latest_snapshot() / "orientation.json"
     assert json.loads(resolved.read_text())["rotate_deg"] == 0
 
 
@@ -330,12 +338,10 @@ def test_publish_carries_measured_orientation_forward(tmp_path):
     assert json.loads((snap / "orientation.json").read_text())["rotate_deg"] == 270
 
 
-def test_publish_first_snapshot_does_not_seed_bundled_orientation(tmp_path):
-    # §7b: like calibration, orientation.json is not minted from the bundled
-    # template on a side-effect publish -- the READ fallback covers "no turn".
+def test_publish_first_snapshot_seeds_bundled_orientation(tmp_path):
     p = _profile(tmp_path)
     snap = p.publish_snapshot(_AT_1430, limits={"schema_version": 1, "constraints": {}})
-    assert not (snap / "orientation.json").exists()
+    assert (snap / "orientation.json").exists()
 
 
 def test_publish_setup_sequence_ends_with_all_three(tmp_path):
@@ -353,6 +359,67 @@ def test_publish_setup_sequence_ends_with_all_three(tmp_path):
     assert json.loads((snap / "limits.json").read_text()) == {"marker": "lim"}
     assert json.loads((snap / "orientation.json").read_text())["rotate_deg"] == 90
     assert json.loads((snap / "calibration.json").read_text()) == {"marker": "cal"}
+
+
+def test_named_calibration_publishes_under_named_programdata_path(tmp_path):
+    p = _profile(tmp_path)
+
+    snap = p.publish_snapshot(
+        _AT_1430,
+        calibration={"marker": "lens-A"},
+        calibration_name="10x_20x_water",
+    )
+
+    path = snap / "calibrations" / "10x_20x_water" / "calibration.json"
+    assert json.loads(path.read_text()) == {"marker": "lens-A"}
+    assert p.calibration_path("10x_20x_water") == path
+    assert (snap / "calibration.json").exists()
+
+
+def test_named_calibration_empty_root_seeds_one_complete_snapshot(tmp_path):
+    p = _profile(tmp_path)
+
+    path = p.calibration_path("lens_A")
+
+    assert len(p.snapshots()) == 1
+    snap = p.latest_snapshot()
+    assert path == snap / "calibrations" / "lens_A" / "calibration.json"
+    assert (snap / "calibration.json").exists()
+    assert (snap / "limits.json").exists()
+    assert (snap / "orientation.json").exists()
+
+
+def test_named_calibration_sets_are_carried_forward(tmp_path):
+    p = _profile(tmp_path)
+    first = p.publish_snapshot(
+        _AT_1430,
+        calibration={"marker": "lens-A"},
+        calibration_name="lens_A",
+    )
+    snap = p.publish_snapshot(_AT_1500, limits={"marker": "lim-B"})
+
+    path = snap / "calibrations" / "lens_A" / "calibration.json"
+    assert json.loads(path.read_text()) == {"marker": "lens-A"}
+    assert p.calibration_path("lens_A") == path
+    assert (first / "calibrations" / "lens_A" / "calibration.json").exists()
+
+
+def test_named_calibration_can_be_selected_by_env(tmp_path, monkeypatch):
+    p = _profile(tmp_path)
+    snap = p.publish_snapshot(
+        _AT_1430,
+        calibration={"marker": "lens-A"},
+        calibration_name="lens_A",
+    )
+    monkeypatch.setenv(machine.CALIBRATION_NAME_ENV, "lens_A")
+
+    assert p.calibration_path() == snap / "calibrations" / "lens_A" / "calibration.json"
+
+
+def test_named_calibration_rejects_path_segments(tmp_path):
+    p = _profile(tmp_path)
+    with pytest.raises(ValueError, match="calibration_name"):
+        p.calibration_path("../escape")
 
 
 def test_publish_makes_new_snapshot_the_latest(tmp_path):

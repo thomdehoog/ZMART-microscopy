@@ -59,13 +59,13 @@ def test_adopt_limits_publishes_single_file_carrying_calibration(tmp_path):
     assert not (snap / "function_limits.json").exists()
 
 
-def test_adopt_limits_first_time_writes_only_limits_no_seeded_calibration(tmp_path):
+def test_adopt_limits_first_time_writes_complete_snapshot(tmp_path):
     m = MachineProfile(programdata_root=tmp_path)
     assert m.latest_snapshot() is None
     stage_config.adopt_limits(_ENV_B, machine=m, moment=_ADOPT_MOMENT)
     snap = m.latest_snapshot()
     files = sorted(p.name for p in snap.iterdir())
-    assert files == ["limits.json"]  # §7b: no bundled calibration minted
+    assert files == ["calibration.json", "limits.json", "orientation.json"]
     lim = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
     assert lim["constraints"]["stage.z_wide"] == {"min": 0.0, "max": 60.0}
     # §2b: no backlash block is ever written
@@ -125,20 +125,22 @@ def test_load_ignores_a_stray_backlash_block(tmp_path):
     assert cfg["stage_um"]["x"] == [1.0, 2.0]
 
 
-def test_limits_paths_are_separate_from_calibration_state():
+def test_limits_paths_are_separate_from_calibration_state(tmp_path, monkeypatch):
     # With no machine snapshot (hermetic root fixture): the physical limits
-    # REFUSE the bundled template (no-fallback rule), and the per-run working
+    # seed into ProgramData, and the per-run working
     # envelope path stays under the driver tree (its file is untracked/per-run,
     # so only the path is asserted here).
     driver_root = Path(__file__).resolve().parents[2]
     current_limits = driver_root / "limits" / "current.json"
     template_limits = driver_root / "limits" / "defaults" / "limits.json"
+    monkeypatch.setenv("ZMART_MICROSCOPY_ROOT", str(tmp_path / "programdata"))
 
     assert stage_config.current_path() == current_limits
-    with pytest.raises(RuntimeError, match="set_stage_limits.ipynb"):
-        stage_config.defaults_path()
-    # The bundled template stays shipped (it seeds the notebook), but is
-    # never returned as the enforceable envelope.
+    defaults = stage_config.defaults_path()
+    assert defaults.name == "limits.json"
+    assert defaults != template_limits
+    assert defaults.exists()
+    # The bundled template stays shipped; ProgramData gets the runtime copy.
     assert template_limits.exists()
     template = json.loads(template_limits.read_text(encoding="utf-8"))
     assert template["schema_version"] == 1

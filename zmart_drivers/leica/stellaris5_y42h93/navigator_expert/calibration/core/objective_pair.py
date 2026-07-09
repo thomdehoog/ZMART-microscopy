@@ -76,6 +76,7 @@ class ObjectivePairSession:
     from_objective: str
     to_objective: str
     objective_config_name: str
+    calibration_name: str | None
     calibration_path: Path
     kind: str
     # Recorded when the reference XY image is acquired (Step 4). The
@@ -123,7 +124,8 @@ def start_session(
     from_objective: str,
     to_objective: str,
     sessions_root: str | Path,
-    calibration_path: str | Path,
+    calibration_path: str | Path | None = None,
+    calibration_name: str | None = None,
 ) -> ObjectivePairSession:
     kind = f"objective_{slug(from_objective)}_to_{slug(to_objective)}"
     objective_config_name = f"{kind}.json"
@@ -133,14 +135,22 @@ def start_session(
     # single clear setup error before any hardware interaction.
     paths = make_session_paths(session_id, kind, sessions_root)
 
-    # absolute(), not resolve(): keep the operator's drive letter intact
-    # for the report's source_calibration_file field.
-    resolved_path = Path(calibration_path).absolute()
+    if calibration_path is not None and calibration_name is not None:
+        raise ValueError("pass either calibration_name or calibration_path, not both")
+    if calibration_path is None and calibration_name is None:
+        raise TypeError("start_session requires calibration_name or calibration_path")
+    if calibration_path is None:
+        from ...config.machine import MACHINE
+
+        resolved_path = MACHINE.calibration_path(calibration_name).absolute()
+    else:
+        # absolute(), not resolve(): keep the operator's drive letter intact
+        # for the report's source_calibration_file field.
+        resolved_path = Path(calibration_path).absolute()
 
     client = drv.connect_python_client()
-    # Connect-time limits handshake: calibration moves the stage through the
-    # gated drv.move_* wrappers, so it needs validated machine-local limits
-    # (no bundled fallback) exactly like any other session.
+    # Calibration moves the stage through gated drv.move_* wrappers, so it
+    # needs validated ProgramData limits exactly like any other session.
     limits_state = drv.connect_limits_handshake(client)
     if not limits_state.ok:
         raise RuntimeError(limits_state.error)
@@ -156,6 +166,7 @@ def start_session(
         from_objective=from_objective,
         to_objective=to_objective,
         objective_config_name=objective_config_name,
+        calibration_name=calibration_name,
         calibration_path=resolved_path,
         kind=kind,
     )

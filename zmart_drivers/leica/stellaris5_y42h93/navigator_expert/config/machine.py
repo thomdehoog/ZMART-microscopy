@@ -3,19 +3,23 @@
 Runtime coordinate config - the optical calibration, the physical stage
 envelope, how the camera is turned relative to the stage, and the operator-set
 frame origin - lives in dated snapshots under a machine-wide ProgramData root,
-newest wins. Each snapshot dir holds up to four files (plus the executed
-notebook)::
+newest wins. The repo ships defaults only; the first driver run copies those
+defaults into ProgramData so every runtime read is machine-local. Each snapshot
+dir holds up to four files (plus named calibration sets and executed
+notebooks)::
 
     <programdata_root>/<vendor>/<microscope_id>/<api>/<datetime>/
-        calibration.json    # optical calibration (image<->stage, per-objective)
+        calibration.json    # legacy/default optical calibration
+        calibrations/<name>/calibration.json
+                            # named optical calibration sets (per lens setup)
         limits.json         # physical envelope + function gate (schema v1)
         orientation.json    # camera turn relative to the stage (0/90/180/270)
         origin.json         # frame zero point (set_origin; updated in place)
         <executed>.ipynb    # the notebook that produced this adopt
 
-All four are machine-specific, so keeping them together in one snapshot means a
-driver reinstall or update never loses them: the measured values live in
-ProgramData, not inside the installed code.
+All runtime values live in ProgramData, not inside the installed code. The
+defaults under the driver tree are seed material only; after seeding, reads
+return paths under ProgramData.
 
 ``limits.json`` is the single function-keyed limits file (decision §7b):
 ``constraints`` (the ``stage.*`` physical envelope) + ``functions`` (the
@@ -25,37 +29,13 @@ one file; there is no separate ``function_limits.json``. Backlash appears in
 none of these files: it is a plain motion utility with baked-in defaults
 (decision §2b), not machine state.
 
-Each snapshot is a complete, cumulative machine-state record; the calibration
-workflow writes one per adopt by copying the latest snapshot forward and
-merging its delta. ``origin.json`` is the one exception to snapshot
-immutability: it is ephemeral operator state (the current frame zero point),
-written into the *newest* snapshot in place by ``set_origin`` and carried
-forward on adopt, so it stays the truth until set again.
-
-When no snapshot exists (fresh machine, or a wiped ProgramData tree), what
-happens depends on the file:
-
-- ``calibration.json`` falls back - loudly - to the bundled
-  ``calibration/defaults/calibration.json`` on READ
-  (:meth:`calibration_path`): a real last-known-good calibration for this
-  microscope (never an identity/zero placeholder), so read/compensation paths
-  stay usable while warning that a re-calibration is due. Publishing, however,
-  never seeds calibration from the bundled template (decision §7b): a limits
-  adopt writes only ``limits.json`` and carries a *real* prior calibration
-  forward if one exists, never mints one from the template.
-- ``limits.json`` does NOT fall back for enforcement. The bundled copy under
-  ``limits/defaults/`` is a TEMPLATE only - a bundled envelope can be the
-  wrong machine's envelope, which breaks safety rather than providing it. The
-  connect-time limits handshake (``commands/gate.py``) refuses the fallback
-  and every mutating command then refuses until the machine-local file exists;
-  the file factory is ``limits/notebooks/set_stage_limits.ipynb``.
-  ``resolve()`` still returns the bundled path with ``is_fallback=True`` so
-  callers (tests, template tooling) can reach the template deliberately.
-- ``orientation.json`` falls back silently to the bundled
-  ``orientation/defaults/orientation.json``, which is a genuine "no turn"
-  identity. Unlike a calibration or an envelope, an identity turn is always
-  safe: an un-measured microscope is simply left unrotated, never turned by
-  guesswork. The turn is measured by ``orientation/notebooks/set_orientation``.
+Each snapshot is a complete, cumulative machine-state record; workflows write
+one per adopt by copying the latest snapshot forward and merging their delta.
+If ProgramData is empty, or if the newest snapshot predates this complete-file
+layout, a new snapshot is created from repo defaults plus any prior machine
+values. ``origin.json`` is the one exception to snapshot immutability: it is
+ephemeral operator state (the current frame zero point), written into the
+*newest* snapshot in place by ``set_origin`` and carried forward on adopt.
 
 ``<datetime>`` is UTC with microsecond precision, formatted so it is both a
 legal Windows path segment (no colons) and lexicographically == chronologically
@@ -78,7 +58,7 @@ import re
 import shutil
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -91,9 +71,11 @@ _SNAPSHOT_FORMAT = "%Y-%m-%dT%H-%M-%S-%fZ"
 _SNAPSHOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}Z$")
 
 CALIBRATION_FILENAME = "calibration.json"
+CALIBRATIONS_DIRNAME = "calibrations"
 LIMITS_FILENAME = "limits.json"
 ORIENTATION_FILENAME = "orientation.json"
 ORIGIN_FILENAME = "origin.json"
+CALIBRATION_NAME_ENV = "ZMART_CALIBRATION_NAME"
 
 # Driver-bundled last-known-good defaults, each owned by its subsystem.
 # The origin has no bundled default: with none set, the frame is absolute
@@ -103,6 +85,10 @@ _BUNDLED_SUBSYSTEM = {
     LIMITS_FILENAME: "limits",
     ORIENTATION_FILENAME: "orientation",
 }
+_BASELINE_FILES = (CALIBRATION_FILENAME, LIMITS_FILENAME, ORIENTATION_FILENAME)
+_SEED_SNAPSHOT_MOMENT = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+_CALIBRATION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 
 def _driver_root() -> Path:
@@ -120,9 +106,25 @@ def is_snapshot_name(name: str) -> bool:
 
 
 def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2, sort_keys=True)
         fh.write("\n")
+
+
+def validate_calibration_name(name: str) -> str:
+    """Validate a machine-local calibration-set name.
+
+    Names are path segments, not paths. They are intentionally boring so an
+    operator-selected lens setup cannot escape ``calibrations/<name>/``.
+    """
+    value = str(name).strip()
+    if not value or value in {".", ".."} or not _CALIBRATION_NAME_RE.match(value):
+        raise ValueError(
+            "calibration_name must be one path-safe segment using letters, "
+            f"numbers, '.', '_' or '-', got {name!r}"
+        )
+    return value
 
 
 @dataclass(frozen=True)
@@ -208,106 +210,96 @@ class MachineProfile:
         return snaps[-1] if snaps else None
 
     def resolve(self, filename: str) -> tuple[Path, bool]:
-        """Resolve *filename* to ``(path, is_fallback)`` - explicit provenance.
+        """Resolve *filename* to a ProgramData path.
 
-        Prefer the newest snapshot's copy; fall back to the bundled default when
-        there is no snapshot, or the newest snapshot lacks that file. Callers
-        that enforce safety must check ``is_fallback`` and refuse the bundled
-        copy (see :meth:`require_machine_local`).
+        The boolean is kept for older callers; it is always ``False`` because
+        repo defaults are copied into ProgramData before any runtime path is
+        returned.
         """
-        latest = self.latest_snapshot()
-        if latest is not None:
-            candidate = latest / filename
+        snapshot = self.ensure_snapshot()
+        path = snapshot / filename
+        if not path.exists():
+            if filename not in _BUNDLED_SUBSYSTEM:
+                raise FileNotFoundError(f"ProgramData file not found: {path}")
+            snapshot = self.publish_snapshot(self._next_auto_moment())
+            path = snapshot / filename
+        return path, False
+
+    def calibration_relpath(self, calibration_name: str) -> Path:
+        """Path inside a snapshot for a named calibration set."""
+        return (
+            Path(CALIBRATIONS_DIRNAME)
+            / validate_calibration_name(calibration_name)
+            / CALIBRATION_FILENAME
+        )
+
+    def resolve_calibration(self, calibration_name: str | None = None) -> tuple[Path, bool]:
+        """Resolve the active ProgramData calibration, optionally by lens setup."""
+        if calibration_name is None:
+            env_name = os.environ.get(CALIBRATION_NAME_ENV)
+            if env_name:
+                return self.resolve_calibration(env_name)
+            return self.resolve(CALIBRATION_FILENAME)
+
+        rel = self.calibration_relpath(calibration_name)
+        snapshot = self.latest_snapshot()
+        if snapshot is not None:
+            snapshot = self.ensure_snapshot()
+            candidate = snapshot / rel
             if candidate.exists():
                 return candidate, False
-        return self.bundled_default_path(filename), True
+        default_calibration = json.loads(
+            self.bundled_default_path(CALIBRATION_FILENAME).read_text(encoding="utf-8")
+        )
+        snapshot = self.publish_snapshot(
+            self._next_auto_moment(),
+            calibration=default_calibration,
+            calibration_name=calibration_name,
+        )
+        return snapshot / rel, False
 
     def require_machine_local(self, filename: str, kind: str) -> Path:
-        """Resolve *filename* strictly: the machine-local snapshot copy or raise.
+        """Resolve *filename* as machine-local ProgramData state."""
+        path, _ = self.resolve(filename)
+        return path
 
-        The no-fallback rule for limits enforcement: a bundled default that
-        silently applies can be the wrong machine's envelope, so enforcement
-        refuses it. The error names the location tried and the notebook that
-        creates the machine-local file.
+    def calibration_path(self, calibration_name: str | None = None) -> Path:
+        """Active ProgramData calibration.json.
+
+        Pass ``calibration_name`` to select a named lens/session calibration
+        under ``calibrations/<name>/calibration.json``. With no name, the
+        ``ZMART_CALIBRATION_NAME`` environment variable can select one; otherwise
+        the legacy/default flat ``calibration.json`` is used.
         """
-        path, is_fallback = self.resolve(filename)
-        if is_fallback:
-            latest = self.latest_snapshot()
-            tried = (latest / filename) if latest is not None else self.snapshot_root()
-            raise RuntimeError(
-                f"no machine-local {filename} for {kind}: tried {tried} "
-                f"(newest snapshot under {self.snapshot_root()}). The bundled "
-                f"{path} is a TEMPLATE and is never trusted for enforcement. "
-                f"Create the machine-local file with "
-                f"limits/notebooks/set_stage_limits.ipynb, then reconnect."
-            )
+        path, _ = self.resolve_calibration(calibration_name)
         return path
-
-    def _resolve_logged(self, filename: str, kind: str) -> Path:
-        path, is_fallback = self.resolve(filename)
-        if is_fallback:
-            log.warning(
-                "No machine snapshot for %s/%s under %s; using bundled default "
-                "%s (%s may be stale - re-calibrate).",
-                self.vendor,
-                self.microscope_id,
-                self.snapshot_root(),
-                path,
-                kind,
-            )
-            if self._legacy_snapshots():
-                log.warning(
-                    "Pre-api-level snapshots exist at %s; run "
-                    "MachineProfile.migrate_legacy_snapshots() once to move "
-                    "them under %s.",
-                    self.legacy_snapshot_root(),
-                    self.snapshot_root(),
-                )
-        return path
-
-    def calibration_path(self) -> Path:
-        """Active calibration.json (latest snapshot, else bundled default)."""
-        return self._resolve_logged(CALIBRATION_FILENAME, "calibration")
 
     def limits_path(self) -> Path:
-        """Active physical limits.json (latest snapshot, else bundled default)."""
-        return self._resolve_logged(LIMITS_FILENAME, "limits")
+        """Active physical limits.json under ProgramData."""
+        path, _ = self.resolve(LIMITS_FILENAME)
+        return path
 
     def orientation_path(self) -> Path:
-        """Active orientation.json (latest snapshot, else the bundled "no turn").
-
-        Resolves quietly, without the "may be stale" warning the calibration and
-        limits accessors log on fallback. The bundled orientation default is a
-        genuine identity -- no turn at all -- so falling back to it is always
-        safe: an un-measured microscope is simply left unrotated. The driver
-        reads this for every saved image, so a warning on each acquire would be
-        noise rather than help.
-        """
+        """Active orientation.json under ProgramData."""
         path, _ = self.resolve(ORIENTATION_FILENAME)
         return path
 
     # --- origin: the operator-set frame zero point -----------------------
 
     def read_origin(self) -> dict | None:
-        """The persisted frame origin, or None (no snapshot / never set)."""
-        latest = self.latest_snapshot()
-        if latest is None:
-            return None
+        """The persisted frame origin, or None when never set."""
+        latest = self.ensure_snapshot()
         path = latest / ORIGIN_FILENAME
         if not path.exists():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
 
-    def write_origin(self, payload: dict) -> Path | None:
+    def write_origin(self, payload: dict) -> Path:
         """Persist the frame origin into the newest snapshot (atomic replace).
 
-        Returns the written path, or None when no snapshot exists yet - the
-        origin cannot outlive machine state that was never established, so
-        the caller keeps it in memory and says so.
+        Returns the written path. A seed snapshot is created first when needed.
         """
-        latest = self.latest_snapshot()
-        if latest is None:
-            return None
+        latest = self.ensure_snapshot()
         path = latest / ORIGIN_FILENAME
         tmp = path.with_suffix(".json.tmp")
         _write_json(tmp, payload)
@@ -331,65 +323,84 @@ class MachineProfile:
             )
         return self.snapshot_root() / name
 
+    def _next_auto_moment(self) -> datetime:
+        """Timestamp for internal seed/repair snapshots.
+
+        Synthetic defaults should not outrank a later notebook adopt that uses
+        an explicit timestamp, so the first seed is deterministic and old.
+        Repairs sort one microsecond after the current latest snapshot.
+        """
+        latest = self.latest_snapshot()
+        if latest is None:
+            return _SEED_SNAPSHOT_MOMENT
+        latest_moment = datetime.strptime(latest.name, _SNAPSHOT_FORMAT).replace(
+            tzinfo=timezone.utc
+        )
+        return latest_moment + timedelta(microseconds=1)
+
+    def _baseline_missing(self, snapshot: Path) -> list[str]:
+        return [filename for filename in _BASELINE_FILES if not (snapshot / filename).exists()]
+
+    def ensure_snapshot(self) -> Path:
+        """Return a complete ProgramData snapshot, seeding defaults if needed."""
+        latest = self.latest_snapshot()
+        if latest is not None and not self._baseline_missing(latest):
+            return latest
+        return self.publish_snapshot(self._next_auto_moment())
+
     def _seed_file(
-        self, staging: Path, filename: str, override: dict | None, *, bundled_ok: bool = True
+        self,
+        staging: Path,
+        filename: str,
+        override: dict | None,
+        *,
+        prior: Path | None,
     ) -> None:
-        """Place *filename* in the staging snapshot: the provided dict, else the
-        latest snapshot's copy carried forward (bundled default if none and
-        ``bundled_ok``). With ``bundled_ok=False`` and no machine-local source,
-        the file is omitted — none of ``limits.json``, ``calibration.json`` or
-        ``orientation.json`` is minted from the bundled template by a
-        side-effect publish (§7b); only an explicit override (a calibration or
-        orientation adopt, or the set_stage_limits notebook for limits) creates
-        one, or a real machine-local prior is carried forward."""
+        """Place *filename* in staging: override, prior ProgramData, or default."""
         dest = staging / filename
         if override is not None:
             _write_json(dest, override)
             return
-        src, is_fallback = self.resolve(filename)
-        if is_fallback and not bundled_ok:
-            return
+        if prior is not None and (prior / filename).exists():
+            src = prior / filename
+        else:
+            src = self.bundled_default_path(filename)
         shutil.copy2(src, dest)
+
+    def _seed_calibrations_dir(self, staging: Path, *, prior: Path | None) -> None:
+        """Carry every named calibration set forward from the latest snapshot."""
+        if prior is None:
+            return
+        src = prior / CALIBRATIONS_DIRNAME
+        if src.is_dir():
+            shutil.copytree(src, staging / CALIBRATIONS_DIRNAME, dirs_exist_ok=True)
 
     def publish_snapshot(
         self,
         moment: datetime,
         *,
         calibration: dict | None = None,
+        calibration_name: str | None = None,
         limits: dict | None = None,
         orientation: dict | None = None,
         notebook_paths: Iterable[str | Path] = (),
     ) -> Path:
         """Publish a new cumulative machine-state snapshot (copy-forward + atomic).
 
-        Seeds the new dated folder by carrying the latest snapshot's
-        ``calibration.json``, ``limits.json`` and ``orientation.json`` forward,
-        overrides whichever of *calibration* / *limits* / *orientation* is
-        provided, carries a persisted ``origin.json`` forward when one exists
-        (so an adopt never silently drops the operator's frame origin), copies
-        the given executed notebook(s) in, then atomically renames the folder
-        into place. The live snapshot is never mutated, so a crash mid-publish
-        cannot corrupt the config the driver is currently reading.
-
-        Because each adopt carries the other three files forward, setting up a
-        machine in the usual order — limits, then orientation, then calibration
-        — leaves the final snapshot holding all three, even though each step
-        only measured one of them.
-
-        Seeding provenance (decision §7b): none of the three seeds from its
-        bundled template. With no machine-local prior and no override, the file
-        is omitted — so a limits adopt can never mint an enforceable envelope
-        out of the bundled template (the set_stage_limits notebook is the only
-        factory), it never mints a calibration.json either (a real prior
-        calibration is carried forward if present; otherwise calibration stays
-        the loud in-memory READ fallback until an explicit calibration adopt),
-        and orientation likewise falls back to the bundled "no turn" identity at
-        read time until the set_orientation notebook measures a real turn.
+        Seeds the new dated folder by carrying the latest ProgramData snapshot's
+        baseline files forward, or copying the repo defaults into ProgramData
+        when no prior file exists. Overrides whichever of *calibration* /
+        *limits* / *orientation* is provided, carries a persisted ``origin.json``
+        forward when one exists, copies the given executed notebook(s) in, then
+        atomically renames the folder into place. The live snapshot is never
+        mutated, so a crash mid-publish cannot corrupt the config the driver is
+        currently reading.
 
         *moment* must stamp strictly after the latest snapshot
-        (see :meth:`new_snapshot_dir`); callers pass ``datetime.now(timezone.utc)``.
+        (see :meth:`new_snapshot_dir`).
         Domain validation of the payloads is the caller's job.
         """
+        prior = self.latest_snapshot()
         target = self.new_snapshot_dir(moment)  # monotonic guard
         root = self.snapshot_root()
         root.mkdir(parents=True, exist_ok=True)
@@ -398,10 +409,17 @@ class MachineProfile:
             shutil.rmtree(staging)
         staging.mkdir()
         try:
-            self._seed_file(staging, CALIBRATION_FILENAME, calibration, bundled_ok=False)
-            self._seed_file(staging, LIMITS_FILENAME, limits, bundled_ok=False)
-            self._seed_file(staging, ORIENTATION_FILENAME, orientation, bundled_ok=False)
-            prior = self.latest_snapshot()
+            self._seed_file(
+                staging,
+                CALIBRATION_FILENAME,
+                calibration if calibration_name is None else None,
+                prior=prior,
+            )
+            self._seed_calibrations_dir(staging, prior=prior)
+            if calibration is not None and calibration_name is not None:
+                _write_json(staging / self.calibration_relpath(calibration_name), calibration)
+            self._seed_file(staging, LIMITS_FILENAME, limits, prior=prior)
+            self._seed_file(staging, ORIENTATION_FILENAME, orientation, prior=prior)
             if prior is not None and (prior / ORIGIN_FILENAME).exists():
                 shutil.copy2(prior / ORIGIN_FILENAME, staging / ORIGIN_FILENAME)
             for nb in notebook_paths:

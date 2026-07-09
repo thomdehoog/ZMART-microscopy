@@ -67,8 +67,9 @@ detect which and say so in your report).
   machine config provides.
 - Use only the documented run_ci/validator invocations. Nothing under
   `experimental/` touches hardware.
-- Do not enable `--allow-objective` or `--allow-acquire` unless the operator
-  explicitly says so in this session.
+- `run_ci.py --hardware` includes acquire smoke checks. Do not enable
+  `--allow-objective` in a direct validator run unless the operator explicitly
+  says so in this session.
 - **Never kill a process mid-acquire or mid-capture.** If a step is slow,
   let it run — see the idle-gate note above. If you must bound your own
   patience for tooling reasons, use a long timeout (5+ minutes) and let the
@@ -97,9 +98,9 @@ GitHub CI matrix. A missing test toolchain still fails the first CI step closed
 
 ## Step 1: Stage limits
 
-The driver refuses every move until a machine-local `limits.json` exists —
-no bundled fallback. If this machine has never been provisioned, or if you
-hit the breaking-change refusal described above, run once:
+The driver reads limits from ProgramData. If ProgramData is empty, repo defaults
+are copied there so CI can connect; on the rig, run once to replace those
+defaults with measured stage limits:
 
 ```
 zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb
@@ -112,17 +113,13 @@ if you have better numbers for *this specific* stage.
 
 ```powershell
 cd zmart_drivers/leica/stellaris5_y42h93/navigator_expert
-python run_ci.py both --live-writes   # offline suite + calibration + lint + live validators
+python run_ci.py              # mock/offline gate: no LAS X
+python run_ci.py --hardware   # live validators + acquire smoke
 ```
 
-`both` runs the full offline suite (incl. `calibration/tests`) first — if
-that fails, the report tells you exactly what and why before any hardware
-command fires. If you want the live/hardware portion in isolation instead:
-
-```powershell
-python run_ci.py online                # read-only pass first (~2-5 min)
-python run_ci.py online --live-writes  # full validation (~15-30 min)
-```
+The hardware command starts with the mock limits self-check before any live
+validator runs. It does not pass `--allow-missing-lasx`; missing LAS X is a
+hardware-run failure, not a skip.
 
 Reports land in `tests/_report/hardware_run_report_*.md` (paths are printed
 at the end), each with a companion `driver_log_*.log`. Keep every report and
@@ -137,8 +134,9 @@ report rows/log lines):
 1. **Overall CI result:** offline suite pass/fail counts and coverage; which
    of the 7 live steps (limits self-check, passive readers, reader parity,
    zmart adapter, and the api/log/hybrid end-to-end validators) passed?
-2. **Backlash acquisition option, live:** run
-   `validate_zmart_adapter.py --yes --allow-move --allow-state --allow-acquire --allow-missing-lasx`
+2. **Backlash acquisition option, live:** if you need the specific direct
+   validator check, run
+   `validate_zmart_adapter.py --yes --allow-move --allow-state --allow-acquire`
    (real capture — do not interrupt it) and confirm `settle` reads
    `"backlash-corrected"` in the record, with the sequence select → backlash
    → capture visible in the driver log.
