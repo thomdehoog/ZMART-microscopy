@@ -69,6 +69,8 @@ class _Cfg:
     zoomdict = {"1x": 1, "2x": 2}
     laserdict = {"488 nm": 0, "561 nm": 1}
     shutteroptions = ["Left", "Right", "Both"]
+    stage_parameters = {"x_min": -25000, "x_max": 25000, "y_min": -50000, "y_max": 50000,
+                        "z_min": -25000, "z_max": 25000, "f_min": 0, "f_max": 98000}
 
 
 class _Core:
@@ -163,6 +165,41 @@ def test_bad_option_rejected():
 
 def test_bad_intensity_rejected():
     assert _rejects("set_intensity", {"intensity": 250})
+
+
+def test_range_and_type_checked_for_all_settables():
+    # not just the stage: numeric type + percent range on any settable parameter
+    assert _rejects("set_etl", {"etl_l_amplitude": "loud"})   # must be a number
+    assert _rejects("set_etl", {"etl_l_delay_%": 250})        # percent 0..100
+    assert not _rejects("set_etl", {"etl_l_amplitude": 1.5})  # no range -> type only
+
+
+def test_both_lanes_refuse_out_of_limit_with_error_json():
+    # TCP and MCP converge on handle_tcp_message -> run -> _validate. The MCP lane
+    # forwards to this exact reply, so an OUT-OF-LIMIT call can never reach the Core on
+    # either lane -- it comes back as a non-OK error (which MCP wraps as isError JSON),
+    # and the message names the limit.
+    reply = srv.handle_tcp_message(_core, json.dumps({"move_absolute": {"targets": {"x": 999999}}}))
+    assert not reply.startswith(srv.OK_MARKER)
+    assert "error" in reply and "25000" in reply
+
+
+def test_cfg_stage_range_enforced_via_run():
+    # run() takes the range from the loaded cfg -- no env var needed -- and the error
+    # message names the limit so a script/LLM knows what was allowed.
+    try:
+        vrc.run(_core, "move_absolute", {"targets": {"x": 999999}})
+    except ValueError as e:
+        assert "25000" in str(e)
+    else:
+        raise AssertionError("cfg stage range not enforced")
+
+
+def test_get_limits_exposes_enforced_rules():
+    enforced = vrc._get_limits(_core, {})["enforced"]
+    assert enforced["axes"]["x"] == [-25000.0, 25000.0]
+    assert enforced["axes"]["theta"] is None  # range OFF -> visible to the caller
+    assert enforced["parameters"]["intensity"]["range"] == [0, 100]
 
 
 def test_limits_from_env(monkeypatch=None):

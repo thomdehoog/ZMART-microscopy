@@ -45,16 +45,25 @@ client ──▶  frame({"<method>": {args}})
 ### Input validation (`_validate`)
 
 Beyond "known method," the server checks each call's **args** before touching the
-instrument, and returns a *specific* error if they're off:
+instrument — for **every** settable parameter, not just the stage — and returns a
+*specific* error (that **names the limit**) if they're off:
 
-- **shape** — `targets`/`deltas` must be an object of `axis → number`, `settings`
-  an object, etc. (`"targets" must be a non-empty object of axis -> number`).
+- **type** — a number where a number is expected (JSON booleans are *not* numbers), a
+  string where a string is expected (`"targets" must be a non-empty object of axis ->
+  number`, `intensity must be a number`).
 - **allowed options** — `filter`/`zoom`/`laser`/`shutterconfig` are checked against
   the **live `cfg`** (`filter` ∈ `filterdict`, `zoom` ∈ `zoomdict`, `laser` ∈
-  `laserdict`, `shutterconfig` ∈ `shutteroptions`); `intensity` ∈ `[0, 100]`.
-- **range** — `move_absolute` targets are checked against optional per-axis soft
-  limits, set via `MESOSPIM_RS_LIMITS` (a JSON object `{"x": [lo, hi], …}` or a
-  path to one). Unset → no soft limit (the Core's own hardware bound is the backstop).
+  `laserdict`, `shutterconfig` ∈ `shutteroptions`) — for `set_state` and acquisitions too.
+- **range** — `move_absolute` targets are checked against the per-axis travel envelope
+  of the config the operator **loaded at startup** (`cfg.stage_parameters`), so range
+  checking is on by default; `MESOSPIM_RS_LIMITS` (a JSON object `{"x": [lo, hi], …}` or
+  a path to one) can *tighten* an axis further. `intensity` and every `%` parameter ∈
+  `[0, 100]`. No limit for an axis → the Core's hardware bound is the backstop.
+
+`get_limits` returns the exact rules in force — including which checks are **off**
+(`range: null` = only the type is checked) — so a script or LLM can read the envelope up
+front. Both transports meet at one `run()` choke point, so **TCP and MCP can never breach
+a limit**, and no allowlisted verb can change the limits.
 
 This is what makes the LLM lane safe: a bad *value* (not just a bad name) is
 refused at the door, with a message the caller can act on.

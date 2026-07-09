@@ -14,10 +14,14 @@ executed.
 
 - mesoSPIM_RemoteControl_ValidateAndRunCommands.py (new): the command vocabulary
   (the COMMANDS allowlist) and _validate, which rejects a call whose args are the
-  wrong shape, name an option the live cfg does not allow (filter/zoom/laser/
-  shutterconfig), or move an axis outside the per-axis soft limits (from
-  MESOSPIM_RS_LIMITS) -- with a clear message, BEFORE the Core is touched. run()
-  is the single choke point both transports share.
+  wrong TYPE, name an option the live cfg does not allow (filter/zoom/laser/
+  shutterconfig), or fall out of RANGE -- for EVERY settable parameter, not just the
+  stage: axis moves against the loaded config's travel envelope (cfg.stage_parameters,
+  optionally tightened per axis by MESOSPIM_RS_LIMITS), intensity/percentages against
+  0..100. The error names the limit, so a script/LLM can correct itself, and get_limits
+  reports the exact rules (range null = check OFF). run() is the single choke point
+  both transports share, so TCP and MCP can never breach a limit -- an out-of-range
+  call comes back as an error, never reaching the Core.
 - mesoSPIM_RemoteControl_Servers.py (new): a framed-TCP server hosted by the Core
   and a standalone MCP-over-HTTP server (a separate process) that forwards MCP
   tool calls to the same TCP command path, so both protocols share one validated
@@ -41,10 +45,10 @@ access, it is not sniffer-proof (tunnel it for untrusted networks).
  mesoSPIM/src/mesoSPIM_Core.py                 |  34 +-
  mesoSPIM/src/mesoSPIM_MainWindow.py           | 214 +++++-
  .../src/mesoSPIM_RemoteControl_Servers.py     | 347 +++++++++
- ...IM_RemoteControl_ValidateAndRunCommands.py | 673 ++++++++++++++++++
- .../src/test_remote_control_validation.py     | 102 +++
+ ...IM_RemoteControl_ValidateAndRunCommands.py | 756 ++++++++++++++++++
+ .../src/test_remote_control_validation.py     | 170 +++++
  pyproject.toml                                |   1 +
- 6 files changed, 1369 insertions(+), 2 deletions(-)
+ 6 files changed, 1520 insertions(+), 2 deletions(-)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
  create mode 100644 mesoSPIM/src/test_remote_control_validation.py
@@ -721,10 +725,10 @@ index 0000000..b419669
 +    main()
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
 new file mode 100644
-index 0000000..093ba12
+index 0000000..e712fa8
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
-@@ -0,0 +1,673 @@
+@@ -0,0 +1,756 @@
 +"""Remote-control command vocabulary and execution.
 +
 +Network transports hand this module a decoded command name plus arguments. This
@@ -1034,9 +1038,15 @@ index 0000000..093ba12
 +
 +def _get_limits(core, a):
 +    cfg = getattr(core, "cfg", None)
++    axes = _effective_limits(core)
 +    return {"stage": _jsonable(getattr(cfg, "stage_parameters", {})),
 +            "camera": _jsonable(getattr(cfg, "camera_parameters", {})),
-+            "startup": _jsonable(getattr(cfg, "startup", {}))}
++            "startup": _jsonable(getattr(cfg, "startup", {})),
++            # exactly what _validate enforces, so a script/LLM can read the rules and
++            # see where a check is OFF (range null = only the type is checked):
++            "enforced": {
++                "axes": {ax: (list(axes[ax]) if ax in axes else None) for ax in _AXES},
++                "parameters": _param_constraints(core)}}
 +
 +
 +def _get_capabilities(core, a):
@@ -1316,15 +1326,65 @@ index 0000000..093ba12
 +            "shutterconfig": list(getattr(cfg, "shutteroptions", []) or [])}
 +
 +
++# Settable parameters that are text, not numbers (filter/zoom/laser/shutterconfig are
++# handled as cfg-driven enums below, so they are not repeated here).
++_STRING_KEYS = ("state", "ETL_cfg_file", "camera_sensor_mode", "camera_binning")
++# Settable parameters that are a percentage: a number the instrument reads as 0..100.
++_PERCENT_KEYS = tuple(k for k in _STATE_REQUEST_KEYS if k.endswith("%")) + (
++    "intensity", "galvo_l_duty_cycle", "galvo_r_duty_cycle")
++
++
++def _param_constraints(core):
++    """The type + allowed values of every settable parameter, in one place, so the SAME
++    rules that ``_validate`` enforces can be read back by a script/LLM (``get_limits``).
++    Each entry is ``{"type": "number"|"string", "options": [...] or None, "range":
++    [lo, hi] or None}``. ``range`` is ``None`` when no numeric bound is enforced -- the
++    range check is OFF for that key (only its type is checked), which the caller can see.
++    """
++    opts = _cfg_options(core)  # cfg-driven enums for this loaded config
++    spec = {}
++    for k in _STATE_REQUEST_KEYS:
++        if k in opts:
++            spec[k] = {"type": "string", "options": opts[k], "range": None}
++        elif k in _PERCENT_KEYS:
++            spec[k] = {"type": "number", "options": None, "range": [0, 100]}
++        elif k in _STRING_KEYS:
++            spec[k] = {"type": "string", "options": None, "range": None}
++        else:
++            spec[k] = {"type": "number", "options": None, "range": None}
++    return spec
++
++
 +def _validate(core, call, args, limits):
 +    """Reject a call whose ARGS are the wrong shape, not an allowed option, or out of
 +    range -- with a clear message -- BEFORE the handler runs, so a bad value never
 +    reaches the instrument. Allowed options come from the live ``cfg``; axis ranges
-+    come from ``limits`` (per-axis ``{axis: (lo, hi)}``, empty = no soft limit -- the
-+    Core is the hardware backstop).
++    come from ``limits`` (per-axis ``{axis: (lo, hi)}``) -- by default the travel
++    envelope of the config the operator loaded at startup (``cfg.stage_parameters``),
++    optionally tightened per axis by ``MESOSPIM_RS_LIMITS``. No limit for an axis =
++    the Core's own hardware bound is the backstop.
 +    """
 +    def bad(msg):
 +        raise ValueError(f"{call}: {msg}")
++
++    spec = _param_constraints(core)
++
++    def check(key, value):
++        """Type + range + option check for one settable parameter, from the shared spec.
++        A key with no spec entry is not our contract -- leave it to the handler."""
++        s = spec.get(key)
++        if s is None:
++            return
++        if s["type"] == "number":
++            if not _num(value):
++                bad(f"{key} must be a number, got {value!r}")
++            rng = s["range"]
++            if rng and not (rng[0] <= value <= rng[1]):
++                bad(f"{key}={value} is outside the allowed range {tuple(rng)}")
++        elif s["type"] == "string" and not isinstance(value, str):
++            bad(f"{key} must be a string, got {value!r}")
++        if s["options"] and value not in s["options"]:
++            bad(f"{key}={value!r} is not one of {s['options']}")
 +
 +    if call in ("move_absolute", "move_relative"):
 +        key = "targets" if call == "move_absolute" else "deltas"
@@ -1347,25 +1407,26 @@ index 0000000..093ba12
 +        field = call[len("set_"):]
 +        if field not in args:
 +            bad(f"'{field}' is required")
-+        allowed = _cfg_options(core).get(field)
-+        if allowed and args[field] not in allowed:
-+            bad(f"{field}={args[field]!r} is not one of {allowed}")
++        check(field, args[field])
 +    elif call == "set_intensity":
-+        v = args.get("intensity")
-+        if not (_num(v) and 0 <= v <= 100):
-+            bad("intensity must be a number in [0, 100]")
++        if "intensity" not in args:
++            bad("'intensity' is required")
++        check("intensity", args["intensity"])
 +    elif call == "set_state":
 +        settings = args.get("settings")
 +        if not isinstance(settings, dict) or not settings:
 +            bad("'settings' must be a non-empty object")
-+        options = _cfg_options(core)
 +        for k, v in settings.items():
-+            if options.get(k) and v not in options[k]:  # only keys with cfg-known options
-+                bad(f"{k}={v!r} is not one of {options[k]}")
-+            if k == "intensity" and not (_num(v) and 0 <= v <= 100):
-+                bad("intensity must be a number in [0, 100]")
-+    elif call == "acquire_start" and not isinstance(args.get("acquisition"), dict):
-+        bad("'acquisition' must be an object")
++            check(k, v)
++    elif call in ("set_camera", "set_etl", "set_galvo", "set_laser_timing"):
++        for k, v in args.items():  # args ARE the settings for these calls
++            check(k, v)
++    elif call == "acquire_start":
++        acq = args.get("acquisition")
++        if not isinstance(acq, dict):
++            bad("'acquisition' must be an object")
++        for k, v in acq.items():  # option/number fields inside the acquisition too
++            check(k, v)
 +    # reads / stop / hello / ping / mode changes / stat_files / procedure: no arg contract
 +
 +
@@ -1391,19 +1452,45 @@ index 0000000..093ba12
 +_LIMITS = _limits_from_env()
 +
 +
++def _limits_from_cfg(core):
++    """Per-axis soft travel limits from the config the operator loaded at startup.
++    mesoSPIM keeps them in ``cfg.stage_parameters`` as ``{axis}_min`` / ``{axis}_max``
++    (e.g. ``x_min`` / ``x_max``); we turn each pair into ``{axis: (lo, hi)}``. This is
++    why range validation just works out of the box -- if the operator picked the config
++    for this scope, its real travel envelope is already the limit, no extra setup.
++    """
++    sp = _cfg_dict(getattr(core, "cfg", None), "stage_parameters")
++    out = {}
++    for axis in _AXES:
++        lo, hi = sp.get(f"{axis}_min"), sp.get(f"{axis}_max")
++        if _num(lo) and _num(hi):
++            out[axis] = (float(lo), float(hi))
++    return out
++
++
++def _effective_limits(core):
++    """The limits actually enforced: the loaded config's travel envelope, with any
++    ``MESOSPIM_RS_LIMITS`` axis overriding it (so an operator can set a tighter soft
++    limit than the hardware allows). Env-only axes are honoured too.
++    """
++    limits = _limits_from_cfg(core)
++    limits.update(_LIMITS)
++    return limits
++
++
 +def run(core, call, args=None):
 +    handler = COMMANDS.get(call)
 +    if handler is None:
 +        raise KeyError(f"unknown command {call!r}; not in the allowlist")
 +    args = args or {}
-+    _validate(core, call, args, _LIMITS)
++    _validate(core, call, args, _effective_limits(core))
 +    return handler(core, args)
 diff --git a/mesoSPIM/src/test_remote_control_validation.py b/mesoSPIM/src/test_remote_control_validation.py
 new file mode 100644
-index 0000000..44b16e9
+index 0000000..ea01557
 --- /dev/null
 +++ b/mesoSPIM/src/test_remote_control_validation.py
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,170 @@
 +"""Validation tests for the Remote Control command module.
 +
 +Qt-free and no live Core: exercises ``_validate`` (the arg gate that runs at the
@@ -1428,6 +1515,10 @@ index 0000000..44b16e9
 +    zoomdict = {"1x": 1, "2x": 2}
 +    laserdict = {"488 nm": 0, "561 nm": 1}
 +    shutteroptions = ["Left", "Right", "Both"]
++    # the per-axis travel envelope mesoSPIM loads at startup (theta omitted on purpose,
++    # so the tests can see an axis whose range check is OFF)
++    stage_parameters = {"x_min": -25000, "x_max": 25000, "y_min": -50000, "y_max": 50000,
++                        "z_min": -25000, "z_max": 25000, "f_min": 0, "f_max": 98000}
 +
 +
 +class _Core:
@@ -1496,6 +1587,70 @@ index 0000000..44b16e9
 +        assert vrc._limits_from_env() == {"x": (-5.0, 5.0), "y": (-5.0, 5.0)}
 +    finally:
 +        del os.environ["MESOSPIM_RS_LIMITS"]
++
++
++# -- limits come from the loaded config (cfg.stage_parameters), no env var needed -----
++
++def test_limits_default_to_cfg_stage_parameters():
++    lim = vrc._effective_limits(_core)
++    assert lim["x"] == (-25000.0, 25000.0) and lim["f"] == (0.0, 98000.0)
++    assert "theta" not in lim  # no theta_min/max in this cfg -> range OFF for theta
++
++
++def test_run_enforces_cfg_range_without_env():
++    # run() derives limits from cfg, so an out-of-envelope move is refused end-to-end.
++    try:
++        vrc.run(_core, "move_absolute", {"targets": {"x": 999999}})
++    except ValueError:
++        return
++    raise AssertionError("run() did not enforce the cfg stage range")
++
++
++def test_env_override_tightens_cfg_range():
++    saved = vrc._LIMITS
++    vrc._LIMITS = {"x": (-10.0, 10.0)}  # what MESOSPIM_RS_LIMITS would parse to
++    try:
++        assert vrc._effective_limits(_core)["x"] == (-10.0, 10.0)        # env wins for x
++        assert vrc._effective_limits(_core)["y"] == (-50000.0, 50000.0)  # cfg for the rest
++    finally:
++        vrc._LIMITS = saved
++
++
++# -- types + ranges are checked for EVERY settable parameter, not just the stage -------
++
++def test_numeric_setting_type_is_checked():
++    assert _rejects("set_etl", {"etl_l_amplitude": "loud"})       # must be a number
++    assert _rejects("set_camera", {"camera_exposure_time": "x"})  # must be a number
++
++
++def test_percent_setting_range_is_checked():
++    assert _rejects("set_etl", {"etl_l_delay_%": 250})            # 0..100
++    assert not _rejects("set_etl", {"etl_l_amplitude": 1.5})      # no range -> type only
++
++
++def test_range_error_names_the_limits():
++    # a too-high value must tell the caller WHAT the limit was, not just "out of range".
++    try:
++        vrc._validate(_core, "move_absolute", {"targets": {"x": 999999}}, {"x": (-25000.0, 25000.0)})
++    except ValueError as e:
++        assert "25000" in str(e) and "-25000" in str(e)
++    else:
++        raise AssertionError("no error raised")
++    try:
++        vrc._validate(_core, "set_intensity", {"intensity": 250}, {})
++    except ValueError as e:
++        assert "100" in str(e)
++    else:
++        raise AssertionError("no error raised")
++
++
++def test_get_limits_reports_enforced_rules():
++    enforced = vrc._get_limits(_core, {})["enforced"]
++    assert enforced["axes"]["x"] == [-25000.0, 25000.0]
++    assert enforced["axes"]["theta"] is None                       # range OFF, made visible
++    assert enforced["parameters"]["intensity"]["range"] == [0, 100]
++    assert enforced["parameters"]["etl_l_amplitude"]["range"] is None
++    assert enforced["parameters"]["filter"]["options"] == ["Empty", "515LP"]
 +
 +
 +if __name__ == "__main__":

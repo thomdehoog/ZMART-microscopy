@@ -68,25 +68,42 @@ number) before the Core is touched. Still:
 ## Input validation (`_validate`)
 
 Before a call reaches the Core, `_validate` refuses a bad **value**, not just a bad
-name — with a message the caller can act on:
+name — for **every** settable parameter, not only the stage — with a message the caller
+can act on (and that **names the limit**, so a script or LLM can correct itself):
 
-- **shape** — `targets`/`deltas` an object of `axis → number`, `settings` an object.
-- **allowed option** — `filter`/`zoom`/`laser`/`shutterconfig` must be one the live
-  `cfg` allows; `intensity` ∈ `[0, 100]`.
-- **range** — `move_absolute` targets against optional per-axis soft limits from
-  `MESOSPIM_RS_LIMITS` (a JSON object `{"x": [lo, hi], …}` or a path to one). Unset
-  → no soft limit (the Core's hardware bound is the backstop).
+- **type** — a number where a number is expected (JSON booleans are *not* numbers), a
+  string where a string is expected.
+- **allowed option** — `filter`/`zoom`/`laser`/`shutterconfig` (and the same keys inside
+  `set_state` / an acquisition) must be one the live `cfg` allows.
+- **range** — `move_absolute` targets against the per-axis travel envelope of the config
+  the operator **loaded at startup** (`cfg.stage_parameters`), so range checking is on by
+  default with no extra setup; `MESOSPIM_RS_LIMITS` (a JSON object `{"x": [lo, hi], …}` or
+  a path to one) can *tighten* an axis further. `intensity` and every `%` parameter ∈
+  `[0, 100]`. No limit for an axis → the Core's hardware bound is the backstop.
+
+Because both transports meet at the single `run()` choke point, **TCP and MCP can never
+breach a limit** — an out-of-range call comes back as an error and never reaches the Core.
+A client also has **no way to change the limits**: they come from the read-only `cfg` (plus
+the env override) and no allowlisted verb writes them. `get_limits` returns the exact rules
+in force — including which checks are **off** (`range: null` = only the type is checked) —
+so a script or LLM can read the envelope up front.
 
 ## Tests
 
 `test_remote_control.py` (here, in `pull_request/`) rebuilds both modules straight
 from the `0001-*.patch` new-file hunks and checks the promises **without Qt**:
 framing round-trips, the token is constant-time, bad **values** are refused
-(shape / option / range), the MCP reply shape is right, and a hostile-payload sweep
-(unknown method, a Python-expression name, a `__dunder__`, a multi-key object,
-malformed JSON) is rejected without running anything. The shipped
-`test_remote_control_validation.py` covers the same `_validate` gate against the
-real module. **Validated on the bench against mesoSPIM `-D` demo mode
+(type / option / range for every settable, not just the stage), the limits come from
+`cfg.stage_parameters` end to end, both lanes refuse an out-of-limit call with an error,
+and the MCP reply shape is right. `test_remote_control_adversarial.py` (also here) is a
+**wide** sweep that tries to break the two guarantees: ~20 hostile method names
+(dunders, dotted paths, Python expressions, unicode/whitespace/NUL variants) that must
+never run, every malformed envelope shape, every axis breached in both directions,
+`NaN`/`inf`/huge numbers, type confusion in every value slot, attempts to *change* the
+limits, MCP hostile `tools/call` names turned into `isError` JSON, and framing/auth
+tricks — all against a `_RecordingCore` so each refusal is proven to leave the Core
+**untouched**. The shipped `test_remote_control_validation.py` covers the same
+`_validate` gate against the real module. **Validated on the bench against mesoSPIM `-D` demo mode
 (2026-07-08):** the Remote Control tab starts and drives the demo Core end to end
 over **both lanes — framed TCP and MCP-over-HTTP — and it worked as-is** (the
 handlers matched the real Core, no changes needed). **Real-hardware** validation
