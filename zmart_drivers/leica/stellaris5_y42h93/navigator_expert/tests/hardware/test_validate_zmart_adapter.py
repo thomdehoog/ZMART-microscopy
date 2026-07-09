@@ -121,7 +121,10 @@ def test_acquire_backlash_correction_through_the_controller_seam(tmp_path):
     use live) and only patches the I/O boundary (``_capture``/``_save``) that a
     mock CAM cannot satisfy -- so the seam decision #3 cares about (Session ->
     ops table -> adapter) is what is actually exercised for the
-    ``backlash_correction`` acquisition option.
+    ``backlash_correction`` acquisition option. ``strip_scan_fields`` is passed
+    as ``False`` for the same reason: stripping needs ``PyApiSaveExperiment``,
+    which ``MockLasxClient`` does not implement, and scan-field handling is
+    unrelated to what this test verifies.
     """
     from navigator_expert.config import profiles
 
@@ -153,7 +156,7 @@ def test_acquire_backlash_correction_through_the_controller_seam(tmp_path):
             record = session.acquire(
                 acquisition_type="prescan",
                 position_label="1",
-                options={"backlash_correction": True},
+                options={"backlash_correction": True, "strip_scan_fields": False},
             )
     finally:
         adapter._session.connect_python_client = original_connect
