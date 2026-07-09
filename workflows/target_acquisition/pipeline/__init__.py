@@ -11,7 +11,9 @@ them in order:
 Re-exports:
 
 - the step functions (``pipeline.steps``): ``connect``, ``load_positions``,
-  ``with_focus_z``, ``run_overview``, ``acquire_targets``;
+  ``load_analysis_engine``, ``with_focus_z``, ``run_overview``,
+  ``overview_inputs_from_records``, ``acquire_targets``,
+  ``hijack_if_simulating``, ``write_run_report``;
 - focus (``pipeline._focus_run`` / ``pipeline._focus_surface``):
   ``measure_focus``, ``fit_focus_surface``, ``FocusSurface``;
 - target discovery (``pipeline.discovery``): ``discover_targets``;
@@ -45,9 +47,13 @@ from .discovery import build_overview_inputs, discover_targets, read_overview_ge
 from .steps import (
     acquire_targets,
     connect,
+    hijack_if_simulating,
+    load_analysis_engine,
     load_positions,
+    overview_inputs_from_records,
     run_overview,
     with_focus_z,
+    write_run_report,
 )
 from .viz import (
     plot_focus_surface,
@@ -59,19 +65,23 @@ from .viz import (
 __all__ = [
     "connect",
     "load_positions",
+    "load_analysis_engine",
     "with_focus_z",
     "measure_focus",
     "fit_focus_surface",
     "FocusSurface",
     "run_overview",
+    "overview_inputs_from_records",
     "build_overview_inputs",
     "read_overview_geometry",
     "discover_targets",
     "acquire_targets",
+    "hijack_if_simulating",
     "capture_positions",
     "overview_pixel_to_frame",
     "summarize_run",
     "write_summary",
+    "write_run_report",
     "plot_focus_surface",
     "plot_frame_layout",
     "get_provider",
