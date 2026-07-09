@@ -43,11 +43,25 @@ def test_all_code_cells_parse():
 def test_setup_cell_runs_from_repo_root(monkeypatch):
     nb = _load()
     setup_cell = _code_sources(nb)[0]
+    root = Path("/tmp/zmart-run")
+
+    class FakeController:
+        def __init__(self):
+            self.origin_set = False
+
+        def set_origin(self):
+            self.origin_set = True
+
+    fake = FakeController()
+    monkeypatch.setattr(pipeline, "connect", lambda vendor: fake)
+    monkeypatch.setattr(pipeline, "get_root", lambda session: root)
+
     namespace = {}
     monkeypatch.chdir(_NB_PATH.parents[2])
     exec(compile(setup_cell, str(_NB_PATH), "exec"), namespace)
-    assert namespace["TARGET_ACQ"] == _NB_PATH.parent
-    assert "pipeline" in namespace
+    assert namespace["zmart_controller"] is fake
+    assert fake.origin_set
+    assert namespace["OUTPUT_ROOT"] == root
 
 
 def test_pipeline_attributes_used_are_exported():

@@ -17,6 +17,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 # Per-axis actuator options this instrument exposes (driver-defined).
 _ACTUATORS: dict[str, list[str]] = {
@@ -55,6 +56,7 @@ class MockHandle:
     # immutable identity, plus connection info filled at connect
     serial: str = "MOCK-0001"
     client: str | None = None
+    connection: dict = field(default_factory=dict)
     initial: list[dict] = field(default_factory=list)
 
     # set by disconnect(); every other op refuses a closed handle
@@ -70,6 +72,7 @@ def connect(connection: dict):
     """
     handle = MockHandle()
     handle.client = connection.get("client")
+    handle.connection = dict(connection)
     handle.initial = [
         {"x": 0.0, "y": 0.0, "z": 0.0},
         {"x": 120.0, "y": 0.0, "z": 0.0},
@@ -246,12 +249,21 @@ def get_procedures(handle: MockHandle) -> dict:
     return {
         "autofocus": {"description": "hardware autofocus"},
         "find_sample": {"description": "locate the sample"},
+        "get_root": {"description": "return the run output root"},
+        "get_positions": {"description": "return the initial positions"},
     }
 
 
 def run_procedure(handle: MockHandle, procedure: dict) -> dict:
     """Run a procedure and report what ran."""
     _require_open(handle)
+    name = procedure.get("name")
+    if name == "get_root":
+        root = Path(handle.connection.get("output_root") or "mock-output")
+        handle.connection["output_root"] = str(root)
+        return {"ran": dict(procedure), "output_root": str(root)}
+    if name == "get_positions":
+        return {"ran": dict(procedure), "positions": [dict(pos) for pos in handle.initial]}
     return {"ran": dict(procedure)}
 
 
@@ -261,6 +273,7 @@ def get_context(handle: MockHandle) -> dict:
     return {
         "initial_positions": [dict(pos) for pos in handle.initial],
         "client": handle.client,
+        "output_root": handle.connection.get("output_root"),
     }
 
 

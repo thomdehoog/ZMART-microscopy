@@ -12,7 +12,6 @@ instrument::
     instrument = next(
         i for i in zmart_controller.get_instruments() if i["vendor"] == "leica"
     )
-    instrument["output_root"] = r"D:\smart_output"    # where acquire() saves
     zmart_controller.set_instrument(instrument)
 
 Frame math lives here: the driver speaks absolute stage micrometres, the
@@ -90,6 +89,7 @@ from ..connection import session as _session
 from ..motion import limits as _limits
 from ..motion import movement as _motion
 from ..readers.derived import z_um_from_settings as _z_um_from_settings
+from . import procedures as _procedures
 
 log = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ CONNECTION = {
     # driver-specific connect params — edit before set_instrument():
     "client": "PythonClient",
     "api_delay_ms": None,
-    "output_root": None,  # required by acquire(): where products are saved
+    "output_root": None,  # optional override; otherwise discovered from native AutoSave
     "calibration_name": None,  # optional ProgramData calibrations/<name>/calibration.json
 }
 
@@ -721,12 +721,7 @@ def acquire(
     detection, or persistence.
     """
     _require_open(handle)
-    output_root = handle.connection.get("output_root")
-    if not output_root:
-        raise RuntimeError(
-            "acquire needs connection['output_root'] — set it on the "
-            "instrument dict before set_instrument()"
-        )
+    output_root = _procedures.output_root(handle, _save.save_source_root)
     resolved = _with_defaults(handle, options)
     job = resolved["job"]
     if not job:
@@ -764,7 +759,7 @@ def acquire(
     saved = _save.save(
         handle.client,
         acq,
-        Path(output_root),
+        output_root,
         naming,
         lineage={
             "acquisition_type": acquisition_type,
@@ -887,6 +882,8 @@ def get_procedures(handle: ZmartHandle) -> dict:
             "args": ["job"],
             "jobs": [j["Name"] for j in autofocus if j.get("Name")],
         },
+        "get_root": {"description": "return the SMART run output root"},
+        "get_positions": {"description": "return LAS X scan-field positions in frame um"},
     }
 
 
@@ -894,6 +891,16 @@ def run_procedure(handle: ZmartHandle, procedure: dict) -> dict:
     """Run a procedure from :func:`get_procedures`; report what ran."""
     _require_open(handle)
     name = procedure.get("name")
+    if name == "get_root":
+        return {
+            "ran": dict(procedure),
+            "output_root": str(_procedures.output_root(handle, _save.save_source_root)),
+        }
+    if name == "get_positions":
+        return {
+            "ran": dict(procedure),
+            "positions": _procedures.positions(_scan_field(handle)),
+        }
     if name == "backlash_takeup":
         _motion.correct_backlash(handle.client)
         return {"ran": dict(procedure)}
