@@ -107,9 +107,14 @@ class FocusPicker:
         self._heatmap = None
         self._colorbar = None
         self._z_labels: list[Any] = []
+        # Autofocus results already collected this session, keyed by the
+        # point's exact coordinates — re-measuring reuses them, so editing
+        # the points only sends the stage to the NEW or moved ones.
+        self._af_cache: dict[tuple[float, float], dict] = {}
 
+        self._squares_artist = None
         if self.positions:
-            self.ax.scatter(
+            self._squares_artist = self.ax.scatter(
                 [p["x"] for p in self.positions],
                 [p["y"] for p in self.positions],
                 marker="s",
@@ -201,39 +206,64 @@ class FocusPicker:
         if self._measured_points != self.points:
             self._invalidate_focus()
 
-        total = len(self.points)
+        # Only the points without a cached autofocus result visit the stage:
+        # re-measuring after an edit runs the new or moved points and reuses
+        # everything already measured this session.
+        points = [dict(point) for point in self.points]
+        fresh = [p for p in points if self._point_key(p) not in self._af_cache]
+        reused = len(points) - len(fresh)
+
+        def _collected_so_far() -> list[dict]:
+            return [
+                self._af_cache[self._point_key(p)]
+                for p in points
+                if self._point_key(p) in self._af_cache
+            ]
 
         def _show_fresh_point(measurement: dict) -> None:
             # Live progress: refit and redraw the map after every measured
             # point, so the operator watches the surface take shape while
             # the stage is still visiting the remaining points.
-            self.measured = (self.measured or []) + [measurement]
+            self._af_cache[(measurement["x_um"], measurement["y_um"])] = measurement
+            self.measured = _collected_so_far()
             self.focus = fit_focus_surface(self.measured)
             self._draw_heatmap()
             self.ax.set_title(
-                f"measuring... {len(self.measured)} of {total} points "
+                f"measuring... {len(self.measured)} of {len(points)} points "
                 f"({self.focus.model} fit so far)"
             )
             force_draw(self.fig)
 
         try:
-            measured = measure_focus(
-                self.session,
-                self.points,
-                af_job=self.af_job,
-                start_z=self.start_z,
-                on_point=_show_fresh_point,
-            )
+            if fresh:
+                measure_focus(
+                    self.session,
+                    fresh,
+                    af_job=self.af_job,
+                    start_z=self.start_z,
+                    on_point=_show_fresh_point,
+                )
         except Exception:
             self._invalidate_focus()
             raise
         finally:
             self._last_measure_ended = time.monotonic()
-        self.measured = measured
-        self._measured_points = [dict(point) for point in self.points]
-        self.focus = fit_focus_surface(measured)
+        self.measured = _collected_so_far()
+        self._measured_points = points
+        self.focus = fit_focus_surface(self.measured)
         self._draw_heatmap()
+        if reused:
+            self.ax.set_title(
+                f"focus surface ({self.focus.model}, {len(points)} pts — "
+                f"{len(fresh)} new, {reused} reused)"
+            )
         return self.focus
+
+    @staticmethod
+    def _point_key(point: dict) -> tuple[float, float]:
+        # measure_focus echoes the input coordinates verbatim, so a cache
+        # keyed on the exact floats matches its own measurement.
+        return (float(point["x"]), float(point["y"]))
 
     def require_focus(self) -> Any:
         """The fitted focus surface; a clear error when measuring was skipped."""
@@ -245,7 +275,12 @@ class FocusPicker:
         return self.focus
 
     def _invalidate_focus(self) -> None:
-        """Drop a measured surface as soon as its defining points change."""
+        """Drop a fitted surface as soon as its defining points change.
+
+        Individual autofocus results stay cached (``_af_cache``) — the next
+        Measure reuses them and only visits new or moved points; what must
+        never survive an edit is the fitted surface and its display.
+        """
         self.measured = None
         self.focus = None
         self._measured_points = None
@@ -258,6 +293,8 @@ class FocusPicker:
         if getattr(self, "_heatmap", None) is not None:
             self._heatmap.remove()
             self._heatmap = None
+        if getattr(self, "_squares_artist", None) is not None:
+            self._squares_artist.set_facecolor("none")
 
     def _on_measure_clicked(self, _event: Any) -> None:
         # A click that queued up while the stage was measuring is delivered
@@ -343,6 +380,20 @@ class FocusPicker:
             self._heatmap.set_data(mesh_z)
             self._heatmap.set_extent((x_lo, x_hi, y_lo, y_hi))
             self._heatmap.set_clim(float(mesh_z.min()), float(mesh_z.max()))
+
+        # Tint each overview tile marker with the fitted z at its centre, so
+        # the tiles themselves wear the focus map's colours.
+        if self._squares_artist is not None:
+            from matplotlib import colormaps
+
+            z_lo, z_hi = float(mesh_z.min()), float(mesh_z.max())
+            span = z_hi - z_lo if z_hi > z_lo else 1.0
+            tile_z = [
+                float(self.focus.z_at(p["x"], p["y"])) for p in self.positions
+            ]
+            self._squares_artist.set_facecolor(
+                [colormaps["viridis"]((z - z_lo) / span) for z in tile_z]
+            )
 
         for label in self._z_labels:
             label.remove()

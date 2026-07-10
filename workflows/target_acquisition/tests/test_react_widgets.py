@@ -150,7 +150,9 @@ def test_focus_measure_streams_points_and_heatmap():
     picker._render_heatmap = _spy
     picker.handle_message({"type": "measure"})
 
-    assert heatmap_states == [1, 2, 3]  # the map refit after EVERY point
+    # The map refits after EVERY point, plus one final render on commit
+    # (which is also what serves a re-measure that reuses every point).
+    assert heatmap_states == [1, 2, 3, 3]
     assert picker.require_focus().z_at(0.0, 0.0) == pytest.approx(1.0)
     assert picker.heatmap["src"].startswith("data:image/png")
     assert not picker.busy
@@ -315,3 +317,44 @@ def test_explorer_ignores_bogus_hover_indices(tmp_path):
     for bogus in (99, -1, "nope", None):
         explorer.handle_message({"type": "hover", "index": bogus})
     assert explorer.hover == {}
+
+
+def test_react_remeasure_only_visits_new_points():
+    class _Counting(_FocusSession):
+        def __init__(self):
+            super().__init__()
+            self.autofocus_runs = 0
+
+        def run_procedure(self, procedure):
+            if procedure["name"] == "autofocus":
+                self.autofocus_runs += 1
+            return super().run_procedure(procedure)
+
+    session = _Counting()
+    picker = wreact.pick_focus_points(session, seed=False)
+    picker.points = [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}]
+    picker.handle_message({"type": "measure"})
+    assert session.autofocus_runs == 2
+
+    picker._last_run_ended = None  # bypass the click debounce in the test
+    picker.points = picker.points + [{"x": 5.0, "y": 5.0}]
+    picker.handle_message({"type": "measure"})
+    assert session.autofocus_runs == 3  # only the new point drove the stage
+    assert "1 new, 2 reused" in picker.status
+    assert len(picker.require_focus().measured) == 3
+
+
+def test_react_tiles_wear_the_heatmap_colours():
+    picker = wreact.pick_focus_points(
+        _FocusSession(), [{"x": 0.0, "y": 0.0}, {"x": 100.0, "y": 0.0}], seed=False
+    )
+    assert all(q["fill"] == "" for q in picker.squares)
+    picker.points = [{"x": 0.0, "y": 0.0}, {"x": 100.0, "y": 0.0}, {"x": 0.0, "y": 100.0}]
+    picker.handle_message({"type": "measure"})
+    fills = [q["fill"] for q in picker.squares]
+    assert all(f.startswith("#") for f in fills)
+    assert fills[0] != fills[1]  # different fitted z -> different colours
+    # Editing points clears the tint with the surface.
+    picker._last_run_ended = None
+    picker.points = picker.points + [{"x": 7.0, "y": 7.0}]
+    assert all(q["fill"] == "" for q in picker.squares)
