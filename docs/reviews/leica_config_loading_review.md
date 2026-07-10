@@ -17,6 +17,13 @@
   warn-only orientation check) are treated as given; findings below are about whether the
   implementation realizes them faithfully.
 
+> **Status addendum (2026-07-10):** all 18 findings below (M1–M3, m4–m10, n11–n18) were
+> fixed in commit `930b260` on branch `claude/leica-config-loading-review-jqybdr`, with
+> regression tests for every behavioral change. Offline verification: 991 passed
+> (unit + calibration), `run_ci.py --mock` PASSED, controller suite 35 passed. A review
+> prompt for the fix commit is at
+> `docs/reviews/leica_config_loading_fixes_review_prompt.md`.
+
 **Verdict up front.** The core safety mechanics are implemented correctly: no path lets an
 invalid or over-wide machine `limits.json` govern a move, no public API reaches an ungated
 state, and the origin really is session-scoped with no residual connect-time restore. The
