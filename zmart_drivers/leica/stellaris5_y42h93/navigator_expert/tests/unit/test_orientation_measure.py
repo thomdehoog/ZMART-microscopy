@@ -143,7 +143,9 @@ def test_measure_success_writes_staging_orientation(monkeypatch, sessions_root):
     staging = session.paths.configs_dir / wf.STAGING_NAME
     assert staging.is_file()
     payload = json.loads(staging.read_text(encoding="utf-8"))
-    assert payload == {"schema_version": 1, "rotate_deg": 90}
+    # "measured": True is the positive marker that separates a measured file
+    # from the shipped placeholder (which carries "_notes" instead).
+    assert payload == {"schema_version": 1, "rotate_deg": 90, "measured": True}
 
 
 def test_measure_weak_vote_stops_without_config(monkeypatch, sessions_root):
@@ -242,7 +244,7 @@ def test_adopt_publishes_orientation_snapshot(monkeypatch, sessions_root, tmp_pa
     written = Path(out["orientation_path"])
     assert written == machine.latest_snapshot() / "orientation.json"
     payload = json.loads(written.read_text(encoding="utf-8"))
-    assert payload == {"schema_version": 1, "rotate_deg": 90}
+    assert payload == {"schema_version": 1, "rotate_deg": 90, "measured": True}
     assert machine.orientation_path() == written
 
 

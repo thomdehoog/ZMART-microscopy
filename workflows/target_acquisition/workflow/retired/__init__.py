@@ -13,4 +13,11 @@ explicitly, e.g. ``from pipeline.retired.selection import select_targets``;
 this package intentionally does not eagerly import its submodules, several
 of which pull in ``navigator_expert``. Kept driver-free helpers still live
 in the parent package and are imported from there (``..``).
+
+Note (2026-07): some of these modules reference driver exports that were
+removed in the config-loading cleanup (``write_stage_limits_config``,
+``current_stage_limits_path``, most ``LIMITS_SOURCE_*`` names). They run
+only against older driver checkouts; the retired test suite is not
+collected by CI, and running it against the current driver raises
+``AttributeError`` on those names.
 """

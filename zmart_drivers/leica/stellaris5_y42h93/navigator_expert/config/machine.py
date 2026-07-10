@@ -414,11 +414,12 @@ class MachineProfile:
         Seeds the new dated folder by carrying the latest ProgramData snapshot's
         baseline files forward, or copying the repo defaults into ProgramData
         when no prior file exists. Overrides whichever of *calibration* /
-        *limits* / *orientation* is provided, carries a persisted ``origin.json``
-        forward when one exists, copies the given executed notebook(s) in, then
-        atomically renames the folder into place. The live snapshot is never
-        mutated, so a crash mid-publish cannot corrupt the config the driver is
-        currently reading.
+        *limits* / *orientation* is provided, copies the given executed
+        notebook(s) in, then atomically renames the folder into place. The
+        frame origin is not snapshot state and is never read from or written
+        into a snapshot — it lives in its own ``origin/`` folder (see
+        :meth:`write_origin`). The live snapshot is never mutated, so a crash
+        mid-publish cannot corrupt the config the driver is currently reading.
 
         *moment* must stamp strictly after the latest snapshot
         (see :meth:`new_snapshot_dir`).

@@ -160,12 +160,12 @@ def phase_readonly(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None
             hw = xyz.get("hardware") or {}
             needed = {"x_um", "y_um", "z_wide_um", "z_galvo_um", "objective", "job"}
             v.compare("get_xyz: hardware block complete", needed.issubset(hw), True)
-            # frame == hardware - origin only holds when origin is (0, 0, 0) --
-            # true on a never-originated machine, false once set_origin has ever
-            # persisted a non-zero origin.json (it stays the frame truth across
-            # reconnects). That invariant is verified unconditionally instead in
-            # phase_move, right after set_origin, via the "origin: frame -> 0"
-            # checks below.
+            # The origin is session-scoped and never restored at connect, so on
+            # this fresh session frame == hardware holds here (origin is all
+            # zero until set_origin runs). The origin arithmetic itself is
+            # verified in phase_move, right after set_origin, via the
+            # "origin: frame -> 0" checks below, which also cover a non-zero
+            # origin.
             v.compare(
                 "get_xyz: objective has a name",
                 bool((hw.get("objective") or {}).get("name")),

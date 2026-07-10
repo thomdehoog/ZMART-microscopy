@@ -93,6 +93,9 @@ def _load_objective_translations(calibration_name: str | None = None) -> dict | 
     refuses cross-objective moves and warns on cross-objective reads instead of
     silently computing uncompensated values.
     """
+    # This import must stay inside the function: the package root imports this
+    # module when the driver loads, and the calibration modules import the
+    # package root — a module-level import here would be a circular import.
     from ..calibration.core import model as _cal_model
 
     try:
@@ -103,6 +106,30 @@ def _load_objective_translations(calibration_name: str | None = None) -> dict | 
             exc,
         )
         return None
+
+
+def _load_rig_orientation() -> Any:
+    """The measured camera turn, or the identity turn when the file is unreadable.
+
+    Reads the machine's ``orientation.json`` through the machine profile. Any IO
+    or schema problem degrades to the identity ("no turn") orientation — logged
+    loudly, not raised — so a corrupt file never fails the connection. Saved
+    images are then left exactly as the camera produced them (the same defined
+    meaning as ``load_orientation=False``) until the operator re-publishes the
+    file with ``orientation/notebooks/set_orientation.ipynb`` and reconnects.
+    """
+    from .. import orientation as _orientation
+
+    try:
+        return _orientation.rig_orientation()
+    except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
+        _log.warning(
+            "orientation unavailable (%s); saved images will NOT be turned to the "
+            "stage axes this session. Re-publish orientation.json with "
+            "orientation/notebooks/set_orientation.ipynb and reconnect.",
+            exc,
+        )
+        return _orientation.Orientation()
 
 
 def connect_microscope(
@@ -136,6 +163,12 @@ def connect_microscope(
       driver refuses cross-objective moves rather than computing uncompensated
       ones.
 
+    A file that fails to load degrades the same way, loudly, instead of failing
+    the connection: an invalid ``limits.json`` falls back to the bundled default
+    envelope, an unreadable ``orientation.json`` falls back to the identity turn,
+    and an unreadable ``calibration.json`` leaves translations unloaded. Only an
+    unreachable LAS X (or a failed ping) raises.
+
     Returns the CAM client. The loaded limits live in the commands gate; the
     loaded orientation and calibration live in the per-connection session
     registry (:mod:`.session_state`), where the acquire/save path reads them.
@@ -146,9 +179,7 @@ def connect_microscope(
 
     client = connect_python_client(client_name=client_name, api_delay_ms=api_delay_ms)
     _gate.connect_handshake(client, load=load_limits)
-    orientation = (
-        _orientation.rig_orientation() if load_orientation else _orientation.Orientation()
-    )
+    orientation = _load_rig_orientation() if load_orientation else _orientation.Orientation()
     translations = _load_objective_translations(calibration_name) if load_calibration else None
     session_state.install(
         client,

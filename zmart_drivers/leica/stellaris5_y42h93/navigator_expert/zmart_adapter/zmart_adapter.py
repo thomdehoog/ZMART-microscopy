@@ -29,10 +29,11 @@ itself is untouched. Full design: ``docs/design/objective-aware-frame.md``.
 
 Scope of v1 (grow as needed):
     - ``set_origin`` captures stage XY, both z drives, and the current
-      objective as the zero point, persisted machine-locally to
-      ``origin.json`` in the newest machine snapshot (next to
-      ``calibration.json`` / ``limits.json``) and restored by ``connect`` -
-      the origin stays the frame truth across sessions until set again.
+      objective as the zero point. The origin is SESSION-scoped: it applies
+      until set again or the session ends, and it is written to the
+      machine-local ``origin/`` folder (next to the dated snapshots) only
+      as a record of the last origin captured. ``connect`` does NOT restore
+      it — a fresh connection is an absolute frame until ``set_origin`` runs.
     - ``get_xyz`` returns both frames: controller-relative values plus
       the raw hardware readings under ``"hardware"``.
     - ``get_state``/``set_state`` round-trip the selected job (the job
@@ -251,6 +252,14 @@ def _loaded_orientation(handle: ZmartHandle):
     loaded = _session_state.get(handle.client)
     if loaded is not None:
         return loaded.orientation
+    # No per-connection state for this handle (built without connect_microscope,
+    # or its registry entry was uninstalled). Fall back to reading the file
+    # fresh — loudly, because this re-read can differ from what the connection
+    # loaded and does not honour a load_orientation=False choice.
+    log.warning(
+        "no per-connection orientation is installed for this handle; reading "
+        "orientation.json fresh for this save"
+    )
     return _orientation.rig_orientation()
 
 
@@ -374,6 +383,10 @@ def set_origin(handle: ZmartHandle) -> dict:
     the driver does NOT restore it at connect — a fresh connection starts as an
     absolute frame until ``set_origin`` runs again.
 
+    If writing that on-disk record fails, this op raises — but the session's
+    frame HAS already been set to the captured zero (only the record is
+    missing). Re-run ``set_origin`` after fixing the cause to refresh it.
+
     Not limits-gated: this op fires no native command — it reads the current
     position and writes a small reference file. (The commands-layer gate
     governs everything that commands hardware; ``set_origin`` stays in the
@@ -402,7 +415,11 @@ def set_origin(handle: ZmartHandle) -> dict:
         # The in-memory origin is already set; failing to persist the
         # record must be loud (re-running set_origin after fixing the
         # cause is cheap), not a silent divergence discovered later.
-        raise RuntimeError(f"could not persist origin reference: {exc}") from exc
+        raise RuntimeError(
+            f"could not persist the origin record: {exc} — the session frame WAS "
+            f"set to the captured zero; only the on-disk record failed. Re-run "
+            f"set_origin after fixing the cause to refresh it."
+        ) from exc
     return {
         "origin": {"x": 0.0, "y": 0.0, "z": 0.0},
         "reference": dict(handle.origin),

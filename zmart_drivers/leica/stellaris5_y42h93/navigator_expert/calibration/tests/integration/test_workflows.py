@@ -417,6 +417,68 @@ def test_adoption_refreshes_objective_names_from_the_live_system(
     assert current["objectives"]["2"]["translation_um"] == [12.0, 17.0, 3.0]
 
 
+def test_orientation_unmeasured_warning_signals(tmp_path, caplog, monkeypatch):
+    """The 'orientation not measured yet' warning keys on two markers.
+
+    The shipped placeholder carries ``_notes`` (warned); a measured/adopted
+    file carries ``"measured": true`` (never warned); and a file with neither
+    — adopted before the marker existed — is trusted as measured, so a driver
+    upgrade never starts warning on a rig that was already set up.
+    """
+    import logging
+
+    from navigator_expert.calibration.core import objective_pair as op
+    from navigator_expert.config import machine as machine_mod
+
+    profile = MachineProfile(programdata_root=tmp_path / "programdata")
+    snap = profile.ensure_snapshot()  # seeds the shipped placeholder
+    monkeypatch.setattr(machine_mod, "MACHINE", profile)
+
+    def warns() -> bool:
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            op._warn_if_orientation_unmeasured()
+        return any("has not been measured" in r.message for r in caplog.records)
+
+    # Freshly seeded ProgramData carries the placeholder (_notes) -> warn.
+    assert warns() is True
+    # A measured/adopted file (positive marker) -> quiet.
+    (snap / "orientation.json").write_text(
+        json.dumps({"schema_version": 1, "rotate_deg": 90, "measured": True}),
+        encoding="utf-8",
+    )
+    assert warns() is False
+    # A pre-marker measured file (no _notes, no measured) -> quiet.
+    (snap / "orientation.json").write_text(
+        json.dumps({"schema_version": 1, "rotate_deg": 90}), encoding="utf-8"
+    )
+    assert warns() is False
+
+
+def test_adoption_ignores_empty_live_names(sessions_root, machine):
+    # A hardware record whose name is empty (firmware quirk, simulator) must
+    # never erase the config's human-set name — only a real live name refreshes.
+    _seed_snapshot(machine)
+    session, _ = _make_staging_session(
+        sessions_root,
+        _valid_obj_payload(),
+        "objective_10x_to_20x.json",
+    )
+    session.hardware_objectives = {1: "", 2: "HC PL APO CS2 20x/0.75 WATER"}
+
+    wf_adopt.adopt_calibration(
+        session,
+        "objective_10x_to_20x.json",
+        machine=machine,
+        moment=_ADOPT_MOMENT,
+    )
+
+    current = json.loads(machine.calibration_path().read_text(encoding="utf-8"))
+    assert current["objectives"]["1"]["name"] == "10x"  # kept, not erased
+    assert current["objectives"]["2"]["name"] == "HC PL APO CS2 20x/0.75 WATER"
+    assert current["objectives"]["2"]["translation_um"] == [12.0, 17.0, 3.0]
+
+
 def test_adoption_missing_staging_raises(sessions_root, machine):
     sess_id = "missing_sess"
     paths = cm.make_session_paths(

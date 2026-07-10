@@ -305,8 +305,11 @@ def _install_default_limits(client: Any, machine: Any, reason: str) -> GateState
     state = _build_gate_from_file(client, default_file, is_fallback=True)
     log.warning(
         "limits fallback: %s — the session is governed by the bundled DEFAULT "
-        "limits (%s), NOT this machine's measured envelope. The hardcoded "
-        "physical backstop still bounds every move. Publish measured limits with %s.",
+        "limits (%s), NOT this machine's measured envelope. The defaults span "
+        "the full physical travel, so they may be WIDER than the envelope this "
+        "machine's own limits.json intended: do not rely on your published "
+        "limits until the file validates again. The hardcoded physical backstop "
+        "still bounds every move. Publish measured limits with %s.",
         reason,
         state.limits.describe(),
         NOTEBOOK_POINTER,
@@ -327,7 +330,9 @@ def connect_handshake(
        first when needed. It must be schema-valid with finite numbers, min <=
        max, exactly this machine's axes (envelope derived from
        ``constraints.stage.*``). ``stage_limits_path`` overrides the resolution
-       with an explicit operator-chosen file (still validated).
+       with an explicit operator-chosen file (still validated); it is only
+       consulted when ``load`` is True — with ``load=False`` the explicit path
+       is ignored and the defaults govern.
     2. The envelope must sit WITHIN the hardcoded physical backstop
        (``motion.limits.STAGE_BACKSTOP_UM``).
     3. The SAME file's ``constraints`` + ``functions`` must parse under
@@ -344,8 +349,11 @@ def connect_handshake(
     NOT left fail-closed. Instead the bundled DEFAULT limits are installed
     (marked ``is_fallback`` and loudly warned). The bundled defaults sit within
     the physical backstop, and the backstop bounds every move regardless, so
-    the session stays safe and usable while the operator fixes the file. Only
-    if even the shipped defaults fail to load does the session go fail-closed
+    the session stays bounded and usable while the operator fixes the file.
+    Note the chosen trade-off: an invalid file is rejected WHOLE, so a
+    deliberately NARROW machine envelope is replaced by the (wider) defaults
+    until the file validates again — the fallback warning says so. Only if
+    even the shipped defaults fail to load does the session go fail-closed
     (every mutating command then refuses with the recorded error).
     """
     machine = machine if machine is not None else _machine.MACHINE
@@ -377,6 +385,10 @@ def connect_handshake(
             log.error("%s", error)
             state = GateState(limits=None, stage_cfg=None, error=error)
             _install(client, state)
+            # A previous handshake's module-global stage envelope (if any) is
+            # deliberately left in place: it is unreachable for moves, because
+            # every mutating wrapper checks this fail-closed gate state first
+            # and refuses before the envelope is ever consulted.
             return state
 
     log.info(

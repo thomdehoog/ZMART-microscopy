@@ -279,6 +279,10 @@ def measure(session: OrientationSession) -> OrientationSession:
         {
             "schema_version": STAGING_SCHEMA_VERSION,
             "rotate_deg": int(session.orientation.rotate_deg),
+            # A positive "this value was measured" marker. The shipped
+            # placeholder does not carry it, which is how the calibration
+            # workflow can warn when orientation was never measured.
+            "measured": True,
         },
     )
     session.config_written = True
@@ -311,10 +315,12 @@ def adopt_orientation(
     """Publish the measured turn into the microscope's newest ProgramData snapshot.
 
     Reads the staged ``orientation.json`` and writes it into a fresh dated
-    snapshot -- carrying the microscope's calibration, limits and frame origin
-    forward -- so the turn lives with the machine's other measured settings and
-    survives a driver reinstall. This snapshot is what
-    :func:`navigator_expert.orientation.rig_orientation` reads at save time.
+    snapshot -- carrying the microscope's calibration and limits forward -- so
+    the turn lives with the machine's other measured settings and survives a
+    driver reinstall. (The frame origin is session state in its own ``origin/``
+    folder; snapshots never carry it.) This snapshot is what the driver reads
+    once when it connects, and what the calibration workflow reads at capture
+    time.
 
     Args:
         session: The orientation session holding the staged config.
@@ -351,6 +357,10 @@ def adopt_orientation(
         orientation={
             "schema_version": STAGING_SCHEMA_VERSION,
             "rotate_deg": int(data["rotate_deg"]),
+            # Positive "measured" marker: the shipped placeholder lacks it (and
+            # carries "_notes" instead), which is what lets the calibration
+            # workflow warn when set_orientation has never been run.
+            "measured": True,
         },
         notebook_paths=notebook_paths,
     )
