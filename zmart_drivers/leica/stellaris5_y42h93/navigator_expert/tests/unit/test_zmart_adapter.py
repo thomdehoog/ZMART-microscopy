@@ -373,7 +373,9 @@ class TestAcquire(unittest.TestCase):
     def test_missing_output_root_is_a_clear_error(self):
         h = _handle()
         with (
-            patch.object(adapter._save, "save_source_root", side_effect=RuntimeError("no autosave")),
+            patch.object(
+                adapter._save, "save_source_root", side_effect=RuntimeError("no autosave")
+            ),
             self.assertRaisesRegex(RuntimeError, "output_root"),
         ):
             adapter.acquire(h, acquisition_type="prescan", position_label="A1")
@@ -449,6 +451,10 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(calls["state"]["provenance"]["position_label"], "well-7")
         self.assertEqual(record["settle"], "direct")
         self.assertEqual([Path(p) for p in record["images"]], [Path("/tmp/out/img.ome.tif")])
+        self.assertEqual(
+            record["planes"],
+            [{"t": 0, "z": 0, "c": 0, "path": "/tmp/out/img.ome.tif"}],
+        )
 
     def test_acquire_applies_the_rigs_measured_orientation(self):
         """The microscope's measured turn reaches ``save``, so saved planes are

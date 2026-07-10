@@ -192,9 +192,7 @@ def test_malformed_function_limits_falls_back_to_defaults(attack, mock_client):
     assert state.ok, attack
     assert state.limits.describe()["is_fallback"] is True
     # the default policy governs: an out-of-envelope move still refuses
-    _assert_refused(
-        commands_mod.move_xy(mock_client, 999999, 50000, unit="um"), needle="outside"
-    )
+    _assert_refused(commands_mod.move_xy(mock_client, 999999, 50000, unit="um"), needle="outside")
 
 
 def test_nan_in_function_constraint_triggers_the_defaults_fallback(mock_client):
@@ -385,9 +383,7 @@ def test_hand_widened_limits_file_does_not_govern(mock_client):
     assert state.limits.describe()["is_fallback"] is True
     # a target the WIDENED file would have allowed (y within [0, 400000]) but the
     # defaults forbid must still refuse — the wide value is not in force
-    _assert_refused(
-        commands_mod.move_xy(mock_client, 50000, 300000, unit="um"), needle="outside"
-    )
+    _assert_refused(commands_mod.move_xy(mock_client, 50000, 300000, unit="um"), needle="outside")
 
 
 def test_broken_functions_block_widens_a_narrow_envelope_to_the_defaults(mock_client):

@@ -74,6 +74,18 @@ def test_features_are_discovered_from_the_targets(targets):
     assert explorer.features == ["x", "y", "area_px", "mean_intensity"]
 
 
+def test_incomplete_or_nonfinite_features_are_not_offered(targets):
+    targets[0]["source"]["optional"] = 1.0
+    targets[1]["source"]["nonfinite"] = float("nan")
+    for target in targets[1:]:
+        target["source"].setdefault("optional", None)
+    for target in targets:
+        target["source"].setdefault("nonfinite", 1.0)
+    explorer = explore_targets(targets)
+    assert "optional" not in explorer.features
+    assert "nonfinite" not in explorer.features
+
+
 def test_axes_can_be_switched(targets):
     explorer = explore_targets(targets)
     explorer.set_axes("area_px", "mean_intensity")
@@ -110,10 +122,12 @@ def test_lasso_is_the_and_of_sliders_and_region(targets):
 
 def test_switching_axes_clears_the_lasso(targets):
     explorer = explore_targets(targets)
+    old_selector = explorer._lasso
     explorer._on_lasso([(-1, -1), (1, -1), (1, 11), (-1, 11)])
     assert len(explorer.gated) == 2
     explorer.set_axes("area_px", "mean_intensity")
     assert len(explorer.gated) == len(targets)
+    assert explorer._lasso is not old_selector
 
 
 def test_hover_shows_the_cell_crop(targets, overview):

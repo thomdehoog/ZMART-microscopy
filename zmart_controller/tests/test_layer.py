@@ -11,9 +11,13 @@ import pytest
 from zmart_controller import get_instruments, set_instrument
 
 
+def _mock_instrument():
+    return next(instrument for instrument in get_instruments() if instrument["vendor"] == "mock")
+
+
 @pytest.fixture
 def mic():
-    session = set_instrument(get_instruments()[0])
+    session = set_instrument(_mock_instrument())
     yield session
     session.disconnect()
 
@@ -158,7 +162,7 @@ class TestModuleStyle:
     def test_module_delegates_to_active_microscope(self):
         import zmart_controller as m
 
-        m.set_instrument(m.get_instruments()[0])
+        m.set_instrument(_mock_instrument())
         m.set_xyz(10, 20, 5)
         assert m.get_xyz()["x"]["value"] == 10
         m.disconnect()
@@ -166,7 +170,7 @@ class TestModuleStyle:
     def test_module_disconnect_clears_active(self):
         import zmart_controller as m
 
-        m.set_instrument(m.get_instruments()[0])
+        m.set_instrument(_mock_instrument())
         m.disconnect()
         with pytest.raises(AttributeError, match="no active microscope"):
             m.acquire(acquisition_type="prescan", position_label="A1")
@@ -175,10 +179,10 @@ class TestModuleStyle:
     def test_swap_survives_failing_teardown(self):
         import zmart_controller as m
 
-        first = m.set_instrument(m.get_instruments()[0])
+        first = m.set_instrument(_mock_instrument())
         first.disconnect = lambda: (_ for _ in ()).throw(RuntimeError("teardown boom"))
         with pytest.raises(RuntimeError, match="teardown boom"):
-            m.set_instrument(m.get_instruments()[0])
+            m.set_instrument(_mock_instrument())
         # the new session must be tracked despite the old teardown failing
         m.set_xyz(1, 2, 3)
         assert m.get_xyz()["x"]["value"] == 1

@@ -15,6 +15,14 @@ Pick cells from a low-magnification overview, re-image each at the high-magnific
 
 Open `zmart_microscopy_v4.ipynb`. The notebook is the operator UI; implementation lives in `workflow/`.
 
+The setup cell expects a checkout of
+[`smart-analysis`](https://github.com/thomdehoog/smart-analysis) on its `v4-engine`
+branch at `ANALYSIS_REPO`. Before connecting to LAS X it registers the external
+target-acquisition pipeline and runs a 64x64 blank tile through its Cellpose
+worker. This fails early when the analysis repository, declared worker conda
+environment, Cellpose model, or GPU setup is unavailable; on success the worker
+remains warm for the acquired overviews.
+
 ## Layout
 
 - `_bootstrap.py` — adds `zmart_drivers/leica/stellaris5_y42h93/`, `microscopes/`, and the repo root to `sys.path` so the notebook can import the driver, calibration, shared packages, and workflow code.

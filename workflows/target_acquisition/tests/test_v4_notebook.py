@@ -53,13 +53,24 @@ def test_setup_cell_runs_from_repo_root(monkeypatch):
             self.procedures.append(procedure)
             return {"root": str(root)}
 
+    class FakeEngine:
+        def __init__(self):
+            self.shutdown_calls = 0
+
+        def shutdown(self):
+            self.shutdown_calls += 1
+
     fake = FakeController()
+    fake_engine = FakeEngine()
     monkeypatch.setattr(workflow, "connect", lambda vendor: fake)
+    monkeypatch.setattr(workflow, "load_analysis_engine", lambda repo: fake_engine)
+    monkeypatch.setattr(workflow, "preflight_analysis_engine", lambda engine: None)
 
     namespace = {}
     monkeypatch.chdir(_NB_PATH.parents[2])
     exec(compile(setup_cell, str(_NB_PATH), "exec"), namespace)
     assert namespace["zmart_controller"] is fake
+    assert namespace["engine"] is fake_engine
     assert fake.procedures == [{"name": "get_root"}]
     assert namespace["ROOT"] == root
 

@@ -36,6 +36,8 @@ dependencies:
   # diagnostic plots. Runtime code lazy-imports it; the calibration test suite
   # requires it.
   - matplotlib>=3.7
+  # Interactive matplotlib canvases used by the v4 operator notebook.
+  - ipympl>=0.9
   
   # --- test / lint tooling ---
   # Folded in so a single `build_env.py` yields a test-ready env: run_ci.py

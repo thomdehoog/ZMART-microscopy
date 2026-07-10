@@ -13,6 +13,7 @@ from workflow.steps import (
     load_analysis_engine,
     load_positions,
     overview_inputs_from_records,
+    preflight_analysis_engine,
     run_overview,
     with_focus_z,
     write_run_report,
@@ -56,11 +57,48 @@ def test_load_positions_reads_json(tmp_path):
 
 
 def test_load_analysis_engine_uses_configured_repo(tmp_path):
+    pipeline = tmp_path / "workflows" / "target_acquisition" / "pipelines" / "overview.yaml"
+    pipeline.parent.mkdir(parents=True)
+    pipeline.write_text("overview: []\n", encoding="utf-8")
     (tmp_path / "engine.py").write_text(
-        "class Engine:\n    marker = 'ok'\n",
+        "class Engine:\n"
+        "    marker = 'ok'\n"
+        "    def __init__(self): self.registered = []\n"
+        "    def register(self, name, path): self.registered.append((name, path))\n"
+        "    def shutdown(self): pass\n",
         encoding="utf-8",
     )
-    assert load_analysis_engine(tmp_path).marker == "ok"
+    engine = load_analysis_engine(tmp_path)
+    assert engine.marker == "ok"
+    assert engine.registered == [("overview", pipeline)]
+
+
+def test_load_analysis_engine_requires_v4_pipeline(tmp_path):
+    with pytest.raises(FileNotFoundError, match="v4-engine"):
+        load_analysis_engine(tmp_path)
+
+
+def test_analysis_preflight_runs_a_real_pipeline_submission():
+    class FakeEngine:
+        def __init__(self):
+            self.jobs = []
+            self._results = []
+
+        def submit(self, queue, job):
+            self.jobs.append(job)
+            self._results.append({"input": job, "pick_targets": {"picks": []}})
+
+        def status(self, queue):
+            return {"pending": 0, "running": 0, "failed": 0, "failures": []}
+
+        def results(self, queue):
+            results, self._results = self._results, []
+            return results
+
+    engine = FakeEngine()
+    preflight_analysis_engine(engine)
+    assert len(engine.jobs) == 1
+    assert engine.jobs[0]["source_image_size_px"] == (64, 64)
 
 
 def test_with_focus_z_uses_the_surface():
@@ -88,6 +126,7 @@ def test_overview_inputs_from_records_pairs_positions_and_images():
         image_size_px=(10, 20),
     )
     assert overviews[0]["image_path"] == "a.ome.tiff"
+    assert overviews[0]["channel_paths"] == ["a.ome.tiff"]
     assert overviews[0]["center_frame_um"] == (5.0, 5.0)
 
 
@@ -96,6 +135,42 @@ def test_overview_inputs_from_records_requires_saved_images():
         overview_inputs_from_records(
             [{"x": 0.0, "y": 0.0}],
             [{"images": []}],
+            pixel_size_um=1.0,
+            image_size_px=(10, 10),
+        )
+
+
+def test_overview_inputs_preserve_indexed_channels():
+    records = [
+        {
+            "images": ["c0.tiff", "c1.tiff"],
+            "planes": [
+                {"t": 0, "z": 0, "c": 1, "path": "c1.tiff"},
+                {"t": 0, "z": 0, "c": 0, "path": "c0.tiff"},
+            ],
+        }
+    ]
+    overviews = overview_inputs_from_records(
+        [{"x": 0.0, "y": 0.0}],
+        records,
+        pixel_size_um=1.0,
+        image_size_px=(10, 10),
+    )
+    assert overviews[0]["image_path"] == "c0.tiff"
+    assert overviews[0]["channel_paths"] == ["c0.tiff", "c1.tiff"]
+
+
+def test_overview_inputs_refuse_z_stacks():
+    record = {
+        "planes": [
+            {"t": 0, "z": 0, "c": 0, "path": "z0.tiff"},
+            {"t": 0, "z": 1, "c": 0, "path": "z1.tiff"},
+        ]
+    }
+    with pytest.raises(RuntimeError, match="requires a 2-D job"):
+        overview_inputs_from_records(
+            [{"x": 0.0, "y": 0.0}],
+            [record],
             pixel_size_um=1.0,
             image_size_px=(10, 10),
         )

@@ -33,6 +33,11 @@ def positions(scan_field: dict | None) -> list[dict]:
 
 def focus_points(scan_field: dict | None) -> list[dict]:
     """Return focus positions as controller frame coordinates."""
+    if not scan_field:
+        return []
+    positions = scan_field.get("positions") or []
+    if not any(entry.get("kind") in {"focus-point", "autofocus-point"} for entry in positions):
+        return []
     return _positions(
         scan_field,
         kinds={"focus-point", "autofocus-point"},

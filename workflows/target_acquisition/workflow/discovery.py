@@ -34,10 +34,9 @@ _UM_PER_UNIT = {
 }
 
 
-def _identity_image_to_stage(pixel_size_um: float) -> list[list[float]]:
-    """A 2x2 pixel->um matrix with no rotation/flip (isotropic pixel size)."""
-    size = float(pixel_size_um)
-    return [[size, 0.0], [0.0, size]]
+def _identity_image_to_stage() -> list[list[float]]:
+    """No rotation/flip: Leica records are saved stage-aligned."""
+    return [[1.0, 0.0], [0.0, 1.0]]
 
 
 def _physical_size_um(pixels: ET.Element, axis: str) -> float | None:
@@ -170,12 +169,22 @@ def discover_targets(
             {
                 "image_path": str(overview["image_path"]),
                 "naming_p": index,
-                "tile_id": overview.get("label", index),
+                # smart-analysis requires a stable (region, row, col) identity.
+                # The notebook's overviews are a flat ordered list.
+                "tile_id": ("overview", 0, index),
                 "tile_stage_xy_um": tuple(overview["center_frame_um"]),
                 "tile_zwide_um": 0.0,
-                "source_pixel_size_um": float(overview["pixel_size_um"]),
-                "source_image_size_px": tuple(overview["image_size_px"]),
-                "image_to_stage": _identity_image_to_stage(overview["pixel_size_um"]),
+                "source_pixel_size_um": (
+                    float(overview["pixel_size_um"]),
+                    float(overview["pixel_size_um"]),
+                ),
+                # smart-analysis uses (width, height), while this package stores
+                # image shapes as the NumPy-native (height, width).
+                "source_image_size_px": (
+                    int(overview["image_size_px"][1]),
+                    int(overview["image_size_px"][0]),
+                ),
+                "image_to_stage": _identity_image_to_stage(),
                 "n_picks": n_picks,
                 "feature": feature,
             },
@@ -183,10 +192,17 @@ def discover_targets(
 
     by_index = dict(enumerate(overviews))
     targets: list[dict] = []
+    seen: set[int] = set()
     while True:
         status = engine.status(queue)
         for result in engine.results(queue):
-            overview = by_index[result["input"]["naming_p"]]
+            result_index = int(result["input"]["naming_p"])
+            if result_index in seen:
+                raise RuntimeError(f"smart-analysis returned overview {result_index} more than once")
+            if result_index not in by_index:
+                raise RuntimeError(f"smart-analysis returned unknown overview index {result_index}")
+            seen.add(result_index)
+            overview = by_index[result_index]
             for pick in result.get("pick_targets", {}).get("picks", []):
                 x_um, y_um = overview_pixel_to_frame(
                     centroid_col_row_px=tuple(pick["centroid_col_row_px"]),
@@ -199,14 +215,25 @@ def discover_targets(
                         "x": x_um,
                         "y": y_um,
                         "source": {
-                            "naming_p": result["input"]["naming_p"],
+                            "naming_p": result_index,
                             "centroid_col_row_px": tuple(pick["centroid_col_row_px"]),
                             "area_px": pick.get("area_px"),
+                            "eccentricity": pick.get("eccentricity"),
                             "mean_intensity": pick.get("mean_intensity"),
                         },
                     }
                 )
+        if status.get("failed", 0):
+            failures = status.get("failures") or []
+            details = "; ".join(
+                f"{failure.get('step', 'unknown')}: {failure.get('error', 'unknown error')}"
+                for failure in failures
+            )
+            raise RuntimeError(f"smart-analysis target discovery failed: {details}")
         if status["pending"] == 0 and status["running"] == 0:
             break
         time.sleep(poll_interval)
+    missing = sorted(set(by_index) - seen)
+    if missing:
+        raise RuntimeError(f"smart-analysis completed without results for overviews {missing}")
     return targets

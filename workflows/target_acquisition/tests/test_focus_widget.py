@@ -29,15 +29,16 @@ class _StubSession:
     def get_xyz(self):
         return {"z": {"value": self.current_z}}
 
+    def get_procedures(self):
+        return {"get_focus_points": {}, "autofocus": {}}
+
     def set_xyz(self, x, y, z, **_kw):
         self.moves.append((x, y, z))
 
     def run_procedure(self, procedure):
         self.procedures.append(procedure)
         if procedure["name"] == "get_focus_points":
-            if self.seed_points is None:
-                raise RuntimeError("no focus points found in the scan field")
-            return {"positions": [dict(p) for p in self.seed_points]}
+            return {"positions": [dict(p) for p in (self.seed_points or [])]}
         x, y, _z = self.moves[-1]
         return {"ran": "autofocus", "frame_z_um": self.focus_by_xy[(x, y)]}
 
@@ -96,6 +97,15 @@ def test_seed_failure_starts_empty():
     assert picker.points == []
 
 
+def test_seed_operational_failure_is_not_hidden():
+    class BrokenSeed(_StubSession):
+        def run_procedure(self, procedure):
+            raise RuntimeError("LAS X experiment save failed")
+
+    with pytest.raises(RuntimeError, match="experiment save failed"):
+        pick_focus_points(BrokenSeed())
+
+
 def test_measure_fits_surface_and_draws_heatmap():
     focus = {(0.0, 0.0): 3.0, (10.0, 0.0): 4.0, (0.0, 10.0): 5.0}
     session = _StubSession(focus)
@@ -135,6 +145,17 @@ def test_require_focus_before_measuring_is_a_clear_error():
     picker.add_point(0.0, 0.0)
     with pytest.raises(RuntimeError, match="not been measured"):
         picker.require_focus()
+
+
+def test_editing_points_invalidates_the_measured_surface():
+    session = _StubSession({(0.0, 0.0): 3.0, (1.0, 1.0): 4.0})
+    picker = FocusPicker(session, seed=False, start_z=0.0)
+    picker.add_point(0.0, 0.0)
+    picker.measure()
+    picker.add_point(1.0, 1.0)
+    with pytest.raises(RuntimeError, match="current focus points have not been measured"):
+        picker.require_focus()
+    assert picker._heatmap is None
 
 
 def test_button_click_failure_lands_on_the_figure_title():

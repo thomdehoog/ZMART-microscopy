@@ -184,5 +184,3 @@ def test_load_requires_source(tmp_path):
     _write_json(limits, payload)
     with pytest.raises(ValueError, match="source"):
         stage_config.load(limits_path=limits)
-
-

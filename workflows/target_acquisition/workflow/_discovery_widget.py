@@ -26,6 +26,7 @@ also scriptable (:meth:`TargetExplorer.set_axes`,
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 # How close (screen pixels) the pointer must be to a dot for the side
@@ -44,11 +45,18 @@ def _numeric_features(targets: list[dict]) -> list[str]:
     # naming_p is the tile the cell came from — an identifier, not a
     # measurement — so it never becomes a plot axis.
     seen = set(names) | {"naming_p"}
-    for target in targets:
-        for key, value in (target.get("source") or {}).items():
-            if key not in seen and isinstance(value, (int, float)):
-                seen.add(key)
-                names.append(key)
+    candidates = dict.fromkeys(
+        key for target in targets for key in (target.get("source") or {}) if key not in seen
+    )
+    for key in candidates:
+        values = [(target.get("source") or {}).get(key) for target in targets]
+        if all(
+            not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(float(value))
+            for value in values
+        ):
+            names.append(key)
     return names
 
 
@@ -118,7 +126,7 @@ class TargetExplorer:
         self._clear_button.on_clicked(self._on_clear_lasso)
 
         self._scatter = None
-        self._lasso = LassoSelector(self.ax, onselect=self._on_lasso)
+        self._lasso: LassoSelector | None = None
         self.fig.canvas.mpl_connect("motion_notify_event", self._on_hover)
 
         self._rebuild_axes()
@@ -152,8 +160,10 @@ class TargetExplorer:
         for feature in (x_feature, y_feature):
             if feature not in self.features:
                 raise ValueError(f"unknown feature {feature!r}; have {self.features}")
-        self._x_feature, self._y_feature = x_feature, y_feature
-        self._rebuild_axes()
+        if self._x_radio.value_selected != x_feature:
+            self._x_radio.set_active(self.features.index(x_feature))
+        if self._y_radio.value_selected != y_feature:
+            self._y_radio.set_active(self.features.index(y_feature))
 
     def set_ranges(
         self,
@@ -209,12 +219,14 @@ class TargetExplorer:
         the new one.
         """
         import numpy as np
-        from matplotlib.widgets import RangeSlider
+        from matplotlib.widgets import LassoSelector, RangeSlider
 
         self._lasso_path = None
         xs = np.array([_feature_value(t, self._x_feature) for t in self.targets])
         ys = np.array([_feature_value(t, self._y_feature) for t in self.targets])
 
+        if self._lasso is not None:
+            self._lasso.disconnect_events()
         self.ax.clear()
         self._scatter = self.ax.scatter(xs, ys, s=40, zorder=3)
         self.ax.set_xlabel(self._x_feature)
@@ -231,16 +243,19 @@ class TargetExplorer:
                 slider_ax.remove()
         x_lo, x_hi = _bounds(xs)
         y_lo, y_hi = _bounds(ys)
-        self._x_slider_ax = self.fig.add_axes([0.10, 0.10, 0.42, 0.04])
+        self._x_slider_ax = self.fig.add_axes([0.10, 0.11, 0.42, 0.035])
         self._x_slider = RangeSlider(
-            self._x_slider_ax, self._x_feature, x_lo, x_hi, valinit=(x_lo, x_hi)
+            self._x_slider_ax, "", x_lo, x_hi, valinit=(x_lo, x_hi)
         )
+        self._x_slider_ax.set_title(self._x_feature, fontsize=8, loc="left", pad=1)
         self._x_slider.on_changed(self._on_slider)
-        self._y_slider_ax = self.fig.add_axes([0.10, 0.03, 0.42, 0.04])
+        self._y_slider_ax = self.fig.add_axes([0.10, 0.035, 0.42, 0.035])
         self._y_slider = RangeSlider(
-            self._y_slider_ax, self._y_feature, y_lo, y_hi, valinit=(y_lo, y_hi)
+            self._y_slider_ax, "", y_lo, y_hi, valinit=(y_lo, y_hi)
         )
+        self._y_slider_ax.set_title(self._y_feature, fontsize=8, loc="left", pad=1)
         self._y_slider.on_changed(self._on_slider)
+        self._lasso = LassoSelector(self.ax, onselect=self._on_lasso)
         self._restyle()
 
     def _restyle(self) -> None:
