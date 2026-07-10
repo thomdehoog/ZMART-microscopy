@@ -114,14 +114,10 @@ __all__ = [
     "mask_contour_to_roi",
     # session helpers
     "connect_python_client",
+    "connect_microscope",
     "disable_roi_scan",
     "LIMITS_SOURCE_DEFAULTS",
-    "LIMITS_SOURCE_BOUNDARY_MARKERS",
-    "LIMITS_SOURCE_CFG_FALLBACK",
-    "LIMITS_SOURCE_SCAN_FIELD",
-    "current_stage_limits_path",
     "load_stage_config",
-    "write_stage_limits_config",
     # acquisition workflow
     "AcquisitionResult",
     "PlaneIndex",
@@ -204,7 +200,7 @@ from .commands.commands import (
     move_z,
     select_job,
 )
-from .connection.session import connect_python_client
+from .connection.session import connect_python_client, connect_microscope
 
 # -- commands/gate - function-keyed limits gate + connect handshake
 from .commands.gate import (
@@ -223,12 +219,7 @@ from .motion.limits import (
 from .motion.movement import move_xy_with_backlash
 from .motion.stage_config import (
     LIMITS_SOURCE_DEFAULTS,
-    LIMITS_SOURCE_BOUNDARY_MARKERS,
-    LIMITS_SOURCE_CFG_FALLBACK,
-    LIMITS_SOURCE_SCAN_FIELD,
-    current_path as current_stage_limits_path,
     load as load_stage_config,
-    write_limits as write_stage_limits_config,
 )
 
 # -- scanfields/ - LAS X scan-field file operations and parsing

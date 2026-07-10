@@ -81,11 +81,11 @@ from .. import readers as _readers
 from .. import scanfields as _scanfields
 from ..acquisition import capture as _capture
 from ..acquisition import save as _save
-from ..calibration.core import model as _cal_model
 from ..commands import commands as _commands
 from ..commands import gate as _gate
 from ..config import machine as _machine
 from ..connection import session as _session
+from ..connection import session_state as _session_state
 from ..motion import limits as _limits
 from ..motion import movement as _motion
 from ..readers.derived import z_um_from_settings as _z_um_from_settings
@@ -102,6 +102,13 @@ CONNECTION = {
     "api_delay_ms": None,
     "output_root": None,  # optional override; otherwise discovered from native AutoSave
     "calibration_name": None,  # optional ProgramData calibrations/<name>/calibration.json
+    # Which machine-local configs to load at connect (all default True). Turn
+    # one off only deliberately: load_limits=False falls back to the bundled
+    # default envelope (never ungated); load_orientation=False saves images
+    # unrotated; load_calibration=False refuses cross-objective moves.
+    "load_limits": True,
+    "load_orientation": True,
+    "load_calibration": True,
 }
 
 _ACTUATORS = {"x": ("motoric",), "y": ("motoric",), "z": ("z-wide", "z-galvo")}
@@ -199,53 +206,52 @@ def connect(connection: dict) -> ZmartHandle:
             ``output_root`` (edited in by the caller) is where
             :func:`acquire` saves and :func:`set_origin` persists.
 
-    Runs the connect-time limits handshake (``commands.gate``): the single
-    machine-local ``limits.json`` must exist in the newest machine snapshot,
-    validate (its ``constraints``/``functions`` and stage envelope), and sit
-    within the hardcoded physical backstop. On success the stage envelope is applied so
-    :func:`set_xyz` can move; on failure the session still connects for
-    read-only use and every mutating command refuses with an error naming
-    the file tried and the notebook that creates it
-    (``limits/notebooks/set_stage_limits.ipynb``). Also restores the
-    machine-local frame origin persisted by :func:`set_origin` (the origin
-    stays the frame truth across sessions until set again; with none
-    persisted, the frame is absolute stage coordinates).
+    Delegates to the driver's own connection entry point
+    (:func:`navigator_expert.connect_microscope`), which loads this microscope's
+    three machine-local configs and installs each so the whole session works
+    from one consistent picture: the **stage limits** (into the commands gate),
+    the **camera-to-stage orientation**, and the **per-objective calibration**
+    (both into the per-connection session registry). The connection dict may
+    switch any of these off with ``load_limits`` / ``load_orientation`` /
+    ``load_calibration`` (all default True) and pick a named calibration set
+    with ``calibration_name``.
 
-    Raises whatever :func:`connect_python_client` raises when LAS X is
+    The stage-limits load is fail-soft: an invalid or opted-out ``limits.json``
+    falls back to the bundled default envelope (loudly warned) rather than
+    leaving the session unable to move; the hardcoded physical backstop bounds
+    every move regardless.
+
+    The frame origin is NOT restored here — it is session-scoped. A fresh
+    connection is an absolute frame until :func:`set_origin` runs.
+
+    Raises whatever :func:`connect_microscope` raises when LAS X is
     unreachable — the controller surfaces that to the caller unchanged.
     """
-    client = _session.connect_python_client(
+    client = _session.connect_microscope(
         client_name=connection.get("client", "PythonClient"),
         api_delay_ms=connection.get("api_delay_ms"),
+        load_limits=connection.get("load_limits", True),
+        load_orientation=connection.get("load_orientation", True),
+        load_calibration=connection.get("load_calibration", True),
+        calibration_name=connection.get("calibration_name"),
     )
-    _gate.connect_handshake(client)
     handle = ZmartHandle(client=client, connection=dict(connection), hash6=run_hash())
-    handle.translations = _load_objective_translations(connection.get("calibration_name"))
-    _restore_persisted_origin(handle)
+    loaded = _session_state.get(client)
+    handle.translations = loaded.translations if loaded is not None else None
     return handle
 
 
-def _load_objective_translations(calibration_name: str | None = None) -> dict | None:
-    """Per-slot objective translations (µm) from the active calibration.
+def _loaded_orientation(handle: ZmartHandle):
+    """The camera-to-stage turn loaded for this connection (identity if none).
 
-    The driver ASSUMES (operator decision, 2026-07-02 — calibration.json is
-    NOT extended for this): translation x/y apply to the motoric stage and z
-    applies in focus space. Returns None when the calibration cannot be
-    loaded; the frame math then refuses cross-objective moves and warns on
-    cross-objective reads instead of silently computing uncompensated values.
+    Read from the per-connection session registry the driver populated at
+    connect, so every saved image in a session uses the same orientation the
+    connection loaded — rather than each save re-reading the file.
     """
-    try:
-        config = _cal_model.load_calibration(_machine.MACHINE.calibration_path(calibration_name))
-        return {
-            int(slot): _cal_model.get_translation_um(config, int(slot))
-            for slot in (config.get("objectives") or {})
-        }
-    except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
-        log.warning(
-            "objective translations unavailable (%s); cross-objective moves will be refused",
-            exc,
-        )
-        return None
+    loaded = _session_state.get(handle.client)
+    if loaded is not None:
+        return loaded.orientation
+    return _orientation.rig_orientation()
 
 
 def _objective_delta_um(handle: ZmartHandle, current_objective: dict | None) -> tuple:
@@ -272,41 +278,8 @@ def _objective_delta_um(handle: ZmartHandle, current_objective: dict | None) -> 
     return (b[0] - a[0], b[1] - a[1], b[2] - a[2])
 
 
-_ORIGIN_KEYS = ("x_um", "y_um", "z_wide_um", "z_galvo_um", "z_focus_um")
-
-
-def _restore_persisted_origin(handle: ZmartHandle) -> None:
-    """Adopt the machine-local origin as this session's frame zero point.
-
-    Best-effort: an unreadable or malformed origin file is logged and the
-    frame stays absolute (all-zero origin) — the safe interpretation, since
-    an absolute frame applies no hidden offset.
-    """
-    try:
-        stored = _machine.MACHINE.read_origin()
-    except Exception as exc:  # noqa: BLE001 -- config IO / JSON; degrade, don't crash connect
-        log.warning("could not read the persisted origin (%s); frame stays absolute", exc)
-        return
-    if stored is None:
-        return
-    origin = stored.get("origin") or {}
-    if not all(key in origin for key in _ORIGIN_KEYS):
-        log.warning(
-            "persisted origin at %s is missing keys %s; frame stays absolute",
-            _machine.MACHINE.latest_snapshot(),
-            [key for key in _ORIGIN_KEYS if key not in origin],
-        )
-        return
-    handle.origin = dict(origin)
-    log.info(
-        "restored persisted origin (captured_at=%s, objective=%s)",
-        stored.get("captured_at"),
-        (origin.get("objective") or {}).get("name"),
-    )
-
-
 def disconnect(handle: ZmartHandle) -> None:
-    """Mark the handle closed and drop its commands-layer gate state.
+    """Mark the handle closed and drop this connection's loaded driver state.
 
     The CAM client itself has no teardown, and none exists to call: verified
     by reflection that ``LasxApiClientPyModel`` (the client `connect_python_client`
@@ -323,6 +296,7 @@ def disconnect(handle: ZmartHandle) -> None:
     disconnect is real teardown debt, not just cosmetic.
     """
     _gate.uninstall(handle.client)
+    _session_state.uninstall(handle.client)
     handle.closed = True
 
 
@@ -393,18 +367,18 @@ def set_origin(handle: ZmartHandle) -> dict:
     """The current position becomes (0, 0, 0) of the controller frame.
 
     Captures stage XY, both z drives, their focus sum, and the current
-    objective as the zero point, and persists that reference machine-locally
-    as ``origin.json`` in the newest machine snapshot (next to
-    ``calibration.json`` / ``limits.json``). The persisted origin is restored
-    by :func:`connect`, so it stays the frame truth until set again. On a
-    machine with no snapshot yet (never calibrated) the origin is kept in
-    memory only, with a warning.
+    objective as the zero point, and sets this session's frame to it. The
+    origin is **session-scoped**: it applies from now until it is set again or
+    the session ends. It is also written to the machine-local ``origin/``
+    folder (next to the snapshots) as a record of the last origin captured, but
+    the driver does NOT restore it at connect — a fresh connection starts as an
+    absolute frame until ``set_origin`` runs again.
 
     Not limits-gated: this op fires no native command — it reads the current
-    position and persists a machine-local reference file. (The commands-layer
-    gate governs everything that commands hardware; ``set_origin`` stays in
-    the ``limits.json`` ``functions`` vocabulary so machine files remain
-    explicit about it.)
+    position and writes a small reference file. (The commands-layer gate
+    governs everything that commands hardware; ``set_origin`` stays in the
+    ``limits.json`` ``functions`` vocabulary so machine files remain explicit
+    about it.)
     """
     _require_open(handle)
     snap = _hardware_snapshot(handle)
@@ -426,19 +400,13 @@ def set_origin(handle: ZmartHandle) -> dict:
         path = _machine.MACHINE.write_origin(payload)
     except OSError as exc:
         # The in-memory origin is already set; failing to persist the
-        # reference must be loud (re-running set_origin after fixing the
+        # record must be loud (re-running set_origin after fixing the
         # cause is cheap), not a silent divergence discovered later.
         raise RuntimeError(f"could not persist origin reference: {exc}") from exc
-    if path is None:
-        log.warning(
-            "set_origin: no machine snapshot under %s; origin kept in memory only "
-            "(adopt a calibration to make it persistent)",
-            _machine.MACHINE.snapshot_root(),
-        )
     return {
         "origin": {"x": 0.0, "y": 0.0, "z": 0.0},
         "reference": dict(handle.origin),
-        "origin_file": None if path is None else str(path),
+        "origin_file": str(path),
     }
 
 
@@ -775,10 +743,10 @@ def acquire(
         },
         state=state,
         # Rig image->stage orientation, applied to the saved planes behind the
-        # scenes so the workflow only ever sees stage-aligned images. Measured
-        # once by the set_orientation setup notebook; a separate concern from
-        # pixel-scale calibration and limits.
-        orientation=_orientation.rig_orientation(),
+        # scenes so the workflow only ever sees stage-aligned images. Loaded once
+        # at connect (from the set_orientation setup notebook's file); a separate
+        # concern from pixel-scale calibration and limits.
+        orientation=_loaded_orientation(handle),
         cleanup_source=resolved["cleanup_source"],
     )
 

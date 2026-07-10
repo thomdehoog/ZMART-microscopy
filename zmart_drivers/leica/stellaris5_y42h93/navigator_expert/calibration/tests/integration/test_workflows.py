@@ -375,6 +375,48 @@ def test_adoption_objective_translation_updates_canonical_calibration(
     ).exists()
 
 
+def test_adoption_refreshes_objective_names_from_the_live_system(
+    sessions_root,
+    machine,
+):
+    # The base config carries stale (DRY) names; the live microscope reports the
+    # WATER objectives actually in the turret. Adoption annotates the touched
+    # slots with the live names.
+    _seed_snapshot(machine)
+    payload = {
+        "schema_version": cm.STAGING_SCHEMA_VERSION,
+        "kind": "objective_translation",
+        "created_at": "2026-05-22T15:10:00+02:00",
+        "from_objective": "10x",
+        "to_objective": "20x",
+        "translation_xy_um": [12.0, 17.0],
+        "translation_z_um": 3.0,
+    }
+    session, _ = _make_staging_session(
+        sessions_root,
+        payload,
+        "objective_10x_to_20x.json",
+    )
+    session.hardware_objectives = {
+        1: "HC PL APO CS2 10x/0.40 WATER",
+        2: "HC PL APO CS2 20x/0.75 WATER",
+    }
+
+    wf_adopt.adopt_calibration(
+        session,
+        "objective_10x_to_20x.json",
+        calibration_name="water_lens_set",
+        machine=machine,
+        moment=_ADOPT_MOMENT,
+    )
+
+    current = json.loads(machine.calibration_path("water_lens_set").read_text(encoding="utf-8"))
+    assert current["objectives"]["1"]["name"] == "HC PL APO CS2 10x/0.40 WATER"
+    assert current["objectives"]["2"]["name"] == "HC PL APO CS2 20x/0.75 WATER"
+    # the translation is still applied alongside the refreshed name
+    assert current["objectives"]["2"]["translation_um"] == [12.0, 17.0, 3.0]
+
+
 def test_adoption_missing_staging_raises(sessions_root, machine):
     sess_id = "missing_sess"
     paths = cm.make_session_paths(

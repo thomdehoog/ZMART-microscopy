@@ -79,8 +79,13 @@ def _objective_slot_for_label(config: dict[str, Any], label: str) -> int:
 
 
 def _apply_staging_payload(
-    config: dict[str, Any], data: dict[str, Any], *, session_id: str
+    config: dict[str, Any],
+    data: dict[str, Any],
+    *,
+    session_id: str,
+    hardware_objectives: dict[int, str] | None = None,
 ) -> None:
+    live_names = hardware_objectives or {}
     from_slot = _objective_slot_for_label(config, data["from_objective"])
     to_slot = _objective_slot_for_label(config, data["to_objective"])
     from_entry = (config.get("objectives") or {}).get(str(from_slot), {})
@@ -89,11 +94,20 @@ def _apply_staging_payload(
         # relative to it -- this keeps every objective consistent with the same
         # origin.
         base = calibration_model.get_translation_um(config, from_slot)
+        # Refresh its name from the live microscope, so a set seeded from stale
+        # defaults reflects the objective actually in the turret.
+        if from_slot in live_names:
+            calibration_model.update_objective(config, from_slot, name=live_names[from_slot])
     else:
         # Nothing has been calibrated yet, so the first objective used becomes
         # the [0, 0, 0] origin. There is no privileged reference to pick;
         # objective positions are always relative to one another.
-        calibration_model.update_objective(config, from_slot, translation_um=(0.0, 0.0, 0.0))
+        calibration_model.update_objective(
+            config,
+            from_slot,
+            translation_um=(0.0, 0.0, 0.0),
+            name=live_names.get(from_slot),
+        )
         base = (0.0, 0.0, 0.0)
     translation_xy = data["translation_xy_um"]
     translation = [
@@ -105,6 +119,7 @@ def _apply_staging_payload(
         config,
         to_slot,
         translation_um=translation,
+        name=live_names.get(to_slot),
         session_id=session_id,
     )
 
@@ -203,6 +218,7 @@ def adopt_calibration(
         config,
         data,
         session_id=getattr(session, "session_id", "unknown"),
+        hardware_objectives=getattr(session, "hardware_objectives", None),
     )
     prepared = calibration_model.prepared_calibration(config)
     snapshot = machine.publish_snapshot(

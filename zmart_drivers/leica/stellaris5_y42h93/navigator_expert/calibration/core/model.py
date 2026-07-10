@@ -216,6 +216,22 @@ def get_translation_um(config: dict[str, Any], slot: int) -> tuple[float, float,
     return float(value[0]), float(value[1]), float(value[2])
 
 
+def load_translations(calibration_name: str | None = None) -> dict[int, tuple[float, float, float]]:
+    """Per-slot objective translations (micrometres) from the active calibration.
+
+    Resolves the machine-local ``calibration.json`` (or the named set selected
+    by ``calibration_name`` / the ``ZMART_CALIBRATION_NAME`` environment
+    variable), and returns ``{slot: (x, y, z)}`` for every objective it lists.
+    Raises on any IO/schema problem; callers that must not fail the connection
+    wrap this and degrade to ``None`` instead.
+    """
+    config = load_calibration(calibration_name=calibration_name)
+    return {
+        int(slot): get_translation_um(config, int(slot))
+        for slot in (config.get("objectives") or {})
+    }
+
+
 def get_reference_slot(config: dict[str, Any]) -> int:
     """The reference (origin) objective slot -- the one at translation [0, 0, 0].
 

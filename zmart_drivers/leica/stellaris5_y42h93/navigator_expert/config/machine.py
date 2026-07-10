@@ -1,21 +1,28 @@
 """Machine-local resolution of this microscope's coordinate-system config.
 
 Runtime coordinate config - the optical calibration, the physical stage
-envelope, how the camera is turned relative to the stage, and the operator-set
-frame origin - lives in dated snapshots under a machine-wide ProgramData root,
-newest wins. The repo ships defaults only; the first driver run copies those
-defaults into ProgramData so every runtime read is machine-local. Each snapshot
-dir holds up to four files (plus named calibration sets and executed
-notebooks)::
+envelope, and how the camera is turned relative to the stage - lives in dated
+snapshots under a machine-wide ProgramData root, newest wins. The repo ships
+defaults only; the first driver run copies those defaults into ProgramData so
+every runtime read is machine-local. Each snapshot dir holds up to three files
+(plus named calibration sets and executed notebooks)::
 
-    <programdata_root>/<vendor>/<microscope_id>/<api>/<datetime>/
-        calibration.json    # legacy/default optical calibration
-        calibrations/<name>/calibration.json
-                            # named optical calibration sets (per lens setup)
-        limits.json         # physical envelope + function gate (schema v1)
-        orientation.json    # camera turn relative to the stage (0/90/180/270)
-        origin.json         # frame zero point (set_origin; updated in place)
-        <executed>.ipynb    # the notebook that produced this adopt
+    <programdata_root>/<vendor>/<microscope_id>/<api>/
+        <datetime>/
+            calibration.json    # legacy/default optical calibration
+            calibrations/<name>/calibration.json
+                                # named optical calibration sets (per lens setup)
+            limits.json         # physical envelope + function gate (schema v1)
+            orientation.json    # camera turn relative to the stage (0/90/180/270)
+            <executed>.ipynb    # the notebook that produced this adopt
+        origin/
+            origin.json         # frame zero point (set_origin; session-scoped)
+
+The frame origin is deliberately NOT snapshot state. It is ephemeral operator
+state (the current frame zero point), so it lives in its own ``origin/`` folder
+next to the snapshots, is written in place by ``set_origin``, and is
+session-scoped: the driver does not restore it at connect (a fresh session is
+an absolute frame until ``set_origin`` runs). See :meth:`write_origin`.
 
 All runtime values live in ProgramData, not inside the installed code. The
 defaults under the driver tree are seed material only; after seeding, reads
@@ -33,9 +40,7 @@ Each snapshot is a complete, cumulative machine-state record; workflows write
 one per adopt by copying the latest snapshot forward and merging their delta.
 If ProgramData is empty, or if the newest snapshot predates this complete-file
 layout, a new snapshot is created from repo defaults plus any prior machine
-values. ``origin.json`` is the one exception to snapshot immutability: it is
-ephemeral operator state (the current frame zero point), written into the
-*newest* snapshot in place by ``set_origin`` and carried forward on adopt.
+values.
 
 ``<datetime>`` is UTC with microsecond precision, formatted so it is both a
 legal Windows path segment (no colons) and lexicographically == chronologically
@@ -285,22 +290,41 @@ class MachineProfile:
         return path
 
     # --- origin: the operator-set frame zero point -----------------------
+    #
+    # The origin is ephemeral operator state, not immutable machine
+    # calibration, so it lives in its own ``origin/`` folder next to the dated
+    # snapshots — never inside them. It is session-scoped: the driver does NOT
+    # restore it at connect. ``set_origin`` writes it (and sets the session's
+    # in-memory frame); it is kept on disk only as a record of the last origin
+    # captured. ``"origin"`` is not a valid snapshot stamp, so the snapshot
+    # listing ignores this folder.
+
+    def origin_dir(self) -> Path:
+        """The folder holding this microscope's frame origin."""
+        return self.snapshot_root() / "origin"
+
+    def origin_path(self) -> Path:
+        """Path to the persisted frame origin file."""
+        return self.origin_dir() / ORIGIN_FILENAME
 
     def read_origin(self) -> dict | None:
-        """The persisted frame origin, or None when never set."""
-        latest = self.ensure_snapshot()
-        path = latest / ORIGIN_FILENAME
+        """The last persisted frame origin, or None when never set.
+
+        Not called at connect (the frame is session-scoped and starts
+        absolute); provided for tools and explicit ``get``-style callers.
+        """
+        path = self.origin_path()
         if not path.exists():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
 
     def write_origin(self, payload: dict) -> Path:
-        """Persist the frame origin into the newest snapshot (atomic replace).
+        """Persist the frame origin into the ``origin/`` folder (atomic replace).
 
-        Returns the written path. A seed snapshot is created first when needed.
+        Independent of the dated snapshots, so ``set_origin`` always succeeds
+        even before any calibration snapshot exists. Returns the written path.
         """
-        latest = self.ensure_snapshot()
-        path = latest / ORIGIN_FILENAME
+        path = self.origin_path()
         tmp = path.with_suffix(".json.tmp")
         _write_json(tmp, payload)
         os.replace(tmp, path)
@@ -420,8 +444,8 @@ class MachineProfile:
                 _write_json(staging / self.calibration_relpath(calibration_name), calibration)
             self._seed_file(staging, LIMITS_FILENAME, limits, prior=prior)
             self._seed_file(staging, ORIENTATION_FILENAME, orientation, prior=prior)
-            if prior is not None and (prior / ORIGIN_FILENAME).exists():
-                shutil.copy2(prior / ORIGIN_FILENAME, staging / ORIGIN_FILENAME)
+            # The origin is not snapshot state — it lives in its own origin/
+            # folder (see write_origin) and is not carried into snapshots.
             for nb in notebook_paths:
                 nb = Path(nb)
                 shutil.copy2(nb, staging / nb.name)

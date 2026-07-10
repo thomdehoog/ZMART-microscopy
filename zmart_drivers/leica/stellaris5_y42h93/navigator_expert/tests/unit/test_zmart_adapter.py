@@ -111,6 +111,12 @@ class TestRegistration(unittest.TestCase):
 
 class TestCalibrationSelection(unittest.TestCase):
     def test_named_connection_calibration_is_used_for_objective_translations(self):
+        # The driver now owns loading: the named calibration flows through
+        # connect_microscope -> session._load_objective_translations ->
+        # model.load_translations -> load_calibration(calibration_name=...).
+        from navigator_expert.calibration.core import model as cal_model
+        from navigator_expert.connection import session as drv_session
+
         cfg = {
             "schema_version": 12,
             "last_updated": "20260101_000000",
@@ -128,18 +134,10 @@ class TestCalibrationSelection(unittest.TestCase):
             },
         }
 
-        profile = SimpleNamespace(
-            calibration_path=MagicMock(return_value=Path("/tmp/lens_A/calibration.json"))
-        )
+        with patch.object(cal_model, "load_calibration", return_value=cfg) as load:
+            translations = drv_session._load_objective_translations("lens_A")
 
-        with (
-            patch.object(adapter._machine, "MACHINE", profile),
-            patch.object(adapter._cal_model, "load_calibration", return_value=cfg) as load,
-        ):
-            translations = adapter._load_objective_translations("lens_A")
-
-        profile.calibration_path.assert_called_once_with("lens_A")
-        load.assert_called_once_with(Path("/tmp/lens_A/calibration.json"))
+        load.assert_called_once_with(calibration_name="lens_A")
         self.assertEqual(translations[2], (12.0, 17.0, 3.0))
 
 
@@ -165,18 +163,14 @@ class TestFrame(unittest.TestCase):
         self.assertEqual(pos["x"]["actuator"], "motoric")
         self.assertEqual(pos["z"]["actuator"], "z-wide")
 
-    def test_set_origin_persists_into_newest_machine_snapshot(self):
+    def test_set_origin_persists_into_its_own_origin_folder(self):
         import json
         import tempfile
-        from datetime import datetime, timezone
 
         from navigator_expert.config.machine import MachineProfile
 
         with tempfile.TemporaryDirectory() as tmp:
             profile = MachineProfile(programdata_root=Path(tmp))
-            snapshot = profile.publish_snapshot(
-                datetime(2026, 7, 1, 14, 30, 0, 123456, tzinfo=timezone.utc)
-            )
             h = _handle()
             patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_galvo_um=2.0)
             with (
@@ -187,8 +181,10 @@ class TestFrame(unittest.TestCase):
                 patches[3],
             ):
                 record = adapter.set_origin(h)
-            self.assertEqual(record["origin_file"], str(snapshot / "origin.json"))
-            saved = json.loads((snapshot / "origin.json").read_text(encoding="utf-8"))
+            # Persists to the origin/ folder, independent of any snapshot.
+            self.assertEqual(record["origin_file"], str(profile.origin_path()))
+            self.assertEqual(profile.origin_path().parent.name, "origin")
+            saved = json.loads(profile.origin_path().read_text(encoding="utf-8"))
             self.assertEqual(saved["origin"]["x_um"], 1000.0)
             self.assertEqual(saved["origin"]["z_wide_um"], 30.0)
             self.assertEqual(saved["origin"]["z_galvo_um"], 2.0)
@@ -196,16 +192,15 @@ class TestFrame(unittest.TestCase):
             self.assertEqual(saved["origin"]["objective"]["magnification"], 63)
             self.assertEqual(saved["job"], "Overview")
 
-    def test_connect_restores_persisted_origin(self):
-        """The machine-local origin is the frame truth across sessions."""
+    def test_connect_does_not_restore_origin(self):
+        """Origin is session-scoped: a fresh connection is an absolute frame."""
         import tempfile
-        from datetime import datetime, timezone
 
         from navigator_expert.config.machine import MachineProfile
 
         with tempfile.TemporaryDirectory() as tmp:
             profile = MachineProfile(programdata_root=Path(tmp))
-            profile.publish_snapshot(datetime(2026, 7, 1, 14, 30, 0, 123456, tzinfo=timezone.utc))
+            # An origin file exists on disk from a previous session...
             profile.write_origin(
                 {
                     "origin": _origin(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_focus_um=30.0),
@@ -217,17 +212,9 @@ class TestFrame(unittest.TestCase):
                 patch.object(adapter._session, "connect_python_client", return_value=object()),
             ):
                 h = adapter.connect(dict(adapter.CONNECTION))
-            self.assertEqual(h.origin["x_um"], 1000.0)
-            self.assertEqual(h.origin["z_focus_um"], 30.0)
-
-            # A malformed persisted origin must not poison the frame.
-            profile.write_origin({"origin": {"x_um": 1.0}})  # missing keys
-            with (
-                patch.object(adapter._machine, "MACHINE", profile),
-                patch.object(adapter._session, "connect_python_client", return_value=object()),
-            ):
-                h2 = adapter.connect(dict(adapter.CONNECTION))
-            self.assertEqual(h2.origin["x_um"], 0.0)  # frame stays absolute
+            # ...but connect does NOT adopt it — the frame starts absolute.
+            self.assertEqual(h.origin["x_um"], 0.0)
+            self.assertEqual(h.origin["z_focus_um"], 0.0)
 
     def test_get_xyz_is_origin_relative(self):
         h = _handle(origin=_origin(x_um=1000.0, y_um=2000.0, z_focus_um=30.0))
@@ -1369,8 +1356,8 @@ class TestFunctionLimits(unittest.TestCase):
             # inside the template envelope, outside the machine's
             state.limits.check("set_xyz", {"x_um": 1500.0})
 
-    def test_unknown_machine_axis_fails_closed(self):
-        """An envelope the schema can't represent refuses mutations, not the axis."""
+    def test_unknown_machine_axis_falls_back_to_defaults(self):
+        """An envelope the schema can't represent falls back to bundled defaults."""
         import os
 
         provision_machine_limits(
@@ -1379,9 +1366,15 @@ class TestFunctionLimits(unittest.TestCase):
         )
         client = object()
         state = _gate.connect_handshake(client)
-        self.assertFalse(state.ok)
-        self.assertIn("theta", state.error)
-        self.assertIsNotNone(_gate.check_refusal(client, "move_xy", {"x_um": 5000.0}))
+        # The invalid machine file is not used; the session is governed by the
+        # bundled DEFAULT limits (loudly), never left fail-closed.
+        self.assertTrue(state.ok)
+        self.assertTrue(state.limits.describe()["is_fallback"])
+        # A move inside the default envelope is allowed; one outside is refused.
+        self.assertIsNone(_gate.check_refusal(client, "move_xy", {"x_um": 5000.0, "y_um": 5000.0}))
+        self.assertIsNotNone(
+            _gate.check_refusal(client, "move_xy", {"x_um": 999999.0, "y_um": 5000.0})
+        )
 
 
 if __name__ == "__main__":

@@ -46,11 +46,19 @@ ProgramData is empty, the repo defaults are copied there first. The file must
 be schema-valid with finite numbers only (both its ``constraints``/``functions``
 and its stage envelope), and sit within the hardcoded physical backstop
 (``motion.limits.STAGE_BACKSTOP_UM``). On success it applies the stage envelope
-and installs the validated
-``FunctionLimits`` in a module-level registry keyed by client identity; on
-failure the session stays usable read-only, and every gated wrapper refuses
-with the recorded reason (which names the path tried and the notebook that
-creates the files: ``limits/notebooks/set_stage_limits.ipynb``).
+and installs the validated ``FunctionLimits`` in a module-level registry keyed
+by client identity.
+
+If loading is deliberately skipped for a connection (``load=False``) or the
+machine file fails to validate, the session is NOT left fail-closed: the
+bundled DEFAULT limits are installed instead (marked ``is_fallback`` and loudly
+warned), so the session stays usable and bounded while the operator fixes the
+file. The defaults sit within the physical backstop, and the backstop bounds
+every move regardless. Only if even the shipped defaults are unusable does the
+session go fail-closed, and every gated wrapper then refuses with the recorded
+reason (which names the notebook that creates the files:
+``limits/notebooks/set_stage_limits.ipynb``). A client that never handshook at
+all (no ``connect_handshake`` ran) still refuses fail-closed.
 
 Single-writer invariant: like command dispatch (``dispatch.py``) and the
 stage-envelope module global (``motion/limits.py``), this registry assumes
@@ -252,15 +260,72 @@ def build_function_limits_payload(stage_um: Mapping[str, Any], *, source: str = 
     }
 
 
-def connect_handshake(client: Any, *, machine: Any = None, stage_limits_path: Any = None):
+def _build_gate_from_file(client: Any, limits_file: Any, *, is_fallback: bool) -> GateState:
+    """Validate one limits.json, apply its envelope, and install the gate.
+
+    Shared by the normal machine-file path and the bundled-defaults fallback.
+    Raises on any validation problem so the caller can decide how to fall back.
+    """
+    # The file's constraints.stage.* is the physical envelope; stage_config
+    # derives the {axis: [min, max]} shape and validates finite numbers,
+    # min <= max, and exactly this machine's axes.
+    stage_cfg = _stage_config.load(limits_path=limits_file)
+    # The envelope must sit within the hardcoded physical backstop.
+    _limits.check_envelope_within_backstop(stage_cfg["stage_um"])
+    # The SAME file's constraints + functions parse under shared.limits, with
+    # the validated envelope overlaid onto its stage.* constraints so the
+    # numbers governing moves are exactly what stage_config validated. Any
+    # stray backlash key left in an older file is ignored by the shared parser.
+    overrides = {
+        f"stage.{axis}": {"min": bounds[0], "max": bounds[1]}
+        for axis, bounds in stage_cfg["stage_um"].items()
+    }
+    function_limits = _shared_limits.load(
+        limits_file,
+        functions=FUNCTION_LIMIT_KEYS,
+        constraint_overrides=overrides,
+        is_fallback=is_fallback,
+    )
+    _limits.apply_stage_limits_from_config(stage_cfg)
+    state = GateState(limits=function_limits, stage_cfg=stage_cfg, error=None)
+    _install(client, state)
+    return state
+
+
+def _install_default_limits(client: Any, machine: Any, reason: str) -> GateState:
+    """Govern the session with the driver's bundled DEFAULT limits (loud).
+
+    Used when limits loading is deliberately skipped for a connection, or when
+    the machine-local ``limits.json`` does not validate. The bundled default
+    envelope sits within the physical backstop, so the session stays usable and
+    bounded rather than fail-closed — but it is emphatically NOT the operator's
+    measured envelope, so this warns clearly and marks the limits as a fallback.
+    """
+    default_file = machine.bundled_default_path(_machine.LIMITS_FILENAME)
+    state = _build_gate_from_file(client, default_file, is_fallback=True)
+    log.warning(
+        "limits fallback: %s — the session is governed by the bundled DEFAULT "
+        "limits (%s), NOT this machine's measured envelope. The hardcoded "
+        "physical backstop still bounds every move. Publish measured limits with %s.",
+        reason,
+        state.limits.describe(),
+        NOTEBOOK_POINTER,
+    )
+    return state
+
+
+def connect_handshake(
+    client: Any, *, machine: Any = None, stage_limits_path: Any = None, load: bool = True
+):
     """The connect-time limits handshake: resolve, validate, install. Never raises.
 
-    Steps (any failure -> a fail-closed :class:`GateState` whose ``error``
-    names the file tried and points at limits/notebooks/set_stage_limits.ipynb):
+    Steps:
 
-    1. The single ``limits.json`` must resolve through ProgramData, seeding
-       repo defaults there first when needed. It must be schema-valid with
-       finite numbers, min <= max, exactly this machine's axes (envelope derived from
+    1. When ``load`` is False, the machine file is skipped and the session is
+       governed by the bundled DEFAULT limits (see below). Otherwise the single
+       ``limits.json`` resolves through ProgramData, seeding repo defaults there
+       first when needed. It must be schema-valid with finite numbers, min <=
+       max, exactly this machine's axes (envelope derived from
        ``constraints.stage.*``). ``stage_limits_path`` overrides the resolution
        with an explicit operator-chosen file (still validated).
     2. The envelope must sit WITHIN the hardcoded physical backstop
@@ -274,57 +339,48 @@ def connect_handshake(client: Any, *, machine: Any = None, stage_limits_path: An
     4. On success: apply the stage envelope (module-global, single instrument
        per process) and install the gate state for *client*.
 
-    On failure the session still works read-only; every mutating command
-    refuses with the recorded error until the ProgramData file validates and a
-    new handshake runs.
+    Defaults fallback (operator decision): if loading is skipped (``load``
+    False) or the machine ``limits.json`` fails to validate, the session is
+    NOT left fail-closed. Instead the bundled DEFAULT limits are installed
+    (marked ``is_fallback`` and loudly warned). The bundled defaults sit within
+    the physical backstop, and the backstop bounds every move regardless, so
+    the session stays safe and usable while the operator fixes the file. Only
+    if even the shipped defaults fail to load does the session go fail-closed
+    (every mutating command then refuses with the recorded error).
     """
     machine = machine if machine is not None else _machine.MACHINE
+
+    if not load:
+        return _install_default_limits(
+            client, machine, "limits loading was skipped for this connection"
+        )
+
     try:
-        # -- 1. the single ProgramData limits.json. Its
-        #       constraints.stage.* is the physical envelope; stage_config
-        #       derives stage_um from it.
         if stage_limits_path is not None:
             limits_file = stage_limits_path
         else:
             limits_file = machine.require_machine_local(
                 _machine.LIMITS_FILENAME, "the physical stage envelope"
             )
-        stage_cfg = _stage_config.load(limits_path=limits_file)
+        state = _build_gate_from_file(client, limits_file, is_fallback=False)
+    except Exception as exc:  # noqa: BLE001 -- config IO / schema; fall back to defaults, never crash connect
+        try:
+            return _install_default_limits(
+                client, machine, f"the machine limits.json did not validate: {exc}"
+            )
+        except Exception as default_exc:  # noqa: BLE001 -- shipped defaults broken: last-resort fail-closed
+            error = (
+                f"limits handshake failed and the bundled defaults are unusable "
+                f"({default_exc}); machine file error: {exc} — every mutating command "
+                f"refuses until the limits files validate (see {NOTEBOOK_POINTER})."
+            )
+            log.error("%s", error)
+            state = GateState(limits=None, stage_cfg=None, error=error)
+            _install(client, state)
+            return state
 
-        # -- 2. backstop containment
-        _limits.check_envelope_within_backstop(stage_cfg["stage_um"])
-
-        # -- 3. function-keyed limits (constraints + functions of the SAME
-        #       file). The validated envelope is overlaid
-        #       onto the stage.* constraints so the numbers governing moves are
-        #       exactly the ones stage_config validated. Any stray backlash key
-        #       left in an older file is ignored by the shared parser.
-        overrides = {
-            f"stage.{axis}": {"min": bounds[0], "max": bounds[1]}
-            for axis, bounds in stage_cfg["stage_um"].items()
-        }
-        function_limits = _shared_limits.load(
-            limits_file,
-            functions=FUNCTION_LIMIT_KEYS,
-            constraint_overrides=overrides,
-            is_fallback=False,
-        )
-    except Exception as exc:  # noqa: BLE001 -- config IO / schema; fail closed, never crash connect
-        error = (
-            f"limits handshake failed: {exc} — every mutating command refuses until the "
-            f"ProgramData limits files validate (create/update them with {NOTEBOOK_POINTER})."
-        )
-        log.warning("%s", error)
-        state = GateState(limits=None, stage_cfg=None, error=error)
-        _install(client, state)
-        return state
-
-    # -- 4. install (module-global envelope + client-keyed gate state)
-    _limits.apply_stage_limits_from_config(stage_cfg)
-    state = GateState(limits=function_limits, stage_cfg=stage_cfg, error=None)
-    _install(client, state)
     log.info(
         "limits handshake ok: %s governs this session",
-        function_limits.describe(),
+        state.limits.describe(),
     )
     return state

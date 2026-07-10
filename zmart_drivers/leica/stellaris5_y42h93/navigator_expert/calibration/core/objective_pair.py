@@ -37,6 +37,8 @@ visualization.
 
 from __future__ import annotations
 
+import json
+import logging
 import math
 import shutil
 from dataclasses import dataclass, field
@@ -47,6 +49,8 @@ import numpy as np
 
 import navigator_expert as drv
 from shared.algorithms import VOTING_METHODS, brenner, register_voting
+
+_log = logging.getLogger(__name__)
 
 from .common import (
     STAGING_SCHEMA_VERSION,
@@ -110,6 +114,10 @@ class ObjectivePairSession:
     registration: dict | None = None
     config_written: bool = False
     failure_reason: str | None = None
+    # {slot_index: objective name} read from the live microscope at start, so
+    # the adopted calibration annotates each slot with the objective actually
+    # fitted rather than inheriting stale names from the base config.
+    hardware_objectives: dict[int, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------
@@ -158,6 +166,23 @@ def start_session(
     if hw is None:
         raise RuntimeError("get_hardware_info returned None; LAS X unreachable")
 
+    # The names the microscope reports for each occupied slot — used to annotate
+    # the adopted calibration so a named set never carries stale objective names.
+    from ...commands import objectives as _objectives
+
+    hardware_objectives = {
+        slot: str(entry.get("name", ""))
+        for slot, entry in _objectives.objective_by_slot(hw).items()
+    }
+
+    # Calibration sits above orientation in the setup ladder: parcentricity XY
+    # is measured in image space and only becomes a stage offset because saved
+    # frames are already turned to stage axes. If orientation was never measured
+    # (the shipped placeholder), warn — the XY result may come out rotated. This
+    # is a soft check by design: a scope whose real turn is 0° is fine once
+    # set_orientation has been run and adopted.
+    _warn_if_orientation_unmeasured()
+
     return ObjectivePairSession(
         session_id=session_id,
         paths=paths,
@@ -169,7 +194,30 @@ def start_session(
         calibration_name=calibration_name,
         calibration_path=resolved_path,
         kind=kind,
+        hardware_objectives=hardware_objectives,
     )
+
+
+def _warn_if_orientation_unmeasured() -> None:
+    """Warn when this microscope still carries the shipped orientation placeholder.
+
+    The placeholder ``orientation.json`` keeps a ``_notes`` marker that a
+    measured/adopted file does not, so its presence means ``set_orientation``
+    has not been run yet.
+    """
+    from ...config.machine import MACHINE
+
+    try:
+        raw = json.loads(MACHINE.orientation_path().read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 -- missing/unreadable orientation is handled elsewhere
+        return
+    if "_notes" in raw:
+        _log.warning(
+            "orientation has not been measured on this microscope yet (still the "
+            "shipped placeholder). Calibration assumes saved frames are already "
+            "turned to the stage axes; run orientation/notebooks/set_orientation.ipynb "
+            "first, or the parcentricity XY offset may come out rotated."
+        )
 
 
 # ---------------------------------------------------------------------
