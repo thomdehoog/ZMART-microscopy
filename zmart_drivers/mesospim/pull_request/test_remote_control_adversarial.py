@@ -272,10 +272,14 @@ def test_frame_decoder_rejects_or_waits_but_never_crashes():
         raise AssertionError(f"decoder accepted bad header {head!r}")
 
 
-def test_frame_decoder_waits_for_huge_length_without_allocating():
+def test_frame_decoder_rejects_huge_length_without_waiting_or_allocating():
     d = srv.FrameDecoder()
     d.feed(b"999999999\nhi")     # claims ~1GB; only 2 bytes present
-    assert list(d.frames()) == []  # yields nothing, does not hang or allocate
+    try:
+        list(d.frames())
+    except srv.FramingError:
+        return
+    raise AssertionError("decoder waited for an oversized frame instead of rejecting it")
 
 
 def test_frame_decoder_reassembles_and_handles_empty_and_joined():

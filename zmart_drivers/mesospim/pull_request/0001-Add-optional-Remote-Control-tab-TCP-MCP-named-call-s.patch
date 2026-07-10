@@ -1,4 +1,4 @@
-From 7405faab86c162d960383bb6ac6d9eb3c46fe627 Mon Sep 17 00:00:00 2001
+From 3f173b3c5b586af9acb04e647607dcc86768d531 Mon Sep 17 00:00:00 2001
 From: Thom de Hoog <thom.dehoog@zmb.uzh.ch>
 Date: Wed, 8 Jul 2026 16:08:32 +0200
 Subject: [PATCH] Add optional Remote Control tab: TCP + MCP named-call server
@@ -49,12 +49,12 @@ nothing outside the allowlist can run. Plain TCP: the token gates casual LAN
 access, it is not sniffer-proof (tunnel it for untrusted networks).
 ---
  mesoSPIM/src/mesoSPIM_Core.py                 |  32 +
- mesoSPIM/src/mesoSPIM_MainWindow.py           | 201 +++++
- .../src/mesoSPIM_RemoteControl_Servers.py     | 358 ++++++++
- ...IM_RemoteControl_ValidateAndRunCommands.py | 842 ++++++++++++++++++
+ mesoSPIM/src/mesoSPIM_MainWindow.py           | 201 ++++
+ .../src/mesoSPIM_RemoteControl_Servers.py     | 394 ++++++++
+ ...IM_RemoteControl_ValidateAndRunCommands.py | 895 ++++++++++++++++++
  .../src/test_remote_control_validation.py     | 184 ++++
  pyproject.toml                                |   1 +
- 6 files changed, 1618 insertions(+)
+ 6 files changed, 1707 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
  create mode 100644 mesoSPIM/src/test_remote_control_validation.py
@@ -351,10 +351,10 @@ index 1c0242b..eedd5bc 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py b/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
 new file mode 100644
-index 0000000..aa390db
+index 0000000..d708e1c
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
-@@ -0,0 +1,358 @@
+@@ -0,0 +1,394 @@
 +"""Remote-control TCP and MCP servers for mesoSPIM.
 +
 +The TCP server runs inside mesoSPIM-control and executes validated JSON
@@ -376,14 +376,21 @@ index 0000000..aa390db
 +
 +if __package__ in (None, ""):
 +    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-+    from mesoSPIM.src.mesoSPIM_RemoteControl_ValidateAndRunCommands import parse_call, run, self_test, tool_specs
++    from mesoSPIM.src.mesoSPIM_RemoteControl_ValidateAndRunCommands import (
++        parse_call, run, self_test, strict_json_loads, tool_specs,
++    )
 +else:
-+    from .mesoSPIM_RemoteControl_ValidateAndRunCommands import parse_call, run, self_test, tool_specs
++    from .mesoSPIM_RemoteControl_ValidateAndRunCommands import (
++        parse_call, run, self_test, strict_json_loads, tool_specs,
++    )
 +
 +logger = logging.getLogger(__name__)
 +
 +ENCODING = "utf-8"
 +OK_MARKER = "__MESOSPIM_OK__"
++MAX_FRAME_BYTES = 1 << 20
++MAX_FRAME_HEADER_BYTES = 16
++MAX_MCP_BODY_BYTES = 1 << 20
 +
 +
 +class FramingError(ValueError):
@@ -394,6 +401,8 @@ index 0000000..aa390db
 +    """Return the simple '<byte-count>\\n<payload>' frame used by TCP clients."""
 +    if isinstance(payload, str):
 +        payload = payload.encode(ENCODING)
++    if len(payload) > MAX_FRAME_BYTES:
++        raise FramingError(f"payload exceeds {MAX_FRAME_BYTES} bytes")
 +    return str(len(payload)).encode("ascii") + b"\n" + payload
 +
 +
@@ -405,8 +414,14 @@ index 0000000..aa390db
 +        if not chunk:
 +            raise ConnectionError("TCP server closed the connection")
 +        buf += chunk
++        if b"\n" not in buf and len(buf) > MAX_FRAME_HEADER_BYTES:
++            raise FramingError("frame header is too long")
 +    head, _, rest = buf.partition(b"\n")
++    if not head or len(head) > MAX_FRAME_HEADER_BYTES or not head.isdigit():
++        raise FramingError("expected canonical byte-count header")
 +    length = int(head)
++    if length > MAX_FRAME_BYTES:
++        raise FramingError(f"frame exceeds {MAX_FRAME_BYTES} bytes")
 +    while len(rest) < length:
 +        chunk = sock.recv(4096)
 +        if not chunk:
@@ -433,14 +448,17 @@ index 0000000..aa390db
 +        self._buf += bytes(data)
 +
 +    def frames(self):
-+        while b"\n" in self._buf:
++        while True:
++            if b"\n" not in self._buf:
++                if len(self._buf) > MAX_FRAME_HEADER_BYTES:
++                    raise FramingError("frame header is too long")
++                return
 +            head, _, rest = self._buf.partition(b"\n")
-+            try:
-+                length = int(head)
-+            except ValueError as exc:
-+                raise FramingError("expected '<byte-count>\\n<payload>'") from exc
-+            if length < 0:
-+                raise FramingError(f"byte-count can't be negative: {length}")
++            if not head or len(head) > MAX_FRAME_HEADER_BYTES or not head.isdigit():
++                raise FramingError("expected canonical byte-count header")
++            length = int(head)
++            if length > MAX_FRAME_BYTES:
++                raise FramingError(f"frame exceeds {MAX_FRAME_BYTES} bytes")
 +            if len(rest) < length:
 +                return
 +            self._buf = rest[length:]
@@ -611,17 +629,35 @@ index 0000000..aa390db
 +        def do_POST(self):
 +            if self.path != "/mcp":
 +                return json_response(self, 404, {"error": "not found"})
-+            origin = self.headers.get("Origin", "")
++            origins = self.headers.get_all("Origin", [])
++            if len(origins) > 1:
++                return json_response(self, 403, {"error": "multiple Origin headers"})
++            origin = origins[0] if origins else ""
 +            if origin and not allowed_origin(origin):
 +                return json_response(self, 403, {"error": "origin not allowed"})
-+            auth = self.headers.get("Authorization", "")
++            authorizations = self.headers.get_all("Authorization", [])
++            if len(authorizations) != 1:
++                return json_response(self, 401, {"error": "unauthorized"})
++            auth = authorizations[0]
 +            supplied = auth[7:] if auth.lower().startswith("bearer ") else ""
 +            if not hmac.compare_digest(supplied, config.token):
 +                return json_response(self, 401, {"error": "unauthorized"})
 +            try:
-+                length = int(self.headers.get("Content-Length", "0") or "0")
-+                msg = json.loads(self.rfile.read(length).decode(ENCODING))
-+            except ValueError:
++                transfer_encodings = self.headers.get_all("Transfer-Encoding", [])
++                if transfer_encodings:
++                    return json_response(
++                        self, 400, {"error": "Transfer-Encoding is unsupported"})
++                lengths = self.headers.get_all("Content-Length", [])
++                if len(lengths) != 1 or not lengths[0].isdigit():
++                    return json_response(self, 400, {"error": "invalid Content-Length"})
++                length = int(lengths[0])
++                if length > MAX_MCP_BODY_BYTES:
++                    return json_response(self, 413, {"error": "request body too large"})
++                body = self.rfile.read(length)
++                if len(body) != length:
++                    return json_response(self, 400, {"error": "truncated request body"})
++                msg = strict_json_loads(body.decode(ENCODING))
++            except (UnicodeError, ValueError):
 +                return json_response(self, 400, {"error": "invalid JSON"})
 +            reply = mcp_reply(config, msg) if isinstance(msg, dict) else None
 +            if reply is None:
@@ -715,10 +751,10 @@ index 0000000..aa390db
 +    main()
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
 new file mode 100644
-index 0000000..022507d
+index 0000000..1263a04
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
-@@ -0,0 +1,842 @@
+@@ -0,0 +1,895 @@
 +"""Remote-control command vocabulary and execution.
 +
 +Network transports hand this module a decoded command name plus arguments. This
@@ -728,6 +764,7 @@ index 0000000..022507d
 +
 +import json
 +import logging
++import math
 +import os
 +
 +logger = logging.getLogger(__name__)
@@ -772,8 +809,38 @@ index 0000000..022507d
 +)
 +
 +
++def _unique_object(pairs):
++    """Build a JSON object while refusing ambiguous duplicate member names."""
++    result = {}
++    for key, value in pairs:
++        if key in result:
++            raise ValueError(f"duplicate JSON member {key!r}")
++        result[key] = value
++    return result
++
++
++def _finite_json_float(text):
++    value = float(text)
++    if not math.isfinite(value):
++        raise ValueError(f"non-finite JSON number {text!r}")
++    return value
++
++
++def strict_json_loads(payload):
++    """Decode strict JSON: unique object keys and finite numeric values only."""
++    def reject_constant(value):
++        raise ValueError(f"non-finite JSON constant {value!r}")
++
++    return json.loads(
++        payload,
++        object_pairs_hook=_unique_object,
++        parse_float=_finite_json_float,
++        parse_constant=reject_constant,
++    )
++
++
 +def parse_call(payload):
-+    msg = json.loads(payload)
++    msg = strict_json_loads(payload)
 +    if not isinstance(msg, dict) or len(msg) != 1:
 +        raise ValueError("expected one JSON object: {'command': {args}}")
 +    (call, args), = msg.items()
@@ -859,7 +926,16 @@ index 0000000..022507d
 +
 +
 +def _move_relative(core, a):
-+    core.move_relative({k + "_rel": float(v) for k, v in a["deltas"].items()}, wait_until_done=True)
++    move = {k + "_rel": float(v) for k, v in a["deltas"].items()}
++    # Core.move_relative(wait_until_done=True) emits a signal rather than performing a
++    # synchronous call. From the Core-hosted remote server that can return before the
++    # position changes (and can wedge the next request). MainWindow already calls the
++    # serial worker directly for this reason; use the same proven path here.
++    serial_move = getattr(getattr(core, "serial_worker", None), "move_relative", None)
++    if callable(serial_move):
++        serial_move(move, wait_until_done=True)
++    else:
++        core.move_relative(move, wait_until_done=True)
 +    return {}
 +
 +
@@ -1314,8 +1390,13 @@ index 0000000..022507d
 +
 +
 +def _num(v):
-+    """True if v is a real number (JSON booleans are ints in Python -- exclude them)."""
-+    return isinstance(v, (int, float)) and not isinstance(v, bool)
++    """True for finite real numbers (JSON booleans are ints -- exclude them)."""
++    if not isinstance(v, (int, float)) or isinstance(v, bool):
++        return False
++    try:
++        return math.isfinite(v)
++    except OverflowError:
++        return False
 +
 +
 +def _cfg_options(core):
@@ -1400,6 +1481,13 @@ index 0000000..022507d
 +            lo_hi = limits.get(axis)
 +            if call == "move_absolute" and lo_hi and not (lo_hi[0] <= value <= lo_hi[1]):
 +                bad(f"{axis}={value} is outside the allowed range {tuple(lo_hi)}")
++            if call == "move_relative" and lo_hi:
++                current = _state_position(core).get(axis)
++                if not _num(current):
++                    bad(f"cannot verify relative move for {axis!r}: current position unavailable")
++                destination = current + value
++                if not _num(destination) or not (lo_hi[0] <= destination <= lo_hi[1]):
++                    bad(f"{axis} destination {destination} is outside the allowed range {tuple(lo_hi)}")
 +    elif call in ("zero", "unzero"):
 +        axes = args.get("axes")
 +        if axes is not None and (not isinstance(axes, list) or any(a not in _AXES for a in axes)):
@@ -1444,7 +1532,8 @@ index 0000000..022507d
 +        if os.path.isfile(raw):
 +            with open(raw, encoding="utf-8") as f:
 +                raw = f.read()
-+        return {axis: (float(lo), float(hi)) for axis, (lo, hi) in json.loads(raw).items()}
++        return {axis: (float(lo), float(hi))
++                for axis, (lo, hi) in strict_json_loads(raw).items()}
 +    except Exception:
 +        logger.warning("MESOSPIM_RS_LIMITS ignored (want JSON of axis -> [lo, hi])")
 +        return {}
@@ -1761,5 +1850,5 @@ index 06b49a5..966d31c 100644
  mesospim-control = "mesoSPIM.mesoSPIM_Control:run"
 +mesospim-mcp-server = "mesoSPIM.src.mesoSPIM_RemoteControl_Servers:main"
 -- 
-2.43.0
+2.53.0.windows.1
 
