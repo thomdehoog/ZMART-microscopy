@@ -111,13 +111,16 @@ def move_xy_with_backlash(
     return r
 
 
-def correct_backlash(client, *, overshoot_um=50.0, settle_ms=100, tolerance_um=20.0):
+def correct_backlash(client, *, overshoot_um=50.0, settle_ms=100, tolerance_um=20.0, passes=3):
     """Pin the stage to the +X+Y slack-state with no net displacement.
 
-    Reads current XY, drives to ``(x - overshoot, y - overshoot)``,
-    pauses ``settle_ms`` (so controllers that blend consecutive moves
-    treat the next command as distinct), then drives back to ``(x, y)``.
-    The final +X +Y leg engages both leadscrews against the same flank.
+    Reads current XY, then repeats ``passes`` times: drive to
+    ``(x - overshoot, y - overshoot)``, pause ``settle_ms`` (so controllers
+    that blend consecutive moves treat the next command as distinct), then
+    drive back to ``(x, y)``. Every return leg approaches from -X -Y, so
+    each pass engages both leadscrews against the same flank; repeating the
+    back-and-forth settles mechanical slack that a single pass can leave
+    partially taken up.
 
     Parameters
     ----------
@@ -127,29 +130,37 @@ def correct_backlash(client, *, overshoot_um=50.0, settle_ms=100, tolerance_um=2
         Distance to retreat in -X -Y. Must exceed the stage's backlash;
         50 um is 10x margin on the ZMB STELLARIS (3-5 um backlash).
     settle_ms
-        Pause between overshoot and return. 100 ms keeps the moves
+        Pause between each overshoot and return. 100 ms keeps the moves
         distinct without polling.
     tolerance_um
         Pass-through to ``move_xy``. Loose by default; the takeup
         does not need precision.
+    passes
+        How many back-and-forth passes to run (default 3).
 
     Callers may pass explicit params for non-default takeup; the ZMART
     adapter calls this with no arguments, so the signature defaults above
     are the operative values on that path.
     """
-    # This read parameterizes the two corrective moves below, so bypass the
+    if int(passes) < 1:
+        raise ValueError(f"backlash takeup needs at least one pass, got {passes}")
+    # This read parameterizes the corrective moves below, so bypass the
     # passive reader profile and use the authoritative API path.
     pos = _readers.get_xy(client, mode="api")
     if pos is None:
         raise RuntimeError("backlash takeup: could not read XY")
     x, y = float(pos["x_um"]), float(pos["y_um"])
-    log.debug("backlash takeup at (%.2f, %.2f) um, overshoot %.1f um", x, y, overshoot_um)
-    r = _commands.move_xy(
-        client, x - overshoot_um, y - overshoot_um, unit="um", tolerance=tolerance_um
+    log.debug(
+        "backlash takeup at (%.2f, %.2f) um, overshoot %.1f um, %d passes",
+        x, y, overshoot_um, passes,
     )
-    if not r or not r.get("success"):
-        raise RuntimeError(f"backlash overshoot move failed: {r}")
-    time.sleep(settle_ms / 1000.0)
-    r = _commands.move_xy(client, x, y, unit="um", tolerance=tolerance_um)
-    if not r or not r.get("success"):
-        raise RuntimeError(f"backlash return move failed: {r}")
+    for _ in range(int(passes)):
+        r = _commands.move_xy(
+            client, x - overshoot_um, y - overshoot_um, unit="um", tolerance=tolerance_um
+        )
+        if not r or not r.get("success"):
+            raise RuntimeError(f"backlash overshoot move failed: {r}")
+        time.sleep(settle_ms / 1000.0)
+        r = _commands.move_xy(client, x, y, unit="um", tolerance=tolerance_um)
+        if not r or not r.get("success"):
+            raise RuntimeError(f"backlash return move failed: {r}")

@@ -23,6 +23,7 @@ the microscope, only a friendlier way to choose where.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from ._focus_run import measure_focus
@@ -32,6 +33,11 @@ from ._focus_surface import fit_focus_surface
 # to remove it. Screen pixels, not micrometres, so the feel of "clicking on
 # a point" does not change with the zoom level.
 _REMOVE_RADIUS_PX = 12.0
+
+# Ignore Measure clicks arriving within this window after a run finishes:
+# clicks queued while the stage was measuring would otherwise start a
+# second, unwanted measurement run the moment the first completes.
+_QUEUED_CLICK_WINDOW_S = 2.0
 
 
 class FocusPicker:
@@ -81,6 +87,7 @@ class FocusPicker:
         #: The fitted focus surface, set by :meth:`measure`.
         self.focus: Any = None
         self._measured_points: list[dict] | None = None
+        self._last_measure_ended: float | None = None
 
         if seed:
             self.points = self._seed_from_lasx()
@@ -199,6 +206,8 @@ class FocusPicker:
         except Exception:
             self._invalidate_focus()
             raise
+        finally:
+            self._last_measure_ended = time.monotonic()
         self.measured = measured
         self._measured_points = [dict(point) for point in self.points]
         self.focus = fit_focus_surface(measured)
@@ -230,6 +239,16 @@ class FocusPicker:
             self._heatmap = None
 
     def _on_measure_clicked(self, _event: Any) -> None:
+        # A click that queued up while the stage was measuring is delivered
+        # the moment it finishes — running it would move the stage through
+        # every point again. Programmatic measure() is not debounced.
+        if (
+            self._last_measure_ended is not None
+            and time.monotonic() - self._last_measure_ended < _QUEUED_CLICK_WINDOW_S
+        ):
+            self.ax.set_title("ignored a click queued during the previous measure")
+            self.fig.canvas.draw_idle()
+            return
         # A widget callback swallows tracebacks in most notebook frontends,
         # so surface any problem on the figure itself where the operator
         # is looking.

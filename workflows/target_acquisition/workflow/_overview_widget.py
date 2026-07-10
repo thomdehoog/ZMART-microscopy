@@ -142,7 +142,8 @@ class OverviewViewer:
         self._active = 0
 
         self.fig = plt.figure(figsize=(9, 7))
-        self.ax = self.fig.add_axes([0.06, 0.06, 0.64, 0.88])
+        # Leave room on the left for the y-axis label.
+        self.ax = self.fig.add_axes([0.09, 0.08, 0.61, 0.86])
         self._images = []
         for overview, stack in zip(self.overviews, self._stacks, strict=True):
             cx, cy = overview["center_frame_um"]
