@@ -5,7 +5,7 @@ surface only -- no ``import navigator_expert`` in the operator path. The
 notebook imports the numbered step functions from this package and runs
 them in order:
 
-  connect -> measure_focus / fit_focus_surface ->
+  connect -> pick_focus_points (click points, Measure focus) ->
   run_overview -> discover_targets -> acquire_targets
 
 Re-exports:
@@ -14,8 +14,10 @@ Re-exports:
   ``load_analysis_engine``, ``with_focus_z``, ``run_overview``,
   ``overview_inputs_from_records``, ``acquire_targets``,
   ``hijack_if_simulating``, ``write_run_report``;
-- focus (``workflow._focus_run`` / ``workflow._focus_surface``):
-  ``measure_focus``, ``fit_focus_surface``, ``FocusSurface``;
+- focus (``workflow._focus_run`` / ``workflow._focus_surface`` /
+  ``workflow._focus_widget``): ``measure_focus``, ``fit_focus_surface``,
+  ``FocusSurface``, ``pick_focus_points``, ``FocusPicker`` (the interactive
+  point-picking figure with the in-place focus-map heatmap);
 - target discovery (``workflow.discovery``): ``discover_targets``;
 - the shared acquire primitive (``workflow._capture_run``):
   ``capture_positions``;
@@ -40,6 +42,7 @@ Modules whose names start with ``_`` are internal.
 from ._capture_run import capture_positions
 from ._focus_run import measure_focus
 from ._focus_surface import FocusSurface, fit_focus_surface
+from ._focus_widget import FocusPicker, pick_focus_points
 from ._geom import overview_pixel_to_frame
 from ._hijack import NonSimulatorFrameError, hijack_records
 from ._mock_provider import get_provider
@@ -70,6 +73,8 @@ __all__ = [
     "measure_focus",
     "fit_focus_surface",
     "FocusSurface",
+    "pick_focus_points",
+    "FocusPicker",
     "run_overview",
     "overview_inputs_from_records",
     "build_overview_inputs",

@@ -6,7 +6,7 @@ Pick cells from a low-magnification overview, re-image each at the high-magnific
 2. **Set origin** — set the current microscope position as `(0, 0, 0)`.
 3. **Jobs** — capture the overview and target states.
 4. **Initial positions** — ask the microscope for scan-field positions.
-5. **Focus** — ask the microscope for focus points and fit a z surface.
+5. **Focus** — pick focus points in an interactive figure (points already placed in LAS X are pre-filled), press **Measure focus** to autofocus at each one, and inspect the fitted z surface as a heatmap in the same figure.
 6. **Overview** — acquire overviews and discover targets.
 7. **Targets + summary** — acquire target images and write the run report.
 

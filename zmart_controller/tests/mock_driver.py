@@ -267,6 +267,13 @@ def run_procedure(handle: MockHandle, procedure: dict) -> dict:
         return {"ran": dict(procedure), "positions": [dict(pos) for pos in handle.initial]}
     if name == "get_focus_points":
         return {"ran": dict(procedure), "positions": [dict(pos) for pos in handle.initial]}
+    if name == "autofocus":
+        # Mirror the real drivers' contract: report the sharp z in frame
+        # terms (``frame_z_um``). The mock's "sharp" z is simply wherever
+        # the stage currently sits, which is deterministic and lets the
+        # workflow's focus step run end-to-end offline.
+        frame_z = handle.z - handle.origin_z
+        return {"ran": dict(procedure), "focus_um": handle.z, "frame_z_um": frame_z}
     return {"ran": dict(procedure)}
 
 
