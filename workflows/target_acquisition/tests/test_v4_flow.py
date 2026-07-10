@@ -116,9 +116,18 @@ def test_full_controller_only_flow(tmp_path):
         assert targets[1]["x"] == 120.0
         assert targets[1]["y"] == 0.0
 
-        # 8. acquire each target
-        target_records = workflow.acquire_targets(zmart_controller, targets, focus=focus)
+        # 7b. gate in the explorer, the way the notebook does (everything
+        #     stays gated here — the gating logic has its own unit tests).
+        explorer = workflow.explore_targets(targets, overviews)
+        assert len(explorer.gated) == 2
+
+        # 8. acquire through the gallery widget: sample from the gate, then
+        #    review. The mock's records carry no image files, so the gallery
+        #    shows placeholder rows — the acquisition itself is real.
+        gallery = workflow.acquire_gallery(zmart_controller, explorer, overviews, focus=focus)
+        target_records = gallery.acquire(2)
         assert [r["acquisition_type"] for r in target_records] == ["target", "target"]
+        assert len(gallery.picked) == 2
 
         # 9. summary + plots
         summary = workflow.summarize_run(

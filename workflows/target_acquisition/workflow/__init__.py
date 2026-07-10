@@ -6,7 +6,9 @@ notebook imports the numbered step functions from this package and runs
 them in order:
 
   connect -> pick_focus_points (click points, Measure focus) ->
-  run_overview -> discover_targets -> acquire_targets
+  run_overview -> view_overview (channel overlay mosaic) ->
+  discover_targets -> explore_targets (gate + inspect) ->
+  acquire_gallery (pick N at random, review same-scale pairs)
 
 Re-exports:
 
@@ -19,6 +21,12 @@ Re-exports:
   ``FocusSurface``, ``pick_focus_points``, ``FocusPicker`` (the interactive
   point-picking figure with the in-place focus-map heatmap);
 - target discovery (``workflow.discovery``): ``discover_targets``;
+- the interactive review widgets (each a matplotlib figure; see the module
+  docstrings): ``view_overview`` / ``OverviewViewer`` (zoomable tile mosaic
+  with per-channel colour, brightness and contrast), ``explore_targets`` /
+  ``TargetExplorer`` (feature scatter with threshold + lasso gating and
+  hover cell crops), ``acquire_gallery`` / ``AcquisitionGallery`` (random
+  pick from the gate, then same-scale overview/target image pairs);
 - the shared acquire primitive (``workflow._capture_run``):
   ``capture_positions``;
 - the pixel->frame geometry (``workflow._geom``): ``overview_pixel_to_frame``;
@@ -39,13 +47,16 @@ The pre-controller driver-coupled flow is preserved under
 Modules whose names start with ``_`` are internal.
 """
 
+from ._acquisition_widget import AcquisitionGallery, acquire_gallery
 from ._capture_run import capture_positions
+from ._discovery_widget import TargetExplorer, explore_targets
 from ._focus_run import measure_focus
 from ._focus_surface import FocusSurface, fit_focus_surface
 from ._focus_widget import FocusPicker, pick_focus_points
 from ._geom import overview_pixel_to_frame
 from ._hijack import NonSimulatorFrameError, hijack_records
 from ._mock_provider import get_provider
+from ._overview_widget import OverviewViewer, view_overview
 from .discovery import build_overview_inputs, discover_targets, read_overview_geometry
 from .steps import (
     acquire_targets,
@@ -75,6 +86,12 @@ __all__ = [
     "FocusSurface",
     "pick_focus_points",
     "FocusPicker",
+    "view_overview",
+    "OverviewViewer",
+    "explore_targets",
+    "TargetExplorer",
+    "acquire_gallery",
+    "AcquisitionGallery",
     "run_overview",
     "overview_inputs_from_records",
     "build_overview_inputs",

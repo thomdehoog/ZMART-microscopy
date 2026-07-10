@@ -18,6 +18,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 _TARGET_ACQ = Path(__file__).resolve().parents[1]
 _DRIVER_HELPERS = (
     _TARGET_ACQ.parents[1]
@@ -90,6 +92,22 @@ def _flow_procedure_names() -> set[str]:
     for module in (_TARGET_ACQ / "workflow").glob("*.py"):
         names |= _procedure_names_in(ast.parse(module.read_text(encoding="utf-8")))
     return names
+
+
+@pytest.fixture(autouse=True)
+def _leave_the_controller_registry_untouched():
+    """Importing the Leica adapter registers it with the controller.
+
+    That registration must not leak into other test modules (the controller's
+    own suite picks ``get_instruments()[0]`` expecting its mock), so the
+    registry is restored to whatever it held before this test ran.
+    """
+    from zmart_controller import registry
+
+    before = dict(registry.REGISTRY)
+    yield
+    registry.REGISTRY.clear()
+    registry.REGISTRY.update(before)
 
 
 def test_flow_procedures_exist_on_the_leica_adapter():
