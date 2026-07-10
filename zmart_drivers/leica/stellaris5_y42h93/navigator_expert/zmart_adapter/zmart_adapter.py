@@ -370,7 +370,7 @@ def _delta_or_warn(handle: ZmartHandle, snapshot: dict) -> tuple:
 
 def _selected_job_name(handle: ZmartHandle) -> str:
     """Name of the currently selected LAS X job; raises when unreadable."""
-    selected = _readers.get_selected_job(handle.client, mode="api")
+    selected = _readers.get_selected_job(handle.client)
     name = selected.get("Name") if selected else None
     if not name:
         raise RuntimeError("could not determine the selected LAS X job")
@@ -587,7 +587,12 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
     _require_open(handle)
     normal, _ = _job_catalog(handle)
     names = [j["Name"] for j in normal if j.get("Name")]
-    selected = next((j["Name"] for j in normal if j.get("IsSelected")), None)
+    try:
+        selected = _selected_job_name(handle)
+    except RuntimeError:
+        selected = None
+    if selected not in names:
+        selected = next((j["Name"] for j in normal if j.get("IsSelected")), None)
     return {
         "job": {"options": names, "active": selected},
         "backlash_correction": {"options": [True, False], "active": True},
@@ -806,9 +811,9 @@ def get_state(handle: ZmartHandle) -> dict:
     X-derived values are fresh reads.
     """
     _require_open(handle)
-    hw = _readers.get_hardware_info(handle.client, mode="api") or {}
+    hw = _readers.get_hardware_info(handle.client) or {}
     microscope = hw.get("Microscope") or {}
-    selected = _readers.get_selected_job(handle.client, mode="api") or {}
+    selected = _readers.get_selected_job(handle.client) or {}
     if not selected.get("Name"):
         raise RuntimeError("could not determine the selected LAS X job")
     normal, autofocus = _job_catalog(handle)
@@ -884,7 +889,6 @@ def get_procedures(handle: ZmartHandle) -> dict:
         },
         "get_root": {"description": "return the ZMART run output root"},
         "get_positions": {"description": "return LAS X scan-field positions in frame um"},
-        "get_focus_points": {"description": "return LAS X focus points in frame um"},
     }
 
 
@@ -903,11 +907,6 @@ def run_procedure(handle: ZmartHandle, procedure: dict) -> dict:
         return {
             "ran": dict(procedure),
             "positions": _procedures.positions(_scan_field(handle)),
-        }
-    if name == "get_focus_points":
-        return {
-            "ran": dict(procedure),
-            "positions": _procedures.focus_points(_scan_field(handle)),
         }
     if name == "backlash_takeup":
         _motion.correct_backlash(handle.client)

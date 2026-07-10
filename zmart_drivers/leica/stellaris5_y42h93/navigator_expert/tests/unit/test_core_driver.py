@@ -2676,7 +2676,7 @@ class TestHybridSelectJobApiLegEndToEnd(unittest.TestCase):
 
 
 class TestCommandReaderSafety(unittest.TestCase):
-    def test_move_galvo_to_pixel_pins_parameter_reads_to_api(self):
+    def test_move_galvo_to_pixel_routes_selected_job_and_pins_metadata_to_api(self):
         client = make_client()
         calls = {"selected": [], "settings": [], "base_fov": []}
 
@@ -2715,7 +2715,7 @@ class TestCommandReaderSafety(unittest.TestCase):
             result = commands.move_galvo_to_pixel(client, 10, 20)
 
         self.assertTrue(result["success"])
-        self.assertEqual(calls["selected"][0]["mode"], "api")
+        self.assertNotIn("mode", calls["selected"][0])
         self.assertEqual(calls["settings"][0][1]["mode"], "api")
         self.assertEqual(calls["base_fov"][0][1]["mode"], "api")
 

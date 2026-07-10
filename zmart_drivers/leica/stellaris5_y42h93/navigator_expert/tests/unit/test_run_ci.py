@@ -30,7 +30,7 @@ def test_run_ci_exposes_only_mock_and_hardware_modes():
 
 def test_hardware_mode_requires_lasx_and_runs_acquire_smoke(monkeypatch, tmp_path):
     run_ci = _load_run_ci()
-    captured: list[tuple[str, list[str]]] = []
+    captured: list[tuple[str, list[str], bool]] = []
 
     monkeypatch.setattr(run_ci, "REPORT_DIR", tmp_path)
     monkeypatch.setattr(run_ci, "build_env", lambda: {})
@@ -41,7 +41,7 @@ def test_hardware_mode_requires_lasx_and_runs_acquire_smoke(monkeypatch, tmp_pat
     )
 
     def fake_run_step(name, cmd, env, *, fatal):
-        captured.append((name, cmd))
+        captured.append((name, cmd, fatal))
         return {
             "name": name,
             "ok": True,
@@ -56,13 +56,15 @@ def test_hardware_mode_requires_lasx_and_runs_acquire_smoke(monkeypatch, tmp_pat
 
     assert run_ci.main(["--hardware"]) == 0
 
-    commands = {name: cmd for name, cmd in captured}
+    commands = {name: cmd for name, cmd, _fatal in captured}
     assert "limits: mock self-check (fail-closed gate proven before any hardware)" in commands
+    fatal_by_name = {name: fatal for name, _cmd, fatal in captured}
 
     adapter_cmd = _command_for(captured, "validate_zmart_adapter.py")
     assert "--allow-acquire" in adapter_cmd
     assert "--allow-missing-lasx" not in adapter_cmd
     assert "--mock" not in adapter_cmd
+    assert fatal_by_name["hardware: zmart adapter (move/state/acquire)"] is True
 
     hardware_cmds = _commands_for(captured, "validate_hardware.py")
     assert len(hardware_cmds) == 3
@@ -72,13 +74,17 @@ def test_hardware_mode_requires_lasx_and_runs_acquire_smoke(monkeypatch, tmp_pat
         assert "--mock" not in cmd
 
     assert "--mock" not in _command_for(captured, "validate_readers_side_by_side.py")
+    assert fatal_by_name["hardware: reader parity + routed modes"] is False
+    assert fatal_by_name["hardware: end-to-end validator [api reader]"] is False
+    assert fatal_by_name["hardware: end-to-end validator [log reader]"] is False
+    assert fatal_by_name["hardware: end-to-end validator [hybrid reader]"] is True
 
 
-def _commands_for(captured: list[tuple[str, list[str]]], script_name: str) -> list[list[str]]:
-    return [cmd for _name, cmd in captured if any(part.endswith(script_name) for part in cmd)]
+def _commands_for(captured: list[tuple[str, list[str], bool]], script_name: str) -> list[list[str]]:
+    return [cmd for _name, cmd, _fatal in captured if any(part.endswith(script_name) for part in cmd)]
 
 
-def _command_for(captured: list[tuple[str, list[str]]], script_name: str) -> list[str]:
+def _command_for(captured: list[tuple[str, list[str], bool]], script_name: str) -> list[str]:
     matches = _commands_for(captured, script_name)
     assert len(matches) == 1
     return matches[0]
