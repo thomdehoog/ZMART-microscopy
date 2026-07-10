@@ -163,43 +163,48 @@ def test_migrate_legacy_snapshots_moves_pre_api_snapshots(tmp_path):
 # --- origin: machine-local frame zero point ---
 
 
-def test_origin_round_trips_into_latest_snapshot(tmp_path):
-    _mk_snapshot(tmp_path, "2026-06-15T09-12-00-000000Z")
-    newest = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
+def test_origin_round_trips_in_its_own_folder(tmp_path):
+    # The origin lives in its own origin/ folder, next to the snapshots and
+    # independent of them.
+    _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
     p = _profile(tmp_path)
     payload = {"origin": {"x_um": 1.0, "y_um": 2.0}, "captured_at": 123.0}
 
     path = p.write_origin(payload)
 
-    assert path == newest / "origin.json"
+    assert path == p.origin_dir() / "origin.json"
+    assert path.parent.name == "origin"
     assert p.read_origin() == payload
 
-    # A second set_origin overwrites in place (same newest snapshot).
+    # A second set_origin overwrites in place.
     p.write_origin({"origin": {"x_um": 9.0}, "captured_at": 456.0})
     assert p.read_origin()["origin"] == {"x_um": 9.0}
 
 
-def test_origin_without_snapshot_seeds_and_persists(tmp_path):
+def test_origin_persists_without_any_snapshot(tmp_path):
+    # set_origin works even before a calibration snapshot exists: the origin
+    # folder is independent of the dated snapshots.
     p = _profile(tmp_path)
     path = p.write_origin({"origin": {}})
-    assert path == p.latest_snapshot() / "origin.json"
+    assert path == p.origin_dir() / "origin.json"
+    assert p.latest_snapshot() is None
     assert p.read_origin() == {"origin": {}}
 
 
-def test_publish_snapshot_carries_origin_forward(tmp_path):
-    newest = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
+def test_publish_snapshot_never_writes_origin(tmp_path):
+    # The origin is not snapshot state: an adopt neither reads nor writes it.
+    _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
     p = _profile(tmp_path)
     p.write_origin({"origin": {"x_um": 5.0}})
-    assert (newest / "origin.json").exists()
 
     snap = p.publish_snapshot(datetime(2026, 7, 2, 10, 0, 0, 0, tzinfo=timezone.utc))
 
-    # The origin survives an adopt: it rides into the new snapshot.
-    assert json.loads((snap / "origin.json").read_text(encoding="utf-8"))["origin"] == {"x_um": 5.0}
+    assert not (snap / "origin.json").exists()
+    # The origin folder is untouched by the adopt.
     assert p.read_origin()["origin"] == {"x_um": 5.0}
 
 
-def test_publish_snapshot_without_prior_origin_has_none(tmp_path):
+def test_read_origin_is_none_when_never_set(tmp_path):
     _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
     p = _profile(tmp_path)
     snap = p.publish_snapshot(datetime(2026, 7, 2, 10, 0, 0, 0, tzinfo=timezone.utc))

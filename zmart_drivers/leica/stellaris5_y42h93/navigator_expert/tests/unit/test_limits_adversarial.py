@@ -3,8 +3,17 @@
 Attacks the commands-layer function-keyed gate (``commands/gate.py``), the
 connect-time limits handshake, ProgramData resolution, and the hardcoded
 physical backstop — through every entry point (direct commands, adapter op,
-controller Session). Every attack must produce a FAIL-CLOSED refusal with a
-clear error: never silent acceptance, never a crash that bypasses the gate.
+controller Session).
+
+Policy (operator decision): a malformed or over-wide machine ``limits.json``
+must never GOVERN — its bad values must not reach a move — but it does not
+leave the session dead. The handshake falls back to the bundled DEFAULT
+envelope (loudly, ``is_fallback``), which sits within the physical backstop, so
+the wide/malformed values are replaced, not honoured. The two things that never
+relax: the hardcoded physical backstop bounds every move regardless, and a
+client that never handshook at all still refuses fail-closed. So every attack
+must still end with the bad values NOT in force — either refused outright (no
+handshake) or overridden by the safe defaults — never silently accepted.
 
 Runs in normal CI (offline, mock-backed). Design:
 ``docs/design/limits-enforcement.md`` + amendments;
@@ -99,7 +108,7 @@ def _mock_stage_position(client):
 
 
 # =============================================================================
-# 1. Malformed limits.json — the handshake must refuse, reads must survive
+# 1. Malformed limits.json — the handshake falls back to safe defaults
 # =============================================================================
 
 _BAD_LIMITS_TEXTS = {
@@ -124,22 +133,25 @@ _BAD_LIMITS_TEXTS = {
 
 
 @pytest.mark.parametrize("attack", sorted(_BAD_LIMITS_TEXTS))
-def test_malformed_limits_json_fails_the_handshake_closed(attack, mock_client):
+def test_malformed_limits_json_falls_back_to_defaults(attack, mock_client):
     _raw_snapshot(_machine_root(), limits_text=_BAD_LIMITS_TEXTS[attack])
     state = gate.connect_handshake(mock_client)
-    assert not state.ok
-    assert "set_stage_limits.ipynb" in state.error  # actionable, names the factory
-    # every mutating command refuses with the recorded reason...
-    _assert_refused(commands_mod.move_xy(mock_client, 50000, 50000, unit="um"))
-    _assert_refused(commands_mod.set_zoom(mock_client, "HiRes", 5.0))
-    # ...and the envelope was never applied
-    assert motion_limits.get_stage_limits()["x_min"] is None
-    # reads still work (read-only sessions stay usable)
+    # The malformed machine file is NOT used; the session falls back to the
+    # bundled DEFAULT envelope (loudly), never left fail-closed.
+    assert state.ok, attack
+    assert state.limits.describe()["is_fallback"] is True
+    # the DEFAULT envelope is applied — NOT the malformed file's values
+    assert motion_limits.get_stage_limits()["x_min"] == DEFAULT_STAGE_UM["x"][0]
+    # an in-envelope move works; an out-of-envelope one still refuses, so a
+    # widened/garbage file can never authorize a move the defaults forbid
+    assert commands_mod.move_xy(mock_client, 50000, 50000, unit="um")["success"] is True
+    _assert_refused(commands_mod.move_xy(mock_client, 999999, 50000, unit="um"), needle="outside")
+    # reads still work
     assert mock_client.PyApiPing is not None
 
 
 # =============================================================================
-# 2. Malformed functions block (same limits.json) — same fail-closed posture
+# 2. Malformed functions block (same limits.json) — same defaults fallback
 # =============================================================================
 
 _ALL_NULL = {key: None for key in gate.FUNCTION_LIMIT_KEYS}
@@ -173,22 +185,28 @@ _BAD_FUNCTION_LIMITS_TEXTS = {
 
 
 @pytest.mark.parametrize("attack", sorted(_BAD_FUNCTION_LIMITS_TEXTS))
-def test_malformed_function_limits_fails_the_handshake_closed(attack, mock_client):
+def test_malformed_function_limits_falls_back_to_defaults(attack, mock_client):
     _raw_snapshot(_machine_root(), limits_text=_BAD_FUNCTION_LIMITS_TEXTS[attack])
     state = gate.connect_handshake(mock_client)
-    assert not state.ok, attack
-    _assert_refused(commands_mod.move_xy(mock_client, 50000, 50000, unit="um"))
-    _assert_refused(commands_mod.select_job(mock_client, "Overview"))
+    # The malformed functions block is not used; defaults govern instead.
+    assert state.ok, attack
+    assert state.limits.describe()["is_fallback"] is True
+    # the default policy governs: an out-of-envelope move still refuses
+    _assert_refused(
+        commands_mod.move_xy(mock_client, 999999, 50000, unit="um"), needle="outside"
+    )
 
 
-def test_nan_in_function_constraint_is_rejected(mock_client):
+def test_nan_in_function_constraint_triggers_the_defaults_fallback(mock_client):
     """json.dumps emits a bare NaN literal; the shared parser must refuse it —
-    even when it lives in an inline ``functions`` constraint, not the envelope."""
+    even when it lives in an inline ``functions`` constraint, not the envelope.
+    A rejected file falls back to the safe defaults (``is_fallback``), so the
+    NaN never governs a move."""
     text = _with_functions(dict(_ALL_NULL, set_xyz={"x_um": {"min": float("nan"), "max": 130000}}))
     _raw_snapshot(_machine_root(), limits_text=text)
     state = gate.connect_handshake(mock_client)
-    assert not state.ok
-    assert "finite" in state.error
+    assert state.ok
+    assert state.limits.describe()["is_fallback"] is True
 
 
 # =============================================================================
@@ -355,15 +373,21 @@ def test_backstop_refuses_even_with_a_widened_in_memory_envelope(mock_client):
     assert "backstop" in z["message"]
 
 
-def test_hand_widened_limits_file_is_refused_at_the_handshake(mock_client):
+def test_hand_widened_limits_file_does_not_govern(mock_client):
+    """A machine file hand-widened past the backstop is rejected and replaced by
+    the safe defaults — its wide values never authorize a move."""
     _raw_snapshot(
         _machine_root(),
         limits_text=_valid_limits_text(dict(DEFAULT_STAGE_UM, y=[0.0, 400000.0])),
     )
     state = gate.connect_handshake(mock_client)
-    assert not state.ok
-    assert "backstop" in state.error
-    _assert_refused(commands_mod.move_xy(mock_client, 50000, 50000, unit="um"))
+    assert state.ok
+    assert state.limits.describe()["is_fallback"] is True
+    # a target the WIDENED file would have allowed (y within [0, 400000]) but the
+    # defaults forbid must still refuse — the wide value is not in force
+    _assert_refused(
+        commands_mod.move_xy(mock_client, 50000, 300000, unit="um"), needle="outside"
+    )
 
 
 def test_second_handshake_rebinds_without_leaking_between_clients(tmp_path):
@@ -393,15 +417,18 @@ def test_second_handshake_rebinds_without_leaking_between_clients(tmp_path):
 # =============================================================================
 
 
-def test_op_key_missing_from_machine_file_refuses_everything(mock_client):
+def test_op_key_missing_from_machine_file_falls_back_to_defaults(mock_client):
+    """A machine file missing an op key is invalid (a new op could ship silently
+    ungated), so it is rejected and the complete bundled defaults govern."""
     _raw_snapshot(
         _machine_root(),
         limits_text=_with_functions({k: None for k in gate.FUNCTION_LIMIT_KEYS if k != "set_xyz"}),
     )
     state = gate.connect_handshake(mock_client)
-    assert not state.ok
-    assert "set_xyz" in state.error
-    _assert_refused(commands_mod.set_scan_speed(mock_client, "HiRes", 400))
+    assert state.ok
+    assert state.limits.describe()["is_fallback"] is True
+    # the defaults carry every op key, so set_state is governed (null = allowed)
+    assert gate.check_refusal(mock_client, "set_scan_speed", {}) is None
 
 
 def test_absent_key_fails_closed_but_explicit_null_is_unlimited(mock_client):
@@ -416,13 +443,13 @@ def test_absent_key_fails_closed_but_explicit_null_is_unlimited(mock_client):
     # absent key case is test_op_key_missing_from_machine_file_refuses_everything
 
 
-def test_reads_work_while_all_mutations_refuse(mock_client):
-    """Failed handshake == read-only session, not a dead session."""
+def test_reads_work_without_a_handshake_while_mutations_refuse(mock_client):
+    """No handshake == read-only session, not a dead session. Reads never touch
+    the gate; mutations refuse fail-closed until a handshake runs."""
     import navigator_expert as drv
 
-    _raw_snapshot(_machine_root(), limits_text=_BAD_LIMITS_TEXTS["missing_constraints"])
-    state = gate.connect_handshake(mock_client)
-    assert not state.ok
+    # This client never handshook — the one path that stays fail-closed.
+    assert gate.state_for(mock_client) is None
     assert drv.ping(mock_client)
     jobs = drv.get_jobs(mock_client, mode="api")
     assert jobs
@@ -495,8 +522,10 @@ def test_every_mutating_wrapper_refuses_fail_closed_without_state(wrapper):
 
 
 def test_adapter_bypass_refuses_at_the_commands_layer(clear_stage_limits):
-    """Adapter entry point against invalid ProgramData: set_xyz raises the
-    ops-contract RuntimeError carrying the gate's actionable message."""
+    """Adapter entry point: an out-of-envelope move raises the ops-contract
+    RuntimeError from the commands-layer gate, below the adapter. The invalid
+    machine file falls back to defaults, so the refusal is the envelope check,
+    not a missing handshake."""
     from unittest.mock import patch
 
     from navigator_expert.commands import settings as _cmd_settings
@@ -520,13 +549,15 @@ def test_adapter_bypass_refuses_at_the_commands_layer(clear_stage_limits):
         ),
         patch.object(_cmd_settings, "make_changeable_copy", side_effect=lambda s: s),
     ):
-        with pytest.raises(RuntimeError, match="set_stage_limits.ipynb"):
+        # Frame target (0, 0, 0) with an unset (absolute) origin lands at stage
+        # x = 0, below the envelope's x_min — the commands-layer gate refuses.
+        with pytest.raises(RuntimeError, match="outside"):
             adapter.set_xyz(handle, 0.0, 0.0, 0.0)
 
 
 def test_controller_session_bypass_refuses_at_the_commands_layer(clear_stage_limits):
     """Controller entry point (Session -> ops table -> adapter -> commands):
-    the refusal still originates at the commands layer."""
+    an out-of-envelope move still refuses at the commands layer."""
     from unittest.mock import patch
 
     from navigator_expert.commands import settings as _cmd_settings
@@ -554,7 +585,7 @@ def test_controller_session_bypass_refuses_at_the_commands_layer(clear_stage_lim
         instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "leica")
         session = zmart_controller.set_instrument(instrument)
         try:
-            with pytest.raises(RuntimeError, match="set_stage_limits.ipynb"):
+            with pytest.raises(RuntimeError, match="outside"):
                 session.set_xyz(0.0, 0.0, 0.0)
         finally:
             session.disconnect()

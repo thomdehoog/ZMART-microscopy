@@ -19,16 +19,13 @@ files and CI can run without executing the notebooks.
 
 The per-run *working* envelope (boundary-marker / scan-field limits) is not
 machine state - it belongs to the acquisition workflow, above the vendor
-driver - so it is not resolved here. The legacy ``current_path`` /
-``write_limits`` helpers keep the flat ``stage_um`` per-run shape and remain
-only until that lift into the workflow lands.
+driver - so it is not resolved here.
 """
 
 from __future__ import annotations
 
 import json
 import math
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -59,20 +56,6 @@ def _driver_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def limits_root() -> Path:
-    return _driver_root() / "limits"
-
-
-def current_path() -> Path:
-    """Path to the per-run working-envelope limits config.
-
-    This is per-run data (target acquisition writes it from boundary markers),
-    not machine state. It stays under the driver tree for now; a later increment
-    relocates it to the acquisition run output.
-    """
-    return limits_root() / "current.json"
-
-
 def defaults_path() -> Path:
     """Path to the active physical stage envelope in ProgramData.
 
@@ -88,17 +71,6 @@ def defaults_path() -> Path:
 def _read_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as fh:
         return json.load(fh)
-
-
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2, sort_keys=True)
-        fh.write("\n")
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(str(tmp), str(path))
 
 
 def _validate_limits(limits: dict[str, Any], *, path: Path) -> dict[str, list[float]]:
@@ -216,27 +188,6 @@ def load(limits_path: str | Path | None = None) -> dict[str, Any]:
     return {
         "stage_um": stage,
     }
-
-
-def write_limits(
-    stage_um: dict[str, Any],
-    *,
-    source: str,
-    path: str | Path | None = None,
-) -> Path:
-    """Write a stage limits file after validating the canonical schema."""
-    source = _validate_source(source)
-    selected = Path(path) if path is not None else current_path()
-    limits = _validate_limits(stage_um, path=selected)
-    _atomic_write_json(
-        selected,
-        {
-            "schema_version": LIMITS_SCHEMA_VERSION,
-            "source": source,
-            "stage_um": limits,
-        },
-    )
-    return selected
 
 
 def adopt_limits(

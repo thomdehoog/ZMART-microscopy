@@ -100,7 +100,8 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     assert by_name["zgalvo: frame z"]["status"] == "PASS"
     assert by_name["zwide: frame z is additive (z-wide + z-galvo)"]["status"] == "PASS"
     assert by_name["run_procedure: get_positions"]["status"] == "SKIP"
-    assert by_name["run_procedure: get_focus_points"]["status"] == "SKIP"
+    # get_focus_points now lives only in the workflow layer, not the driver
+    # adapter, so the adapter validator no longer exercises it.
     # Acquire needs real LAS X export files, so it is skipped under the mock.
     assert by_name["phase: acquire"]["status"] == "SKIP"
 

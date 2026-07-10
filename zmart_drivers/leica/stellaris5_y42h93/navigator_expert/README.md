@@ -80,27 +80,41 @@ runtime where possible. Override via the profile, not at call sites.
   **machine-local ProgramData snapshot** (out of the repo). The repo ships defaults only. If
   ProgramData is empty, those defaults are copied into the first local snapshot so runtime reads still
   use ProgramData paths. Each snapshot holds `limits.json`, `calibration.json` or
-  `calibrations/<name>/calibration.json`, `orientation.json`, and `origin.json`. The notebooks publish
-  measured replacements by copying the latest snapshot forward and changing only their part. The
-  single `limits.json` is function-keyed (`constraints` = the `stage.*` envelope + `functions` = the
-  gate policy; no `backlash` block — backlash is a motion utility with baked-in defaults, §2b).
-- **Limits handshake (required before any mutation)** — `connect_limits_handshake(client)` (run
-  automatically by the zmart adapter's `connect()`; workflows/validators/notebooks call it once after
-  connecting). It resolves the ProgramData `limits.json` (seeding defaults there first when needed),
-  validates it (schema, finite numbers only, min ≤ max, its `constraints`/`functions`, envelope
-  **within the hardcoded physical backstop** `motion.limits.STAGE_BACKSTOP_UM`), applies the stage
-  envelope, and installs the function-keyed gate for that client. On failure the
-  session stays usable **read-only** and every mutating command returns a fail-closed refusal that
-  names the file tried and points at the notebook. Manual `set_stage_limits(...)` still adjusts the
-  in-memory envelope, but it does not open the gate — only a successful handshake does — and the
-  backstop bounds every move regardless.
+  `calibrations/<name>/calibration.json`, and `orientation.json`. The **origin** is not snapshot
+  state: it is ephemeral operator state, so it lives in its own `origin/` folder next to the
+  snapshots and is **session-scoped** (see §5). The notebooks publish measured replacements by
+  copying the latest snapshot forward and changing only their part. The single `limits.json` is
+  function-keyed (`constraints` = the `stage.*` envelope + `functions` = the gate policy; no
+  `backlash` block — backlash is a motion utility with baked-in defaults, §2b).
+- **The driver loads the configs at connect** — `connect_microscope(...)` (`connection/session.py`)
+  is the driver's own front door. It opens the CAM client and then loads this microscope's three
+  machine-local configs — the **stage limits**, the **orientation**, and the **calibration** — so the
+  whole session works from one consistent picture. The zmart adapter's `connect()` simply delegates to
+  it. Each config can be skipped with `load_limits` / `load_orientation` / `load_calibration` (all
+  default `True`; see §5 for what skipping one means). This is a deliberate ladder: the limits notebook
+  is bounded only by the physical backstop, `set_orientation` is bounded by limits, and
+  `calibrate_objective_pair` is bounded by limits and expects a measured orientation.
+- **Limits handshake** — `connect_limits_handshake(client)` (run by `connect_microscope`;
+  workflows/validators/notebooks call it directly). It resolves the ProgramData `limits.json` (seeding
+  defaults there first when needed), validates it (schema, finite numbers only, min ≤ max, its
+  `constraints`/`functions`, envelope **within the hardcoded physical backstop**
+  `motion.limits.STAGE_BACKSTOP_UM`), applies the stage envelope, and installs the function-keyed gate
+  for that client. **If the machine file is invalid (or loading is switched off), the session does not
+  go dead — it falls back to the bundled default envelope** (loudly warned, marked a fallback). The
+  defaults sit within the physical backstop, and the backstop bounds every move regardless, so an
+  over-wide or corrupt file can never authorise a move the defaults forbid. The only fully fail-closed
+  state is a client that never handshook at all (every mutating command then refuses, naming the
+  notebook). Manual `set_stage_limits(...)` still adjusts the in-memory envelope, but it does not open
+  the gate — only a successful handshake does.
 - **Function-keyed limits (fail-closed gate, commands layer)** — `commands/gate.py`. Every mutating
   command wrapper (`set_*`, `move_*`, `acquire`, `select_job`, plus `save_experiment` /
   `load_experiment`) declares one key in `gate.MUTATING_COMMANDS` and checks it **before the native
   call fires** — nothing built on top (adapter, controller, workflows, notebooks) can bypass it.
   The machine-local `limits.json` (its `functions` block) must carry an entry for every key (`null` =
-  reviewed-and-unlimited; an **absent** key fails closed at load). If every move/acquire is refusing,
-  read the refusal message: it says exactly which file is missing/invalid and how to create it.
+  reviewed-and-unlimited; an **absent** key makes the file invalid, which triggers the defaults
+  fallback above rather than shipping a silently-ungated op). If a move/acquire is refusing, read the
+  refusal message: it says exactly which envelope is in force and, when relevant, how to publish
+  measured limits.
 
 ## 4. Quick start
 
@@ -149,15 +163,29 @@ print(saved.image_paths)                                  # {PlaneIndex(t,z,c): 
 > No machine config yet? The first connect seeds ProgramData from the repo defaults so CI and local
 > mock runs work. On the rig, run `limits/notebooks/set_stage_limits.ipynb`,
 > `orientation/notebooks/set_orientation.ipynb`, and the calibration notebook to replace those defaults
-> with measured values. If validation fails, mutating commands refuse fail-closed and the message names
-> the ProgramData file to fix.
+> with measured values. If a machine file is invalid, the session falls back to the bundled default
+> envelope (loudly) rather than refusing — fix the file the warning names and reconnect.
 
 ## 5. Core concepts
 
-**The client.** `connect_python_client()` loads the LAS X runtime, connects, applies the API pacing
-delay, and pings. Every command/reader takes the returned `client` as its first argument.
-The CAM client has no disconnect counterpart — it lives for the process; there is
-nothing to close when a session ends.
+**The client.** `connect_microscope(...)` is the normal entry point: it opens the CAM client and
+loads this microscope's three machine-local configs (limits, orientation, calibration), so the whole
+session works from one consistent picture; `connect_python_client()` is the lower-level primitive that
+only opens and pings the client (the setup notebooks use it, since they load just the one config they
+need). Every command/reader takes the returned `client` as its first argument. The CAM client has no
+disconnect counterpart — it lives for the process; there is nothing to close when a session ends.
+
+**Which configs to load.** `connect_microscope(load_limits=…, load_orientation=…, load_calibration=…)`
+(all default `True`) chooses what a connection loads. Skipping one has a defined, safe meaning:
+`load_limits=False` governs the session with the bundled **default** envelope (never ungated; the
+physical backstop still holds); `load_orientation=False` saves images unrotated; `load_calibration=False`
+refuses cross-objective moves rather than computing uncompensated ones.
+
+**The origin is session-scoped.** `set_origin` makes the current position the frame zero — from then
+until it is set again or the session ends. It is written to the machine-local `origin/` folder as a
+record, but the driver does **not** restore it at connect: a fresh connection is an absolute frame
+until `set_origin` runs. (An earlier version restored the last origin across sessions; it no longer
+does.)
 
 **Live vs. file.** `set_zoom(...)` talks to the running scope and confirms by reading hardware back;
 `lrp_set_zoom(...)` edits a `.lrp` template *file* (nothing happens on the scope until LAS X reloads
@@ -343,7 +371,7 @@ code is **load-bearing** (used by `move_galvo_to_pixel`, `disable_roi_scan`, `re
 
 ```
 zmart_drivers/leica/stellaris5_y42h93/navigator_expert/
-├── connection/   lasx_runtime.py (load .NET CAM assemblies) · session.py (connect / ping / orientation)
+├── connection/   lasx_runtime.py (load .NET CAM assemblies) · session.py (connect_python_client / connect_microscope) · session_state.py (per-connection orientation + calibration)
 ├── commands/     dispatch.py (the backbone) · errors.py · prechecks.py · confirmations.py ·
 │                 settings.py · objectives.py · commands.py (set_*/move_*/acquire/select_job)
 ├── readers/      router.py (api/log/hybrid) · api_reader.py · log_reader.py · capabilities.py · derived.py
@@ -446,7 +474,10 @@ restores — with confirmation status and timing. **Bench-run instructions** (pr
 
 These **silently misbehave** instead of failing loudly — respect them or results are wrong without an error:
 
-1. **Configure stage limits before any movement** — `move_xy`/`move_z` fail immediately if unset.
+1. **Movement needs a limits handshake** — a client that never handshook refuses `move_xy`/`move_z`
+   fail-closed. Through `connect_microscope` (and the adapter) the handshake always runs, falling back
+   to the bundled default envelope if the machine file is invalid, so a connected session can always
+   move within the defaults; the physical backstop bounds every move regardless.
 2. **`acquire()` returns an `AcquisitionResult` and raises on failure** — not a dict; read timing via
    `acq.command_result["timing"]`. Persisting is a separate `save()` call.
 3. **For setting commands, check `confirmed`, not just `success`** — most `set_*` return
@@ -464,9 +495,13 @@ These **silently misbehave** instead of failing loudly — respect them or resul
    select the wrong job after reload.
 10. **`load_experiment` confirms only the receipt, not on-disk state** — follow with `save_experiment`
     (or use `apply_lrp_change`, which does).
-11. **Adapter mutating ops are gated by `limits.json` (its `functions` block), fail-closed** — if it
-    fails to load/validate at connect, every `set_*`/`acquire` on the zmart-adapter surface refuses; the only
-    hint is the connect-time warning (see §3).
+11. **Adapter mutating ops are gated by `limits.json` (its `functions` block)** — if the machine file
+    fails to load/validate at connect, the session falls back to the bundled **default** envelope
+    (loudly warned) rather than refusing everything; the connect-time warning names what happened
+    (see §3). Out-of-envelope moves still refuse at the commands layer, below the adapter.
+12. **The origin is session-scoped, not restored at connect** — after connecting, the frame is
+    absolute stage coordinates until `set_origin` runs. It persists to the machine-local `origin/`
+    folder only as a record (see §5).
 
 ## 11. Extending the driver
 

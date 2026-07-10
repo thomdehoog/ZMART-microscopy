@@ -127,15 +127,11 @@ def test_load_ignores_a_stray_backlash_block(tmp_path):
 
 def test_limits_paths_are_separate_from_calibration_state(tmp_path, monkeypatch):
     # With no machine snapshot (hermetic root fixture): the physical limits
-    # seed into ProgramData, and the per-run working
-    # envelope path stays under the driver tree (its file is untracked/per-run,
-    # so only the path is asserted here).
+    # seed into ProgramData from the bundled template shipped in the driver tree.
     driver_root = Path(__file__).resolve().parents[2]
-    current_limits = driver_root / "limits" / "current.json"
     template_limits = driver_root / "limits" / "defaults" / "limits.json"
     monkeypatch.setenv("ZMART_MICROSCOPY_ROOT", str(tmp_path / "programdata"))
 
-    assert stage_config.current_path() == current_limits
     defaults = stage_config.defaults_path()
     assert defaults.name == "limits.json"
     assert defaults != template_limits
@@ -190,37 +186,3 @@ def test_load_requires_source(tmp_path):
         stage_config.load(limits_path=limits)
 
 
-# --- write_limits: the legacy per-run working envelope (flat stage_um) ---
-
-
-def test_write_limits_validates_and_writes_current_shape(tmp_path):
-    path = tmp_path / "current.json"
-
-    written = stage_config.write_limits(
-        {"x": [10, 20], "y": [30, 40], "z_galvo": [-2, 2], "z_wide": [0, 100]},
-        source="cfg_fallback",
-        path=path,
-    )
-
-    assert written == path
-    assert json.loads(path.read_text(encoding="utf-8")) == {
-        "schema_version": 1,
-        "source": "cfg_fallback",
-        "stage_um": {
-            "x": [10.0, 20.0],
-            "y": [30.0, 40.0],
-            "z_galvo": [-2.0, 2.0],
-            "z_wide": [0.0, 100.0],
-        },
-    }
-
-
-def test_write_limits_requires_source(tmp_path):
-    path = tmp_path / "current.json"
-
-    with pytest.raises(ValueError, match="source"):
-        stage_config.write_limits(
-            {"x": [10, 20], "y": [30, 40], "z_galvo": [-2, 2], "z_wide": [0, 100]},
-            source="",
-            path=path,
-        )
