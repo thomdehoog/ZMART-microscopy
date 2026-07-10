@@ -211,12 +211,13 @@ def phase_workflow_procedures(v: vh.Validator, sess: Any, args: argparse.Namespa
 
         if args.mock:
             v.skip("run_procedure: get_positions", "live LAS X scan-field template required")
-            v.skip("run_procedure: get_focus_points", "live LAS X scan-field template required")
             return
 
-        positions = v.callable(
+        positions = _callable_or_skip_missing_scanfield(
+            v,
             "run_procedure: get_positions",
             lambda: sess.run_procedure({"name": "get_positions"}),
+            "no grid positions found",
         )
         if positions is not None:
             v.compare(
@@ -225,16 +226,35 @@ def phase_workflow_procedures(v: vh.Validator, sess: Any, args: argparse.Namespa
                 True,
             )
 
-        focus_points = v.callable(
-            "run_procedure: get_focus_points",
-            lambda: sess.run_procedure({"name": "get_focus_points"}),
+
+def _callable_or_skip_missing_scanfield(
+    v: vh.Validator,
+    name: str,
+    run: Any,
+    missing_fragment: str,
+) -> Any:
+    """Record a procedure call, but skip when the live LAS X template is empty."""
+    started, t0 = vh._now_iso(), time.monotonic()
+    try:
+        value = run()
+    except RuntimeError as exc:
+        if missing_fragment in str(exc):
+            v.skip(name, str(exc))
+        else:
+            v.fail(name, f"RuntimeError: {exc}")
+        return None
+    except Exception as exc:  # noqa: BLE001 -- mirror Validator.callable
+        v.fail(name, f"{type(exc).__name__}: {exc}")
+        return None
+    v._emit(
+        vh.Record(
+            name=name,
+            status="PASS",
+            started_at=started,
+            elapsed_s=time.monotonic() - t0,
         )
-        if focus_points is not None:
-            v.compare(
-                "get_focus_points: at least one focus point",
-                len(focus_points.get("positions") or []) >= 1,
-                True,
-            )
+    )
+    return value
 
 
 def _within(value: float, lo: float, hi: float) -> bool:

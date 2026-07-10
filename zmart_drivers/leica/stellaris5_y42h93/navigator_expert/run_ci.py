@@ -256,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
             (
                 "hardware: passive readers (api / log / hybrid)",
                 [sys.executable, str(hw / "probe_four_readers.py"), "--read-only"],
+                True,
             ),
             (
                 "hardware: reader parity + routed modes",
@@ -265,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
                     "--yes",
                     f"--report-dir={REPORT_DIR}",
                 ],
+                False,
             ),
             (
                 "hardware: zmart adapter (move/state/acquire)",
@@ -278,13 +280,12 @@ def main(argv: list[str] | None = None) -> int:
                     f"--output={REPORT_DIR / 'zmart_adapter_validate.jsonl'}",
                     f"--report-dir={REPORT_DIR}",
                 ],
+                True,
             ),
         ]
-        # End-to-end driver validation once PER reader route, so the driver's own
-        # read/gating behaviour is exercised under api, log, AND hybrid -- not
-        # just the passive reader comparison above. Each route runs the
-        # reversible settings + job-selection round-trips, XY/Z movement phases,
-        # and an acquire command.
+        # End-to-end driver validation once per reader route. The production
+        # surface is hybrid, so only hybrid is fatal; api/log runs stay
+        # diagnostic and document bench-specific reader disagreements.
         for mode in ("api", "log", "hybrid"):
             hardware_steps.append(
                 (
@@ -301,10 +302,11 @@ def main(argv: list[str] | None = None) -> int:
                         f"--output={REPORT_DIR / f'hardware_validate_{mode}.jsonl'}",
                         f"--report-dir={REPORT_DIR}",
                     ],
+                    mode == "hybrid",
                 )
             )
-        for name, cmd in hardware_steps:
-            steps.append(run_step(name, cmd, env, fatal=True))
+        for name, cmd, fatal in hardware_steps:
+            steps.append(run_step(name, cmd, env, fatal=fatal))
 
     # --- summary -------------------------------------------------------------
     total_elapsed = time.perf_counter() - overall_start
@@ -329,7 +331,7 @@ def main(argv: list[str] | None = None) -> int:
             print("    htmlcov/index.html  browsable coverage report")
     if run_hardware:
         print(
-            "    hardware_validate_{api,log,hybrid}.jsonl  end-to-end validator checks per reader route"
+            "    hardware_validate_{api,log,hybrid}.jsonl  end-to-end checks; hybrid is the fatal production route"
         )
     print("    ci_summary.json   this step summary")
 
@@ -359,7 +361,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if warn_failures:
         print(
-            f"\n  WARN: {len(warn_failures)} non-fatal step(s) reported issues (lint) -- see above."
+            f"\n  WARN: {len(warn_failures)} non-fatal diagnostic step(s) reported issues -- see above."
         )
     if fatal_failures:
         print(

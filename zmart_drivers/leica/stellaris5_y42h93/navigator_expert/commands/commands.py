@@ -1285,9 +1285,9 @@ def move_galvo_to_pixel(client, px, py, *, job_name=None, pixel_size_um=None, im
         }
 
     if job_name is None:
-        # These reads parameterize the command that follows, so they use the
-        # authoritative API path rather than the passive reader profile.
-        sel = get_selected_job(client, mode="api")
+        # The selected-job API can lag behind LAS X on the real scope; use the
+        # routed profile for "what is active now?", then pin job metadata below.
+        sel = get_selected_job(client)
         job_name = sel.get("Name") if sel else None
     if not job_name:
         return {

@@ -349,11 +349,17 @@ class TestAcquire(unittest.TestCase):
         h = _handle()
         with (
             patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(
+                adapter._readers,
+                "get_selected_job",
+                return_value={"Name": "HiRes", "IsSelected": True},
+            ) as selected,
         ):
             opts = adapter.get_acquisition_options(h)
         # autofocus jobs are a separate category, never acquisition options
         self.assertEqual(opts["job"]["options"], ["Overview", "HiRes"])
-        self.assertEqual(opts["job"]["active"], "Overview")
+        self.assertEqual(opts["job"]["active"], "HiRes")
+        self.assertNotIn("mode", selected.call_args.kwargs)
         self.assertEqual(opts["strip_scan_fields"]["active"], True)  # default on
         self.assertEqual(opts["format"]["active"], "ome-tiff")
         self.assertEqual(opts["cleanup_source"]["active"], False)
@@ -362,6 +368,11 @@ class TestAcquire(unittest.TestCase):
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
         with (
             patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(
+                adapter._readers,
+                "get_selected_job",
+                return_value={"Name": "Overview", "IsSelected": True},
+            ),
         ):
             with self.assertRaisesRegex(ValueError, "unknown acquisition option"):
                 adapter.acquire(
@@ -374,7 +385,10 @@ class TestAcquire(unittest.TestCase):
 
     def test_missing_output_root_is_a_clear_error(self):
         h = _handle()
-        with self.assertRaisesRegex(RuntimeError, "output_root"):
+        with (
+            patch.object(adapter._save, "save_source_root", side_effect=RuntimeError("no autosave")),
+            self.assertRaisesRegex(RuntimeError, "output_root"),
+        ):
             adapter.acquire(h, acquisition_type="prescan", position_label="A1")
 
     def test_get_root_procedure_creates_default_run_root(self):
@@ -717,10 +731,12 @@ class TestStateAndProcedures(unittest.TestCase):
     def test_state_shape_changeable_first_then_observed(self):
         h = _handle()
         p = self._state_patches()
-        with p[0], p[1], p[2]:
+        with p[0] as hardware, p[1] as selected, p[2]:
             state = adapter.get_state(h)
         self.assertEqual(list(state), ["changeable", "observed"])  # changeable first
         self.assertEqual(state["changeable"], {"job": "Overview"})
+        self.assertNotIn("mode", hardware.call_args.kwargs)
+        self.assertNotIn("mode", selected.call_args.kwargs)
         observed = state["observed"]
         self.assertEqual(observed["vendor"], "leica")
         self.assertEqual(observed["microscope"], "stellaris5-y42h93")
@@ -776,7 +792,7 @@ class TestStateAndProcedures(unittest.TestCase):
         self.assertIn("backlash_takeup", procedures)
         self.assertIn("get_root", procedures)
         self.assertIn("get_positions", procedures)
-        self.assertIn("get_focus_points", procedures)
+        self.assertNotIn("get_focus_points", procedures)
         self.assertEqual(procedures["autofocus"]["jobs"], ["AF Job"])
         with patch.object(adapter._motion, "correct_backlash", lambda client, **k: None):
             self.assertEqual(
@@ -795,10 +811,8 @@ class TestStateAndProcedures(unittest.TestCase):
                 adapter.run_procedure(h, {"name": "get_positions"})["positions"],
                 [{"x": 1.0, "y": 2.0, "z": 3.0}],
             )
-            self.assertEqual(
-                adapter.run_procedure(h, {"name": "get_focus_points"})["positions"],
-                [{"x": 4.0, "y": 5.0, "z": 6.0}, {"x": 7.0, "y": 8.0}],
-            )
+            with self.assertRaisesRegex(ValueError, "unknown procedure"):
+                adapter.run_procedure(h, {"name": "get_focus_points"})
         with self.assertRaises(ValueError):
             adapter.run_procedure(h, {"name": "nope"})
 
