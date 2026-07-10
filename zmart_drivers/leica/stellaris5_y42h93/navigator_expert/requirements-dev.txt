@@ -29,3 +29,4 @@ matplotlib>=3.7          # calibration report figures (calibration/tests)
 scikit-image>=0.21       # shared.algorithms.registration: ORB/RANSAC/phase-corr
 opencv-python-headless>=4.8  # cv2 in shared.algorithms.registration; headless for CI
 ipython>=8               # calibration visualize: `from IPython.display import display`
+anywidget>=0.9           # React notebook widgets (workflows/target_acquisition tests)

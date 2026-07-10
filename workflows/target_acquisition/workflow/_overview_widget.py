@@ -6,6 +6,11 @@ the map of the sample the run actually scanned — and the normal matplotlib
 pan/zoom tools let the operator move around it and zoom in, exactly like a
 slide-scanner viewer.
 
+The map can be opened empty and grow **live**: pass the viewer's
+:meth:`OverviewViewer.add_acquisition` as ``run_overview``'s ``on_record``
+callback and every tile appears on screen the moment the microscope saves
+it, instead of the operator waiting for the whole scan.
+
 Multi-channel images are shown as an additive colour overlay, the way most
 microscopy viewers do it: each channel gets its own colour, and the controls
 on the right adjust one channel at a time —
@@ -13,7 +18,7 @@ on the right adjust one channel at a time —
 - the **channel** list picks which channel the controls act on;
 - the **show** checkboxes turn individual channels on and off;
 - the **colour** button steps the active channel through a palette
-  (gray, green, magenta, cyan, yellow, red, blue);
+  (white, green, magenta, cyan, yellow, red, blue);
 - the **display range** slider sets which intensities map to black and to
   full colour — dragging the lower handle up brightens the background away,
   narrowing the range increases contrast. This is the same "min/max" control
@@ -28,6 +33,8 @@ which is how the offline tests drive it.
 from __future__ import annotations
 
 from typing import Any
+
+from ._canvas import force_draw
 
 # The colours a channel can wear, in the order the colour button cycles
 # through them. White first — a white channel renders as plain grayscale,
@@ -76,29 +83,64 @@ def _load_overview_channels(overview: dict, *, step: int = 1):
     return np.concatenate(stacks, axis=0)
 
 
+def composite_channels(stack, channels):
+    """Blend a ``(C, H, W)`` stack into one RGB image (additive overlay).
+
+    ``channels`` is one display-state dict per channel, in channel order:
+    ``{"color", "visible", "range": (lo, hi)}`` — the same state the viewers
+    keep. Shared by the matplotlib viewer and the React viewer so both
+    render a tile identically.
+    """
+    import numpy as np
+    from matplotlib.colors import to_rgb
+
+    h, w = stack.shape[1], stack.shape[2]
+    rgb = np.zeros((h, w, 3), dtype=np.float32)
+    for c, state in enumerate(channels):
+        if not state["visible"]:
+            continue
+        lo, hi = state["range"]
+        span = hi - lo if hi > lo else 1.0
+        scaled = np.clip((stack[c].astype(np.float32) - lo) / span, 0.0, 1.0)
+        rgb += scaled[:, :, None] * np.asarray(to_rgb(state["color"]), dtype=np.float32)
+    return np.clip(rgb, 0.0, 1.0)
+
+
 class OverviewViewer:
     """The overview tiles on one zoomable frame-coordinate map.
 
     Create it with the ``overviews`` list the workflow already builds for
-    target discovery (:func:`~.discovery.build_overview_inputs`): each entry
-    names the saved image, the frame position it was captured at, and its
-    pixel size — everything needed to place the tile at its true position
-    and physical size.
+    target discovery (:func:`~.discovery.build_overview_inputs`) — or with
+    no tiles at all, and stream them in with :meth:`add_acquisition` /
+    :meth:`add_tile` while the microscope scans.
 
     ``downsample`` (display only) skips pixels to keep very large mosaics
-    responsive; the placement and extent stay exact. The underlying data is
-    untouched — zooming shows the downsampled grid, not re-read detail.
+    responsive; the placement and extent stay exact. When tiles are given
+    up front it defaults to whatever keeps the display under a fixed pixel
+    budget; a viewer that starts empty shows full resolution unless a
+    ``downsample`` is passed.
     """
 
-    def __init__(self, overviews: list[dict], *, downsample: int | None = None) -> None:
+    def __init__(
+        self, overviews: list[dict] | None = None, *, downsample: int | None = None
+    ) -> None:
         import matplotlib.pyplot as plt
         import numpy as np
-        from matplotlib.widgets import Button, CheckButtons, RadioButtons, RangeSlider
 
-        if not overviews:
-            raise ValueError("no overviews to show — run the overview step first")
-        self.overviews = overviews
-        if downsample is None:
+        self.overviews: list[dict] = []
+        self._stacks: list[Any] = []
+        self._images: list[Any] = []
+        self.n_channels: int | None = None
+        #: Per-channel display state: colour name, visibility, and the
+        #: (low, high) intensity range mapped to black..full colour.
+        self.channels: dict[int, dict] = {}
+        self._active = 0
+        self._controls_built = False
+
+        overviews = list(overviews or [])
+        if downsample is not None:
+            step = max(1, int(downsample))
+        elif overviews:
             total_pixels = sum(
                 int(o["image_size_px"][0])
                 * int(o["image_size_px"][1])
@@ -107,20 +149,115 @@ class OverviewViewer:
             )
             step = max(1, int(np.ceil(np.sqrt(total_pixels / _DISPLAY_PIXEL_BUDGET))))
         else:
-            step = max(1, int(downsample))
+            step = 1
         self.downsample = step
 
-        # Load every tile as (C, H, W); all tiles must agree on the channel
-        # count (they come from the same job).
-        self._stacks = [_load_overview_channels(o, step=step) for o in overviews]
-        counts = {s.shape[0] for s in self._stacks}
-        if len(counts) != 1:
-            raise ValueError(f"tiles disagree on channel count: {sorted(counts)}")
-        self.n_channels = counts.pop()
+        self.fig = plt.figure(figsize=(9, 7))
+        # Leave room on the left for the y-axis label.
+        self.ax = self.fig.add_axes([0.09, 0.08, 0.61, 0.86])
+        self.ax.set_xlabel("frame x (um)")
+        self.ax.set_ylabel("frame y (um)")
+        self.ax.set_aspect("equal")
+        self.ax.set_title("waiting for the first overview tile...")
 
-        #: Per-channel display state: colour name, visibility, and the
-        #: (low, high) intensity range mapped to black..full colour.
-        self.channels: dict[int, dict] = {}
+        for overview in overviews:
+            self.add_tile(overview, draw=False)
+        if self._stacks:
+            # Batch construction: base the initial display ranges on ALL
+            # tiles together, exactly as if they had arrived at once.
+            self._init_channel_state()
+            self._refresh()
+        self.fig.canvas.draw_idle()
+
+    # --- growing the map ----------------------------------------------------
+
+    def add_acquisition(self, index: int, position: dict, record: dict) -> dict:
+        """Add one fresh overview acquisition to the map (live streaming).
+
+        Matches the ``on_record(index, position, record)`` callback shape of
+        :func:`~.steps.run_overview`, so the notebook can pass this method
+        directly and watch the mosaic grow tile by tile during the scan.
+        Returns the overview entry it built (also kept on ``self.overviews``).
+        """
+        from ._records import record_channel_paths
+        from .discovery import read_overview_geometry
+
+        paths = record_channel_paths(record, context=f"overview record {index}")
+        geometry = read_overview_geometry(paths[0])
+        overview = {
+            "image_path": paths[0],
+            "channel_paths": paths,
+            "center_frame_um": (float(position["x"]), float(position["y"])),
+            "pixel_size_um": geometry["pixel_size_um"],
+            "image_size_px": geometry["image_size_px"],
+            "label": index,
+        }
+        self.add_tile(overview)
+        return overview
+
+    def add_tile(self, overview: dict, *, draw: bool = True) -> None:
+        """Place one more tile on the map at its real frame position."""
+        stack = _load_overview_channels(overview, step=self.downsample)
+        if self.n_channels is None:
+            self.n_channels = stack.shape[0]
+        elif stack.shape[0] != self.n_channels:
+            raise ValueError(
+                f"tiles disagree on channel count: {sorted({self.n_channels, stack.shape[0]})}"
+            )
+        self.overviews.append(overview)
+        self._stacks.append(stack)
+
+        first_tile = not self.channels
+        if first_tile:
+            self._init_channel_state()
+
+        cx, cy = overview["center_frame_um"]
+        h_px, w_px = overview["image_size_px"]
+        ps = float(overview["pixel_size_um"])
+        half_w, half_h = w_px * ps / 2.0, h_px * ps / 2.0
+        image = self.ax.imshow(
+            self._composite(stack),
+            # Row 0 sits at the tile's smallest y, matching how pixel
+            # coordinates map to frame coordinates everywhere else in
+            # the pipeline (overview_pixel_to_frame).
+            extent=(cx - half_w, cx + half_w, cy + half_h, cy - half_h),
+            interpolation="nearest",
+        )
+        self._images.append(image)
+        self.ax.autoscale()
+        self._set_title()
+        if draw:
+            force_draw(self.fig)
+
+    def reload(self) -> None:
+        """Re-read every tile's file from disk and refresh the map.
+
+        Needed after something rewrites the saved images in place — the
+        simulation-mode hijack does exactly that after the scan.
+        """
+        self._stacks = [
+            _load_overview_channels(o, step=self.downsample) for o in self.overviews
+        ]
+        self._refresh()
+
+    def _set_title(self) -> None:
+        self.ax.set_title(
+            f"{len(self.overviews)} overview tile(s), {self.n_channels} channel(s) "
+            f"— pan/zoom with the toolbar"
+            + (f" (display 1/{self.downsample} pixels)" if self.downsample > 1 else "")
+        )
+
+    def _init_channel_state(self) -> None:
+        """Set the per-channel colours and display ranges from the loaded tiles.
+
+        Runs once, when the first tile(s) arrive; later tiles inherit the
+        same display settings so a growing map does not re-brighten under
+        the operator's eyes. It also builds the on-figure controls, whose
+        layout needs the channel count.
+        """
+        import numpy as np
+
+        self.channels = {}
         for c in range(self.n_channels):
             values = np.concatenate([s[c].ravel() for s in self._stacks])
             full_lo, full_hi = float(values.min()), float(values.max())
@@ -139,38 +276,15 @@ class OverviewViewer:
                 # the initial window.
                 "full_range": (min(full_lo, lo, 0.0), max(full_hi, hi)),
             }
-        self._active = 0
+        if not self._controls_built:
+            self._build_controls()
 
-        self.fig = plt.figure(figsize=(9, 7))
-        # Leave room on the left for the y-axis label.
-        self.ax = self.fig.add_axes([0.09, 0.08, 0.61, 0.86])
-        self._images = []
-        for overview, stack in zip(self.overviews, self._stacks, strict=True):
-            cx, cy = overview["center_frame_um"]
-            h_px, w_px = overview["image_size_px"]
-            ps = float(overview["pixel_size_um"])
-            half_w, half_h = w_px * ps / 2.0, h_px * ps / 2.0
-            image = self.ax.imshow(
-                self._composite(stack),
-                # Row 0 sits at the tile's smallest y, matching how pixel
-                # coordinates map to frame coordinates everywhere else in
-                # the pipeline (overview_pixel_to_frame).
-                extent=(cx - half_w, cx + half_w, cy + half_h, cy - half_h),
-                interpolation="nearest",
-            )
-            self._images.append(image)
-        self.ax.set_xlabel("frame x (um)")
-        self.ax.set_ylabel("frame y (um)")
-        self.ax.set_aspect("equal")
-        self.ax.autoscale()
-        self.ax.set_title(
-            f"{len(self.overviews)} overview tile(s), {self.n_channels} channel(s) "
-            f"— pan/zoom with the toolbar"
-            + (f" (display 1/{step} pixels)" if step > 1 else "")
-        )
+    def _build_controls(self) -> None:
+        """The control column; built once the channel count is known."""
+        from matplotlib.widgets import Button, CheckButtons, RadioButtons
 
-        # Control column. Widget references are kept on self: matplotlib
-        # widgets stop responding once garbage-collected.
+        # Widget references are kept on self: matplotlib widgets stop
+        # responding once garbage-collected.
         labels = [f"ch {c}" for c in range(self.n_channels)]
         self._radio_ax = self.fig.add_axes([0.74, 0.66, 0.22, 0.26])
         self._radio_ax.set_title("channel", fontsize=9)
@@ -187,8 +301,9 @@ class OverviewViewer:
         self._color_button.on_clicked(self._on_color_cycled)
 
         self._slider_ax = None
-        self._slider: RangeSlider | None = None
+        self._slider = None
         self._rebuild_range_slider()
+        self._controls_built = True
 
     # --- public, scriptable controls --------------------------------------
 
@@ -206,6 +321,8 @@ class OverviewViewer:
         Does exactly what the on-figure controls do, for use from a script
         or on a static backend where clicking is not available.
         """
+        if not self.channels:
+            raise RuntimeError("no tiles loaded yet — add a tile before adjusting channels")
         state = self.channels[channel]
         if color is not None:
             state["color"] = color
@@ -222,21 +339,7 @@ class OverviewViewer:
     # --- rendering ---------------------------------------------------------
 
     def _composite(self, stack):
-        """Blend a tile's channels into one RGB image (additive overlay)."""
-        import numpy as np
-        from matplotlib.colors import to_rgb
-
-        h, w = stack.shape[1], stack.shape[2]
-        rgb = np.zeros((h, w, 3), dtype=np.float32)
-        for c in range(self.n_channels):
-            state = self.channels[c]
-            if not state["visible"]:
-                continue
-            lo, hi = state["range"]
-            span = hi - lo if hi > lo else 1.0
-            scaled = np.clip((stack[c].astype(np.float32) - lo) / span, 0.0, 1.0)
-            rgb += scaled[:, :, None] * np.asarray(to_rgb(state["color"]), dtype=np.float32)
-        return np.clip(rgb, 0.0, 1.0)
+        return composite_channels(stack, [self.channels[c] for c in range(self.n_channels)])
 
     def _refresh(self) -> None:
         for image, stack in zip(self._images, self._stacks, strict=True):
@@ -297,12 +400,16 @@ class OverviewViewer:
         self._slider.on_changed(self._on_range_changed)
 
 
-def view_overview(overviews: list[dict], *, downsample: int | None = None) -> OverviewViewer:
+def view_overview(
+    overviews: list[dict] | None = None, *, downsample: int | None = None
+) -> OverviewViewer:
     """Open the overview mosaic viewer; returns the :class:`OverviewViewer`.
 
     ``overviews`` is the list from
     :func:`~.steps.overview_inputs_from_records` (the same one target
-    discovery consumes). ``downsample`` shows every n-th pixel for very
-    large mosaics (display only — positions and sizes stay exact).
+    discovery consumes) — or ``None``/empty to open an empty map and stream
+    tiles in live via ``run_overview(..., on_record=viewer.add_acquisition)``.
+    ``downsample`` shows every n-th pixel for very large mosaics (display
+    only — positions and sizes stay exact).
     """
     return OverviewViewer(overviews, downsample=downsample)

@@ -1,11 +1,11 @@
-# Review request: v4 calibration validation, review fixes, and 3-pass backlash
+# Review request: v4 calibration validation, review fixes, 3-pass backlash, live widgets, React edition
 
-You are reviewing one commit on branch `claude/leica-config-loading-review-ammwaz`
-in `thomdehoog/ZMART-microscopy` — the follow-up to the hardening commit `2230501`.
-Review that commit against its parent, then sanity-check the whole branch against
+You are reviewing the commits on branch `claude/leica-config-loading-review-ammwaz`
+in `thomdehoog/ZMART-microscopy` that follow the hardening commit `2230501`.
+Review them against `2230501`, then sanity-check the whole branch against
 `origin/main`. The prior review round is documented in
 `docs/reviews/v4_notebook_hardware_proof_review.md` (findings 1–5 claim fixes in
-this commit; verify each fix is faithful and introduces no new defect).
+these commits; verify each fix is faithful and introduces no new defect).
 
 This is safety-adjacent code for a real Leica Stellaris 5. Do an adversarial code
 review. Do not implement fixes. Prioritize wrong stage coordinates, unsafe or
@@ -82,7 +82,64 @@ tests updated. Check every call site (adapter acquire path, `backlash_takeup`
 procedure, retired flow) tolerates the tripled move count and duration, that the
 per-pass sleep still applies, and that nothing pins the old two-move sequence.
 
-### D. Cross-cutting
+### D. Live-updating widgets
+
+`workflow/_capture_run.py` grew an ``on_record(index, position, record)``
+callback (threaded through ``run_overview`` / ``acquire_targets``), and
+``measure_focus`` an ``on_point``; ``workflow/_canvas.py::force_draw`` forces
+synchronous repaints mid-loop. The matplotlib widgets now stream: the overview
+viewer opens empty and grows via ``add_acquisition`` (plus ``reload()`` after
+the simulation hijack), the gallery draws each pair as it is acquired
+(``_begin_gallery``/``_draw_row``), and the focus picker refits and redraws the
+heatmap after every measured point.
+
+Check specifically:
+
+1. A callback exception aborts the run mid-hardware — is every abort path
+   still honest (records uncommitted, partial rows visible, no state that a
+   later cell mistakes for success)?
+2. ``force_draw`` calls ``canvas.draw()`` per tile/point/pair — estimate the
+   render cost on a 25-tile scan and whether it can meaningfully slow
+   acquisition; is drawing on the acquisition thread acceptable under ipympl?
+3. The empty-start viewer initializes channel display ranges from the FIRST
+   tile only (batch construction still uses all tiles). Can a dim first tile
+   mis-scale the whole streamed session, and is that acceptable?
+4. The v4 notebook's overview cell now creates the viewer before capturing and
+   reloads after the hijack — confirm ordering is right in simulation mode and
+   that `overview_inputs_from_records` still governs what analysis sees.
+
+### E. The React edition (`workflow/react/`, `zmart_microscopy_v4_react.ipynb`)
+
+Four anywidget/React apps mirror the matplotlib widgets, sharing their image
+math (``composite_channels``, ``crop_for_target``, ``pair_images``). State
+syncs via traits; buttons send messages to Python, which alone drives the
+hardware. Check specifically:
+
+1. **Trust boundary**: the browser can send arbitrary messages — confirm every
+   ``handle_message`` validates its input (count parsing, index bounds on
+   ``hover``: can an out-of-range index raise unhandled?) and that nothing the
+   browser sends can bypass gating, debounce, or busy-guards.
+2. **Parity**: gating semantics (thresholds AND lasso, axis-switch clears the
+   gate), commit-only-on-success, queued-click debounce, and focus
+   invalidation on point edits must match the matplotlib widgets exactly —
+   diff the two implementations for behavioural drift.
+3. **Trait-size hygiene**: tiles/rows travel as base64 PNGs inside traits.
+   Estimate payload sizes for a 25-tile 2-channel scan (no downsample by
+   default in the React viewer!) and flag anything that could stall the comm
+   channel; should the React viewer share the matplotlib viewer's
+   auto-downsample budget?
+4. **CDN dependency**: React loads from esm.sh in the browser. The docs say
+   so — is the failure mode when offline visible enough (blank cell vs
+   message)?
+5. The ESM strings cannot be executed by the offline suite — list what only a
+   browser session can prove (pan/zoom math, lasso pixel→data conversion,
+   pointer capture) as residual risks.
+6. `test_v4_react_notebook.py` pins the notebook structurally; check the React
+   notebook kept every hardware step and lifecycle guard of the v4 original
+   (engine preflight before connect, limits `source == "machine"` check, jobs
+   distinctness, cleanup cell).
+
+### F. Cross-cutting
 
 - The four widgets after this commit: layout at 1/5/10/25 gallery rows, the
   overview viewer's left-margin change, README/docstring drift.
