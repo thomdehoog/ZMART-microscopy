@@ -26,6 +26,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from ._canvas import force_draw
 from ._focus_run import measure_focus
 from ._focus_surface import fit_focus_surface
 
@@ -199,9 +200,29 @@ class FocusPicker:
             )
         if self._measured_points != self.points:
             self._invalidate_focus()
+
+        total = len(self.points)
+
+        def _show_fresh_point(measurement: dict) -> None:
+            # Live progress: refit and redraw the map after every measured
+            # point, so the operator watches the surface take shape while
+            # the stage is still visiting the remaining points.
+            self.measured = (self.measured or []) + [measurement]
+            self.focus = fit_focus_surface(self.measured)
+            self._draw_heatmap()
+            self.ax.set_title(
+                f"measuring... {len(self.measured)} of {total} points "
+                f"({self.focus.model} fit so far)"
+            )
+            force_draw(self.fig)
+
         try:
             measured = measure_focus(
-                self.session, self.points, af_job=self.af_job, start_z=self.start_z
+                self.session,
+                self.points,
+                af_job=self.af_job,
+                start_z=self.start_z,
+                on_point=_show_fresh_point,
             )
         except Exception:
             self._invalidate_focus()

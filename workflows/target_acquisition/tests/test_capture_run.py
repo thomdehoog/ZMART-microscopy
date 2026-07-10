@@ -46,3 +46,27 @@ def test_label_callable_overrides_the_index(mic):
     records = capture_positions(mic, positions, "target", label=lambda i, p: f"t{i:03d}")
 
     assert [r["position_label"] for r in records] == ["t001", "t002"]
+
+
+def test_on_record_streams_each_acquisition():
+    class _Session:
+        def __init__(self):
+            self.n = 0
+
+        def set_xyz(self, x, y, z):
+            pass
+
+        def acquire(self, *, acquisition_type, position_label, options=None):
+            self.n += 1
+            return {"position_label": position_label}
+
+    streamed = []
+    records = capture_positions(
+        _Session(),
+        [{"x": 0.0, "y": 0.0, "z": 0.0}, {"x": 1.0, "y": 0.0, "z": 0.0}],
+        "overview",
+        on_record=lambda index, pos, record: streamed.append((index, pos["x"], record)),
+    )
+    assert [s[0] for s in streamed] == [1, 2]
+    assert [s[1] for s in streamed] == [0.0, 1.0]
+    assert [s[2] for s in streamed] == records

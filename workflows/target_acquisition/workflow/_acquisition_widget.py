@@ -29,6 +29,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from ._canvas import force_draw
 from ._records import record_channel_paths
 from .steps import acquire_targets
 
@@ -129,7 +130,18 @@ class AcquisitionGallery:
         )
         self._busy = True
         self._status.set_text(f"acquiring {len(picked)} target(s)...")
-        self.fig.canvas.draw_idle()
+        # Make room for the incoming rows up front, then draw each pair the
+        # moment its acquisition completes — the gallery fills in live while
+        # the microscope is still working through the list.
+        self._begin_gallery(len(picked))
+        force_draw(self.fig)
+
+        def _show_fresh_pair(index: int, _position: dict, record: dict) -> None:
+            row = index - 1  # capture_positions counts from 1
+            self._draw_row(row, len(picked), picked[row], record)
+            self._status.set_text(f"acquired {index} of {len(picked)} target(s)...")
+            force_draw(self.fig)
+
         try:
             records = acquire_targets(
                 self.session,
@@ -137,6 +149,7 @@ class AcquisitionGallery:
                 state=self.state,
                 focus=self.focus,
                 options=self.options,
+                on_record=_show_fresh_pair,
             )
             if self.after_acquire is not None:
                 self.after_acquire(records)
@@ -149,6 +162,8 @@ class AcquisitionGallery:
             self._last_run_ended = time.monotonic()
         self.picked = picked
         self.records = records
+        # One final pass: after_acquire (the simulation hijack) may have
+        # rewritten the saved images, so the reviewed pairs must be re-read.
         self._draw_gallery()
         return records
 
@@ -177,24 +192,30 @@ class AcquisitionGallery:
 
     # --- the gallery ------------------------------------------------------------
 
-    def _draw_gallery(self) -> None:
+    def _begin_gallery(self, rows: int) -> None:
+        """Clear the previous gallery and size the figure for *rows* pairs."""
         for ax in self._gallery_axes:
             ax.remove()
         self._gallery_axes = []
-
-        rows = len(self.picked)
         self.fig.set_size_inches(9, max(7.0, 1.9 * rows + 1.5), forward=True)
+
+    def _draw_row(self, row: int, rows: int, target: dict, record: dict) -> None:
+        """Draw one gallery row (used live, as each acquisition completes)."""
         top, bottom = 0.88, 0.04
         row_height = (top - bottom) / rows
         height = row_height * 0.88
+        y0 = top - (row + 1) * row_height + row_height * 0.06
+        ax_low = self.fig.add_axes([0.07, y0, 0.40, height])
+        ax_high = self.fig.add_axes([0.53, y0, 0.40, height])
+        self._gallery_axes += [ax_low, ax_high]
+        self._draw_pair(ax_low, ax_high, target, record)
+
+    def _draw_gallery(self) -> None:
+        self._begin_gallery(len(self.picked))
         for row, (target, record) in enumerate(
             zip(self.picked, self.records, strict=True)
         ):
-            y0 = top - (row + 1) * row_height + row_height * 0.06
-            ax_low = self.fig.add_axes([0.07, y0, 0.40, height])
-            ax_high = self.fig.add_axes([0.53, y0, 0.40, height])
-            self._gallery_axes += [ax_low, ax_high]
-            self._draw_pair(ax_low, ax_high, target, record)
+            self._draw_row(row, len(self.picked), target, record)
 
         self._status.set_text(
             f"acquired {len(self.records)} of {len(self._gated())} gated target(s)"
@@ -231,44 +252,50 @@ class AcquisitionGallery:
         )
 
     def _pair_images(self, target: dict, record: dict):
-        """The (overview crop, target image, width_um, height_um) for one row.
+        return pair_images(target, record, self.overviews)
 
-        Returns ``None`` when the record carries no image (the controller's
-        mock driver, for instance) — the row then says so instead of failing
-        the whole gallery.
-        """
-        from ._geom import crop_overview_at_target_fov
-        from ._overview_widget import _load_channels
-        from .discovery import read_overview_geometry
 
-        images = record_channel_paths(record, context="target record", allow_empty=True)
-        if not images:
-            return None
-        high = _load_channels(images[0])[0]
-        geometry = read_overview_geometry(images[0])
-        target_pixel_size = float(geometry["pixel_size_um"])
-        target_shape = geometry["image_size_px"]
-        width_um = target_shape[1] * target_pixel_size
-        height_um = target_shape[0] * target_pixel_size
+def pair_images(target: dict, record: dict, overviews: dict[int, dict]):
+    """The (overview crop, target image, width_um, height_um) for one pair.
 
-        source = target.get("source") or {}
-        overview = self.overviews.get(source.get("naming_p"))
-        centroid = source.get("centroid_col_row_px")
-        if overview is None or centroid is None:
-            # No overview to crop from; show the target beside a blank panel
-            # rather than refusing the row.
-            import numpy as np
+    ``overviews`` maps the tile index (``naming_p``) to the overview entry.
+    Returns ``None`` when the record carries no image (the controller's
+    mock driver, for instance) — the caller shows a placeholder instead of
+    failing the whole gallery. Shared by the matplotlib gallery and the
+    React gallery so both review the identical same-scale pair.
+    """
+    from ._geom import crop_overview_at_target_fov
+    from ._overview_widget import _load_channels
+    from .discovery import read_overview_geometry
 
-            low = np.zeros((2, 2), dtype=high.dtype)
-        else:
-            low = crop_overview_at_target_fov(
-                _load_channels(overview["image_path"])[0],
-                centroid_col_row_px=tuple(centroid),
-                source_pixel_size_um=float(overview["pixel_size_um"]),
-                target_shape_px=target_shape,
-                target_pixel_size_um=target_pixel_size,
-            )
-        return low, high, width_um, height_um
+    images = record_channel_paths(record, context="target record", allow_empty=True)
+    if not images:
+        return None
+    high = _load_channels(images[0])[0]
+    geometry = read_overview_geometry(images[0])
+    target_pixel_size = float(geometry["pixel_size_um"])
+    target_shape = geometry["image_size_px"]
+    width_um = target_shape[1] * target_pixel_size
+    height_um = target_shape[0] * target_pixel_size
+
+    source = target.get("source") or {}
+    overview = overviews.get(source.get("naming_p"))
+    centroid = source.get("centroid_col_row_px")
+    if overview is None or centroid is None:
+        # No overview to crop from; show the target beside a blank panel
+        # rather than refusing the row.
+        import numpy as np
+
+        low = np.zeros((2, 2), dtype=high.dtype)
+    else:
+        low = crop_overview_at_target_fov(
+            _load_channels(overview["image_path"])[0],
+            centroid_col_row_px=tuple(centroid),
+            source_pixel_size_um=float(overview["pixel_size_um"]),
+            target_shape_px=target_shape,
+            target_pixel_size_um=target_pixel_size,
+        )
+    return low, high, width_um, height_um
 
 
 def acquire_gallery(

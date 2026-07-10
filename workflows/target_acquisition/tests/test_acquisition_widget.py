@@ -214,3 +214,38 @@ def test_button_click_failure_lands_on_the_status_text(tmp_path):
     gallery._count_box.set_val("3")
     gallery._on_acquire_clicked(None)
     assert "acquire failed" in gallery._status.get_text()
+
+
+def test_gallery_rows_appear_while_acquiring(tmp_path, overview):
+    """Each pair is drawn the moment its acquisition completes, not at the end."""
+    rows_seen_at_acquire = []
+
+    gallery = None  # bound after construction; the session peeks at it
+
+    class _PeekingSession(_StubSession):
+        def acquire(self, **kwargs):
+            rows_seen_at_acquire.append(len(gallery._gallery_axes))
+            return super().acquire(**kwargs)
+
+    session = _PeekingSession(tmp_path)
+    gallery = acquire_gallery(session, _targets(3), [overview], seed=0)
+    gallery.acquire(3)
+    # First acquisition starts with an empty gallery; each later one sees the
+    # rows its predecessors already drew (two axes per row).
+    assert rows_seen_at_acquire == [0, 2, 4]
+
+
+def test_failed_run_keeps_the_rows_it_honestly_acquired(tmp_path, overview):
+    class _FailsOnSecond(_StubSession):
+        def acquire(self, **kwargs):
+            if self.acquired >= 1:
+                raise RuntimeError("stage stalled")
+            return super().acquire(**kwargs)
+
+    gallery = acquire_gallery(_FailsOnSecond(tmp_path), _targets(3), [overview])
+    with pytest.raises(RuntimeError, match="stage stalled"):
+        gallery.acquire(2)
+    # The one pair that really was acquired stays visible (an honest record),
+    # but nothing is committed for the summary to report as success.
+    assert len(gallery._gallery_axes) == 2
+    assert gallery.picked == [] and gallery.records == []

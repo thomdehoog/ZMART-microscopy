@@ -147,6 +147,66 @@ def test_mismatched_channel_counts_are_refused(tmp_path):
         OverviewViewer(entries)
 
 
-def test_no_overviews_is_a_clear_error():
-    with pytest.raises(ValueError, match="no overviews"):
-        view_overview([])
+def _ome_tile(tmp_path, name, *, value=200, size=(20, 30), ps=2.0):
+    """A single-channel OME tile add_acquisition can read geometry from."""
+    h, w = size
+    desc = (
+        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
+        f'<Image><Pixels DimensionOrder="XYCZT" Type="uint16" SizeX="{w}" SizeY="{h}" '
+        f'SizeC="1" SizeZ="1" SizeT="1" PhysicalSizeX="{ps}" PhysicalSizeY="{ps}"/>'
+        "</Image></OME>"
+    )
+    path = tmp_path / name
+    tifffile.imwrite(path, np.full((h, w), value, dtype=np.uint16), description=desc)
+    return path
+
+
+def test_empty_viewer_streams_tiles_live(tmp_path):
+    """An empty map grows tile-by-tile via the run_overview callback shape."""
+    viewer = view_overview([])
+    assert viewer.overviews == []
+    assert "waiting" in viewer.ax.get_title()
+
+    for index, (x, y) in enumerate([(0.0, 0.0), (100.0, 0.0)], start=1):
+        record = {"images": [str(_ome_tile(tmp_path, f"live_{index}.ome.tif"))]}
+        viewer.add_acquisition(index, {"x": x, "y": y, "z": 0.0}, record)
+
+    assert len(viewer._images) == 2
+    assert viewer.n_channels == 1
+    assert tuple(viewer._images[0].get_extent()) == (-30.0, 30.0, 20.0, -20.0)
+    assert tuple(viewer._images[1].get_extent()) == (70.0, 130.0, 20.0, -20.0)
+    assert "2 overview tile(s)" in viewer.ax.get_title()
+
+
+def test_reload_picks_up_rewritten_pixels(tmp_path):
+    """After the simulation hijack rewrites files, reload() refreshes the map."""
+    path = _ome_tile(tmp_path, "tile.ome.tif", value=100)
+    viewer = view_overview([])
+    viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(path)]})
+    viewer.set_channel(0, vmin=0.0, vmax=400.0)
+    before = np.asarray(viewer._images[0].get_array()).max()
+
+    tifffile.imwrite(path, np.full((20, 30), 400, dtype=np.uint16))
+    viewer.reload()
+    after = np.asarray(viewer._images[0].get_array()).max()
+    assert after > before
+
+
+def test_channel_settings_survive_streamed_additions(tmp_path):
+    """A growing map must not re-brighten under the operator's eyes."""
+    viewer = view_overview([])
+    viewer.add_acquisition(
+        1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome_tile(tmp_path, "a.ome.tif"))]}
+    )
+    viewer.set_channel(0, color="red", vmin=1.0, vmax=2.0)
+    state_before = dict(viewer.channels[0])
+    viewer.add_acquisition(
+        2, {"x": 100.0, "y": 0.0}, {"images": [str(_ome_tile(tmp_path, "b.ome.tif"))]}
+    )
+    assert viewer.channels[0] == state_before
+
+
+def test_adjusting_channels_before_any_tile_is_a_clear_error():
+    viewer = view_overview([])
+    with pytest.raises(RuntimeError, match="no tiles loaded yet"):
+        viewer.set_channel(0, visible=False)

@@ -163,3 +163,23 @@ def test_button_click_failure_lands_on_the_figure_title():
     picker = FocusPicker(_StubSession(), seed=False)  # no points -> measure fails
     picker._on_measure_clicked(None)
     assert "measure failed" in picker.ax.get_title()
+
+
+def test_heatmap_grows_while_measuring():
+    """The fitted map refreshes after every measured point, not only at the end."""
+    heatmaps_during = []
+
+    class _PeekingSession(_StubSession):
+        def run_procedure(self, procedure):
+            heatmaps_during.append(picker._heatmap is not None)
+            return super().run_procedure(procedure)
+
+    focus = {(0.0, 0.0): 3.0, (10.0, 0.0): 4.0, (0.0, 10.0): 5.0}
+    picker = FocusPicker(_PeekingSession(focus), seed=False, start_z=0.0)
+    for x, y in focus:
+        picker.add_point(x, y)
+    picker.measure()
+    # No map before the first point; the 2nd and 3rd autofocus runs happen
+    # with the map from the earlier points already on screen.
+    assert heatmaps_during == [False, True, True]
+    assert len(picker._z_labels) == 3

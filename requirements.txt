@@ -28,3 +28,5 @@ pythonnet>=3.0
 # Operator notebook and interactive target-acquisition widgets.
 matplotlib>=3.7
 ipympl>=0.9
+# React-based notebook widgets (zmart_microscopy_v4_react.ipynb).
+anywidget>=0.9

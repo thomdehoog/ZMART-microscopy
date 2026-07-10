@@ -81,15 +81,14 @@ def _procedure_names_in(tree: ast.AST) -> set[str]:
 
 
 def _flow_procedure_names() -> set[str]:
-    """Every procedure name the notebook or the active workflow package calls."""
+    """Every procedure name the notebooks or the workflow package call."""
     names: set[str] = set()
-    notebook = json.loads(
-        (_TARGET_ACQ / "zmart_microscopy_v4.ipynb").read_text(encoding="utf-8")
-    )
-    for cell in notebook["cells"]:
-        if cell["cell_type"] == "code":
-            names |= _procedure_names_in(ast.parse("".join(cell["source"])))
-    for module in (_TARGET_ACQ / "workflow").glob("*.py"):
+    for notebook_name in ("zmart_microscopy_v4.ipynb", "zmart_microscopy_v4_react.ipynb"):
+        notebook = json.loads((_TARGET_ACQ / notebook_name).read_text(encoding="utf-8"))
+        for cell in notebook["cells"]:
+            if cell["cell_type"] == "code":
+                names |= _procedure_names_in(ast.parse("".join(cell["source"])))
+    for module in (_TARGET_ACQ / "workflow").rglob("*.py"):
         names |= _procedure_names_in(ast.parse(module.read_text(encoding="utf-8")))
     return names
 

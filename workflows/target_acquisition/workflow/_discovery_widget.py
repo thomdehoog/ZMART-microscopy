@@ -67,6 +67,35 @@ def _feature_value(target: dict, feature: str) -> float:
     return float(value) if value is not None else float("nan")
 
 
+def crop_for_target(target: dict, overviews: dict[int, dict], *, crop_um: float):
+    """One cell's picture, cut from its overview tile, or ``None``.
+
+    ``overviews`` maps the tile index (``naming_p``) to the overview entry.
+    Shared by the matplotlib explorer and the React explorer so the hover
+    panel shows the identical crop in both.
+    """
+    source = target.get("source") or {}
+    overview = overviews.get(source.get("naming_p"))
+    centroid = source.get("centroid_col_row_px")
+    if overview is None or centroid is None:
+        return None
+    from ._geom import crop_overview_at_target_fov
+    from ._overview_widget import _load_channels
+
+    pixel_size = float(overview["pixel_size_um"])
+    side_px = max(1, round(crop_um / pixel_size))
+    return crop_overview_at_target_fov(
+        _load_channels(overview["image_path"])[0],
+        centroid_col_row_px=tuple(centroid),
+        source_pixel_size_um=pixel_size,
+        # A square window of crop_um a side, expressed as a "target FOV" so
+        # the shared window math (and its edge padding) is reused instead of
+        # re-derived here.
+        target_shape_px=(side_px, side_px),
+        target_pixel_size_um=pixel_size,
+    )
+
+
 class TargetExplorer:
     """Scatter, gate, and inspect the discovered cells before acquiring.
 
@@ -298,30 +327,11 @@ class TargetExplorer:
 
     def _crop_for(self, index: int):
         """This cell's picture, cut from its overview tile (cached per call)."""
-        if index in self._crop_cache:
-            return self._crop_cache[index]
-        crop = None
-        source = self.targets[index].get("source") or {}
-        overview = self.overviews.get(source.get("naming_p"))
-        centroid = source.get("centroid_col_row_px")
-        if overview is not None and centroid is not None:
-            from ._geom import crop_overview_at_target_fov
-            from ._overview_widget import _load_channels
-
-            pixel_size = float(overview["pixel_size_um"])
-            side_px = max(1, round(self.crop_um / pixel_size))
-            crop = crop_overview_at_target_fov(
-                _load_channels(overview["image_path"])[0],
-                centroid_col_row_px=tuple(centroid),
-                source_pixel_size_um=pixel_size,
-                # A square window of crop_um a side, expressed as a "target
-                # FOV" so the shared window math (and its edge padding) is
-                # reused instead of re-derived here.
-                target_shape_px=(side_px, side_px),
-                target_pixel_size_um=pixel_size,
+        if index not in self._crop_cache:
+            self._crop_cache[index] = crop_for_target(
+                self.targets[index], self.overviews, crop_um=self.crop_um
             )
-        self._crop_cache[index] = crop
-        return crop
+        return self._crop_cache[index]
 
 
 def explore_targets(

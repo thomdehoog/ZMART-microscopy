@@ -139,10 +139,18 @@ def run_overview(
     state: dict | None = None,
     focus: Any = None,
     options: dict | None = None,
+    on_record: Any = None,
 ) -> list[dict]:
-    """Step 5: acquire an overview at each frame position (z from the focus surface)."""
+    """Step 5: acquire an overview at each frame position (z from the focus surface).
+
+    ``on_record(index, position, record)`` fires after each tile is saved —
+    pass a viewer's ``add_acquisition`` here and the overview map grows on
+    screen while the microscope is still scanning.
+    """
     placed = with_focus_z(positions, focus)
-    return capture_positions(session, placed, "overview", state=state, options=options)
+    return capture_positions(
+        session, placed, "overview", state=state, options=options, on_record=on_record
+    )
 
 
 def overview_inputs_from_records(
@@ -181,10 +189,17 @@ def acquire_targets(
     state: dict | None = None,
     focus: Any = None,
     options: dict | None = None,
+    on_record: Any = None,
 ) -> list[dict]:
-    """Step 7: acquire a target at each discovered frame position (z from the focus surface)."""
+    """Step 7: acquire a target at each discovered frame position (z from the focus surface).
+
+    ``on_record(index, position, record)`` fires after each target is saved —
+    the acquisition gallery uses it to show every pair the moment it exists.
+    """
     placed = with_focus_z(targets, focus)
-    return capture_positions(session, placed, "target", state=state, options=options)
+    return capture_positions(
+        session, placed, "target", state=state, options=options, on_record=on_record
+    )
 
 
 def hijack_if_simulating(
