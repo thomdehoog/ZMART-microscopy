@@ -27,7 +27,12 @@ there means a driver reinstall or update never loses it. Until the notebook has
 run, the shipped ``orientation/defaults/orientation.json`` is a placeholder that
 means "no turn," so an un-measured microscope is never turned by guesswork::
 
-    {"schema_version": 1, "rotate_deg": 0}
+    {"schema_version": 1, "rotate_deg": 0, "_notes": "Placeholder, ..."}
+
+The ``_notes`` text in the placeholder is not decoration: its presence is how
+the calibration workflow can tell "never measured" from "measured as 0" and
+warn the operator. A file the notebook adopts carries ``"measured": true``
+instead (and no ``_notes``).
 
 Author: Thom de Hoog (ZMB, University of Zurich).
 License: MIT

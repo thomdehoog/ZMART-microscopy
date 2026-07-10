@@ -168,11 +168,14 @@ def start_session(
 
     # The names the microscope reports for each occupied slot — used to annotate
     # the adopted calibration so a named set never carries stale objective names.
+    # Slots whose hardware record has no usable name are left out: an empty
+    # name must never overwrite the human-set name already in the config.
     from ...commands import objectives as _objectives
 
     hardware_objectives = {
-        slot: str(entry.get("name", ""))
+        slot: name
         for slot, entry in _objectives.objective_by_slot(hw).items()
+        if (name := str(entry.get("name") or "").strip())
     }
 
     # Calibration sits above orientation in the setup ladder: parcentricity XY
@@ -201,9 +204,12 @@ def start_session(
 def _warn_if_orientation_unmeasured() -> None:
     """Warn when this microscope still carries the shipped orientation placeholder.
 
-    The placeholder ``orientation.json`` keeps a ``_notes`` marker that a
-    measured/adopted file does not, so its presence means ``set_orientation``
-    has not been run yet.
+    Two signals, so the check survives hand edits and schema growth: a file
+    that set_orientation adopted carries ``"measured": true`` (never warned),
+    and the shipped placeholder carries a ``_notes`` marker instead (warned).
+    A file with neither — e.g. one adopted before the ``measured`` marker
+    existed — is trusted as measured, so upgrading the driver never starts
+    warning on a rig that was already set up.
     """
     from ...config.machine import MACHINE
 
@@ -211,7 +217,7 @@ def _warn_if_orientation_unmeasured() -> None:
         raw = json.loads(MACHINE.orientation_path().read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001 -- missing/unreadable orientation is handled elsewhere
         return
-    if "_notes" in raw:
+    if "_notes" in raw and not raw.get("measured"):
         _log.warning(
             "orientation has not been measured on this microscope yet (still the "
             "shipped placeholder). Calibration assumes saved frames are already "

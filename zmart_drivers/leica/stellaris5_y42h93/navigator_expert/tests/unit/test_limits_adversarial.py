@@ -390,6 +390,51 @@ def test_hand_widened_limits_file_does_not_govern(mock_client):
     )
 
 
+def test_broken_functions_block_widens_a_narrow_envelope_to_the_defaults(mock_client):
+    """PINS a chosen consequence of the defaults fallback (maintainer decision):
+    an invalid machine file is rejected WHOLE. So a file with a deliberately
+    NARROW envelope but a broken ``functions`` block is replaced by the bundled
+    defaults, which are WIDER — a move the operator's own file forbids is then
+    ALLOWED, and only the loud is_fallback warning tells them their narrow
+    limits are not in force. If this test starts failing because the narrow
+    envelope survives, the fallback policy changed — update the docs with it."""
+    payload = _valid_payload(dict(DEFAULT_STAGE_UM, x=[40000.0, 60000.0]))
+    payload["functions"] = dict(_ALL_NULL, set_warp_drive=None)  # unknown key -> invalid file
+    _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
+    state = gate.connect_handshake(mock_client)
+    assert state.ok
+    assert state.limits.describe()["is_fallback"] is True
+    # x=100000 violates the (rejected) machine file's narrow envelope but sits
+    # inside the defaults: the fallback allows it. This is the sanctioned
+    # trade-off — bounded by the defaults and the backstop, not left dead.
+    assert commands_mod.move_xy(mock_client, 100000, 50000, unit="um")["success"] is True
+
+
+def test_rehandshake_after_fixing_the_file_replaces_the_fallback(mock_client):
+    """Recovery path: after a broken file put the session on the defaults
+    fallback, fixing limits.json and re-running the handshake installs the REAL
+    machine envelope (is_fallback False) — no fallback state lingers, in the
+    gate or in the module-global envelope."""
+    profile = _raw_snapshot(_machine_root(), limits_text=_BAD_LIMITS_TEXTS["non_json"])
+    state = gate.connect_handshake(mock_client)
+    assert state.ok
+    assert state.limits.describe()["is_fallback"] is True
+
+    # The operator fixes the file in the NEWEST snapshot (resolution seeded a
+    # complete snapshot during the first handshake, carrying the broken
+    # limits.json forward — the newest is what the next handshake reads)...
+    (profile.latest_snapshot() / "limits.json").write_text(
+        _valid_limits_text(dict(DEFAULT_STAGE_UM, x=[40000.0, 60000.0])), encoding="utf-8"
+    )
+    # ...and reconnects: the machine envelope governs again.
+    state2 = gate.connect_handshake(mock_client)
+    assert state2.ok
+    assert state2.limits.describe()["is_fallback"] is False
+    assert motion_limits.get_stage_limits()["x_min"] == 40000.0
+    _assert_refused(commands_mod.move_xy(mock_client, 100000, 50000, unit="um"), needle="outside")
+    assert commands_mod.move_xy(mock_client, 50000, 50000, unit="um")["success"] is True
+
+
 def test_second_handshake_rebinds_without_leaking_between_clients(tmp_path):
     """PR-09: two clients in one process each get their own gate state; the
     module-global stage envelope belongs to whichever handshake ran last

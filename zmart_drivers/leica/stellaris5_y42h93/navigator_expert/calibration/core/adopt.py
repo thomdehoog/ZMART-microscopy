@@ -85,7 +85,12 @@ def _apply_staging_payload(
     session_id: str,
     hardware_objectives: dict[int, str] | None = None,
 ) -> None:
-    live_names = hardware_objectives or {}
+    # An empty live name means "the hardware reported nothing usable" — treat
+    # it like an absent slot so it can never erase the config's human-set name
+    # (update_objective skips the name only when it is None).
+    live_names = {
+        slot: name for slot, name in (hardware_objectives or {}).items() if name and name.strip()
+    }
     from_slot = _objective_slot_for_label(config, data["from_objective"])
     to_slot = _objective_slot_for_label(config, data["to_objective"])
     from_entry = (config.get("objectives") or {}).get(str(from_slot), {})

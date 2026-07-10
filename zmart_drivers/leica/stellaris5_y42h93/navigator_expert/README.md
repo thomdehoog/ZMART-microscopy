@@ -130,11 +130,15 @@ from shared.output_layout import Naming, run_hash
 client = connect_python_client()
 assert ping(client)
 
-# 2. Limits handshake (REQUIRED before any mutating command): resolves and
-#    validates the ProgramData limits.json, seeding repo defaults there first
-#    when needed, then installs the fail-closed gate for this client.
+# 2. Limits handshake (REQUIRED before any mutating command; run automatically
+#    by connect_microscope and the zmart adapter — shown here for the low-level
+#    API): resolves and validates the ProgramData limits.json, seeding repo
+#    defaults there first when needed, and installs the limits gate for this
+#    client. An INVALID file falls back to the bundled defaults (loudly), so
+#    state.ok stays True — check state.limits.describe()["is_fallback"] if you
+#    need to know whether your measured envelope is really in force.
 state = connect_limits_handshake(client)
-assert state.ok, state.error   # points at limits/notebooks/set_stage_limits.ipynb
+assert state.ok, state.error   # False only if even the bundled defaults are unusable
 
 # 3. Select and configure a job (live commands return a result dict)
 select_job(client, "MyExperiment")
@@ -401,7 +405,10 @@ with `functools.partial`).
 
 **Dependency direction:** `utils` (stdlib) → `commands.errors/settings/prechecks/confirmations` →
 `commands.dispatch` → `config.profiles` → `commands.commands`; `readers.*`, `motion.*`, `scanfields.*`,
-`acquisition.*` sit above the CAM readback. No circular imports.
+`acquisition.*` sit above the CAM readback. No circular imports. One deliberate exception:
+`connection/session.py` is the connect-time composition point — `connect_microscope` reaches into
+`commands.gate`, `orientation`, and `calibration` (via function-local imports, which is what keeps
+the import graph acyclic) to load the machine configs in one place.
 
 ## 8. Configuration & tuning (profiles)
 
