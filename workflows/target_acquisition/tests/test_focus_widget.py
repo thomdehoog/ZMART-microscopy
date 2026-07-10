@@ -183,3 +183,49 @@ def test_heatmap_grows_while_measuring():
     # with the map from the earlier points already on screen.
     assert heatmaps_during == [False, True, True]
     assert len(picker._z_labels) == 3
+
+
+def test_remeasure_only_visits_new_points():
+    """Editing points and re-measuring reuses the session's earlier results."""
+    focus = {(0.0, 0.0): 3.0, (10.0, 0.0): 4.0, (5.0, 5.0): 3.5}
+    session = _StubSession(focus)
+    picker = FocusPicker(session, seed=False, start_z=0.0)
+    picker.add_point(0.0, 0.0)
+    picker.add_point(10.0, 0.0)
+    picker.measure()
+    assert len(session.procedures) == 2
+
+    picker.add_point(5.0, 5.0)
+    picker.measure()  # only the new point drives the stage
+    assert len(session.procedures) == 3
+    assert len(picker.require_focus().measured) == 3
+
+    picker.remove_point(2)
+    picker.measure()  # nothing new: a pure refit, no stage moves at all
+    assert len(session.procedures) == 3
+    assert len(picker.require_focus().measured) == 2
+    assert "reused" in picker.ax.get_title()
+
+
+def test_overview_tiles_wear_the_heatmap_colours():
+    import numpy as np
+
+    session = _StubSession({(0.0, 0.0): 1.0, (10.0, 0.0): 5.0, (0.0, 10.0): 3.0})
+    picker = FocusPicker(
+        session,
+        [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}],
+        seed=False,
+        start_z=0.0,
+    )
+    # Hollow until measured.
+    assert picker._squares_artist.get_facecolor().size == 0
+    for xy in [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)]:
+        picker.add_point(*xy)
+    picker.measure()
+    colors = picker._squares_artist.get_facecolor()
+    assert colors.shape[0] == 2
+    # The two tiles sit at different fitted z, so they wear different colours.
+    assert not np.allclose(colors[0], colors[1])
+    # Editing a point drops the tint together with the surface.
+    picker.add_point(3.0, 3.0)
+    assert picker._squares_artist.get_facecolor().size == 0

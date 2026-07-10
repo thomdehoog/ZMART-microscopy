@@ -369,7 +369,8 @@ function App({ model }) {
         width: heatmap.w * s, height: heatmap.h * s, preserveAspectRatio: "none",
         opacity: 0.9 }) : null,
       squares.map((q, i) => h("rect", { key: `s${i}`, x: X(q.x) - 7, y: Y(q.y) - 7,
-        width: 14, height: 14, fill: "none", stroke: T.accent, strokeWidth: 1.5 })),
+        width: 14, height: 14, fill: q.fill || "none", stroke: T.accent, strokeWidth: 1.5,
+        style: { transition: "fill 0.3s" } })),
       points.map((p, i) => {
         const m = measured[i];
         return h("g", { key: `p${i}`, style: { cursor: "pointer" },
@@ -398,9 +399,15 @@ export default mount(App);
         self.session = session
         self.af_job = af_job
         self.start_z = start_z
-        self.squares = [{"x": float(p["x"]), "y": float(p["y"])} for p in (positions or [])]
+        self.squares = [
+            {"x": float(p["x"]), "y": float(p["y"]), "fill": ""} for p in (positions or [])
+        ]
         self.focus: Any = None
         self._measured_points: list[dict] | None = None
+        # Autofocus results already collected this session, keyed by the
+        # point's exact coordinates — re-measuring reuses them, so editing
+        # the points only sends the stage to the NEW or moved ones.
+        self._af_cache: dict[tuple[float, float], dict] = {}
         if seed:
             self.points = self._seed_from_lasx()
         self.observe(self._on_points_edited, names="points")
@@ -419,10 +426,13 @@ export default mount(App);
             self._invalidate()
 
     def _invalidate(self) -> None:
+        # The per-point autofocus cache survives (the next Measure reuses
+        # it); the fitted surface and its display do not.
         self.focus = None
         self.measured = []
         self.heatmap = {}
         self._measured_points = None
+        self.squares = [{**q, "fill": ""} for q in self.squares]
 
     def handle_message(self, content: dict) -> None:
         if content.get("type") != "measure":
@@ -437,21 +447,56 @@ export default mount(App);
             raise RuntimeError("no focus points are picked yet — click the map first")
         points = [dict(p) for p in self.points]
         self._invalidate()
-        collected: list[dict] = []
+        # Only the points without a cached result visit the stage; the rest
+        # are reused from this session's earlier measurements.
+        fresh = [
+            p for p in points if (float(p["x"]), float(p["y"])) not in self._af_cache
+        ]
+
+        def _collected() -> list[dict]:
+            return [
+                self._af_cache[(float(p["x"]), float(p["y"]))]
+                for p in points
+                if (float(p["x"]), float(p["y"])) in self._af_cache
+            ]
 
         def _show_fresh_point(measurement: dict) -> None:
-            collected.append(measurement)
-            self.measured = list(collected)
+            self._af_cache[(measurement["x_um"], measurement["y_um"])] = measurement
+            self.measured = _collected()
             self.focus = fit_focus_surface(self.measured)
             self.heatmap = self._render_heatmap()
-            self.status = f"measuring... {len(collected)} of {len(points)} points"
+            self._tint_squares()
+            self.status = f"measuring... {len(self.measured)} of {len(points)} points"
 
-        measure_focus(
-            self.session, points, af_job=self.af_job, start_z=self.start_z,
-            on_point=_show_fresh_point,
-        )
+        if fresh:
+            measure_focus(
+                self.session, fresh, af_job=self.af_job, start_z=self.start_z,
+                on_point=_show_fresh_point,
+            )
+        self.measured = _collected()
+        self.focus = fit_focus_surface(self.measured)
+        self.heatmap = self._render_heatmap()
+        self._tint_squares()
         self._measured_points = points
-        self.status = f"focus surface fitted ({self.focus.model}, {len(points)} pts)"
+        self.status = (
+            f"focus surface fitted ({self.focus.model}, {len(points)} pts — "
+            f"{len(fresh)} new, {len(points) - len(fresh)} reused)"
+        )
+
+    def _tint_squares(self) -> None:
+        """Colour each overview tile marker by the fitted z at its centre."""
+        if not self.squares or self.focus is None:
+            return
+        from matplotlib import colormaps
+        from matplotlib.colors import to_hex
+
+        zs = [float(self.focus.z_at(q["x"], q["y"])) for q in self.squares]
+        z_lo, z_hi = min(zs), max(zs)
+        span = z_hi - z_lo if z_hi > z_lo else 1.0
+        self.squares = [
+            {**q, "fill": to_hex(colormaps["viridis"]((z - z_lo) / span))}
+            for q, z in zip(self.squares, zs, strict=True)
+        ]
 
     def _render_heatmap(self) -> dict:
         import numpy as np
