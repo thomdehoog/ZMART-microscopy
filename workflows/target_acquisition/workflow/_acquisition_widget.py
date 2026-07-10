@@ -25,11 +25,19 @@ the offline tests (and a static backend) drive it.
 from __future__ import annotations
 
 import random
+import time
 from collections.abc import Callable
 from typing import Any
 
 from ._records import record_channel_paths
 from .steps import acquire_targets
+
+# Ignore button clicks arriving within this window after a run finishes.
+# While the microscope works, the notebook kernel is busy and any extra
+# clicks queue up; they would be delivered the instant the run completes
+# and silently start a SECOND hardware run. A deliberate new run comes
+# seconds later; a queued double-click comes milliseconds later.
+_QUEUED_CLICK_WINDOW_S = 2.0
 
 
 class AcquisitionGallery:
@@ -74,6 +82,7 @@ class AcquisitionGallery:
         self.after_acquire = after_acquire
         self._rng = random.Random(seed)
         self._busy = False
+        self._last_run_ended: float | None = None
 
         #: Set by :meth:`acquire`: the sampled targets and the driver records.
         self.picked: list[dict] = []
@@ -137,12 +146,23 @@ class AcquisitionGallery:
             raise
         finally:
             self._busy = False
+            self._last_run_ended = time.monotonic()
         self.picked = picked
         self.records = records
         self._draw_gallery()
         return records
 
     def _on_acquire_clicked(self, _event: Any) -> None:
+        # A click that queued up while the previous acquisition was running
+        # is delivered the moment it finishes — running it would silently
+        # acquire a second batch. Programmatic acquire() is not debounced.
+        if (
+            self._last_run_ended is not None
+            and time.monotonic() - self._last_run_ended < _QUEUED_CLICK_WINDOW_S
+        ):
+            self._status.set_text("ignored a click queued during the previous run")
+            self.fig.canvas.draw_idle()
+            return
         # A widget callback swallows tracebacks in most notebook frontends,
         # so problems are shown on the figure where the operator is looking.
         try:

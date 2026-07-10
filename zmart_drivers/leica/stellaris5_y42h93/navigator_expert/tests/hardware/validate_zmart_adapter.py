@@ -227,22 +227,26 @@ def phase_workflow_procedures(v: vh.Validator, sess: Any, args: argparse.Namespa
                 True,
             )
 
-        # The v4 notebook's Focus step reads its autofocus points from LAS X
-        # through this procedure. An empty template is a skip (the operator
-        # simply has not placed focus points), but the procedure itself must
-        # exist and answer.
-        focus_points = _callable_or_skip_missing_scanfield(
-            v,
+        # The v4 notebook's Focus step pre-fills its autofocus points from
+        # LAS X through this procedure. An empty template returns an empty
+        # list (the operator simply has not placed focus points) — that is a
+        # skip, not a failure; the procedure itself must exist and answer.
+        focus_points = v.callable(
             "run_procedure: get_focus_points",
             lambda: sess.run_procedure({"name": "get_focus_points"}),
-            "no focus points found",
         )
         if focus_points is not None:
-            v.compare(
-                "get_focus_points: at least one focus point",
-                len(focus_points.get("positions") or []) >= 1,
-                True,
-            )
+            if focus_points.get("positions"):
+                v.compare(
+                    "get_focus_points: at least one focus point",
+                    len(focus_points["positions"]) >= 1,
+                    True,
+                )
+            else:
+                v.skip(
+                    "get_focus_points: at least one focus point",
+                    "no focus points placed in the live template",
+                )
 
 
 def _callable_or_skip_missing_scanfield(

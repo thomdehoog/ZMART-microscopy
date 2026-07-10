@@ -154,7 +154,32 @@ class TestCorrectBacklash:
             )
 
         assert get_xy_calls[0]["mode"] == "api"
+        # Three back-and-forth passes by default, every return leg
+        # approaching (x, y) from -X -Y.
         assert move_calls == [
             (50.0, 150.0, "um", 20.0),
             (100.0, 200.0, "um", 20.0),
-        ]
+        ] * 3
+
+    def test_passes_controls_the_number_of_round_trips(self):
+        move_calls = []
+
+        def fake_move_xy(client, x, y, unit="um", tolerance=None):
+            move_calls.append((x, y))
+            return {"success": True, "confirmed": True}
+
+        with (
+            patch.object(
+                stage_movement._readers,
+                "get_xy",
+                return_value={"x_um": 0.0, "y_um": 0.0},
+            ),
+            patch.object(stage_movement._commands, "move_xy", side_effect=fake_move_xy),
+            patch.object(stage_movement.time, "sleep"),
+        ):
+            stage_movement.correct_backlash(client=None, overshoot_um=10.0, passes=1)
+        assert move_calls == [(-10.0, -10.0), (0.0, 0.0)]
+
+    def test_zero_passes_is_refused(self):
+        with pytest.raises(ValueError, match="at least one pass"):
+            stage_movement.correct_backlash(client=None, passes=0)
