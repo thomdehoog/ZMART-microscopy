@@ -104,6 +104,34 @@ script or LLM can ask the server to re-prove its limits at any time.
 
 ## Tests
 
+Run the functional/validation suite and the bounded adversarial suite separately:
+
+```bash
+python -m pytest zmart_drivers/mesospim/pull_request -m normal -q
+python -m pytest zmart_drivers/mesospim/pull_request -m adversarial -q
+```
+
+Valid live movement over both MCP and TCP is a third, opt-in group and is excluded from
+normal CI. With an operator present and the travel path clear, each transport moves X by a
+small in-range amount, verifies the change, restores X, and verifies restoration:
+
+```bash
+MESOSPIM_ALLOW_DEVICE_CHANGE=1 MESOSPIM_OPERATOR_PRESENT=1 \
+MESOSPIM_LIVE_MCP_TOKEN=<token> MESOSPIM_TEST_X_DELTA_UM=100 \
+MESOSPIM_LIVE_TCP_PORT=<port> MESOSPIM_LIVE_TCP_TOKEN=<token> \
+python -m pytest zmart_drivers/mesospim/pull_request -m live_valid -q -s
+```
+
+Running the directory without `-m` collects all groups, but `live_valid` safely skips unless
+both device-change gates and a token are supplied.
+
+Boundary coverage is intentionally not described as exhaustive yet. The API currently
+exposes 54 commands, 15 explicitly ranged parameters, four config-driven enums, and 22
+type-only parameters. The adversarial group crosses every configured absolute stage bound
+and selected setter/relative-move bounds, but it does not yet exercise both sides of every
+ranged parameter through every command that can carry it (notably acquisition lists,
+camera/galvo/laser timing setters, row/index values, and time-lapse arguments).
+
 `test_remote_control.py` (here, in `pull_request/`) rebuilds both modules straight
 from the `0001-*.patch` new-file hunks and checks the promises **without Qt**:
 framing round-trips, the token is constant-time, bad **values** are refused
@@ -119,11 +147,22 @@ tricks — all against a `_RecordingCore` so each refusal is proven to leave the
 **untouched**. `test_viability_check.py` stands up the real server on both lanes and runs
 the operator's viability check; `test_remote_control.py` also proves the start-time
 self-test **gate** (a config with no limits makes construction raise before it ever binds).
+`test_remote_control_transport_harsh.py` adds a **black-box transport sweep**: every attack
+enters through a real loopback MCP/HTTP request or framed TCP socket, MCP forwards through
+TCP exactly as it does in production, and a recording fake Core proves rejected inputs never
+reach instrument methods. It covers duplicate auth/origin headers and JSON members,
+non-finite numbers, relative-move limit crossings, oversized MCP bodies/TCP frames,
+Unicode/delimiter fuzz, malformed JSON-RPC, auth/origin bypass strings, pipelining, and
+post-attack liveness.
+`test_remote_control_transport_valid.py` is the matching positive black-box contract matrix:
+one representative, usable request for every one of the 54 allowlisted commands, sent over
+both real loopback MCP/HTTP and framed TCP paths (108 transport cases), plus a completeness
+check that fails when the allowlist and test table drift apart. It also verifies the Core
+call, state change, or returned value expected from each command.
 The shipped `test_remote_control_validation.py` covers the same `_validate` gate against the
-real module. The whole `pull_request/` suite (framing, auth, the wide adversarial sweep, the
-socket checks) runs in **well under a second** — harsh but bounded: no `sleep`, no unbounded
-waits, every socket op has a small explicit timeout, and hang-prone inputs (huge frame
-lengths, partial frames) are checked by asserting the decoder returns *immediately*.
+real module. The complete offline suite is **169 passing tests in under 5 seconds** on the Windows test
+environment. It is deliberately bounded: no `sleep`, no unbounded fuzz or retries, at most
+48 seeded mutations, and a 0.6-second deadline on every test socket.
 **Validated on the bench against mesoSPIM `-D` demo mode
 (2026-07-08):** the Remote Control tab starts and drives the demo Core end to end
 over **both lanes — framed TCP and MCP-over-HTTP — and it worked as-is** (the
