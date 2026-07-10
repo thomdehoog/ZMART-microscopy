@@ -113,6 +113,13 @@ def test_asking_for_more_than_the_gate_takes_the_whole_gate(tmp_path, overview):
     assert len(gallery.picked) == 2
 
 
+@pytest.mark.parametrize("count", [0, -1, 1.5, True])
+def test_count_must_be_a_positive_whole_number(tmp_path, overview, count):
+    gallery = acquire_gallery(_StubSession(tmp_path), _targets(2), [overview])
+    with pytest.raises(ValueError, match="positive whole number"):
+        gallery.acquire(count)
+
+
 def test_gallery_pairs_share_the_same_physical_window(tmp_path, overview):
     session = _StubSession(tmp_path)  # 40 px * 0.25 um = a 10 um FOV
     gallery = acquire_gallery(session, _targets(4), [overview], seed=1)
@@ -159,6 +166,26 @@ def test_after_acquire_hook_sees_the_records_before_the_gallery(tmp_path, overvi
     )
     gallery.acquire(2)
     assert seen and seen[0] == gallery.records
+
+
+def test_failed_acquisition_does_not_commit_picks(tmp_path, overview):
+    class _FailingSession(_StubSession):
+        def acquire(self, **kwargs):
+            raise RuntimeError("hardware stopped")
+
+    gallery = acquire_gallery(_FailingSession(tmp_path), _targets(3), [overview])
+    with pytest.raises(RuntimeError, match="hardware stopped"):
+        gallery.acquire(2)
+    assert gallery.picked == []
+    assert gallery.records == []
+
+
+def test_gallery_grows_vertically_for_notebook_scrolling(tmp_path, overview):
+    gallery = acquire_gallery(_StubSession(tmp_path), _targets(6), [overview])
+    initial_width = gallery.fig.get_figwidth()
+    gallery.acquire(6)
+    assert gallery.fig.get_figwidth() == initial_width
+    assert gallery.fig.get_figheight() > 7.0
 
 
 def test_records_without_images_get_a_placeholder_row(tmp_path, overview):

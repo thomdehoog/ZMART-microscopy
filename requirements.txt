@@ -25,6 +25,6 @@ lxml>=4.9               # ome-types schema-validation backend (validate=True)
 # only the bridge itself is pip-installable.
 pythonnet>=3.0
 
-# Optional: diagnostic plots / visualization (lazy-imported; not required
-# for API / registration / focusing). Uncomment to enable the plot paths.
-# matplotlib>=3.7
+# Operator notebook and interactive target-acquisition widgets.
+matplotlib>=3.7
+ipympl>=0.9

@@ -81,7 +81,9 @@ def test_hardware_mode_requires_lasx_and_runs_acquire_smoke(monkeypatch, tmp_pat
 
 
 def _commands_for(captured: list[tuple[str, list[str], bool]], script_name: str) -> list[list[str]]:
-    return [cmd for _name, cmd, _fatal in captured if any(part.endswith(script_name) for part in cmd)]
+    return [
+        cmd for _name, cmd, _fatal in captured if any(part.endswith(script_name) for part in cmd)
+    ]
 
 
 def _command_for(captured: list[tuple[str, list[str], bool]], script_name: str) -> list[str]:

@@ -173,8 +173,8 @@ def connect_microscope(
     loaded orientation and calibration live in the per-connection session
     registry (:mod:`.session_state`), where the acquire/save path reads them.
     """
-    from ..commands import gate as _gate
     from .. import orientation as _orientation
+    from ..commands import gate as _gate
     from . import session_state
 
     client = connect_python_client(client_name=client_name, api_delay_ms=api_delay_ms)

@@ -34,6 +34,7 @@ from typing import Any
 # so a single-channel image just looks like the raw camera image — then the
 # CVD-friendly microscopy staples.
 CHANNEL_COLORS = ("white", "lime", "magenta", "cyan", "yellow", "red", "blue")
+_DISPLAY_PIXEL_BUDGET = 20_000_000
 
 
 def _load_channels(path: Any):
@@ -63,6 +64,18 @@ def _load_channels(path: Any):
     )
 
 
+def _load_overview_channels(overview: dict, *, step: int = 1):
+    """Load one overview's single-file stack or indexed per-channel files."""
+    import numpy as np
+
+    paths = overview.get("channel_paths") or [overview["image_path"]]
+    stacks = [_load_channels(path)[:, ::step, ::step] for path in paths]
+    shapes = {stack.shape[1:] for stack in stacks}
+    if len(shapes) != 1:
+        raise ValueError(f"overview channel planes disagree on image shape: {sorted(shapes)}")
+    return np.concatenate(stacks, axis=0)
+
+
 class OverviewViewer:
     """The overview tiles on one zoomable frame-coordinate map.
 
@@ -77,7 +90,7 @@ class OverviewViewer:
     untouched — zooming shows the downsampled grid, not re-read detail.
     """
 
-    def __init__(self, overviews: list[dict], *, downsample: int = 1) -> None:
+    def __init__(self, overviews: list[dict], *, downsample: int | None = None) -> None:
         import matplotlib.pyplot as plt
         import numpy as np
         from matplotlib.widgets import Button, CheckButtons, RadioButtons, RangeSlider
@@ -85,11 +98,21 @@ class OverviewViewer:
         if not overviews:
             raise ValueError("no overviews to show — run the overview step first")
         self.overviews = overviews
-        step = max(1, int(downsample))
+        if downsample is None:
+            total_pixels = sum(
+                int(o["image_size_px"][0])
+                * int(o["image_size_px"][1])
+                * len(o.get("channel_paths") or [o["image_path"]])
+                for o in overviews
+            )
+            step = max(1, int(np.ceil(np.sqrt(total_pixels / _DISPLAY_PIXEL_BUDGET))))
+        else:
+            step = max(1, int(downsample))
+        self.downsample = step
 
         # Load every tile as (C, H, W); all tiles must agree on the channel
         # count (they come from the same job).
-        self._stacks = [_load_channels(o["image_path"])[:, ::step, ::step] for o in overviews]
+        self._stacks = [_load_overview_channels(o, step=step) for o in overviews]
         counts = {s.shape[0] for s in self._stacks}
         if len(counts) != 1:
             raise ValueError(f"tiles disagree on channel count: {sorted(counts)}")
@@ -142,6 +165,7 @@ class OverviewViewer:
         self.ax.set_title(
             f"{len(self.overviews)} overview tile(s), {self.n_channels} channel(s) "
             f"— pan/zoom with the toolbar"
+            + (f" (display 1/{step} pixels)" if step > 1 else "")
         )
 
         # Control column. Widget references are kept on self: matplotlib
@@ -262,15 +286,17 @@ class OverviewViewer:
         self._slider_ax = self.fig.add_axes([0.76, 0.12, 0.18, 0.05])
         self._slider = RangeSlider(
             self._slider_ax,
-            "display\nrange",
+            "",
             full_lo,
             full_hi,
             valinit=state["range"],
         )
+        self._slider_ax.set_title("display range", fontsize=9)
+        self._slider.valtext.set_visible(False)
         self._slider.on_changed(self._on_range_changed)
 
 
-def view_overview(overviews: list[dict], *, downsample: int = 1) -> OverviewViewer:
+def view_overview(overviews: list[dict], *, downsample: int | None = None) -> OverviewViewer:
     """Open the overview mosaic viewer; returns the :class:`OverviewViewer`.
 
     ``overviews`` is the list from

@@ -13,8 +13,8 @@ them in order:
 Re-exports:
 
 - the step functions (``workflow.steps``): ``connect``, ``load_positions``,
-  ``load_analysis_engine``, ``with_focus_z``, ``run_overview``,
-  ``overview_inputs_from_records``, ``acquire_targets``,
+  ``load_analysis_engine``, ``preflight_analysis_engine``, ``with_focus_z``,
+  ``run_overview``, ``overview_inputs_from_records``, ``acquire_targets``,
   ``hijack_if_simulating``, ``write_run_report``;
 - focus (``workflow._focus_run`` / ``workflow._focus_surface`` /
   ``workflow._focus_widget``): ``measure_focus``, ``fit_focus_surface``,
@@ -65,6 +65,7 @@ from .steps import (
     load_analysis_engine,
     load_positions,
     overview_inputs_from_records,
+    preflight_analysis_engine,
     run_overview,
     with_focus_z,
     write_run_report,
@@ -80,6 +81,7 @@ __all__ = [
     "connect",
     "load_positions",
     "load_analysis_engine",
+    "preflight_analysis_engine",
     "with_focus_z",
     "measure_focus",
     "fit_focus_surface",

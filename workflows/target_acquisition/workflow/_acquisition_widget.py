@@ -28,6 +28,7 @@ import random
 from collections.abc import Callable
 from typing import Any
 
+from ._records import record_channel_paths
 from .steps import acquire_targets
 
 
@@ -72,6 +73,7 @@ class AcquisitionGallery:
         self.options = options
         self.after_acquire = after_acquire
         self._rng = random.Random(seed)
+        self._busy = False
 
         #: Set by :meth:`acquire`: the sampled targets and the driver records.
         self.picked: list[dict] = []
@@ -109,27 +111,45 @@ class AcquisitionGallery:
                 "the gate is empty — widen the sliders (or clear the lasso) in "
                 "the target explorer before acquiring."
             )
-        count = max(1, int(count))
-        self.picked = (
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ValueError("target count must be a positive whole number")
+        if self._busy:
+            raise RuntimeError("an acquisition is already running")
+        picked = (
             self._rng.sample(gated, count) if count < len(gated) else list(gated)
         )
-        self.records = acquire_targets(
-            self.session,
-            self.picked,
-            state=self.state,
-            focus=self.focus,
-            options=self.options,
-        )
-        if self.after_acquire is not None:
-            self.after_acquire(self.records)
+        self._busy = True
+        self._status.set_text(f"acquiring {len(picked)} target(s)...")
+        self.fig.canvas.draw_idle()
+        try:
+            records = acquire_targets(
+                self.session,
+                picked,
+                state=self.state,
+                focus=self.focus,
+                options=self.options,
+            )
+            if self.after_acquire is not None:
+                self.after_acquire(records)
+        except Exception:
+            self._status.set_text("acquisition failed; no result set was committed")
+            self.fig.canvas.draw_idle()
+            raise
+        finally:
+            self._busy = False
+        self.picked = picked
+        self.records = records
         self._draw_gallery()
-        return self.records
+        return records
 
     def _on_acquire_clicked(self, _event: Any) -> None:
         # A widget callback swallows tracebacks in most notebook frontends,
         # so problems are shown on the figure where the operator is looking.
         try:
-            count = int(float(self._count_box.text))
+            text = self._count_box.text.strip()
+            if not text.isdecimal():
+                raise ValueError("target count must be a positive whole number")
+            count = int(text)
             self.acquire(count)
         except Exception as exc:  # noqa: BLE001 -- shown to the operator, not lost
             self._status.set_text(f"acquire failed: {exc}")
@@ -143,12 +163,14 @@ class AcquisitionGallery:
         self._gallery_axes = []
 
         rows = len(self.picked)
+        self.fig.set_size_inches(9, max(7.0, 1.9 * rows + 1.5), forward=True)
         top, bottom = 0.88, 0.04
-        height = (top - bottom) / rows - 0.02
+        row_height = (top - bottom) / rows
+        height = row_height * 0.88
         for row, (target, record) in enumerate(
             zip(self.picked, self.records, strict=True)
         ):
-            y0 = top - (row + 1) * (top - bottom) / rows + 0.01
+            y0 = top - (row + 1) * row_height + row_height * 0.06
             ax_low = self.fig.add_axes([0.07, y0, 0.40, height])
             ax_high = self.fig.add_axes([0.53, y0, 0.40, height])
             self._gallery_axes += [ax_low, ax_high]
@@ -199,7 +221,7 @@ class AcquisitionGallery:
         from ._overview_widget import _load_channels
         from .discovery import read_overview_geometry
 
-        images = record.get("images") or ()
+        images = record_channel_paths(record, context="target record", allow_empty=True)
         if not images:
             return None
         high = _load_channels(images[0])[0]

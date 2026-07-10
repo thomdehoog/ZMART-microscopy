@@ -80,6 +80,7 @@ class FocusPicker:
         self.measured: list[dict] | None = None
         #: The fitted focus surface, set by :meth:`measure`.
         self.focus: Any = None
+        self._measured_points: list[dict] | None = None
 
         if seed:
             self.points = self._seed_from_lasx()
@@ -119,6 +120,7 @@ class FocusPicker:
 
     def add_point(self, x: float, y: float) -> dict:
         """Add a focus point at frame ``(x, y)`` micrometres; returns it."""
+        self._invalidate_focus()
         point = {"x": float(x), "y": float(y)}
         self.points.append(point)
         self._redraw_points()
@@ -126,6 +128,7 @@ class FocusPicker:
 
     def remove_point(self, index: int) -> dict:
         """Remove (and return) the picked point at ``index``."""
+        self._invalidate_focus()
         point = self.points.pop(index)
         self._redraw_points()
         return point
@@ -136,10 +139,10 @@ class FocusPicker:
         A microscope with no scan-field template (or an adapter without the
         procedure) is normal — the operator simply starts from an empty map.
         """
-        try:
-            result = self.session.run_procedure({"name": "get_focus_points"})
-        except Exception:  # noqa: BLE001 -- optional convenience, never fatal
+        procedures = self.session.get_procedures()
+        if "get_focus_points" not in procedures:
             return []
+        result = self.session.run_procedure({"name": "get_focus_points"})
         return [
             {"x": float(p["x"]), "y": float(p["y"])}
             for p in (result.get("positions") or [])
@@ -187,21 +190,44 @@ class FocusPicker:
                 "no focus points are picked yet — left-click the map (or call "
                 "add_point) to choose where the microscope should autofocus."
             )
-        self.measured = measure_focus(
-            self.session, self.points, af_job=self.af_job, start_z=self.start_z
-        )
-        self.focus = fit_focus_surface(self.measured)
+        if self._measured_points != self.points:
+            self._invalidate_focus()
+        try:
+            measured = measure_focus(
+                self.session, self.points, af_job=self.af_job, start_z=self.start_z
+            )
+        except Exception:
+            self._invalidate_focus()
+            raise
+        self.measured = measured
+        self._measured_points = [dict(point) for point in self.points]
+        self.focus = fit_focus_surface(measured)
         self._draw_heatmap()
         return self.focus
 
     def require_focus(self) -> Any:
         """The fitted focus surface; a clear error when measuring was skipped."""
-        if self.focus is None:
+        if self.focus is None or self._measured_points != self.points:
             raise RuntimeError(
-                "the focus surface has not been measured yet — pick points in "
-                "the figure and press 'Measure focus' (or call picker.measure())."
+                "the current focus points have not been measured — press "
+                "'Measure focus' before continuing."
             )
         return self.focus
+
+    def _invalidate_focus(self) -> None:
+        """Drop a measured surface as soon as its defining points change."""
+        self.measured = None
+        self.focus = None
+        self._measured_points = None
+        for label in getattr(self, "_z_labels", []):
+            label.remove()
+        self._z_labels = []
+        if getattr(self, "_colorbar", None) is not None:
+            self._colorbar.remove()
+            self._colorbar = None
+        if getattr(self, "_heatmap", None) is not None:
+            self._heatmap.remove()
+            self._heatmap = None
 
     def _on_measure_clicked(self, _event: Any) -> None:
         # A widget callback swallows tracebacks in most notebook frontends,

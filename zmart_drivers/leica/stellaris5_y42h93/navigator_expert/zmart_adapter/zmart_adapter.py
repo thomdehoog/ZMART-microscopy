@@ -767,13 +767,25 @@ def acquire(
         cleanup_source=resolved["cleanup_source"],
     )
 
+    planes = [
+        {
+            "t": int(getattr(index, "t", 0)),
+            "z": int(getattr(index, "z", 0)),
+            "c": int(getattr(index, "c", ordinal)),
+            "path": str(path),
+        }
+        for ordinal, (index, path) in enumerate(sorted(saved.image_paths.items()))
+    ]
     return {
         "acquisition_type": acquisition_type,
         "position_label": label,
         "job": job,
         "format": resolved["format"],
         "settle": "backlash-corrected" if resolved["backlash_correction"] else "direct",
-        "images": sorted(str(path) for path in saved.image_paths.values()),
+        # ``images`` stays as the simple compatibility list. ``planes`` is the
+        # lossless manifest workflows need to distinguish channels from z/t.
+        "images": [plane["path"] for plane in planes],
+        "planes": planes,
     }
 
 

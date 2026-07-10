@@ -74,6 +74,22 @@ def test_tiles_sit_at_their_frame_positions(tmp_path):
     assert second == (70.0, 130.0, 20.0, -20.0)
 
 
+def test_separate_plane_files_are_loaded_as_channels(tmp_path):
+    first = tmp_path / "c0.tif"
+    second = tmp_path / "c1.tif"
+    tifffile.imwrite(first, np.ones((10, 12), dtype=np.uint16))
+    tifffile.imwrite(second, np.full((10, 12), 2, dtype=np.uint16))
+    overview = {
+        "image_path": first,
+        "channel_paths": [first, second],
+        "center_frame_um": (0.0, 0.0),
+        "pixel_size_um": 1.0,
+        "image_size_px": (10, 12),
+    }
+    viewer = view_overview([overview])
+    assert viewer.n_channels == 2
+
+
 def test_hiding_a_channel_removes_its_contribution(tmp_path):
     viewer = view_overview(_overviews(tmp_path, [(0.0, 0.0)]))
     both = np.asarray(viewer._images[0].get_array()).copy()
@@ -115,6 +131,12 @@ def test_downsample_keeps_extent_but_shrinks_pixels(tmp_path):
     rgb = np.asarray(viewer._images[0].get_array())
     assert rgb.shape[:2] == (10, 15)  # every 2nd pixel of (20, 30)
     assert tuple(viewer._images[0].get_extent()) == (-30.0, 30.0, 20.0, -20.0)
+
+
+def test_default_downsample_obeys_display_budget(tmp_path, monkeypatch):
+    monkeypatch.setattr("workflow._overview_widget._DISPLAY_PIXEL_BUDGET", 100)
+    viewer = view_overview(_overviews(tmp_path, [(0.0, 0.0)]))
+    assert viewer.downsample > 1
 
 
 def test_mismatched_channel_counts_are_refused(tmp_path):

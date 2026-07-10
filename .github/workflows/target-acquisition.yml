@@ -54,5 +54,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r zmart_drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt nbformat
 
-      - name: Run the workflow test suite
-        run: python -m pytest -q workflows/target_acquisition/tests --tb=short
+      - name: Run controller, workflow, and Leica-adapter integration suites
+        run: >-
+          python -m pytest -q
+          zmart_controller/tests
+          workflows/target_acquisition/tests
+          zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/unit/test_zmart_adapter.py
+          --tb=short

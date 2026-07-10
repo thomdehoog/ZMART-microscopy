@@ -50,8 +50,6 @@ import numpy as np
 import navigator_expert as drv
 from shared.algorithms import VOTING_METHODS, brenner, register_voting
 
-_log = logging.getLogger(__name__)
-
 from .common import (
     STAGING_SCHEMA_VERSION,
     SessionPaths,
@@ -69,6 +67,8 @@ from .common import (
     write_json_atomic,
     zero_z_galvo,
 )
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
