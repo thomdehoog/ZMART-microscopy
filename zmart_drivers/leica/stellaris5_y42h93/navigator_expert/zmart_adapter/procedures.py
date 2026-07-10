@@ -31,6 +31,15 @@ def positions(scan_field: dict | None) -> list[dict]:
     return _positions(scan_field, kinds={"grid"}, label="grid positions")
 
 
+def focus_points(scan_field: dict | None) -> list[dict]:
+    """Return focus positions as controller frame coordinates."""
+    return _positions(
+        scan_field,
+        kinds={"focus-point", "autofocus-point"},
+        label="focus points",
+    )
+
+
 def _positions(scan_field: dict | None, *, kinds: set[str], label: str) -> list[dict]:
     if not scan_field:
         raise RuntimeError(f"no LAS X scan-field {label} are available")
