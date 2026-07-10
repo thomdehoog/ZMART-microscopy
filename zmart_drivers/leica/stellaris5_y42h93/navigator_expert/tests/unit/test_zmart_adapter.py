@@ -779,7 +779,9 @@ class TestStateAndProcedures(unittest.TestCase):
         self.assertIn("backlash_takeup", procedures)
         self.assertIn("get_root", procedures)
         self.assertIn("get_positions", procedures)
-        self.assertNotIn("get_focus_points", procedures)
+        # The v4 operator notebook reads its autofocus points from LAS X through
+        # this procedure, so the adapter must keep advertising it.
+        self.assertIn("get_focus_points", procedures)
         self.assertEqual(procedures["autofocus"]["jobs"], ["AF Job"])
         with patch.object(adapter._motion, "correct_backlash", lambda client, **k: None):
             self.assertEqual(
@@ -798,8 +800,10 @@ class TestStateAndProcedures(unittest.TestCase):
                 adapter.run_procedure(h, {"name": "get_positions"})["positions"],
                 [{"x": 1.0, "y": 2.0, "z": 3.0}],
             )
-            with self.assertRaisesRegex(ValueError, "unknown procedure"):
-                adapter.run_procedure(h, {"name": "get_focus_points"})
+            self.assertEqual(
+                adapter.run_procedure(h, {"name": "get_focus_points"})["positions"],
+                [{"x": 4.0, "y": 5.0, "z": 6.0}, {"x": 7.0, "y": 8.0}],
+            )
         with self.assertRaises(ValueError):
             adapter.run_procedure(h, {"name": "nope"})
 

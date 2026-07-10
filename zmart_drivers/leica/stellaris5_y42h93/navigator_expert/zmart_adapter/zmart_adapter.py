@@ -874,6 +874,7 @@ def get_procedures(handle: ZmartHandle) -> dict:
         },
         "get_root": {"description": "return the ZMART run output root"},
         "get_positions": {"description": "return LAS X scan-field positions in frame um"},
+        "get_focus_points": {"description": "return LAS X focus points in frame um"},
     }
 
 
@@ -892,6 +893,11 @@ def run_procedure(handle: ZmartHandle, procedure: dict) -> dict:
         return {
             "ran": dict(procedure),
             "positions": _procedures.positions(_scan_field(handle)),
+        }
+    if name == "get_focus_points":
+        return {
+            "ran": dict(procedure),
+            "positions": _procedures.focus_points(_scan_field(handle)),
         }
     if name == "backlash_takeup":
         _motion.correct_backlash(handle.client)
