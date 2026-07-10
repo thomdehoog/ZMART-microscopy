@@ -5,8 +5,8 @@ synchronous fake analysis engine -- no hardware, no cellpose, no
 ``navigator_expert``. This is the integration counterpart to the per-step unit
 tests: it proves the pieces fit together in the order the notebook runs them.
 
-    connect -> get_root/get_positions -> get_focus_points -> get/set_state -> fit_focus_surface ->
-    run_overview -> build_overview_inputs -> discover_targets ->
+    connect -> get_root/get_positions -> get/set_state -> pick_focus_points ->
+    measure -> run_overview -> build_overview_inputs -> discover_targets ->
     acquire_targets -> summarize_run / plots
 """
 
@@ -19,6 +19,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import pytest  # noqa: E402
 import workflow  # noqa: E402
 
 from zmart_controller.tests.mock_driver import register_mock  # noqa: E402
@@ -64,16 +65,20 @@ def test_full_controller_only_flow(tmp_path):
         state = zmart_controller.get_state()
         zmart_controller.set_state(state)
 
-        # 4. focus surface (measure_focus is unit-tested against a fake session;
-        #    here we fit from explicit points -- the same FocusSurface object).
-        focus_points = zmart_controller.run_procedure({"name": "get_focus_points"})["positions"]
-        focus = workflow.fit_focus_surface(
-            [
-                {"x_um": focus_points[0]["x"], "y_um": focus_points[0]["y"], "z_um": 3.0},
-                {"x_um": focus_points[1]["x"], "y_um": focus_points[1]["y"], "z_um": 3.4},
-                {"x_um": focus_points[2]["x"], "y_um": focus_points[2]["y"], "z_um": 3.1},
-            ]
-        )
+        # 4. focus surface, the way the notebook does it: the picker pre-fills
+        #    LAS X focus points, the operator (here: code) picks their own, and
+        #    Measure autofocuses at each point and fits the surface. The mock's
+        #    autofocus reports the current z, so the fit is a flat surface.
+        picker = workflow.pick_focus_points(zmart_controller, positions)
+        assert picker.points  # pre-filled from the mock's get_focus_points
+        picker.points.clear()
+        for x, y in [(0.0, 0.0), (100.0, 0.0), (0.0, 80.0)]:
+            picker.add_point(x, y)
+        focus = picker.measure()
+        assert picker.require_focus() is focus
+        # The mock autofocuses to wherever the stage sits (start z = 0), so
+        # the fitted surface is flat at zero.
+        assert focus.z_at(0.0, 0.0) == pytest.approx(0.0)
 
         # 5. overview: capture at each position, z from the surface
         overview_records = workflow.run_overview(
