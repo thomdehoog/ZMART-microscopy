@@ -82,8 +82,9 @@ def test_workflow_attributes_used_are_exported():
     exported = set(workflow.__all__)
     missing = used - exported
     assert not missing, f"notebook calls workflow.{sorted(missing)} not in workflow.__all__"
-    # sanity: the notebook actually drives the workflow
-    assert {"connect", "run_overview", "discover_targets", "acquire_targets"} <= used
+    # sanity: the notebook actually drives the workflow (acquisition goes
+    # through the gallery widget, which wraps acquire_targets)
+    assert {"connect", "run_overview", "discover_targets", "acquire_gallery"} <= used
 
 
 def test_notebook_stays_controller_only():

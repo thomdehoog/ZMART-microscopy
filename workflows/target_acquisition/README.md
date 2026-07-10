@@ -7,8 +7,9 @@ Pick cells from a low-magnification overview, re-image each at the high-magnific
 3. **Jobs** — capture the overview and target states.
 4. **Initial positions** — ask the microscope for scan-field positions.
 5. **Focus** — pick focus points in an interactive figure (points already placed in LAS X are pre-filled), press **Measure focus** to autofocus at each one, and inspect the fitted z surface as a heatmap in the same figure.
-6. **Overview** — acquire overviews and discover targets.
-7. **Targets + summary** — acquire target images and write the run report.
+6. **Overview** — acquire one image per position, then browse them as one zoomable map with every tile at its real stage position and per-channel colour / brightness / contrast controls.
+7. **Discover targets** — segment the overviews, then gate interactively: put any measured feature on the plot axes, threshold with sliders or draw a lasso, and hover a point to see that cell's image crop.
+8. **Acquire targets + summary** — type how many to acquire; a random sample of the gate is re-imaged and reviewed as overview/target image pairs at the same physical scale, then the run report is written.
 
 ## Entry Point
 
