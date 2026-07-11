@@ -203,7 +203,16 @@ The maintainer asked for a broad usability expansion. New surface to attack:
    crops rendered with the viewer's display window (stale cache when the
    window changes is accepted — is that documented enough?); the
    colour-blind palette plumbing.
-9. Both notebooks gained a status cell and inline wiring
+9. **Notebook execution harness** (`tests/test_notebooks_run_end_to_end.py`):
+   every code cell of both notebooks executes offline against a simulated
+   session/engine, with operator actions scripted between cells. Check what
+   it can and cannot prove: the connect/engine boundary is monkeypatched
+   (so the setup cell's failure paths never run here), `exec` differs from
+   IPython (no display of trailing expressions, no magics), and the scripted
+   actions could mask an ordering bug a real operator would hit (e.g. a
+   button pressed before a cell finishes). Is the injected-calibration
+   assertion tolerance (±0.5 µm) tight enough to catch a sign regression?
+10. Both notebooks gained a status cell and inline wiring
    (`viewer.show_targets(targets, explorer)`, the React 5b cell now ends
    with `wreact.calibration_report(...)`). Confirm the guard tests still
    pin what matters and that no cell depends on a variable defined later.
