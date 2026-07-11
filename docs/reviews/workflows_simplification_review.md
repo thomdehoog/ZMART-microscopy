@@ -194,7 +194,51 @@ per function stating in/out/raises, in the calm CLAUDE.md voice; move the
 "why nearest-neighbour is the honest choice" rationale to a single sentence.
 Estimated lines saved: **~150–200** (beyond what §3.1 already removes).
 
-### 3.5 `_matching_target_indices` is over-engineered for its job (JUDGMENT)
+### 3.5 Hardcoded tunables that belong in configuration/profiles (SAFE to catalogue; maintainer decides plumbing)
+
+Per the maintainer's design rule (all tunables, thresholds, grid sizes,
+machine-specific values live in configuration/profiles, not module bodies), here
+is every hardcoded tunable I found that an operator or a *different microscope*
+might reasonably need to change. Many are already exposed as function keyword
+arguments (listed at the end) and only need a profile default; the rest are baked
+into module bodies. This is a catalogue, not a rewrite mandate.
+
+Baked into module bodies (no call-site override today):
+
+| Value | Location | What it controls | Suggested config home |
+|---|---|---|---|
+| `FLAT_TOLERANCE_UM = 0.1` | `_focus_surface.py:19` | z-range under which the focus fit collapses to a constant plane | focus profile |
+| `SPLINE_SMOOTHING = 0.1` | `_focus_surface.py:20` | thin-plate-spline smoothing; sample-dependent | focus profile |
+| `_DISPLAY_PIXEL_BUDGET = 20_000_000` | `_overview_widget.py:44` | auto-downsample threshold for the mosaic | viewer/display profile |
+| percentile `(1.0, 99.5)` | `_overview_widget.py:316` | initial display contrast window | viewer/display profile |
+| channel-axis heuristic `<= 8` | `_overview_widget.py:63,65` | how many planes count as "channels" vs a stack | acquisition/format profile |
+| `CHANNEL_COLORS` palette | `_overview_widget.py:43`; `CHANNEL_HEX*` `react/_support.py:41,54` | per-channel colours (duplicated across stacks) | display profile (single source) |
+| `_HOVER_RADIUS_PX`, `_REMOVE_RADIUS_PX = 12.0` | `_discovery_widget.py:34`, `_focus_widget.py:36` | click/hover tolerance | UI profile |
+| `_QUEUED_CLICK_WINDOW_S = 2.0` | `_acquisition_widget.py:41`, `_focus_widget.py:41`, `_host.py:49` | debounce window (triplicated) | UI profile (single source) |
+| `_MIN_TRUSTED_SITES = 3` | `_calibration_check.py:56` | minimum sites for a trustworthy average | calibration profile |
+| angle jitter `(-0.3, 0.3)` | `_calibration_check.py:81` | ring-site randomisation | calibration profile |
+| focus-extrapolation `margin = max(10.0, 0.5*span)` | `_calibration_check.py:286` | how far the focus fit may extrapolate to the ring | calibration profile |
+| texture floor `std < 1e-6` | `_calibration_check.py:369` | "featureless window → not trusted" cutoff | calibration profile |
+| plot `dpi` (150 here, 300 in `_figsave`) | `_calibration_check.py:470`, `_figsave.py:21` | figure resolution | output/export profile |
+| `poll_interval = 0.05`, `feature = "area"` | `discovery.py:157,154` | engine drain poll; default gating feature | analysis profile |
+| `SystemTypeName == "SIMULATOR"` allowlist string | `_hijack.py:208,221` | the exact vendor value the sim hijack accepts | driver/sim profile |
+| hash length `6`, `_CREATE_ATTEMPTS = 16` | `_output.py:44,19` | output-folder hash format | output profile |
+| bind host `127.0.0.1`, default port | `_server.py`/`__main__.py` | where the webapp listens | webapp profile |
+| `experiment = "target-acquisition"`, `vendor = "leica"` | `_flow.py:48–49` | run-folder name, driver selection | webapp/run profile |
+| `INJECTED_ERROR_UM`, world spacing/extent | `_simulation.py:37,45,43` | simulated calibration error and sample density | simulation profile (test-facing, lower priority) |
+
+Already overridable at the call site (just need a profile *default* rather than a
+literal in the signature): `crop_um=60.0`, `default_count=5`, `grid=40`,
+`n_positions=12`, `radius_um=1000.0`, `downsample`, `seed`, `pixel_tol=1e-6`.
+
+Highest priority for a real second microscope: the focus-fit constants
+(`FLAT_TOLERANCE_UM`, `SPLINE_SMOOTHING`), the channel-axis heuristic and palette,
+the calibration-check profile block, and the display pixel budget/contrast
+percentiles — these are the ones whose right value genuinely differs by
+instrument or sample. The debounce window and click radii are triplicated and
+should at least become one named constant even before they move to a profile.
+
+### 3.6 `_matching_target_indices` is over-engineered for its job (JUDGMENT)
 
 `_discovery_widget._matching_target_indices` (lines 70–115) runs a two-pass
 identity-then-equality reconciliation with a 9-line docstring to handle the case
@@ -312,6 +356,12 @@ choice, not making it.
 - **The webapp (`_flow`, `_host`, `_server`, `_page`, `__main__`).** Stdlib-only,
   one-worker-thread discipline, honest offline promise. Coherent and maintainable.
   Keep.
+- **The unbounded wait for the microscope to go idle after an acquisition.**
+  `capture_positions`, `measure_focus`, and the calibration passes block on
+  `session.acquire` / `run_procedure` with no timeout, on purpose: a real
+  acquisition has no upper time bound. This is a recorded maintainer decision
+  (`docs/reviews/MAINTAINER_DECISIONS.md`). I did **not** flag it and it should
+  never be "fixed" with a timeout. Keep as-is.
 - **The biologist-facing docstrings on the four ipywidgets and the `Session`
   step functions.** These are the model for the rest of the repo — welcoming,
   contextual, complete sentences. Keep; do not "tighten" them into telegram style.
@@ -357,7 +407,7 @@ Read in full unless noted. "Skimmed" means I read the docstring, structure
 - `_simulation.py` — the simulated microscope/engine; high value. Keep.
 - `_overview_widget.py` / `_discovery_widget.py` / `_acquisition_widget.py` /
   `_focus_widget.py` — read in full; high-quality, biologist-friendly, live-tested.
-  Keep (one over-engineered helper noted, §3.5).
+  Keep (one over-engineered helper noted, §3.6).
 - `_saved.py` / `_save_queue.py` / `_log_capture.py` — **no live importer**;
   serve only retired. Verdict: **delete** (§3.1).
 
