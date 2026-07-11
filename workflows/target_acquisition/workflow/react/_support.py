@@ -6,9 +6,10 @@ Python through *traits* (named values either side can change) and
 *messages* (small one-off packets either side sends). Python streams fresh
 data by sending one message per new tile / point / image pair — the kernel
 flushes those immediately, which is what makes the widgets update in real
-time while the microscope works. The full picture also lives in a trait,
-refreshed whenever a browser view asks for it (a ``sync`` message on
-mount), so a re-opened notebook tab shows everything.
+time while the microscope works. Metadata lives in a trait; whenever a
+browser view asks for the full picture (a ``sync`` message on mount), Python
+replays the images as bounded binary messages so a re-opened tab catches up
+without one enormous base64 trait.
 
 Why messages for streaming instead of growing a trait: a trait update
 always resends the WHOLE value. Appending tile 25 to a trait list would
@@ -114,7 +115,7 @@ def png_bytes(array: Any) -> bytes:
 
 
 def png_to_data_url(png: bytes) -> str:
-    """Wrap raw PNG bytes as a ``data:image/png`` URL (for snapshot traits)."""
+    """Wrap raw PNG bytes as a ``data:image/png`` URL for small trait images."""
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
 
 
@@ -176,8 +177,10 @@ def _vendored_react_js() -> str:
     actually reads.
     """
     shadow = "window, self, globalThis, module, exports, define"
-    call = ".call(__zmartVendor, __zmartVendor, __zmartVendor, __zmartVendor," \
+    call = (
+        ".call(__zmartVendor, __zmartVendor, __zmartVendor, __zmartVendor,"
         " undefined, undefined, undefined);"
+    )
     return (
         "// Vendored react + react-dom 18.3.1 (MIT, see vendor/LICENSE in the\n"
         "// Python package). Evaluated into a private scope: no CDN, works\n"
@@ -189,26 +192,22 @@ def _vendored_react_js() -> str:
         "// attaching itself as window.React — land on the private object and\n"
         "// never touch the page, which runs its own, different React.\n"
         "const __zmartVendor = {};\n"
-        "if (typeof window !== \"undefined\") {\n"
+        'if (typeof window !== "undefined") {\n'
         "  __zmartVendor.document = window.document;\n"
         "  __zmartVendor.navigator = window.navigator;\n"
         "  __zmartVendor.location = window.location;\n"
         "  __zmartVendor.performance = window.performance;\n"
-        "  for (const fn of [\"addEventListener\", \"removeEventListener\",\n"
-        "                    \"dispatchEvent\", \"requestAnimationFrame\",\n"
-        "                    \"cancelAnimationFrame\", \"setTimeout\",\n"
-        "                    \"clearTimeout\", \"setInterval\", \"clearInterval\"]) {\n"
-        "    if (typeof window[fn] === \"function\") {\n"
+        '  for (const fn of ["addEventListener", "removeEventListener",\n'
+        '                    "dispatchEvent", "requestAnimationFrame",\n'
+        '                    "cancelAnimationFrame", "setTimeout",\n'
+        '                    "clearTimeout", "setInterval", "clearInterval"]) {\n'
+        '    if (typeof window[fn] === "function") {\n'
         "      __zmartVendor[fn] = window[fn].bind(window);\n"
         "    }\n"
         "  }\n"
         "}\n"
-        f"(function({shadow}) {{\n"
-        + _vendored("react.production.min.js")
-        + f"\n}}){call}\n"
-        f"(function({shadow}) {{\n"
-        + _vendored("react-dom.production.min.js")
-        + f"\n}}){call}\n"
+        f"(function({shadow}) {{\n" + _vendored("react.production.min.js") + f"\n}}){call}\n"
+        f"(function({shadow}) {{\n" + _vendored("react-dom.production.min.js") + f"\n}}){call}\n"
         "const React = __zmartVendor.React;\n"
         "const createRoot = (el) => __zmartVendor.ReactDOM.createRoot(el);\n"
     )
@@ -218,7 +217,9 @@ def _vendored_react_js() -> str:
 # bind React state to anywidget traits and streamed messages, and the house
 # style. Concatenated in front of each widget's own code to form its ESM
 # module.
-REACT_PRELUDE = _vendored_react_js() + """
+REACT_PRELUDE = (
+    _vendored_react_js()
+    + """
 const h = React.createElement;
 
 // Bind a React state to an anywidget trait (either side can change it).
@@ -232,29 +233,39 @@ function useTrait(model, name) {
   return [value, (v) => { model.set(name, v); model.save_changes(); }];
 }
 
-// Streamed lists: the trait holds the full snapshot (refreshed when we ask
-// for a "sync"); one custom message per NEW item keeps mid-run traffic
-// proportional to the data instead of resending everything already shown.
+// Streamed lists: the trait holds metadata; one custom message per NEW item
+// keeps mid-run traffic proportional to the data. A "sync" catch-up is a
+// reset followed by the same bounded binary messages.
 // Image pixels arrive as binary buffers (raw PNG); the entry's
-// "buffer_keys" say which fields they fill, via object URLs we revoke as
-// soon as a snapshot replaces them.
+// "buffer_keys" say which fields they fill. Snapshot catch-up uses the same
+// bounded messages, preceded by "<kind>:reset", instead of one enormous
+// base64 trait. Object URLs are owned per entry/key so replacing an index
+// revokes the displaced URL immediately.
 function useStream(model, traitName, messageType) {
   const [items, setItems] = React.useState(model.get(traitName) || []);
-  const urls = React.useRef([]);
+  const urls = React.useRef(new Map());
   React.useEffect(() => {
     const revokeAll = () => {
       urls.current.forEach((u) => URL.revokeObjectURL(u));
-      urls.current = [];
+      urls.current.clear();
     };
-    const onTrait = () => { revokeAll(); setItems(model.get(traitName) || []); };
     const onMsg = (msg, buffers) => {
-      if (!msg || msg.type !== messageType) return;
+      if (!msg) return;
+      if (msg.type === `${messageType}:reset`) {
+        revokeAll();
+        setItems([]);
+        return;
+      }
+      if (msg.type !== messageType) return;
       const entry = { ...msg.entry };
       (msg.buffer_keys || []).forEach((key, k) => {
         const view = buffers && buffers[k];
         if (!view) return;
+        const owner = `${msg.index}:${key}`;
+        const old = urls.current.get(owner);
+        if (old) URL.revokeObjectURL(old);
         const url = URL.createObjectURL(new Blob([view], { type: "image/png" }));
-        urls.current.push(url);
+        urls.current.set(owner, url);
         entry[key] = url;
       });
       setItems((prev) => {
@@ -263,11 +274,9 @@ function useStream(model, traitName, messageType) {
         return next;
       });
     };
-    model.on(`change:${traitName}`, onTrait);
     model.on("msg:custom", onMsg);
     model.send({ type: "sync" });  // a fresh view asks for the full picture
     return () => {
-      model.off(`change:${traitName}`, onTrait);
       model.off("msg:custom", onMsg);
       revokeAll();
     };
@@ -278,14 +287,15 @@ function useStream(model, traitName, messageType) {
 
 // A number input that commits on blur or Enter — not on every keystroke,
 // which would re-render (and retransmit) the whole widget mid-typing.
-function NumBox({ value, onCommit, width = 52 }) {
+function NumBox({ value, onCommit, width = 52, disabled = false }) {
   const [text, setText] = React.useState(String(value));
   React.useEffect(() => { setText(String(value)); }, [value]);
   const commit = () => {
+    if (disabled) return;
     const v = parseFloat(text);
     if (Number.isFinite(v)) onCommit(v); else setText(String(value));
   };
-  return h("input", { style: { ...inp, width }, value: text,
+  return h("input", { style: { ...inp, width }, value: text, disabled,
     onChange: (e) => setText(e.target.value),
     onBlur: commit,
     onKeyDown: (e) => { if (e.key === "Enter") { commit(); e.target.blur(); } } });
@@ -337,3 +347,4 @@ function mount(App) {
   };
 }
 """
+)

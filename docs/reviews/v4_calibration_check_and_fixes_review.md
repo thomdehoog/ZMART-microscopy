@@ -179,12 +179,15 @@ measured cumulative payload or serialization.
 
 Fix applied: a streaming protocol (documented in `workflow/react/PROTOCOL.md`):
 each new tile/row travels once as a custom message; the trait holds the full
-snapshot, refreshed when a browser view mounts (it sends `sync`) and at commit
-points (run end, reload). Every image — tiles AND gallery rows — is kept under
-a per-image pixel budget that now counts channels, and the channel min/max
-boxes commit on blur/Enter instead of per keystroke. Traffic is proportional
-to the data. Pinned by `test_overview_tiles_stream_as_messages_not_trait_resends`
-and `test_gallery_streams_rows_and_commits_on_success`.
+metadata snapshot. A mounting view sends `sync` and receives a reset plus one
+bounded binary message per item — never one giant base64 trait. Every image —
+tiles AND gallery rows — is kept under a per-image pixel budget that now counts
+channels; catch-up/gallery copies use a tighter 250k-pixel budget, and the
+channel min/max boxes commit on blur/Enter instead of per keystroke. Traffic is
+linear and the aggregate replay is bounded. Pinned by
+`test_overview_tiles_stream_as_messages_not_trait_resends`,
+`test_gallery_streams_rows_and_commits_on_success`, and
+`test_worst_case_snapshot_payloads_stay_bounded`.
 
 ### 8. major — the React gate mask was browser-writable and trusted — FIXED
 
@@ -435,19 +438,16 @@ around the maintainer's stated plan to embed them in a website later:
    exactly the error the workflow's targeting experiences — but whether that
    convention matches the optics to better than half a pixel is a hardware
    question.
-5. Featureless-but-structured images: shared vignetting or fixed-pattern
-   signal registers at zero offset with high agreement, so a dim sample can
-   pull the calibration check's mean toward zero (under-reporting). Run the
-   check on a textured region; the std guard only catches perfectly flat
-   frames.
+5. Real-image prevalence and strength of fixed-pattern/vignetting bias. The
+   algorithmic susceptibility is testable offline; only measuring how much it
+   affects this microscope's optical path requires hardware.
 6. Backlash mechanics: whether three passes measurably beat one on the ZMB
    leadscrews; whether the 20 µm confirm tolerance can "confirm" a return leg
    short enough to matter against 3–5 µm backlash; LC-09 (a positionally
    stale but freshly timestamped readback instantly confirming a leg).
 7. The focus-extrapolation guard's margins (10 µm floor, half the measured
    span) are conservative choices; hardware experience may want them tuned.
-8. Browser-only behaviour: esm.sh availability and the offline note's
-   rendering across JupyterLab versions, wheel/pointer-capture behaviour of
-   the pan and lasso surfaces, `useStream`'s trait-vs-message ordering under
-   a real websocket, ipympl draw latency with 25 large tiles, multi-tab
-   sessions sharing one model.
+8. Browser-only behaviour: wheel/pointer-capture behaviour of the pan and
+   lasso surfaces, `useStream`'s trait-vs-message ordering under a real
+   websocket, ipympl draw latency with 25 large tiles, and multi-tab sessions
+   sharing one model. React is vendored; there is no esm.sh dependency.

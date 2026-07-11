@@ -83,6 +83,9 @@ def test_every_widget_ships_the_vendored_react_runtime():
         assert "react-dom.production.min.js" in cls._esm
         assert "createRoot" in cls._esm
         assert "esm.sh" not in cls._esm  # no CDN fetch anywhere
+        assert "new Map()" in cls._esm  # object URLs are owned per entry/key
+        assert "URL.revokeObjectURL(old)" in cls._esm  # replacement cannot leak the old URL
+        assert "${messageType}:reset" in cls._esm  # bounded snapshot replay starts cleanly
         assert "export default" in cls._esm
 
 
@@ -108,22 +111,24 @@ def test_overview_tiles_stream_as_messages_not_trait_resends(tmp_path):
     """
     viewer = wreact.view_overview()
     sent = []
-    viewer.send = lambda content, **_kw: sent.append(content)
+    viewer.send = lambda content, buffers=None, **_kw: sent.append((content, buffers))
 
     record = {"images": [str(_ome(tmp_path / "t1.ome.tif"))]}  # 30x20 px at 2 um
     viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, record)
     record2 = {"images": [str(_ome(tmp_path / "t2.ome.tif"))]}
     viewer.add_acquisition(2, {"x": 100.0, "y": 0.0}, record2)
 
-    assert [m["type"] for m in sent] == ["tile", "tile"]
-    assert [m["index"] for m in sent] == [0, 1]
+    assert [m[0]["type"] for m in sent] == ["tile", "tile"]
+    assert [m[0]["index"] for m in sent] == [0, 1]
     assert viewer.tiles == []  # nothing resent mid-stream
 
     # A browser view mounting (or re-mounting) asks for the full picture.
     viewer._route_message(None, {"type": "sync"}, None)
+    assert [m[0]["type"] for m in sent[2:]] == ["tile:reset", "tile", "tile"]
     assert len(viewer.tiles) == 2
     tile = viewer.tiles[0]
-    assert tile["src"].startswith("data:image/png;base64,")
+    assert tile["src"] == ""  # pixels stay out of the JSON trait
+    assert sent[3][1][0][:8] == b"\x89PNG\r\n\x1a\n"
     assert (tile["x0"], tile["y0"], tile["w"], tile["h"]) == (-30.0, -20.0, 60.0, 40.0)
     assert viewer.tiles[1]["x0"] == 70.0
 
@@ -131,12 +136,14 @@ def test_overview_tiles_stream_as_messages_not_trait_resends(tmp_path):
 def test_overview_channel_edit_recomposites(tmp_path):
     viewer = wreact.view_overview()
     viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome(tmp_path / "t.ome.tif"))]})
+    sent = []
+    viewer.send = lambda content, buffers=None, **_kw: sent.append((content, buffers))
     viewer.push_snapshot()
-    before = viewer.tiles[0]["src"]
+    before = sent[-1][1][0]
     channels = [dict(viewer.channels[0])]
     channels[0]["visible"] = False
     viewer.channels = channels  # what the browser does on an eye toggle
-    assert viewer.tiles[0]["src"] != before
+    assert sent[-1][1][0] != before
 
 
 def test_overview_bogus_channel_contents_degrade_instead_of_raising(tmp_path):
@@ -149,8 +156,11 @@ def test_overview_bogus_channel_contents_degrade_instead_of_raising(tmp_path):
     viewer = wreact.view_overview()
     viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome(tmp_path / "t.ome.tif"))]})
     viewer.channels = [{"color": "not-a-colour", "lo": None, "hi": "abc", "visible": True}]
+    sent = []
+    viewer.send = lambda content, buffers=None, **_kw: sent.append((content, buffers))
     viewer.push_snapshot()
-    assert viewer.tiles[0]["src"].startswith("data:image/png")
+    assert viewer.tiles[0]["src"] == ""
+    assert sent[-1][1][0][:8] == b"\x89PNG\r\n\x1a\n"
 
 
 def test_non_dict_messages_are_ignored(tmp_path):
@@ -165,7 +175,8 @@ def test_overview_channel_mismatch_is_refused(tmp_path):
     viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome(tmp_path / "a.ome.tif"))]})
     with pytest.raises(ValueError, match="channel count"):
         viewer.add_acquisition(
-            2, {"x": 100.0, "y": 0.0},
+            2,
+            {"x": 100.0, "y": 0.0},
             {"images": [str(_ome(tmp_path / "b.ome.tif", channels=3))]},
         )
 
@@ -298,17 +309,18 @@ def test_gallery_streams_rows_and_commits_on_success(tmp_path):
     gallery = wreact.acquire_gallery(session, _targets(5), [_overview(tmp_path)], seed=3)
 
     sent = []
-    gallery.send = lambda content, **_kw: sent.append(content)
+    gallery.send = lambda content, buffers=None, **_kw: sent.append((content, buffers))
     gallery.handle_message({"type": "acquire", "count": "2"})
 
-    # One message per acquisition — the browser draws each pair the moment
-    # it exists, and nothing already shown is resent. The full snapshot
-    # lands in the trait once, when the run commits.
-    assert [m["type"] for m in sent] == ["row", "row"]
-    assert [m["index"] for m in sent] == [0, 1]
+    # One message per acquisition draws live; commit replays bounded binary
+    # chunks after a reset so a newly mounted view has the complete result.
+    assert [m[0]["type"] for m in sent] == ["row:reset", "row", "row", "row:reset", "row", "row"]
+    assert [m[0]["index"] for m in sent if m[0]["type"] == "row"] == [0, 1, 0, 1]
+    assert [m[0]["entry"]["stream_index"] for m in sent if m[0]["type"] == "row"] == [0, 1, 0, 1]
     assert len(gallery.records) == 2 == len(gallery.picked)
     assert len(gallery.rows) == 2
-    assert gallery.rows[0]["low_src"].startswith("data:image/png")
+    assert gallery.rows[0]["low_src"] == ""
+    assert sent[-1][1][0][:8] == b"\x89PNG\r\n\x1a\n"
     assert "same window" in gallery.rows[0]["high_title"]
     assert not gallery.busy
 
@@ -513,9 +525,18 @@ def test_overview_auto_downsample_respects_the_pixel_budget(tmp_path):
 
     viewer = wreact.view_overview()
     viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(path)]})
+    sent = []
+    viewer.send = lambda content, buffers=None, **_kw: sent.append((content, buffers))
     viewer.push_snapshot()
     assert viewer.downsample == 2
     assert viewer._stacks[0].shape == (1, 1000, 1000)
+    from io import BytesIO
+
+    from PIL import Image
+
+    snapshot_png = next(buffers[0] for content, buffers in sent if content["type"] == "tile")
+    with Image.open(BytesIO(snapshot_png)) as image:
+        assert image.width * image.height <= 250_000
     # ...while the physical extent stays exact.
     assert (viewer.tiles[0]["w"], viewer.tiles[0]["h"]) == (2000.0, 2000.0)
 
@@ -524,11 +545,29 @@ def test_gallery_row_images_respect_the_pixel_budget():
     """Full-resolution target images must be shrunk before travelling."""
     from workflow.react._support import shrink_to_budget
 
-    big = np.zeros((2400, 2400), dtype=np.uint16)  # 5.8 Mpx, budget 1.5 Mpx
-    small = shrink_to_budget(big, 1_500_000)
-    assert small.shape == (1200, 1200)
+    big = np.zeros((2400, 2400), dtype=np.uint16)  # 5.8 Mpx, gallery budget 250k
+    small = shrink_to_budget(big, 250_000)
+    assert small.shape == (480, 480)
     tiny = np.zeros((40, 40), dtype=np.uint16)
-    assert shrink_to_budget(tiny, 1_500_000) is tiny  # small images untouched
+    assert shrink_to_budget(tiny, 250_000) is tiny  # small images untouched
+
+
+def test_worst_case_snapshot_payloads_stay_bounded():
+    """Noisy images approximate PNG's incompressible upper-cost case."""
+    from workflow.react._support import png_bytes, shrink_to_budget
+    from workflow.react._widgets import (
+        _GALLERY_IMAGE_PIXEL_BUDGET,
+        _SNAPSHOT_IMAGE_PIXEL_BUDGET,
+    )
+
+    rng = np.random.default_rng(44)
+    noisy_rgb = rng.random((1000, 1000, 3), dtype=np.float32)
+    tile_png = png_bytes(shrink_to_budget(noisy_rgb, _SNAPSHOT_IMAGE_PIXEL_BUDGET))
+    assert len(tile_png) * 25 < 20 * 1024 * 1024
+
+    noisy_gray = rng.integers(0, 65536, size=(2400, 2400), dtype=np.uint16)
+    row_png = png_bytes(shrink_to_budget(noisy_gray, _GALLERY_IMAGE_PIXEL_BUDGET))
+    assert len(row_png) * 2 * 10 < 8 * 1024 * 1024
 
 
 def test_explorer_ignores_bogus_hover_indices(tmp_path):
@@ -592,8 +631,12 @@ def test_stream_messages_carry_pixels_as_binary_buffers(tmp_path):
     assert content["buffer_keys"] == ["src"]
     assert content["entry"]["src"] == ""  # no base64 in the JSON part
     assert buffers[0][:8] == b"\x89PNG\r\n\x1a\n"  # a real PNG in the buffer
-    viewer.push_snapshot()  # ...while the snapshot trait holds data URLs
-    assert viewer.tiles[0]["src"].startswith("data:image/png;base64,")
+    viewer.push_snapshot()  # snapshot catch-up is binary too, never base64
+    reset, snapshot = sent[-2:]
+    assert reset[0]["type"] == "tile:reset"
+    assert snapshot[0]["type"] == "tile"
+    assert snapshot[1][0][:8] == b"\x89PNG\r\n\x1a\n"
+    assert viewer.tiles[0]["src"] == ""
 
 
 def test_targets_overlay_on_the_map_and_follow_the_gate(tmp_path):
@@ -639,9 +682,11 @@ def test_cancel_stops_a_gallery_run_between_targets(tmp_path):
     gallery = wreact.acquire_gallery(session, _targets(3), [_overview(tmp_path)])
 
     real_send = gallery.send
+
     def _cancel_after_first(content, buffers=None, **kw):
         if content.get("type") == "row" and content["index"] == 0:
             gallery.request_cancel()  # as if the Cancel click arrived now
+
     gallery.send = _cancel_after_first
 
     gallery.handle_message({"type": "acquire", "count": "3"})
@@ -666,8 +711,42 @@ def test_read_only_view_refuses_hardware_but_still_watches(tmp_path):
     assert "read-only" in gallery.status
     with pytest.raises(RuntimeError, match="read-only"):
         gallery.acquire(1)  # the scripted path is locked too
+    gallery.busy = True
+    gallery._route_message(None, {"type": "cancel"}, None)
+    assert not gallery._cancel_requested  # a locked display cannot stop somebody else's run
+    gallery.request_cancel()
+    assert not gallery._cancel_requested  # direct/scripted cancellation is locked too
     gallery._route_message(None, {"type": "sync"}, None)  # watching still works
     assert gallery.rows == []
+
+
+def test_read_only_model_restores_browser_writable_state(tmp_path):
+    """The model-wide freeze covers traits, not just hardware messages."""
+    viewer = wreact.view_overview()
+    viewer.add_tile(_overview(tmp_path))
+    original_channels = [dict(channel) for channel in viewer.channels]
+    viewer.make_read_only()
+    viewer.read_only = False  # forged display trait cannot hide the lock
+    assert viewer.read_only is True
+    viewer.channels = [{"color": "#ff0000", "lo": 0.0, "hi": 1.0}]
+    assert viewer.channels == original_channels
+
+    explorer = wreact.explore_targets(_targets(3), [_overview(tmp_path)])
+    original_axes = (explorer.x_feature, explorer.y_feature)
+    explorer.make_read_only()
+    explorer.x_feature = explorer.features[-1]
+    explorer.gate = {"x": [999.0, 1000.0]}
+    assert (explorer.x_feature, explorer.y_feature) == original_axes
+    assert explorer.gate == {}
+
+    picker = wreact.pick_focus_points(_FocusSession(), seed=False)
+    picker.points = [{"x": 0.0, "y": 0.0}]
+    picker.handle_message({"type": "measure"})
+    focus = picker.focus
+    picker.make_read_only()
+    picker.points = [{"x": 10.0, "y": 10.0}]
+    assert picker.points == [{"x": 0.0, "y": 0.0}]
+    assert picker.focus is focus  # a forged edit did not invalidate the fit
 
 
 def test_gallery_verdicts_record_curation(tmp_path):
@@ -682,10 +761,52 @@ def test_gallery_verdicts_record_curation(tmp_path):
     assert gallery.verdicts == ["good", "bad"]
 
     import json
+
     path = gallery.save_curation(tmp_path / "run")
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert [r["verdict"] for r in saved] == ["good", "bad"]
     assert all(r["position_label"] for r in saved)
+
+
+def test_forged_verdict_trait_cannot_truncate_curation(tmp_path):
+    gallery = wreact.acquire_gallery(
+        _AcqSession(tmp_path), _targets(3), [_overview(tmp_path)], seed=1
+    )
+    gallery.acquire(2)
+    gallery.set_verdict(0, "good")
+    gallery.verdicts = []  # forged browser trait write
+    assert gallery.verdicts == ["good", None]
+
+    import json
+
+    saved = json.loads(gallery.save_curation(tmp_path / "run").read_text(encoding="utf-8"))
+    assert len(saved) == 2
+    assert [row["verdict"] for row in saved] == ["good", None]
+
+
+def test_sparse_midrun_row_keeps_its_authoritative_verdict_index(tmp_path):
+    gallery = wreact.acquire_gallery(
+        _AcqSession(tmp_path), _targets(6), [_overview(tmp_path)], seed=2
+    )
+    sent = []
+    gallery.send = lambda content, buffers=None, **_kw: sent.append((content, buffers))
+    gallery.acquire(6)
+
+    row_five = next(
+        content["entry"]
+        for content, _buffers in sent
+        if content["type"] == "row" and content["index"] == 5
+    )
+    sparse = [None] * 6
+    sparse[5] = row_five
+    displayed = [entry for entry in sparse if entry is not None]
+    assert displayed[0]["stream_index"] == 5
+    assert "verdictBtn(rowIndex" in wreact.AcquisitionGalleryReact._esm
+
+    gallery.handle_message(
+        {"type": "verdict", "index": displayed[0]["stream_index"], "value": "good"}
+    )
+    assert gallery.verdicts == [None, None, None, None, None, "good"]
 
 
 def test_gate_presets_round_trip(tmp_path):
@@ -740,7 +861,7 @@ def test_run_status_reports_the_steps():
     status.refresh({})  # a fresh notebook: everything still to do
     assert all(r["state"] == "todo" for r in status.rows)
     ns = {
-        "zmart_controller": object(),
+        "zmart_controller": type("Session", (), {"closed": False})(),
         "engine": object(),
         "ROOT": "/tmp/run",
         "overview_state": {
@@ -758,11 +879,33 @@ def test_run_status_reports_the_steps():
     assert by_label["Focus surface"]["state"] == "todo"
 
 
+def test_run_status_does_not_call_dead_or_unknown_objects_connected():
+    from workflow._run_status import run_status_rows
+
+    dead = type("Session", (), {"closed": True})()
+    stopped = type("Engine", (), {"shut_down": True})()
+    rows = {
+        row["label"]: row for row in run_status_rows({"zmart_controller": dead, "engine": stopped})
+    }
+    assert rows["Microscope"]["state"] == "warn"
+    assert "disconnected" in rows["Microscope"]["detail"]
+    assert rows["Analysis engine"]["state"] == "warn"
+
+    unknown = {row["label"]: row for row in run_status_rows({"zmart_controller": object()})}
+    assert unknown["Microscope"]["state"] == "warn"
+    assert "unknown" in unknown["Microscope"]["detail"]
+
+
 def test_calibration_report_panel_wraps_the_check_report():
     report = {
-        "n_sites": 4, "n_trusted": 4, "radius_um": 100.0,
-        "mean_dx_um": 3.0, "mean_dy_um": -2.0, "mean_offset_um": 3.6,
-        "stage_scatter_rms_um": 0.2, "max_offset_um": 3.9,
+        "n_sites": 4,
+        "n_trusted": 4,
+        "radius_um": 100.0,
+        "mean_dx_um": 3.0,
+        "mean_dy_um": -2.0,
+        "mean_offset_um": 3.6,
+        "stage_scatter_rms_um": 0.2,
+        "max_offset_um": 3.9,
         "sites": [
             {"x": 100.0, "y": 0.0, "dx_um": 3.0, "dy_um": -2.0, "trusted": True, "confidence": 4}
         ],
@@ -842,6 +985,35 @@ def test_map_ring_click_forwards_the_pick_to_the_explorer(tmp_path):
     assert viewer.marks[2]["picked"] is True  # the map shows it immediately
     explorer.note_acquired([explorer.targets[2]])
     assert viewer.marks[2]["acquired"] is True and viewer.marks[2]["picked"] is False
+
+
+def test_duplicate_valued_targets_are_each_marked_acquired(tmp_path):
+    first = _targets(1)[0]
+    second = {
+        **first,
+        "source": dict(first["source"]),
+    }
+    explorer = wreact.explore_targets([first, second], [_overview(tmp_path)])
+    explorer.toggle_pick(0)
+    explorer.toggle_pick(1)
+    explorer.note_acquired([first, second])
+    assert explorer.acquired_indices == [0, 1]
+    assert explorer.picked_indices == []
+
+
+def test_react_copied_duplicates_resolve_across_calls_idempotently(tmp_path):
+    first = _targets(1)[0]
+    second = {**first, "source": dict(first["source"])}
+    explorer = wreact.explore_targets([first, second], [_overview(tmp_path)])
+    copied_first = {**first, "source": dict(first["source"])}
+    copied_second = {**second, "source": dict(second["source"])}
+
+    explorer.note_acquired([copied_first])
+    assert explorer.acquired_indices == [0]
+    explorer.note_acquired([first])
+    assert explorer.acquired_indices == [0]
+    explorer.note_acquired([copied_second])
+    assert explorer.acquired_indices == [0, 1]
 
 
 def test_hover_cross_highlights_between_explorer_and_map(tmp_path):

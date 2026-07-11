@@ -10,8 +10,8 @@ notebooks show identical pictures.
 
 Live updates stream as one small message per new tile / measured point /
 acquired pair (never a resend of everything already shown), and each
-widget answers a ``sync`` message with the full picture so re-opened
-views catch up. ``PROTOCOL.md`` in this package documents every trait
+widget answers a ``sync`` message with a reset plus bounded binary replay so
+re-opened views catch up. ``PROTOCOL.md`` in this package documents every trait
 and message — that protocol is the seam to build a future non-notebook
 (website) front end against.
 
@@ -25,6 +25,7 @@ exception that would leave the widget half-updated.
 
 from __future__ import annotations
 
+import copy
 import math
 import time
 from typing import Any
@@ -36,7 +37,6 @@ from ._support import (
     heatmap_data_url,
     png_bytes,
     png_data_url_ranged,
-    png_to_data_url,
     require_anywidget,
     shrink_to_budget,
 )
@@ -47,7 +47,12 @@ import anywidget  # noqa: E402
 import traitlets  # noqa: E402
 
 from .._acquisition_widget import _eta_text, pair_images  # noqa: E402
-from .._discovery_widget import _feature_value, _numeric_features, crop_for_target  # noqa: E402
+from .._discovery_widget import (  # noqa: E402
+    _feature_value,
+    _matching_target_indices,
+    _numeric_features,
+    crop_for_target,
+)
 from .._focus_run import measure_focus  # noqa: E402
 from .._focus_surface import fit_focus_surface, worst_residual_um  # noqa: E402
 from .._overview_widget import _load_overview_channels, composite_channels  # noqa: E402
@@ -64,6 +69,16 @@ _QUEUED_CLICK_WINDOW_S = 2.0
 # single update megabytes and stall the very channel the operator watches.
 _PER_IMAGE_PIXEL_BUDGET = 1_500_000
 
+# Catch-up snapshots can contain dozens of images at once. Keep their copies
+# smaller than the live, one-at-a-time stream: 250k RGB pixels is enough for
+# the 640x520 notebook viewport and bounds a 25-tile noisy snapshot to roughly
+# 20 MiB of raw PNG buffers instead of a 100+ MiB base64 trait.
+_SNAPSHOT_IMAGE_PIXEL_BUDGET = 250_000
+
+# Gallery panels render at roughly 330 px wide. A 250k-pixel display copy is
+# already larger than the UI while keeping ten two-image rows bounded.
+_GALLERY_IMAGE_PIXEL_BUDGET = 250_000
+
 
 class _ZmartWidget(anywidget.AnyWidget):
     """Base: routes anywidget messages to ``handle_message`` (testable)."""
@@ -74,24 +89,63 @@ class _ZmartWidget(anywidget.AnyWidget):
     #: browser). The ENFORCEMENT is the private flag below — a synced trait
     #: can be rewritten by anything in the page, so it is never the check.
     read_only = traitlets.Bool(False).tag(sync=True)
+    _read_only_input_traits: tuple[str, ...] = ()
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._last_run_ended: float | None = None
         self._hardware_allowed = True
         self._cancel_requested = False
+        self._restoring_read_only_input = False
+        self._restoring_read_only_trait = False
+        self._read_only_inputs: dict[str, Any] = {}
         self.on_msg(self._route_message)
+        self.observe(self._heal_read_only_trait, names="read_only")
 
     def make_read_only(self) -> None:
-        """Turn this widget into a safe observer view.
+        """Freeze this widget model into a read-only display.
 
-        Hardware messages are refused in Python from now on (the browser
-        buttons also hide, but that is courtesy, not the lock). Use it for
-        a second tab or a colleague's view of a running session — they can
-        watch everything and drive nothing.
+        This freezes the whole anywidget MODEL, including every browser view
+        attached to it. Hardware messages and scripted calls are refused in
+        Python, and browser-writable input traits are restored if a page
+        script tries to change them. It is a model-wide safety lock, not a
+        per-tab permission system.
         """
+        if not self._hardware_allowed:
+            self.read_only = True
+            return
         self._hardware_allowed = False
+        self._read_only_inputs = {
+            name: copy.deepcopy(getattr(self, name)) for name in self._read_only_input_traits
+        }
+        if self._read_only_input_traits:
+            self.observe(self._reject_read_only_input, names=list(self._read_only_input_traits))
         self.read_only = True
+
+    def _heal_read_only_trait(self, change: dict) -> None:
+        """Keep the display mirror honest if browser code writes it false."""
+        if self._hardware_allowed or self._restoring_read_only_trait or change["new"] is True:
+            return
+        self._restoring_read_only_trait = True
+        try:
+            self.read_only = True
+        finally:
+            self._restoring_read_only_trait = False
+
+    def _reject_read_only_input(self, change: dict) -> None:
+        """Restore a browser input changed after the model was locked."""
+        if self._hardware_allowed or self._restoring_read_only_input:
+            return
+        name = change["name"]
+        expected = self._read_only_inputs[name]
+        if change["new"] == expected:
+            return
+        self._restoring_read_only_input = True
+        try:
+            setattr(self, name, copy.deepcopy(expected))
+        finally:
+            self._restoring_read_only_input = False
+        self.status = "this widget is read-only — state changes are disabled"
 
     def _route_message(self, _widget: Any, content: Any, _buffers: Any) -> None:
         # Anything can arrive on this channel; a non-dict is simply noise.
@@ -99,14 +153,14 @@ class _ZmartWidget(anywidget.AnyWidget):
             return
         kind = content.get("type")
         if kind == "sync":
-            # A freshly mounted browser view asks for the full picture.
+            # A freshly mounted browser view asks for a bounded replay.
             self.push_snapshot()
-            return
-        if kind == "cancel":
-            self.request_cancel()
             return
         if not self._hardware_allowed:
             self.status = "this view is read-only — hardware actions are disabled"
+            return
+        if kind == "cancel":
+            self.request_cancel()
             return
         self.handle_message(content)
 
@@ -134,6 +188,9 @@ class _ZmartWidget(anywidget.AnyWidget):
         processes messages concurrently gets immediate cancellation
         through this same path.
         """
+        if not self._hardware_allowed:
+            self.status = "this widget is read-only — cancellation is disabled"
+            return
         if self.busy:
             self._cancel_requested = True
             self.status = "cancel requested — stopping before the next site"
@@ -215,14 +272,18 @@ class OverviewViewerReact(_ZmartWidget):
     channels = traitlets.List().tag(sync=True)
     marks = traitlets.List().tag(sync=True)
     mark_hover = traitlets.Dict().tag(sync=True)
+    _read_only_input_traits = ("channels",)
 
-    _esm = REACT_PRELUDE + """
+    _esm = (
+        REACT_PRELUDE
+        + """
 function App({ model }) {
   const tiles = useStream(model, "tiles", "tile");
   const [channels, setChannels] = useTrait(model, "channels");
   const [marks] = useTrait(model, "marks");
   const [markHover] = useTrait(model, "mark_hover");
   const [status] = useTrait(model, "status");
+  const [readOnly] = useTrait(model, "read_only");
   const view = React.useRef({ scale: 1, tx: 0, ty: 0, fitted: 0, user: false });
   const [, bump] = React.useReducer((n) => n + 1, 0);
   const [cursor, setCursor] = React.useState(null);
@@ -331,17 +392,19 @@ function App({ model }) {
       channels.map((c, i) => h("div", { key: i, style: {
           display: "flex", alignItems: "center", gap: 6, marginBottom: 8,
           background: T.bg, borderRadius: 8, padding: 6 } },
-        h("button", { title: "cycle colour",
+        h("button", { title: "cycle colour", disabled: readOnly,
           onClick: () => setCh(i, { color: c.palette[(c.palette.indexOf(c.color) + 1) % c.palette.length] }),
           style: { width: 22, height: 22, borderRadius: 6, border: `1px solid ${T.edge}`,
                    background: c.color, cursor: "pointer" } }),
-        h("button", { title: "show / hide",
+        h("button", { title: "show / hide", disabled: readOnly,
           onClick: () => setCh(i, { visible: !c.visible }),
           style: { ...btn(false), padding: "2px 8px",
                    background: c.visible ? T.accent : T.edge } }, c.visible ? "on" : "off"),
         h("span", { style: { color: T.dim, width: 30 } }, `ch ${i}`),
-        h(NumBox, { value: Math.round(c.lo), onCommit: (v) => setCh(i, { lo: v }) }),
-        h(NumBox, { value: Math.round(c.hi), onCommit: (v) => setCh(i, { hi: v }) }))),
+        h(NumBox, { value: Math.round(c.lo), disabled: readOnly,
+          onCommit: (v) => setCh(i, { lo: v }) }),
+        h(NumBox, { value: Math.round(c.hi), disabled: readOnly,
+          onCommit: (v) => setCh(i, { hi: v }) }))),
       markHover.src
         ? h("div", { style: { marginTop: 8 } },
             h("img", { src: markHover.src, style: { width: 180, borderRadius: 8,
@@ -352,6 +415,7 @@ function App({ model }) {
 }
 export default mount(App);
 """
+    )
 
     def __init__(
         self,
@@ -434,16 +498,7 @@ export default mount(App);
         # One message per NEW tile — never a resend of the map so far, and
         # the pixels ride as a binary buffer (raw PNG, no base64 growth). A
         # freshly opened view catches up via the ``sync`` snapshot instead.
-        meta = {k: v for k, v in entry.items() if k != "png"}
-        self.send(
-            {
-                "type": "tile",
-                "index": len(self._tile_entries) - 1,
-                "entry": {**meta, "src": ""},
-                "buffer_keys": ["src"],
-            },
-            buffers=[entry["png"]],
-        )
+        self._send_tile(len(self._tile_entries) - 1, entry)
         done = len(self.overviews)
         if self._expected_tiles:
             self.status = (
@@ -455,17 +510,35 @@ export default mount(App);
 
     def reload(self) -> None:
         """Re-read every tile from disk (after the simulation hijack)."""
-        self._stacks = [
-            _load_overview_channels(o, step=self._step_for(o)) for o in self.overviews
-        ]
+        self._stacks = [_load_overview_channels(o, step=self._step_for(o)) for o in self.overviews]
         self._retile()
 
     def push_snapshot(self) -> None:
-        """Publish the complete tile list (a browser view asked to sync)."""
-        self.tiles = [
-            {**{k: v for k, v in e.items() if k != "png"}, "src": png_to_data_url(e["png"])}
-            for e in self._tile_entries
+        """Replay a bounded, binary tile snapshot for a newly mounted view."""
+        snapshot = [
+            self._tile_entry(o, s, budget_px=_SNAPSHOT_IMAGE_PIXEL_BUDGET)
+            for o, s in zip(self.overviews, self._stacks, strict=True)
         ]
+        # Metadata stays in the trait for Python consumers and initial layout;
+        # pixels never do. The reset + per-item buffers avoid one giant base64
+        # JSON value and give the browser bounded work between messages.
+        self.send({"type": "tile:reset"})
+        self.tiles = [{**{k: v for k, v in e.items() if k != "png"}, "src": ""} for e in snapshot]
+        for index, entry in enumerate(snapshot):
+            self._send_tile(index, entry)
+
+    def _send_tile(self, index: int, entry: dict) -> None:
+        """Send one tile's metadata plus its raw PNG buffer."""
+        meta = {k: v for k, v in entry.items() if k != "png"}
+        self.send(
+            {
+                "type": "tile",
+                "index": index,
+                "entry": {**meta, "src": ""},
+                "buffer_keys": ["src"],
+            },
+            buffers=[entry["png"]],
+        )
 
     def _init_channels(self, stack: Any) -> None:
         import numpy as np
@@ -517,13 +590,16 @@ export default mount(App);
             )
         return states
 
-    def _tile_entry(self, overview: dict, stack: Any) -> dict:
+    def _tile_entry(self, overview: dict, stack: Any, *, budget_px: int | None = None) -> dict:
         cx, cy = overview["center_frame_um"]
         h_px, w_px = overview["image_size_px"]
         ps = float(overview["pixel_size_um"])
         w_um, h_um = w_px * ps, h_px * ps
+        composite = composite_channels(stack, self._channel_states())
+        if budget_px is not None:
+            composite = shrink_to_budget(composite, budget_px)
         return {
-            "png": png_bytes(composite_channels(stack, self._channel_states())),
+            "png": png_bytes(composite),
             "x0": cx - w_um / 2.0,
             "y0": cy - h_um / 2.0,
             "w": w_um,
@@ -538,6 +614,8 @@ export default mount(App);
         self.push_snapshot()
 
     def _on_channels_changed(self, _change: Any) -> None:
+        if not self._hardware_allowed:
+            return
         if self._stacks:
             self._retile()
 
@@ -701,8 +779,11 @@ class FocusPickerReact(_ZmartWidget):
     points = traitlets.List().tag(sync=True)
     measured = traitlets.List().tag(sync=True)
     heatmap = traitlets.Dict().tag(sync=True)
+    _read_only_input_traits = ("points",)
 
-    _esm = REACT_PRELUDE + """
+    _esm = (
+        REACT_PRELUDE
+        + """
 function App({ model }) {
   const [squares] = useTrait(model, "squares");
   const [points, setPoints] = useTrait(model, "points");
@@ -746,7 +827,7 @@ function App({ model }) {
         width: W, height: H,
         style: { background: "#000", borderRadius: 10, cursor: "crosshair" },
         onClick: (e) => {
-          if (busy) return;
+          if (busy || readOnly) return;
           const svg = e.currentTarget;
           const um = toUm(e, svg);
           setPoints([...points, { x: um.x, y: um.y }]);
@@ -760,7 +841,8 @@ function App({ model }) {
       points.map((p, i) => {
         const m = measured[i];
         return h("g", { key: `p${i}`, style: { cursor: "pointer" },
-            onClick: (e) => { e.stopPropagation(); if (!busy) setPoints(points.filter((_, k) => k !== i)); } },
+            onClick: (e) => { e.stopPropagation();
+              if (!busy && !readOnly) setPoints(points.filter((_, k) => k !== i)); } },
           h("circle", { cx: X(p.x), cy: Y(p.y), r: 7, fill: m ? T.good : T.bad,
             stroke: "#000", strokeWidth: 1.5 }),
           m ? h("text", { x: X(p.x) + 10, y: Y(p.y) - 8, fill: T.ink, fontSize: 11 },
@@ -773,6 +855,7 @@ function App({ model }) {
 }
 export default mount(App);
 """
+    )
 
     def __init__(
         self,
@@ -805,11 +888,11 @@ export default mount(App);
         if "get_focus_points" not in self.session.get_procedures():
             return []
         result = self.session.run_procedure({"name": "get_focus_points"})
-        return [
-            {"x": float(p["x"]), "y": float(p["y"])} for p in (result.get("positions") or [])
-        ]
+        return [{"x": float(p["x"]), "y": float(p["y"])} for p in (result.get("positions") or [])]
 
     def _on_points_edited(self, _change: Any) -> None:
+        if not self._hardware_allowed:
+            return
         if self._measured_points is not None and self.points != self._measured_points:
             self._invalidate()
 
@@ -852,9 +935,7 @@ export default mount(App);
         self._invalidate()
         # Only the points without a cached result visit the stage; the rest
         # are reused from this session's earlier measurements.
-        fresh_points = [
-            p for p in points if (float(p["x"]), float(p["y"])) not in self._af_cache
-        ]
+        fresh_points = [p for p in points if (float(p["x"]), float(p["y"])) not in self._af_cache]
 
         def _collected() -> list[dict]:
             return [
@@ -888,7 +969,10 @@ export default mount(App);
             if fresh_points:
                 run_started = time.monotonic()
                 measure_focus(
-                    self.session, fresh_points, af_job=self.af_job, start_z=self.start_z,
+                    self.session,
+                    fresh_points,
+                    af_job=self.af_job,
+                    start_z=self.start_z,
                     on_point=_show_fresh_point,
                     cancel=lambda: self._cancel_requested,
                 )
@@ -903,7 +987,9 @@ export default mount(App);
         self._measured_points = points
         worst = worst_residual_um(self.focus)
         residual_note = (
-            "" if worst is None else f"; largest fit residual {worst[1]:+.1f} µm at point {worst[0]}"
+            ""
+            if worst is None
+            else f"; largest fit residual {worst[1]:+.1f} µm at point {worst[0]}"
         )
         self.status = (
             f"focus surface fitted ({self.focus.model}, {len(points)} pts — "
@@ -943,7 +1029,10 @@ export default mount(App);
         mesh = np.asarray(self.focus.z_at(gx, gy), dtype=float).reshape(gx.shape)
         return {
             "src": heatmap_data_url(mesh),
-            "x0": x_lo, "y0": y_lo, "w": x_hi - x_lo, "h": y_hi - y_lo,
+            "x0": x_lo,
+            "y0": y_lo,
+            "w": x_hi - x_lo,
+            "h": y_hi - y_lo,
         }
 
     def require_focus(self) -> Any:
@@ -995,8 +1084,11 @@ class TargetExplorerReact(_ZmartWidget):
     #: Cells already acquired this session (drawn filled) — so nobody
     #: images the same cell twice without meaning to.
     acquired_indices = traitlets.List().tag(sync=True)
+    _read_only_input_traits = ("x_feature", "y_feature", "gate")
 
-    _esm = REACT_PRELUDE + """
+    _esm = (
+        REACT_PRELUDE
+        + """
 function App({ model }) {
   const [features] = useTrait(model, "features");
   const [xf, setXf] = useTrait(model, "x_feature");
@@ -1028,7 +1120,7 @@ function App({ model }) {
   const [trail, setTrail] = React.useState([]);
 
   const select = (value, onChange) => h("select", {
-      value, onChange: (e) => onChange(e.target.value),
+      value, disabled: readOnly, onChange: (e) => onChange(e.target.value),
       style: { ...inp, width: 130 } },
     features.map((f) => h("option", { key: f, value: f }, f)));
 
@@ -1044,7 +1136,7 @@ function App({ model }) {
       h("div", { style: { display: "flex", gap: 8, marginBottom: 8, alignItems: "center" } },
         h("span", { style: { color: T.dim } }, "x"), select(xf, setXf),
         h("span", { style: { color: T.dim } }, "y"), select(yf, setYf),
-        h("button", { style: { ...btn(false), padding: "4px 10px" },
+        h("button", { disabled: readOnly, style: { ...btn(readOnly), padding: "4px 10px" },
           onClick: () => setGate({ ...gate, lasso: null }) }, "clear lasso")),
       h("svg", { width: W, height: H,
           style: { background: T.bg, borderRadius: 10, touchAction: "none" },
@@ -1099,11 +1191,15 @@ function App({ model }) {
           } }))),
       h("div", { style: { display: "flex", gap: 6, marginTop: 8, alignItems: "center", fontSize: 12 } },
         h("span", { style: { color: T.dim } }, xf),
-        h(NumBox, { value: rng[0], width: 72, onCommit: (v) => setRange("x", 0, v) }),
-        h(NumBox, { value: rng[1], width: 72, onCommit: (v) => setRange("x", 1, v) }),
+        h(NumBox, { value: rng[0], width: 72, disabled: readOnly,
+          onCommit: (v) => setRange("x", 0, v) }),
+        h(NumBox, { value: rng[1], width: 72, disabled: readOnly,
+          onCommit: (v) => setRange("x", 1, v) }),
         h("span", { style: { color: T.dim } }, yf),
-        h(NumBox, { value: rngY[0], width: 72, onCommit: (v) => setRange("y", 0, v) }),
-        h(NumBox, { value: rngY[1], width: 72, onCommit: (v) => setRange("y", 1, v) }))),
+        h(NumBox, { value: rngY[0], width: 72, disabled: readOnly,
+          onCommit: (v) => setRange("y", 0, v) }),
+        h(NumBox, { value: rngY[1], width: 72, disabled: readOnly,
+          onCommit: (v) => setRange("y", 1, v) }))),
     h("div", { style: { width: 190 } },
       h("div", { style: { fontWeight: 700, marginBottom: 6 } },
         `${mask.filter(Boolean).length} / ${dots.length} in the gate`),
@@ -1123,6 +1219,7 @@ function App({ model }) {
 }
 export default mount(App);
 """
+    )
 
     def __init__(
         self,
@@ -1208,12 +1305,9 @@ export default mount(App);
         so nobody images the same cell twice without meaning to. Acquired
         cells also leave the pick set: their errand is done.
         """
-        for target in targets:
-            for i, t in enumerate(self.targets):
-                if t is target or t == target:
-                    self._acquired.add(i)
-                    self._picked.discard(i)
-                    break
+        for i in _matching_target_indices(self.targets, targets, acquired=self._acquired):
+            self._acquired.add(i)
+            self._picked.discard(i)
         self.acquired_indices = sorted(self._acquired)
         self._publish_picks()
 
@@ -1228,11 +1322,15 @@ export default mount(App);
             self._linked_viewer._refresh_marks()
 
     def _on_axes_changed(self, _change: Any) -> None:
+        if not self._hardware_allowed:
+            return
         # A lasso drawn in the old feature space would gate nonsense in the
         # new one, so switching axes clears the whole gate (like matplotlib).
         self._recompute(reset_gate=True)
 
     def _on_gate_changed(self, _change: Any) -> None:
+        if not self._hardware_allowed:
+            return
         if not self._resetting_gate:
             self._recompute(reset_gate=False)
 
@@ -1388,9 +1486,7 @@ export default mount(App);
             # With a linked viewer, crops use ITS display window, so a cell
             # looks the same in the side panel as on the map it came from.
             viewer = self._linked_viewer
-            display_range = (
-                viewer._display_range_for_crops() if viewer is not None else None
-            )
+            display_range = viewer._display_range_for_crops() if viewer is not None else None
             self._crop_cache[index] = {
                 "index": index,
                 "src": "" if crop is None else png_data_url_ranged(crop, display_range),
@@ -1428,8 +1524,11 @@ class AcquisitionGalleryReact(_ZmartWidget):
     #: Per-row curation: "good", "bad", or None — the operator's own QC
     #: record of the run (display-synced; Python owns the truth).
     verdicts = traitlets.List().tag(sync=True)
+    _read_only_input_traits = ("verdicts",)
 
-    _esm = REACT_PRELUDE + """
+    _esm = (
+        REACT_PRELUDE
+        + """
 function App({ model }) {
   const rows = useStream(model, "rows", "row");
   const [busy] = useTrait(model, "busy");
@@ -1502,7 +1601,12 @@ function App({ model }) {
         onClick: () => model.send({ type: "cancel" }) }, "Cancel") : null,
       pill(`${gateCount} in the gate`),
       h("span", { style: { color: T.dim, fontSize: 12 } }, status)),
-    rows.map((r, i) => h("div", { key: i,
+    rows.map((r, i) => {
+      // A view mounted mid-run can receive row 5 before rows 0..4. useStream
+      // skips sparse holes for rendering, so the compact array index is NOT
+      // the acquisition index. Every row carries its authoritative wire index.
+      const rowIndex = Number.isInteger(r.stream_index) ? r.stream_index : i;
+      return h("div", { key: rowIndex,
         onClick: () => setZoom(i),
         title: "click to enlarge",
         style: { display: "flex", gap: 10, marginBottom: 10,
@@ -1510,8 +1614,9 @@ function App({ model }) {
       pairPanels(r, false),
       readOnly ? null : h("div", { style: { display: "flex", flexDirection: "column",
           gap: 6, justifyContent: "center" } },
-        verdictBtn(i, "good", "✓", T.good),
-        verdictBtn(i, "bad", "✗", T.bad)))),
+        verdictBtn(rowIndex, "good", "✓", T.good),
+        verdictBtn(rowIndex, "bad", "✗", T.bad)));
+    }),
     zoom !== null && rows[zoom] ? h("div", {
         onClick: () => setZoom(null),
         title: "click (or press Esc) to close",
@@ -1524,6 +1629,7 @@ function App({ model }) {
 }
 export default mount(App);
 """
+    )
 
     def __init__(
         self,
@@ -1554,6 +1660,9 @@ export default mount(App);
         self.records: list[dict] = []
         self._row_entries: list[dict] = []
         self._run_started: float | None = None
+        self._verdicts: list[str | None] = []
+        self._publishing_verdicts = False
+        self.observe(self._heal_verdict_trait, names="verdicts")
         self.gate_count = len(self._gated())
         # When the source is the explorer, mirror its hand-pick count so
         # the "Acquire selected" button can show and label itself.
@@ -1569,15 +1678,51 @@ export default mount(App);
         return list(getattr(self.source, "gated", self.source))
 
     def push_snapshot(self) -> None:
-        """Publish the complete row list (a browser view asked to sync)."""
-        self.rows = [self._row_with_data_urls(e) for e in self._row_entries]
+        """Replay a bounded, binary row snapshot for a newly mounted view."""
+        self.send({"type": "row:reset"})
+        self.rows = [
+            {
+                **{k: v for k, v in e.items() if k not in ("low_png", "high_png")},
+                "stream_index": index,
+                "low_src": "",
+                "high_src": "",
+            }
+            for index, e in enumerate(self._row_entries)
+        ]
+        for index, entry in enumerate(self._row_entries):
+            self._send_row(index, entry)
 
-    @staticmethod
-    def _row_with_data_urls(entry: dict) -> dict:
+    def _send_row(self, index: int, entry: dict) -> None:
+        """Send one gallery row as metadata plus two raw PNG buffers."""
         meta = {k: v for k, v in entry.items() if k not in ("low_png", "high_png")}
-        meta["low_src"] = png_to_data_url(entry["low_png"]) if entry.get("low_png") else ""
-        meta["high_src"] = png_to_data_url(entry["high_png"]) if entry.get("high_png") else ""
-        return meta
+        self.send(
+            {
+                "type": "row",
+                "index": index,
+                "entry": {
+                    **meta,
+                    "stream_index": index,
+                    "low_src": "",
+                    "high_src": "",
+                },
+                "buffer_keys": ["low_src", "high_src"],
+            },
+            buffers=[entry.get("low_png") or b"", entry.get("high_png") or b""],
+        )
+
+    def _publish_verdicts(self) -> None:
+        self._publishing_verdicts = True
+        try:
+            self.verdicts = list(self._verdicts)
+        finally:
+            self._publishing_verdicts = False
+
+    def _heal_verdict_trait(self, change: dict) -> None:
+        """Treat the synced verdict trait as display output, never QC truth."""
+        if self._publishing_verdicts or list(change["new"]) == self._verdicts:
+            return
+        self._publish_verdicts()
+        self.status = "ignored an invalid browser write to the curation record"
 
     def set_verdict(self, index: int, value: str | None) -> None:
         """Record the operator's judgement of one pair: "good", "bad", or None.
@@ -1589,9 +1734,8 @@ export default mount(App);
             raise ValueError('a verdict is "good", "bad", or None')
         if not 0 <= int(index) < len(self._row_entries):
             raise ValueError(f"no gallery row {index} to judge")
-        verdicts = list(self.verdicts)
-        verdicts[int(index)] = value
-        self.verdicts = verdicts
+        self._verdicts[int(index)] = value
+        self._publish_verdicts()
 
     def save_curation(self, output_root: Any) -> Any:
         """Write the verdicts to ``curation.json`` in the run folder.
@@ -1611,7 +1755,7 @@ export default mount(App);
                 "position_label": (r.get("position_label", None)),
                 "verdict": v,
             }
-            for i, (r, v) in enumerate(zip(self.records, list(self.verdicts), strict=False))
+            for i, (r, v) in enumerate(zip(self.records, self._verdicts, strict=True))
         ]
         path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
         return path
@@ -1706,8 +1850,10 @@ export default mount(App);
         self.picked = []
         self.records = []
         self._row_entries = []
+        self.send({"type": "row:reset"})
         self.rows = []
-        self.verdicts = [None] * len(picked)
+        self._verdicts = [None] * len(picked)
+        self._publish_verdicts()
         self._run_started = time.monotonic()
 
         def _show_fresh_pair(index: int, _position: dict, record: dict) -> None:
@@ -1715,16 +1861,7 @@ export default mount(App);
             self._row_entries.append(entry)
             # One message per fresh pair — never a resend of the rows so
             # far, with the two images as binary buffers.
-            meta = {k: v for k, v in entry.items() if k not in ("low_png", "high_png")}
-            self.send(
-                {
-                    "type": "row",
-                    "index": index - 1,
-                    "entry": {**meta, "low_src": "", "high_src": ""},
-                    "buffer_keys": ["low_src", "high_src"],
-                },
-                buffers=[entry.get("low_png") or b"", entry.get("high_png") or b""],
-            )
+            self._send_row(index - 1, entry)
             self.status = (
                 f"acquired {index} of {len(picked)} target(s)"
                 f"{_eta_text(index, len(picked), self._run_started)}..."
@@ -1770,8 +1907,8 @@ export default mount(App);
             }
         low, high, width_um, height_um = pair
         return {
-            "low_png": png_bytes(shrink_to_budget(low, _PER_IMAGE_PIXEL_BUDGET)),
-            "high_png": png_bytes(shrink_to_budget(high, _PER_IMAGE_PIXEL_BUDGET)),
+            "low_png": png_bytes(shrink_to_budget(low, _GALLERY_IMAGE_PIXEL_BUDGET)),
+            "high_png": png_bytes(shrink_to_budget(high, _GALLERY_IMAGE_PIXEL_BUDGET)),
             "position_label": record.get("position_label"),
             "width_um": float(width_um),  # lets the browser draw a scale bar
             "low_title": (
@@ -1799,7 +1936,9 @@ class RunStatusReact(_ZmartWidget):
 
     rows = traitlets.List().tag(sync=True)
 
-    _esm = REACT_PRELUDE + """
+    _esm = (
+        REACT_PRELUDE
+        + """
 function App({ model }) {
   const [rows] = useTrait(model, "rows");
   const [status] = useTrait(model, "status");
@@ -1819,6 +1958,7 @@ function App({ model }) {
 }
 export default mount(App);
 """
+    )
 
     def refresh(self, ns: dict) -> RunStatusReact:
         """Rebuild the checklist from the notebook's variables (``globals()``)."""
@@ -1848,7 +1988,9 @@ class CalibrationReportReact(_ZmartWidget):
     report = traitlets.Dict().tag(sync=True)
     acceptable_um = traitlets.Float(0.0).tag(sync=True)
 
-    _esm = REACT_PRELUDE + """
+    _esm = (
+        REACT_PRELUDE
+        + """
 function App({ model }) {
   const [report] = useTrait(model, "report");
   const [acceptable] = useTrait(model, "acceptable_um");
@@ -1899,6 +2041,7 @@ function App({ model }) {
 }
 export default mount(App);
 """
+    )
 
     def __init__(self, report: dict | None = None, *, acceptable_um: float | None = None) -> None:
         super().__init__()

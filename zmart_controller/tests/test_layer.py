@@ -137,7 +137,9 @@ class TestContext:
 
 class TestDisconnect:
     def test_session_disconnect_is_idempotent(self, mic):
+        assert mic.closed is False
         mic.disconnect()
+        assert mic.closed is True
         mic.disconnect()  # second call must be a no-op, not a driver double-close
 
     def test_ops_after_disconnect_raise(self, mic):
