@@ -55,14 +55,19 @@ __all__ = [
 
 
 def view_overview(
-    overviews: list[dict] | None = None, *, downsample: int | None = None
+    overviews: list[dict] | None = None,
+    *,
+    downsample: int | None = None,
+    palette: str = "default",
 ) -> OverviewViewerReact:
     """The zoomable overview mosaic as a React app; see :class:`OverviewViewerReact`.
 
     ``downsample=None`` (the default) keeps each tile's display copy under a
     fixed pixel budget automatically; pass an integer to pin the step.
+    ``palette="colorblind"`` starts the channels on colour-vision-friendly
+    hues (after Okabe & Ito) instead of the classic microscopy colours.
     """
-    return OverviewViewerReact(overviews, downsample=downsample)
+    return OverviewViewerReact(overviews, downsample=downsample, palette=palette)
 
 
 def pick_focus_points(

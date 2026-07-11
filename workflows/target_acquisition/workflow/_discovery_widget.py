@@ -125,6 +125,8 @@ class TargetExplorer:
         self._y_feature = self.features[1] if len(self.features) > 1 else self.features[0]
         self._lasso_path = None  # matplotlib Path in data coords, or None
         self._crop_cache: dict[int, Any] = {}
+        self._picked: set[int] = set()  # hand-picked cells (targeted acquisition)
+        self._acquired: set[int] = set()  # cells already imaged this session
 
         self.fig = plt.figure(figsize=(10, 6.5))
         self.ax = self.fig.add_axes([0.07, 0.24, 0.50, 0.70])
@@ -157,6 +159,9 @@ class TargetExplorer:
         self._scatter = None
         self._lasso: LassoSelector | None = None
         self.fig.canvas.mpl_connect("motion_notify_event", self._on_hover)
+        # Double-click (not single: that starts a lasso) picks a cell for
+        # targeted acquisition.
+        self.fig.canvas.mpl_connect("button_press_event", self._on_press)
 
         self._rebuild_axes()
 
@@ -336,15 +341,82 @@ class TargetExplorer:
         self._restyle()
 
     def _restyle(self) -> None:
-        """Recolour the dots to the current gate and refresh the count."""
+        """Recolour the dots: gate colour, acquired fill, picked outline."""
         mask = self._gate_mask()
-        colors = ["tab:blue" if keep else "0.8" for keep in mask]
+        colors = [
+            "tab:green" if i in self._acquired else ("tab:blue" if keep else "0.8")
+            for i, keep in enumerate(mask)
+        ]
         self._scatter.set_color(colors)
+        self._scatter.set_edgecolor(
+            ["black" if i in self._picked else "none" for i in range(len(self.targets))]
+        )
+        self._scatter.set_linewidth(
+            [1.8 if i in self._picked else 0.0 for i in range(len(self.targets))]
+        )
+        picked_note = f" · {len(self._picked)} picked" if self._picked else ""
         self.ax.set_title(
             f"{sum(mask)} of {len(self.targets)} targets in the gate "
             f"(sliders{' + lasso' if self._lasso_path is not None else ''})"
+            f"{picked_note}"
         )
         self.fig.canvas.draw_idle()
+
+    # --- hand-picked cells ---------------------------------------------------
+
+    @property
+    def picked_targets(self) -> list[dict]:
+        """The cells picked by hand (double-click, or ``toggle_pick``)."""
+        return [self.targets[i] for i in sorted(self._picked)]
+
+    @property
+    def picked_gated(self) -> tuple[list[dict], list[int]]:
+        """The picked cells split into (inside the gate, indices outside it)."""
+        mask = self._gate_mask()
+        inside = [self.targets[i] for i in sorted(self._picked) if mask[i]]
+        outside = [i for i in sorted(self._picked) if not mask[i]]
+        return inside, outside
+
+    def toggle_pick(self, index: int) -> None:
+        """Pick a cell (or un-pick it) for targeted acquisition.
+
+        ``gallery.acquire_selected()`` images exactly the picked cells —
+        the point-at-the-cell counterpart of the random sample.
+        """
+        index = int(index)
+        if not 0 <= index < len(self.targets):
+            raise ValueError(f"no target {index} to pick")
+        if index in self._picked:
+            self._picked.discard(index)
+        else:
+            self._picked.add(index)
+        self._restyle()
+
+    def clear_picks(self) -> None:
+        """Forget every hand-picked cell."""
+        self._picked.clear()
+        self._restyle()
+
+    def note_acquired(self, targets: list[dict]) -> None:
+        """Mark these cells as acquired (they render green from now on).
+
+        Called by the gallery when a run commits, so nobody images the same
+        cell twice without meaning to. Acquired cells leave the pick set.
+        """
+        for target in targets:
+            for i, t in enumerate(self.targets):
+                if t is target or t == target:
+                    self._acquired.add(i)
+                    self._picked.discard(i)
+                    break
+        self._restyle()
+
+    def _on_press(self, event: Any) -> None:
+        if not getattr(event, "dblclick", False) or event.inaxes is not self.ax:
+            return
+        index = self._nearest_target_index(event)
+        if index is not None:
+            self.toggle_pick(index)
 
     # --- hover crop ---------------------------------------------------------------
 

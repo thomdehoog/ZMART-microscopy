@@ -41,6 +41,25 @@ from .steps import acquire_targets
 _QUEUED_CLICK_WINDOW_S = 2.0
 
 
+def _eta_text(done: int, total: int | None, started: float | None) -> str:
+    """" · about N min left" from progress so far — or nothing, honestly.
+
+    A running average over the sites completed this run. Deliberately
+    silent when there is no basis for an estimate (nothing done yet, no
+    known total, or already finished) — a made-up countdown is worse
+    than none. Shared by both widget editions.
+    """
+    if not total or done <= 0 or started is None or done >= total:
+        return ""
+    elapsed = time.monotonic() - started
+    remaining = elapsed / done * (total - done)
+    if remaining < 1.0:
+        return ""
+    if remaining < 90.0:
+        return f" · about {max(1, round(remaining))} s left"
+    return f" · about {round(remaining / 60.0)} min left"
+
+
 class AcquisitionGallery:
     """Pick N gated targets at random, acquire them, and show the pairs.
 
@@ -126,11 +145,43 @@ class AcquisitionGallery:
             )
         if isinstance(count, bool) or not isinstance(count, int) or count < 1:
             raise ValueError("target count must be a positive whole number")
-        if self._busy:
-            raise RuntimeError("an acquisition is already running")
         picked = (
             self._rng.sample(gated, count) if count < len(gated) else list(gated)
         )
+        return self._acquire_run(picked)
+
+    def acquire_selected(self) -> list[dict]:
+        """Acquire exactly the cells hand-picked in the explorer.
+
+        The point-at-the-cell counterpart of the random sample: pick cells
+        with ``explorer.toggle_pick(i)`` (or double-click dots on its
+        scatter), then run this. Every pick is re-validated against the
+        CURRENT gate — a pick that has since fallen outside the thresholds
+        or lasso refuses the whole run loudly rather than quietly imaging
+        a cell the gate excludes.
+        """
+        if not hasattr(self.source, "picked_gated"):
+            raise RuntimeError(
+                "hand-picking needs the target explorer as the gallery's source — "
+                "this gallery was built from a plain target list."
+            )
+        picked, outside = self.source.picked_gated
+        if outside:
+            raise RuntimeError(
+                f"picked cell(s) {outside} are outside the current gate — widen "
+                "the gate to include them, or un-pick them, then acquire again."
+            )
+        if not picked:
+            raise RuntimeError(
+                "no cells are picked — explorer.toggle_pick(i) or double-click "
+                "dots on the scatter first (or use the random acquire instead)."
+            )
+        return self._acquire_run(picked)
+
+    def _acquire_run(self, picked: list[dict]) -> list[dict]:
+        """One acquisition run over ``picked`` — shared by both entry points."""
+        if self._busy:
+            raise RuntimeError("an acquisition is already running")
         self._busy = True
         # A repeated run replaces the previous result, so the previous
         # result must stop being "the result" the moment this run starts:
@@ -140,11 +191,15 @@ class AcquisitionGallery:
         self.records = []
         self.verdicts = []
         self._status.set_text(f"acquiring {len(picked)} target(s)...")
+        run_started = time.monotonic()
 
         def _show_fresh_pair(index: int, _position: dict, record: dict) -> None:
             row = index - 1  # capture_positions counts from 1
             self._draw_row(row, len(picked), picked[row], record)
-            self._status.set_text(f"acquired {index} of {len(picked)} target(s)...")
+            self._status.set_text(
+                f"acquired {index} of {len(picked)} target(s)"
+                f"{_eta_text(index, len(picked), run_started)}..."
+            )
             force_draw(self.fig)
 
         try:
@@ -174,6 +229,10 @@ class AcquisitionGallery:
         self.picked = picked
         self.records = records
         self.verdicts = [None] * len(records)
+        # Tell the explorer which cells are now done: they render filled on
+        # its scatter (and any linked map) from now on.
+        if hasattr(self.source, "note_acquired"):
+            self.source.note_acquired(picked)
         # One final pass: after_acquire (the simulation hijack) may have
         # rewritten the saved images, so the reviewed pairs must be re-read.
         self._draw_gallery()

@@ -77,7 +77,12 @@ share the same busy flag, read-only lock, and debounce bookkeeping. A
 | `{"type": "tile", index, entry}` + buffer | message | Python → browser | One freshly acquired tile (PNG in the buffer). |
 | `channels` | trait (list) | both ways | Per-channel display state: `{color, palette, visible, lo, hi}`. The browser edits it; Python recomposites every tile PNG in response (malformed entries fall back to defaults). |
 | `marks` | trait (list) | Python → browser | Discovered cells overlaid on the map: `{x, y, gated}`. Kept live against the linked explorer's gate (`show_targets(targets, explorer)`). |
-| `{"type": "mark", index}` | message | browser → Python | Ask for a marked cell's crop; answered via the `mark_hover` trait (cached). |
+| `{"type": "mark", index}` | message | browser → Python | Ask for a marked cell's crop; answered via the `mark_hover` trait (cached, rendered with the map's own display window). Cross-highlights the cell's dot in the linked explorer. |
+| `{"type": "pick", index}` | message | browser → Python | Clicking a ring picks that cell — forwarded to the linked explorer's pick set. |
+
+Marks carry `picked` / `acquired` flags (white outline / green fill), the
+map draws an adaptive scale bar, and `expect_tiles(n)` before a scan lets
+the status line report progress and an estimated time left.
 
 Python-side extras (not wire protocol, but part of the operator surface):
 `save_display(path)` / `load_display(path)` persist the channel settings
@@ -103,11 +108,17 @@ across kernel restarts.
 | `hist` | trait (dict) | Python → browser | 20-bin distribution backdrops for the current axes (`{"x": [...], "y": [...]}`, peak-normalized) so thresholds are set against the data, not blind. |
 | `gate` | trait (dict) | browser → Python | The operator's intent: `{x: [lo, hi], y: [lo, hi], lasso: [[x, y], ...]}` — any piece may be absent. Thresholds AND lasso gate together. |
 | `gated_mask` | trait (list) | Python → browser | **Display output only.** Which dots pass the gate. Python recomputes the real decision from `gate` whenever `explorer.gated` is read, and heals this trait if anything scribbled over it. |
-| `{"type": "hover", index}` | message | browser → Python | Ask for a cell's crop; answered via the `hover` trait (crops are cached). |
+| `{"type": "hover", index}` | message | browser → Python | Ask for a cell's crop; answered via the `hover` trait (crops are cached, rendered with the linked viewer's display window so a cell looks the same everywhere). With a linked viewer, hover also cross-highlights the same cell on the map. |
+| `picked_indices` | trait (list) | Python → browser | **Display output only.** The cells picked by hand for targeted acquisition (white outline). The pick set lives in Python; writing this trait from the page changes nothing the microscope does. |
+| `acquired_indices` | trait (list) | Python → browser | Cells already acquired this session (drawn filled), so nothing is imaged twice by accident. |
+| `{"type": "pick", index}` | message | browser → Python | Toggle one cell in/out of the pick set (validated; also accepted by the overview viewer, which forwards it here). |
+| `{"type": "clear_picks"}` | message | browser → Python | Forget every pick. |
 
 Python-side extras: `save_gate(path)` / `load_gate(path)` persist the whole
 gate (axes + thresholds + lasso) — a repeat experiment's thresholds, one
-file away.
+file away; `toggle_pick(i)` / `clear_picks()` / `picked_targets` are the
+scriptable pick surface, and `note_acquired(targets)` is how the gallery
+reports a committed run back.
 
 ## AcquisitionGalleryReact
 
@@ -117,8 +128,17 @@ file away.
 | `{"type": "row", index, entry}` + 2 buffers | message | Python → browser | One freshly acquired pair (both PNGs as buffers). |
 | `gate_count`, `default_count` | traits | Python → browser | How many targets pass the gate; the count box's starting value. |
 | `verdicts` | trait (list) | Python → browser | Per-row curation: `"good"` / `"bad"` / null — the operator's QC record. |
+| `selected_count` | trait (int) | Python → browser | How many cells are hand-picked in the linked explorer (drives the "Acquire selected" button). |
 | `{"type": "acquire", count}` | message | browser → Python | Acquire `count` random gated targets. The count is validated in Python (a positive whole number) before anything moves. |
+| `{"type": "acquire_selected"}` | message | browser → Python | Acquire exactly the hand-picked cells. Every pick is re-validated against the CURRENT gate in Python — a pick the gate excludes refuses the whole run loudly. Same busy/debounce/read-only guards as every hardware path. |
 | `{"type": "verdict", index, value}` | message | browser → Python | Set one row's verdict (validated; out-of-range or unknown values are ignored). |
+
+Rows carry `width_um` so the browser can draw a scale bar on each image;
+clicking a row opens it enlarged (Esc closes); mid-run the status line
+includes an estimated time left, computed from the sites finished so far
+(and silent when there is no honest basis for an estimate). On commit the
+gallery calls the explorer's `note_acquired`, which fills the acquired
+cells in on both figures and releases their picks.
 
 `picked` / `records` (plain Python attributes, not traits) commit only when
 the whole run succeeds, and starting a new run clears them — and the

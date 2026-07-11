@@ -228,17 +228,22 @@ class FocusPicker:
                 if self._point_key(p) in self._af_cache
             ]
 
+        run_started = time.monotonic()
+
         def _show_fresh_point(measurement: dict) -> None:
             # Live progress: refit and redraw the map after every measured
             # point, so the operator watches the surface take shape while
             # the stage is still visiting the remaining points.
+            from ._acquisition_widget import _eta_text
+
             self._af_cache[(measurement["x_um"], measurement["y_um"])] = measurement
             self.measured = _collected_so_far()
             self.focus = fit_focus_surface(self.measured)
             self._draw_heatmap()
             self.ax.set_title(
                 f"measuring... {len(self.measured)} of {len(points)} points "
-                f"({self.focus.model} fit so far)"
+                f"({self.focus.model} fit so far"
+                f"{_eta_text(len(self.measured), len(points), run_started)})"
             )
             force_draw(self.fig)
 
