@@ -42,6 +42,16 @@ repo root:
 python -m pytest -q workflows/target_acquisition/tests
 ```
 
+That suite includes an end-to-end run of BOTH notebooks: every code cell
+executes in order against a simulated stage and sample (with a deliberately
+mis-set objective calibration the check must measure back), and the
+operator's button presses are scripted between cells. If a notebook cell
+breaks, this is the test that says so — no microscope needed:
+
+```powershell
+python -m pytest -q workflows/target_acquisition/tests/test_notebooks_run_end_to_end.py
+```
+
 ## Output
 
 Acquisition artifacts write to a `zmart/` tree beside the LAS X native AutoSave base folder, not into this package.
