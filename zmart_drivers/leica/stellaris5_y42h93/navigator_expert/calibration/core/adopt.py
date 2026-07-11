@@ -91,8 +91,25 @@ def _apply_staging_payload(
     live_names = {
         slot: name for slot, name in (hardware_objectives or {}).items() if name and name.strip()
     }
-    from_slot = _objective_slot_for_label(config, data["from_objective"])
-    to_slot = _objective_slot_for_label(config, data["to_objective"])
+    if data.get("from_slot") is not None or data.get("to_slot") is not None:
+        if data.get("from_slot") is None or data.get("to_slot") is None:
+            raise ValueError("staging config must provide both from_slot and to_slot")
+        from_slot = int(data["from_slot"])
+        to_slot = int(data["to_slot"])
+        if from_slot == to_slot:
+            raise ValueError("reference and target objective slots must differ")
+        # Measurement-time API reads are authoritative. Carry their names into
+        # the canonical config even when the prior file used stale labels.
+        for slot, key in ((from_slot, "from_objective"), (to_slot, "to_objective")):
+            name = str(data.get(key) or "").strip()
+            if not name:
+                raise ValueError(f"staging config missing measured objective name: {key}")
+            live_names[slot] = name
+    else:
+        # Backward compatibility for staging files created before objective
+        # slots were recorded directly from hardware.
+        from_slot = _objective_slot_for_label(config, data["from_objective"])
+        to_slot = _objective_slot_for_label(config, data["to_objective"])
     from_entry = (config.get("objectives") or {}).get(str(from_slot), {})
     if "translation_um" in from_entry:
         # The FROM objective already has a position, so place the new one

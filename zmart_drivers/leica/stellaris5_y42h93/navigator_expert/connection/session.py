@@ -8,7 +8,9 @@ with a short message instead of duplicating connect/validate code.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 from typing import Any
 
 from .. import readers as _readers
@@ -132,6 +134,74 @@ def _load_rig_orientation() -> Any:
         return _orientation.Orientation()
 
 
+def _orientation_info(*, enabled: bool, loaded_orientation: Any) -> dict:
+    """Describe the orientation selected at connect, including measurement proof."""
+    if not enabled:
+        return {
+            "enabled": False,
+            "loaded": False,
+            "measured": False,
+            "path": None,
+            "rotate_deg": int(loaded_orientation.rotate_deg),
+        }
+    from ..config.machine import MACHINE
+
+    path = MACHINE.orientation_path().absolute()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        from .. import orientation as _orientation
+
+        validated = _orientation.load_orientation(path)
+    except Exception as exc:  # noqa: BLE001 -- evidence for a fail-soft load
+        return {
+            "enabled": True,
+            "loaded": False,
+            "measured": False,
+            "path": str(path),
+            "rotate_deg": int(loaded_orientation.rotate_deg),
+            "error": str(exc),
+        }
+    return {
+        "enabled": True,
+        "loaded": validated == loaded_orientation,
+        # A real measured 0-degree orientation is valid. The explicit marker,
+        # not the angle, distinguishes it from the shipped identity placeholder.
+        "measured": validated == loaded_orientation and data.get("measured") is True,
+        "path": str(path),
+        "rotate_deg": int(loaded_orientation.rotate_deg),
+    }
+
+
+def _calibration_info(
+    *,
+    enabled: bool,
+    calibration_name: str | None,
+    translations: dict | None,
+) -> dict:
+    """Describe the objective calibration selected and loaded by the driver."""
+    from ..config.machine import CALIBRATION_NAME_ENV
+
+    effective_name = calibration_name or os.environ.get(CALIBRATION_NAME_ENV)
+    if not enabled:
+        return {
+            "enabled": False,
+            "loaded": False,
+            "name": effective_name,
+            "path": None,
+            "slots": [],
+        }
+    from ..calibration.core import model as _cal_model
+
+    path = _cal_model.default_path(calibration_name).absolute()
+    return {
+        "enabled": True,
+        "loaded": translations is not None,
+        "name": effective_name,
+        "path": str(path),
+        "slots": sorted(int(slot) for slot in (translations or {})),
+    }
+
+
 def connect_microscope(
     *,
     client_name: str = "PythonClient",
@@ -181,12 +251,20 @@ def connect_microscope(
     _gate.connect_handshake(client, load=load_limits)
     orientation = _load_rig_orientation() if load_orientation else _orientation.Orientation()
     translations = _load_objective_translations(calibration_name) if load_calibration else None
+    orientation_info = _orientation_info(enabled=load_orientation, loaded_orientation=orientation)
+    calibration_info = _calibration_info(
+        enabled=load_calibration,
+        calibration_name=calibration_name,
+        translations=translations,
+    )
     session_state.install(
         client,
         session_state.SessionConfig(
             orientation=orientation,
             translations=translations,
-            calibration_name=calibration_name,
+            calibration_name=calibration_info["name"],
+            orientation_info=orientation_info,
+            calibration_info=calibration_info,
         ),
     )
     return client

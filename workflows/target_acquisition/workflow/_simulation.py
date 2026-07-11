@@ -137,7 +137,8 @@ class SimulatedSession:
                     "source": "machine",
                     "path": "<simulated>",
                     "is_fallback": False,
-                }
+                },
+                "setup": {"ready": True, "issues": []},
             },
         }
 

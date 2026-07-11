@@ -36,11 +36,16 @@ class SessionConfig:
     ``None`` when calibration was not loaded — in which case the frame math
     refuses cross-objective moves rather than computing uncompensated values.
     ``calibration_name`` records which named calibration set was selected.
+    ``orientation_info`` and ``calibration_info`` are immutable provenance
+    captured at connect; the adapter uses them to issue its driver-owned
+    readiness verdict without making workflows interpret configuration files.
     """
 
     orientation: Orientation
     translations: dict | None = None
     calibration_name: str | None = None
+    orientation_info: dict | None = None
+    calibration_info: dict | None = None
 
 
 # id(client) -> (client, SessionConfig). The client reference is deliberately

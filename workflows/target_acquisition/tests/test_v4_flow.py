@@ -47,6 +47,23 @@ class _FakeEngine:
         return out
 
 
+def test_driver_preflight_verdict_is_enforced_without_workflow_calibration_math():
+    state = {
+        "observed": {
+            "setup": {
+                "ready": False,
+                "issues": ["objective calibration is not loaded"],
+                "calibration": {"driver_owned": True},
+            }
+        }
+    }
+
+    with pytest.raises(RuntimeError, match="objective calibration is not loaded"):
+        workflow.require_driver_ready(state)
+    # Drivers that do not publish this optional verdict remain compatible.
+    assert workflow.require_driver_ready({"observed": {}}) is None
+
+
 def test_full_controller_only_flow(tmp_path):
     register_mock()
 
