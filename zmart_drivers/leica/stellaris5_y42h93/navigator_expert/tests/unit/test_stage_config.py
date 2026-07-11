@@ -39,8 +39,8 @@ def test_adopt_limits_publishes_single_file_carrying_calibration(tmp_path):
 
     lim = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
     assert set(lim) == set(stage_config._REQUIRED_FILE_KEYS)
-    assert lim["x_um"] == [1200.0, 120000.0]
-    assert lim["objective_slot_allowed"] == [1, 2, 3, 4, 5, 6]
+    assert lim["x_um"] == {"range": [1200.0, 120000.0]}
+    assert lim["objective_slot"] == {"allowed": [1, 2, 3, 4, 5, 6]}
     assert all(lim[name] == [] for name in stage_config.SETTER_LIMIT_KEYS)
     # a REAL prior calibration carried forward untouched
     assert json.loads((snap / "calibration.json").read_text(encoding="utf-8")) == {
@@ -58,7 +58,7 @@ def test_adopt_limits_first_time_writes_complete_snapshot(tmp_path):
     files = sorted(p.name for p in snap.iterdir())
     assert files == [".limits-machine", "calibration.json", "limits.json", "orientation.json"]
     lim = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
-    assert lim["z_wide_um"] == [0.0, 60.0]
+    assert lim["z_wide_um"] == {"range": [0.0, 60.0]}
     # §2b: no backlash block is ever written
     assert "backlash" not in lim
 
@@ -71,10 +71,9 @@ def test_limits_machine_marker_survives_later_snapshot_adoptions(tmp_path):
 
     later = m.publish_snapshot(_ADOPT_MOMENT, calibration={"marker": "new calibration"})
     assert (later / ".limits-machine").exists()
-    assert json.loads((later / "limits.json").read_text(encoding="utf-8"))["x_um"] == [
-        1200.0,
-        120000.0,
-    ]
+    assert json.loads((later / "limits.json").read_text(encoding="utf-8"))["x_um"] == {
+        "range": [1200.0, 120000.0]
+    }
 
 
 def test_adopt_limits_validates_envelope(tmp_path):
@@ -110,8 +109,8 @@ def test_load_reads_envelope_from_constraints(tmp_path):
         "z_galvo": [-5.0, 5.0],
         "z_wide": [0.0, 100.0],
     }
-    assert cfg["objective_slot_allowed"] == [1, 2, 3, 4, 5, 6]
-    assert set(cfg["setter_limits"]) == set(stage_config.SETTER_LIMIT_KEYS)
+    assert cfg["policy"]["objective_slot"] == {"allowed": [1, 2, 3, 4, 5, 6]}
+    assert all(cfg["policy"][name] == [] for name in stage_config.SETTER_LIMIT_KEYS)
 
 
 def test_load_rejects_a_stray_backlash_block(tmp_path):
@@ -141,7 +140,7 @@ def test_limits_paths_are_separate_from_calibration_state(tmp_path, monkeypatch)
     assert template_limits.exists()
     template = json.loads(template_limits.read_text(encoding="utf-8"))
     assert set(template) == set(stage_config._REQUIRED_FILE_KEYS)
-    assert template["x_um"] == [1000, 130000]
+    assert template["x_um"] == {"range": [1000, 130000]}
 
 
 def test_defaults_path_returns_the_machine_local_snapshot_copy(tmp_path, monkeypatch):
@@ -188,9 +187,7 @@ def test_load_rejects_legacy_metadata(tmp_path):
 def test_limits_notebook_publishes_the_exact_flat_template():
     driver_root = Path(__file__).resolve().parents[2]
     notebook = json.loads(
-        (driver_root / "limits" / "notebooks" / "set_stage_limits.ipynb").read_text(
-            encoding="utf-8"
-        )
+        (driver_root / "limits" / "notebooks" / "set_limits.ipynb").read_text(encoding="utf-8")
     )
     source = "\n".join(
         "".join(cell.get("source", []))

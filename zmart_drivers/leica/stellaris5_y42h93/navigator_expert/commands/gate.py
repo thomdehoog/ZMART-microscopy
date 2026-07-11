@@ -9,29 +9,25 @@ in ``scanfields/files.py``) call :func:`check_refusal` before anything fires.
 
 Wrapper -> key mapping
 ----------------------
-The operator-facing ``limits.json`` is flat. Four axis ranges and the objective
-slot allow-list carry actual limits; setter names with ``[]`` explicitly show
-that those setters are currently unrestricted. The internal mapping below is
+The operator-facing ``limits.json`` is flat. Every constrained value explicitly
+uses ``range`` or ``allowed``; setter names with ``[]`` explicitly show that
+those setters are unrestricted. The internal mapping below is
 only the command chokepoint vocabulary—it is not the JSON shape.
 
-- all ``set_*`` job setters and ``select_job``  -> ``set_state`` (the job is
-  LAS X's unit of configuration; selecting/configuring it is the state
-  surface)
+- each configurable ``set_*`` wrapper           -> its same-named flat entry
+- ``set_objective``                             -> ``objective_slot``
+- ``select_job``                                -> handshake/state gate only
 - ``move_xy`` / ``move_z``                      -> ``set_xyz``
 - ``acquire``                                   -> ``acquire``
 - ``move_galvo_to_pixel``                       -> ``move_galvo_to_pixel``
   (LRP pan write; its hardcoded ``utils.PAN_LIMIT`` stays the sanctioned
-  numeric check, the gate adds fail-closed state + optional file constraints
-  on ``pan_x`` / ``pan_y``)
+  numeric check; the gate adds the fail-closed handshake state)
 - ``save_experiment`` / ``load_experiment``     -> their own keys (direct
   ``PyApi{Save,Load}Experiment`` fires; loading a template changes what
   ``acquire`` will scan)
 
-Two keys are vocabulary-only (no wrapper maps to them): ``set_origin`` (the
-adapter op fires no native command — it reads and persists origin.json) and
-``run_procedure`` (its effects run through gated wrappers: backlash ->
-``move_xy``, autofocus -> ``select_job``/``acquire``). They stay in the
-vocabulary so a machine file must still make an explicit decision for them.
+``set_origin`` fires no native command, and procedure effects flow through the
+same gated movement/acquisition wrappers. They therefore need no JSON entries.
 
 Offline ``experimental/lrp_edits`` and template-file edits do not command
 hardware at write time; they are gated at the point LAS X executes them
@@ -44,11 +40,11 @@ State model
 :func:`connect_handshake` performs the connect-time limits handshake — the
 single ``limits.json`` resolves to the newest ProgramData snapshot. If
 ProgramData is empty, the repo defaults are copied there first. The flat file
-must have the exact documented keys, finite ordered stage ranges, valid
-objective slots, and ``[]`` for every unrestricted setter. Its stage envelope
+must have the exact documented keys, valid typed constraints, and explicit
+``[]`` for every unrestricted setter. Its stage envelope
 must sit within the hardcoded physical backstop
 (``motion.limits.STAGE_BACKSTOP_UM``). On success it applies the stage envelope
-and installs the validated ``FunctionLimits`` in a module-level registry keyed
+and installs the validated ``LeicaLimits`` in a module-level registry keyed
 by client identity.
 
 If loading is deliberately skipped for a connection (``load=False``) or the
@@ -59,7 +55,7 @@ file. The defaults sit within the physical backstop, and the backstop bounds
 every move regardless. Only if even the shipped defaults are unusable does the
 session go fail-closed, and every gated wrapper then refuses with the recorded
 reason (which names the notebook that creates the files:
-``limits/notebooks/set_stage_limits.ipynb``). A client that never handshook at
+``limits/notebooks/set_limits.ipynb``). A client that never handshook at
 all (no ``connect_handshake`` ran) still refuses fail-closed.
 
 Single-writer invariant: like command dispatch (``dispatch.py``) and the
@@ -79,6 +75,7 @@ caller can skip.
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -91,49 +88,16 @@ from ..motion import stage_config as _stage_config
 
 log = logging.getLogger(__name__)
 
-NOTEBOOK_POINTER = "limits/notebooks/set_stage_limits.ipynb"
+NOTEBOOK_POINTER = "limits/notebooks/set_limits.ipynb"
 
-# Internal command-category vocabulary used by shared.limits after the flat
-# Leica document has been validated and translated in memory. This never leaks
-# into limits.json.
-FUNCTION_LIMIT_KEYS = (
-    "set_origin",
-    "set_xyz",
-    "set_state",
-    "run_procedure",
-    "acquire",
-    "move_galvo_to_pixel",
-    "save_experiment",
-    "load_experiment",
-)
-
-# Every mutating command wrapper -> its limits.json functions key. The completeness
+# Every mutating command wrapper -> its low-level policy key. The completeness
 # suite (tests/unit/test_limits_adversarial.py) enumerates the wrappers that
 # dispatch through the fire path and fails if any is missing here — the
 # commands-layer successor of the adapter's old _MUTATING_OPS guard.
 MUTATING_COMMANDS = {
-    # job-level setters (the job is the unit of configuration -> set_state)
-    "set_zoom": "set_state",
-    "set_scan_speed": "set_state",
-    "set_scan_resonant": "set_state",
-    "set_scan_mode": "set_state",
-    "set_sequential_mode": "set_state",
-    "set_scan_field_rotation": "set_state",
-    "set_image_format": "set_state",
-    "set_objective": "set_state",
-    "set_z_stack_definition": "set_state",
-    "set_z_stack_step_size": "set_state",
-    "set_z_stack_size": "set_state",
-    "set_frame_accumulation": "set_state",
-    "set_frame_average": "set_state",
-    "set_line_accumulation": "set_state",
-    "set_line_average": "set_state",
-    "set_pinhole_airy": "set_state",
-    "set_detector_gain": "set_state",
-    "set_laser_intensity": "set_state",
-    "set_laser_shutter": "set_state",
-    "set_filter_wheel_slot": "set_state",
-    "set_filter_wheel_spectrum": "set_state",
+    # each configurable setter maps directly to its flat JSON entry
+    **{name: name for name in _stage_config.SETTER_LIMIT_KEYS},
+    "set_objective": "set_objective",
     "select_job": "set_state",
     # stage / galvo motion
     "move_xy": "set_xyz",
@@ -151,7 +115,7 @@ MUTATING_COMMANDS = {
 class GateState:
     """One session's validated limits (or the reason there are none).
 
-    ``limits`` is the loaded ``shared.limits.FunctionLimits`` and ``stage_cfg``
+    ``limits`` is the loaded :class:`LeicaLimits` and ``stage_cfg``
     the validated stage config when the handshake succeeded; on failure both
     are None and ``error`` records exactly what is wrong (fail closed: every
     gated wrapper refuses with this message).
@@ -164,6 +128,75 @@ class GateState:
     @property
     def ok(self) -> bool:
         return self.error is None
+
+
+class LeicaLimits:
+    """Immutable runtime checker for the flat Leica limits document."""
+
+    def __init__(self, payload: Mapping[str, Any], *, source: str, path: Any, is_fallback: bool):
+        self.payload = dict(payload)
+        self.source = source
+        self.path = path
+        self.is_fallback = is_fallback
+
+    def _origin(self) -> str:
+        return f"limits: {self.path}, source={self.source}"
+
+    def _check_one(self, name: str, spec: Any, value: Any) -> None:
+        if spec == []:
+            return
+        if "range" in spec:
+            low, high = spec["range"]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise _shared_limits.LimitViolation(
+                    f"{name}={value!r} is not numeric (range [{low}, {high}]; {self._origin()})"
+                )
+            number = float(value)
+            if not math.isfinite(number) or number < low or number > high:
+                raise _shared_limits.LimitViolation(
+                    f"{name}={value!r} outside range [{low}, {high}] ({self._origin()})"
+                )
+            return
+        allowed = spec["allowed"]
+        if not any(type(value) is type(candidate) and value == candidate for candidate in allowed):
+            raise _shared_limits.LimitViolation(
+                f"{name}={value!r} not allowed; expected one of {allowed!r} ({self._origin()})"
+            )
+
+    def check(self, function: str, values: Mapping[str, Any]) -> None:
+        if function == "set_xyz":
+            for param in ("x_um", "y_um", "z_galvo_um", "z_wide_um"):
+                if param in values:
+                    self._check_one(param, self.payload[param], values[param])
+            return
+        if function == "set_objective":
+            if "objective_slot" in values:
+                self._check_one(
+                    "objective_slot", self.payload["objective_slot"], values["objective_slot"]
+                )
+            return
+        if function not in _stage_config.SETTER_LIMIT_KEYS:
+            return
+        spec = self.payload[function]
+        if spec == []:
+            return
+        candidates = values.get("values")
+        if candidates is None and "value" in values:
+            candidates = [values["value"]]
+        if not candidates:
+            raise _shared_limits.LimitsError(
+                f"{function} has a configured limit but the wrapper supplied no value "
+                f"({self._origin()})"
+            )
+        for value in candidates:
+            self._check_one(function, spec, value)
+
+    def describe(self) -> dict:
+        return {
+            "source": self.source,
+            "path": str(self.path) if self.path is not None else None,
+            "is_fallback": self.is_fallback,
+        }
 
 
 # id(client) -> (client, GateState). The client reference is deliberately
@@ -191,8 +224,8 @@ def state_for(client: Any) -> GateState | None:
 def describe(client: Any) -> dict | None:
     """Provenance of the limits governing *client* (None = refusing, see error).
 
-    The shape is ``FunctionLimits.describe()``: schema_version, source, path,
-    is_fallback. Reported by the adapter under observed state as evidence.
+    The record contains source, path, and fallback status. It is reported by
+    the adapter under observed state as evidence.
     """
     state = state_for(client)
     if state is None or state.limits is None:
@@ -228,43 +261,6 @@ def check_refusal(client: Any, command: str, values: Mapping[str, Any]) -> str |
     return None
 
 
-def build_function_limits_payload(stage_um: Mapping[str, Any], *, source: str = "machine") -> dict:
-    """Compatibility wrapper returning the flat operator-facing document."""
-    _stage_config._validate_source(source)
-    return _stage_config.build_limits_payload(dict(stage_um))
-
-
-def _runtime_function_limits(
-    stage_cfg: Mapping[str, Any], *, path: Any, source: str, is_fallback: bool
-):
-    """Translate a validated flat file into the existing immutable checker."""
-    constraints = {
-        f"stage.{axis}": {"min": bounds[0], "max": bounds[1]}
-        for axis, bounds in stage_cfg["stage_um"].items()
-    }
-    constraints["objective.slot"] = {"allowed": stage_cfg["objective_slot_allowed"]}
-    functions: dict[str, Any] = {key: None for key in FUNCTION_LIMIT_KEYS}
-    functions["set_xyz"] = {
-        "x_um": "@stage.x",
-        "y_um": "@stage.y",
-        "z_galvo_um": "@stage.z_galvo",
-        "z_wide_um": "@stage.z_wide",
-    }
-    functions["set_state"] = {"objective_slot": "@objective.slot"}
-    payload = {
-        "schema_version": _shared_limits.SCHEMA_VERSION,
-        "source": source,
-        "constraints": constraints,
-        "functions": functions,
-    }
-    return _shared_limits.parse(
-        payload,
-        functions=FUNCTION_LIMIT_KEYS,
-        path=path,
-        is_fallback=is_fallback,
-    )
-
-
 def _build_gate_from_file(
     client: Any,
     limits_file: Any,
@@ -281,10 +277,10 @@ def _build_gate_from_file(
     stage_cfg = _stage_config.load(limits_path=limits_file)
     # The envelope must sit within the hardcoded physical backstop.
     _limits.check_envelope_within_backstop(stage_cfg["stage_um"])
-    function_limits = _runtime_function_limits(
-        stage_cfg,
-        path=limits_file,
+    function_limits = LeicaLimits(
+        stage_cfg["policy"],
         source=source,
+        path=limits_file,
         is_fallback=is_fallback,
     )
     _limits.apply_stage_limits_from_config(stage_cfg)
@@ -341,9 +337,9 @@ def connect_handshake(
        is ignored and the defaults govern.
     2. The envelope must sit WITHIN the hardcoded physical backstop
        (``motion.limits.STAGE_BACKSTOP_UM``).
-    3. The objective allow-list is translated into the immutable runtime gate;
-       setter ``[]`` entries remain explicitly unrestricted. Unknown, missing,
-       or legacy metadata/nesting is rejected rather than silently ignored.
+    3. The validated flat policy is installed directly in the commands-layer
+       gate; no second limits schema is created. Unknown, missing, or legacy
+       metadata/nesting is rejected rather than silently ignored.
     4. On success: apply the stage envelope (module-global, single instrument
        per process) and install the gate state for *client*.
 

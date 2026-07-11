@@ -24,7 +24,7 @@ each cell calls one procedure function, while reusable code lives in
 - `notebooks/calibrate_objective_pair.ipynb` measures the translation
   between one objective pair.
 
-Set up a new rig in order: `../limits/notebooks/set_stage_limits.ipynb` (physical
+Set up a new rig in order: `../limits/notebooks/set_limits.ipynb` (physical
 envelope), then `../orientation/notebooks/set_orientation.ipynb` (image→stage
 rotation), then run the objective-pair notebook for each objective pair the
 scope should support.

@@ -223,7 +223,7 @@ class RunFlow:
             raise FlowError(
                 f"machine-specific stage limits are not active (got {limits}); publish "
                 "this machine's measured envelope with "
-                "limits/notebooks/set_stage_limits.ipynb first"
+                "limits/notebooks/set_limits.ipynb first"
             )
         from .. import require_driver_ready
 

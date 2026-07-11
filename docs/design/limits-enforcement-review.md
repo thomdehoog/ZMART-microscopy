@@ -320,7 +320,7 @@ holds.
   logic: the connect handshake, fail-closed refusals, backstop containment, and
   completeness test are all exercisable on `MockLasxClient`
   (`tests/helpers/mock_lasx_api.py`) with `programdata_root=tmp_path` snapshots.
-  The one bench-only artifact is the `set_stage_limits.ipynb` factory (driving
+  The one bench-only artifact is the `set_limits.ipynb` factory (driving
   to physical corners), which the plan already fences behind the mock+adversarial
   gate — keep it there. Ensure the adversarial suite (poisoned/malformed files,
   NaN/inf, unset-envelope refusal, per-entry-point bypass) provisions its

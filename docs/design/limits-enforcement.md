@@ -4,6 +4,14 @@ Status: PLANNED, amended after adversarial plan review (see
 `limits-enforcement-review.md`, findings PR-01..PR-10). Maintainer design
 decision 2026-07-05, `docs/reviews/MAINTAINER_DECISIONS.md` §7.
 
+> **Implemented contract (2026-07-11):** the historical plan below records the
+> design path, but its nested/shared-schema details are superseded. Leica now
+> uses one flat `limits.json`: each constrained entry is explicitly
+> `{"range": [min, max]}` or `{"allowed": [...]}`, while `[]` means an
+> unrestricted setter. Enforcement remains at the lowest command-wrapper gate;
+> the adapter, controller, workflows, and notebooks cannot bypass it. The file
+> is published by `limits/notebooks/set_limits.ipynb`.
+
 ## Amendments (adversarial review outcomes)
 
 1. **Wrapper→key mapping defined (PR-01):** every mutating command wrapper
@@ -111,7 +119,7 @@ must not depend on which entry point a caller used.
    *read-only* use, but **every mutating command refuses** with an error that
    says exactly what is wrong and points to the notebook that creates the
    file.
-4. **The notebook is the file factory.** `limits/notebooks/set_stage_limits.ipynb`
+4. **The notebook is the file factory.** `limits/notebooks/set_limits.ipynb`
    is the documented way to create/update the machine-local limits file
    (drive to the physical corners, capture, write). The limits folder stays;
    what changes is that no shipped file is silently trusted.

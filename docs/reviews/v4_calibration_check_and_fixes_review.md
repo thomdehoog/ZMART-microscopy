@@ -25,12 +25,12 @@ both notebooks parse as valid JSON and pass their structural guard tests.
 ### 1. blocker — the recommended limits notebook publishes an envelope the v4 preflight refuses — FIXED
 
 `navigator_expert/motion/stage_config.py:196` (`adopt_limits(source=LIMITS_SOURCE_DEFAULTS)`)
-with `limits/notebooks/set_stage_limits.ipynb` cell 1 (no `source=` argument),
+with `limits/notebooks/set_limits.ipynb` cell 1 (no `source=` argument),
 against the v4 jobs cell's new check `limits.get("source") != "machine"`.
 
 The prior round's finding 1 was fixed by requiring `source == "machine"`, and
 the error message tells the operator to "publish this machine's measured
-envelope with limits/notebooks/set_stage_limits.ipynb". But that notebook calls
+envelope with limits/notebooks/set_limits.ipynb". But that notebook calls
 `adopt_limits` without `source=`, and the default was `"defaults"` — so the
 published limits.json still reads `source: "defaults"`, the preflight refuses
 again, and the message sends the operator back to the same notebook, forever.

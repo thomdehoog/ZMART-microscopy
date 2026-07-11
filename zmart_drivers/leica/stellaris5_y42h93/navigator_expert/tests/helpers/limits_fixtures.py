@@ -21,8 +21,7 @@ from navigator_expert.commands import gate as _gate
 from navigator_expert.config import profiles
 from navigator_expert.config.machine import MachineProfile
 from navigator_expert.motion import limits as _motion_limits
-
-from shared import limits as _shared_limits
+from navigator_expert.motion import stage_config as _stage_config
 
 # The historical machine envelope (== the bundled template and the hardcoded
 # backstop in motion/limits.py) — the widest envelope a fixture may use.
@@ -38,7 +37,7 @@ _SEED_MOMENT = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 def merged_limits_payload(stage_um: dict, *, functions: dict | None = None) -> dict:
     """The single flat limits.json payload."""
-    payload = _gate.build_function_limits_payload(stage_um)
+    payload = _stage_config.build_limits_payload(stage_um)
     if functions is not None:
         payload.update(functions)
     return payload
@@ -98,22 +97,22 @@ def hermetic_mock_machine_root() -> Path:
 
 
 def permissive_function_limits(**set_xyz_constraints) -> object:
-    """An in-memory FunctionLimits: every key reviewed-unlimited (``null``).
+    """An in-memory flat policy for command-mechanics unit tests.
 
     Pass ``set_xyz`` parameter constraints (e.g. ``x_um={"min": 0, "max": 1}``)
     to bound the move keys.
     """
-    payload = {
-        "schema_version": 1,
-        "source": "test",
-        "constraints": {},
-        "functions": {key: None for key in _gate.FUNCTION_LIMIT_KEYS},
-    }
-    if set_xyz_constraints:
-        payload["functions"]["set_xyz"] = {
-            param: dict(bounds) for param, bounds in set_xyz_constraints.items()
+    payload = _stage_config.build_limits_payload(
+        {
+            "x": [-1e12, 1e12],
+            "y": [-1e12, 1e12],
+            "z_galvo": [-1e12, 1e12],
+            "z_wide": [-1e12, 1e12],
         }
-    return _shared_limits.parse(payload, functions=_gate.FUNCTION_LIMIT_KEYS)
+    )
+    for param, bounds in set_xyz_constraints.items():
+        payload[param] = {"range": [bounds["min"], bounds["max"]]}
+    return _gate.LeicaLimits(payload, source="test", path=None, is_fallback=False)
 
 
 def install_permissive_limits(client, *, wide_stage=False, **set_xyz_constraints):

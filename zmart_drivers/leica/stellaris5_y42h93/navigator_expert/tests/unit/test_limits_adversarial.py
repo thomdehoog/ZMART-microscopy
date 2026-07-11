@@ -74,7 +74,7 @@ def _valid_limits_text(stage_um: dict | None = None) -> str:
             "z_galvo": "z_galvo_um",
             "z_wide": "z_wide_um",
         }.items():
-            payload[key] = stage_um[axis]
+            payload[key] = {"range": stage_um[axis]}
     return json.dumps(payload)
 
 
@@ -113,16 +113,17 @@ def _mock_stage_position(client):
 # =============================================================================
 
 _BAD_LIMITS_TEXTS = {
-    "truncated": '{"x_um": [1000, 130000], "y_um":',
+    "truncated": '{"x_um": {"range": [1000, 130000]}, "y_um":',
     "non_json": "this is not json <at all>",
     "empty_dict": "{}",
     "legacy_schema": json.dumps(
         {"schema_version": 1, "source": "defaults", "constraints": {}, "functions": {}}
     ),
     "missing_axis": _with_payload(lambda p: {k: v for k, v in p.items() if k != "y_um"}),
-    "unknown_key": _with_payload(lambda p: {**p, "theta_deg": [0, 360]}),
+    "unknown_key": _with_payload(lambda p: {**p, "theta_deg": {"range": [0, 360]}}),
     "axis_not_a_range": _with_payload(lambda p: {**p, "x_um": {"min": 1000, "max": 130000}}),
-    "axis_wrong_length": _with_payload(lambda p: {**p, "x_um": [1000]}),
+    "axis_wrong_length": _with_payload(lambda p: {**p, "x_um": {"range": [1000]}}),
+    "axis_wrong_type": _with_payload(lambda p: {**p, "x_um": {"allowed": [1000, 130000]}}),
     "min_greater_than_max": _valid_limits_text(dict(DEFAULT_STAGE_UM, x=[130000, 1000])),
     # json.dumps emits NaN / Infinity literals (allow_nan) — the validators must refuse.
     "nan": _valid_limits_text(dict(DEFAULT_STAGE_UM, x=[float("nan"), 130000])),
@@ -161,13 +162,25 @@ _BAD_FUNCTION_LIMITS_TEXTS = {
     "unknown_setter": _with_payload(lambda p: {**p, "set_warp_drive": []}),
     "setter_is_null": _with_payload(lambda p: {**p, "set_zoom": None}),
     "setter_is_string": _with_payload(lambda p: {**p, "set_zoom": "unlimited"}),
-    "setter_nonempty": _with_payload(lambda p: {**p, "set_zoom": [1, 10]}),
-    "objective_slots_empty": _with_payload(lambda p: {**p, "objective_slot_allowed": []}),
-    "objective_slot_not_integer": _with_payload(
-        lambda p: {**p, "objective_slot_allowed": [1, "2"]}
+    "setter_untyped_nonempty": _with_payload(lambda p: {**p, "set_zoom": [1, 10]}),
+    "setter_unknown_type": _with_payload(lambda p: {**p, "set_zoom": {"limits": [1, 10]}}),
+    "setter_two_types": _with_payload(
+        lambda p: {**p, "set_zoom": {"range": [1, 10], "allowed": [1, 10]}}
     ),
-    "objective_slot_not_positive": _with_payload(lambda p: {**p, "objective_slot_allowed": [0, 1]}),
-    "objective_slot_duplicate": _with_payload(lambda p: {**p, "objective_slot_allowed": [1, 1]}),
+    "setter_empty_allowed": _with_payload(lambda p: {**p, "set_zoom": {"allowed": []}}),
+    "setter_nonfinite_allowed": _with_payload(
+        lambda p: {**p, "set_zoom": {"allowed": [float("nan")]}}
+    ),
+    "objective_slots_empty": _with_payload(lambda p: {**p, "objective_slot": {"allowed": []}}),
+    "objective_slot_not_integer": _with_payload(
+        lambda p: {**p, "objective_slot": {"allowed": [1, "2"]}}
+    ),
+    "objective_slot_not_positive": _with_payload(
+        lambda p: {**p, "objective_slot": {"allowed": [0, 1]}}
+    ),
+    "objective_slot_duplicate": _with_payload(
+        lambda p: {**p, "objective_slot": {"allowed": [1, 1]}}
+    ),
 }
 
 
@@ -184,7 +197,7 @@ def test_malformed_function_limits_falls_back_to_defaults(attack, mock_client):
 
 def test_nan_in_axis_range_triggers_the_defaults_fallback(mock_client):
     """A non-finite flat axis bound never governs a move."""
-    text = _with_payload(lambda p: {**p, "x_um": [float("nan"), 130000]})
+    text = _with_payload(lambda p: {**p, "x_um": {"range": [float("nan"), 130000]}})
     _raw_snapshot(_machine_root(), limits_text=text)
     state = gate.connect_handshake(mock_client)
     assert state.ok
@@ -206,7 +219,7 @@ def governed_client(mock_client):
 
 def test_objective_allow_list_checks_the_resolved_slot(mock_client):
     payload = _valid_payload()
-    payload["objective_slot_allowed"] = [1]
+    payload["objective_slot"] = {"allowed": [1]}
     _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
     assert gate.connect_handshake(mock_client).ok
     hw_info = {
@@ -221,12 +234,12 @@ def test_objective_allow_list_checks_the_resolved_slot(mock_client):
     refused = commands_mod.set_objective(mock_client, "HiRes", hw_info, name="20x")
     assert refused["success"] is False
     assert "objective_slot=2" in refused["message"]
-    assert "not one of: 1" in refused["message"]
+    assert "expected one of [1]" in refused["message"]
 
 
 def test_objective_allow_list_allows_a_listed_slot(mock_client):
     payload = _valid_payload()
-    payload["objective_slot_allowed"] = [1]
+    payload["objective_slot"] = {"allowed": [1]}
     _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
     assert gate.connect_handshake(mock_client).ok
     hw_info = {
@@ -310,8 +323,8 @@ def test_poisoned_pixel_target_cannot_compose_a_nan_galvo_pan(governed_client, p
 
 def test_nan_never_slips_past_a_bounded_constraint():
     """NaN compares False against every bound; flat validation must refuse it."""
-    payload = gate.build_function_limits_payload(DEFAULT_STAGE_UM)
-    payload["x_um"] = [float("nan"), 130000]
+    payload = stage_config.build_limits_payload(DEFAULT_STAGE_UM)
+    payload["x_um"] = {"range": [float("nan"), 130000]}
     with pytest.raises(ValueError, match="finite"):
         stage_config.validate_payload(payload)
 
@@ -336,7 +349,7 @@ def test_moves_refuse_before_any_handshake(mock_client):
     before = _mock_stage_position(mock_client)
     result = commands_mod.move_xy(mock_client, 50000, 50000, unit="um")
     _assert_refused(result)
-    assert "set_stage_limits.ipynb" in result["message"]
+    assert "set_limits.ipynb" in result["message"]
     assert _mock_stage_position(mock_client) == before
 
 
@@ -531,30 +544,34 @@ _HW_INFO = {"Microscope": {"objectives": [{"slotIndex": 1, "name": "10x", "objec
 # wrapper name -> zero-state invocation (client is a poisoned _Untouchable):
 # the gate must refuse BEFORE any client attribute is touched.
 _WRAPPER_CALLS = {
-    "set_zoom": lambda c: commands_mod.set_zoom(c, "J", 5.0),
-    "set_scan_speed": lambda c: commands_mod.set_scan_speed(c, "J", 400),
-    "set_scan_resonant": lambda c: commands_mod.set_scan_resonant(c, "J", True),
-    "set_scan_mode": lambda c: commands_mod.set_scan_mode(c, "J", "xyz"),
-    "set_sequential_mode": lambda c: commands_mod.set_sequential_mode(c, "J", "Frame"),
-    "set_scan_field_rotation": lambda c: commands_mod.set_scan_field_rotation(c, "J", 0.0),
-    "set_image_format": lambda c: commands_mod.set_image_format(c, "J", "512 x 512"),
+    "set_zoom": lambda c: commands_mod.set_zoom(c, "Overview", 5.0),
+    "set_scan_speed": lambda c: commands_mod.set_scan_speed(c, "Overview", 400),
+    "set_scan_resonant": lambda c: commands_mod.set_scan_resonant(c, "Overview", True),
+    "set_scan_mode": lambda c: commands_mod.set_scan_mode(c, "Overview", "xyz"),
+    "set_sequential_mode": lambda c: commands_mod.set_sequential_mode(c, "Overview", "Frame"),
+    "set_scan_field_rotation": lambda c: commands_mod.set_scan_field_rotation(c, "Overview", 0.0),
+    "set_image_format": lambda c: commands_mod.set_image_format(c, "Overview", "512 x 512"),
     "set_objective": lambda c: commands_mod.set_objective(c, "J", _HW_INFO, slot_index=1),
     "set_z_stack_definition": lambda c: commands_mod.set_z_stack_definition(
-        c, "J", begin_um=0.0, end_um=1.0
+        c, "Overview", begin_um=0.0, end_um=1.0
     ),
-    "set_z_stack_step_size": lambda c: commands_mod.set_z_stack_step_size(c, "J", 1.0),
-    "set_z_stack_size": lambda c: commands_mod.set_z_stack_size(c, "J", 10.0),
-    "set_frame_accumulation": lambda c: commands_mod.set_frame_accumulation(c, "J", 0, 2),
-    "set_frame_average": lambda c: commands_mod.set_frame_average(c, "J", 0, 2),
-    "set_line_accumulation": lambda c: commands_mod.set_line_accumulation(c, "J", 0, 2),
-    "set_line_average": lambda c: commands_mod.set_line_average(c, "J", 0, 2),
-    "set_pinhole_airy": lambda c: commands_mod.set_pinhole_airy(c, "J", 0, 1.0),
-    "set_detector_gain": lambda c: commands_mod.set_detector_gain(c, "J", 0, "40;3", 100.0),
-    "set_laser_intensity": lambda c: commands_mod.set_laser_intensity(c, "J", 0, "30", 0, 0.1),
-    "set_laser_shutter": lambda c: commands_mod.set_laser_shutter(c, "J", 0, "30", True),
-    "set_filter_wheel_slot": lambda c: commands_mod.set_filter_wheel_slot(c, "J", 0, "40;3", 1, 2),
+    "set_z_stack_step_size": lambda c: commands_mod.set_z_stack_step_size(c, "Overview", 1.0),
+    "set_z_stack_size": lambda c: commands_mod.set_z_stack_size(c, "Overview", 10.0),
+    "set_frame_accumulation": lambda c: commands_mod.set_frame_accumulation(c, "Overview", 0, 2),
+    "set_frame_average": lambda c: commands_mod.set_frame_average(c, "Overview", 0, 2),
+    "set_line_accumulation": lambda c: commands_mod.set_line_accumulation(c, "Overview", 0, 2),
+    "set_line_average": lambda c: commands_mod.set_line_average(c, "Overview", 0, 2),
+    "set_pinhole_airy": lambda c: commands_mod.set_pinhole_airy(c, "Overview", 0, 1.0),
+    "set_detector_gain": lambda c: commands_mod.set_detector_gain(c, "Overview", 0, "40;3", 100.0),
+    "set_laser_intensity": lambda c: commands_mod.set_laser_intensity(
+        c, "Overview", 0, "30", 0, 0.1
+    ),
+    "set_laser_shutter": lambda c: commands_mod.set_laser_shutter(c, "Overview", 0, "30", True),
+    "set_filter_wheel_slot": lambda c: commands_mod.set_filter_wheel_slot(
+        c, "Overview", 0, "40;3", 1, 2
+    ),
     "set_filter_wheel_spectrum": lambda c: commands_mod.set_filter_wheel_spectrum(
-        c, "J", 0, "40;3", 1, 500.0
+        c, "Overview", 0, "40;3", 1, 500.0
     ),
     "move_xy": lambda c: commands_mod.move_xy(c, 50000, 50000, unit="um"),
     "move_z": lambda c: commands_mod.move_z(c, "J", 0.0, unit="um", z_mode="galvo"),
@@ -564,6 +581,126 @@ _WRAPPER_CALLS = {
     "save_experiment": lambda c: scanfield_files.save_experiment(c, "t.xml", "/nonexistent"),
     "load_experiment": lambda c: scanfield_files.load_experiment(c, "t.xml"),
 }
+
+_SETTER_ALLOWED_VALUES = {
+    "set_zoom": [5.0],
+    "set_scan_speed": [400],
+    "set_scan_resonant": [True],
+    "set_scan_mode": ["xyz"],
+    "set_sequential_mode": ["Frame"],
+    "set_scan_field_rotation": [0.0],
+    "set_image_format": ["512 x 512"],
+    "set_z_stack_definition": [0.0, 1.0],
+    "set_z_stack_step_size": [1.0],
+    "set_z_stack_size": [10.0],
+    "set_frame_accumulation": [2],
+    "set_frame_average": [2],
+    "set_line_accumulation": [2],
+    "set_line_average": [2],
+    "set_pinhole_airy": [1.0],
+    "set_detector_gain": [100.0],
+    "set_laser_intensity": [0.1],
+    "set_laser_shutter": [True],
+    "set_filter_wheel_slot": [2],
+    "set_filter_wheel_spectrum": [500.0],
+}
+
+
+@pytest.mark.parametrize("setter", stage_config.SETTER_LIMIT_KEYS)
+def test_every_configurable_setter_enforces_before_touching_native_api(setter):
+    """Every flat setter key is wired to its own lowest-level command wrapper."""
+    client = _Untouchable()
+    payload = _valid_payload()
+    payload[setter] = {"allowed": ["__blocked_test_value__"]}
+    policy = stage_config.validate_payload(payload)
+    gate._install(
+        client,
+        gate.GateState(
+            limits=gate.LeicaLimits(policy, source="test", path="limits.json", is_fallback=False),
+            stage_cfg=None,
+            error=None,
+        ),
+    )
+
+    result = _WRAPPER_CALLS[setter](client)
+    assert result["success"] is False
+    assert f"{setter} refused" in result["message"]
+    assert "not allowed" in result["message"]
+
+
+@pytest.mark.parametrize("setter", stage_config.SETTER_LIMIT_KEYS)
+def test_every_configurable_setter_accepts_its_allowed_value(mock_client, setter):
+    """The typed policy forwards the real setter value, not a metadata field."""
+    payload = _valid_payload()
+    payload[setter] = {"allowed": _SETTER_ALLOWED_VALUES[setter]}
+    _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
+    assert gate.connect_handshake(mock_client).ok
+
+    result = _WRAPPER_CALLS[setter](mock_client)
+    assert result["success"] is True, (setter, result)
+
+
+def test_setter_range_accepts_boundaries_and_refuses_outside(mock_client):
+    payload = _valid_payload()
+    payload["set_zoom"] = {"range": [1.0, 5.0]}
+    _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
+    assert gate.connect_handshake(mock_client).ok
+
+    assert commands_mod.set_zoom(mock_client, "Overview", 1.0)["success"] is True
+    assert commands_mod.set_zoom(mock_client, "Overview", 5.0)["success"] is True
+    refused = commands_mod.set_zoom(mock_client, "Overview", 5.01)
+    assert refused["success"] is False
+    assert "outside range [1.0, 5.0]" in refused["message"]
+
+
+def test_setter_allowed_accepts_member_and_refuses_other(mock_client):
+    payload = _valid_payload()
+    payload["set_scan_mode"] = {"allowed": ["xyz"]}
+    _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
+    assert gate.connect_handshake(mock_client).ok
+
+    assert commands_mod.set_scan_mode(mock_client, "Overview", "xyz")["success"] is True
+    refused = commands_mod.set_scan_mode(mock_client, "Overview", "xyzt")
+    assert refused["success"] is False
+    assert "expected one of ['xyz']" in refused["message"]
+
+
+def test_z_stack_definition_checks_both_endpoints_before_native_api():
+    client = _Untouchable()
+    payload = _valid_payload()
+    payload["set_z_stack_definition"] = {"range": [0.0, 10.0]}
+    policy = stage_config.validate_payload(payload)
+    gate._install(
+        client,
+        gate.GateState(
+            limits=gate.LeicaLimits(policy, source="test", path="limits.json", is_fallback=False),
+            stage_cfg=None,
+            error=None,
+        ),
+    )
+
+    refused = commands_mod.set_z_stack_definition(client, "J", begin_um=5.0, end_um=11.0)
+    assert refused["success"] is False
+    assert "11.0 outside range [0.0, 10.0]" in refused["message"]
+
+
+def test_z_stack_definition_configured_limit_refuses_value_unknown_reset():
+    client = _Untouchable()
+    payload = _valid_payload()
+    payload["set_z_stack_definition"] = {"range": [0.0, 10.0]}
+    policy = stage_config.validate_payload(payload)
+    gate._install(
+        client,
+        gate.GateState(
+            limits=gate.LeicaLimits(policy, source="test", path="limits.json", is_fallback=False),
+            stage_cfg=None,
+            error=None,
+        ),
+    )
+
+    refused = commands_mod.set_z_stack_definition(client, "J", old_begin_um=0.0)
+    assert refused["success"] is False
+    assert "configured limit but the wrapper supplied no value" in refused["message"]
 
 
 @pytest.mark.parametrize("wrapper", sorted(gate.MUTATING_COMMANDS))
@@ -667,7 +804,6 @@ def test_stale_gate_state_does_not_govern_a_new_client():
 
 
 def test_mapping_is_total_over_the_key_vocabulary():
-    assert set(gate.MUTATING_COMMANDS.values()) <= set(gate.FUNCTION_LIMIT_KEYS)
     assert set(_WRAPPER_CALLS) == set(gate.MUTATING_COMMANDS)
 
 
@@ -681,10 +817,10 @@ def test_bundled_template_declares_exactly_the_key_vocabulary():
 
 
 def test_generated_machine_payload_matches_the_vocabulary():
-    payload = gate.build_function_limits_payload(DEFAULT_STAGE_UM)
+    payload = stage_config.build_limits_payload(DEFAULT_STAGE_UM)
     assert set(payload) == set(stage_config._REQUIRED_FILE_KEYS)
-    assert payload["x_um"] == DEFAULT_STAGE_UM["x"]
-    assert payload["objective_slot_allowed"] == [1, 2, 3, 4, 5, 6]
+    assert payload["x_um"] == {"range": DEFAULT_STAGE_UM["x"]}
+    assert payload["objective_slot"] == {"allowed": [1, 2, 3, 4, 5, 6]}
 
 
 def test_every_dispatching_wrapper_declares_and_calls_the_gate():
@@ -760,7 +896,7 @@ def test_backstop_matches_the_historical_machine_envelope():
         (DRIVER_ROOT / "limits" / "defaults" / "limits.json").read_text(encoding="utf-8")
     )
     for axis, (lo, hi) in motion_limits.STAGE_BACKSTOP_UM.items():
-        assert template[f"{axis}_um"] == [lo, hi]
+        assert template[f"{axis}_um"] == {"range": [lo, hi]}
         assert math.isfinite(lo) and math.isfinite(hi)
 
 
@@ -812,7 +948,7 @@ def test_backlash_is_not_config_and_the_primitive_uses_its_default_params():
     assert "backlash" not in on_disk
 
     cfg = stage_config.load(limits_path=limits_path)
-    assert set(cfg) == {"stage_um", "objective_slot_allowed", "setter_limits"}
+    assert set(cfg) == {"policy", "stage_um"}
     assert set(cfg["stage_um"]) == {"x", "y", "z_galvo", "z_wide"}
     assert cfg["stage_um"]["x"] == DEFAULT_STAGE_UM["x"]
 
@@ -890,8 +1026,8 @@ def test_flat_limits_round_trip_adopt_handshake_gated_move(mock_client):
     snap = profile.latest_snapshot()
     merged = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
     assert set(merged) == set(stage_config._REQUIRED_FILE_KEYS)
-    assert merged["x_um"] == [1000.0, 130000.0]
-    assert merged["objective_slot_allowed"] == [1, 2, 3, 4, 5, 6]
+    assert merged["x_um"] == {"range": [1000.0, 130000.0]}
+    assert merged["objective_slot"] == {"allowed": [1, 2, 3, 4, 5, 6]}
 
     state = gate.connect_handshake(mock_client, machine=profile)
     assert state.ok, state.error

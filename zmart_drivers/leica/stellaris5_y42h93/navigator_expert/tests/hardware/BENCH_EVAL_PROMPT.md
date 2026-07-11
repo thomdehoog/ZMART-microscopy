@@ -32,7 +32,7 @@ detect which and say so in your report).
     before this rename still carries the old `set_procedure` key and will
     refuse **every** gated move. If the connect handshake fails naming a
     missing/unknown function key, re-run
-    `limits/notebooks/set_stage_limits.ipynb` before doing anything else.
+    `limits/notebooks/set_limits.ipynb` before doing anything else.
   - Backlash wired into the `backlash_correction` acquisition option and
     tested at all three tiers (`3ea9dec`) — `acquire(options={"backlash_correction": True})`
     should run `correct_backlash` before capture and report
@@ -103,7 +103,7 @@ are copied there so CI can connect; on the rig, run once to replace those
 defaults with measured stage limits:
 
 ```
-zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb
+zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_limits.ipynb
 ```
 
 The pre-filled values are this machine's known-good envelope — adjust only
