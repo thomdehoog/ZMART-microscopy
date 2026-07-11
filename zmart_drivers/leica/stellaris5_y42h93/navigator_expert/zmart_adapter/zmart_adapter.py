@@ -63,6 +63,7 @@ Dependency direction:
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -91,7 +92,8 @@ from ..connection import session_state as _session_state
 from ..motion import limits as _limits
 from ..motion import movement as _motion
 from ..readers.derived import z_um_from_settings as _z_um_from_settings
-from . import procedures as _procedures
+from ..utils import parse_tile_geometry as _parse_tile_geometry
+from . import info as _info
 
 log = logging.getLogger(__name__)
 
@@ -827,7 +829,7 @@ def acquire(
     detection, or persistence.
     """
     _require_open(handle)
-    output_root = _procedures.output_root(handle, _save.save_source_root)
+    output_root = _info.output_root(handle, _save.save_source_root)
     resolved = _with_defaults(handle, options)
     job = resolved["job"]
     if not job:
@@ -919,9 +921,9 @@ def get_state(handle: ZmartHandle) -> dict:
     setup. ``observed`` is a read-only report of identity and condition — the
     connection identity, the hardware-reported serial number and system type
     (simulator vs. real), the stand, the turret configuration (slot →
-    objectiveNumber), the full selected-job record, the job catalog, and the
-    provenance of the function limits governing this session. All LAS
-    X-derived values are fresh reads.
+    objectiveNumber), the full selected-job record, its current XY pixel size,
+    the job catalog, and the provenance of the function limits governing this
+    session. All LAS X-derived values are fresh reads.
     """
     _require_open(handle)
     hw = _readers.get_hardware_info(handle.client) or {}
@@ -930,6 +932,19 @@ def get_state(handle: ZmartHandle) -> dict:
     if not selected.get("Name"):
         raise RuntimeError("could not determine the selected LAS X job")
     settings = _readers.get_job_settings(handle.client, selected["Name"], mode="api") or {}
+    try:
+        geometry = _parse_tile_geometry(settings)
+        pixel_x = float(geometry["pixel_w_um"])
+        pixel_y = float(geometry["pixel_h_um"])
+        if not all(math.isfinite(value) and value > 0 for value in (pixel_x, pixel_y)):
+            raise ValueError("pixel size must be finite and positive")
+        pixel_size = {
+            "x": pixel_x,
+            "y": pixel_y,
+            "unit": "um",
+        }
+    except (KeyError, TypeError, ValueError):
+        pixel_size = None
     active_objective = settings.get("objective")
     normal, autofocus = _job_catalog(handle)
     limits = _gate.describe(handle.client)
@@ -947,6 +962,7 @@ def get_state(handle: ZmartHandle) -> dict:
             ],
             "job": dict(selected),
             "active_objective": dict(active_objective or {}),
+            "pixel_size": pixel_size,
             "jobs": normal,
             "autofocus_jobs": autofocus,
             # Which function-limits file governs this session (evidence, not
@@ -1005,9 +1021,6 @@ def get_procedures(handle: ZmartHandle) -> dict:
             "args": ["job"],
             "jobs": [j["Name"] for j in autofocus if j.get("Name")],
         },
-        "get_root": {"description": "return the ZMART run output root"},
-        "get_positions": {"description": "return LAS X scan-field positions in frame um"},
-        "get_focus_points": {"description": "return LAS X focus points in frame um"},
     }
 
 
@@ -1015,23 +1028,6 @@ def run_procedure(handle: ZmartHandle, procedure: dict) -> dict:
     """Run a procedure from :func:`get_procedures`; report what ran."""
     _require_open(handle)
     name = procedure.get("name")
-    if name == "get_root":
-        root = _procedures.output_root(handle, _save.save_source_root)
-        return {
-            "ran": dict(procedure),
-            "root": str(root),
-            "output_root": str(root),
-        }
-    if name == "get_positions":
-        return {
-            "ran": dict(procedure),
-            "positions": _procedures.positions(_scan_field(handle)),
-        }
-    if name == "get_focus_points":
-        return {
-            "ran": dict(procedure),
-            "positions": _procedures.focus_points(_scan_field(handle)),
-        }
     if name == "backlash_takeup":
         _motion.correct_backlash(handle.client)
         return {"ran": dict(procedure)}
@@ -1090,7 +1086,7 @@ def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
 
 
 # =============================================================================
-# Context and registration
+# Live setup information and registration
 # =============================================================================
 
 
@@ -1148,6 +1144,10 @@ def _scan_field(handle: ZmartHandle) -> dict | None:
                     tile.get("z_um"),
                     group={"region": region_key, "row": tile.get("row"), "col": tile.get("col")},
                     job=region.get("job_name"),
+                    tile_size={
+                        "x": region.get("tile_size_um"),
+                        "y": region.get("tile_size_um"),
+                    },
                 )
             )
     for kind, points in (
@@ -1181,30 +1181,25 @@ def _scan_field(handle: ZmartHandle) -> dict | None:
     }
 
 
-def get_context(handle: ZmartHandle) -> dict:
-    """Extra read-only context for the controller.
+def get_info(handle: ZmartHandle) -> dict:
+    """Read the operator-authored setup and resolved output root live.
 
-    Purely informational, so it degrades instead of raising: an
-    unreadable job selection or scan field reports ``None`` rather than
-    failing a caller that only wanted the output root. Note ``scan_field``
-    flushes the live experiment to disk before parsing it (a save, not a
-    state change).
+    ``tile_positions`` are the tiles currently placed in the LAS X scanning
+    template, not the microscope's physical position (read that with
+    :func:`get_xyz`). Reading the template flushes the live experiment to
+    disk before parsing it, so this truthful snapshot can block briefly and
+    raises when a configured template cannot be read safely.
     """
     _require_open(handle)
-    try:
-        selected = _selected_job_name(handle)
-    except RuntimeError:
-        selected = None
-    try:
-        scan_field = _scan_field(handle)
-    except Exception as exc:  # noqa: BLE001 -- informational surface; degrade, don't raise
-        log.warning("scan field unavailable: %s", exc)
-        scan_field = None
+    selected = _selected_job_name(handle)
+    scan_field = _scan_field(handle)
+    root = _info.output_root(handle, _save.save_source_root)
     return {
         "selected_job": selected,
-        "scan_field": scan_field,
+        "tile_positions": _info.tile_positions(scan_field),
+        "focus_positions": _info.focus_positions(scan_field),
         "client": handle.connection.get("client"),
-        "output_root": handle.connection.get("output_root"),
+        "output_root": str(root),
         "session_hash6": handle.hash6,
     }
 
@@ -1226,7 +1221,7 @@ def register() -> None:
             "set_state": set_state,
             "get_procedures": get_procedures,
             "run_procedure": run_procedure,
-            "get_context": get_context,
+            "get_info": get_info,
         },
     )
 

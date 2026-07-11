@@ -198,7 +198,7 @@ class RunFlow:
                 engine.shutdown()
                 raise
         try:
-            root = Path(session.run_procedure({"name": "get_root"})["root"])
+            root = Path(session.get_info()["output_root"])
         except Exception:
             session.disconnect()
             engine.shutdown()
@@ -257,12 +257,18 @@ class RunFlow:
         # controller state before the controller translates stored stage
         # coordinates into the session frame.
         self.session.set_state(self.overview_state)
-        positions = self.session.run_procedure({"name": "get_positions"})["positions"]
+        info = self.session.get_info()
+        positions = info["tile_positions"]
         self._require(positions, "the microscope returned no overview positions")
         self.positions = positions
         self.ns["positions"] = positions
         if self.picker is None:
-            self.picker = wreact.pick_focus_points(self.session, positions, af_job=self.af_job)
+            self.picker = wreact.pick_focus_points(
+                self.session,
+                positions,
+                focus_positions=info.get("focus_positions"),
+                af_job=self.af_job,
+            )
             self.ns["picker"] = self.picker
             self.hub.add_widget("focus", self.picker)
         return (

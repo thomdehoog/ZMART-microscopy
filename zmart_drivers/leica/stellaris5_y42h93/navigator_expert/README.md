@@ -159,7 +159,7 @@ print(saved.image_paths)                                  # {PlaneIndex(t,z,c): 
 
 > The explicit `output_root` above is for the low-level driver API. Through
 > `zmart_controller`, the Leica adapter discovers the run root from LAS X native
-> AutoSave via `run_procedure({"name": "get_root"})`; operator workflows should
+> AutoSave and reports it through `get_info()["output_root"]`; operator workflows should
 > use that discovered root instead of hard-coding a drive path.
 
 > No machine config yet? The first connect seeds ProgramData from the repo defaults so CI and local
@@ -334,8 +334,8 @@ in place, preserving byte formatting; `acquisition/ome_canonical.py` writes clea
 **Acquiring empties the scanning template by default.** Through the zmart adapter, every `acquire()`
 (and the autofocus procedure) applies the `strip_scan_fields` acquisition option: operator-drawn scan
 fields, regions, and focus points vanish from LAS X. The strip is sidecar-backed — restore with
-`restore_template` — but read stored positions through the zmart procedures (`get_positions`,
-`get_focus_points`) *before* the first acquire, or pass `options={"strip_scan_fields": False}`.
+`restore_template` — but read `get_info()["tile_positions"]` and `focus_positions`
+*before* the first acquire, or pass `options={"strip_scan_fields": False}`.
 
 **`Naming` constraints and slot overwrites.** Name parts (`acquisition_type` etc.) must be
 kebab-case lowercase (`"overview"`, `"target-scan"`); `Naming` raises `ValueError` on `"Prescan"` or

@@ -52,8 +52,8 @@ zmart_controller.acquire(acquisition_type=String, position_label=String, options
 zmart_controller.get_procedures()
 zmart_controller.run_procedure(Dict)
 
-# 7) Optionally inspect extra diagnostic context the driver provides
-zmart_controller.get_context()
+# 7) Optionally inspect extra diagnostic information the driver provides
+zmart_controller.get_info()
 
 # 8) Close the session
 zmart_controller.disconnect()

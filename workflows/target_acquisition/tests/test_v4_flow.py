@@ -5,7 +5,7 @@ synchronous fake analysis engine -- no hardware, no cellpose, no
 ``navigator_expert``. This is the integration counterpart to the per-step unit
 tests: it proves the pieces fit together in the order the notebook runs them.
 
-    connect -> get_root/get_positions -> get/set_state -> pick_focus_points ->
+    connect -> get_info -> get/set_state -> pick_focus_points ->
     measure -> run_overview -> build_overview_inputs -> discover_targets ->
     acquire_targets -> summarize_run / plots
 """
@@ -71,11 +71,12 @@ def test_full_controller_only_flow(tmp_path):
     zmart_controller = workflow.connect("mock", output_root=tmp_path)
     try:
         assert zmart_controller.context["vendor"] == "mock"
-        output_root = Path(zmart_controller.run_procedure({"name": "get_root"})["root"])
+        info = zmart_controller.get_info()
+        output_root = Path(info["output_root"])
         assert output_root == tmp_path
 
-        # 2. initial positions
-        positions = zmart_controller.run_procedure({"name": "get_positions"})["positions"][:2]
+        # 2. currently configured vendor tile positions
+        positions = info["tile_positions"][:2]
         assert len(positions) == 2
 
         # 3. collect + reapply a state (one "state" == a selected job/settings)
@@ -86,8 +87,12 @@ def test_full_controller_only_flow(tmp_path):
         #    LAS X focus points, the operator (here: code) picks their own, and
         #    Measure autofocuses at each point and fits the surface. The mock's
         #    autofocus reports the current z, so the fit is a flat surface.
-        picker = workflow.pick_focus_points(zmart_controller, positions)
-        assert picker.points  # pre-filled from the mock's get_focus_points
+        picker = workflow.pick_focus_points(
+            zmart_controller,
+            positions,
+            focus_positions=info["focus_positions"],
+        )
+        assert picker.points  # pre-filled from the mock's live focus_positions
         picker.points.clear()
         for x, y in [(0.0, 0.0), (100.0, 0.0), (0.0, 80.0)]:
             picker.add_point(x, y)

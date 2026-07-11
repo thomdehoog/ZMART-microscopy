@@ -193,14 +193,15 @@ class _FocusSession:
         return {"z": {"value": 0.0}}
 
     def get_procedures(self):
-        return {"get_focus_points": {}, "autofocus": {}}
+        return {"autofocus": {}}
+
+    def get_info(self):
+        return {"focus_positions": [dict(p) for p in (self.seed_points or [])]}
 
     def set_xyz(self, x, y, z, **_kw):
         self._pos = (x, y)
 
     def run_procedure(self, procedure):
-        if procedure["name"] == "get_focus_points":
-            return {"positions": [dict(p) for p in (self.seed_points or [])]}
         x, y = self._pos
         return {"frame_z_um": 1.0 + 0.01 * x - 0.02 * y}
 
@@ -240,7 +241,10 @@ def test_focus_editing_points_invalidates():
 
 
 def test_focus_seeds_from_lasx():
-    picker = wreact.pick_focus_points(_FocusSession(seed_points=[{"x": 1.0, "y": 2.0}]))
+    picker = wreact.pick_focus_points(
+        _FocusSession(seed_points=[{"x": 1.0, "y": 2.0}]),
+        focus_positions=[{"x": 1.0, "y": 2.0}],
+    )
     assert picker.points == [{"x": 1.0, "y": 2.0}]
 
 

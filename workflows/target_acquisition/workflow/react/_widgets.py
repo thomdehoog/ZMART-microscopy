@@ -932,6 +932,7 @@ export default mount(App);
         session: Any,
         positions: list[dict] | None = None,
         *,
+        focus_positions: list[dict] | None = None,
         af_job: str | None = None,
         start_z: float | None = None,
         seed: bool = True,
@@ -950,15 +951,12 @@ export default mount(App);
         # the points only sends the stage to the NEW or moved ones.
         self._af_cache: dict[tuple[float, float], dict] = {}
         if seed:
-            self.points = self._seed_from_lasx()
+            self.points = [
+                {"x": float(p["x"]), "y": float(p["y"])}
+                for p in (focus_positions or [])
+            ]
         self.observe(self._on_points_edited, names="points")
         self.status = "pick focus points, then press Measure"
-
-    def _seed_from_lasx(self) -> list[dict]:
-        if "get_focus_points" not in self.session.get_procedures():
-            return []
-        result = self.session.run_procedure({"name": "get_focus_points"})
-        return [{"x": float(p["x"]), "y": float(p["y"])} for p in (result.get("positions") or [])]
 
     def _on_points_edited(self, _change: Any) -> None:
         if not self._hardware_allowed:

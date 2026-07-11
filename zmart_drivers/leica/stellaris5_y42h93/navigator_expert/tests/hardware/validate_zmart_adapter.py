@@ -191,92 +191,27 @@ def phase_readonly(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None
                 True,
             )
 
-        ctx = v.callable("get_context", sess.get_context)
-        if ctx is not None:
-            v.compare("get_context: has session_hash6", bool(ctx.get("session_hash6")), True)
-
-
-def phase_workflow_procedures(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
-    """Hard-fail the controller procedures the v4 notebook needs."""
-    with v.phase("workflow procedures"):
-        root = v.callable(
-            "run_procedure: get_root",
-            lambda: sess.run_procedure({"name": "get_root"}),
-        )
-        if root is not None:
-            v.compare("get_root: root returned", bool(root.get("root")), True)
-            v.compare("get_root: output_root matches", root.get("output_root"), root.get("root"))
-            if not args.mock and root.get("root"):
-                v.compare("get_root: run directory exists", Path(root["root"]).is_dir(), True)
-
-        if args.mock:
-            v.skip("run_procedure: get_positions", "live LAS X scan-field template required")
-            v.skip("run_procedure: get_focus_points", "live LAS X scan-field template required")
-            return
-
-        positions = _callable_or_skip_missing_scanfield(
-            v,
-            "run_procedure: get_positions",
-            lambda: sess.run_procedure({"name": "get_positions"}),
-            "no grid positions found",
-        )
-        if positions is not None:
-            v.compare(
-                "get_positions: at least one grid position",
-                len(positions.get("positions") or []) >= 1,
-                True,
-            )
-
-        # The v4 notebook's Focus step pre-fills its autofocus points from
-        # LAS X through this procedure. An empty template returns an empty
-        # list (the operator simply has not placed focus points) — that is a
-        # skip, not a failure; the procedure itself must exist and answer.
-        focus_points = v.callable(
-            "run_procedure: get_focus_points",
-            lambda: sess.run_procedure({"name": "get_focus_points"}),
-        )
-        if focus_points is not None:
-            if focus_points.get("positions"):
+        info = v.callable("get_info", sess.get_info)
+        if info is not None:
+            v.compare("get_info: has session_hash6", bool(info.get("session_hash6")), True)
+            v.compare("get_info: output_root returned", bool(info.get("output_root")), True)
+            if not args.mock and info.get("output_root"):
                 v.compare(
-                    "get_focus_points: at least one focus point",
-                    len(focus_points["positions"]) >= 1,
+                    "get_info: run directory exists",
+                    Path(info["output_root"]).is_dir(),
+                    True,
+                )
+            tiles = info.get("tile_positions") or []
+            if tiles:
+                v.compare(
+                    "get_info: tile positions carry tile_size",
+                    all(bool(tile.get("tile_size")) for tile in tiles),
                     True,
                 )
             else:
-                v.skip(
-                    "get_focus_points: at least one focus point",
-                    "no focus points placed in the live template",
-                )
-
-
-def _callable_or_skip_missing_scanfield(
-    v: vh.Validator,
-    name: str,
-    run: Any,
-    missing_fragment: str,
-) -> Any:
-    """Record a procedure call, but skip when the live LAS X template is empty."""
-    started, t0 = vh._now_iso(), time.monotonic()
-    try:
-        value = run()
-    except RuntimeError as exc:
-        if missing_fragment in str(exc):
-            v.skip(name, str(exc))
-        else:
-            v.fail(name, f"RuntimeError: {exc}")
-        return None
-    except Exception as exc:  # noqa: BLE001 -- mirror Validator.callable
-        v.fail(name, f"{type(exc).__name__}: {exc}")
-        return None
-    v._emit(
-        vh.Record(
-            name=name,
-            status="PASS",
-            started_at=started,
-            elapsed_s=time.monotonic() - t0,
-        )
-    )
-    return value
+                v.skip("get_info: tile positions available", "no tiles in the live template")
+            if not info.get("focus_positions"):
+                v.skip("get_info: focus positions available", "no focus points in the live template")
 
 
 def _within(value: float, lo: float, hi: float) -> bool:
@@ -631,7 +566,7 @@ def main(argv: list[str] | None = None) -> int:
         "client=%s read_only=%s output_root=%s",
         "python-mock" if args.mock else "LasxApi (sim or scope)",
         args.read_only,
-        output_root or "<discovered by run_procedure:get_root>",
+        output_root or "<discovered by get_info>",
     )
 
     crash: str | None = None
@@ -648,11 +583,10 @@ def main(argv: list[str] | None = None) -> int:
         phase_readonly(v, sess, args)
 
         if args.read_only:
-            log.info("read-only mode: skipping workflow procedures/move/acquire")
+            log.info("read-only mode: skipping move/acquire")
         elif not _confirm_live_write(args):
             log.warning("aborted before live writes")
         else:
-            phase_workflow_procedures(v, sess, args)
             if args.allow_move:
                 phase_move(v, sess, drv, args)
             else:

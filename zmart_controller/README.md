@@ -54,8 +54,8 @@ zmart_controller.acquire(acquisition_type=String, position_label=String, options
 zmart_controller.get_procedures()
 zmart_controller.run_procedure(Dict)
 
-# 7) Optionally inspect extra diagnostic context the driver provides
-zmart_controller.get_context()
+# 7) Optionally inspect extra diagnostic information the driver provides
+zmart_controller.get_info()
 
 # 8) Close the session
 zmart_controller.disconnect()
@@ -87,10 +87,9 @@ instrument = zmart_controller.get_instruments()[0]
 zmart_controller.set_instrument(instrument)
 ```
 
-Do not normally set `output_root` by hand. For Leica, the adapter discovers the
-run root from LAS X native AutoSave when you call
-`run_procedure({"name": "get_root"})`. The `output_root` connection field exists
-only as an advanced override for drivers or tests that cannot discover a root.
+Do not normally set `output_root` by hand. `get_info()["output_root"]` reports
+the resolved root; Leica discovers its default from LAS X native AutoSave. The
+connection field is an explicit workflow override and remains authoritative.
 
 ### 2. Set the origin of the frame
 
@@ -155,32 +154,31 @@ numeric-label overwrites.
 
 ### 6. Run a procedure
 
-`get_procedures()` lists the named driver procedures; `run_procedure()` runs
-one. Procedures are opaque dicts the driver interprets. The Leica target
-workflow uses this path for microscope-derived setup data:
+`get_procedures()` lists named driver actions; `run_procedure()` runs one.
+Procedures are opaque dicts the driver interprets. Read-only setup discovery
+belongs to `get_info()`, not to procedures.
 
 ```python
-zmart_controller.get_procedures()                       # {"get_root": {...}, "get_positions": {...}, ...}
-root = zmart_controller.run_procedure({"name": "get_root"})["root"]
-positions = zmart_controller.run_procedure({"name": "get_positions"})["positions"]
-focus_points = zmart_controller.run_procedure({"name": "get_focus_points"})["positions"]
+zmart_controller.get_procedures()                       # {"autofocus": {...}, ...}
 zmart_controller.run_procedure({"name": "autofocus"})
 ```
 
-### 7. Get additional context
+### 7. Get additional information
 
-`get_context()` returns extra driver diagnostics. The keys are driver-defined,
-and workflow-critical values should not be guessed from this dict when the
-driver exposes a procedure for them. For Leica, use `run_procedure({"name":
-"get_root"})`, `get_positions`, and `get_focus_points` for the operator
-workflow; `get_context()` remains useful for inspecting selected job,
-scan-field metadata, output-root override state, and other adapter details.
-The call is read-only *with respect to instrument state*, but a driver may
-persist working files while gathering it (the Leica driver can flush the live
-experiment to disk, which may block up to a minute).
+`get_info()` returns a fresh setup snapshot. For target-acquisition-capable
+drivers, `tile_positions` are the vendor-authored acquisition tiles (including
+physical `tile_size`), not the stage's current position; use `get_xyz()` for
+that. `focus_positions` and the resolved `output_root` travel in the same
+snapshot. Other keys remain driver-defined. The controller does not cache it.
+The call is read-only with respect to microscope state, but a driver may persist
+working files while gathering truthful information (Leica flushes the live
+scanning template to disk, which may block up to a minute).
 
 ```python
-zmart_controller.get_context()                          # diagnostics; driver-defined keys
+info = zmart_controller.get_info()
+root = info["output_root"]
+tiles = info["tile_positions"]
+focus_positions = info.get("focus_positions", [])
 ```
 
 ### 8. Close the session
@@ -215,13 +213,13 @@ register(
     ops={"connect": ..., "get_acquisition_options": ..., "set_origin": ...,
          "get_actuators": ..., "get_xyz": ..., "set_xyz": ..., "acquire": ...,
          "get_state": ..., "set_state": ..., "get_procedures": ...,
-         "run_procedure": ..., "get_context": ...},
+         "run_procedure": ..., "get_info": ...},
 )
 ```
 
-Connection dicts may include driver-specific optional fields such as
-`output_root`, but adapters should discover instrument-derived paths when they
-can and expose them through procedures like `get_root`.
+Connection dicts may include an explicit `output_root`; otherwise adapters
+discover an instrument-derived default when they can and report the resolved
+value through `get_info()`.
 
 `connect` receives the whole `connection` dict and returns the driver handle;
 every other function takes that handle as its first argument. `tests/mock_driver.py`

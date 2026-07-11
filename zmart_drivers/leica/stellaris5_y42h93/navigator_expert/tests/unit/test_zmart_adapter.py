@@ -421,18 +421,34 @@ class TestAcquire(unittest.TestCase):
         ):
             adapter.acquire(h, acquisition_type="prescan", position_label="A1")
 
-    def test_get_root_procedure_creates_default_run_root(self):
+    def test_get_info_creates_and_reports_default_run_root(self):
         h = _handle()
         with tempfile.TemporaryDirectory() as tmp:
             autosave = Path(tmp) / "lasx" / "project"
             autosave.mkdir(parents=True)
-            with patch.object(adapter._save, "save_source_root", return_value=autosave):
-                result = adapter.run_procedure(h, {"name": "get_root"})
-                root = Path(result["root"])
-        self.assertEqual(result["output_root"], str(root))
+            with (
+                patch.object(adapter._save, "save_source_root", return_value=autosave),
+                patch.object(adapter, "_selected_job_name", return_value="Overview"),
+                patch.object(adapter, "_scan_field", return_value=None),
+            ):
+                result = adapter.get_info(h)
+                root = Path(result["output_root"])
         self.assertEqual(root.parent, Path(tmp) / "lasx" / "zmart")
         self.assertTrue(root.name.startswith("target-acquisition_"))
         self.assertEqual(h.connection["output_root"], str(root))
+
+    def test_get_info_keeps_explicit_output_root(self):
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/chosen/zmart"})
+        with (
+            patch.object(adapter, "_selected_job_name", return_value="Overview"),
+            patch.object(adapter, "_scan_field", return_value=None),
+            patch.object(
+                adapter._save,
+                "save_source_root",
+                side_effect=AssertionError("explicit output must bypass discovery"),
+            ),
+        ):
+            self.assertEqual(adapter.get_info(h)["output_root"], "/chosen/zmart")
 
     def test_acquire_selects_job_captures_and_saves(self):
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
@@ -784,6 +800,26 @@ class TestStateAndProcedures(unittest.TestCase):
         self.assertEqual([j["Name"] for j in observed["jobs"]], ["Overview", "HiRes"])
         self.assertEqual([j["Name"] for j in observed["autofocus_jobs"]], ["AF Job"])
 
+    def test_state_reports_current_xy_pixel_size(self):
+        h = _handle()
+        p = self._state_patches()
+        settings = {
+            "imageSize": "100 um x 80 um",
+            "pixelSize": "0.10 um x 0.20 um",
+            "format": "1000 x 400",
+        }
+        with (
+            p[0],
+            p[1],
+            p[2],
+            patch.object(adapter._readers, "get_job_settings", return_value=settings),
+        ):
+            observed = adapter.get_state(h)["observed"]
+        self.assertEqual(
+            observed["pixel_size"],
+            {"x": 0.1, "y": 0.2, "unit": "um"},
+        )
+
     def test_set_state_refuses_an_autofocus_job(self):
         h = _handle()
         p = self._state_patches()
@@ -824,32 +860,14 @@ class TestStateAndProcedures(unittest.TestCase):
         with p[2]:
             procedures = adapter.get_procedures(h)
         self.assertIn("backlash_takeup", procedures)
-        self.assertIn("get_root", procedures)
-        self.assertIn("get_positions", procedures)
-        # The v4 operator notebook reads its autofocus points from LAS X through
-        # this procedure, so the adapter must keep advertising it.
-        self.assertIn("get_focus_points", procedures)
+        self.assertNotIn("get_root", procedures)
+        self.assertNotIn("get_positions", procedures)
+        self.assertNotIn("get_focus_points", procedures)
         self.assertEqual(procedures["autofocus"]["jobs"], ["AF Job"])
         with patch.object(adapter._motion, "correct_backlash", lambda client, **k: None):
             self.assertEqual(
                 adapter.run_procedure(h, {"name": "backlash_takeup"})["ran"]["name"],
                 "backlash_takeup",
-            )
-        scan_field = {
-            "positions": [
-                {"kind": "grid", "frame": {"x_um": 1, "y_um": 2, "z_um": 3}},
-                {"kind": "focus-point", "frame": {"x_um": 4, "y_um": 5, "z_um": 6}},
-                {"kind": "autofocus-point", "frame": {"x_um": 7, "y_um": 8, "z_um": None}},
-            ]
-        }
-        with patch.object(adapter, "_scan_field", return_value=scan_field):
-            self.assertEqual(
-                adapter.run_procedure(h, {"name": "get_positions"})["positions"],
-                [{"x": 1.0, "y": 2.0, "z": 3.0}],
-            )
-            self.assertEqual(
-                adapter.run_procedure(h, {"name": "get_focus_points"})["positions"],
-                [{"x": 4.0, "y": 5.0, "z": 6.0}, {"x": 7.0, "y": 8.0}],
             )
         with self.assertRaises(ValueError):
             adapter.run_procedure(h, {"name": "nope"})
@@ -940,13 +958,14 @@ class TestStateAndProcedures(unittest.TestCase):
                 adapter.run_procedure(h, {"name": "autofocus"})
 
 
-class TestScanFieldContext(unittest.TestCase):
-    """get_context().scan_field: template positions, typed, in both spaces."""
+class TestScanFieldInfo(unittest.TestCase):
+    """get_info().scan_field: template positions, typed, in both spaces."""
 
     _PARSED = {
         "acquisition_positions": {
             "0": {
                 "job_name": "HiRes",
+                "tile_size_um": 100.0,
                 "positions": [
                     {"row": 0, "col": 0, "x_um": 1100.0, "y_um": 2200.0, "z_um": 40.0},
                     {"row": 0, "col": 1, "x_um": 1150.0, "y_um": 2200.0, "z_um": 41.0},
@@ -965,9 +984,10 @@ class TestScanFieldContext(unittest.TestCase):
         },
     }
 
-    def _context(self, parsed=None, save_result=None, templates_dir="X:/tpl"):
+    def _info(self, parsed=None, save_result=None, templates_dir="X:/tpl", calls=None):
         h = _handle(origin=_origin(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_focus_um=30.0))
-        calls = []
+        h.connection["output_root"] = "/tmp/zmart-test"
+        calls = [] if calls is None else calls
         position = _patch_position()
         save_result = {"success": True} if save_result is None else save_result
         with (
@@ -994,45 +1014,84 @@ class TestScanFieldContext(unittest.TestCase):
             ),
             patch.object(adapter._scanfields, "get_template_state", return_value="unstripped"),
         ):
-            return adapter.get_context(h), calls
+            return adapter.get_info(h), calls
 
     def test_positions_are_typed_and_in_both_spaces(self):
-        context, calls = self._context()
+        info, calls = self._info()
         self.assertEqual(calls, ["save", "parse"])  # always flush before parsing
-        field = context["scan_field"]
-        self.assertEqual(field["template_state"], "unstripped")
-        by_kind = {}
-        for position in field["positions"]:
-            by_kind.setdefault(position["kind"], []).append(position)
-        # grid tiles carry their group and job; frame = stage - origin
-        first = by_kind["grid"][0]
+        tiles = info["tile_positions"]
+        first = tiles[0]
         self.assertEqual(first["group"], {"region": "0", "row": 0, "col": 0})
         self.assertEqual(first["job"], "HiRes")
-        self.assertEqual(first["stage"], {"x_um": 1100.0, "y_um": 2200.0, "z_um": 40.0})
-        self.assertEqual(first["frame"], {"x_um": 100.0, "y_um": 200.0, "z_um": 10.0})
-        self.assertEqual(len(by_kind["grid"]), 2)
-        # focus and autofocus points are distinct kinds
-        self.assertEqual(by_kind["focus-point"][0]["id"], "F1")
-        self.assertEqual(by_kind["focus-point"][0]["frame"]["z_um"], 3.0)
-        self.assertEqual(by_kind["autofocus-point"][0]["id"], "AF1")
-        # point markers come through with their label; other shapes do not
-        marker = by_kind["marker"][0]
-        self.assertEqual(marker["label"], "A")
-        self.assertEqual(marker["frame"]["x_um"], 50.0)
-        self.assertIsNone(marker["frame"]["z_um"])
-        self.assertEqual(len(field["positions"]), 5)
+        self.assertEqual(first["tile_size"], {"x": 100.0, "y": 100.0})
+        self.assertEqual({k: first[k] for k in ("x", "y", "z")}, {"x": 100.0, "y": 200.0, "z": 10.0})
+        self.assertEqual(len(tiles), 2)
+        focus = info["focus_positions"]
+        self.assertEqual(focus[0]["id"], "F1")
+        self.assertEqual(focus[0]["z"], 3.0)
+        self.assertEqual(focus[1]["id"], "AF1")
 
     def test_no_templates_profile_reports_none(self):
-        context, calls = self._context(templates_dir=None)
-        self.assertIsNone(context["scan_field"])
+        info, calls = self._info(templates_dir=None)
+        self.assertEqual(info["tile_positions"], [])
+        self.assertEqual(info["focus_positions"], [])
         self.assertEqual(calls, [])  # nothing saved, nothing parsed
 
-    def test_unconfirmed_save_degrades_to_none(self):
-        # get_context is informational: a stale template must not raise.
-        context, calls = self._context(save_result=False)
-        self.assertIsNone(context["scan_field"])
+    def test_get_info_rereads_tile_positions_instead_of_caching(self):
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/zmart-test"})
+        fields = [
+            {"positions": []},
+            {
+                "positions": [
+                    {
+                        "kind": "grid",
+                        "frame": {"x_um": 1.0, "y_um": 2.0, "z_um": 3.0},
+                        "tile_size": {"x": 10.0, "y": 20.0},
+                    }
+                ]
+            },
+        ]
+        with (
+            patch.object(adapter, "_selected_job_name", return_value="Overview"),
+            patch.object(adapter, "_scan_field", side_effect=fields) as read,
+        ):
+            self.assertEqual(adapter.get_info(h)["tile_positions"], [])
+            self.assertEqual(len(adapter.get_info(h)["tile_positions"]), 1)
+        self.assertEqual(read.call_count, 2)
+
+    def test_tile_positions_reject_missing_nonfinite_or_nonpositive_sizes(self):
+        for bad in (None, 0.0, -1.0, float("nan"), float("inf"), "wide"):
+            with self.subTest(bad=bad):
+                field = {
+                    "positions": [
+                        {
+                            "kind": "grid",
+                            "frame": {"x_um": 1.0, "y_um": 2.0, "z_um": 3.0},
+                            "tile_size": {"x": bad, "y": 10.0},
+                        }
+                    ]
+                }
+                with self.assertRaisesRegex(RuntimeError, "tile_size.x"):
+                    adapter._info.tile_positions(field)
+
+    def test_tile_positions_reject_nonfinite_coordinates(self):
+        field = {
+            "positions": [
+                {
+                    "kind": "grid",
+                    "frame": {"x_um": float("nan"), "y_um": 2.0, "z_um": 3.0},
+                    "tile_size": {"x": 10.0, "y": 10.0},
+                }
+            ]
+        }
+        with self.assertRaisesRegex(RuntimeError, "position.x"):
+            adapter._info.tile_positions(field)
+
+    def test_unconfirmed_save_raises_instead_of_returning_stale_info(self):
+        calls = []
+        with self.assertRaisesRegex(RuntimeError, "did not confirm"):
+            self._info(save_result=False, calls=calls)
         self.assertEqual(calls, ["save"])
-        self.assertEqual(context["session_hash6"], "000abc")  # rest of the context intact
 
 
 class TestObjectiveCompensation(unittest.TestCase):

@@ -190,10 +190,10 @@ def test_procedures(session):
         session.run_procedure({"name": "nope"})
 
 
-def test_context(session):
-    ctx = session.get_context()
-    assert "initial_positions" in ctx
-    assert "output_root" in ctx
+def test_info(session):
+    info = session.get_info()
+    assert "initial_positions" in info
+    assert "output_root" in info
 
 
 # =============================================================================

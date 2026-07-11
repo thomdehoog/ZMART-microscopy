@@ -1,9 +1,7 @@
-"""Every procedure the v4 flow calls must exist on the real Leica adapter.
+"""Every action procedure the v4 flow calls must exist on the Leica adapter.
 
 The end-to-end flow test runs against the controller's mock driver, and the
-mock can quietly support procedures the real adapter does not (that is
-exactly how the notebook once broke: ``get_focus_points`` was removed from
-the Leica adapter while the mock — and the notebook — kept it). This guard
+mock can quietly support procedures the real adapter does not. This guard
 closes that gap without hardware: it collects every
 ``run_procedure({"name": ...})`` call in the notebook and in the active
 workflow package, then asks the real Leica adapter (over the driver's mock
@@ -121,7 +119,7 @@ def test_flow_procedures_exist_on_the_leica_adapter():
     used = _flow_procedure_names()
     # Sanity: the collector actually saw the flow's procedure calls, so an
     # empty set can never masquerade as a pass.
-    assert {"get_root", "get_positions", "get_focus_points", "autofocus"} <= used
+    assert "autofocus" in used
 
     missing = used - advertised
     assert not missing, (
