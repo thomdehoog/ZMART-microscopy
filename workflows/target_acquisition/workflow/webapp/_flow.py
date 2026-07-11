@@ -21,6 +21,7 @@ without a Leica in the room.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -76,6 +77,8 @@ class RunFlow:
         self.explorer: Any = None
         self.gallery: Any = None
         self.completed: list[str] = []
+        self._pending: set[str] = set()
+        self._state_lock = threading.Lock()
 
         # The checklist and the (still empty) overview map exist from the
         # start, so the page always has something honest to show.
@@ -95,37 +98,78 @@ class RunFlow:
             "save_results": self._save_results,
             "disconnect": self._disconnect,
         }
+        self._prerequisite = {
+            "set_origin": "connect",
+            "capture_overview_job": "set_origin",
+            "capture_target_job": "capture_overview_job",
+            "load_positions": "capture_target_job",
+            "run_overview": "load_positions",
+            "discover_targets": "run_overview",
+            "save_results": "discover_targets",
+            # Disconnect is deliberately available early: releasing a session
+            # must never depend on finishing the experiment.
+            "disconnect": "connect",
+        }
 
     # -- driving ---------------------------------------------------------------
+
+    def has_step(self, name: str) -> bool:
+        """Whether ``name`` is one of this flow's public actions."""
+        return name in self._steps
 
     def run_step(self, name: str) -> bool:
         """Queue one named step on the worker; False if the name is unknown."""
         step = self._steps.get(name)
         if step is None:
             return False
-        self.hub.submit(lambda: self._run_step(name, step))
-        return True
+        with self._state_lock:
+            if name in self._pending:
+                return True  # coalesce a double-click with the queued/running step
+            self._pending.add(name)
+        if self.hub.submit(lambda: self._run_step(name, step)):
+            return True
+        with self._state_lock:
+            self._pending.discard(name)
+        self._flow_event(name, "failed", "the server is busy — wait for the current work")
+        return False
 
     def _run_step(self, name: str, step: Callable[[], str]) -> None:
         self._flow_event(name, "running", "")
         try:
+            with self._state_lock:
+                completed = set(self.completed)
+            if name in completed and name != "save_results":
+                raise FlowError(f"{name.replace('_', ' ')} is already complete")
+            if "disconnect" in completed and name not in {"disconnect", "save_results"}:
+                raise FlowError("this session is disconnected — start a new server for a new run")
+            prerequisite = self._prerequisite.get(name)
+            if prerequisite is not None and prerequisite not in completed:
+                raise FlowError(
+                    f"finish {prerequisite.replace('_', ' ')} before {name.replace('_', ' ')}"
+                )
             message = step()
         except FlowError as exc:
             self._flow_event(name, "failed", str(exc))
         except Exception as exc:  # noqa: BLE001 -- shown to the operator, not lost
             self._flow_event(name, "failed", f"{type(exc).__name__}: {exc}")
         else:
-            if name not in self.completed:
-                self.completed.append(name)
+            with self._state_lock:
+                if name not in self.completed:
+                    self.completed.append(name)
             self.status_widget.refresh(self.ns)
             self._flow_event(name, "done", message)
+        finally:
+            with self._state_lock:
+                self._pending.discard(name)
 
     def _flow_event(self, step: str, state: str, message: str) -> None:
         self.hub.broadcast({"kind": "flow", "step": step, "state": state, "message": message})
 
     def flow_snapshot(self) -> dict:
         """What a fresh (or refreshed) tab needs to restore its buttons."""
-        return {"completed": list(self.completed), "demo": self.demo}
+        with self._state_lock:
+            completed = list(self.completed)
+        return {"completed": completed, "demo": self.demo}
 
     # -- the steps, in notebook order -------------------------------------------
 

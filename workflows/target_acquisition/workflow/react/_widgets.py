@@ -2042,6 +2042,14 @@ export default mount(App);
                 on_record=_show_fresh_pair,
                 cancel=lambda: self._cancel_requested,
             )
+            if self.after_acquire is not None:
+                self.after_acquire(records)
+                # The hijack may have rewritten the saved images: re-read them.
+                refreshed_entries = [
+                    self._row_entry(t, r) for t, r in zip(picked, records, strict=True)
+                ]
+            else:
+                refreshed_entries = self._row_entries
         except BaseException:
             # Nothing commits on failure or cancel; the curation record must
             # agree. The streamed rows stay on screen (their files ARE saved)
@@ -2049,12 +2057,7 @@ export default mount(App);
             self._verdicts = []
             self._publish_verdicts()
             raise
-        if self.after_acquire is not None:
-            self.after_acquire(records)
-            # The hijack may have rewritten the saved images: re-read them.
-            self._row_entries = [
-                self._row_entry(t, r) for t, r in zip(picked, records, strict=True)
-            ]
+        self._row_entries = refreshed_entries
         self.picked = picked
         self.records = records
         # The run is complete: publish the full rows snapshot so any view —

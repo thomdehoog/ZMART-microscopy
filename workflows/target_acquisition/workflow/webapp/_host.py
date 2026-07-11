@@ -27,15 +27,24 @@ from __future__ import annotations
 import json
 import queue
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from functools import partial
 from typing import Any
 
+from traitlets import TraitError
+
 #: Keep at most this many bytes of recent image buffers for browsers to
 #: fetch. A full 25-tile + 10-row replay fits many times over; anything
 #: older has long been fetched (or belongs to a tab that went away).
 _BUFFER_CAP_BYTES = 64 * 1024 * 1024
+
+# Browser requests must not form an unbounded backlog. In particular, a local
+# client must not be able to queue enough stale Acquire/Measure/Sync requests
+# that they keep firing after the operator's original run has finished.
+_WORK_QUEUE_CAP = 256
+_COALESCED_MESSAGE_KINDS = {"acquire", "acquire_selected", "measure", "sync"}
 
 #: Traits that belong to the widget plumbing, not to the protocol.
 _PLUMBING_TRAITS = {"layout", "tabbable", "tooltip", "keys", "comm", "log"}
@@ -55,13 +64,16 @@ class WidgetHub:
 
     def __init__(self) -> None:
         self._widgets: dict[str, Any] = {}
+        self._widgets_lock = threading.Lock()
         self._clients: list[queue.Queue] = []
         self._clients_lock = threading.Lock()
         self._buffers: dict[str, bytes] = {}
         self._buffer_order: list[str] = []
         self._buffer_bytes = 0
         self._buffers_lock = threading.Lock()
-        self._work: queue.Queue = queue.Queue()
+        self._work: queue.Queue = queue.Queue(maxsize=_WORK_QUEUE_CAP)
+        self._pending_messages: set[tuple[str, str]] = set()
+        self._pending_messages_lock = threading.Lock()
         self._worker = threading.Thread(
             target=self._run_worker, name="zmart-webapp-worker", daemon=True
         )
@@ -71,7 +83,8 @@ class WidgetHub:
 
     def add_widget(self, name: str, widget: Any) -> None:
         """Register a widget under a stable name and start mirroring it."""
-        self._widgets[name] = widget
+        with self._widgets_lock:
+            self._widgets[name] = widget
         names = self._synced_trait_names(widget)
         widget.observe(partial(self._on_trait_changed, name), names=names)
         # The widget's own ``send`` normally rides the Jupyter comm; here it
@@ -81,7 +94,8 @@ class WidgetHub:
         self.broadcast({"kind": "widget", "widget": name})
 
     def widget(self, name: str) -> Any | None:
-        return self._widgets.get(name)
+        with self._widgets_lock:
+            return self._widgets.get(name)
 
     @staticmethod
     def _synced_trait_names(widget: Any) -> list[str]:
@@ -93,9 +107,11 @@ class WidgetHub:
 
     def state_snapshot(self) -> dict:
         """Every widget's current traits — what a fresh tab starts from."""
+        with self._widgets_lock:
+            widgets = list(self._widgets.items())
         return {
             name: {trait: getattr(widget, trait) for trait in self._synced_trait_names(widget)}
-            for name, widget in self._widgets.items()
+            for name, widget in widgets
         }
 
     # -- events out ------------------------------------------------------------
@@ -158,9 +174,13 @@ class WidgetHub:
 
     # -- work in ---------------------------------------------------------------
 
-    def submit(self, fn: Callable[[], None]) -> None:
-        """Run one piece of work on the single worker thread, in order."""
-        self._work.put(fn)
+    def submit(self, fn: Callable[[], None]) -> bool:
+        """Queue work without blocking; False means the bounded queue is full."""
+        try:
+            self._work.put_nowait(fn)
+        except queue.Full:
+            return False
+        return True
 
     def dispatch_message(self, widget_name: str, content: Any) -> bool:
         """Route one browser message to its widget, notebook-style.
@@ -169,22 +189,58 @@ class WidgetHub:
         applied immediately (it only sets a flag the running loop reads).
         Returns False if the widget does not exist (yet).
         """
-        widget = self._widgets.get(widget_name)
+        widget = self.widget(widget_name)
         if widget is None:
             return False
         if isinstance(content, dict) and content.get("type") == "cancel":
             widget._route_message(None, content, None)
             return True
-        self.submit(lambda: widget._route_message(None, content, None))
+        kind = content.get("type") if isinstance(content, dict) else None
+        key = (widget_name, str(kind))
+        coalesce = kind in _COALESCED_MESSAGE_KINDS
+        if coalesce:
+            with self._pending_messages_lock:
+                if key in self._pending_messages:
+                    return True
+                self._pending_messages.add(key)
+
+        def apply() -> None:
+            try:
+                widget._route_message(None, content, None)
+            finally:
+                if coalesce:
+                    with self._pending_messages_lock:
+                        self._pending_messages.discard(key)
+
+        if self.submit(apply):
+            return True
+        if coalesce:
+            with self._pending_messages_lock:
+                self._pending_messages.discard(key)
+        return False
+
+    def valid_trait_changes(self, widget_name: str, changes: Any) -> bool:
+        """Whether a trait update names synced traits with valid value types."""
+        widget = self.widget(widget_name)
+        if widget is None or not isinstance(changes, dict):
+            return False
+        traits = widget.traits()
+        synced = set(self._synced_trait_names(widget))
+        try:
+            for name, value in changes.items():
+                if name not in synced:
+                    return False
+                traits[name]._validate(widget, value)
+        except (TraitError, TypeError, ValueError):
+            return False
         return True
 
     def dispatch_trait_changes(self, widget_name: str, changes: dict) -> bool:
         """Apply browser-side trait edits, exactly like a comm update would."""
-        widget = self._widgets.get(widget_name)
-        if widget is None or not isinstance(changes, dict):
+        widget = self.widget(widget_name)
+        if widget is None or not self.valid_trait_changes(widget_name, changes):
             return False
-        self.submit(lambda: widget.set_state(changes))
-        return True
+        return self.submit(lambda: widget.set_state(changes))
 
     def _run_worker(self) -> None:
         while True:
@@ -201,5 +257,11 @@ class WidgetHub:
     def drain(self, timeout: float = 30.0) -> None:
         """Wait until the queued work is done (used by the tests)."""
         done = threading.Event()
-        self.submit(done.set)
-        done.wait(timeout)
+        deadline = time.monotonic() + timeout
+        while not self.submit(done.set):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("the webapp worker queue stayed full before the timeout")
+            time.sleep(min(0.005, remaining))
+        if not done.wait(max(0.0, deadline - time.monotonic())):
+            raise TimeoutError("the webapp worker did not drain before the timeout")

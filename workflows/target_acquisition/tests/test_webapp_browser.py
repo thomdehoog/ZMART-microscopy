@@ -126,3 +126,52 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
     assert flow.gallery._verdicts[0] == "good"
     assert (tmp_path / "run" / "curation.json").exists()
     assert flow.session.disconnected and flow.engine.shut_down
+
+
+def test_live_event_wins_over_an_older_boot_snapshot(demo_server):
+    """A new tab must not lose busy/cancel truth while /state is in flight."""
+    base, hub, flow = demo_server
+    for step in _STEP_ORDER:
+        flow.run_step(step)
+    hub.drain(60)
+    hub.dispatch_message("focus", {"type": "measure"})
+    flow.run_step("run_overview")
+    flow.run_step("discover_targets")
+    hub.drain(120)
+
+    snapshot_captured = threading.Event()
+    release_snapshot = threading.Event()
+    original_snapshot = hub.state_snapshot
+    delayed_once = False
+
+    def _delayed_snapshot():
+        nonlocal delayed_once
+        snapshot = original_snapshot()  # captures busy=False
+        if not delayed_once:
+            delayed_once = True
+            snapshot_captured.set()
+            assert release_snapshot.wait(30)
+        return snapshot
+
+    hub.state_snapshot = _delayed_snapshot
+
+    def _start_run_during_snapshot():
+        assert snapshot_captured.wait(30)
+        flow.gallery._set_busy(True)
+        release_snapshot.set()
+
+    mutation = threading.Thread(target=_start_run_during_snapshot, daemon=True)
+    mutation.start()
+    with playwright_api.sync_playwright() as pw:
+        browser = _launch_browser(pw)
+        page = browser.new_page()
+        page.goto(base, wait_until="domcontentloaded")
+        gallery = page.locator("#widget-gallery")
+        playwright_api.expect(gallery.locator('button:has-text("Cancel")')).to_be_visible(
+            timeout=30_000
+        )
+        assert flow.gallery.busy is True
+        flow.gallery._set_busy(False)
+        browser.close()
+    mutation.join(timeout=30)
+    assert not mutation.is_alive()

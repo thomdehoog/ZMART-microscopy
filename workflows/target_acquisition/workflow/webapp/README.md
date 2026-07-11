@@ -36,9 +36,16 @@ reminds you), and end the session with the Disconnect step.
 - The server binds to 127.0.0.1: the page is reachable only from the
   machine it runs on. Do not expose it to the network — it drives a
   real microscope and has no login of its own.
+- State-changing routes require JSON and reject non-loopback browser
+  origins. This prevents an unrelated webpage from using a cross-origin
+  "simple" form/text request to press localhost's hardware buttons.
 - Cancel is immediate here: unlike a busy notebook kernel, the server
   processes a Cancel click the moment it arrives, and the run stops
   cleanly before its next stage move.
+- Hardware steps are ordered and one-shot: the server refuses a later
+  step until its prerequisite completed, requires Set origin before any
+  coordinates are cached, and coalesces duplicate clicks instead of
+  queuing a second scan.
 - Everything is offline: the page loads no fonts, scripts, or styles from
   the internet, exactly like the notebooks.
 
@@ -52,9 +59,15 @@ and was written as the seam for exactly this front end. The pieces here:
   binary), and applies browser edits through the same entry points a
   notebook comm update uses. All state-touching work runs on one worker
   thread — the notebook's one-at-a-time world — except cancel, which is
-  applied immediately.
+  applied immediately. The work queue is bounded and hardware/snapshot
+  messages are coalesced so a confused or hostile local client cannot
+  build a backlog of stale runs.
 - `_flow.py` — the notebook's cells as guarded steps, calling the same
   public `workflow.*` and `zmart_controller` functions in the same order.
+  It enforces that order independently of the page and never lets a
+  duplicate pending action reach hardware.
 - `_page.py` — the single HTML page, including the small JavaScript
-  stand-in for anywidget's model.
+  stand-in for anywidget's model. Live events are buffered while an
+  initial/reconnect snapshot is applied, so an older snapshot cannot
+  overwrite newer run state.
 - `_server.py` — a standard-library HTTP server; no framework.

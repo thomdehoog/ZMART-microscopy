@@ -269,9 +269,28 @@ class ZmartModel {
   save_changes() {
     const changes = this.pending;
     this.pending = {};
-    post("/trait", { widget: this.name, changes });
+    post("/trait", { widget: this.name, changes }).catch((error) => this.recover(error));
   }
-  send(content) { post("/msg", { widget: this.name, content }); }
+  send(content) {
+    post("/msg", { widget: this.name, content }).catch((error) => this.recover(error));
+  }
+  async recover(error) {
+    // A bounded/full worker queue can reject a request. Restore every trait
+    // from Python truth so optimistic browser input cannot remain displayed.
+    try {
+      const snapshot = await fetch("/state").then((r) => r.json());
+      for (const [name, value] of Object.entries(snapshot.widgets[this.name] || {}))
+        this.applyTrait(name, value);
+    } catch (_) {
+      // The status below is still better than an unhandled rejection; a later
+      // SSE trait or reconnect snapshot will restore the model.
+    } finally {
+      if (this.state.status !== undefined) {
+        this.state.status = `request failed: ${error.message}`;
+        this.emit("change:status");
+      }
+    }
+  }
   on(event, cb) {
     if (!this.handlers.has(event)) this.handlers.set(event, []);
     this.handlers.get(event).push(cb);
@@ -296,12 +315,18 @@ class ZmartModel {
   }
 }
 
-function post(path, body) {
-  return fetch(path, {
+async function post(path, body) {
+  const response = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  if (!response.ok) {
+    let detail = `${response.status}`;
+    try { detail = (await response.json()).error || detail; } catch (_) {}
+    throw new Error(detail);
+  }
+  return response;
 }
 
 async function mountWidget(name, traits) {
@@ -356,7 +381,17 @@ function flowUpdate(ev) {
 document.querySelectorAll(".step-btn").forEach((button) => {
   button.addEventListener("click", (e) => {
     e.preventDefault();
-    post("/action", { step: button.dataset.step });
+    // Close the double-click window locally; Python independently coalesces
+    // duplicate pending steps, so this is UX rather than the safety gate.
+    button.disabled = true;
+    post("/action", { step: button.dataset.step }).catch((error) => {
+      button.disabled = false;
+      const note = noteFor(button.dataset.step);
+      if (note) {
+        note.textContent = `request failed: ${error.message}`;
+        note.className = "step-note bad";
+      }
+    });
   });
 });
 
@@ -381,21 +416,36 @@ async function applySnapshot() {
 }
 
 let everConnected = false;
+let applyingSnapshot = true;
+let bufferedEvents = [];
 const events = new EventSource("/events");
-events.onmessage = (e) => {
-  const ev = JSON.parse(e.data);
+function applyEvent(ev) {
   if (ev.kind === "trait") models[ev.widget]?.applyTrait(ev.name, ev.value);
   else if (ev.kind === "msg") models[ev.widget]?.applyMsg(ev.content, ev.buffers);
   else if (ev.kind === "widget") ensureWidget(ev.widget);
   else if (ev.kind === "flow") flowUpdate(ev);
+}
+events.onmessage = (e) => {
+  const ev = JSON.parse(e.data);
+  // Events can arrive while /state is in flight. Applying them immediately
+  // would let the older snapshot overwrite newer busy/read-only/status truth;
+  // hold them and replay in order after the snapshot instead.
+  if (applyingSnapshot) bufferedEvents.push(ev);
+  else applyEvent(ev);
 };
 events.onopen = async () => {
   const reconnecting = everConnected;
   everConnected = true;
+  applyingSnapshot = true;
+  bufferedEvents = [];
   // On first open: everything the server already knows. On a re-open after
   // a dropped stream: the same snapshot covers missed traits and finished
   // steps, and each streaming widget asks for its own image catch-up.
   await applySnapshot();
+  const caughtUp = bufferedEvents;
+  bufferedEvents = [];
+  caughtUp.forEach(applyEvent);
+  applyingSnapshot = false;
   document.querySelectorAll(".step-btn").forEach((b) => { b.disabled = false; });
   if (reconnecting) {
     for (const name of ["overview", "gallery"]) models[name]?.send({ type: "sync" });

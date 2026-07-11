@@ -94,8 +94,100 @@ def test_steps_refuse_out_of_order_with_plain_sentences(tmp_path):
     flow.run_step("run_overview")  # long before its prerequisites
     hub.drain()
     failed = [e for e in events if e.get("kind") == "flow" and e.get("state") == "failed"]
-    assert failed and "capture the overview job first" in failed[0]["message"]
+    assert failed and "finish load positions" in failed[0]["message"]
     assert "Traceback" not in failed[0]["message"]
+
+
+def test_origin_must_precede_every_coordinate_dependent_step(tmp_path):
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    flow.run_step("connect")
+    flow.run_step("capture_overview_job")  # deliberately skip Set origin
+    hub.drain()
+    assert flow.completed == ["connect"]
+    assert flow.overview_state is None
+
+    # Once positions exist, Set origin cannot be repeated and silently change
+    # the frame underneath their cached coordinates.
+    for step in ("set_origin", "capture_overview_job", "capture_target_job", "load_positions"):
+        flow.run_step(step)
+    hub.drain()
+    positions = list(flow.positions)
+    flow.run_step("set_origin")
+    hub.drain()
+    assert flow.positions == positions
+    assert flow.completed.count("set_origin") == 1
+
+
+def test_duplicate_overview_requests_coalesce_before_hardware(tmp_path):
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    for step in _ORDERED_STEPS[:5]:
+        flow.run_step(step)
+    hub.drain()
+    hub.dispatch_message("focus", {"type": "measure"})
+    hub.drain()
+
+    calls = 0
+    original = flow._steps["run_overview"]
+
+    def _counted_overview():
+        nonlocal calls
+        calls += 1
+        return original()
+
+    flow._steps["run_overview"] = _counted_overview
+    for _ in range(50):
+        assert flow.run_step("run_overview")
+    hub.drain(120)
+    assert calls == 1
+    assert len(flow.viewer.overviews) == len(flow.positions) == 4
+
+
+def test_duplicate_widget_runs_and_sync_floods_are_coalesced(tmp_path):
+    hub = WidgetHub()
+    RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    blocker = threading.Event()
+    worker_started = threading.Event()
+
+    def _block_worker():
+        worker_started.set()
+        blocker.wait()
+
+    assert hub.submit(_block_worker)
+    assert worker_started.wait(10)
+    try:
+        for _ in range(5000):
+            assert hub.dispatch_message("overview", {"type": "sync"})
+        assert hub._work.qsize() == 1
+    finally:
+        blocker.set()
+    hub.drain()
+
+
+def test_worker_queue_is_bounded_and_recovers_after_pressure():
+    from workflow.webapp import _host
+
+    hub = WidgetHub()
+    release = threading.Event()
+    started = threading.Event()
+
+    def _block_worker():
+        started.set()
+        release.wait()
+
+    assert hub.submit(_block_worker)
+    assert started.wait(10)
+    try:
+        for _ in range(_host._WORK_QUEUE_CAP):
+            assert hub.submit(lambda: None)
+        assert hub.submit(lambda: None) is False
+        assert hub._work.qsize() == _host._WORK_QUEUE_CAP
+    finally:
+        release.set()
+    hub.drain()
+    assert hub.submit(lambda: None) is True
+    hub.drain()
 
 
 def test_cancel_is_applied_immediately_not_queued(tmp_path):
@@ -274,6 +366,45 @@ def test_malformed_requests_get_clean_answers_and_the_server_survives(demo_serve
     assert _post(base, "/action", {"step": "connect"}) == {"ok": True}
     hub.drain(60)
     assert flow.completed == ["connect"]
+
+
+def test_cross_origin_and_simple_content_type_posts_are_refused(demo_server):
+    base, hub, flow = demo_server
+    payload = json.dumps({"step": "connect"}).encode("utf-8")
+
+    with pytest.raises(urllib.error.HTTPError) as err:
+        _post_raw(base, "/action", payload, content_type="text/plain")
+    assert err.value.code == 415
+
+    request = urllib.request.Request(
+        base + "/action",
+        data=payload,
+        headers={"Content-Type": "application/json", "Origin": "https://hostile.example"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as err:
+        urllib.request.urlopen(request, timeout=10)
+    assert err.value.code == 403
+    hub.drain()
+    assert flow.session is None and flow.completed == []
+
+
+@pytest.mark.parametrize("constant", [b"NaN", b"Infinity", b"-Infinity"])
+def test_nonstandard_json_constants_are_refused(demo_server, constant):
+    base, _hub, flow = demo_server
+    body = b'{"step":' + constant + b"}"
+    with pytest.raises(urllib.error.HTTPError) as err:
+        _post_raw(base, "/action", body)
+    assert err.value.code == 400
+    assert flow.session is None
+
+
+def test_mistyped_trait_value_is_rejected_before_the_worker(demo_server):
+    base, hub, _flow = demo_server
+    body = json.dumps({"widget": "overview", "changes": {"busy": []}}).encode("utf-8")
+    with pytest.raises(urllib.error.HTTPError) as err:
+        _post_raw(base, "/trait", body)
+    assert err.value.code == 400
+    assert hub.widget("overview").busy is False
 
 
 def test_forged_traits_and_messages_cannot_move_python_truth(demo_server):
