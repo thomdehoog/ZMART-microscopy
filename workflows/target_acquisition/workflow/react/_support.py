@@ -197,10 +197,19 @@ def _vendored_react_js() -> str:
         "  __zmartVendor.navigator = window.navigator;\n"
         "  __zmartVendor.location = window.location;\n"
         "  __zmartVendor.performance = window.performance;\n"
+        "  // react-dom also reaches for DOM constructors through its window\n"
+        "  // (e.g. `x instanceof window.HTMLIFrameElement` while saving the\n"
+        "  // text selection before EVERY commit) — without these on the\n"
+        "  // private scope, the very first render dies and the widget shows\n"
+        "  // an empty cell.\n"
+        '  for (const cls of ["HTMLIFrameElement", "Element", "Node", "Event"]) {\n'
+        "    if (window[cls] !== undefined) { __zmartVendor[cls] = window[cls]; }\n"
+        "  }\n"
         '  for (const fn of ["addEventListener", "removeEventListener",\n'
         '                    "dispatchEvent", "requestAnimationFrame",\n'
         '                    "cancelAnimationFrame", "setTimeout",\n'
-        '                    "clearTimeout", "setInterval", "clearInterval"]) {\n'
+        '                    "clearTimeout", "setInterval", "clearInterval",\n'
+        '                    "getSelection", "matchMedia"]) {\n'
         '    if (typeof window[fn] === "function") {\n'
         "      __zmartVendor[fn] = window[fn].bind(window);\n"
         "    }\n"
