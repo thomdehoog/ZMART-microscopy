@@ -21,14 +21,13 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from shared.output_layout import Naming, build_position_analysis_name
-
 from .._figsave import save_figure
 from .._geom import (
     crop_overview_at_target_fov,
     target_fov_window_in_overview,
     visible_target_fov_window,
 )
+from .output_layout import Naming, build_position_analysis_name
 from .overview import TileEvent
 from .selection import (
     MODE_EMPTY,

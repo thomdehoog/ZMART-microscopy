@@ -106,6 +106,16 @@ def test_with_focus_z_uses_the_surface():
     assert placed[0]["z"] == pytest.approx(4.5)
 
 
+def test_with_focus_z_preserves_vendor_location_indices():
+    position = {
+        "x": 5,
+        "y": 5,
+        "group": {"region": "3", "row": 0, "col": 1},
+        "location": {"carrier": 1, "compartment": 7, "position": 9, "view": 2},
+    }
+    assert with_focus_z([position], focus=_TILTED)[0] == {**position, "z": pytest.approx(4.5)}
+
+
 def test_with_focus_z_defaults_to_zero_without_a_surface():
     assert with_focus_z([{"x": 1, "y": 2}]) == [{"x": 1, "y": 2, "z": 0.0}]
 

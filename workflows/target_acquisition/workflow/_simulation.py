@@ -25,6 +25,7 @@ The pieces mirror the real boundary exactly:
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -194,16 +195,25 @@ class SimulatedSession:
         err_x, err_y = job["error"]
         x, y, _z = self.position
         self.count += 1
+        acquisition_hash = uuid.uuid4().hex[:6]
         image = self.world.render(x + err_x, y + err_y, job["pixel_um"], job["shape"])
         path = write_ome(
-            self.root / acquisition_type / f"{position_label}-{self.count}.ome.tif",
+            self.root
+            / ".staging"
+            / acquisition_type
+            / (
+                f"{acquisition_type}_{acquisition_hash}_{position_label}_"
+                "T000000_C00_Z00000.ome.tiff"
+            ),
             image,
             job["pixel_um"],
         )
         return {
             "acquisition_type": acquisition_type,
+            "acquisition_hash": acquisition_hash,
             "position_label": position_label,
             "images": [str(path)],
+            "planes": [{"t": 0, "c": 0, "z": 0, "path": str(path)}],
         }
 
     def disconnect(self) -> None:

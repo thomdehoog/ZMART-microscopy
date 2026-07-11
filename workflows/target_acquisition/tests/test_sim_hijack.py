@@ -16,8 +16,6 @@ import pytest
 import tifffile
 from workflow import NonSimulatorFrameError, get_provider, hijack_records
 
-from shared.output_layout.naming import Naming, build_image_name
-
 _OME_DESC = (
     '<?xml version="1.0" encoding="UTF-8"?>\n'
     '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
@@ -60,10 +58,11 @@ def _saved_plane(
     acq_dir.mkdir(parents=True, exist_ok=True)
     if system_type is not None:
         _write_vendor_system_type(acq_dir, system_type)
-    naming = Naming(
-        acquisition_type=acquisition_type, hash6="abcdef", position_label=position_label
+    filename = (
+        f"{acquisition_type}_abcdef_{position_label}_"
+        "T000000_C00_Z00000.ome.tiff"
     )
-    path = acq_dir / build_image_name(naming)
+    path = acq_dir / filename
     arr = np.full(shape, fill, dtype=np.uint16)
     tifffile.imwrite(path, arr, description=_OME_DESC, ome=False, photometric="minisblack")
     return path
@@ -85,6 +84,24 @@ def test_hijack_records_overwrites_simulator_plane(tmp_path):
     assert n == 1
     out = tifffile.imread(img)
     assert out.min() == 42 and out.max() == 42
+
+
+def test_hijack_uses_driver_metadata_paths_after_workflow_moves_image(tmp_path):
+    img = _saved_plane(tmp_path / "staging")
+    metadata = list(
+        (img.parent / "vendor" / "lasx_native_autosave").glob("*.xlif")
+    )
+    final = tmp_path / "experiment/overview/data" / img.name
+    final.parent.mkdir(parents=True)
+    img.replace(final)
+
+    count = hijack_records(
+        [{"images": [str(final)], "vendor_metadata": [str(path) for path in metadata]}],
+        _constant_provider(9),
+    )
+
+    assert count == 1
+    assert np.all(tifffile.imread(final) == 9)
 
 
 def test_hijack_records_preserves_ome_description(tmp_path):

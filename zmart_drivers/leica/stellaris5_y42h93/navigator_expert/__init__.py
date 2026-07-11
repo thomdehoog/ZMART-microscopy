@@ -127,21 +127,17 @@ __all__ = [
     "save",
 ]
 
-# -- package self-bootstrap
-# navigator_expert depends on shared.output_layout at the repo root.
-# Callers usually put zmart_drivers/leica/stellaris5_y42h93/ on sys.path; adding
-# both roots here keeps subprocesses and scripts resilient when they import the
-# driver first.
+# The low-level command gate uses the repository-wide limits specification.
+# Keep direct driver imports working when callers put only this machine folder
+# on sys.path; output naming itself is private to this driver.
 import sys as _sys
 from pathlib import Path as _Path
 
 _here = _Path(__file__).resolve()
-_machine_root = str(_here.parents[1])  # .../leica/stellaris5_y42h93
 _repo_root = str(_here.parents[4])
-for _path in (_repo_root, _machine_root):
-    if _path not in _sys.path:
-        _sys.path.insert(0, _path)
-del _sys, _Path, _here, _machine_root, _repo_root, _path
+if _repo_root not in _sys.path:
+    _sys.path.insert(0, _repo_root)
+del _sys, _Path, _here, _repo_root
 
 # -- shared utilities + commands/ - helpers and command mechanics
 from .utils import (

@@ -242,6 +242,7 @@ def make_server(
     vendor: str = "leica",
     demo_root: Any = None,
     af_job: str | None = None,
+    experiment: str = "target-acquisition",
 ) -> tuple[ThreadingHTTPServer, WidgetHub, RunFlow]:
     """Build the hub, the flow, and a ready-to-run HTTP server."""
     hub = WidgetHub()
@@ -252,6 +253,7 @@ def make_server(
         vendor=vendor,
         demo_root=demo_root,
         af_job=af_job,
+        experiment=experiment,
     )
     handler = type("BoundHandler", (_Handler,), {"hub": hub, "flow": flow})
     server = ThreadingHTTPServer((host, port), handler)

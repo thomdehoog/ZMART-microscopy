@@ -45,6 +45,11 @@ def main() -> None:
     parser.add_argument(
         "--demo-root", help="where the demo saves its run folder (default: ./zmart_demo_run)"
     )
+    parser.add_argument(
+        "--experiment",
+        default="target-acquisition",
+        help="experiment folder name (default: target-acquisition)",
+    )
     parser.add_argument("--port", type=int, default=8765, help="port to listen on")
     parser.add_argument(
         "--host",
@@ -66,6 +71,7 @@ def main() -> None:
         vendor=args.vendor,
         demo_root=args.demo_root,
         af_job=args.af_job,
+        experiment=args.experiment,
     )
 
 

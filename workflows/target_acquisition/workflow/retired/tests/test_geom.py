@@ -311,8 +311,7 @@ class TestNoDriftAgainstCallers:
 
     def _write_overview(self, layout, image, *, g=0, p=0):
         import tifffile
-
-        from shared.output_layout import Naming, build_image_name
+        from workflow.retired.output_layout import Naming, build_image_name
 
         naming = Naming(
             acquisition_type="overview-scan",
@@ -361,7 +360,7 @@ class TestNoDriftAgainstCallers:
         )
 
     def _dummy_naming(self):
-        from shared.output_layout import Naming
+        from workflow.retired.output_layout import Naming
 
         return Naming(
             acquisition_type="target-acquisition",

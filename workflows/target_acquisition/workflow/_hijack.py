@@ -66,14 +66,36 @@ a `pipeline/_mock_provider.py` change, not a guard change.
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 import tifffile
 
-from shared.output_layout.naming import parse_image_name
+_IMAGE_NAME_RE = re.compile(
+    r"^(?P<acq>[a-z0-9]+(?:-[a-z0-9]+)*)_(?P<hash>[0-9a-z]{6})"
+    r"_(?P<label>[A-Za-z0-9_-]+)_T(?P<t>\d{6})_C(?P<c>\d{2})_Z(?P<z>\d{5})"
+    r"\.ome\.tiff$"
+)
+
+
+def _filename_context(filename: str):
+    """Extract only the filename fields simulation providers consume."""
+
+    match = _IMAGE_NAME_RE.fullmatch(filename)
+    if match is None:
+        raise RuntimeError(f"saved image has a non-canonical filename: {filename}")
+    return SimpleNamespace(
+        acquisition_type=match.group("acq"),
+        hash6=match.group("hash"),
+        position_label=match.group("label"),
+        t=int(match.group("t")),
+        c=int(match.group("c")),
+        z=int(match.group("z")),
+    )
 
 # Descendant-XPath for ``OriginalMetadata`` across any namespace. LAS X
 # actually places these elements inside a ``<CustomAttributes>`` block
@@ -146,8 +168,14 @@ def _read_native_autosave_system_type(base_dir: Path) -> str | None:
     fails closed as ``None``.
     """
     vendor_dir = base_dir / "vendor" / _NATIVE_AUTOSAVE_VENDOR
+    return _read_native_autosave_system_type_paths(vendor_dir.glob("*.xlif"))
+
+
+def _read_native_autosave_system_type_paths(paths) -> str | None:
+    """Read one unambiguous SystemTypeName from explicit XLIF paths."""
+
     values: set[str] = set()
-    for path in sorted(vendor_dir.glob("*.xlif")):
+    for path in sorted(map(Path, paths)):
         try:
             root = ET.parse(path).getroot()
         except (OSError, ET.ParseError):
@@ -182,6 +210,17 @@ def _assert_simulator(base_dir: Path, display_name: str) -> None:
             f"refusing to overwrite {display_name}: native AutoSave vendor "
             f"metadata SystemTypeName is {system_type!r}, not 'SIMULATOR'. "
             f"(simulation-mode hijack can only run on the LAS X simulator.)"
+        )
+
+
+def _assert_simulator_paths(paths, display_name: str) -> None:
+    """Fail closed against the exact vendor files returned by the driver."""
+
+    system_type = _read_native_autosave_system_type_paths(paths)
+    if system_type != "SIMULATOR":
+        raise NonSimulatorFrameError(
+            f"refusing to overwrite {display_name}: native AutoSave vendor "
+            f"metadata SystemTypeName is {system_type!r}, not 'SIMULATOR'."
         )
 
 
@@ -311,8 +350,7 @@ def hijack_records(records: list[dict], provider: Callable) -> int:
     1. Derive the flat acquisition dir as the file's own parent, and run the
        positive ``SystemTypeName == "SIMULATOR"`` allowlist against the vendor
        metadata there (:func:`_assert_simulator`).
-    2. Reconstruct the plane's :class:`~shared.output_layout.naming.Naming`
-       from its filename (the provider's only input).
+    2. Read the provider context from the canonical filename.
     3. Overwrite the pixels, preserving the OME-XML (:func:`_overwrite_preserving_ome`).
 
     ``provider`` is a mock-image callable (see ``pipeline._mock_provider``;
@@ -327,8 +365,12 @@ def hijack_records(records: list[dict], provider: Callable) -> int:
     for record in records:
         for image_path in record.get("images", []):
             image_path = Path(image_path)
-            _assert_simulator(image_path.parent, image_path.name)
-            naming = parse_image_name(image_path.name)
+            vendor_metadata = record.get("vendor_metadata") or []
+            if vendor_metadata:
+                _assert_simulator_paths(vendor_metadata, image_path.name)
+            else:
+                _assert_simulator(image_path.parent, image_path.name)
+            naming = _filename_context(image_path.name)
             _overwrite_preserving_ome(image_path, naming, provider)
             count += 1
     return count

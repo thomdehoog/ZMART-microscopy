@@ -86,6 +86,7 @@ class AcquisitionGallery:
         state: dict | None = None,
         focus: Any = None,
         options: dict | None = None,
+        output_root: Any = None,
         after_acquire: Callable[[list[dict]], Any] | None = None,
         default_count: int = 5,
         seed: int | None = None,
@@ -99,6 +100,7 @@ class AcquisitionGallery:
         self.state = state
         self.focus = focus
         self.options = options
+        self.output_root = output_root
         self.after_acquire = after_acquire
         self._rng = random.Random(seed)
         self._busy = False
@@ -215,6 +217,7 @@ class AcquisitionGallery:
                 state=self.state,
                 focus=self.focus,
                 options=self.options,
+                output_root=self.output_root,
                 on_record=_show_fresh_pair,
             )
             if self.after_acquire is not None:
@@ -415,6 +418,7 @@ def acquire_gallery(
     state: dict | None = None,
     focus: Any = None,
     options: dict | None = None,
+    output_root: Any = None,
     after_acquire: Callable[[list[dict]], Any] | None = None,
     default_count: int = 5,
     seed: int | None = None,
@@ -435,6 +439,7 @@ def acquire_gallery(
         state=state,
         focus=focus,
         options=options,
+        output_root=output_root,
         after_acquire=after_acquire,
         default_count=default_count,
         seed=seed,

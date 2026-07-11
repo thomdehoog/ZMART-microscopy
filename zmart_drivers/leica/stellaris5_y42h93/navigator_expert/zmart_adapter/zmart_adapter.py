@@ -55,8 +55,7 @@ pass (park the galvo at a known offset, move z-wide, check the focus sum)
 before trusting large z moves.
 
 Dependency direction:
-    - Imports: driver internals, ``zmart_controller.registry``,
-      ``shared.output_layout``.
+    - Imports: driver internals and ``zmart_controller.registry``.
     - Imported by: nothing in the driver — workflows opt in explicitly.
 """
 
@@ -70,8 +69,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from shared.output_layout import Naming
-from shared.output_layout.naming import run_hash
 from zmart_controller import registry as _registry
 
 try:  # driver version for embedded export state; never fail acquire over it
@@ -84,6 +81,7 @@ from .. import readers as _readers
 from .. import scanfields as _scanfields
 from ..acquisition import capture as _capture
 from ..acquisition import save as _save
+from ..acquisition.naming import Naming, run_hash
 from ..commands import commands as _commands
 from ..commands import gate as _gate
 from ..config import machine as _machine
@@ -146,7 +144,7 @@ class ZmartHandle:
             (carries ``output_root`` and the connect params).
         hash6: SESSION hash, minted at connect. Travels in lineage /
             ``session_hash6`` provenance only — each :func:`acquire` mints
-            its OWN per-acquisition hash for the output Naming.
+            its own acquired-position hash for the output Naming.
         origin: The frame zero point captured by :func:`set_origin` —
             stage XY, both z drives, their focus sum, and the objective
             it was captured under. Defaults to all-zero (frame ==
@@ -175,6 +173,7 @@ class ZmartHandle:
         }
     )
     position_counter: int = 0
+    acquisition_hashes: set[str] = field(default_factory=set)
     translations: dict[int, tuple[float, float, float]] | None = None
     closed: bool = False
 
@@ -721,6 +720,18 @@ def _with_defaults(handle: ZmartHandle, options: dict | None) -> dict:
     return resolved
 
 
+def _next_acquisition_hash(handle: ZmartHandle) -> str:
+    """Mint a unique driver-owned hash for one acquired position."""
+
+    now = time.time()
+    for offset in range(100):
+        value = run_hash(now + offset)
+        if value not in handle.acquisition_hashes:
+            handle.acquisition_hashes.add(value)
+            return value
+    raise RuntimeError("could not mint a unique acquisition-position hash")
+
+
 def _ensure_scan_fields_stripped(handle: ZmartHandle) -> None:
     """Empty the scanning template before a capture.
 
@@ -819,9 +830,9 @@ def acquire(
         options: Values from :func:`get_acquisition_options`; omitted
             options use the active defaults, unknown keys/values raise.
 
-    A fresh per-acquisition hash is minted here (``run_hash()``) and used as
-    ``Naming.hash6``; the session hash (``handle.hash6``) rides along only in
-    lineage/provenance. The machine/software state at export time is captured
+    The driver's helper mints a fresh acquisition-position hash for this
+    capture. The acquisition type itself has no folder hash. The session hash
+    (``handle.hash6``) rides along only in lineage/provenance. The machine/software state is captured
     and embedded in each saved plane's OME-XML (no sidecar).
 
     Returns a record with the resolved job/options and the saved image paths.
@@ -829,7 +840,8 @@ def acquire(
     detection, or persistence.
     """
     _require_open(handle)
-    output_root = _info.output_root(handle, _save.save_source_root)
+    workflow_root = _info.output_root(handle, _save.save_source_root)
+    output_root = workflow_root / ".staging" / handle.hash6
     resolved = _with_defaults(handle, options)
     job = resolved["job"]
     if not job:
@@ -851,7 +863,7 @@ def acquire(
     acq = _capture.acquire(handle.client, job)
 
     label = position_label if position_label is not None else _next_position_label(handle)
-    acquisition_hash = run_hash()
+    acquisition_hash = _next_acquisition_hash(handle)
     naming = Naming(
         acquisition_type=acquisition_type,
         hash6=acquisition_hash,
@@ -899,11 +911,15 @@ def acquire(
         "position_label": label,
         "job": job,
         "format": resolved["format"],
+        "acquisition_hash": acquisition_hash,
         "settle": "backlash-corrected" if resolved["backlash_correction"] else "direct",
         # ``images`` stays as the simple compatibility list. ``planes`` is the
         # lossless manifest workflows need to distinguish channels from z/t.
         "images": [plane["path"] for plane in planes],
         "planes": planes,
+        "vendor_metadata": [
+            str(path) for path in getattr(saved, "vendor_metadata_paths", ())
+        ],
     }
 
 

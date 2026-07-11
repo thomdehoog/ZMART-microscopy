@@ -16,8 +16,7 @@ from workflow._log_capture import (
     capture_console,
     capture_console_deferred,
 )
-
-from shared.output_layout import build_layout
+from workflow.retired.output_layout import build_layout
 
 
 def _ctx_with_layout(tmp_path):

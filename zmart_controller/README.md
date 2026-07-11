@@ -146,6 +146,9 @@ zmart_controller.get_acquisition_options()
 zmart_controller.acquire(acquisition_type="prescan", position_label="A1", options={"format": "ome-tiff"})
 ```
 
+The returned record's `images` list contains the full saved data filenames;
+drivers may also return indexed `planes` entries with a full `path` per plane.
+
 The option menu shown is the bundled mock's; each driver owns its own menu
 (the Leica driver's has `job`, `backlash_correction`, `strip_scan_fields`, `cleanup_source`
 and no `procedure`) and its own naming rules — see the driver README for

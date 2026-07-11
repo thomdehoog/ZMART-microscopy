@@ -421,7 +421,7 @@ class TestAcquire(unittest.TestCase):
         ):
             adapter.acquire(h, acquisition_type="prescan", position_label="A1")
 
-    def test_get_info_creates_and_reports_default_run_root(self):
+    def test_get_info_creates_and_reports_default_workflow_root(self):
         h = _handle()
         with tempfile.TemporaryDirectory() as tmp:
             autosave = Path(tmp) / "lasx" / "project"
@@ -433,8 +433,7 @@ class TestAcquire(unittest.TestCase):
             ):
                 result = adapter.get_info(h)
                 root = Path(result["output_root"])
-        self.assertEqual(root.parent, Path(tmp) / "lasx" / "zmart")
-        self.assertTrue(root.name.startswith("target-acquisition_"))
+        self.assertEqual(root, Path(tmp) / "lasx" / "ZMART-microscopy")
         self.assertEqual(h.connection["output_root"], str(root))
 
     def test_get_info_keeps_explicit_output_root(self):
@@ -494,7 +493,9 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(calls["selected"], "HiRes")
         self.assertEqual(calls["captured"], "HiRes")
         saved_root, naming = calls["saved"]
-        self.assertEqual(Path(saved_root), Path("/tmp/out"))  # OS-agnostic separators
+        self.assertEqual(
+            Path(saved_root), Path("/tmp/out").resolve() / ".staging" / h.hash6
+        )  # OS-agnostic separators
         self.assertEqual(naming.acquisition_type, "prescan")
         self.assertEqual(naming.position_label, "well-7")  # explicit label travels verbatim
         self.assertEqual(calls["lineage"]["position_label"], "well-7")
@@ -507,6 +508,7 @@ class TestAcquire(unittest.TestCase):
         self.assertIsInstance(calls["state"], dict)
         self.assertEqual(calls["state"]["provenance"]["position_label"], "well-7")
         self.assertEqual(record["settle"], "direct")
+        self.assertEqual(record["acquisition_hash"], naming.hash6)
         self.assertEqual([Path(p) for p in record["images"]], [Path("/tmp/out/img.ome.tif")])
         self.assertEqual(
             record["planes"],
@@ -602,8 +604,7 @@ class TestAcquire(unittest.TestCase):
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
         calls = {}
         env = self._fake_acquire_env(calls)
-        # A fresh hash is minted per acquire; stub run_hash (1s real resolution)
-        # to prove two acquires get distinct per-acquisition hashes.
+        # The driver's helper mints a fresh hash per acquired position.
         with (
             env[0],
             env[1],
@@ -627,10 +628,17 @@ class TestAcquire(unittest.TestCase):
         namings = calls["namings"]
         self.assertEqual(namings[0].position_label, "000000")
         self.assertEqual(namings[1].position_label, "000001")
-        # a fresh per-acquisition hash each time
+        # the acquisition type stays "scan" while each acquired position is unique
         self.assertEqual(namings[0].hash6, "0000a1")
         self.assertEqual(namings[1].hash6, "0000a2")
-        self.assertNotEqual(namings[0].hash6, namings[1].hash6)
+        self.assertNotEqual(record0["acquisition_hash"], record1["acquisition_hash"])
+
+    def test_position_hash_helper_avoids_same_second_collision(self):
+        h = _handle()
+        h.acquisition_hashes.add("0000a1")
+        with patch.object(adapter, "run_hash", side_effect=["0000a1", "0000a2"]):
+            self.assertEqual(adapter._next_acquisition_hash(h), "0000a2")
+        self.assertEqual(h.acquisition_hashes, {"0000a1", "0000a2"})
 
     def test_explicit_label_does_not_consume_counter(self):
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})

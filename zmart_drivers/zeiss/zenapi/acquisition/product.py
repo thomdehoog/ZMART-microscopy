@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from shared.output_layout import Naming
+from .naming import Naming
 
 
 @dataclass(frozen=True, order=True)

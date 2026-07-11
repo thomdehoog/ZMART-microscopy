@@ -22,6 +22,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import math  # noqa: E402
+import re  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 import pytest  # noqa: E402
@@ -95,7 +96,7 @@ def _run_notebook(nb_path: Path, session: _SimSession, engine: _SimEngine, monke
     return namespace
 
 
-def _assert_full_run(ns: dict, session: _SimSession, engine: _SimEngine, root: Path) -> None:
+def _assert_full_run(ns: dict, session: _SimSession, engine: _SimEngine, output_root: Path) -> None:
     # The overview really scanned, and discovery found the synthetic cells.
     assert len(ns["overview_records"]) == 4
     assert len(ns["targets"]) >= 4
@@ -103,7 +104,31 @@ def _assert_full_run(ns: dict, session: _SimSession, engine: _SimEngine, root: P
         assert math.hypot(target["x"], target["y"]) < 250.0  # inside the scanned area
     # The gallery committed an honest result and the summary was written.
     assert len(ns["gallery"].records) == 2 == len(ns["gallery"].picked)
+    root = ns["ROOT"]
+    assert root.parent == output_root
+    assert root.name.startswith("target-acquisition_")
     assert (root / "summary.json").exists() and (root / "run_layout.png").exists()
+    for acquisition_type, records in (
+        ("overview", ns["overview_records"]),
+        ("target", ns["gallery"].records),
+    ):
+        data = root / acquisition_type / "data"
+        assert data.is_dir()
+        assert all(
+            Path(path).parent == data and Path(path).is_file()
+            for record in records
+            for path in record["images"]
+        )
+        assert all(
+            re.fullmatch(
+                rf"{acquisition_type}_[0-9a-z]{{6}}_"
+                r"K\d{2}_M\d{6}_G\d{6}_P\d{6}_V\d{2}_"
+                r"T\d{6}_C\d{2}_Z\d{5}\.ome\.tiff",
+                Path(path).name,
+            )
+            for record in records
+            for path in record["images"]
+        )
     # The cleanup cell really tore the boundary down.
     assert session.disconnected and engine.shut_down and "engine" not in ns
 
