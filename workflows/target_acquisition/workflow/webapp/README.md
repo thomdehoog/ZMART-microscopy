@@ -18,9 +18,8 @@ python -m workflow.webapp --demo
 Open the printed address (http://127.0.0.1:8765). The demo drives a
 simulated microscope imaging a synthetic sample — the very same one the
 offline notebook tests execute — so every step behaves like the real run:
-the calibration check really measures a deliberately mis-set objective
-offset, discovery really segments the tiles, and Acquire really "images"
-the cells you gated.
+discovery really segments the tiles, and Acquire really "images" the
+cells you gated.
 
 ## On the microscope PC
 

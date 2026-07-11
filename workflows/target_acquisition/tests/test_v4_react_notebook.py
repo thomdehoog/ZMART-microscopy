@@ -64,8 +64,6 @@ def test_react_notebook_runs_the_same_hardware_flow():
     for step in (
         "set_origin",
         "get_state",
-        "start_calibration_check",
-        "finish_calibration_check",
         "run_overview",
         "discover_targets",
         "write_run_report",

@@ -5,8 +5,7 @@ EXECUTES them: every code cell, in order, in one shared namespace — the
 closest thing to an operator session that can run without a microscope.
 Only the boundary is stubbed: a fake session renders every "acquisition"
 from one synthetic sample (so images are consistent with where the stage
-went, and the calibration check can recover a deliberately mis-set
-objective translation), and a fake analysis engine segments those images
+went), and a fake analysis engine segments those images
 for real. The operator's button presses (select a job, press Measure,
 press Acquire) are scripted between cells, exactly where a human would
 act.
@@ -40,9 +39,9 @@ from workflow._simulation import (  # noqa: E402
 
 _NB_DIR = Path(__file__).resolve().parents[1]
 
-# The fake objective-pair calibration is deliberately mis-set by
-# INJECTED_ERROR_UM (see workflow._simulation): the notebooks' calibration
-# check (section 5b) must measure it back.
+# The simulated target job is deliberately mis-aimed by INJECTED_ERROR_UM
+# (see workflow._simulation) — small enough not to disturb this run, and
+# available for any flow that wants to measure it.
 _INJECTED_ERROR_UM = INJECTED_ERROR_UM
 
 
@@ -97,11 +96,6 @@ def _run_notebook(nb_path: Path, session: _SimSession, engine: _SimEngine, monke
 
 
 def _assert_full_run(ns: dict, session: _SimSession, engine: _SimEngine, root: Path) -> None:
-    # The calibration check measured the deliberately mis-set translation.
-    report = ns["calibration_report"]
-    assert report["mean_dx_um"] == pytest.approx(_INJECTED_ERROR_UM[0], abs=0.5)
-    assert report["mean_dy_um"] == pytest.approx(_INJECTED_ERROR_UM[1], abs=0.5)
-    assert (root / "calibration_check.json").exists()
     # The overview really scanned, and discovery found the synthetic cells.
     assert len(ns["overview_records"]) == 4
     assert len(ns["targets"]) >= 4

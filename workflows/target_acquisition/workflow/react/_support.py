@@ -326,10 +326,14 @@ function useWheel(ref, handler) {
   });
 }
 
+// One light, neutral palette for every widget: white cards that sit
+// naturally on a light notebook or the web page. The image viewports
+// themselves (the overview map, the focus map) stay black — microscopy
+// images read best on black regardless of the page around them.
 const T = {
-  bg: "#0f172a", panel: "#1e293b", edge: "#334155", ink: "#e2e8f0",
-  dim: "#94a3b8", accent: "#38bdf8", good: "#4ade80", bad: "#f87171",
-  warn: "#fbbf24",
+  bg: "#f1f5f9", panel: "#ffffff", edge: "#cbd5e1", ink: "#0f172a",
+  dim: "#64748b", accent: "#0284c7", good: "#16a34a", bad: "#dc2626",
+  warn: "#d97706",
 };
 const card = {
   background: T.panel, border: `1px solid ${T.edge}`, borderRadius: 12,
@@ -337,7 +341,7 @@ const card = {
   fontFamily: "system-ui, -apple-system, sans-serif", fontSize: 13,
 };
 const btn = (disabled) => ({
-  background: disabled ? T.edge : T.accent, color: disabled ? T.dim : "#082f49",
+  background: disabled ? T.edge : T.accent, color: disabled ? T.dim : "#ffffff",
   border: "none", borderRadius: 8, padding: "7px 16px", fontWeight: 600,
   cursor: disabled ? "default" : "pointer", transition: "all 0.15s",
 });

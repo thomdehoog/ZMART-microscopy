@@ -74,12 +74,14 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
         errors: list[str] = []
         page.on("pageerror", lambda err: errors.append(str(err)))
         # networkidle never comes: the live event stream stays open by design.
+        # Buttons enable only after the state snapshot applied, so waiting
+        # for an ENABLED button is waiting for the page to be truly ready.
         page.goto(base, wait_until="domcontentloaded")
-        page.wait_for_selector('button[data-step="connect"]', timeout=30_000)
+        page.wait_for_selector('button[data-step="connect"]:enabled', timeout=30_000)
 
         # The page is operator language, not code.
         assert "ZMART target acquisition" in page.content()
-        assert page.locator("#demo-banner").is_visible()
+        playwright_api.expect(page.locator("#demo-banner")).to_be_visible(timeout=10_000)
 
         for step in _STEP_ORDER:
             page.click(f'button[data-step="{step}"]')
@@ -90,14 +92,15 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
         focus.locator('button:has-text("Measure focus")').first.click(timeout=30_000)
         page.wait_for_selector('#widget-focus :text("focus surface fitted")', timeout=60_000)
 
-        page.click('button[data-step="check_calibration"]')
-        page.wait_for_selector("#note-check_calibration.ok", timeout=120_000)
         page.click('button[data-step="run_overview"]')
         page.wait_for_selector("#note-run_overview.ok", timeout=120_000)
         # The live map really shows tiles, streamed as binary and mounted
         # as object URLs — the notebook's streaming path, in a plain page.
-        page.wait_for_selector('#widget-overview img[src^="blob:"]', timeout=30_000)
-        assert page.locator('#widget-overview img[src^="blob:"]').count() == 4
+        # (to_have_count retries: images keep arriving for a moment after
+        # the step reports done, exactly like the live notebook.)
+        playwright_api.expect(page.locator('#widget-overview img[src^="blob:"]')).to_have_count(
+            4, timeout=30_000
+        )
 
         page.click('button[data-step="discover_targets"]')
         page.wait_for_selector("#note-discover_targets.ok", timeout=120_000)
@@ -106,8 +109,9 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
         gallery = page.locator("#widget-gallery")
         gallery.locator("input").first.fill("2")
         gallery.locator('button:has-text("Acquire")').first.click()
-        page.wait_for_selector('#widget-gallery img[src^="blob:"]', timeout=120_000)
-        assert gallery.locator('img[src^="blob:"]').count() == 4  # 2 pairs
+        playwright_api.expect(gallery.locator('img[src^="blob:"]')).to_have_count(
+            4, timeout=120_000
+        )  # 2 pairs
         gallery.locator('button:has-text("✓")').first.click()
 
         page.click('button[data-step="save_results"]')

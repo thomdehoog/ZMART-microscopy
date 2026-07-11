@@ -3,8 +3,7 @@
 Each method here is one numbered section of ``zmart_microscopy_v4_react
 .ipynb``, in the same order and calling the same public workflow and
 ``zmart_controller`` functions — connect, set the origin, capture the two
-jobs, measure focus, validate the calibration, scan the overview, discover
-targets, acquire and curate, save, disconnect. The notebook stays the
+jobs, measure focus, scan the overview, discover targets, acquire and curate, save, disconnect. The notebook stays the
 reference; this class only replaces the *cells* (the orchestration), never
 the science.
 
@@ -91,7 +90,6 @@ class RunFlow:
             "capture_overview_job": self._capture_overview_job,
             "capture_target_job": self._capture_target_job,
             "load_positions": self._load_positions,
-            "check_calibration": self._check_calibration,
             "run_overview": self._run_overview,
             "discover_targets": self._discover_targets,
             "save_results": self._save_results,
@@ -226,26 +224,6 @@ class RunFlow:
             raise FlowError(str(exc)) from exc
         self.ns["focus"] = focus
         return focus
-
-    def _check_calibration(self) -> str:
-        from .. import finish_calibration_check, start_calibration_check
-
-        self._require(self.overview_state is not None, "capture the overview job first")
-        self._require(self.target_state is not None, "capture the target job first")
-        focus = self._focus()
-        calcheck = start_calibration_check(
-            self.session, self.overview_state, focus=focus, n_positions=12, radius_um=1000.0
-        )
-        report = finish_calibration_check(calcheck, self.target_state, output_root=self.root)
-        self.ns["calibration_report"] = report
-        if self.hub.widget("calibration") is None:
-            self.hub.add_widget("calibration", wreact.calibration_report(report))
-        else:
-            self.hub.widget("calibration").report = report
-        return (
-            f"calibration measured over {report['n_sites']} sites — the two "
-            f"objectives disagree by {report['mean_offset_um']:.1f} µm on average"
-        )
 
     def _run_overview(self) -> str:
         from .. import overview_inputs_from_records, run_overview
