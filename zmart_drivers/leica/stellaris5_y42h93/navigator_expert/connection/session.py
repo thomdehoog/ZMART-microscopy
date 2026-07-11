@@ -148,20 +148,35 @@ def _load_objective_calibration(
     return translations, info
 
 
-def _load_rig_orientation() -> Any:
-    """The measured camera turn, or the identity turn when the file is unreadable.
+def _load_rig_orientation(*, enabled: bool = True) -> tuple[Any, dict]:
+    """Load orientation and readiness evidence from one exact document.
 
-    Reads the machine's ``orientation.json`` through the machine profile. Any IO
-    or schema problem degrades to the identity ("no turn") orientation — logged
-    loudly, not raised — so a corrupt file never fails the connection. Saved
-    images are then left exactly as the camera produced them (the same defined
-    meaning as ``load_orientation=False``) until the operator re-publishes the
-    file with ``orientation/notebooks/set_orientation.ipynb`` and reconnects.
+    A single resolve/read supplies both the orientation used for images and the
+    provenance used by preflight, so snapshot adoption cannot mix old geometry
+    with new readiness evidence. Invalid or disabled configuration returns the
+    identity turn with an explicit not-ready record.
     """
     from .. import orientation as _orientation
+    from ..config.machine import MACHINE
 
+    identity = _orientation.Orientation()
+    if not enabled:
+        return identity, {
+            "enabled": False,
+            "loaded": False,
+            "measured": False,
+            "path": None,
+            "rotate_deg": int(identity.rotate_deg),
+        }
+
+    path = None
     try:
-        return _orientation.rig_orientation()
+        path = MACHINE.orientation_path().absolute()
+        data = json.loads(path.read_text(encoding="utf-8"))
+        # Match orientation.load_orientation's validation without reading the
+        # file a second time: readiness evidence and runtime geometry must come
+        # from this same in-memory document.
+        orientation = _orientation.Orientation(rotate_deg=int(data.get("rotate_deg", 0)))
     except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
         _log.warning(
             "orientation unavailable (%s); saved images will NOT be turned to the "
@@ -169,44 +184,22 @@ def _load_rig_orientation() -> Any:
             "orientation/notebooks/set_orientation.ipynb and reconnect.",
             exc,
         )
-        return _orientation.Orientation()
-
-
-def _orientation_info(*, enabled: bool, loaded_orientation: Any) -> dict:
-    """Describe the orientation selected at connect, including measurement proof."""
-    if not enabled:
-        return {
-            "enabled": False,
-            "loaded": False,
-            "measured": False,
-            "path": None,
-            "rotate_deg": int(loaded_orientation.rotate_deg),
-        }
-    from ..config.machine import MACHINE
-
-    path = MACHINE.orientation_path().absolute()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        from .. import orientation as _orientation
-
-        validated = _orientation.load_orientation(path)
-    except Exception as exc:  # noqa: BLE001 -- evidence for a fail-soft load
-        return {
+        return identity, {
             "enabled": True,
             "loaded": False,
             "measured": False,
-            "path": str(path),
-            "rotate_deg": int(loaded_orientation.rotate_deg),
+            "path": None if path is None else str(path),
+            "rotate_deg": int(identity.rotate_deg),
             "error": str(exc),
         }
-    return {
+    return orientation, {
         "enabled": True,
-        "loaded": validated == loaded_orientation,
+        "loaded": True,
         # A real measured 0-degree orientation is valid. The explicit marker,
         # not the angle, distinguishes it from the shipped identity placeholder.
-        "measured": validated == loaded_orientation and data.get("measured") is True,
+        "measured": data.get("measured") is True,
         "path": str(path),
-        "rotate_deg": int(loaded_orientation.rotate_deg),
+        "rotate_deg": int(orientation.rotate_deg),
     }
 
 
@@ -251,18 +244,16 @@ def connect_microscope(
     loaded orientation and calibration live in the per-connection session
     registry (:mod:`.session_state`), where the acquire/save path reads them.
     """
-    from .. import orientation as _orientation
     from ..commands import gate as _gate
     from . import session_state
 
     client = connect_python_client(client_name=client_name, api_delay_ms=api_delay_ms)
     _gate.connect_handshake(client, load=load_limits)
-    orientation = _load_rig_orientation() if load_orientation else _orientation.Orientation()
+    orientation, orientation_info = _load_rig_orientation(enabled=load_orientation)
     translations, calibration_info = _load_objective_calibration(
         calibration_name,
         enabled=load_calibration,
     )
-    orientation_info = _orientation_info(enabled=load_orientation, loaded_orientation=orientation)
     session_state.install(
         client,
         session_state.SessionConfig(

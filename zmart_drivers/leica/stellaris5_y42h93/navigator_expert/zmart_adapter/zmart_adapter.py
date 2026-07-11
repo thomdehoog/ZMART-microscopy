@@ -363,11 +363,15 @@ def _selected_job_name(handle: ZmartHandle) -> str:
     return name
 
 
-def _setup_readiness(handle: ZmartHandle, active_objective: dict | None) -> dict:
-    """Driver-owned verdict for calibration/orientation readiness.
+def _setup_readiness(
+    handle: ZmartHandle,
+    active_objective: dict | None,
+    limits: dict | None,
+) -> dict:
+    """Driver-owned verdict for limits, calibration, and orientation readiness.
 
     Workflows consume only ``ready`` and ``issues``. The Leica driver owns the
-    meaning of the evidence and all calibration/orientation application.
+    meaning of the evidence and all machine-configuration application.
     """
     loaded = _session_state.get(handle.client)
     orientation = dict((loaded.orientation_info if loaded else None) or {})
@@ -384,6 +388,11 @@ def _setup_readiness(handle: ZmartHandle, active_objective: dict | None) -> dict
     known_slots = calibration.get("slots", [])
     measured_slots = calibration.get("measured_slots", [])
     issues = []
+    if not limits or limits.get("is_fallback") or limits.get("source") != "machine":
+        issues.append(
+            f"machine-specific stage limits are not active (got {limits}); publish this "
+            "machine's measured envelope with limits/notebooks/set_limits.ipynb first"
+        )
     if not orientation.get("measured"):
         issues.append(
             "camera-to-stage orientation is not a measured machine value; "
@@ -923,6 +932,7 @@ def get_state(handle: ZmartHandle) -> dict:
     settings = _readers.get_job_settings(handle.client, selected["Name"], mode="api") or {}
     active_objective = settings.get("objective")
     normal, autofocus = _job_catalog(handle)
+    limits = _gate.describe(handle.client)
     return {
         "changeable": {"job": selected["Name"]},
         "observed": {
@@ -943,8 +953,8 @@ def get_state(handle: ZmartHandle) -> dict:
             # an instruction): path, source tag, is_fallback — reported by
             # the commands-layer gate. None when the limits handshake failed
             # (every mutating command underneath is then refusing).
-            "limits": _gate.describe(handle.client),
-            "setup": _setup_readiness(handle, active_objective),
+            "limits": limits,
+            "setup": _setup_readiness(handle, active_objective, limits),
         },
     }
 

@@ -149,3 +149,6 @@ def test_capture_cells_enforce_the_driver_preflight_verdict():
             f"the {state_name} capture cell no longer checks the driver's "
             "readiness verdict before continuing"
         )
+    assert "machine-specific stage limits are not active" not in "\n".join(sources), (
+        "the notebook must not duplicate Leica limits policy owned by the driver verdict"
+    )

@@ -78,6 +78,7 @@ import logging
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 from shared import limits as _shared_limits
@@ -111,9 +112,9 @@ MUTATING_COMMANDS = {
 }
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GateState:
-    """One session's validated limits (or the reason there are none).
+    """Private installed state for one session.
 
     ``limits`` is the loaded :class:`LeicaLimits` and ``stage_cfg``
     the validated stage config when the handshake succeeded; on failure both
@@ -122,7 +123,7 @@ class GateState:
     """
 
     limits: Any | None = None
-    stage_cfg: dict | None = None
+    stage_cfg: Mapping[str, Any] | None = None
     error: str | None = None
 
     @property
@@ -130,23 +131,66 @@ class GateState:
         return self.error is None
 
 
+@dataclass(frozen=True, slots=True)
+class LimitsStatus:
+    """Detached public provenance for the installed limits."""
+
+    source: str
+    path: str | None
+    is_fallback: bool
+
+    def describe(self) -> dict:
+        return {
+            "source": self.source,
+            "path": self.path,
+            "is_fallback": self.is_fallback,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class GateStatus:
+    """Detached result returned by the handshake and :func:`state_for`."""
+
+    limits: LimitsStatus | None
+    stage_cfg: dict | None
+    error: str | None
+
+    @property
+    def ok(self) -> bool:
+        return self.error is None
+
+
+@dataclass(frozen=True, slots=True, init=False)
 class LeicaLimits:
-    """Immutable runtime checker for the flat Leica limits document."""
+    """Immutable runtime checker compiled from the flat Leica limits document."""
+
+    _policy: Mapping[str, tuple[str, tuple[Any, ...]] | None]
+    source: str
+    path: Any
+    is_fallback: bool
 
     def __init__(self, payload: Mapping[str, Any], *, source: str, path: Any, is_fallback: bool):
-        self.payload = dict(payload)
-        self.source = source
-        self.path = path
-        self.is_fallback = is_fallback
+        compiled = {}
+        for name, entry in payload.items():
+            if entry == []:
+                compiled[name] = None
+                continue
+            kind, values = next(iter(entry.items()))
+            compiled[name] = (kind, tuple(values))
+        object.__setattr__(self, "_policy", MappingProxyType(compiled))
+        object.__setattr__(self, "source", source)
+        object.__setattr__(self, "path", path)
+        object.__setattr__(self, "is_fallback", is_fallback)
 
     def _origin(self) -> str:
         return f"limits: {self.path}, source={self.source}"
 
     def _check_one(self, name: str, spec: Any, value: Any) -> None:
-        if spec == []:
+        if spec is None:
             return
-        if "range" in spec:
-            low, high = spec["range"]
+        kind, configured = spec
+        if kind == "range":
+            low, high = configured
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise _shared_limits.LimitViolation(
                     f"{name}={value!r} is not numeric (range [{low}, {high}]; {self._origin()})"
@@ -157,28 +201,29 @@ class LeicaLimits:
                     f"{name}={value!r} outside range [{low}, {high}] ({self._origin()})"
                 )
             return
-        allowed = spec["allowed"]
+        allowed = configured
         if not any(type(value) is type(candidate) and value == candidate for candidate in allowed):
             raise _shared_limits.LimitViolation(
-                f"{name}={value!r} not allowed; expected one of {allowed!r} ({self._origin()})"
+                f"{name}={value!r} not allowed; expected one of {list(allowed)!r} "
+                f"({self._origin()})"
             )
 
     def check(self, function: str, values: Mapping[str, Any]) -> None:
         if function == "set_xyz":
             for param in ("x_um", "y_um", "z_galvo_um", "z_wide_um"):
                 if param in values:
-                    self._check_one(param, self.payload[param], values[param])
+                    self._check_one(param, self._policy[param], values[param])
             return
         if function == "set_objective":
             if "objective_slot" in values:
                 self._check_one(
-                    "objective_slot", self.payload["objective_slot"], values["objective_slot"]
+                    "objective_slot", self._policy["objective_slot"], values["objective_slot"]
                 )
             return
         if function not in _stage_config.SETTER_LIMIT_KEYS:
             return
-        spec = self.payload[function]
-        if spec == []:
+        spec = self._policy[function]
+        if spec is None:
             return
         candidates = values.get("values")
         if candidates is None and "value" in values:
@@ -191,12 +236,15 @@ class LeicaLimits:
         for value in candidates:
             self._check_one(function, spec, value)
 
+    def status(self) -> LimitsStatus:
+        return LimitsStatus(
+            source=self.source,
+            path=str(self.path) if self.path is not None else None,
+            is_fallback=self.is_fallback,
+        )
+
     def describe(self) -> dict:
-        return {
-            "source": self.source,
-            "path": str(self.path) if self.path is not None else None,
-            "is_fallback": self.is_fallback,
-        }
+        return self.status().describe()
 
 
 # id(client) -> (client, GateState). The client reference is deliberately
@@ -204,6 +252,32 @@ class LeicaLimits:
 # recycled onto a new, never-handshaken client that would then inherit stale
 # limits. CAM clients are process-lifetime, so this is not a leak in practice.
 _GATE_STATE: dict[int, tuple[Any, GateState]] = {}
+
+
+def _freeze(value: Any) -> Any:
+    """Recursively freeze the JSON-shaped installed stage snapshot."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    return value
+
+
+def _thaw(value: Any) -> Any:
+    """Return a detached ordinary-Python copy for public status consumers."""
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    return value
+
+
+def _status(state: GateState) -> GateStatus:
+    return GateStatus(
+        limits=state.limits.status() if state.limits is not None else None,
+        stage_cfg=_thaw(state.stage_cfg) if state.stage_cfg is not None else None,
+        error=state.error,
+    )
 
 
 def _install(client: Any, state: GateState) -> None:
@@ -215,10 +289,15 @@ def uninstall(client: Any) -> None:
     _GATE_STATE.pop(id(client), None)
 
 
-def state_for(client: Any) -> GateState | None:
-    """The installed gate state for *client*, or None when never handshaken."""
+def _state_for(client: Any) -> GateState | None:
     entry = _GATE_STATE.get(id(client))
     return entry[1] if entry is not None else None
+
+
+def state_for(client: Any) -> GateStatus | None:
+    """A detached status snapshot, or None when the client never handshook."""
+    state = _state_for(client)
+    return _status(state) if state is not None else None
 
 
 def describe(client: Any) -> dict | None:
@@ -227,7 +306,7 @@ def describe(client: Any) -> dict | None:
     The record contains source, path, and fallback status. It is reported by
     the adapter under observed state as evidence.
     """
-    state = state_for(client)
+    state = _state_for(client)
     if state is None or state.limits is None:
         return None
     return state.limits.describe()
@@ -243,7 +322,7 @@ def check_refusal(client: Any, command: str, values: Mapping[str, Any]) -> str |
     their fail-closed result-dict idiom, the adapter/controller raise.
     """
     key = MUTATING_COMMANDS[command]  # KeyError = unmapped wrapper = programming error
-    state = state_for(client)
+    state = _state_for(client)
     if state is None:
         return (
             f"{command} refused: no limits are installed for this session — run the "
@@ -284,7 +363,7 @@ def _build_gate_from_file(
         is_fallback=is_fallback,
     )
     _limits.apply_stage_limits_from_config(stage_cfg)
-    state = GateState(limits=function_limits, stage_cfg=stage_cfg, error=None)
+    state = GateState(limits=function_limits, stage_cfg=_freeze(stage_cfg), error=None)
     _install(client, state)
     return state
 
@@ -358,8 +437,10 @@ def connect_handshake(
     machine = machine if machine is not None else _machine.MACHINE
 
     if not load:
-        return _install_default_limits(
-            client, machine, "limits loading was skipped for this connection"
+        return _status(
+            _install_default_limits(
+                client, machine, "limits loading was skipped for this connection"
+            )
         )
 
     try:
@@ -380,8 +461,10 @@ def connect_handshake(
         )
     except Exception as exc:  # noqa: BLE001 -- config IO / schema; fall back to defaults, never crash connect
         try:
-            return _install_default_limits(
-                client, machine, f"the machine limits.json did not validate: {exc}"
+            return _status(
+                _install_default_limits(
+                    client, machine, f"the machine limits.json did not validate: {exc}"
+                )
             )
         except Exception as default_exc:  # noqa: BLE001 -- shipped defaults broken: last-resort fail-closed
             error = (
@@ -396,10 +479,10 @@ def connect_handshake(
             # deliberately left in place: it is unreachable for moves, because
             # every mutating wrapper checks this fail-closed gate state first
             # and refuses before the envelope is ever consulted.
-            return state
+            return _status(state)
 
     log.info(
         "limits handshake ok: %s governs this session",
         state.limits.describe(),
     )
-    return state
+    return _status(state)

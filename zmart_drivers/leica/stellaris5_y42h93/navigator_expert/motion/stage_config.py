@@ -9,7 +9,7 @@ object. Runtime provenance is kept outside JSON in the snapshot's hidden
 ``.limits-machine`` marker.
 
 ``adopt_limits`` publishes a new snapshot holding this ``limits.json`` from the
-``set_stage_limits`` notebook. On a fresh install, the bundled defaults are
+``set_limits`` notebook. On a fresh install, the bundled defaults are
 copied into ProgramData first, so runtime reads still point at machine-local
 files and CI can run without executing the notebooks.
 
@@ -51,9 +51,9 @@ _AXIS_FILE_KEYS = {
     "z_wide": "z_wide_um",
 }
 
-# These are visible in the file even while unrestricted. A non-empty setter
-# entry is rejected until that setter has a documented value contract; silently
-# accepting a limit that is not enforced would be worse than refusing the file.
+# These are visible in the file even while unrestricted. Each entry is either
+# ``[]`` or one typed constraint, and the command wrapper with the same name
+# enforces a typed constraint immediately before its native CAM call.
 SETTER_LIMIT_KEYS = (
     "set_zoom",
     "set_scan_speed",
@@ -100,6 +100,20 @@ def _read_json(path: Path) -> dict[str, Any]:
         return json.load(fh)
 
 
+def _normalize_range(values: Any, *, path: Path, name: str) -> list[float]:
+    """Validate one strict numeric ``[min, max]`` and return floats."""
+    if not isinstance(values, list) or len(values) != 2:
+        raise ValueError(f"{path} {name} must be [min, max], got {values!r}")
+    if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
+        raise ValueError(f"{path} {name} must contain numbers, got {values!r}")
+    low, high = float(values[0]), float(values[1])
+    if not (math.isfinite(low) and math.isfinite(high)):
+        raise ValueError(f"{path} {name} is not finite: {values!r}")
+    if low > high:
+        raise ValueError(f"{path} {name} has min > max: {values!r}")
+    return [low, high]
+
+
 def _validate_limits(limits: dict[str, Any], *, path: Path) -> dict[str, list[float]]:
     if not isinstance(limits, dict):
         raise ValueError(f"{path} stage limits must be an object, got {limits!r}")
@@ -115,22 +129,7 @@ def _validate_limits(limits: dict[str, Any], *, path: Path) -> dict[str, list[fl
     for axis in _REQUIRED_AXES:
         if axis not in limits:
             raise ValueError(f"{path} stage limits missing axis: {axis!r}")
-        values = limits[axis]
-        if not isinstance(values, list) or len(values) != 2:
-            raise ValueError(f"{path} stage limit {axis!r} must be [min, max], got {values!r}")
-        try:
-            low, high = float(values[0]), float(values[1])
-        except (TypeError, ValueError):
-            raise ValueError(
-                f"{path} stage limit {axis!r} must be two numbers, got {values!r}"
-            ) from None
-        if not (math.isfinite(low) and math.isfinite(high)):
-            # json.loads accepts NaN/Infinity literals, and NaN compares False
-            # against every bound - reject non-finite numbers outright.
-            raise ValueError(f"{path} stage limit {axis!r} is not finite: {values!r}")
-        if low > high:
-            raise ValueError(f"{path} stage limit {axis!r} has min > max: {values!r}")
-        out[axis] = [low, high]
+        out[axis] = _normalize_range(limits[axis], path=path, name=f"stage limit {axis!r}")
     return out
 
 
@@ -164,23 +163,16 @@ def _normalize_typed_limit(
     if not isinstance(values, list):
         raise ValueError(f"{path} {name}.{kind} must be a list, got {values!r}")
     if kind == "range":
-        if len(values) != 2:
-            raise ValueError(f"{path} {name}.range must be [min, max], got {values!r}")
-        try:
-            low, high = float(values[0]), float(values[1])
-        except (TypeError, ValueError):
-            raise ValueError(f"{path} {name}.range must contain numbers, got {values!r}") from None
-        if not (math.isfinite(low) and math.isfinite(high)):
-            raise ValueError(f"{path} {name}.range is not finite: {values!r}")
-        if low > high:
-            raise ValueError(f"{path} {name}.range has min > max: {values!r}")
-        return {"range": [low, high]}
+        return {"range": _normalize_range(values, path=path, name=f"{name}.range")}
     if not values:
         raise ValueError(
             f"{path} {name}.allowed must not be empty; use [] for unrestricted setters"
         )
-    if any(isinstance(value, (dict, list)) for value in values):
-        raise ValueError(f"{path} {name}.allowed values must be scalar, got {values!r}")
+    if any(type(value) not in (bool, int, float, str) for value in values):
+        raise ValueError(
+            f"{path} {name}.allowed values must be JSON booleans, numbers, or strings, "
+            f"got {values!r}"
+        )
     if any(isinstance(value, float) and not math.isfinite(value) for value in values):
         raise ValueError(f"{path} {name}.allowed contains a non-finite number: {values!r}")
     if len({json.dumps(value, sort_keys=True) for value in values}) != len(values):

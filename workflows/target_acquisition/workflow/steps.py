@@ -43,7 +43,7 @@ def connect(vendor: str, *, output_root: Any = None, **extras: Any):
 def require_driver_ready(state: dict) -> dict | None:
     """Refuse when a driver reports its machine setup is not ready.
 
-    Calibration and orientation meanings remain entirely driver-owned. This
+    Limits, calibration, and orientation meanings remain entirely driver-owned. This
     workflow consumes only the driver's opaque ``ready`` verdict and displays
     its actionable issues. Drivers without such a verdict remain compatible.
     """
