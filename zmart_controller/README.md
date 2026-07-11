@@ -11,11 +11,12 @@ workflow will run on any microscope that has a driver adapter; your code never
 imports a vendor's API, the driver talks to the microscope's own API, the
 controller stays a thin, easy surface for humans and AI agents alike.
 
-> **Status:** the first real adapter is the Leica Stellaris 5 one — import
+> **Status:** two real adapters exist — the Leica Stellaris 5 one (import
 > `zmart_drivers.leica.stellaris5_y42h93.navigator_expert.zmart_adapter` to
-> register it. The other vendor adapters are still under construction (see
-> [`docs/ZMART.md`](../docs/ZMART.md)); the mock used by the tests and the
-> example notebook registers from the test side.
+> register it) and the mesoSPIM one (`zmart_drivers.mesospim
+> .mesospim_zmart_adapter`, demo-validated). See
+> [`docs/ZMART.md`](../docs/ZMART.md) for per-adapter status; the mock used by
+> the tests and the example notebook registers from the test side.
 
 > **This is the `zmart` surface.** The controller is ZMART's vendor-agnostic API
 > — the layer the outside world will eventually import as `zmart` (today the
@@ -146,8 +147,10 @@ zmart_controller.get_acquisition_options()
 zmart_controller.acquire(acquisition_type="prescan", position_label="A1", options={"format": "ome-tiff"})
 ```
 
-The returned record's `images` list contains the full saved data filenames;
-drivers may also return indexed `planes` entries with a full `path` per plane.
+Cross-driver convention: when an acquire saves files, the returned record's
+`images` list carries the full saved data filenames — workflows read this key,
+so a driver that saves files must provide it. Drivers may also return indexed
+`planes` entries with a full `path` per plane.
 
 The option menu shown is the bundled mock's; each driver owns its own menu
 (the Leica driver's has `job`, `backlash_correction`, `strip_scan_fields`, `cleanup_source`

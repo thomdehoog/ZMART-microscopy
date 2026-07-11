@@ -55,10 +55,6 @@ class Session:
         """Whether :meth:`disconnect` has been called on this session.
 
         Lifecycle reporting may inspect this without touching the microscope.
-        It deliberately says nothing about an unexpected transport failure
-        the driver has not observed yet — and, because disconnect marks the
-        session closed before calling the driver's teardown, it stays true
-        even if that teardown then raised.
         """
         return self._closed
 
@@ -70,7 +66,6 @@ class Session:
         A command to the driver that, for our purposes, here is zero -- every
         position is then micrometers from this point. The driver owns the origin
         (just another driver-side offset), so the controller never does the math.
-        Returns whatever the driver reports.
         """
         return self._ops["set_origin"](self._handle)
 
@@ -87,7 +82,7 @@ class Session:
         return self._ops["get_state"](self._handle)
 
     def set_state(self, state: dict) -> dict:
-        """Reapply captured state; return whatever the driver reports.
+        """Reapply captured state.
 
         The driver acts on the ``"changeable"`` part only; ``"observed"`` is
         a report, never an instruction.
@@ -99,10 +94,7 @@ class Session:
         return self._ops["get_procedures"](self._handle)
 
     def run_procedure(self, procedure: dict) -> dict:
-        """Run a procedure; return whatever the driver reports.
-
-        Its meaning is encoded in the dict and run by the driver.
-        """
+        """Run a procedure. Its meaning is encoded in the dict and run by the driver."""
         return self._ops["run_procedure"](self._handle, procedure)
 
     # --- movement -----------------------------------------------------------
@@ -178,9 +170,9 @@ class Session:
         Target-acquisition-capable drivers expose operator-authored
         ``tile_positions`` (not the physical stage position; use
         :meth:`get_xyz` for that), optional ``focus_positions``, and the
-        resolved ``output_root``. Other keys remain driver-defined. The
-        controller does not cache this snapshot. A driver may persist working
-        files and block briefly while gathering truthful vendor information.
+        resolved ``output_root``. Other keys remain driver-defined. A driver may
+        persist working files and block briefly while gathering truthful vendor
+        information.
         """
         return self._ops["get_info"](self._handle)
 
@@ -209,13 +201,12 @@ def set_instrument(instrument: dict[str, Any]) -> Session:
     :meth:`Session.set_origin`. The origin policy at connect is driver-defined:
     drivers may restore an origin persisted by a previous session, or use an
     absolute frame until one is set -- call ``set_origin()`` at session start
-    if you need a fresh frame. Option menus are not cached here -- ``get_*``
-    calls forward live.
+    if you need a fresh frame.
 
     Returns a connected :class:`Session`. Raises ``ValueError`` if the instrument
     identity matches no registered driver.
     """
-    ops, connection = resolve(instrument)
-    handle = ops["connect"](connection)
-    context = {key: connection[key] for key in IDENTITY}
+    ops = resolve(instrument)
+    handle = ops["connect"](instrument)
+    context = {key: instrument[key] for key in IDENTITY}
     return Session(ops, handle, context)

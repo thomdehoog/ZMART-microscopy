@@ -17,11 +17,13 @@ uninspected and propagates exceptions unchanged. Error text must be
 credential-safe: connection dicts may carry credentials, so messages name keys,
 never values (as :func:`_identity` does).
 
-This is where vendor driver adapters register. The first real one is the Leica
-Stellaris 5 adapter (``zmart_drivers.leica.stellaris5_y42h93.navigator_expert
-.zmart_adapter`` -- import it to register the instrument); the mock driver and
-the example notebook register from the test/demo side, so no test code is
-imported into production. See ``docs/ZMART.md`` for the integration status.
+This is where vendor driver adapters register. Two real ones exist today: the
+Leica Stellaris 5 adapter (``zmart_drivers.leica.stellaris5_y42h93
+.navigator_expert.zmart_adapter``) and the mesoSPIM adapter
+(``zmart_drivers.mesospim.mesospim_zmart_adapter``) -- import one to register
+its instrument. The mock driver and the example notebook register from the
+test/demo side, so no test code is imported into production. See
+``docs/ZMART.md`` for the integration status.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -67,6 +69,12 @@ def _identity(connection: dict[str, Any]) -> tuple[str, ...]:
         raise ValueError(
             f"connection missing identity keys {missing}; has keys {sorted(connection)}"
         )
+    # Identity values must be strings: a None placeholder (easy to leave in a
+    # copied template) would otherwise poison get_instruments() for everyone
+    # with an unrelated sorting error far from the mistake.
+    bad = [key for key in IDENTITY if not isinstance(connection[key], str)]
+    if bad:
+        raise ValueError(f"connection identity keys {bad} must be strings")
     return tuple(connection[key] for key in IDENTITY)
 
 
@@ -80,9 +88,11 @@ def register(connection: dict[str, Any], *, ops: dict[str, Any]) -> None:
     op is missing or the connection identity is incomplete. Registering the same
     identity twice logs a warning and overwrites the earlier entry (last wins).
     """
-    missing = [name for name in OPS if name not in ops]
+    missing = [name for name in OPS if not callable(ops.get(name))]
     if missing:
-        raise ValueError(f"driver {_identity(connection)} missing ops: {missing}")
+        raise ValueError(
+            f"driver {_identity(connection)} missing or non-callable ops: {missing}"
+        )
     key = _identity(connection)
     if key in REGISTRY:
         logger.warning("driver %s already registered; overwriting", key)
@@ -99,12 +109,12 @@ def get_instruments() -> list[dict[str, Any]]:
     return [dict(entry["connection"]) for _key, entry in sorted(REGISTRY.items())]
 
 
-def resolve(instrument: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Look up the ops table for a connection dict and return ``(ops, connection)``.
+def resolve(instrument: dict[str, Any]) -> dict[str, Any]:
+    """Look up the ops table registered for a connection dict.
 
     ``instrument`` is one of the connection dicts from :func:`get_instruments`;
-    its identity selects the driver and the whole dict is forwarded to
-    ``connect``. Raises ``ValueError`` if no driver matches the identity.
+    its identity selects the driver. Raises ``ValueError`` if no driver matches
+    the identity.
     """
     key = _identity(instrument)
     try:
@@ -114,4 +124,4 @@ def resolve(instrument: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]
             f"no driver registered for {dict(zip(IDENTITY, key, strict=True))}; "
             f"known: {sorted(REGISTRY)}"
         ) from None
-    return entry["ops"], instrument
+    return entry["ops"]

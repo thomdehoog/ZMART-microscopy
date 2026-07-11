@@ -25,8 +25,24 @@ def _full_ops():
 
 class TestRegister:
     def test_missing_ops_raise(self, scratch_identity):
-        with pytest.raises(ValueError, match="missing ops"):
+        with pytest.raises(ValueError, match="missing or non-callable ops"):
             registry.register(scratch_identity, ops={"connect": lambda c: None})
+
+    def test_non_callable_ops_raise(self, scratch_identity):
+        # A table full of None placeholders must fail here, at registration,
+        # not later with a bare TypeError inside set_instrument.
+        ops = _full_ops()
+        ops["acquire"] = None
+        with pytest.raises(ValueError, match="missing or non-callable ops.*acquire"):
+            registry.register(scratch_identity, ops=ops)
+
+    def test_non_string_identity_raises(self):
+        # A None placeholder left in a copied template must fail at register,
+        # not poison get_instruments() for everyone with a sorting TypeError.
+        with pytest.raises(ValueError, match="must be strings"):
+            registry.register(
+                {"vendor": None, "microscope": "scratch", "api": "t-api"}, ops=_full_ops()
+            )
 
     def test_missing_identity_keys_raise_without_values(self):
         # the error must list key names only -- connection dicts may carry credentials
