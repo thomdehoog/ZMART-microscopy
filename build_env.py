@@ -38,9 +38,16 @@ VERIFY = {
     "opencv": "import cv2",
     "tifffile": "import tifffile",
     "matplotlib": "import matplotlib",
+    # The v4 operator notebooks need the interactive canvas and the React
+    # widget host; a build that misses either would only fail at the scope.
+    "ipympl": "import ipympl",
+    "anywidget": "import anywidget",
     "pytest": "import pytest",
     "ipython": "import IPython",
     "ipykernel": "import ipykernel",
+    # Without these the notebook end-to-end and guard tests silently skip.
+    "nbformat": "import nbformat",
+    "nbclient": "import nbclient",
     "pythonnet": "import clr",
 }
 
