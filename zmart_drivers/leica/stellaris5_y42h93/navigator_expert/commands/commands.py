@@ -630,6 +630,16 @@ def set_objective(
             "logs": [],
         }
 
+    # The flat limits file constrains the resolved physical slot, regardless
+    # of whether the caller selected it by slot, name, or magnification.
+    refused = _limits_refusal(
+        client,
+        "set_objective",
+        {"job_name": job_name, "objective_slot": slot},
+    )
+    if refused:
+        return refused
+
     api_obj = client.PyApiSetObjectiveSlotByJobName
 
     def setup(m):
@@ -1165,7 +1175,7 @@ def move_xy(client, x, y, unit="um", *, max_retries=None, pre_check_timeout=None
             "timing": _make_timing(total_s=0.0, attempts=0),
             "logs": [],
         }
-    # Phase A: convert to um, gate on the function-keyed limits, then the
+    # Phase A: convert to um, gate on the session limits, then the
     # stage envelope + backstop — all before the native call can fire.
     try:
         if unit == "mm":

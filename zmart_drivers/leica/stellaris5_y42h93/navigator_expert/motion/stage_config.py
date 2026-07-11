@@ -1,16 +1,11 @@
-"""Load the stage envelope from the single limits file.
+"""Load and publish the Leica driver's flat ``limits.json``.
 
-The physical stage envelope and the function-keyed gate policy live in ONE
-machine-local ``limits.json`` (decision §7b) that resolves through the machine
-profile - the newest snapshot under ``C:\\ProgramData\\zmart-microscopy\\...``
-(see :mod:`navigator_expert.config.machine`). The file is the function-keyed
-format: ``constraints`` (the ``stage.*`` envelope) + ``functions`` (the gate
-policy, read by ``commands/gate``). This module reads the envelope from
-``constraints.stage.*``; the commands gate reads ``constraints`` +
-``functions`` from the same file. There is no separate ``function_limits.json``
-and no ``backlash`` block - backlash is a plain motion utility with baked-in
-default params (:mod:`navigator_expert.motion.movement`), not config
-(decision §2b).
+The file is deliberately operator-readable: four top-level stage ranges,
+``objective_slot_allowed``, and one top-level entry for each configurable
+setter. An empty setter list means "reviewed; no limit is enforced". There are
+no schema/source wrappers, named-constraint indirection, or nested ``functions``
+object. Runtime provenance is kept outside JSON in the snapshot's hidden
+``.limits-machine`` marker.
 
 ``adopt_limits`` publishes a new snapshot holding this ``limits.json`` from the
 ``set_stage_limits`` notebook. On a fresh install, the bundled defaults are
@@ -30,7 +25,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-LIMITS_SCHEMA_VERSION = 1
 LIMITS_SOURCE_DEFAULTS = "defaults"
 LIMITS_SOURCE_MACHINE = "machine"
 LIMITS_SOURCE_BOUNDARY_MARKERS = "boundary_markers"
@@ -49,7 +43,39 @@ LIMITS_SOURCES = frozenset(
 )
 
 _REQUIRED_AXES = ("x", "y", "z_galvo", "z_wide")
-_STAGE_CONSTRAINT_PREFIX = "stage."
+_AXIS_FILE_KEYS = {
+    "x": "x_um",
+    "y": "y_um",
+    "z_galvo": "z_galvo_um",
+    "z_wide": "z_wide_um",
+}
+
+# These are visible in the file even while unrestricted. A non-empty setter
+# entry is rejected until that setter has a documented value contract; silently
+# accepting a limit that is not enforced would be worse than refusing the file.
+SETTER_LIMIT_KEYS = (
+    "set_zoom",
+    "set_scan_speed",
+    "set_scan_resonant",
+    "set_scan_mode",
+    "set_sequential_mode",
+    "set_scan_field_rotation",
+    "set_image_format",
+    "set_z_stack_definition",
+    "set_z_stack_step_size",
+    "set_z_stack_size",
+    "set_frame_accumulation",
+    "set_frame_average",
+    "set_line_accumulation",
+    "set_line_average",
+    "set_pinhole_airy",
+    "set_detector_gain",
+    "set_laser_intensity",
+    "set_laser_shutter",
+    "set_filter_wheel_slot",
+    "set_filter_wheel_spectrum",
+)
+_REQUIRED_FILE_KEYS = (*_AXIS_FILE_KEYS.values(), "objective_slot_allowed", *SETTER_LIMIT_KEYS)
 
 
 def _driver_root() -> Path:
@@ -118,106 +144,107 @@ def _validate_source(source: Any, *, path: Path | None = None) -> str:
     return source
 
 
-def _stage_um_from_constraints(constraints: Any, *, path: Path) -> dict[str, list[float]]:
-    """Derive the flat ``stage_um`` envelope from the file's ``constraints``.
-
-    The merged limits.json states the envelope once, under ``constraints`` by
-    name (``stage.x`` = ``{"min": .., "max": ..}``). This lifts the ``stage.*``
-    constraints into the ``{"x": [min, max], ...}`` shape the motion check
-    consumes; non-``stage.`` constraints (if any) are not the motion envelope
-    and are ignored here (the commands gate consumes the full constraint set).
-    Downstream :func:`_validate_limits` enforces exactly this machine's axes,
-    finite numbers, and min <= max.
-    """
-    if not isinstance(constraints, dict):
-        raise ValueError(f"{path} constraints must be an object, got {constraints!r}")
-    stage: dict[str, list[float]] = {}
-    for name, bound in constraints.items():
-        if not name.startswith(_STAGE_CONSTRAINT_PREFIX):
-            continue
-        axis = name[len(_STAGE_CONSTRAINT_PREFIX) :]
-        if not isinstance(bound, dict) or "min" not in bound or "max" not in bound:
-            raise ValueError(
-                f"{path} constraint {name!r} must be an object with 'min' and 'max', got {bound!r}"
-            )
-        stage[axis] = [bound["min"], bound["max"]]
-    return stage
-
-
-def _read_payload(path: Path) -> dict[str, Any]:
-    """Read + schema/source-validate the merged limits.json once."""
-    payload = _read_json(path)
-    if payload.get("schema_version") != LIMITS_SCHEMA_VERSION:
+def _validate_objective_slots(value: Any, *, path: Path) -> list[int]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{path} objective_slot_allowed must be a non-empty list")
+    if any(isinstance(slot, bool) or not isinstance(slot, int) or slot <= 0 for slot in value):
         raise ValueError(
-            f"unsupported limits.json schema_version {payload.get('schema_version')!r} in {path}"
+            f"{path} objective_slot_allowed must contain positive integers, got {value!r}"
         )
-    _validate_source(payload.get("source"), path=path)
-    return payload
+    if len(set(value)) != len(value):
+        raise ValueError(f"{path} objective_slot_allowed contains duplicates: {value!r}")
+    return list(value)
 
 
-def _read_limits(path: Path) -> dict[str, list[float]]:
-    """The validated ``stage_um`` envelope from the merged limits.json."""
-    payload = _read_payload(path)
-    if "constraints" not in payload:
-        raise ValueError(f"{path} missing constraints section")
-    stage = _stage_um_from_constraints(payload["constraints"], path=path)
-    return _validate_limits(stage, path=path)
+def validate_payload(payload: Any, *, path: Path = Path("limits.json")) -> dict[str, Any]:
+    """Validate and normalize the complete flat limits document."""
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} limits must be an object, got {payload!r}")
+    missing = sorted(set(_REQUIRED_FILE_KEYS) - set(payload))
+    unknown = sorted(set(payload) - set(_REQUIRED_FILE_KEYS))
+    if missing:
+        raise ValueError(f"{path} missing limits entries: {missing}")
+    if unknown:
+        raise ValueError(f"{path} has unknown limits entries: {unknown}")
+
+    stage = _validate_limits(
+        {axis: payload[file_key] for axis, file_key in _AXIS_FILE_KEYS.items()}, path=path
+    )
+    objective_slots = _validate_objective_slots(payload["objective_slot_allowed"], path=path)
+    setters: dict[str, list] = {}
+    for name in SETTER_LIMIT_KEYS:
+        entry = payload[name]
+        if entry != []:
+            raise ValueError(
+                f"{path} {name} must currently be [] (reviewed, unrestricted); "
+                "non-empty setter limits are not yet defined"
+            )
+        setters[name] = []
+
+    normalized = {
+        **{_AXIS_FILE_KEYS[axis]: bounds for axis, bounds in stage.items()},
+        "objective_slot_allowed": objective_slots,
+        **setters,
+    }
+    return normalized
+
+
+def build_limits_payload(
+    stage_um: dict[str, Any],
+    *,
+    objective_slots: Any = (1, 2, 3, 4, 5, 6),
+) -> dict[str, Any]:
+    """Build the exact flat document written by the limits notebook."""
+    stage = _validate_limits(stage_um, path=Path("limits.json"))
+    payload = {
+        **{_AXIS_FILE_KEYS[axis]: bounds for axis, bounds in stage.items()},
+        "objective_slot_allowed": list(objective_slots),
+        **{name: [] for name in SETTER_LIMIT_KEYS},
+    }
+    return validate_payload(payload)
 
 
 def load(limits_path: str | Path | None = None) -> dict[str, Any]:
-    """Load the stage envelope from the single limits.json.
+    """Load the stage envelope and objective allow-list from ``limits.json``.
 
     Without an explicit ``limits_path``, this reads the configured file via
     ``defaults_path()`` - the active ProgramData limits snapshot. An explicit
     ``limits_path`` is the caller's deliberate choice and is read as given.
 
-    Returns ``{"stage_um": {axis: [min, max]}}``; the envelope is derived from
-    ``constraints.stage.*`` (decision §7b). Backlash is a motion utility with
-    baked-in defaults (decision §2b), not config, so it is not read here. Any
-    stray ``backlash`` key in an older file is ignored.
+    Returns the internal shapes consumed by motion and the command gate. The
+    file itself stays flat and contains no provenance metadata.
     """
     selected = Path(limits_path) if limits_path is not None else defaults_path()
-    payload = _read_payload(selected)
-
-    if "constraints" not in payload:
-        raise ValueError(f"{selected} missing constraints section")
-    stage = _validate_limits(
-        _stage_um_from_constraints(payload["constraints"], path=selected), path=selected
-    )
+    payload = validate_payload(_read_json(selected), path=selected)
 
     return {
-        "stage_um": stage,
+        "stage_um": {axis: payload[file_key] for axis, file_key in _AXIS_FILE_KEYS.items()},
+        "objective_slot_allowed": payload["objective_slot_allowed"],
+        "setter_limits": {name: payload[name] for name in SETTER_LIMIT_KEYS},
     }
 
 
 def adopt_limits(
-    stage_um: dict[str, Any],
+    limits: dict[str, Any],
     *,
     source: str = LIMITS_SOURCE_MACHINE,
     machine: Any = None,
     moment: datetime | None = None,
     notebook_paths: Any = (),
 ) -> dict:
-    """Publish a new machine snapshot holding the single ``limits.json`` (§7b).
+    """Validate and publish the notebook's flat ``limits.json``.
 
-    Validates *stage_um* against the limits schema (finite numbers, min <= max,
-    exactly the machine's axes) AND against the hardcoded physical backstop
-    (:data:`navigator_expert.motion.limits.STAGE_BACKSTOP_UM`), then publishes a
-    copy-forward snapshot whose single ``limits.json`` is the function-keyed
-    format: ``constraints`` (the adopted envelope, stated by name) and the
-    standard ``functions`` gate map. No ``backlash`` block: backlash is a plain
-    motion utility with baked-in defaults (decision §2b), not config. Calibration
-    and orientation are carried forward from ProgramData, or seeded from repo
-    defaults on a fresh machine. This is the writer for the ``set_stage_limits``
-    notebook.
+    ``limits`` should be the complete flat document shown in the notebook. For
+    API compatibility, the older four-axis internal shape is also accepted and
+    expanded with objective slots 1–6 plus unrestricted setter entries before
+    publication. The file never stores ``source``; the snapshot path itself is
+    the machine-provenance evidence used at connection time.
 
     Args:
-        stage_um: ``{"x": [min, max], "y": ..., "z_galvo": ..., "z_wide": ...}``.
-        source: Provenance tag. Defaults to ``"machine"``: an adopted envelope
-            is this machine's own measured truth, and workflows check for
-            exactly that tag before they trust the limits (the v4 notebook
-            refuses to run on anything else). Pass ``"defaults"`` only when
-            deliberately re-publishing the generic baseline.
+        limits: Complete flat limits document, or the legacy four-axis internal
+            mapping accepted only as a Python API compatibility convenience.
+        source: Retained for caller compatibility and validation, but not stored
+            in JSON. A published snapshot is always reported as machine-owned.
         machine: ``MachineProfile`` to publish into; ``None`` uses the global one.
         moment: Snapshot timestamp; ``None`` uses ``datetime.now(timezone.utc)``.
         notebook_paths: Executed notebook(s) to archive in the snapshot.
@@ -225,20 +252,21 @@ def adopt_limits(
     Returns:
         ``{"snapshot": str, "limits_path": str}``.
     """
-    from ..commands import gate as _gate
     from . import limits as _limits
 
-    validated = _validate_limits(stage_um, path=Path("limits.json"))
-    _limits.check_envelope_within_backstop(validated)
+    _validate_source(source)
+    if set(limits) == set(_REQUIRED_AXES):
+        payload = build_limits_payload(limits)
+    else:
+        payload = validate_payload(limits)
+    stage_um = {axis: payload[file_key] for axis, file_key in _AXIS_FILE_KEYS.items()}
+    _limits.check_envelope_within_backstop(stage_um)
     if machine is None:
         from ..config.machine import MACHINE
 
         machine = MACHINE
     if moment is None:
         moment = datetime.now(timezone.utc)
-
-    # The single limits.json: constraints + functions (the gate map).
-    payload = _gate.build_function_limits_payload(validated, source=_validate_source(source))
 
     snapshot = machine.publish_snapshot(
         moment,

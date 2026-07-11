@@ -1,4 +1,4 @@
-"""Function-keyed limits gate for the commands layer.
+"""Limits gate for the commands layer.
 
 Maintainer decision (MAINTAINER_DECISIONS.md §7): limits are enforced as low
 as possible — at the command wrapper that populates the native CAM function's
@@ -9,9 +9,10 @@ in ``scanfields/files.py``) call :func:`check_refusal` before anything fires.
 
 Wrapper -> key mapping
 ----------------------
-The single ``limits.json`` (its ``functions`` block) keeps the op-level key
-vocabulary shared with the zmart adapter (plus the PR-07 additions); every
-mutating command wrapper declares exactly one key in :data:`MUTATING_COMMANDS`:
+The operator-facing ``limits.json`` is flat. Four axis ranges and the objective
+slot allow-list carry actual limits; setter names with ``[]`` explicitly show
+that those setters are currently unrestricted. The internal mapping below is
+only the command chokepoint vocabulary—it is not the JSON shape.
 
 - all ``set_*`` job setters and ``select_job``  -> ``set_state`` (the job is
   LAS X's unit of configuration; selecting/configuring it is the state
@@ -42,9 +43,10 @@ State model
 -----------
 :func:`connect_handshake` performs the connect-time limits handshake — the
 single ``limits.json`` resolves to the newest ProgramData snapshot. If
-ProgramData is empty, the repo defaults are copied there first. The file must
-be schema-valid with finite numbers only (both its ``constraints``/``functions``
-and its stage envelope), and sit within the hardcoded physical backstop
+ProgramData is empty, the repo defaults are copied there first. The flat file
+must have the exact documented keys, finite ordered stage ranges, valid
+objective slots, and ``[]`` for every unrestricted setter. Its stage envelope
+must sit within the hardcoded physical backstop
 (``motion.limits.STAGE_BACKSTOP_UM``). On success it applies the stage envelope
 and installs the validated ``FunctionLimits`` in a module-level registry keyed
 by client identity.
@@ -91,12 +93,9 @@ log = logging.getLogger(__name__)
 
 NOTEBOOK_POINTER = "limits/notebooks/set_stage_limits.ipynb"
 
-# The limits.json ``functions`` key vocabulary this driver declares. The shared
-# parser requires the file's ``functions`` block to match this set EXACTLY
-# (missing and unknown keys are both load errors), so a machine file must
-# make an explicit decision — a constraint object or an explicit ``null``
-# ("reviewed, deliberately unlimited") — for every key. An ABSENT key fails
-# closed at load time; there is no way to ship one silently unlimited.
+# Internal command-category vocabulary used by shared.limits after the flat
+# Leica document has been validated and translated in memory. This never leaks
+# into limits.json.
 FUNCTION_LIMIT_KEYS = (
     "set_origin",
     "set_xyz",
@@ -230,21 +229,20 @@ def check_refusal(client: Any, command: str, values: Mapping[str, Any]) -> str |
 
 
 def build_function_limits_payload(stage_um: Mapping[str, Any], *, source: str = "machine") -> dict:
-    """The ``constraints`` + ``functions`` of a machine-local limits.json.
+    """Compatibility wrapper returning the flat operator-facing document."""
+    _stage_config._validate_source(source)
+    return _stage_config.build_limits_payload(dict(stage_um))
 
-    Used by ``stage_config.adopt_limits`` (the set_stage_limits notebook) to
-    build the single limits.json (there is no ``backlash`` block — backlash is
-    a motion utility with baked-in defaults, decision §2b). The ``stage.*``
-    constraints are the measured machine envelope and
-    every non-stage key starts as explicit ``null`` (reviewed, deliberately
-    unlimited — the same policy as the bundled template). Operators tighten
-    entries by editing the ProgramData file; the connect handshake
-    re-validates it on every session.
-    """
+
+def _runtime_function_limits(
+    stage_cfg: Mapping[str, Any], *, path: Any, source: str, is_fallback: bool
+):
+    """Translate a validated flat file into the existing immutable checker."""
     constraints = {
-        f"stage.{axis}": {"min": float(bounds[0]), "max": float(bounds[1])}
-        for axis, bounds in stage_um.items()
+        f"stage.{axis}": {"min": bounds[0], "max": bounds[1]}
+        for axis, bounds in stage_cfg["stage_um"].items()
     }
+    constraints["objective.slot"] = {"allowed": stage_cfg["objective_slot_allowed"]}
     functions: dict[str, Any] = {key: None for key in FUNCTION_LIMIT_KEYS}
     functions["set_xyz"] = {
         "x_um": "@stage.x",
@@ -252,38 +250,41 @@ def build_function_limits_payload(stage_um: Mapping[str, Any], *, source: str = 
         "z_galvo_um": "@stage.z_galvo",
         "z_wide_um": "@stage.z_wide",
     }
-    return {
+    functions["set_state"] = {"objective_slot": "@objective.slot"}
+    payload = {
         "schema_version": _shared_limits.SCHEMA_VERSION,
         "source": source,
         "constraints": constraints,
         "functions": functions,
     }
+    return _shared_limits.parse(
+        payload,
+        functions=FUNCTION_LIMIT_KEYS,
+        path=path,
+        is_fallback=is_fallback,
+    )
 
 
-def _build_gate_from_file(client: Any, limits_file: Any, *, is_fallback: bool) -> GateState:
+def _build_gate_from_file(
+    client: Any,
+    limits_file: Any,
+    *,
+    source: str,
+    is_fallback: bool,
+) -> GateState:
     """Validate one limits.json, apply its envelope, and install the gate.
 
     Shared by the normal machine-file path and the bundled-defaults fallback.
     Raises on any validation problem so the caller can decide how to fall back.
     """
-    # The file's constraints.stage.* is the physical envelope; stage_config
-    # derives the {axis: [min, max]} shape and validates finite numbers,
-    # min <= max, and exactly this machine's axes.
+    # stage_config validates the complete flat file in one read.
     stage_cfg = _stage_config.load(limits_path=limits_file)
     # The envelope must sit within the hardcoded physical backstop.
     _limits.check_envelope_within_backstop(stage_cfg["stage_um"])
-    # The SAME file's constraints + functions parse under shared.limits, with
-    # the validated envelope overlaid onto its stage.* constraints so the
-    # numbers governing moves are exactly what stage_config validated. Any
-    # stray backlash key left in an older file is ignored by the shared parser.
-    overrides = {
-        f"stage.{axis}": {"min": bounds[0], "max": bounds[1]}
-        for axis, bounds in stage_cfg["stage_um"].items()
-    }
-    function_limits = _shared_limits.load(
-        limits_file,
-        functions=FUNCTION_LIMIT_KEYS,
-        constraint_overrides=overrides,
+    function_limits = _runtime_function_limits(
+        stage_cfg,
+        path=limits_file,
+        source=source,
         is_fallback=is_fallback,
     )
     _limits.apply_stage_limits_from_config(stage_cfg)
@@ -302,7 +303,12 @@ def _install_default_limits(client: Any, machine: Any, reason: str) -> GateState
     measured envelope, so this warns clearly and marks the limits as a fallback.
     """
     default_file = machine.bundled_default_path(_machine.LIMITS_FILENAME)
-    state = _build_gate_from_file(client, default_file, is_fallback=True)
+    state = _build_gate_from_file(
+        client,
+        default_file,
+        source="defaults",
+        is_fallback=True,
+    )
     log.warning(
         "limits fallback: %s — the session is governed by the bundled DEFAULT "
         "limits (%s), NOT this machine's measured envelope. The defaults span "
@@ -327,20 +333,17 @@ def connect_handshake(
     1. When ``load`` is False, the machine file is skipped and the session is
        governed by the bundled DEFAULT limits (see below). Otherwise the single
        ``limits.json`` resolves through ProgramData, seeding repo defaults there
-       first when needed. It must be schema-valid with finite numbers, min <=
-       max, exactly this machine's axes (envelope derived from
-       ``constraints.stage.*``). ``stage_limits_path`` overrides the resolution
+       first when needed. It must contain exactly the flat keys shown by the
+       limits notebook, finite ranges with min <= max, and a non-empty unique
+       integer objective-slot allow-list. ``stage_limits_path`` overrides the resolution
        with an explicit operator-chosen file (still validated); it is only
        consulted when ``load`` is True — with ``load=False`` the explicit path
        is ignored and the defaults govern.
     2. The envelope must sit WITHIN the hardcoded physical backstop
        (``motion.limits.STAGE_BACKSTOP_UM``).
-    3. The SAME file's ``constraints`` + ``functions`` must parse under
-       ``shared.limits`` (finite numbers, exact key vocabulary =
-       :data:`FUNCTION_LIMIT_KEYS`), with the validated envelope overlaid onto
-       its ``stage.*`` constraints so the numbers governing moves are exactly
-       what stage_config validated. Any stray ``backlash`` key left in an older
-       file is ignored by the shared parser (backlash is not config, §2b).
+    3. The objective allow-list is translated into the immutable runtime gate;
+       setter ``[]`` entries remain explicitly unrestricted. Unknown, missing,
+       or legacy metadata/nesting is rejected rather than silently ignored.
     4. On success: apply the stage envelope (module-global, single instrument
        per process) and install the gate state for *client*.
 
@@ -366,11 +369,19 @@ def connect_handshake(
     try:
         if stage_limits_path is not None:
             limits_file = stage_limits_path
+            source = "machine"
         else:
             limits_file = machine.require_machine_local(
                 _machine.LIMITS_FILENAME, "the physical stage envelope"
             )
-        state = _build_gate_from_file(client, limits_file, is_fallback=False)
+            marker = limits_file.parent / _machine.LIMITS_MACHINE_MARKER
+            source = "machine" if marker.exists() else "defaults"
+        state = _build_gate_from_file(
+            client,
+            limits_file,
+            source=source,
+            is_fallback=False,
+        )
     except Exception as exc:  # noqa: BLE001 -- config IO / schema; fall back to defaults, never crash connect
         try:
             return _install_default_limits(

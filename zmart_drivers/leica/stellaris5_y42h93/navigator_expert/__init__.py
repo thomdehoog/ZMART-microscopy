@@ -30,7 +30,7 @@ __all__ = [
     "set_stage_limits",
     "get_stage_limits",
     "apply_stage_limits_from_config",
-    # function-keyed limits gate (commands layer)
+    # limits handshake and command safety gate
     "connect_limits_handshake",
     # readers
     "Reading",
@@ -202,7 +202,7 @@ from .commands.commands import (
 )
 from .connection.session import connect_python_client, connect_microscope
 
-# -- commands/gate - function-keyed limits gate + connect handshake
+# -- commands/gate - command safety gate + connect handshake
 from .commands.gate import (
     connect_handshake as connect_limits_handshake,
 )
