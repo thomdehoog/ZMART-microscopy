@@ -48,8 +48,7 @@ python -m pytest -q workflows/target_acquisition/tests
 ```
 
 That suite includes an end-to-end run of BOTH notebooks: every code cell
-executes in order against a simulated stage and sample (with a deliberately
-mis-set objective calibration the check must measure back), and the
+executes in order against a simulated stage and synthetic sample, and the
 operator's button presses are scripted between cells. If a notebook cell
 breaks, this is the test that says so — no microscope needed:
 

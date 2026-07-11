@@ -16,10 +16,15 @@ import json
 import queue
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import urlsplit
 
 from ._flow import RunFlow
 from ._host import WidgetHub, _jsonable
 from ._page import page_html
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant {value}")
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -32,6 +37,12 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
     # -- small helpers ---------------------------------------------------------
+
+    def setup(self) -> None:
+        super().setup()
+        # Bound slow/incomplete local requests so each one cannot retain a
+        # server thread forever. The page's normal JSON posts are tiny.
+        self.connection.settimeout(15.0)
 
     def _send(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
@@ -46,13 +57,40 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(status, body, "application/json")
 
     def _read_json(self) -> Any:
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            return None
         if not 0 < length <= 4 * 1024 * 1024:
             return None
         try:
-            return json.loads(self.rfile.read(length).decode("utf-8"))
-        except (ValueError, UnicodeDecodeError):
+            return json.loads(
+                self.rfile.read(length).decode("utf-8"),
+                parse_constant=_reject_json_constant,
+            )
+        except (OSError, RecursionError, ValueError, UnicodeDecodeError):
             return None
+
+    def _local_json_request(self) -> tuple[bool, int, str]:
+        """Enforce the browser boundary before reading a state-changing body."""
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            return False, 415, "Content-Type must be application/json"
+        origin = self.headers.get("Origin")
+        if origin:
+            try:
+                parsed = urlsplit(origin)
+                port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            except ValueError:
+                return False, 403, "invalid Origin"
+            server_port = int(self.server.server_address[1])
+            if (
+                parsed.scheme != "http"
+                or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+                or port != server_port
+            ):
+                return False, 403, "cross-origin requests are not allowed"
+        return True, 200, ""
 
     # -- GET ---------------------------------------------------------------------
 
@@ -87,12 +125,16 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _serve_events(self) -> None:
         """One server-sent-events stream: everything Python wants a tab to know."""
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
+        # Register BEFORE the headers make EventSource report `open`. From that
+        # instant onward every change is either in the subsequent /state
+        # snapshot or waiting in this queue; the page buffers queued events
+        # until it has applied that snapshot.
         client = self.hub.add_client()
         try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
             while True:
                 try:
                     payload = client.get(timeout=15.0)
@@ -112,21 +154,62 @@ class _Handler(BaseHTTPRequestHandler):
     # -- POST ----------------------------------------------------------------------
 
     def do_POST(self) -> None:  # noqa: N802 -- http.server's naming
+        allowed, status, error = self._local_json_request()
+        if not allowed:
+            self._send_json({"ok": False, "error": error}, status=status)
+            return
         body = self._read_json()
         if not isinstance(body, dict):
             self._send_json({"ok": False, "error": "malformed request"}, status=400)
             return
         if self.path == "/action":
-            ok = self.flow.run_step(str(body.get("step")))
-            self._send_json({"ok": ok}, status=200 if ok else 404)
+            step = body.get("step")
+            if not isinstance(step, str):
+                self._send_json({"ok": False, "error": "step must be a string"}, status=400)
+                return
+            if not self.flow.has_step(step):
+                self._send_json({"ok": False, "error": "no such step"}, status=404)
+                return
+            ok = self.flow.run_step(step)
+            self._send_json(
+                {"ok": ok, **({} if ok else {"error": "work queue is full"})},
+                status=200 if ok else 503,
+            )
             return
         if self.path == "/msg":
-            ok = self.hub.dispatch_message(str(body.get("widget")), body.get("content"))
-            self._send_json({"ok": ok}, status=200 if ok else 404)
+            name, content = body.get("widget"), body.get("content")
+            if not isinstance(name, str) or not isinstance(content, dict):
+                self._send_json(
+                    {"ok": False, "error": "widget and content object are required"}, status=400
+                )
+                return
+            if self.hub.widget(name) is None:
+                self._send_json({"ok": False, "error": "no such widget"}, status=404)
+                return
+            ok = self.hub.dispatch_message(name, content)
+            self._send_json(
+                {"ok": ok, **({} if ok else {"error": "work queue is full"})},
+                status=200 if ok else 503,
+            )
             return
         if self.path == "/trait":
-            ok = self.hub.dispatch_trait_changes(str(body.get("widget")), body.get("changes"))
-            self._send_json({"ok": ok}, status=200 if ok else 404)
+            name, changes = body.get("widget"), body.get("changes")
+            if not isinstance(name, str) or not isinstance(changes, dict):
+                self._send_json(
+                    {"ok": False, "error": "widget and changes object are required"}, status=400
+                )
+                return
+            if self.hub.widget(name) is None:
+                self._send_json({"ok": False, "error": "no such widget"}, status=404)
+                return
+            if not self.hub.valid_trait_changes(name, changes):
+                self._send_json({"ok": False, "error": "invalid trait change"}, status=400)
+                return
+            ok = self.hub.dispatch_trait_changes(name, changes)
+            self._send_json(
+                {"ok": ok, **({} if ok else {"error": "work queue is full"})},
+                status=200 if ok else 503,
+            )
             return
         self._send_json({"ok": False, "error": "not found"}, status=404)
 

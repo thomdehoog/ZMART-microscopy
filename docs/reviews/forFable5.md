@@ -181,7 +181,7 @@ cd zmart_drivers/leica/stellaris5_y42h93/navigator_expert
 python run_ci.py --mock
 ```
 
-reports RESULT: PASSED (1048 passed + 1 expected CAM-DLL skip, ~86 %
+reports RESULT: PASSED (1030 passed + 1 expected CAM-DLL skip, ~83 %
 coverage; `ruff format --check` still flags only the three known
 baseline files). Independently: syntax-check the six generated ESM
 modules with Node, run `ruff check` / `ruff format --check` on the

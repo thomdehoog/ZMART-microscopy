@@ -938,6 +938,33 @@ def test_cancelled_run_leaves_an_honest_empty_curation(tmp_path):
     assert saved == []  # honest empty record, not a crash and not stale rows
 
 
+def test_after_acquire_failure_rolls_back_curation_truth(tmp_path):
+    """The simulation/image-rewrite hook is part of the uncommitted run."""
+
+    def _fail_after_acquire(_records):
+        raise RuntimeError("image rewrite failed")
+
+    gallery = wreact.acquire_gallery(
+        _AcqSession(tmp_path),
+        _targets(3),
+        [_overview(tmp_path)],
+        after_acquire=_fail_after_acquire,
+    )
+    with pytest.raises(RuntimeError, match="image rewrite failed"):
+        gallery.acquire(2)
+
+    assert gallery.records == []
+    assert len(gallery._row_entries) == 2  # saved images remain visible
+    assert gallery._verdicts == [] and list(gallery.verdicts) == []
+    with pytest.raises(ValueError, match="cancelled or failed"):
+        gallery.set_verdict(0, "good")
+
+    import json
+
+    saved = json.loads(gallery.save_curation(tmp_path / "run").read_text(encoding="utf-8"))
+    assert saved == []
+
+
 def test_sparse_midrun_row_keeps_its_authoritative_verdict_index(tmp_path):
     gallery = wreact.acquire_gallery(
         _AcqSession(tmp_path), _targets(6), [_overview(tmp_path)], seed=2
