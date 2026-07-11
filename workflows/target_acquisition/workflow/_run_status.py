@@ -110,19 +110,6 @@ def run_status_rows(ns: dict[str, Any]) -> list[dict]:
         n = len(getattr(focus, "measured", []) or [])
         rows.append(_row("Focus surface", OK, f"{getattr(focus, 'model', '?')} fit, {n} point(s)"))
 
-    report = ns.get("calibration_report")
-    if report is None:
-        rows.append(_row("Calibration check", TODO, "optional — step 5b measures it"))
-    else:
-        rows.append(
-            _row(
-                "Calibration check",
-                OK,
-                f"off by {report.get('mean_offset_um', float('nan')):.2f} µm "
-                f"(scatter {report.get('stage_scatter_rms_um', float('nan')):.2f} µm rms)",
-            )
-        )
-
     records = ns.get("overview_records")
     rows.append(
         _row("Overview scan", OK, f"{len(records)} tile(s) acquired")

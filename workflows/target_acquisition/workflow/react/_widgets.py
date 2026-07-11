@@ -889,7 +889,7 @@ function App({ model }) {
         "Measure fresh"),
       busy && !readOnly ? h("button", {
         title: "stop cleanly before the next point (nothing is committed)",
-        style: { ...btn(false), background: T.bad, color: "#450a0a" },
+        style: { ...btn(false), background: T.bad, color: "#ffffff" },
         onClick: () => model.send({ type: "cancel" }) }, "Cancel") : null,
       pill(`${points.length} point(s)`),
       h("span", { style: { color: T.dim, fontSize: 12 } }, status)),
@@ -915,7 +915,7 @@ function App({ model }) {
               if (!busy && !readOnly) setPoints(points.filter((_, k) => k !== i)); } },
           h("circle", { cx: X(p.x), cy: Y(p.y), r: 7, fill: m ? T.good : T.bad,
             stroke: "#000", strokeWidth: 1.5 }),
-          m ? h("text", { x: X(p.x) + 10, y: Y(p.y) - 8, fill: T.ink, fontSize: 11 },
+          m ? h("text", { x: X(p.x) + 10, y: Y(p.y) - 8, fill: "#f8fafc", fontSize: 11 },
             m.z_um.toFixed(1) +
             (m.residual_um === undefined ? "" : ` (Δ${m.residual_um.toFixed(1)})`)) : null);
       })),
@@ -1254,7 +1254,7 @@ function App({ model }) {
         dots.map((d, i) => h("circle", { key: i, cx: X(d.fx), cy: Y(d.fy),
           r: hover.index === i ? 7 : 5,
           fill: acquired.includes(i) ? T.good : (mask[i] ? T.accent : T.edge),
-          stroke: picked.includes(i) ? "#ffffff" : "none", strokeWidth: 2,
+          stroke: picked.includes(i) ? T.ink : "none", strokeWidth: 2,
           style: { transition: "fill 0.2s, r 0.1s", cursor: readOnly ? "default" : "pointer" },
           onMouseEnter: () => model.send({ type: "hover", index: i }),
           onClick: (e) => {
@@ -1701,7 +1701,7 @@ function App({ model }) {
       value: verdicts[i] === value ? null : value }); },
     style: { ...btn(false), padding: "2px 10px",
              background: verdicts[i] === value ? colour : T.edge,
-             color: verdicts[i] === value ? "#082f49" : T.dim } }, label);
+             color: verdicts[i] === value ? "#ffffff" : T.dim } }, label);
 
   const scaleBar = (r) => {
     if (!r.width_um) return null;
@@ -1723,7 +1723,7 @@ function App({ model }) {
       h("img", { src: r[side + "_src"], style: { width: "100%", borderRadius: 10,
         imageRendering: big ? "auto" : "pixelated", border: `1px solid ${T.edge}` } }),
       scaleBar(r),
-      h("div", { style: { color: big ? T.ink : T.dim, fontSize: 12, marginTop: 2 } }, title)));
+      h("div", { style: { color: big ? "#f1f5f9" : T.dim, fontSize: 12, marginTop: 2 } }, title)));
 
   return h("div", { style: { ...card, width: 700, position: "relative" } },
     h("style", null, "@keyframes zin { from { opacity: 0; transform: translateY(8px);} to { opacity: 1; transform: none;} }"),
@@ -1739,13 +1739,13 @@ function App({ model }) {
         busy ? "acquiring..." : "Acquire"),
       !readOnly && selectedCount > 0 ? h("button", {
         title: "acquire exactly the cells you picked on the map / scatter",
-        style: { ...btn(busy), background: busy ? T.edge : T.good, color: "#052e16" },
+        style: { ...btn(busy), background: busy ? T.edge : T.good, color: "#ffffff" },
         disabled: busy,
         onClick: () => model.send({ type: "acquire_selected" }) },
         `Acquire selected (${selectedCount})`) : null,
       busy && !readOnly ? h("button", {
         title: "stop cleanly before the next target (nothing is committed)",
-        style: { ...btn(false), background: T.bad, color: "#450a0a" },
+        style: { ...btn(false), background: T.bad, color: "#ffffff" },
         onClick: () => model.send({ type: "cancel" }) }, "Cancel") : null,
       pill(`${gateCount} in the gate`),
       h("span", { style: { color: T.dim, fontSize: 12 } }, status)),
