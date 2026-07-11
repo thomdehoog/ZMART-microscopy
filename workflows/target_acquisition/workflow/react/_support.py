@@ -47,6 +47,19 @@ CHANNEL_HEX = (
     "#0000ff",  # blue
 )
 
+# A colour-vision-friendly alternative (after Okabe & Ito): these hues stay
+# distinguishable with the common forms of colour blindness. Pass
+# ``palette="colorblind"`` to the React overview viewer to use it.
+CHANNEL_HEX_COLORBLIND = (
+    "#ffffff",  # white
+    "#e69f00",  # orange
+    "#56b4e9",  # sky blue
+    "#009e73",  # bluish green
+    "#f0e442",  # yellow
+    "#d55e00",  # vermillion
+    "#cc79a7",  # reddish purple
+)
+
 _VENDOR = Path(__file__).resolve().parent / "vendor"
 
 
@@ -103,6 +116,32 @@ def png_bytes(array: Any) -> bytes:
 def png_to_data_url(png: bytes) -> str:
     """Wrap raw PNG bytes as a ``data:image/png`` URL (for snapshot traits)."""
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+
+def png_data_url_ranged(array: Any, display_range: tuple[float, float] | None) -> str:
+    """Encode a 2-D crop using a FIXED display window instead of min..max.
+
+    Auto-stretching every crop over its own min..max makes the same cell
+    look wildly different from one panel to the next. Passing the viewer's
+    channel display window keeps every view of a cell consistent with the
+    map it was cut from. ``None`` (or a degenerate window) falls back to
+    the min..max stretch.
+    """
+    import numpy as np
+
+    arr = np.asarray(array)
+    if display_range is None or arr.ndim != 2:
+        return png_data_url(arr)
+    lo, hi = float(display_range[0]), float(display_range[1])
+    if not (hi > lo):
+        return png_data_url(arr)
+    scaled = np.clip((arr.astype(np.float32) - lo) / (hi - lo), 0.0, 1.0)
+    from PIL import Image
+
+    image = Image.fromarray((scaled * 255.0).astype(np.uint8), mode="L")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return png_to_data_url(buffer.getvalue())
 
 
 def png_data_url(array: Any) -> str:

@@ -5,7 +5,7 @@ in `thomdehoog/ZMART-microscopy` that follow `6f784f5` ("Focus step: incremental
 re-measure and heatmap-tinted tile markers"). Review them against `6f784f5`,
 then sanity-check the whole branch against `origin/main`. The round you are
 checking is documented in `docs/reviews/v4_calibration_check_and_fixes_review.md`
-(findings 1–18 claim fixes in these commits; verify each fix is faithful and
+(findings 1–18 claim fixes in these commits, and two further expansion commits follow; verify each fix is faithful and
 introduces no new defect). The round before that is
 `docs/reviews/v4_notebook_hardware_proof_review.md`.
 
@@ -188,7 +188,22 @@ The maintainer asked for a broad usability expansion. New surface to attack:
    the **calibration report panel** (`CalibrationReportReact` — check the
    arrow exaggeration math and the verdict text against the report's sign
    conventions).
-8. Both notebooks gained a status cell and inline wiring
+8. **UX wave 3 (a further commit).** Attack the targeted-acquisition path
+   hardest: `toggle_pick`/`picked_gated`/`acquire_selected` (both editions)
+   — can any sequence (forged `picked_indices` trait, gate edited between
+   pick and acquire, picks surviving an axis switch, note_acquired's
+   value-equality matching on duplicate targets) image a cell the gate
+   excludes, or mis-mark the acquired set? Also: the `_eta_text` honesty
+   rules; scale-bar arithmetic (map: screen-px from `view.scale`; rows:
+   percent of `width_um`); the lightbox (verdict clicks must not open it —
+   check the stopPropagation); Enter-to-acquire vs the busy flag; the
+   explorer↔map cross-highlight loop (can hover ping-pong?); the
+   lasso-vs-click discrimination (`moved` ref) on the scatter and the
+   double-click pick in matplotlib (conflicts with the LassoSelector?);
+   crops rendered with the viewer's display window (stale cache when the
+   window changes is accepted — is that documented enough?); the
+   colour-blind palette plumbing.
+9. Both notebooks gained a status cell and inline wiring
    (`viewer.show_targets(targets, explorer)`, the React 5b cell now ends
    with `wreact.calibration_report(...)`). Confirm the guard tests still
    pin what matters and that no cell depends on a variable defined later.

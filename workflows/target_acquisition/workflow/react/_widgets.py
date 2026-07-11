@@ -31,10 +31,11 @@ from typing import Any
 
 from ._support import (
     CHANNEL_HEX,
+    CHANNEL_HEX_COLORBLIND,
     REACT_PRELUDE,
     heatmap_data_url,
     png_bytes,
-    png_data_url,
+    png_data_url_ranged,
     png_to_data_url,
     require_anywidget,
     shrink_to_budget,
@@ -45,7 +46,7 @@ require_anywidget()
 import anywidget  # noqa: E402
 import traitlets  # noqa: E402
 
-from .._acquisition_widget import pair_images  # noqa: E402
+from .._acquisition_widget import _eta_text, pair_images  # noqa: E402
 from .._discovery_widget import _feature_value, _numeric_features, crop_for_target  # noqa: E402
 from .._focus_run import measure_focus  # noqa: E402
 from .._focus_surface import fit_focus_surface, worst_residual_um  # noqa: E402
@@ -286,16 +287,39 @@ function App({ model }) {
         const v = view.current;
         return h("div", { key: `m${i}`,
           onMouseEnter: () => model.send({ type: "mark", index: i }),
-          style: { position: "absolute", left: m.x * v.scale + v.tx - 5,
-                   top: m.y * v.scale + v.ty - 5, width: 10, height: 10,
+          onClick: (e) => { e.stopPropagation(); model.send({ type: "pick", index: i }); },
+          title: m.acquired ? "already acquired" : (m.picked ? "picked — click to un-pick"
+            : "click to pick for targeted acquisition"),
+          style: { position: "absolute", left: m.x * v.scale + v.tx - 6,
+                   top: m.y * v.scale + v.ty - 6, width: 12, height: 12,
                    borderRadius: 999, boxSizing: "border-box",
-                   border: `2px solid ${m.gated ? T.accent : T.dim}`,
-                   background: markHover.index === i ? T.accent : "transparent",
+                   border: m.picked ? "2px solid #ffffff"
+                     : `2px solid ${m.gated ? T.accent : T.dim}`,
+                   background: m.acquired ? T.good
+                     : (markHover.index === i ? T.accent : "transparent"),
                    cursor: "pointer" } });
       }),
+      (() => {
+        // A scale bar that keeps a nice round length as the zoom changes —
+        // the first thing a microscopist looks for on any image.
+        const v = view.current;
+        if (!tiles.length || !v.scale) return null;
+        let um = 1;
+        for (const step of [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]) {
+          if (step * v.scale >= 60) { um = step; break; }
+          um = step;
+        }
+        return h("div", { style: { position: "absolute", right: 12, bottom: 12,
+            textAlign: "center", color: "#fff", fontSize: 11,
+            textShadow: "0 0 4px #000" } },
+          h("div", { style: { width: um * v.scale, height: 3, background: "#fff",
+            boxShadow: "0 0 4px #000", marginBottom: 2 } }),
+          `${um} um`);
+      })(),
       h("div", { style: { position: "absolute", left: 10, bottom: 8, display: "flex", gap: 6 } },
         pill(`${tiles.length} tile(s) — drag to pan, scroll to zoom`),
-        marks.length ? pill(`${marks.filter((m) => m.gated).length} / ${marks.length} gated`) : null,
+        marks.length ? pill(`${marks.filter((m) => m.gated).length} / ${marks.length} gated`
+          + (marks.some((m) => m.picked) ? ` · ${marks.filter((m) => m.picked).length} picked` : "")) : null,
         cursor ? pill(`x ${cursor.x.toFixed(0)} um · y ${cursor.y.toFixed(0)} um`) : null)),
     h("div", { style: { width: 230 } },
       h("div", { style: { display: "flex", alignItems: "center",
@@ -330,21 +354,38 @@ export default mount(App);
 """
 
     def __init__(
-        self, overviews: list[dict] | None = None, *, downsample: int | None = None
+        self,
+        overviews: list[dict] | None = None,
+        *,
+        downsample: int | None = None,
+        palette: str = "default",
     ) -> None:
         super().__init__()
         self._fixed_downsample = None if downsample is None else max(1, int(downsample))
         self.downsample = self._fixed_downsample or 1
+        self._palette = CHANNEL_HEX_COLORBLIND if palette == "colorblind" else CHANNEL_HEX
         self.overviews: list[dict] = []
         self._stacks: list[Any] = []
         self._tile_entries: list[dict] = []
         self._targets: list[dict] = []
         self._marks_explorer: Any = None
         self._mark_crop_cache: dict[int, dict] = {}
+        self._expected_tiles: int | None = None
+        self._stream_started: float | None = None
         self.n_channels: int | None = None
         self.observe(self._on_channels_changed, names="channels")
         for overview in overviews or []:
             self.add_tile(overview)
+
+    def expect_tiles(self, n: int) -> None:
+        """Tell the viewer how many tiles the coming scan will bring.
+
+        Purely for the operator's peace of mind: with the total known, the
+        status line can say "tile 7 of 25 · about 4 min left" instead of
+        just counting up. Call it right before ``run_overview``.
+        """
+        self._expected_tiles = max(1, int(n))
+        self._stream_started = time.monotonic()
 
     # --- growing the map (live) -------------------------------------------
 
@@ -403,7 +444,14 @@ export default mount(App);
             },
             buffers=[entry["png"]],
         )
-        self.status = f"{len(self.overviews)} tile(s) on the map"
+        done = len(self.overviews)
+        if self._expected_tiles:
+            self.status = (
+                f"tile {done} of {self._expected_tiles}"
+                f"{_eta_text(done, self._expected_tiles, self._stream_started)}"
+            )
+        else:
+            self.status = f"{done} tile(s) on the map"
 
     def reload(self) -> None:
         """Re-read every tile from disk (after the simulation hijack)."""
@@ -431,8 +479,8 @@ export default mount(App);
                 lo, hi = min(0.0, full_lo), max(full_hi, full_lo + 1.0)
             channels.append(
                 {
-                    "color": CHANNEL_HEX[c % len(CHANNEL_HEX)],
-                    "palette": list(CHANNEL_HEX),
+                    "color": self._palette[c % len(self._palette)],
+                    "palette": list(self._palette),
                     "visible": True,
                     "lo": lo,
                     "hi": hi,
@@ -457,7 +505,7 @@ export default mount(App);
             try:
                 to_rgb(color)
             except (ValueError, TypeError):
-                color = CHANNEL_HEX[i % len(CHANNEL_HEX)]
+                color = self._palette[i % len(self._palette)]
             try:
                 lo, hi = float(c.get("lo")), float(c.get("hi"))
             except (TypeError, ValueError):
@@ -500,17 +548,22 @@ export default mount(App);
 
         Each target draws at its frame position, blue when it passes the
         gate and grey when it does not, so gating can be judged against the
-        sample itself. Pass the target ``explorer`` to keep the colours
-        live: every gate edit recolours the map. Hovering a mark shows that
-        cell's crop in the side panel.
+        sample itself. Pass the target ``explorer`` to keep the two views
+        joined at the hip: every gate edit recolours the map, clicking a
+        ring picks that cell for targeted acquisition (a white outline),
+        acquired cells fill in green, and hovering shows the cell's crop
+        on both figures.
         """
         if self._marks_explorer is not None:
             self._marks_explorer.unobserve(self._on_gate_recoloured, names="gated_mask")
+            if getattr(self._marks_explorer, "_linked_viewer", None) is self:
+                self._marks_explorer._linked_viewer = None
             self._marks_explorer = None
         self._targets = list(targets or [])
         self._mark_crop_cache = {}
         if explorer is not None and self._targets:
             self._marks_explorer = explorer
+            explorer._linked_viewer = self
             explorer.observe(self._on_gate_recoloured, names="gated_mask")
         self._refresh_marks()
 
@@ -523,13 +576,30 @@ export default mount(App);
             self.mark_hover = {}
             return
         explorer = self._marks_explorer
-        mask = (
-            explorer._mask_from_gate() if explorer is not None else [True] * len(self._targets)
-        )
+        n = len(self._targets)
+        mask = explorer._mask_from_gate() if explorer is not None else [True] * n
+        picked = getattr(explorer, "_picked", set()) if explorer is not None else set()
+        acquired = getattr(explorer, "_acquired", set()) if explorer is not None else set()
         self.marks = [
-            {"x": float(t["x"]), "y": float(t["y"]), "gated": bool(keep)}
-            for t, keep in zip(self._targets, mask, strict=True)
+            {
+                "x": float(t["x"]),
+                "y": float(t["y"]),
+                "gated": bool(keep),
+                "picked": i in picked,
+                "acquired": i in acquired,
+            }
+            for i, (t, keep) in enumerate(zip(self._targets, mask, strict=True))
         ]
+
+    def _display_range_for_crops(self) -> tuple[float, float] | None:
+        """The channel-0 display window, so crops match the map's contrast.
+
+        Without this, each crop would stretch over its own min..max and a
+        cell could look wildly brighter in the side panel than on the map
+        it was cut from.
+        """
+        states = self._channel_states()
+        return states[0]["range"] if states else None
 
     def _serve_mark_hover(self, content: dict) -> None:
         try:
@@ -545,10 +615,17 @@ export default mount(App);
             source = self._targets[index].get("source") or {}
             self._mark_crop_cache[index] = {
                 "index": index,
-                "src": "" if crop is None else png_data_url(crop),
+                "src": (
+                    ""
+                    if crop is None
+                    else png_data_url_ranged(crop, self._display_range_for_crops())
+                ),
                 "title": f"target {index} (tile {source.get('naming_p', '?')})",
             }
         self.mark_hover = self._mark_crop_cache[index]
+        if self._marks_explorer is not None:
+            # Cross-highlight: the same cell's dot grows in the explorer.
+            self._marks_explorer.hover = self.mark_hover
 
     # --- display settings ----------------------------------------------------
 
@@ -580,8 +657,20 @@ export default mount(App);
         self.channels = loaded  # the observer recomposites (sanitized)
 
     def handle_message(self, content: dict) -> None:
-        if content.get("type") == "mark":
+        kind = content.get("type")
+        if kind == "mark":
             self._serve_mark_hover(content)
+            return
+        if kind == "pick":
+            # Clicking a ring picks that cell — the pick state lives on the
+            # linked explorer, which validates the index and republishes.
+            if self._marks_explorer is not None:
+                try:
+                    index = int(content.get("index"))
+                except (TypeError, ValueError, OverflowError):
+                    return
+                if 0 <= index < len(self._targets):
+                    self._marks_explorer.toggle_pick(index)
             return
         # The viewer has no hardware actions; nothing else arrives today.
         self.status = f"unknown message: {content.get('type')}"
@@ -789,10 +878,15 @@ export default mount(App);
         def _show_fresh_point(measurement: dict) -> None:
             self._af_cache[(measurement["x_um"], measurement["y_um"])] = measurement
             _fit_and_show()
-            self.status = f"measuring... {len(self.measured)} of {len(points)} points"
+            done = len(self.measured)
+            self.status = (
+                f"measuring... {done} of {len(points)} points"
+                f"{_eta_text(done, len(points), run_started)}"
+            )
 
         try:
             if fresh_points:
+                run_started = time.monotonic()
                 measure_focus(
                     self.session, fresh_points, af_job=self.af_job, start_z=self.start_z,
                     on_point=_show_fresh_point,
@@ -892,6 +986,15 @@ class TargetExplorerReact(_ZmartWidget):
     #: 20-bin histograms of the current axes (display only), so thresholds
     #: are set against the feature's distribution rather than blind.
     hist = traitlets.Dict().tag(sync=True)
+    #: Cells the operator picked by hand (click a dot here, or a ring on
+    #: the overview map). "Acquire selected" targets exactly these. The
+    #: real pick state lives in Python; acquisition re-validates every
+    #: pick against the gate at run time, so nothing written into this
+    #: trait can smuggle a gated-out cell to the microscope.
+    picked_indices = traitlets.List().tag(sync=True)
+    #: Cells already acquired this session (drawn filled) — so nobody
+    #: images the same cell twice without meaning to.
+    acquired_indices = traitlets.List().tag(sync=True)
 
     _esm = REACT_PRELUDE + """
 function App({ model }) {
@@ -904,8 +1007,11 @@ function App({ model }) {
   const [hover] = useTrait(model, "hover");
   const [status] = useTrait(model, "status");
   const [hist] = useTrait(model, "hist");
+  const [picked] = useTrait(model, "picked_indices");
+  const [acquired] = useTrait(model, "acquired_indices");
   const [readOnly] = useTrait(model, "read_only");
   const W = 460, H = 360, pad = 42;
+  const moved = React.useRef(false);
 
   const fx = dots.map((d) => d.fx), fy = dots.map((d) => d.fy);
   const lox = Math.min(...fx), hix = Math.max(...fx);
@@ -944,15 +1050,18 @@ function App({ model }) {
           style: { background: T.bg, borderRadius: 10, touchAction: "none" },
           onPointerDown: (e) => {
             if (readOnly) return;
+            moved.current = false;
             lasso.current = [toData(e, e.currentTarget)]; setTrail(lasso.current);
           },
           onPointerMove: (e) => {
             if (!lasso.current) return;
+            moved.current = true;
             lasso.current = [...lasso.current, toData(e, e.currentTarget)];
             setTrail(lasso.current);
           },
           onPointerUp: () => {
-            if (lasso.current && lasso.current.length >= 3) setGate({ ...gate, lasso: lasso.current });
+            if (lasso.current && moved.current && lasso.current.length >= 3)
+              setGate({ ...gate, lasso: lasso.current });
             lasso.current = null; setTrail([]);
           } },
         h("line", { x1: pad, y1: H - pad, x2: W - pad, y2: H - pad, stroke: T.edge }),
@@ -978,9 +1087,16 @@ function App({ model }) {
         (gate.lasso || []).length ? h("polygon", {
           points: gate.lasso.map(([a, b]) => `${X(a)},${Y(b)}`).join(" "),
           fill: "rgba(56,189,248,0.10)", stroke: T.accent, strokeDasharray: "4 3" }) : null,
-        dots.map((d, i) => h("circle", { key: i, cx: X(d.fx), cy: Y(d.fy), r: 5,
-          fill: mask[i] ? T.accent : T.edge, style: { transition: "fill 0.2s" },
-          onMouseEnter: () => model.send({ type: "hover", index: i }) }))),
+        dots.map((d, i) => h("circle", { key: i, cx: X(d.fx), cy: Y(d.fy),
+          r: hover.index === i ? 7 : 5,
+          fill: acquired.includes(i) ? T.good : (mask[i] ? T.accent : T.edge),
+          stroke: picked.includes(i) ? "#ffffff" : "none", strokeWidth: 2,
+          style: { transition: "fill 0.2s, r 0.1s", cursor: readOnly ? "default" : "pointer" },
+          onMouseEnter: () => model.send({ type: "hover", index: i }),
+          onClick: (e) => {
+            e.stopPropagation();
+            if (!readOnly) model.send({ type: "pick", index: i });
+          } }))),
       h("div", { style: { display: "flex", gap: 6, marginTop: 8, alignItems: "center", fontSize: 12 } },
         h("span", { style: { color: T.dim } }, xf),
         h(NumBox, { value: rng[0], width: 72, onCommit: (v) => setRange("x", 0, v) }),
@@ -991,6 +1107,12 @@ function App({ model }) {
     h("div", { style: { width: 190 } },
       h("div", { style: { fontWeight: 700, marginBottom: 6 } },
         `${mask.filter(Boolean).length} / ${dots.length} in the gate`),
+      h("div", { style: { color: T.dim, fontSize: 12, marginBottom: 6, display: "flex",
+                          gap: 6, alignItems: "center" } },
+        pill(`${picked.length} picked`),
+        picked.length && !readOnly ? h("button", {
+          style: { ...btn(false), padding: "2px 8px", background: T.edge, color: T.dim },
+          onClick: () => model.send({ type: "clear_picks" }) }, "clear") : null),
       hover.src
         ? h("div", null,
             h("img", { src: hover.src, style: { width: 180, borderRadius: 8,
@@ -1017,6 +1139,9 @@ export default mount(App);
         self.crop_um = float(crop_um)
         self._crop_cache: dict[int, dict] = {}
         self._resetting_gate = False
+        self._picked: set[int] = set()  # Python owns the truth; the trait displays it
+        self._acquired: set[int] = set()
+        self._linked_viewer: Any = None  # set by OverviewViewerReact.show_targets
         self.features = _numeric_features(targets)
         self.x_feature = self.features[0]
         self.y_feature = self.features[1] if len(self.features) > 1 else self.features[0]
@@ -1038,6 +1163,69 @@ export default mount(App);
             # Heal the display if something scribbled over the mask.
             self.gated_mask = mask
         return [t for t, keep in zip(self.targets, mask, strict=True) if keep]
+
+    # --- hand-picked cells ---------------------------------------------------
+
+    @property
+    def picked_targets(self) -> list[dict]:
+        """The cells the operator picked by hand, in index order.
+
+        The pick set lives in Python (`self._picked`); the synced trait is
+        its display. Anything a page script writes into the trait is
+        ignored here — and the acquisition step re-checks every pick
+        against the gate anyway.
+        """
+        return [self.targets[i] for i in sorted(self._picked)]
+
+    @property
+    def picked_gated(self) -> tuple[list[dict], list[int]]:
+        """The picked cells split into (inside the gate, indices outside it)."""
+        mask = self._mask_from_gate()
+        inside = [self.targets[i] for i in sorted(self._picked) if mask[i]]
+        outside = [i for i in sorted(self._picked) if not mask[i]]
+        return inside, outside
+
+    def toggle_pick(self, index: int) -> None:
+        """Pick a cell (or un-pick it) for targeted acquisition."""
+        index = int(index)
+        if not 0 <= index < len(self.targets):
+            raise ValueError(f"no target {index} to pick")
+        if index in self._picked:
+            self._picked.discard(index)
+        else:
+            self._picked.add(index)
+        self._publish_picks()
+
+    def clear_picks(self) -> None:
+        """Forget every hand-picked cell."""
+        self._picked.clear()
+        self._publish_picks()
+
+    def note_acquired(self, targets: list[dict]) -> None:
+        """Mark these cells as acquired (they render filled from now on).
+
+        Called by the gallery when a run commits — random or selected —
+        so nobody images the same cell twice without meaning to. Acquired
+        cells also leave the pick set: their errand is done.
+        """
+        for target in targets:
+            for i, t in enumerate(self.targets):
+                if t is target or t == target:
+                    self._acquired.add(i)
+                    self._picked.discard(i)
+                    break
+        self.acquired_indices = sorted(self._acquired)
+        self._publish_picks()
+
+    def _publish_picks(self) -> None:
+        self.picked_indices = sorted(self._picked)
+        self.status = (
+            f"{len(self._picked)} cell(s) picked for targeted acquisition"
+            if self._picked
+            else "thresholds AND lasso gate together · click a dot to pick it"
+        )
+        if self._linked_viewer is not None:
+            self._linked_viewer._refresh_marks()
 
     def _on_axes_changed(self, _change: Any) -> None:
         # A lasso drawn in the old feature space would gate nonsense in the
@@ -1172,16 +1360,24 @@ export default mount(App);
         self.gate = dict(gate) if isinstance(gate, dict) else {}
 
     def handle_message(self, content: dict) -> None:
-        if content.get("type") != "hover":
-            self.status = f"unknown message: {content.get('type')}"
-            return
+        kind = content.get("type")
         # The index comes from the browser: validate it rather than trusting
         # it (OverflowError covers JSON numbers like 1e999 -> infinity).
         try:
             index = int(content.get("index"))
         except (TypeError, ValueError, OverflowError):
+            index = None
+        if kind == "clear_picks":
+            self.clear_picks()
             return
-        if not 0 <= index < len(self.targets):
+        if kind == "pick":
+            if index is not None and 0 <= index < len(self.targets):
+                self.toggle_pick(index)
+            return
+        if kind != "hover":
+            self.status = f"unknown message: {content.get('type')}"
+            return
+        if index is None or not 0 <= index < len(self.targets):
             return
         if index not in self._crop_cache:
             # Cropping reads the full-resolution tile from disk — cache it,
@@ -1189,12 +1385,21 @@ export default mount(App);
             # ahead of the next button press.
             crop = crop_for_target(self.targets[index], self.overviews, crop_um=self.crop_um)
             source = self.targets[index].get("source") or {}
+            # With a linked viewer, crops use ITS display window, so a cell
+            # looks the same in the side panel as on the map it came from.
+            viewer = self._linked_viewer
+            display_range = (
+                viewer._display_range_for_crops() if viewer is not None else None
+            )
             self._crop_cache[index] = {
                 "index": index,
-                "src": "" if crop is None else png_data_url(crop),
+                "src": "" if crop is None else png_data_url_ranged(crop, display_range),
                 "title": f"target {index} (tile {source.get('naming_p', '?')})",
             }
         self.hover = self._crop_cache[index]
+        if self._linked_viewer is not None:
+            # Cross-highlight: the same cell lights up on the overview map.
+            self._linked_viewer.mark_hover = self.hover
 
 
 # ---------------------------------------------------------------------------
@@ -1217,6 +1422,9 @@ class AcquisitionGalleryReact(_ZmartWidget):
     rows = traitlets.List().tag(sync=True)
     gate_count = traitlets.Int(0).tag(sync=True)
     default_count = traitlets.Int(5).tag(sync=True)
+    #: How many cells are hand-picked in the linked explorer right now —
+    #: drives the "Acquire selected" button's label and visibility.
+    selected_count = traitlets.Int(0).tag(sync=True)
     #: Per-row curation: "good", "bad", or None — the operator's own QC
     #: record of the run (display-synced; Python owns the truth).
     verdicts = traitlets.List().tag(sync=True)
@@ -1228,44 +1436,91 @@ function App({ model }) {
   const [status] = useTrait(model, "status");
   const [gateCount] = useTrait(model, "gate_count");
   const [defaultCount] = useTrait(model, "default_count");
+  const [selectedCount] = useTrait(model, "selected_count");
   const [verdicts] = useTrait(model, "verdicts");
   const [readOnly] = useTrait(model, "read_only");
   const [count, setCount] = React.useState(String(defaultCount));
+  const [zoom, setZoom] = React.useState(null);  // row index in the lightbox
+
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") setZoom(null); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   const verdictBtn = (i, value, label, colour) => h("button", {
     title: value === "good" ? "mark this pair as good" : "mark this pair as bad",
-    onClick: () => model.send({ type: "verdict", index: i,
-      value: verdicts[i] === value ? null : value }),
+    onClick: (e) => { e.stopPropagation(); model.send({ type: "verdict", index: i,
+      value: verdicts[i] === value ? null : value }); },
     style: { ...btn(false), padding: "2px 10px",
              background: verdicts[i] === value ? colour : T.edge,
              color: verdicts[i] === value ? "#082f49" : T.dim } }, label);
 
-  return h("div", { style: { ...card, width: 700 } },
+  const scaleBar = (r) => {
+    if (!r.width_um) return null;
+    let um = 1;
+    for (const step of [1, 2, 5, 10, 20, 50, 100, 200, 500]) {
+      if (step / r.width_um >= 0.18) { um = step; break; }
+      um = step;
+    }
+    return h("div", { style: { position: "absolute", right: 8, bottom: 8,
+        textAlign: "center", color: "#fff", fontSize: 10, textShadow: "0 0 4px #000" } },
+      h("div", { style: { width: `${(um / r.width_um) * 100}%`, minWidth: 20, height: 3,
+        background: "#fff", boxShadow: "0 0 4px #000", marginBottom: 1,
+        marginLeft: "auto" } }),
+      `${um} um`);
+  };
+
+  const pairPanels = (r, big) => [["low", r.low_title], ["high", r.high_title]].map(
+    ([side, title]) => h("div", { key: side, style: { flex: 1, position: "relative" } },
+      h("img", { src: r[side + "_src"], style: { width: "100%", borderRadius: 10,
+        imageRendering: big ? "auto" : "pixelated", border: `1px solid ${T.edge}` } }),
+      scaleBar(r),
+      h("div", { style: { color: big ? T.ink : T.dim, fontSize: 12, marginTop: 2 } }, title)));
+
+  return h("div", { style: { ...card, width: 700, position: "relative" } },
     h("style", null, "@keyframes zin { from { opacity: 0; transform: translateY(8px);} to { opacity: 1; transform: none;} }"),
-    h("div", { style: { display: "flex", gap: 10, alignItems: "center", marginBottom: 10 } },
+    h("div", { style: { display: "flex", gap: 10, alignItems: "center", marginBottom: 10,
+                        flexWrap: "wrap" } },
       readOnly ? pill("read-only view") : h("span", { style: { color: T.dim } }, "how many"),
       readOnly ? null : h("input", { style: inp, value: count,
-        onChange: (e) => setCount(e.target.value) }),
+        onChange: (e) => setCount(e.target.value),
+        onKeyDown: (e) => { if (e.key === "Enter" && !busy)
+          model.send({ type: "acquire", count }); } }),
       readOnly ? null : h("button", { style: btn(busy), disabled: busy,
         onClick: () => model.send({ type: "acquire", count }) },
         busy ? "acquiring..." : "Acquire"),
+      !readOnly && selectedCount > 0 ? h("button", {
+        title: "acquire exactly the cells you picked on the map / scatter",
+        style: { ...btn(busy), background: busy ? T.edge : T.good, color: "#052e16" },
+        disabled: busy,
+        onClick: () => model.send({ type: "acquire_selected" }) },
+        `Acquire selected (${selectedCount})`) : null,
       busy && !readOnly ? h("button", {
         title: "stop cleanly before the next target (nothing is committed)",
         style: { ...btn(false), background: T.bad, color: "#450a0a" },
         onClick: () => model.send({ type: "cancel" }) }, "Cancel") : null,
       pill(`${gateCount} in the gate`),
       h("span", { style: { color: T.dim, fontSize: 12 } }, status)),
-    rows.map((r, i) => h("div", { key: i, style: {
-        display: "flex", gap: 10, marginBottom: 10, animation: "zin 0.35s ease" } },
-      [["low", r.low_title], ["high", r.high_title]].map(([side, title]) =>
-        h("div", { key: side, style: { flex: 1 } },
-          h("img", { src: r[side + "_src"], style: { width: "100%", borderRadius: 10,
-            imageRendering: "pixelated", border: `1px solid ${T.edge}` } }),
-          h("div", { style: { color: T.dim, fontSize: 12, marginTop: 2 } }, title))),
+    rows.map((r, i) => h("div", { key: i,
+        onClick: () => setZoom(i),
+        title: "click to enlarge",
+        style: { display: "flex", gap: 10, marginBottom: 10,
+                 animation: "zin 0.35s ease", cursor: "zoom-in" } },
+      pairPanels(r, false),
       readOnly ? null : h("div", { style: { display: "flex", flexDirection: "column",
           gap: 6, justifyContent: "center" } },
         verdictBtn(i, "good", "✓", T.good),
-        verdictBtn(i, "bad", "✗", T.bad)))));
+        verdictBtn(i, "bad", "✗", T.bad)))),
+    zoom !== null && rows[zoom] ? h("div", {
+        onClick: () => setZoom(null),
+        title: "click (or press Esc) to close",
+        style: { position: "fixed", inset: 0, background: "rgba(2,6,23,0.88)",
+                 zIndex: 1000, display: "flex", alignItems: "center",
+                 justifyContent: "center", cursor: "zoom-out", padding: 30 } },
+      h("div", { style: { display: "flex", gap: 16, maxWidth: "94vw",
+                          maxHeight: "94vh" } },
+        pairPanels(rows[zoom], true))) : null);
 }
 export default mount(App);
 """
@@ -1298,8 +1553,17 @@ export default mount(App);
         self.picked: list[dict] = []
         self.records: list[dict] = []
         self._row_entries: list[dict] = []
+        self._run_started: float | None = None
         self.gate_count = len(self._gated())
+        # When the source is the explorer, mirror its hand-pick count so
+        # the "Acquire selected" button can show and label itself.
+        if hasattr(source, "observe") and hasattr(source, "picked_indices"):
+            source.observe(self._on_picks_changed, names="picked_indices")
+            self.selected_count = len(getattr(source, "picked_indices", []) or [])
         self.status = "type a count and press Acquire"
+
+    def _on_picks_changed(self, _change: Any) -> None:
+        self.selected_count = len(getattr(self.source, "picked_indices", []) or [])
 
     def _gated(self) -> list[dict]:
         return list(getattr(self.source, "gated", self.source))
@@ -1367,6 +1631,11 @@ export default mount(App);
             if 0 <= index < len(self._row_entries):
                 self.set_verdict(index, value)
             return
+        if kind == "acquire_selected":
+            if self._debounced():
+                return
+            self._run_guarded(self.acquire_selected)
+            return
         if kind != "acquire":
             self.status = f"unknown message: {content.get('type')}"
             return
@@ -1397,6 +1666,38 @@ export default mount(App);
         picked = self._rng.sample(gated, count) if count < len(gated) else list(gated)
         return self._hardware_run(lambda: self._acquire(picked, len(gated)))
 
+    def acquire_selected(self) -> list[dict]:
+        """Acquire exactly the cells hand-picked in the explorer.
+
+        The point-at-the-cell counterpart of the random sample: click cells
+        on the map or the scatter, then run this (or press **Acquire
+        selected**). Every pick is re-validated against the CURRENT gate —
+        a pick that has since fallen outside the thresholds or lasso
+        refuses the whole run loudly rather than quietly imaging a cell
+        the gate excludes. Same busy/debounce/read-only guards as every
+        other hardware path.
+        """
+        source = self.source
+        if not hasattr(source, "picked_gated"):
+            raise RuntimeError(
+                "hand-picking needs the target explorer as the gallery's source — "
+                "this gallery was built from a plain target list."
+            )
+        picked, outside = source.picked_gated
+        if outside:
+            raise RuntimeError(
+                f"picked cell(s) {outside} are outside the current gate — widen "
+                "the gate to include them, or un-pick them, then acquire again."
+            )
+        if not picked:
+            raise RuntimeError(
+                "no cells are picked — click cells on the map or the scatter first "
+                "(or use the random 'Acquire' instead)."
+            )
+        gated_count = len(self._gated())
+        self.gate_count = gated_count
+        return self._hardware_run(lambda: self._acquire(picked, gated_count))
+
     def _acquire(self, picked: list[dict], gated_count: int) -> list[dict]:
         # This run replaces the previous result, so the previous result must
         # stop being "the result" now: if this run fails halfway, a later
@@ -1407,6 +1708,7 @@ export default mount(App);
         self._row_entries = []
         self.rows = []
         self.verdicts = [None] * len(picked)
+        self._run_started = time.monotonic()
 
         def _show_fresh_pair(index: int, _position: dict, record: dict) -> None:
             entry = self._row_entry(picked[index - 1], record)
@@ -1423,7 +1725,10 @@ export default mount(App);
                 },
                 buffers=[entry.get("low_png") or b"", entry.get("high_png") or b""],
             )
-            self.status = f"acquired {index} of {len(picked)} target(s)..."
+            self.status = (
+                f"acquired {index} of {len(picked)} target(s)"
+                f"{_eta_text(index, len(picked), self._run_started)}..."
+            )
 
         records = acquire_targets(
             self.session,
@@ -1445,6 +1750,10 @@ export default mount(App);
         # The run is complete: publish the full rows snapshot so any view —
         # including one opened later — has the whole gallery.
         self.push_snapshot()
+        # Tell the explorer which cells are now done: they render filled on
+        # the scatter and the map, and leave the pick set.
+        if hasattr(self.source, "note_acquired"):
+            self.source.note_acquired(picked)
         self.status = f"acquired {len(records)} of {gated_count} gated target(s)"
         return records
 
@@ -1464,6 +1773,7 @@ export default mount(App);
             "low_png": png_bytes(shrink_to_budget(low, _PER_IMAGE_PIXEL_BUDGET)),
             "high_png": png_bytes(shrink_to_budget(high, _PER_IMAGE_PIXEL_BUDGET)),
             "position_label": record.get("position_label"),
+            "width_um": float(width_um),  # lets the browser draw a scale bar
             "low_title": (
                 f"overview crop — tile {source.get('naming_p', '?')} "
                 f"({width_um:.0f} × {height_um:.0f} um)"

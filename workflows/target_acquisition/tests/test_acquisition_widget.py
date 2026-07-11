@@ -293,3 +293,29 @@ def test_verdicts_record_curation(tmp_path, overview):
     # A new run starts a fresh record.
     gallery.acquire(1)
     assert gallery.verdicts == [None]
+
+
+def test_pick_and_acquire_selected(tmp_path, overview):
+    """Double-click picks in the explorer; acquire_selected images exactly them."""
+    from workflow._discovery_widget import explore_targets
+
+    explorer = explore_targets(_targets(4), [overview])
+    explorer.toggle_pick(1)
+    explorer.toggle_pick(2)
+    explorer.toggle_pick(2)  # again = un-pick
+    assert [t["x"] for t in explorer.picked_targets] == [1.0]
+
+    session = _StubSession(tmp_path)
+    gallery = acquire_gallery(session, explorer, [overview])
+    records = gallery.acquire_selected()
+    assert len(records) == 1 and gallery.picked == [explorer.targets[1]]
+    assert 1 in explorer._acquired and 1 not in explorer._picked
+
+    # A pick outside the current gate refuses the whole run loudly.
+    explorer.toggle_pick(0)
+    explorer.set_ranges(x_range=(2.0, 3.0))
+    with pytest.raises(RuntimeError, match="outside the current gate"):
+        gallery.acquire_selected()
+    explorer.clear_picks()
+    with pytest.raises(RuntimeError, match="no cells are picked"):
+        gallery.acquire_selected()

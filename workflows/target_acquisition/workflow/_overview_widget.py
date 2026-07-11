@@ -133,6 +133,8 @@ class OverviewViewer:
         self._targets: list[dict] = []
         self._targets_explorer: Any = None
         self._targets_artist: Any = None
+        self._expected_tiles: int | None = None
+        self._stream_started: float | None = None
         self.n_channels: int | None = None
         #: Per-channel display state: colour name, visibility, and the
         #: (low, high) intensity range mapped to black..full colour.
@@ -245,10 +247,29 @@ class OverviewViewer:
         ]
         self._refresh()
 
+    def expect_tiles(self, n: int) -> None:
+        """Tell the viewer how many tiles the coming scan will bring.
+
+        Purely for the operator's peace of mind: with the total known, the
+        title can say "tile 7 of 25 · about 4 min left" instead of just
+        counting up. Call it right before ``run_overview``.
+        """
+        import time
+
+        self._expected_tiles = max(1, int(n))
+        self._stream_started = time.monotonic()
+
     def _set_title(self) -> None:
+        progress = f"{len(self.overviews)} overview tile(s)"
+        if self._expected_tiles:
+            from ._acquisition_widget import _eta_text
+
+            progress = (
+                f"tile {len(self.overviews)} of {self._expected_tiles}"
+                f"{_eta_text(len(self.overviews), self._expected_tiles, self._stream_started)}"
+            )
         self.ax.set_title(
-            f"{len(self.overviews)} overview tile(s), {self.n_channels} channel(s) "
-            f"— pan/zoom with the toolbar"
+            f"{progress}, {self.n_channels} channel(s) — pan/zoom with the toolbar"
             + (f" (display 1/{self.downsample} pixels)" if self.downsample > 1 else "")
         )
 
@@ -352,16 +373,21 @@ class OverviewViewer:
         self._targets = list(targets or [])
         self._targets_explorer = explorer
         if self._targets:
-            mask = (
-                explorer._gate_mask() if explorer is not None else [True] * len(self._targets)
-            )
+            n = len(self._targets)
+            mask = explorer._gate_mask() if explorer is not None else [True] * n
+            picked = getattr(explorer, "_picked", set()) if explorer is not None else set()
+            acquired = getattr(explorer, "_acquired", set()) if explorer is not None else set()
             self._targets_artist = self.ax.scatter(
                 [t["x"] for t in self._targets],
                 [t["y"] for t in self._targets],
                 s=30,
-                facecolors="none",
-                edgecolors=["tab:blue" if keep else "0.6" for keep in mask],
-                linewidths=1.6,
+                # Acquired cells fill in green; the rest stay open rings.
+                facecolors=["tab:green" if i in acquired else "none" for i in range(n)],
+                edgecolors=[
+                    "black" if i in picked else ("tab:blue" if keep else "0.6")
+                    for i, keep in enumerate(mask)
+                ],
+                linewidths=[2.0 if i in picked else 1.6 for i in range(n)],
             )
         self.fig.canvas.draw_idle()
 

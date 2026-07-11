@@ -770,3 +770,136 @@ def test_calibration_report_panel_wraps_the_check_report():
     panel = wreact.calibration_report(report, acceptable_um=2.0)
     assert panel.report["mean_dx_um"] == 3.0
     assert panel.acceptable_um == 2.0
+
+
+# --- UX wave 3: pick-to-acquire, cross-links, ETA, scale bars, palette -------
+
+
+def test_click_to_pick_and_acquire_selected(tmp_path):
+    """Point at the cells you want: picks acquire exactly, and only, them."""
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.handle_message({"type": "pick", "index": 1})
+    explorer.handle_message({"type": "pick", "index": 3})
+    assert explorer.picked_indices == [1, 3]
+    explorer.handle_message({"type": "pick", "index": 3})  # click again = un-pick
+    assert explorer.picked_indices == [1]
+    explorer.handle_message({"type": "pick", "index": 99})  # bogus: ignored
+    assert explorer.picked_indices == [1]
+
+    session = _AcqSession(tmp_path)
+    gallery = wreact.acquire_gallery(session, explorer, [_overview(tmp_path)])
+    assert gallery.selected_count == 1
+    records = gallery.acquire_selected()
+    assert len(records) == 1
+    assert gallery.picked == [explorer.targets[1]]
+    # The acquired cell is remembered and leaves the pick set.
+    assert explorer.acquired_indices == [1]
+    assert explorer.picked_indices == []
+    assert gallery.selected_count == 0
+
+
+def test_acquire_selected_refuses_a_pick_outside_the_gate(tmp_path):
+    """A pick the gate excludes refuses the run loudly — never quiet imaging."""
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.handle_message({"type": "pick", "index": 0})
+    explorer.gate = {"x": [2.0, 3.0]}  # the pick (x=0) is now gated out
+    session = _AcqSession(tmp_path)
+    gallery = wreact.acquire_gallery(session, explorer, [_overview(tmp_path)])
+    gallery.handle_message({"type": "acquire_selected"})
+    assert "outside the current gate" in gallery.status
+    assert session.count == 0
+
+
+def test_acquire_selected_needs_picks_and_an_explorer(tmp_path):
+    session = _AcqSession(tmp_path)
+    explorer = wreact.explore_targets(_targets(2), [_overview(tmp_path)])
+    gallery = wreact.acquire_gallery(session, explorer, [_overview(tmp_path)])
+    with pytest.raises(RuntimeError, match="no cells are picked"):
+        gallery.acquire_selected()
+    plain = wreact.acquire_gallery(session, _targets(2), [_overview(tmp_path)])
+    with pytest.raises(RuntimeError, match="explorer as the gallery's source"):
+        plain.acquire_selected()
+    assert session.count == 0
+
+
+def test_forged_picked_indices_trait_cannot_choose_targets(tmp_path):
+    """The pick set lives in Python; a page script writing the trait is display noise."""
+    explorer = wreact.explore_targets(_targets(3), [_overview(tmp_path)])
+    explorer.picked_indices = [0, 1, 2]  # forged from the page
+    assert explorer.picked_targets == []  # Python's truth is empty
+    gallery = wreact.acquire_gallery(_AcqSession(tmp_path), explorer, [_overview(tmp_path)])
+    with pytest.raises(RuntimeError, match="no cells are picked"):
+        gallery.acquire_selected()
+
+
+def test_map_ring_click_forwards_the_pick_to_the_explorer(tmp_path):
+    explorer = wreact.explore_targets(_targets(3), [_overview(tmp_path)])
+    viewer = wreact.view_overview()
+    viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome(tmp_path / "t.ome.tif"))]})
+    viewer.show_targets(_targets(3), explorer)
+    viewer.handle_message({"type": "pick", "index": 2})
+    assert explorer.picked_indices == [2]
+    assert viewer.marks[2]["picked"] is True  # the map shows it immediately
+    explorer.note_acquired([explorer.targets[2]])
+    assert viewer.marks[2]["acquired"] is True and viewer.marks[2]["picked"] is False
+
+
+def test_hover_cross_highlights_between_explorer_and_map(tmp_path):
+    explorer = wreact.explore_targets(_targets(2), [_overview(tmp_path)])
+    viewer = wreact.view_overview()
+    viewer.add_tile(_overview(tmp_path))
+    viewer.show_targets(_targets(2), explorer)
+    explorer.handle_message({"type": "hover", "index": 1})
+    assert viewer.mark_hover.get("index") == 1  # explorer -> map
+    viewer.handle_message({"type": "mark", "index": 0})
+    assert explorer.hover.get("index") == 0  # map -> explorer
+
+
+def test_eta_text_is_honest():
+    import time as _time
+
+    from workflow._acquisition_widget import _eta_text
+
+    now = _time.monotonic()
+    assert _eta_text(0, 10, now) == ""  # nothing done: no basis
+    assert _eta_text(5, None, now) == ""  # no total: no basis
+    assert _eta_text(10, 10, now) == ""  # finished: nothing left
+    started = now - 10.0  # 2 s per site, 3 of 8 done -> ~10 s... scaled below
+    text = _eta_text(2, 8, started)  # 5 s/site, 6 left -> ~30 s
+    assert "s left" in text
+    text = _eta_text(1, 100, now - 60.0)  # 60 s/site, 99 left -> minutes
+    assert "min left" in text
+
+
+def test_overview_expect_tiles_gives_progress_status(tmp_path):
+    viewer = wreact.view_overview()
+    viewer.expect_tiles(3)
+    viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome(tmp_path / "a.ome.tif"))]})
+    assert viewer.status.startswith("tile 1 of 3")
+
+
+def test_gallery_rows_carry_width_for_the_scale_bar(tmp_path):
+    session = _AcqSession(tmp_path)
+    gallery = wreact.acquire_gallery(session, _targets(2), [_overview(tmp_path)], seed=1)
+    gallery.acquire(1)
+    assert gallery.rows[0]["width_um"] == pytest.approx(10.0)  # 40 px * 0.25 um
+
+
+def test_ranged_crop_encoding_uses_the_display_window():
+    from workflow.react._support import png_data_url, png_data_url_ranged
+
+    dim = np.full((8, 8), 10, dtype=np.uint16)
+    dim[0, 0] = 20  # min-max would stretch 10..20 to full black..white
+    auto = png_data_url(dim)
+    ranged = png_data_url_ranged(dim, (0.0, 1000.0))  # the map's window: all dark
+    assert auto != ranged
+    assert png_data_url_ranged(dim, None) == auto  # no window: honest fallback
+
+
+def test_colorblind_palette_is_available(tmp_path):
+    from workflow.react._support import CHANNEL_HEX_COLORBLIND
+
+    viewer = wreact.view_overview(palette="colorblind")
+    viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome(tmp_path / "t.ome.tif"))]})
+    assert viewer.channels[0]["color"] == CHANNEL_HEX_COLORBLIND[0]
+    assert viewer.channels[0]["palette"] == list(CHANNEL_HEX_COLORBLIND)
