@@ -52,11 +52,13 @@ class Session:
 
     @property
     def closed(self) -> bool:
-        """Whether :meth:`disconnect` has closed this session.
+        """Whether :meth:`disconnect` has been called on this session.
 
-        Lifecycle reporting may inspect this without touching the microscope;
-        it deliberately says nothing about an unexpected transport failure
-        that the driver has not observed yet.
+        Lifecycle reporting may inspect this without touching the microscope.
+        It deliberately says nothing about an unexpected transport failure
+        the driver has not observed yet — and, because disconnect marks the
+        session closed before calling the driver's teardown, it stays true
+        even if that teardown then raised.
         """
         return self._closed
 

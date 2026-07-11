@@ -226,6 +226,91 @@ small).
   `implementation_nodes`), so logic can still drift into notebooks one
   expression at a time. Cheap to add if the guard is meant to be strict.
 
+## Additional findings from an independent second pass
+
+A second, independent pass over the same diff (run specifically to catch
+what the first pass missed) confirmed three more majors and two smaller
+items. All were demonstrated in-process through `set_state` — the same
+path a browser comm update takes.
+
+### major 3 (second pass) — `busy` is browser-writable, never healed, and is obeyed as the run-overlap and cancel guard
+
+`_widgets.py`: the synced `busy` trait had no heal observer, yet
+`_hardware_run` raised "a run is already in progress" on it and
+`request_cancel` branched on it. A page script setting `busy = true` on an
+idle gallery blocked every later run (button *and* scripted) with a
+message that actively misleads the operator, showed a Cancel button for a
+run that does not exist, and let `request_cancel` "accept" a phantom
+cancel. On the concurrent (website) host the PROTOCOL itself advertises,
+forging `busy = false` mid-run would defeat the only guard against two
+overlapping hardware runs. This contradicts both the module's stated trust
+boundary ("browser trait writes are never state to obey") and PROTOCOL.md,
+which declares `busy` Python → browser. Fix: the same pattern as
+`read_only` — a Python-private `_busy` flag is the authority, the trait a
+healed display mirror.
+
+### major 4 (second pass) — a forged unknown `x_feature`/`y_feature` crashes `_recompute` mid-update
+
+The axis dropdowns can only produce valid names, but the traits are
+browser-writable and were validated nowhere: an unknown name made
+`_feature_value` return NaN for every dot and `_histogram` then raised
+`ValueError: cannot convert float NaN to integer` *inside the trait
+observer* — the gate was not reset, `hist`/`gated_mask` went stale, and
+the exception escaped into the comm handler: exactly the
+"exception that would leave the widget half-updated" the file's own
+contract promises cannot happen. (Selection safety survived by luck: NaN
+comparisons exclude everything.) Fix: the axis observer restores the
+previous, valid axis and says so; `_histogram` additionally ignores
+non-finite values, since a target can legitimately be missing a feature.
+
+### major 5 (second pass) — forged `picked_indices` / `acquired_indices` / `gated_mask` displays were never healed
+
+`gated` re-derived targets from the raw gate on every read (so a forged
+mask never chose targets), and acquisition reads the private `_picked`
+set — but the *displays* stayed forged: `acquired_indices = []` hid an
+already-imaged cell on every view (inviting a second exposure of the same
+cell), forged `picked_indices` relabelled the gallery's "Acquire selected
+(n)" button (whose count read the trait) while the run would image the
+real picks, and a forged `gated_mask` recoloured the linked map until the
+next Python read happened to heal it. Fix: heal all three eagerly from
+Python truth, the same way `verdicts` already healed; the remaining
+cosmetic traits (`status`, `marks`, hover previews, report panels) are now
+documented in PROTOCOL.md as unauthenticated display that Python never
+reads back.
+
+### minor 7 (second pass) — any channel edit permanently downgrades every tile to the 250 k display budget
+
+`_on_channels_changed` → `_retile` → `push_snapshot` replays the whole
+map at the catch-up budget, in every view, with no path back to the
+1.5-million-pixel live budget — so the documented live budget in practice
+survives only until the operator's first display adjustment. This is the
+deliberate bounded-replay trade-off (a 25-tile replay at the live budget
+would be a ~75 MiB burst — the very thing the streaming redesign
+removed), so the fix chosen is honesty rather than a budget change:
+PROTOCOL.md now says plainly that every whole-list replay uses the
+250 k display budget and that hover previews cut from the full-resolution
+files on disk.
+
+### nit 9 (second pass) — records with no image rendered broken-image icons
+
+For a pair-less record the gallery sends two zero-length buffers;
+`useStream`'s `if (!view) return;` guard does not skip them (a zero-length
+view is truthy), so the browser minted object URLs to empty blobs and
+`<img>` showed the broken-image glyph instead of an empty panel. Fixed
+with `if (!view || !view.byteLength) return;`.
+
+### nit 10 (second pass) — `Session.closed` docstring overstated slightly
+
+`disconnect()` marks the session closed *before* invoking the driver's
+teardown (so a raising teardown is not retried); `closed` therefore stays
+true even if that teardown raised while the driver-side session might
+still be live. The reporting direction is safe (WARN), so only the
+docstring was hedged to say exactly that.
+
+All second-pass findings, and the first-pass majors/minors above, are
+fixed on this branch in the commits that follow this report, each with a
+regression test.
+
 ## Validation reproduced
 
 - `pytest -q zmart_controller/tests workflows/target_acquisition/tests`

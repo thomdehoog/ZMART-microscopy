@@ -84,23 +84,57 @@ class _ZmartWidget(anywidget.AnyWidget):
     """Base: routes anywidget messages to ``handle_message`` (testable)."""
 
     status = traitlets.Unicode("").tag(sync=True)
+    #: Display mirror of a run in progress (buttons disable on it). The
+    #: run-overlap interlock is the private ``_busy`` flag — this trait is
+    #: healed if the page rewrites it, like ``read_only`` below.
     busy = traitlets.Bool(False).tag(sync=True)
     #: Display-only mirror of the read-only state (hides buttons in the
     #: browser). The ENFORCEMENT is the private flag below — a synced trait
     #: can be rewritten by anything in the page, so it is never the check.
     read_only = traitlets.Bool(False).tag(sync=True)
     _read_only_input_traits: tuple[str, ...] = ()
+    #: Message kinds that stay answered on a frozen widget because they only
+    #: READ state to serve a display (a hover preview). Never list a kind
+    #: here that changes state or touches hardware.
+    _read_only_safe_messages: tuple[str, ...] = ()
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._last_run_ended: float | None = None
         self._hardware_allowed = True
         self._cancel_requested = False
+        self._busy = False
+        self._restoring_busy_trait = False
         self._restoring_read_only_input = False
         self._restoring_read_only_trait = False
         self._read_only_inputs: dict[str, Any] = {}
         self.on_msg(self._route_message)
         self.observe(self._heal_read_only_trait, names="read_only")
+        self.observe(self._heal_busy_trait, names="busy")
+
+    def _set_busy(self, value: bool) -> None:
+        """Set the Python-private run flag and mirror it to the display."""
+        self._busy = value
+        self._restoring_busy_trait = True
+        try:
+            self.busy = value
+        finally:
+            self._restoring_busy_trait = False
+
+    def _heal_busy_trait(self, change: dict) -> None:
+        """``busy`` is a display mirror, never input.
+
+        The run-overlap interlock and the cancel path read the private
+        flag; if page code rewrites the synced trait (faking a run, or
+        hiding a real one), restore the truth so every view stays honest.
+        """
+        if self._restoring_busy_trait or change["new"] == self._busy:
+            return
+        self._restoring_busy_trait = True
+        try:
+            self.busy = self._busy
+        finally:
+            self._restoring_busy_trait = False
 
     def make_read_only(self) -> None:
         """Freeze this widget model into a read-only display.
@@ -123,12 +157,22 @@ class _ZmartWidget(anywidget.AnyWidget):
         self.read_only = True
 
     def _heal_read_only_trait(self, change: dict) -> None:
-        """Keep the display mirror honest if browser code writes it false."""
-        if self._hardware_allowed or self._restoring_read_only_trait or change["new"] is True:
+        """Keep the display mirror honest in both directions.
+
+        The synced trait is only a mirror of the Python-private lock. A
+        forged ``false`` on a frozen widget must not advertise controls
+        that would be refused — and a forged ``true`` on a live widget
+        must not hide the buttons in every tab while hardware is in fact
+        still allowed.
+        """
+        if self._restoring_read_only_trait:
+            return
+        expected = not self._hardware_allowed
+        if change["new"] is expected:
             return
         self._restoring_read_only_trait = True
         try:
-            self.read_only = True
+            self.read_only = expected
         finally:
             self._restoring_read_only_trait = False
 
@@ -147,6 +191,24 @@ class _ZmartWidget(anywidget.AnyWidget):
             self._restoring_read_only_input = False
         self.status = "this widget is read-only — state changes are disabled"
 
+    def _set_trusted_input(self, name: str, value: Any) -> None:
+        """Write a browser-writable input trait from trusted Python code.
+
+        The lock cannot tell a browser write from a Python one — both
+        arrive as the same trait change — so trusted display updates (for
+        example, the first tile initialising the channel controls) mark
+        themselves with the restorer's own flag. When the widget is frozen,
+        the stored baseline moves along too, so later browser edits are
+        still healed back to this new, correct value.
+        """
+        self._restoring_read_only_input = True
+        try:
+            setattr(self, name, value)
+        finally:
+            self._restoring_read_only_input = False
+        if not self._hardware_allowed and name in self._read_only_inputs:
+            self._read_only_inputs[name] = copy.deepcopy(value)
+
     def _route_message(self, _widget: Any, content: Any, _buffers: Any) -> None:
         # Anything can arrive on this channel; a non-dict is simply noise.
         if not isinstance(content, dict):
@@ -156,7 +218,7 @@ class _ZmartWidget(anywidget.AnyWidget):
             # A freshly mounted browser view asks for a bounded replay.
             self.push_snapshot()
             return
-        if not self._hardware_allowed:
+        if not self._hardware_allowed and kind not in self._read_only_safe_messages:
             self.status = "this view is read-only — hardware actions are disabled"
             return
         if kind == "cancel":
@@ -191,7 +253,7 @@ class _ZmartWidget(anywidget.AnyWidget):
         if not self._hardware_allowed:
             self.status = "this widget is read-only — cancellation is disabled"
             return
-        if self.busy:
+        if self._busy:
             self._cancel_requested = True
             self.status = "cancel requested — stopping before the next site"
         else:
@@ -231,14 +293,17 @@ class _ZmartWidget(anywidget.AnyWidget):
         """
         if not self._hardware_allowed:
             raise RuntimeError("this view is read-only — hardware actions are disabled")
-        if self.busy:
+        # The interlock reads the PRIVATE flag: the synced ``busy`` trait is
+        # a healed display mirror, so a page script can neither fake a run
+        # (blocking every real one) nor hide one from the overlap guard.
+        if self._busy:
             raise RuntimeError("a run is already in progress")
-        self.busy = True
+        self._set_busy(True)
         self._cancel_requested = False
         try:
             return work()
         finally:
-            self.busy = False
+            self._set_busy(False)
             self._last_run_ended = time.monotonic()
 
 
@@ -273,6 +338,8 @@ class OverviewViewerReact(_ZmartWidget):
     marks = traitlets.List().tag(sync=True)
     mark_hover = traitlets.Dict().tag(sync=True)
     _read_only_input_traits = ("channels",)
+    #: Hovering a mark only serves a crop preview — an observer may browse.
+    _read_only_safe_messages = ("mark",)
 
     _esm = (
         REACT_PRELUDE
@@ -559,7 +626,10 @@ export default mount(App);
                     "hi": hi,
                 }
             )
-        self.channels = channels
+        # A trusted Python-side write: without this, initialising the
+        # channel controls on a widget that was frozen while still empty
+        # would be healed away, and every later tile would render black.
+        self._set_trusted_input("channels", channels)
 
     def _channel_states(self) -> list[dict]:
         """The shared-compositor shape of the channel traits — sanitized.
@@ -1085,6 +1155,8 @@ class TargetExplorerReact(_ZmartWidget):
     #: images the same cell twice without meaning to.
     acquired_indices = traitlets.List().tag(sync=True)
     _read_only_input_traits = ("x_feature", "y_feature", "gate")
+    #: Hovering a dot only serves a crop preview — an observer may browse.
+    _read_only_safe_messages = ("hover",)
 
     _esm = (
         REACT_PRELUDE
@@ -1236,6 +1308,9 @@ export default mount(App);
         self.crop_um = float(crop_um)
         self._crop_cache: dict[int, dict] = {}
         self._resetting_gate = False
+        self._healing_axes = False
+        self._publishing_indices = False
+        self._publishing_mask = False
         self._picked: set[int] = set()  # Python owns the truth; the trait displays it
         self._acquired: set[int] = set()
         self._linked_viewer: Any = None  # set by OverviewViewerReact.show_targets
@@ -1244,6 +1319,8 @@ export default mount(App);
         self.y_feature = self.features[1] if len(self.features) > 1 else self.features[0]
         self.observe(self._on_axes_changed, names=["x_feature", "y_feature"])
         self.observe(self._on_gate_changed, names="gate")
+        self.observe(self._heal_index_traits, names=["picked_indices", "acquired_indices"])
+        self.observe(self._heal_gated_mask, names="gated_mask")
         self._recompute(reset_gate=True)
 
     @property
@@ -1258,7 +1335,7 @@ export default mount(App);
         mask = self._mask_from_gate()
         if list(self.gated_mask) != mask:
             # Heal the display if something scribbled over the mask.
-            self.gated_mask = mask
+            self._publish_gated_mask(mask)
         return [t for t, keep in zip(self.targets, mask, strict=True) if keep]
 
     # --- hand-picked cells ---------------------------------------------------
@@ -1308,11 +1385,19 @@ export default mount(App);
         for i in _matching_target_indices(self.targets, targets, acquired=self._acquired):
             self._acquired.add(i)
             self._picked.discard(i)
-        self.acquired_indices = sorted(self._acquired)
+        self._publishing_indices = True
+        try:
+            self.acquired_indices = sorted(self._acquired)
+        finally:
+            self._publishing_indices = False
         self._publish_picks()
 
     def _publish_picks(self) -> None:
-        self.picked_indices = sorted(self._picked)
+        self._publishing_indices = True
+        try:
+            self.picked_indices = sorted(self._picked)
+        finally:
+            self._publishing_indices = False
         self.status = (
             f"{len(self._picked)} cell(s) picked for targeted acquisition"
             if self._picked
@@ -1321,8 +1406,63 @@ export default mount(App);
         if self._linked_viewer is not None:
             self._linked_viewer._refresh_marks()
 
-    def _on_axes_changed(self, _change: Any) -> None:
-        if not self._hardware_allowed:
+    def _heal_index_traits(self, change: dict) -> None:
+        """The pick and acquired records are Python truth; traits display them.
+
+        A page script rewriting these traits could hide an already-imaged
+        cell (inviting a second exposure) or relabel the "Acquire selected"
+        button — heal them back to the private sets immediately.
+        """
+        if self._publishing_indices:
+            return
+        truth = sorted(self._picked if change["name"] == "picked_indices" else self._acquired)
+        if list(change["new"]) == truth:
+            return
+        self._publishing_indices = True
+        try:
+            setattr(self, change["name"], truth)
+        finally:
+            self._publishing_indices = False
+        self.status = "ignored an invalid browser write to the pick record"
+
+    def _publish_gated_mask(self, mask: list[bool]) -> None:
+        self._publishing_mask = True
+        try:
+            self.gated_mask = mask
+        finally:
+            self._publishing_mask = False
+
+    def _heal_gated_mask(self, change: dict) -> None:
+        """Restore the gate display the moment page code scribbles on it.
+
+        ``gated`` already recomputes from the raw gate on every read, so a
+        forged mask never chooses targets — but until now it stayed on
+        screen (and recoloured the linked map) until the next read. Heal it
+        eagerly instead.
+        """
+        if self._publishing_mask:
+            return
+        mask = self._mask_from_gate()
+        if list(change["new"]) == mask:
+            return
+        self._publish_gated_mask(mask)
+        self.status = "ignored an invalid browser write to the gate display"
+
+    def _on_axes_changed(self, change: Any) -> None:
+        if not self._hardware_allowed or self._healing_axes:
+            return
+        if change["new"] not in self.features:
+            # An unknown feature name arrives only from a page script or a
+            # stale gate file — never from the dropdowns. Restore the
+            # previous, valid axis instead of plotting NaN dots (which
+            # would crash the histogram mid-update and freeze the explorer
+            # at a stale state).
+            self._healing_axes = True
+            try:
+                setattr(self, change["name"], change["old"])
+            finally:
+                self._healing_axes = False
+            self.status = "ignored an unknown feature name from the page"
             return
         # A lasso drawn in the old feature space would gate nonsense in the
         # new one, so switching axes clears the whole gate (like matplotlib).
@@ -1381,12 +1521,20 @@ export default mount(App);
 
     @staticmethod
     def _histogram(values: list[float], bins: int = 20) -> list[float]:
-        """Bin counts normalized to 0..1 — a slim distribution backdrop."""
-        lo, hi = min(values), max(values)
+        """Bin counts normalized to 0..1 — a slim distribution backdrop.
+
+        A target can be missing a feature (its value is then NaN), so the
+        bins are computed over the finite values only — NaNs must degrade
+        to "no backdrop", never raise mid-update.
+        """
+        finite = [v for v in values if math.isfinite(v)]
+        if not finite:
+            return [1.0] + [0.0] * (bins - 1)
+        lo, hi = min(finite), max(finite)
         if hi <= lo:
             return [1.0] + [0.0] * (bins - 1)
         counts = [0] * bins
-        for v in values:
+        for v in finite:
             k = min(int((v - lo) / (hi - lo) * bins), bins - 1)
             counts[k] += 1
         peak = max(counts)
@@ -1412,7 +1560,7 @@ export default mount(App);
                 self.gate = {}
             finally:
                 self._resetting_gate = False
-        self.gated_mask = self._mask_from_gate()
+        self._publish_gated_mask(self._mask_from_gate())
         self.status = "thresholds AND lasso gate together"
 
     def save_gate(self, path: Any) -> None:
@@ -1728,12 +1876,19 @@ export default mount(App);
         """Record the operator's judgement of one pair: "good", "bad", or None.
 
         This is the run's QC record — :meth:`save_curation` writes it next
-        to the images. Scriptable and also driven by the ✓/✗ buttons.
+        to the images. Scriptable and also driven by the ✓/✗ buttons. Only
+        rows of a committed run can be judged, and a read-only widget
+        refuses: the record must always match what every view displays.
         """
+        if not self._hardware_allowed:
+            raise RuntimeError("this view is read-only — the curation record is locked")
         if value not in ("good", "bad", None):
             raise ValueError('a verdict is "good", "bad", or None')
-        if not 0 <= int(index) < len(self._row_entries):
-            raise ValueError(f"no gallery row {index} to judge")
+        if not 0 <= int(index) < len(self._verdicts):
+            raise ValueError(
+                f"no committed gallery row {index} to judge — a cancelled or "
+                "failed run leaves nothing to curate"
+            )
         self._verdicts[int(index)] = value
         self._publish_verdicts()
 
@@ -1772,8 +1927,12 @@ export default mount(App);
             value = content.get("value")
             if value not in ("good", "bad", None):
                 return
-            if 0 <= index < len(self._row_entries):
+            if 0 <= index < len(self._verdicts):
                 self.set_verdict(index, value)
+            elif 0 <= index < len(self._row_entries):
+                # The row is still on screen from a run that never committed
+                # (cancelled or failed) — explain instead of judging it.
+                self.status = "that run was not committed — re-run before curating"
             return
         if kind == "acquire_selected":
             if self._debounced():
@@ -1852,13 +2011,19 @@ export default mount(App);
         self._row_entries = []
         self.send({"type": "row:reset"})
         self.rows = []
-        self._verdicts = [None] * len(picked)
+        # The curation record grows WITH the streamed rows and is emptied
+        # again if the run fails: verdicts, records and curation.json must
+        # always describe the same committed rows, so a cancelled run can
+        # never leave judgements pointing at pairs that were never committed.
+        self._verdicts = []
         self._publish_verdicts()
         self._run_started = time.monotonic()
 
         def _show_fresh_pair(index: int, _position: dict, record: dict) -> None:
             entry = self._row_entry(picked[index - 1], record)
             self._row_entries.append(entry)
+            self._verdicts.append(None)
+            self._publish_verdicts()
             # One message per fresh pair — never a resend of the rows so
             # far, with the two images as binary buffers.
             self._send_row(index - 1, entry)
@@ -1867,15 +2032,23 @@ export default mount(App);
                 f"{_eta_text(index, len(picked), self._run_started)}..."
             )
 
-        records = acquire_targets(
-            self.session,
-            picked,
-            state=self.state,
-            focus=self.focus,
-            options=self.options,
-            on_record=_show_fresh_pair,
-            cancel=lambda: self._cancel_requested,
-        )
+        try:
+            records = acquire_targets(
+                self.session,
+                picked,
+                state=self.state,
+                focus=self.focus,
+                options=self.options,
+                on_record=_show_fresh_pair,
+                cancel=lambda: self._cancel_requested,
+            )
+        except BaseException:
+            # Nothing commits on failure or cancel; the curation record must
+            # agree. The streamed rows stay on screen (their files ARE saved)
+            # but they carry no verdicts and cannot be judged.
+            self._verdicts = []
+            self._publish_verdicts()
+            raise
         if self.after_acquire is not None:
             self.after_acquire(records)
             # The hijack may have rewritten the saved images: re-read them.

@@ -42,12 +42,21 @@ So streamed lists follow one rule everywhere:
   encode/decode work); the browser turns each buffer into an object URL
   and revokes it immediately when that entry is replaced, reset, or unmounted;
 - the matching trait holds the full **metadata** snapshot with empty image
-  fields. When a browser view sends `{"type": "sync"}` (every view does on
-  mount), Python sends `<kind>:reset` followed by one bounded binary message
-  per item. Catch-up therefore never creates one giant base64 JSON trait;
-- each live overview image is kept under 1.5 million pixels; catch-up and
-  gallery images use a tighter 250,000-pixel budget, so both individual
-  messages and complete 25-tile / 10-row replays remain bounded.
+  fields, refreshed when a view syncs and when a run commits — so mid-run
+  it can lag the messages. When a browser view sends `{"type": "sync"}`
+  (every view does on mount), Python sends `<kind>:reset` followed by one
+  bounded binary message per item. Catch-up therefore never creates one
+  giant base64 JSON trait;
+- freshly streamed overview tiles are kept under 1.5 million pixels;
+  every whole-list replay — a catch-up `sync`, a channel edit's
+  recomposite, a `reload()` — and all gallery images use a tighter
+  250,000-pixel display budget, so complete 25-tile / 10-row replays stay
+  bounded. Two honest trade-offs follow: a replay is broadcast to every
+  view of the model, so a tab that was watching full-budget live tiles
+  sees them replaced by the smaller display copies as soon as any view
+  syncs or a channel is edited; and the map is therefore a *display*,
+  while hover previews cut their crops from the full-resolution files on
+  disk.
 
 A front end renders `trait ∪ streamed messages`, clears its local list on
 `<kind>:reset`, and replaces entries by index. Object URLs are owned per
@@ -59,10 +68,18 @@ exactly what the shared `useStream` hook in `_support.py` does.
 | Name | Kind | Direction | Meaning |
 |---|---|---|---|
 | `status` | trait (str) | Python → browser | One plain-language line for the operator. Errors land here too (`"failed: ..."`). |
-| `busy` | trait (bool) | Python → browser | True while a hardware run is in progress; buttons disable on it. |
-| `read_only` | trait (bool) | Python → browser | Display mirror of a model-wide freeze (buttons hide). The LOCK is Python-private state set by `make_read_only()` — it applies to every tab showing this widget model, refuses hardware/cancel, and restores browser-writable input traits. It is not a per-tab permission system. |
+| `busy` | trait (bool) | Python → browser | True while a hardware run is in progress; buttons disable on it. Healed if the page rewrites it: the run-overlap interlock and the cancel path read a Python-private flag, so a script can neither fake a run nor hide one. |
+| `read_only` | trait (bool) | Python → browser | Display mirror of a model-wide freeze (buttons hide), healed in BOTH directions: a forged `false` on a frozen model and a forged `true` on a live one are both restored. The LOCK is Python-private state set by `make_read_only()` — it applies to every tab showing this widget model, refuses hardware/cancel/curation edits, and restores browser-writable input traits. Display-only reads (a hover preview) still work. It is not a per-tab permission system. |
 | `{"type": "sync"}` | message | browser → Python | "I just mounted — reset and replay the bounded binary snapshot." |
 | `{"type": "cancel"}` | message | browser → Python | Ask a running loop to stop before its next site. Cooperative and clean: the current site finishes, nothing is committed, no further move fires (`RunCancelled`). Honesty note: under classic Jupyter the kernel may only process the click when it next comes up for air; a website host that handles messages concurrently gets immediate cancellation through this same path. When no run is active, the status line says so. |
+
+A word on trust: "Python → browser" traits are *display*. The ones that
+could mislead a hardware decision if forged by page code — `busy`,
+`read_only`, `verdicts`, `gated_mask`, `picked_indices`,
+`acquired_indices` — are healed back from Python-private truth the moment
+they are rewritten. The purely cosmetic ones (`status`, `marks`, hover
+previews, report panels) are best-effort display and are not
+authenticated; nothing in Python ever reads them back.
 
 Button-triggered runs are debounced: a request arriving within 2 seconds of
 the previous run's end is ignored (clicks queue in the browser while Python
