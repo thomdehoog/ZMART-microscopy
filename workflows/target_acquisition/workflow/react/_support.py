@@ -260,7 +260,10 @@ function useStream(model, traitName, messageType) {
       const entry = { ...msg.entry };
       (msg.buffer_keys || []).forEach((key, k) => {
         const view = buffers && buffers[k];
-        if (!view) return;
+        // A zero-length buffer means "this record has no image" — leave the
+        // field empty rather than minting a URL to an empty blob, which the
+        // browser would render as a broken-image icon.
+        if (!view || !view.byteLength) return;
         const owner = `${msg.index}:${key}`;
         const old = urls.current.get(owner);
         if (old) URL.revokeObjectURL(old);

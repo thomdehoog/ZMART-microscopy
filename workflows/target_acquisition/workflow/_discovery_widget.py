@@ -77,25 +77,30 @@ def _matching_target_indices(
 
     Discovery can legitimately yield duplicate-valued dictionaries. Equality
     alone would match every duplicate to the first entry, leaving later cells
-    unmarked and available for accidental re-acquisition. Prefer the original
-    object identity; retain equality only for callers that pass copied records,
-    and consume each source index at most once. Previously acquired indices are
-    excluded only from the equality fallback: repeating an original object must
-    remain idempotent instead of spilling onto its equal-valued neighbour.
+    unmarked and available for accidental re-acquisition. All original objects
+    therefore claim their indices by identity in a FIRST pass, so a copied
+    record earlier in the same call can never steal an index that an original
+    later in the call owns. Equality remains as a second pass for callers that
+    pass copied records, and each source index is consumed at most once.
+    Previously acquired indices are excluded only from the equality fallback:
+    repeating an original object must remain idempotent instead of spilling
+    onto its equal-valued neighbour.
     """
     acquired = set(acquired or ())
     used: set[int] = set()
     matched: list[int] = []
+    copies: list[dict] = []
     for target in targets:
         index = next(
             (i for i, candidate in enumerate(all_targets) if candidate is target),
             None,
         )
-        if index is not None:
-            if index not in used:
-                used.add(index)
-                matched.append(index)
-            continue
+        if index is None:
+            copies.append(target)
+        elif index not in used:
+            used.add(index)
+            matched.append(index)
+    for target in copies:
         index = next(
             (
                 i

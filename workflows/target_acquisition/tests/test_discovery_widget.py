@@ -177,3 +177,17 @@ def test_copied_duplicates_resolve_across_calls_without_breaking_identity_idempo
     assert explorer._acquired == {0}
     explorer.note_acquired([copied_second])
     assert explorer._acquired == {0, 1}
+
+
+def test_copy_cannot_steal_an_original_index_in_the_same_call():
+    """Originals claim their indices by identity before any copy falls back
+    to equality — otherwise a copy arriving first in the call would consume
+    the original's index and leave a real, imaged cell unmarked."""
+    first = _target(1.0, 2.0, area=10, intensity=3.0)
+    second = {**first, "source": dict(first["source"])}
+    explorer = explore_targets([first, second])
+    copied_second = {**second, "source": dict(second["source"])}
+
+    explorer.note_acquired([copied_second, first])
+
+    assert explorer._acquired == {0, 1}

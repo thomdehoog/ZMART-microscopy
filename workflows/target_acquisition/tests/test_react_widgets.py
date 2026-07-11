@@ -86,6 +86,7 @@ def test_every_widget_ships_the_vendored_react_runtime():
         assert "new Map()" in cls._esm  # object URLs are owned per entry/key
         assert "URL.revokeObjectURL(old)" in cls._esm  # replacement cannot leak the old URL
         assert "${messageType}:reset" in cls._esm  # bounded snapshot replay starts cleanly
+        assert "!view.byteLength" in cls._esm  # empty buffers stay empty fields, not broken icons
         assert "export default" in cls._esm
 
 
@@ -749,6 +750,129 @@ def test_read_only_model_restores_browser_writable_state(tmp_path):
     assert picker.focus is focus  # a forged edit did not invalidate the fit
 
 
+def test_read_only_locks_the_scripted_curation_path_too(tmp_path):
+    """Frozen means frozen: verdicts refuse, and display equals truth."""
+    gallery = wreact.acquire_gallery(
+        _AcqSession(tmp_path), _targets(3), [_overview(tmp_path)], seed=1
+    )
+    gallery.acquire(2)
+    gallery.set_verdict(0, "good")
+    gallery.make_read_only()
+    with pytest.raises(RuntimeError, match="read-only"):
+        gallery.set_verdict(1, "bad")
+    assert gallery._verdicts == ["good", None]
+    # The synced trait (what every tab displays) matches the private truth
+    # and matches what save_curation would write.
+    assert list(gallery.verdicts) == gallery._verdicts
+
+    import json
+
+    saved = json.loads(gallery.save_curation(tmp_path / "run").read_text(encoding="utf-8"))
+    assert [row["verdict"] for row in saved] == ["good", None]
+
+
+def test_forged_read_only_true_is_healed_on_a_live_widget(tmp_path):
+    """The mirror is honest in both directions, not only when frozen."""
+    gallery = wreact.acquire_gallery(
+        _AcqSession(tmp_path), _targets(2), [_overview(tmp_path)], seed=1
+    )
+    gallery.read_only = True  # a page script cannot blind every tab's buttons
+    assert gallery.read_only is False
+    gallery.make_read_only()
+    assert gallery.read_only is True
+
+
+def test_read_only_widgets_still_serve_hover_previews(tmp_path):
+    """An observer may browse: display-only messages keep working."""
+    explorer = wreact.explore_targets(_targets(2), [_overview(tmp_path)])
+    explorer.make_read_only()
+    explorer._route_message(None, {"type": "hover", "index": 0}, None)
+    assert explorer.hover.get("index") == 0
+    assert "read-only" not in explorer.status
+    explorer._route_message(None, {"type": "pick", "index": 0}, None)  # state change
+    assert "read-only" in explorer.status
+    assert explorer.picked_indices == []
+
+    viewer = wreact.view_overview()
+    viewer.add_tile(_overview(tmp_path))
+    viewer.show_targets(_targets(2))
+    viewer.make_read_only()
+    viewer._route_message(None, {"type": "mark", "index": 0}, None)
+    assert viewer.mark_hover.get("index") == 0
+
+
+def test_channels_initialise_on_a_viewer_frozen_while_empty(tmp_path):
+    """Trusted Python-side display setup survives the freeze.
+
+    Freezing an empty viewer and then streaming a scripted overview into it
+    must not leave the channel controls empty (every tile would composite
+    to black); the browser still cannot edit them.
+    """
+    viewer = wreact.view_overview()
+    viewer.make_read_only()
+    viewer.add_tile(_overview(tmp_path))
+    assert viewer.channels and viewer.channels[0]["visible"] is True
+    initialised = [dict(channel) for channel in viewer.channels]
+    viewer.channels = [{"color": "#ff0000", "lo": 0.0, "hi": 1.0}]  # forged edit
+    assert viewer.channels == initialised  # healed back to the trusted setup
+
+
+def test_forged_busy_trait_neither_blocks_nor_cancels_runs(tmp_path):
+    """``busy`` is a healed display mirror; the interlock reads Python truth.
+
+    A page script faking a run must not block every real one behind
+    "a run is already in progress", must not make Cancel claim it stopped
+    something, and (on a concurrent host) must not be able to hide a real
+    run from the overlap guard.
+    """
+    gallery = wreact.acquire_gallery(
+        _AcqSession(tmp_path), _targets(3), [_overview(tmp_path)], seed=1
+    )
+    gallery.busy = True  # page-script forgery
+    assert gallery.busy is False  # healed immediately
+    gallery.request_cancel()
+    assert not gallery._cancel_requested  # there was no run to cancel
+    assert "no run is in progress" in gallery.status
+    gallery.acquire(1)  # and the interlock did not believe the forgery
+    assert len(gallery.records) == 1
+
+
+def test_forged_unknown_axis_is_healed_instead_of_crashing(tmp_path):
+    """An axis name that is not a feature must degrade, never raise.
+
+    Unknown names arrive only from page scripts or stale gate files; they
+    would plot every dot at NaN and crash the histogram mid-update,
+    leaving the explorer half-updated — the exact failure the module's
+    trust boundary promises cannot happen.
+    """
+    import math
+
+    explorer = wreact.explore_targets(_targets(3), [_overview(tmp_path)])
+    explorer.x_feature = explorer.features[-1]
+    explorer.x_feature = "no_such_feature"  # page-script forgery
+    assert explorer.x_feature == explorer.features[-1]  # previous axis restored
+    assert "unknown feature" in explorer.status
+    assert all(math.isfinite(d["fx"]) for d in explorer.dots)
+
+
+def test_forged_pick_and_gate_display_traits_are_healed(tmp_path):
+    """Picks, acquired marks and the gate display heal from Python truth.
+
+    A forged ``acquired_indices`` could hide an already-imaged cell and
+    invite a second exposure; a forged ``picked_indices`` relabels the
+    "Acquire selected" button while the run would image different cells.
+    """
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.toggle_pick(1)
+    explorer.note_acquired([explorer.targets[2]])
+    explorer.picked_indices = [0, 3]  # forgery: relabel the picks
+    assert explorer.picked_indices == [1]
+    explorer.acquired_indices = []  # forgery: hide an imaged cell
+    assert explorer.acquired_indices == [2]
+    explorer.gated_mask = [False] * 4  # forgery: blank the gate display
+    assert explorer.gated_mask == explorer._mask_from_gate()
+
+
 def test_gallery_verdicts_record_curation(tmp_path):
     session = _AcqSession(tmp_path)
     gallery = wreact.acquire_gallery(session, _targets(3), [_overview(tmp_path)], seed=1)
@@ -782,6 +906,36 @@ def test_forged_verdict_trait_cannot_truncate_curation(tmp_path):
     saved = json.loads(gallery.save_curation(tmp_path / "run").read_text(encoding="utf-8"))
     assert len(saved) == 2
     assert [row["verdict"] for row in saved] == ["good", None]
+
+
+def test_cancelled_run_leaves_an_honest_empty_curation(tmp_path):
+    """Nothing commits on cancel — so nothing can be judged or saved wrong.
+
+    The streamed rows stay on screen (their files ARE saved on disk), but
+    verdicts, records and curation.json must keep describing the same
+    committed rows: none.
+    """
+    gallery = wreact.acquire_gallery(_AcqSession(tmp_path), _targets(3), [_overview(tmp_path)])
+
+    def _cancel_after_first(content, buffers=None, **_kw):
+        if content.get("type") == "row" and content["index"] == 0:
+            gallery.request_cancel()
+
+    gallery.send = _cancel_after_first
+    gallery.handle_message({"type": "acquire", "count": "3"})
+    assert "cancelled" in gallery.status
+    assert gallery.records == [] and gallery._verdicts == []
+    assert list(gallery.verdicts) == []
+
+    with pytest.raises(ValueError, match="cancelled or failed"):
+        gallery.set_verdict(0, "good")  # the row on screen was never committed
+    gallery.handle_message({"type": "verdict", "index": 0, "value": "good"})
+    assert "not committed" in gallery.status  # a browser click gets an explanation
+
+    import json
+
+    saved = json.loads(gallery.save_curation(tmp_path / "run").read_text(encoding="utf-8"))
+    assert saved == []  # honest empty record, not a crash and not stale rows
 
 
 def test_sparse_midrun_row_keeps_its_authoritative_verdict_index(tmp_path):
@@ -1013,6 +1167,22 @@ def test_react_copied_duplicates_resolve_across_calls_idempotently(tmp_path):
     explorer.note_acquired([first])
     assert explorer.acquired_indices == [0]
     explorer.note_acquired([copied_second])
+    assert explorer.acquired_indices == [0, 1]
+
+
+def test_react_copy_cannot_steal_an_original_index_in_the_same_call(tmp_path):
+    """Identity wins even when the copy comes first in the call.
+
+    A copied record and an original of two equal-valued cells arrive in one
+    ``note_acquired`` call, copy first: both cells must end up marked, or
+    one stays available for accidental re-acquisition.
+    """
+    first = _targets(1)[0]
+    second = {**first, "source": dict(first["source"])}
+    explorer = wreact.explore_targets([first, second], [_overview(tmp_path)])
+    copied_second = {**second, "source": dict(second["source"])}
+
+    explorer.note_acquired([copied_second, first])
     assert explorer.acquired_indices == [0, 1]
 
 
