@@ -50,6 +50,16 @@ class Session:
 
         self.context = context
 
+    @property
+    def closed(self) -> bool:
+        """Whether :meth:`disconnect` has closed this session.
+
+        Lifecycle reporting may inspect this without touching the microscope;
+        it deliberately says nothing about an unexpected transport failure
+        that the driver has not observed yet.
+        """
+        return self._closed
+
     # --- the frame (its origin) ---------------------------------------------
 
     def set_origin(self) -> dict:

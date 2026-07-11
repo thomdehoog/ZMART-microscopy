@@ -74,3 +74,21 @@ def test_react_notebook_runs_the_same_hardware_flow():
         assert step in joined, f"the React notebook lost the {step} step"
     # and it must not need the matplotlib interactive backend
     assert "run_line_magic" not in joined
+
+
+def test_react_notebook_is_thin_controller_orchestration():
+    trees = [ast.parse(src) for src in _code_sources(_load())]
+    implementation_nodes = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    assert not any(
+        isinstance(node, implementation_nodes) for tree in trees for node in ast.walk(tree)
+    ), "operator notebooks must call tested modules, not define new implementation logic"
+
+    joined = "\n".join(_code_sources(_load()))
+    for call in (
+        'workflow.connect("leica")',
+        "zmart_controller.set_origin()",
+        "zmart_controller.get_state()",
+        'zmart_controller.run_procedure({"name": "get_positions"})',
+        "zmart_controller.disconnect()",
+    ):
+        assert call in joined, f"React notebook no longer demonstrates {call}"

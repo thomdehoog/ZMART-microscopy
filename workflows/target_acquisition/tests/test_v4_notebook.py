@@ -108,3 +108,22 @@ def test_notebook_stays_controller_only():
     # no direct driver acquisition/motion calls
     for forbidden in ("drv.acquire", "drv.save", "drv.move_", "navigator_expert.acquire"):
         assert forbidden not in joined, f"notebook uses driver call {forbidden!r}"
+
+
+def test_notebook_is_thin_orchestration_and_teaches_the_session_lifecycle():
+    """Keep implementation in workflow modules while showing controller use."""
+    trees = [ast.parse(src) for src in _code_sources(_load())]
+    implementation_nodes = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    assert not any(
+        isinstance(node, implementation_nodes) for tree in trees for node in ast.walk(tree)
+    ), "operator notebooks must call tested modules, not define new implementation logic"
+
+    joined = "\n".join(_code_sources(_load()))
+    for call in (
+        'workflow.connect("leica")',
+        "zmart_controller.set_origin()",
+        "zmart_controller.get_state()",
+        'zmart_controller.run_procedure({"name": "get_positions"})',
+        "zmart_controller.disconnect()",
+    ):
+        assert call in joined, f"notebook no longer demonstrates {call}"

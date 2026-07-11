@@ -149,3 +149,31 @@ def test_hover_far_from_any_point_changes_nothing(targets, overview):
 def test_no_targets_is_a_clear_error():
     with pytest.raises(ValueError, match="no targets"):
         explore_targets([])
+
+
+def test_duplicate_valued_targets_are_each_marked_acquired():
+    first = _target(1.0, 2.0, area=10, intensity=3.0)
+    second = {**first, "source": dict(first["source"])}
+    explorer = explore_targets([first, second])
+    explorer.toggle_pick(0)
+    explorer.toggle_pick(1)
+
+    explorer.note_acquired([first, second])
+
+    assert explorer._acquired == {0, 1}
+    assert explorer._picked == set()
+
+
+def test_copied_duplicates_resolve_across_calls_without_breaking_identity_idempotence():
+    first = _target(1.0, 2.0, area=10, intensity=3.0)
+    second = {**first, "source": dict(first["source"])}
+    explorer = explore_targets([first, second])
+    copied_first = {**first, "source": dict(first["source"])}
+    copied_second = {**second, "source": dict(second["source"])}
+
+    explorer.note_acquired([copied_first])
+    assert explorer._acquired == {0}
+    explorer.note_acquired([first])  # repeating the original is idempotent
+    assert explorer._acquired == {0}
+    explorer.note_acquired([copied_second])
+    assert explorer._acquired == {0, 1}

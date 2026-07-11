@@ -37,15 +37,34 @@ def run_status_rows(ns: dict[str, Any]) -> list[dict]:
     session = ns.get("zmart_controller")
     if session is None:
         rows.append(_row("Microscope", TODO, "not connected — run the setup cell"))
+    elif getattr(session, "closed", None) is True or getattr(session, "disconnected", False):
+        rows.append(_row("Microscope", WARN, "session is disconnected — re-run setup"))
+    elif getattr(session, "closed", None) is False:
+        rows.append(_row("Microscope", OK, "connected (last known; no live probe)"))
     else:
-        rows.append(_row("Microscope", OK, "connected"))
-    if ns.get("engine") is None:
+        rows.append(
+            _row("Microscope", WARN, "session object present; connection health is unknown")
+        )
+    engine = ns.get("engine")
+    if engine is None:
         rows.append(_row("Analysis engine", TODO, "not loaded — run the setup cell"))
+    elif any(
+        getattr(engine, name, False) is True
+        for name in ("shut_down", "closed", "_closed", "_shutdown_done")
+    ):
+        rows.append(_row("Analysis engine", WARN, "engine is shut down — re-run setup"))
     else:
-        rows.append(_row("Analysis engine", OK, "loaded and preflighted"))
+        rows.append(
+            _row(
+                "Analysis engine",
+                OK,
+                "loaded; setup preflight passed (worker liveness not probed)",
+            )
+        )
     root = ns.get("ROOT")
     rows.append(
-        _row("Run folder", OK, str(root)) if root is not None
+        _row("Run folder", OK, str(root))
+        if root is not None
         else _row("Run folder", TODO, "unknown until setup runs")
     )
 

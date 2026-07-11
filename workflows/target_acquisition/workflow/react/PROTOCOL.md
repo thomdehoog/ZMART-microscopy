@@ -40,17 +40,19 @@ So streamed lists follow one rule everywhere:
   whose image pixels ride as **binary buffers** (raw PNG bytes, in
   `buffer_keys` order — about a quarter smaller than base64 and no
   encode/decode work); the browser turns each buffer into an object URL
-  and revokes it when a snapshot replaces it;
-- the matching trait holds the **full snapshot** (data URLs there, since
-  traits are JSON), refreshed when a browser view sends `{"type": "sync"}`
-  (every view does, on mount) and at natural commit points (end of a run,
-  a reload);
-- every image is kept under a fixed pixel budget (about 1.5 million
-  pixels), so no single update can stall the channel.
+  and revokes it immediately when that entry is replaced, reset, or unmounted;
+- the matching trait holds the full **metadata** snapshot with empty image
+  fields. When a browser view sends `{"type": "sync"}` (every view does on
+  mount), Python sends `<kind>:reset` followed by one bounded binary message
+  per item. Catch-up therefore never creates one giant base64 JSON trait;
+- each live overview image is kept under 1.5 million pixels; catch-up and
+  gallery images use a tighter 250,000-pixel budget, so both individual
+  messages and complete 25-tile / 10-row replays remain bounded.
 
-A front end renders `trait ∪ streamed messages`, replacing its local list
-wholesale whenever the trait changes. That is exactly what the shared
-`useStream` hook in `_support.py` does.
+A front end renders `trait ∪ streamed messages`, clears its local list on
+`<kind>:reset`, and replaces entries by index. Object URLs are owned per
+entry/field and revoked immediately when that entry is replaced. That is
+exactly what the shared `useStream` hook in `_support.py` does.
 
 ## Common to every widget
 
@@ -58,8 +60,8 @@ wholesale whenever the trait changes. That is exactly what the shared
 |---|---|---|---|
 | `status` | trait (str) | Python → browser | One plain-language line for the operator. Errors land here too (`"failed: ..."`). |
 | `busy` | trait (bool) | Python → browser | True while a hardware run is in progress; buttons disable on it. |
-| `read_only` | trait (bool) | Python → browser | Display mirror of observer mode (buttons hide). The LOCK is Python-private state set by `make_read_only()` — rewriting this trait from the page does not re-enable hardware. |
-| `{"type": "sync"}` | message | browser → Python | "I just mounted — publish the full snapshot traits." |
+| `read_only` | trait (bool) | Python → browser | Display mirror of a model-wide freeze (buttons hide). The LOCK is Python-private state set by `make_read_only()` — it applies to every tab showing this widget model, refuses hardware/cancel, and restores browser-writable input traits. It is not a per-tab permission system. |
+| `{"type": "sync"}` | message | browser → Python | "I just mounted — reset and replay the bounded binary snapshot." |
 | `{"type": "cancel"}` | message | browser → Python | Ask a running loop to stop before its next site. Cooperative and clean: the current site finishes, nothing is committed, no further move fires (`RunCancelled`). Honesty note: under classic Jupyter the kernel may only process the click when it next comes up for air; a website host that handles messages concurrently gets immediate cancellation through this same path. When no run is active, the status line says so. |
 
 Button-triggered runs are debounced: a request arriving within 2 seconds of
@@ -73,7 +75,8 @@ share the same busy flag, read-only lock, and debounce bookkeeping. A
 
 | Name | Kind | Direction | Meaning |
 |---|---|---|---|
-| `tiles` | trait (list) | Python → browser | Snapshot of tile entries: `{src, x0, y0, w, h, label}`, positions and sizes in frame micrometres. |
+| `tiles` | trait (list) | Python → browser | Metadata snapshot: `{src: "", x0, y0, w, h, label}`, positions and sizes in frame micrometres. Pixels arrive in bounded binary messages. |
+| `{"type": "tile:reset"}` | message | Python → browser | Clear local streamed tiles before a catch-up replay. |
 | `{"type": "tile", index, entry}` + buffer | message | Python → browser | One freshly acquired tile (PNG in the buffer). |
 | `channels` | trait (list) | both ways | Per-channel display state: `{color, palette, visible, lo, hi}`. The browser edits it; Python recomposites every tile PNG in response (malformed entries fall back to defaults). |
 | `marks` | trait (list) | Python → browser | Discovered cells overlaid on the map: `{x, y, gated}`. Kept live against the linked explorer's gate (`show_targets(targets, explorer)`). |
@@ -124,8 +127,9 @@ reports a committed run back.
 
 | Name | Kind | Direction | Meaning |
 |---|---|---|---|
-| `rows` | trait (list) | Python → browser | Snapshot of acquired pairs `{low_src, high_src, low_title, high_title, position_label}`. Published when the run commits. |
-| `{"type": "row", index, entry}` + 2 buffers | message | Python → browser | One freshly acquired pair (both PNGs as buffers). |
+| `rows` | trait (list) | Python → browser | Metadata snapshot of acquired pairs; `stream_index` is the authoritative acquisition/verdict index, while `low_src`/`high_src` are empty until their bounded binary messages arrive. |
+| `{"type": "row:reset"}` | message | Python → browser | Clear local streamed rows before a catch-up replay. |
+| `{"type": "row", index, entry}` + 2 buffers | message | Python → browser | One freshly acquired pair (both PNGs as buffers). `entry.stream_index == index`; a view must use it rather than a compacted sparse-array position for verdict actions. |
 | `gate_count`, `default_count` | traits | Python → browser | How many targets pass the gate; the count box's starting value. |
 | `verdicts` | trait (list) | Python → browser | Per-row curation: `"good"` / `"bad"` / null — the operator's QC record. |
 | `selected_count` | trait (int) | Python → browser | How many cells are hand-picked in the linked explorer (drives the "Acquire selected" button). |

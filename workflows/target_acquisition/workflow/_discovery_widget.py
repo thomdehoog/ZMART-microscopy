@@ -67,6 +67,49 @@ def _feature_value(target: dict, feature: str) -> float:
     return float(value) if value is not None else float("nan")
 
 
+def _matching_target_indices(
+    all_targets: list[dict],
+    targets: list[dict],
+    *,
+    acquired: set[int] | None = None,
+) -> list[int]:
+    """Resolve acquired targets to distinct source indices, identity first.
+
+    Discovery can legitimately yield duplicate-valued dictionaries. Equality
+    alone would match every duplicate to the first entry, leaving later cells
+    unmarked and available for accidental re-acquisition. Prefer the original
+    object identity; retain equality only for callers that pass copied records,
+    and consume each source index at most once. Previously acquired indices are
+    excluded only from the equality fallback: repeating an original object must
+    remain idempotent instead of spilling onto its equal-valued neighbour.
+    """
+    acquired = set(acquired or ())
+    used: set[int] = set()
+    matched: list[int] = []
+    for target in targets:
+        index = next(
+            (i for i, candidate in enumerate(all_targets) if candidate is target),
+            None,
+        )
+        if index is not None:
+            if index not in used:
+                used.add(index)
+                matched.append(index)
+            continue
+        index = next(
+            (
+                i
+                for i, candidate in enumerate(all_targets)
+                if i not in acquired and i not in used and candidate == target
+            ),
+            None,
+        )
+        if index is not None:
+            used.add(index)
+            matched.append(index)
+    return matched
+
+
 def crop_for_target(target: dict, overviews: dict[int, dict], *, crop_um: float):
     """One cell's picture, cut from its overview tile, or ``None``.
 
@@ -326,15 +369,11 @@ class TargetExplorer:
         x_lo, x_hi = _bounds(xs)
         y_lo, y_hi = _bounds(ys)
         self._x_slider_ax = self.fig.add_axes([0.10, 0.11, 0.42, 0.035])
-        self._x_slider = RangeSlider(
-            self._x_slider_ax, "", x_lo, x_hi, valinit=(x_lo, x_hi)
-        )
+        self._x_slider = RangeSlider(self._x_slider_ax, "", x_lo, x_hi, valinit=(x_lo, x_hi))
         self._x_slider_ax.set_title(self._x_feature, fontsize=8, loc="left", pad=1)
         self._x_slider.on_changed(self._on_slider)
         self._y_slider_ax = self.fig.add_axes([0.10, 0.035, 0.42, 0.035])
-        self._y_slider = RangeSlider(
-            self._y_slider_ax, "", y_lo, y_hi, valinit=(y_lo, y_hi)
-        )
+        self._y_slider = RangeSlider(self._y_slider_ax, "", y_lo, y_hi, valinit=(y_lo, y_hi))
         self._y_slider_ax.set_title(self._y_feature, fontsize=8, loc="left", pad=1)
         self._y_slider.on_changed(self._on_slider)
         self._lasso = LassoSelector(self.ax, onselect=self._on_lasso)
@@ -403,12 +442,9 @@ class TargetExplorer:
         Called by the gallery when a run commits, so nobody images the same
         cell twice without meaning to. Acquired cells leave the pick set.
         """
-        for target in targets:
-            for i, t in enumerate(self.targets):
-                if t is target or t == target:
-                    self._acquired.add(i)
-                    self._picked.discard(i)
-                    break
+        for i in _matching_target_indices(self.targets, targets, acquired=self._acquired):
+            self._acquired.add(i)
+            self._picked.discard(i)
         self._restyle()
 
     def _on_press(self, event: Any) -> None:
