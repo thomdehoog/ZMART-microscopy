@@ -218,13 +218,6 @@ class RunFlow:
         if self.demo:
             self.session.select_job(self.session.OVERVIEW_JOB)
         state = self.session.get_state()
-        limits = state["observed"].get("limits")
-        if not limits or limits.get("is_fallback") or limits.get("source") != "machine":
-            raise FlowError(
-                f"machine-specific stage limits are not active (got {limits}); publish "
-                "this machine's measured envelope with "
-                "limits/notebooks/set_limits.ipynb first"
-            )
         from .. import require_driver_ready
 
         try:

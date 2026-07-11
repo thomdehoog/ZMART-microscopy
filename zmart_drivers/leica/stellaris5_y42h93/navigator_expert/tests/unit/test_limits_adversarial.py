@@ -171,6 +171,9 @@ _BAD_FUNCTION_LIMITS_TEXTS = {
     "setter_nonfinite_allowed": _with_payload(
         lambda p: {**p, "set_zoom": {"allowed": [float("nan")]}}
     ),
+    "setter_boolean_range": _with_payload(lambda p: {**p, "set_zoom": {"range": [False, True]}}),
+    "setter_string_range": _with_payload(lambda p: {**p, "set_zoom": {"range": ["1", "5"]}}),
+    "setter_null_allowed": _with_payload(lambda p: {**p, "set_zoom": {"allowed": [None]}}),
     "objective_slots_empty": _with_payload(lambda p: {**p, "objective_slot": {"allowed": []}}),
     "objective_slot_not_integer": _with_payload(
         lambda p: {**p, "objective_slot": {"allowed": [1, "2"]}}
@@ -701,6 +704,54 @@ def test_z_stack_definition_configured_limit_refuses_value_unknown_reset():
     refused = commands_mod.set_z_stack_definition(client, "J", old_begin_um=0.0)
     assert refused["success"] is False
     assert "configured limit but the wrapper supplied no value" in refused["message"]
+
+
+def test_installed_policy_is_independent_of_input_payload_mutation():
+    client = _Untouchable()
+    payload = _valid_payload()
+    payload["set_zoom"] = {"allowed": [1.0]}
+    policy = stage_config.validate_payload(payload)
+    installed = gate.LeicaLimits(policy, source="test", path="limits.json", is_fallback=False)
+    gate._install(
+        client,
+        gate.GateState(limits=installed, stage_cfg=None, error=None),
+    )
+
+    _assert_refused(commands_mod.set_zoom(client, "Overview", 5.0), needle="not allowed")
+    payload["set_zoom"]["allowed"].append(5.0)
+    policy["set_zoom"]["allowed"].append(5.0)
+    _assert_refused(commands_mod.set_zoom(client, "Overview", 5.0), needle="not allowed")
+
+
+def test_public_gate_status_is_detached_from_installed_policy(mock_client):
+    payload = _valid_payload()
+    payload["set_zoom"] = {"allowed": [1.0]}
+    _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
+    status = gate.connect_handshake(mock_client)
+    _assert_refused(commands_mod.set_zoom(mock_client, "Overview", 5.0), needle="not allowed")
+
+    assert not hasattr(status.limits, "payload")
+    assert not hasattr(status.limits, "check")
+    status.stage_cfg["policy"]["set_zoom"]["allowed"].append(5.0)
+    second_status = gate.state_for(mock_client)
+    assert second_status.stage_cfg["policy"]["set_zoom"] == {"allowed": [1.0]}
+    _assert_refused(commands_mod.set_zoom(mock_client, "Overview", 5.0), needle="not allowed")
+
+
+def test_private_installed_policy_and_stage_snapshot_are_immutable(mock_client):
+    payload = _valid_payload()
+    payload["set_zoom"] = {"allowed": [1.0]}
+    _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
+    assert gate.connect_handshake(mock_client).ok
+    installed = gate._state_for(mock_client)
+
+    with pytest.raises(TypeError):
+        installed.limits._policy["set_zoom"] = ("allowed", (1.0, 5.0))
+    with pytest.raises(AttributeError):
+        installed.limits._policy["set_zoom"][1].append(5.0)
+    with pytest.raises(TypeError):
+        installed.stage_cfg["policy"]["set_zoom"] = {"allowed": [1.0, 5.0]}
+    _assert_refused(commands_mod.set_zoom(mock_client, "Overview", 5.0), needle="not allowed")
 
 
 @pytest.mark.parametrize("wrapper", sorted(gate.MUTATING_COMMANDS))

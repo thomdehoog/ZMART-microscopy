@@ -106,6 +106,18 @@ def test_connect_records_measured_orientation_as_positive_preflight_evidence():
     assert info["rotate_deg"] == 0
 
 
+def test_orientation_and_readiness_evidence_come_from_one_validated_read():
+    import json
+
+    real_loads = json.loads
+    with patch.object(drv_session.json, "loads", wraps=real_loads) as loads:
+        orientation, info = drv_session._load_rig_orientation()
+
+    loads.assert_called_once()
+    assert info["rotate_deg"] == orientation.rotate_deg
+    assert info["measured"] is False
+
+
 def test_invalid_orientation_cannot_claim_measured_preflight_evidence(caplog):
     profile = MachineProfile(programdata_root=Path(os.environ["ZMART_MICROSCOPY_ROOT"]))
     snap = profile.ensure_snapshot()

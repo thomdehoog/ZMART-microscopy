@@ -1254,6 +1254,8 @@ class TestObjectiveCompensation(unittest.TestCase):
 
 
 class TestDriverSetupReadiness(unittest.TestCase):
+    measured_limits = {"source": "machine", "path": "limits.json", "is_fallback": False}
+
     def test_ready_requires_measured_orientation_loaded_calibration_and_active_slot(self):
         h = _handle(origin=_origin(objective={"slotIndex": 1, "name": "10x"}))
         adapter._session_state.install(
@@ -1273,16 +1275,18 @@ class TestDriverSetupReadiness(unittest.TestCase):
         )
         self.addCleanup(adapter._session_state.uninstall, h.client)
 
-        ready = adapter._setup_readiness(h, {"slotIndex": 2, "name": "20x"})
+        ready = adapter._setup_readiness(h, {"slotIndex": 2, "name": "20x"}, self.measured_limits)
         self.assertTrue(ready["ready"])
         self.assertEqual(ready["issues"], [])
 
-        missing = adapter._setup_readiness(h, {"slotIndex": 3, "name": "40x"})
+        missing = adapter._setup_readiness(h, {"slotIndex": 3, "name": "40x"}, self.measured_limits)
         self.assertFalse(missing["ready"])
         self.assertIn("slot 3", missing["issues"][0])
 
         h.origin["objective"] = {"slotIndex": 4, "name": "uncalibrated"}
-        bad_origin = adapter._setup_readiness(h, {"slotIndex": 2, "name": "20x"})
+        bad_origin = adapter._setup_readiness(
+            h, {"slotIndex": 2, "name": "20x"}, self.measured_limits
+        )
         self.assertFalse(bad_origin["ready"])
         self.assertIn("run-origin objective slot 4", bad_origin["issues"][0])
 
@@ -1311,7 +1315,7 @@ class TestDriverSetupReadiness(unittest.TestCase):
         )
         self.addCleanup(adapter._session_state.uninstall, h.client)
 
-        setup = adapter._setup_readiness(h, {"slotIndex": 2, "name": "20x"})
+        setup = adapter._setup_readiness(h, {"slotIndex": 2, "name": "20x"}, self.measured_limits)
 
         self.assertFalse(setup["ready"])
         self.assertTrue(any("placeholder" in issue for issue in setup["issues"]))
@@ -1331,7 +1335,7 @@ class TestDriverSetupReadiness(unittest.TestCase):
         )
         self.addCleanup(adapter._session_state.uninstall, h.client)
 
-        setup = adapter._setup_readiness(h, {"slotIndex": 1, "name": "10x"})
+        setup = adapter._setup_readiness(h, {"slotIndex": 1, "name": "10x"}, self.measured_limits)
 
         self.assertFalse(setup["ready"])
         self.assertTrue(any("placeholder" in issue for issue in setup["issues"]))
@@ -1349,10 +1353,33 @@ class TestDriverSetupReadiness(unittest.TestCase):
         )
         self.addCleanup(adapter._session_state.uninstall, h.client)
 
-        setup = adapter._setup_readiness(h, {"slotIndex": 1})
+        setup = adapter._setup_readiness(h, {"slotIndex": 1}, self.measured_limits)
 
         self.assertFalse(setup["ready"])
         self.assertIn("orientation", setup["issues"][0])
+
+    def test_fallback_limits_are_part_of_the_single_driver_readiness_verdict(self):
+        h = _handle(origin=_origin(objective={"slotIndex": 1, "name": "10x"}))
+        adapter._session_state.install(
+            h.client,
+            adapter._session_state.SessionConfig(
+                orientation=adapter._orientation.Orientation(rotate_deg=0),
+                translations={1: (0.0, 0.0, 0.0)},
+                orientation_info={"loaded": True, "measured": True, "rotate_deg": 0},
+                calibration_info={"loaded": True, "slots": [1], "measured_slots": [1]},
+            ),
+        )
+        self.addCleanup(adapter._session_state.uninstall, h.client)
+
+        setup = adapter._setup_readiness(
+            h,
+            {"slotIndex": 1},
+            {"source": "defaults", "path": "limits.json", "is_fallback": True},
+        )
+
+        self.assertFalse(setup["ready"])
+        self.assertIn("machine-specific stage limits", setup["issues"][0])
+        self.assertIn("set_limits.ipynb", setup["issues"][0])
 
 
 class TestLifecycle(unittest.TestCase):
@@ -1565,12 +1592,12 @@ class TestFunctionLimits(unittest.TestCase):
         client = object()
         state = _gate.connect_handshake(client)
         self.assertTrue(state.ok)
-        state.limits.check("set_xyz", {"x_um": 2500.0})
-        from shared import limits as shared_limits
-
-        with self.assertRaises(shared_limits.LimitViolation):
-            # inside the template envelope, outside the machine's
-            state.limits.check("set_xyz", {"x_um": 1500.0})
+        self.assertIsNone(_gate.check_refusal(client, "move_xy", {"x_um": 2500.0}))
+        # Inside the template envelope, outside the machine's envelope.
+        self.assertIn(
+            "outside range",
+            _gate.check_refusal(client, "move_xy", {"x_um": 1500.0}),
+        )
 
     def test_unknown_machine_axis_falls_back_to_defaults(self):
         """An envelope the schema can't represent falls back to bundled defaults."""

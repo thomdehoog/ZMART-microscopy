@@ -83,6 +83,22 @@ def test_adopt_limits_validates_envelope(tmp_path):
         stage_config.adopt_limits(bad, machine=m, moment=_ADOPT_MOMENT)
 
 
+@pytest.mark.parametrize("bad_bounds", [[False, True], ["1100", "100000"]])
+def test_adopt_limits_rejects_coerced_legacy_bounds(tmp_path, bad_bounds):
+    m = MachineProfile(programdata_root=tmp_path)
+    with pytest.raises(ValueError, match="must contain numbers"):
+        stage_config.adopt_limits(dict(_ENV_A, x=bad_bounds), machine=m, moment=_ADOPT_MOMENT)
+    assert m.latest_snapshot() is None
+
+
+@pytest.mark.parametrize("bad_value", [None, (1, 2)])
+def test_typed_allowed_rejects_non_json_or_null_values(bad_value):
+    payload = merged_limits_payload(_ENV_A)
+    payload["set_zoom"] = {"allowed": [bad_value]}
+    with pytest.raises(ValueError, match="JSON booleans, numbers, or strings"):
+        stage_config.validate_payload(payload)
+
+
 def test_adopt_limits_refuses_an_envelope_outside_the_backstop(tmp_path):
     m = MachineProfile(programdata_root=tmp_path)
     wide = dict(_ENV_A, x=[500, 200000])  # wider than the physical travel
