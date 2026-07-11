@@ -5,9 +5,18 @@ in `thomdehoog/ZMART-microscopy` that follow `6f784f5` ("Focus step: incremental
 re-measure and heatmap-tinted tile markers"). Review them against `6f784f5`,
 then sanity-check the whole branch against `origin/main`. The round you are
 checking is documented in `docs/reviews/v4_calibration_check_and_fixes_review.md`
-(findings 1–18 claim fixes in these commits, and two further expansion commits follow; verify each fix is faithful and
+(findings 1–18 claim fixes in these commits; verify each fix is faithful and
 introduces no new defect). The round before that is
 `docs/reviews/v4_notebook_hardware_proof_review.md`.
+
+Four commits are in scope, in order:
+
+1. `e02899c` — the review fixes (sections A–E below);
+2. `f4c0648` — expansion wave 2: vendored React, binary-buffer streaming,
+   cancel/observer mode, per-widget features (section F, items 1–7);
+3. `89d313c` — UX wave 3: pick-to-acquire, scale bars, ETA, lightbox,
+   cross-highlighting, acquired marks (section F, item 8);
+4. `2f0282b` — the offline notebook execution harness (section F, item 9).
 
 This is safety-adjacent code for a real Leica Stellaris 5. Do an adversarial
 code review. Do not implement fixes. Prioritize wrong stage coordinates,
@@ -225,7 +234,7 @@ The maintainer asked for a broad usability expansion. New surface to attack:
 - `workflow/react/PROTOCOL.md` against the implementation — every trait,
   message, and rule listed must be real, and nothing load-bearing missing.
 - Suites: ruff clean on changed files; `pytest zmart_controller/tests
-  workflows/target_acquisition/tests navigator_expert/tests/unit` = 1193
+  workflows/target_acquisition/tests navigator_expert/tests/unit` = 1208
   passed, 4 skipped in one process. Say what those numbers still cannot prove.
 - The residual-risk list at the end of the review doc — challenge it: is
   anything listed there actually verifiable offline after all, and is
