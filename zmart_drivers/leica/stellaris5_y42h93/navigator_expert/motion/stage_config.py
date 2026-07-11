@@ -1,8 +1,9 @@
 """Load and publish the Leica driver's flat ``limits.json``.
 
 The file is deliberately operator-readable: four top-level stage ranges,
-``objective_slot_allowed``, and one top-level entry for each configurable
-setter. An empty setter list means "reviewed; no limit is enforced". There are
+``objective_slot``, and one top-level entry for each configurable setter. Every
+constraint explicitly says ``range`` or ``allowed``; an empty setter list means
+"reviewed; no limit is enforced". There are
 no schema/source wrappers, named-constraint indirection, or nested ``functions``
 object. Runtime provenance is kept outside JSON in the snapshot's hidden
 ``.limits-machine`` marker.
@@ -75,7 +76,7 @@ SETTER_LIMIT_KEYS = (
     "set_filter_wheel_slot",
     "set_filter_wheel_spectrum",
 )
-_REQUIRED_FILE_KEYS = (*_AXIS_FILE_KEYS.values(), "objective_slot_allowed", *SETTER_LIMIT_KEYS)
+_REQUIRED_FILE_KEYS = (*_AXIS_FILE_KEYS.values(), "objective_slot", *SETTER_LIMIT_KEYS)
 
 
 def _driver_root() -> Path:
@@ -144,16 +145,47 @@ def _validate_source(source: Any, *, path: Path | None = None) -> str:
     return source
 
 
-def _validate_objective_slots(value: Any, *, path: Path) -> list[int]:
-    if not isinstance(value, list) or not value:
-        raise ValueError(f"{path} objective_slot_allowed must be a non-empty list")
-    if any(isinstance(slot, bool) or not isinstance(slot, int) or slot <= 0 for slot in value):
+def _normalize_typed_limit(
+    name: str,
+    entry: Any,
+    *,
+    path: Path,
+    required_kind: str | None = None,
+) -> dict[str, list]:
+    if not isinstance(entry, dict) or len(entry) != 1:
         raise ValueError(
-            f"{path} objective_slot_allowed must contain positive integers, got {value!r}"
+            f"{path} {name} must be {{'range': [min, max]}} or {{'allowed': [...]}}, got {entry!r}"
         )
-    if len(set(value)) != len(value):
-        raise ValueError(f"{path} objective_slot_allowed contains duplicates: {value!r}")
-    return list(value)
+    kind, values = next(iter(entry.items()))
+    if kind not in {"range", "allowed"}:
+        raise ValueError(f"{path} {name} has unknown limit type {kind!r}")
+    if required_kind is not None and kind != required_kind:
+        raise ValueError(f"{path} {name} must use {required_kind!r}, got {kind!r}")
+    if not isinstance(values, list):
+        raise ValueError(f"{path} {name}.{kind} must be a list, got {values!r}")
+    if kind == "range":
+        if len(values) != 2:
+            raise ValueError(f"{path} {name}.range must be [min, max], got {values!r}")
+        try:
+            low, high = float(values[0]), float(values[1])
+        except (TypeError, ValueError):
+            raise ValueError(f"{path} {name}.range must contain numbers, got {values!r}") from None
+        if not (math.isfinite(low) and math.isfinite(high)):
+            raise ValueError(f"{path} {name}.range is not finite: {values!r}")
+        if low > high:
+            raise ValueError(f"{path} {name}.range has min > max: {values!r}")
+        return {"range": [low, high]}
+    if not values:
+        raise ValueError(
+            f"{path} {name}.allowed must not be empty; use [] for unrestricted setters"
+        )
+    if any(isinstance(value, (dict, list)) for value in values):
+        raise ValueError(f"{path} {name}.allowed values must be scalar, got {values!r}")
+    if any(isinstance(value, float) and not math.isfinite(value) for value in values):
+        raise ValueError(f"{path} {name}.allowed contains a non-finite number: {values!r}")
+    if len({json.dumps(value, sort_keys=True) for value in values}) != len(values):
+        raise ValueError(f"{path} {name}.allowed contains duplicates: {values!r}")
+    return {"allowed": list(values)}
 
 
 def validate_payload(payload: Any, *, path: Path = Path("limits.json")) -> dict[str, Any]:
@@ -167,23 +199,28 @@ def validate_payload(payload: Any, *, path: Path = Path("limits.json")) -> dict[
     if unknown:
         raise ValueError(f"{path} has unknown limits entries: {unknown}")
 
-    stage = _validate_limits(
-        {axis: payload[file_key] for axis, file_key in _AXIS_FILE_KEYS.items()}, path=path
+    axes = {
+        file_key: _normalize_typed_limit(
+            file_key, payload[file_key], path=path, required_kind="range"
+        )
+        for file_key in _AXIS_FILE_KEYS.values()
+    }
+    objective = _normalize_typed_limit(
+        "objective_slot", payload["objective_slot"], path=path, required_kind="allowed"
     )
-    objective_slots = _validate_objective_slots(payload["objective_slot_allowed"], path=path)
-    setters: dict[str, list] = {}
+    slots = objective["allowed"]
+    if any(isinstance(slot, bool) or not isinstance(slot, int) or slot <= 0 for slot in slots):
+        raise ValueError(
+            f"{path} objective_slot.allowed must contain positive integers, got {slots!r}"
+        )
+    setters: dict[str, Any] = {}
     for name in SETTER_LIMIT_KEYS:
         entry = payload[name]
-        if entry != []:
-            raise ValueError(
-                f"{path} {name} must currently be [] (reviewed, unrestricted); "
-                "non-empty setter limits are not yet defined"
-            )
-        setters[name] = []
+        setters[name] = [] if entry == [] else _normalize_typed_limit(name, entry, path=path)
 
     normalized = {
-        **{_AXIS_FILE_KEYS[axis]: bounds for axis, bounds in stage.items()},
-        "objective_slot_allowed": objective_slots,
+        **axes,
+        "objective_slot": objective,
         **setters,
     }
     return normalized
@@ -197,8 +234,8 @@ def build_limits_payload(
     """Build the exact flat document written by the limits notebook."""
     stage = _validate_limits(stage_um, path=Path("limits.json"))
     payload = {
-        **{_AXIS_FILE_KEYS[axis]: bounds for axis, bounds in stage.items()},
-        "objective_slot_allowed": list(objective_slots),
+        **{_AXIS_FILE_KEYS[axis]: {"range": bounds} for axis, bounds in stage.items()},
+        "objective_slot": {"allowed": list(objective_slots)},
         **{name: [] for name in SETTER_LIMIT_KEYS},
     }
     return validate_payload(payload)
@@ -218,9 +255,10 @@ def load(limits_path: str | Path | None = None) -> dict[str, Any]:
     payload = validate_payload(_read_json(selected), path=selected)
 
     return {
-        "stage_um": {axis: payload[file_key] for axis, file_key in _AXIS_FILE_KEYS.items()},
-        "objective_slot_allowed": payload["objective_slot_allowed"],
-        "setter_limits": {name: payload[name] for name in SETTER_LIMIT_KEYS},
+        "policy": payload,
+        "stage_um": {
+            axis: payload[file_key]["range"] for axis, file_key in _AXIS_FILE_KEYS.items()
+        },
     }
 
 
@@ -259,7 +297,7 @@ def adopt_limits(
         payload = build_limits_payload(limits)
     else:
         payload = validate_payload(limits)
-    stage_um = {axis: payload[file_key] for axis, file_key in _AXIS_FILE_KEYS.items()}
+    stage_um = {axis: payload[file_key]["range"] for axis, file_key in _AXIS_FILE_KEYS.items()}
     _limits.check_envelope_within_backstop(stage_um)
     if machine is None:
         from ..config.machine import MACHINE

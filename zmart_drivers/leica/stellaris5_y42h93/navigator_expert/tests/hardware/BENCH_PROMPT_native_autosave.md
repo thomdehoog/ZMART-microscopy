@@ -27,7 +27,7 @@ machine-local stage limits). Two things to double-check first:
    `set_procedure → run_procedure` rename.** The limits gate requires the
    `functions` block to match exactly; an old file still carrying `set_procedure`
    will refuse *every* gated move. If in doubt, re-run
-   `limits/notebooks/set_stage_limits.ipynb` once.
+   `limits/notebooks/set_limits.ipynb` once.
 2. **Confirm LAS X native AutoSave is enabled** in the active StartUp
    configuration and note its `AutoSaveBaseFolder` — that is where captures land.
 

@@ -72,7 +72,7 @@ are copied there so CI can connect; on the rig, run once to replace those
 defaults with measured stage limits:
 
 ```
-zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb
+zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_limits.ipynb
 ```
 
 The pre-filled values are this machine's known-good envelope; adjust only if you

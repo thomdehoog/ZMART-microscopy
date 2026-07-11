@@ -31,7 +31,8 @@ defaults under the driver tree are seed material only; after seeding, reads
 return paths under ProgramData.
 
 ``limits.json`` is deliberately flat: ``x_um``, ``y_um``, both Z ranges, the
-allowed objective slots, and explicit ``[]`` entries for unrestricted setters.
+objective slot policy, and one entry per configurable setter. Each constraint
+explicitly says ``range`` or ``allowed``; ``[]`` means unrestricted.
 There is no metadata wrapper or separate ``function_limits.json``. A hidden
 snapshot marker preserves whether limits were explicitly adopted, so generic
 seed defaults cannot masquerade as measured limits. Backlash is a motion

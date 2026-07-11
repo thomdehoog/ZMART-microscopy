@@ -1459,7 +1459,7 @@ class TestFunctionLimits(unittest.TestCase):
         path = adapter._machine.MACHINE.bundled_default_path(adapter._machine.LIMITS_FILENAME)
         payload = stage_config.validate_payload(json.loads(path.read_text(encoding="utf-8")))
         self.assertEqual(set(payload), set(stage_config._REQUIRED_FILE_KEYS))
-        self.assertEqual(payload["objective_slot_allowed"], [1, 2, 3, 4, 5, 6])
+        self.assertEqual(payload["objective_slot"], {"allowed": [1, 2, 3, 4, 5, 6]})
 
     def test_set_xyz_refuses_beyond_function_limits_before_any_motion(self):
         _wide_limits()  # Phase A permissive, so the function-limits layer is what fires
@@ -1474,7 +1474,7 @@ class TestFunctionLimits(unittest.TestCase):
             patches[2],
             patches[3],
         ):
-            with self.assertRaisesRegex(RuntimeError, r"set_xyz\.x_um"):
+            with self.assertRaisesRegex(RuntimeError, r"x_um=.*outside range"):
                 adapter.set_xyz(h, 1000.0, 10.0, 0.0)
         xy.assert_not_called()
         mz.assert_not_called()
@@ -1549,7 +1549,7 @@ class TestFunctionLimits(unittest.TestCase):
             observed = adapter.get_state(h)["observed"]
         self.assertEqual(
             observed["limits"],
-            {"schema_version": 1, "source": "test", "path": None, "is_fallback": False},
+            {"source": "test", "path": None, "is_fallback": False},
         )
 
     def test_machine_stage_envelope_governs_the_gate(self):

@@ -84,8 +84,9 @@ runtime where possible. Override via the profile, not at call sites.
   state: it is ephemeral operator state, so it lives in its own `origin/` folder next to the
   snapshots and is **session-scoped** (see §5). The notebooks publish measured replacements by
   copying the latest snapshot forward and changing only their part. The single `limits.json` is
-  flat: four stage-axis ranges, `objective_slot_allowed`, and an explicit `[]` for each
-  unrestricted setter. Backlash remains a motion utility, not configuration.
+  flat: four typed stage-axis `range` entries, `objective_slot` with `allowed` values,
+  and either a typed constraint or explicit `[]` for each setter. Backlash remains a
+  motion utility, not configuration.
 - **The driver loads the configs at connect** — `connect_microscope(...)` (`connection/session.py`)
   is the driver's own front door. It opens the CAM client and then loads this microscope's three
   machine-local configs — the **stage limits**, the **orientation**, and the **calibration** — so the
@@ -108,8 +109,8 @@ runtime where possible. Override via the profile, not at call sites.
   the gate — only a successful handshake does.
 - **Command safety gate** — `commands/gate.py`. Every mutating wrapper checks that the session
   completed its limits handshake before the native call fires. Stage commands use the four flat
-  axis ranges, objective changes use `objective_slot_allowed`, and every listed setter with `[]` is
-  explicitly unrestricted. Missing, unknown, or non-empty setter entries invalidate the file and
+  axis ranges, objective changes use `objective_slot.allowed`, and every listed setter with `[]` is
+  explicitly unrestricted. Setter constraints use `range` or `allowed`. Missing or unknown entries invalidate the file and
   trigger the defaults fallback above. Nothing built on top—adapter, controller, workflow, or
   notebook—can bypass this command-layer check.
 
@@ -162,7 +163,7 @@ print(saved.image_paths)                                  # {PlaneIndex(t,z,c): 
 > use that discovered root instead of hard-coding a drive path.
 
 > No machine config yet? The first connect seeds ProgramData from the repo defaults so CI and local
-> mock runs work. On the rig, run `limits/notebooks/set_stage_limits.ipynb`,
+> mock runs work. On the rig, run `limits/notebooks/set_limits.ipynb`,
 > `orientation/notebooks/set_orientation.ipynb`, and the calibration notebook to replace those defaults
 > with measured values. If a machine file is invalid, the session falls back to the bundled default
 > envelope (loudly) rather than refusing — fix the file the warning names and reconnect.
@@ -499,7 +500,7 @@ These **silently misbehave** instead of failing loudly — respect them or resul
    select the wrong job after reload.
 10. **`load_experiment` confirms only the receipt, not on-disk state** — follow with `save_experiment`
     (or use `apply_lrp_change`, which does).
-11. **Adapter mutating ops are gated by `limits.json` (its `functions` block)** — if the machine file
+11. **Adapter mutating ops are gated by the flat `limits.json` at the commands layer** — if the machine file
     fails to load/validate at connect, the session falls back to the bundled **default** envelope
     (loudly warned) rather than refusing everything; the connect-time warning names what happened
     (see §3). Out-of-envelope moves still refuse at the commands layer, below the adapter.

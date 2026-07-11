@@ -27,8 +27,8 @@ Result contract: with the profiles' ``success_on_unconfirmed=True``
 command was *accepted*, not that it took effect. A caller that needs
 proof the setting/move landed must check ``result["confirmed"]``.
 
-Function-keyed limits gate: every mutating wrapper here declares its
-``limits.json`` functions key in ``gate.MUTATING_COMMANDS`` and calls
+Low-level limits gate: every mutating wrapper here declares its policy key in
+``gate.MUTATING_COMMANDS`` and calls
 ``_limits_refusal`` in Phase A — fail-closed BEFORE the native call can
 fire (no limits handshake / invalid machine-local limits / constraint
 violation all refuse with a result dict). See ``commands/gate.py``.
@@ -115,7 +115,7 @@ def _profile_value(profile, name, override=None):
 
 
 def _limits_refusal(client, command, values, **extra):
-    """Fail-closed function-limits gate for one wrapper (Phase A, before fire).
+    """Fail-closed limits gate for one wrapper (Phase A, before fire).
 
     Returns None when the command may fire, else the wrapper's fail-closed
     result dict (``success=False``, the native call must NOT fire). ``extra``
@@ -362,7 +362,7 @@ def set_zoom(client, job_name, value, *, max_retries=None, pre_check_timeout=Non
         pre_check_timeout: Idle-wait timeout (seconds). None = profile default.
         tolerance: Readback confirmation tolerance.
     """
-    refused = _limits_refusal(client, "set_zoom", {"job_name": job_name})
+    refused = _limits_refusal(client, "set_zoom", {"job_name": job_name, "value": value})
     if refused:
         return refused
     return _dispatch_setting(
@@ -384,7 +384,7 @@ def set_zoom(client, job_name, value, *, max_retries=None, pre_check_timeout=Non
 
 def set_scan_speed(client, job_name, value, *, max_retries=None, pre_check_timeout=None):
     """Set scan speed for the specified job."""
-    refused = _limits_refusal(client, "set_scan_speed", {"job_name": job_name})
+    refused = _limits_refusal(client, "set_scan_speed", {"job_name": job_name, "value": value})
     if refused:
         return refused
     return _dispatch_setting(
@@ -401,7 +401,7 @@ def set_scan_speed(client, job_name, value, *, max_retries=None, pre_check_timeo
 
 def set_scan_resonant(client, job_name, enable, *, max_retries=None, pre_check_timeout=None):
     """Enable or disable resonant scanning for the specified job."""
-    refused = _limits_refusal(client, "set_scan_resonant", {"job_name": job_name})
+    refused = _limits_refusal(client, "set_scan_resonant", {"job_name": job_name, "value": enable})
     if refused:
         return refused
     api_obj = client.PyApiSetScannerToResonantByJobName
@@ -430,7 +430,7 @@ def set_scan_resonant(client, job_name, enable, *, max_retries=None, pre_check_t
 
 def set_scan_mode(client, job_name, mode, *, max_retries=None, pre_check_timeout=None):
     """Set scan mode (e.g. 'xyz', 'xyzt') for the specified job."""
-    refused = _limits_refusal(client, "set_scan_mode", {"job_name": job_name})
+    refused = _limits_refusal(client, "set_scan_mode", {"job_name": job_name, "value": mode})
     if refused:
         return refused
     return _dispatch_setting(
@@ -447,7 +447,7 @@ def set_scan_mode(client, job_name, mode, *, max_retries=None, pre_check_timeout
 
 def set_sequential_mode(client, job_name, mode, *, max_retries=None, pre_check_timeout=None):
     """Set sequential mode ('Line', 'Frame', or 'Stack') for the specified job."""
-    refused = _limits_refusal(client, "set_sequential_mode", {"job_name": job_name})
+    refused = _limits_refusal(client, "set_sequential_mode", {"job_name": job_name, "value": mode})
     if refused:
         return refused
     # Phase A: input validation and enum resolution
@@ -503,7 +503,9 @@ def set_scan_field_rotation(
     client, job_name, angle, *, max_retries=None, pre_check_timeout=None, tolerance=None
 ):
     """Set scan field rotation angle (degrees) for the specified job."""
-    refused = _limits_refusal(client, "set_scan_field_rotation", {"job_name": job_name})
+    refused = _limits_refusal(
+        client, "set_scan_field_rotation", {"job_name": job_name, "value": angle}
+    )
     if refused:
         return refused
     return _dispatch_setting(
@@ -529,7 +531,9 @@ def set_image_format(client, job_name, format_str, *, max_retries=None, pre_chec
     Args:
         format_str: Either a string like '512 x 512' or a tuple (w, h).
     """
-    refused = _limits_refusal(client, "set_image_format", {"job_name": job_name})
+    refused = _limits_refusal(
+        client, "set_image_format", {"job_name": job_name, "value": format_str}
+    )
     if refused:
         return refused
     if isinstance(format_str, tuple):
@@ -691,7 +695,11 @@ def set_z_stack_definition(
     report unconfirmed even though the command was accepted; reset
     outcomes are not confirmed at all (only non-None targets are).
     """
-    refused = _limits_refusal(client, "set_z_stack_definition", {"job_name": job_name})
+    refused = _limits_refusal(
+        client,
+        "set_z_stack_definition",
+        {"job_name": job_name, "values": [v for v in (begin_um, end_um) if v is not None]},
+    )
     if refused:
         return refused
     # Determine set flags: 0=reset, 1=set, 2=ignore
@@ -742,7 +750,9 @@ def set_z_stack_step_size(
     client, job_name, step_size_um, *, max_retries=None, pre_check_timeout=None, tolerance=None
 ):
     """Set z-stack step size (micrometers)."""
-    refused = _limits_refusal(client, "set_z_stack_step_size", {"job_name": job_name})
+    refused = _limits_refusal(
+        client, "set_z_stack_step_size", {"job_name": job_name, "value": step_size_um}
+    )
     if refused:
         return refused
     api_obj = client.PyApiCommandSetZStackStepSizeByJobName
@@ -776,7 +786,7 @@ def set_z_stack_size(
     Note: LAS X may recalculate z-stack geometry when size is changed.
     Confirmation may report unconfirmed if "System Optimized" is active.
     """
-    refused = _limits_refusal(client, "set_z_stack_size", {"job_name": job_name})
+    refused = _limits_refusal(client, "set_z_stack_size", {"job_name": job_name, "value": size_um})
     if refused:
         return refused
     api_obj = client.PyApiSetZStackSizeByJobName
@@ -811,7 +821,9 @@ def set_frame_accumulation(
     client, job_name, setting_index, value, *, max_retries=None, pre_check_timeout=None
 ):
     """Set frame accumulation count for a specific setting index."""
-    refused = _limits_refusal(client, "set_frame_accumulation", {"job_name": job_name})
+    refused = _limits_refusal(
+        client, "set_frame_accumulation", {"job_name": job_name, "value": value}
+    )
     if refused:
         return refused
     return _dispatch_setting(
@@ -830,7 +842,7 @@ def set_frame_average(
     client, job_name, setting_index, value, *, max_retries=None, pre_check_timeout=None
 ):
     """Set frame average count for a specific setting index."""
-    refused = _limits_refusal(client, "set_frame_average", {"job_name": job_name})
+    refused = _limits_refusal(client, "set_frame_average", {"job_name": job_name, "value": value})
     if refused:
         return refused
     return _dispatch_setting(
@@ -849,7 +861,9 @@ def set_line_accumulation(
     client, job_name, setting_index, value, *, max_retries=None, pre_check_timeout=None
 ):
     """Set line accumulation count for a specific setting index."""
-    refused = _limits_refusal(client, "set_line_accumulation", {"job_name": job_name})
+    refused = _limits_refusal(
+        client, "set_line_accumulation", {"job_name": job_name, "value": value}
+    )
     if refused:
         return refused
     return _dispatch_setting(
@@ -868,7 +882,7 @@ def set_line_average(
     client, job_name, setting_index, value, *, max_retries=None, pre_check_timeout=None
 ):
     """Set line average count for a specific setting index."""
-    refused = _limits_refusal(client, "set_line_average", {"job_name": job_name})
+    refused = _limits_refusal(client, "set_line_average", {"job_name": job_name, "value": value})
     if refused:
         return refused
     return _dispatch_setting(
@@ -894,7 +908,7 @@ def set_pinhole_airy(
     tolerance=None,
 ):
     """Set pinhole size in Airy units for a specific setting index."""
-    refused = _limits_refusal(client, "set_pinhole_airy", {"job_name": job_name})
+    refused = _limits_refusal(client, "set_pinhole_airy", {"job_name": job_name, "value": value})
     if refused:
         return refused
     return _dispatch_setting(
@@ -932,7 +946,7 @@ def set_detector_gain(
     tolerance=None,
 ):
     """Set detector gain for a specific detector identified by beam route."""
-    refused = _limits_refusal(client, "set_detector_gain", {"job_name": job_name})
+    refused = _limits_refusal(client, "set_detector_gain", {"job_name": job_name, "value": value})
     if refused:
         return refused
     return _dispatch_setting(
@@ -977,7 +991,7 @@ def set_laser_intensity(
     tolerance=None,
 ):
     """Set laser intensity (0.0-1.0) for a specific laser line."""
-    refused = _limits_refusal(client, "set_laser_intensity", {"job_name": job_name})
+    refused = _limits_refusal(client, "set_laser_intensity", {"job_name": job_name, "value": value})
     if refused:
         return refused
     return _dispatch_setting(
@@ -1018,7 +1032,9 @@ def set_laser_shutter(
     pre_check_timeout=None,
 ):
     """Open or close laser shutter for a specific beam route."""
-    refused = _limits_refusal(client, "set_laser_shutter", {"job_name": job_name})
+    refused = _limits_refusal(
+        client, "set_laser_shutter", {"job_name": job_name, "value": activate}
+    )
     if refused:
         return refused
     label = "Open" if activate else "Closed"
@@ -1062,7 +1078,9 @@ def set_filter_wheel_slot(
     pre_check_timeout=None,
 ):
     """Set filter wheel to a specific slot."""
-    refused = _limits_refusal(client, "set_filter_wheel_slot", {"job_name": job_name})
+    refused = _limits_refusal(
+        client, "set_filter_wheel_slot", {"job_name": job_name, "value": slot_index}
+    )
     if refused:
         return refused
     api_obj = client.PyApiSetFilterWheelSlotByJobName
@@ -1111,7 +1129,9 @@ def set_filter_wheel_spectrum(
     tolerance=None,
 ):
     """Set filter wheel spectrum position (nm)."""
-    refused = _limits_refusal(client, "set_filter_wheel_spectrum", {"job_name": job_name})
+    refused = _limits_refusal(
+        client, "set_filter_wheel_spectrum", {"job_name": job_name, "value": position}
+    )
     if refused:
         return refused
     api_obj = client.PyApiSetFilterWheelSpectrumPositionByJobName

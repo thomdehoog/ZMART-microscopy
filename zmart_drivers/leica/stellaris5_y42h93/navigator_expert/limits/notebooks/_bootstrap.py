@@ -9,7 +9,7 @@ _DRIVER_PARENT = Path(__file__).resolve().parents[3]  # zmart_drivers/leica/stel
 # This notebook folder, so a notebook can archive its own executed copy into the
 # machine snapshot (a read path, not a runtime write path).
 NOTEBOOKS_DIR = Path(__file__).resolve().parent
-NOTEBOOK_PATH = NOTEBOOKS_DIR / "set_stage_limits.ipynb"
+NOTEBOOK_PATH = NOTEBOOKS_DIR / "set_limits.ipynb"
 
 for _path in (_REPO_ROOT, _DRIVER_PARENT):
     if str(_path) not in sys.path:

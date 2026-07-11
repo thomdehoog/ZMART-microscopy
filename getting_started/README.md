@@ -74,7 +74,7 @@ microscope, replace those defaults with measured machine values.
 Start with the stage-limit notebook:
 
 ```
-zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb
+zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_limits.ipynb
 ```
 
 The pre-filled values are this machine's known-good envelope; adjust only if you

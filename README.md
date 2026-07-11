@@ -143,7 +143,7 @@ values by running the setup notebooks:
 For the production Leica Stellaris driver:
 
 1.  **Set Stage Limits:** Defines the physical travel range.
-    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_stage_limits.ipynb`
+    `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/limits/notebooks/set_limits.ipynb`
     
 3.  **Set Orientation:** Defines the stage coordinate system relative to the camera/detector.
     `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/orientation/notebooks/set_orientation.ipynb`
