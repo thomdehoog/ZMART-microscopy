@@ -112,8 +112,8 @@ class TestRegistration(unittest.TestCase):
 class TestCalibrationSelection(unittest.TestCase):
     def test_named_connection_calibration_is_used_for_objective_translations(self):
         # The driver now owns loading: the named calibration flows through
-        # connect_microscope -> session._load_objective_translations ->
-        # model.load_translations -> load_calibration(calibration_name=...).
+        # connect_microscope -> session._load_objective_calibration, where one
+        # exact document supplies both translations and readiness provenance.
         from navigator_expert.calibration.core import model as cal_model
         from navigator_expert.connection import session as drv_session
 
@@ -134,11 +134,51 @@ class TestCalibrationSelection(unittest.TestCase):
             },
         }
 
-        with patch.object(cal_model, "load_calibration", return_value=cfg) as load:
-            translations = drv_session._load_objective_translations("lens_A")
+        path = Path("/tmp/lens_A/calibration.json")
+        with (
+            patch.object(cal_model, "default_path", return_value=path),
+            patch.object(cal_model, "load_calibration", return_value=cfg) as load,
+        ):
+            translations, info = drv_session._load_objective_calibration("lens_A")
 
-        load.assert_called_once_with(calibration_name="lens_A")
+        load.assert_called_once_with(path.absolute())
         self.assertEqual(translations[2], (12.0, 17.0, 3.0))
+        self.assertEqual(info["measured_slots"], [1, 2])
+
+    def test_translations_and_provenance_come_from_one_calibration_read(self):
+        """A snapshot adoption during connect cannot mix old math with new proof."""
+        from navigator_expert.calibration.core import model as cal_model
+        from navigator_expert.connection import session as drv_session
+
+        old = {
+            "schema_version": 12,
+            "last_updated": "20260101_000000",
+            "objectives": {
+                "1": {"name": "10x", "translation_um": [0, 0, 0], "session_id": None},
+                "2": {"name": "20x", "translation_um": [1, 2, 3], "session_id": None},
+            },
+        }
+        newly_adopted = {
+            **old,
+            "objectives": {
+                "1": {"name": "10x", "translation_um": [0, 0, 0], "session_id": "new"},
+                "2": {"name": "20x", "translation_um": [9, 8, 7], "session_id": "new"},
+            },
+        }
+        path = Path("/tmp/lens_A/calibration.json")
+        with (
+            patch.object(cal_model, "default_path", return_value=path),
+            patch.object(
+                cal_model,
+                "load_calibration",
+                side_effect=[old, newly_adopted],
+            ) as load,
+        ):
+            translations, info = drv_session._load_objective_calibration("lens_A")
+
+        self.assertEqual(load.call_count, 1)
+        self.assertEqual(translations[2], (1.0, 2.0, 3.0))
+        self.assertEqual(info["measured_slots"], [])
 
 
 class TestFrame(unittest.TestCase):

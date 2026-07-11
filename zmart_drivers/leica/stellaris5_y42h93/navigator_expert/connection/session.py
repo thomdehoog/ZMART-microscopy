@@ -86,28 +86,66 @@ def connect_python_client(
     return client
 
 
-def _load_objective_translations(calibration_name: str | None = None) -> dict | None:
-    """Per-slot objective translations (micrometres), or None when unavailable.
+def _load_objective_calibration(
+    calibration_name: str | None = None,
+    *,
+    enabled: bool = True,
+) -> tuple[dict | None, dict]:
+    """Load translations and readiness provenance from one exact document.
 
-    Loads the active calibration through the calibration model. Any IO or
-    schema problem degrades to ``None`` (logged, not raised) so a missing or
-    unreadable calibration never fails the connection — the frame math then
-    refuses cross-objective moves and warns on cross-objective reads instead of
-    silently computing uncompensated values.
+    Resolving/loading twice can straddle an atomic snapshot adoption: old
+    translations could otherwise be paired with new ``measured_slots`` and be
+    reported ready. This function deliberately resolves one path, parses it
+    once, and derives both outputs from that immutable in-memory config.
     """
     # This import must stay inside the function: the package root imports this
     # module when the driver loads, and the calibration modules import the
     # package root — a module-level import here would be a circular import.
+    from ..config.machine import CALIBRATION_NAME_ENV
+
+    effective_name = calibration_name or os.environ.get(CALIBRATION_NAME_ENV)
+    empty_info = {
+        "enabled": enabled,
+        "loaded": False,
+        "name": effective_name,
+        "path": None,
+        "slots": [],
+        "measured_slots": [],
+    }
+    if not enabled:
+        return None, empty_info
+
     from ..calibration.core import model as _cal_model
 
+    path = None
     try:
-        return _cal_model.load_translations(calibration_name)
+        path = _cal_model.default_path(calibration_name).absolute()
+        config = _cal_model.load_calibration(path)
+        translations = {
+            int(slot): _cal_model.get_translation_um(config, int(slot))
+            for slot in (config.get("objectives") or {})
+        }
     except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
         _log.warning(
             "objective translations unavailable (%s); cross-objective moves will be refused",
             exc,
         )
-        return None
+        empty_info["path"] = None if path is None else str(path)
+        return None, empty_info
+
+    info = {
+        "enabled": True,
+        "loaded": True,
+        "name": effective_name,
+        "path": str(path),
+        "slots": sorted(translations),
+        "measured_slots": sorted(
+            int(slot)
+            for slot, entry in (config.get("objectives") or {}).items()
+            if entry.get("session_id")
+        ),
+    }
+    return translations, info
 
 
 def _load_rig_orientation() -> Any:
@@ -172,58 +210,6 @@ def _orientation_info(*, enabled: bool, loaded_orientation: Any) -> dict:
     }
 
 
-def _calibration_info(
-    *,
-    enabled: bool,
-    calibration_name: str | None,
-    translations: dict | None,
-) -> dict:
-    """Describe the objective calibration selected and loaded by the driver.
-
-    ``slots`` lists every objective the loaded file covers. ``measured_slots``
-    lists only the objectives whose entry records the calibration session that
-    measured it (``session_id``). The difference matters for the preflight
-    verdict: a missing calibration file is seeded from the repository's bundled
-    placeholder, whose entries carry no session provenance — those values were
-    never measured on this microscope and must not count as calibrated.
-    """
-    from ..config.machine import CALIBRATION_NAME_ENV
-
-    effective_name = calibration_name or os.environ.get(CALIBRATION_NAME_ENV)
-    if not enabled:
-        return {
-            "enabled": False,
-            "loaded": False,
-            "name": effective_name,
-            "path": None,
-            "slots": [],
-            "measured_slots": [],
-        }
-    from ..calibration.core import model as _cal_model
-
-    path = _cal_model.default_path(calibration_name).absolute()
-    measured_slots: list[int] = []
-    if translations is not None:
-        try:
-            config = _cal_model.load_calibration(path)
-            measured_slots = sorted(
-                int(slot)
-                for slot, entry in (config.get("objectives") or {}).items()
-                if entry.get("session_id")
-            )
-        except Exception as exc:  # noqa: BLE001 -- same fail-soft posture as the translations load
-            _log.warning("could not read calibration provenance from %s (%s)", path, exc)
-            measured_slots = []
-    return {
-        "enabled": True,
-        "loaded": translations is not None,
-        "name": effective_name,
-        "path": str(path),
-        "slots": sorted(int(slot) for slot in (translations or {})),
-        "measured_slots": measured_slots,
-    }
-
-
 def connect_microscope(
     *,
     client_name: str = "PythonClient",
@@ -272,13 +258,11 @@ def connect_microscope(
     client = connect_python_client(client_name=client_name, api_delay_ms=api_delay_ms)
     _gate.connect_handshake(client, load=load_limits)
     orientation = _load_rig_orientation() if load_orientation else _orientation.Orientation()
-    translations = _load_objective_translations(calibration_name) if load_calibration else None
-    orientation_info = _orientation_info(enabled=load_orientation, loaded_orientation=orientation)
-    calibration_info = _calibration_info(
+    translations, calibration_info = _load_objective_calibration(
+        calibration_name,
         enabled=load_calibration,
-        calibration_name=calibration_name,
-        translations=translations,
     )
+    orientation_info = _orientation_info(enabled=load_orientation, loaded_orientation=orientation)
     session_state.install(
         client,
         session_state.SessionConfig(
