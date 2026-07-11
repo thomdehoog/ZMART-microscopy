@@ -91,7 +91,8 @@ def test_react_notebook_is_thin_controller_orchestration():
         "zmart_controller.set_origin()",
         "zmart_controller.get_state()",
         "zmart_controller.set_state(overview_state)",
-        'zmart_controller.run_procedure({"name": "get_positions"})',
+        'setup_info = zmart_controller.get_info()',
+        'positions = setup_info["tile_positions"]',
         "zmart_controller.disconnect()",
     ):
         assert call in joined, f"React notebook no longer demonstrates {call}"

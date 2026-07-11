@@ -105,7 +105,7 @@ class SimulatedSession:
 
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
-        # The real driver's run root exists the moment get_root answers.
+        # The real driver's run root exists the moment get_info answers.
         self.root.mkdir(parents=True, exist_ok=True)
         self.world = SimulatedWorld()
         self.job = self.OVERVIEW_JOB
@@ -129,6 +129,7 @@ class SimulatedSession:
         return {"origin": {"x": 0.0, "y": 0.0, "z": 0.0}}
 
     def get_state(self) -> dict:
+        pixel_um = self._JOBS[self.job]["pixel_um"]
         return {
             "changeable": {"job": self.job},
             "observed": {
@@ -139,6 +140,7 @@ class SimulatedSession:
                     "is_fallback": False,
                 },
                 "setup": {"ready": True, "issues": []},
+                "pixel_size": {"x": pixel_um, "y": pixel_um, "unit": "um"},
             },
         }
 
@@ -149,34 +151,32 @@ class SimulatedSession:
         return {"applied": {"job": self.job}}
 
     def get_procedures(self) -> dict:
+        return {"autofocus": {}}
+
+    def get_info(self) -> dict:
+        """Return the live simulated vendor setup."""
+        step = 130.0  # a touch under the overview field of view
+        overview = self._JOBS[self.OVERVIEW_JOB]
+        tile_size = {
+            "x": overview["shape"][1] * overview["pixel_um"],
+            "y": overview["shape"][0] * overview["pixel_um"],
+        }
         return {
-            "get_root": {},
-            "get_positions": {},
-            "get_focus_points": {},
-            "autofocus": {},
+            "output_root": str(self.root),
+            "tile_positions": [
+                {"x": sx, "y": sy, "z": 0.0, "tile_size": dict(tile_size)}
+                for sy in (-step / 2, step / 2)
+                for sx in (-step / 2, step / 2)
+            ],
+            "focus_positions": [
+                {"x": -100.0, "y": -100.0},
+                {"x": 100.0, "y": -100.0},
+                {"x": 0.0, "y": 100.0},
+            ],
         }
 
     def run_procedure(self, procedure: dict) -> dict:
         name = procedure.get("name")
-        if name == "get_root":
-            return {"root": str(self.root)}
-        if name == "get_positions":
-            step = 130.0  # a touch under the overview field of view
-            return {
-                "positions": [
-                    {"x": sx, "y": sy, "z": 0.0}
-                    for sy in (-step / 2, step / 2)
-                    for sx in (-step / 2, step / 2)
-                ]
-            }
-        if name == "get_focus_points":
-            return {
-                "positions": [
-                    {"x": -100.0, "y": -100.0},
-                    {"x": 100.0, "y": -100.0},
-                    {"x": 0.0, "y": 100.0},
-                ]
-            }
         if name == "autofocus":
             return {"frame_z_um": 5.0}  # a flat, honest focal plane
         raise ValueError(f"unknown procedure {name!r}")

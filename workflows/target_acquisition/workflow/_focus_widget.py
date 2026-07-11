@@ -66,6 +66,7 @@ class FocusPicker:
         session: Any,
         positions: list[dict] | None = None,
         *,
+        focus_positions: list[dict] | None = None,
         af_job: str | None = None,
         start_z: float | None = None,
         seed: bool = True,
@@ -91,7 +92,10 @@ class FocusPicker:
         self._last_measure_ended: float | None = None
 
         if seed:
-            self.points = self._seed_from_lasx()
+            self.points = [
+                {"x": float(p["x"]), "y": float(p["y"])}
+                for p in (focus_positions or [])
+            ]
 
         self.fig, self.ax = plt.subplots(figsize=(7, 6))
         # Leave room under the axes for the button row.
@@ -145,21 +149,6 @@ class FocusPicker:
         point = self.points.pop(index)
         self._redraw_points()
         return point
-
-    def _seed_from_lasx(self) -> list[dict]:
-        """Focus points already placed in LAS X, or none when unavailable.
-
-        A microscope with no scan-field template (or an adapter without the
-        procedure) is normal — the operator simply starts from an empty map.
-        """
-        procedures = self.session.get_procedures()
-        if "get_focus_points" not in procedures:
-            return []
-        result = self.session.run_procedure({"name": "get_focus_points"})
-        return [
-            {"x": float(p["x"]), "y": float(p["y"])}
-            for p in (result.get("positions") or [])
-        ]
 
     def _on_click(self, event: Any) -> None:
         if event.inaxes is not self.ax:
@@ -439,6 +428,7 @@ def pick_focus_points(
     session: Any,
     positions: list[dict] | None = None,
     *,
+    focus_positions: list[dict] | None = None,
     af_job: str | None = None,
     start_z: float | None = None,
     seed: bool = True,
@@ -447,10 +437,17 @@ def pick_focus_points(
 
     ``session`` is the connected controller session; ``positions`` are the
     overview frame positions (drawn for context). ``af_job`` names the
-    autofocus job when the instrument has more than one; ``start_z`` is the z
+    ``focus_positions`` are the vendor points from the same ``get_info()``
+    snapshot as the overview positions. ``af_job`` names the autofocus job
+    when the instrument has more than one; ``start_z`` is the z
     to start each autofocus from (default: the current z). ``seed=False``
     skips pre-filling points already placed in LAS X.
     """
     return FocusPicker(
-        session, positions, af_job=af_job, start_z=start_z, seed=seed
+        session,
+        positions,
+        focus_positions=focus_positions,
+        af_job=af_job,
+        start_z=start_z,
+        seed=seed,
     )

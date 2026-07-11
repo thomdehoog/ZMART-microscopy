@@ -75,9 +75,9 @@ def test_instrument_is_registered():
     assert ("mesospim", "mesospim-01", "remote-scripting") in names
 
 
-def test_context_and_actuators(session):
-    ctx = session.get_context()
-    assert ctx["server"]["app"] == "mesoSPIM-control"
+def test_info_and_actuators(session):
+    info = session.get_info()
+    assert info["server"]["app"] == "mesoSPIM-control"
     actuators = session.get_actuators()
     assert set(actuators) == {"x", "y", "z"}
     assert actuators["x"] == ["motoric"]

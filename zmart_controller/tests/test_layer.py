@@ -36,7 +36,7 @@ class TestSetInstrument:
 
     def test_connection_reaches_driver(self, mic):
         # the variable connection dict is forwarded untouched to the driver's connect()
-        assert mic.get_context()["client"] == "mock-client"
+        assert mic.get_info()["client"] == "mock-client"
 
     def test_unknown_instrument_raises(self):
         with pytest.raises(ValueError, match="no driver registered"):
@@ -128,11 +128,16 @@ class TestProcedures:
         assert mic.run_procedure({"name": "autofocus"})["ran"]["name"] == "autofocus"
 
 
-class TestContext:
-    def test_get_context_passthrough(self, mic):
-        ctx = mic.get_context()
-        assert len(ctx["initial_positions"]) == 3
-        assert ctx["initial_positions"][0] == {"x": 0.0, "y": 0.0, "z": 0.0}
+class TestInfo:
+    def test_get_info_passthrough(self, mic):
+        info = mic.get_info()
+        assert len(info["tile_positions"]) == 3
+        assert info["tile_positions"][0] == {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "tile_size": {"x": 100.0, "y": 100.0},
+        }
 
 
 class TestDisconnect:

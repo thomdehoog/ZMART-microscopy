@@ -61,8 +61,8 @@ Hardware validation uses only production driver modules — nothing under
   the run_ci set — it pops the manual-turret dialog; run it manually if wanted.)
 - Stage: the XY pattern and z-galvo round-trip above; the adapter validator
   additionally does `set_origin` + small frame moves and a job switch, restored.
-- Acquisition: the adapter validator runs the notebook-critical controller
-  procedures (`get_root`, `get_positions`, `get_focus_points`) and one
+- Acquisition: the adapter validator reads the notebook-critical live
+  `get_info()` snapshot (output root, tile positions, focus positions) and one
   acquire+save smoke through LAS X native AutoSave. Each end-to-end reader route
   runs an acquire command in its reader mode; file materialization is proven once
   through the adapter path.

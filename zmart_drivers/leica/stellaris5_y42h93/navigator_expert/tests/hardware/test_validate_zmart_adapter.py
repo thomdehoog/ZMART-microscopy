@@ -86,8 +86,7 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     by_name = {r["name"]: r for r in records}
     # The controller round-trip, z-focus model, and state round-trip are exercised.
     assert {
-        "run_procedure: get_root",
-        "get_root: root returned",
+        "get_info: output_root returned",
         "set_origin",
         "xy: frame x",
         "zgalvo: frame z",
@@ -99,11 +98,8 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     assert by_name["state: restored"]["status"] == "PASS"
     assert by_name["zgalvo: frame z"]["status"] == "PASS"
     assert by_name["zwide: frame z is additive (z-wide + z-galvo)"]["status"] == "PASS"
-    assert by_name["run_procedure: get_positions"]["status"] == "SKIP"
-    # The v4 notebook's focus widget pre-fills from get_focus_points, so the
-    # validator exercises it on hardware; under the mock there is no live
-    # scan-field template, so it is skipped like get_positions.
-    assert by_name["run_procedure: get_focus_points"]["status"] == "SKIP"
+    assert by_name["get_info: tile positions available"]["status"] == "SKIP"
+    assert by_name["get_info: focus positions available"]["status"] == "SKIP"
     # Acquire needs real LAS X export files, so it is skipped under the mock.
     assert by_name["phase: acquire"]["status"] == "SKIP"
 

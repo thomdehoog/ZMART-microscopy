@@ -130,25 +130,24 @@ def test_positions_are_loaded_only_after_restoring_overview_controller_state(tmp
 
     calls = []
     set_state = flow.session.set_state
-    run_procedure = flow.session.run_procedure
+    get_info = flow.session.get_info
 
     def tracked_set_state(state):
         calls.append(("set_state", state["changeable"]["job"]))
         return set_state(state)
 
-    def tracked_run_procedure(procedure):
-        if procedure.get("name") == "get_positions":
-            calls.append(("run_procedure", "get_positions"))
-        return run_procedure(procedure)
+    def tracked_get_info():
+        calls.append(("get_info", "tile_positions"))
+        return get_info()
 
     flow.session.set_state = tracked_set_state
-    flow.session.run_procedure = tracked_run_procedure
+    flow.session.get_info = tracked_get_info
     flow.run_step("load_positions")
     hub.drain()
 
     assert calls == [
         ("set_state", flow.session.OVERVIEW_JOB),
-        ("run_procedure", "get_positions"),
+        ("get_info", "tile_positions"),
     ]
     assert flow.session.job == flow.session.OVERVIEW_JOB
 

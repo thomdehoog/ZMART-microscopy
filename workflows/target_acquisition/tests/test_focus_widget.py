@@ -30,15 +30,16 @@ class _StubSession:
         return {"z": {"value": self.current_z}}
 
     def get_procedures(self):
-        return {"get_focus_points": {}, "autofocus": {}}
+        return {"autofocus": {}}
+
+    def get_info(self):
+        return {"focus_positions": [dict(p) for p in (self.seed_points or [])]}
 
     def set_xyz(self, x, y, z, **_kw):
         self.moves.append((x, y, z))
 
     def run_procedure(self, procedure):
         self.procedures.append(procedure)
-        if procedure["name"] == "get_focus_points":
-            return {"positions": [dict(p) for p in (self.seed_points or [])]}
         x, y, _z = self.moves[-1]
         return {"ran": "autofocus", "frame_z_um": self.focus_by_xy[(x, y)]}
 
@@ -86,24 +87,20 @@ def test_clicks_outside_the_axes_are_ignored():
 
 def test_seeds_from_lasx_focus_points():
     session = _StubSession(seed_points=[{"x": 5.0, "y": 6.0}, {"x": 7.0, "y": 8.0}])
-    picker = pick_focus_points(session)
+    picker = pick_focus_points(session, focus_positions=session.seed_points)
     assert picker.points == [{"x": 5.0, "y": 6.0}, {"x": 7.0, "y": 8.0}]
-    assert session.procedures == [{"name": "get_focus_points"}]
+    assert session.procedures == []
 
 
 def test_seed_failure_starts_empty():
-    """A scope with no scan-field template (or no such procedure) is normal."""
-    picker = pick_focus_points(_StubSession(seed_points=None))
+    """A scope with no configured focus positions is normal."""
+    picker = pick_focus_points(_StubSession(seed_points=None), focus_positions=[])
     assert picker.points == []
 
 
 def test_seed_operational_failure_is_not_hidden():
-    class BrokenSeed(_StubSession):
-        def run_procedure(self, procedure):
-            raise RuntimeError("LAS X experiment save failed")
-
-    with pytest.raises(RuntimeError, match="experiment save failed"):
-        pick_focus_points(BrokenSeed())
+    with pytest.raises(KeyError):
+        pick_focus_points(_StubSession(), focus_positions=[{"not_x": 1.0}])
 
 
 def test_measure_fits_surface_and_draws_heatmap():

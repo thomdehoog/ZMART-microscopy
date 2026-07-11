@@ -74,13 +74,19 @@ def pick_focus_points(
     session: Any,
     positions: list[dict] | None = None,
     *,
+    focus_positions: list[dict] | None = None,
     af_job: str | None = None,
     start_z: float | None = None,
     seed: bool = True,
 ) -> FocusPickerReact:
     """The focus-point picker as a React app; see :class:`FocusPickerReact`."""
     return FocusPickerReact(
-        session, positions, af_job=af_job, start_z=start_z, seed=seed
+        session,
+        positions,
+        focus_positions=focus_positions,
+        af_job=af_job,
+        start_z=start_z,
+        seed=seed,
     )
 
 

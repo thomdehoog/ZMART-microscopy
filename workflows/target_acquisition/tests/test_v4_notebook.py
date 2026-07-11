@@ -47,11 +47,11 @@ def test_setup_cell_runs_from_repo_root(monkeypatch):
 
     class FakeController:
         def __init__(self):
-            self.procedures = []
+            self.info_calls = 0
 
-        def run_procedure(self, procedure):
-            self.procedures.append(procedure)
-            return {"root": str(root)}
+        def get_info(self):
+            self.info_calls += 1
+            return {"output_root": str(root)}
 
     class FakeEngine:
         def __init__(self):
@@ -71,7 +71,7 @@ def test_setup_cell_runs_from_repo_root(monkeypatch):
     exec(compile(setup_cell, str(_NB_PATH), "exec"), namespace)
     assert namespace["zmart_controller"] is fake
     assert namespace["engine"] is fake_engine
-    assert fake.procedures == [{"name": "get_root"}]
+    assert fake.info_calls == 1
     assert namespace["ROOT"] == root
 
 
@@ -128,7 +128,8 @@ def test_notebook_is_thin_orchestration_and_teaches_the_session_lifecycle():
         "zmart_controller.set_origin()",
         "zmart_controller.get_state()",
         "zmart_controller.set_state(overview_state)",
-        'zmart_controller.run_procedure({"name": "get_positions"})',
+        'setup_info = zmart_controller.get_info()',
+        'positions = setup_info["tile_positions"]',
         "zmart_controller.disconnect()",
     ):
         assert call in joined, f"notebook no longer demonstrates {call}"
