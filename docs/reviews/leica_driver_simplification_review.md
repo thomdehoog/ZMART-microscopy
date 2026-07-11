@@ -51,7 +51,7 @@ JUDGMENT = needs one named decision, after which the deletion is also mechanical
 | 5 | Test boilerplate: parametrize `TestConfirmFunctions` and `TestRetryBackoff` in `test_core_driver.py` (2,738 lines, 205 tests), table-drive `test_set_*_model`; the three stale `BENCH_PROMPT*.md` files pinned to a deleted branch/commit | ~800–900 | SAFE/JUDGMENT | none for the parametrization; prompts can move to docs or go |
 | 6 | Commands-layer sediment: profile-side `confirm_fn` double wiring, dead `_dispatch` knobs, no-op poll-window injection, duplicated error-check tail, repeated timing-dict literal (details in §4) | ~200–230 | SAFE | none |
 | 7 | The 16 thin `_confirm_*` wrappers over `_run_spec` + 3 bespoke loops that fit the shared skeleton (confirmations.py) | ~220 | JUDGMENT | pure dedupe, but touches confirmation code — do it in one reviewed pass |
-| 8 | Dead reader tails: `api_reader.get_fov`/`get_base_fov`/`get_job_by_name` (356–401), `log_reader` parity tail (569–573, 609–623), the stale `parse_lrp` re-export shim (parsers.py:57–59) | ~85 | SAFE | none — zero callers anywhere |
+| 8 | Dead reader tails: `api_reader.get_fov`/`get_base_fov`/`get_job_by_name` (356–401), `log_reader` parity tail (569–573, 609–623), the stale `parse_lrp` re-export shim (parsers.py:57–59) | ~85 | JUDGMENT (shim: SAFE) | zero callers anywhere, but per the maintainer's rule every change inside readers/ is the maintainer's call — the three read paths themselves are untouched |
 | 9 | Retirement debris from the companion-XML era: `ome.py` `check_ome_xml_file`/`fix_ome_xml_file` (208–234, 407–461), `ome_canonical.pixels_dims`/`companion_xml` (74–89, 197–210), `product.PositionIndex` + `SavedAcquisition.xml_paths` | ~130 | SAFE/JUDGMENT | `pixels_dims`/`companion_xml` are SAFE now; the rest needs the "no sidecar layout ever returns" call |
 | 10 | `config/machine.py` shims: never-invoked `migrate_legacy_snapshots` (161–194), the always-False second tuple element of `resolve()` (220–234), the unused `kind` arg of `require_machine_local`, test-only `read_origin` | ~110 | JUDGMENT | the migration is delete-or-wire; the shims are SAFE |
 | 11 | `calibration/core/model.py` `load_translations` (219–232, zero callers; `session.py:124–127` re-implements it inline) | ~14 | SAFE | none |
@@ -238,13 +238,22 @@ return a `Path`. `require_machine_local`'s `kind` argument is accepted and disca
 `read_origin` has no Leica caller. Each shim is the same disease: a hardening round preserved
 compatibility with code that had already been deleted.
 
-**F10. Dead reader tails and the stale shim (SAFE, ~85 lines).** `api_reader.get_fov`,
-`get_base_fov`, `get_job_by_name` (356–401) and `log_reader.get_fov`/`get_base_fov`/
-`read_zwide_um`/`get_job_by_name` (569–573, 609–623) predate the router, which derives these via
-`derived.py`; repo-wide grep finds zero callers outside their own tests. The comment at
-`parsers.py:57–59` re-exports `parse_lrp` "so the lrp_edits package can keep importing it" — it
-does not; the premise is false. Also `router.get_job_by_name`/`get_fov`/`get_pending_dialog`
-(~35 lines) are reachable only from the four-reader probe harness (§2 row 3) and go with it.
+**F10. Reader housekeeping — all JUDGMENT by the maintainer's rule; the three read paths stay.**
+The API reader, the log reader, and the hybrid router that combines them are essential core
+(decision §1); nothing here proposes removing a path. Within that boundary: (a)
+`api_reader.get_fov`/`get_base_fov`/`get_job_by_name` (356–401) and `log_reader.get_fov`/
+`get_base_fov`/`read_zwide_um`/`get_job_by_name` (569–573, 609–623) predate the router, which
+derives these via `derived.py`; repo-wide grep finds zero callers outside their own tests
+(~80 lines). (b) `router.get_job_by_name`/`get_fov`/`get_pending_dialog` (~35 lines) are
+reachable only from the four-reader probe harness (§2 row 3) and go with it. (c) A shape idea,
+not a deletion: router.py's six public wrappers (`get_xy`, `get_jobs`, `get_hardware_info`, …,
+lines 358–520) are the same eight-line body repeated with only the datum name and kwargs
+changing; since `capabilities.DATUMS` already names every datum, the wrappers could be generated
+from the table (or collapsed to one `read(datum, client, …)` plus thin aliases), keeping the
+exact same three-path behavior and public names while removing ~120 lines of repetition — the
+same table-drives-the-boilerplate move the confirmations layer already made. Separately and
+outside readers/: the comment at `parsers.py:57–59` re-exports `parse_lrp` "so the lrp_edits
+package can keep importing it" — it does not; the premise is false (3 lines, SAFE).
 
 **F11. Test-suite trims (SAFE ~400–500, JUDGMENT ~1,150).** Details verified against the tree:
 `test_core_driver.py` (2,738 lines, 205 tests) contains ~40 near-identical confirm-function
@@ -277,6 +286,41 @@ not be discovered" error when AutoSave discovery also fails. Validate options fi
 move. Related known wart, already documented as a gotcha: a bad `acquisition_type` raises in
 `Naming` *after* the scan fired, wasting the capture — moving the `Naming` construction before
 `_capture.acquire` would fix the waste for free.
+
+**F14. Hardcoded tunables that belong in the profiles/config layer (JUDGMENT, no lines saved —
+this one adds a few).** The maintainer's design rule is that every tunable a user or a different
+machine might change lives in profiles/config. The config ladder itself is good and carries most
+of them; these are the stragglers found while reading, each with a suggested home:
+
+- `utils.py:76–77` — `PAN_LIMIT = 0.00775` and `GALVO_FIELD_FRACTION = 0.667` are **measured,
+  machine-specific galvo numbers** hardcoded in a shared utils module. These are the clearest
+  case: they belong with the machine's other measured values (a galvo block in the machine
+  snapshot, or at minimum `LasxApiProfile`'s sibling). A different Stellaris will have different
+  values and today would need a source edit.
+- `utils.py:25–27` — `RECEIPT_TIMEOUT = 2` and `CONFIRM_POLL_S = 3` live in utils; profiles
+  reference them as defaults. Moving the definitions into `config/profiles.py` makes profiles the
+  one tuning surface the README already advertises.
+- `dispatch.py:59` — `ECHO_SETTLE_TIMEOUT_S = 1.0`, module-level with a comment that it is read
+  at call time "so tests can shrink it"; that is a profile field wearing a workaround.
+- `api_reader.py` signature defaults (`timeout=1.0, poll_interval=0.01, max_retries=3` on every
+  reader) duplicate what `StateReaderProfile` already owns for routed calls; direct callers get
+  the hardcoded copies. One source: let the raw readers default from the profile too.
+- `prechecks.check_idle` — poll sleep `0.05` and `heartbeat=30.0` (the OBJECTIVE profile binds
+  `timeout` but not `heartbeat`).
+- `scanfields`: `strip_restore._RESTORE_SAVE_TIMEOUTS = (120, 120, 180, 240)`, the
+  `save_timeout=120` defaults, `transaction.apply_lrp_change`'s `confirm_delays=(2, 4, 8, 16)`,
+  and `files.save_experiment(timeout=30)` vs the adapter's own `timeout=60` at
+  `zmart_adapter.py:1129` — four escalation ladders tuned on the bench, none reachable from
+  config. A small `ScanfieldsProfile` would hold them.
+- `ome_canonical.py:29–30` — `JOB_SETTINGS_READ_TIMEOUT_S = 1.0`, `JOB_SETTINGS_API_TIMEOUT_S =
+  0.25`; `acquisition/files.py`'s `DEFAULT_EXPORT_*` waits (exposed as `save()` params but not
+  profile-backed); `zmart_adapter/info.py:17`'s output folder name `"ZMART-microscopy"`.
+
+Two deliberate exemptions, so nobody "fixes" them: `motion.limits.STAGE_BACKSTOP_UM` is
+hardcoded **on purpose** — it is the file-independent safety layer and must never be
+configurable; and the backlash parameters (`overshoot_um=50`, `settle_ms=100`, `passes=3`) are
+baked-in by explicit maintainer decision §2b ("backlash is a plain utility function, not
+config").
 
 **Simplifying refactors worth sketching (beyond deletions).** (1) *Finish the confirm table*
 (F5): before — profile binds `_confirm_zoom`, wrapper rebinds `partial(_confirm_zoom, …)`,
@@ -355,12 +399,17 @@ These earned their weight; do not simplify them:
   degraded loudly to bounded defaults, never to an ungated or dead session. The provenance marker
   (`source: machine` vs `defaults`) correctly kept a hand-copied unmarked file from counting as
   measured, and `_setup_readiness` surfaces exactly that.
-- **The hybrid reader machinery** (router threads, in-flight cap, log grace window) and the
-  select_job hybrid confirmation race — maintainer decision §1, with dated bench evidence in the
-  profile comments. The api leg being "measured-wrong on the real scope" is exactly the kind of
-  fact that vanishes if this code is simplified away.
-- **The unbounded acquire idle wait and never-refire posture** (profiles.py ACQUIRE) — decision
-  §6; a timeout here would abort live acquisitions.
+- **The three-path reader stack as such** — the API reader, the log reader, and the hybrid
+  router that races them are essential core, not redundancy to be deduplicated (maintainer
+  decision §1): the two sources go stale on *different* fields, which is exactly why both exist.
+  The select_job hybrid confirmation race carries dated bench evidence in the profile comments
+  ("api leg measured-wrong on the real scope") — the kind of fact that vanishes if this code is
+  simplified away. Reader findings in this report (F10) are housekeeping and shape only, and all
+  marked JUDGMENT.
+- **The unbounded acquire idle wait and never-refire posture** (profiles.py ACQUIRE,
+  `check_idle(timeout=None)`) — deliberate per decision §6: a real acquisition has no upper
+  bound, so a deadline would abort live, valid acquisitions. Not a missing timeout; do not add
+  one.
 - **`strip_restore.py`'s backup/rollback/count-verify ladder and sidecar-only stripping** — it
   protects the operator's hand-drawn template, and every branch encodes an observed failure.
 - **The adapter's whole-move pre-flight** duplicating the gate — both legs checked before either
@@ -389,9 +438,9 @@ Production modules; "clean" means read and nothing worth reporting.
 | `commands/objectives.py` (62) | `objective_by_slot` live; `validate_slots` retired-only (F2). |
 | `config/profiles.py` (449) | Fully live except the dead confirm_fn bindings (F4) and backoff fields; the bench-dated comments are valuable — keep them. |
 | `config/machine.py` (473) | Sound snapshot design; ~110 lines of shims/dead migration (F9); origin semantics told three times. |
-| `readers/router.py` (539) | Earns its lines under decision §1; ~35 dead derived wrappers (F10); one diagnostics-contract bug (§5.5). |
-| `readers/api_reader.py` (513) | Healthy core; ~60 dead lines (F10); `get_lasx_settings` block is JUDGMENT operator tooling. |
-| `readers/log_reader.py` (623) | Live and load-bearing (dialog diagnostics, select-job log leg); ~20 dead parity lines; DST/tail-cap/latin-1 handling all earned. |
+| `readers/router.py` (539) | Essential core (decision §1) — earns its lines; ~35 derived wrappers with no live caller and ~120 lines of repeated wrapper boilerplate that the capability table could generate (F10, all JUDGMENT); one diagnostics-contract bug (§5.5). |
+| `readers/api_reader.py` (513) | Essential core; healthy; ~60 caller-less lines (F10, JUDGMENT); `get_lasx_settings` block is JUDGMENT operator tooling; signature-default tunables duplicate the profile (F14). |
+| `readers/log_reader.py` (623) | Essential core, live and load-bearing (dialog diagnostics, select-job log leg); ~20 caller-less parity lines (F10, JUDGMENT); DST/tail-cap/latin-1 handling all earned. |
 | `readers/log_wait.py` (216), `capabilities.py` (157), `derived.py` (92) | Clean, live. |
 | `scanfields/parsers.py` (1109) | Core live via the adapter's one entry point; three-rung fallback ladder is real complexity, not duplication; ~115 lines of retired-only output (F2) and the comma-decimal bug (§5.1). |
 | `scanfields/planning.py` (443) | Live; the 501-step brute-force overlap search is a perf smell, not bloat. |
@@ -411,7 +460,7 @@ Production modules; "clean" means read and nothing worth reporting.
 | `connection/session.py` (267), `session_state.py` (71), `lasx_runtime.py` (66) | Clean; session.py is the doc standard the rest should meet. |
 | `orientation/__init__.py` (150), `measure.py` (371) | Clean, exemplary docs. |
 | `zmart_adapter/zmart_adapter.py` (1248), `info.py` (90) | Clean wiring, verbose but accurate docstrings; option-validation ordering nit (F13); no gate of its own by design. |
-| `utils.py` (297), `_file_utils.py` (66), `run_ci.py` (383), `__init__.py` (277) | utils/_file_utils clean and fully live; run_ci earns its length (no pytest.ini duplication); `__init__` should stop re-exporting privates and the never-called lrp names (Wiring, F3). |
+| `utils.py` (297), `_file_utils.py` (66), `run_ci.py` (383), `__init__.py` (277) | utils/_file_utils clean and fully live, but utils hardcodes the machine-specific galvo constants and the shared timing knobs that belong in profiles (F14); run_ci earns its length (no pytest.ini duplication); `__init__` should stop re-exporting privates and the never-called lrp names (Wiring, F3). |
 | `limits/`, `orientation/`, `calibration/` notebooks + defaults | Clean and small; no committed outputs; calibration default carries rig-measured values incl. the suspect slot 0 (§5.4). |
 | Tests: `tests/unit/` (14,117) | Green; concentrated boilerplate in `test_core_driver.py` (F11); `test_limits_adversarial.py` keep as-is. |
 | Tests: `tests/hardware/` (6,816) | Intentional live harness; `probe_four_readers` superseded (~750, §2 row 3); three stale bench prompts (~408); minor helper duplication in stress_hardware (~30). |
