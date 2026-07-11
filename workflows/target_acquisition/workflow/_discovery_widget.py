@@ -205,6 +205,54 @@ class TargetExplorer:
         if y_range is not None:
             self._y_slider.set_val(y_range)
 
+    def save_gate(self, path: Any) -> None:
+        """Write the current gate (axes + thresholds + lasso) to a JSON file.
+
+        A repeat experiment usually wants yesterday's thresholds: save the
+        gate into the run folder and :meth:`load_gate` it next session.
+        """
+        import json
+        from pathlib import Path
+
+        payload = {
+            "x_feature": self._x_feature,
+            "y_feature": self._y_feature,
+            "x_range": list(self._x_slider.val) if self._x_slider is not None else None,
+            "y_range": list(self._y_slider.val) if self._y_slider is not None else None,
+            "lasso": (
+                [[float(x), float(y)] for x, y in self._lasso_path.vertices]
+                if self._lasso_path is not None
+                else None
+            ),
+        }
+        Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def load_gate(self, path: Any) -> None:
+        """Restore a gate saved by :meth:`save_gate`.
+
+        The axes are set first (which clears any stale lasso, exactly like
+        a manual axis switch), then the saved thresholds and lasso apply.
+        Features missing from this target set raise a clear error rather
+        than silently gating on the wrong axis. Threshold values outside
+        this data's range clamp to the slider's bounds, the same way
+        dragging would.
+        """
+        import json
+        from pathlib import Path
+
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        for key in ("x_feature", "y_feature"):
+            name = payload.get(key)
+            if name not in self.features:
+                raise ValueError(
+                    f"{path} gates on feature {name!r}, which these targets do not "
+                    f"have (available: {self.features})"
+                )
+        self.set_axes(payload["x_feature"], payload["y_feature"])
+        self.set_ranges(payload.get("x_range"), payload.get("y_range"))
+        lasso = payload.get("lasso")
+        self._on_lasso([tuple(v) for v in lasso] if isinstance(lasso, list) else [])
+
     # --- callbacks -----------------------------------------------------------
 
     def _on_x_feature(self, label: str) -> None:

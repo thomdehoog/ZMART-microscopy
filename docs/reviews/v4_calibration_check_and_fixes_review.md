@@ -315,9 +315,10 @@ shows nothing — "the notebook is broken", mid-run, with the truth only in the
 devtools console. The docs disclosed the requirement but the failure mode was
 invisible. Fix applied: dynamic imports with a visible plain-language note in
 the cell (what happened, and that `zmart_microscopy_v4.ipynb` is the offline
-edition). A website build should bundle React instead — `PROTOCOL.md` says so;
-vendoring is the remaining hardening step (esm.sh is third-party code in a
-hardware-driving page, pinned but not integrity-checked).
+edition). *Addendum: the follow-up expansion commit on this branch went
+further and vendored React outright — the official MIT builds now ship in
+the package and load into a private scope, so the React notebook works
+fully offline and no third-party code is fetched at all.*
 
 ### 18. nit — assorted, all FIXED
 

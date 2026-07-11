@@ -130,6 +130,9 @@ class OverviewViewer:
         self.overviews: list[dict] = []
         self._stacks: list[Any] = []
         self._images: list[Any] = []
+        self._targets: list[dict] = []
+        self._targets_explorer: Any = None
+        self._targets_artist: Any = None
         self.n_channels: int | None = None
         #: Per-channel display state: colour name, visibility, and the
         #: (low, high) intensity range mapped to black..full colour.
@@ -330,6 +333,86 @@ class OverviewViewer:
         self._slider = None
         self._rebuild_range_slider()
         self._controls_built = True
+
+    # --- targets on the map --------------------------------------------------
+
+    def show_targets(self, targets: list[dict] | None, explorer: Any = None) -> None:
+        """Overlay the discovered cells on the map (or clear with ``None``).
+
+        Each target draws as a ring at its frame position: blue when it
+        passes the gate, grey when it does not — so gating can be judged
+        against the sample itself rather than only the scatter plot. The
+        colours are taken from the explorer's gate at CALL time; after
+        editing the gate, call :meth:`refresh_targets` (or ``show_targets``
+        again) to recolour. (The React edition recolours live.)
+        """
+        if self._targets_artist is not None:
+            self._targets_artist.remove()
+            self._targets_artist = None
+        self._targets = list(targets or [])
+        self._targets_explorer = explorer
+        if self._targets:
+            mask = (
+                explorer._gate_mask() if explorer is not None else [True] * len(self._targets)
+            )
+            self._targets_artist = self.ax.scatter(
+                [t["x"] for t in self._targets],
+                [t["y"] for t in self._targets],
+                s=30,
+                facecolors="none",
+                edgecolors=["tab:blue" if keep else "0.6" for keep in mask],
+                linewidths=1.6,
+            )
+        self.fig.canvas.draw_idle()
+
+    def refresh_targets(self) -> None:
+        """Recolour the target overlay from the explorer's current gate."""
+        self.show_targets(self._targets, self._targets_explorer)
+
+    # --- display settings ------------------------------------------------------
+
+    def save_display(self, path: Any) -> None:
+        """Write the channel display settings (colours/ranges) to a JSON file.
+
+        Together with :meth:`load_display`, this survives a kernel restart:
+        save into the run folder, and the next session shows the map the
+        way you left it.
+        """
+        import json
+        from pathlib import Path
+
+        Path(path).write_text(
+            json.dumps({str(c): state for c, state in self.channels.items()}, indent=2),
+            encoding="utf-8",
+        )
+
+    def load_display(self, path: Any) -> None:
+        """Restore channel display settings saved by :meth:`save_display`.
+
+        Settings for channels this session does not have are ignored; the
+        slider bounds widen to hold the loaded window, so everything the
+        file asks for stays reachable.
+        """
+        import json
+        from pathlib import Path
+
+        loaded = json.loads(Path(path).read_text(encoding="utf-8"))
+        for key, state in loaded.items():
+            channel = int(key)
+            if channel not in self.channels:
+                continue
+            self.set_channel(
+                channel,
+                color=state.get("color"),
+                visible=state.get("visible"),
+                vmin=(state.get("range") or [None, None])[0],
+                vmax=(state.get("range") or [None, None])[1],
+            )
+            lo, hi = self.channels[channel]["range"]
+            full_lo, full_hi = self.channels[channel]["full_range"]
+            self.channels[channel]["full_range"] = (min(full_lo, lo), max(full_hi, hi))
+        if self._controls_built and self._slider is not None:
+            self._rebuild_range_slider()
 
     # --- public, scriptable controls --------------------------------------
 

@@ -18,6 +18,7 @@ def measure_focus(
     af_job: str | None = None,
     start_z: float | None = None,
     on_point: Any = None,
+    cancel: Any = None,
 ) -> list[dict]:
     """Autofocus at each frame ``(x, y)`` point; return ``[{"x_um","y_um","z_um"}]``.
 
@@ -29,11 +30,23 @@ def measure_focus(
     ``on_point(measurement)`` fires after each point's autofocus completes —
     the focus widgets use it to show every measured z (and grow the fitted
     map) while the stage is still working through the remaining points.
+
+    ``cancel`` (optional) is asked before every move; answering True raises
+    :class:`~._capture_run.RunCancelled` cleanly between two points, exactly
+    like the capture loop.
     """
+    from ._capture_run import RunCancelled
+
     if start_z is None:
         start_z = float(session.get_xyz()["z"]["value"])
     measured = []
-    for point in points:
+    for index, point in enumerate(points, start=1):
+        if cancel is not None and cancel():
+            raise RunCancelled(
+                f"the focus run was cancelled before point {index} of "
+                f"{len(points)}: {index - 1} point(s) measured, and no further "
+                "stage move was made."
+            )
         session.set_xyz(point["x"], point["y"], start_z)
         procedure = {"name": "autofocus"}
         if af_job is not None:

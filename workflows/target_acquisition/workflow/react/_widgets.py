@@ -33,7 +33,9 @@ from ._support import (
     CHANNEL_HEX,
     REACT_PRELUDE,
     heatmap_data_url,
+    png_bytes,
     png_data_url,
+    png_to_data_url,
     require_anywidget,
     shrink_to_budget,
 )
@@ -46,7 +48,7 @@ import traitlets  # noqa: E402
 from .._acquisition_widget import pair_images  # noqa: E402
 from .._discovery_widget import _feature_value, _numeric_features, crop_for_target  # noqa: E402
 from .._focus_run import measure_focus  # noqa: E402
-from .._focus_surface import fit_focus_surface  # noqa: E402
+from .._focus_surface import fit_focus_surface, worst_residual_um  # noqa: E402
 from .._overview_widget import _load_overview_channels, composite_channels  # noqa: E402
 from .._records import record_channel_paths  # noqa: E402
 from ..steps import acquire_targets  # noqa: E402
@@ -67,19 +69,43 @@ class _ZmartWidget(anywidget.AnyWidget):
 
     status = traitlets.Unicode("").tag(sync=True)
     busy = traitlets.Bool(False).tag(sync=True)
+    #: Display-only mirror of the read-only state (hides buttons in the
+    #: browser). The ENFORCEMENT is the private flag below — a synced trait
+    #: can be rewritten by anything in the page, so it is never the check.
+    read_only = traitlets.Bool(False).tag(sync=True)
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._last_run_ended: float | None = None
+        self._hardware_allowed = True
+        self._cancel_requested = False
         self.on_msg(self._route_message)
+
+    def make_read_only(self) -> None:
+        """Turn this widget into a safe observer view.
+
+        Hardware messages are refused in Python from now on (the browser
+        buttons also hide, but that is courtesy, not the lock). Use it for
+        a second tab or a colleague's view of a running session — they can
+        watch everything and drive nothing.
+        """
+        self._hardware_allowed = False
+        self.read_only = True
 
     def _route_message(self, _widget: Any, content: Any, _buffers: Any) -> None:
         # Anything can arrive on this channel; a non-dict is simply noise.
         if not isinstance(content, dict):
             return
-        if content.get("type") == "sync":
+        kind = content.get("type")
+        if kind == "sync":
             # A freshly mounted browser view asks for the full picture.
             self.push_snapshot()
+            return
+        if kind == "cancel":
+            self.request_cancel()
+            return
+        if not self._hardware_allowed:
+            self.status = "this view is read-only — hardware actions are disabled"
             return
         self.handle_message(content)
 
@@ -93,6 +119,25 @@ class _ZmartWidget(anywidget.AnyWidget):
         in traits have nothing extra to push. Widgets that stream items as
         messages override this to publish the complete list.
         """
+
+    def request_cancel(self) -> None:
+        """Ask the running hardware loop to stop before its next site.
+
+        The stop is cooperative and clean: the loop finishes the site it is
+        on, then raises :class:`~.._capture_run.RunCancelled` — nothing is
+        committed, and no further stage move is made. Honesty note for
+        Jupyter: while a cell is running, the kernel only processes a
+        browser click when it next comes up for air, so a Cancel pressed
+        mid-run may only take effect late (or, if the run already ended,
+        not at all — this method then says so). A future website host that
+        processes messages concurrently gets immediate cancellation
+        through this same path.
+        """
+        if self.busy:
+            self._cancel_requested = True
+            self.status = "cancel requested — stopping before the next site"
+        else:
+            self.status = "no run is in progress to cancel"
 
     def _debounced(self) -> bool:
         """True when a queued click should be ignored (and says so)."""
@@ -120,15 +165,18 @@ class _ZmartWidget(anywidget.AnyWidget):
         """Busy-guard and debounce-stamp one real hardware run.
 
         Every path that drives the microscope — a browser button OR a
-        scripted call — goes through here, so the busy flag and the
-        queued-click window hold for both. Validation errors raise BEFORE
-        this is entered, so a refused run never arms the debounce (a
-        corrective click right after "the gate is empty" must not be
-        eaten as a "queued" one).
+        scripted call — goes through here, so the busy flag, the read-only
+        lock, and the queued-click window hold for both. Validation errors
+        raise BEFORE this is entered, so a refused run never arms the
+        debounce (a corrective click right after "the gate is empty" must
+        not be eaten as a "queued" one).
         """
+        if not self._hardware_allowed:
+            raise RuntimeError("this view is read-only — hardware actions are disabled")
         if self.busy:
             raise RuntimeError("a run is already in progress")
         self.busy = True
+        self._cancel_requested = False
         try:
             return work()
         finally:
@@ -154,15 +202,25 @@ class OverviewViewerReact(_ZmartWidget):
     position (micrometres) reads out live under the map. Stream tiles in
     live by passing :meth:`add_acquisition` as ``run_overview``'s
     ``on_record``.
+
+    After discovery, :meth:`show_targets` overlays the found cells on the
+    map itself — gated cells in blue, the rest grey — so gating can be
+    judged against the sample, not just the scatter plot. Hovering a mark
+    shows that cell's crop in the side panel. Pass the explorer to keep
+    the colours live as the gate changes.
     """
 
     tiles = traitlets.List().tag(sync=True)
     channels = traitlets.List().tag(sync=True)
+    marks = traitlets.List().tag(sync=True)
+    mark_hover = traitlets.Dict().tag(sync=True)
 
     _esm = REACT_PRELUDE + """
 function App({ model }) {
   const tiles = useStream(model, "tiles", "tile");
   const [channels, setChannels] = useTrait(model, "channels");
+  const [marks] = useTrait(model, "marks");
+  const [markHover] = useTrait(model, "mark_hover");
   const [status] = useTrait(model, "status");
   const view = React.useRef({ scale: 1, tx: 0, ty: 0, fitted: 0, user: false });
   const [, bump] = React.useReducer((n) => n + 1, 0);
@@ -224,8 +282,20 @@ function App({ model }) {
           position: "absolute", left: t.x0 * v.scale + v.tx, top: t.y0 * v.scale + v.ty,
           width: t.w * v.scale, height: t.h * v.scale, imageRendering: "pixelated" } });
       }),
+      marks.map((m, i) => {
+        const v = view.current;
+        return h("div", { key: `m${i}`,
+          onMouseEnter: () => model.send({ type: "mark", index: i }),
+          style: { position: "absolute", left: m.x * v.scale + v.tx - 5,
+                   top: m.y * v.scale + v.ty - 5, width: 10, height: 10,
+                   borderRadius: 999, boxSizing: "border-box",
+                   border: `2px solid ${m.gated ? T.accent : T.dim}`,
+                   background: markHover.index === i ? T.accent : "transparent",
+                   cursor: "pointer" } });
+      }),
       h("div", { style: { position: "absolute", left: 10, bottom: 8, display: "flex", gap: 6 } },
         pill(`${tiles.length} tile(s) — drag to pan, scroll to zoom`),
+        marks.length ? pill(`${marks.filter((m) => m.gated).length} / ${marks.length} gated`) : null,
         cursor ? pill(`x ${cursor.x.toFixed(0)} um · y ${cursor.y.toFixed(0)} um`) : null)),
     h("div", { style: { width: 230 } },
       h("div", { style: { display: "flex", alignItems: "center",
@@ -248,6 +318,12 @@ function App({ model }) {
         h("span", { style: { color: T.dim, width: 30 } }, `ch ${i}`),
         h(NumBox, { value: Math.round(c.lo), onCommit: (v) => setCh(i, { lo: v }) }),
         h(NumBox, { value: Math.round(c.hi), onCommit: (v) => setCh(i, { hi: v }) }))),
+      markHover.src
+        ? h("div", { style: { marginTop: 8 } },
+            h("img", { src: markHover.src, style: { width: 180, borderRadius: 8,
+              imageRendering: "pixelated", border: `1px solid ${T.edge}` } }),
+            h("div", { style: { color: T.dim, fontSize: 12, marginTop: 4 } }, markHover.title))
+        : null,
       h("div", { style: { color: T.dim, marginTop: 8, fontSize: 12 } }, status)));
 }
 export default mount(App);
@@ -262,6 +338,9 @@ export default mount(App);
         self.overviews: list[dict] = []
         self._stacks: list[Any] = []
         self._tile_entries: list[dict] = []
+        self._targets: list[dict] = []
+        self._marks_explorer: Any = None
+        self._mark_crop_cache: dict[int, dict] = {}
         self.n_channels: int | None = None
         self.observe(self._on_channels_changed, names="channels")
         for overview in overviews or []:
@@ -311,9 +390,19 @@ export default mount(App);
         self._stacks.append(stack)
         entry = self._tile_entry(overview, stack)
         self._tile_entries.append(entry)
-        # One message per NEW tile — never a resend of the map so far. A
+        # One message per NEW tile — never a resend of the map so far, and
+        # the pixels ride as a binary buffer (raw PNG, no base64 growth). A
         # freshly opened view catches up via the ``sync`` snapshot instead.
-        self.send({"type": "tile", "index": len(self._tile_entries) - 1, "entry": entry})
+        meta = {k: v for k, v in entry.items() if k != "png"}
+        self.send(
+            {
+                "type": "tile",
+                "index": len(self._tile_entries) - 1,
+                "entry": {**meta, "src": ""},
+                "buffer_keys": ["src"],
+            },
+            buffers=[entry["png"]],
+        )
         self.status = f"{len(self.overviews)} tile(s) on the map"
 
     def reload(self) -> None:
@@ -325,7 +414,10 @@ export default mount(App);
 
     def push_snapshot(self) -> None:
         """Publish the complete tile list (a browser view asked to sync)."""
-        self.tiles = list(self._tile_entries)
+        self.tiles = [
+            {**{k: v for k, v in e.items() if k != "png"}, "src": png_to_data_url(e["png"])}
+            for e in self._tile_entries
+        ]
 
     def _init_channels(self, stack: Any) -> None:
         import numpy as np
@@ -383,7 +475,7 @@ export default mount(App);
         ps = float(overview["pixel_size_um"])
         w_um, h_um = w_px * ps, h_px * ps
         return {
-            "src": png_data_url(composite_channels(stack, self._channel_states())),
+            "png": png_bytes(composite_channels(stack, self._channel_states())),
             "x0": cx - w_um / 2.0,
             "y0": cy - h_um / 2.0,
             "w": w_um,
@@ -395,14 +487,103 @@ export default mount(App);
         self._tile_entries = [
             self._tile_entry(o, s) for o, s in zip(self.overviews, self._stacks, strict=True)
         ]
-        self.tiles = list(self._tile_entries)
+        self.push_snapshot()
 
     def _on_channels_changed(self, _change: Any) -> None:
         if self._stacks:
             self._retile()
 
+    # --- targets on the map --------------------------------------------------
+
+    def show_targets(self, targets: list[dict] | None, explorer: Any = None) -> None:
+        """Overlay the discovered cells on the map (or clear with ``None``).
+
+        Each target draws at its frame position, blue when it passes the
+        gate and grey when it does not, so gating can be judged against the
+        sample itself. Pass the target ``explorer`` to keep the colours
+        live: every gate edit recolours the map. Hovering a mark shows that
+        cell's crop in the side panel.
+        """
+        if self._marks_explorer is not None:
+            self._marks_explorer.unobserve(self._on_gate_recoloured, names="gated_mask")
+            self._marks_explorer = None
+        self._targets = list(targets or [])
+        self._mark_crop_cache = {}
+        if explorer is not None and self._targets:
+            self._marks_explorer = explorer
+            explorer.observe(self._on_gate_recoloured, names="gated_mask")
+        self._refresh_marks()
+
+    def _on_gate_recoloured(self, _change: Any) -> None:
+        self._refresh_marks()
+
+    def _refresh_marks(self) -> None:
+        if not self._targets:
+            self.marks = []
+            self.mark_hover = {}
+            return
+        explorer = self._marks_explorer
+        mask = (
+            explorer._mask_from_gate() if explorer is not None else [True] * len(self._targets)
+        )
+        self.marks = [
+            {"x": float(t["x"]), "y": float(t["y"]), "gated": bool(keep)}
+            for t, keep in zip(self._targets, mask, strict=True)
+        ]
+
+    def _serve_mark_hover(self, content: dict) -> None:
+        try:
+            index = int(content.get("index"))
+        except (TypeError, ValueError, OverflowError):
+            return
+        if not 0 <= index < len(self._targets):
+            return
+        if index not in self._mark_crop_cache:
+            crop = crop_for_target(
+                self._targets[index], dict(enumerate(self.overviews)), crop_um=60.0
+            )
+            source = self._targets[index].get("source") or {}
+            self._mark_crop_cache[index] = {
+                "index": index,
+                "src": "" if crop is None else png_data_url(crop),
+                "title": f"target {index} (tile {source.get('naming_p', '?')})",
+            }
+        self.mark_hover = self._mark_crop_cache[index]
+
+    # --- display settings ----------------------------------------------------
+
+    def save_display(self, path: Any) -> None:
+        """Write the channel display settings (colours/ranges) to a JSON file.
+
+        Together with :meth:`load_display`, this survives a kernel restart:
+        save into the run folder, and the next session shows the map the
+        way you left it.
+        """
+        import json
+        from pathlib import Path
+
+        Path(path).write_text(json.dumps(list(self.channels), indent=2), encoding="utf-8")
+
+    def load_display(self, path: Any) -> None:
+        """Restore channel display settings saved by :meth:`save_display`.
+
+        The loaded values pass through the same sanitizing as browser edits,
+        so a hand-edited or stale file degrades to defaults instead of
+        breaking the map.
+        """
+        import json
+        from pathlib import Path
+
+        loaded = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(loaded, list):
+            raise ValueError(f"{path} does not hold a channel settings list")
+        self.channels = loaded  # the observer recomposites (sanitized)
+
     def handle_message(self, content: dict) -> None:
-        # The viewer has no hardware actions; nothing arrives here today.
+        if content.get("type") == "mark":
+            self._serve_mark_hover(content)
+            return
+        # The viewer has no hardware actions; nothing else arrives today.
         self.status = f"unknown message: {content.get('type')}"
 
 
@@ -454,16 +635,22 @@ function App({ model }) {
     return { x: (e.clientX - r.left - (X(0) - 0 * s)) / s + 0, y: (e.clientY - r.top - Y(0)) / s };
   };
 
+  const [readOnly] = useTrait(model, "read_only");
   return h("div", { style: { ...card, width: W + 24 } },
     h("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 8 } },
-      h("button", { style: btn(busy), disabled: busy,
+      readOnly ? pill("read-only view") : h("button", { style: btn(busy), disabled: busy,
         onClick: () => model.send({ type: "measure" }) },
         busy ? "measuring..." : "Measure focus"),
-      h("button", { title: "forget this session's measurements and re-drive every point",
+      readOnly ? null : h("button", {
+        title: "forget this session's measurements and re-drive every point",
         style: { ...btn(busy), background: busy ? T.edge : T.bg, color: T.dim,
                  border: `1px solid ${T.edge}` }, disabled: busy,
         onClick: () => model.send({ type: "measure", fresh: true }) },
         "Measure fresh"),
+      busy && !readOnly ? h("button", {
+        title: "stop cleanly before the next point (nothing is committed)",
+        style: { ...btn(false), background: T.bad, color: "#450a0a" },
+        onClick: () => model.send({ type: "cancel" }) }, "Cancel") : null,
       pill(`${points.length} point(s)`),
       h("span", { style: { color: T.dim, fontSize: 12 } }, status)),
     h("svg", {
@@ -488,7 +675,8 @@ function App({ model }) {
           h("circle", { cx: X(p.x), cy: Y(p.y), r: 7, fill: m ? T.good : T.bad,
             stroke: "#000", strokeWidth: 1.5 }),
           m ? h("text", { x: X(p.x) + 10, y: Y(p.y) - 8, fill: T.ink, fontSize: 11 },
-            m.z_um.toFixed(1)) : null);
+            m.z_um.toFixed(1) +
+            (m.residual_um === undefined ? "" : ` (Δ${m.residual_um.toFixed(1)})`)) : null);
       })),
     h("div", { style: { color: T.dim, fontSize: 12, marginTop: 6 } },
       "click: add a focus point · click a point: remove it · squares: overview positions" +
@@ -586,12 +774,21 @@ export default mount(App);
                 if (float(p["x"]), float(p["y"])) in self._af_cache
             ]
 
-        def _show_fresh_point(measurement: dict) -> None:
-            self._af_cache[(measurement["x_um"], measurement["y_um"])] = measurement
-            self.measured = _collected()
-            self.focus = fit_focus_surface(self.measured)
+        def _fit_and_show() -> None:
+            collected = _collected()
+            self.focus = fit_focus_surface(collected)
+            # Each point also reports how far it sits from the fit — one
+            # large residual usually means that autofocus landed badly and
+            # is quietly bending the whole surface.
+            from .._focus_surface import residuals_um
+
+            self.measured = residuals_um(self.focus)
             self.heatmap = self._render_heatmap()
             self._tint_squares()
+
+        def _show_fresh_point(measurement: dict) -> None:
+            self._af_cache[(measurement["x_um"], measurement["y_um"])] = measurement
+            _fit_and_show()
             self.status = f"measuring... {len(self.measured)} of {len(points)} points"
 
         try:
@@ -599,11 +796,9 @@ export default mount(App);
                 measure_focus(
                     self.session, fresh_points, af_job=self.af_job, start_z=self.start_z,
                     on_point=_show_fresh_point,
+                    cancel=lambda: self._cancel_requested,
                 )
-            self.measured = _collected()
-            self.focus = fit_focus_surface(self.measured)
-            self.heatmap = self._render_heatmap()
-            self._tint_squares()
+            _fit_and_show()
         except Exception:
             # A half-measured run must not leave a plausible-looking surface
             # on ``self.focus`` — a script reading it would fit z to a
@@ -612,9 +807,14 @@ export default mount(App);
             self._invalidate()
             raise
         self._measured_points = points
+        worst = worst_residual_um(self.focus)
+        residual_note = (
+            "" if worst is None else f"; largest fit residual {worst[1]:+.1f} µm at point {worst[0]}"
+        )
         self.status = (
             f"focus surface fitted ({self.focus.model}, {len(points)} pts — "
-            f"{len(fresh_points)} new, {len(points) - len(fresh_points)} reused)"
+            f"{len(fresh_points)} new, {len(points) - len(fresh_points)} reused"
+            f"{residual_note})"
         )
         return self.focus
 
@@ -689,6 +889,9 @@ class TargetExplorerReact(_ZmartWidget):
     gate = traitlets.Dict().tag(sync=True)
     gated_mask = traitlets.List().tag(sync=True)
     hover = traitlets.Dict().tag(sync=True)
+    #: 20-bin histograms of the current axes (display only), so thresholds
+    #: are set against the feature's distribution rather than blind.
+    hist = traitlets.Dict().tag(sync=True)
 
     _esm = REACT_PRELUDE + """
 function App({ model }) {
@@ -700,6 +903,8 @@ function App({ model }) {
   const [mask] = useTrait(model, "gated_mask");
   const [hover] = useTrait(model, "hover");
   const [status] = useTrait(model, "status");
+  const [hist] = useTrait(model, "hist");
+  const [readOnly] = useTrait(model, "read_only");
   const W = 460, H = 360, pad = 42;
 
   const fx = dots.map((d) => d.fx), fy = dots.map((d) => d.fy);
@@ -737,7 +942,10 @@ function App({ model }) {
           onClick: () => setGate({ ...gate, lasso: null }) }, "clear lasso")),
       h("svg", { width: W, height: H,
           style: { background: T.bg, borderRadius: 10, touchAction: "none" },
-          onPointerDown: (e) => { lasso.current = [toData(e, e.currentTarget)]; setTrail(lasso.current); },
+          onPointerDown: (e) => {
+            if (readOnly) return;
+            lasso.current = [toData(e, e.currentTarget)]; setTrail(lasso.current);
+          },
           onPointerMove: (e) => {
             if (!lasso.current) return;
             lasso.current = [...lasso.current, toData(e, e.currentTarget)];
@@ -749,6 +957,18 @@ function App({ model }) {
           } },
         h("line", { x1: pad, y1: H - pad, x2: W - pad, y2: H - pad, stroke: T.edge }),
         h("line", { x1: pad, y1: pad, x2: pad, y2: H - pad, stroke: T.edge }),
+        (hist.x || []).map((v, i, arr) => {
+          const bw = (W - 2 * pad) / arr.length;
+          return h("rect", { key: `hx${i}`, x: pad + i * bw, width: Math.max(bw - 1, 1),
+            y: H - pad - v * 26, height: v * 26,
+            fill: "rgba(56,189,248,0.22)" });
+        }),
+        (hist.y || []).map((v, i, arr) => {
+          const bh = (H - 2 * pad) / arr.length;
+          return h("rect", { key: `hy${i}`, x: pad, width: v * 26,
+            y: H - pad - (i + 1) * bh, height: Math.max(bh - 1, 1),
+            fill: "rgba(56,189,248,0.22)" });
+        }),
         h("text", { x: W / 2, y: H - 8, fill: T.dim, fontSize: 11, textAnchor: "middle" }, xf),
         h("text", { x: 12, y: H / 2, fill: T.dim, fontSize: 11, transform: `rotate(-90 12 ${H / 2})`,
           textAnchor: "middle" }, yf),
@@ -873,6 +1093,19 @@ export default mount(App);
             mask.append(bool(keep))
         return mask
 
+    @staticmethod
+    def _histogram(values: list[float], bins: int = 20) -> list[float]:
+        """Bin counts normalized to 0..1 — a slim distribution backdrop."""
+        lo, hi = min(values), max(values)
+        if hi <= lo:
+            return [1.0] + [0.0] * (bins - 1)
+        counts = [0] * bins
+        for v in values:
+            k = min(int((v - lo) / (hi - lo) * bins), bins - 1)
+            counts[k] += 1
+        peak = max(counts)
+        return [c / peak for c in counts]
+
     def _recompute(self, *, reset_gate: bool) -> None:
         self.dots = [
             {
@@ -881,6 +1114,10 @@ export default mount(App);
             }
             for t in self.targets
         ]
+        self.hist = {
+            "x": self._histogram([d["fx"] for d in self.dots]),
+            "y": self._histogram([d["fy"] for d in self.dots]),
+        }
         if reset_gate:
             # Quietly: the observer would otherwise run a second, redundant
             # recompute for the very reset we are in the middle of.
@@ -891,6 +1128,48 @@ export default mount(App);
                 self._resetting_gate = False
         self.gated_mask = self._mask_from_gate()
         self.status = "thresholds AND lasso gate together"
+
+    def save_gate(self, path: Any) -> None:
+        """Write the current gate (axes + thresholds + lasso) to a JSON file.
+
+        A repeat experiment usually wants yesterday's thresholds: save the
+        gate into the run folder and :meth:`load_gate` it next session.
+        """
+        import json
+        from pathlib import Path
+
+        payload = {
+            "x_feature": self.x_feature,
+            "y_feature": self.y_feature,
+            "gate": dict(self.gate or {}),
+        }
+        Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def load_gate(self, path: Any) -> None:
+        """Restore a gate saved by :meth:`save_gate`.
+
+        The axes are set first (which clears any stale gate, exactly like a
+        manual axis switch), then the saved thresholds and lasso apply. The
+        values pass through the same sanitizing as browser edits, so a
+        hand-edited file degrades to "does not gate" instead of breaking
+        the explorer. Features missing from this target set raise a clear
+        error rather than silently gating on the wrong axis.
+        """
+        import json
+        from pathlib import Path
+
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        for key in ("x_feature", "y_feature"):
+            name = payload.get(key)
+            if name not in self.features:
+                raise ValueError(
+                    f"{path} gates on feature {name!r}, which these targets do not "
+                    f"have (available: {self.features})"
+                )
+        self.x_feature = payload["x_feature"]
+        self.y_feature = payload["y_feature"]
+        gate = payload.get("gate")
+        self.gate = dict(gate) if isinstance(gate, dict) else {}
 
     def handle_message(self, content: dict) -> None:
         if content.get("type") != "hover":
@@ -938,6 +1217,9 @@ class AcquisitionGalleryReact(_ZmartWidget):
     rows = traitlets.List().tag(sync=True)
     gate_count = traitlets.Int(0).tag(sync=True)
     default_count = traitlets.Int(5).tag(sync=True)
+    #: Per-row curation: "good", "bad", or None — the operator's own QC
+    #: record of the run (display-synced; Python owns the truth).
+    verdicts = traitlets.List().tag(sync=True)
 
     _esm = REACT_PRELUDE + """
 function App({ model }) {
@@ -946,16 +1228,31 @@ function App({ model }) {
   const [status] = useTrait(model, "status");
   const [gateCount] = useTrait(model, "gate_count");
   const [defaultCount] = useTrait(model, "default_count");
+  const [verdicts] = useTrait(model, "verdicts");
+  const [readOnly] = useTrait(model, "read_only");
   const [count, setCount] = React.useState(String(defaultCount));
+
+  const verdictBtn = (i, value, label, colour) => h("button", {
+    title: value === "good" ? "mark this pair as good" : "mark this pair as bad",
+    onClick: () => model.send({ type: "verdict", index: i,
+      value: verdicts[i] === value ? null : value }),
+    style: { ...btn(false), padding: "2px 10px",
+             background: verdicts[i] === value ? colour : T.edge,
+             color: verdicts[i] === value ? "#082f49" : T.dim } }, label);
 
   return h("div", { style: { ...card, width: 700 } },
     h("style", null, "@keyframes zin { from { opacity: 0; transform: translateY(8px);} to { opacity: 1; transform: none;} }"),
     h("div", { style: { display: "flex", gap: 10, alignItems: "center", marginBottom: 10 } },
-      h("span", { style: { color: T.dim } }, "how many"),
-      h("input", { style: inp, value: count, onChange: (e) => setCount(e.target.value) }),
-      h("button", { style: btn(busy), disabled: busy,
+      readOnly ? pill("read-only view") : h("span", { style: { color: T.dim } }, "how many"),
+      readOnly ? null : h("input", { style: inp, value: count,
+        onChange: (e) => setCount(e.target.value) }),
+      readOnly ? null : h("button", { style: btn(busy), disabled: busy,
         onClick: () => model.send({ type: "acquire", count }) },
         busy ? "acquiring..." : "Acquire"),
+      busy && !readOnly ? h("button", {
+        title: "stop cleanly before the next target (nothing is committed)",
+        style: { ...btn(false), background: T.bad, color: "#450a0a" },
+        onClick: () => model.send({ type: "cancel" }) }, "Cancel") : null,
       pill(`${gateCount} in the gate`),
       h("span", { style: { color: T.dim, fontSize: 12 } }, status)),
     rows.map((r, i) => h("div", { key: i, style: {
@@ -964,7 +1261,11 @@ function App({ model }) {
         h("div", { key: side, style: { flex: 1 } },
           h("img", { src: r[side + "_src"], style: { width: "100%", borderRadius: 10,
             imageRendering: "pixelated", border: `1px solid ${T.edge}` } }),
-          h("div", { style: { color: T.dim, fontSize: 12, marginTop: 2 } }, title))))));
+          h("div", { style: { color: T.dim, fontSize: 12, marginTop: 2 } }, title))),
+      readOnly ? null : h("div", { style: { display: "flex", flexDirection: "column",
+          gap: 6, justifyContent: "center" } },
+        verdictBtn(i, "good", "✓", T.good),
+        verdictBtn(i, "bad", "✗", T.bad)))));
 }
 export default mount(App);
 """
@@ -1005,10 +1306,68 @@ export default mount(App);
 
     def push_snapshot(self) -> None:
         """Publish the complete row list (a browser view asked to sync)."""
-        self.rows = list(self._row_entries)
+        self.rows = [self._row_with_data_urls(e) for e in self._row_entries]
+
+    @staticmethod
+    def _row_with_data_urls(entry: dict) -> dict:
+        meta = {k: v for k, v in entry.items() if k not in ("low_png", "high_png")}
+        meta["low_src"] = png_to_data_url(entry["low_png"]) if entry.get("low_png") else ""
+        meta["high_src"] = png_to_data_url(entry["high_png"]) if entry.get("high_png") else ""
+        return meta
+
+    def set_verdict(self, index: int, value: str | None) -> None:
+        """Record the operator's judgement of one pair: "good", "bad", or None.
+
+        This is the run's QC record — :meth:`save_curation` writes it next
+        to the images. Scriptable and also driven by the ✓/✗ buttons.
+        """
+        if value not in ("good", "bad", None):
+            raise ValueError('a verdict is "good", "bad", or None')
+        if not 0 <= int(index) < len(self._row_entries):
+            raise ValueError(f"no gallery row {index} to judge")
+        verdicts = list(self.verdicts)
+        verdicts[int(index)] = value
+        self.verdicts = verdicts
+
+    def save_curation(self, output_root: Any) -> Any:
+        """Write the verdicts to ``curation.json`` in the run folder.
+
+        One entry per acquired pair: the target's position label and the
+        verdict ("good"/"bad"/null). Returns the path written.
+        """
+        import json
+        from pathlib import Path
+
+        root = Path(output_root)
+        root.mkdir(parents=True, exist_ok=True)
+        path = root / "curation.json"
+        rows = [
+            {
+                "index": i,
+                "position_label": (r.get("position_label", None)),
+                "verdict": v,
+            }
+            for i, (r, v) in enumerate(zip(self.records, list(self.verdicts), strict=False))
+        ]
+        path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        return path
 
     def handle_message(self, content: dict) -> None:
-        if content.get("type") != "acquire":
+        kind = content.get("type")
+        if kind == "verdict":
+            # Curation is metadata, not hardware — but the input is still
+            # browser input, so it is validated, never obeyed blindly.
+            try:
+                index = int(content.get("index"))
+            except (TypeError, ValueError, OverflowError):
+                return
+            value = content.get("value")
+            if value not in ("good", "bad", None):
+                return
+            if 0 <= index < len(self._row_entries):
+                self.set_verdict(index, value)
+            return
+        if kind != "acquire":
             self.status = f"unknown message: {content.get('type')}"
             return
         if self._debounced():
@@ -1047,12 +1406,23 @@ export default mount(App);
         self.records = []
         self._row_entries = []
         self.rows = []
+        self.verdicts = [None] * len(picked)
 
         def _show_fresh_pair(index: int, _position: dict, record: dict) -> None:
             entry = self._row_entry(picked[index - 1], record)
             self._row_entries.append(entry)
-            # One message per fresh pair — never a resend of the rows so far.
-            self.send({"type": "row", "index": index - 1, "entry": entry})
+            # One message per fresh pair — never a resend of the rows so
+            # far, with the two images as binary buffers.
+            meta = {k: v for k, v in entry.items() if k not in ("low_png", "high_png")}
+            self.send(
+                {
+                    "type": "row",
+                    "index": index - 1,
+                    "entry": {**meta, "low_src": "", "high_src": ""},
+                    "buffer_keys": ["low_src", "high_src"],
+                },
+                buffers=[entry.get("low_png") or b"", entry.get("high_png") or b""],
+            )
             self.status = f"acquired {index} of {len(picked)} target(s)..."
 
         records = acquire_targets(
@@ -1062,6 +1432,7 @@ export default mount(App);
             focus=self.focus,
             options=self.options,
             on_record=_show_fresh_pair,
+            cancel=lambda: self._cancel_requested,
         )
         if self.after_acquire is not None:
             self.after_acquire(records)
@@ -1073,7 +1444,7 @@ export default mount(App);
         self.records = records
         # The run is complete: publish the full rows snapshot so any view —
         # including one opened later — has the whole gallery.
-        self.rows = list(self._row_entries)
+        self.push_snapshot()
         self.status = f"acquired {len(records)} of {gated_count} gated target(s)"
         return records
 
@@ -1082,18 +1453,147 @@ export default mount(App);
         source = target.get("source") or {}
         if pair is None:
             return {
-                "low_src": "",
-                "high_src": "",
+                "low_png": b"",
+                "high_png": b"",
+                "position_label": record.get("position_label"),
                 "low_title": "no image in this record",
                 "high_title": "",
             }
         low, high, width_um, height_um = pair
         return {
-            "low_src": png_data_url(shrink_to_budget(low, _PER_IMAGE_PIXEL_BUDGET)),
-            "high_src": png_data_url(shrink_to_budget(high, _PER_IMAGE_PIXEL_BUDGET)),
+            "low_png": png_bytes(shrink_to_budget(low, _PER_IMAGE_PIXEL_BUDGET)),
+            "high_png": png_bytes(shrink_to_budget(high, _PER_IMAGE_PIXEL_BUDGET)),
+            "position_label": record.get("position_label"),
             "low_title": (
                 f"overview crop — tile {source.get('naming_p', '?')} "
                 f"({width_um:.0f} × {height_um:.0f} um)"
             ),
             "high_title": f"target {record.get('position_label', '?')} — same window",
         }
+
+
+# ---------------------------------------------------------------------------
+# 5 · Run status
+# ---------------------------------------------------------------------------
+
+
+class RunStatusReact(_ZmartWidget):
+    """A one-glance checklist of where the run stands.
+
+    Call :meth:`refresh` with the notebook's ``globals()`` after any step
+    and the checklist updates: what is done, what is still to do, and what
+    deserves a second look (for example, a target job that equals the
+    overview job). It only reads what the cells already created — it never
+    talks to the microscope, so refreshing is always safe.
+    """
+
+    rows = traitlets.List().tag(sync=True)
+
+    _esm = REACT_PRELUDE + """
+function App({ model }) {
+  const [rows] = useTrait(model, "rows");
+  const [status] = useTrait(model, "status");
+  const colours = { ok: T.good, todo: T.dim, warn: T.warn };
+  const marks = { ok: "✓", todo: "·", warn: "!" };
+  return h("div", { style: { ...card, width: 560 } },
+    h("div", { style: { fontWeight: 700, marginBottom: 8 } }, "run status"),
+    rows.map((r, i) => h("div", { key: i, style: {
+        display: "flex", gap: 10, alignItems: "baseline", padding: "3px 0" } },
+      h("span", { style: { color: colours[r.state] || T.dim, width: 14,
+        fontWeight: 700, textAlign: "center" } }, marks[r.state] || "·"),
+      h("span", { style: { width: 150, color: r.state === "todo" ? T.dim : T.ink } },
+        r.label),
+      h("span", { style: { color: T.dim, fontSize: 12 } }, r.detail))),
+    h("div", { style: { color: T.dim, fontSize: 12, marginTop: 8 } },
+      status || "re-run the status cell after any step to refresh"));
+}
+export default mount(App);
+"""
+
+    def refresh(self, ns: dict) -> RunStatusReact:
+        """Rebuild the checklist from the notebook's variables (``globals()``)."""
+        from .._run_status import run_status_rows
+
+        self.rows = run_status_rows(ns)
+        return self
+
+    def handle_message(self, content: dict) -> None:
+        self.status = f"unknown message: {content.get('type')}"
+
+
+# ---------------------------------------------------------------------------
+# 6 · Calibration check report
+# ---------------------------------------------------------------------------
+
+
+class CalibrationReportReact(_ZmartWidget):
+    """The XY-calibration check's result as a readable panel.
+
+    Feed it the report dict from ``finish_calibration_check``: it draws the
+    per-site offset arrows on the ring, states the systematic error and the
+    stage scatter in plain language, and — when ``acceptable_um`` is given —
+    says outright whether the calibration is good enough for this run.
+    """
+
+    report = traitlets.Dict().tag(sync=True)
+    acceptable_um = traitlets.Float(0.0).tag(sync=True)
+
+    _esm = REACT_PRELUDE + """
+function App({ model }) {
+  const [report] = useTrait(model, "report");
+  const [acceptable] = useTrait(model, "acceptable_um");
+  const W = 340, H = 340, pad = 30;
+  const sites = report.sites || [];
+  const trusted = sites.filter((s) => s.trusted && s.dx_um !== null);
+  const span = Math.max(...sites.map((s) => Math.hypot(s.x, s.y)), 1) * 1.15;
+  const s = (W - 2 * pad) / (2 * span);
+  const X = (x) => W / 2 + x * s, Y = (y) => H / 2 + y * s;
+  // Offsets are micrometres on a millimetre-scale map: exaggerate to see.
+  const mag = 0.15 * span / Math.max(...trusted.map((t) => Math.hypot(t.dx_um, t.dy_um)), 1e-9);
+  const mean = Math.hypot(report.mean_dx_um || 0, report.mean_dy_um || 0);
+  const verdict = !acceptable ? null : (mean <= acceptable
+    ? { colour: T.good, text: `within the ±${acceptable} um you asked for` }
+    : { colour: T.bad, text: `LARGER than the ±${acceptable} um you asked for — ` +
+        "re-run the objective-pair calibration before trusting cross-objective moves" });
+
+  return h("div", { style: { ...card, display: "flex", gap: 14, width: W + 320 } },
+    h("svg", { width: W, height: H, style: { background: T.bg, borderRadius: 10, flex: "none" } },
+      h("circle", { cx: W / 2, cy: H / 2, r: span * s * 0.001 || 1, fill: T.edge }),
+      sites.map((q, i) => q.trusted && q.dx_um !== null
+        ? h("g", { key: i },
+            h("line", { x1: X(q.x), y1: Y(q.y),
+              x2: X(q.x + q.dx_um * mag), y2: Y(q.y + q.dy_um * mag),
+              stroke: T.accent, strokeWidth: 2 }),
+            h("circle", { cx: X(q.x), cy: Y(q.y), r: 3, fill: T.accent }))
+        : h("g", { key: i },
+            h("line", { x1: X(q.x) - 4, y1: Y(q.y) - 4, x2: X(q.x) + 4, y2: Y(q.y) + 4,
+              stroke: T.dim, strokeWidth: 1.5 }),
+            h("line", { x1: X(q.x) - 4, y1: Y(q.y) + 4, x2: X(q.x) + 4, y2: Y(q.y) - 4,
+              stroke: T.dim, strokeWidth: 1.5 }))),
+      h("text", { x: 10, y: H - 10, fill: T.dim, fontSize: 11 },
+        "arrows exaggerated · × = not trusted")),
+    Object.keys(report).length === 0
+      ? h("div", { style: { color: T.dim } }, "no report yet — run the check's two cells first")
+      : h("div", null,
+          h("div", { style: { fontWeight: 700, marginBottom: 8 } }, "objective calibration"),
+          h("div", { style: { marginBottom: 6 } },
+            `systematically off by ${mean.toFixed(2)} um ` +
+            `(x ${(report.mean_dx_um || 0).toFixed(2)}, y ${(report.mean_dy_um || 0).toFixed(2)})`),
+          h("div", { style: { color: T.dim, marginBottom: 6 } },
+            `positive x means objective 2 lands towards +x of objective 1`),
+          h("div", { style: { marginBottom: 6 } },
+            `stage scatter ${(report.stage_scatter_rms_um || 0).toFixed(2)} um rms ` +
+            `over ${report.n_trusted || 0} of ${report.n_sites || 0} sites`),
+          verdict ? h("div", { style: { color: verdict.colour, fontWeight: 600,
+            marginTop: 10 } }, verdict.text) : null));
+}
+export default mount(App);
+"""
+
+    def __init__(self, report: dict | None = None, *, acceptable_um: float | None = None) -> None:
+        super().__init__()
+        self.report = dict(report or {})
+        self.acceptable_um = float(acceptable_um) if acceptable_um else 0.0
+
+    def handle_message(self, content: dict) -> None:
+        self.status = f"unknown message: {content.get('type')}"

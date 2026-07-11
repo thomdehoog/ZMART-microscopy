@@ -91,7 +91,7 @@ actually pin what they claim.
 
 ### E. The React streaming protocol (second-highest priority — new design)
 
-`workflow/react/_support.py` (dynamic CDN import + fallback, `useStream`,
+`workflow/react/_support.py` (`useStream`, the vendored React runtime,
 `NumBox`, `useWheel`), `workflow/react/_widgets.py` (messages + `sync`
 snapshots, `_hardware_run`, gate recompute-at-use, sanitizers, crop cache),
 `workflow/react/PROTOCOL.md`, tests in `test_react_widgets.py`.
@@ -123,13 +123,11 @@ snapshots, `_hardware_run`, gate recompute-at-use, sanitizers, crop cache),
    full `sync` snapshot for 25 tiles / 10 rows — acceptable? The `channels`
    edit path still recomposites and resends ALL tiles in one trait set —
    bounded enough after the budget?
-5. **The CDN fallback.** Top-level `await import(...)` in every widget module —
-   confirm anywidget tolerates the async module shape across its supported
-   versions, that the fallback note renders (not just a console error), and
-   that `test_every_widget_ships_a_react_module` still pins something real.
-   The supply-chain point (esm.sh serves executable JS into a hardware-driving
-   page) is documented as residual — judge whether vendoring should be a
-   blocker before the first hardware session with the React notebook.
+5. **History note:** an intermediate commit used a dynamic CDN import with a
+   visible offline fallback; the follow-up commit replaced it with the
+   vendored runtime (section F.1). Review the FINAL state, but check the
+   intermediate commit introduced nothing that outlived it (e.g. stale docs
+   or tests still speaking of esm.sh).
 6. **Expansion features.** Fit button + user-interaction latch (does a
    streamed tile still refit when the operator HASN'T interacted — and stop
    when they have?), cursor µm readout (correct under pan/zoom math?),
@@ -139,7 +137,63 @@ snapshots, `_hardware_run`, gate recompute-at-use, sanitizers, crop cache),
 7. The notebooks' rewritten markdown (React cells 0/11/17/20, both 5b cells)
    against the actual UI and behaviour — no remaining drift.
 
-### F. Cross-cutting
+### F. Expansion wave 2 (a further commit on the same branch — review it with the same severity)
+
+The maintainer asked for a broad usability expansion. New surface to attack:
+
+1. **Vendored React** (`workflow/react/vendor/`, `_support.py::_vendored_react_js`).
+   The official UMD builds are evaluated inside a function whose
+   `window`/`self`/`globalThis` parameters shadow the page globals with a
+   private object, `.call`-ed so `this` is that object too. Verify the
+   isolation argument (can react-dom 18.3.1's UMD reach the real page
+   `window` any other way — event handling, scheduler, `MessageChannel`,
+   `requestAnimationFrame`? those APIs resolve through the scope chain to
+   real globals: is that correct and safe?), the licensing hygiene, and
+   whether `_esm` strings of ~150 KB per widget class cause any
+   notebook-side problem. Check the SHA-pinned files match the npm
+   originals if you can.
+2. **Binary buffers** (`png_bytes`, `buffer_keys`, `useStream`'s object-URL
+   lifecycle). Hunt leaks (URLs revoked on snapshot replace and unmount —
+   but what about an entry replaced by a LATER message at the same index?),
+   ordering (buffers vs `buffer_keys`), and the empty-buffer path
+   (`b""` for a missing pair image).
+3. **Cooperative cancel** (`_capture_run.RunCancelled`, `cancel=` through
+   `capture_positions`/`measure_focus`/`run_overview`/`acquire_targets`,
+   the base widget's `request_cancel`, the Cancel buttons). Is the
+   "cancelled run reads as unfinished, never as a shorter success"
+   contract airtight on every path (gallery, focus, calibration check,
+   scripted)? Is the Jupyter honesty caveat (queued click may arrive after
+   the run) stated everywhere an operator could form the wrong belief?
+4. **Observer mode** (`make_read_only`). The lock is a private attribute;
+   the synced `read_only` trait is display only. Try to drive hardware
+   from a read-only widget by any path (message, trait write, scripted
+   call, `handle_message` direct). Note `sync` and `cancel` are still
+   routed — is answering `cancel` from an observer view correct policy?
+5. **Targets on the map** (`show_targets`/`marks`/`mark_hover`, both
+   editions; the React edition recolours live via an observer on the
+   explorer's `gated_mask`). Check the observer lifecycle (re-calling
+   `show_targets` must not stack observers), coordinate correctness
+   against tile extents, and the crop-cache behaviour.
+6. **Focus residuals** (`_focus_surface.residuals_um`/`worst_residual_um`,
+   surfaced in both editions). For the spline model the fit passes near
+   the points by construction — do the residuals still mean anything
+   (smoothing=0.1), and is the operator language honest about that?
+7. **Curation** (`verdicts`, `set_verdict`, `save_curation`, ✓/✗ buttons),
+   **gate presets** (`save_gate`/`load_gate`, both editions — check the
+   matplotlib slider clamping on out-of-range loads), **display persistence**
+   (`save_display`/`load_display`), **histograms** (`hist` trait), the
+   **run-status checklist** (`_run_status.py`, `RunStatusReact`,
+   `print_run_status` — is every row's detection honest, e.g. can
+   "Microscope: connected" show for a session whose connection died?), and
+   the **calibration report panel** (`CalibrationReportReact` — check the
+   arrow exaggeration math and the verdict text against the report's sign
+   conventions).
+8. Both notebooks gained a status cell and inline wiring
+   (`viewer.show_targets(targets, explorer)`, the React 5b cell now ends
+   with `wreact.calibration_report(...)`). Confirm the guard tests still
+   pin what matters and that no cell depends on a variable defined later.
+
+### G. Cross-cutting
 
 - `docs/reviews/v4_calibration_check_and_fixes_review.md` itself: spot-check
   its claims against the code — a review doc that overstates a fix is worse
@@ -147,7 +201,7 @@ snapshots, `_hardware_run`, gate recompute-at-use, sanitizers, crop cache),
 - `workflow/react/PROTOCOL.md` against the implementation — every trait,
   message, and rule listed must be real, and nothing load-bearing missing.
 - Suites: ruff clean on changed files; `pytest zmart_controller/tests
-  workflows/target_acquisition/tests navigator_expert/tests/unit` = 1174
+  workflows/target_acquisition/tests navigator_expert/tests/unit` = 1193
   passed, 4 skipped in one process. Say what those numbers still cannot prove.
 - The residual-risk list at the end of the review doc — challenge it: is
   anything listed there actually verifiable offline after all, and is

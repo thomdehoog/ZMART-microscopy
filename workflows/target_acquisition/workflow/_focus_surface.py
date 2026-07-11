@@ -45,6 +45,35 @@ class FocusSurface:
         return c0 * (x - x0) + c1 * (y - y0) + c2
 
 
+def residuals_um(surface: FocusSurface) -> list[dict]:
+    """How far each measured point sits from the fitted surface, in µm.
+
+    Returns one entry per measured point: ``{"x_um", "y_um", "z_um",
+    "residual_um"}`` where ``residual_um`` is measured z minus fitted z.
+    A single large residual usually means that one autofocus landed badly
+    (dust, a bubble, an empty spot) and is quietly bending the whole
+    surface — re-measure or remove that point rather than trusting the fit.
+    """
+    out = []
+    for m in surface.measured:
+        fitted = float(surface.z_at(m["x_um"], m["y_um"]))
+        out.append({**m, "residual_um": float(m["z_um"]) - fitted})
+    return out
+
+
+def worst_residual_um(surface: FocusSurface) -> tuple[int, float] | None:
+    """The (index, residual) of the point farthest from the fit, or None.
+
+    ``None`` when nothing was measured. The index counts the measured
+    points in order, starting at 0 — the same order the widgets draw them.
+    """
+    residuals = residuals_um(surface)
+    if not residuals:
+        return None
+    index = max(range(len(residuals)), key=lambda i: abs(residuals[i]["residual_um"]))
+    return index, residuals[index]["residual_um"]
+
+
 def fit_focus_surface(measured: list[dict]) -> FocusSurface:
     """Fit a :class:`FocusSurface` from ``[{"x_um","y_um","z_um"}, ...]``."""
     if not measured:

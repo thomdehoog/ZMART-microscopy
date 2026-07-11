@@ -140,16 +140,25 @@ def run_overview(
     focus: Any = None,
     options: dict | None = None,
     on_record: Any = None,
+    cancel: Any = None,
 ) -> list[dict]:
     """Step 5: acquire an overview at each frame position (z from the focus surface).
 
     ``on_record(index, position, record)`` fires after each tile is saved —
     pass a viewer's ``add_acquisition`` here and the overview map grows on
-    screen while the microscope is still scanning.
+    screen while the microscope is still scanning. ``cancel`` (a function
+    answering True to stop) ends the run cleanly between two tiles; see
+    :func:`~._capture_run.capture_positions`.
     """
     placed = with_focus_z(positions, focus)
     return capture_positions(
-        session, placed, "overview", state=state, options=options, on_record=on_record
+        session,
+        placed,
+        "overview",
+        state=state,
+        options=options,
+        on_record=on_record,
+        cancel=cancel,
     )
 
 
@@ -190,15 +199,24 @@ def acquire_targets(
     focus: Any = None,
     options: dict | None = None,
     on_record: Any = None,
+    cancel: Any = None,
 ) -> list[dict]:
     """Step 7: acquire a target at each discovered frame position (z from the focus surface).
 
     ``on_record(index, position, record)`` fires after each target is saved —
     the acquisition gallery uses it to show every pair the moment it exists.
+    ``cancel`` (a function answering True to stop) ends the run cleanly
+    between two targets; see :func:`~._capture_run.capture_positions`.
     """
     placed = with_focus_z(targets, focus)
     return capture_positions(
-        session, placed, "target", state=state, options=options, on_record=on_record
+        session,
+        placed,
+        "target",
+        state=state,
+        options=options,
+        on_record=on_record,
+        cancel=cancel,
     )
 
 
