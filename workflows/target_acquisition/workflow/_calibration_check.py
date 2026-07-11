@@ -25,10 +25,17 @@ Two steps, matching the two notebook cells:
   objective-2 job, registers each image pair, and reports per-site and
   summary offsets (also written as JSON + a PNG plot into the run root).
 
-Sign convention: a site's ``(dx_um, dy_um)`` is where the objective-2
-image found the sample relative to the objective-1 image, in frame
-micrometres. The summary's mean is the systematic calibration error;
-the spread around it is the per-move stage error.
+Sign convention: a site's ``(dx_um, dy_um)`` is how far objective 2
+LANDED from the objective-1 spot, in frame micrometres. Positive
+``dx_um`` means objective 2 ended up that many micrometres towards +x
+of where objective 1 imaged the same commanded position. (Note this is
+the opposite of how far the sample appears to shift *inside* the
+image — when the stage lands too far +x, the cells drift towards −x in
+the picture.) The summary's mean is the systematic calibration error:
+if it is large, the objective-2 translation in the calibration is off
+by exactly that amount, and re-running the objective-pair calibration
+is the way to fix it. The spread around the mean is the per-move stage
+error.
 """
 
 from __future__ import annotations
@@ -44,8 +51,8 @@ from ._capture_run import capture_positions
 from ._records import record_channel_paths
 from .steps import with_focus_z
 
-# Voting registration must agree this well (in µm) across methods before a
-# site is trusted; see shared.algorithms.register_voting.
+# Fewer trusted sites than this and the mean is noise, not a validation:
+# with one or two sites a single bad registration dominates the average.
 _MIN_TRUSTED_SITES = 3
 
 
@@ -109,13 +116,15 @@ def start_calibration_check(
         )
     rng = random.Random(seed)
     positions = _ring_positions(int(n_positions), float(radius_um), rng)
-    records = capture_positions(
+    placed = with_focus_z(positions, focus)
+    _refuse_wild_focus_extrapolation(placed, focus, float(radius_um))
+    records = _capture_ring(
         session,
-        with_focus_z(positions, focus),
+        placed,
         "cal-check-ref",
         state=state,
         options=options,
-        label=lambda index, _pos: f"calcheck-{index:02d}",
+        radius_um=float(radius_um),
     )
     return CalibrationCheck(
         session=session,
@@ -147,13 +156,13 @@ def finish_calibration_check(
     than three sites register confidently — an average over less is noise,
     not a validation (move to a more textured part of the sample).
     """
-    check.comparison_records = capture_positions(
+    check.comparison_records = _capture_ring(
         check.session,
         with_focus_z(check.positions, check.focus),
         "cal-check-cmp",
         state=state,
         options=options if options is not None else check.options,
-        label=lambda index, _pos: f"calcheck-{index:02d}",
+        radius_um=check.radius_um,
     )
 
     sites = []
@@ -163,12 +172,16 @@ def finish_calibration_check(
         offset = _pair_offset_um(ref_record, cmp_record)
         sites.append({"x": position["x"], "y": position["y"], **offset})
 
-    trusted = [s for s in sites if s["trusted"]]
+    trusted = [
+        s for s in sites if s["trusted"] and s["dx_um"] is not None and s["dy_um"] is not None
+    ]
     if len(trusted) < _MIN_TRUSTED_SITES:
         raise RuntimeError(
             f"only {len(trusted)} of {len(sites)} sites registered confidently — "
-            "not enough for a meaningful average. Move to a more textured part "
-            "of the sample and re-run the check."
+            "not enough for a meaningful average. This usually means the images "
+            "show too little texture (an empty part of the sample) or are out of "
+            "focus at the ring positions. Move to a more textured region, check "
+            "the focus at this radius, and re-run the check."
         )
 
     def _mean(values: list[float]) -> float:
@@ -199,7 +212,12 @@ def finish_calibration_check(
         root = Path(output_root)
         root.mkdir(parents=True, exist_ok=True)
         (root / "calibration_check.json").write_text(
-            json.dumps(report, indent=2), encoding="utf-8"
+            # allow_nan=False guards the file's honesty: NaN is not valid
+            # JSON, and a report that strict readers cannot parse would be
+            # a silent failure waiting downstream. Untrusted sites carry
+            # None (JSON null) instead.
+            json.dumps(report, indent=2, allow_nan=False),
+            encoding="utf-8",
         )
         _plot_report(report, save_path=root / "calibration_check.png", show=show)
     elif show:
@@ -207,21 +225,96 @@ def finish_calibration_check(
     return report
 
 
+def _capture_ring(
+    session: Any,
+    placed: list[dict],
+    acquisition_type: str,
+    *,
+    state: dict,
+    options: dict | None,
+    radius_um: float,
+) -> list[dict]:
+    """One acquisition pass over the ring, with an actionable refusal message.
+
+    The driver checks every move against this machine's measured stage
+    envelope and refuses a site that falls outside it. That refusal can
+    only surface at move time — mid-pass — so this wrapper adds what the
+    operator needs to know: nothing wrong was acquired, and a smaller
+    ``radius_um`` keeps the ring inside the envelope.
+    """
+    try:
+        return capture_positions(
+            session,
+            placed,
+            acquisition_type,
+            state=state,
+            options=options,
+            label=lambda index, _pos: f"calcheck-{index:02d}",
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"the calibration check stopped while visiting its ring sites: {exc}\n"
+            f"If this is a stage-limits refusal, the ring (radius_um={radius_um:g}) "
+            "reaches outside this machine's measured envelope. Nothing was acquired "
+            "at the refused site; re-run the check with a smaller radius_um."
+        ) from exc
+
+
+def _refuse_wild_focus_extrapolation(
+    placed: list[dict], focus: Any, radius_um: float
+) -> None:
+    """Refuse — before any stage move — a ring whose focus z is a wild guess.
+
+    The focus surface is fitted from points the operator placed over the
+    scan area, and the check's ring usually sits far outside them. A fitted
+    surface (especially the thin-plate spline) can predict wildly wrong z
+    values that far from its data. Those moves would be within the stage's
+    safety envelope but hopelessly out of focus, and the check would then
+    fail while blaming the sample's texture. Raising here, before anything
+    moves, tells the operator the real cause and how to fix it.
+    """
+    measured = getattr(focus, "measured", None) if focus is not None else None
+    if not measured:
+        return
+    zs = [float(m["z_um"]) for m in measured if "z_um" in m]
+    if not zs:
+        return
+    z_min, z_max = min(zs), max(zs)
+    # Generous: a real sample tilts and curves, so allow the prediction to
+    # leave the measured range by half its span, and never refuse over
+    # less than 10 µm.
+    margin = max(10.0, 0.5 * (z_max - z_min))
+    for pos in placed:
+        z = float(pos["z"])
+        if z < z_min - margin or z > z_max + margin:
+            raise ValueError(
+                f"the focus surface was measured between z={z_min:.1f} and "
+                f"z={z_max:.1f} µm, but extrapolating it to the check's ring "
+                f"(radius_um={radius_um:g}) predicts z={z:.1f} µm at "
+                f"(x={pos['x']:.0f}, y={pos['y']:.0f}). That far outside the "
+                "measured focus points the prediction is a guess and the images "
+                "would be out of focus. Add focus points that cover the ring, or "
+                "run the check with a smaller radius_um. No stage move was made."
+            )
+
+
 def _pair_offset_um(ref_record: dict, cmp_record: dict) -> dict:
     """Register one objective-1 / objective-2 image pair -> offset in µm.
 
     The two images cover different fields of view at different pixel
-    sizes, so both are first cut to the physical window they share
-    (centred, the smaller of the two fields) and the coarser one is
-    resampled onto the finer pixel grid. Voting registration then measures
-    the shift; ``trusted`` is False when the methods disagree.
+    sizes, so both are resampled onto one shared grid first: the physical
+    window the two fields share, centred on each image's exact centre, at
+    the finer of the two pixel sizes. The resampling works in exact
+    (sub-pixel) coordinates on purpose — an earlier version cut
+    whole-pixel crops, and the half-pixel rounding shifted every site's
+    window the same way, which read as a fake systematic calibration
+    error of up to half an overview pixel. Voting registration then
+    measures the shift; ``trusted`` is False when the methods disagree.
     """
     import numpy as np
-    from skimage.transform import resize
 
     from shared.algorithms import register_voting
 
-    from ._geom import crop_overview_at_target_fov
     from ._overview_widget import _load_channels
     from .discovery import read_overview_geometry
 
@@ -237,21 +330,35 @@ def _pair_offset_um(ref_record: dict, cmp_record: dict) -> dict:
     window_h_um = min(ref_image.shape[0] * ref_ps, cmp_image.shape[0] * cmp_ps)
     window_w_um = min(ref_image.shape[1] * ref_ps, cmp_image.shape[1] * cmp_ps)
     shape_fine = (
-        max(8, int(window_h_um / fine_ps)),
-        max(8, int(window_w_um / fine_ps)),
+        max(8, int(round(window_h_um / fine_ps))),
+        max(8, int(round(window_w_um / fine_ps))),
     )
 
     def _common_window(image: np.ndarray, pixel_size: float) -> np.ndarray:
-        crop = crop_overview_at_target_fov(
-            image,
-            centroid_col_row_px=(image.shape[1] / 2.0, image.shape[0] / 2.0),
-            source_pixel_size_um=pixel_size,
-            target_shape_px=shape_fine,
-            target_pixel_size_um=fine_ps,
+        # Sample the shared window straight from the source image, in
+        # exact (sub-pixel) coordinates: sample point k sits (k - n/2)
+        # fine pixels from the image centre, taking "centre" in the same
+        # pixel convention the rest of the pipeline uses to turn pixels
+        # into stage positions (``overview_pixel_to_frame``: position =
+        # centre + (index - size/2) * pixel size). Using one exact rule
+        # for both images removes two past bias sources: whole-pixel
+        # crops rounded the two windows apart by up to half an overview
+        # pixel, and mixing pixel-centre conventions offset them by half
+        # the pixel-size difference. Measuring in the pipeline's own
+        # convention also means the reported offset is exactly the error
+        # the workflow's targeting would experience. The finer image is
+        # sampled 1:1 and the coarser one is interpolated up, so nothing
+        # is averaged away.
+        from scipy.ndimage import map_coordinates
+
+        h, w = shape_fine
+        scale = fine_ps / pixel_size
+        rows = (np.arange(h) - h / 2.0) * scale + image.shape[0] / 2.0
+        cols = (np.arange(w) - w / 2.0) * scale + image.shape[1] / 2.0
+        grid_r, grid_c = np.meshgrid(rows, cols, indexing="ij")
+        return map_coordinates(
+            np.asarray(image, dtype=np.float32), [grid_r, grid_c], order=1, mode="nearest"
         )
-        if crop.shape != shape_fine:
-            crop = resize(crop, shape_fine, preserve_range=True, anti_aliasing=True)
-        return np.asarray(crop, dtype=np.float32)
 
     ref_window = _common_window(ref_image, ref_ps)
     cmp_window = _common_window(cmp_image, cmp_ps)
@@ -261,22 +368,34 @@ def _pair_offset_um(ref_record: dict, cmp_record: dict) -> dict:
     # trust a site without real image texture instead.
     if float(np.std(ref_window)) < 1e-6 or float(np.std(cmp_window)) < 1e-6:
         return {
-            "dx_um": float("nan"),
-            "dy_um": float("nan"),
+            "dx_um": None,
+            "dy_um": None,
             "trusted": False,
             "confidence": 0,
         }
 
     vote = register_voting(ref_window, cmp_window, fine_ps)
-    # register_voting reports how far the ref content moved to become the
-    # target content — negate so a site reads as "where objective 2 found
-    # the sample relative to objective 1", the error an operator would
-    # correct in the calibration.
+    # register_voting reports how far the sample APPEARS to shift inside
+    # the objective-2 image. When the stage lands too far +x, the cells
+    # drift towards −x in the picture — so we negate, and a site reads as
+    # "how far objective 2 LANDED from the objective-1 spot" in frame
+    # micrometres. That landing error is what the calibration translation
+    # is off by, so it is the number an operator (or the calibration
+    # notebook) would subtract to correct it.
     dx = vote.get("dx_um")
     dy = vote.get("dy_um")
+
+    def _negated_or_none(value: Any) -> float | None:
+        # None (and NaN, which is not valid JSON) both mean "no usable
+        # registration" — report them as None so the JSON stays readable
+        # by any tool.
+        if value is None or not math.isfinite(float(value)):
+            return None
+        return -float(value)
+
     return {
-        "dx_um": float("nan") if dx is None else -float(dx),
-        "dy_um": float("nan") if dy is None else -float(dy),
+        "dx_um": _negated_or_none(dx),
+        "dy_um": _negated_or_none(dy),
         "trusted": bool(vote.get("trusted")),
         "confidence": vote.get("confidence"),
     }
@@ -290,8 +409,12 @@ def _plot_report(report: dict, *, save_path: Any, show: bool) -> None:
         matplotlib.use("Agg", force=False)
     import matplotlib.pyplot as plt
 
-    trusted = [s for s in report["sites"] if s["trusted"]]
-    rejected = [s for s in report["sites"] if not s["trusted"]]
+    trusted = [
+        s
+        for s in report["sites"]
+        if s["trusted"] and s["dx_um"] is not None and s["dy_um"] is not None
+    ]
+    rejected = [s for s in report["sites"] if s not in trusted]
 
     fig, (ax_map, ax_cloud) = plt.subplots(1, 2, figsize=(11, 5))
     if trusted:
@@ -345,3 +468,7 @@ def _plot_report(report: dict, *, save_path: Any, show: bool) -> None:
     fig.tight_layout()
     if save_path is not None:
         fig.savefig(save_path, dpi=150)
+    if not show:
+        # The figure was only written to disk; close it so repeated runs do
+        # not pile figures up in matplotlib's registry.
+        plt.close(fig)

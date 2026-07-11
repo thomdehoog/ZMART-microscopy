@@ -3,14 +3,27 @@
 The React widgets are built on `anywidget <https://anywidget.dev>`_: each
 widget is a small React app running in the browser cell, kept in sync with
 Python through *traits* (shared state that either side can change) and
-*messages* (button presses the browser sends to Python). Python streams
-fresh data by updating traits mid-loop — the kernel flushes those updates
-to the browser immediately, which is what makes the widgets update in real
-time while the microscope works.
+*messages* (small one-off packets either side sends). Python streams fresh
+data by sending one message per new tile / point / image pair — the kernel
+flushes those immediately, which is what makes the widgets update in real
+time while the microscope works. The full picture also lives in a trait,
+refreshed whenever a browser view asks for it (a ``sync`` message on
+mount), so a re-opened notebook tab shows everything.
 
-Images travel as PNG data URLs inside traits. The React runtime itself is
-loaded from the esm.sh CDN, so the *browser* needs internet access the
-first time a widget renders (the kernel does not).
+Why messages for streaming instead of growing a trait: a trait update
+always resends the WHOLE value. Appending tile 25 to a trait list would
+retransmit tiles 1–24 as well — megabytes per update, growing with the
+square of the tile count — and that can stall the very channel the
+operator is watching mid-run. One message per new item keeps the traffic
+proportional to the data. (``workflow/react/PROTOCOL.md`` documents the
+exact traits and messages of every widget, for embedding them outside
+Jupyter later.)
+
+Images travel as PNG data URLs. The React runtime itself is loaded from
+the esm.sh CDN, so the *browser* needs internet access the first time a
+widget renders (the kernel does not); when it cannot be loaded, the cell
+shows a plain-language note pointing at the offline matplotlib notebook
+instead of staying blank.
 """
 
 from __future__ import annotations
@@ -42,6 +55,21 @@ def require_anywidget() -> None:
             "'pip install anywidget' (it is listed in environment.yml and "
             "requirements.txt), then restart the notebook kernel."
         ) from exc
+
+
+def shrink_to_budget(array: Any, budget_px: int) -> Any:
+    """Return ``array`` (2-D or RGB) strided down to at most ``budget_px`` pixels.
+
+    Display copies travel to the browser as PNGs; a full-resolution
+    2048x2048 image would make a single update megabytes. Striding keeps
+    every n-th pixel — crude but honest (no smoothing that could invent
+    detail), and the physical extent metadata stays exact.
+    """
+    import math
+
+    h, w = array.shape[0], array.shape[1]
+    step = max(1, math.ceil(math.sqrt(h * w / budget_px)))
+    return array[::step, ::step] if step > 1 else array
 
 
 def png_data_url(array: Any) -> str:
@@ -79,14 +107,24 @@ def heatmap_data_url(mesh: Any) -> str:
     return png_data_url(rgba[:, :, :3])
 
 
-# JavaScript shared by every widget: React from the CDN, a hook that binds a
-# React state to an anywidget trait, and the house style. Concatenated in
-# front of each widget's own code to form its ESM module.
+# JavaScript shared by every widget: React from the CDN (with a visible
+# offline fallback), hooks that bind React state to anywidget traits and
+# streamed messages, and the house style. Concatenated in front of each
+# widget's own code to form its ESM module.
 REACT_PRELUDE = """
-import * as React from "https://esm.sh/react@18.3.1";
-import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
-const h = React.createElement;
+// React comes from the CDN. Loading it dynamically (instead of a static
+// import) means an offline browser gets a readable note in the cell
+// below, not a silently blank widget.
+let React = null, createRoot = null, loadError = null;
+try {
+  React = await import("https://esm.sh/react@18.3.1");
+  ({ createRoot } = await import("https://esm.sh/react-dom@18.3.1/client"));
+} catch (err) {
+  loadError = err;
+}
+const h = React ? React.createElement : null;
 
+// Bind a React state to an anywidget trait (either side can change it).
 function useTrait(model, name) {
   const [value, setValue] = React.useState(model.get(name));
   React.useEffect(() => {
@@ -95,6 +133,61 @@ function useTrait(model, name) {
     return () => model.off(`change:${name}`, cb);
   }, [model, name]);
   return [value, (v) => { model.set(name, v); model.save_changes(); }];
+}
+
+// Streamed lists: the trait holds the full snapshot (refreshed when we ask
+// for a "sync"); one custom message per NEW item keeps mid-run traffic
+// proportional to the data instead of resending everything already shown.
+function useStream(model, traitName, messageType) {
+  const [items, setItems] = React.useState(model.get(traitName) || []);
+  React.useEffect(() => {
+    const onTrait = () => setItems(model.get(traitName) || []);
+    const onMsg = (msg) => {
+      if (!msg || msg.type !== messageType) return;
+      setItems((prev) => {
+        const next = prev.slice();
+        next[msg.index] = msg.entry;
+        return next;
+      });
+    };
+    model.on(`change:${traitName}`, onTrait);
+    model.on("msg:custom", onMsg);
+    model.send({ type: "sync" });  // a fresh view asks for the full picture
+    return () => {
+      model.off(`change:${traitName}`, onTrait);
+      model.off("msg:custom", onMsg);
+    };
+  }, [model, traitName, messageType]);
+  // Messages can arrive before the snapshot fills the gaps; skip the holes.
+  return items.filter((it) => it !== undefined && it !== null);
+}
+
+// A number input that commits on blur or Enter — not on every keystroke,
+// which would re-render (and retransmit) the whole widget mid-typing.
+function NumBox({ value, onCommit, width = 52 }) {
+  const [text, setText] = React.useState(String(value));
+  React.useEffect(() => { setText(String(value)); }, [value]);
+  const commit = () => {
+    const v = parseFloat(text);
+    if (Number.isFinite(v)) onCommit(v); else setText(String(value));
+  };
+  return h("input", { style: { ...inp, width }, value: text,
+    onChange: (e) => setText(e.target.value),
+    onBlur: commit,
+    onKeyDown: (e) => { if (e.key === "Enter") { commit(); e.target.blur(); } } });
+}
+
+// React attaches wheel listeners passively, so e.preventDefault() inside a
+// JSX onWheel cannot stop the page from scrolling. A native non-passive
+// listener can.
+function useWheel(ref, handler) {
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const cb = (e) => { e.preventDefault(); handler(e); };
+    el.addEventListener("wheel", cb, { passive: false });
+    return () => el.removeEventListener("wheel", cb);
+  });
 }
 
 const T = {
@@ -122,6 +215,21 @@ const pill = (text) => h("span", {style: {
 function mount(App) {
   return {
     render({ model, el }) {
+      if (!React) {
+        el.innerHTML = "";
+        const note = document.createElement("div");
+        note.style.cssText = "padding:12px;border:1px solid #b45309;" +
+          "border-radius:10px;background:#78350f;color:#fef3c7;" +
+          "font:13px system-ui;max-width:640px";
+        note.textContent =
+          "This widget could not load React from the internet (esm.sh). " +
+          "The React notebook needs internet access IN THE BROWSER the " +
+          "first time a widget renders. Working offline? Open " +
+          "zmart_microscopy_v4.ipynb instead - the matplotlib edition of " +
+          "the exact same workflow." + (loadError ? " (" + loadError + ")" : "");
+        el.appendChild(note);
+        return () => {};
+      }
       const root = createRoot(el);
       root.render(h(App, { model }));
       return () => root.unmount();

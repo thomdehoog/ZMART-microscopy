@@ -210,6 +210,8 @@ class OverviewViewer:
         first_tile = not self.channels
         if first_tile:
             self._init_channel_state()
+        else:
+            self._widen_full_ranges(stack)
 
         cx, cy = overview["center_frame_um"]
         h_px, w_px = overview["image_size_px"]
@@ -247,13 +249,37 @@ class OverviewViewer:
             + (f" (display 1/{self.downsample} pixels)" if self.downsample > 1 else "")
         )
 
+    def _widen_full_ranges(self, stack) -> None:
+        """Let the display-range slider reach a newly streamed tile's pixels.
+
+        The display window itself deliberately stays put — a growing map
+        must not re-brighten under the operator's eyes — but the slider's
+        BOUNDS have to grow with the data. With bounds frozen to the first
+        tile, a dim first tile (an empty corner of the sample) would cap
+        the slider below the bright tiles that follow, and the operator
+        could never reach them.
+        """
+        changed = False
+        for c, state in self.channels.items():
+            lo, hi = state["full_range"]
+            new = (min(lo, float(stack[c].min())), max(hi, float(stack[c].max())))
+            if new != (lo, hi):
+                state["full_range"] = new
+                changed = True
+        if changed and self._controls_built and self._slider is not None:
+            self._rebuild_range_slider()
+
     def _init_channel_state(self) -> None:
         """Set the per-channel colours and display ranges from the loaded tiles.
 
         Runs once, when the first tile(s) arrive; later tiles inherit the
         same display settings so a growing map does not re-brighten under
-        the operator's eyes. It also builds the on-figure controls, whose
-        layout needs the channel count.
+        the operator's eyes. (On the streamed path that means the initial
+        contrast is seeded from the FIRST tile alone — if it was a dim
+        corner, widen the display range with the slider or
+        :meth:`set_channel`; the slider's bounds grow with every tile.)
+        It also builds the on-figure controls, whose layout needs the
+        channel count.
         """
         import numpy as np
 

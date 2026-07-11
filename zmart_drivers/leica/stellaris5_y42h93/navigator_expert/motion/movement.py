@@ -15,10 +15,11 @@ Two primitives for the two physical patterns:
       (e.g. before each acquisition).
 
   ``correct_backlash(client, ...)``
-      Post-move takeup. Reads current XY, jogs (-X, -Y), settles,
-      moves back. Three operations, with one ``get_xy`` read. Use
-      when you're already at the target and just need to pin the
-      slack-state without net displacement.
+      Post-move takeup. Reads current XY once, then repeats ``passes``
+      (default 3) jog-and-return round trips: jog (-X, -Y), settle,
+      move back. One ``get_xy`` read plus two moves per pass — six
+      moves by default. Use when you're already at the target and just
+      need to pin the slack-state without net displacement.
 
 These are plain utility functions with baked-in default params (decision §2b):
 ``overshoot_um=50``, ``settle_ms=100``, ``tolerance_um`` per the move profile.
@@ -52,9 +53,9 @@ def move_xy_with_backlash(
     so positions are repeatable regardless of where the stage came from.
 
     Use this for "move to target with backlash compensation built in" -
-    one fewer move than ``correct_backlash`` at a known target. For
-    post-move takeup at the *current* stage position (no displacement),
-    use ``correct_backlash`` instead.
+    two moves total, against ``correct_backlash``'s read plus two moves
+    per pass. For post-move takeup at the *current* stage position (no
+    displacement), use ``correct_backlash`` instead.
 
     Parameters
     ----------
@@ -142,8 +143,10 @@ def correct_backlash(client, *, overshoot_um=50.0, settle_ms=100, tolerance_um=2
     adapter calls this with no arguments, so the signature defaults above
     are the operative values on that path.
     """
-    if int(passes) < 1:
-        raise ValueError(f"backlash takeup needs at least one pass, got {passes}")
+    if passes != int(passes) or int(passes) < 1:
+        raise ValueError(
+            f"backlash takeup needs a whole number of passes (at least one), got {passes}"
+        )
     # This read parameterizes the corrective moves below, so bypass the
     # passive reader profile and use the authoritative API path.
     pos = _readers.get_xy(client, mode="api")
@@ -154,13 +157,23 @@ def correct_backlash(client, *, overshoot_um=50.0, settle_ms=100, tolerance_um=2
         "backlash takeup at (%.2f, %.2f) um, overshoot %.1f um, %d passes",
         x, y, overshoot_um, passes,
     )
-    for _ in range(int(passes)):
+    for index in range(int(passes)):
+        if index > 0:
+            # Same reason as the mid-pass pause below: without a gap the
+            # previous return and this overshoot could blend into one
+            # motion, and the extra passes would settle nothing.
+            time.sleep(settle_ms / 1000.0)
+        # success=True alone means "command accepted" (profiles set
+        # success_on_unconfirmed=True). Like move_xy_with_backlash, this
+        # helper's contract needs readback evidence: an unconfirmed leg
+        # could hand the stage to the following capture while it is still
+        # travelling back from the overshoot point.
         r = _commands.move_xy(
             client, x - overshoot_um, y - overshoot_um, unit="um", tolerance=tolerance_um
         )
-        if not r or not r.get("success"):
-            raise RuntimeError(f"backlash overshoot move failed: {r}")
+        if not r or not r.get("success") or not r.get("confirmed"):
+            raise RuntimeError(f"backlash overshoot move failed or was unconfirmed: {r}")
         time.sleep(settle_ms / 1000.0)
         r = _commands.move_xy(client, x, y, unit="um", tolerance=tolerance_um)
-        if not r or not r.get("success"):
-            raise RuntimeError(f"backlash return move failed: {r}")
+        if not r or not r.get("success") or not r.get("confirmed"):
+            raise RuntimeError(f"backlash return move failed or was unconfirmed: {r}")

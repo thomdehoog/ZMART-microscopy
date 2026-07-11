@@ -2,19 +2,30 @@
 
 Same workflow, same data, same safety paths as the matplotlib widgets in
 ``workflow/`` — only the front end differs: each widget here is a React
-app rendered in the browser, talking to Python over anywidget traits and
-messages. All hardware work still runs in Python through the controller
-session (the browser can only *ask*; Python moves the stage), and all
-image mathematics is shared with the matplotlib widgets so both notebooks
-show identical pictures.
+app rendered in the browser cell, talking to Python over anywidget traits
+and messages. All hardware work still runs in Python through the
+controller session (the browser can only *ask*; Python moves the stage),
+and all image mathematics is shared with the matplotlib widgets so both
+notebooks show identical pictures.
 
-Live updates come for free with this design: Python pushes a trait update
-after every saved tile / measured point / acquired pair, and the browser
-re-renders that instant, while the microscope keeps working.
+Live updates stream as one small message per new tile / measured point /
+acquired pair (never a resend of everything already shown), and each
+widget answers a ``sync`` message with the full picture so re-opened
+views catch up. ``PROTOCOL.md`` in this package documents every trait
+and message — that protocol is the seam to build a future non-notebook
+(website) front end against.
+
+Trust boundary, stated once: everything arriving from the browser —
+messages AND trait writes — is treated as input to validate, never as
+state to obey. Gating decisions are recomputed in Python from the raw
+gate whenever they matter, counts and indices are checked before use,
+and a malformed value degrades to a harmless default instead of an
+exception that would leave the widget half-updated.
 """
 
 from __future__ import annotations
 
+import math
 import time
 from typing import Any
 
@@ -24,6 +35,7 @@ from ._support import (
     heatmap_data_url,
     png_data_url,
     require_anywidget,
+    shrink_to_budget,
 )
 
 require_anywidget()
@@ -44,6 +56,11 @@ from ..steps import acquire_targets  # noqa: E402
 # a second hardware run the moment the first completes.
 _QUEUED_CLICK_WINDOW_S = 2.0
 
+# Display copies travel to the browser as PNGs, so every image is kept
+# under this pixel budget — a full-resolution 2048x2048 image would make a
+# single update megabytes and stall the very channel the operator watches.
+_PER_IMAGE_PIXEL_BUDGET = 1_500_000
+
 
 class _ZmartWidget(anywidget.AnyWidget):
     """Base: routes anywidget messages to ``handle_message`` (testable)."""
@@ -54,10 +71,28 @@ class _ZmartWidget(anywidget.AnyWidget):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._last_run_ended: float | None = None
-        self.on_msg(lambda _widget, content, _buffers: self.handle_message(content))
+        self.on_msg(self._route_message)
+
+    def _route_message(self, _widget: Any, content: Any, _buffers: Any) -> None:
+        # Anything can arrive on this channel; a non-dict is simply noise.
+        if not isinstance(content, dict):
+            return
+        if content.get("type") == "sync":
+            # A freshly mounted browser view asks for the full picture.
+            self.push_snapshot()
+            return
+        self.handle_message(content)
 
     def handle_message(self, content: dict) -> None:  # pragma: no cover - overridden
         raise NotImplementedError
+
+    def push_snapshot(self) -> None:
+        """Refresh the full-state traits for a (re)mounted browser view.
+
+        The default is a no-op: widgets whose state already lives entirely
+        in traits have nothing extra to push. Widgets that stream items as
+        messages override this to publish the complete list.
+        """
 
     def _debounced(self) -> bool:
         """True when a queued click should be ignored (and says so)."""
@@ -70,15 +105,32 @@ class _ZmartWidget(anywidget.AnyWidget):
         return False
 
     def _run_guarded(self, action) -> None:
-        """Run one hardware action with busy/error bookkeeping."""
-        if self.busy:
-            self.status = "a run is already in progress"
-            return
-        self.busy = True
+        """Run one action, reporting any failure on the status line.
+
+        Widget messages have no cell output — an uncaught exception would
+        vanish into the kernel log, so the error is shown where the
+        operator is looking instead.
+        """
         try:
             action()
         except Exception as exc:  # noqa: BLE001 -- shown to the operator, not lost
             self.status = f"failed: {exc}"
+
+    def _hardware_run(self, work):
+        """Busy-guard and debounce-stamp one real hardware run.
+
+        Every path that drives the microscope — a browser button OR a
+        scripted call — goes through here, so the busy flag and the
+        queued-click window hold for both. Validation errors raise BEFORE
+        this is entered, so a refused run never arms the debounce (a
+        corrective click right after "the gate is empty" must not be
+        eaten as a "queued" one).
+        """
+        if self.busy:
+            raise RuntimeError("a run is already in progress")
+        self.busy = True
+        try:
+            return work()
         finally:
             self.busy = False
             self._last_run_ended = time.monotonic()
@@ -96,8 +148,12 @@ class OverviewViewerReact(_ZmartWidget):
     at their real frame positions, channels blend as an additive overlay,
     and the side panel adjusts one channel at a time (colour swatch cycles
     the palette, the eye toggles visibility, min/max set the display
-    range). Drag to pan, scroll to zoom. Stream tiles in live by passing
-    :meth:`add_acquisition` as ``run_overview``'s ``on_record``.
+    range — committed when you leave the box or press Enter). Drag to pan,
+    scroll to zoom, **Fit** to frame everything; once you pan or zoom, a
+    growing map stops re-fitting under your hands. The cursor's frame
+    position (micrometres) reads out live under the map. Stream tiles in
+    live by passing :meth:`add_acquisition` as ``run_overview``'s
+    ``on_record``.
     """
 
     tiles = traitlets.List().tag(sync=True)
@@ -105,40 +161,49 @@ class OverviewViewerReact(_ZmartWidget):
 
     _esm = REACT_PRELUDE + """
 function App({ model }) {
-  const [tiles] = useTrait(model, "tiles");
+  const tiles = useStream(model, "tiles", "tile");
   const [channels, setChannels] = useTrait(model, "channels");
   const [status] = useTrait(model, "status");
-  const view = React.useRef({ scale: 1, tx: 0, ty: 0, fitted: 0 });
+  const view = React.useRef({ scale: 1, tx: 0, ty: 0, fitted: 0, user: false });
   const [, bump] = React.useReducer((n) => n + 1, 0);
+  const [cursor, setCursor] = React.useState(null);
   const box = React.useRef(null);
   const W = 640, H = 520;
 
-  if (tiles.length && view.current.fitted !== tiles.length) {
+  const fit = () => {
+    if (!tiles.length) return;
     const xs = tiles.flatMap((t) => [t.x0, t.x0 + t.w]);
     const ys = tiles.flatMap((t) => [t.y0, t.y0 + t.h]);
     const spanX = Math.max(...xs) - Math.min(...xs);
     const spanY = Math.max(...ys) - Math.min(...ys);
-    const fit = Math.min(W / spanX, H / spanY) * 0.95;
-    view.current = { scale: fit, tx: W / 2 - (Math.min(...xs) + spanX / 2) * fit,
-                     ty: H / 2 - (Math.min(...ys) + spanY / 2) * fit,
-                     fitted: tiles.length };
-  }
+    const f = Math.min(W / spanX, H / spanY) * 0.95;
+    view.current = { scale: f, tx: W / 2 - (Math.min(...xs) + spanX / 2) * f,
+                     ty: H / 2 - (Math.min(...ys) + spanY / 2) * f,
+                     fitted: tiles.length, user: view.current.user };
+  };
+  // Auto-fit while tiles stream in, but only until the operator takes the
+  // view into their own hands — then keep it still under them.
+  if (tiles.length && view.current.fitted !== tiles.length && !view.current.user) fit();
 
-  const onWheel = (e) => {
-    e.preventDefault();
+  useWheel(box, (e) => {
     const f = e.deltaY < 0 ? 1.15 : 1 / 1.15;
     const r = box.current.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
     const v = view.current;
-    view.current = { ...v, scale: v.scale * f, tx: mx - (mx - v.tx) * f, ty: my - (my - v.ty) * f };
+    view.current = { ...v, user: true,
+                     scale: v.scale * f, tx: mx - (mx - v.tx) * f, ty: my - (my - v.ty) * f };
     bump();
-  };
+  });
   const drag = React.useRef(null);
   const onDown = (e) => { drag.current = { x: e.clientX, y: e.clientY }; };
   const onMove = (e) => {
-    if (!drag.current) return;
+    const r = box.current.getBoundingClientRect();
     const v = view.current;
-    view.current = { ...v, tx: v.tx + e.clientX - drag.current.x, ty: v.ty + e.clientY - drag.current.y };
+    setCursor({ x: (e.clientX - r.left - v.tx) / v.scale,
+                y: (e.clientY - r.top - v.ty) / v.scale });
+    if (!drag.current) return;
+    view.current = { ...v, user: true,
+                     tx: v.tx + e.clientX - drag.current.x, ty: v.ty + e.clientY - drag.current.y };
     drag.current = { x: e.clientX, y: e.clientY };
     bump();
   };
@@ -148,8 +213,9 @@ function App({ model }) {
 
   return h("div", { style: { ...card, display: "flex", gap: 12 } },
     h("div", {
-        ref: box, onWheel, onPointerDown: onDown, onPointerMove: onMove,
-        onPointerUp: () => (drag.current = null), onPointerLeave: () => (drag.current = null),
+        ref: box, onPointerDown: onDown, onPointerMove: onMove,
+        onPointerUp: () => (drag.current = null),
+        onPointerLeave: () => { drag.current = null; setCursor(null); },
         style: { width: W, height: H, background: "#000", borderRadius: 10,
                  overflow: "hidden", position: "relative", cursor: "grab", flex: "none" } },
       tiles.map((t, i) => {
@@ -158,10 +224,16 @@ function App({ model }) {
           position: "absolute", left: t.x0 * v.scale + v.tx, top: t.y0 * v.scale + v.ty,
           width: t.w * v.scale, height: t.h * v.scale, imageRendering: "pixelated" } });
       }),
-      h("div", { style: { position: "absolute", left: 10, bottom: 8 } },
-        pill(`${tiles.length} tile(s) — drag to pan, scroll to zoom`))),
+      h("div", { style: { position: "absolute", left: 10, bottom: 8, display: "flex", gap: 6 } },
+        pill(`${tiles.length} tile(s) — drag to pan, scroll to zoom`),
+        cursor ? pill(`x ${cursor.x.toFixed(0)} um · y ${cursor.y.toFixed(0)} um`) : null)),
     h("div", { style: { width: 230 } },
-      h("div", { style: { fontWeight: 700, marginBottom: 8 } }, "channels"),
+      h("div", { style: { display: "flex", alignItems: "center",
+                          justifyContent: "space-between", marginBottom: 8 } },
+        h("div", { style: { fontWeight: 700 } }, "channels"),
+        h("button", { style: { ...btn(false), padding: "3px 10px" },
+          onClick: () => { view.current.user = false; view.current.fitted = 0; bump(); } },
+          "Fit")),
       channels.map((c, i) => h("div", { key: i, style: {
           display: "flex", alignItems: "center", gap: 6, marginBottom: 8,
           background: T.bg, borderRadius: 8, padding: 6 } },
@@ -174,19 +246,12 @@ function App({ model }) {
           style: { ...btn(false), padding: "2px 8px",
                    background: c.visible ? T.accent : T.edge } }, c.visible ? "on" : "off"),
         h("span", { style: { color: T.dim, width: 30 } }, `ch ${i}`),
-        h("input", { style: { ...inp, width: 52 }, type: "number", value: Math.round(c.lo),
-          onChange: (e) => setCh(i, { lo: +e.target.value }) }),
-        h("input", { style: { ...inp, width: 52 }, type: "number", value: Math.round(c.hi),
-          onChange: (e) => setCh(i, { hi: +e.target.value }) }))),
+        h(NumBox, { value: Math.round(c.lo), onCommit: (v) => setCh(i, { lo: v }) }),
+        h(NumBox, { value: Math.round(c.hi), onCommit: (v) => setCh(i, { hi: v }) }))),
       h("div", { style: { color: T.dim, marginTop: 8, fontSize: 12 } }, status)));
 }
 export default mount(App);
 """
-
-    # Tiles travel to the browser as PNGs inside a trait, so each one is
-    # kept under a fixed pixel budget — a full-resolution 2048x2048 tile
-    # would make every trait update megabytes and stall the comm channel.
-    _PER_TILE_PIXEL_BUDGET = 1_500_000
 
     def __init__(
         self, overviews: list[dict] | None = None, *, downsample: int | None = None
@@ -196,6 +261,7 @@ export default mount(App);
         self.downsample = self._fixed_downsample or 1
         self.overviews: list[dict] = []
         self._stacks: list[Any] = []
+        self._tile_entries: list[dict] = []
         self.n_channels: int | None = None
         self.observe(self._on_channels_changed, names="channels")
         for overview in overviews or []:
@@ -222,12 +288,14 @@ export default mount(App);
 
     def _step_for(self, overview: dict) -> int:
         """The display downsample for one tile (explicit, or budget-driven)."""
-        import math
-
         if self._fixed_downsample is not None:
             return self._fixed_downsample
         h, w = overview["image_size_px"]
-        return max(1, math.ceil(math.sqrt(int(h) * int(w) / self._PER_TILE_PIXEL_BUDGET)))
+        # Every channel of the tile becomes pixels in the composite, so the
+        # budget counts all of them, not just one plane.
+        n_channels = len(overview.get("channel_paths") or [overview["image_path"]])
+        pixels = int(h) * int(w) * max(1, n_channels)
+        return max(1, math.ceil(math.sqrt(pixels / _PER_IMAGE_PIXEL_BUDGET)))
 
     def add_tile(self, overview: dict) -> None:
         self.downsample = self._step_for(overview)
@@ -241,7 +309,11 @@ export default mount(App);
             )
         self.overviews.append(overview)
         self._stacks.append(stack)
-        self.tiles = self.tiles + [self._tile_entry(overview, stack)]
+        entry = self._tile_entry(overview, stack)
+        self._tile_entries.append(entry)
+        # One message per NEW tile — never a resend of the map so far. A
+        # freshly opened view catches up via the ``sync`` snapshot instead.
+        self.send({"type": "tile", "index": len(self._tile_entries) - 1, "entry": entry})
         self.status = f"{len(self.overviews)} tile(s) on the map"
 
     def reload(self) -> None:
@@ -250,6 +322,10 @@ export default mount(App);
             _load_overview_channels(o, step=self._step_for(o)) for o in self.overviews
         ]
         self._retile()
+
+    def push_snapshot(self) -> None:
+        """Publish the complete tile list (a browser view asked to sync)."""
+        self.tiles = list(self._tile_entries)
 
     def _init_channels(self, stack: Any) -> None:
         import numpy as np
@@ -273,11 +349,33 @@ export default mount(App);
         self.channels = channels
 
     def _channel_states(self) -> list[dict]:
-        """The shared-compositor shape of the channel traits."""
-        return [
-            {"color": c["color"], "visible": c["visible"], "range": (c["lo"], c["hi"])}
-            for c in self.channels
-        ]
+        """The shared-compositor shape of the channel traits — sanitized.
+
+        The ``channels`` trait is browser-writable, so its contents are
+        input, not truth: a colour that does not parse or a range that is
+        not two finite numbers falls back to a safe default instead of
+        raising halfway through a recomposite (which would freeze the map
+        at a stale state with no message).
+        """
+        from matplotlib.colors import to_rgb
+
+        states = []
+        for i, c in enumerate(self.channels):
+            color = str(c.get("color", ""))
+            try:
+                to_rgb(color)
+            except (ValueError, TypeError):
+                color = CHANNEL_HEX[i % len(CHANNEL_HEX)]
+            try:
+                lo, hi = float(c.get("lo")), float(c.get("hi"))
+            except (TypeError, ValueError):
+                lo, hi = 0.0, 1.0
+            if not (math.isfinite(lo) and math.isfinite(hi)):
+                lo, hi = 0.0, 1.0
+            states.append(
+                {"color": color, "visible": bool(c.get("visible", True)), "range": (lo, hi)}
+            )
+        return states
 
     def _tile_entry(self, overview: dict, stack: Any) -> dict:
         cx, cy = overview["center_frame_um"]
@@ -294,9 +392,10 @@ export default mount(App);
         }
 
     def _retile(self) -> None:
-        self.tiles = [
+        self._tile_entries = [
             self._tile_entry(o, s) for o, s in zip(self.overviews, self._stacks, strict=True)
         ]
+        self.tiles = list(self._tile_entries)
 
     def _on_channels_changed(self, _change: Any) -> None:
         if self._stacks:
@@ -318,8 +417,14 @@ class FocusPickerReact(_ZmartWidget):
     Click the map to add a point; click a point to remove it; **Measure**
     autofocuses at every point through the controller session, and the
     fitted surface streams in as a heatmap, refining after every measured
-    point. ``require_focus()`` hands the surface to the rest of the run,
-    exactly like the matplotlib picker.
+    point. Points already measured this session are reused; **Measure
+    fresh** re-drives the stage through every point (use it when the focus
+    may have drifted). ``require_focus()`` hands the surface to the rest
+    of the run, exactly like the matplotlib picker.
+
+    The map is drawn with +x to the right and +y downwards — the same
+    orientation as the overview map, so tiles and focus points line up
+    between the two figures.
     """
 
     squares = traitlets.List().tag(sync=True)
@@ -354,6 +459,11 @@ function App({ model }) {
       h("button", { style: btn(busy), disabled: busy,
         onClick: () => model.send({ type: "measure" }) },
         busy ? "measuring..." : "Measure focus"),
+      h("button", { title: "forget this session's measurements and re-drive every point",
+        style: { ...btn(busy), background: busy ? T.edge : T.bg, color: T.dim,
+                 border: `1px solid ${T.edge}` }, disabled: busy,
+        onClick: () => model.send({ type: "measure", fresh: true }) },
+        "Measure fresh"),
       pill(`${points.length} point(s)`),
       h("span", { style: { color: T.dim, fontSize: 12 } }, status)),
     h("svg", {
@@ -381,7 +491,8 @@ function App({ model }) {
             m.z_um.toFixed(1)) : null);
       })),
     h("div", { style: { color: T.dim, fontSize: 12, marginTop: 6 } },
-      "click: add a focus point · click a point: remove it · squares: overview positions"));
+      "click: add a focus point · click a point: remove it · squares: overview positions" +
+      " · +x right, +y down (same as the overview map)"));
 }
 export default mount(App);
 """
@@ -440,16 +551,31 @@ export default mount(App);
             return
         if self._debounced():
             return
-        self._run_guarded(self._measure)
+        self._run_guarded(lambda: self.measure(fresh=bool(content.get("fresh"))))
 
-    def _measure(self) -> None:
+    def measure(self, *, fresh: bool = False) -> Any:
+        """Autofocus at every picked point and fit the surface (scriptable).
+
+        The same run the **Measure** button starts, with the same busy
+        guard and click-debounce bookkeeping — a click queued behind a
+        scripted run is ignored just like one queued behind a button run.
+        ``fresh=True`` forgets this session's cached measurements first,
+        so every point re-drives the stage (use it when the focus may
+        have drifted since the points were last measured). Returns the
+        fitted focus surface.
+        """
         if not self.points:
             raise RuntimeError("no focus points are picked yet — click the map first")
+        if fresh:
+            self._af_cache.clear()
+        return self._hardware_run(self._measure)
+
+    def _measure(self) -> Any:
         points = [dict(p) for p in self.points]
         self._invalidate()
         # Only the points without a cached result visit the stage; the rest
         # are reused from this session's earlier measurements.
-        fresh = [
+        fresh_points = [
             p for p in points if (float(p["x"]), float(p["y"])) not in self._af_cache
         ]
 
@@ -468,20 +594,29 @@ export default mount(App);
             self._tint_squares()
             self.status = f"measuring... {len(self.measured)} of {len(points)} points"
 
-        if fresh:
-            measure_focus(
-                self.session, fresh, af_job=self.af_job, start_z=self.start_z,
-                on_point=_show_fresh_point,
-            )
-        self.measured = _collected()
-        self.focus = fit_focus_surface(self.measured)
-        self.heatmap = self._render_heatmap()
-        self._tint_squares()
+        try:
+            if fresh_points:
+                measure_focus(
+                    self.session, fresh_points, af_job=self.af_job, start_z=self.start_z,
+                    on_point=_show_fresh_point,
+                )
+            self.measured = _collected()
+            self.focus = fit_focus_surface(self.measured)
+            self.heatmap = self._render_heatmap()
+            self._tint_squares()
+        except Exception:
+            # A half-measured run must not leave a plausible-looking surface
+            # on ``self.focus`` — a script reading it would fit z to a
+            # partial point set. (The cache keeps the honest per-point
+            # results; the next Measure reuses them.)
+            self._invalidate()
+            raise
         self._measured_points = points
         self.status = (
             f"focus surface fitted ({self.focus.model}, {len(points)} pts — "
-            f"{len(fresh)} new, {len(points) - len(fresh)} reused)"
+            f"{len(fresh_points)} new, {len(points) - len(fresh_points)} reused)"
         )
+        return self.focus
 
     def _tint_squares(self) -> None:
         """Colour each overview tile marker by the fitted z at its centre."""
@@ -540,6 +675,11 @@ class TargetExplorerReact(_ZmartWidget):
     cell's image crop. ``explorer.gated`` is the live gate the acquisition
     step samples from — identical semantics to the matplotlib explorer
     (thresholds AND lasso; switching axes clears the lasso).
+
+    The gate decision is always recomputed in Python from the raw ``gate``
+    trait at the moment it is used. The ``gated_mask`` trait is a display
+    output only — nothing the browser writes into it can change which
+    targets the acquisition step samples.
     """
 
     features = traitlets.List().tag(sync=True)
@@ -584,7 +724,7 @@ function App({ model }) {
   const rng = gate.x || [lox, hix], rngY = gate.y || [loy, hiy];
   const setRange = (axis, i, v) => {
     const next = { ...gate, [axis]: [...(gate[axis] || (axis === "x" ? [lox, hix] : [loy, hiy]))] };
-    next[axis][i] = +v;
+    next[axis][i] = v;
     setGate(next);
   };
 
@@ -623,11 +763,11 @@ function App({ model }) {
           onMouseEnter: () => model.send({ type: "hover", index: i }) }))),
       h("div", { style: { display: "flex", gap: 6, marginTop: 8, alignItems: "center", fontSize: 12 } },
         h("span", { style: { color: T.dim } }, xf),
-        h("input", { style: inp, type: "number", value: rng[0], onChange: (e) => setRange("x", 0, e.target.value) }),
-        h("input", { style: inp, type: "number", value: rng[1], onChange: (e) => setRange("x", 1, e.target.value) }),
+        h(NumBox, { value: rng[0], width: 72, onCommit: (v) => setRange("x", 0, v) }),
+        h(NumBox, { value: rng[1], width: 72, onCommit: (v) => setRange("x", 1, v) }),
         h("span", { style: { color: T.dim } }, yf),
-        h("input", { style: inp, type: "number", value: rngY[0], onChange: (e) => setRange("y", 0, e.target.value) }),
-        h("input", { style: inp, type: "number", value: rngY[1], onChange: (e) => setRange("y", 1, e.target.value) }))),
+        h(NumBox, { value: rngY[0], width: 72, onCommit: (v) => setRange("y", 0, v) }),
+        h(NumBox, { value: rngY[1], width: 72, onCommit: (v) => setRange("y", 1, v) }))),
     h("div", { style: { width: 190 } },
       h("div", { style: { fontWeight: 700, marginBottom: 6 } },
         `${mask.filter(Boolean).length} / ${dots.length} in the gate`),
@@ -655,6 +795,8 @@ export default mount(App);
         self.targets = targets
         self.overviews = {i: o for i, o in enumerate(overviews or [])}
         self.crop_um = float(crop_um)
+        self._crop_cache: dict[int, dict] = {}
+        self._resetting_gate = False
         self.features = _numeric_features(targets)
         self.x_feature = self.features[0]
         self.y_feature = self.features[1] if len(self.features) > 1 else self.features[0]
@@ -664,8 +806,18 @@ export default mount(App);
 
     @property
     def gated(self) -> list[dict]:
-        """The targets inside the gate — what the acquisition step samples."""
-        return [t for t, keep in zip(self.targets, self.gated_mask, strict=True) if keep]
+        """The targets inside the gate — what the acquisition step samples.
+
+        Recomputed here, from the raw gate, every time it is read. The
+        synced ``gated_mask`` trait can be written by anything running in
+        the browser page, so it is display output — never the basis for
+        which targets the microscope visits.
+        """
+        mask = self._mask_from_gate()
+        if list(self.gated_mask) != mask:
+            # Heal the display if something scribbled over the mask.
+            self.gated_mask = mask
+        return [t for t, keep in zip(self.targets, mask, strict=True) if keep]
 
     def _on_axes_changed(self, _change: Any) -> None:
         # A lasso drawn in the old feature space would gate nonsense in the
@@ -673,58 +825,97 @@ export default mount(App);
         self._recompute(reset_gate=True)
 
     def _on_gate_changed(self, _change: Any) -> None:
-        self._recompute(reset_gate=False)
+        if not self._resetting_gate:
+            self._recompute(reset_gate=False)
+
+    @staticmethod
+    def _finite_pair(value: Any) -> tuple[float, float] | None:
+        """``[lo, hi]`` as two finite floats, or ``None`` for anything else.
+
+        The gate arrives from the browser, so a threshold that does not
+        parse (a half-typed number, a null) simply does not gate — the
+        same as an empty box — rather than raising mid-update and freezing
+        the widget at a stale state.
+        """
+        try:
+            lo, hi = float(value[0]), float(value[1])
+        except (TypeError, ValueError, IndexError, KeyError):
+            return None
+        if not (math.isfinite(lo) and math.isfinite(hi)):
+            return None
+        return (lo, hi)
+
+    def _mask_from_gate(self) -> list[bool]:
+        """Which targets pass the current gate (thresholds AND lasso)."""
+        gate = self.gate or {}
+        x_range = self._finite_pair(gate.get("x"))
+        y_range = self._finite_pair(gate.get("y"))
+        path = None
+        lasso = gate.get("lasso")
+        if isinstance(lasso, list) and len(lasso) >= 3:
+            try:
+                from matplotlib.path import Path as MplPath
+
+                path = MplPath([(float(p[0]), float(p[1])) for p in lasso])
+            except (TypeError, ValueError, IndexError):
+                path = None
+        mask = []
+        for target in self.targets:
+            fx = _feature_value(target, self.x_feature)
+            fy = _feature_value(target, self.y_feature)
+            keep = True
+            if x_range:
+                keep &= x_range[0] <= fx <= x_range[1]
+            if y_range:
+                keep &= y_range[0] <= fy <= y_range[1]
+            if keep and path is not None:
+                keep = bool(path.contains_point((fx, fy)))
+            mask.append(bool(keep))
+        return mask
 
     def _recompute(self, *, reset_gate: bool) -> None:
-        dots = [
+        self.dots = [
             {
                 "fx": _feature_value(t, self.x_feature),
                 "fy": _feature_value(t, self.y_feature),
             }
             for t in self.targets
         ]
-        self.dots = dots
         if reset_gate:
-            self.gate = {}
-        mask = []
-        x_range = (self.gate or {}).get("x")
-        y_range = (self.gate or {}).get("y")
-        lasso = (self.gate or {}).get("lasso")
-        path = None
-        if lasso and len(lasso) >= 3:
-            from matplotlib.path import Path as MplPath
-
-            path = MplPath(lasso)
-        for dot in dots:
-            keep = True
-            if x_range:
-                keep &= x_range[0] <= dot["fx"] <= x_range[1]
-            if y_range:
-                keep &= y_range[0] <= dot["fy"] <= y_range[1]
-            if keep and path is not None:
-                keep = bool(path.contains_point((dot["fx"], dot["fy"])))
-            mask.append(bool(keep))
-        self.gated_mask = mask
+            # Quietly: the observer would otherwise run a second, redundant
+            # recompute for the very reset we are in the middle of.
+            self._resetting_gate = True
+            try:
+                self.gate = {}
+            finally:
+                self._resetting_gate = False
+        self.gated_mask = self._mask_from_gate()
         self.status = "thresholds AND lasso gate together"
 
     def handle_message(self, content: dict) -> None:
         if content.get("type") != "hover":
             self.status = f"unknown message: {content.get('type')}"
             return
-        # The index comes from the browser: validate it rather than trusting it.
+        # The index comes from the browser: validate it rather than trusting
+        # it (OverflowError covers JSON numbers like 1e999 -> infinity).
         try:
             index = int(content.get("index"))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return
         if not 0 <= index < len(self.targets):
             return
-        crop = crop_for_target(self.targets[index], self.overviews, crop_um=self.crop_um)
-        source = self.targets[index].get("source") or {}
-        self.hover = {
-            "index": index,
-            "src": "" if crop is None else png_data_url(crop),
-            "title": f"target {index} (tile {source.get('naming_p', '?')})",
-        }
+        if index not in self._crop_cache:
+            # Cropping reads the full-resolution tile from disk — cache it,
+            # or a fast mouse over many dots queues seconds of disk reads
+            # ahead of the next button press.
+            crop = crop_for_target(self.targets[index], self.overviews, crop_um=self.crop_um)
+            source = self.targets[index].get("source") or {}
+            self._crop_cache[index] = {
+                "index": index,
+                "src": "" if crop is None else png_data_url(crop),
+                "title": f"target {index} (tile {source.get('naming_p', '?')})",
+            }
+        self.hover = self._crop_cache[index]
 
 
 # ---------------------------------------------------------------------------
@@ -739,7 +930,9 @@ class AcquisitionGalleryReact(_ZmartWidget):
     gate, drives the microscope through the same gated target-capture path
     as the scripts, and each overview/target pair fades into the gallery
     the moment it is saved. ``picked`` / ``records`` commit only when the
-    whole run succeeds, exactly like the matplotlib gallery.
+    whole run succeeds, exactly like the matplotlib gallery — and starting
+    a new run clears the previous result first, so a failed re-run can
+    never leave the old run masquerading as "the result".
     """
 
     rows = traitlets.List().tag(sync=True)
@@ -748,7 +941,7 @@ class AcquisitionGalleryReact(_ZmartWidget):
 
     _esm = REACT_PRELUDE + """
 function App({ model }) {
-  const [rows] = useTrait(model, "rows");
+  const rows = useStream(model, "rows", "row");
   const [busy] = useTrait(model, "busy");
   const [status] = useTrait(model, "status");
   const [gateCount] = useTrait(model, "gate_count");
@@ -803,11 +996,16 @@ export default mount(App);
         self._rng = random.Random(seed)
         self.picked: list[dict] = []
         self.records: list[dict] = []
+        self._row_entries: list[dict] = []
         self.gate_count = len(self._gated())
         self.status = "type a count and press Acquire"
 
     def _gated(self) -> list[dict]:
         return list(getattr(self.source, "gated", self.source))
+
+    def push_snapshot(self) -> None:
+        """Publish the complete row list (a browser view asked to sync)."""
+        self.rows = list(self._row_entries)
 
     def handle_message(self, content: dict) -> None:
         if content.get("type") != "acquire":
@@ -822,7 +1020,12 @@ export default mount(App);
         self._run_guarded(lambda: self.acquire(int(text)))
 
     def acquire(self, count: int) -> list[dict]:
-        """Randomly pick ``count`` gated targets, acquire, stream the pairs."""
+        """Randomly pick ``count`` gated targets, acquire, stream the pairs.
+
+        Scriptable, with the same busy guard and click-debounce bookkeeping
+        as the **Acquire** button — a click queued in the browser behind a
+        scripted run is ignored just like one queued behind a button run.
+        """
         gated = self._gated()
         self.gate_count = len(gated)
         if not gated:
@@ -833,10 +1036,23 @@ export default mount(App);
         if isinstance(count, bool) or not isinstance(count, int) or count < 1:
             raise ValueError("target count must be a positive whole number")
         picked = self._rng.sample(gated, count) if count < len(gated) else list(gated)
+        return self._hardware_run(lambda: self._acquire(picked, len(gated)))
+
+    def _acquire(self, picked: list[dict], gated_count: int) -> list[dict]:
+        # This run replaces the previous result, so the previous result must
+        # stop being "the result" now: if this run fails halfway, a later
+        # summary cell must not quietly describe the OLD run while the
+        # gallery shows the new, failed one.
+        self.picked = []
+        self.records = []
+        self._row_entries = []
         self.rows = []
 
         def _show_fresh_pair(index: int, _position: dict, record: dict) -> None:
-            self.rows = self.rows + [self._row_entry(picked[index - 1], record)]
+            entry = self._row_entry(picked[index - 1], record)
+            self._row_entries.append(entry)
+            # One message per fresh pair — never a resend of the rows so far.
+            self.send({"type": "row", "index": index - 1, "entry": entry})
             self.status = f"acquired {index} of {len(picked)} target(s)..."
 
         records = acquire_targets(
@@ -850,12 +1066,15 @@ export default mount(App);
         if self.after_acquire is not None:
             self.after_acquire(records)
             # The hijack may have rewritten the saved images: re-read them.
-            self.rows = [
+            self._row_entries = [
                 self._row_entry(t, r) for t, r in zip(picked, records, strict=True)
             ]
         self.picked = picked
         self.records = records
-        self.status = f"acquired {len(records)} of {len(gated)} gated target(s)"
+        # The run is complete: publish the full rows snapshot so any view —
+        # including one opened later — has the whole gallery.
+        self.rows = list(self._row_entries)
+        self.status = f"acquired {len(records)} of {gated_count} gated target(s)"
         return records
 
     def _row_entry(self, target: dict, record: dict) -> dict:
@@ -870,8 +1089,8 @@ export default mount(App);
             }
         low, high, width_um, height_um = pair
         return {
-            "low_src": png_data_url(low),
-            "high_src": png_data_url(high),
+            "low_src": png_data_url(shrink_to_budget(low, _PER_IMAGE_PIXEL_BUDGET)),
+            "high_src": png_data_url(shrink_to_budget(high, _PER_IMAGE_PIXEL_BUDGET)),
             "low_title": (
                 f"overview crop — tile {source.get('naming_p', '?')} "
                 f"({width_um:.0f} × {height_um:.0f} um)"

@@ -839,6 +839,35 @@ def test_fresh_limits_adopt_writes_complete_snapshot():
     assert not (snap / "function_limits.json").exists()
 
 
+def test_adopted_limits_report_machine_source_to_the_notebook_preflight(mock_client):
+    """Publishing measured limits must satisfy the v4 notebook's preflight.
+
+    The jobs cell of ``zmart_microscopy_v4.ipynb`` refuses to run unless the
+    observed limits say ``source == "machine"`` — and its error message sends
+    the operator to the ``set_stage_limits`` notebook. That notebook publishes
+    through ``adopt_limits``, so the whole chain must land on ``"machine"``:
+    adopt -> limits.json -> connect handshake -> ``describe()``. It once did
+    not (``adopt_limits`` defaulted to ``"defaults"``), which sent operators
+    around the error message's instructions in a circle forever.
+    """
+    from datetime import datetime, timezone
+
+    profile = MachineProfile(programdata_root=_machine_root())
+    stage_config.adopt_limits(
+        DEFAULT_STAGE_UM, machine=profile, moment=datetime(2026, 6, 1, tzinfo=timezone.utc)
+    )
+    merged = json.loads(
+        (profile.latest_snapshot() / "limits.json").read_text(encoding="utf-8")
+    )
+    assert merged["source"] == "machine"
+
+    state = gate.connect_handshake(mock_client, machine=profile)
+    assert state.ok, state.error
+    limits = state.limits.describe()
+    # The exact refusal expression the v4 notebook's jobs cell evaluates:
+    assert not (not limits or limits.get("is_fallback") or limits.get("source") != "machine")
+
+
 def test_merged_limits_round_trip_adopt_handshake_gated_move(mock_client):
     """(§7b/§2b end-to-end) adopt -> one limits.json with constraints+functions
     and NO backlash -> handshake ok (resolving MR-01: no backlash block to fail

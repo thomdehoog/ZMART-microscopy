@@ -78,13 +78,29 @@ def test_every_widget_ships_a_react_module():
 # --- overview viewer ---------------------------------------------------------
 
 
-def test_overview_tiles_stream_and_extents_are_physical(tmp_path):
+def test_overview_tiles_stream_as_messages_not_trait_resends(tmp_path):
+    """Each new tile travels ONCE, as a message — the map so far is never resent.
+
+    A trait update always retransmits the whole list, so appending tile 25
+    to a trait would resend tiles 1-24 too: megabytes per update, growing
+    with the square of the tile count, on the very channel the operator is
+    watching. A freshly opened view catches up via the ``sync`` snapshot.
+    """
     viewer = wreact.view_overview()
+    sent = []
+    viewer.send = lambda content, **_kw: sent.append(content)
+
     record = {"images": [str(_ome(tmp_path / "t1.ome.tif"))]}  # 30x20 px at 2 um
     viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, record)
     record2 = {"images": [str(_ome(tmp_path / "t2.ome.tif"))]}
     viewer.add_acquisition(2, {"x": 100.0, "y": 0.0}, record2)
 
+    assert [m["type"] for m in sent] == ["tile", "tile"]
+    assert [m["index"] for m in sent] == [0, 1]
+    assert viewer.tiles == []  # nothing resent mid-stream
+
+    # A browser view mounting (or re-mounting) asks for the full picture.
+    viewer._route_message(None, {"type": "sync"}, None)
     assert len(viewer.tiles) == 2
     tile = viewer.tiles[0]
     assert tile["src"].startswith("data:image/png;base64,")
@@ -95,11 +111,33 @@ def test_overview_tiles_stream_and_extents_are_physical(tmp_path):
 def test_overview_channel_edit_recomposites(tmp_path):
     viewer = wreact.view_overview()
     viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome(tmp_path / "t.ome.tif"))]})
+    viewer.push_snapshot()
     before = viewer.tiles[0]["src"]
     channels = [dict(viewer.channels[0])]
     channels[0]["visible"] = False
     viewer.channels = channels  # what the browser does on an eye toggle
     assert viewer.tiles[0]["src"] != before
+
+
+def test_overview_bogus_channel_contents_degrade_instead_of_raising(tmp_path):
+    """The channels trait is browser-writable: junk must not freeze the map.
+
+    An exception inside the recomposite would leave the tiles at a stale
+    state with no message — so a colour that does not parse or a range
+    that is not numbers falls back to safe defaults instead.
+    """
+    viewer = wreact.view_overview()
+    viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome(tmp_path / "t.ome.tif"))]})
+    viewer.channels = [{"color": "not-a-colour", "lo": None, "hi": "abc", "visible": True}]
+    viewer.push_snapshot()
+    assert viewer.tiles[0]["src"].startswith("data:image/png")
+
+
+def test_non_dict_messages_are_ignored(tmp_path):
+    viewer = wreact.view_overview()
+    viewer._route_message(None, "junk", None)  # any page JS can send this
+    viewer._route_message(None, ["still", "junk"], None)
+    assert viewer.status == ""
 
 
 def test_overview_channel_mismatch_is_refused(tmp_path):
@@ -239,14 +277,17 @@ def test_gallery_streams_rows_and_commits_on_success(tmp_path):
     session = _AcqSession(tmp_path)
     gallery = wreact.acquire_gallery(session, _targets(5), [_overview(tmp_path)], seed=3)
 
-    rows_seen = []
-    gallery.observe(lambda change: rows_seen.append(len(change["new"])), names="rows")
+    sent = []
+    gallery.send = lambda content, **_kw: sent.append(content)
     gallery.handle_message({"type": "acquire", "count": "2"})
 
-    # One trait push per acquisition — the browser draws each pair the
-    # moment it exists. (The initial clear is silent when rows was empty.)
-    assert rows_seen == [1, 2]
+    # One message per acquisition — the browser draws each pair the moment
+    # it exists, and nothing already shown is resent. The full snapshot
+    # lands in the trait once, when the run commits.
+    assert [m["type"] for m in sent] == ["row", "row"]
+    assert [m["index"] for m in sent] == [0, 1]
     assert len(gallery.records) == 2 == len(gallery.picked)
+    assert len(gallery.rows) == 2
     assert gallery.rows[0]["low_src"].startswith("data:image/png")
     assert "same window" in gallery.rows[0]["high_title"]
     assert not gallery.busy
@@ -292,6 +333,152 @@ def test_gallery_samples_from_an_explorer_gate(tmp_path):
     assert {t["x"] for t in gallery.picked} == {2.0, 3.0}
 
 
+def test_gallery_scripted_run_arms_the_click_debounce(tmp_path):
+    """A click queued behind a SCRIPTED run must be eaten like any other.
+
+    ``gallery.acquire(...)`` in a cell is a documented pattern; while it
+    runs, the browser button stays clickable and clicks queue. Without the
+    same bookkeeping as the button path, the queued click would start a
+    second hardware run the instant the cell finishes.
+    """
+    session = _AcqSession(tmp_path)
+    gallery = wreact.acquire_gallery(session, _targets(3), [_overview(tmp_path)])
+    gallery.acquire(1)  # scripted, not a button press
+    before = session.count
+    gallery.handle_message({"type": "acquire", "count": "1"})  # the queued click
+    assert session.count == before
+    assert "ignored a click" in gallery.status
+
+
+def test_gallery_failed_second_run_uncommits_the_first_result(tmp_path):
+    """A failed re-run must not leave the previous run posing as the result."""
+
+    class _FailsLater(_AcqSession):
+        def acquire(self, **kwargs):
+            if self.count >= 2:  # run 1 acquires 2; run 2 fails at once
+                raise RuntimeError("stage stalled")
+            return super().acquire(**kwargs)
+
+    gallery = wreact.acquire_gallery(_FailsLater(tmp_path), _targets(4), [_overview(tmp_path)])
+    first = gallery.acquire(2)
+    assert gallery.records == first
+    gallery._last_run_ended = None  # bypass the click debounce in the test
+    gallery.handle_message({"type": "acquire", "count": "2"})
+    assert "failed: stage stalled" in gallery.status
+    assert gallery.picked == [] and gallery.records == []
+
+
+def test_gallery_refused_run_does_not_arm_the_debounce(tmp_path):
+    """After "the gate is empty", a corrective click must work immediately.
+
+    A refusal never touched the hardware, so treating the operator's next
+    click as "queued during the previous run" would just be confusing.
+    """
+    explorer = wreact.explore_targets(_targets(3), [_overview(tmp_path)])
+    explorer.gate = {"x": [99.0, 100.0]}  # nothing passes
+    session = _AcqSession(tmp_path)
+    gallery = wreact.acquire_gallery(session, explorer, [_overview(tmp_path)])
+    gallery.handle_message({"type": "acquire", "count": "1"})
+    assert "the gate is empty" in gallery.status
+    explorer.gate = {}  # the operator fixes the gate and clicks again at once
+    gallery.handle_message({"type": "acquire", "count": "1"})
+    assert session.count == 1  # the second click ran
+
+
+def test_forged_gated_mask_cannot_widen_the_gate(tmp_path):
+    """The synced mask is display output; acquisition recomputes the truth.
+
+    Anything running in the browser page can write traits, so a crafted
+    ``gated_mask`` of all-True must not make the acquisition sample
+    targets outside the drawn gate.
+    """
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.gate = {"x": [2.0, 3.0]}
+    explorer.gated_mask = [True, True, True, True]  # forged from the page
+    assert {t["x"] for t in explorer.gated} == {2.0, 3.0}
+    assert explorer.gated_mask == [False, False, True, True]  # display healed
+
+
+def test_malformed_gate_contents_degrade_instead_of_raising(tmp_path):
+    """A half-typed threshold (null/NaN from the browser) must not raise.
+
+    An exception inside the gate observer would freeze ``gated_mask`` at a
+    stale state while the stored gate says something else — the next
+    Acquire would then sample from a gate the operator is not seeing.
+    """
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.gate = {"x": [None, 100], "lasso": "not-a-lasso"}
+    assert explorer.gated_mask == [True] * 4  # unparseable pieces do not gate
+    explorer.gate = {"x": [2.0, 3.0]}
+    assert [t["x"] for t in explorer.gated] == [2.0, 3.0]  # still fully alive
+
+
+def test_explorer_hover_crops_are_cached(tmp_path, monkeypatch):
+    """A fast mouse over many dots must not queue seconds of disk reads."""
+    import workflow.react._widgets as widgets_module
+
+    calls = []
+    real = widgets_module.crop_for_target
+
+    def _counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(widgets_module, "crop_for_target", _counting)
+    explorer = wreact.explore_targets(_targets(2), [_overview(tmp_path)])
+    explorer.handle_message({"type": "hover", "index": 1})
+    explorer.handle_message({"type": "hover", "index": 1})
+    explorer.handle_message({"type": "hover", "index": 1})
+    assert len(calls) == 1
+
+
+def test_focus_failed_measure_does_not_expose_a_partial_surface():
+    """A mid-run failure must invalidate the streamed partial fit."""
+
+    class _FailsOnSecond(_FocusSession):
+        def __init__(self):
+            super().__init__()
+            self.autofocus_runs = 0
+
+        def run_procedure(self, procedure):
+            if procedure["name"] == "autofocus":
+                self.autofocus_runs += 1
+                if self.autofocus_runs >= 2:
+                    raise RuntimeError("autofocus lost")
+            return super().run_procedure(procedure)
+
+    picker = wreact.pick_focus_points(_FailsOnSecond(), seed=False)
+    picker.points = [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}]
+    picker.handle_message({"type": "measure"})
+    assert "failed: autofocus lost" in picker.status
+    assert picker.focus is None and picker.heatmap == {}
+    with pytest.raises(RuntimeError, match="not been measured"):
+        picker.require_focus()
+
+
+def test_focus_measure_fresh_forgets_the_cache():
+    """'Measure fresh' re-drives every point — for when the focus drifted."""
+
+    class _Counting(_FocusSession):
+        def __init__(self):
+            super().__init__()
+            self.autofocus_runs = 0
+
+        def run_procedure(self, procedure):
+            if procedure["name"] == "autofocus":
+                self.autofocus_runs += 1
+            return super().run_procedure(procedure)
+
+    session = _Counting()
+    picker = wreact.pick_focus_points(session, seed=False)
+    picker.points = [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}]
+    picker.handle_message({"type": "measure"})
+    assert session.autofocus_runs == 2
+    picker._last_run_ended = None  # bypass the click debounce in the test
+    picker.handle_message({"type": "measure", "fresh": True})
+    assert session.autofocus_runs == 4  # every point measured again
+
+
 def test_overview_auto_downsample_respects_the_pixel_budget(tmp_path):
     """Big tiles are shrunk for display so trait payloads stay manageable."""
     h, w = 2000, 2000  # 4 M pixels, budget is 1.5 M -> step 2
@@ -306,15 +493,27 @@ def test_overview_auto_downsample_respects_the_pixel_budget(tmp_path):
 
     viewer = wreact.view_overview()
     viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(path)]})
+    viewer.push_snapshot()
     assert viewer.downsample == 2
     assert viewer._stacks[0].shape == (1, 1000, 1000)
     # ...while the physical extent stays exact.
     assert (viewer.tiles[0]["w"], viewer.tiles[0]["h"]) == (2000.0, 2000.0)
 
 
+def test_gallery_row_images_respect_the_pixel_budget():
+    """Full-resolution target images must be shrunk before travelling."""
+    from workflow.react._support import shrink_to_budget
+
+    big = np.zeros((2400, 2400), dtype=np.uint16)  # 5.8 Mpx, budget 1.5 Mpx
+    small = shrink_to_budget(big, 1_500_000)
+    assert small.shape == (1200, 1200)
+    tiny = np.zeros((40, 40), dtype=np.uint16)
+    assert shrink_to_budget(tiny, 1_500_000) is tiny  # small images untouched
+
+
 def test_explorer_ignores_bogus_hover_indices(tmp_path):
     explorer = wreact.explore_targets(_targets(2), [_overview(tmp_path)])
-    for bogus in (99, -1, "nope", None):
+    for bogus in (99, -1, "nope", None, 1e999):  # 1e999 -> inf -> OverflowError
         explorer.handle_message({"type": "hover", "index": bogus})
     assert explorer.hover == {}
 
