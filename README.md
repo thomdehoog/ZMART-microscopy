@@ -129,6 +129,11 @@ python build_env.py --name zmart-microscopy
 conda activate zmart-microscopy
 ```
 
+The builder also installs and launches the matching Playwright Chromium,
+verifies Node.js for generated-widget syntax checks, and import-checks the
+notebook and CI dependencies. For a pip-based test environment use
+`requirements-dev.txt`, then run `python -m playwright install chromium`.
+
 ### 3. Machine Setup (Limits, Orientation, & Calibration)
 The driver reads machine-local configuration from `C:\ProgramData\zmart-microscopy\...`.
 If ProgramData is empty, repo defaults are copied there so mock CI and first

@@ -2,7 +2,8 @@
 
 First-time setup for ZMART Microscopy, in three steps. The environment files
 referenced here live at the **repo root**: [`environment.yml`](../environment.yml),
-[`requirements.txt`](../requirements.txt), and [`build_env.py`](../build_env.py)
+[`requirements.txt`](../requirements.txt), [`requirements-dev.txt`](../requirements-dev.txt),
+and [`build_env.py`](../build_env.py)
 (manifests stay at the root so the toolchain auto-discovers them).
 
 ZMART Microscopy targets **Python 3.10-3.12**. The live system runs on **Windows**
@@ -21,10 +22,13 @@ python build_env.py            # creates the conda-forge "zmart-microscopy" env
 conda activate zmart-microscopy
 ```
 
-`build_env.py` creates the env from `environment.yml`, verifies the core packages
-import, and asserts every package came from conda-forge (the Anaconda `defaults`
-channel is never used). Re-run with `--recreate` to rebuild it clean or `--update`
-to update in place. Manual equivalent: `conda env create -f environment.yml`.
+`build_env.py` creates the env from `environment.yml`, verifies all runtime,
+notebook, CI, and website packages, installs and launches Playwright's matching
+Chromium build, verifies Node.js, and asserts every conda package came from
+conda-forge (the Anaconda `defaults` channel is never used). Re-run with
+`--recreate` to rebuild it clean or `--update` to update in place. `--offline`
+uses only cached conda packages and requires the matching Chromium build to
+already be cached.
 
 > Prefer a different env name? `python build_env.py --name my-env` uses it instead
 > of `zmart-microscopy`; the script prints the exact `conda activate <name>` line
@@ -35,10 +39,11 @@ For **live** control, LAS X must be installed and running — the CAM API DLLs s
 with LAS X and load from its install dir, so the env carries only the `pythonnet`
 bridge. The conda environment already includes the test/lint tools used by the
 driver validation. If you are using the pip fallback or another minimal env,
-install the driver test requirements explicitly:
+install the complete repository test requirements explicitly:
 
 ```powershell
-pip install -r zmart_drivers/leica/stellaris5_y42h93/navigator_expert/requirements-dev.txt
+pip install -r requirements-dev.txt
+python -m playwright install chromium
 ```
 
 | Capability             | Packages                          |
@@ -47,14 +52,16 @@ pip install -r zmart_drivers/leica/stellaris5_y42h93/navigator_expert/requiremen
 | Registration           | `numpy`, `opencv`, `scikit-image` |
 | Focusing, calibration  | `numpy`, `scipy`                  |
 | Image I/O (OME-TIFF)   | `tifffile`                        |
+| Notebook + website CI  | `nbformat`, `anywidget`, `playwright`, `nodejs` |
 
 > On a **fresh Miniconda** install, `conda env create` refuses to run until the
 > Anaconda default channels' Terms of Service are accepted — even though this env
 > never uses them. If the build fails with a ToS message, run the two
 > `conda tos accept …` commands it prints and re-run `build_env.py` (Miniforge
-> installs don't have this gate). Non-conda machines can install the same
-> packages from PyPI: `python -m pip install -r requirements.txt` (conda-forge is
-> canonical; PyPI is the licensing-safe fallback).
+> installs don't have this gate). Non-conda machines can install runtime packages
+> from PyPI with `requirements.txt`, or the full test-ready set with
+> `requirements-dev.txt` (conda-forge is canonical; PyPI is the licensing-safe
+> fallback).
 
 ## Step 2 — Publish machine setup
 

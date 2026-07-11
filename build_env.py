@@ -12,6 +12,7 @@ Usage:
     python build_env.py --recreate      # remove an existing env, then create
     python build_env.py --update        # update an existing env in place
     python build_env.py --name my-env   # override the default "zmart-microscopy"
+    python build_env.py --offline       # use cached conda packages/browser only
 
 Requires conda on PATH (MinicondaZMB).
 """
@@ -24,6 +25,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -37,12 +39,19 @@ VERIFY = {
     "scikit-image": "import skimage",
     "opencv": "import cv2",
     "tifffile": "import tifffile",
+    "pillow": "from PIL import Image",
+    "ome-types": "import ome_types",
+    "lxml": "import lxml",
     "matplotlib": "import matplotlib",
     # The v4 operator notebooks need the interactive canvas and the React
     # widget host; a build that misses either would only fail at the scope.
     "ipympl": "import ipympl",
     "anywidget": "import anywidget",
+    "traitlets": "import traitlets",
+    "playwright-python": "import playwright.sync_api",
     "pytest": "import pytest",
+    "pytest-cov": "import pytest_cov",
+    "ruff": "import ruff",
     "ipython": "import IPython",
     "ipykernel": "import ipykernel",
     # Without these the notebook end-to-end and guard tests silently skip.
@@ -96,7 +105,7 @@ def _env_python(prefix: Path) -> Path:
     return py
 
 
-def build(name: str, update: bool, recreate: bool) -> None:
+def build(name: str, update: bool, recreate: bool, offline: bool) -> None:
     conda = _conda()
     if not ENV_FILE.exists():
         sys.exit(f"environment.yml not found at {ENV_FILE}")
@@ -109,12 +118,14 @@ def build(name: str, update: bool, recreate: bool) -> None:
                     f"env '{name}' already exists; pass --recreate to rebuild it "
                     f"clean or --update to update it in place."
                 )
-            print(f"+ removing existing env '{name}'")
+            print(f"+ removing existing env '{name}'", flush=True)
             if subprocess.call([conda, "env", "remove", "-n", name, "-y"]) != 0:
                 sys.exit(f"could not remove existing env '{name}'.")
         action = ["env", "create"]
     cmd = [conda, *action, "-f", str(ENV_FILE), "-n", name]
-    print("+", " ".join(cmd))
+    if offline:
+        cmd.append("--offline")
+    print("+", " ".join(cmd), flush=True)
     rc = subprocess.call(cmd, cwd=str(HERE))
     if rc != 0:
         sys.exit(f"conda {' '.join(action)} failed (exit {rc}).")
@@ -122,15 +133,25 @@ def build(name: str, update: bool, recreate: bool) -> None:
 
 def verify_imports(name: str) -> None:
     py = _env_python(_env_prefix(_conda(), name))
-    print(f"\nVerifying imports in env '{name}':")
+    print(f"\nVerifying imports in env '{name}':", flush=True)
     failures = []
     for pkg, stmt in VERIFY.items():
-        rc = subprocess.call(
-            [str(py), "-c", stmt],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+        started = time.perf_counter()
+        try:
+            rc = subprocess.call(
+                [str(py), "-c", stmt],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=90,
+            )
+        except subprocess.TimeoutExpired:
+            rc = 124
+        elapsed = time.perf_counter() - started
+        suffix = " (timed out)" if rc == 124 else ""
+        print(
+            f"  [{'ok' if rc == 0 else 'FAIL'}] {pkg} ({elapsed:.1f}s){suffix}",
+            flush=True,
         )
-        print(f"  [{'ok' if rc == 0 else 'FAIL'}] {pkg}")
         if rc != 0:
             failures.append(pkg)
     # pythonnet's clr only resolves on a machine with .NET / LAS X; flag it
@@ -139,7 +160,57 @@ def verify_imports(name: str) -> None:
     if hard:
         sys.exit(f"\nImport check failed for: {', '.join(hard)}")
     if "pythonnet" in failures:
-        print("\nNote: pythonnet (clr) did not import -- expected off the LAS X PC.")
+        print(
+            "\nNote: pythonnet (clr) did not import -- expected off the LAS X PC.",
+            flush=True,
+        )
+
+
+def verify_node(name: str) -> None:
+    """Prove the generated-widget JavaScript parser is in the environment."""
+    prefix = _env_prefix(_conda(), name)
+    node = prefix / ("node.exe" if os.name == "nt" else "bin/node")
+    try:
+        rc = subprocess.call([str(node), "--version"], timeout=30) if node.exists() else 127
+    except subprocess.TimeoutExpired:
+        rc = 124
+    if rc != 0:
+        sys.exit("Node.js verification failed; generated widget ESM cannot be checked.")
+    print("  [ok] nodejs", flush=True)
+
+
+def install_and_verify_browser(name: str, offline: bool) -> None:
+    """Install Chromium in Playwright's cache and prove it launches.
+
+    Playwright keeps browsers outside the conda prefix by design. In offline
+    mode the install command is skipped and an already-cached matching browser
+    is required; otherwise the normal idempotent installer is run first.
+    """
+    prefix = _env_prefix(_conda(), name)
+    py = _env_python(prefix)
+    if not offline:
+        print("\nInstalling the Chromium build matched to Playwright:", flush=True)
+        try:
+            install_rc = subprocess.call(
+                [str(py), "-m", "playwright", "install", "chromium"], timeout=600
+            )
+        except subprocess.TimeoutExpired:
+            install_rc = 124
+        if install_rc != 0:
+            sys.exit("Playwright Chromium installation failed.")
+    print("Verifying headless Chromium launch:", flush=True)
+    launch = (
+        "from playwright.sync_api import sync_playwright; "
+        "p=sync_playwright().start(); b=p.chromium.launch(); b.close(); p.stop()"
+    )
+    try:
+        launch_rc = subprocess.call([str(py), "-c", launch], timeout=120)
+    except subprocess.TimeoutExpired:
+        launch_rc = 124
+    if launch_rc != 0:
+        hint = "Cache it while online with: python -m playwright install chromium"
+        sys.exit(f"Playwright Chromium launch failed. {hint}")
+    print("  [ok] playwright Chromium", flush=True)
 
 
 def verify_channels(name: str) -> None:
@@ -160,7 +231,7 @@ def verify_channels(name: str) -> None:
             offenders.append(f"{meta.get('name', jf.stem)} ({meta.get('channel') or 'unknown'})")
     if offenders:
         sys.exit("Packages NOT from conda-forge: " + ", ".join(offenders))
-    print(f"All {count} packages sourced from conda-forge.")
+    print(f"All {count} packages sourced from conda-forge.", flush=True)
 
 
 def main() -> None:
@@ -175,9 +246,16 @@ def main() -> None:
         action="store_true",
         help="update an existing env in place instead of creating it",
     )
+    ap.add_argument(
+        "--offline",
+        action="store_true",
+        help="use cached conda packages and an already-cached Playwright Chromium",
+    )
     args = ap.parse_args()
-    build(args.name, args.update, args.recreate)
+    build(args.name, args.update, args.recreate, args.offline)
     verify_imports(args.name)
+    verify_node(args.name)
+    install_and_verify_browser(args.name, args.offline)
     verify_channels(args.name)
     print(f"\nDone. Activate with:  conda activate {args.name}")
 
