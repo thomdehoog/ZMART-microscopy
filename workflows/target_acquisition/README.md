@@ -7,16 +7,21 @@ Pick cells from a low-magnification overview, re-image each at the high-magnific
 3. **Jobs** — capture the overview and target states.
 4. **Initial positions** — ask the microscope for scan-field positions.
 5. **Focus** — pick focus points in an interactive figure (points already placed in LAS X are pre-filled), press **Measure focus** to autofocus at each one, and inspect the fitted z surface as a heatmap in the same figure.
-6. **Validate the calibration** — image the same ring of ~12 sites with both objectives and register each pair: the mean leftover offset is how far the XY calibration is off, the scatter is the stage's own repeatability.
-7. **Overview** — acquire one image per position, then browse them as one zoomable map with every tile at its real stage position and per-channel colour / brightness / contrast controls.
-8. **Discover targets** — segment the overviews, then gate interactively: put any measured feature on the plot axes, threshold with sliders or draw a lasso, and hover a point to see that cell's image crop.
-9. **Acquire targets + summary** — type how many to acquire; a random sample of the gate is re-imaged and reviewed as overview/target image pairs at the same physical scale, then the run report is written.
+6. **Overview** — acquire one image per position, then browse them as one zoomable map with every tile at its real stage position and per-channel colour / brightness / contrast controls.
+7. **Discover targets** — segment the overviews, then gate interactively: put any measured feature on the plot axes, threshold with sliders or draw a lasso, and hover a point to see that cell's image crop.
+8. **Acquire targets + summary** — type how many to acquire; a random sample of the gate is re-imaged and reviewed as overview/target image pairs at the same physical scale, then the run report is written.
 
 ## Entry Point
 
 Open `zmart_microscopy_v4.ipynb`. The notebook is the operator UI; implementation lives in `workflow/`. All four review widgets update live while the microscope works — tiles, focus points, and image pairs appear the moment they exist.
 
 `zmart_microscopy_v4_react.ipynb` is the same run with the widgets as React apps inside the cells (via `anywidget`): the browser UI streams in real time and its buttons drive the kernel, which drives the hardware through the same gated paths. It needs only the `anywidget` package — React itself ships inside the repository (the official MIT-licensed build), so both notebooks work fully offline.
+
+The same run also exists as a plain browser page — no Jupyter, no code on
+screen: `python -m workflow.webapp --demo` starts it against a simulated
+microscope (see `workflow/webapp/README.md`), and on the microscope PC
+`python -m workflow.webapp --analysis-repo ...` drives the real one. The
+server is Python standard library only.
 
 The setup cell expects a checkout of
 [`smart-analysis`](https://github.com/thomdehoog/smart-analysis) on its `v4-engine`

@@ -31,8 +31,8 @@ import numpy as np
 import tifffile
 
 #: How far the simulated target job lands from where it was told to go, in
-#: micrometres. The calibration check (notebook section 5b) must measure
-#: this back — that is what makes the simulation a meaningful rehearsal.
+#: micrometres. Small enough not to disturb the acquisition flow, and there
+#: for any scripted calibration check that wants a real error to measure.
 INJECTED_ERROR_UM = (1.8, -1.2)
 
 
