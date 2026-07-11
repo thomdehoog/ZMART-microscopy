@@ -38,11 +38,34 @@ def test_connect_loads_limits_orientation_and_calibration_by_default():
     assert cfg.translations is not None and cfg.translations
     assert cfg.calibration_info["loaded"] is True
     assert cfg.calibration_info["slots"]
+    # The seeded calibration is only the bundled placeholder: its entries carry
+    # no measuring session, so no slot may count as calibrated on this machine.
+    assert cfg.calibration_info["measured_slots"] == []
     # Seeded orientation is deliberately only a placeholder, never mistaken
     # for a measured 0-degree machine orientation.
     assert cfg.orientation_info["measured"] is False
     # limits are installed and govern this client
     assert gate.state_for(client).ok
+
+
+def test_connect_records_adopted_calibration_slots_as_measured():
+    """Entries stamped with a measuring session count as calibrated; the rest don't."""
+    import json
+
+    profile = MachineProfile(programdata_root=Path(os.environ["ZMART_MICROSCOPY_ROOT"]))
+    snap = profile.ensure_snapshot()
+    calibration = json.loads((snap / "calibration.json").read_text(encoding="utf-8"))
+    # Simulate a real adoption of the slot 1 -> 2 pair; slot 0 stays a placeholder.
+    for slot in ("1", "2"):
+        calibration["objectives"][slot]["session_id"] = "2026-07-11_bench_pair"
+    (snap / "calibration.json").write_text(json.dumps(calibration), encoding="utf-8")
+
+    client = _connect()
+
+    info = session_state.get(client).calibration_info
+    assert info["loaded"] is True
+    assert info["measured_slots"] == [1, 2]
+    assert 0 in info["slots"] and 0 not in info["measured_slots"]
 
 
 def test_connect_can_skip_calibration():

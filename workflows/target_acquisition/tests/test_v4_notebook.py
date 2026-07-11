@@ -132,3 +132,20 @@ def test_notebook_is_thin_orchestration_and_teaches_the_session_lifecycle():
         "zmart_controller.disconnect()",
     ):
         assert call in joined, f"notebook no longer demonstrates {call}"
+
+
+def test_capture_cells_enforce_the_driver_preflight_verdict():
+    """Both job-capture cells must keep their driver-readiness guard.
+
+    The guard is the operator's protection against acquiring with an
+    unmeasured orientation or an uncalibrated objective; the attribute-export
+    check above would not notice if a later edit simply deleted the call.
+    """
+    sources = _code_sources(_load())
+    for state_name in ("overview_state", "target_state"):
+        cells = [s for s in sources if f"{state_name} = zmart_controller.get_state()" in s]
+        assert len(cells) == 1, f"expected exactly one cell capturing {state_name}"
+        assert f"workflow.require_driver_ready({state_name})" in cells[0], (
+            f"the {state_name} capture cell no longer checks the driver's "
+            "readiness verdict before continuing"
+        )
