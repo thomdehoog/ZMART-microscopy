@@ -298,8 +298,8 @@ class _ZmartWidget(anywidget.AnyWidget):
         # (blocking every real one) nor hide one from the overlap guard.
         if self._busy:
             raise RuntimeError("a run is already in progress")
-        self._set_busy(True)
         self._cancel_requested = False
+        self._set_busy(True)
         try:
             return work()
         finally:
@@ -589,7 +589,7 @@ export default mount(App);
         # Metadata stays in the trait for Python consumers and initial layout;
         # pixels never do. The reset + per-item buffers avoid one giant base64
         # JSON value and give the browser bounded work between messages.
-        self.send({"type": "tile:reset"})
+        self.send({"type": "tile:reset", "preserve": True, "length": len(snapshot)})
         self.tiles = [{**{k: v for k, v in e.items() if k != "png"}, "src": ""} for e in snapshot]
         for index, entry in enumerate(snapshot):
             self._send_tile(index, entry)
@@ -1189,7 +1189,19 @@ function App({ model }) {
             loy + ((H - pad - (e.clientY - r.top)) / (H - 2 * pad)) * sy];
   };
   const lasso = React.useRef(null);
+  const lassoStart = React.useRef(null);
   const [trail, setTrail] = React.useState([]);
+
+  const finishLasso = (e, commit) => {
+    if (commit && lasso.current && moved.current && lasso.current.length >= 3)
+      setGate({ ...gate, lasso: lasso.current });
+    lasso.current = null;
+    lassoStart.current = null;
+    moved.current = false;
+    setTrail([]);
+    if (e.currentTarget.hasPointerCapture?.(e.pointerId))
+      e.currentTarget.releasePointerCapture(e.pointerId);
+  };
 
   const select = (value, onChange) => h("select", {
       value, disabled: readOnly, onChange: (e) => onChange(e.target.value),
@@ -1215,19 +1227,21 @@ function App({ model }) {
           onPointerDown: (e) => {
             if (readOnly) return;
             moved.current = false;
+            lassoStart.current = [e.clientX, e.clientY];
+            e.currentTarget.setPointerCapture(e.pointerId);
             lasso.current = [toData(e, e.currentTarget)]; setTrail(lasso.current);
           },
           onPointerMove: (e) => {
             if (!lasso.current) return;
-            moved.current = true;
+            const start = lassoStart.current;
+            if (start && Math.hypot(e.clientX - start[0], e.clientY - start[1]) >= 5)
+              moved.current = true;
             lasso.current = [...lasso.current, toData(e, e.currentTarget)];
             setTrail(lasso.current);
           },
-          onPointerUp: () => {
-            if (lasso.current && moved.current && lasso.current.length >= 3)
-              setGate({ ...gate, lasso: lasso.current });
-            lasso.current = null; setTrail([]);
-          } },
+          onPointerUp: (e) => finishLasso(e, true),
+          onPointerCancel: (e) => finishLasso(e, false),
+          onLostPointerCapture: (e) => finishLasso(e, false) },
         h("line", { x1: pad, y1: H - pad, x2: W - pad, y2: H - pad, stroke: T.edge }),
         h("line", { x1: pad, y1: pad, x2: pad, y2: H - pad, stroke: T.edge }),
         (hist.x || []).map((v, i, arr) => {
@@ -1257,6 +1271,7 @@ function App({ model }) {
           stroke: picked.includes(i) ? T.ink : "none", strokeWidth: 2,
           style: { transition: "fill 0.2s, r 0.1s", cursor: readOnly ? "default" : "pointer" },
           onMouseEnter: () => model.send({ type: "hover", index: i }),
+          onPointerDown: (e) => e.stopPropagation(),
           onClick: (e) => {
             e.stopPropagation();
             if (!readOnly) model.send({ type: "pick", index: i });
@@ -1827,7 +1842,7 @@ export default mount(App);
 
     def push_snapshot(self) -> None:
         """Replay a bounded, binary row snapshot for a newly mounted view."""
-        self.send({"type": "row:reset"})
+        self.send({"type": "row:reset", "preserve": True, "length": len(self._row_entries)})
         self.rows = [
             {
                 **{k: v for k, v in e.items() if k not in ("low_png", "high_png")},

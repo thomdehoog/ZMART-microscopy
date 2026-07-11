@@ -18,9 +18,9 @@ Open `zmart_microscopy_v4.ipynb`. The notebook is the operator UI; implementatio
 `zmart_microscopy_v4_react.ipynb` is the same run with the widgets as React apps inside the cells (via `anywidget`): the browser UI streams in real time and its buttons drive the kernel, which drives the hardware through the same gated paths. It needs only the `anywidget` package — React itself ships inside the repository (the official MIT-licensed build), so both notebooks work fully offline.
 
 The same run also exists as a plain browser page — no Jupyter, no code on
-screen: `python -m workflow.webapp --demo` starts it against a simulated
+screen: `python run_webapp.py --demo` starts it against a simulated
 microscope (see `workflow/webapp/README.md`), and on the microscope PC
-`python -m workflow.webapp --analysis-repo ...` drives the real one. The
+`python run_webapp.py --analysis-repo ...` drives the real one. The
 server is Python standard library only.
 
 The setup cell expects a checkout of
@@ -33,7 +33,8 @@ remains warm for the acquired overviews.
 
 ## Layout
 
-- `_bootstrap.py` — adds `zmart_drivers/leica/stellaris5_y42h93/`, `microscopes/`, and the repo root to `sys.path` so the notebook can import the driver, calibration, shared packages, and workflow code.
+- `_bootstrap.py` — adds `zmart_drivers/leica/stellaris5_y42h93/`, the target-acquisition directory, and the repo root to `sys.path` so the notebook can import driver registration, shared packages, and workflow code.
+- `run_webapp.py` — establishes those package paths, then launches the plain-browser UI; live mode registers the adapter before connecting, while demo mode imports no driver.
 - `workflow/` — public surface for the controller-only workflow plus internal modules with leading underscore.
 - `pipeline/` — compatibility import for old notebooks/tests.
 - `tests/` — workflow unit tests (offline; no microscope or vendor software).

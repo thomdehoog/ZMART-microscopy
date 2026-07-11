@@ -11,8 +11,7 @@ same widgets the notebook shows.
 
 ```
 cd workflows/target_acquisition
-python -c "import _bootstrap"   # once, to check the environment
-python -m workflow.webapp --demo
+python run_webapp.py --demo
 ```
 
 Open the printed address (http://127.0.0.1:8765). The demo drives a
@@ -24,8 +23,13 @@ cells you gated.
 ## On the microscope PC
 
 ```
-python -m workflow.webapp --analysis-repo C:/code/smart-analysis
+python run_webapp.py --analysis-repo C:/code/smart-analysis
 ```
+
+The live command imports the workflow bootstrap in that same process to
+register the Leica adapter, then every operation is performed through the
+public `zmart_controller.Session` surface. The website does not call driver
+functions directly.
 
 Two things the notebook also asks of you still apply: select the overview
 job in LAS X before step 3a and the target job before step 3b (the page

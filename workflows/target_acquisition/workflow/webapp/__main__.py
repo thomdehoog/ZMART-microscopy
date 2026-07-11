@@ -1,15 +1,26 @@
-"""Command line for the web interface: ``python -m workflow.webapp``."""
+"""Command line used by ``run_webapp.py`` for the web interface."""
 
 from __future__ import annotations
 
 import argparse
+import importlib
 
 from . import serve
 
 
+def _register_live_instrument() -> None:
+    """Run the workflow composition root that registers the Leica adapter.
+
+    Registration is the only driver-aware launch concern. The server, flow,
+    widgets, and every hardware operation continue to use the controller's
+    public ``Session`` surface exclusively.
+    """
+    importlib.import_module("_bootstrap")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="python -m workflow.webapp",
+        prog="python run_webapp.py",
         description=(
             "Run the ZMART target-acquisition interface in a plain browser — "
             "the same flow as the v4 notebook, without Jupyter."
@@ -45,6 +56,8 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+    if not args.demo:
+        _register_live_instrument()
     serve(
         host=args.host,
         port=args.port,

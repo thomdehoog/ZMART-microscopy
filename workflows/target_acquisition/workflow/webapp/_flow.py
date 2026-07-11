@@ -79,6 +79,8 @@ class RunFlow:
         self.completed: list[str] = []
         self._pending: set[str] = set()
         self._state_lock = threading.Lock()
+        self._engine_shutdown_attempted = False
+        self._engine_shutdown_error: Exception | None = None
 
         # The checklist and the (still empty) overview map exist from the
         # start, so the page always has something honest to show.
@@ -245,6 +247,11 @@ class RunFlow:
 
     def _load_positions(self) -> str:
         self._require(self.session is not None, "connect first")
+        self._require(self.overview_state is not None, "capture the overview job first")
+        # Positions were authored for the overview job. Restore that captured
+        # controller state before the controller translates stored stage
+        # coordinates into the session frame.
+        self.session.set_state(self.overview_state)
         positions = self.session.run_procedure({"name": "get_positions"})["positions"]
         self._require(positions, "the microscope returned no overview positions")
         self.positions = positions
@@ -331,6 +338,7 @@ class RunFlow:
             focus=self.ns.get("focus"),
             overview_records=self.overview_records,
             targets=self.gallery.picked,
+            show=False,
         )
         self.ns["summary"] = summary
         curation = self.gallery.save_curation(self.root)
@@ -342,8 +350,18 @@ class RunFlow:
     def _disconnect(self) -> str:
         self._require(self.session is not None, "nothing is connected")
         try:
-            if self.engine is not None:
-                self.engine.shutdown()
+            if self.engine is not None and not self._engine_shutdown_attempted:
+                self._engine_shutdown_attempted = True
+                try:
+                    self.engine.shutdown()
+                except Exception as exc:
+                    self._engine_shutdown_error = exc
         finally:
             self.session.disconnect()
+        if self._engine_shutdown_error is not None:
+            exc = self._engine_shutdown_error
+            raise FlowError(
+                f"analysis engine shutdown failed ({type(exc).__name__}: {exc}); "
+                "the microscope session was still released"
+            )
         return "disconnected — the microscope is released; it is safe to close this page"

@@ -17,6 +17,7 @@ A real-browser (Playwright) pass lives in ``test_webapp_browser.py``.
 from __future__ import annotations
 
 import json
+import queue
 import threading
 import urllib.error
 import urllib.request
@@ -119,6 +120,39 @@ def test_origin_must_precede_every_coordinate_dependent_step(tmp_path):
     assert flow.completed.count("set_origin") == 1
 
 
+def test_positions_are_loaded_only_after_restoring_overview_controller_state(tmp_path):
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    for step in _ORDERED_STEPS[:4]:
+        flow.run_step(step)
+    hub.drain()
+    assert flow.session.job == flow.session.TARGET_JOB
+
+    calls = []
+    set_state = flow.session.set_state
+    run_procedure = flow.session.run_procedure
+
+    def tracked_set_state(state):
+        calls.append(("set_state", state["changeable"]["job"]))
+        return set_state(state)
+
+    def tracked_run_procedure(procedure):
+        if procedure.get("name") == "get_positions":
+            calls.append(("run_procedure", "get_positions"))
+        return run_procedure(procedure)
+
+    flow.session.set_state = tracked_set_state
+    flow.session.run_procedure = tracked_run_procedure
+    flow.run_step("load_positions")
+    hub.drain()
+
+    assert calls == [
+        ("set_state", flow.session.OVERVIEW_JOB),
+        ("run_procedure", "get_positions"),
+    ]
+    assert flow.session.job == flow.session.OVERVIEW_JOB
+
+
 def test_duplicate_overview_requests_coalesce_before_hardware(tmp_path):
     hub = WidgetHub()
     flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
@@ -163,6 +197,61 @@ def test_duplicate_widget_runs_and_sync_floods_are_coalesced(tmp_path):
     finally:
         blocker.set()
     hub.drain()
+
+
+def test_sync_during_an_executing_replay_queues_one_followup(tmp_path):
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    viewer = flow.viewer
+    original = viewer._route_message
+    replay_started = threading.Event()
+    release = threading.Event()
+    calls = 0
+
+    def blocked_route(*args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            replay_started.set()
+            assert release.wait(10)
+        return original(*args)
+
+    viewer._route_message = blocked_route
+    assert hub.dispatch_message("overview", {"type": "sync"})
+    assert replay_started.wait(10)
+    for _ in range(100):
+        assert hub.dispatch_message("overview", {"type": "sync"})
+    release.set()
+    hub.drain()
+    assert calls == 2
+
+
+def test_stale_hardware_message_is_dropped_with_feedback(tmp_path, monkeypatch):
+    from workflow.webapp import _host
+
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    for step in _ORDERED_STEPS[:5]:
+        flow.run_step(step)
+    hub.drain()
+    focus = flow.picker
+    calls = 0
+    original = focus._route_message
+
+    def counted_route(*args):
+        nonlocal calls
+        calls += 1
+        return original(*args)
+
+    focus._route_message = counted_route
+    blocker = threading.Event()
+    assert hub.submit(blocker.wait)
+    monkeypatch.setattr(_host, "_STALE_HARDWARE_MESSAGE_S", -1.0)
+    assert hub.dispatch_message("focus", {"type": "measure"})
+    blocker.set()
+    hub.drain()
+    assert calls == 0
+    assert "ignored a hardware action queued too long" in focus.status
 
 
 def test_worker_queue_is_bounded_and_recovers_after_pressure():
@@ -277,6 +366,15 @@ def test_http_surface_serves_page_modules_state_and_actions(demo_server):
     with pytest.raises(urllib.error.HTTPError) as err:
         _post(base, "/msg", {"widget": "nope", "content": {}})
     assert err.value.code == 404
+
+
+def test_loopback_server_rejects_host_header_rebinding_reads(demo_server):
+    base, _hub, _flow = demo_server
+    for path in ("/state", "/events", "/buffer/nope"):
+        request = urllib.request.Request(base + path, headers={"Host": "hostile.example"})
+        with pytest.raises(urllib.error.HTTPError) as err:
+            urllib.request.urlopen(request, timeout=10)
+        assert err.value.code == 403
 
 
 def test_streamed_tiles_reach_a_tab_as_events_and_binary_buffers(demo_server):
@@ -471,6 +569,94 @@ def test_a_stalled_event_stream_client_is_dropped_not_waited_on(demo_server):
     _post(base, "/action", {"step": "connect"})
     hub.drain(60)
     assert flow.completed == ["connect"]
+
+
+def test_dropped_sse_client_gets_a_disconnect_sentinel():
+    hub = WidgetHub()
+    client = hub.add_client()
+    hub.remove_client(client)
+    assert client.get_nowait() is None
+    with pytest.raises(queue.Empty):
+        client.get_nowait()
+
+
+def test_repeated_web_saves_do_not_leak_matplotlib_figures(tmp_path):
+    import matplotlib.pyplot as plt
+
+    hub, flow = _run_demo_flow(tmp_path)
+    before = set(plt.get_fignums())
+    for _ in range(3):
+        assert flow.run_step("save_results")
+        hub.drain(60)
+    assert set(plt.get_fignums()) == before
+
+
+def test_failed_engine_shutdown_is_not_retried_and_session_is_released(tmp_path):
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    flow.run_step("connect")
+    hub.drain()
+    calls = 0
+
+    def fail_shutdown():
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("engine stuck")
+
+    flow.engine.shutdown = fail_shutdown
+    events = []
+    hub.broadcast = events.append
+    for _ in range(2):
+        assert flow.run_step("disconnect")
+        hub.drain()
+    assert calls == 1
+    assert flow.session.disconnected
+    assert "disconnect" not in flow.completed
+    failures = [e for e in events if e.get("step") == "disconnect" and e.get("state") == "failed"]
+    assert len(failures) == 2
+    assert all("microscope session was still released" in e["message"] for e in failures)
+
+
+def test_live_cli_registers_instrument_before_starting_server(monkeypatch):
+    import sys
+
+    from workflow.webapp import __main__ as cli
+
+    calls = []
+    monkeypatch.setattr(sys, "argv", ["workflow.webapp", "--analysis-repo", "/analysis"])
+    monkeypatch.setattr(cli.importlib, "import_module", lambda name: calls.append(("import", name)))
+    monkeypatch.setattr(cli, "serve", lambda **kwargs: calls.append(("serve", kwargs)))
+    cli.main()
+    assert calls[0] == ("import", "_bootstrap")
+    assert calls[1][0] == "serve"
+    assert calls[1][1]["analysis_repo"] == "/analysis"
+
+
+def test_demo_cli_stays_driver_free(monkeypatch):
+    import sys
+
+    from workflow.webapp import __main__ as cli
+
+    calls = []
+    monkeypatch.setattr(sys, "argv", ["workflow.webapp", "--demo"])
+    monkeypatch.setattr(
+        cli.importlib,
+        "import_module",
+        lambda name: pytest.fail(f"demo imported driver bootstrap {name}"),
+    )
+    monkeypatch.setattr(cli, "serve", lambda **kwargs: calls.append(kwargs))
+    cli.main()
+    assert calls == [
+        {
+            "host": "127.0.0.1",
+            "port": 8765,
+            "demo": True,
+            "analysis_repo": None,
+            "vendor": "leica",
+            "demo_root": None,
+            "af_job": None,
+        }
+    ]
 
 
 def test_buffer_store_stays_bounded_under_a_flood(demo_server):

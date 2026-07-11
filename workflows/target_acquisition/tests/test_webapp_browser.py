@@ -15,6 +15,7 @@ layers headlessly — so CI without a browser loses breadth, not truth.
 from __future__ import annotations
 
 import threading
+import time
 
 import matplotlib
 
@@ -101,6 +102,18 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
         playwright_api.expect(page.locator('#widget-overview img[src^="blob:"]')).to_have_count(
             4, timeout=30_000
         )
+        # A replay whose binary buffers have expired must retain the good
+        # object URLs already on screen and explain the failed refresh.
+        images = page.locator('#widget-overview img[src^="blob:"]')
+        previous_sources = images.evaluate_all("els => els.map((el) => el.src)")
+        page.route("**/buffer/*", lambda route: route.fulfill(status=404, body="expired"))
+        response = page.request.post(
+            base + "/msg", data={"widget": "overview", "content": {"type": "sync"}}
+        )
+        assert response.ok
+        page.wait_for_selector('#widget-overview :text("previous copy was kept")', timeout=30_000)
+        assert images.evaluate_all("els => els.map((el) => el.src)") == previous_sources
+        page.unroute("**/buffer/*")
 
         page.click('button[data-step="discover_targets"]')
         page.wait_for_selector("#note-discover_targets.ok", timeout=120_000)
@@ -175,3 +188,141 @@ def test_live_event_wins_over_an_older_boot_snapshot(demo_server):
         browser.close()
     mutation.join(timeout=30)
     assert not mutation.is_alive()
+
+
+def test_rapid_local_edits_are_not_built_from_stale_browser_state(demo_server):
+    """Two focus clicks inside one worker round trip must both survive."""
+    base, hub, flow = demo_server
+    with playwright_api.sync_playwright() as pw:
+        browser = _launch_browser(pw)
+        page = browser.new_page()
+        page.goto(base, wait_until="domcontentloaded")
+        page.wait_for_selector('button[data-step="connect"]:enabled', timeout=30_000)
+        for step in _STEP_ORDER[:-1]:
+            page.click(f'button[data-step="{step}"]')
+            page.wait_for_selector(f"#note-{step}.ok", timeout=30_000)
+
+        dynamic_snapshots = 0
+
+        def fail_dynamic_snapshot_once(route):
+            nonlocal dynamic_snapshots
+            dynamic_snapshots += 1
+            if dynamic_snapshots == 1:
+                route.abort()
+            else:
+                route.continue_()
+
+        page.route("**/state", fail_dynamic_snapshot_once)
+        step = _STEP_ORDER[-1]
+        page.click(f'button[data-step="{step}"]')
+        page.wait_for_selector(f"#note-{step}.ok", timeout=30_000)
+
+        focus_svg = page.locator("#widget-focus svg")
+        playwright_api.expect(focus_svg).to_be_visible(timeout=30_000)
+        assert dynamic_snapshots >= 2
+        page.unroute("**/state")
+        focus_svg.scroll_into_view_if_needed()
+        box = focus_svg.bounding_box()
+        assert box is not None
+        started = threading.Event()
+        release = threading.Event()
+
+        def block_worker():
+            started.set()
+            assert release.wait(30)
+
+        assert hub.submit(block_worker)
+        assert started.wait(10)
+        try:
+            page.mouse.click(box["x"] + 150, box["y"] + 150)
+            # Let React render the first local event, but keep Python blocked so
+            # neither click can rely on the server echo.
+            page.wait_for_timeout(100)
+            page.mouse.click(box["x"] + 450, box["y"] + 300)
+            playwright_api.expect(
+                page.locator("#widget-focus").get_by_text("5 point(s)", exact=True)
+            ).to_be_visible(timeout=10_000)
+        finally:
+            release.set()
+        hub.drain(30)
+        assert len(flow.picker.points) == 5
+        browser.close()
+
+
+def test_failed_first_snapshot_retries_and_unwedges_the_page(demo_server):
+    base, _hub, _flow = demo_server
+    with playwright_api.sync_playwright() as pw:
+        browser = _launch_browser(pw)
+        page = browser.new_page()
+        attempts = 0
+
+        def fail_once(route):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                route.abort()
+            else:
+                route.continue_()
+
+        page.route("**/state", fail_once)
+        page.goto(base, wait_until="domcontentloaded")
+        page.wait_for_selector('button[data-step="connect"]:enabled', timeout=30_000)
+        assert attempts >= 2
+        page.click('button[data-step="connect"]')
+        page.wait_for_selector("#note-connect.ok", timeout=30_000)
+        browser.close()
+
+
+def test_explorer_lasso_ignores_slips_and_commits_real_drags(demo_server):
+    base, hub, flow = demo_server
+    for step in _STEP_ORDER:
+        flow.run_step(step)
+    hub.drain(60)
+    hub.dispatch_message("focus", {"type": "measure"})
+    flow.run_step("run_overview")
+    flow.run_step("discover_targets")
+    hub.drain(120)
+
+    with playwright_api.sync_playwright() as pw:
+        browser = _launch_browser(pw)
+        page = browser.new_page()
+        page.goto(base, wait_until="domcontentloaded")
+        svg = page.locator("#widget-explorer svg")
+        playwright_api.expect(svg).to_be_visible(timeout=30_000)
+        svg.scroll_into_view_if_needed()
+        box = svg.bounding_box()
+        assert box is not None
+        # Choose a genuine SVG-background point, away from every target dot,
+        # so the dot's intentional pointerdown stop is tested independently.
+        start = svg.evaluate(
+            """svg => {
+              const dots = [...svg.querySelectorAll('circle')].map((c) =>
+                [Number(c.getAttribute('cx')), Number(c.getAttribute('cy'))]);
+              for (let y = 60; y <= 280; y += 20)
+                for (let x = 60; x <= 400; x += 20)
+                  if (dots.every(([cx, cy]) => Math.hypot(x - cx, y - cy) > 14)) return [x, y];
+              return [70, 70];
+            }"""
+        )
+        x, y = box["x"] + start[0], box["y"] + start[1]
+
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x + 2, y + 1, steps=3)
+        page.mouse.up()
+        hub.drain()
+        assert flow.explorer.gate.get("lasso") is None
+
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x + 80, y, steps=5)
+        page.mouse.move(x + 80, y + 80, steps=5)
+        page.mouse.move(x, y + 80, steps=5)
+        page.mouse.up()
+        page.wait_for_selector("#widget-explorer svg polygon", timeout=10_000)
+        deadline = time.monotonic() + 10
+        while not flow.explorer.gate.get("lasso") and time.monotonic() < deadline:
+            time.sleep(0.01)
+        hub.drain()
+        assert len(flow.explorer.gate.get("lasso") or []) >= 3
+        browser.close()
