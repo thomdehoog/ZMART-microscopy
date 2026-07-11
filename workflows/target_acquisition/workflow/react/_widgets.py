@@ -1801,6 +1801,7 @@ export default mount(App);
         state: dict | None = None,
         focus: Any = None,
         options: dict | None = None,
+        output_root: Any = None,
         after_acquire: Any = None,
         default_count: int = 5,
         seed: int | None = None,
@@ -1814,6 +1815,7 @@ export default mount(App);
         self.state = state
         self.focus = focus
         self.options = options
+        self.output_root = output_root
         self.after_acquire = after_acquire
         self.default_count = int(default_count)
         self._rng = random.Random(seed)
@@ -2052,6 +2054,7 @@ export default mount(App);
                 state=self.state,
                 focus=self.focus,
                 options=self.options,
+                output_root=self.output_root,
                 on_record=_show_fresh_pair,
                 cancel=lambda: self._cancel_requested,
             )

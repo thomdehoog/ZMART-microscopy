@@ -46,6 +46,7 @@ class RunFlow:
         vendor: str = "leica",
         demo_root: str | Path | None = None,
         af_job: str | None = None,
+        experiment: str = "target-acquisition",
     ) -> None:
         if not demo and analysis_repo is None:
             raise ValueError(
@@ -58,6 +59,7 @@ class RunFlow:
         self.vendor = vendor
         self.demo_root = Path(demo_root) if demo_root is not None else None
         self.af_job = af_job
+        self.experiment = experiment
 
         # The same names the notebook's cells would define, so the run
         # checklist reads this session exactly as it reads a notebook.
@@ -180,7 +182,7 @@ class RunFlow:
             raise FlowError(message)
 
     def _connect(self) -> str:
-        from .. import connect, load_analysis_engine, preflight_analysis_engine
+        from .. import connect, load_analysis_engine, preflight_analysis_engine, prepare_experiment
 
         self._require(self.session is None, "already connected — continue with the next step")
         if self.demo:
@@ -198,7 +200,8 @@ class RunFlow:
                 engine.shutdown()
                 raise
         try:
-            root = Path(session.get_info()["output_root"])
+            output_root = Path(session.get_info()["output_root"])
+            root = prepare_experiment(output_root, self.experiment)
         except Exception:
             session.disconnect()
             engine.shutdown()
@@ -300,6 +303,7 @@ class RunFlow:
             state=self.overview_state,
             focus=focus,
             on_record=self.viewer.add_acquisition,
+            output_root=self.root,
         )
         self.overview_records = records
         self.ns["overview_records"] = records
@@ -328,6 +332,7 @@ class RunFlow:
                 self.overviews,
                 state=self.target_state,
                 focus=self.ns.get("focus"),
+                output_root=self.root,
             )
             self.ns["gallery"] = self.gallery
             self.hub.add_widget("gallery", self.gallery)

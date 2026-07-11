@@ -3,7 +3,7 @@
 ZEN writes one CZI container on the acquisition PC; ``save`` resolves that path
 via ``get_image_output_path``, waits for the file to stop growing, and copies it
 into the canonical ``data/`` directory under ``output_root`` using the
-lab-wide :class:`~shared.output_layout.Naming` slots (with a ``.czi`` extension,
+the driver's private :class:`Naming` slots (with a ``.czi`` extension,
 since a CZI holds the whole c x z grid -- like the XML companion, it omits c/z).
 
 The per-plane pixel-pull path (stream -> numpy -> OME-TIFF) is an extension
@@ -20,16 +20,15 @@ import shutil
 import time
 from pathlib import Path
 
-from shared.output_layout.naming import acquisition_dir
-
 from ..readers.api_reader import _attr
+from .naming import acquisition_dir
 from .product import Naming, SavedAcquisition
 
 
 def _czi_name(naming: Naming) -> str:
     """CZI filename: ``{acquisition_type}_{hash}_{position_label}.czi``.
 
-    Minimal compatibility port to the shared ``Naming`` (flat contract). The
+    Minimal compatibility naming for the existing flat contract. The
     full Zeiss flat/state alignment is deferred; this only tracks the shared
     field set so the driver keeps building valid names.
     """
@@ -79,7 +78,7 @@ def save(
         client: the ZenClient.
         acq: an ``AcquisitionResult`` (must carry ``output_name``).
         output_root: the run root (a CZI lands under ``<kind>/data/``).
-        naming: the canonical :class:`Naming` for this acquisition.
+        naming: the driver's :class:`Naming` for this acquisition.
 
     Returns:
         ``SavedAcquisition`` with the persisted ``czi_path``.

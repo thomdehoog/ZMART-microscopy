@@ -99,8 +99,9 @@ plus setup and docs:
   driver. This is the **emerging `zmart` surface** — the vendor-agnostic API the
   rest of the world would import. See its README for the full API and for how to
   register a new driver.
-- **`shared/`** — vendor-independent utilities: the lab-wide output layout and
-  image algorithms (registration, focus) used across drivers and workflows.
+- **`shared/`** — genuinely vendor-independent limits and image algorithms
+  (registration, focus). Output naming stays with each driver; workflow folders
+  stay with the workflow.
 - **`workflows/`** — the zmart-microscopy workflows themselves (current:
   `workflows/target_acquisition/`).
 - **`getting_started/`** — setup and orientation: the one-step environment build,

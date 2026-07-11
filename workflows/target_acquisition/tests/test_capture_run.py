@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from workflow._capture_run import capture_positions
 
@@ -115,3 +117,89 @@ def test_cancel_checked_before_the_first_move_too():
         capture_positions(
             _Session(), [{"x": 0.0, "y": 0.0, "z": 0.0}], "overview", cancel=lambda: True
         )
+
+
+def test_output_run_uses_driver_hash_vendor_location_and_full_final_paths(tmp_path):
+    class _Session:
+        count = 0
+
+        def set_xyz(self, x, y, z):
+            pass
+
+        def acquire(self, *, acquisition_type, position_label, options=None):
+            assert options == {"format": "ome-tiff"}  # workflow never injects its hash
+            self.count += 1
+            acquisition_hash = f"00000{self.count}"
+            path = tmp_path / ".staging" / (
+                f"{acquisition_type}_{acquisition_hash}_{position_label}_"
+                "T000000_C00_Z00000.ome.tiff"
+            )
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(b"image")
+            return {
+                "acquisition_type": acquisition_type,
+                "acquisition_hash": acquisition_hash,
+                "position_label": position_label,
+                "images": [str(path)],
+                "planes": [{"t": 0, "c": 0, "z": 0, "path": str(path)}],
+            }
+
+    experiment = tmp_path / "organoid-screen_abc123"
+    positions = [
+        {
+            "x": 1.0,
+            "y": 2.0,
+            "z": 3.0,
+            "location": {"carrier": 2, "compartment": 31, "group": 4, "position": 8},
+        },
+        {"x": 4.0, "y": 5.0, "z": 6.0},
+    ]
+
+    records = capture_positions(
+        _Session(),
+        positions,
+        "overview",
+        options={"format": "ome-tiff"},
+        output_root=experiment,
+    )
+
+    assert [record["position_label"] for record in records] == [
+        "K02_M000031_G000004_P000008_V00",
+        "K00_M000000_G000000_P000001_V00",
+    ]
+    assert [record["acquisition_hash"] for record in records] == ["000001", "000002"]
+    data = experiment / "overview/data"
+    assert all(Path(path).parent == data for record in records for path in record["images"])
+    assert all(Path(path).is_file() for record in records for path in record["images"])
+    assert all(record["planes"][0]["path"] == record["images"][0] for record in records)
+
+
+def test_output_run_accepts_one_driver_minted_hash_per_position(tmp_path):
+    class _Session:
+        count = 0
+
+        def set_xyz(self, x, y, z):
+            pass
+
+        def acquire(self, *, acquisition_type, position_label, options=None):
+            self.count += 1
+            hash6 = f"00000{self.count}"
+            path = tmp_path / ".staging" / f"{position_label}-{hash6}.ome.tiff"
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(b"image")
+            return {
+                "acquisition_hash": hash6,
+                "position_label": position_label,
+                "images": [str(path)],
+            }
+
+    records = capture_positions(
+        _Session(),
+        [{"x": 0.0, "y": 0.0, "z": 0.0}, {"x": 1.0, "y": 0.0, "z": 0.0}],
+        "overview",
+        output_root=tmp_path / "experiment_abc123",
+    )
+    assert [record["acquisition_hash"] for record in records] == ["000001", "000002"]
+    assert {Path(record["images"][0]).parent for record in records} == {
+        tmp_path / "experiment_abc123/overview/data"
+    }

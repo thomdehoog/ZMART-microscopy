@@ -20,11 +20,10 @@ import tifffile
 
 pytest.importorskip("cv2")  # calibration.core.common (reused by measure) imports cv2
 
+from navigator_expert.acquisition.naming import build_image_name
 from navigator_expert.calibration.core import common as cm
 from navigator_expert.orientation import Orientation
 from navigator_expert.orientation import measure as wf
-
-from shared.output_layout import build_image_name
 
 
 @pytest.fixture

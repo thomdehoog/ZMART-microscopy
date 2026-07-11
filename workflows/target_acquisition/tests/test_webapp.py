@@ -76,7 +76,9 @@ def test_demo_flow_runs_the_whole_notebook_order(tmp_path):
     assert len(flow.targets) >= 4
     assert len(flow.gallery.records) == 2 == len(flow.gallery.picked)
     assert flow.gallery._verdicts[0] == "good"
-    root = tmp_path / "run"
+    root = flow.root
+    assert root.parent == tmp_path / "run"
+    assert root.name.startswith("target-acquisition_")
     for artifact in ("summary.json", "run_layout.png", "curation.json"):
         assert (root / artifact).exists(), artifact
     assert flow.session.disconnected and flow.engine.shut_down
@@ -654,6 +656,7 @@ def test_demo_cli_stays_driver_free(monkeypatch):
             "vendor": "leica",
             "demo_root": None,
             "af_job": None,
+            "experiment": "target-acquisition",
         }
     ]
 

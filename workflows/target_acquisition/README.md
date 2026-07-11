@@ -2,7 +2,7 @@
 
 Pick cells from a low-magnification overview, re-image each at the high-magnification objective. The operator notebook drives the microscope through `zmart_controller`.
 
-1. **Setup and connect** — connect through the controller and ask the microscope for the run root.
+1. **Setup and connect** — connect through the controller, discover the output root, and let the workflow create the experiment folder.
 2. **Set origin** — set the current microscope position as `(0, 0, 0)`.
 3. **Jobs** — capture the overview and target states.
 4. **Initial positions** — ask the microscope for scan-field positions.
@@ -59,4 +59,22 @@ python -m pytest -q workflows/target_acquisition/tests/test_notebooks_run_end_to
 
 ## Output
 
-Acquisition artifacts write to a `zmart/` tree beside the LAS X native AutoSave base folder, not into this package.
+Unless the workflow supplies an explicit root, Leica discovers a
+`ZMART-microscopy/` folder beside the LAS X native AutoSave base folder. The
+workflow creates and organizes:
+
+```text
+ZMART-microscopy/<experiment>_<hash>/<acquisition_type>/data/
+```
+
+The workflow derives `K/M/G/P/V` from each `get_info()["tile_positions"]`
+entry when present; otherwise it counts `P` from zero and uses zero for the
+other missing indices. The Leica save helper names each returned plane:
+
+```text
+<acquisition_type>_<position-hash>_K00_M000000_G000000_P000000_V00_T000000_C00_Z00000.ome.tiff
+```
+
+The driver owns the per-position hash and filename. The workflow moves the
+file unchanged into `data/` and returns the full final filenames through each
+record's `images` and `planes[*].path` fields.

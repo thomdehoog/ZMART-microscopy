@@ -46,8 +46,7 @@ from pipeline._hijack import NonSimulatorFrameError
 from pipeline._mock_provider import build_target_provider
 from pipeline.retired.overview import Pick
 from support import minimal_calibration
-
-from shared.output_layout import Naming, build_image_name
+from workflow.retired.output_layout import Naming, build_image_name
 
 # ─── Helpers ──────────────────────────────────────────────────────
 

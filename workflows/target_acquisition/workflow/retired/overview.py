@@ -22,8 +22,6 @@ from typing import Any
 import navigator_expert as drv
 import numpy as np
 
-from shared.output_layout import Naming, build_position_analysis_name
-
 from .._hijack import NonSimulatorFrameError, hijack_frame
 from .._log_capture import _logged
 from .._mock_provider import get_provider
@@ -32,6 +30,7 @@ from ._acquire import acquire
 from ._job_state import ensure_job_state
 from .context import Context
 from .focus import FocusMap
+from .output_layout import Naming, build_position_analysis_name
 
 # ─── Dataclasses ──────────────────────────────────────────────────
 

@@ -19,12 +19,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from shared.output_layout import (
-    Naming,
-    acquisition_dir,
-    build_image_name,
-)
-
 from ..orientation import Orientation
 from . import files as _files
 from . import materialize as _materialize
@@ -39,6 +33,7 @@ from .lasx_native_autosave import (
     native_autosave_base_folder,
     native_autosave_enabled,
 )
+from .naming import Naming, acquisition_dir, build_image_name
 from .product import (
     ExportedAcquisition,
     PlaneIndex,
@@ -142,9 +137,7 @@ def _persist_export(
     try:
         for pos in exported.positions:
             for idx, image_src in sorted(pos.planes.items()):
-                # The flat image name carries only c and z; the source
-                # timepoint (idx.t) still drives which page is materialized.
-                plane_naming = replace(naming, c=idx.c, z=idx.z)
+                plane_naming = replace(naming, t=idx.t, c=idx.c, z=idx.z)
                 image_dest = acquisition_dir(
                     output_root, plane_naming.acquisition_type
                 ) / build_image_name(plane_naming)
@@ -188,6 +181,7 @@ def _persist_export(
     return SavedAcquisition(
         image_paths=image_paths,
         naming=naming,
+        vendor_metadata_paths=tuple(output_root / record["path"] for record in vendor_records),
     )
 
 
@@ -266,6 +260,7 @@ def _naming_to_dict(n: Naming) -> dict:
         "acquisition_type": n.acquisition_type,
         "hash6": n.hash6,
         "position_label": n.position_label,
+        "t": n.t,
         "c": n.c,
         "z": n.z,
     }

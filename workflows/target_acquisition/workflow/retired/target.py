@@ -16,8 +16,6 @@ from pathlib import Path
 import navigator_expert as drv
 from navigator_expert.calibration.core import model as calib
 
-from shared.output_layout import Naming
-
 from .._hijack import NonSimulatorFrameError, hijack_frame
 from .._log_capture import _logged
 from .._mock_provider import build_target_provider
@@ -25,6 +23,7 @@ from .._saved import require_single_plane
 from ._acquire import acquire
 from ._job_state import ensure_job_state
 from .context import Context, TargetState
+from .output_layout import Naming
 from .overview import Pick, _validate_callback_flags
 from .selection import Picks
 

@@ -72,7 +72,8 @@ def test_setup_cell_runs_from_repo_root(monkeypatch):
     assert namespace["zmart_controller"] is fake
     assert namespace["engine"] is fake_engine
     assert fake.info_calls == 1
-    assert namespace["ROOT"] == root
+    assert namespace["ROOT"].parent == root.resolve()
+    assert namespace["ROOT"].name.startswith("target-acquisition_")
 
 
 def test_workflow_attributes_used_are_exported():

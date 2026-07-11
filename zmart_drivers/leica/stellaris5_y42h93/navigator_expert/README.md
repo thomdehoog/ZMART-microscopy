@@ -55,8 +55,8 @@ LAS X.
   import navigator_expert as lasx                       # namespace import
   from navigator_expert import connect_python_client, set_zoom, acquire, save
   ```
-  The package self-bootstraps the repo root onto `sys.path` so `shared.output_layout` (used by
-  `save()`) resolves.
+  The Leica package is self-contained; its filename helper lives under
+  `navigator_expert.acquisition.naming`.
 
 ### Machine paths this driver assumes
 
@@ -122,7 +122,7 @@ from navigator_expert import (
     connect_limits_handshake, select_job, set_zoom, set_scan_speed,
     move_xy, acquire, save,
 )
-from shared.output_layout import Naming, run_hash
+from navigator_expert.acquisition.naming import Naming, run_hash
 
 # 1. Connect and validate the scope
 client = connect_python_client()
@@ -148,7 +148,7 @@ set_scan_speed(client, "MyExperiment", 600)
 move_xy(client, 65_000, 65_000, unit="um")
 acq = acquire(client, "MyExperiment")                     # -> AcquisitionResult (RAISES on failure)
 
-# 5. Persist to the lab-wide layout (a separate step from acquire)
+# 5. Persist with Leica's private naming helper (a separate step from acquire)
 naming = Naming(acquisition_type="overview", hash6=run_hash())
 saved = save(client, acq, output_root="D:/runs/demo", naming=naming)
 print(saved.image_paths)                                  # {PlaneIndex(t,z,c): Path, ...}
@@ -158,9 +158,9 @@ print(saved.image_paths)                                  # {PlaneIndex(t,z,c): 
 > `{"success": ...}` dict. Saving is a deliberate second step (see §6).
 
 > The explicit `output_root` above is for the low-level driver API. Through
-> `zmart_controller`, the Leica adapter discovers the run root from LAS X native
-> AutoSave and reports it through `get_info()["output_root"]`; operator workflows should
-> use that discovered root instead of hard-coding a drive path.
+> `zmart_controller`, the Leica adapter discovers the `ZMART-microscopy` root
+> beside LAS X native AutoSave and reports it through `get_info()["output_root"]`;
+> the workflow creates the experiment/acquisition folders under that root.
 
 > No machine config yet? The first connect seeds ProgramData from the repo defaults so CI and local
 > mock runs work. On the rig, run `limits/notebooks/set_limits.ipynb`,
@@ -324,9 +324,8 @@ acquire(client, job, *, poll_interval=None, poll_timeout=None, heartbeat_interva
 save(client, acq, output_root, naming, *, lineage=None, fix_ome=True,
      cleanup_source=False) -> SavedAcquisition                                    # image_paths / xml_paths / naming
 ```
-`save()` collects LAS X native AutoSave output into a neutral product,
-and writes canonical single-plane OME-TIFFs into the `shared.output_layout` tree, with OME-XML embedded
-in each image file.
+`save()` collects LAS X native AutoSave output into a neutral product and
+writes canonical single-plane OME-TIFFs with OME-XML embedded in each image.
 **OME metadata:** `acquisition/ome.py` repairs known Leica OME violations (e.g. laser `Wavelength="0"`)
 in place, preserving byte formatting; `acquisition/ome_canonical.py` writes clean canonical ZMART OME;
 `save(..., fix_ome=True)` validates/repairs each written file.
@@ -337,12 +336,11 @@ fields, regions, and focus points vanish from LAS X. The strip is sidecar-backed
 `restore_template` — but read `get_info()["tile_positions"]` and `focus_positions`
 *before* the first acquire, or pass `options={"strip_scan_fields": False}`.
 
-**`Naming` constraints and slot overwrites.** Name parts (`acquisition_type` etc.) must be
+**`Naming` constraints.** Name parts (`acquisition_type` etc.) must be
 kebab-case lowercase (`"overview"`, `"target-scan"`); `Naming` raises `ValueError` on `"Prescan"` or
 `"target_scan"` — and on the adapter path that raise happens **after the scan has fired**, so the
-capture is wasted. Validate names before acquiring. A numeric `position_label` claims that `p` slot
-directly and **overwrites** any previous output saved at the same slot (upsert); non-numeric labels
-take the next unused slot and appear only in the lineage record, never the filename.
+capture is wasted. Validate names before acquiring. The adapter's driver-owned helper gives every
+acquired position a unique hash, and the workflow supplies the `K/M/G/P/V` position label.
 
 ### Templates / scan-fields (offline-capable)
 
@@ -525,4 +523,4 @@ Copy the closest existing command of a similar shape.
 ## 12. References
 - ZMART controller (the vendor-agnostic surface this driver registers with): [`zmart_controller/`](../../../../zmart_controller/README.md)
 - Sibling drivers: [`zmart_drivers/zeiss/zenapi/`](../../../zeiss/zenapi/README.md) (gRPC), [`zmart_drivers/nikon/`](../../../nikon/README.md) (socket macro)
-- Output layout used by `save()`: [`shared/output_layout/`](../../../../shared/output_layout/README.md)
+- Leica filename implementation: [`acquisition/naming.py`](acquisition/naming.py)

@@ -137,7 +137,8 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
 
     assert not errors, f"the page threw in the browser: {errors}"
     assert flow.gallery._verdicts[0] == "good"
-    assert (tmp_path / "run" / "curation.json").exists()
+    assert flow.root.parent == tmp_path / "run"
+    assert (flow.root / "curation.json").exists()
     assert flow.session.disconnected and flow.engine.shut_down
 
 

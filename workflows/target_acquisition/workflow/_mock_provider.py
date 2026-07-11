@@ -44,13 +44,12 @@ from typing import Any
 
 import numpy as np
 
-from shared.output_layout import Naming, build_image_name
-
 from ._geom import crop_overview_at_target_fov
 
-# Canonical overview position_label shape: ``gNNNNN-pNNNNN`` (region id,
-# flat tile index). The overview content generators recover the (region,
-# position) ints from here now that Naming no longer carries g/p slots.
+_POSITION_LABEL_RE = re.compile(
+    r"K\d{2}_M\d{6}_G(?P<group>\d{6})_P(?P<position>\d{6})_V\d{2}"
+)
+# Retired form retained so old simulation fixtures remain readable.
 _POSITION_LABEL_GP_RE = re.compile(r"g(\d+)-p(\d+)")
 
 
@@ -59,6 +58,9 @@ def _region_position_from_naming(naming) -> tuple[int, int]:
     ``gNNNNN-pNNNNN`` position_label. Falls back to a deterministic
     (0, hash-derived) pair for any non-matching label so the mock content
     generator stays total (never raises on a well-formed Naming)."""
+    m = _POSITION_LABEL_RE.fullmatch(naming.position_label)
+    if m:
+        return int(m.group("group")), int(m.group("position"))
     m = _POSITION_LABEL_GP_RE.fullmatch(naming.position_label)
     if m:
         return int(m.group(1)), int(m.group(2))
@@ -193,14 +195,11 @@ def build_target_provider(
             )
 
         # Resolve overview file path from the pick's lineage.
-        overview_naming = Naming(
-            acquisition_type="overview-scan",
-            hash6=layout.hash6,
-            position_label=f"g{int(pick.pick_id[0]):05d}-p{int(pick.position):05d}",
-            c=0,
-            z=0,
+        overview_name = (
+            f"overview-scan_{layout.hash6}_"
+            f"g{int(pick.pick_id[0]):05d}-p{int(pick.position):05d}_c00_z00000.ome.tiff"
         )
-        overview_path = layout.acquisition_dir("overview-scan") / build_image_name(overview_naming)
+        overview_path = layout.acquisition_dir("overview-scan") / overview_name
 
         # Lazy: tifffile + skimage.transform are both lazy-imported so
         # the cost is paid only when simulation mode actually fires.

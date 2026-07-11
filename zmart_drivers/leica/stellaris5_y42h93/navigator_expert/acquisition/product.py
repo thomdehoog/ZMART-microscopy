@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from shared.output_layout import Naming
+from .naming import Naming
 
 
 @dataclass(frozen=True, order=True)
@@ -137,3 +137,4 @@ class SavedAcquisition:
     image_paths: dict[PlaneIndex, Path]
     naming: Naming
     xml_paths: dict[PositionIndex, Path] = field(default_factory=dict)
+    vendor_metadata_paths: tuple[Path, ...] = ()

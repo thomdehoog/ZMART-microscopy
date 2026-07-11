@@ -25,6 +25,7 @@ import tifffile
 
 pytest.importorskip("cv2")  # calibration core imports cv2
 
+from navigator_expert.acquisition.naming import build_image_name
 from navigator_expert.calibration.core import (
     adopt as wf_adopt,
 )
@@ -33,8 +34,6 @@ from navigator_expert.calibration.core import (
     objective_pair as wf_obj,
 )
 from navigator_expert.config.machine import MachineProfile
-
-from shared.output_layout import build_image_name
 
 # ---------------------------------------------------------------------
 # Explicit runtime roots

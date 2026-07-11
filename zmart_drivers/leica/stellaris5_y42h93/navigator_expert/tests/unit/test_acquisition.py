@@ -14,15 +14,10 @@ import pytest
 import tifffile
 from navigator_expert.acquisition import capture, materialize, ome_canonical
 from navigator_expert.acquisition import save as acquisition
+from navigator_expert.acquisition.naming import Naming, build_image_name, parse_image_name
 from navigator_expert.acquisition.product import (
     ExportedAcquisition,
     ExportedPosition,
-)
-
-from shared.output_layout import (
-    Naming,
-    build_image_name,
-    parse_image_name,
 )
 
 
@@ -33,6 +28,30 @@ def naming() -> Naming:
         hash6="000001",
         position_label="000003",
     )
+
+
+def test_leica_private_naming_round_trips_time_channel_and_z():
+    naming = Naming(
+        acquisition_type="overview",
+        hash6="abc123",
+        position_label="K00_M000000_G000000_P000000_V00",
+        t=12,
+        c=2,
+        z=34,
+    )
+    assert build_image_name(naming).endswith("_T000012_C02_Z00034.ome.tiff")
+    assert parse_image_name(build_image_name(naming)) == naming
+
+
+@pytest.mark.parametrize(("field", "value"), [("t", 1_000_000), ("c", 100), ("z", -1)])
+def test_leica_private_naming_rejects_unrepresentable_plane_indices(field, value):
+    with pytest.raises(ValueError, match=field):
+        Naming(
+            acquisition_type="overview",
+            hash6="abc123",
+            position_label="P0",
+            **{field: value},
+        )
 
 
 def _metadata() -> drv.AcquisitionMetadata:
@@ -330,6 +349,41 @@ class TestCanonicalPhysicalMetadataAuthority:
 
 
 class TestSave:
+    def test_timepoints_have_distinct_six_digit_T_names(
+        self, successful_acq, tmp_path, naming, monkeypatch
+    ):
+        source_root = tmp_path / "source"
+        source_root.mkdir()
+        planes = {}
+        positions = []
+        for t in (0, 1):
+            index = drv.PlaneIndex(t=t, z=0, c=0)
+            source = source_root / f"time-{t}.tiff"
+            tifffile.imwrite(source, np.full((16, 16), t, dtype=np.uint8))
+            plane = drv.PlaneSource(path=source)
+            planes[index] = plane
+            positions.append(ExportedPosition(t=t, planes={index: plane}))
+        metadata = replace(_metadata(), size_t=2)
+        exported = ExportedAcquisition(
+            source_root=source_root,
+            source_dir=source_root,
+            positions=positions,
+            metadata=metadata,
+            method="test",
+        )
+        monkeypatch.setattr(acquisition, "collect_lasx_native_autosave", lambda *a, **k: exported)
+
+        saved = drv.save(None, successful_acq, tmp_path / "out", naming)
+
+        assert len(saved.image_paths) == 2
+        assert saved.image_paths[drv.PlaneIndex(t=0, z=0, c=0)].name.endswith(
+            "_T000000_C00_Z00000.ome.tiff"
+        )
+        assert saved.image_paths[drv.PlaneIndex(t=1, z=0, c=0)].name.endswith(
+            "_T000001_C00_Z00000.ome.tiff"
+        )
+        assert len({path.name for path in saved.image_paths.values()}) == 2
+
     def test_save_persists_image_and_summary_flat(
         self,
         patched_export,

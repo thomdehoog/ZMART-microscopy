@@ -13,8 +13,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-
-from shared.output_layout.naming import Naming, build_position_analysis_name
+from workflow.retired.output_layout import Naming, build_position_analysis_name
 
 # ─── Fixtures ────────────────────────────────────────────────────
 
@@ -2286,8 +2285,7 @@ class TestPngNaming:
 
     def test_overview_tile_png_name_canonical(self):
         from pipeline.retired.visualize import _overview_tile_png_name, _position_stem
-
-        from shared.output_layout.naming import Naming
+        from workflow.retired.output_layout import Naming
 
         stem = _position_stem(
             Naming(acquisition_type="overview-scan", hash6="abc123", position_label="g00000-p00007")
@@ -2347,8 +2345,7 @@ class TestPngNaming:
         matplotlib.use("Agg")
         monkeypatch.setattr("IPython.display.display", lambda *a, **k: None)
         from pipeline.retired.visualize import _position_stem, display_tile
-
-        from shared.output_layout.naming import Naming
+        from workflow.retired.output_layout import Naming
 
         logs = tmp_path / "logs"
         display_tile(

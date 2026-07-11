@@ -47,8 +47,6 @@ from workflow._hijack import (
 )
 from workflow._mock_provider import get_provider
 
-from shared.output_layout import Naming
-
 # ─── Helpers ──────────────────────────────────────────────────────
 
 
@@ -131,7 +129,7 @@ def _build_result(
     SystemTypeName is written. Pass ``None`` to write no vendor metadata
     (the test then controls the vendor folder explicitly).
     """
-    naming = Naming(
+    naming = SimpleNamespace(
         acquisition_type="overview-scan",
         hash6="abcdef",
         position_label="g00000-p00000",
@@ -517,7 +515,7 @@ class TestMockProvider:
     def test_human_mitosis_matches_shape_and_dtype(self):
         pytest.importorskip("skimage")
         provider = get_provider("skimage_human_mitosis")
-        naming = Naming(
+        naming = SimpleNamespace(
             acquisition_type="overview-scan",
             hash6="abcdef",
             position_label="g00002-p00005",
@@ -532,10 +530,10 @@ class TestMockProvider:
         content. A deterministic mapping is what makes the mock
         tile-stitchable and reproducible across runs."""
         provider = get_provider("skimage_human_mitosis")
-        n_a = Naming(
+        n_a = SimpleNamespace(
             acquisition_type="overview-scan", hash6="abcdef", position_label="g00000-p00000"
         )
-        n_b = Naming(
+        n_b = SimpleNamespace(
             acquisition_type="overview-scan", hash6="abcdef", position_label="g00000-p00001"
         )
 

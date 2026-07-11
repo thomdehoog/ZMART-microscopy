@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from shared.output_layout import LayoutPlan
+from .output_layout import LayoutPlan
 
 
 @dataclass(frozen=True)

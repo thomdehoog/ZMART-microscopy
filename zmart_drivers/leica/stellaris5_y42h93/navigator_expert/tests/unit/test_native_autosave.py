@@ -15,8 +15,7 @@ import tifffile
 from navigator_expert.acquisition import capture, materialize
 from navigator_expert.acquisition import lasx_native_autosave as native
 from navigator_expert.acquisition import save as acquisition
-
-from shared.output_layout import Naming
+from navigator_expert.acquisition.naming import Naming
 
 
 @pytest.fixture

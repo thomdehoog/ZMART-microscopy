@@ -26,6 +26,10 @@ cells you gated.
 python run_webapp.py --analysis-repo C:/code/smart-analysis
 ```
 
+Use `--experiment organoid-screen` to choose the experiment folder name.
+The website workflow adds the experiment hash and organizes every acquisition
+under that folder.
+
 The live command imports the workflow bootstrap in that same process to
 register the Leica adapter, then every operation is performed through the
 public `zmart_controller.Session` surface. The website does not call driver

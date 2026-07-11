@@ -7,24 +7,21 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from shared.output_layout import build_layout
-
-_EXPERIMENT = "target-acquisition"
-
 
 def output_root(handle: Any, save_source_root: Callable[[], Path]) -> Path:
-    """Return the session run root, creating it from native AutoSave when omitted."""
+    """Return the workflow root, discovered beside native AutoSave when omitted."""
     root = handle.connection.get("output_root")
     if root:
-        return Path(root)
+        return Path(root).expanduser().resolve()
     try:
-        layout = build_layout(save_source_root().parent / "zmart", _EXPERIMENT)
+        path = save_source_root().parent / "ZMART-microscopy"
     except Exception as exc:
         raise RuntimeError(
             "output_root is not set and could not be discovered from LAS X native AutoSave"
         ) from exc
-    handle.connection["output_root"] = str(layout.run_dir)
-    return layout.run_dir
+    path.mkdir(parents=True, exist_ok=True)
+    handle.connection["output_root"] = str(path)
+    return path
 
 
 def tile_positions(scan_field: dict | None) -> list[dict]:

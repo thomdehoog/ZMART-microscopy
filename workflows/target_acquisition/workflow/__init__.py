@@ -72,6 +72,7 @@ from ._focus_widget import FocusPicker, pick_focus_points
 from ._geom import overview_pixel_to_frame
 from ._hijack import NonSimulatorFrameError, hijack_records
 from ._mock_provider import get_provider
+from ._output import position_label, prepare_experiment
 from ._overview_widget import OverviewViewer, view_overview
 from ._run_status import print_run_status
 from .discovery import build_overview_inputs, discover_targets, read_overview_geometry
@@ -97,6 +98,8 @@ from .viz import (
 
 __all__ = [
     "connect",
+    "prepare_experiment",
+    "position_label",
     "load_positions",
     "load_analysis_engine",
     "preflight_analysis_engine",

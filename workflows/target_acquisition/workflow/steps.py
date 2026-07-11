@@ -137,14 +137,14 @@ def preflight_analysis_engine(engine: Any) -> None:
 
 
 def with_focus_z(positions: list[dict], focus: Any = None) -> list[dict]:
-    """Attach z to each ``{x, y}`` position: from the focus surface, else its own z, else 0."""
+    """Attach z while preserving vendor location fields used in output labels."""
     placed = []
     for pos in positions:
         if focus is not None:
             z = float(focus.z_at(pos["x"], pos["y"]))
         else:
             z = float(pos.get("z", 0.0))
-        placed.append({"x": pos["x"], "y": pos["y"], "z": z})
+        placed.append({**pos, "x": pos["x"], "y": pos["y"], "z": z})
     return placed
 
 
@@ -157,6 +157,7 @@ def run_overview(
     options: dict | None = None,
     on_record: Any = None,
     cancel: Any = None,
+    output_root: Any = None,
 ) -> list[dict]:
     """Step 5: acquire an overview at each frame position (z from the focus surface).
 
@@ -175,6 +176,7 @@ def run_overview(
         options=options,
         on_record=on_record,
         cancel=cancel,
+        output_root=output_root,
     )
 
 
@@ -216,6 +218,7 @@ def acquire_targets(
     options: dict | None = None,
     on_record: Any = None,
     cancel: Any = None,
+    output_root: Any = None,
 ) -> list[dict]:
     """Step 7: acquire a target at each discovered frame position (z from the focus surface).
 
@@ -233,6 +236,7 @@ def acquire_targets(
         options=options,
         on_record=on_record,
         cancel=cancel,
+        output_root=output_root,
     )
 
 
