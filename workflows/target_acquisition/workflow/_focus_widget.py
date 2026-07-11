@@ -260,11 +260,19 @@ class FocusPicker:
         self._measured_points = points
         self.focus = fit_focus_surface(self.measured)
         self._draw_heatmap()
-        if reused:
-            self.ax.set_title(
-                f"focus surface ({self.focus.model}, {len(points)} pts — "
-                f"{len(fresh)} new, {reused} reused)"
-            )
+        # Name the point that fits worst: one bad autofocus (dust, a
+        # bubble) quietly bends the whole surface, and the residual is how
+        # the operator spots it.
+        from ._focus_surface import worst_residual_um
+
+        worst = worst_residual_um(self.focus)
+        residual_note = (
+            "" if worst is None else f"; worst fit residual {worst[1]:+.1f} µm at point {worst[0]}"
+        )
+        self.ax.set_title(
+            f"focus surface ({self.focus.model}, {len(points)} pts — "
+            f"{len(fresh)} new, {reused} reused{residual_note})"
+        )
         return self.focus
 
     @staticmethod

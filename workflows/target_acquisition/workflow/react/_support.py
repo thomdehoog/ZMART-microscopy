@@ -2,7 +2,7 @@
 
 The React widgets are built on `anywidget <https://anywidget.dev>`_: each
 widget is a small React app running in the browser cell, kept in sync with
-Python through *traits* (shared state that either side can change) and
+Python through *traits* (named values either side can change) and
 *messages* (small one-off packets either side sends). Python streams fresh
 data by sending one message per new tile / point / image pair — the kernel
 flushes those immediately, which is what makes the widgets update in real
@@ -15,21 +15,24 @@ always resends the WHOLE value. Appending tile 25 to a trait list would
 retransmit tiles 1–24 as well — megabytes per update, growing with the
 square of the tile count — and that can stall the very channel the
 operator is watching mid-run. One message per new item keeps the traffic
-proportional to the data. (``workflow/react/PROTOCOL.md`` documents the
-exact traits and messages of every widget, for embedding them outside
-Jupyter later.)
+proportional to the data, and the image pixels ride along as a *binary
+buffer* (raw PNG bytes) rather than base64 text — about a quarter smaller
+on the wire, with no encode/decode work on either side.
+(``workflow/react/PROTOCOL.md`` documents the exact traits and messages of
+every widget, for embedding them outside Jupyter later.)
 
-Images travel as PNG data URLs. The React runtime itself is loaded from
-the esm.sh CDN, so the *browser* needs internet access the first time a
-widget renders (the kernel does not); when it cannot be loaded, the cell
-shows a plain-language note pointing at the offline matplotlib notebook
-instead of staying blank.
+React itself is **vendored**: the official MIT-licensed production builds
+of react and react-dom 18.3.1 ship inside this package (``vendor/``) and
+are evaluated into a private scope in the browser — no CDN, no internet
+requirement, no third-party code fetched into a page whose buttons drive a
+real microscope, and no clash with the notebook front end's own React.
 """
 
 from __future__ import annotations
 
 import base64
 import io
+from pathlib import Path
 from typing import Any
 
 # One hex colour per entry of the matplotlib viewer's CHANNEL_COLORS, in the
@@ -43,6 +46,8 @@ CHANNEL_HEX = (
     "#ff0000",  # red
     "#0000ff",  # blue
 )
+
+_VENDOR = Path(__file__).resolve().parent / "vendor"
 
 
 def require_anywidget() -> None:
@@ -72,8 +77,8 @@ def shrink_to_budget(array: Any, budget_px: int) -> Any:
     return array[::step, ::step] if step > 1 else array
 
 
-def png_data_url(array: Any) -> str:
-    """Encode an image array as a ``data:image/png`` URL for a trait.
+def png_bytes(array: Any) -> bytes:
+    """Encode an image array as raw PNG bytes (for a binary message buffer).
 
     A 2-D array is shown grayscale, stretched over its own min..max (the
     same auto-scaling matplotlib's ``imshow`` applies); a float RGB array
@@ -92,7 +97,17 @@ def png_data_url(array: Any) -> str:
         image = Image.fromarray((np.clip(arr, 0.0, 1.0) * 255.0).astype(np.uint8), mode="RGB")
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
-    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+    return buffer.getvalue()
+
+
+def png_to_data_url(png: bytes) -> str:
+    """Wrap raw PNG bytes as a ``data:image/png`` URL (for snapshot traits)."""
+    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+
+def png_data_url(array: Any) -> str:
+    """Encode an image array straight to a ``data:image/png`` URL."""
+    return png_to_data_url(png_bytes(array))
 
 
 def heatmap_data_url(mesh: Any) -> str:
@@ -107,22 +122,65 @@ def heatmap_data_url(mesh: Any) -> str:
     return png_data_url(rgba[:, :, :3])
 
 
-# JavaScript shared by every widget: React from the CDN (with a visible
-# offline fallback), hooks that bind React state to anywidget traits and
-# streamed messages, and the house style. Concatenated in front of each
-# widget's own code to form its ESM module.
-REACT_PRELUDE = """
-// React comes from the CDN. Loading it dynamically (instead of a static
-// import) means an offline browser gets a readable note in the cell
-// below, not a silently blank widget.
-let React = null, createRoot = null, loadError = null;
-try {
-  React = await import("https://esm.sh/react@18.3.1");
-  ({ createRoot } = await import("https://esm.sh/react-dom@18.3.1/client"));
-} catch (err) {
-  loadError = err;
-}
-const h = React ? React.createElement : null;
+def _vendored(name: str) -> str:
+    return (_VENDOR / name).read_text(encoding="utf-8")
+
+
+def _vendored_react_js() -> str:
+    """The vendored React runtime, evaluated into a private scope.
+
+    Each UMD build runs inside a function whose ``window``/``self``/
+    ``globalThis`` parameters shadow the real page globals with a private
+    object, so React attaches itself THERE — never to the notebook page,
+    which runs its own (different) React. ``.call(scope, ...)`` also pins
+    ``this`` to the same private object, which is what the UMD wrapper
+    actually reads.
+    """
+    shadow = "window, self, globalThis, module, exports, define"
+    call = ".call(__zmartVendor, __zmartVendor, __zmartVendor, __zmartVendor," \
+        " undefined, undefined, undefined);"
+    return (
+        "// Vendored react + react-dom 18.3.1 (MIT, see vendor/LICENSE in the\n"
+        "// Python package). Evaluated into a private scope: no CDN, works\n"
+        "// fully offline, and cannot clash with the page's own React.\n"
+        "//\n"
+        "// The private scope DELEGATES reads of the browser environment to the\n"
+        "// real window (react-dom checks window.document at load time to know\n"
+        "// it is in a browser, and uses timers/rAF), but WRITES — React\n"
+        "// attaching itself as window.React — land on the private object and\n"
+        "// never touch the page, which runs its own, different React.\n"
+        "const __zmartVendor = {};\n"
+        "if (typeof window !== \"undefined\") {\n"
+        "  __zmartVendor.document = window.document;\n"
+        "  __zmartVendor.navigator = window.navigator;\n"
+        "  __zmartVendor.location = window.location;\n"
+        "  __zmartVendor.performance = window.performance;\n"
+        "  for (const fn of [\"addEventListener\", \"removeEventListener\",\n"
+        "                    \"dispatchEvent\", \"requestAnimationFrame\",\n"
+        "                    \"cancelAnimationFrame\", \"setTimeout\",\n"
+        "                    \"clearTimeout\", \"setInterval\", \"clearInterval\"]) {\n"
+        "    if (typeof window[fn] === \"function\") {\n"
+        "      __zmartVendor[fn] = window[fn].bind(window);\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        f"(function({shadow}) {{\n"
+        + _vendored("react.production.min.js")
+        + f"\n}}){call}\n"
+        f"(function({shadow}) {{\n"
+        + _vendored("react-dom.production.min.js")
+        + f"\n}}){call}\n"
+        "const React = __zmartVendor.React;\n"
+        "const createRoot = (el) => __zmartVendor.ReactDOM.createRoot(el);\n"
+    )
+
+
+# JavaScript shared by every widget: the vendored React runtime, hooks that
+# bind React state to anywidget traits and streamed messages, and the house
+# style. Concatenated in front of each widget's own code to form its ESM
+# module.
+REACT_PRELUDE = _vendored_react_js() + """
+const h = React.createElement;
 
 // Bind a React state to an anywidget trait (either side can change it).
 function useTrait(model, name) {
@@ -138,15 +196,31 @@ function useTrait(model, name) {
 // Streamed lists: the trait holds the full snapshot (refreshed when we ask
 // for a "sync"); one custom message per NEW item keeps mid-run traffic
 // proportional to the data instead of resending everything already shown.
+// Image pixels arrive as binary buffers (raw PNG); the entry's
+// "buffer_keys" say which fields they fill, via object URLs we revoke as
+// soon as a snapshot replaces them.
 function useStream(model, traitName, messageType) {
   const [items, setItems] = React.useState(model.get(traitName) || []);
+  const urls = React.useRef([]);
   React.useEffect(() => {
-    const onTrait = () => setItems(model.get(traitName) || []);
-    const onMsg = (msg) => {
+    const revokeAll = () => {
+      urls.current.forEach((u) => URL.revokeObjectURL(u));
+      urls.current = [];
+    };
+    const onTrait = () => { revokeAll(); setItems(model.get(traitName) || []); };
+    const onMsg = (msg, buffers) => {
       if (!msg || msg.type !== messageType) return;
+      const entry = { ...msg.entry };
+      (msg.buffer_keys || []).forEach((key, k) => {
+        const view = buffers && buffers[k];
+        if (!view) return;
+        const url = URL.createObjectURL(new Blob([view], { type: "image/png" }));
+        urls.current.push(url);
+        entry[key] = url;
+      });
       setItems((prev) => {
         const next = prev.slice();
-        next[msg.index] = msg.entry;
+        next[msg.index] = entry;
         return next;
       });
     };
@@ -156,6 +230,7 @@ function useStream(model, traitName, messageType) {
     return () => {
       model.off(`change:${traitName}`, onTrait);
       model.off("msg:custom", onMsg);
+      revokeAll();
     };
   }, [model, traitName, messageType]);
   // Messages can arrive before the snapshot fills the gaps; skip the holes.
@@ -193,6 +268,7 @@ function useWheel(ref, handler) {
 const T = {
   bg: "#0f172a", panel: "#1e293b", edge: "#334155", ink: "#e2e8f0",
   dim: "#94a3b8", accent: "#38bdf8", good: "#4ade80", bad: "#f87171",
+  warn: "#fbbf24",
 };
 const card = {
   background: T.panel, border: `1px solid ${T.edge}`, borderRadius: 12,
@@ -215,21 +291,6 @@ const pill = (text) => h("span", {style: {
 function mount(App) {
   return {
     render({ model, el }) {
-      if (!React) {
-        el.innerHTML = "";
-        const note = document.createElement("div");
-        note.style.cssText = "padding:12px;border:1px solid #b45309;" +
-          "border-radius:10px;background:#78350f;color:#fef3c7;" +
-          "font:13px system-ui;max-width:640px";
-        note.textContent =
-          "This widget could not load React from the internet (esm.sh). " +
-          "The React notebook needs internet access IN THE BROWSER the " +
-          "first time a widget renders. Working offline? Open " +
-          "zmart_microscopy_v4.ipynb instead - the matplotlib edition of " +
-          "the exact same workflow." + (loadError ? " (" + loadError + ")" : "");
-        el.appendChild(note);
-        return () => {};
-      }
       const root = createRoot(el);
       root.render(h(App, { model }));
       return () => root.unmount();

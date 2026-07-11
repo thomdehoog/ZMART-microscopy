@@ -272,3 +272,24 @@ def test_failed_run_keeps_the_rows_it_honestly_acquired(tmp_path, overview):
     # but nothing is committed for the summary to report as success.
     assert len(gallery._gallery_axes) == 2
     assert gallery.picked == [] and gallery.records == []
+
+
+def test_verdicts_record_curation(tmp_path, overview):
+    gallery = acquire_gallery(_StubSession(tmp_path), _targets(3), [overview], seed=2)
+    gallery.acquire(2)
+    assert gallery.verdicts == [None, None]
+    gallery.set_verdict(0, "good")
+    gallery.set_verdict(1, "bad")
+    with pytest.raises(ValueError, match="no gallery row"):
+        gallery.set_verdict(9, "good")
+    with pytest.raises(ValueError, match="good"):
+        gallery.set_verdict(0, "sideways")
+
+    import json
+
+    path = gallery.save_curation(tmp_path / "run")
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert [row["verdict"] for row in saved] == ["good", "bad"]
+    # A new run starts a fresh record.
+    gallery.acquire(1)
+    assert gallery.verdicts == [None]

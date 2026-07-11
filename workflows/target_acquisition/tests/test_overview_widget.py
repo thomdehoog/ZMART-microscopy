@@ -234,3 +234,52 @@ def test_adjusting_channels_before_any_tile_is_a_clear_error():
     viewer = view_overview([])
     with pytest.raises(RuntimeError, match="no tiles loaded yet"):
         viewer.set_channel(0, visible=False)
+
+
+def test_targets_overlay_and_recolour_from_the_gate(tmp_path):
+    """Discovered cells draw on the map, coloured by the explorer's gate."""
+    from workflow._discovery_widget import explore_targets
+
+    targets = [
+        {
+            "x": float(i),
+            "y": 0.0,
+            "source": {"naming_p": 0, "centroid_col_row_px": (5.0, 5.0), "area_px": 10.0 * i},
+        }
+        for i in range(4)
+    ]
+    explorer = explore_targets(targets)
+    viewer = view_overview([])
+    viewer.add_acquisition(
+        1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome_tile(tmp_path, "t.ome.tif"))]}
+    )
+    viewer.show_targets(targets, explorer)
+    assert viewer._targets_artist is not None
+    assert len(viewer._targets_artist.get_offsets()) == 4
+
+    explorer.set_ranges(x_range=(2.0, 3.0))
+    viewer.refresh_targets()  # recolour from the edited gate
+    colours = viewer._targets_artist.get_edgecolors()
+    assert len({tuple(c) for c in colours}) == 2  # gated blue vs ungated grey
+
+    viewer.show_targets(None)
+    assert viewer._targets_artist is None
+
+
+def test_display_settings_round_trip(tmp_path):
+    viewer = view_overview([])
+    viewer.add_acquisition(
+        1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome_tile(tmp_path, "t.ome.tif"))]}
+    )
+    viewer.set_channel(0, color="red", vmin=3.0, vmax=90.0)
+    viewer.save_display(tmp_path / "display.json")
+
+    again = view_overview([])
+    again.add_acquisition(
+        2, {"x": 0.0, "y": 0.0}, {"images": [str(_ome_tile(tmp_path, "t2.ome.tif"))]}
+    )
+    again.load_display(tmp_path / "display.json")
+    assert again.channels[0]["color"] == "red"
+    assert again.channels[0]["range"] == (3.0, 90.0)
+    full_lo, full_hi = again.channels[0]["full_range"]
+    assert full_lo <= 3.0 and full_hi >= 90.0  # the slider can reach the window

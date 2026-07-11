@@ -32,7 +32,14 @@ Re-exports:
   hover cell crops), ``acquire_gallery`` / ``AcquisitionGallery`` (random
   pick from the gate, then same-scale overview/target image pairs);
 - the shared acquire primitive (``workflow._capture_run``):
-  ``capture_positions``;
+  ``capture_positions`` and ``RunCancelled`` (the clean between-sites stop
+  raised when a run's ``cancel`` check answers True);
+- focus-fit quality (``workflow._focus_surface``): ``residuals_um`` /
+  ``worst_residual_um`` — how far each measured point sits from the fitted
+  surface, the number that unmasks one bad autofocus bending the fit;
+- the run checklist (``workflow._run_status``): ``print_run_status`` —
+  pass ``globals()`` and see at a glance which steps are done, still to
+  do, or worth a second look (never touches the microscope);
 - the pixel->frame geometry (``workflow._geom``): ``overview_pixel_to_frame``;
 - run summary + plots (``workflow.viz``): ``summarize_run``, ``write_summary``,
   ``plot_focus_surface``, ``plot_frame_layout`` (plots lazy-import matplotlib);
@@ -57,15 +64,16 @@ from ._calibration_check import (
     finish_calibration_check,
     start_calibration_check,
 )
-from ._capture_run import capture_positions
+from ._capture_run import RunCancelled, capture_positions
 from ._discovery_widget import TargetExplorer, explore_targets
 from ._focus_run import measure_focus
-from ._focus_surface import FocusSurface, fit_focus_surface
+from ._focus_surface import FocusSurface, fit_focus_surface, residuals_um, worst_residual_um
 from ._focus_widget import FocusPicker, pick_focus_points
 from ._geom import overview_pixel_to_frame
 from ._hijack import NonSimulatorFrameError, hijack_records
 from ._mock_provider import get_provider
 from ._overview_widget import OverviewViewer, view_overview
+from ._run_status import print_run_status
 from .discovery import build_overview_inputs, discover_targets, read_overview_geometry
 from .steps import (
     acquire_targets,
@@ -114,6 +122,10 @@ __all__ = [
     "acquire_targets",
     "hijack_if_simulating",
     "capture_positions",
+    "RunCancelled",
+    "residuals_um",
+    "worst_residual_um",
+    "print_run_status",
     "overview_pixel_to_frame",
     "summarize_run",
     "write_summary",

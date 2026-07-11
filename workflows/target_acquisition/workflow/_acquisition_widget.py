@@ -88,6 +88,9 @@ class AcquisitionGallery:
         #: Set by :meth:`acquire`: the sampled targets and the driver records.
         self.picked: list[dict] = []
         self.records: list[dict] = []
+        #: The operator's per-pair judgement ("good" / "bad" / None) — set
+        #: with :meth:`set_verdict`, written by :meth:`save_curation`.
+        self.verdicts: list[Any] = []
 
         self.fig = plt.figure(figsize=(9, 7))
         self._count_ax = self.fig.add_axes([0.18, 0.92, 0.14, 0.05])
@@ -135,6 +138,7 @@ class AcquisitionGallery:
         # describe the OLD run while the figure shows the new, failed one.
         self.picked = []
         self.records = []
+        self.verdicts = []
         self._status.set_text(f"acquiring {len(picked)} target(s)...")
 
         def _show_fresh_pair(index: int, _position: dict, record: dict) -> None:
@@ -169,10 +173,49 @@ class AcquisitionGallery:
             self._last_run_ended = time.monotonic()
         self.picked = picked
         self.records = records
+        self.verdicts = [None] * len(records)
         # One final pass: after_acquire (the simulation hijack) may have
         # rewritten the saved images, so the reviewed pairs must be re-read.
         self._draw_gallery()
         return records
+
+    def set_verdict(self, index: int, value: str | None) -> None:
+        """Record the operator's judgement of one pair: "good", "bad", or None.
+
+        This is the run's QC record — :meth:`save_curation` writes it next
+        to the images. (In this matplotlib edition the verdicts are set in
+        code; the React gallery has ✓/✗ buttons on each row.)
+        """
+        if value not in ("good", "bad", None):
+            raise ValueError('a verdict is "good", "bad", or None')
+        if not 0 <= int(index) < len(self.records):
+            raise ValueError(f"no gallery row {index} to judge")
+        self.verdicts[int(index)] = value
+
+    def save_curation(self, output_root: Any) -> Any:
+        """Write the verdicts to ``curation.json`` in the run folder.
+
+        One entry per acquired pair: the target's position label and the
+        verdict ("good"/"bad"/null). Returns the path written.
+        """
+        import json
+        from pathlib import Path
+
+        root = Path(output_root)
+        root.mkdir(parents=True, exist_ok=True)
+        path = root / "curation.json"
+        rows = [
+            {
+                "index": i,
+                "position_label": record.get("position_label"),
+                "verdict": verdict,
+            }
+            for i, (record, verdict) in enumerate(
+                zip(self.records, self.verdicts, strict=True)
+            )
+        ]
+        path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        return path
 
     def _on_acquire_clicked(self, _event: Any) -> None:
         # A click that queued up while the previous acquisition was running

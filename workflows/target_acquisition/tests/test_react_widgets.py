@@ -64,15 +64,35 @@ def _targets(n):
     ]
 
 
-def test_every_widget_ships_a_react_module():
+def test_every_widget_ships_the_vendored_react_runtime():
+    """React is vendored, not fetched: the notebooks work fully offline.
+
+    Every widget's module must carry the embedded MIT-licensed builds and
+    must NOT reach for a CDN — third-party code has no place in a page
+    whose buttons drive a real microscope.
+    """
     for cls in (
         wreact.OverviewViewerReact,
         wreact.FocusPickerReact,
         wreact.TargetExplorerReact,
         wreact.AcquisitionGalleryReact,
+        wreact.RunStatusReact,
+        wreact.CalibrationReportReact,
     ):
-        assert "esm.sh/react" in cls._esm
+        assert "react.production.min.js" in cls._esm  # the vendored build's header
+        assert "react-dom.production.min.js" in cls._esm
+        assert "createRoot" in cls._esm
+        assert "esm.sh" not in cls._esm  # no CDN fetch anywhere
         assert "export default" in cls._esm
+
+
+def test_vendored_react_is_the_official_mit_build():
+    from pathlib import Path
+
+    vendor = Path(wreact.__file__).parent / "vendor"
+    assert (vendor / "LICENSE").exists()
+    react_js = (vendor / "react.production.min.js").read_text(encoding="utf-8")
+    assert "@license React" in react_js and "MIT license" in react_js
 
 
 # --- overview viewer ---------------------------------------------------------
@@ -557,3 +577,196 @@ def test_react_tiles_wear_the_heatmap_colours():
     picker._last_run_ended = None
     picker.points = picker.points + [{"x": 7.0, "y": 7.0}]
     assert all(q["fill"] == "" for q in picker.squares)
+
+
+# --- expansion wave 2: buffers, marks, cancel, observer, curation, presets ---
+
+
+def test_stream_messages_carry_pixels_as_binary_buffers(tmp_path):
+    """Image pixels ride as raw PNG buffers, not base64 text in the JSON."""
+    viewer = wreact.view_overview()
+    sent = []
+    viewer.send = lambda content, buffers=None, **_kw: sent.append((content, buffers))
+    viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome(tmp_path / "t.ome.tif"))]})
+    content, buffers = sent[0]
+    assert content["buffer_keys"] == ["src"]
+    assert content["entry"]["src"] == ""  # no base64 in the JSON part
+    assert buffers[0][:8] == b"\x89PNG\r\n\x1a\n"  # a real PNG in the buffer
+    viewer.push_snapshot()  # ...while the snapshot trait holds data URLs
+    assert viewer.tiles[0]["src"].startswith("data:image/png;base64,")
+
+
+def test_targets_overlay_on_the_map_and_follow_the_gate(tmp_path):
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    viewer = wreact.view_overview()
+    viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome(tmp_path / "t.ome.tif"))]})
+    viewer.show_targets(_targets(4), explorer)
+    assert [m["gated"] for m in viewer.marks] == [True] * 4
+    explorer.gate = {"x": [2.0, 3.0]}  # the operator edits the gate...
+    assert [m["gated"] for m in viewer.marks] == [False, False, True, True]  # ...map recolours
+    viewer.show_targets(None)
+    assert viewer.marks == []
+
+
+def test_mark_hover_serves_the_cell_crop(tmp_path):
+    viewer = wreact.view_overview()
+    overview = _overview(tmp_path)
+    viewer.add_tile(overview)
+    viewer.show_targets(_targets(2))
+    viewer.handle_message({"type": "mark", "index": 1})
+    assert viewer.mark_hover["index"] == 1
+    assert viewer.mark_hover["src"].startswith("data:image/png")
+    for bogus in (99, -1, "nope", 1e999):
+        viewer.handle_message({"type": "mark", "index": bogus})
+    assert viewer.mark_hover["index"] == 1  # bogus indices change nothing
+
+
+def test_cancel_stops_a_gallery_run_between_targets(tmp_path):
+    """A requested cancel ends the run cleanly at a site boundary."""
+
+    class _CancelAfterFirst(_AcqSession):
+        def __init__(self, image_dir, gallery_ref):
+            super().__init__(image_dir)
+            self.gallery_ref = gallery_ref
+
+        def acquire(self, **kwargs):
+            record = super().acquire(**kwargs)
+            self.gallery_ref.append(record)  # signal: first acquisition done
+            return record
+
+    acquired = []
+    session = _CancelAfterFirst(tmp_path, acquired)
+    gallery = wreact.acquire_gallery(session, _targets(3), [_overview(tmp_path)])
+
+    real_send = gallery.send
+    def _cancel_after_first(content, buffers=None, **kw):
+        if content.get("type") == "row" and content["index"] == 0:
+            gallery.request_cancel()  # as if the Cancel click arrived now
+    gallery.send = _cancel_after_first
+
+    gallery.handle_message({"type": "acquire", "count": "3"})
+    assert "cancelled" in gallery.status  # shown via the failed: wrapper
+    assert session.count == 1  # nothing acquired after the request
+    assert gallery.picked == [] and gallery.records == []  # nothing committed
+    gallery.send = real_send
+
+
+def test_cancel_without_a_run_says_so(tmp_path):
+    gallery = wreact.acquire_gallery(_AcqSession(tmp_path), _targets(2), [_overview(tmp_path)])
+    gallery._route_message(None, {"type": "cancel"}, None)
+    assert "no run is in progress" in gallery.status
+
+
+def test_read_only_view_refuses_hardware_but_still_watches(tmp_path):
+    session = _AcqSession(tmp_path)
+    gallery = wreact.acquire_gallery(session, _targets(2), [_overview(tmp_path)])
+    gallery.make_read_only()
+    gallery._route_message(None, {"type": "acquire", "count": "1"}, None)
+    assert session.count == 0
+    assert "read-only" in gallery.status
+    with pytest.raises(RuntimeError, match="read-only"):
+        gallery.acquire(1)  # the scripted path is locked too
+    gallery._route_message(None, {"type": "sync"}, None)  # watching still works
+    assert gallery.rows == []
+
+
+def test_gallery_verdicts_record_curation(tmp_path):
+    session = _AcqSession(tmp_path)
+    gallery = wreact.acquire_gallery(session, _targets(3), [_overview(tmp_path)], seed=1)
+    gallery.acquire(2)
+    assert gallery.verdicts == [None, None]
+    gallery.handle_message({"type": "verdict", "index": 0, "value": "good"})
+    gallery.handle_message({"type": "verdict", "index": 1, "value": "bad"})
+    gallery.handle_message({"type": "verdict", "index": 99, "value": "good"})  # ignored
+    gallery.handle_message({"type": "verdict", "index": 0, "value": "sideways"})  # ignored
+    assert gallery.verdicts == ["good", "bad"]
+
+    import json
+    path = gallery.save_curation(tmp_path / "run")
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert [r["verdict"] for r in saved] == ["good", "bad"]
+    assert all(r["position_label"] for r in saved)
+
+
+def test_gate_presets_round_trip(tmp_path):
+    explorer = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    explorer.x_feature = "area_px"
+    explorer.gate = {"x": [15.0, 35.0]}  # thresholds on the area feature
+    explorer.save_gate(tmp_path / "gate.json")
+
+    again = wreact.explore_targets(_targets(4), [_overview(tmp_path)])
+    again.load_gate(tmp_path / "gate.json")
+    assert again.x_feature == "area_px"
+    assert [t["x"] for t in again.gated] == [1.0, 2.0]  # areas 20 and 30 pass
+
+    few = wreact.explore_targets(
+        [{"x": 1.0, "y": 2.0, "source": {"naming_p": 0, "centroid_col_row_px": (1.0, 1.0)}}]
+    )
+    with pytest.raises(ValueError, match="do not have"):
+        few.load_gate(tmp_path / "gate.json")  # saved axes may not exist here
+
+
+def test_explorer_histograms_follow_the_axes(tmp_path):
+    explorer = wreact.explore_targets(_targets(6), [_overview(tmp_path)])
+    assert len(explorer.hist["x"]) == 20 and max(explorer.hist["x"]) == 1.0
+    before = list(explorer.hist["x"])
+    explorer.x_feature = "y"  # three repeated values, a different shape
+    assert explorer.hist["x"] != before  # a new feature, a new distribution
+
+
+def test_display_settings_round_trip(tmp_path):
+    viewer = wreact.view_overview()
+    viewer.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome(tmp_path / "t.ome.tif"))]})
+    viewer.channels = [dict(viewer.channels[0], color="#ff0000", lo=5.0, hi=99.0)]
+    viewer.save_display(tmp_path / "display.json")
+
+    again = wreact.view_overview()
+    again.add_acquisition(1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome(tmp_path / "t2.ome.tif"))]})
+    again.load_display(tmp_path / "display.json")
+    assert again.channels[0]["color"] == "#ff0000"
+    assert (again.channels[0]["lo"], again.channels[0]["hi"]) == (5.0, 99.0)
+
+
+def test_focus_status_names_the_worst_fit_residual():
+    picker = wreact.pick_focus_points(_FocusSession(), seed=False)
+    picker.points = [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}, {"x": 0.0, "y": 10.0}]
+    picker.handle_message({"type": "measure"})
+    assert "largest fit residual" in picker.status
+    assert all("residual_um" in m for m in picker.measured)
+
+
+def test_run_status_reports_the_steps():
+    status = wreact.run_status()
+    status.refresh({})  # a fresh notebook: everything still to do
+    assert all(r["state"] == "todo" for r in status.rows)
+    ns = {
+        "zmart_controller": object(),
+        "engine": object(),
+        "ROOT": "/tmp/run",
+        "overview_state": {
+            "changeable": {"job": "Over"},
+            "observed": {"limits": {"source": "machine", "is_fallback": False}},
+        },
+        "target_state": {"changeable": {"job": "Over"}},  # same job: worth a look
+        "positions": [1, 2],
+    }
+    status.refresh(ns)
+    by_label = {r["label"]: r for r in status.rows}
+    assert by_label["Microscope"]["state"] == "ok"
+    assert by_label["Overview job"]["state"] == "ok"
+    assert by_label["Target job"]["state"] == "warn"  # same as the overview job
+    assert by_label["Focus surface"]["state"] == "todo"
+
+
+def test_calibration_report_panel_wraps_the_check_report():
+    report = {
+        "n_sites": 4, "n_trusted": 4, "radius_um": 100.0,
+        "mean_dx_um": 3.0, "mean_dy_um": -2.0, "mean_offset_um": 3.6,
+        "stage_scatter_rms_um": 0.2, "max_offset_um": 3.9,
+        "sites": [
+            {"x": 100.0, "y": 0.0, "dx_um": 3.0, "dy_um": -2.0, "trusted": True, "confidence": 4}
+        ],
+    }
+    panel = wreact.calibration_report(report, acceptable_um=2.0)
+    assert panel.report["mean_dx_um"] == 3.0
+    assert panel.acceptable_um == 2.0

@@ -16,7 +16,7 @@ Pick cells from a low-magnification overview, re-image each at the high-magnific
 
 Open `zmart_microscopy_v4.ipynb`. The notebook is the operator UI; implementation lives in `workflow/`. All four review widgets update live while the microscope works — tiles, focus points, and image pairs appear the moment they exist.
 
-`zmart_microscopy_v4_react.ipynb` is the same run with the widgets as React apps inside the cells (via `anywidget`): the browser UI streams in real time and its buttons drive the kernel, which drives the hardware through the same gated paths. It needs the `anywidget` package and internet access in the browser (React loads from a CDN); the matplotlib notebook works fully offline.
+`zmart_microscopy_v4_react.ipynb` is the same run with the widgets as React apps inside the cells (via `anywidget`): the browser UI streams in real time and its buttons drive the kernel, which drives the hardware through the same gated paths. It needs only the `anywidget` package — React itself ships inside the repository (the official MIT-licensed build), so both notebooks work fully offline.
 
 The setup cell expects a checkout of
 [`smart-analysis`](https://github.com/thomdehoog/smart-analysis) on its `v4-engine`
