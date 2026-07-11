@@ -32,4 +32,4 @@ def _reset_active_session():
     yield
     import zmart_controller
 
-    zmart_controller._active = None
+    zmart_controller.disconnect()

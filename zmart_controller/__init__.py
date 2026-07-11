@@ -66,7 +66,7 @@ def set_instrument(instrument) -> Session:
     # so a failed set_instrument never disconnects a working session. Track the
     # new session before the teardown, so it never leaks if teardown raises.
     previous, _active = _active, new
-    if previous is not None and previous is not new:
+    if previous is not None:
         previous.disconnect()
     return new
 
@@ -86,7 +86,8 @@ def disconnect() -> None:
 
 def __getattr__(name: str):
     # Delegate unknown attributes (acquire, set_xyz, …) to the active microscope.
-    if _active is not None and hasattr(_active, name):
+    # Underscore names are never delegated: the session's internals stay private.
+    if _active is not None and not name.startswith("_") and hasattr(_active, name):
         return getattr(_active, name)
     if _active is None and not name.startswith("_"):
         raise AttributeError(

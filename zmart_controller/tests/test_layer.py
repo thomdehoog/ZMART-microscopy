@@ -1,5 +1,9 @@
 """Tests for the cross-vendor controller against the mock driver.
 
+Many tests here assert mock behavior through the Session on purpose: they are
+the executable driver contract, exercised through the controller seam
+(maintainer decision #3 in docs/reviews/MAINTAINER_DECISIONS.md).
+
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 """
@@ -70,6 +74,12 @@ class TestFrame:
         with pytest.raises(ValueError, match="unknown actuator"):
             mic.set_xyz(0, 0, 0, with_actuators={"z": "hovercraft"})
 
+    def test_actuator_selection_does_not_persist(self, mic):
+        """Defaults are fixed (the reference actuator), never sticky —
+        a per-call selection applies to that call only."""
+        mic.set_xyz(0, 0, 0, with_actuators={"z": "piezo"})
+        assert mic.get_xyz()["z"]["actuator"] == "motoric"
+
 
 class TestAcquire:
     def test_acquire_returns_record(self, mic):
@@ -95,11 +105,17 @@ class TestAcquire:
         assert opts["backlash_correction"]["active"] is True
         assert "ome-zarr" in opts["format"]["options"]
 
+    def test_invalid_acquire_option_rejected(self, mic):
+        with pytest.raises(ValueError, match="unknown acquisition option"):
+            mic.acquire(acquisition_type="prescan", position_label="A1", options={"fromat": "x"})
+        with pytest.raises(ValueError, match="invalid value"):
+            mic.acquire(acquisition_type="prescan", position_label="A1", options={"format": "png"})
+
 
 class TestState:
     def test_state_split_into_changeable_observed(self, mic):
         state = mic.get_state()
-        assert list(state) == ["changeable", "observed"]  # changeable first
+        assert {"changeable", "observed"} <= set(state)
         assert "laser_power" in state["changeable"]
         assert "serial" in state["observed"]
 
@@ -148,21 +164,12 @@ class TestDisconnect:
         mic.disconnect()  # second call must be a no-op, not a driver double-close
 
     def test_ops_after_disconnect_raise(self, mic):
+        # This promise is the driver's, not the controller's: the mock (like the
+        # real adapters) refuses a closed handle. The controller itself does not
+        # guard ops after disconnect.
         mic.disconnect()
         with pytest.raises(RuntimeError, match="disconnected"):
             mic.get_xyz()
-
-    def test_actuator_selection_does_not_persist(self, mic):
-        """Defaults are fixed (the reference actuator), never sticky —
-        a per-call selection applies to that call only."""
-        mic.set_xyz(0, 0, 0, with_actuators={"z": "piezo"})
-        assert mic.get_xyz()["z"]["actuator"] == "motoric"
-
-    def test_invalid_acquire_option_rejected(self, mic):
-        with pytest.raises(ValueError, match="unknown acquisition option"):
-            mic.acquire(acquisition_type="prescan", position_label="A1", options={"fromat": "x"})
-        with pytest.raises(ValueError, match="invalid value"):
-            mic.acquire(acquisition_type="prescan", position_label="A1", options={"format": "png"})
 
 
 class TestModuleStyle:

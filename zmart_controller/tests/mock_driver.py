@@ -27,7 +27,7 @@ _ACTUATORS: dict[str, list[str]] = {
 }
 
 # Fixed defaults for axes omitted from ``with_actuators`` (the reference
-# actuator per axis) — never sticky: a previous call's choice is not state.
+# actuator per axis); see _resolve_actuators for the never-sticky rule.
 _DEFAULT_ACTUATORS: dict[str, str] = {"x": "motoric", "y": "motoric", "z": "motoric"}
 
 
@@ -177,9 +177,8 @@ def set_xyz(
 ) -> dict:
     """Move to an absolute target (um, relative to origin); return a move record.
 
-    The chosen actuators realize this move only — the selection is never
-    remembered (omitted axes always default to the reference actuator).
-    Mapping user coordinates to the raw position via the origin is the driver's
+    Actuator defaults resolve per call, see :func:`_resolve_actuators`. Mapping
+    user coordinates to the raw position via the origin is the driver's
     arithmetic, not the controller's.
     """
     _require_open(handle)
@@ -202,10 +201,14 @@ def acquire(
     _require_open(handle)
     options = _with_defaults(handle, options)
     settle = "backlash-corrected" if options["backlash_correction"] else "direct"
+    filename = f"{position_label}.{options['format'].split('-')[-1]}"
     record = {
         "acquisition_type": acquisition_type,
         "position_label": position_label,
-        "filename": f"{position_label}.{options['format'].split('-')[-1]}",
+        "filename": filename,
+        # Cross-driver convention: when an acquire saves files, the record's
+        # "images" list carries the saved paths (this is what workflows read).
+        "images": [filename],
         "format": options["format"],
         "procedure": options["procedure"],
         "settle": settle,
@@ -230,9 +233,7 @@ def get_state(handle: MockHandle) -> dict:
 def set_state(handle: MockHandle, state: dict) -> dict:
     """Apply the changeable settings; report what stuck.
 
-    ``observed`` is a report, never an instruction — it is not read here
-    (operator decision: the identity gate returns only if the changeable
-    part ever grows beyond low-risk settings).
+    ``observed`` is a report, never an instruction — it is not read here.
     """
     _require_open(handle)
     changeable = state.get("changeable", {})
