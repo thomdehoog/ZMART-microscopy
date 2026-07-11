@@ -52,3 +52,8 @@ dependencies:
   - ipython>=8
   - ipykernel
   - ruff>=0.6
+  # The notebook end-to-end tests (and the thin-notebook guard tests) read
+  # and execute the v4 notebooks; without these two the tests silently skip
+  # and the notebooks go unchecked.
+  - nbformat>=5.9
+  - nbclient>=0.9
