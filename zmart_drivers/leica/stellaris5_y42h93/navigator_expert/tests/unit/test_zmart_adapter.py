@@ -999,7 +999,7 @@ class TestObjectiveCompensation(unittest.TestCase):
 
     Uses the EXISTING calibration translation totals (no schema change,
     operator decision 2026-07-02); the driver assumes x/y apply to the motoric
-    stage and z applies in focus space.
+    stage and objective-translation z applies through z-wide.
     """
 
     def setUp(self):
@@ -1013,6 +1013,8 @@ class TestObjectiveCompensation(unittest.TestCase):
             origin=_origin(
                 x_um=1000.0,
                 y_um=2000.0,
+                z_wide_um=30.0,
+                z_galvo_um=0.0,
                 z_focus_um=30.0,
                 objective={"name": "10x", "slotIndex": 1},
             ),
@@ -1030,14 +1032,14 @@ class TestObjectiveCompensation(unittest.TestCase):
 
     def test_cross_objective_move_targets_include_translation(self):
         h = self._cross_handle()
-        moves = {}
+        moves = {"z": []}
 
         def fake_xy(client, x_um, y_um, **kwargs):
             moves["xy"] = (x_um, y_um)
             return {"success": True, "confirmed": True}
 
         def fake_z(client, job, z, unit="um", z_mode="galvo", **kwargs):
-            moves["z"] = (z, z_mode)
+            moves["z"].append((z, z_mode))
             return {"success": True, "confirmed": True}
 
         patches = _patch_position(z_wide_um=40.0, z_galvo_um=0.0, slot=2)
@@ -1051,9 +1053,64 @@ class TestObjectiveCompensation(unittest.TestCase):
         ):
             record = adapter.set_xyz(h, 10.0, 10.0, 5.0, with_actuators={"z": "z-galvo"})
         self.assertEqual(moves["xy"], (1110.0, 2060.0))  # ref + F + ΔT
-        # focus target = 30 + 5 + 10 = 45; galvo = 45 − z_wide(40) = 5
-        self.assertEqual(moves["z"], (5.0, "galvo"))
+        # ΔT.z=10 is pinned absolutely on z-wide (30+10), while the
+        # ordinary requested frame z=5 is realized by z-galvo (0+5).
+        self.assertEqual(moves["z"], [(40.0, "zwide"), (5.0, "galvo")])
         self.assertEqual(record["objective_translation_um"], [100.0, 50.0, 10.0])
+        self.assertEqual(record["hardware_targets"]["z_wide_um"], 40.0)
+        self.assertEqual(record["hardware_targets"]["z_galvo_um"], 5.0)
+
+    def test_cross_objective_galvo_moves_do_not_accumulate_translation_on_zwide(self):
+        h = self._cross_handle()
+        moves = []
+
+        def fake_z(client, job, z, unit="um", z_mode="galvo", **kwargs):
+            moves.append((z, z_mode))
+            return {"success": True, "confirmed": True}
+
+        patches = _patch_position(z_wide_um=40.0, z_galvo_um=0.0, slot=2)
+        with (
+            patch.object(
+                adapter._motion,
+                "move_xy_with_backlash",
+                return_value={"success": True, "confirmed": True},
+            ),
+            patch.object(adapter._commands, "move_z", fake_z),
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
+            adapter.set_xyz(h, 0.0, 0.0, 4.0, with_actuators={"z": "z-galvo"})
+            adapter.set_xyz(h, 1.0, 1.0, 4.0, with_actuators={"z": "z-galvo"})
+
+        assert moves == [
+            (40.0, "zwide"),
+            (4.0, "galvo"),
+            (40.0, "zwide"),
+            (4.0, "galvo"),
+        ]
+
+    def test_cross_objective_zwide_translation_is_preflighted_before_any_motion(self):
+        h = self._cross_handle()
+        install_permissive_limits(
+            h.client,
+            z_wide_um={"min": 0.0, "max": 35.0},
+            z_galvo_um={"min": -200.0, "max": 200.0},
+        )
+        patches = _patch_position(z_wide_um=40.0, z_galvo_um=0.0, slot=2)
+        with (
+            patch.object(adapter._motion, "move_xy_with_backlash") as xy,
+            patch.object(adapter._commands, "move_z") as move_z,
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            self.assertRaisesRegex(RuntimeError, "z_wide_um"),
+        ):
+            adapter.set_xyz(h, 0.0, 0.0, 4.0, with_actuators={"z": "z-galvo"})
+        xy.assert_not_called()
+        move_z.assert_not_called()
 
     def test_round_trip_property_across_objectives(self):
         """get_xyz(set_xyz(F)) == F — commanded hardware read back through the frame."""
@@ -1147,6 +1204,57 @@ class TestObjectiveCompensation(unittest.TestCase):
                 adapter.set_xyz(h, 10.0, 10.0, 300.0, with_actuators={"z": "z-galvo"})
         xy.assert_not_called()
         mz.assert_not_called()
+
+
+class TestDriverSetupReadiness(unittest.TestCase):
+    def test_ready_requires_measured_orientation_loaded_calibration_and_active_slot(self):
+        h = _handle(origin=_origin(objective={"slotIndex": 1, "name": "10x"}))
+        adapter._session_state.install(
+            h.client,
+            adapter._session_state.SessionConfig(
+                orientation=adapter._orientation.Orientation(rotate_deg=0),
+                translations={1: (0.0, 0.0, 0.0), 2: (1.0, 2.0, 3.0)},
+                calibration_name="water_lens_setup",
+                orientation_info={"loaded": True, "measured": True, "rotate_deg": 0},
+                calibration_info={
+                    "loaded": True,
+                    "name": "water_lens_setup",
+                    "slots": [1, 2],
+                },
+            ),
+        )
+        self.addCleanup(adapter._session_state.uninstall, h.client)
+
+        ready = adapter._setup_readiness(h, {"slotIndex": 2, "name": "20x"})
+        self.assertTrue(ready["ready"])
+        self.assertEqual(ready["issues"], [])
+
+        missing = adapter._setup_readiness(h, {"slotIndex": 3, "name": "40x"})
+        self.assertFalse(missing["ready"])
+        self.assertIn("slot 3", missing["issues"][0])
+
+        h.origin["objective"] = {"slotIndex": 4, "name": "uncalibrated"}
+        bad_origin = adapter._setup_readiness(h, {"slotIndex": 2, "name": "20x"})
+        self.assertFalse(bad_origin["ready"])
+        self.assertIn("run-origin objective slot 4", bad_origin["issues"][0])
+
+    def test_placeholder_orientation_is_not_ready_even_when_rotation_is_zero(self):
+        h = _handle(origin=_origin(objective={"slotIndex": 1, "name": "10x"}))
+        adapter._session_state.install(
+            h.client,
+            adapter._session_state.SessionConfig(
+                orientation=adapter._orientation.Orientation(rotate_deg=0),
+                translations={1: (0.0, 0.0, 0.0)},
+                orientation_info={"loaded": True, "measured": False, "rotate_deg": 0},
+                calibration_info={"loaded": True, "slots": [1]},
+            ),
+        )
+        self.addCleanup(adapter._session_state.uninstall, h.client)
+
+        setup = adapter._setup_readiness(h, {"slotIndex": 1})
+
+        self.assertFalse(setup["ready"])
+        self.assertIn("orientation", setup["issues"][0])
 
 
 class TestLifecycle(unittest.TestCase):

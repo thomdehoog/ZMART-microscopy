@@ -225,6 +225,12 @@ class RunFlow:
                 "this machine's measured envelope with "
                 "limits/notebooks/set_stage_limits.ipynb first"
             )
+        from .. import require_driver_ready
+
+        try:
+            require_driver_ready(state)
+        except RuntimeError as exc:
+            raise FlowError(str(exc)) from exc
         self.overview_state = state
         self.ns["overview_state"] = state
         job = state["changeable"].get("job")
@@ -240,6 +246,12 @@ class RunFlow:
                 "the overview and target jobs are the same; select the "
                 "high-magnification target job (in LAS X) and capture again"
             )
+        from .. import require_driver_ready
+
+        try:
+            require_driver_ready(state)
+        except RuntimeError as exc:
+            raise FlowError(str(exc)) from exc
         self.target_state = state
         self.ns["target_state"] = state
         job = state["changeable"].get("job")

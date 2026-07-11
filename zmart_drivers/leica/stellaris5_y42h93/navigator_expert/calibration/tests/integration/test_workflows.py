@@ -277,8 +277,9 @@ def _make_staging_session(
     sessions_root,
     kind_payload,
     staging_name="image_to_stage.json",
+    *,
+    sess_id="adopt_sess",
 ):
-    sess_id = "adopt_sess"
     paths = cm.make_session_paths(
         sess_id,
         "image_to_stage",
@@ -373,6 +374,88 @@ def test_adoption_objective_translation_updates_canonical_calibration(
     assert (
         machine.latest_snapshot() / "calibrations" / "water_lens_set" / "calibration.json"
     ).exists()
+
+
+def test_common_reference_adoptions_infer_every_objective_pair(sessions_root, machine):
+    """10→20/40/60 measurements must imply every pair and reverse."""
+    from navigator_expert.calibration.core import model as calibration_model
+
+    calibration_name = "shared_lens_setup"
+    reference = {
+        "schema_version": 12,
+        "last_updated": "20260101_000000",
+        "objectives": {
+            "1": {
+                "name": "10x reference",
+                "translation_um": [0.0, 0.0, 0.0],
+                "session_id": "reference_setup",
+            }
+        },
+    }
+    machine.publish_snapshot(
+        _SEED_MOMENT,
+        calibration=reference,
+        calibration_name=calibration_name,
+    )
+    translations = {
+        1: (0.0, 0.0, 0.0),
+        2: (10.0, 20.0, 1.0),
+        3: (-4.0, 7.0, 3.0),
+        4: (25.0, -8.0, -2.0),
+    }
+    names = {1: "10x reference", 2: "20x", 3: "40x", 4: "60x"}
+
+    for ordinal, target_slot in enumerate((2, 3, 4), start=1):
+        tx, ty, tz = translations[target_slot]
+        session_id = f"measure_10x_to_{names[target_slot]}"
+        staging_name = f"objective_slot_1_to_{target_slot}.json"
+        payload = {
+            "schema_version": cm.STAGING_SCHEMA_VERSION,
+            "kind": "objective_translation",
+            "created_at": f"2026-06-01T00:00:0{ordinal}+00:00",
+            "session_id": session_id,
+            "from_slot": 1,
+            "to_slot": target_slot,
+            "from_objective": names[1],
+            "to_objective": names[target_slot],
+            "translation_xy_um": [tx, ty],
+            "translation_z_um": tz,
+        }
+        session, _ = _make_staging_session(
+            sessions_root,
+            payload,
+            staging_name,
+            sess_id=session_id,
+        )
+        session.hardware_objectives = dict(names)
+        wf_adopt.adopt_calibration(
+            session,
+            staging_name,
+            calibration_name=calibration_name,
+            machine=machine,
+            moment=datetime(2026, 6, 1, 0, 0, ordinal, tzinfo=timezone.utc),
+        )
+
+    config = calibration_model.load_calibration(machine.calibration_path(calibration_name))
+    assert calibration_model.get_reference_slot(config) == 1
+    assert set(map(int, config["objectives"])) == {1, 2, 3, 4}
+    for slot in (2, 3, 4):
+        assert calibration_model.get_translation_um(config, slot) == translations[slot]
+        assert config["objectives"][str(slot)]["session_id"] == f"measure_10x_to_{names[slot]}"
+
+    base = (100.0, 200.0, 500.0)
+    for from_slot in translations:
+        for to_slot in translations:
+            actual = calibration_model.translate_xyz_between_objectives(
+                *base,
+                config,
+                from_slot=from_slot,
+                to_slot=to_slot,
+            )
+            t_from = translations[from_slot]
+            t_to = translations[to_slot]
+            expected = tuple(base[axis] + t_to[axis] - t_from[axis] for axis in range(3))
+            assert actual == expected
 
 
 def test_adoption_refreshes_objective_names_from_the_live_system(
@@ -650,6 +733,10 @@ def _patch_objective_driver(
         "x": home_xy[0],
         "y": home_xy[1],
         "zwide": home_z,
+        "z_move_modes": [],
+        "acquire_jobs": [],
+        "backlash_passes": [],
+        "acquisition_events": [],
         "stack_phase": "ref",
         "ref_stack": dict(default_ref if ref_stack is None else ref_stack),
         "target_stack": dict(default_target if target_stack is None else target_stack),
@@ -665,6 +752,7 @@ def _patch_objective_driver(
         return {"success": True}
 
     def _move_z(client, job_name, z, unit="um", z_mode="galvo", **kw):
+        state["z_move_modes"].append(z_mode)
         if z_mode == "zwide":
             state["zwide"] = float(z)
         return {"success": True}
@@ -721,6 +809,8 @@ def _patch_objective_driver(
     frame_count = {"n": 0}
 
     def _acquire(client, job, **kw):
+        state["acquisition_events"].append("acquire")
+        state["acquire_jobs"].append(job)
         return SimpleNamespace(job=job, command_result={"success": True})
 
     def _save(client, acq, output_root, naming, **kw):
@@ -756,6 +846,12 @@ def _patch_objective_driver(
 
     monkeypatch.setattr(cm.drv, "acquire", _acquire)
     monkeypatch.setattr(cm.drv, "save", _save)
+
+    def _correct_backlash(_client, *, passes, **_kwargs):
+        state["backlash_passes"].append(passes)
+        state["acquisition_events"].append("backlash")
+
+    monkeypatch.setattr(cm._movement, "correct_backlash", _correct_backlash)
 
     def _acquire_frame(client, job, **kw):
         idx = frame_count["n"]
@@ -797,6 +893,23 @@ def _patch_objective_driver(
         return float(np.exp(-((z - peak) ** 2) / (2.0 * brenner_sigma**2)))
 
     monkeypatch.setattr(wf_obj, "brenner", _brenner)
+
+    # Most integration tests exercise measurement arithmetic rather than the
+    # live objective reader. Give them a stable operator-driven 10x/20x pair;
+    # dedicated tests below exercise the real read/record/verify helper.
+    def _observe_objective_for_step(session, role):
+        if role == "reference":
+            session.from_slot = 1
+            session.from_objective = session.from_objective or "10x"
+            slot, name = session.from_slot, session.from_objective
+        else:
+            session.to_slot = 2
+            session.to_objective = session.to_objective or "20x"
+            slot, name = session.to_slot, session.to_objective
+        session.hardware_objectives[slot] = name
+        return slot, name
+
+    monkeypatch.setattr(wf_obj, "_observe_objective_for_step", _observe_objective_for_step)
 
     return state
 
@@ -877,6 +990,155 @@ def test_objective_pair_can_select_named_machine_calibration(
         session.calibration_path
         == (snap / "calibrations" / "lens_A" / "calibration.json").absolute()
     )
+
+
+def test_configured_reference_must_match_existing_calibration_reference(tmp_path, sessions_root):
+    calibration_path = tmp_path / "calibration.json"
+    calibration_path.write_text(json.dumps(_current_calibration_payload()), encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        wf_obj.start_session(
+            session_id="wrong_reference",
+            job_name="Overview",
+            reference_slot=2,
+            sessions_root=sessions_root,
+            calibration_path=calibration_path,
+        )
+
+    message = str(exc_info.value)
+    assert "already uses reference slot 1" in message
+    assert "different calibration session" in message
+    assert "change reference_slot in the first cell to 1" in message
+
+
+def test_start_session_reports_configured_reference_slot_and_hardware_name(
+    monkeypatch, tmp_path, sessions_root, capsys
+):
+    calibration_path = tmp_path / "calibration.json"
+    calibration_path.write_text(json.dumps(_current_calibration_payload()), encoding="utf-8")
+    monkeypatch.setattr(wf_obj.drv, "connect_python_client", lambda: object())
+    monkeypatch.setattr(
+        wf_obj.drv,
+        "connect_limits_handshake",
+        lambda _client: SimpleNamespace(ok=True, error=None),
+    )
+    monkeypatch.setattr(
+        wf_obj.drv,
+        "get_hardware_info",
+        lambda _client, **_kwargs: {
+            "Microscope": {
+                "objectives": [
+                    {
+                        "slotIndex": 1,
+                        "objectiveNumber": 1,
+                        "name": "HC PL APO CS2 10x/0.40 DRY",
+                    },
+                    {
+                        "slotIndex": 2,
+                        "objectiveNumber": 2,
+                        "name": "HC PL APO CS2 20x/0.75 DRY",
+                    },
+                ]
+            }
+        },
+    )
+    monkeypatch.setattr(wf_obj, "_warn_if_orientation_unmeasured", lambda: None)
+
+    session = wf_obj.start_session(
+        session_id="reported_reference",
+        job_name="Overview",
+        reference_slot=1,
+        sessions_root=sessions_root,
+        calibration_path=calibration_path,
+    )
+
+    assert session.session_id == "reported_reference"
+    assert session.from_slot == 1
+    assert session.from_objective == "HC PL APO CS2 10x/0.40 DRY"
+    assert (
+        "Configured reference objective: slot 1 — HC PL APO CS2 10x/0.40 DRY"
+        in capsys.readouterr().out
+    )
+
+
+def _live_objective_session():
+    return SimpleNamespace(
+        client=object(),
+        job_name="Overview",
+        from_slot=1,
+        from_objective="HC PL APO CS2 10x/0.40 DRY",
+        to_slot=None,
+        to_objective=None,
+        objective_config_name="objective_pair.json",
+        hardware_objectives={
+            1: "HC PL APO CS2 10x/0.40 DRY",
+            2: "HC PL APO CS2 20x/0.75 DRY",
+            3: "HC PL APO CS2 40x/1.10 WATER",
+        },
+    )
+
+
+def test_objective_cells_record_and_report_target_then_verify_both_roles(monkeypatch, capsys):
+    session = _live_objective_session()
+    live = {"job": "Overview", "slot": 1, "name": session.from_objective}
+    monkeypatch.setattr(
+        wf_obj.drv,
+        "get_selected_job",
+        lambda _client, **_kwargs: {"Name": live["job"]},
+    )
+    monkeypatch.setattr(
+        wf_obj.drv,
+        "get_job_settings",
+        lambda _client, _job, **_kwargs: {
+            "objective": {"slotIndex": live["slot"], "name": live["name"]}
+        },
+    )
+
+    wf_obj._observe_objective_for_step(session, "reference")
+    live.update(slot=2, name="HC PL APO CS2 20x/0.75 DRY")
+    wf_obj._observe_objective_for_step(session, "target")
+    assert session.to_slot == 2
+    assert session.to_objective == "HC PL APO CS2 20x/0.75 DRY"
+    assert session.objective_config_name == "objective_slot_1_to_2.json"
+
+    live.update(slot=1, name=session.from_objective)
+    wf_obj._observe_objective_for_step(session, "reference")
+    live.update(slot=2, name=session.to_objective)
+    wf_obj._observe_objective_for_step(session, "target")
+
+    output = capsys.readouterr().out
+    assert "Reference objective: slot 1" in output
+    assert "Target objective: slot 2" in output
+
+
+def test_objective_verification_refuses_wrong_slot_same_reference_as_target_and_job_change(
+    monkeypatch,
+):
+    session = _live_objective_session()
+    live = {"job": "Overview", "slot": 2, "name": "20x"}
+    monkeypatch.setattr(
+        wf_obj.drv,
+        "get_selected_job",
+        lambda _client, **_kwargs: {"Name": live["job"]},
+    )
+    monkeypatch.setattr(
+        wf_obj.drv,
+        "get_job_settings",
+        lambda _client, _job, **_kwargs: {
+            "objective": {"slotIndex": live["slot"], "name": live["name"]}
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="wrong objective for reference step"):
+        wf_obj._observe_objective_for_step(session, "reference")
+
+    live.update(slot=1, name=session.from_objective)
+    with pytest.raises(RuntimeError, match="still the reference objective"):
+        wf_obj._observe_objective_for_step(session, "target")
+
+    live["job"] = "Another job"
+    with pytest.raises(RuntimeError, match="Navigator Expert job changed"):
+        wf_obj._observe_objective_for_step(session, "reference")
 
 
 def test_objective_pair_override_calibration_path_recorded(
@@ -1045,8 +1307,22 @@ def test_objective_pair_xy_translation_arithmetic_identity(
     assert cfg_path.is_file()
     payload = json.loads(cfg_path.read_text(encoding="utf-8"))
     assert payload["kind"] == "objective_translation"
+    assert payload["session_id"] == session.session_id
+    assert payload["from_slot"] == 1
+    assert payload["to_slot"] == 2
+    assert payload["from_objective"] == "10x"
+    assert payload["to_objective"] == "20x"
     assert payload["translation_xy_um"] == [12.0, 17.0]
     assert payload["translation_z_um"] == pytest.approx(3.0, abs=1e-6)
+    # Objective calibration owns motoric XY + z-wide only. It must never
+    # command z-galvo, and every capture stays on the one configured
+    # Navigator Expert job while the operator changes objectives manually.
+    assert state["z_move_modes"] == ["zwide", "zwide"]
+    assert state["acquire_jobs"]
+    assert set(state["acquire_jobs"]) == {"Overview"}
+    assert state["backlash_passes"] == [5, 5, 5, 5]
+    assert state["acquisition_events"] == ["backlash", "acquire"] * 4
+    assert "backlash" not in payload
 
 
 def test_objective_pair_weak_xy_vote_blocks_config(monkeypatch, sessions_root, machine):

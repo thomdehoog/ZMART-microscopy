@@ -21,9 +21,10 @@ displacement — the sum of the two physical drives (z-wide + z-galvo)
 relative to the origin's focus sum — so it reads the same regardless of
 which drive realized a move. An objective change is compensated with the
 calibration's per-objective translation totals (ΔT relative to the
-origin's objective): x/y apply to the motoric stage, z in focus space — a
-driver-side assumption; the calibration schema is unchanged (operator
-decision, 2026-07-02). Cross-objective moves REFUSE when translations are
+origin's objective): x/y apply to the motoric stage and translation-z is
+realized through z-wide. Ordinary requested z motion remains independently
+actuator-selectable. The calibration schema is unchanged (operator decision,
+2026-07-02). Cross-objective moves REFUSE when translations are
 unavailable; reads warn and return uncompensated. The driver package
 itself is untouched. Full design: ``docs/design/objective-aware-frame.md``.
 
@@ -102,7 +103,9 @@ CONNECTION = {
     "client": "PythonClient",
     "api_delay_ms": None,
     "output_root": None,  # optional override; otherwise discovered from native AutoSave
-    "calibration_name": None,  # optional ProgramData calibrations/<name>/calibration.json
+    # Microscope-specific active objective calibration. Workflows do not select
+    # or apply calibration; this driver profile owns that decision.
+    "calibration_name": "water_lens_setup",
     # Which machine-local configs to load at connect (all default True). Turn
     # one off only deliberately: load_limits=False falls back to the bundled
     # default envelope (never ungated); load_orientation=False saves images
@@ -360,6 +363,51 @@ def _selected_job_name(handle: ZmartHandle) -> str:
     return name
 
 
+def _setup_readiness(handle: ZmartHandle, active_objective: dict | None) -> dict:
+    """Driver-owned verdict for calibration/orientation readiness.
+
+    Workflows consume only ``ready`` and ``issues``. The Leica driver owns the
+    meaning of the evidence and all calibration/orientation application.
+    """
+    loaded = _session_state.get(handle.client)
+    orientation = dict((loaded.orientation_info if loaded else None) or {})
+    calibration = dict((loaded.calibration_info if loaded else None) or {})
+    slot = (active_objective or {}).get("slotIndex")
+    slot = None if slot is None else int(slot)
+    origin_slot = (handle.origin.get("objective") or {}).get("slotIndex")
+    origin_slot = None if origin_slot is None else int(origin_slot)
+    issues = []
+    if not orientation.get("measured"):
+        issues.append(
+            "camera-to-stage orientation is not a measured machine value; "
+            "run and adopt set_orientation"
+        )
+    if not calibration.get("loaded"):
+        issues.append("objective calibration is not loaded")
+    elif slot is None:
+        issues.append("active objective slot is unreadable")
+    elif slot not in calibration.get("slots", []):
+        issues.append(
+            f"active objective slot {slot} is absent from the loaded objective calibration"
+        )
+    if calibration.get("loaded"):
+        if origin_slot is None:
+            issues.append("the run origin has no readable objective slot; set the origin again")
+        elif origin_slot not in calibration.get("slots", []):
+            issues.append(
+                f"run-origin objective slot {origin_slot} is absent from the loaded "
+                "objective calibration"
+            )
+    return {
+        "ready": not issues,
+        "issues": issues,
+        "active_objective_slot": slot,
+        "origin_objective_slot": origin_slot,
+        "orientation": orientation,
+        "calibration": calibration,
+    }
+
+
 def _job_catalog(handle: ZmartHandle) -> tuple[list[dict], list[dict]]:
     """The live job catalog split into (normal, autofocus) jobs.
 
@@ -491,11 +539,15 @@ def set_xyz(
 ) -> dict:
     """Move to (x, y, z) in the frame; confirmed or this raises.
 
-    Destination = origin + F + ΔT, commanded absolutely. One decomposition
-    rule: the chosen z actuator absorbs the whole change, the other drive
-    holds where it is::
+    Destination = origin + F + ΔT, commanded absolutely. Ordinary frame-Z
+    movement uses the selected actuator, but objective-calibration ΔT.z always
+    belongs to z-wide. With z-wide selected, its one target contains both the
+    requested frame Z and ΔT.z while the galvo stays parked. With z-galvo
+    selected across objectives, z-wide first receives the absolute calibrated
+    objective offset and z-galvo then realizes only the requested frame Z::
 
-        chosen_drive = origin_focus + z + ΔT.z − other_drive_current
+        zwide_for_objective = origin_zwide + ΔT.z
+        zgalvo_for_frame = origin_zgalvo + z
 
     ΔT compensates an objective change relative to the origin's objective
     (from the calibration's translation totals); a cross-objective move with
@@ -510,11 +562,20 @@ def set_xyz(
     abs_x = handle.origin["x_um"] + x + dt[0]
     abs_y = handle.origin["y_um"] + y + dt[1]
     target_focus = handle.origin["z_focus_um"] + z + dt[2]
+    z_targets: list[tuple[str, float]]
     if chosen["z"] == "z-wide":
         z_target = target_focus - snap["z_galvo_um"]
+        z_targets = [("zwide", z_target)]
+    elif dt[2] != 0.0:
+        # Translation is an objective property, not a general focus move. Pin
+        # its absolute contribution on z-wide so repeated set_xyz calls cannot
+        # accumulate it, then let z-galvo realize only the requested frame Z.
+        zwide_target = handle.origin["z_wide_um"] + dt[2]
+        z_target = handle.origin["z_galvo_um"] + z
+        z_targets = [("zwide", zwide_target), ("galvo", z_target)]
     else:
         z_target = target_focus - snap["z_wide_um"]
-    z_mode = _Z_MODES[chosen["z"]]
+        z_targets = [("galvo", z_target)]
 
     # Pre-flight the WHOLE move (XY and Z legs) before anything travels, so a
     # doomed z leg can never leave the stage at a new XY with the old focus.
@@ -522,25 +583,33 @@ def set_xyz(
     # provenance (which file, which constraint) and would refuse each leg at
     # fire time anyway; checking both legs here first preserves whole-move
     # atomicity, with the driver's own Phase A checks as the net underneath.
-    z_param = "z_galvo_um" if chosen["z"] == "z-galvo" else "z_wide_um"
     _refuse_if_gated(handle, "move_xy", {"x_um": abs_x, "y_um": abs_y})
     _limits._check_xy_limits(abs_x, abs_y)
-    try:
-        _refuse_if_gated(handle, "move_z", {z_param: z_target})
-        _limits._check_z_limits(z_target, z_mode)
-    except RuntimeError as exc:
-        alternative = "z-wide" if chosen["z"] == "z-galvo" else "z-galvo"
-        raise RuntimeError(
-            f"refusing the whole move before any motion: {exc} "
-            f"(try with_actuators={{'z': '{alternative}'}})"
-        ) from exc
+    for z_mode, target in z_targets:
+        z_param = "z_galvo_um" if z_mode == "galvo" else "z_wide_um"
+        try:
+            _refuse_if_gated(handle, "move_z", {z_param: target})
+            _limits._check_z_limits(target, z_mode)
+        except RuntimeError as exc:
+            alternative = "z-wide" if chosen["z"] == "z-galvo" else "z-galvo"
+            raise RuntimeError(
+                f"refusing the whole move before any motion: {exc} "
+                f"(try with_actuators={{'z': '{alternative}'}})"
+            ) from exc
 
     # Backlash-compensated transit raises unless the readback confirms.
     _motion.move_xy_with_backlash(handle.client, abs_x, abs_y)
 
-    z_result = _commands.move_z(handle.client, snap["job"], z_target, unit="um", z_mode=z_mode)
-    if not z_result.get("success") or not z_result.get("confirmed"):
-        raise RuntimeError(f"move_z ({chosen['z']}) failed or was unconfirmed: {z_result}")
+    for z_mode, target in z_targets:
+        z_result = _commands.move_z(
+            handle.client,
+            snap["job"],
+            target,
+            unit="um",
+            z_mode=z_mode,
+        )
+        if not z_result.get("success") or not z_result.get("confirmed"):
+            raise RuntimeError(f"move_z ({z_mode}) failed or was unconfirmed: {z_result}")
 
     return {
         "position": {"x": x, "y": y, "z": z},
@@ -549,7 +618,10 @@ def set_xyz(
         "hardware_targets": {
             "x_um": abs_x,
             "y_um": abs_y,
-            f"{chosen['z'].replace('-', '_')}_um": z_target,
+            **{
+                ("z_galvo_um" if mode == "galvo" else "z_wide_um"): target
+                for mode, target in z_targets
+            },
         },
     }
 
@@ -813,6 +885,8 @@ def get_state(handle: ZmartHandle) -> dict:
     selected = _readers.get_selected_job(handle.client) or {}
     if not selected.get("Name"):
         raise RuntimeError("could not determine the selected LAS X job")
+    settings = _readers.get_job_settings(handle.client, selected["Name"], mode="api") or {}
+    active_objective = settings.get("objective")
     normal, autofocus = _job_catalog(handle)
     return {
         "changeable": {"job": selected["Name"]},
@@ -827,6 +901,7 @@ def get_state(handle: ZmartHandle) -> dict:
                 for o in (microscope.get("objectives") or [])
             ],
             "job": dict(selected),
+            "active_objective": dict(active_objective or {}),
             "jobs": normal,
             "autofocus_jobs": autofocus,
             # Which function-limits file governs this session (evidence, not
@@ -834,6 +909,7 @@ def get_state(handle: ZmartHandle) -> dict:
             # the commands-layer gate. None when the limits handshake failed
             # (every mutating command underneath is then refusing).
             "limits": _gate.describe(handle.client),
+            "setup": _setup_readiness(handle, active_objective),
         },
     }
 

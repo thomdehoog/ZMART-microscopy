@@ -65,7 +65,6 @@ from .common import (
     read_stack_z_positions,
     slug,
     write_json_atomic,
-    zero_z_galvo,
 )
 
 _log = logging.getLogger(__name__)
@@ -77,8 +76,8 @@ class ObjectivePairSession:
     paths: SessionPaths
     job_name: str
     client: Any
-    from_objective: str
-    to_objective: str
+    from_objective: str | None
+    to_objective: str | None
     objective_config_name: str
     calibration_name: str | None
     calibration_path: Path
@@ -114,6 +113,11 @@ class ObjectivePairSession:
     registration: dict | None = None
     config_written: bool = False
     failure_reason: str | None = None
+    # Objective identities are read from the selected Navigator Expert job at
+    # measurement time. The operator changes the objective; this workflow only
+    # observes and verifies it.
+    from_slot: int | None = None
+    to_slot: int | None = None
     # {slot_index: objective name} read from the live microscope at start, so
     # the adopted calibration annotates each slot with the objective actually
     # fitted rather than inheriting stale names from the base config.
@@ -129,13 +133,22 @@ def start_session(
     *,
     session_id: str,
     job_name: str,
-    from_objective: str,
-    to_objective: str,
     sessions_root: str | Path,
+    reference_slot: int | None = None,
+    from_objective: str | None = None,
+    to_objective: str | None = None,
     calibration_path: str | Path | None = None,
     calibration_name: str | None = None,
 ) -> ObjectivePairSession:
-    kind = f"objective_{slug(from_objective)}_to_{slug(to_objective)}"
+    if (from_objective is None) != (to_objective is None):
+        raise ValueError("from_objective and to_objective must both be provided or both omitted")
+    if reference_slot is None and from_objective is None:
+        raise TypeError("start_session requires reference_slot")
+    kind = (
+        f"objective_{slug(from_objective)}_to_{slug(to_objective)}"
+        if from_objective is not None and to_objective is not None
+        else "objective_pair"
+    )
     objective_config_name = f"{kind}.json"
 
     # Create the session directory tree BEFORE loading the current config
@@ -155,6 +168,26 @@ def start_session(
         # absolute(), not resolve(): keep the operator's drive letter intact
         # for the report's source_calibration_file field.
         resolved_path = Path(calibration_path).absolute()
+
+    if reference_slot is not None:
+        from . import model as _calibration_model
+
+        existing_config = _calibration_model.load_calibration(resolved_path)
+        try:
+            stored_reference_slot = _calibration_model.get_reference_slot(existing_config)
+        except ValueError as exc:
+            if "no reference objective" not in str(exc):
+                raise
+            stored_reference_slot = None
+        if stored_reference_slot is not None and int(reference_slot) != stored_reference_slot:
+            raise ValueError(
+                f"this calibration session already uses reference slot "
+                f"{stored_reference_slot}, but the first cell configured "
+                f"reference_slot={int(reference_slot)}. Either select/create a "
+                f"different calibration session for the new reference objective, "
+                f"or change reference_slot in the first cell to "
+                f"{stored_reference_slot}. Calibration file: {resolved_path}"
+            )
 
     client = drv.connect_python_client()
     # Calibration moves the stage through gated drv.move_* wrappers, so it
@@ -177,6 +210,15 @@ def start_session(
         for slot, entry in _objectives.objective_by_slot(hw).items()
         if (name := str(entry.get("name") or "").strip())
     }
+    if reference_slot is not None:
+        reference_slot = int(reference_slot)
+        if reference_slot not in hardware_objectives:
+            raise ValueError(
+                f"reference objective slot {reference_slot} is not occupied; "
+                f"available slots: {sorted(hardware_objectives)}"
+            )
+        from_objective = hardware_objectives[reference_slot]
+        print(f"Configured reference objective: slot {reference_slot} — {from_objective}")
 
     # Calibration sits above orientation in the setup ladder: parcentricity XY
     # is measured in image space and only becomes a stage offset because saved
@@ -197,8 +239,75 @@ def start_session(
         calibration_name=calibration_name,
         calibration_path=resolved_path,
         kind=kind,
+        from_slot=reference_slot,
         hardware_objectives=hardware_objectives,
     )
+
+
+def _read_active_objective(session: ObjectivePairSession) -> tuple[int, str]:
+    """Read the selected job's objective identity without changing microscope state."""
+    selected = drv.get_selected_job(session.client, mode="api") or {}
+    selected_name = selected.get("Name")
+    if selected_name != session.job_name:
+        raise RuntimeError(
+            f"Navigator Expert job changed: expected {session.job_name!r}, "
+            f"but {selected_name!r} is selected. Re-select {session.job_name!r}; "
+            "change only the objective between calibration steps."
+        )
+    settings = drv.get_job_settings(session.client, session.job_name, mode="api") or {}
+    objective = settings.get("objective") or {}
+    slot = objective.get("slotIndex")
+    if slot is None:
+        raise RuntimeError(
+            f"could not read the active objective slot from job {session.job_name!r}"
+        )
+    slot = int(slot)
+    name = str(objective.get("name") or session.hardware_objectives.get(slot) or "").strip()
+    if not name:
+        raise RuntimeError(
+            f"could not read the active objective name for slot {slot} "
+            f"from job {session.job_name!r}"
+        )
+    return slot, name
+
+
+def _observe_objective_for_step(session: ObjectivePairSession, role: str) -> tuple[int, str]:
+    """Record or verify the active reference/target objective, then report it."""
+    slot, name = _read_active_objective(session)
+    if role == "reference":
+        if session.from_slot is None:
+            session.from_slot = slot
+            session.hardware_objectives[slot] = name
+        elif slot != session.from_slot:
+            raise RuntimeError(
+                f"wrong objective for reference step: expected slot {session.from_slot} "
+                f"({session.from_objective}), got slot {slot} ({name})"
+            )
+        session.from_objective = name
+        session.hardware_objectives[slot] = name
+    elif role == "target":
+        if session.from_slot is None:
+            raise RuntimeError("measure the reference objective before the target objective")
+        if session.to_slot is None:
+            if slot == session.from_slot:
+                raise RuntimeError(
+                    f"target objective is still the reference objective: slot {slot} ({name}). "
+                    "Switch only the objective, keep the Navigator Expert job unchanged, and retry."
+                )
+            session.to_slot = slot
+            session.to_objective = name
+            session.hardware_objectives[slot] = name
+            if session.objective_config_name == "objective_pair.json":
+                session.objective_config_name = f"objective_slot_{session.from_slot}_to_{slot}.json"
+        elif slot != session.to_slot:
+            raise RuntimeError(
+                f"wrong objective for target step: expected slot {session.to_slot} "
+                f"({session.to_objective}), got slot {slot} ({name})"
+            )
+    else:
+        raise ValueError(f"unknown objective role {role!r}")
+    print(f"{role.capitalize()} objective: slot {slot} — {name}")
+    return slot, name
 
 
 def _warn_if_orientation_unmeasured() -> None:
@@ -261,6 +370,7 @@ def _registration_for_report(vote: dict | None) -> dict | None:
 _STACK_LEADING_SLICES_TO_SKIP = 1
 _STACK_TRAILING_SLICES_TO_SKIP = 1
 _MIN_FIT_SAMPLES = 3
+_BACKLASH_PASSES = 5
 _MIN_STACK_SECTIONS_FOR_FOCUS_FIT = (
     _STACK_LEADING_SLICES_TO_SKIP + _STACK_TRAILING_SLICES_TO_SKIP + _MIN_FIT_SAMPLES
 )
@@ -338,7 +448,10 @@ def _print_step5_summary(session, summary: dict) -> None:
 
     print(f"Objective pair calibration: {header}")
     print()
-    print(f"  Pair:           {session.from_objective} -> {session.to_objective}")
+    print(
+        f"  Pair:           slot {session.from_slot} ({session.from_objective}) -> "
+        f"slot {session.to_slot} ({session.to_objective})"
+    )
     state = "trusted" if trusted else "untrusted"
     print(f"  Voting:         {state} ({confidence}/{len(VOTING_METHODS)})")
     if trusted and shift[0] is not None and shift[1] is not None:
@@ -475,12 +588,13 @@ def measure_parfocality_reference(
     session.home_xy = None
     session.home_z = None
 
+    _observe_objective_for_step(session, "reference")
+
     try:
         from IPython.display import display
     except Exception:
         display = None
 
-    zero_z_galvo(session.client, session.job_name)
     xy = drv.get_xy(session.client, mode="api") or {}
     if "x_um" not in xy or "y_um" not in xy:
         raise RuntimeError(f"get_xy returned no readback: {xy}")
@@ -490,7 +604,11 @@ def measure_parfocality_reference(
     # value, fitted below.
     session.home_z = float(drv.read_zwide_um(session.client, session.job_name))
 
-    stack = acquire_stack_to(session, "ref_z_stack")
+    stack = acquire_stack_to(
+        session,
+        "ref_z_stack",
+        backlash_passes=_BACKLASH_PASSES,
+    )
     session.ref_z_stack = stack
 
     positions = read_stack_z_positions(
@@ -560,18 +678,23 @@ def measure_parfocality_target(
     _clear_parcentricity_target(session)
     _invalidate_staging_config(session)
 
+    _observe_objective_for_step(session, "target")
+
     try:
         from IPython.display import display
     except Exception:
         display = None
 
-    zero_z_galvo(session.client, session.job_name)
     z_post = float(drv.read_zwide_um(session.client, session.job_name))
     session.z_post = z_post
     # motor_shift_z = post-switch z-wide minus reference focus peak.
     session.motor_shift_z_um = z_post - session.focus_z_ref_um
 
-    stack = acquire_stack_to(session, "target_z_stack")
+    stack = acquire_stack_to(
+        session,
+        "target_z_stack",
+        backlash_passes=_BACKLASH_PASSES,
+    )
     session.target_z_stack = stack
 
     positions = read_stack_z_positions(
@@ -639,8 +762,9 @@ def measure_parcentricity_reference(
     _clear_parcentricity_target(session)
     _invalidate_staging_config(session)
 
+    _observe_objective_for_step(session, "reference")
+
     move_xy_and_verify(session.client, *session.home_xy)
-    zero_z_galvo(session.client, session.job_name)
     # Park z-wide at the reference Brenner focus (measured in Step 2)
     # so the XY image is acquired at the best ref-objective focus.
     move_zwide_and_verify(
@@ -649,7 +773,11 @@ def measure_parcentricity_reference(
         session.focus_z_ref_um,
     )
 
-    ref_image = acquire_frame_to(session, "ref_xy")
+    ref_image = acquire_frame_to(
+        session,
+        "ref_xy",
+        backlash_passes=_BACKLASH_PASSES,
+    )
     session.ref_image = ref_image
 
     # Record the ref XY pixel size. The target XY (Step 5) must be
@@ -702,6 +830,8 @@ def measure_parcentricity_target_and_save(
     # run's objective config adoptable (Section 15 invariant).
     _invalidate_staging_config(session)
 
+    _observe_objective_for_step(session, "target")
+
     try:
         from IPython.display import display
     except Exception:
@@ -717,7 +847,6 @@ def measure_parcentricity_target_and_save(
         xy_post[1] - session.home_xy[1],
     )
 
-    zero_z_galvo(session.client, session.job_name)
     # Park z-wide at the target Brenner focus (measured in Step 3) so
     # the XY image is acquired at the best target-objective focus.
     move_zwide_and_verify(
@@ -729,7 +858,11 @@ def measure_parcentricity_target_and_save(
     # IMPORTANT: do NOT return to home_xy. We measure at the post-switch
     # XY so the registration captures only the residual the firmware
     # left behind.
-    target_image = acquire_frame_to(session, "target_xy")
+    target_image = acquire_frame_to(
+        session,
+        "target_xy",
+        backlash_passes=_BACKLASH_PASSES,
+    )
     session.target_image = target_image
 
     # Reference and target XY must be at the same scale so voting
@@ -807,6 +940,9 @@ def measure_parcentricity_target_and_save(
             "schema_version": STAGING_SCHEMA_VERSION,
             "kind": "objective_translation",
             "created_at": now_iso(),
+            "session_id": session.session_id,
+            "from_slot": session.from_slot,
+            "to_slot": session.to_slot,
             "from_objective": session.from_objective,
             "to_objective": session.to_objective,
             "translation_xy_um": list(session.translation_xy_um),
@@ -850,6 +986,9 @@ def measure_parcentricity_target_and_save(
         "calibration_file": session.objective_config_name,
         "config_written": config_written,
         "source_calibration_file": source_calibration_file,
+        "session_id": session.session_id,
+        "from_slot": session.from_slot,
+        "to_slot": session.to_slot,
         "from_objective": session.from_objective,
         "to_objective": session.to_objective,
         "home_xy_um": [_f(session.home_xy[0]), _f(session.home_xy[1])],
@@ -899,6 +1038,9 @@ def measure_parcentricity_target_and_save(
         "config_written": config_written,
         "config_path": config_path,
         "report_path": str(report_out),
+        "session_id": session.session_id,
+        "from_slot": session.from_slot,
+        "to_slot": session.to_slot,
         "from_objective": session.from_objective,
         "to_objective": session.to_objective,
         "motor_shift_xy_um": [_f(session.motor_shift_xy_um[0]), _f(session.motor_shift_xy_um[1])],

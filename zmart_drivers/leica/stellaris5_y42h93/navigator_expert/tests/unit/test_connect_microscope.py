@@ -36,6 +36,11 @@ def test_connect_loads_limits_orientation_and_calibration_by_default():
     assert isinstance(cfg.orientation, Orientation)
     # the seeded default calibration lists objectives, so translations load
     assert cfg.translations is not None and cfg.translations
+    assert cfg.calibration_info["loaded"] is True
+    assert cfg.calibration_info["slots"]
+    # Seeded orientation is deliberately only a placeholder, never mistaken
+    # for a measured 0-degree machine orientation.
+    assert cfg.orientation_info["measured"] is False
     # limits are installed and govern this client
     assert gate.state_for(client).ok
 
@@ -60,6 +65,39 @@ def test_connect_skipping_limits_installs_the_default_fallback():
 def test_connect_records_the_selected_calibration_name():
     client = _connect(calibration_name=None)
     assert session_state.get(client).calibration_name is None
+
+
+def test_connect_records_measured_orientation_as_positive_preflight_evidence():
+    profile = MachineProfile(programdata_root=Path(os.environ["ZMART_MICROSCOPY_ROOT"]))
+    snap = profile.ensure_snapshot()
+    (snap / "orientation.json").write_text(
+        '{"schema_version": 1, "rotate_deg": 0, "measured": true}',
+        encoding="utf-8",
+    )
+
+    client = _connect()
+
+    info = session_state.get(client).orientation_info
+    assert info["loaded"] is True
+    assert info["measured"] is True
+    assert info["rotate_deg"] == 0
+
+
+def test_invalid_orientation_cannot_claim_measured_preflight_evidence(caplog):
+    profile = MachineProfile(programdata_root=Path(os.environ["ZMART_MICROSCOPY_ROOT"]))
+    snap = profile.ensure_snapshot()
+    (snap / "orientation.json").write_text(
+        '{"schema_version": 1, "rotate_deg": 45, "measured": true}',
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        client = _connect()
+
+    info = session_state.get(client).orientation_info
+    assert info["loaded"] is False
+    assert info["measured"] is False
+    assert "error" in info
 
 
 @pytest.mark.parametrize(

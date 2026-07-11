@@ -35,6 +35,8 @@ import tifffile
 import navigator_expert as drv
 from shared.output_layout import Naming, run_hash
 
+from ...motion import movement as _movement
+
 # matplotlib is imported lazily inside the plot helpers so test imports
 # (and headless environments) do not pull in a display backend on import.
 
@@ -211,16 +213,16 @@ def move_zwide_and_verify(
         raise RuntimeError(f"z-wide readback outside tolerance: requested {z_um}, got {actual}")
 
 
-def zero_z_galvo(client: Any, job_name: str) -> None:
-    result = drv.move_z(client, job_name, 0.0, unit="um", z_mode="galvo")
-    if not result or not result.get("success"):
-        raise RuntimeError(f"move_z galvo zero failed: {result}")
-
-
 # -- Acquisition helper ------------------------------------------------
 
 
-def acquire_frame_to(session: Any, name: str, *, orientation=None) -> np.ndarray:
+def acquire_frame_to(
+    session: Any,
+    name: str,
+    *,
+    orientation=None,
+    backlash_passes: int | None = None,
+) -> np.ndarray:
     """Acquire one frame, save into ``session.paths.data_dir``, track paths.
 
     Any parent directories implied by ``name`` are created as needed.
@@ -233,6 +235,7 @@ def acquire_frame_to(session: Any, name: str, *, orientation=None) -> np.ndarray
         session,
         acquisition_type="calibration-frame",
         orientation=orientation,
+        backlash_passes=backlash_passes,
     )
     img = _single_plane_image(saved, context=name)
     out = session.paths.data_dir / f"{name}.tif"
@@ -245,7 +248,13 @@ def acquire_frame_to(session: Any, name: str, *, orientation=None) -> np.ndarray
     return img
 
 
-def acquire_stack_to(session: Any, dirname: str, *, orientation=None) -> np.ndarray:
+def acquire_stack_to(
+    session: Any,
+    dirname: str,
+    *,
+    orientation=None,
+    backlash_passes: int | None = None,
+) -> np.ndarray:
     """Trigger the operator-configured LAS X z-stack, save slices, track paths.
 
     The workflow never configures the stack (range, step, sections,
@@ -262,6 +271,7 @@ def acquire_stack_to(session: Any, dirname: str, *, orientation=None) -> np.ndar
         session,
         acquisition_type="calibration-stack",
         orientation=orientation,
+        backlash_passes=backlash_passes,
     )
     arr = _stack_from_saved_planes(saved, context=dirname)
     if arr.ndim != 3:
@@ -288,8 +298,14 @@ def _capture_for_calibration(
     *,
     acquisition_type: str,
     orientation=None,
+    backlash_passes: int | None = None,
 ):
-    """Use the public driver acquire/save workflow for calibration captures."""
+    """Use the public driver acquire/save workflow for calibration captures.
+
+    When backlash_passes is provided, pin motoric XY backlash immediately
+    before capture with that many jog-and-return passes. This is operational
+    only: it has zero intended net displacement and is never persisted.
+    """
     if orientation is None:
         from ... import orientation as _orientation
 
@@ -300,6 +316,8 @@ def _capture_for_calibration(
         hash6=run_hash(),
         position_label=position_label,
     )
+    if backlash_passes is not None:
+        _movement.correct_backlash(session.client, passes=backlash_passes)
     acq = drv.acquire(session.client, session.job_name)
     return drv.save(
         session.client,
