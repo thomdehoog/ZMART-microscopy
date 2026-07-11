@@ -20,10 +20,12 @@ The changes under review are, in dependency order:
 - `workflows/target_acquisition/workflow/webapp/` (new package)
 - `workflows/target_acquisition/zmart_microscopy_v4.ipynb` and
   `zmart_microscopy_v4_react.ipynb` (section 5b removed)
+- `workflows/target_acquisition/README.md` (step list renumbered, web
+  interface pointer)
 - the changed/new test files (`test_react_widgets.py`,
-  `test_discovery_widget.py`, `test_v4_notebook.py`,
-  `test_v4_react_notebook.py`, `test_notebooks_run_end_to_end.py`,
-  `test_webapp.py`, `test_webapp_browser.py`)
+  `test_discovery_widget.py`, `test_v4_react_notebook.py`,
+  `test_notebooks_run_end_to_end.py`, `test_webapp.py`,
+  `test_webapp_browser.py`)
 - `environment.yml`, `build_env.py`,
   `zmart_drivers/.../navigator_expert/requirements-dev.txt`
 - `docs/reviews/v4_streaming_read_only_and_notebook_guards_review_forFable4.md`
@@ -68,7 +70,9 @@ The run-overlap interlock and cancel now read a private `_busy`;
 unknown `x_feature`/`y_feature` restores the previous axis instead of
 crashing `_recompute` mid-update; `_histogram` tolerates NaN feature
 values; `_matching_target_indices` resolves identity in a first pass so
-a copied record cannot steal an original's index in the same call.
+a copied record cannot steal an original's index in the same call; and
+`useStream` skips zero-length image buffers instead of minting object
+URLs to empty blobs (broken-image icons on records with no picture).
 
 Attack it: forge every one of those traits (and combinations, in one
 `set_state` call) on live and frozen widgets; try to fake a run, hide a
