@@ -11,54 +11,19 @@ tree at `5b8d9a7`.
 ## Findings
 
 There are no blockers: the read-only lock holds against every browser-origin
-route that was tried, and no finding lets the browser drive hardware. The
-majors are an availability crash in the one scenario the diff singles out as
-handled, and two ways the curation record can stop matching what the operator
+route that was tried, and no finding lets the browser drive hardware. Both
+majors are ways the curation record can stop matching what the operator
 sees.
 
-### major 1 — a view that mounts mid-run crashes on its second live message
+(A first draft of this report contained an additional major claiming that a
+view mounting mid-run crashes on its second out-of-order live message. That
+was a misreading of unchanged diff context: `useStream` copies with
+`prev.slice()`, which preserves array holes, and returns
+`items.filter(...)`, which compacts them before render — verified in Node.
+Sparse delivery is handled correctly, and `stream_index` correctly decouples
+verdicts from the compacted render position. The claim is retracted.)
 
-`workflows/target_acquisition/workflow/react/_support.py:270`
-(`const next = [...prev];` in `useStream`), crashing consumers at
-`workflows/target_acquisition/workflow/react/_widgets.py:1611`
-(`r.stream_index` in the gallery) and `:296` (`t.x0` in the overview's
-`fit()`).
-
-Failing sequence (confirmed in Node, which uses the same array semantics as
-the browser):
-
-1. A run is in progress; rows 0–4 have already been streamed. A second
-   browser view mounts. Its `sync` request sits in the kernel's queue
-   behind the running cell (exactly the classic-Jupyter behaviour the
-   PROTOCOL documents), so its local list starts empty.
-2. The live message for row 5 arrives: `next = [...prev]` on an empty list,
-   then `next[5] = entry`. Indices 0–4 are *holes*; `Array.prototype.map`
-   skips holes, so this first render works — this is the case the new
-   gallery comment ("useStream skips sparse holes for rendering") and
-   `test_sparse_midrun_row_keeps_its_authoritative_verdict_index` cover.
-3. The live message for row 6 arrives. `[...prev]` uses the array iterator,
-   which **materialises the holes into real `undefined` elements**. `map`
-   no longer skips them, and the gallery's render callback dereferences
-   `r.stream_index` on `undefined` — `TypeError`, the React root throws,
-   and the effect cleanup unmounts the view (revoking its object URLs).
-   The overview crashes the same way in `fit()` on `t.x0`.
-
-Impact: the "watch a running acquisition from a second tab" scenario —
-the one this diff explicitly adds `stream_index` for — goes permanently
-blank on the second live update, until the operator re-runs the cell or
-reloads the page. No hardware effect.
-
-Why the present tests miss it: the Python test models the sparse list as
-`[None] * 6` and filters with `entry is not None`; that models `map`
-skipping holes, but not the spread operator materialising holes into
-`undefined` on the *next* message. No test delivers two out-of-order
-messages.
-
-Smallest safe fix: copy with `prev.slice()` (slice preserves holes, so
-`map` keeps skipping them forever) — one line — plus a defensive
-`if (!r) return null` in the two render callbacks for belt and braces.
-
-### major 2 — the freeze does not cover scripted `set_verdict`, and healing it desynchronises the displayed verdicts from the saved ones
+### major 1 — the freeze does not cover scripted `set_verdict`, and healing it desynchronises the displayed verdicts from the saved ones
 
 `workflows/target_acquisition/workflow/react/_widgets.py:1727`
 (`set_verdict` has no `_hardware_allowed` check) interacting with
@@ -102,7 +67,7 @@ Smallest safe fix: refuse in `set_verdict` when `not
 self._hardware_allowed` (matching `acquire`'s RuntimeError wording), so
 truth and display cannot diverge and the docstring's promise holds.
 
-### major 3 — after a cancelled or failed run, curation state is misaligned and `save_curation` raises a raw `zip()` error
+### major 2 — after a cancelled or failed run, curation state is misaligned and `save_curation` raises a raw `zip()` error
 
 `workflows/target_acquisition/workflow/react/_widgets.py:1855`
 (`self._verdicts = [None] * len(picked)` at run start) versus `:1886`
@@ -137,7 +102,7 @@ fails, so all three lengths always agree; bound `set_verdict` by
 `len(self._verdicts)`; then `strict=True` can never fire and an empty
 curation of a failed run saves as an honest `[]`.
 
-### minor 4 — `_matching_target_indices` lets a copied record steal an index that an original in the same call owns by identity
+### minor 3 — `_matching_target_indices` lets a copied record steal an index that an original in the same call owns by identity
 
 `workflows/target_acquisition/workflow/_discovery_widget.py:70`.
 
@@ -170,7 +135,7 @@ Smallest safe fix: two passes — resolve every identity match first
 (reserving those indices), then run the equality fallback for the
 remainder in order.
 
-### minor 5 — a frozen widget refuses harmless display-only messages with a misleading status
+### minor 4 — a frozen widget refuses harmless display-only messages with a misleading status
 
 `workflows/target_acquisition/workflow/react/_widgets.py:159`
 (`_route_message` refuses everything but `sync` when frozen), versus the
@@ -191,7 +156,7 @@ Smallest safe fix: a per-widget allowlist of display-only message kinds
 (`hover`, `mark`) that `_route_message` still forwards when frozen —
 `pick`, `verdict`, `acquire*`, `cancel` stay refused.
 
-### minor 6 — freezing an empty overview viewer makes every later tile render black
+### minor 5 — freezing an empty overview viewer makes every later tile render black
 
 `workflows/target_acquisition/workflow/react/_widgets.py:543`
 (`_init_channels` ends in `self.channels = channels`) versus `:135`
@@ -218,7 +183,7 @@ Smallest safe fix: perform trusted Python-side trait writes under the
 existing `_restoring_read_only_input` flag (and refresh the stored
 snapshot), so the reject observer knows the write is not browser input.
 
-### minor 7 — a forged `read_only = true` on an unlocked widget sticks
+### minor 6 — a forged `read_only = true` on an unlocked widget sticks
 
 `workflows/target_acquisition/workflow/react/_widgets.py:118`
 (`_heal_read_only_trait` returns early when `self._hardware_allowed`).
@@ -239,7 +204,7 @@ Smallest safe fix: heal both directions — when unlocked and the new
 value is `True` (and the write did not come from `make_read_only`),
 restore `False`.
 
-### nit 8 — any tab mounting downgrades every other tab's live images
+### nit 7 — any tab mounting downgrades every other tab's live images
 
 `push_snapshot` broadcasts `tile:reset`/`row:reset` plus a replay to
 *all* views (anywidget custom messages are not addressed to one view).
@@ -251,19 +216,12 @@ visible quality drop with no note in `PROTOCOL.md`. Worth one sentence in
 the protocol (or replaying at the live budget when the tile count is
 small).
 
-### nit 9 — small documentation/test claims that do not match the code
+### nit 8 — small documentation/test claims that do not match the code
 
-- `_widgets.py:1607` comment: "useStream skips sparse holes for
-  rendering" — only true until the next message materialises the holes
-  (major 1); reword once fixed.
 - `PROTOCOL.md:44`: "the matching trait holds the full metadata
   snapshot" — the trait is only refreshed at sync/commit, so mid-run it
   lags the messages (the gallery's is `[]` during a run). One clause
   ("refreshed at sync and commit") would make it exact.
-- `test_sparse_midrun_row_keeps_its_authoritative_verdict_index` models
-  JS hole-skipping with a Python `is not None` filter; after the major 1
-  fix it should model `slice()` semantics instead (or simply assert on
-  the ESM string as it already does for `verdictBtn(rowIndex`).
 - The notebook guards allow `lambda` bodies (`ast.Lambda` is not in
   `implementation_nodes`), so logic can still drift into notebooks one
   expression at a time. Cheap to add if the guard is meant to be strict.
