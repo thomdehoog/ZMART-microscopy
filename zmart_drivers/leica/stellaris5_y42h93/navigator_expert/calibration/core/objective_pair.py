@@ -63,7 +63,6 @@ from .common import (
     plot_overlay,
     read_job_geometry,
     read_stack_z_positions,
-    slug,
     write_json_atomic,
 )
 
@@ -134,21 +133,17 @@ def start_session(
     session_id: str,
     job_name: str,
     sessions_root: str | Path,
-    reference_slot: int | None = None,
-    from_objective: str | None = None,
-    to_objective: str | None = None,
+    reference_slot: int,
     calibration_path: str | Path | None = None,
     calibration_name: str | None = None,
 ) -> ObjectivePairSession:
-    if (from_objective is None) != (to_objective is None):
-        raise ValueError("from_objective and to_objective must both be provided or both omitted")
-    if reference_slot is None and from_objective is None:
-        raise TypeError("start_session requires reference_slot")
-    kind = (
-        f"objective_{slug(from_objective)}_to_{slug(to_objective)}"
-        if from_objective is not None and to_objective is not None
-        else "objective_pair"
-    )
+    # Objective identities are never typed in: the reference is configured by
+    # its turret slot number and resolved to the microscope's own name below;
+    # the target is read live when the operator has switched to it. The
+    # session folder starts under the generic "objective_pair" kind and the
+    # staging config is renamed to the measured slot pair once the target
+    # objective has been observed.
+    kind = "objective_pair"
     objective_config_name = f"{kind}.json"
 
     # Create the session directory tree BEFORE loading the current config
@@ -169,25 +164,24 @@ def start_session(
         # for the report's source_calibration_file field.
         resolved_path = Path(calibration_path).absolute()
 
-    if reference_slot is not None:
-        from . import model as _calibration_model
+    from . import model as _calibration_model
 
-        existing_config = _calibration_model.load_calibration(resolved_path)
-        try:
-            stored_reference_slot = _calibration_model.get_reference_slot(existing_config)
-        except ValueError as exc:
-            if "no reference objective" not in str(exc):
-                raise
-            stored_reference_slot = None
-        if stored_reference_slot is not None and int(reference_slot) != stored_reference_slot:
-            raise ValueError(
-                f"this calibration session already uses reference slot "
-                f"{stored_reference_slot}, but the first cell configured "
-                f"reference_slot={int(reference_slot)}. Either select/create a "
-                f"different calibration session for the new reference objective, "
-                f"or change reference_slot in the first cell to "
-                f"{stored_reference_slot}. Calibration file: {resolved_path}"
-            )
+    existing_config = _calibration_model.load_calibration(resolved_path)
+    try:
+        stored_reference_slot = _calibration_model.get_reference_slot(existing_config)
+    except ValueError as exc:
+        if "no reference objective" not in str(exc):
+            raise
+        stored_reference_slot = None
+    if stored_reference_slot is not None and int(reference_slot) != stored_reference_slot:
+        raise ValueError(
+            f"this calibration session already uses reference slot "
+            f"{stored_reference_slot}, but the first cell configured "
+            f"reference_slot={int(reference_slot)}. Either select/create a "
+            f"different calibration session for the new reference objective, "
+            f"or change reference_slot in the first cell to "
+            f"{stored_reference_slot}. Calibration file: {resolved_path}"
+        )
 
     client = drv.connect_python_client()
     # Calibration moves the stage through gated drv.move_* wrappers, so it
@@ -210,15 +204,14 @@ def start_session(
         for slot, entry in _objectives.objective_by_slot(hw).items()
         if (name := str(entry.get("name") or "").strip())
     }
-    if reference_slot is not None:
-        reference_slot = int(reference_slot)
-        if reference_slot not in hardware_objectives:
-            raise ValueError(
-                f"reference objective slot {reference_slot} is not occupied; "
-                f"available slots: {sorted(hardware_objectives)}"
-            )
-        from_objective = hardware_objectives[reference_slot]
-        print(f"Configured reference objective: slot {reference_slot} — {from_objective}")
+    reference_slot = int(reference_slot)
+    if reference_slot not in hardware_objectives:
+        raise ValueError(
+            f"reference objective slot {reference_slot} is not occupied; "
+            f"available slots: {sorted(hardware_objectives)}"
+        )
+    from_objective = hardware_objectives[reference_slot]
+    print(f"Configured reference objective: slot {reference_slot} — {from_objective}")
 
     # Calibration sits above orientation in the setup ladder: parcentricity XY
     # is measured in image space and only becomes a stage offset because saved
@@ -234,7 +227,7 @@ def start_session(
         job_name=job_name,
         client=client,
         from_objective=from_objective,
-        to_objective=to_objective,
+        to_objective=None,  # read live from the microscope at the target steps
         objective_config_name=objective_config_name,
         calibration_name=calibration_name,
         calibration_path=resolved_path,
@@ -276,9 +269,14 @@ def _observe_objective_for_step(session: ObjectivePairSession, role: str) -> tup
     slot, name = _read_active_objective(session)
     if role == "reference":
         if session.from_slot is None:
-            session.from_slot = slot
-            session.hardware_objectives[slot] = name
-        elif slot != session.from_slot:
+            # start_session always configures the reference slot, so this can
+            # only happen to a hand-built session object. Refuse rather than
+            # silently adopting whatever objective happens to be active.
+            raise RuntimeError(
+                "this session has no configured reference objective slot; start "
+                "the session with reference_slot set in the first cell"
+            )
+        if slot != session.from_slot:
             raise RuntimeError(
                 f"wrong objective for reference step: expected slot {session.from_slot} "
                 f"({session.from_objective}), got slot {slot} ({name})"

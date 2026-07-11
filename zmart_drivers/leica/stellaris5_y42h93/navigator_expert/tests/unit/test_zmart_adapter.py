@@ -1106,11 +1106,17 @@ class TestObjectiveCompensation(unittest.TestCase):
             patches[1],
             patches[2],
             patches[3],
-            self.assertRaisesRegex(RuntimeError, "z_wide_um"),
+            self.assertRaisesRegex(RuntimeError, "z_wide_um") as ctx,
         ):
             adapter.set_xyz(h, 0.0, 0.0, 4.0, with_actuators={"z": "z-galvo"})
         xy.assert_not_called()
         move_z.assert_not_called()
+        # The failing leg is the calibrated objective offset, which only
+        # z-wide can realize — suggesting the other actuator would send the
+        # operator in a circle, so the message must not do that.
+        message = str(ctx.exception)
+        self.assertIn("calibrated objective offset", message)
+        self.assertNotIn("with_actuators", message)
 
     def test_round_trip_property_across_objectives(self):
         """get_xyz(set_xyz(F)) == F — commanded hardware read back through the frame."""
@@ -1220,6 +1226,7 @@ class TestDriverSetupReadiness(unittest.TestCase):
                     "loaded": True,
                     "name": "water_lens_setup",
                     "slots": [1, 2],
+                    "measured_slots": [1, 2],
                 },
             ),
         )
@@ -1237,6 +1244,56 @@ class TestDriverSetupReadiness(unittest.TestCase):
         bad_origin = adapter._setup_readiness(h, {"slotIndex": 2, "name": "20x"})
         self.assertFalse(bad_origin["ready"])
         self.assertIn("run-origin objective slot 4", bad_origin["issues"][0])
+
+    def test_seeded_placeholder_calibration_is_not_ready_even_though_it_loads(self):
+        """A bundled-default calibration loads fine but was never measured HERE.
+
+        Its entries carry no session provenance (``measured_slots`` empty), so
+        the verdict must refuse — otherwise a never-calibrated microscope would
+        compensate objective changes with the repository's placeholder numbers.
+        """
+        h = _handle(origin=_origin(objective={"slotIndex": 1, "name": "10x"}))
+        adapter._session_state.install(
+            h.client,
+            adapter._session_state.SessionConfig(
+                orientation=adapter._orientation.Orientation(rotate_deg=0),
+                translations={1: (0.0, 0.0, 0.0), 2: (-6.5, 21.5, -3.7)},
+                calibration_name="water_lens_setup",
+                orientation_info={"loaded": True, "measured": True, "rotate_deg": 0},
+                calibration_info={
+                    "loaded": True,
+                    "name": "water_lens_setup",
+                    "slots": [1, 2],
+                    "measured_slots": [],  # seeded from the bundled placeholder
+                },
+            ),
+        )
+        self.addCleanup(adapter._session_state.uninstall, h.client)
+
+        setup = adapter._setup_readiness(h, {"slotIndex": 2, "name": "20x"})
+
+        self.assertFalse(setup["ready"])
+        self.assertTrue(any("placeholder" in issue for issue in setup["issues"]))
+        self.assertTrue(any("calibrate_objective_pair" in issue for issue in setup["issues"]))
+
+    def test_calibration_info_without_provenance_field_fails_closed(self):
+        """An info dict lacking measured_slots must count as unmeasured."""
+        h = _handle(origin=_origin(objective={"slotIndex": 1, "name": "10x"}))
+        adapter._session_state.install(
+            h.client,
+            adapter._session_state.SessionConfig(
+                orientation=adapter._orientation.Orientation(rotate_deg=0),
+                translations={1: (0.0, 0.0, 0.0)},
+                orientation_info={"loaded": True, "measured": True, "rotate_deg": 0},
+                calibration_info={"loaded": True, "slots": [1]},
+            ),
+        )
+        self.addCleanup(adapter._session_state.uninstall, h.client)
+
+        setup = adapter._setup_readiness(h, {"slotIndex": 1, "name": "10x"})
+
+        self.assertFalse(setup["ready"])
+        self.assertTrue(any("placeholder" in issue for issue in setup["issues"]))
 
     def test_placeholder_orientation_is_not_ready_even_when_rotation_is_zero(self):
         h = _handle(origin=_origin(objective={"slotIndex": 1, "name": "10x"}))
