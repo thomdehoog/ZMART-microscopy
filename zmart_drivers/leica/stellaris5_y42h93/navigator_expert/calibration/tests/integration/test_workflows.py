@@ -3,7 +3,7 @@
 Covers:
 
 - SessionPaths creation and folder layout
-- slug + objective_config_name + geometry validation
+- geometry validation
 - non-square pixel rejection
 - adoption behavior (publishes a copy-forward snapshot, snapshot history,
   missing staging source, wrong kind, bundled-default fallback)
@@ -108,14 +108,6 @@ def test_runtime_paths_preserve_drive_letter(sessions_root):
         str(paths.session_dir).startswith(str(sessions_root.absolute().drive))
         or paths.session_dir.drive == expected_drive
     )
-
-
-def test_slug_and_objective_config_name():
-    assert cm.slug("10x") == "10x"
-    assert cm.slug("100x oil") == "100x_oil"
-    assert cm.slug("0.5x") == "0p5x"
-    assert cm.objective_config_name("10x", "20x") == "objective_10x_to_20x.json"
-    assert cm.objective_config_name("10x", "100x oil") == "objective_10x_to_100x_oil.json"
 
 
 def test_assert_geometry_matches_accepts_exact_match():
@@ -374,6 +366,109 @@ def test_adoption_objective_translation_updates_canonical_calibration(
     assert (
         machine.latest_snapshot() / "calibrations" / "water_lens_set" / "calibration.json"
     ).exists()
+
+
+def test_adoption_stamps_the_measuring_session_on_the_reference_slot_too(
+    sessions_root,
+    machine,
+):
+    """Both endpoints of a measured pair carry the session that measured them.
+
+    The driver's preflight verdict treats an entry without a ``session_id`` as
+    an untouched placeholder, so a measurement must establish its reference
+    objective as well as its target.
+    """
+    _seed_snapshot(machine)
+    session, _ = _make_staging_session(
+        sessions_root,
+        _valid_obj_payload(),
+        "objective_10x_to_20x.json",
+    )
+
+    wf_adopt.adopt_calibration(
+        session,
+        "objective_10x_to_20x.json",
+        machine=machine,
+        moment=_ADOPT_MOMENT,
+    )
+
+    current = json.loads(machine.calibration_path().read_text(encoding="utf-8"))
+    assert current["objectives"]["1"]["session_id"] == session.session_id
+    assert current["objectives"]["2"]["session_id"] == session.session_id
+
+
+def test_adoption_refuses_to_overwrite_the_established_reference(sessions_root, machine):
+    """Adopting a pair whose target is the zero-reference must fail with advice.
+
+    Overwriting the reference would shift the origin every other objective is
+    measured against; before this guard the merge only failed later, at
+    publish, with a schema message the operator could not act on.
+    """
+    _seed_snapshot(machine)
+    payload = _valid_obj_payload()
+    payload["from_objective"] = "20x"
+    payload["to_objective"] = "10x"  # slot 1 — the calibration's zero reference
+    session, _ = _make_staging_session(
+        sessions_root,
+        payload,
+        "objective_20x_to_10x.json",
+    )
+
+    with pytest.raises(ValueError, match="zero-reference"):
+        wf_adopt.adopt_calibration(
+            session,
+            "objective_20x_to_10x.json",
+            machine=machine,
+            moment=_ADOPT_MOMENT,
+        )
+
+
+def test_adoption_refuses_a_same_slot_pair_from_labels(sessions_root, machine):
+    _seed_snapshot(machine)
+    payload = _valid_obj_payload()
+    payload["to_objective"] = "10x"  # same slot as from_objective
+    payload["from_objective"] = "10x"
+    session, _ = _make_staging_session(
+        sessions_root,
+        payload,
+        "objective_10x_to_10x.json",
+    )
+
+    with pytest.raises(ValueError, match="must differ"):
+        wf_adopt.adopt_calibration(
+            session,
+            "objective_10x_to_10x.json",
+            machine=machine,
+            moment=_ADOPT_MOMENT,
+        )
+
+
+def test_adoption_refuses_a_reference_missing_from_the_calibration(sessions_root, machine):
+    """A measurement from an objective the calibration does not cover cannot chain.
+
+    Its target has no path back to the existing origin; silently starting a
+    second [0, 0, 0] origin would corrupt the file (and used to surface only
+    as a publish-time schema error).
+    """
+    _seed_snapshot(machine)
+    payload = _valid_obj_payload()
+    payload["from_slot"] = 5
+    payload["to_slot"] = 6
+    payload["from_objective"] = "63x glycerol"
+    payload["to_objective"] = "93x oil"
+    session, _ = _make_staging_session(
+        sessions_root,
+        payload,
+        "objective_slot_5_to_6.json",
+    )
+
+    with pytest.raises(ValueError, match="not in the calibration being updated"):
+        wf_adopt.adopt_calibration(
+            session,
+            "objective_slot_5_to_6.json",
+            machine=machine,
+            moment=_ADOPT_MOMENT,
+        )
 
 
 def test_common_reference_adoptions_infer_every_objective_pair(sessions_root, machine):
@@ -712,7 +807,16 @@ def _patch_objective_driver(
     monkeypatch.setattr(
         wf_obj.drv,
         "get_hardware_info",
-        lambda client, **kw: {"ok": True},
+        # A realistic occupied turret: start_session resolves the configured
+        # reference slot's name from this, exactly like the live driver.
+        lambda client, **kw: {
+            "Microscope": {
+                "objectives": [
+                    {"slotIndex": 1, "objectiveNumber": 1, "name": "10x"},
+                    {"slotIndex": 2, "objectiveNumber": 2, "name": "20x"},
+                ]
+            }
+        },
     )
 
     default_ref = {
@@ -905,6 +1009,12 @@ def _patch_objective_driver(
         else:
             session.to_slot = 2
             session.to_objective = session.to_objective or "20x"
+            # Mirror the real helper: the staging config is renamed to the
+            # measured slot pair the first time the target is observed.
+            if session.objective_config_name == "objective_pair.json":
+                session.objective_config_name = (
+                    f"objective_slot_{session.from_slot}_to_{session.to_slot}.json"
+                )
             slot, name = session.to_slot, session.to_objective
         session.hardware_objectives[slot] = name
         return slot, name
@@ -928,8 +1038,7 @@ def test_start_session_requires_sessions_root_objective_pair(monkeypatch):
         wf_obj.start_session(
             session_id="obj_no_root",
             job_name="Overview",
-            from_objective="10x",
-            to_objective="20x",
+            reference_slot=1,
             calibration_path="ignored.json",
         )
 
@@ -942,8 +1051,7 @@ def test_objective_pair_requires_explicit_calibration_path(monkeypatch):
         wf_obj.start_session(
             session_id="obj_no_i2s",
             job_name="Overview",
-            from_objective="10x",
-            to_objective="20x",
+            reference_slot=1,
             sessions_root="ignored",
         )
 
@@ -954,8 +1062,7 @@ def test_objective_pair_rejects_conflicting_calibration_selectors(monkeypatch):
         wf_obj.start_session(
             session_id="obj_conflict",
             job_name="Overview",
-            from_objective="10x",
-            to_objective="20x",
+            reference_slot=1,
             sessions_root="ignored",
             calibration_path="calibration.json",
             calibration_name="lens_A",
@@ -979,8 +1086,7 @@ def test_objective_pair_can_select_named_machine_calibration(
     session = wf_obj.start_session(
         session_id="obj_named",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_name="lens_A",
     )
@@ -1141,6 +1247,42 @@ def test_objective_verification_refuses_wrong_slot_same_reference_as_target_and_
         wf_obj._observe_objective_for_step(session, "reference")
 
 
+def test_observe_reference_refuses_a_session_without_a_configured_reference(monkeypatch):
+    """A session with no reference slot must refuse, never silently adopt one.
+
+    Adopting whatever objective happens to be active would let a mis-set-up
+    session record the wrong lens as the reference for the whole calibration.
+    """
+    session = _live_objective_session()
+    session.from_slot = None
+    monkeypatch.setattr(
+        wf_obj.drv,
+        "get_selected_job",
+        lambda _client, **_kwargs: {"Name": "Overview"},
+    )
+    monkeypatch.setattr(
+        wf_obj.drv,
+        "get_job_settings",
+        lambda _client, _job, **_kwargs: {"objective": {"slotIndex": 2, "name": "20x"}},
+    )
+
+    with pytest.raises(RuntimeError, match="no configured reference objective slot"):
+        wf_obj._observe_objective_for_step(session, "reference")
+
+
+def test_start_session_no_longer_accepts_objective_labels():
+    """Objective identities come from the microscope, never from typed labels."""
+    with pytest.raises(TypeError):
+        wf_obj.start_session(
+            session_id="typed_labels",
+            job_name="Overview",
+            from_objective="10x",
+            to_objective="20x",
+            sessions_root="ignored",
+            calibration_path="ignored.json",
+        )
+
+
 def test_objective_pair_override_calibration_path_recorded(
     monkeypatch,
     sessions_root,
@@ -1169,8 +1311,7 @@ def test_objective_pair_override_calibration_path_recorded(
     session = wf_obj.start_session(
         session_id="obj_override",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=override,
     )
@@ -1224,8 +1365,7 @@ def test_objective_pair_z_translation_arithmetic_peak_to_peak(
     session = wf_obj.start_session(
         session_id="obj_z",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -1284,8 +1424,7 @@ def test_objective_pair_xy_translation_arithmetic_identity(
     session = wf_obj.start_session(
         session_id="obj_xy_id",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -1352,8 +1491,7 @@ def test_objective_pair_weak_xy_vote_blocks_config(monkeypatch, sessions_root, m
     session = wf_obj.start_session(
         session_id="obj_weak",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -1433,8 +1571,7 @@ def test_objective_pair_target_xy_acquire_at_post_switch_xy(
     session = wf_obj.start_session(
         session_id="obj_postswitch",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -1483,8 +1620,7 @@ def test_objective_pair_parcentricity_reference_moves_to_home(
     session = wf_obj.start_session(
         session_id="obj_ref_home",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -1540,8 +1676,7 @@ def test_objective_pair_failed_rerun_removes_stale_config(monkeypatch, sessions_
     session = wf_obj.start_session(
         session_id="obj_rerun",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -1616,8 +1751,7 @@ def _full_objective_run(
     session = wf_obj.start_session(
         session_id=session_id,
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -1794,8 +1928,7 @@ def test_objective_pair_rerun_2b_wipes_target_z_stack_dir(
     session = wf_obj.start_session(
         session_id="obj_zstack_wipe",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -1879,8 +2012,7 @@ def test_objective_pair_rerun_3b_acquire_failure_removes_stale_config(
     session = wf_obj.start_session(
         session_id="obj_3b_fail",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -1976,8 +2108,7 @@ def test_objective_pair_parfocality_reference_acquires_z_stack(
     session = wf_obj.start_session(
         session_id="obj_ref_stack",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -2029,8 +2160,7 @@ def test_objective_pair_z_stack_zoom_independent_of_image_to_stage(
     session = wf_obj.start_session(
         session_id="obj_z_zoom",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -2071,8 +2201,7 @@ def test_objective_pair_parcentricity_xy_pixel_size_mismatch_raises(
     session = wf_obj.start_session(
         session_id="obj_xy_pix_mismatch",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -2166,8 +2295,7 @@ def test_objective_pair_rerun_2a_wipes_ref_z_stack_dir(monkeypatch, sessions_roo
     session = wf_obj.start_session(
         session_id="obj_ref_wipe",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -2230,8 +2358,7 @@ def test_objective_pair_missing_stack_positions_raises(monkeypatch, sessions_roo
     session = wf_obj.start_session(
         session_id="obj_missing_pos",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -2258,8 +2385,7 @@ def test_objective_pair_z_stack_requires_at_least_five_slices(
     session_a = wf_obj.start_session(
         session_id="obj_min_slices_meta",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -2286,8 +2412,7 @@ def test_objective_pair_z_stack_override_requires_at_least_five(
     session = wf_obj.start_session(
         session_id="obj_min_slices_override",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -2336,8 +2461,7 @@ def test_objective_pair_descending_stack_fits_peak_correctly(
     session = wf_obj.start_session(
         session_id="obj_descending",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -2502,8 +2626,7 @@ def test_objective_pair_non_finite_brenner_raises(monkeypatch, sessions_root, ma
     session = wf_obj.start_session(
         session_id="obj_nan_brenner",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -2543,8 +2666,7 @@ def test_objective_pair_first_slice_artifact_is_dropped(
     session = wf_obj.start_session(
         session_id="obj_slice0_drop",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -2589,8 +2711,7 @@ def test_objective_pair_last_slice_artifact_is_dropped(
     session = wf_obj.start_session(
         session_id="obj_lastslice_drop",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )
@@ -2633,8 +2754,7 @@ def test_objective_pair_brenner_peak_at_stack_edge_raises(
     session = wf_obj.start_session(
         session_id="obj_edge_peak",
         job_name="Overview",
-        from_objective="10x",
-        to_objective="20x",
+        reference_slot=1,
         sessions_root=sessions_root,
         calibration_path=machine.calibration_path(),
     )

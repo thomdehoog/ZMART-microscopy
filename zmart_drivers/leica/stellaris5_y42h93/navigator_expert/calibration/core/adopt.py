@@ -110,16 +110,50 @@ def _apply_staging_payload(
         # slots were recorded directly from hardware.
         from_slot = _objective_slot_for_label(config, data["from_objective"])
         to_slot = _objective_slot_for_label(config, data["to_objective"])
+        if from_slot == to_slot:
+            raise ValueError("reference and target objective slots must differ")
     from_entry = (config.get("objectives") or {}).get(str(from_slot), {})
+    # Refuse the two merges that would corrupt this calibration's origin, and
+    # say so now with a way out — rather than failing later at publish time
+    # with a schema message the operator cannot act on.
+    try:
+        stored_reference = calibration_model.get_reference_slot(config)
+    except ValueError:
+        stored_reference = None  # nothing calibrated yet: no origin to protect
+    if stored_reference is not None:
+        if to_slot == stored_reference:
+            raise ValueError(
+                f"the target objective (slot {to_slot}) is this calibration's "
+                f"established zero-reference objective; adopting would overwrite "
+                f"the origin every other objective is measured against. Measure "
+                f"the pair the other way around (reference objective first), or "
+                f"start a session under a new calibration_name to establish a "
+                f"different reference objective."
+            )
+        if "translation_um" not in from_entry:
+            raise ValueError(
+                f"this measurement's reference objective (slot {from_slot}) is "
+                f"not in the calibration being updated, so the new target cannot "
+                f"be placed relative to the existing origin (slot "
+                f"{stored_reference}). Measure from an objective this calibration "
+                f"already covers, or start a session under a new calibration_name."
+            )
     if "translation_um" in from_entry:
         # The FROM objective already has a position, so place the new one
         # relative to it -- this keeps every objective consistent with the same
         # origin.
         base = calibration_model.get_translation_um(config, from_slot)
-        # Refresh its name from the live microscope, so a set seeded from stale
-        # defaults reflects the objective actually in the turret.
-        if from_slot in live_names:
-            calibration_model.update_objective(config, from_slot, name=live_names[from_slot])
+        # Refresh its name from the live microscope and record this measuring
+        # session as its provenance. The measurement re-establishes the FROM
+        # objective on this microscope, so its entry must stop looking like an
+        # untouched placeholder (placeholder entries carry no session_id and do
+        # not count as calibrated in the driver's preflight verdict).
+        calibration_model.update_objective(
+            config,
+            from_slot,
+            name=live_names.get(from_slot),
+            session_id=session_id,
+        )
     else:
         # Nothing has been calibrated yet, so the first objective used becomes
         # the [0, 0, 0] origin. There is no privileged reference to pick;
@@ -129,6 +163,7 @@ def _apply_staging_payload(
             from_slot,
             translation_um=(0.0, 0.0, 0.0),
             name=live_names.get(from_slot),
+            session_id=session_id,
         )
         base = (0.0, 0.0, 0.0)
     translation_xy = data["translation_xy_um"]

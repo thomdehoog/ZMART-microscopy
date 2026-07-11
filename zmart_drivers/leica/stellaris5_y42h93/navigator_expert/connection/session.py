@@ -178,7 +178,15 @@ def _calibration_info(
     calibration_name: str | None,
     translations: dict | None,
 ) -> dict:
-    """Describe the objective calibration selected and loaded by the driver."""
+    """Describe the objective calibration selected and loaded by the driver.
+
+    ``slots`` lists every objective the loaded file covers. ``measured_slots``
+    lists only the objectives whose entry records the calibration session that
+    measured it (``session_id``). The difference matters for the preflight
+    verdict: a missing calibration file is seeded from the repository's bundled
+    placeholder, whose entries carry no session provenance — those values were
+    never measured on this microscope and must not count as calibrated.
+    """
     from ..config.machine import CALIBRATION_NAME_ENV
 
     effective_name = calibration_name or os.environ.get(CALIBRATION_NAME_ENV)
@@ -189,16 +197,30 @@ def _calibration_info(
             "name": effective_name,
             "path": None,
             "slots": [],
+            "measured_slots": [],
         }
     from ..calibration.core import model as _cal_model
 
     path = _cal_model.default_path(calibration_name).absolute()
+    measured_slots: list[int] = []
+    if translations is not None:
+        try:
+            config = _cal_model.load_calibration(path)
+            measured_slots = sorted(
+                int(slot)
+                for slot, entry in (config.get("objectives") or {}).items()
+                if entry.get("session_id")
+            )
+        except Exception as exc:  # noqa: BLE001 -- same fail-soft posture as the translations load
+            _log.warning("could not read calibration provenance from %s (%s)", path, exc)
+            measured_slots = []
     return {
         "enabled": True,
         "loaded": translations is not None,
         "name": effective_name,
         "path": str(path),
         "slots": sorted(int(slot) for slot in (translations or {})),
+        "measured_slots": measured_slots,
     }
 
 

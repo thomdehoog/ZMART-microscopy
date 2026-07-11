@@ -71,18 +71,6 @@ class ImageGeometry:
 # -- Path / naming helpers ---------------------------------------------
 
 
-def slug(value: str) -> str:
-    """Filesystem-safe objective label.
-
-    '10x' -> '10x', '100x oil' -> '100x_oil', '0.5x' -> '0p5x'.
-    """
-    return value.strip().replace(" ", "_").replace("/", "_").replace("\\", "_").replace(".", "p")
-
-
-def objective_config_name(from_objective: str, to_objective: str) -> str:
-    return f"objective_{slug(from_objective)}_to_{slug(to_objective)}.json"
-
-
 def make_session_paths(
     session_id: str,
     kind: str,

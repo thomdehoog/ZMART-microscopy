@@ -376,6 +376,13 @@ def _setup_readiness(handle: ZmartHandle, active_objective: dict | None) -> dict
     slot = None if slot is None else int(slot)
     origin_slot = (handle.origin.get("objective") or {}).get("slotIndex")
     origin_slot = None if origin_slot is None else int(origin_slot)
+    # A slot only counts as calibrated when its entry records the session that
+    # measured it. A missing calibration file is seeded from the repository's
+    # bundled placeholder, which has no such provenance — reporting those
+    # values as "ready" would let a never-calibrated microscope compensate
+    # objective changes with numbers nobody measured on it.
+    known_slots = calibration.get("slots", [])
+    measured_slots = calibration.get("measured_slots", [])
     issues = []
     if not orientation.get("measured"):
         issues.append(
@@ -386,17 +393,32 @@ def _setup_readiness(handle: ZmartHandle, active_objective: dict | None) -> dict
         issues.append("objective calibration is not loaded")
     elif slot is None:
         issues.append("active objective slot is unreadable")
-    elif slot not in calibration.get("slots", []):
+    elif slot not in known_slots:
         issues.append(
             f"active objective slot {slot} is absent from the loaded objective calibration"
         )
+    elif slot not in measured_slots:
+        issues.append(
+            f"active objective slot {slot} carries only shipped placeholder values, not a "
+            "calibration measured on this microscope; run and adopt the "
+            "calibrate_objective_pair notebook"
+        )
     if calibration.get("loaded"):
         if origin_slot is None:
-            issues.append("the run origin has no readable objective slot; set the origin again")
-        elif origin_slot not in calibration.get("slots", []):
+            issues.append(
+                "the run origin has no recorded objective; run set_origin under "
+                "the current objective"
+            )
+        elif origin_slot not in known_slots:
             issues.append(
                 f"run-origin objective slot {origin_slot} is absent from the loaded "
                 "objective calibration"
+            )
+        elif origin_slot not in measured_slots:
+            issues.append(
+                f"run-origin objective slot {origin_slot} carries only shipped placeholder "
+                "values, not a calibration measured on this microscope; run and adopt the "
+                "calibrate_objective_pair notebook"
             )
     return {
         "ready": not issues,
@@ -587,10 +609,23 @@ def set_xyz(
     _limits._check_xy_limits(abs_x, abs_y)
     for z_mode, target in z_targets:
         z_param = "z_galvo_um" if z_mode == "galvo" else "z_wide_um"
+        # With z-galvo selected across objectives, the extra z-wide leg is the
+        # calibrated objective offset — it can only ever be realized by
+        # z-wide, so suggesting the other actuator would send the operator in
+        # a circle. The hint is only useful for the leg that carries the
+        # requested frame-Z motion.
+        translation_leg = len(z_targets) == 2 and z_mode == "zwide"
         try:
             _refuse_if_gated(handle, "move_z", {z_param: target})
             _limits._check_z_limits(target, z_mode)
         except RuntimeError as exc:
+            if translation_leg:
+                raise RuntimeError(
+                    f"refusing the whole move before any motion: {exc} "
+                    f"(this z-wide target is the calibrated objective offset, which "
+                    f"cannot be moved to the other z drive — re-set the origin under "
+                    f"the current objective, or re-adopt the objective calibration)"
+                ) from exc
             alternative = "z-wide" if chosen["z"] == "z-galvo" else "z-galvo"
             raise RuntimeError(
                 f"refusing the whole move before any motion: {exc} "
