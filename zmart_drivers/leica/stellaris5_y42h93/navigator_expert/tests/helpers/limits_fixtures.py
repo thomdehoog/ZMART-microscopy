@@ -6,9 +6,8 @@ when they need a specific fixture envelope or gate policy. Command-mechanics
 unit tests can also install a permissive in-memory gate state for one client
 (``install_permissive_limits``).
 
-The snapshot holds the single ``limits.json`` (§7b): ``constraints`` +
-``functions``. There is no separate function_limits.json and no ``backlash``
-block (backlash is a motion utility with baked-in defaults, decision §2b).
+The snapshot holds one flat ``limits.json``: axis ranges, allowed objective
+slots, and explicit ``[]`` entries for unrestricted setters.
 """
 
 from __future__ import annotations
@@ -38,10 +37,10 @@ _SEED_MOMENT = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
 def merged_limits_payload(stage_um: dict, *, functions: dict | None = None) -> dict:
-    """The single limits.json payload: constraints + functions (no backlash)."""
+    """The single flat limits.json payload."""
     payload = _gate.build_function_limits_payload(stage_um)
     if functions is not None:
-        payload["functions"] = functions
+        payload.update(functions)
     return payload
 
 
@@ -57,7 +56,7 @@ def provision_machine_limits(
     ``root`` is the ProgramData root (point ``ZMART_MICROSCOPY_ROOT`` at it,
     or pass the returned profile explicitly). The connect handshake then
     resolves and validates that ProgramData file. ``function_limits`` overrides
-    the file's ``functions`` block for gate-abuse tests.
+    matching top-level entries for malformed-file tests.
     """
     profile = MachineProfile(programdata_root=Path(root))
     stage_um = dict(stage_um or DEFAULT_STAGE_UM)

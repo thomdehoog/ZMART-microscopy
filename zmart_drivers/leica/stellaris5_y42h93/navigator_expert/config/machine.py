@@ -4,15 +4,17 @@ Runtime coordinate config - the optical calibration, the physical stage
 envelope, and how the camera is turned relative to the stage - lives in dated
 snapshots under a machine-wide ProgramData root, newest wins. The repo ships
 defaults only; the first driver run copies those defaults into ProgramData so
-every runtime read is machine-local. Each snapshot dir holds up to three files
-(plus named calibration sets and executed notebooks)::
+every runtime read is machine-local. Each snapshot contains the three baseline
+files (plus named calibration sets, executed notebooks, and an internal limits
+provenance marker)::
 
     <programdata_root>/<vendor>/<microscope_id>/<api>/
         <datetime>/
             calibration.json    # legacy/default optical calibration
             calibrations/<name>/calibration.json
                                 # named optical calibration sets (per lens setup)
-            limits.json         # physical envelope + function gate (schema v1)
+            limits.json         # flat axis/objective/setter limits
+            .limits-machine     # present after explicit limits adoption
             orientation.json    # camera turn relative to the stage (0/90/180/270)
             <executed>.ipynb    # the notebook that produced this adopt
         origin/
@@ -28,13 +30,12 @@ All runtime values live in ProgramData, not inside the installed code. The
 defaults under the driver tree are seed material only; after seeding, reads
 return paths under ProgramData.
 
-``limits.json`` is the single function-keyed limits file (decision §7b):
-``constraints`` (the ``stage.*`` physical envelope) + ``functions`` (the
-per-command gate policy). Both readers - the motion check
-(``motion/stage_config``) and the commands gate (``commands/gate``) - read this
-one file; there is no separate ``function_limits.json``. Backlash appears in
-none of these files: it is a plain motion utility with baked-in defaults
-(decision §2b), not machine state.
+``limits.json`` is deliberately flat: ``x_um``, ``y_um``, both Z ranges, the
+allowed objective slots, and explicit ``[]`` entries for unrestricted setters.
+There is no metadata wrapper or separate ``function_limits.json``. A hidden
+snapshot marker preserves whether limits were explicitly adopted, so generic
+seed defaults cannot masquerade as measured limits. Backlash is a motion
+utility with baked-in defaults, not machine state.
 
 Each snapshot is a complete, cumulative machine-state record; workflows write
 one per adopt by copying the latest snapshot forward and merging their delta.
@@ -78,6 +79,7 @@ _SNAPSHOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}Z$")
 CALIBRATION_FILENAME = "calibration.json"
 CALIBRATIONS_DIRNAME = "calibrations"
 LIMITS_FILENAME = "limits.json"
+LIMITS_MACHINE_MARKER = ".limits-machine"
 ORIENTATION_FILENAME = "orientation.json"
 ORIGIN_FILENAME = "origin.json"
 CALIBRATION_NAME_ENV = "ZMART_CALIBRATION_NAME"
@@ -444,6 +446,16 @@ class MachineProfile:
             if calibration is not None and calibration_name is not None:
                 _write_json(staging / self.calibration_relpath(calibration_name), calibration)
             self._seed_file(staging, LIMITS_FILENAME, limits, prior=prior)
+            # limits.json itself stays flat and metadata-free. This tiny
+            # snapshot marker preserves the safety distinction between seeded
+            # generic defaults and a limits document explicitly published by
+            # the operator; later snapshots carry it forward.
+            marker = staging / LIMITS_MACHINE_MARKER
+            prior_marker = prior / LIMITS_MACHINE_MARKER if prior is not None else None
+            if limits is not None:
+                marker.touch()
+            elif prior_marker is not None and prior_marker.exists():
+                shutil.copy2(prior_marker, marker)
             self._seed_file(staging, ORIENTATION_FILENAME, orientation, prior=prior)
             # The origin is not snapshot state — it lives in its own origin/
             # folder (see write_origin) and is not carried into snapshots.

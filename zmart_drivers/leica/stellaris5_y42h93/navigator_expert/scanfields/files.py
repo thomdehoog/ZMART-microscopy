@@ -5,7 +5,7 @@ detect template state, and define the canonical filename constants.
 
 ``save_experiment`` / ``load_experiment`` fire ``PyApi{Save,Load}Experiment``
 directly on the client — mutations outside the ``commands.commands`` wrappers
-— so they carry their own function-keyed limits gate (``commands.gate``,
+— so they carry their own command safety gate (``commands.gate``,
 keys ``save_experiment`` / ``load_experiment``): with no valid machine-local
 limits the receipt is never fired and the call returns ``None`` (the
 functions' existing failure contract) after logging the refusal.

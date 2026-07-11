@@ -7,6 +7,7 @@ option validation, and closed-handle semantics — including a full
 end-to-end pass through a real controller ``Session``.
 """
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -1453,12 +1454,12 @@ class TestFunctionLimits(unittest.TestCase):
 
     def test_bundled_template_covers_every_declared_key(self):
         """THE completeness guard on the template: a new key cannot ship absent."""
-        from shared import limits as shared_limits
+        from navigator_expert.motion import stage_config
 
         path = adapter._machine.MACHINE.bundled_default_path(adapter._machine.LIMITS_FILENAME)
-        limits = shared_limits.load(path, functions=_gate.FUNCTION_LIMIT_KEYS, is_fallback=True)
-        self.assertEqual(limits.source, "defaults")
-        self.assertTrue(limits.is_fallback)  # provenance: template, not machine
+        payload = stage_config.validate_payload(json.loads(path.read_text(encoding="utf-8")))
+        self.assertEqual(set(payload), set(stage_config._REQUIRED_FILE_KEYS))
+        self.assertEqual(payload["objective_slot_allowed"], [1, 2, 3, 4, 5, 6])
 
     def test_set_xyz_refuses_beyond_function_limits_before_any_motion(self):
         _wide_limits()  # Phase A permissive, so the function-limits layer is what fires
@@ -1575,9 +1576,13 @@ class TestFunctionLimits(unittest.TestCase):
         """An envelope the schema can't represent falls back to bundled defaults."""
         import os
 
-        provision_machine_limits(
-            os.environ["ZMART_MICROSCOPY_ROOT"],
-            stage_um=dict(DEFAULT_STAGE_UM, theta=[0.0, 360.0]),
+        profile = provision_machine_limits(os.environ["ZMART_MICROSCOPY_ROOT"])
+        payload = json.loads(
+            (profile.latest_snapshot() / "limits.json").read_text(encoding="utf-8")
+        )
+        payload["theta_um"] = [0.0, 360.0]
+        (profile.latest_snapshot() / "limits.json").write_text(
+            json.dumps(payload), encoding="utf-8"
         )
         client = object()
         state = _gate.connect_handshake(client)

@@ -38,8 +38,6 @@ from navigator_expert.motion import limits as motion_limits
 from navigator_expert.motion import stage_config
 from navigator_expert.scanfields import files as scanfield_files
 
-from shared import limits as shared_limits
-
 DRIVER_ROOT = Path(__file__).resolve().parents[2]
 
 # =============================================================================
@@ -63,24 +61,27 @@ def _raw_snapshot(root: Path, *, limits_text: str | None = None) -> MachineProfi
 
 
 def _valid_payload(stage_um: dict | None = None, functions: dict | None = None) -> dict:
-    """A valid single limits.json payload: constraints + functions (no backlash)."""
+    """A valid flat limits.json payload."""
     return merged_limits_payload(stage_um or DEFAULT_STAGE_UM, functions=functions)
 
 
 def _valid_limits_text(stage_um: dict | None = None) -> str:
-    return json.dumps(_valid_payload(stage_um))
-
-
-def _with_constraints(mutate) -> str:
-    """A merged payload whose (otherwise valid) constraints are mutated."""
     payload = _valid_payload()
-    payload["constraints"] = mutate(dict(payload["constraints"]))
+    if stage_um is not None:
+        for axis, key in {
+            "x": "x_um",
+            "y": "y_um",
+            "z_galvo": "z_galvo_um",
+            "z_wide": "z_wide_um",
+        }.items():
+            payload[key] = stage_um[axis]
     return json.dumps(payload)
 
 
-def _with_functions(functions: dict) -> str:
-    """A merged payload (valid envelope) with a custom ``functions`` block."""
-    return json.dumps(_valid_payload(functions=functions))
+def _with_payload(mutate) -> str:
+    """A flat payload mutated for one malformed-file attack."""
+    payload = _valid_payload()
+    return json.dumps(mutate(dict(payload)))
 
 
 @pytest.fixture()
@@ -112,18 +113,16 @@ def _mock_stage_position(client):
 # =============================================================================
 
 _BAD_LIMITS_TEXTS = {
-    "truncated": '{"schema_version": 1, "source": "defa',
+    "truncated": '{"x_um": [1000, 130000], "y_um":',
     "non_json": "this is not json <at all>",
     "empty_dict": "{}",
-    "wrong_schema_version": json.dumps(dict(_valid_payload(), schema_version=99)),
-    "missing_source": json.dumps({k: v for k, v in _valid_payload().items() if k != "source"}),
-    "missing_constraints": json.dumps(
-        {k: v for k, v in _valid_payload().items() if k != "constraints"}
+    "legacy_schema": json.dumps(
+        {"schema_version": 1, "source": "defaults", "constraints": {}, "functions": {}}
     ),
-    "missing_axis": _with_constraints(lambda c: {k: v for k, v in c.items() if k != "stage.y"}),
-    "unknown_axis": _with_constraints(lambda c: {**c, "stage.theta": {"min": 0, "max": 360}}),
-    "constraint_not_an_object": _with_constraints(lambda c: {**c, "stage.x": [1000, 130000]}),
-    "constraint_missing_min_max": _with_constraints(lambda c: {**c, "stage.x": {"lo": 1, "hi": 2}}),
+    "missing_axis": _with_payload(lambda p: {k: v for k, v in p.items() if k != "y_um"}),
+    "unknown_key": _with_payload(lambda p: {**p, "theta_deg": [0, 360]}),
+    "axis_not_a_range": _with_payload(lambda p: {**p, "x_um": {"min": 1000, "max": 130000}}),
+    "axis_wrong_length": _with_payload(lambda p: {**p, "x_um": [1000]}),
     "min_greater_than_max": _valid_limits_text(dict(DEFAULT_STAGE_UM, x=[130000, 1000])),
     # json.dumps emits NaN / Infinity literals (allow_nan) — the validators must refuse.
     "nan": _valid_limits_text(dict(DEFAULT_STAGE_UM, x=[float("nan"), 130000])),
@@ -151,36 +150,24 @@ def test_malformed_limits_json_falls_back_to_defaults(attack, mock_client):
 
 
 # =============================================================================
-# 2. Malformed functions block (same limits.json) — same defaults fallback
+# 2. Malformed flat setter/objective entries — same defaults fallback
 # =============================================================================
 
-_ALL_NULL = {key: None for key in gate.FUNCTION_LIMIT_KEYS}
-
 _BAD_FUNCTION_LIMITS_TEXTS = {
-    "truncated": '{"schema_version": 1, "sou',
+    "truncated": '{"x_um":',
     "non_json": "definitely not json",
     "empty_dict": "{}",
-    "missing_functions": json.dumps(
-        {k: v for k, v in _valid_payload().items() if k != "functions"}
+    "missing_setter": _with_payload(lambda p: {k: v for k, v in p.items() if k != "set_zoom"}),
+    "unknown_setter": _with_payload(lambda p: {**p, "set_warp_drive": []}),
+    "setter_is_null": _with_payload(lambda p: {**p, "set_zoom": None}),
+    "setter_is_string": _with_payload(lambda p: {**p, "set_zoom": "unlimited"}),
+    "setter_nonempty": _with_payload(lambda p: {**p, "set_zoom": [1, 10]}),
+    "objective_slots_empty": _with_payload(lambda p: {**p, "objective_slot_allowed": []}),
+    "objective_slot_not_integer": _with_payload(
+        lambda p: {**p, "objective_slot_allowed": [1, "2"]}
     ),
-    "functions_empty_but_valid_json": _with_functions({}),
-    "missing_op_key": _with_functions(
-        {k: None for k in gate.FUNCTION_LIMIT_KEYS if k != "acquire"}
-    ),
-    "unknown_op_key": _with_functions(dict(_ALL_NULL, set_warp_drive=None)),
-    "entry_is_list": _with_functions(dict(_ALL_NULL, acquire=[])),
-    "entry_is_string": _with_functions(dict(_ALL_NULL, acquire="yes")),
-    # json.dumps emits NaN / Infinity literals (allow_nan) — the parser must refuse.
-    "constraint_nan_min": _with_functions(
-        dict(_ALL_NULL, set_xyz={"x_um": {"min": float("nan"), "max": 1.0}})
-    ),
-    "constraint_infinite_max": _with_functions(
-        dict(_ALL_NULL, set_xyz={"x_um": {"min": 0, "max": float("inf")}})
-    ),
-    "constraint_bounds_nothing": _with_functions(dict(_ALL_NULL, set_xyz={"x_um": {}})),
-    "constraint_min_gt_max": _with_functions(
-        dict(_ALL_NULL, set_xyz={"x_um": {"min": 10, "max": 1}})
-    ),
+    "objective_slot_not_positive": _with_payload(lambda p: {**p, "objective_slot_allowed": [0, 1]}),
+    "objective_slot_duplicate": _with_payload(lambda p: {**p, "objective_slot_allowed": [1, 1]}),
 }
 
 
@@ -188,19 +175,16 @@ _BAD_FUNCTION_LIMITS_TEXTS = {
 def test_malformed_function_limits_falls_back_to_defaults(attack, mock_client):
     _raw_snapshot(_machine_root(), limits_text=_BAD_FUNCTION_LIMITS_TEXTS[attack])
     state = gate.connect_handshake(mock_client)
-    # The malformed functions block is not used; defaults govern instead.
+    # The malformed flat document is not used; defaults govern instead.
     assert state.ok, attack
     assert state.limits.describe()["is_fallback"] is True
     # the default policy governs: an out-of-envelope move still refuses
     _assert_refused(commands_mod.move_xy(mock_client, 999999, 50000, unit="um"), needle="outside")
 
 
-def test_nan_in_function_constraint_triggers_the_defaults_fallback(mock_client):
-    """json.dumps emits a bare NaN literal; the shared parser must refuse it —
-    even when it lives in an inline ``functions`` constraint, not the envelope.
-    A rejected file falls back to the safe defaults (``is_fallback``), so the
-    NaN never governs a move."""
-    text = _with_functions(dict(_ALL_NULL, set_xyz={"x_um": {"min": float("nan"), "max": 130000}}))
+def test_nan_in_axis_range_triggers_the_defaults_fallback(mock_client):
+    """A non-finite flat axis bound never governs a move."""
+    text = _with_payload(lambda p: {**p, "x_um": [float("nan"), 130000]})
     _raw_snapshot(_machine_root(), limits_text=text)
     state = gate.connect_handshake(mock_client)
     assert state.ok
@@ -218,6 +202,43 @@ def governed_client(mock_client):
     state = gate.connect_handshake(mock_client)
     assert state.ok, state.error
     return mock_client
+
+
+def test_objective_allow_list_checks_the_resolved_slot(mock_client):
+    payload = _valid_payload()
+    payload["objective_slot_allowed"] = [1]
+    _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
+    assert gate.connect_handshake(mock_client).ok
+    hw_info = {
+        "Microscope": {
+            "objectives": [
+                {"slotIndex": 1, "name": "10x", "magnification": 10, "objectiveNumber": 1},
+                {"slotIndex": 2, "name": "20x", "magnification": 20, "objectiveNumber": 2},
+            ]
+        }
+    }
+
+    refused = commands_mod.set_objective(mock_client, "HiRes", hw_info, name="20x")
+    assert refused["success"] is False
+    assert "objective_slot=2" in refused["message"]
+    assert "not one of: 1" in refused["message"]
+
+
+def test_objective_allow_list_allows_a_listed_slot(mock_client):
+    payload = _valid_payload()
+    payload["objective_slot_allowed"] = [1]
+    _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
+    assert gate.connect_handshake(mock_client).ok
+    hw_info = {
+        "Microscope": {
+            "objectives": [
+                {"slotIndex": 1, "name": "10x", "magnification": 10, "objectiveNumber": 1}
+            ]
+        }
+    }
+
+    result = commands_mod.set_objective(mock_client, "HiRes", hw_info, slot_index=1)
+    assert result["success"] is True
 
 
 @pytest.mark.parametrize(
@@ -288,13 +309,11 @@ def test_poisoned_pixel_target_cannot_compose_a_nan_galvo_pan(governed_client, p
 
 
 def test_nan_never_slips_past_a_bounded_constraint():
-    """NaN compares False against every bound; the constraint must still refuse."""
-    limits = shared_limits.parse(
-        gate.build_function_limits_payload(DEFAULT_STAGE_UM),
-        functions=gate.FUNCTION_LIMIT_KEYS,
-    )
-    with pytest.raises(shared_limits.LimitViolation, match="finite"):
-        limits.check("set_xyz", {"x_um": float("nan")})
+    """NaN compares False against every bound; flat validation must refuse it."""
+    payload = gate.build_function_limits_payload(DEFAULT_STAGE_UM)
+    payload["x_um"] = [float("nan"), 130000]
+    with pytest.raises(ValueError, match="finite"):
+        stage_config.validate_payload(payload)
 
 
 def test_degenerate_envelope_min_equals_max_pins_the_stage(mock_client):
@@ -386,16 +405,16 @@ def test_hand_widened_limits_file_does_not_govern(mock_client):
     _assert_refused(commands_mod.move_xy(mock_client, 50000, 300000, unit="um"), needle="outside")
 
 
-def test_broken_functions_block_widens_a_narrow_envelope_to_the_defaults(mock_client):
+def test_broken_setter_entry_widens_a_narrow_envelope_to_the_defaults(mock_client):
     """PINS a chosen consequence of the defaults fallback (maintainer decision):
     an invalid machine file is rejected WHOLE. So a file with a deliberately
-    NARROW envelope but a broken ``functions`` block is replaced by the bundled
+    NARROW envelope but a broken setter entry is replaced by the bundled
     defaults, which are WIDER — a move the operator's own file forbids is then
     ALLOWED, and only the loud is_fallback warning tells them their narrow
     limits are not in force. If this test starts failing because the narrow
     envelope survives, the fallback policy changed — update the docs with it."""
     payload = _valid_payload(dict(DEFAULT_STAGE_UM, x=[40000.0, 60000.0]))
-    payload["functions"] = dict(_ALL_NULL, set_warp_drive=None)  # unknown key -> invalid file
+    payload["set_zoom"] = [1, 10]  # non-empty setter contract is not defined
     _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
     state = gate.connect_handshake(mock_client)
     assert state.ok
@@ -458,30 +477,28 @@ def test_second_handshake_rebinds_without_leaking_between_clients(tmp_path):
 # =============================================================================
 
 
-def test_op_key_missing_from_machine_file_falls_back_to_defaults(mock_client):
-    """A machine file missing an op key is invalid (a new op could ship silently
+def test_setter_key_missing_from_machine_file_falls_back_to_defaults(mock_client):
+    """A machine file missing a setter key is invalid (a new setter could ship silently
     ungated), so it is rejected and the complete bundled defaults govern."""
     _raw_snapshot(
         _machine_root(),
-        limits_text=_with_functions({k: None for k in gate.FUNCTION_LIMIT_KEYS if k != "set_xyz"}),
+        limits_text=_with_payload(lambda p: {k: v for k, v in p.items() if k != "set_zoom"}),
     )
     state = gate.connect_handshake(mock_client)
     assert state.ok
     assert state.limits.describe()["is_fallback"] is True
-    # the defaults carry every op key, so set_state is governed (null = allowed)
+    # the defaults carry every setter key, so set_zoom is explicitly unlimited
     assert gate.check_refusal(mock_client, "set_scan_speed", {}) is None
 
 
-def test_absent_key_fails_closed_but_explicit_null_is_unlimited(mock_client):
-    """The shared spec's semantics, pinned at the commands gate (amendment 3):
-    explicit ``null`` = reviewed-and-unlimited (command may fire); an ABSENT
-    key is a load error (everything refuses)."""
-    provision_machine_limits(_machine_root())  # template policy: null everywhere
+def test_absent_setter_falls_back_but_explicit_empty_list_is_unlimited(mock_client):
+    """The flat contract uses [] for reviewed-and-unlimited setters."""
+    provision_machine_limits(_machine_root())
     state = gate.connect_handshake(mock_client)
     assert state.ok
-    ok = commands_mod.select_job(mock_client, "Overview")  # gated by null key
+    ok = commands_mod.set_zoom(mock_client, "Overview", 1.0)
     assert ok["success"] is True
-    # absent key case is test_op_key_missing_from_machine_file_refuses_everything
+    # Missing-key fallback is covered above.
 
 
 def test_reads_work_without_a_handshake_while_mutations_refuse(mock_client):
@@ -572,7 +589,7 @@ def test_adapter_bypass_refuses_at_the_commands_layer(clear_stage_limits):
     from navigator_expert.commands import settings as _cmd_settings
     from navigator_expert.zmart_adapter import zmart_adapter as adapter
 
-    _raw_snapshot(_machine_root(), limits_text=_BAD_LIMITS_TEXTS["missing_constraints"])
+    _raw_snapshot(_machine_root(), limits_text=_BAD_LIMITS_TEXTS["missing_axis"])
     client = MockLasxClient(latency=0.0)
     with patch.object(adapter._session, "connect_python_client", return_value=client):
         handle = adapter.connect(dict(adapter.CONNECTION))
@@ -606,7 +623,7 @@ def test_controller_session_bypass_refuses_at_the_commands_layer(clear_stage_lim
 
     import zmart_controller
 
-    _raw_snapshot(_machine_root(), limits_text=_BAD_LIMITS_TEXTS["missing_constraints"])
+    _raw_snapshot(_machine_root(), limits_text=_BAD_LIMITS_TEXTS["missing_axis"])
     client = MockLasxClient(latency=0.0)
     settings = {
         "objective": {"name": "10x", "magnification": 10, "slotIndex": 1},
@@ -658,19 +675,16 @@ def test_bundled_template_declares_exactly_the_key_vocabulary():
     template = json.loads(
         (DRIVER_ROOT / "limits" / "defaults" / "limits.json").read_text(encoding="utf-8")
     )
-    assert set(template["functions"]) == set(gate.FUNCTION_LIMIT_KEYS)
-    # §2b: the template carries no backlash block — envelope + gate only...
-    assert "backlash" not in template
-    # ...and it parses under the shared spec against the declared vocabulary
-    shared_limits.parse(template, functions=gate.FUNCTION_LIMIT_KEYS)
+    assert set(template) == set(stage_config._REQUIRED_FILE_KEYS)
+    assert all(template[name] == [] for name in stage_config.SETTER_LIMIT_KEYS)
+    stage_config.validate_payload(template)
 
 
 def test_generated_machine_payload_matches_the_vocabulary():
     payload = gate.build_function_limits_payload(DEFAULT_STAGE_UM)
-    assert set(payload["functions"]) == set(gate.FUNCTION_LIMIT_KEYS)
-    limits = shared_limits.parse(payload, functions=gate.FUNCTION_LIMIT_KEYS)
-    with pytest.raises(shared_limits.LimitViolation):
-        limits.check("set_xyz", {"x_um": 999999.0})
+    assert set(payload) == set(stage_config._REQUIRED_FILE_KEYS)
+    assert payload["x_um"] == DEFAULT_STAGE_UM["x"]
+    assert payload["objective_slot_allowed"] == [1, 2, 3, 4, 5, 6]
 
 
 def test_every_dispatching_wrapper_declares_and_calls_the_gate():
@@ -746,8 +760,7 @@ def test_backstop_matches_the_historical_machine_envelope():
         (DRIVER_ROOT / "limits" / "defaults" / "limits.json").read_text(encoding="utf-8")
     )
     for axis, (lo, hi) in motion_limits.STAGE_BACKSTOP_UM.items():
-        constraint = template["constraints"][f"stage.{axis}"]
-        assert [constraint["min"], constraint["max"]] == [lo, hi]
+        assert template[f"{axis}_um"] == [lo, hi]
         assert math.isfinite(lo) and math.isfinite(hi)
 
 
@@ -799,7 +812,7 @@ def test_backlash_is_not_config_and_the_primitive_uses_its_default_params():
     assert "backlash" not in on_disk
 
     cfg = stage_config.load(limits_path=limits_path)
-    assert set(cfg) == {"stage_um"}  # no backlash key returned
+    assert set(cfg) == {"stage_um", "objective_slot_allowed", "setter_limits"}
     assert set(cfg["stage_um"]) == {"x", "y", "z_galvo", "z_wide"}
     assert cfg["stage_um"]["x"] == DEFAULT_STAGE_UM["x"]
 
@@ -835,7 +848,7 @@ def test_fresh_limits_adopt_writes_complete_snapshot():
     )
     snap = profile.latest_snapshot()
     files = sorted(p.name for p in snap.iterdir())
-    assert files == ["calibration.json", "limits.json", "orientation.json"]
+    assert files == [".limits-machine", "calibration.json", "limits.json", "orientation.json"]
     assert not (snap / "function_limits.json").exists()
 
 
@@ -856,10 +869,8 @@ def test_adopted_limits_report_machine_source_to_the_notebook_preflight(mock_cli
     stage_config.adopt_limits(
         DEFAULT_STAGE_UM, machine=profile, moment=datetime(2026, 6, 1, tzinfo=timezone.utc)
     )
-    merged = json.loads(
-        (profile.latest_snapshot() / "limits.json").read_text(encoding="utf-8")
-    )
-    assert merged["source"] == "machine"
+    merged = json.loads((profile.latest_snapshot() / "limits.json").read_text(encoding="utf-8"))
+    assert "source" not in merged
 
     state = gate.connect_handshake(mock_client, machine=profile)
     assert state.ok, state.error
@@ -868,11 +879,8 @@ def test_adopted_limits_report_machine_source_to_the_notebook_preflight(mock_cli
     assert not (not limits or limits.get("is_fallback") or limits.get("source") != "machine")
 
 
-def test_merged_limits_round_trip_adopt_handshake_gated_move(mock_client):
-    """(§7b/§2b end-to-end) adopt -> one limits.json with constraints+functions
-    and NO backlash -> handshake ok (resolving MR-01: no backlash block to fail
-    it) -> a legal move works, an out-of-envelope move is refused naming
-    limits.json."""
+def test_flat_limits_round_trip_adopt_handshake_gated_move(mock_client):
+    """Notebook shape -> snapshot -> handshake -> bounded move."""
     from datetime import datetime, timezone
 
     profile = MachineProfile(programdata_root=_machine_root())
@@ -881,9 +889,9 @@ def test_merged_limits_round_trip_adopt_handshake_gated_move(mock_client):
     )
     snap = profile.latest_snapshot()
     merged = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
-    assert set(merged) == {"schema_version", "source", "constraints", "functions"}
-    assert merged["constraints"]["stage.x"] == {"min": 1000.0, "max": 130000.0}
-    assert merged["functions"]["set_xyz"]["x_um"] == "@stage.x"
+    assert set(merged) == set(stage_config._REQUIRED_FILE_KEYS)
+    assert merged["x_um"] == [1000.0, 130000.0]
+    assert merged["objective_slot_allowed"] == [1, 2, 3, 4, 5, 6]
 
     state = gate.connect_handshake(mock_client, machine=profile)
     assert state.ok, state.error

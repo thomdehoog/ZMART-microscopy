@@ -84,8 +84,8 @@ runtime where possible. Override via the profile, not at call sites.
   state: it is ephemeral operator state, so it lives in its own `origin/` folder next to the
   snapshots and is **session-scoped** (see §5). The notebooks publish measured replacements by
   copying the latest snapshot forward and changing only their part. The single `limits.json` is
-  function-keyed (`constraints` = the `stage.*` envelope + `functions` = the gate policy; no
-  `backlash` block — backlash is a motion utility with baked-in defaults, §2b).
+  flat: four stage-axis ranges, `objective_slot_allowed`, and an explicit `[]` for each
+  unrestricted setter. Backlash remains a motion utility, not configuration.
 - **The driver loads the configs at connect** — `connect_microscope(...)` (`connection/session.py`)
   is the driver's own front door. It opens the CAM client and then loads this microscope's three
   machine-local configs — the **stage limits**, the **orientation**, and the **calibration** — so the
@@ -96,9 +96,9 @@ runtime where possible. Override via the profile, not at call sites.
   `calibrate_objective_pair` is bounded by limits and expects a measured orientation.
 - **Limits handshake** — `connect_limits_handshake(client)` (run by `connect_microscope`;
   workflows/validators/notebooks call it directly). It resolves the ProgramData `limits.json` (seeding
-  defaults there first when needed), validates it (schema, finite numbers only, min ≤ max, its
-  `constraints`/`functions`, envelope **within the hardcoded physical backstop**
-  `motion.limits.STAGE_BACKSTOP_UM`), applies the stage envelope, and installs the function-keyed gate
+  defaults there first when needed), validates its exact flat keys, finite ranges, allowed
+  objective slots, and envelope **within the hardcoded physical backstop**
+  `motion.limits.STAGE_BACKSTOP_UM`), applies the stage envelope, and installs the command safety gate
   for that client. **If the machine file is invalid (or loading is switched off), the session does not
   go dead — it falls back to the bundled default envelope** (loudly warned, marked a fallback). The
   defaults sit within the physical backstop, and the backstop bounds every move regardless, so an
@@ -106,15 +106,12 @@ runtime where possible. Override via the profile, not at call sites.
   state is a client that never handshook at all (every mutating command then refuses, naming the
   notebook). Manual `set_stage_limits(...)` still adjusts the in-memory envelope, but it does not open
   the gate — only a successful handshake does.
-- **Function-keyed limits (fail-closed gate, commands layer)** — `commands/gate.py`. Every mutating
-  command wrapper (`set_*`, `move_*`, `acquire`, `select_job`, plus `save_experiment` /
-  `load_experiment`) declares one key in `gate.MUTATING_COMMANDS` and checks it **before the native
-  call fires** — nothing built on top (adapter, controller, workflows, notebooks) can bypass it.
-  The machine-local `limits.json` (its `functions` block) must carry an entry for every key (`null` =
-  reviewed-and-unlimited; an **absent** key makes the file invalid, which triggers the defaults
-  fallback above rather than shipping a silently-ungated op). If a move/acquire is refusing, read the
-  refusal message: it says exactly which envelope is in force and, when relevant, how to publish
-  measured limits.
+- **Command safety gate** — `commands/gate.py`. Every mutating wrapper checks that the session
+  completed its limits handshake before the native call fires. Stage commands use the four flat
+  axis ranges, objective changes use `objective_slot_allowed`, and every listed setter with `[]` is
+  explicitly unrestricted. Missing, unknown, or non-empty setter entries invalidate the file and
+  trigger the defaults fallback above. Nothing built on top—adapter, controller, workflow, or
+  notebook—can bypass this command-layer check.
 
 ## 4. Quick start
 
