@@ -1,0 +1,60 @@
+"""Command line for the web interface: ``python -m workflow.webapp``."""
+
+from __future__ import annotations
+
+import argparse
+
+from . import serve
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="python -m workflow.webapp",
+        description=(
+            "Run the ZMART target-acquisition interface in a plain browser — "
+            "the same flow as the v4 notebook, without Jupyter."
+        ),
+    )
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="drive the simulated microscope and sample instead of real hardware",
+    )
+    parser.add_argument(
+        "--analysis-repo",
+        help="path to the smart-analysis checkout (required for a real session)",
+    )
+    parser.add_argument(
+        "--vendor", default="leica", help="controller vendor to connect (default: leica)"
+    )
+    parser.add_argument(
+        "--af-job",
+        help="autofocus job name, only when LAS X has more than one autofocus job",
+    )
+    parser.add_argument(
+        "--demo-root", help="where the demo saves its run folder (default: ./zmart_demo_run)"
+    )
+    parser.add_argument("--port", type=int, default=8765, help="port to listen on")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help=(
+            "address to bind. The default (127.0.0.1) keeps the page reachable "
+            "only from this machine — the safe choice for anything that drives "
+            "a real microscope."
+        ),
+    )
+    args = parser.parse_args()
+    serve(
+        host=args.host,
+        port=args.port,
+        demo=args.demo,
+        analysis_repo=args.analysis_repo,
+        vendor=args.vendor,
+        demo_root=args.demo_root,
+        af_job=args.af_job,
+    )
+
+
+if __name__ == "__main__":
+    main()
