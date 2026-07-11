@@ -1,4 +1,5 @@
-# Conda environment for ZMART Microscopy (Windows + LAS X).
+# Complete Conda environment for ZMART Microscopy (macOS/Linux offline CI and
+# Windows + LAS X operation).
 #
 # Every package comes from conda-forge; the conda `defaults` channel is never
 # used (`nodefaults` strips it even if the base config adds it implicitly).
@@ -22,6 +23,7 @@ dependencies:
   - scikit-image>=0.22,<0.26 # registration: ORB, RANSAC, phase_cross_correlation
   - opencv>=4.8             # registration: cv2 feature matching
   - tifffile>=2024.1        # read/write OME-TIFF image data
+  - pillow>=10              # PNG/image encoding used by reports and widgets
   - ome-types>=0.5          # OME-XML model: validates the driver's OME-TIFF
                             # output (incl. the embedded machine-state block)
   - lxml>=4.9               # ome-types schema-validation backend (validate=True)
@@ -40,6 +42,13 @@ dependencies:
   - ipympl>=0.9
   # React-based notebook widgets (zmart_microscopy_v4_react.ipynb).
   - anywidget>=0.9
+  - traitlets>=5.9          # synced widget traits and web-host validation
+
+  # --- plain-browser website validation ---
+  # playwright-python drives the real Chromium operator test. nodejs parses
+  # all generated ESM modules as JavaScript during the release gate.
+  - playwright-python>=1.58,<2
+  - nodejs>=20
   
   # --- test / lint tooling ---
   # Folded in so a single `build_env.py` yields a test-ready env: run_ci.py

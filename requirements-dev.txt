@@ -1,0 +1,18 @@
+# Complete pip fallback for local CI, notebooks, and the plain-browser website.
+# The canonical environment remains environment.yml / build_env.py.
+
+-r requirements.txt
+
+pytest>=8
+pytest-cov>=5
+ruff>=0.6
+ipython>=8
+ipykernel
+nbformat>=5.9
+nbclient>=0.9
+playwright>=1.58,<2
+
+# Node.js is not a Python package. Install Node >=20 separately when running
+# the generated-ESM syntax gate outside the canonical Conda environment.
+# Chromium is installed after the Python packages with:
+#     python -m playwright install chromium

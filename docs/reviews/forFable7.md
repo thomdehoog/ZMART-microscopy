@@ -19,6 +19,8 @@ empty, but do not propose or make driver changes.
 - `workflows/target_acquisition/run_webapp.py`
 - both `zmart_microscopy_v4*.ipynb` notebooks
 - the changed target-acquisition tests and READMEs
+- `build_env.py`, `environment.yml`, root `requirements*.txt`, and the changed
+  setup documentation
 
 ## Required review
 
@@ -54,6 +56,11 @@ and failure sequences:
 13. Both notebooks remain thin controller/workflow demonstrations: no direct
     driver calls, no function/class implementation, and only the documented
     one-line simulation-forwarding lambda.
+14. A clean Conda build contains every runtime, notebook, Leica mock-CI,
+    controller-CI, and website-CI dependency. The builder verifies timed imports,
+    Node.js, matching Playwright Chromium launch, and conda-forge-only package
+    provenance; its `--offline` mode uses cached artifacts. The root pip fallback
+    resolves the same runtime/test surface without modifying driver files.
 
 Also inspect the fixes themselves for new races, resource leaks, stale-closure
 bugs, false success states, replay duplication, unsafe HTTP assumptions, or any
@@ -94,6 +101,16 @@ Also run:
   and the page module script;
 - `python run_webapp.py --demo --port 0` from
   `workflows/target_acquisition`, followed by a successful `/state` request.
+- `python build_env.py --name <fresh-name>` from a machine with no existing env
+  of that name, then repeat every gate using that environment's interpreter.
+
+The fresh macOS rehearsal produced 269 conda-forge packages, passed all hard
+imports plus Node and Chromium launch, and had only the expected soft `clr`
+import failure away from LAS X. In that environment: Leica mock CI reported
+`1030 passed, 1 skipped` at 83.20% coverage; controller CI reported `35 passed`;
+the two v4 notebook groups reported `14 passed`; webapp Python + Chromium
+reported `33 passed`; and the complete workflow suite reported `303 passed,
+3 skipped` (the skips are the network-fetched `skimage.data` mitosis sample).
 
 For compatibility evidence only, the unchanged Leica mock gate was run and
 reported `1030 passed, 1 skipped`, 83.21% coverage. Its three existing
