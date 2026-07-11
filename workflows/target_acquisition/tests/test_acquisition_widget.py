@@ -180,6 +180,29 @@ def test_failed_acquisition_does_not_commit_picks(tmp_path, overview):
     assert gallery.records == []
 
 
+def test_a_failed_second_run_uncommits_the_first_runs_result(tmp_path, overview):
+    """A failed re-run must not leave the PREVIOUS run committed as "the result".
+
+    Otherwise the figure shows the failed run's partial rows while
+    ``gallery.records`` still holds the earlier run — and the summary cell
+    would happily write a report describing targets the operator is not
+    looking at.
+    """
+
+    class _FailsOnSecondRun(_StubSession):
+        def acquire(self, **kwargs):
+            if self.acquired >= 2:  # run 1 acquires 2; run 2 fails at once
+                raise RuntimeError("stage stalled")
+            return super().acquire(**kwargs)
+
+    gallery = acquire_gallery(_FailsOnSecondRun(tmp_path), _targets(4), [overview])
+    first = gallery.acquire(2)
+    assert gallery.records == first and len(gallery.picked) == 2
+    with pytest.raises(RuntimeError, match="stage stalled"):
+        gallery.acquire(2)
+    assert gallery.picked == [] and gallery.records == []
+
+
 def test_gallery_grows_vertically_for_notebook_scrolling(tmp_path, overview):
     gallery = acquire_gallery(_StubSession(tmp_path), _targets(6), [overview])
     initial_width = gallery.fig.get_figwidth()

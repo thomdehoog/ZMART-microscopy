@@ -12,11 +12,15 @@ same gated controller calls the scripts use.
 
 Requirements beyond the matplotlib notebook: the ``anywidget`` package in
 the kernel environment, and internet access **in the browser** the first
-time a widget renders (React itself loads from the esm.sh CDN).
+time a widget renders (React itself loads from the esm.sh CDN; an offline
+browser gets a plain-language note in the cell pointing back at the
+matplotlib notebook, never a silently blank widget).
 
 Use :func:`view_overview`, :func:`pick_focus_points`,
 :func:`explore_targets`, and :func:`acquire_gallery` exactly like their
-``workflow.*`` namesakes.
+``workflow.*`` namesakes. The traits and messages each widget speaks are
+documented in ``PROTOCOL.md`` next to this file — that protocol is the
+seam to build a future non-notebook front end (a website) against.
 """
 
 from __future__ import annotations

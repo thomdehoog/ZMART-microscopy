@@ -193,7 +193,7 @@ def load(limits_path: str | Path | None = None) -> dict[str, Any]:
 def adopt_limits(
     stage_um: dict[str, Any],
     *,
-    source: str = LIMITS_SOURCE_DEFAULTS,
+    source: str = LIMITS_SOURCE_MACHINE,
     machine: Any = None,
     moment: datetime | None = None,
     notebook_paths: Any = (),
@@ -213,8 +213,11 @@ def adopt_limits(
 
     Args:
         stage_um: ``{"x": [min, max], "y": ..., "z_galvo": ..., "z_wide": ...}``.
-        source: Provenance tag (defaults to ``"defaults"``, the configured
-            physical baseline).
+        source: Provenance tag. Defaults to ``"machine"``: an adopted envelope
+            is this machine's own measured truth, and workflows check for
+            exactly that tag before they trust the limits (the v4 notebook
+            refuses to run on anything else). Pass ``"defaults"`` only when
+            deliberately re-publishing the generic baseline.
         machine: ``MachineProfile`` to publish into; ``None`` uses the global one.
         moment: Snapshot timestamp; ``None`` uses ``datetime.now(timezone.utc)``.
         notebook_paths: Executed notebook(s) to archive in the snapshot.

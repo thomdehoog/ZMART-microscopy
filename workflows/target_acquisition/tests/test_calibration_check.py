@@ -137,6 +137,97 @@ def test_recovers_the_injected_calibration_error(session):
     assert report["stage_scatter_rms_um"] < 0.75
 
 
+def test_a_perfect_stage_reports_no_systematic_error(tmp_path):
+    """Zero injected error must read as (very nearly) zero mean offset.
+
+    The image shapes here are chosen to be awkward on purpose: an odd
+    overview size and a shared window that lands on an odd number of
+    coarse pixels. An earlier implementation cut whole-pixel crops, and
+    this exact geometry shifted every site's window the same way — a fake
+    "calibration error" of up to half an overview pixel that no amount of
+    averaging could remove.
+    """
+    session = _StubSession(
+        tmp_path,
+        jobs={
+            "Overview": (1.5, (101, 101), (0.0, 0.0)),
+            "HiRes": (0.5, (121, 121), (0.0, 0.0)),
+        },
+    )
+    overview_state, target_state = _states()
+    check = start_calibration_check(
+        session, overview_state, n_positions=5, radius_um=100.0, seed=11
+    )
+    report = finish_calibration_check(check, target_state, show=False)
+    assert abs(report["mean_dx_um"]) < 0.15
+    assert abs(report["mean_dy_um"]) < 0.15
+
+
+def test_untrusted_sites_write_null_not_nan_into_the_json(tmp_path):
+    """A featureless site must appear as JSON null — NaN is not valid JSON."""
+
+    class _OneFlatSession(_StubSession):
+        def acquire(self, *, acquisition_type, position_label, options=None):
+            if position_label == "calcheck-02":
+                pixel_size, shape, _err = self.jobs[self.active]
+                self.count += 1
+                path = _write_ome(
+                    self.image_dir / f"flat-{acquisition_type}-{self.count}.ome.tif",
+                    np.zeros(shape, dtype=np.uint16),
+                    pixel_size,
+                )
+                return {"position_label": position_label, "images": [str(path)]}
+            return super().acquire(
+                acquisition_type=acquisition_type,
+                position_label=position_label,
+                options=options,
+            )
+
+    session = _OneFlatSession(
+        tmp_path,
+        jobs={
+            "Overview": (1.0, (100, 100), (0.0, 0.0)),
+            "HiRes": (0.5, (120, 120), (0.0, 0.0)),
+        },
+    )
+    overview_state, target_state = _states()
+    check = start_calibration_check(
+        session, overview_state, n_positions=5, radius_um=100.0, seed=7
+    )
+    out = tmp_path / "run"
+    report = finish_calibration_check(check, target_state, output_root=out, show=False)
+    flat_sites = [s for s in report["sites"] if not s["trusted"]]
+    assert flat_sites and all(s["dx_um"] is None for s in flat_sites)
+    text = (out / "calibration_check.json").read_text(encoding="utf-8")
+    assert "NaN" not in text
+    import json
+
+    json.loads(text)  # strict JSON parses
+
+
+def test_a_ring_far_outside_the_focus_points_is_refused_before_moving(session):
+    """Wild focus extrapolation must refuse loudly before any stage move."""
+
+    class _WildFocus:
+        measured = [
+            {"x_um": 0.0, "y_um": 0.0, "z_um": 10.0},
+            {"x_um": 50.0, "y_um": 50.0, "z_um": 12.0},
+        ]
+
+        def z_at(self, x, y):
+            # A thin-plate spline can predict values like this far from
+            # its data; the guard must catch it.
+            return 500.0
+
+    overview_state, _ = _states()
+    with pytest.raises(ValueError, match="out of focus"):
+        start_calibration_check(
+            session, overview_state, focus=_WildFocus(), n_positions=4, radius_um=1000.0
+        )
+    assert session.count == 0  # nothing was acquired
+    assert session.states_applied == []  # and no job state was applied
+
+
 def test_sites_sit_on_the_requested_ring_and_are_seeded(session):
     overview_state, _ = _states()
     check = start_calibration_check(

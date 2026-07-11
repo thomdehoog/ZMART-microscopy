@@ -129,12 +129,13 @@ class AcquisitionGallery:
             self._rng.sample(gated, count) if count < len(gated) else list(gated)
         )
         self._busy = True
+        # A repeated run replaces the previous result, so the previous
+        # result must stop being "the result" the moment this run starts:
+        # if this run fails halfway, a later summary cell must not quietly
+        # describe the OLD run while the figure shows the new, failed one.
+        self.picked = []
+        self.records = []
         self._status.set_text(f"acquiring {len(picked)} target(s)...")
-        # Make room for the incoming rows up front, then draw each pair the
-        # moment its acquisition completes — the gallery fills in live while
-        # the microscope is still working through the list.
-        self._begin_gallery(len(picked))
-        force_draw(self.fig)
 
         def _show_fresh_pair(index: int, _position: dict, record: dict) -> None:
             row = index - 1  # capture_positions counts from 1
@@ -143,6 +144,12 @@ class AcquisitionGallery:
             force_draw(self.fig)
 
         try:
+            # Make room for the incoming rows up front, then draw each pair
+            # the moment its acquisition completes — the gallery fills in
+            # live while the microscope works through the list. Inside the
+            # try so a drawing hiccup cannot leave ``_busy`` stuck True.
+            self._begin_gallery(len(picked))
+            force_draw(self.fig)
             records = acquire_targets(
                 self.session,
                 picked,

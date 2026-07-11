@@ -206,6 +206,30 @@ def test_channel_settings_survive_streamed_additions(tmp_path):
     assert viewer.channels[0] == state_before
 
 
+def test_streamed_slider_bounds_grow_to_reach_brighter_tiles(tmp_path):
+    """A dim first tile must not cap the display-range bounds for good.
+
+    Scans often start in an empty corner. The display window itself stays
+    where the operator set it (no re-brightening mid-scan), but the
+    slider's BOUNDS have to grow with the arriving data — frozen to the
+    dim first tile, the operator could never slide up to the bright cells
+    in later tiles.
+    """
+    viewer = view_overview([])
+    viewer.add_acquisition(
+        1, {"x": 0.0, "y": 0.0}, {"images": [str(_ome_tile(tmp_path, "dim.ome.tif", value=10))]}
+    )
+    window_before = viewer.channels[0]["range"]
+    assert viewer.channels[0]["full_range"][1] < 60000.0
+    viewer.add_acquisition(
+        2,
+        {"x": 100.0, "y": 0.0},
+        {"images": [str(_ome_tile(tmp_path, "bright.ome.tif", value=60000))]},
+    )
+    assert viewer.channels[0]["range"] == window_before  # window untouched
+    assert viewer.channels[0]["full_range"][1] >= 60000.0  # but now reachable
+
+
 def test_adjusting_channels_before_any_tile_is_a_clear_error():
     viewer = view_overview([])
     with pytest.raises(RuntimeError, match="no tiles loaded yet"):

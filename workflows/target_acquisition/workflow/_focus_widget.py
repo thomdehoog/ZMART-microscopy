@@ -190,19 +190,27 @@ class FocusPicker:
 
     # --- measuring -------------------------------------------------------
 
-    def measure(self) -> Any:
+    def measure(self, *, fresh: bool = False) -> Any:
         """Autofocus at every picked point, fit the surface, draw the heatmap.
 
         Moves the stage to each point (through the session's gated moves),
         runs the autofocus job there, and fits the collected z values into a
         :class:`~._focus_surface.FocusSurface`. Returns the surface (also kept
         as ``self.focus``). Raises ``RuntimeError`` when no points are picked.
+
+        Points measured earlier this session are normally reused (the title
+        says how many). That cache never expires on its own — so after a long
+        pause, a stage bump, or anything else that may have drifted the
+        focus, pass ``fresh=True`` to forget it and re-drive the stage
+        through every point.
         """
         if not self.points:
             raise RuntimeError(
                 "no focus points are picked yet — left-click the map (or call "
                 "add_point) to choose where the microscope should autofocus."
             )
+        if fresh:
+            self._af_cache.clear()
         if self._measured_points != self.points:
             self._invalidate_focus()
 
