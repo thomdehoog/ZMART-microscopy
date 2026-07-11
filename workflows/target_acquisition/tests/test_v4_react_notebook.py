@@ -80,12 +80,17 @@ def test_react_notebook_is_thin_controller_orchestration():
     assert not any(
         isinstance(node, implementation_nodes) for tree in trees for node in ast.walk(tree)
     ), "operator notebooks must call tested modules, not define new implementation logic"
+    lambdas = [node for tree in trees for node in ast.walk(tree) if isinstance(node, ast.Lambda)]
+    assert [ast.unparse(node) for node in lambdas] == [
+        "lambda records: workflow.hijack_if_simulating(records, simulate=SIMULATE_IMAGES)"
+    ], "only the documented one-line simulation forwarding lambda belongs in the notebook"
 
     joined = "\n".join(_code_sources(_load()))
     for call in (
         'workflow.connect("leica")',
         "zmart_controller.set_origin()",
         "zmart_controller.get_state()",
+        "zmart_controller.set_state(overview_state)",
         'zmart_controller.run_procedure({"name": "get_positions"})',
         "zmart_controller.disconnect()",
     ):

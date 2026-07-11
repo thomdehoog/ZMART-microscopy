@@ -92,9 +92,23 @@ class _Handler(BaseHTTPRequestHandler):
                 return False, 403, "cross-origin requests are not allowed"
         return True, 200, ""
 
+    def _local_host(self) -> bool:
+        """Reject DNS-rebinding reads when this server is loopback-bound."""
+        server_host, server_port = self.server.server_address[:2]
+        if server_host not in {"127.0.0.1", "localhost", "::1"}:
+            return True
+        return self.headers.get("Host", "").strip().lower() in {
+            f"127.0.0.1:{server_port}",
+            f"localhost:{server_port}",
+            f"[::1]:{server_port}",
+        }
+
     # -- GET ---------------------------------------------------------------------
 
     def do_GET(self) -> None:  # noqa: N802 -- http.server's naming
+        if not self._local_host():
+            self._send(403, b"invalid Host", "text/plain")
+            return
         path = self.path.split("?", 1)[0]
         if path == "/" or path == "/index.html":
             self._send(200, page_html().encode("utf-8"), "text/html; charset=utf-8")
@@ -144,6 +158,8 @@ class _Handler(BaseHTTPRequestHandler):
                     self.wfile.write(b": keep-alive\n\n")
                     self.wfile.flush()
                     continue
+                if payload is None:
+                    return
                 self.wfile.write(b"data: " + payload.encode("utf-8") + b"\n\n")
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):
@@ -154,6 +170,9 @@ class _Handler(BaseHTTPRequestHandler):
     # -- POST ----------------------------------------------------------------------
 
     def do_POST(self) -> None:  # noqa: N802 -- http.server's naming
+        if not self._local_host():
+            self._send_json({"ok": False, "error": "invalid Host"}, status=403)
+            return
         allowed, status, error = self._local_json_request()
         if not allowed:
             self._send_json({"ok": False, "error": error}, status=status)

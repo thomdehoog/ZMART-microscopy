@@ -261,20 +261,34 @@ function useStream(model, traitName, messageType) {
     const onMsg = (msg, buffers) => {
       if (!msg) return;
       if (msg.type === `${messageType}:reset`) {
-        revokeAll();
-        setItems([]);
+        if (msg.preserve) {
+          const length = Number.isInteger(msg.length) && msg.length >= 0 ? msg.length : 0;
+          urls.current.forEach((url, owner) => {
+            if (Number(owner.split(":", 1)[0]) >= length) {
+              URL.revokeObjectURL(url);
+              urls.current.delete(owner);
+            }
+          });
+          setItems((prev) => prev.slice(0, length));
+        } else {
+          revokeAll();
+          setItems([]);
+        }
         return;
       }
       if (msg.type !== messageType) return;
       const entry = { ...msg.entry };
       (msg.buffer_keys || []).forEach((key, k) => {
         const view = buffers && buffers[k];
-        // A zero-length buffer means "this record has no image" — leave the
-        // field empty rather than minting a URL to an empty blob, which the
-        // browser would render as a broken-image icon.
-        if (!view || !view.byteLength) return;
+        // A zero-length buffer means either "no image" or a failed replay.
+        // Keep an existing URL when there is one; otherwise leave the field
+        // empty rather than minting a broken URL to an empty blob.
         const owner = `${msg.index}:${key}`;
         const old = urls.current.get(owner);
+        if (!view || !view.byteLength) {
+          if (old) entry[key] = old;
+          return;
+        }
         if (old) URL.revokeObjectURL(old);
         const url = URL.createObjectURL(new Blob([view], { type: "image/png" }));
         urls.current.set(owner, url);

@@ -45,6 +45,8 @@ _BUFFER_CAP_BYTES = 64 * 1024 * 1024
 # that they keep firing after the operator's original run has finished.
 _WORK_QUEUE_CAP = 256
 _COALESCED_MESSAGE_KINDS = {"acquire", "acquire_selected", "measure", "sync"}
+_HARDWARE_MESSAGE_KINDS = {"acquire", "acquire_selected", "measure"}
+_STALE_HARDWARE_MESSAGE_S = 2.0
 
 #: Traits that belong to the widget plumbing, not to the protocol.
 _PLUMBING_TRAITS = {"layout", "tabbable", "tooltip", "keys", "comm", "log"}
@@ -65,7 +67,7 @@ class WidgetHub:
     def __init__(self) -> None:
         self._widgets: dict[str, Any] = {}
         self._widgets_lock = threading.Lock()
-        self._clients: list[queue.Queue] = []
+        self._clients: list[queue.Queue[str | None]] = []
         self._clients_lock = threading.Lock()
         self._buffers: dict[str, bytes] = {}
         self._buffer_order: list[str] = []
@@ -144,16 +146,28 @@ class WidgetHub:
                 # A tab that stopped reading gets dropped, not waited on.
                 self.remove_client(client)
 
-    def add_client(self) -> queue.Queue:
-        client: queue.Queue = queue.Queue(maxsize=4096)
+    def add_client(self) -> queue.Queue[str | None]:
+        client: queue.Queue[str | None] = queue.Queue(maxsize=4096)
         with self._clients_lock:
             self._clients.append(client)
         return client
 
-    def remove_client(self, client: queue.Queue) -> None:
+    def remove_client(self, client: queue.Queue[str | None]) -> None:
+        removed = False
         with self._clients_lock:
             if client in self._clients:
                 self._clients.remove(client)
+                removed = True
+        if removed:
+            # Wake the SSE serving loop. If this client was removed because
+            # its queue filled, discard the now-stale backlog first so the
+            # sentinel is guaranteed to fit and EventSource can reconnect.
+            while True:
+                try:
+                    client.get_nowait()
+                except queue.Empty:
+                    break
+            client.put_nowait(None)
 
     # -- image buffers -----------------------------------------------------------
 
@@ -198,6 +212,7 @@ class WidgetHub:
         kind = content.get("type") if isinstance(content, dict) else None
         key = (widget_name, str(kind))
         coalesce = kind in _COALESCED_MESSAGE_KINDS
+        queued_at = time.monotonic()
         if coalesce:
             with self._pending_messages_lock:
                 if key in self._pending_messages:
@@ -205,10 +220,24 @@ class WidgetHub:
                 self._pending_messages.add(key)
 
         def apply() -> None:
+            # A sync is coalesced only while queued. Once its replay starts,
+            # one more tab may request a follow-up replay without being lost.
+            if kind == "sync":
+                with self._pending_messages_lock:
+                    self._pending_messages.discard(key)
             try:
+                if (
+                    kind in _HARDWARE_MESSAGE_KINDS
+                    and time.monotonic() - queued_at > _STALE_HARDWARE_MESSAGE_S
+                ):
+                    widget.status = (
+                        "ignored a hardware action queued too long — "
+                        "press the button again if it is still wanted"
+                    )
+                    return
                 widget._route_message(None, content, None)
             finally:
-                if coalesce:
+                if coalesce and kind != "sync":
                     with self._pending_messages_lock:
                         self._pending_messages.discard(key)
 
