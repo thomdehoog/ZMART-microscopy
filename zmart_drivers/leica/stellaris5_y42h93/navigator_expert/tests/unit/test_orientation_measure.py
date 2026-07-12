@@ -47,11 +47,7 @@ def _patch(monkeypatch, *, pixel_size_um=0.5, image_shape=(64, 64), home_xy=(100
     monkeypatch.setattr(
         wf.drv,
         "connect_limits_handshake",
-        lambda client, **k: SimpleNamespace(
-            ok=True,
-            error=None,
-            stage_cfg={"stage_um": {"x": [1000.0, 130000.0], "y": [1000.0, 100000.0]}},
-        ),
+        lambda client, **k: SimpleNamespace(ok=True, error=None),
     )
     monkeypatch.setattr(wf.drv, "get_hardware_info", lambda client, **kw: {"ok": True})
 

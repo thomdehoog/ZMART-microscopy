@@ -51,11 +51,28 @@ def test_move_returns_full_final_filenames_in_images_and_planes(tmp_path):
     assert not source.exists()
 
 
+def test_move_organizes_a_mesospim_style_record(tmp_path):
+    """The real mesoSPIM record carries ``image_files`` plus ``planes`` as a
+    plain count (an int, not a manifest). The move must organize it rather than
+    crash or silently no-op, so the capture path is not Leica-only."""
+    source = tmp_path / "staging" / "mesospim_A1.ome.tiff"
+    source.parent.mkdir()
+    source.write_bytes(b"image")
+    record = {"image_files": [str(source)], "planes": 1}
+
+    result = move_record_images(record, tmp_path / "experiment/acquisition/data")
+
+    final = tmp_path / "experiment/acquisition/data" / source.name
+    assert result["image_files"] == [str(final)]
+    assert result["planes"] == 1
+    assert final.read_bytes() == b"image"
+    assert not source.exists()
+
+
 def test_move_organizes_a_record_without_an_images_key(tmp_path):
-    """A driver that reports its saved files under ``image_files`` + ``planes``
-    (rather than ``images``) must still be organized. This is the capture-side
-    counterpart of the driver-agnostic reader discovery already uses: the move
-    reads the same reader, so it is no longer silently Leica-only."""
+    """A driver that reports its saved files under ``image_files`` + a
+    ``planes`` manifest (rather than ``images``) must still be organized: the
+    move reads the same driver-agnostic reader discovery uses."""
     source = (
         tmp_path
         / "staging"

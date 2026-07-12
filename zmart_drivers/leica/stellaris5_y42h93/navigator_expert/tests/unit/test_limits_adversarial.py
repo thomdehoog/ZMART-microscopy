@@ -620,7 +620,6 @@ def test_every_configurable_setter_enforces_before_touching_native_api(setter):
         client,
         gate.GateState(
             limits=gate.LeicaLimits(policy, source="test", path="limits.json", is_fallback=False),
-            stage_cfg=None,
             error=None,
         ),
     )
@@ -677,7 +676,6 @@ def test_z_stack_definition_checks_both_endpoints_before_native_api():
         client,
         gate.GateState(
             limits=gate.LeicaLimits(policy, source="test", path="limits.json", is_fallback=False),
-            stage_cfg=None,
             error=None,
         ),
     )
@@ -696,7 +694,6 @@ def test_z_stack_definition_configured_limit_refuses_value_unknown_reset():
         client,
         gate.GateState(
             limits=gate.LeicaLimits(policy, source="test", path="limits.json", is_fallback=False),
-            stage_cfg=None,
             error=None,
         ),
     )
@@ -714,7 +711,7 @@ def test_installed_policy_is_independent_of_input_payload_mutation():
     installed = gate.LeicaLimits(policy, source="test", path="limits.json", is_fallback=False)
     gate._install(
         client,
-        gate.GateState(limits=installed, stage_cfg=None, error=None),
+        gate.GateState(limits=installed, error=None),
     )
 
     _assert_refused(commands_mod.set_zoom(client, "Overview", 5.0), needle="not allowed")
@@ -730,15 +727,13 @@ def test_public_gate_status_is_detached_from_installed_policy(mock_client):
     status = gate.connect_handshake(mock_client)
     _assert_refused(commands_mod.set_zoom(mock_client, "Overview", 5.0), needle="not allowed")
 
+    # The public status carries provenance only, never the checker itself,
+    # so status consumers cannot reach (or influence) the installed policy.
     assert not hasattr(status.limits, "payload")
     assert not hasattr(status.limits, "check")
-    status.stage_cfg["policy"]["set_zoom"]["allowed"].append(5.0)
-    second_status = gate.state_for(mock_client)
-    assert second_status.stage_cfg["policy"]["set_zoom"] == {"allowed": [1.0]}
-    _assert_refused(commands_mod.set_zoom(mock_client, "Overview", 5.0), needle="not allowed")
 
 
-def test_private_installed_policy_and_stage_snapshot_are_immutable(mock_client):
+def test_private_installed_policy_is_immutable(mock_client):
     payload = _valid_payload()
     payload["set_zoom"] = {"allowed": [1.0]}
     _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
@@ -749,8 +744,6 @@ def test_private_installed_policy_and_stage_snapshot_are_immutable(mock_client):
         installed.limits._policy["set_zoom"] = ("allowed", (1.0, 5.0))
     with pytest.raises(AttributeError):
         installed.limits._policy["set_zoom"][1].append(5.0)
-    with pytest.raises(TypeError):
-        installed.stage_cfg["policy"]["set_zoom"] = {"allowed": [1.0, 5.0]}
     _assert_refused(commands_mod.set_zoom(mock_client, "Overview", 5.0), needle="not allowed")
 
 

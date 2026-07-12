@@ -116,14 +116,12 @@ MUTATING_COMMANDS = {
 class GateState:
     """Private installed state for one session.
 
-    ``limits`` is the loaded :class:`LeicaLimits` and ``stage_cfg``
-    the validated stage config when the handshake succeeded; on failure both
-    are None and ``error`` records exactly what is wrong (fail closed: every
-    gated wrapper refuses with this message).
+    ``limits`` is the loaded :class:`LeicaLimits` when the handshake
+    succeeded; on failure it is None and ``error`` records exactly what is
+    wrong (fail closed: every gated wrapper refuses with this message).
     """
 
     limits: Any | None = None
-    stage_cfg: Mapping[str, Any] | None = None
     error: str | None = None
 
     @property
@@ -152,7 +150,6 @@ class GateStatus:
     """Detached result returned by the handshake and :func:`state_for`."""
 
     limits: LimitsStatus | None
-    stage_cfg: dict | None
     error: str | None
 
     @property
@@ -254,28 +251,9 @@ class LeicaLimits:
 _GATE_STATE: dict[int, tuple[Any, GateState]] = {}
 
 
-def _freeze(value: Any) -> Any:
-    """Recursively freeze the JSON-shaped installed stage snapshot."""
-    if isinstance(value, Mapping):
-        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze(item) for item in value)
-    return value
-
-
-def _thaw(value: Any) -> Any:
-    """Return a detached ordinary-Python copy for public status consumers."""
-    if isinstance(value, Mapping):
-        return {key: _thaw(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_thaw(item) for item in value]
-    return value
-
-
 def _status(state: GateState) -> GateStatus:
     return GateStatus(
         limits=state.limits.status() if state.limits is not None else None,
-        stage_cfg=_thaw(state.stage_cfg) if state.stage_cfg is not None else None,
         error=state.error,
     )
 
@@ -363,7 +341,7 @@ def _build_gate_from_file(
         is_fallback=is_fallback,
     )
     _limits.apply_stage_limits_from_config(stage_cfg)
-    state = GateState(limits=function_limits, stage_cfg=_freeze(stage_cfg), error=None)
+    state = GateState(limits=function_limits, error=None)
     _install(client, state)
     return state
 
@@ -471,7 +449,7 @@ def connect_handshake(
                 f"refuses until the limits files validate (see {NOTEBOOK_POINTER})."
             )
             log.error("%s", error)
-            state = GateState(limits=None, stage_cfg=None, error=error)
+            state = GateState(limits=None, error=error)
             _install(client, state)
             # A previous handshake's module-global stage envelope (if any) is
             # deliberately left in place: it is unreachable for moves, because

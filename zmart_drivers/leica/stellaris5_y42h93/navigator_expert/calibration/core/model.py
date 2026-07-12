@@ -226,22 +226,6 @@ def get_translation_um(config: dict[str, Any], slot: int) -> tuple[float, float,
     return float(value[0]), float(value[1]), float(value[2])
 
 
-def load_translations(calibration_name: str | None = None) -> dict[int, tuple[float, float, float]]:
-    """Per-slot objective translations (micrometres) from the active calibration.
-
-    Resolves the machine-local ``calibration.json`` (or the named set selected
-    by ``calibration_name`` / the ``ZMART_CALIBRATION_NAME`` environment
-    variable), and returns ``{slot: (x, y, z)}`` for every objective it lists.
-    Raises on any IO/schema problem; callers that must not fail the connection
-    wrap this and degrade to ``None`` instead.
-    """
-    config = load_calibration(calibration_name=calibration_name)
-    return {
-        int(slot): get_translation_um(config, int(slot))
-        for slot in (config.get("objectives") or {})
-    }
-
-
 def get_reference_slot(config: dict[str, Any]) -> int:
     """The reference (origin) objective slot -- the one at translation [0, 0, 0].
 
@@ -265,79 +249,3 @@ def get_reference_slot(config: dict[str, Any]) -> int:
     if len(refs) > 1:
         raise ValueError(f"calibration config has multiple zero-translation references: {refs}")
     return refs[0]
-
-
-def set_reference(config: dict[str, Any], new_ref_slot: int) -> None:
-    """Re-origin all objective translations around ``new_ref_slot``.
-
-    Subtracts ``new_ref_slot``'s translation from every objective, so it becomes
-    the [0, 0, 0] origin. The reference is derived from the data (the zero
-    entry), never stored.
-    """
-    ref = get_translation_um(config, new_ref_slot)
-    for entry in (config.get("objectives") or {}).values():
-        value = entry.get("translation_um")
-        if value is None:
-            continue
-        entry["translation_um"] = [
-            float(value[0]) - ref[0],
-            float(value[1]) - ref[1],
-            float(value[2]) - ref[2],
-        ]
-    get_reference_slot(config)  # sanity: exactly one zero entry now
-
-
-def translate_xy_between_objectives(
-    x_um: float,
-    y_um: float,
-    config: dict[str, Any],
-    *,
-    from_slot: int,
-    to_slot: int,
-) -> tuple[float, float]:
-    """Translate stage XY from one objective frame to another."""
-    dx_from, dy_from, _ = get_translation_um(config, from_slot)
-    dx_to, dy_to, _ = get_translation_um(config, to_slot)
-    return (
-        float(x_um) + (dx_to - dx_from),
-        float(y_um) + (dy_to - dy_from),
-    )
-
-
-def translate_z_between_objectives(
-    z_um: float,
-    config: dict[str, Any],
-    *,
-    from_slot: int,
-    to_slot: int,
-) -> float:
-    """Translate z-wide from one objective frame to another."""
-    *_, dz_from = get_translation_um(config, from_slot)
-    *_, dz_to = get_translation_um(config, to_slot)
-    return float(z_um) + (dz_to - dz_from)
-
-
-def translate_xyz_between_objectives(
-    x_um: float,
-    y_um: float,
-    z_um: float,
-    config: dict[str, Any],
-    *,
-    from_slot: int,
-    to_slot: int,
-) -> tuple[float, float, float]:
-    """Translate full stage coordinates between objective frames."""
-    x_t, y_t = translate_xy_between_objectives(
-        x_um,
-        y_um,
-        config,
-        from_slot=from_slot,
-        to_slot=to_slot,
-    )
-    z_t = translate_z_between_objectives(
-        z_um,
-        config,
-        from_slot=from_slot,
-        to_slot=to_slot,
-    )
-    return x_t, y_t, z_t

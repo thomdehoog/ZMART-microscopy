@@ -34,8 +34,12 @@ from navigator_expert.commands import (
     errors,
     prechecks,
 )
+from navigator_expert.commands import errors as drv_errors
+from navigator_expert.commands.confirmations import _readback
 from navigator_expert.config import profiles
 from navigator_expert.connection import session
+from navigator_expert.motion import limits as drv_limits
+from navigator_expert.utils import _safe_float
 
 # =============================================================================
 # Helpers - mock factory
@@ -170,27 +174,27 @@ def _make_v6_result(success=True, msg="OK", **extra):
 class TestCheckApiError(unittest.TestCase):
     def test_success_result_1(self):
         client = make_client(make_echo(has_error=False, result_code=1))
-        self.assertIsNone(drv._check_api_error(client))
+        self.assertIsNone(drv_errors._check_api_error(client))
 
     def test_not_defined_no_error(self):
         client = make_client(make_echo(has_error=False, result_code=0))
-        self.assertIsNone(drv._check_api_error(client))
+        self.assertIsNone(drv_errors._check_api_error(client))
 
     def test_warning_treated_as_success(self):
         client = make_client(
             make_echo(has_error=True, error="Warning on command: pinhole adjusted", result_code=1)
         )
-        self.assertIsNone(drv._check_api_error(client))
+        self.assertIsNone(drv_errors._check_api_error(client))
 
     def test_warning_case_insensitive(self):
         client = make_client(
             make_echo(has_error=True, error="WARNING: value clamped", result_code=2)
         )
-        self.assertIsNone(drv._check_api_error(client))
+        self.assertIsNone(drv_errors._check_api_error(client))
 
     def test_error_result_failure(self):
         client = make_client(make_echo(has_error=True, error="Zoom out of range", result_code=2))
-        err = drv._check_api_error(client)
+        err = drv_errors._check_api_error(client)
         self.assertIsNotNone(err)
         self.assertEqual(err["error"], "Zoom out of range")
         self.assertEqual(err["result"], "Failure")
@@ -198,19 +202,19 @@ class TestCheckApiError(unittest.TestCase):
 
     def test_not_implemented(self):
         client = make_client(make_echo(has_error=False, error="", result_code=3))
-        err = drv._check_api_error(client)
+        err = drv_errors._check_api_error(client)
         self.assertIsNotNone(err)
         self.assertEqual(err["result"], "NotImplemented")
         self.assertIn("not implemented", err["error"].lower())
 
     def test_not_implemented_with_message(self):
         client = make_client(make_echo(has_error=True, error="Custom not impl msg", result_code=3))
-        err = drv._check_api_error(client)
+        err = drv_errors._check_api_error(client)
         self.assertEqual(err["error"], "Custom not impl msg")
 
     def test_has_error_no_warning(self):
         client = make_client(make_echo(has_error=True, error="Something broke", result_code=1))
-        err = drv._check_api_error(client)
+        err = drv_errors._check_api_error(client)
         self.assertIsNotNone(err)
         self.assertEqual(err["error"], "Something broke")
 
@@ -221,7 +225,7 @@ class TestCheckApiError(unittest.TestCase):
         type(echo).Result = PropertyMock(side_effect=Exception("COM error"))
         client = MagicMock()
         client.PyApiCommandEcho.Model = echo
-        err = drv._check_api_error(client)
+        err = drv_errors._check_api_error(client)
         self.assertIsNotNone(err)
         self.assertEqual(err["result"], "Unknown")
 
@@ -234,7 +238,7 @@ class TestCheckApiError(unittest.TestCase):
 class TestDefaultErrorCheck(unittest.TestCase):
     def test_success_shape(self):
         client = make_client(make_echo(has_error=False, result_code=1))
-        result = drv._default_error_check(client)
+        result = drv_errors._default_error_check(client)
         self.assertTrue(result["success"])
         self.assertIsNone(result["error"])
         self.assertIsNone(result["transient"])
@@ -242,7 +246,7 @@ class TestDefaultErrorCheck(unittest.TestCase):
 
     def test_permanent_error_shape(self):
         client = make_client(make_echo(has_error=True, error="out of range", result_code=2))
-        result = drv._default_error_check(client)
+        result = drv_errors._default_error_check(client)
         self.assertFalse(result["success"])
         self.assertEqual(result["error"], "out of range")
         self.assertFalse(result["transient"])
@@ -252,7 +256,7 @@ class TestDefaultErrorCheck(unittest.TestCase):
         client = make_client(
             make_echo(has_error=True, error="block is being scanned", result_code=2)
         )
-        result = drv._default_error_check(client)
+        result = drv_errors._default_error_check(client)
         self.assertFalse(result["success"])
         self.assertTrue(result["transient"])
 
@@ -907,7 +911,7 @@ class TestErrorClassification(unittest.TestCase):
             "Request timed out",
         ]:
             with self.subTest(msg=msg):
-                self.assertTrue(drv._is_transient_error(msg))
+                self.assertTrue(drv_errors._is_transient_error(msg))
 
     def test_permanent_patterns(self):
         for msg in [
@@ -920,21 +924,21 @@ class TestErrorClassification(unittest.TestCase):
             "not implemented",
         ]:
             with self.subTest(msg=msg):
-                self.assertFalse(drv._is_transient_error(msg))
+                self.assertFalse(drv_errors._is_transient_error(msg))
 
     def test_permanent_wins_over_transient(self):
-        self.assertFalse(drv._is_transient_error("timeout not found"))
-        self.assertFalse(drv._is_transient_error("locked out of range"))
+        self.assertFalse(drv_errors._is_transient_error("timeout not found"))
+        self.assertFalse(drv_errors._is_transient_error("locked out of range"))
 
     def test_unknown_is_permanent(self):
-        self.assertFalse(drv._is_transient_error("something unexpected"))
+        self.assertFalse(drv_errors._is_transient_error("something unexpected"))
 
     def test_empty_string(self):
-        self.assertFalse(drv._is_transient_error(""))
+        self.assertFalse(drv_errors._is_transient_error(""))
 
     def test_case_insensitive(self):
-        self.assertTrue(drv._is_transient_error("BEING SCANNED"))
-        self.assertFalse(drv._is_transient_error("OUT OF RANGE"))
+        self.assertTrue(drv_errors._is_transient_error("BEING SCANNED"))
+        self.assertFalse(drv_errors._is_transient_error("OUT OF RANGE"))
 
 
 # =============================================================================
@@ -1816,51 +1820,51 @@ class TestStageLimits(unittest.TestCase):
         )
 
     def test_valid_xy(self):
-        drv._check_xy_limits(50000, 50000)
+        drv_limits._check_xy_limits(50000, 50000)
 
     def test_x_below_min(self):
         with self.assertRaises(RuntimeError):
-            drv._check_xy_limits(-1, 50000)
+            drv_limits._check_xy_limits(-1, 50000)
 
     def test_x_above_max(self):
         with self.assertRaises(RuntimeError):
-            drv._check_xy_limits(130001, 50000)
+            drv_limits._check_xy_limits(130001, 50000)
 
     def test_y_below_min(self):
         with self.assertRaises(RuntimeError):
-            drv._check_xy_limits(50000, -1)
+            drv_limits._check_xy_limits(50000, -1)
 
     def test_y_above_max(self):
         with self.assertRaises(RuntimeError):
-            drv._check_xy_limits(50000, 100001)
+            drv_limits._check_xy_limits(50000, 100001)
 
     def test_z_galvo_valid(self):
-        drv._check_z_limits(0, "galvo")
+        drv_limits._check_z_limits(0, "galvo")
 
     def test_z_galvo_below(self):
         with self.assertRaises(RuntimeError):
-            drv._check_z_limits(-201, "galvo")
+            drv_limits._check_z_limits(-201, "galvo")
 
     def test_z_galvo_above(self):
         with self.assertRaises(RuntimeError):
-            drv._check_z_limits(201, "galvo")
+            drv_limits._check_z_limits(201, "galvo")
 
     def test_z_wide_above(self):
         with self.assertRaises(RuntimeError):
-            drv._check_z_limits(25001, "zwide")
+            drv_limits._check_z_limits(25001, "zwide")
 
     def test_z_unknown_mode_raises(self):
         with self.assertRaises(ValueError):
-            drv._check_z_limits(100, "unknown")
+            drv_limits._check_z_limits(100, "unknown")
 
     def test_unconfigured_raises(self):
-        old = dict(drv._stage_limits)
-        drv._stage_limits["x_min"] = None
+        old = dict(drv_limits._stage_limits)
+        drv_limits._stage_limits["x_min"] = None
         try:
             with self.assertRaises(RuntimeError):
-                drv._check_xy_limits(0, 0)
+                drv_limits._check_xy_limits(0, 0)
         finally:
-            drv._stage_limits.update(old)
+            drv_limits._stage_limits.update(old)
 
 
 class TestFormatParsing(unittest.TestCase):
@@ -1880,19 +1884,19 @@ class TestFormatParsing(unittest.TestCase):
 
 class TestSafeFloat(unittest.TestCase):
     def test_int(self):
-        self.assertEqual(drv._safe_float(5), 5.0)
+        self.assertEqual(_safe_float(5), 5.0)
 
     def test_string(self):
-        self.assertEqual(drv._safe_float("3.14"), 3.14)
+        self.assertEqual(_safe_float("3.14"), 3.14)
 
     def test_none_default(self):
-        self.assertEqual(drv._safe_float(None, -1), -1)
+        self.assertEqual(_safe_float(None, -1), -1)
 
     def test_bad_string_default(self):
-        self.assertEqual(drv._safe_float("abc", 0), 0)
+        self.assertEqual(_safe_float("abc", 0), 0)
 
     def test_none_no_default(self):
-        self.assertIsNone(drv._safe_float(None))
+        self.assertIsNone(_safe_float(None))
 
 
 class TestSequentialModeGuard(unittest.TestCase):
@@ -1923,13 +1927,13 @@ class TestReadback(unittest.TestCase):
             "activeSettings": [],
         }
         with patch.object(readers, "get_job_settings", return_value=settings):
-            ch = drv._readback(None, "HiRes")
+            ch = _readback(None, "HiRes")
         self.assertIsNotNone(ch)
         self.assertEqual(ch["zoom"]["current"], 5.0)
 
     def test_failure(self):
         with patch.object(readers, "get_job_settings", return_value=None):
-            self.assertIsNone(drv._readback(None, "HiRes"))
+            self.assertIsNone(_readback(None, "HiRes"))
 
 
 # =============================================================================
@@ -2106,13 +2110,13 @@ class TestSchemaValidation(unittest.TestCase):
 class TestUnclassifiedErrorLogging(unittest.TestCase):
     def test_unknown_error_logs_warning(self):
         with self.assertLogs(drv.log, level="WARNING") as cm:
-            result = drv._is_transient_error("totally unexpected error xyz")
+            result = drv_errors._is_transient_error("totally unexpected error xyz")
         self.assertFalse(result)
         self.assertTrue(any("Unclassified" in msg for msg in cm.output))
 
     def test_known_patterns_no_warning(self):
-        self.assertTrue(drv._is_transient_error("block is being scanned"))
-        self.assertFalse(drv._is_transient_error("out of range"))
+        self.assertTrue(drv_errors._is_transient_error("block is being scanned"))
+        self.assertFalse(drv_errors._is_transient_error("out of range"))
 
 
 # =============================================================================

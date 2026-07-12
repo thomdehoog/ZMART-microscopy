@@ -85,7 +85,6 @@ __all__ = [
     "strip_template",
     "restore_template",
     "get_template_state",
-    "strip_template_in_place",
     "apply_lrp_change",
     "move_xy_with_backlash",
     "reorder_jobs",
@@ -97,7 +96,6 @@ __all__ = [
     "parse_base_grid",
     "parse_focus_points",
     "parse_rgn_geometries",
-    "parse_rgn_tile_colors",
     "parse_matrix_settings",
     "plan_tiles_from_geometries",
     # experimental LRP edits (scan)
@@ -141,15 +139,9 @@ del _sys, _Path, _here, _repo_root
 
 # -- shared utilities + commands/ - helpers and command mechanics
 from .utils import (
-    _safe_float,
     parse_format,
     _make_log_entry,
     parse_tile_geometry,
-)
-from .commands.errors import (
-    _is_transient_error,
-    _check_api_error,
-    _default_error_check,
 )
 from .readers import (
     Reading,
@@ -168,7 +160,6 @@ from .readers import (
     get_pending_dialog,
 )
 from .commands.settings import make_changeable_copy
-from .commands.confirmations import _readback
 from .commands.commands import (
     set_zoom,
     set_scan_speed,
@@ -205,12 +196,9 @@ from .commands.gate import (
 
 # -- motion/ - stage safety + movement
 from .motion.limits import (
-    _stage_limits,
     set_stage_limits,
     get_stage_limits,
     apply_stage_limits_from_config,
-    _check_xy_limits,
-    _check_z_limits,
 )
 from .motion.movement import move_xy_with_backlash
 from .motion.stage_config import (
@@ -227,7 +215,6 @@ from .scanfields.files import (
     save_and_read_lrp,
 )
 from .scanfields.strip_restore import strip_template, restore_template
-from .scanfields.strip_restore import strip_template_in_place
 from .scanfields.transaction import apply_lrp_change, reorder_jobs
 from .scanfields.lrp import parse_lrp
 from .scanfields.parsers import (
@@ -236,7 +223,6 @@ from .scanfields.parsers import (
     parse_base_grid,
     parse_focus_points,
     parse_rgn_geometries,
-    parse_rgn_tile_colors,
     parse_matrix_settings,
 )
 from .scanfields.planning import plan_tiles_from_geometries

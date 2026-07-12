@@ -9,8 +9,8 @@ Two file types, two parser groups:
 
     **XML** — ``parse_acquisition_positions`` extracts tile positions
     from ``<ScanFieldData>`` elements, grouped by region.
-    ``parse_matrix_settings`` extracts grid, carrier, and time-lapse
-    configuration from ``<MatrixData>``.
+    ``parse_matrix_settings`` extracts grid configuration from
+    ``<MatrixData>``.
 
     **RGN** — ``parse_base_grid`` extracts base grid positions
     (``AM=1`` entries).  ``parse_focus_points`` extracts focus,
@@ -19,7 +19,6 @@ Two file types, two parser groups:
     user-drawn shapes (Rectangle, Ellipse, CircleDiameter, Polygon,
     AreaLine, MagicWand, Point) with computed visualization
     properties (centers, bounding boxes, radii, semi-axes).
-    ``parse_rgn_tile_colors`` extracts per-job RGBA color mappings.
 
 ``parse_scan_positions`` is the main entry point that combines all
 parsers into a single result dict. LAS X may store tile centres in
@@ -222,7 +221,7 @@ def parse_acquisition_positions(xml_root, job_tile_sizes, skip_jobs=None):
     """Parse tile positions from XML and group into regions.
 
     Groups tiles by ``(section_x, section_y)`` and attaches tile size
-    and bounding box information when available.
+    information when available.
 
     Args:
         xml_root: Parsed XML root element.
@@ -262,38 +261,29 @@ def parse_acquisition_positions(xml_root, job_tile_sizes, skip_jobs=None):
                 "Section (%s, %s) mixes jobs %s; attributing it to '%s'", sx, sy, other_jobs, jn
             )
         ts = job_tile_sizes.get(jn)
-        h = ts / 2.0 if ts is not None else 0.0
 
         fx_vals = sorted(set(t["field_x"] for t in tiles if t["field_x"] is not None))
         fy_vals = sorted(set(t["field_y"] for t in tiles if t["field_y"] is not None))
-        ax = [t["x_um"] for t in tiles]
-        ay = [t["y_um"] for t in tiles]
 
         tiles_sorted = sorted(tiles, key=lambda t: (t["field_y"] or 0, t["field_x"] or 0))
         positions = []
         for ao, t in enumerate(tiles_sorted):
             tr = fy_vals.index(t["field_y"]) if t["field_y"] in fy_vals else 0
             tc = fx_vals.index(t["field_x"]) if t["field_x"] in fx_vals else 0
-            pos_entry = {
-                "acquisition_order": ao,
-                "row": tr,
-                "col": tc,
-                "x_um": round(t["x_um"], 4),
-                "y_um": round(t["y_um"], 4),
-                "z_um": round(t["z_um"], 4),
-                "scan_order_original": t["scan_order"],
-                "rotation": t["rotation"],
-            }
-            if ts is not None:
-                pos_entry["bounding_box"] = {
-                    "x_min_um": round(t["x_um"] - h, 4),
-                    "y_min_um": round(t["y_um"] - h, 4),
-                    "x_max_um": round(t["x_um"] + h, 4),
-                    "y_max_um": round(t["y_um"] + h, 4),
+            positions.append(
+                {
+                    "acquisition_order": ao,
+                    "row": tr,
+                    "col": tc,
+                    "x_um": round(t["x_um"], 4),
+                    "y_um": round(t["y_um"], 4),
+                    "z_um": round(t["z_um"], 4),
+                    "scan_order_original": t["scan_order"],
+                    "rotation": t["rotation"],
                 }
-            positions.append(pos_entry)
+            )
 
-        region_entry = {
+        regions_out[str(gi)] = {
             "section_x": sx,
             "section_y": sy,
             "region_row": section_ys.index(sy),
@@ -305,14 +295,6 @@ def parse_acquisition_positions(xml_root, job_tile_sizes, skip_jobs=None):
             "num_cols": len(fx_vals),
             "positions": positions,
         }
-        if ts is not None:
-            region_entry["region_bounding_box"] = {
-                "x_min_um": round(min(ax) - h, 4),
-                "y_min_um": round(min(ay) - h, 4),
-                "x_max_um": round(max(ax) + h, 4),
-                "y_max_um": round(max(ay) + h, 4),
-            }
-        regions_out[str(gi)] = region_entry
 
     return regions_out
 
@@ -409,33 +391,26 @@ def _derive_positions_from_geometry_grid(
 
         job_name = _region_job_name(geom, job_tile_sizes, default_job_name)
         tile_size = job_tile_sizes.get(job_name)
-        half = tile_size / 2.0 if tile_size is not None else 0.0
 
         positions = []
         for row, y_um in enumerate(ys):
             for col, x_um in enumerate(xs):
                 order = row * len(xs) + col
-                entry = {
-                    "acquisition_order": order,
-                    "row": row,
-                    "col": col,
-                    "x_um": x_um,
-                    "y_um": y_um,
-                    "z_um": 0.0,
-                    "scan_order_original": order + 1,
-                    "rotation": matrix_settings.get("fieldRotation"),
-                    "source": "rgn_matrix",
-                }
-                if tile_size is not None:
-                    entry["bounding_box"] = {
-                        "x_min_um": round(x_um - half, 4),
-                        "y_min_um": round(y_um - half, 4),
-                        "x_max_um": round(x_um + half, 4),
-                        "y_max_um": round(y_um + half, 4),
+                positions.append(
+                    {
+                        "acquisition_order": order,
+                        "row": row,
+                        "col": col,
+                        "x_um": x_um,
+                        "y_um": y_um,
+                        "z_um": 0.0,
+                        "scan_order_original": order + 1,
+                        "rotation": matrix_settings.get("fieldRotation"),
+                        "source": "rgn_matrix",
                     }
-                positions.append(entry)
+                )
 
-        region = {
+        regions[str(region_index)] = {
             "section_x": 0,
             "section_y": region_index,
             "region_row": region_index,
@@ -449,16 +424,6 @@ def _derive_positions_from_geometry_grid(
             "source": "rgn_matrix",
             "positions": positions,
         }
-        if tile_size is not None:
-            ax = [p["x_um"] for p in positions]
-            ay = [p["y_um"] for p in positions]
-            region["region_bounding_box"] = {
-                "x_min_um": round(min(ax) - half, 4),
-                "y_min_um": round(min(ay) - half, 4),
-                "x_max_um": round(max(ax) + half, 4),
-                "y_max_um": round(max(ay) + half, 4),
-            }
-        regions[str(region_index)] = region
         region_index += 1
 
     return regions
@@ -757,67 +722,6 @@ def parse_rgn_geometries(rgn_path):
 
 
 # =============================================================================
-# Tile colors from RGN
-# =============================================================================
-
-
-def parse_rgn_tile_colors(rgn_path):
-    """Extract per-job tile colors from an RGN file.
-
-    Parses the ``TileColor`` field (``R:255,G:128,B:64,A:100``
-    format) and associates it with the job name from the JSON
-    ``Name`` metadata (``JN`` key) or the ``LabelText`` fallback.
-
-    Args:
-        rgn_path: Path to the ``.rgn`` file.
-
-    Returns:
-        Dict ``{job_name: (r, g, b, a)}`` with values normalised
-        to 0.0–1.0.
-    """
-    rgn_path = Path(rgn_path)
-    if not rgn_path.is_file():
-        return {}
-
-    root = ET.parse(rgn_path).getroot()
-    job_colors = {}
-
-    for item in root.findall(".//ShapeList/Items/*"):
-        name_text = item.findtext("Name") or item.findtext("n") or ""
-        tile_color = item.findtext("TileColor") or ""
-        label_text = item.findtext("LabelText") or ""
-
-        jn = None
-        if name_text.startswith("{"):
-            try:
-                nd = json.loads(name_text)
-                jn = nd.get("JN", "")
-            except (json.JSONDecodeError, ValueError):
-                pass
-
-        if not jn and label_text:
-            jn = label_text
-
-        if jn and tile_color and jn not in job_colors:
-            try:
-                parts = {}
-                for part in tile_color.split(","):
-                    part = part.strip()
-                    if ":" in part:
-                        k, v = part.split(":", 1)
-                        parts[k.strip()] = int(v.strip())
-                r = parts.get("R", 128)
-                g = parts.get("G", 128)
-                b = parts.get("B", 128)
-                a = parts.get("A", 100)
-                job_colors[jn] = (r / 255.0, g / 255.0, b / 255.0, a / 100.0)
-            except (ValueError, TypeError):
-                pass
-
-    return job_colors
-
-
-# =============================================================================
 # Matrix settings from XML
 # =============================================================================
 
@@ -825,15 +729,15 @@ def parse_rgn_tile_colors(rgn_path):
 def parse_matrix_settings(xml_root):
     """Parse matrix configuration from the XML ``<MatrixData>`` element.
 
-    Extracts grid counts, distance/spacing data, carrier type,
-    time-lapse settings, autofocus mode, and field rotation.
+    Extracts grid counts, distance/spacing data, autofocus mode, and
+    field rotation.
 
     Args:
         xml_root: Parsed XML root element.
 
     Returns:
         Dict with optional keys: ``count``, ``distances``,
-        ``carrier``, ``timeLapse``, ``autofocus``, ``fieldRotation``.
+        ``autofocus``, ``fieldRotation``.
         Empty dict if no ``<MatrixData>`` element exists.
     """
     md = xml_root.find(".//MatrixData") if xml_root is not None else None
@@ -876,38 +780,6 @@ def parse_matrix_settings(xml_root):
                     "unit": elem.get("Units", "Microns"),
                 }
         result["distances"] = dist
-
-    cd = md.find("CarrierData")
-    if cd is not None and cd.get("IsEnabled") == "true":
-        carrier = {
-            "description1": cd.get("Description1", ""),
-            "description2": cd.get("Description2", ""),
-            "rotationAngle": _to_float(cd.get("RotationAngle")),
-        }
-        carrier_types = {
-            "WellPlateTypeSelected": ("WellPlate", "SelectedWellplateTypeIndex"),
-            "SlideTypeSelected": ("Slide", "SelectedGlassTypeIndex"),
-            "DishTypeSelected": ("Dish", "SelectedDishTypeIndex"),
-            "ChamberSlideTypeSelected": ("ChamberSlide", "SelectedChamberSlideTypeIndex"),
-            "SingleGridCartridgeTypeSelected": ("SingleGridCartridge", "SelectedGridTypeIndex"),
-            "AutoGridCartridgeTypeSelected": ("AutoGridCartridge", "SelectedGridTypeIndex"),
-        }
-        for attr, (ctype, idx_attr) in carrier_types.items():
-            if cd.get(attr) == "true":
-                carrier["type"] = ctype
-                carrier["selectedIndex"] = _to_int(cd.get(idx_attr))
-                break
-        result["carrier"] = carrier
-
-    tld = md.find("TimeLapseData")
-    if tld is not None and tld.get("IsEnabled") == "true":
-        result["timeLapse"] = {
-            "repeatLoops": _to_int(tld.get("RepeatLoops")),
-            "repeatTimeDays": _to_int(tld.get("RepeatTimeDays")),
-            "repeatTimeHours": _to_int(tld.get("RepeatTimeHours")),
-            "repeatTimeMinutes": _to_int(tld.get("RepeatTimeMinutes")),
-            "runTime": tld.get("RunTime", ""),
-        }
 
     afd = md.find("AutofocusData")
     if afd is not None:
@@ -976,8 +848,8 @@ def parse_scan_positions(
             focus_points          — list of focus/point markers
             autofocus_points      — list of autofocus points
             geometries            — dict of user-drawn shapes
-            matrix_settings       — grid/carrier/time-lapse config
-            visualization_data    — tile colors, job tile sizes
+            matrix_settings       — grid config
+            visualization_data    — job tile sizes
     """
     d = Path(templates_dir)
     xml_path = d / (template_base + ".xml")
@@ -1013,7 +885,6 @@ def parse_scan_positions(
         parse_focus_points(rgn_path) if rgn_path.is_file() else ([], [])
     )
     geometries = parse_rgn_geometries(rgn_path) if rgn_path.is_file() else {}
-    tile_colors = parse_rgn_tile_colors(rgn_path) if rgn_path.is_file() else {}
     matrix_settings = parse_matrix_settings(xml_root) if xml_root is not None else {}
 
     acquisition_positions = {}
@@ -1039,7 +910,6 @@ def parse_scan_positions(
         "geometries": geometries,
         "matrix_settings": matrix_settings,
         "visualization_data": {
-            "tile_colors": tile_colors,
             "job_tile_sizes": job_tile_sizes,
         },
     }

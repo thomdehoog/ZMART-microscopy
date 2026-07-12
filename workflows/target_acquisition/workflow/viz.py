@@ -3,10 +3,9 @@
 Everything here works at the workflow's altitude -- the frame positions the
 workflow controls, the fitted :class:`~workflow._focus_surface.FocusSurface`,
 and the :func:`~workflow.discovery.discover_targets` output -- never the
-driver's opaque ``acquire`` record (whose shape is driver-defined: the Leica
-adapter returns ``{"images": [...]}``; the mock returns
-``{"filename": ..., "position": {...}}``). Passing the workflow-owned data
-keeps this driver-agnostic.
+driver's opaque ``acquire`` record (whose shape is driver-defined beyond the
+shared convention that saved paths appear in an ``images`` list). Passing the
+workflow-owned data keeps this driver-agnostic.
 
 The summary functions (:func:`summarize_run` / :func:`write_summary`) are pure
 and always available. The plotting functions lazy-import ``matplotlib`` (an

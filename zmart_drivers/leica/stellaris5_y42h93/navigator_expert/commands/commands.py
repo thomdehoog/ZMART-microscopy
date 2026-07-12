@@ -1332,8 +1332,10 @@ def move_galvo_to_pixel(client, px, py, *, job_name=None, pixel_size_um=None, im
                 f"resulting pan ({new_pan[0]:+.5f}, {new_pan[1]:+.5f}) "
                 f"exceeds angular limit ±{_PAN_LIMIT}; stage-move closer first."
             )
-        # The machine file may constrain the absolute pan further; check the
-        # composed value before it is written into the LRP.
+        # Also ask the gate, so a machine-file limit on the pan would be
+        # honored if one is ever configured. No shipped limits file
+        # constrains the pan today, so the real bounds are the two checks
+        # above (finiteness and the +/-_PAN_LIMIT angular window).
         gate_message = _gate.check_refusal(
             client, "move_galvo_to_pixel", {"pan_x": new_pan[0], "pan_y": new_pan[1]}
         )

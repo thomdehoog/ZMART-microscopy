@@ -348,14 +348,14 @@ acquired position a unique hash, and the workflow supplies the `K/M/G/P/V` posit
 **Parse saved templates** (read-only, stdlib ElementTree — no fragile regex; `scanfields/parsers.py`,
 except `parse_lrp` in `scanfields/lrp.py`):
 `parse_lrp` (full job-settings tree) · `parse_scan_positions` · `parse_acquisition_positions` ·
-`parse_base_grid` · `parse_focus_points` · `parse_rgn_geometries` · `parse_rgn_tile_colors` ·
+`parse_base_grid` · `parse_focus_points` · `parse_rgn_geometries` ·
 `parse_matrix_settings` · `plan_tiles_from_geometries` (planning).
 
 **Active experiment:** `save_experiment` (fires save, confirms via file mtime + stable size) ·
 `load_experiment` (receipt only — verify with a follow-up save) · `save_and_read_lrp` (save +
 `parse_lrp` in one call) · `get_template_state` (`"fresh"`/`"unstripped"`/`"stripped"`/`"unreadable"`
 — the adapter treats `"unreadable"` as a hard pre-acquire error) ·
-`find_scanning_templates_dir` · `strip_template` / `restore_template` / `strip_template_in_place`
+`find_scanning_templates_dir` · `strip_template` / `restore_template`
 (remove/restore operator-drawn scan fields, regions, focus points around an automated run).
 
 **Offline template edits** (`experimental/lrp_edits/`) — a **parallel, file-based** API mirroring the

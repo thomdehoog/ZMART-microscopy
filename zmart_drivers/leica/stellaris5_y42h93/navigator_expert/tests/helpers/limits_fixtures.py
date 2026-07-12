@@ -128,7 +128,6 @@ def install_permissive_limits(client, *, wide_stage=False, **set_xyz_constraints
         client,
         _gate.GateState(
             limits=permissive_function_limits(**set_xyz_constraints),
-            stage_cfg=None,
             error=None,
         ),
     )
