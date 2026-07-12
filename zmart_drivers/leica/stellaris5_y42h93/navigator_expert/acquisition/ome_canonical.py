@@ -71,24 +71,6 @@ def metadata_from_ome_xml(
     return _ensure_channels(metadata)
 
 
-def pixels_dims(xml: bytes | str) -> tuple[int, int, int]:
-    """Return ``(SizeT, SizeZ, SizeC)`` from the first OME ``Pixels`` element.
-
-    Raises ``RuntimeError`` when no ``Pixels`` element is present or any of
-    ``SizeT``/``SizeZ``/``SizeC`` is missing or non-positive.
-    """
-    text = xml.decode("utf-8", errors="replace") if isinstance(xml, bytes) else xml
-    root = ET.fromstring(text)
-    pixels = _first_local(root, "Pixels")
-    if pixels is None:
-        raise RuntimeError("OME metadata has no Pixels element")
-    return (
-        _required_int(None, pixels, "SizeT"),
-        _required_int(None, pixels, "SizeZ"),
-        _required_int(None, pixels, "SizeC"),
-    )
-
-
 def metadata_with_shape_and_grid(
     metadata: AcquisitionMetadata,
     *,
@@ -191,22 +173,6 @@ def plane_xml(
         channels=(replace(channel, index=0),),
         tiff_entries=[(0, 0, 0, filename)],
         state=state,
-    )
-
-
-def companion_xml(
-    metadata: AcquisitionMetadata,
-    *,
-    image_name: str,
-    plane_filenames: dict[PlaneIndex, str],
-) -> bytes:
-    """Return OME XML describing one canonical position/timepoint."""
-    entries = [(0, idx.z, idx.c, filename) for idx, filename in sorted(plane_filenames.items())]
-    return _ome_xml(
-        replace(metadata, size_t=1),
-        image_name=image_name,
-        channels=metadata.channels,
-        tiff_entries=entries,
     )
 
 

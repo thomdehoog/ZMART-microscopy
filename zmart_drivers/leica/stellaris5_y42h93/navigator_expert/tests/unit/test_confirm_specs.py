@@ -8,8 +8,9 @@ two cannot silently drift:
 
   * the table covers *exactly* the set of collapsed settings (no missing /
     no extra rows, every row has its wrapper, no bespoke confirm leaked in);
-  * each row's comparator + default tolerance match the public wrapper's
-    signature, byte for byte;
+  * each row's comparator kind matches the public wrapper's signature (a
+    tolerance comparator has a ``tolerance`` knob, an exact one has none),
+    and the wrapper tolerance defaults are pinned to their exact values;
   * the generic ``_confirm_readback`` confirms a matching readback and stays
     unconfirmed (with a warning) on a non-matching one, per descriptor.
 
@@ -229,27 +230,35 @@ def test_comparator_is_one_of_the_two_known_kinds():
         assert spec.compare in (confirm_specs._cmp_exact, confirm_specs._cmp_tolerance), name
 
 
-def test_default_tolerance_matches_wrapper_signature():
-    """The descriptor's tolerance is the wrapper signature's default."""
+def _wrapper_default_tolerance(name):
+    """Return the ``tolerance`` default from a wrapper's signature (None if absent).
+
+    The wrapper signature is the single home of each setting's default
+    tolerance; the descriptor table deliberately carries none.
+    """
+    params = inspect.signature(getattr(confirmations, f"_confirm_{name}")).parameters
+    param = params.get("tolerance")
+    return None if param is None else param.default
+
+
+def test_tolerance_knob_matches_comparator_kind():
+    """Tolerance comparators have a tolerance knob; exact comparators have none."""
     for name, spec in CONFIRM_SPECS.items():
         params = inspect.signature(getattr(confirmations, f"_confirm_{name}")).parameters
         if spec.compare is confirm_specs._cmp_tolerance:
             assert "tolerance" in params, name
-            assert params["tolerance"].default == spec.default_tolerance, name
         else:
-            # Exact-match confirms have no tolerance knob at all.
-            assert spec.default_tolerance is None, name
             assert "tolerance" not in params, name
 
 
 def test_expected_tolerances_are_exact_values():
-    """Pin the tolerance defaults so a profile/wrapper drift is caught here."""
-    assert CONFIRM_SPECS["scan_field_rotation"].default_tolerance == 0.5
-    assert CONFIRM_SPECS["pinhole_airy"].default_tolerance == 0.05
-    assert CONFIRM_SPECS["detector_gain"].default_tolerance == 1.0
-    assert CONFIRM_SPECS["laser_intensity"].default_tolerance == 0.005
-    assert CONFIRM_SPECS["filter_wheel_spectrum"].default_tolerance == 1
-    assert CONFIRM_SPECS["z_stack_step_size"].default_tolerance == 0.5
+    """Pin the wrapper tolerance defaults so a profile/wrapper drift is caught here."""
+    assert _wrapper_default_tolerance("scan_field_rotation") == 0.5
+    assert _wrapper_default_tolerance("pinhole_airy") == 0.05
+    assert _wrapper_default_tolerance("detector_gain") == 1.0
+    assert _wrapper_default_tolerance("laser_intensity") == 0.005
+    assert _wrapper_default_tolerance("filter_wheel_spectrum") == 1
+    assert _wrapper_default_tolerance("z_stack_step_size") == 0.5
 
 
 # =============================================================================
@@ -275,7 +284,7 @@ def test_generic_confirms_matching_readback(name, monkeypatch):
         label=spec.label,
         compare=spec.compare,
         errors=spec.errors,
-        tolerance=spec.default_tolerance,
+        tolerance=_wrapper_default_tolerance(name),
         poll_window=1.0,
         poll_interval=0.001,
     )
@@ -297,7 +306,7 @@ def test_generic_rejects_non_matching_readback(name, monkeypatch):
         label=spec.label,
         compare=spec.compare,
         errors=spec.errors,
-        tolerance=spec.default_tolerance,
+        tolerance=_wrapper_default_tolerance(name),
         poll_window=0.02,
         poll_interval=0.001,
     )

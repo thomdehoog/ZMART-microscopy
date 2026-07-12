@@ -967,18 +967,16 @@ def test_containment_checker_accepts_the_template_and_narrower():
 
 def test_resolution_seeds_programdata_and_returns_local_paths():
     profile = MachineProfile(programdata_root=_machine_root())
-    path, is_fallback = profile.resolve("limits.json")
-    assert is_fallback is False
+    path = profile.resolve("limits.json")
     assert path == profile.latest_snapshot() / "limits.json"
     assert path.exists()
-    assert profile.require_machine_local("limits.json", "the physical stage envelope") == path
+    assert profile.require_machine_local("limits.json") == path
     assert stage_config.load()["stage_um"]["x"] == DEFAULT_STAGE_UM["x"]
 
 
 def test_calibration_values_seed_programdata_from_repo_defaults():
     machine = MachineProfile(programdata_root=_machine_root())
-    path, is_fallback = machine.resolve("calibration.json")
-    assert is_fallback is False
+    path = machine.resolve("calibration.json")
     assert path == machine.latest_snapshot() / "calibration.json"
     assert path.exists()
     assert machine.calibration_path() == path

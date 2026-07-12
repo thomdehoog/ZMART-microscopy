@@ -95,15 +95,13 @@ def test_latest_snapshot_ignores_malformed_dirs_and_files(tmp_path):
 def test_resolve_uses_latest_snapshot(tmp_path):
     _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
     p = _profile(tmp_path)
-    cal, fb = p.resolve("calibration.json")
-    assert fb is False
+    cal = p.resolve("calibration.json")
     assert cal == p.latest_snapshot() / "calibration.json"
 
 
 def test_resolve_seeds_programdata_from_defaults_when_no_snapshot(tmp_path):
     p = _profile(tmp_path)
-    cal, fb = p.resolve("calibration.json")
-    assert fb is False
+    cal = p.resolve("calibration.json")
     assert cal == p.latest_snapshot() / "calibration.json"
     assert cal.exists()
     assert (p.latest_snapshot() / "limits.json").exists()
@@ -114,10 +112,8 @@ def test_resolve_seeds_programdata_from_defaults_when_no_snapshot(tmp_path):
 def test_resolve_repairs_incomplete_snapshot_by_publishing_complete_one(tmp_path):
     incomplete = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z", limits=False)
     p = _profile(tmp_path)
-    _, cal_fb = p.resolve("calibration.json")
-    lim, lim_fb = p.resolve("limits.json")
-    assert cal_fb is False
-    assert lim_fb is False
+    p.resolve("calibration.json")
+    lim = p.resolve("limits.json")
     assert p.latest_snapshot() != incomplete
     assert lim == p.latest_snapshot() / "limits.json"
     assert lim.exists()

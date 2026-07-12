@@ -106,27 +106,49 @@ def _fire_api_read(fn, api_key):
     return results
 
 
+class ApiReadTimeout(RuntimeError):
+    """An API read did not complete within its time budget.
+
+    This is the hung-CAM signature (typically a modal LAS X dialog blocking
+    the API): the read is abandoned to its daemon worker and reported here so
+    ``diagnostics=True`` callers can see *why* the value is missing.
+    """
+
+
+def _timeout_reading(message) -> Reading:
+    """Error-carrying Reading for an API read that ran out of time."""
+    log.warning(message)
+    return Reading(
+        value=None,
+        source="api",
+        observed_at=time.time(),
+        age_s=None,
+        error=ApiReadTimeout(message),
+    )
+
+
 def _capped_api_read(api_fn, api_key, timeout_s):
     """One CAM read through the capped worker, bounded by *timeout_s*.
 
     Waits for the in-flight slot if another read holds it, then for the
-    result. Returns the Reading, or ``None`` when the slot or the result
-    did not arrive in time — a hung CAM call (modal dialog) parks in the
-    daemon worker instead of blocking the caller forever.
+    result. Always returns a Reading: when the slot or the result did not
+    arrive in time — a hung CAM call (modal dialog) parks in the daemon
+    worker instead of blocking the caller forever — the Reading carries an
+    :class:`ApiReadTimeout` error and no value.
     """
     deadline = time.monotonic() + timeout_s
     results = _fire_api_read(api_fn, api_key)
     while results is None:
         if time.monotonic() >= deadline:
-            log.warning("api read not started: another read in flight past %.1fs", timeout_s)
-            return None
+            return _timeout_reading(
+                f"api read not started: another read in flight past {timeout_s:.1f}s"
+            )
         time.sleep(0.005)
         results = _fire_api_read(api_fn, api_key)
     try:
         return results.get(timeout=max(0.0, deadline - time.monotonic()))
     except queue.Empty:
-        log.warning("api read timed out after %.1fs", timeout_s)
-        return None
+        return _timeout_reading(f"api read timed out after {timeout_s:.1f}s")
 
 
 def _claim_api_read(api_key):
@@ -226,8 +248,6 @@ def _route_read(mode, *, datum, api_fn, log_fn, trust, timeout_s, api_key):
         if api_fn is None:
             return _unsupported("api", datum)
         reading = _capped_api_read(api_fn, api_key, timeout_s)
-        if reading is None:
-            return None
         return reading if reading.error is None else reading._replace_value_none()
     if mode == "log":
         if log_fn is None:
@@ -242,8 +262,6 @@ def _route_read(mode, *, datum, api_fn, log_fn, trust, timeout_s, api_key):
         if log_fn is None:
             log.debug("hybrid: datum %r has no log leg; api only", datum)
             reading = _capped_api_read(api_fn, api_key, timeout_s)
-            if reading is None:
-                return None
             return reading if reading.error is None else reading._replace_value_none()
         if api_fn is None:
             log.debug("hybrid: datum %r has no api leg; log only", datum)

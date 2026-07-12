@@ -11,7 +11,7 @@ hardware sessions, but their default tolerances, polling intervals, and
 retry ceilings live here. This keeps machine-sensitive tuning out of
 the wrapper logic.
 
-All four callable fields follow the same rule: ``callable(client) -> result``.
+Both callable fields follow the same rule: ``callable(client) -> result``.
 Extra parameters are pre-bound with ``partial`` at profile definition
 time. The command function always binds ``client`` via lambda - the same
 pattern for every field, no exceptions.
@@ -21,40 +21,16 @@ pattern for every field, no exceptions.
     Pattern A - callable needs extra parameters: use partial to pre-bind.
     Pattern B - callable takes only client: assign directly.
 
-Import restrictions: command prechecks/confirmations, runtime errors/utilities,
-and stdlib. Nothing from dispatch or command wrappers.
+Import restrictions: command prechecks, runtime errors/utilities, and stdlib.
+Nothing from dispatch, confirmations, or command wrappers. (Confirm functions
+are bound by the command wrappers themselves, with the target value baked in —
+a profile cannot know the target, so it never carries a confirm callable.)
 """
 
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 
-from ..commands.confirmations import (
-    _confirm_detector_gain,
-    _confirm_filter_wheel_slot,
-    _confirm_filter_wheel_spectrum,
-    _confirm_frame_accumulation,
-    _confirm_frame_average,
-    _confirm_image_format,
-    _confirm_laser_intensity,
-    _confirm_laser_shutter,
-    _confirm_line_accumulation,
-    _confirm_line_average,
-    _confirm_pinhole_airy,
-    _confirm_scan_field_rotation,
-    _confirm_scan_mode,
-    _confirm_scan_resonant,
-    _confirm_scan_speed,
-    _confirm_sequential_mode,
-    _confirm_z_stack_definition,
-    _confirm_z_stack_size,
-    _confirm_z_stack_step_size,
-    _confirm_zoom,
-    confirm_acquire,
-    confirm_move_xy,
-    confirm_move_z,
-    confirm_objective,
-)
 from ..commands.errors import _default_error_check
 from ..commands.prechecks import check_idle
 from ..utils import CONFIRM_POLL_S, RECEIPT_TIMEOUT
@@ -167,9 +143,6 @@ class CommandProfile:
             None to skip.
         error_check_fn: Post-fire error check. ``callable(client) -> result``.
             Defaults to ``_default_error_check``.
-        confirm_fn: Readback confirmation. ``callable(client) -> result``.
-            None to skip confirmation. Declarative only - commands always
-            override this with a target-bound partial at call time.
         max_retries: Transient error retries inside the fire block.
         max_confirm_attempts: Confirm wrapper re-attempt ceiling.
         refire_on_unconfirmed: If True, an unconfirmed readback causes
@@ -181,8 +154,11 @@ class CommandProfile:
         confirm_poll_s: Per-attempt readback poll window (seconds). NOT a
             timeout - the readback is polled for this long, then the command
             re-fires and polls again up to ``max_confirm_attempts``; exhaustion
-            returns unconfirmed, never a hard fail. Defaults to the shared
-            ``CONFIRM_POLL_S``; set per command only for a stated reason.
+            returns unconfirmed, never a hard fail. Every confirm function
+            defaults to the shared ``CONFIRM_POLL_S`` on its own; this field
+            exists for the commands that read the window explicitly
+            (``select_job``'s confirmation legs, the resonant-scan error
+            check). It matches ``CONFIRM_POLL_S`` on every shipped profile.
         confirm_tolerance: Numeric tolerance passed to target readback
             confirmations. None means exact-match or function default.
         poll_interval: Poll interval for command-specific long-running
@@ -192,11 +168,6 @@ class CommandProfile:
         start_timeout: Acquisition-start deadline before the acquire
             confirmation treats the command as failed.
         heartbeat_interval: Status-log cadence during long acquisitions.
-        retry_backoff: Base delay in seconds between transient error retries.
-            None for immediate retry (no delay).
-        retry_escalate: If True, double the delay after each retry
-            (exponential backoff: 0s, base, 2×base, 4×base, ...).
-            If False, use a fixed delay. Ignored when retry_backoff is None.
         skip_echo: If True, skip echo settlement polling after fire.
             Use for commands where a dedicated confirm_fn (e.g. scan
             status polling) is the authoritative completion signal and
@@ -216,7 +187,6 @@ class CommandProfile:
 
     pre_check_fn: Callable[..., dict] | None = None
     error_check_fn: Callable[..., dict] | None = _default_error_check
-    confirm_fn: Callable[..., dict] | None = None
     max_retries: int = 3
     max_confirm_attempts: int = 3
     refire_on_unconfirmed: bool = True
@@ -226,8 +196,6 @@ class CommandProfile:
     poll_timeout: float | None = None
     start_timeout: float | None = None
     heartbeat_interval: float | None = None
-    retry_backoff: float | None = None
-    retry_escalate: bool = False
     skip_echo: bool = False
     receipt_timeout: float = RECEIPT_TIMEOUT  # UpdateAwaitReceipt ACK deadline (s).
     fire_async: bool = False
@@ -244,147 +212,62 @@ class CommandProfile:
             raise ValueError("max_confirm_attempts==1 requires refire_on_unconfirmed=False")
 
 
-def _leica_setting_profile(confirm_fn, **overrides):
-    """Profile for Leica setting updates with occasionally stale readback.
-
-    Setting commands get three 3-second readback poll windows. If a window does
-    not confirm the requested state, the command is re-fired before the next
-    window. If LAS X still reports another state after all windows, the result
-    is ``success=True, confirmed=False`` so the larger acquisition workflow
-    continues while the logs show the mismatch. All of that is the
-    ``CommandProfile`` default now, so the helper only binds the confirm
-    function (plus any per-command tolerance override).
-    """
-    return CommandProfile(
-        confirm_fn=confirm_fn,
-        **overrides,
-    )
-
-
 # =============================================================================
-# Job-level set commands
+# Setting commands (zoom, scan, z-stack, detector, laser, filter wheel)
 # =============================================================================
+# Every setting command shares the ``CommandProfile`` default posture: three
+# 3-second readback poll windows, a re-fire before each retry window, and a
+# ``success=True, confirmed=False`` result if LAS X still reports another
+# state after all windows — the larger acquisition workflow continues while
+# the logs show the mismatch. The only per-command tuning is the readback
+# tolerance for continuous values; the matching confirm function is bound by
+# the command wrapper itself, with the target value baked in.
 
-ZOOM = _leica_setting_profile(
-    _confirm_zoom,
-    confirm_tolerance=0.1,
-)
+ZOOM = CommandProfile(confirm_tolerance=0.1)
 
-SCAN_SPEED = _leica_setting_profile(
-    _confirm_scan_speed,
-)
+SCAN_SPEED = CommandProfile()
 
-SCAN_RESONANT = _leica_setting_profile(
-    _confirm_scan_resonant,
-)
+SCAN_RESONANT = CommandProfile()
 
-SCAN_MODE = _leica_setting_profile(
-    _confirm_scan_mode,
-)
+SCAN_MODE = CommandProfile()
 
-SEQUENTIAL_MODE = _leica_setting_profile(
-    _confirm_sequential_mode,
-)
+SEQUENTIAL_MODE = CommandProfile()
 
-SCAN_FIELD_ROTATION = _leica_setting_profile(
-    _confirm_scan_field_rotation,
-    confirm_tolerance=0.5,
-)
+SCAN_FIELD_ROTATION = CommandProfile(confirm_tolerance=0.5)
 
-IMAGE_FORMAT = _leica_setting_profile(
-    _confirm_image_format,
-)
+IMAGE_FORMAT = CommandProfile()
 
 OBJECTIVE = CommandProfile(
     pre_check_fn=partial(check_idle, timeout=None),
-    confirm_fn=confirm_objective,
     # Uniform posture: 3 confirm windows, re-fire between them, unconfirmed-not-
     # fail. A slow turret change is absorbed by the idle-wait before each re-fire.
 )
 
+Z_STACK_DEFINITION = CommandProfile(confirm_tolerance=1.0)
 
-# =============================================================================
-# Z-stack commands
-# =============================================================================
+Z_STACK_STEP_SIZE = CommandProfile(confirm_tolerance=0.5)
 
-Z_STACK_DEFINITION = _leica_setting_profile(
-    _confirm_z_stack_definition,
-    confirm_tolerance=1.0,
-)
+Z_STACK_SIZE = CommandProfile(confirm_tolerance=1.5)
 
-Z_STACK_STEP_SIZE = _leica_setting_profile(
-    _confirm_z_stack_step_size,
-    confirm_tolerance=0.5,
-)
+FRAME_ACCUMULATION = CommandProfile()
 
-Z_STACK_SIZE = _leica_setting_profile(
-    _confirm_z_stack_size,
-    confirm_tolerance=1.5,
-)
+FRAME_AVERAGE = CommandProfile()
 
+LINE_ACCUMULATION = CommandProfile()
 
-# =============================================================================
-# Per-setting commands
-# =============================================================================
+LINE_AVERAGE = CommandProfile()
 
-FRAME_ACCUMULATION = _leica_setting_profile(
-    _confirm_frame_accumulation,
-)
+DETECTOR_GAIN = CommandProfile(confirm_tolerance=1.0)
 
-FRAME_AVERAGE = _leica_setting_profile(
-    _confirm_frame_average,
-)
+PINHOLE_AIRY = CommandProfile(confirm_tolerance=0.05)
 
-LINE_ACCUMULATION = _leica_setting_profile(
-    _confirm_line_accumulation,
-)
+LASER_INTENSITY = CommandProfile(confirm_tolerance=0.005)
 
-LINE_AVERAGE = _leica_setting_profile(
-    _confirm_line_average,
-)
+LASER_SHUTTER = CommandProfile()
 
+FILTER_WHEEL_SLOT = CommandProfile()
 
-# =============================================================================
-# Detector commands
-# =============================================================================
-
-DETECTOR_GAIN = _leica_setting_profile(
-    _confirm_detector_gain,
-    confirm_tolerance=1.0,
-)
-
-PINHOLE_AIRY = _leica_setting_profile(
-    _confirm_pinhole_airy,
-    confirm_tolerance=0.05,
-)
-
-
-# =============================================================================
-# Laser commands
-# =============================================================================
-
-LASER_INTENSITY = _leica_setting_profile(
-    _confirm_laser_intensity,
-    confirm_tolerance=0.005,
-)
-
-LASER_SHUTTER = _leica_setting_profile(
-    _confirm_laser_shutter,
-)
-
-
-# =============================================================================
-# Filter wheel commands
-# =============================================================================
-
-FILTER_WHEEL_SLOT = _leica_setting_profile(
-    _confirm_filter_wheel_slot,
-)
-
-FILTER_WHEEL_SPECTRUM = _leica_setting_profile(
-    _confirm_filter_wheel_spectrum,
-    confirm_tolerance=1.0,
-)
+FILTER_WHEEL_SPECTRUM = CommandProfile(confirm_tolerance=1.0)
 
 
 # =============================================================================
@@ -393,7 +276,6 @@ FILTER_WHEEL_SPECTRUM = _leica_setting_profile(
 
 MOVE_XY = CommandProfile(
     pre_check_fn=partial(check_idle, timeout=None),
-    confirm_fn=confirm_move_xy,
     error_check_fn=None,  # async fire blanks the echo; nothing to error-check
     confirm_tolerance=20.0,
     fire_async=True,
@@ -403,7 +285,6 @@ MOVE_XY = CommandProfile(
 
 MOVE_Z = CommandProfile(
     pre_check_fn=partial(check_idle, timeout=None),
-    confirm_fn=confirm_move_z,
     confirm_tolerance=1.0,
     # Uniform posture (was single-attempt hard-fail): 3 windows, re-fire,
     # unconfirmed-not-fail - same as MOVE_XY.
@@ -416,7 +297,6 @@ MOVE_Z = CommandProfile(
 
 ACQUIRE = CommandProfile(
     pre_check_fn=partial(check_idle, timeout=None),
-    confirm_fn=confirm_acquire,
     error_check_fn=None,
     # ACQUIRE is the one command that must never re-send: re-firing starts a
     # second acquisition (duplicate data). It declines retry on BOTH axes -
@@ -443,7 +323,6 @@ SELECT_JOB = CommandProfile(
     # windows of confirm_poll_s seconds each (the shared CONFIRM_POLL_S), re-fire
     # between, unconfirmed-not-fail. No bespoke poll_timeout — the window comes
     # from the profile like every setting command.
-    confirm_fn=None,
     max_confirm_attempts=3,
     poll_interval=0.01,
 )

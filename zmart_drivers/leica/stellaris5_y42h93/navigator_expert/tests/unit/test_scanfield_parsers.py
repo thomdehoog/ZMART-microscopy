@@ -122,6 +122,23 @@ class TestParseSizeString:
         assert _parse_size_string("") is None
         assert _parse_size_string(None) is None
 
+    def test_decimal_comma_locale(self):
+        """A German/Dutch-locale LAS X writes "290,63 um"; the comma is a
+        decimal mark, not a character to strip (regression: this once parsed
+        as 29063.0 um, a hundredfold tile-size error)."""
+        r = _parse_size_string("290,63 um x 290,63 um")
+        assert r is not None
+        assert r["unit"] == "um"
+        assert abs(r["x"] - 290.63) < 0.01
+        assert abs(r["y"] - 290.63) < 0.01
+
+    def test_thousands_and_decimal_separators_together(self):
+        """Both marks present: the rightmost one is the decimal mark."""
+        r = _parse_size_string("1.290,63 um x 1,290.63 um")
+        assert r is not None
+        assert abs(r["x"] - 1290.63) < 0.01
+        assert abs(r["y"] - 1290.63) < 0.01
+
 
 class TestTileSizeFromImageSizeStr:
     def test_micrometers(self):

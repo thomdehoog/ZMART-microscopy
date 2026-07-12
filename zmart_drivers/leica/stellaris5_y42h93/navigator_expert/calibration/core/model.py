@@ -20,6 +20,7 @@ existing file keeps loading without a re-adopt.
 from __future__ import annotations
 
 import json
+import math
 import os
 from copy import deepcopy
 from datetime import datetime
@@ -98,7 +99,16 @@ def validate_calibration(config: dict[str, Any]) -> None:
     for slot, entry in objectives.items():
         if not isinstance(entry, dict):
             raise ValueError(f"calibration objective {slot!r} must be an object")
-        get_translation_um(config, int(slot))
+        translation = get_translation_um(config, int(slot))
+        # NaN or infinity here would silently poison every frame coordinate
+        # computed from this slot (NaN spreads through arithmetic without
+        # raising), so a non-finite offset is rejected at validation time.
+        if not all(math.isfinite(v) for v in translation):
+            raise ValueError(
+                f"calibration objective {slot!r} has a non-finite translation_um "
+                f"{list(translation)!r}; every offset must be a real, finite "
+                "number — re-run the calibration notebooks for this slot"
+            )
         for key in ("name", "session_id"):
             if key not in entry:
                 raise ValueError(f"calibration objective {slot!r} missing field: {key!r}")

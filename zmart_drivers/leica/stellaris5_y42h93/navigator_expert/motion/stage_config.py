@@ -92,7 +92,7 @@ def defaults_path() -> Path:
     """
     from ..config.machine import LIMITS_FILENAME, MACHINE
 
-    return MACHINE.require_machine_local(LIMITS_FILENAME, "the physical stage envelope")
+    return MACHINE.require_machine_local(LIMITS_FILENAME)
 
 
 def _read_json(path: Path) -> dict[str, Any]:

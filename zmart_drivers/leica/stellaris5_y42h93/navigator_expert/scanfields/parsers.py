@@ -53,10 +53,7 @@ from pathlib import Path
 
 from ..utils import normalize_unit_mojibake
 from ._convert import _to_float, _to_int
-
-# parse_lrp lives in lrp.py; re-exported here so the (untouched) experimental
-# lrp_edits package can keep importing it from scanfields.parsers.
-from .lrp import _get_job_names, parse_lrp  # noqa: F401
+from .lrp import _get_job_names
 from .planning import (
     UNASSIGNED_JOB,
     has_lasx_tile_count_tags,
@@ -72,10 +69,34 @@ log = logging.getLogger(__name__)
 # =============================================================================
 
 
+def _size_token_to_float(text):
+    """Turn one size token like ``'290.63 um'`` or ``'290,63 um'`` into a float.
+
+    LAS X formats numbers in the Windows display language, so on a German or
+    Dutch rig the same tile size arrives with a decimal comma ("290,63 um").
+    Simply stripping the comma would silently read that as 29063 um — a
+    hundredfold error that would corrupt every tile position downstream — so
+    the comma is treated as a decimal mark instead.
+    """
+    token = "".join(c for c in text if c.isdigit() or c in ".,")
+    if "," in token and "." in token:
+        # Both marks present (e.g. "1.290,63" or "1,290.63"): whichever comes
+        # last is the decimal mark; the other is a thousands separator.
+        if token.rfind(",") > token.rfind("."):
+            token = token.replace(".", "").replace(",", ".")
+        else:
+            token = token.replace(",", "")
+    elif "," in token:
+        # Comma only: read it as a decimal comma ("290,63" -> 290.63).
+        token = token.replace(",", ".")
+    return float(token)
+
+
 def _parse_size_string(size_str):
     """Parse size strings like ``'290.63 um x 290.63 um'``.
 
-    Handles micron (um), millimetre (mm), and nanometre (nm) units.
+    Handles micron (um), millimetre (mm), and nanometre (nm) units, and
+    accepts a decimal comma ("290,63 um") from non-English LAS X locales.
 
     Returns:
         Dict ``{x, y, unit}`` or None on failure.
@@ -88,8 +109,8 @@ def _parse_size_string(size_str):
         parts = size_str.lower().split("x")
         if len(parts) != 2:
             return None
-        x_val = float("".join(c for c in parts[0].strip() if c.isdigit() or c == "."))
-        y_val = float("".join(c for c in parts[1].strip() if c.isdigit() or c == "."))
+        x_val = _size_token_to_float(parts[0].strip())
+        y_val = _size_token_to_float(parts[1].strip())
         lowered = size_str.lower()
         if "nm" in lowered:
             unit = "nm"

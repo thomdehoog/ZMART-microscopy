@@ -217,12 +217,11 @@ class MachineProfile:
         snaps = self.snapshots()
         return snaps[-1] if snaps else None
 
-    def resolve(self, filename: str) -> tuple[Path, bool]:
+    def resolve(self, filename: str) -> Path:
         """Resolve *filename* to a ProgramData path.
 
-        The boolean is kept for older callers; it is always ``False`` because
-        repo defaults are copied into ProgramData before any runtime path is
-        returned.
+        Repo defaults are copied into ProgramData first if needed, so the
+        returned path is always machine-local.
         """
         snapshot = self.ensure_snapshot()
         path = snapshot / filename
@@ -231,7 +230,7 @@ class MachineProfile:
                 raise FileNotFoundError(f"ProgramData file not found: {path}")
             snapshot = self.publish_snapshot(self._next_auto_moment())
             path = snapshot / filename
-        return path, False
+        return path
 
     def calibration_relpath(self, calibration_name: str) -> Path:
         """Path inside a snapshot for a named calibration set."""
@@ -241,7 +240,7 @@ class MachineProfile:
             / CALIBRATION_FILENAME
         )
 
-    def resolve_calibration(self, calibration_name: str | None = None) -> tuple[Path, bool]:
+    def resolve_calibration(self, calibration_name: str | None = None) -> Path:
         """Resolve the active ProgramData calibration, optionally by lens setup."""
         if calibration_name is None:
             env_name = os.environ.get(CALIBRATION_NAME_ENV)
@@ -255,7 +254,7 @@ class MachineProfile:
             snapshot = self.ensure_snapshot()
             candidate = snapshot / rel
             if candidate.exists():
-                return candidate, False
+                return candidate
         default_calibration = json.loads(
             self.bundled_default_path(CALIBRATION_FILENAME).read_text(encoding="utf-8")
         )
@@ -264,12 +263,11 @@ class MachineProfile:
             calibration=default_calibration,
             calibration_name=calibration_name,
         )
-        return snapshot / rel, False
+        return snapshot / rel
 
-    def require_machine_local(self, filename: str, kind: str) -> Path:
+    def require_machine_local(self, filename: str) -> Path:
         """Resolve *filename* as machine-local ProgramData state."""
-        path, _ = self.resolve(filename)
-        return path
+        return self.resolve(filename)
 
     def calibration_path(self, calibration_name: str | None = None) -> Path:
         """Active ProgramData calibration.json.
@@ -279,18 +277,15 @@ class MachineProfile:
         ``ZMART_CALIBRATION_NAME`` environment variable can select one; otherwise
         the legacy/default flat ``calibration.json`` is used.
         """
-        path, _ = self.resolve_calibration(calibration_name)
-        return path
+        return self.resolve_calibration(calibration_name)
 
     def limits_path(self) -> Path:
         """Active physical limits.json under ProgramData."""
-        path, _ = self.resolve(LIMITS_FILENAME)
-        return path
+        return self.resolve(LIMITS_FILENAME)
 
     def orientation_path(self) -> Path:
         """Active orientation.json under ProgramData."""
-        path, _ = self.resolve(ORIENTATION_FILENAME)
-        return path
+        return self.resolve(ORIENTATION_FILENAME)
 
     # --- origin: the operator-set frame zero point -----------------------
     #

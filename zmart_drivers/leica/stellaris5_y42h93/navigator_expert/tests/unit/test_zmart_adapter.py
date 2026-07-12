@@ -414,12 +414,69 @@ class TestAcquire(unittest.TestCase):
     def test_missing_output_root_is_a_clear_error(self):
         h = _handle()
         with (
+            patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(
+                adapter._readers,
+                "get_selected_job",
+                return_value={"Name": "Overview", "IsSelected": True},
+            ),
             patch.object(
                 adapter._save, "save_source_root", side_effect=RuntimeError("no autosave")
             ),
             self.assertRaisesRegex(RuntimeError, "output_root"),
         ):
             adapter.acquire(h, acquisition_type="prescan", position_label="A1")
+
+    def test_option_typo_wins_over_missing_output_root(self):
+        """A typo in ``options`` fails as an options error, not "output_root".
+
+        Regression for the ordering fix: options are validated before the
+        output root is discovered, so the caller sees the error about the
+        thing they actually got wrong.
+        """
+        h = _handle()
+        with (
+            patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(
+                adapter._readers,
+                "get_selected_job",
+                return_value={"Name": "Overview", "IsSelected": True},
+            ),
+            patch.object(
+                adapter._save, "save_source_root", side_effect=RuntimeError("no autosave")
+            ),
+            self.assertRaisesRegex(ValueError, "unknown acquisition option"),
+        ):
+            adapter.acquire(
+                h, acquisition_type="prescan", position_label="A1", options={"fromat": "x"}
+            )
+
+    def test_bad_acquisition_type_fails_before_the_scan_fires(self):
+        """An invalid acquisition_type raises before any capture command runs.
+
+        Regression for the ordering fix: ``Naming`` is built before
+        ``_capture.acquire``, so a naming mistake can no longer waste a
+        finished scan.
+        """
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
+        fired = {}
+
+        def fake_capture(client, job, **kwargs):
+            fired["captured"] = True
+            return SimpleNamespace(job=job)
+
+        with (
+            patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(
+                adapter._readers,
+                "get_selected_job",
+                return_value={"Name": "Overview", "IsSelected": True},
+            ),
+            patch.object(adapter._capture, "acquire", fake_capture),
+        ):
+            with self.assertRaisesRegex(ValueError, "kebab-case"):
+                adapter.acquire(h, acquisition_type="Not Kebab!", position_label="A1")
+        self.assertNotIn("captured", fired)
 
     def test_get_info_creates_and_reports_default_workflow_root(self):
         h = _handle()

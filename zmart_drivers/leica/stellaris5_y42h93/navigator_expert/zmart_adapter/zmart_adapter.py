@@ -840,12 +840,26 @@ def acquire(
     detection, or persistence.
     """
     _require_open(handle)
-    workflow_root = _info.output_root(handle, _save.save_source_root)
-    output_root = workflow_root / ".staging" / handle.hash6
+    # Validate the caller's options first: a typo in ``options`` should fail
+    # with its own clear message, not resurface later as an unrelated
+    # output-root discovery error.
     resolved = _with_defaults(handle, options)
     job = resolved["job"]
     if not job:
         raise RuntimeError("no LAS X job selected and none passed via options['job']")
+
+    # Build the output naming BEFORE the scan fires: a bad acquisition_type
+    # raises here instead of after a capture has already run to waste.
+    label = position_label if position_label is not None else _next_position_label(handle)
+    acquisition_hash = _next_acquisition_hash(handle)
+    naming = Naming(
+        acquisition_type=acquisition_type,
+        hash6=acquisition_hash,
+        position_label=label,
+    )
+
+    workflow_root = _info.output_root(handle, _save.save_source_root)
+    output_root = workflow_root / ".staging" / handle.hash6
 
     # Strip BEFORE selecting: stripping reloads the experiment, which could
     # otherwise undo the selection.
@@ -862,13 +876,6 @@ def acquire(
 
     acq = _capture.acquire(handle.client, job)
 
-    label = position_label if position_label is not None else _next_position_label(handle)
-    acquisition_hash = _next_acquisition_hash(handle)
-    naming = Naming(
-        acquisition_type=acquisition_type,
-        hash6=acquisition_hash,
-        position_label=label,
-    )
     state = _export_state(
         handle,
         acquisition_type=acquisition_type,
