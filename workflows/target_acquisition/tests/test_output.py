@@ -51,6 +51,43 @@ def test_move_returns_full_final_filenames_in_images_and_planes(tmp_path):
     assert not source.exists()
 
 
+def test_move_organizes_a_record_without_an_images_key(tmp_path):
+    """A driver that reports its saved files under ``image_files`` + ``planes``
+    (rather than ``images``) must still be organized. This is the capture-side
+    counterpart of the driver-agnostic reader discovery already uses: the move
+    reads the same reader, so it is no longer silently Leica-only."""
+    source = (
+        tmp_path
+        / "staging"
+        / ("overview_abc123_K00_M000000_G000000_P000000_V00_T000000_C00_Z00000.ome.tiff")
+    )
+    source.parent.mkdir()
+    source.write_bytes(b"image")
+    record = {
+        "image_files": [str(source)],
+        "planes": [{"t": 0, "c": 0, "z": 0, "path": str(source)}],
+    }
+
+    result = move_record_images(record, tmp_path / "experiment/acquisition/data")
+
+    final = tmp_path / "experiment/acquisition/data" / source.name
+    assert result["image_files"] == [str(final)]
+    assert result["planes"][0]["path"] == str(final)
+    assert final.read_bytes() == b"image"
+    assert not source.exists()
+
+
+def _planes_record(sources) -> dict:
+    """A multi-file record the driver-agnostic reader accepts: one channel per
+    plane, all in a single timepoint and z plane."""
+    return {
+        "planes": [
+            {"t": 0, "z": 0, "c": index, "path": str(source)}
+            for index, source in enumerate(sources)
+        ]
+    }
+
+
 def test_existing_destination_refuses_before_moving_any_plane(tmp_path):
     sources = [tmp_path / "staging" / f"plane-{i}.ome.tiff" for i in range(2)]
     sources[0].parent.mkdir()
@@ -61,7 +98,7 @@ def test_existing_destination_refuses_before_moving_any_plane(tmp_path):
     (data / sources[1].name).write_bytes(b"existing")
 
     with pytest.raises(FileExistsError, match="refusing to replace"):
-        move_record_images({"images": [str(path) for path in sources]}, data)
+        move_record_images(_planes_record(sources), data)
 
     assert all(path.exists() for path in sources)
     assert (data / sources[1].name).read_bytes() == b"existing"
@@ -86,7 +123,7 @@ def test_mid_move_failure_rolls_back_the_record(monkeypatch, tmp_path):
 
     monkeypatch.setattr(_output.shutil, "move", fail_second)
     with pytest.raises(OSError, match="injected"):
-        move_record_images({"images": [str(path) for path in sources]}, tmp_path / "data")
+        move_record_images(_planes_record(sources), tmp_path / "data")
 
     assert all(path.exists() for path in sources)
     assert not any((tmp_path / "data").iterdir())

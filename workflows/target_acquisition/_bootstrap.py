@@ -27,9 +27,4 @@ if str(_HERE) not in sys.path:
 
 import workflow  # noqa: E402
 
-# v3 notebook entry: ``Config`` belongs to the retired driver-coupled flow
-# (the active controller-only workflow no longer defines it). See
-# workflow/retired/.
-from workflow.retired.context import Config  # noqa: E402
-
-__all__ = ["Config", "Path", "TARGET_ACQ", "workflow"]
+__all__ = ["Path", "TARGET_ACQ", "workflow"]

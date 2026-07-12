@@ -35,6 +35,8 @@ from typing import Any
 
 from traitlets import TraitError
 
+from .._ui_constants import QUEUED_CLICK_WINDOW_S as _STALE_HARDWARE_MESSAGE_S
+
 #: Keep at most this many bytes of recent image buffers for browsers to
 #: fetch. A full 25-tile + 10-row replay fits many times over; anything
 #: older has long been fetched (or belongs to a tab that went away).
@@ -46,7 +48,6 @@ _BUFFER_CAP_BYTES = 64 * 1024 * 1024
 _WORK_QUEUE_CAP = 256
 _COALESCED_MESSAGE_KINDS = {"acquire", "acquire_selected", "measure", "sync"}
 _HARDWARE_MESSAGE_KINDS = {"acquire", "acquire_selected", "measure"}
-_STALE_HARDWARE_MESSAGE_S = 2.0
 
 #: Traits that belong to the widget plumbing, not to the protocol.
 _PLUMBING_TRAITS = {"layout", "tabbable", "tooltip", "keys", "comm", "log"}

@@ -35,12 +35,8 @@ from __future__ import annotations
 from typing import Any
 
 from ._canvas import force_draw
+from ._ui_constants import CHANNEL_COLORS
 
-# The colours a channel can wear, in the order the colour button cycles
-# through them. White first — a white channel renders as plain grayscale,
-# so a single-channel image just looks like the raw camera image — then the
-# CVD-friendly microscopy staples.
-CHANNEL_COLORS = ("white", "lime", "magenta", "cyan", "yellow", "red", "blue")
 _DISPLAY_PIXEL_BUDGET = 20_000_000
 
 

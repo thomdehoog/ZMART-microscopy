@@ -1,35 +1,25 @@
-"""Tests for simulation-mode image hijacking.
+"""Unit tests for the simulation-mode hijack helpers.
 
-Two surfaces under test:
+``test_sim_hijack.py`` covers the happy paths of :func:`hijack_records` (it
+overwrites a simulator plane, preserves the OME description, counts planes,
+and refuses a real-instrument or missing-metadata frame). This file pins the
+pieces those end-to-end tests do not, all still on the surviving surface:
 
-  Guard (per-frame allowlist on the native AutoSave vendor metadata's
-  SystemTypeName, copied under acquisition_dir(kind)/vendor/
-  lasx_native_autosave):
-    - Refuses to overwrite when the value isn't exactly "SIMULATOR" --
-      including missing element, missing/unreadable vendor metadata, and
-      a real-instrument identifier like "STELLARIS 8". This is the
-      load-bearing safety property; a regression here would let
-      cfg.simulate=True silently replace real-hardware pixels with mock
-      content.
+  - the ``SystemTypeName`` allowlist parser (:func:`_read_system_type`),
+    including against a committed real (sanitized) LAS X companion XML;
+  - the guard's remaining refusal cases -- a missing element, an empty value,
+    and conflicting vendor metadata;
+  - the overwrite's own failure cases -- a provider returning the wrong shape
+    or dtype, and a multi-plane saved frame -- which must raise a per-frame
+    ``RuntimeError`` (not the run-fatal ``NonSimulatorFrameError``) and leave
+    the original file intact;
+  - the mock provider lookup (:func:`get_provider`).
 
-  OME-rewrite (overwrite path):
-    - Tag 270 (ImageDescription, the OME-XML) survives the rewrite
-      byte-for-byte. This is enforced inside hijack_frame; the test
-      pins it by reading tag 270 from the rewritten file directly.
-    - Provider shape/dtype mismatch raises RuntimeError (not
-      NonSimulatorFrameError) so the loop records a per-tile failure
-      and continues -- not a run-fatal abort.
-
-Fixtures are split. Most tests synthesize their companion XML and
-OME-TIFF at test time with tifffile -- those pin the local recipe
-against the implementer's mental model of LAS X output. A small
-committed XML at ``fixtures/lasx_simulator_companion.ome.xml``
-preserves the structurally-relevant shape of real LAS X output
-(declaration form, OME root namespaces, the CustomAttributes
-wrapper in its distinct CA-2008-09 namespace, real OriginalMetadata
-encoding) and is the durable regression catch for the
-SystemTypeName allowlist parser -- see
-TestReadSystemTypeAgainstRealLasxXml.
+The committed fixture at ``fixtures/lasx_simulator_companion.ome.xml`` preserves
+the structurally-relevant shape of real LAS X output (the XML declaration, the
+OME root namespaces, and the ``CustomAttributes`` wrapper in its distinct
+CA-2008-09 namespace) so the parser is checked against LAS X itself, not only
+against synthesized minimal XML.
 """
 
 from __future__ import annotations
@@ -40,269 +30,158 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import tifffile
-from workflow._hijack import (
-    NonSimulatorFrameError,
-    _read_system_type,
-    hijack_frame,
-)
+from workflow._hijack import NonSimulatorFrameError, _read_system_type, hijack_records
 from workflow._mock_provider import get_provider
 
 # ─── Helpers ──────────────────────────────────────────────────────
 
-
-_OME_DESC_TMPL = (
-    '<?xml version="1.0" encoding="UTF-8"?>'
+_OME_DESC = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
     '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
     '<Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYCZT" '
-    'Type="uint16" SizeX="16" SizeY="16" SizeC="1" SizeZ="1" SizeT="1"/>'
-    "</Image>"
-    "<StructuredAnnotations>"
-    '<XMLAnnotation ID="Annotation:0">'
-    "<Value><OriginalMetadata>"
-    "<Key>Data - Image - Attachment - SystemTypeName</Key>"
-    "<Value>{system_type}</Value>"
-    "</OriginalMetadata></Value>"
-    "</XMLAnnotation>"
-    "</StructuredAnnotations>"
+    'Type="uint16" SizeX="16" SizeY="16" SizeC="1" SizeZ="1" SizeT="1"/></Image>'
+    '<OriginalMetadata Name="Data - Image - Attachment - SystemTypeName" '
+    'Value="SIMULATOR"/>'
     "</OME>"
-)
-# Attribute-encoded OriginalMetadata fragment matching real LAS X
-# output. The hijack's allowlist parser (pipeline/_hijack.py) walks
-# OriginalMetadata via ElementTree across any namespace, so this
-# inline form is namespace-inherited from its parent OME element in
-# the synthesized companion XML below.
-_INLINE_ORIGINAL_META = (
-    '<OriginalMetadata Name="Data - Image - Attachment - SystemTypeName" Value="{system_type}"/>'
 )
 
 
 def _make_companion_xml(system_type: str) -> bytes:
-    """Build a minimal companion .ome.xml carrying SystemTypeName."""
+    """Build a minimal companion XML carrying an inline SystemTypeName."""
     body = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
-        + _INLINE_ORIGINAL_META.format(system_type=system_type)
-        + "</OME>"
+        f'<OriginalMetadata Name="Data - Image - Attachment - SystemTypeName" '
+        f'Value="{system_type}"/>'
+        "</OME>"
     )
     return body.encode("utf-8")
 
 
-def _make_image_description(system_type: str) -> str:
-    """tag-270 OME-XML that includes the inline OriginalMetadata line so
-    the hijack's per-frame guard could (in principle) read either the
-    companion XML or the tag's XML. The guard only reads the companion;
-    we include the line here for symmetry with the live LAS X output."""
-    return (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
-        '<Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYCZT" '
-        'Type="uint16" SizeX="16" SizeY="16" SizeC="1" SizeZ="1" '
-        'SizeT="1"/></Image>' + _INLINE_ORIGINAL_META.format(system_type=system_type) + "</OME>"
+def _write_vendor_system_type(acq_dir: Path, system_type: str, *, name="metadata_A.xlif") -> None:
+    vendor_dir = acq_dir / "vendor" / "lasx_native_autosave"
+    vendor_dir.mkdir(parents=True, exist_ok=True)
+    (vendor_dir / name).write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Metadata>"
+        f'<Attachment Name="HardwareSetting" SystemTypeName="{system_type}">'
+        '<ATLConfocalSettingDefinition SystemSerialNumber="TEST" />'
+        "</Attachment></Metadata>",
+        encoding="utf-8",
     )
 
 
-def _write_ome_tiff(path: Path, arr: np.ndarray, desc: str) -> None:
-    """Write an .ome.tiff with description=desc verbatim (ome=False).
-
-    Matches the hijack's own rewrite recipe -- ome=False is essential
-    so tifffile does not regenerate the description from the array.
-    """
-    tifffile.imwrite(path, arr, description=desc, ome=False, photometric="minisblack")
-
-
-def _build_result(
-    tmp_dir: Path,
-    system_type: str | None = None,
+def _saved_plane(
+    tmp_path: Path,
     *,
+    acquisition_type="overview",
+    position_label="g00000-p00001",
+    system_type: str | None = "SIMULATOR",
+    fill: int = 100,
     shape=(16, 16),
     dtype=np.uint16,
-):
-    """Build a (layout, result) pair for a fake one-tile acquisition.
+) -> Path:
+    """Write one flat canonical plane inside its acquisition dir + vendor XLIF.
 
-    Returns a SimpleNamespace shaped like the workflow-selected
-    single-plane result (image, image_path, naming) plus a layout stub
-    whose acquisition_dir() points at the flat kind directory so the
-    native AutoSave vendor metadata resolves under
-    ``acquisition_dir/vendor/lasx_native_autosave``.
-
-    When ``system_type`` is given, a vendor XLIF carrying that
-    SystemTypeName is written. Pass ``None`` to write no vendor metadata
-    (the test then controls the vendor folder explicitly).
+    ``hijack_records`` derives the acquisition dir as the image's own parent,
+    so the plane lives inside it. Returns the image path.
     """
-    naming = SimpleNamespace(
-        acquisition_type="overview-scan",
-        hash6="abcdef",
-        position_label="g00000-p00000",
-    )
-    acq_dir = tmp_dir / "overview-scan"
+    acq_dir = tmp_path / acquisition_type
     acq_dir.mkdir(parents=True, exist_ok=True)
     if system_type is not None:
-        _write_native_autosave_vendor_system_type(acq_dir, system_type)
-
-    image_path = tmp_dir / "frame.ome.tiff"
-    arr = np.full(shape, 100, dtype=dtype)
-    # The image's own tag-270 OME desc is independent of the vendor
-    # SystemTypeName (the guard reads only the vendor XLIF now); a valid
-    # SIMULATOR envelope keeps check_ome_tiff happy on the overwrite path.
-    _write_ome_tiff(image_path, arr, _make_image_description("SIMULATOR"))
-
-    layout = SimpleNamespace(
-        acquisition_dir=lambda kind: acq_dir,
-    )
-    result = SimpleNamespace(
-        image=arr,
-        image_path=image_path,
-        naming=naming,
-    )
-    return layout, result
+        _write_vendor_system_type(acq_dir, system_type)
+    filename = f"{acquisition_type}_abcdef_{position_label}_T000000_C00_Z00000.ome.tiff"
+    path = acq_dir / filename
+    arr = np.full(shape, fill, dtype=dtype)
+    tifffile.imwrite(path, arr, description=_OME_DESC, ome=False, photometric="minisblack")
+    return path
 
 
 def _constant_provider(value: int):
-    """Provider that always returns a constant-valued array of the
-    requested shape and dtype. Lets tests assert "pixels changed" by
-    comparing against the original constant."""
-
     def _p(shape, dtype, *, naming):
         return np.full(shape, value, dtype=dtype)
 
     return _p
 
 
-def _write_native_autosave_vendor_system_type(
-    base_dir: Path,
-    system_type: str,
-    *,
-    name: str = "metadata_Overview001.xlif",
-) -> Path:
-    vendor_dir = base_dir / "vendor" / "lasx_native_autosave"
-    vendor_dir.mkdir(parents=True, exist_ok=True)
-    path = vendor_dir / name
-    path.write_text(
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        "<Metadata>"
-        f'<Attachment Name="HardwareSetting" SystemTypeName="{system_type}">'
-        '<ATLConfocalSettingDefinition SystemSerialNumber="TEST" />'
-        "</Attachment>"
-        "</Metadata>",
-        encoding="utf-8",
-    )
-    return path
+# ─── Guard: remaining refusal cases ───────────────────────────────
 
 
-# ─── Guard: positive allowlist ────────────────────────────────────
-
-
-class TestGuardRejectsNonSimulator:
-    def test_rejects_real_instrument(self, tmp_path):
-        """A real-hardware companion XML must abort the hijack with
-        NonSimulatorFrameError -- the load-bearing safety property."""
-        layout, result = _build_result(tmp_path, "STELLARIS 8")
-        with pytest.raises(NonSimulatorFrameError):
-            hijack_frame(
-                result, kind="overview-scan", layout=layout, provider=_constant_provider(42)
-            )
-
+class TestGuardRefusalCases:
     def test_rejects_missing_systemtype_element(self, tmp_path):
-        """Vendor metadata without any SystemTypeName attribute -- unknown
-        system -- must abort."""
-        layout, result = _build_result(tmp_path, "SIMULATOR")
-        # Overwrite the vendor XLIF with one that lacks the SystemTypeName
-        # attribute entirely.
-        vendor_dir = layout.acquisition_dir("overview-scan") / "vendor" / "lasx_native_autosave"
+        """Vendor metadata without any SystemTypeName attribute is an unknown
+        system and must abort, leaving the file untouched."""
+        img = _saved_plane(tmp_path, system_type="SIMULATOR")
+        vendor_dir = img.parent / "vendor" / "lasx_native_autosave"
         for p in vendor_dir.glob("*.xlif"):
             p.write_text('<?xml version="1.0"?><Metadata></Metadata>', encoding="utf-8")
-        with pytest.raises(NonSimulatorFrameError):
-            hijack_frame(
-                result, kind="overview-scan", layout=layout, provider=_constant_provider(42)
-            )
+        original = img.read_bytes()
 
-    def test_rejects_missing_vendor_metadata(self, tmp_path):
-        """Absent vendor metadata (no XLIF on disk) must abort -- never
-        silently overwrite."""
-        layout, result = _build_result(tmp_path, None)
         with pytest.raises(NonSimulatorFrameError):
-            hijack_frame(
-                result, kind="overview-scan", layout=layout, provider=_constant_provider(42)
-            )
+            hijack_records([{"images": [str(img)]}], _constant_provider(42))
+        assert img.read_bytes() == original
 
     def test_rejects_empty_string_systemtype(self, tmp_path):
-        """An empty SystemTypeName value is neither 'SIMULATOR' nor a
-        recognized real instrument -- abort to be safe."""
-        layout, result = _build_result(tmp_path, "")
-        with pytest.raises(NonSimulatorFrameError):
-            hijack_frame(
-                result, kind="overview-scan", layout=layout, provider=_constant_provider(42)
-            )
-
-    def test_does_not_overwrite_when_rejected(self, tmp_path):
-        """A rejected guard MUST leave the original .ome.tiff bytes
-        intact -- not even a partial overwrite is acceptable."""
-        layout, result = _build_result(tmp_path, "STELLARIS 8")
-        original_bytes = result.image_path.read_bytes()
-        with pytest.raises(NonSimulatorFrameError):
-            hijack_frame(
-                result, kind="overview-scan", layout=layout, provider=_constant_provider(42)
-            )
-        assert result.image_path.read_bytes() == original_bytes
-
-
-class TestNativeAutoSaveVendorFallback:
-    def test_accepts_vendor_simulator(self, tmp_path):
-        """Copied native AutoSave vendor XLIF is the sole SystemTypeName
-        source; a SIMULATOR value proves the frame is from the simulator."""
-        layout, result = _build_result(tmp_path, None)
-        acq_dir = layout.acquisition_dir("overview-scan")
-        _write_native_autosave_vendor_system_type(acq_dir, "SIMULATOR")
-
-        hijack_frame(
-            result,
-            kind="overview-scan",
-            layout=layout,
-            provider=_constant_provider(42),
-        )
-
-        new_arr = tifffile.imread(result.image_path)
-        assert new_arr.min() == 42
-        assert new_arr.max() == 42
-
-    def test_rejects_vendor_real_instrument(self, tmp_path):
-        layout, result = _build_result(tmp_path, None)
-        acq_dir = layout.acquisition_dir("overview-scan")
-        _write_native_autosave_vendor_system_type(acq_dir, "STELLARIS 8")
-        original_bytes = result.image_path.read_bytes()
+        """An empty SystemTypeName is neither 'SIMULATOR' nor a recognized real
+        instrument -- refuse to be safe."""
+        img = _saved_plane(tmp_path, system_type="")
+        original = img.read_bytes()
 
         with pytest.raises(NonSimulatorFrameError):
-            hijack_frame(
-                result,
-                kind="overview-scan",
-                layout=layout,
-                provider=_constant_provider(42),
-            )
-        assert result.image_path.read_bytes() == original_bytes
+            hijack_records([{"images": [str(img)]}], _constant_provider(42))
+        assert img.read_bytes() == original
 
     def test_rejects_conflicting_vendor_system_types(self, tmp_path):
-        layout, result = _build_result(tmp_path, None)
-        acq_dir = layout.acquisition_dir("overview-scan")
-        _write_native_autosave_vendor_system_type(
-            acq_dir,
-            "SIMULATOR",
-            name="metadata_A.xlif",
-        )
-        _write_native_autosave_vendor_system_type(
-            acq_dir,
-            "STELLARIS 8",
-            name="metadata_B.xlif",
-        )
-        original_bytes = result.image_path.read_bytes()
+        """Two vendor files disagreeing on the system type is ambiguous, so the
+        read fails closed and the frame is never overwritten."""
+        img = _saved_plane(tmp_path, system_type="SIMULATOR", position_label="g00000-p00002")
+        _write_vendor_system_type(img.parent, "STELLARIS 8", name="metadata_B.xlif")
+        original = img.read_bytes()
 
         with pytest.raises(NonSimulatorFrameError):
-            hijack_frame(
-                result,
-                kind="overview-scan",
-                layout=layout,
-                provider=_constant_provider(42),
-            )
-        assert result.image_path.read_bytes() == original_bytes
+            hijack_records([{"images": [str(img)]}], _constant_provider(42))
+        assert img.read_bytes() == original
+
+
+# ─── Overwrite: provider + shape failures are per-frame RuntimeErrors ──
+
+
+class TestOverwriteFailures:
+    def test_provider_shape_mismatch_is_runtime_error(self, tmp_path):
+        """A provider returning the wrong shape must raise RuntimeError -- NOT
+        NonSimulatorFrameError -- so the loop records a per-tile failure and
+        continues rather than hard-aborting, and the file stays intact."""
+        img = _saved_plane(tmp_path)
+
+        def bad_shape_provider(shape, dtype, *, naming):
+            return np.zeros((shape[0] + 1, shape[1]), dtype=dtype)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            hijack_records([{"images": [str(img)]}], bad_shape_provider)
+        assert not isinstance(exc_info.value, NonSimulatorFrameError)
+        assert tifffile.imread(img).max() == 100
+
+    def test_provider_dtype_mismatch_is_runtime_error(self, tmp_path):
+        img = _saved_plane(tmp_path)
+
+        def bad_dtype_provider(shape, dtype, *, naming):
+            return np.zeros(shape, dtype=np.uint8)  # not uint16
+
+        with pytest.raises(RuntimeError) as exc_info:
+            hijack_records([{"images": [str(img)]}], bad_dtype_provider)
+        assert not isinstance(exc_info.value, NonSimulatorFrameError)
+
+    def test_multi_plane_saved_array_fails_loudly_not_silently(self, tmp_path):
+        """Only single-plane single-channel saved frames are supported. A
+        multi-plane saved frame must raise a clearly-labelled RuntimeError (a
+        per-tile failure), NOT a NonSimulatorFrameError that would abort the
+        whole run."""
+        img = _saved_plane(tmp_path, shape=(2, 16, 16))
+
+        with pytest.raises(RuntimeError) as exc_info:
+            hijack_records([{"images": [str(img)]}], _constant_provider(42))
+        assert not isinstance(exc_info.value, NonSimulatorFrameError)
+        assert "multi-plane" in str(exc_info.value).lower()
 
 
 # ─── _read_system_type unit ───────────────────────────────────────
@@ -328,21 +207,16 @@ class TestReadSystemType:
         assert _read_system_type(tmp_path / "nope.xml") is None
 
     def test_returns_none_on_unparseable_xml(self, tmp_path):
-        """A malformed XML must yield None (not crash). Belt-and-
-        suspenders: the LAS X writer should never produce malformed
-        XML, but the parser must fail closed -- a crash here would
-        propagate as an uncaught exception out of the acquisition
-        loop, which would record as a tile failure instead of a
-        deliberate NonSimulatorFrameError."""
+        """Malformed XML must yield None, not crash: the parser fails closed so
+        the loop sees a deliberate NonSimulatorFrameError, never an uncaught
+        exception mislabelled as a tile failure."""
         xml = tmp_path / "bad.xml"
         xml.write_bytes(b"<OME><not-closed>")
         assert _read_system_type(xml) is None
 
     def test_attribute_order_value_before_name(self, tmp_path):
-        """ET-based parser is attribute-order-independent (the previous
-        regex required Name="..." to appear before Value="..." on the
-        same element). LAS X's current writer happens to emit Name
-        first, but the parser must not depend on that."""
+        """The parser is attribute-order-independent (an earlier regex required
+        Name before Value on the same element)."""
         xml = tmp_path / "reversed.xml"
         xml.write_bytes(
             b'<?xml version="1.0"?>'
@@ -354,11 +228,9 @@ class TestReadSystemType:
         assert _read_system_type(xml) == "SIMULATOR"
 
     def test_finds_element_in_distinct_child_namespace(self, tmp_path):
-        """The real LAS X envelope wraps OriginalMetadata in a
-        CustomAttributes block whose default xmlns is the CA-2008-09
-        schema -- distinct from the OME root namespace. A namespace-
-        unaware parser (e.g. ``root.iter("OriginalMetadata")``) would
-        miss them entirely. The ``{*}`` wildcard match must find them."""
+        """LAS X wraps OriginalMetadata in a CustomAttributes block whose default
+        namespace differs from the OME root; the ``{*}`` wildcard must still
+        find it where a namespace-unaware lookup would miss it."""
         xml = tmp_path / "ca_nested.xml"
         xml.write_bytes(
             b'<?xml version="1.0"?>'
@@ -381,26 +253,9 @@ _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 class TestReadSystemTypeAgainstRealLasxXml:
-    """Pin the allowlist parser against a real (sanitized) LAS X
-    simulator companion XML. Without this fixture the parser was only
-    validated against synthesized minimal XML -- a representation that
-    happened to match the implementer's mental model of LAS X output,
-    not LAS X itself.
-
-    The fixture preserves the structurally-relevant shape:
-
-      - the LAS X XML declaration (`standalone="no"`) and the long
-        OME-XML warning comment
-      - the OME root with all eight namespace declarations LAS X emits
-      - the SemanticTypeDefinitions stub
-      - the <CustomAttributes xmlns="...CA-2008-09"> wrapper -- the
-        DIFFERENT namespace from the OME root that broke a naive
-        non-namespace-aware parser implementation
-      - a handful of real OriginalMetadata entries, including the
-        SystemTypeName="SIMULATOR" one
-
-    Operator-identifiable values (UUID, paths, names) are sanitized.
-    """
+    """Pin the allowlist parser against a real (sanitized) LAS X simulator
+    companion XML, so it is validated against LAS X itself and not only against
+    synthesized minimal XML."""
 
     def test_allowlist_passes_on_real_simulator_xml(self):
         xml = _FIXTURES_DIR / "lasx_simulator_companion.ome.xml"
@@ -409,99 +264,6 @@ class TestReadSystemTypeAgainstRealLasxXml:
             f"depends on this file being committed alongside the test."
         )
         assert _read_system_type(xml) == "SIMULATOR"
-
-
-# ─── Overwrite: tag-270 preservation + provider validation ────────
-
-
-class TestHijackOverwrite:
-    def test_pixels_replaced_on_simulator(self, tmp_path):
-        layout, result = _build_result(tmp_path, "SIMULATOR")
-        # Original pixel value is 100 (see _build_result).
-        assert tifffile.imread(result.image_path).max() == 100
-
-        hijack_frame(result, kind="overview-scan", layout=layout, provider=_constant_provider(42))
-
-        # Pixels overwritten with the provider's constant.
-        new_arr = tifffile.imread(result.image_path)
-        assert new_arr.min() == 42
-        assert new_arr.max() == 42
-        assert new_arr.shape == (16, 16)
-
-    def test_tag_270_preserved_byte_for_byte(self, tmp_path):
-        layout, result = _build_result(tmp_path, "SIMULATOR")
-        with tifffile.TiffFile(result.image_path) as tif:
-            desc_before = tif.pages[0].description
-
-        hijack_frame(result, kind="overview-scan", layout=layout, provider=_constant_provider(42))
-
-        with tifffile.TiffFile(result.image_path) as tif:
-            desc_after = tif.pages[0].description
-        # The OriginalMetadata SystemTypeName line is what the guard
-        # would re-read. A silent regeneration that dropped it would
-        # break the next run's guard -- pin byte-equality.
-        assert desc_after == desc_before
-        assert 'Value="SIMULATOR"' in desc_after
-
-    def test_provider_shape_mismatch_is_runtime_error(self, tmp_path):
-        """A provider that returns the wrong shape must raise
-        RuntimeError -- NOT NonSimulatorFrameError -- so the
-        acquisition loop records a per-tile failure and continues
-        rather than hard-aborting the run."""
-        layout, result = _build_result(tmp_path, "SIMULATOR")
-
-        def bad_shape_provider(shape, dtype, *, naming):
-            return np.zeros((shape[0] + 1, shape[1]), dtype=dtype)
-
-        with pytest.raises(RuntimeError) as exc_info:
-            hijack_frame(result, kind="overview-scan", layout=layout, provider=bad_shape_provider)
-        assert not isinstance(exc_info.value, NonSimulatorFrameError)
-        # Original file must remain intact -- the overwrite is atomic.
-        assert tifffile.imread(result.image_path).max() == 100
-
-    def test_provider_dtype_mismatch_is_runtime_error(self, tmp_path):
-        layout, result = _build_result(tmp_path, "SIMULATOR")
-
-        def bad_dtype_provider(shape, dtype, *, naming):
-            return np.zeros(shape, dtype=np.uint8)  # not uint16
-
-        with pytest.raises(RuntimeError) as exc_info:
-            hijack_frame(result, kind="overview-scan", layout=layout, provider=bad_dtype_provider)
-        assert not isinstance(exc_info.value, NonSimulatorFrameError)
-
-    def test_multi_plane_saved_array_fails_loudly_not_silently(self, tmp_path):
-        """Only single-plane single-channel saved frames are supported.
-        A multi-plane saved frame must raise a clearly-labelled
-        RuntimeError (per-tile path, recorded in hijack_failures and
-        the loop continues), NOT a NonSimulatorFrameError (which would
-        hard-abort the entire run).
-
-        The previous implementation only had a generic shape-mismatch
-        error: the 2-D mock provider would return shape (H, W) for a
-        saved shape of (Z, H, W), and every tile in a multi-plane run
-        would silently land in hijack_failures with an opaque mismatch
-        message. This pins the explicit early reject + the operator-
-        facing 'multi-plane unsupported' message."""
-        # Build a (planes=2, H=16, W=16) saved frame on a SIMULATOR
-        # companion so the allowlist passes and the 2D check is the
-        # only thing that can fire.
-        layout, result = _build_result(
-            tmp_path,
-            "SIMULATOR",
-            shape=(2, 16, 16),
-            dtype=np.uint16,
-        )
-        with pytest.raises(RuntimeError) as exc_info:
-            hijack_frame(
-                result, kind="overview-scan", layout=layout, provider=_constant_provider(42)
-            )
-        # Must NOT be NonSimulatorFrameError -- a multi-plane frame is
-        # an unsupported scope, not a safety violation.
-        assert not isinstance(exc_info.value, NonSimulatorFrameError)
-        # Message must name the scope explicitly so the operator knows
-        # what to do (extend the mock provider) instead of seeing a
-        # mysterious shape error.
-        assert "multi-plane" in str(exc_info.value).lower()
 
 
 # ─── Mock provider unit ───────────────────────────────────────────
@@ -525,10 +287,10 @@ class TestMockProvider:
         assert out.dtype == np.uint16
 
     def test_human_mitosis_deterministic_per_naming(self):
+        """Same (g, p) -> same content; different (g, p) -> different content.
+        A deterministic mapping is what makes the mock tile-stitchable and
+        reproducible across runs."""
         pytest.importorskip("skimage")
-        """Same (g, p) -> same content; different (g, p) -> different
-        content. A deterministic mapping is what makes the mock
-        tile-stitchable and reproducible across runs."""
         provider = get_provider("skimage_human_mitosis")
         n_a = SimpleNamespace(
             acquisition_type="overview-scan", hash6="abcdef", position_label="g00000-p00000"

@@ -29,16 +29,12 @@ from typing import Any
 from ._canvas import force_draw
 from ._focus_run import measure_focus
 from ._focus_surface import fit_focus_surface
+from ._ui_constants import QUEUED_CLICK_WINDOW_S as _QUEUED_CLICK_WINDOW_S
 
 # How close (in screen pixels) a right-click must land to an existing point
 # to remove it. Screen pixels, not micrometres, so the feel of "clicking on
 # a point" does not change with the zoom level.
 _REMOVE_RADIUS_PX = 12.0
-
-# Ignore Measure clicks arriving within this window after a run finishes:
-# clicks queued while the stage was measuring would otherwise start a
-# second, unwanted measurement run the moment the first completes.
-_QUEUED_CLICK_WINDOW_S = 2.0
 
 
 class FocusPicker:

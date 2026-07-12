@@ -1,34 +1,15 @@
-"""Geometry helpers shared across the pipeline.
+"""Shared geometry for mapping between overview pixels and stage positions.
 
-Pure-data primitives only -- no domain objects (no Pick, no
-LayoutPlan, no Naming). Callers translate their domain objects to
-these inputs at the call site; the helpers stay testable in
-isolation and free of import cycles.
+These helpers are pure math on plain numbers and arrays -- no domain objects --
+so every part of the workflow (the crop panels, the visualization rectangles,
+the pixel-to-stage conversion) computes the *same* window from the same inputs.
+They share one home because independent copies of this math drifted apart in
+the past and showed operators two different windows for the same cell.
 
-Two functions live here:
-
-  ``target_fov_window_in_overview``
-      Compute the (x0, y0, width, height) window in overview pixels
-      that covers the target job's physical FOV centred on a pick's
-      centroid. Pure window math. The window may extend past the
-      overview's bounds for edge cells -- the caller decides what
-      to do (the crop helper pads with median; the visualization
-      rectangle draws as-is, with the off-image portion clipped by
-      matplotlib's axis limits).
-
-  ``crop_overview_at_target_fov``
-      Use the window to crop the overview, padding with the
-      overview's median intensity for any portion outside bounds.
-      Returns a 2-D array of shape (h, w) from the window.
-
-Both ``_mock_provider.build_target_provider`` (target hijack content
-source) and ``visualize._render_target_crop_panel`` + the left-
-panel red-rectangle callout call into this module. Independent
-implementations of this math drifted in the past: visualize used
-round + clamp, hijack used floor + median pad, and on edge cells
-they showed different windows. Sharing structurally closes that
-drift class -- the rectangle on the left panel reflects exactly
-the same window the centre panel's crop is taken from.
+A note on pixel sizes: the workflow treats pixel size as one scalar (square
+pixels, the same size on both axes). Non-square *images* are handled fine --
+height and width are derived independently -- but non-square *pixels* are out
+of scope.
 """
 
 from __future__ import annotations
@@ -45,43 +26,24 @@ def target_fov_window_in_overview(
     target_shape_px: tuple[int, int],
     target_pixel_size_um: float,
 ) -> tuple[int, int, int, int]:
-    """Compute the (x0, y0, width, height) window in overview pixels
-    that covers the target job's physical FOV centred on the pick's
-    centroid.
+    """Find where the target job's field of view sits inside the overview image.
 
-    The window may extend past the overview's bounds (negative x0/y0
-    or x0+w > W, y0+h > H) when the cell is near a tile edge. The
-    caller decides what to do:
-
-      - ``crop_overview_at_target_fov`` (in this module) pads the
-        out-of-bounds portion with the overview's median intensity.
-      - ``visualize`` draws a Rectangle at the exact window
-        coordinates; matplotlib clips the off-image portion to the
-        axis limits, honestly showing "the target FOV extends past
-        this tile."
-
-    Pure-data signature, no domain objects. Scalar pixel-size model
-    (same on both axes -- consistent with the rest of the pipeline).
-    Non-square *images* are honoured (per-axis derivation); non-
-    square *pixels* are out of scope.
-
-    Returns
-    -------
-    (x0, y0, w, h) : tuple[int, int, int, int]
-        Top-left column, top-left row, width, height -- all in
-        overview pixel coordinates. ``x0``/``y0`` may be negative;
-        ``x0 + w`` / ``y0 + h`` may exceed the overview's dimensions.
-        Width and height are always >= 1 (defensive floor for
-        degenerate zoom ratios).
+    Given a cell centroid in overview pixels, this returns ``(x0, y0, w, h)``:
+    the window of overview pixels that covers the same physical area the target
+    job will image, centred on the cell. The window may extend past the
+    overview's edges when the cell sits near a tile border (``x0``/``y0`` can be
+    negative, ``x0 + w`` / ``y0 + h`` can exceed the image size) -- the caller
+    decides how to handle that: the crop helper below pads the missing area,
+    and the visualization draws the rectangle as-is and lets the axes clip it.
+    Width and height are always at least one pixel.
     """
     H_tg, W_tg = int(target_shape_px[0]), int(target_shape_px[1])
     px_ov = float(source_pixel_size_um)
     px_tg = float(target_pixel_size_um)
 
-    # Per-axis FOV in micrometres -> overview pixels. math.floor
-    # avoids banker's-rounding surprises on half-pixel ties.
-    # max(1, ...) is a defensive floor for degenerate zoom ratios
-    # (the window must have at least one pixel on each axis).
+    # Per-axis physical size in micrometres, converted to overview pixels.
+    # math.floor avoids rounding surprises on half-pixel ties, and max(1, ...)
+    # keeps the window at least one pixel for degenerate zoom ratios.
     w = max(1, int(math.floor(W_tg * px_tg / px_ov)))
     h = max(1, int(math.floor(H_tg * px_tg / px_ov)))
 
@@ -89,55 +51,6 @@ def target_fov_window_in_overview(
     x0 = int(math.floor(cx - w / 2))
     y0 = int(math.floor(cy - h / 2))
     return (x0, y0, w, h)
-
-
-def visible_target_fov_window(
-    *,
-    window: tuple[int, int, int, int],
-    image_shape: tuple[int, int],
-) -> tuple[int, int, int, int] | None:
-    """Intersect a target-FOV window with image bounds.
-
-    Returns ``(vx0, vy0, vx1, vy1)`` -- the visible rectangle in
-    overview pixel coordinates (top-left + bottom-right), or ``None``
-    when the window doesn't intersect the image at all.
-
-    The unclamped ``window`` from ``target_fov_window_in_overview`` is
-    the physical target FOV in overview pixels and can extend past the
-    image when (a) the cell is near a tile edge or (b) the target's
-    physical FOV exceeds the overview tile (e.g. same-objective
-    targeting). For visualization, callers need the visible portion to
-    anchor callout lines and crosshairs to coordinates that actually
-    sit inside the panel. The crop helper still operates on the full
-    unclamped window -- this helper only governs visualization
-    geometry, not crop math.
-
-    Parameters
-    ----------
-    window : tuple[int, int, int, int]
-        ``(x0, y0, w, h)`` from ``target_fov_window_in_overview``.
-        ``x0``/``y0`` may be negative; ``x0 + w`` / ``y0 + h`` may
-        exceed image dimensions.
-    image_shape : tuple[int, int]
-        ``(H, W)`` of the overview image.
-
-    Returns
-    -------
-    tuple[int, int, int, int] | None
-        ``(vx0, vy0, vx1, vy1)`` with ``0 <= vx0 < vx1 <= W`` and
-        ``0 <= vy0 < vy1 <= H``. ``None`` when the intersection is
-        empty (window entirely off-image -- degenerate; should not
-        occur for a valid pick but callers can short-circuit).
-    """
-    x0, y0, w, h = window
-    H, W = int(image_shape[0]), int(image_shape[1])
-    vx0 = max(0, int(x0))
-    vy0 = max(0, int(y0))
-    vx1 = min(W, int(x0) + int(w))
-    vy1 = min(H, int(y0) + int(h))
-    if vx0 >= vx1 or vy0 >= vy1:
-        return None
-    return (vx0, vy0, vx1, vy1)
 
 
 def crop_overview_at_target_fov(
@@ -148,53 +61,14 @@ def crop_overview_at_target_fov(
     target_shape_px: tuple[int, int],
     target_pixel_size_um: float,
 ) -> np.ndarray:
-    """Crop the overview at a cell centroid, sized to the target's FOV.
+    """Crop the overview around a cell, sized to the target job's field of view.
 
-    Returns a 2-D array of shape ``(crop_h, crop_w)`` where the crop
-    dimensions in overview pixels equal the target job's physical
-    FOV (in micrometres) divided by the overview's pixel size.
-    Centred on ``centroid_col_row_px``; the area is padded with the
-    overview's median intensity if the requested window extends past
-    the overview's bounds (cell near tile edge).
-
-    Pure-data signature -- no Pick, no Naming, no LayoutPlan. Both
-    call sites (``_mock_provider.build_target_provider`` and
-    ``visualize._render_target_crop_panel``) translate their domain
-    objects to these primitives at the call site so this helper
-    stays import-cycle-free and unit-testable in isolation.
-
-    Parameters
-    ----------
-    overview : np.ndarray
-        2-D array of the overview tile pixels (e.g. as returned by
-        ``tifffile.imread`` on the saved overview .ome.tiff).
-    centroid_col_row_px : tuple[float, float]
-        ``(col, row) = (x, y)`` -- the cell centroid in overview
-        pixel coordinates. (Convention matches ``Pick.centroid_col_row_px``.)
-    source_pixel_size_um : float
-        Overview's pixel size in micrometres. Scalar (square pixels
-        assumption -- consistent with the rest of the pipeline.
-    target_shape_px : tuple[int, int]
-        Target image's pixel dimensions as ``(H_tg, W_tg)``. Non-
-        square *images* are honoured (height and width derive
-        independently); non-square *pixels* are out of scope.
-    target_pixel_size_um : float
-        Target's pixel size in micrometres. Scalar.
-
-    Returns
-    -------
-    np.ndarray
-        2-D array, shape ``(crop_h_ov_px, crop_w_ov_px)``, dtype
-        matching ``overview.dtype``. Out-of-bounds areas are filled
-        with ``int(np.median(overview))``.
-
-    Raises
-    ------
-    ValueError
-        If ``overview`` is not 2-D. (Multi-plane overviews are
-        upstream-blocked by ``hijack_frame``'s 2-D guard for fresh
-        simulator runs; this raise defends against stale / hand-
-        modified files.)
+    Returns a 2-D array cut from ``overview`` using the window
+    :func:`target_fov_window_in_overview` computes, so the crop shows exactly
+    the physical area the target acquisition will image. Any part of the window
+    that falls outside the overview (a cell near a tile edge) is filled with the
+    overview's median intensity -- that is normal, not an error. Raises
+    ``ValueError`` if ``overview`` is not a 2-D array.
     """
     if overview.ndim != 2:
         raise ValueError(
@@ -204,10 +78,8 @@ def crop_overview_at_target_fov(
         )
 
     H_ov, W_ov = overview.shape
-    # Shared window math -- the same call ``visualize.py``'s left-
-    # panel red rectangle makes. Structurally enforces "the
-    # rectangle on the left panel and the crop on the centre panel
-    # show the same physical region."
+    # The same window math the visualization rectangle uses, so the rectangle
+    # on one panel and the crop on the other always show the same region.
     x0, y0, w, h = target_fov_window_in_overview(
         centroid_col_row_px=centroid_col_row_px,
         source_pixel_size_um=source_pixel_size_um,
@@ -215,9 +87,8 @@ def crop_overview_at_target_fov(
         target_pixel_size_um=target_pixel_size_um,
     )
 
-    # Median-pad: cell near tile edge -> some of the requested crop
-    # window is outside the overview's bounds. Build the padded crop
-    # in one allocation; copy in the in-bounds portion.
+    # Build the padded crop in one allocation, then copy in whatever part of
+    # the window actually lies inside the overview.
     pad = int(np.median(overview))
     xs = max(0, x0)
     ys = max(0, y0)

@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ._records import record_channel_paths
+
 _NAME_RE = re.compile(r"^[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*$")
 _HASH_RE = re.compile(r"^[0-9a-z]{6}$")
 _CREATE_ATTEMPTS = 16
@@ -112,18 +114,30 @@ def position_label(
 def move_record_images(record: dict, data_dir: Any) -> dict:
     """Move a driver's returned images unchanged and update its record paths.
 
+    Which files a driver saved is read through :func:`record_channel_paths` --
+    the same driver-agnostic reader the rest of the workflow uses -- so this
+    step works for any driver's record shape (a plain ``images`` list, a
+    mesospim-style ``planes`` manifest, and so on) rather than only the ones
+    that happen to fill in ``images``.
+
     Every source and destination is validated before the first move.  If a
     later move fails, already moved files are rolled back to their original
     paths so one multi-plane record is never half-relocated.
     """
 
-    images = record.get("images")
-    if not isinstance(images, list) or not images:
-        raise RuntimeError("acquire returned no image paths to organize")
+    # The single source of truth for the saved images, plus every path the
+    # record records under its own keys, so all of them are remapped after the
+    # move. ``dict.fromkeys`` keeps insertion order while dropping duplicates.
+    sources = dict.fromkeys(
+        Path(value) for value in record_channel_paths(record, context="acquire record")
+    )
+    for key in ("images", "image_files"):
+        values = record.get(key)
+        if isinstance(values, list):
+            sources.update(dict.fromkeys(Path(value) for value in values))
+    sources.update(dict.fromkeys(Path(plane["path"]) for plane in record.get("planes", [])))
+    sources = list(sources)
 
-    sources = list(dict.fromkeys(Path(value) for value in images))
-    plane_paths = [Path(plane["path"]) for plane in record.get("planes", [])]
-    sources.extend(path for path in plane_paths if path not in sources)
     destination = Path(data_dir)
     destination.mkdir(parents=True, exist_ok=True)
 
@@ -150,7 +164,10 @@ def move_record_images(record: dict, data_dir: Any) -> dict:
         raise
 
     mapped = {str(source): str(target) for source, target in moves}
-    record["images"] = [mapped[str(Path(value))] for value in images]
+    for key in ("images", "image_files"):
+        values = record.get(key)
+        if isinstance(values, list):
+            record[key] = [mapped[str(Path(value))] for value in values]
     for plane in record.get("planes", []):
         plane["path"] = mapped[str(Path(plane["path"]))]
     return record

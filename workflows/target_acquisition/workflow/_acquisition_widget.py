@@ -31,14 +31,8 @@ from typing import Any
 
 from ._canvas import force_draw
 from ._records import record_channel_paths
+from ._ui_constants import QUEUED_CLICK_WINDOW_S as _QUEUED_CLICK_WINDOW_S
 from .steps import acquire_targets
-
-# Ignore button clicks arriving within this window after a run finishes.
-# While the microscope works, the notebook kernel is busy and any extra
-# clicks queue up; they would be delivered the instant the run completes
-# and silently start a SECOND hardware run. A deliberate new run comes
-# seconds later; a queued double-click comes milliseconds later.
-_QUEUED_CLICK_WINDOW_S = 2.0
 
 
 def _eta_text(done: int, total: int | None, started: float | None) -> str:
@@ -371,17 +365,21 @@ def pair_images(target: dict, record: dict, overviews: dict[int, dict]):
     """The (overview crop, target image, width_um, height_um) for one pair.
 
     ``overviews`` maps the tile index (``naming_p``) to the overview entry.
-    Returns ``None`` when the record carries no image (the controller's
-    mock driver, for instance) — the caller shows a placeholder instead of
-    failing the whole gallery. Shared by the matplotlib gallery and the
-    React gallery so both review the identical same-scale pair.
+    Returns ``None`` when the record has no image to review — either because it
+    names none, or because the file it names is not on disk (the controller's
+    mock driver reports a nominal filename it never actually saves). The caller
+    then shows a placeholder instead of failing the whole gallery. Shared by the
+    matplotlib gallery and the React gallery so both review the identical
+    same-scale pair.
     """
+    from pathlib import Path
+
     from ._geom import crop_overview_at_target_fov
     from ._overview_widget import _load_channels
     from .discovery import read_overview_geometry
 
     images = record_channel_paths(record, context="target record", allow_empty=True)
-    if not images:
+    if not images or not Path(images[0]).is_file():
         return None
     high = _load_channels(images[0])[0]
     geometry = read_overview_geometry(images[0])
