@@ -1,9 +1,0 @@
-2026-07-06 13:26:10,340 INFO navigator_expert.commands.gate | limits handshake ok: {'schema_version': 1, 'source': 'defaults', 'path': 'C:\\ProgramData\\zmart-microscopy\\leica\\stellaris5_y42h93\\navigator_expert\\2026-07-06T09-17-14-792088Z\\limits.json', 'is_fallback': False} governs this session
-2026-07-06 13:26:11,300 INFO navigator_expert.commands.dispatch | Zoom -> 5.0 | OK (0.023s) attempts=1 confirm_attempts=1
-2026-07-06 13:26:12,130 INFO navigator_expert.commands.dispatch | Zoom -> 2.0 | OK (0.015s) attempts=1 confirm_attempts=1
-2026-07-06 13:26:12,164 INFO navigator_expert.commands.dispatch | ScanSpeed -> 600 | OK (0.018s) attempts=1 confirm_attempts=1
-2026-07-06 13:26:13,110 INFO navigator_expert.commands.dispatch | ScanSpeed -> 400 | OK (0.015s) attempts=1 confirm_attempts=1
-2026-07-06 13:26:13,159 INFO navigator_expert.commands.dispatch | Format -> 1024 x 1024 | OK (0.020s) attempts=1 confirm_attempts=1
-2026-07-06 13:26:14,078 INFO navigator_expert.commands.dispatch | Format -> 512 x 512 | OK (0.016s) attempts=1 confirm_attempts=1
-2026-07-06 13:26:14,123 INFO navigator_expert.commands.dispatch | Setting[0].PinholeAiry -> 1.2 | OK (0.019s) attempts=1 confirm_attempts=1
-2026-07-06 13:26:15,223 INFO navigator_expert.commands.dispatch | Setting[0].PinholeAiry -> 1.0 | OK (0.015s) attempts=1 confirm_attempts=1

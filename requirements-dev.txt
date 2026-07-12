@@ -8,8 +8,14 @@ pytest-cov>=5
 ruff>=0.6
 ipython>=8
 ipykernel
+
+# These let the notebook and webapp integration tests actually run instead of
+# skipping themselves: nbformat/nbclient execute the notebooks end to end, and
+# anywidget (also a runtime dependency in requirements.txt, pinned here too so
+# the test seam is self-documented) backs the React widgets those tests drive.
 nbformat>=5.9
 nbclient>=0.9
+anywidget>=0.9
 playwright>=1.58,<2
 
 # Node.js is not a Python package. Install Node >=20 separately when running

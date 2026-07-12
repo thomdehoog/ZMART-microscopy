@@ -36,30 +36,10 @@ import io
 from pathlib import Path
 from typing import Any
 
-# One hex colour per entry of the matplotlib viewer's CHANNEL_COLORS, in the
-# same cycling order, so a channel wears the same colour in both notebooks.
-CHANNEL_HEX = (
-    "#ffffff",  # white
-    "#00ff00",  # lime
-    "#ff00ff",  # magenta
-    "#00ffff",  # cyan
-    "#ffff00",  # yellow
-    "#ff0000",  # red
-    "#0000ff",  # blue
-)
-
-# A colour-vision-friendly alternative (after Okabe & Ito): these hues stay
-# distinguishable with the common forms of colour blindness. Pass
-# ``palette="colorblind"`` to the React overview viewer to use it.
-CHANNEL_HEX_COLORBLIND = (
-    "#ffffff",  # white
-    "#e69f00",  # orange
-    "#56b4e9",  # sky blue
-    "#009e73",  # bluish green
-    "#f0e442",  # yellow
-    "#d55e00",  # vermillion
-    "#cc79a7",  # reddish purple
-)
+# The channel palette lives in one shared home (workflow/_ui_constants.py) so
+# the matplotlib and React viewers stay in step. Re-exported here for the React
+# widgets that import it from this module.
+from .._ui_constants import CHANNEL_HEX, CHANNEL_HEX_COLORBLIND  # noqa: F401
 
 _VENDOR = Path(__file__).resolve().parent / "vendor"
 

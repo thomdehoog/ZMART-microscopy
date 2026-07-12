@@ -36,7 +36,6 @@ remains warm for the acquired overviews.
 - `_bootstrap.py` — adds `zmart_drivers/leica/stellaris5_y42h93/`, the target-acquisition directory, and the repo root to `sys.path` so the notebook can import driver registration, shared packages, and workflow code.
 - `run_webapp.py` — establishes those package paths, then launches the plain-browser UI; live mode registers the adapter before connecting, while demo mode imports no driver.
 - `workflow/` — public surface for the controller-only workflow plus internal modules with leading underscore.
-- `pipeline/` — compatibility import for old notebooks/tests.
 - `tests/` — workflow unit tests (offline; no microscope or vendor software).
 
 ## Tests

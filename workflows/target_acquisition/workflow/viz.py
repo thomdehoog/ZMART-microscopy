@@ -1,8 +1,8 @@
-"""Controller-only run visualization + summary over the new pipeline data.
+"""Controller-only run visualization and summary.
 
 Everything here works at the workflow's altitude -- the frame positions the
-workflow controls, the fitted :class:`~pipeline._focus_surface.FocusSurface`,
-and the :func:`~pipeline.discovery.discover_targets` output -- never the
+workflow controls, the fitted :class:`~workflow._focus_surface.FocusSurface`,
+and the :func:`~workflow.discovery.discover_targets` output -- never the
 driver's opaque ``acquire`` record (whose shape is driver-defined: the Leica
 adapter returns ``{"images": [...]}``; the mock returns
 ``{"filename": ..., "position": {...}}``). Passing the workflow-owned data
@@ -118,7 +118,7 @@ def plot_focus_surface(
     """Heatmap of the fitted z(x, y) over the measured bbox, points on top.
 
     Returns the matplotlib ``Figure``. ``save_path`` (a ``.png``) also writes
-    the vector siblings via :func:`~pipeline._figsave.save_figure`.
+    the vector siblings via :func:`~workflow._figsave.save_figure`.
     """
     import matplotlib
 

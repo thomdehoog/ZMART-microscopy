@@ -57,12 +57,8 @@ from .._focus_run import measure_focus  # noqa: E402
 from .._focus_surface import fit_focus_surface, worst_residual_um  # noqa: E402
 from .._overview_widget import _load_overview_channels, composite_channels  # noqa: E402
 from .._records import record_channel_paths  # noqa: E402
+from .._ui_constants import QUEUED_CLICK_WINDOW_S as _QUEUED_CLICK_WINDOW_S  # noqa: E402
 from ..steps import acquire_targets  # noqa: E402
-
-# Ignore button messages arriving within this window after a run finishes —
-# clicks queued in the browser while Python was busy would otherwise start
-# a second hardware run the moment the first completes.
-_QUEUED_CLICK_WINDOW_S = 2.0
 
 # Display copies travel to the browser as PNGs, so every image is kept
 # under this pixel budget — a full-resolution 2048x2048 image would make a

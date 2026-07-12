@@ -1,50 +1,26 @@
-"""Mock image providers for simulation mode.
+"""Mock image content for simulation mode.
 
-Two flavours of provider, distinguished by what determines the mock
-content:
+When the workflow runs against the LAS X simulator, the saved overview files
+need believable pixels so the analysis afterwards has something real to work
+on. A *provider* invents that content: given the shape and dtype of a saved
+image plus its :class:`Naming`, it returns an array of mock pixels that
+:func:`~workflow._hijack.hijack_records` writes over the saved file.
 
-  Overview providers (``get_provider(name)``):
-    Invent content from scratch, deterministic from the (region id,
-    position) recovered from ``Naming.position_label``. The returned
-    array becomes the pixel content of the
-    canonical overview .ome.tiff in simulation mode -- see
-    pipeline/_hijack.py for the OME-preserving overwrite. Each
-    overview tile gets distinct content; that's what an overview
-    looks like in reality.
-
-  Target provider (``build_target_provider(...)``):
-    Derives content from the saved overview tile this pick came from
-    -- reads the source overview file, crops a window around the
-    picked cell sized to match the target job's FOV, resamples up to
-    the target image's pixel dimensions. The high-res target frame
-    then shows a zoomed-in view of the same cell cellpose detected
-    in the overview, instead of arbitrary mock content. Closes over
-    the per-pick context (centroid + lineage); cheap to construct,
-    re-built per iteration in acquire_targets.
-
-The two builders are intentionally separate functions because they
-do structurally different things (one invents content, the other
-derives it from a saved file). Both return callables matching the
-same ``(shape, dtype, *, naming) -> ndarray`` contract so the
-generic ``hijack_frame`` can call either without branching.
-
-Providers must never raise on a sensible (shape, dtype, naming);
-shape/dtype mismatches are caught by the hijack and recorded as a
-per-tile hijack failure. Genuine data-integrity errors (e.g.,
-missing source overview file for the target provider) raise as
-``RuntimeError``/``OSError`` -- per-tile, never
-``NonSimulatorFrameError``.
+The one provider here, ``skimage_human_mitosis``, tiles a stock microscopy
+image (skimage's ``human_mitosis``) so each overview tile gets distinct but
+reproducible content -- distinct because that is what a real overview looks
+like, reproducible so a re-run of the same simulation produces the same map. A
+provider must never raise on a sensible ``(shape, dtype, naming)``; a
+shape/dtype mismatch is caught by the hijack and recorded as a per-tile
+failure, not raised here.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from typing import Any
 
 import numpy as np
-
-from ._geom import crop_overview_at_target_fov
 
 _POSITION_LABEL_RE = re.compile(
     r"K\d{2}_M\d{6}_G(?P<group>\d{6})_P(?P<position>\d{6})_V\d{2}"
@@ -130,132 +106,3 @@ def _human_mitosis_tile(
         scaled = tile.astype(np.float64) * (info.max / 255.0)
         return scaled.astype(dtype)
     return tile.astype(dtype)
-
-
-def build_target_provider(
-    *,
-    pick: Any,
-    target_pixel_size_um: float,
-    layout: Any,
-) -> Callable:
-    """Build a per-pick target mock provider.
-
-    Returns a callable matching the standard provider contract
-    ``(shape, dtype, *, naming) -> ndarray``. The returned callable
-    is a closure over the source pick + layout + scalar target pixel
-    size; the ``naming`` argument is **ignored** at call time because
-    the content source is determined entirely by the closed-over
-    ``pick`` (it identifies which overview file to read from and
-    where the cell is in that file).
-
-    Summary:
-      1. Read source overview tile (``layout.acquisition_dir("overview-scan")
-         / build_image_name(overview_naming)``).
-      2. Crop a window centred on ``pick.centroid_col_row_px``, sized
-         in overview pixels to match the target job's physical FOV
-         (``W_tg * target_pixel_size_um / overview_pixel_size_um``;
-         per-axis from per-axis target dimensions, scalar pixel size
-         on both axes per the rest-of-pipeline contract).
-      3. Pad with overview's median intensity for any area that
-         falls outside the overview's bounds (cell near tile edge --
-         silent padding; this is normal, not an error).
-      4. Resample to ``shape`` (the target's pixel dimensions) using
-         ``skimage.transform.resize`` with ``anti_aliasing=False``
-         (scaling up, no aliasing concern).
-      5. Cast back to ``dtype``.
-
-    Errors:
-      ``RuntimeError`` -- ``pick.position`` is None (pre-`position`
-      NPZ reload -- the source overview tile can't be identified).
-      Per-tile, never ``NonSimulatorFrameError``.
-
-      ``OSError`` / ``FileNotFoundError`` -- source overview file
-      missing on disk. Per-tile data integrity issue -- caller
-      records as a hijack failure and the loop continues.
-    """
-    # Construction is always safe -- failures (missing `position`,
-    # missing overview file) surface at call time, where the existing
-    # per-pick try/except in acquire_targets handles them uniformly.
-    # Capture pick attributes that the closure needs; resolve the
-    # overview path lazily so a None `position` raises a clear
-    # RuntimeError on call rather than an opaque NoneType-in-int()
-    # error here.
-    px_tg = float(target_pixel_size_um)
-
-    def _target_mock(shape, dtype, *, naming):
-        # naming is ignored -- documented in the function docstring
-        # above. The content source is entirely the closed-over pick.
-        del naming
-        if pick.position is None:
-            raise RuntimeError(
-                "build_target_provider: pick.position is None -- the "
-                "source overview tile index is missing (likely a "
-                "pre-`position` NPZ reload). Target mock cannot be "
-                "derived without it."
-            )
-
-        # Resolve overview file path from the pick's lineage.
-        overview_name = (
-            f"overview-scan_{layout.hash6}_"
-            f"g{int(pick.pick_id[0]):05d}-p{int(pick.position):05d}_c00_z00000.ome.tiff"
-        )
-        overview_path = layout.acquisition_dir("overview-scan") / overview_name
-
-        # Lazy: tifffile + skimage.transform are both lazy-imported so
-        # the cost is paid only when simulation mode actually fires.
-        import tifffile
-        from skimage.transform import resize
-
-        overview = tifffile.imread(overview_path)
-        # Shared geometry helper: same crop math as visualize.py's
-        # centre panel -- structurally enforces "what the operator
-        # sees in the Overview-crop panel matches what's in the saved
-        # target file." See pipeline/_geom.py. Helper also enforces
-        # the 2-D-overview scope boundary (raises ValueError on
-        # ndim != 2 -- per-tile failure, not run-fatal).
-        crop = crop_overview_at_target_fov(
-            overview,
-            centroid_col_row_px=pick.centroid_col_row_px,
-            # Scalar pixel size (col-axis) -- rest of the pipeline
-            # treats it the same.
-            source_pixel_size_um=float(pick.source_pixel_size_um[0]),
-            target_shape_px=(int(shape[0]), int(shape[1])),
-            target_pixel_size_um=px_tg,
-        )
-
-        # Resample to target dimensions (zoom up). order=0 -- nearest-
-        # neighbour, NOT bilinear. The file shape matches what a real
-        # high-mag acquisition would produce (so the OME envelope,
-        # downstream consumers, and Step 5 visualization see the
-        # right shape), but each (target_pixel_size / source_pixel_size)-
-        # sized block carries the same value as one overview pixel.
-        # Visually-blocky pixels in the target file honestly signal
-        # "the simulator added no information at the target step --
-        # this is the overview's pixels stretched to the target's
-        # pixel count, not new measurements."
-        #
-        # Bilinear here was the dishonest choice: it produced visually-
-        # smooth target pixels that misrepresented the information
-        # content as if it were a real high-res capture. See the
-        # operator's "image quality must reflect actual resolution"
-        # directive. The long-term clean answer for a realistic
-        # simulator is a synthetic high-res specimen scene that both
-        # overview and target sample from at their own pixel sizes
-        # (not derive-from-overview); until then nearest is the
-        # honest fix.
-        #
-        # anti_aliasing=False because we're scaling up (the kwarg is
-        # a no-op for order=0 but documents intent for any future
-        # downscale path).
-        # preserve_range=True keeps intensity values in their original
-        # numeric range rather than skimage's default [0, 1].
-        mock = resize(
-            crop,
-            (int(shape[0]), int(shape[1])),
-            order=0,
-            preserve_range=True,
-            anti_aliasing=False,
-        )
-        return mock.astype(dtype)
-
-    return _target_mock
