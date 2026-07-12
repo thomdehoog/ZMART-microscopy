@@ -21,7 +21,6 @@ import inspect
 import threading
 import time
 import unittest
-from functools import partial
 from types import SimpleNamespace
 from unittest.mock import MagicMock, PropertyMock, patch
 
@@ -456,39 +455,16 @@ class TestConfirmAndFire(unittest.TestCase):
 # =============================================================================
 
 
-class TestRetryBackoff(unittest.TestCase):
-    """Verify retry_backoff and retry_escalate control delay timing.
+class TestTransientRetry(unittest.TestCase):
+    """Transient retries are immediate, and profile policy flows through _dispatch.
 
-    These tests call _fire_block directly (not confirm_and_fire) to
+    The fire-block tests call _fire_block directly (not confirm_and_fire) to
     avoid echo poll sleeps. The error_check_fn is injected directly,
     bypassing _await_echo_result entirely.
     """
 
-    def _make_always_transient(self):
-        """Return an error check fn that always reports transient error."""
-        return lambda: {
-            "success": False,
-            "transient": True,
-            "error": "block is being scanned",
-            "logs": [],
-        }
-
-    def _make_always_permanent(self):
-        """Return an error check fn that always reports permanent error."""
-        return lambda: {"success": False, "transient": False, "error": "out of range", "logs": []}
-
-    def _make_success(self):
-        """Return an error check fn that reports success."""
-        return lambda: {"success": True, "logs": []}
-
-    def test_escalating_backoff_delays(self):
-        """Escalating: first retry immediate, then 1s, 2s, 4s.
-
-        With max_retries=4: 5 attempts total, 4 retries.
-        Attempt 0->1: immediate (no sleep).
-        Attempts 1->2, 2->3, 3->4: sleep with escalation.
-        Last attempt (4) has no retry, so no sleep.
-        """
+    def test_transient_retries_are_immediate(self):
+        """The fire block never sleeps between transient error retries."""
         client = make_client()
         api_obj = make_api_obj()
         sleep_calls = []
@@ -512,232 +488,19 @@ class TestRetryBackoff(unittest.TestCase):
                 client,
                 api_obj,
                 "Test",
-                error_check_fn=self._make_always_transient(),
-                max_retries=4,
-                retry_backoff=1.0,
-                retry_escalate=True,
-                pre_check_fn=_idle_pre_check,
-            )
-
-        self.assertFalse(r["success"])
-        self.assertEqual(r["attempts"], 5)
-        # attempt 0: no sleep, 1: 1.0, 2: 2.0, 3: 4.0, 4: exhausted (no sleep)
-        self.assertEqual(sleep_calls, [1.0, 2.0, 4.0])
-
-    def test_fixed_backoff_delays(self):
-        """Fixed: first retry immediate, then constant 1s delay."""
-        client = make_client()
-        api_obj = make_api_obj()
-        sleep_calls = []
-
-        with (
-            patch(
-                "navigator_expert.commands.dispatch.time.sleep",
-                # patching dispatch.time.sleep rebinds the STDLIB time.sleep;
-                # leftover daemon threads (confirmation-race legs from earlier
-                # tests) also call it, so record main-thread sleeps only
-                side_effect=lambda s: (
-                    sleep_calls.append(s)
-                    if threading.current_thread() is threading.main_thread()
-                    else None
-                ),
-            ),
-            patch.object(dispatch, "_fire_with_receipt", return_value=True),
-            patch.object(dispatch, "_await_echo_result", return_value=True),
-        ):
-            r = dispatch._fire_block(
-                client,
-                api_obj,
-                "Test",
-                error_check_fn=self._make_always_transient(),
-                max_retries=4,
-                retry_backoff=1.0,
-                retry_escalate=False,
-                pre_check_fn=_idle_pre_check,
-            )
-
-        self.assertFalse(r["success"])
-        # attempt 0: no sleep, 1-3: 1.0 each, 4: exhausted (no sleep)
-        self.assertEqual(sleep_calls, [1.0, 1.0, 1.0])
-
-    def test_no_backoff_no_sleep(self):
-        """Default (retry_backoff=None): no sleep between retries."""
-        client = make_client()
-        api_obj = make_api_obj()
-        sleep_calls = []
-
-        with (
-            patch(
-                "navigator_expert.commands.dispatch.time.sleep",
-                # patching dispatch.time.sleep rebinds the STDLIB time.sleep;
-                # leftover daemon threads (confirmation-race legs from earlier
-                # tests) also call it, so record main-thread sleeps only
-                side_effect=lambda s: (
-                    sleep_calls.append(s)
-                    if threading.current_thread() is threading.main_thread()
-                    else None
-                ),
-            ),
-            patch.object(dispatch, "_fire_with_receipt", return_value=True),
-            patch.object(dispatch, "_await_echo_result", return_value=True),
-        ):
-            r = dispatch._fire_block(
-                client,
-                api_obj,
-                "Test",
-                error_check_fn=self._make_always_transient(),
+                error_check_fn=lambda: {
+                    "success": False,
+                    "transient": True,
+                    "error": "block is being scanned",
+                    "logs": [],
+                },
                 max_retries=3,
-                retry_backoff=None,
                 pre_check_fn=_idle_pre_check,
             )
 
         self.assertFalse(r["success"])
+        self.assertEqual(r["attempts"], 4)
         self.assertEqual(sleep_calls, [])
-
-    def test_first_retry_always_immediate(self):
-        """First retry (attempt 0 -> 1) never sleeps, regardless of settings."""
-        client = make_client()
-        api_obj = make_api_obj()
-        call_count = [0]
-        sleep_calls = []
-
-        def error_check():
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return {"success": False, "transient": True, "error": "busy", "logs": []}
-            return {"success": True, "logs": []}
-
-        with (
-            patch(
-                "navigator_expert.commands.dispatch.time.sleep",
-                # patching dispatch.time.sleep rebinds the STDLIB time.sleep;
-                # leftover daemon threads (confirmation-race legs from earlier
-                # tests) also call it, so record main-thread sleeps only
-                side_effect=lambda s: (
-                    sleep_calls.append(s)
-                    if threading.current_thread() is threading.main_thread()
-                    else None
-                ),
-            ),
-            patch.object(dispatch, "_fire_with_receipt", return_value=True),
-            patch.object(dispatch, "_await_echo_result", return_value=True),
-        ):
-            r = dispatch._fire_block(
-                client,
-                api_obj,
-                "Test",
-                error_check_fn=error_check,
-                max_retries=3,
-                retry_backoff=5.0,
-                retry_escalate=True,
-                pre_check_fn=_idle_pre_check,
-            )
-
-        self.assertTrue(r["success"])
-        self.assertEqual(r["attempts"], 2)
-        self.assertEqual(sleep_calls, [], "First retry should be immediate - no sleep")
-
-    def test_backoff_with_custom_base(self):
-        """Custom base delay: 0.5s -> escalating 0s, 0.5s, 1.0s."""
-        client = make_client()
-        api_obj = make_api_obj()
-        sleep_calls = []
-
-        with (
-            patch(
-                "navigator_expert.commands.dispatch.time.sleep",
-                # patching dispatch.time.sleep rebinds the STDLIB time.sleep;
-                # leftover daemon threads (confirmation-race legs from earlier
-                # tests) also call it, so record main-thread sleeps only
-                side_effect=lambda s: (
-                    sleep_calls.append(s)
-                    if threading.current_thread() is threading.main_thread()
-                    else None
-                ),
-            ),
-            patch.object(dispatch, "_fire_with_receipt", return_value=True),
-            patch.object(dispatch, "_await_echo_result", return_value=True),
-        ):
-            dispatch._fire_block(
-                client,
-                api_obj,
-                "Test",
-                error_check_fn=self._make_always_transient(),
-                max_retries=4,
-                retry_backoff=0.5,
-                retry_escalate=True,
-                pre_check_fn=_idle_pre_check,
-            )
-
-        # attempt 0: no sleep, 1: 0.5, 2: 1.0, 3: 2.0, 4: exhausted
-        self.assertEqual(sleep_calls, [0.5, 1.0, 2.0])
-
-    def test_permanent_error_no_backoff_sleep(self):
-        """Permanent errors exit immediately - no backoff sleep."""
-        client = make_client()
-        api_obj = make_api_obj()
-        sleep_calls = []
-
-        with (
-            patch(
-                "navigator_expert.commands.dispatch.time.sleep",
-                # patching dispatch.time.sleep rebinds the STDLIB time.sleep;
-                # leftover daemon threads (confirmation-race legs from earlier
-                # tests) also call it, so record main-thread sleeps only
-                side_effect=lambda s: (
-                    sleep_calls.append(s)
-                    if threading.current_thread() is threading.main_thread()
-                    else None
-                ),
-            ),
-            patch.object(dispatch, "_fire_with_receipt", return_value=True),
-            patch.object(dispatch, "_await_echo_result", return_value=True),
-        ):
-            r = dispatch._fire_block(
-                client,
-                api_obj,
-                "Test",
-                error_check_fn=self._make_always_permanent(),
-                max_retries=4,
-                retry_backoff=1.0,
-                retry_escalate=True,
-                pre_check_fn=_idle_pre_check,
-            )
-
-        self.assertFalse(r["success"])
-        self.assertEqual(r["attempts"], 1)
-        self.assertEqual(sleep_calls, [])
-
-    def test_profile_backoff_passed_through_dispatch(self):
-        """Verify _dispatch passes profile backoff settings to backbone."""
-        client = make_client()
-        api_obj = make_api_obj()
-
-        from navigator_expert.config.profiles import CommandProfile
-
-        profile = CommandProfile(
-            retry_backoff=2.0,
-            retry_escalate=True,
-            max_retries=2,
-        )
-
-        with patch.object(
-            commands,
-            "confirm_and_fire",
-            return_value={
-                "success": True,
-                "confirmed": None,
-                "message": "ok",
-                "timing": {},
-                "logs": [],
-            },
-        ) as mock_caf:
-            commands._dispatch(client, api_obj, "Test", profile, setup_fn=lambda m: None)
-
-        mock_caf.assert_called_once()
-        _, kwargs = mock_caf.call_args
-        self.assertEqual(kwargs["retry_backoff"], 2.0)
-        self.assertTrue(kwargs["retry_escalate"])
 
     def test_profile_confirmation_policy_passed_through_dispatch(self):
         """_dispatch passes the profile's readback retry policy."""
@@ -765,77 +528,6 @@ class TestRetryBackoff(unittest.TestCase):
 
         _, kwargs = mock_caf.call_args
         self.assertFalse(kwargs["refire_on_unconfirmed"])
-
-    def test_dispatch_injects_profile_confirm_poll_when_unbound(self):
-        """Simple setting confirmations get their poll window from the profile."""
-        client = make_client()
-        api_obj = make_api_obj()
-        seen = {}
-
-        def confirm(client, *, poll_window=None):
-            seen["client"] = client
-            seen["poll_window"] = poll_window
-            return {"success": True, "logs": []}
-
-        profile = profiles.CommandProfile(confirm_poll_s=5.0)
-
-        with patch.object(
-            commands,
-            "confirm_and_fire",
-            return_value={
-                "success": True,
-                "confirmed": True,
-                "message": "ok",
-                "timing": {},
-                "logs": [],
-            },
-        ) as mock_caf:
-            commands._dispatch(
-                client, api_obj, "Test", profile, setup_fn=lambda m: None, confirm_fn=confirm
-            )
-
-        confirm_callable = mock_caf.call_args.kwargs["confirm_fn"]
-        confirm_callable()
-        self.assertIs(seen["client"], client)
-        self.assertEqual(seen["poll_window"], 5.0)
-
-    def test_dispatch_preserves_wrapper_bound_confirm_poll(self):
-        """Wrapper-bound poll windows win over the generic profile poll window."""
-        client = make_client()
-        api_obj = make_api_obj()
-        seen = {}
-
-        def confirm(client, *, poll_window=None):
-            seen["client"] = client
-            seen["poll_window"] = poll_window
-            return {"success": True, "logs": []}
-
-        profile = profiles.CommandProfile(confirm_poll_s=5.0)
-
-        with patch.object(
-            commands,
-            "confirm_and_fire",
-            return_value={
-                "success": True,
-                "confirmed": True,
-                "message": "ok",
-                "timing": {},
-                "logs": [],
-            },
-        ) as mock_caf:
-            commands._dispatch(
-                client,
-                api_obj,
-                "Test",
-                profile,
-                setup_fn=lambda m: None,
-                confirm_fn=partial(confirm, poll_window=12.0),
-            )
-
-        confirm_callable = mock_caf.call_args.kwargs["confirm_fn"]
-        confirm_callable()
-        self.assertIs(seen["client"], client)
-        self.assertEqual(seen["poll_window"], 12.0)
 
     def test_default_setting_and_acquire_profiles_encode_retry_policy(self):
         """Uniform posture; acquisition is the one command that never re-sends."""
@@ -1250,36 +942,369 @@ class TestErrorClassification(unittest.TestCase):
 # =============================================================================
 
 
+def _fw_settings(fw_type="emission", beam_route="BR1", filter_index=0, spectrum_position=525):
+    """Build a job-settings readback carrying one filter wheel entry."""
+    return {
+        "activeSettings": [
+            {
+                "filterWheels": [
+                    {
+                        "_beamRoute": beam_route,
+                        "type": fw_type,
+                        "filterIndex": filter_index,
+                        "spectrumPosition": spectrum_position,
+                    }
+                ],
+            }
+        ],
+    }
+
+
 class TestConfirmFunctions(unittest.TestCase):
+    """Table-driven checks of the readback confirm functions.
+
+    Each row runs one confirm function against a mocked readback (the dict
+    ``_readback`` would return) and asserts whether the confirmation should
+    succeed. Rows preserve the exact arguments of the individual tests they
+    replaced, including the shortened poll windows on the cases that must
+    time out unconfirmed.
+    """
+
     def _mock_readback(self, changeable_dict):
         return patch.object(confirmations, "_readback", return_value=changeable_dict)
 
-    def test_confirm_zoom_pass(self):
-        with self._mock_readback({"zoom": {"current": 5.0}}):
-            self.assertTrue(confirmations._confirm_zoom(None, "J", 5.0)["success"])
+    # Rows: (case label, confirm function name, positional args after client,
+    #        keyword args, mocked readback, expected success).
+    CONFIRM_CASES = [
+        # -- zoom (tolerance 0.1 default) --
+        ("zoom exact", "_confirm_zoom", ("J", 5.0), {}, {"zoom": {"current": 5.0}}, True),
+        ("zoom within tol", "_confirm_zoom", ("J", 5.0), {}, {"zoom": {"current": 5.05}}, True),
+        ("zoom mismatch", "_confirm_zoom", ("J", 5.0), {}, {"zoom": {"current": 3.0}}, False),
+        ("zoom none readback", "_confirm_zoom", ("J", 5.0), {}, None, False),
+        # -- scan speed / resonant / mode / sequential (exact match) --
+        (
+            "scan speed match",
+            "_confirm_scan_speed",
+            ("J", 600),
+            {},
+            {"scanSpeed": {"value": 600}},
+            True,
+        ),
+        (
+            "scan speed mismatch",
+            "_confirm_scan_speed",
+            ("J", 600),
+            {},
+            {"scanSpeed": {"value": 400}},
+            False,
+        ),
+        (
+            "scan resonant match",
+            "_confirm_scan_resonant",
+            ("J", True),
+            {},
+            {"scanSpeed": {"isResonant": True}},
+            True,
+        ),
+        (
+            "scan resonant mismatch",
+            "_confirm_scan_resonant",
+            ("J", False),
+            {},
+            {"scanSpeed": {"isResonant": True}},
+            False,
+        ),
+        ("scan mode match", "_confirm_scan_mode", ("J", "xyz"), {}, {"scanMode": "xyz"}, True),
+        ("scan mode mismatch", "_confirm_scan_mode", ("J", "xy"), {}, {"scanMode": "xyz"}, False),
+        (
+            "sequential mode match",
+            "_confirm_sequential_mode",
+            ("J", "Frame"),
+            {},
+            {"sequentialMode": "Frame"},
+            True,
+        ),
+        # -- rotation (tolerance 0.5 default) --
+        (
+            "rotation within tol",
+            "_confirm_scan_field_rotation",
+            ("J", 45.0),
+            {},
+            {"scanFieldRotation": {"value": 45.3}},
+            True,
+        ),
+        (
+            "rotation outside tol",
+            "_confirm_scan_field_rotation",
+            ("J", 45.0),
+            {},
+            {"scanFieldRotation": {"value": 46.0}},
+            False,
+        ),
+        # -- image format ("W x H" string target) --
+        (
+            "image format match",
+            "_confirm_image_format",
+            ("J", 1024, 1024),
+            {},
+            {"format": "1024 x 1024"},
+            True,
+        ),
+        (
+            "image format mismatch",
+            "_confirm_image_format",
+            ("J", 512, 512),
+            {},
+            {"format": "1024 x 1024"},
+            False,
+        ),
+        # -- pinhole (tolerance 0.05 default) --
+        (
+            "pinhole within tol",
+            "_confirm_pinhole_airy",
+            ("J", 0, 1.0),
+            {},
+            {"activeSettings": [{"pinholeAiry": {"value": 1.02}}]},
+            True,
+        ),
+        (
+            "pinhole outside tol",
+            "_confirm_pinhole_airy",
+            ("J", 0, 1.0),
+            {},
+            {"activeSettings": [{"pinholeAiry": {"value": 0.5}}]},
+            False,
+        ),
+        # -- accumulation / average (exact match) --
+        (
+            "frame accumulation match",
+            "_confirm_frame_accumulation",
+            ("J", 0, 4),
+            {},
+            {"activeSettings": [{"frameAccumulation": 4}]},
+            True,
+        ),
+        (
+            "frame accumulation mismatch",
+            "_confirm_frame_accumulation",
+            ("J", 0, 2),
+            {},
+            {"activeSettings": [{"frameAccumulation": 4}]},
+            False,
+        ),
+        (
+            "frame average match",
+            "_confirm_frame_average",
+            ("J", 0, 2),
+            {},
+            {"activeSettings": [{"frameAverage": 2}]},
+            True,
+        ),
+        (
+            "line accumulation match",
+            "_confirm_line_accumulation",
+            ("J", 0, 3),
+            {},
+            {"activeSettings": [{"lineAccumulation": 3}]},
+            True,
+        ),
+        (
+            "line average match",
+            "_confirm_line_average",
+            ("J", 0, 8),
+            {},
+            {"activeSettings": [{"lineAverage": 8}]},
+            True,
+        ),
+        # -- move_z (galvo / zwide drives, tolerance 1.0 default) --
+        (
+            "move_z galvo arrived",
+            "confirm_move_z",
+            (),
+            dict(job_name="J", z_mode="galvo", target_um=50.0, poll_window=1),
+            {"zPosition": {"z-galvo": 50.0}},
+            True,
+        ),
+        (
+            "move_z galvo short",
+            "confirm_move_z",
+            (),
+            dict(job_name="J", z_mode="galvo", target_um=50.0, poll_window=0.1),
+            {"zPosition": {"z-galvo": 10.0}},
+            False,
+        ),
+        (
+            "move_z zwide arrived",
+            "confirm_move_z",
+            (),
+            dict(job_name="J", z_mode="zwide", target_um=100.0, poll_window=1),
+            {"zPosition": {"z-wide": 100.0}},
+            True,
+        ),
+        (
+            "move_z within tol",
+            "confirm_move_z",
+            (),
+            dict(job_name="J", z_mode="galvo", target_um=50.0, tolerance=1.0, poll_window=1),
+            {"zPosition": {"z-galvo": 50.5}},
+            True,
+        ),
+        (
+            "move_z none readback",
+            "confirm_move_z",
+            (),
+            dict(job_name="J", z_mode="galvo", target_um=50.0, poll_window=0.1),
+            None,
+            False,
+        ),
+        # -- z-stack step size (tolerance 0.5 default) --
+        (
+            "z-step exact",
+            "_confirm_z_stack_step_size",
+            ("J",),
+            dict(target=2.0, poll_window=1),
+            {"stack": {"stepSize": 2.0}},
+            True,
+        ),
+        (
+            "z-step mismatch",
+            "_confirm_z_stack_step_size",
+            ("J",),
+            dict(target=2.0, poll_window=0.1),
+            {"stack": {"stepSize": 5.0}},
+            False,
+        ),
+        (
+            "z-step within tol",
+            "_confirm_z_stack_step_size",
+            ("J",),
+            dict(target=2.0, tolerance=0.5, poll_window=1),
+            {"stack": {"stepSize": 2.3}},
+            True,
+        ),
+        # -- z-stack size (direct or step-quantised match) --
+        (
+            "z-size exact",
+            "_confirm_z_stack_size",
+            ("J",),
+            dict(target_um=10.0, poll_window=1),
+            {"stack": {"size": 10.0, "stepSize": 2.0}},
+            True,
+        ),
+        (
+            "z-size mismatch",
+            "_confirm_z_stack_size",
+            ("J",),
+            dict(target_um=10.0, poll_window=0.1),
+            {"stack": {"size": 20.0, "stepSize": 2.0}},
+            False,
+        ),
+        # Target 9.5 with step 2.0: quantised candidates are 8.0 (n=4) and
+        # 10.0 (n=5); actual 10.0 matches via the quantised path.
+        (
+            "z-size quantised",
+            "_confirm_z_stack_size",
+            ("J",),
+            dict(target_um=9.5, poll_window=1),
+            {"stack": {"size": 10.0, "stepSize": 2.0}},
+            True,
+        ),
+        # -- z-stack definition (begin/end, optional sides, quantisation) --
+        (
+            "z-def exact",
+            "_confirm_z_stack_definition",
+            ("J",),
+            dict(begin_um=-5.0, end_um=5.0, poll_window=1),
+            {"stack": {"begin": -5.0, "end": 5.0, "stepSize": 1.0}},
+            True,
+        ),
+        (
+            "z-def mismatch",
+            "_confirm_z_stack_definition",
+            ("J",),
+            dict(begin_um=-10.0, end_um=10.0, poll_window=0.1),
+            {"stack": {"begin": -5.0, "end": 5.0, "stepSize": 1.0}},
+            False,
+        ),
+        (
+            "z-def begin only",
+            "_confirm_z_stack_definition",
+            ("J",),
+            dict(begin_um=-5.0, end_um=None, poll_window=1),
+            {"stack": {"begin": -5.0, "end": 5.0, "stepSize": 1.0}},
+            True,
+        ),
+        # begin=-5, end=5, step=3 -> raw size 10, centre 0. Quantised n=3 gives
+        # size 9 -> (-4.5, 4.5); n=4 gives size 12 -> (-6, 6). Actual (-4.5,
+        # 4.5) matches the first candidate.
+        (
+            "z-def quantised",
+            "_confirm_z_stack_definition",
+            ("J",),
+            dict(begin_um=-5.0, end_um=5.0, poll_window=1),
+            {"stack": {"begin": -4.5, "end": 4.5, "stepSize": 3.0}},
+            True,
+        ),
+        # -- filter wheel slot / spectrum --
+        (
+            "fw slot match",
+            "_confirm_filter_wheel_slot",
+            ("J",),
+            dict(si=0, beam_route="BR1", fw_type="emission", target=2, poll_window=1),
+            _fw_settings(filter_index=2),
+            True,
+        ),
+        (
+            "fw slot mismatch",
+            "_confirm_filter_wheel_slot",
+            ("J",),
+            dict(si=0, beam_route="BR1", fw_type="emission", target=2, poll_window=0.1),
+            _fw_settings(filter_index=0),
+            False,
+        ),
+        (
+            "fw slot wrong beam route",
+            "_confirm_filter_wheel_slot",
+            ("J",),
+            dict(si=0, beam_route="BR1", fw_type="emission", target=2, poll_window=0.1),
+            _fw_settings(beam_route="BR2", filter_index=2),
+            False,
+        ),
+        (
+            "fw spectrum match",
+            "_confirm_filter_wheel_spectrum",
+            ("J",),
+            dict(si=0, beam_route="BR1", fw_type="emission", target=525, poll_window=1),
+            _fw_settings(spectrum_position=525),
+            True,
+        ),
+        (
+            "fw spectrum mismatch",
+            "_confirm_filter_wheel_spectrum",
+            ("J",),
+            dict(si=0, beam_route="BR1", fw_type="emission", target=525, poll_window=0.1),
+            _fw_settings(spectrum_position=600),
+            False,
+        ),
+        (
+            "fw spectrum within tol",
+            "_confirm_filter_wheel_spectrum",
+            ("J",),
+            dict(
+                si=0, beam_route="BR1", fw_type="emission", target=525, tolerance=1, poll_window=1
+            ),
+            _fw_settings(spectrum_position=525.5),
+            True,
+        ),
+    ]
 
-    def test_confirm_zoom_within_tolerance(self):
-        with self._mock_readback({"zoom": {"current": 5.05}}):
-            self.assertTrue(confirmations._confirm_zoom(None, "J", 5.0)["success"])
-
-    def test_confirm_zoom_fail(self):
-        with self._mock_readback({"zoom": {"current": 3.0}}):
-            self.assertFalse(confirmations._confirm_zoom(None, "J", 5.0)["success"])
-
-    def test_confirm_zoom_none_readback(self):
-        with self._mock_readback(None):
-            self.assertFalse(confirmations._confirm_zoom(None, "J", 5.0)["success"])
-
-    def test_confirm_scan_speed(self):
-        with self._mock_readback({"scanSpeed": {"value": 600}}):
-            self.assertTrue(confirmations._confirm_scan_speed(None, "J", 600)["success"])
-        with self._mock_readback({"scanSpeed": {"value": 400}}):
-            self.assertFalse(confirmations._confirm_scan_speed(None, "J", 600)["success"])
-
-    def test_confirm_scan_resonant(self):
-        with self._mock_readback({"scanSpeed": {"isResonant": True}}):
-            self.assertTrue(confirmations._confirm_scan_resonant(None, "J", True)["success"])
-            self.assertFalse(confirmations._confirm_scan_resonant(None, "J", False)["success"])
+    def test_confirm_functions_against_mocked_readback(self):
+        for label, fn_name, args, kwargs, readback, expected in self.CONFIRM_CASES:
+            fn = getattr(confirmations, fn_name)
+            with self.subTest(label):
+                with self._mock_readback(readback):
+                    result = fn(None, *args, **kwargs)
+                self.assertEqual(result["success"], expected)
 
     def test_setting_confirm_pins_api_even_when_profile_is_both(self):
         prior = profiles.STATE_READERS
@@ -1315,49 +1340,6 @@ class TestConfirmFunctions(unittest.TestCase):
         self.assertEqual(calls[0]["mode"], "api")
         self.assertTrue(calls[0]["diagnostics"])
 
-    def test_confirm_scan_mode(self):
-        with self._mock_readback({"scanMode": "xyz"}):
-            self.assertTrue(confirmations._confirm_scan_mode(None, "J", "xyz")["success"])
-            self.assertFalse(confirmations._confirm_scan_mode(None, "J", "xy")["success"])
-
-    def test_confirm_sequential_mode(self):
-        with self._mock_readback({"sequentialMode": "Frame"}):
-            self.assertTrue(confirmations._confirm_sequential_mode(None, "J", "Frame")["success"])
-
-    def test_confirm_rotation(self):
-        with self._mock_readback({"scanFieldRotation": {"value": 45.3}}):
-            self.assertTrue(confirmations._confirm_scan_field_rotation(None, "J", 45.0)["success"])
-        with self._mock_readback({"scanFieldRotation": {"value": 46.0}}):
-            self.assertFalse(confirmations._confirm_scan_field_rotation(None, "J", 45.0)["success"])
-
-    def test_confirm_image_format(self):
-        with self._mock_readback({"format": "1024 x 1024"}):
-            self.assertTrue(confirmations._confirm_image_format(None, "J", 1024, 1024)["success"])
-            self.assertFalse(confirmations._confirm_image_format(None, "J", 512, 512)["success"])
-
-    def test_confirm_pinhole_airy(self):
-        with self._mock_readback({"activeSettings": [{"pinholeAiry": {"value": 1.02}}]}):
-            self.assertTrue(confirmations._confirm_pinhole_airy(None, "J", 0, 1.0)["success"])
-        with self._mock_readback({"activeSettings": [{"pinholeAiry": {"value": 0.5}}]}):
-            self.assertFalse(confirmations._confirm_pinhole_airy(None, "J", 0, 1.0)["success"])
-
-    def test_confirm_frame_accumulation(self):
-        with self._mock_readback({"activeSettings": [{"frameAccumulation": 4}]}):
-            self.assertTrue(confirmations._confirm_frame_accumulation(None, "J", 0, 4)["success"])
-            self.assertFalse(confirmations._confirm_frame_accumulation(None, "J", 0, 2)["success"])
-
-    def test_confirm_frame_average(self):
-        with self._mock_readback({"activeSettings": [{"frameAverage": 2}]}):
-            self.assertTrue(confirmations._confirm_frame_average(None, "J", 0, 2)["success"])
-
-    def test_confirm_line_accumulation(self):
-        with self._mock_readback({"activeSettings": [{"lineAccumulation": 3}]}):
-            self.assertTrue(confirmations._confirm_line_accumulation(None, "J", 0, 3)["success"])
-
-    def test_confirm_line_average(self):
-        with self._mock_readback({"activeSettings": [{"lineAverage": 8}]}):
-            self.assertTrue(confirmations._confirm_line_average(None, "J", 0, 8)["success"])
-
     def test_confirm_move_xy(self):
         with patch.object(
             readers, "get_xy", return_value={"x_um": 50000, "y_um": 50000, "x_m": 0.05, "y_m": 0.05}
@@ -1370,219 +1352,6 @@ class TestConfirmFunctions(unittest.TestCase):
             self.assertFalse(
                 confirmations.confirm_move_xy(
                     None, target_x_um=50000, target_y_um=99999, poll_window=0.2
-                )["success"]
-            )
-
-    # â”€â”€ confirm_move_z â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-    def test_confirm_move_z_galvo_pass(self):
-        with self._mock_readback({"zPosition": {"z-galvo": 50.0}}):
-            self.assertTrue(
-                confirmations.confirm_move_z(
-                    None, job_name="J", z_mode="galvo", target_um=50.0, poll_window=1
-                )["success"]
-            )
-
-    def test_confirm_move_z_galvo_fail(self):
-        with self._mock_readback({"zPosition": {"z-galvo": 10.0}}):
-            self.assertFalse(
-                confirmations.confirm_move_z(
-                    None, job_name="J", z_mode="galvo", target_um=50.0, poll_window=0.1
-                )["success"]
-            )
-
-    def test_confirm_move_z_zwide_pass(self):
-        with self._mock_readback({"zPosition": {"z-wide": 100.0}}):
-            self.assertTrue(
-                confirmations.confirm_move_z(
-                    None, job_name="J", z_mode="zwide", target_um=100.0, poll_window=1
-                )["success"]
-            )
-
-    def test_confirm_move_z_within_tolerance(self):
-        with self._mock_readback({"zPosition": {"z-galvo": 50.5}}):
-            self.assertTrue(
-                confirmations.confirm_move_z(
-                    None, job_name="J", z_mode="galvo", target_um=50.0, tolerance=1.0, poll_window=1
-                )["success"]
-            )
-
-    def test_confirm_move_z_none_readback(self):
-        with self._mock_readback(None):
-            self.assertFalse(
-                confirmations.confirm_move_z(
-                    None, job_name="J", z_mode="galvo", target_um=50.0, poll_window=0.1
-                )["success"]
-            )
-
-    # â”€â”€ z-stack confirm functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-    def test_confirm_z_stack_step_size_pass(self):
-        with self._mock_readback({"stack": {"stepSize": 2.0}}):
-            self.assertTrue(
-                confirmations._confirm_z_stack_step_size(None, "J", target=2.0, poll_window=1)[
-                    "success"
-                ]
-            )
-
-    def test_confirm_z_stack_step_size_fail(self):
-        with self._mock_readback({"stack": {"stepSize": 5.0}}):
-            self.assertFalse(
-                confirmations._confirm_z_stack_step_size(None, "J", target=2.0, poll_window=0.1)[
-                    "success"
-                ]
-            )
-
-    def test_confirm_z_stack_step_size_within_tolerance(self):
-        with self._mock_readback({"stack": {"stepSize": 2.3}}):
-            self.assertTrue(
-                confirmations._confirm_z_stack_step_size(
-                    None, "J", target=2.0, tolerance=0.5, poll_window=1
-                )["success"]
-            )
-
-    def test_confirm_z_stack_size_pass(self):
-        with self._mock_readback({"stack": {"size": 10.0, "stepSize": 2.0}}):
-            self.assertTrue(
-                confirmations._confirm_z_stack_size(None, "J", target_um=10.0, poll_window=1)[
-                    "success"
-                ]
-            )
-
-    def test_confirm_z_stack_size_fail(self):
-        with self._mock_readback({"stack": {"size": 20.0, "stepSize": 2.0}}):
-            self.assertFalse(
-                confirmations._confirm_z_stack_size(None, "J", target_um=10.0, poll_window=0.1)[
-                    "success"
-                ]
-            )
-
-    def test_confirm_z_stack_size_quantised_match(self):
-        """Target 9.5 with step 2.0: quantised candidates are 8.0 (n=4) and
-        10.0 (n=5). Actual=10.0 should match via quantised path."""
-        with self._mock_readback({"stack": {"size": 10.0, "stepSize": 2.0}}):
-            self.assertTrue(
-                confirmations._confirm_z_stack_size(None, "J", target_um=9.5, poll_window=1)[
-                    "success"
-                ]
-            )
-
-    def test_confirm_z_stack_definition_pass(self):
-        with self._mock_readback({"stack": {"begin": -5.0, "end": 5.0, "stepSize": 1.0}}):
-            self.assertTrue(
-                confirmations._confirm_z_stack_definition(
-                    None, "J", begin_um=-5.0, end_um=5.0, poll_window=1
-                )["success"]
-            )
-
-    def test_confirm_z_stack_definition_fail(self):
-        with self._mock_readback({"stack": {"begin": -5.0, "end": 5.0, "stepSize": 1.0}}):
-            self.assertFalse(
-                confirmations._confirm_z_stack_definition(
-                    None, "J", begin_um=-10.0, end_um=10.0, poll_window=0.1
-                )["success"]
-            )
-
-    def test_confirm_z_stack_definition_begin_only(self):
-        with self._mock_readback({"stack": {"begin": -5.0, "end": 5.0, "stepSize": 1.0}}):
-            self.assertTrue(
-                confirmations._confirm_z_stack_definition(
-                    None, "J", begin_um=-5.0, end_um=None, poll_window=1
-                )["success"]
-            )
-
-    def test_confirm_z_stack_definition_quantised(self):
-        """begin=-5, end=5, step=3 -> raw size=10, centre=0.
-        Quantised: n=3->size=9, n=4->size=12.
-        Candidates: (-4.5, 4.5) and (-6, 6).
-        Actual (-4.5, 4.5) should match."""
-        with self._mock_readback({"stack": {"begin": -4.5, "end": 4.5, "stepSize": 3.0}}):
-            self.assertTrue(
-                confirmations._confirm_z_stack_definition(
-                    None, "J", begin_um=-5.0, end_um=5.0, poll_window=1
-                )["success"]
-            )
-
-    # â”€â”€ filter wheel confirm functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-    def _fw_readback(
-        self, fw_type="emission", beam_route="BR1", filter_index=0, spectrum_position=525
-    ):
-        return self._mock_readback(
-            {
-                "activeSettings": [
-                    {
-                        "filterWheels": [
-                            {
-                                "_beamRoute": beam_route,
-                                "type": fw_type,
-                                "filterIndex": filter_index,
-                                "spectrumPosition": spectrum_position,
-                            }
-                        ],
-                    }
-                ],
-            }
-        )
-
-    def test_confirm_filter_wheel_slot_pass(self):
-        with self._fw_readback(filter_index=2):
-            self.assertTrue(
-                confirmations._confirm_filter_wheel_slot(
-                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=2, poll_window=1
-                )["success"]
-            )
-
-    def test_confirm_filter_wheel_slot_fail(self):
-        with self._fw_readback(filter_index=0):
-            self.assertFalse(
-                confirmations._confirm_filter_wheel_slot(
-                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=2, poll_window=0.1
-                )["success"]
-            )
-
-    def test_confirm_filter_wheel_slot_wrong_beam_route(self):
-        with self._fw_readback(beam_route="BR2", filter_index=2):
-            self.assertFalse(
-                confirmations._confirm_filter_wheel_slot(
-                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=2, poll_window=0.1
-                )["success"]
-            )
-
-    def test_confirm_filter_wheel_spectrum_pass(self):
-        with self._fw_readback(spectrum_position=525):
-            self.assertTrue(
-                confirmations._confirm_filter_wheel_spectrum(
-                    None, "J", si=0, beam_route="BR1", fw_type="emission", target=525, poll_window=1
-                )["success"]
-            )
-
-    def test_confirm_filter_wheel_spectrum_fail(self):
-        with self._fw_readback(spectrum_position=600):
-            self.assertFalse(
-                confirmations._confirm_filter_wheel_spectrum(
-                    None,
-                    "J",
-                    si=0,
-                    beam_route="BR1",
-                    fw_type="emission",
-                    target=525,
-                    poll_window=0.1,
-                )["success"]
-            )
-
-    def test_confirm_filter_wheel_spectrum_within_tolerance(self):
-        with self._fw_readback(spectrum_position=525.5):
-            self.assertTrue(
-                confirmations._confirm_filter_wheel_spectrum(
-                    None,
-                    "J",
-                    si=0,
-                    beam_route="BR1",
-                    fw_type="emission",
-                    target=525,
-                    tolerance=1,
-                    poll_window=1,
                 )["success"]
             )
 
@@ -1650,23 +1419,147 @@ class TestSetFunctionWiring(unittest.TestCase):
             r = set_fn(*args, **kwargs)
         return captured, r
 
-    def test_set_zoom_model(self):
-        info, _ = self._run_set(drv.set_zoom, None, "HiRes", 5.0)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetZoomByJobName)
-        self.assertEqual(info["model"].JobName, "HiRes")
-        self.assertEqual(info["model"].ZoomValue, 5.0)
+    # Rows: (case label, set function name, positional args after client,
+    #        client API-object attribute, {model attribute: expected value}).
+    # Float expectations use assertAlmostEqual because some setters convert
+    # micrometers to meters before writing the model.
+    SET_MODEL_CASES = [
+        (
+            "set_zoom",
+            "set_zoom",
+            ("HiRes", 5.0),
+            "PyApiSetZoomByJobName",
+            {"JobName": "HiRes", "ZoomValue": 5.0},
+        ),
+        (
+            "set_scan_speed",
+            "set_scan_speed",
+            ("HiRes", 600),
+            "PyApiSetScanSpeedByJobName",
+            {"ScanSpeed": 600},
+        ),
+        (
+            "set_scan_resonant",
+            "set_scan_resonant",
+            ("HiRes", True),
+            "PyApiSetScannerToResonantByJobName",
+            {"EnableResonant": True},
+        ),
+        (
+            "set_scan_mode",
+            "set_scan_mode",
+            ("HiRes", "xyz"),
+            "PyApiSetScanModeByJobName",
+            {"ScanModeValue": "xyz"},
+        ),
+        (
+            "set_scan_field_rotation",
+            "set_scan_field_rotation",
+            ("HiRes", 45.0),
+            "PyApiSetScanFieldRotationByJobName",
+            {"Rotation": 45.0},
+        ),
+        (
+            "set_image_format string",
+            "set_image_format",
+            ("HiRes", "1024 x 1024"),
+            "PyApiSetImageSizeByJobName",
+            {"ImageWidth": 1024, "ImageHeight": 1024},
+        ),
+        (
+            "set_image_format tuple",
+            "set_image_format",
+            ("HiRes", (512, 768)),
+            "PyApiSetImageSizeByJobName",
+            {"ImageWidth": 512, "ImageHeight": 768},
+        ),
+        (
+            "set_frame_accumulation",
+            "set_frame_accumulation",
+            ("HiRes", 0, 4),
+            "PyApiSetFrameAccumulationByJobName",
+            {"SettingIndex": 0, "FrameAccumulation": 4},
+        ),
+        (
+            "set_frame_average",
+            "set_frame_average",
+            ("HiRes", 0, 2),
+            "PyApiSetFrameAverageByJobName",
+            {"FrameAverage": 2},
+        ),
+        (
+            "set_pinhole_airy",
+            "set_pinhole_airy",
+            ("HiRes", 0, 1.5),
+            "PyApiSetPinholeAUByJobName",
+            {"PinholeAiry": 1.5},
+        ),
+        (
+            "set_detector_gain",
+            "set_detector_gain",
+            ("HiRes", 0, "BR1", 750),
+            "PyApiSetDetectorGainByJobName",
+            {"BeamRoute": "BR1", "GainValue": 750},
+        ),
+        (
+            "set_laser_intensity",
+            "set_laser_intensity",
+            ("HiRes", 0, "BR1", 0, 0.5),
+            "PyApiSetLaserIntensityByJobName",
+            {"IntensityValue": 0.5, "LaserLineIndex": 0},
+        ),
+        (
+            "set_laser_shutter",
+            "set_laser_shutter",
+            ("HiRes", 0, "BR1", True),
+            "PyApiSetLaserShutterByJobName",
+            {"Activate": True},
+        ),
+        (
+            "set_z_stack_step_size",
+            "set_z_stack_step_size",
+            ("HiRes", 2.0),
+            "PyApiCommandSetZStackStepSizeByJobName",
+            {"StackStepSize": 2.0e-6},
+        ),
+        (
+            "set_z_stack_size",
+            "set_z_stack_size",
+            ("HiRes", 10.0),
+            "PyApiSetZStackSizeByJobName",
+            {"StackSize": 10.0e-6},
+        ),
+        (
+            "set_filter_wheel_slot",
+            "set_filter_wheel_slot",
+            ("J", 0, "BR1", "emission", 2),
+            "PyApiSetFilterWheelSlotByJobName",
+            {"JobName": "J", "SettingIndex": 0, "BeamRoute": "BR1", "SlotIndex": 2},
+        ),
+        (
+            "set_filter_wheel_spectrum",
+            "set_filter_wheel_spectrum",
+            ("J", 0, "BR1", "emission", 525),
+            "PyApiSetFilterWheelSpectrumPositionByJobName",
+            {"JobName": "J", "SettingIndex": 0, "BeamRoute": "BR1", "FilterSpectrumPosition": 525},
+        ),
+    ]
 
-    def test_set_scan_speed_model(self):
-        info, _ = self._run_set(drv.set_scan_speed, None, "HiRes", 600)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetScanSpeedByJobName)
-        self.assertEqual(info["model"].ScanSpeed, 600)
-
-    def test_set_scan_resonant_model(self):
-        info, _ = self._run_set(drv.set_scan_resonant, None, "HiRes", True)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetScannerToResonantByJobName)
-        self.assertEqual(info["model"].EnableResonant, True)
+    def test_set_functions_write_the_documented_model_fields(self):
+        """Each set function resolves its API object and writes its model fields."""
+        for label, fn_name, args, api_attr, fields in self.SET_MODEL_CASES:
+            with self.subTest(label):
+                info, _ = self._run_set(getattr(drv, fn_name), None, *args)
+                self.assertIs(info["api_obj"], getattr(info["client"], api_attr))
+                for attr, expected in fields.items():
+                    actual = getattr(info["model"], attr)
+                    if isinstance(expected, float):
+                        self.assertAlmostEqual(actual, expected, places=10)
+                    else:
+                        self.assertEqual(actual, expected)
 
     def test_scan_resonant_no_change_error_accepted_when_readback_matches(self):
+
         client = self._resonant_no_change_client()
         with patch.object(
             commands,
@@ -1694,71 +1587,6 @@ class TestSetFunctionWiring(unittest.TestCase):
 
         self.assertFalse(result["success"])
         self.assertIn("desired state does not differ", result["error"])
-
-    def test_set_scan_mode_model(self):
-        info, _ = self._run_set(drv.set_scan_mode, None, "HiRes", "xyz")
-        self.assertIs(info["api_obj"], info["client"].PyApiSetScanModeByJobName)
-        self.assertEqual(info["model"].ScanModeValue, "xyz")
-
-    def test_set_rotation_model(self):
-        info, _ = self._run_set(drv.set_scan_field_rotation, None, "HiRes", 45.0)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetScanFieldRotationByJobName)
-        self.assertEqual(info["model"].Rotation, 45.0)
-
-    def test_set_image_format_string(self):
-        info, _ = self._run_set(drv.set_image_format, None, "HiRes", "1024 x 1024")
-        self.assertIs(info["api_obj"], info["client"].PyApiSetImageSizeByJobName)
-        self.assertEqual(info["model"].ImageWidth, 1024)
-        self.assertEqual(info["model"].ImageHeight, 1024)
-
-    def test_set_image_format_tuple(self):
-        info, _ = self._run_set(drv.set_image_format, None, "HiRes", (512, 768))
-        self.assertIs(info["api_obj"], info["client"].PyApiSetImageSizeByJobName)
-        self.assertEqual(info["model"].ImageWidth, 512)
-        self.assertEqual(info["model"].ImageHeight, 768)
-
-    def test_set_frame_accumulation_model(self):
-        info, _ = self._run_set(drv.set_frame_accumulation, None, "HiRes", 0, 4)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetFrameAccumulationByJobName)
-        self.assertEqual(info["model"].SettingIndex, 0)
-        self.assertEqual(info["model"].FrameAccumulation, 4)
-
-    def test_set_frame_average_model(self):
-        info, _ = self._run_set(drv.set_frame_average, None, "HiRes", 0, 2)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetFrameAverageByJobName)
-        self.assertEqual(info["model"].FrameAverage, 2)
-
-    def test_set_pinhole_airy_model(self):
-        info, _ = self._run_set(drv.set_pinhole_airy, None, "HiRes", 0, 1.5)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetPinholeAUByJobName)
-        self.assertEqual(info["model"].PinholeAiry, 1.5)
-
-    def test_set_detector_gain_model(self):
-        info, _ = self._run_set(drv.set_detector_gain, None, "HiRes", 0, "BR1", 750)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetDetectorGainByJobName)
-        self.assertEqual(info["model"].BeamRoute, "BR1")
-        self.assertEqual(info["model"].GainValue, 750)
-
-    def test_set_laser_intensity_model(self):
-        info, _ = self._run_set(drv.set_laser_intensity, None, "HiRes", 0, "BR1", 0, 0.5)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetLaserIntensityByJobName)
-        self.assertEqual(info["model"].IntensityValue, 0.5)
-        self.assertEqual(info["model"].LaserLineIndex, 0)
-
-    def test_set_laser_shutter_model(self):
-        info, _ = self._run_set(drv.set_laser_shutter, None, "HiRes", 0, "BR1", True)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetLaserShutterByJobName)
-        self.assertEqual(info["model"].Activate, True)
-
-    def test_set_z_stack_step_size_model(self):
-        info, _ = self._run_set(drv.set_z_stack_step_size, None, "HiRes", 2.0)
-        self.assertIs(info["api_obj"], info["client"].PyApiCommandSetZStackStepSizeByJobName)
-        self.assertAlmostEqual(info["model"].StackStepSize, 2.0e-6, places=10)
-
-    def test_set_z_stack_size_model(self):
-        info, _ = self._run_set(drv.set_z_stack_size, None, "HiRes", 10.0)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetZStackSizeByJobName)
-        self.assertAlmostEqual(info["model"].StackSize, 10.0e-6, places=10)
 
     def test_set_zoom_provides_confirm_fn(self):
         info, _ = self._run_set(drv.set_zoom, None, "HiRes", 5.0)
@@ -1845,25 +1673,9 @@ class TestSetFunctionWiring(unittest.TestCase):
 
     # â”€â”€ filter wheel wiring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    def test_set_filter_wheel_slot_model(self):
-        info, _ = self._run_set(drv.set_filter_wheel_slot, None, "J", 0, "BR1", "emission", 2)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetFilterWheelSlotByJobName)
-        self.assertEqual(info["model"].JobName, "J")
-        self.assertEqual(info["model"].SettingIndex, 0)
-        self.assertEqual(info["model"].BeamRoute, "BR1")
-        self.assertEqual(info["model"].SlotIndex, 2)
-
     def test_set_filter_wheel_slot_provides_confirm_fn(self):
         info, _ = self._run_set(drv.set_filter_wheel_slot, None, "J", 0, "BR1", "emission", 2)
         self.assertIsNotNone(info["kwargs"].get("confirm_fn"))
-
-    def test_set_filter_wheel_spectrum_model(self):
-        info, _ = self._run_set(drv.set_filter_wheel_spectrum, None, "J", 0, "BR1", "emission", 525)
-        self.assertIs(info["api_obj"], info["client"].PyApiSetFilterWheelSpectrumPositionByJobName)
-        self.assertEqual(info["model"].JobName, "J")
-        self.assertEqual(info["model"].SettingIndex, 0)
-        self.assertEqual(info["model"].BeamRoute, "BR1")
-        self.assertEqual(info["model"].FilterSpectrumPosition, 525)
 
     def test_set_filter_wheel_spectrum_provides_confirm_fn(self):
         info, _ = self._run_set(drv.set_filter_wheel_spectrum, None, "J", 0, "BR1", "emission", 525)

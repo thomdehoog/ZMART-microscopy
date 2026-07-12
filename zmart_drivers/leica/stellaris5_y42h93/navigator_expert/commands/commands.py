@@ -14,9 +14,13 @@ Each wrapper follows a three-phase pattern:
 Every command unpacks its profile and binds ``client`` via lambda.
 The binding pattern is identical across all commands - no exceptions::
 
-    pre_check_fn  = lambda: profile.pre_check_fn(client)
+    pre_check_fn   = lambda: profile.pre_check_fn(client)
     error_check_fn = lambda: profile.error_check_fn(client)
-    confirm_fn    = lambda: profile.confirm_fn(client, ...)
+    confirm_fn     = lambda: confirm_fn(client)
+
+The confirm function is never in the profile: only the wrapper knows the
+target value, so it binds the matching confirm with the target baked in
+and hands the finished callable to ``_dispatch``.
 
 Numeric command tuning comes from ``profiles.py``. Wrapper keyword
 arguments are explicit overrides for tests and unusual hardware runs;
@@ -43,7 +47,7 @@ import math
 import time
 from functools import partial
 
-from ..commands.errors import _check_api_error, _is_transient_error
+from ..commands.errors import _check_api_error, _classified_error_result
 from ..config.profiles import (
     ACQUIRE,
     DETECTOR_GAIN,
@@ -135,11 +139,6 @@ def _limits_refusal(client, command, values, **extra):
     }
 
 
-def _has_bound_keyword(fn, name):
-    """Return True when a partial already owns a keyword value."""
-    return isinstance(fn, partial) and name in (fn.keywords or {})
-
-
 # =============================================================================
 # Internal helper - uniform backbone call
 # =============================================================================
@@ -156,8 +155,6 @@ def _dispatch(
     log_confirm_fn=None,
     confirm_race_budget_s=None,
     max_retries=None,
-    retry_backoff=None,
-    retry_escalate=None,
     max_confirm_attempts=None,
     pre_check_timeout=None,
     error_check_fn=None,
@@ -180,11 +177,9 @@ def _dispatch(
         description: Human-readable label for logging.
         profile: CommandProfile instance with all settings.
         setup_fn: Callable(model) that writes parameters to api_obj.Model.
-        confirm_fn: Override for the profile's confirm_fn. Use when
-            the confirm callable needs command-specific parameters
-            (e.g. target value, tolerance) that are not in the profile.
-            When None, uses profile.confirm_fn (which may also be None,
-            meaning no confirmation).
+        confirm_fn: Readback confirmation bound by the wrapper, with the
+            command-specific parameters (target value, tolerance) baked
+            in. None means no confirmation.
         log_confirm_fn: Optional log-evidence confirm leg. When provided,
             the confirmation becomes a target-gated race between the api and
             log legs instead of an identity pass-through.
@@ -193,10 +188,6 @@ def _dispatch(
             confirm attempt.
         max_retries: Override for the profile's max_retries. None uses
             the profile default.
-        retry_backoff: Override for the profile's retry_backoff. None
-            uses the profile default.
-        retry_escalate: Override for the profile's retry_escalate. None
-            uses the profile default.
         max_confirm_attempts: Override for the profile's max_confirm_attempts.
             None uses the profile default.
         pre_check_timeout: Override idle-wait timeout (seconds). None
@@ -209,24 +200,6 @@ def _dispatch(
     Returns:
         Result dict from confirm_and_fire.
     """
-    # Resolve confirm_fn: explicit override > profile default > None
-    effective_confirm = confirm_fn if confirm_fn is not None else profile.confirm_fn
-
-    # Inject the confirm poll window (confirm_poll_s) from the profile into simple
-    # readback confirmations. Long-poll confirms (acquire, select_job) bind their
-    # own `timeout` and are left untouched by the guard below.
-    if (
-        effective_confirm is not None
-        and profile.confirm_poll_s is not None
-        and not _has_bound_keyword(effective_confirm, "timeout")
-        and not _has_bound_keyword(effective_confirm, "poll_window")
-    ):
-        _inner = effective_confirm
-        _poll_window = profile.confirm_poll_s
-
-        def effective_confirm(c, _f=_inner, _t=_poll_window):
-            return _f(c, poll_window=_t)
-
     # Resolve pre_check_fn: timeout override > profile default > None
     if pre_check_timeout is not None and profile.pre_check_fn is not None:
         heartbeat = getattr(profile.pre_check_fn, "keywords", {}).get("heartbeat", 30.0)
@@ -241,7 +214,7 @@ def _dispatch(
         pre_check_fn = None
 
     effective_error_check = error_check_fn if error_check_fn is not None else profile.error_check_fn
-    api_confirm_leg = (lambda: effective_confirm(client)) if effective_confirm else None
+    api_confirm_leg = (lambda: confirm_fn(client)) if confirm_fn else None
     final_confirm_fn = race_confirmations(
         api_leg=api_confirm_leg,
         log_leg=log_confirm_fn,
@@ -262,8 +235,6 @@ def _dispatch(
         if max_confirm_attempts is not None
         else profile.max_confirm_attempts,
         refire_on_unconfirmed=profile.refire_on_unconfirmed,
-        retry_backoff=retry_backoff if retry_backoff is not None else profile.retry_backoff,
-        retry_escalate=retry_escalate if retry_escalate is not None else profile.retry_escalate,
         skip_echo=profile.skip_echo,
         receipt_timeout=profile.receipt_timeout,
         fire_async=profile.fire_async,
@@ -323,9 +294,7 @@ def _scan_resonant_error_check(client, *, job_name, target, timeout=None):
     if err is None:
         return {"success": True, "error": None, "transient": None, "logs": logs}
 
-    error_msg = err.get("error", "")
-    details = err.get("details", {})
-    if _SCAN_RESONANT_NO_CHANGE in error_msg.lower():
+    if _SCAN_RESONANT_NO_CHANGE in err.get("error", "").lower():
         confirmed = _confirm_scan_resonant(client, job_name, target, poll_window=timeout)
         logs.extend(confirmed.get("logs", []))
         if confirmed.get("success"):
@@ -333,17 +302,9 @@ def _scan_resonant_error_check(client, *, job_name, target, timeout=None):
             logs.append(_make_log_entry("info", msg))
             return {"success": True, "error": None, "transient": None, "logs": logs}
 
-    transient = _is_transient_error(error_msg)
-    log_msg = f"API error: {error_msg}"
-    if details:
-        log_msg += f" | details: {details}"
-    logs.append(_make_log_entry("warning" if transient else "error", log_msg))
-    return {
-        "success": False,
-        "error": error_msg,
-        "transient": transient,
-        "logs": logs,
-    }
+    # Any other error (or a no-change echo the readback disputes) is handled
+    # exactly like the default check: classify, log once, fail structured.
+    return _classified_error_result(err, logs)
 
 
 # =============================================================================

@@ -224,6 +224,27 @@ def _default_error_check(client):
     if err is None:
         return {"success": True, "error": None, "transient": None, "logs": logs}
 
+    return _classified_error_result(err, logs)
+
+
+def _classified_error_result(err, logs):
+    """Turn a raw echo error into the standard error-check failure dict.
+
+    This is the shared tail of every error check: classify the message as
+    transient or permanent, append one log entry (with any extra echo
+    details), and return the failure shape the fire block expects. A custom
+    error check (e.g. the resonant-scan no-change acceptance) handles its
+    special case first and then delegates here, so the classification and
+    logging live in exactly one place.
+
+    Args:
+        err: Non-None dict from ``_check_api_error``.
+        logs: Log-entry list accumulated so far; the classification entry
+            is appended and the same list is returned inside the result.
+
+    Returns:
+        {"success": False, "error": str, "transient": bool, "logs": [...]}
+    """
     error_msg = err.get("error", "")
     details = err.get("details", {})
     transient = _is_transient_error(error_msg)

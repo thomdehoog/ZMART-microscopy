@@ -76,7 +76,8 @@ runtime where possible. Override via the profile, not at call sites.
   `delay_ms` (Leica's client-side pacing knob `DelayInMilliseconds`, default 250 ms).
 - **Log reader** — `LogReaderProfile`: the `lcsCommand.log` / `MatrixScreener.log` paths + freshness windows.
 - **Machine-local calibration & limits** — `config/machine.py` resolves the instrument's calibration
-  (image↔stage matrix, per-objective translation), stage limits, orientation, and origin from a
+  (per-objective translation offsets; no image↔stage matrix — see `calibration/README.md`),
+  stage limits, orientation, and origin from a
   **machine-local ProgramData snapshot** (out of the repo). The repo ships defaults only. If
   ProgramData is empty, those defaults are copied into the first local snapshot so runtime reads still
   use ProgramData paths. Each snapshot holds `limits.json`, `calibration.json` or
@@ -322,7 +323,7 @@ select_job(client, job_name, poll_timeout=None, poll_interval=None) -> dict     
 acquire(client, job, *, poll_interval=None, poll_timeout=None, heartbeat_interval=None,
         start_timeout=None, pre_check_timeout=None) -> AcquisitionResult          # RAISES on failure
 save(client, acq, output_root, naming, *, lineage=None, fix_ome=True,
-     cleanup_source=False) -> SavedAcquisition                                    # image_paths / xml_paths / naming
+     cleanup_source=False) -> SavedAcquisition                                    # image_paths / naming
 ```
 `save()` collects LAS X native AutoSave output into a neutral product and
 writes canonical single-plane OME-TIFFs with OME-XML embedded in each image.
@@ -363,9 +364,9 @@ every edit through `apply_lrp_change(...)` (**save → edit → reorder → load
 `reorder_jobs` keeps the active job selected). It also provides ROI authoring — `make_rectangle` /
 `make_ellipse` / `make_polygon`, `lrp_add_roi`, `lrp_clear_rois` — and pixel↔stage↔pan/zoom coordinate
 math — `mask_contour_to_roi`, `roi_translation_to_pan`, `galvo_pan_for_pixel` (see the
-coordinate-frame docstring atop `experimental/lrp_edits/roi.py`). Despite the `experimental/` name this
-code is **load-bearing** (used by `move_galvo_to_pixel`, `disable_roi_scan`, `reset_pan`) — read it as
-"offline template editor", not "unstable".
+coordinate-frame docstring atop `experimental/lrp_edits/roi.py`). A few of these helpers (the
+pan/ROI coordinate math) are also called by live commands (`move_galvo_to_pixel`,
+`disable_roi_scan`, `reset_pan`); most of the package is the offline mirror API itself.
 
 ## 7. Architecture
 

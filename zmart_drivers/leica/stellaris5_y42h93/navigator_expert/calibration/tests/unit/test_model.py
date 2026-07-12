@@ -226,6 +226,29 @@ def test_validate_calibration_does_not_mutate():
     assert cfg == before
 
 
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_validate_calibration_rejects_non_finite_translation(bad):
+    """Regression: a NaN or infinite translation once validated cleanly and
+    then silently poisoned every frame coordinate computed from that slot.
+    Validation must refuse it with a clear message instead."""
+    cal = _load_calibration_module()
+    cfg = _config()
+    cfg["objectives"]["2"]["translation_um"] = [bad, 0.0, 0.0]
+    with pytest.raises(ValueError, match="non-finite"):
+        cal.validate_calibration(cfg)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_update_objective_then_validate_catches_non_finite(bad):
+    """The write path (update_objective) accepts raw floats; validation is the
+    gate that keeps a poisoned value from being persisted."""
+    cal = _load_calibration_module()
+    cfg = _config()
+    cal.update_objective(cfg, 2, translation_um=(bad, 1.0, 2.0))
+    with pytest.raises(ValueError, match="non-finite"):
+        cal.validate_calibration(cfg)
+
+
 def test_calibration_has_no_backlash_field(tmp_path):
     """§2b: backlash is a motion utility, not calibration state. The bundled
     default calibration.json carries no backlash block."""

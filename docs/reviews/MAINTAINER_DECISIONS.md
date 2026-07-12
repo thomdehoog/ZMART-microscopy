@@ -101,6 +101,12 @@ limits adopt writes only `limits.json` and carries forward a *real* prior calibr
 if present, never mints one from the template — calibration stays a loud in-memory
 fallback until an explicit calibration adopt.
 
+*Addendum (2026-07-12):* the shipped `limits.json` has since gone fully **flat** — the
+axis ranges, `objective_slot`, and per-setter entries sit at the top level with no
+`schema_version`/`source`/`constraints`/`functions` wrapper keys, and the backlash block
+is gone entirely (decision §2b). The "explicitly adopted vs seeded defaults" distinction
+that `source` used to carry now lives in the hidden `.limits-machine` snapshot marker.
+
 ## 6. `confirmed` is best-effort — except acquire's idle gate
 
 - `confirmed` does **not** have to be enforced on command paths: after **3 retries**,

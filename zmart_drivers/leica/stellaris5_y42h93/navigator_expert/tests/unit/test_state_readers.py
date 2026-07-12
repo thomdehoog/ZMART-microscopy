@@ -405,6 +405,50 @@ class TestApiModeCappedWorker(unittest.TestCase):
         self.assertIsNone(reading.value)
         self.assertIsInstance(reading.error, RuntimeError)
 
+    def test_api_mode_hung_read_reports_timeout_in_diagnostics(self):
+        """Regression: a timed-out API read must give diagnostics callers the
+        documented error-carrying Reading, not bare None. The hung-CAM case
+        (a modal LAS X dialog) is exactly the failure diagnostics exist to
+        explain."""
+        profiles.STATE_READERS = profiles.StateReaderProfile(xy_timeout_s=0.2)
+        release = threading.Event()
+
+        def hung_api(*_args, **_kwargs):
+            release.wait(5.0)
+            return {"x_um": 1.0, "y_um": 2.0}
+
+        try:
+            with patch.object(router.api_reader, "get_xy", side_effect=hung_api):
+                reading = readers.get_xy(object(), mode="api", diagnostics=True)
+            self.assertIsNotNone(reading)
+            self.assertIsNone(reading.value)
+            self.assertEqual(reading.source, "api")
+            self.assertIsInstance(reading.error, router.ApiReadTimeout)
+            self.assertIn("timed out", str(reading.error))
+        finally:
+            release.set()
+
+    def test_api_mode_blocked_in_flight_slot_reports_timeout_in_diagnostics(self):
+        """A read that never got the in-flight slot (another read is parked on
+        a hung CAM call) also reports the timeout instead of bare None."""
+        profiles.STATE_READERS = profiles.StateReaderProfile(xy_timeout_s=0.2)
+        release = threading.Event()
+        client = object()
+
+        def hung_api(*_args, **_kwargs):
+            release.wait(5.0)
+            return {"x_um": 1.0, "y_um": 2.0}
+
+        try:
+            with patch.object(router.api_reader, "get_xy", side_effect=hung_api):
+                readers.get_xy(client, mode="api")  # parks the worker
+                reading = readers.get_xy(client, mode="api", diagnostics=True)
+            self.assertIsNotNone(reading)
+            self.assertIsNone(reading.value)
+            self.assertIsInstance(reading.error, router.ApiReadTimeout)
+        finally:
+            release.set()
+
 
 class TestDerivedZoom(unittest.TestCase):
     def test_sub_unity_zoom_is_not_clamped(self):
@@ -585,6 +629,29 @@ class TestRoutedErrorAndDiagnosticShapes(unittest.TestCase):
                 patch.object(router.api_reader, "get_xy", side_effect=hung_api),
             ):
                 self.assertIsNone(readers.get_xy(object(), mode="hybrid"))
+        finally:
+            release.set()
+
+    def test_hybrid_api_only_hung_read_reports_timeout_in_diagnostics(self):
+        """The api-only hybrid leg reports the same timeout diagnostics as
+        pure api mode (regression companion to the plain-None test above)."""
+        profiles.STATE_READERS = profiles.StateReaderProfile(xy_timeout_s=0.1)
+        api_only = dataclasses.replace(capabilities.spec("xy"), log_fn=None)
+        release = threading.Event()
+
+        def hung_api(*_args, **_kwargs):
+            release.wait(5.0)
+            return {"x_um": 1.0, "y_um": 2.0}
+
+        try:
+            with (
+                patch.dict(capabilities.DATUMS, {"xy": api_only}),
+                patch.object(router.api_reader, "get_xy", side_effect=hung_api),
+            ):
+                reading = readers.get_xy(object(), mode="hybrid", diagnostics=True)
+            self.assertIsNotNone(reading)
+            self.assertIsNone(reading.value)
+            self.assertIsInstance(reading.error, router.ApiReadTimeout)
         finally:
             release.set()
 

@@ -5,11 +5,14 @@ One row per per-setting readback confirmation that shares the generic poll
 skeleton in ``confirmations._confirm_readback``. Each row captures the
 handful of things that vary between settings and nothing else:
 
-  * ``label``             — display name used verbatim in DEBUG + timeout logs.
-  * ``extract``           — pull the current value out of a readback dict.
-  * ``compare``           — exact ``==`` or absolute-tolerance ``abs(a-b) < tol``.
-  * ``errors``            — exception types extraction may raise (caught + retried).
-  * ``default_tolerance`` — tolerance default (``None`` for exact match).
+  * ``label``   — display name used verbatim in DEBUG + timeout logs.
+  * ``extract`` — pull the current value out of a readback dict.
+  * ``compare`` — exact ``==`` or absolute-tolerance ``abs(a-b) < tol``.
+  * ``errors``  — exception types extraction may raise (caught + retried).
+
+Tolerance defaults live on the ``_confirm_<name>`` wrapper signatures in
+``confirmations`` (and the command profiles override them per call), so the
+table carries no tolerance of its own.
 
 The table is the single source of truth: ``confirmations`` builds one thin
 ``_confirm_<name>`` wrapper per row, and ``tests/unit/test_confirm_specs``
@@ -144,29 +147,24 @@ class ConfirmSpec:
     extract: Callable[..., Any]
     compare: Callable[..., bool]
     errors: tuple[type, ...]
-    default_tolerance: float | None = None
 
 
-# Field order: label, extract, compare, errors, default_tolerance.
+# Field order: label, extract, compare, errors.
 CONFIRM_SPECS = {
     # -- approximate match (absolute tolerance) ------------------------------
     "scan_field_rotation": ConfirmSpec(
-        "ScanFieldRotation", _x_scan_field_rotation, _cmp_tolerance, _DICT_ERRORS, 0.5
+        "ScanFieldRotation", _x_scan_field_rotation, _cmp_tolerance, _DICT_ERRORS
     ),
-    "pinhole_airy": ConfirmSpec(
-        "PinholeAiry", _x_pinhole_airy, _cmp_tolerance, _INDEXED_ERRORS, 0.05
-    ),
-    "detector_gain": ConfirmSpec(
-        "DetectorGain", _x_detector_gain, _cmp_tolerance, _SEARCH_ERRORS, 1.0
-    ),
+    "pinhole_airy": ConfirmSpec("PinholeAiry", _x_pinhole_airy, _cmp_tolerance, _INDEXED_ERRORS),
+    "detector_gain": ConfirmSpec("DetectorGain", _x_detector_gain, _cmp_tolerance, _SEARCH_ERRORS),
     "laser_intensity": ConfirmSpec(
-        "LaserIntensity", _x_laser_intensity, _cmp_tolerance, _SEARCH_ERRORS, 0.005
+        "LaserIntensity", _x_laser_intensity, _cmp_tolerance, _SEARCH_ERRORS
     ),
     "filter_wheel_spectrum": ConfirmSpec(
-        "FilterWheelSpectrum", _x_filter_wheel_spectrum, _cmp_tolerance, _SEARCH_ERRORS, 1
+        "FilterWheelSpectrum", _x_filter_wheel_spectrum, _cmp_tolerance, _SEARCH_ERRORS
     ),
     "z_stack_step_size": ConfirmSpec(
-        "Z-stack step", _x_z_stack_step_size, _cmp_tolerance, _DICT_ERRORS, 0.5
+        "Z-stack step", _x_z_stack_step_size, _cmp_tolerance, _DICT_ERRORS
     ),
     # -- exact match ---------------------------------------------------------
     "scan_speed": ConfirmSpec("ScanSpeed", _x_scan_speed, _cmp_exact, _DICT_ERRORS),

@@ -448,9 +448,7 @@ def connect_handshake(
             limits_file = stage_limits_path
             source = "machine"
         else:
-            limits_file = machine.require_machine_local(
-                _machine.LIMITS_FILENAME, "the physical stage envelope"
-            )
+            limits_file = machine.require_machine_local(_machine.LIMITS_FILENAME)
             marker = limits_file.parent / _machine.LIMITS_MACHINE_MARKER
             source = "machine" if marker.exists() else "defaults"
         state = _build_gate_from_file(

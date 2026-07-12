@@ -31,9 +31,8 @@ Two ceilings, both explicit:
 The backbone is dumb - it owns pipeline order, retry ceilings, and
 timing. It does not know about zoom, objectives, stages, or Z-drives.
 It does not poll for hardware state. It calls zero-arg callables and
-acts on their result dicts. The only sleeping it does is backoff delay
-between transient error retries (configurable via ``retry_backoff``
-and ``retry_escalate``).
+acts on their result dicts. Transient error retries are immediate -
+the backbone itself never sleeps between attempts.
 
 ``_fire_with_receipt`` is the transport helper for UpdateAwaitReceipt
 delivery. ``_await_echo_result`` polls the echo model after transport
@@ -182,6 +181,20 @@ def _await_echo_result(client, timeout=None, poll_interval=0.01):
 # =============================================================================
 
 
+def _phase_timing(t_pre_check, t_setup, t_fire, t_check):
+    """Package the four fire-pipeline phase durations into one timing dict.
+
+    Every ``_fire_block`` return path reports how long each step took;
+    this helper keeps that dict's shape defined in one place.
+    """
+    return {
+        "pre_check_s": t_pre_check,
+        "setup_s": t_setup,
+        "fire_s": t_fire,
+        "check_s": t_check,
+    }
+
+
 def _fire_block(
     client,
     api_obj,
@@ -191,8 +204,6 @@ def _fire_block(
     pre_check_fn=None,
     error_check_fn=None,
     max_retries=3,
-    retry_backoff=None,
-    retry_escalate=False,
     skip_echo=False,
     receipt_timeout=None,
     fire_async=False,
@@ -206,7 +217,8 @@ def _fire_block(
         4. Error check - call ``error_check_fn()`` (zero-arg, returns result dict).
 
     Steps 1-4 repeat on transient API errors, up to ``max_retries`` + 1
-    total attempts. Pre-check functions own their own polling internally.
+    total attempts. Retries are immediate - no delay between attempts.
+    Pre-check functions own their own polling internally.
     The fire block never knows what it is checking.
 
     Args:
@@ -222,12 +234,6 @@ def _fire_block(
             default check is applied at profile level, not here).
         max_retries: Max retries after the first attempt. Total attempts =
             max_retries + 1.
-        retry_backoff: Base delay in seconds between transient error retries.
-            None for immediate retry. First retry is always immediate;
-            subsequent retries use the backoff delay.
-        retry_escalate: If True, double the delay after each retry
-            (exponential backoff: 0s, base, 2×base, 4×base, ...).
-            If False, use a fixed delay. Ignored when retry_backoff is None.
         skip_echo: If True, skip the echo error check step entirely (the
             confirm_fn is then the authoritative completion signal).
         receipt_timeout: Seconds for the UpdateAwaitReceipt transport ACK.
@@ -296,12 +302,7 @@ def _fire_block(
             return {
                 "success": False,
                 "message": msg,
-                "timing": {
-                    "pre_check_s": t_pre_check,
-                    "setup_s": t_setup,
-                    "fire_s": t_fire,
-                    "check_s": t_check,
-                },
+                "timing": _phase_timing(t_pre_check, t_setup, t_fire, t_check),
                 "attempts": attempts,
                 "logs": all_logs,
             }
@@ -338,12 +339,7 @@ def _fire_block(
             return {
                 "success": False,
                 "message": msg,
-                "timing": {
-                    "pre_check_s": t_pre_check,
-                    "setup_s": t_setup,
-                    "fire_s": t_fire,
-                    "check_s": t_check,
-                },
+                "timing": _phase_timing(t_pre_check, t_setup, t_fire, t_check),
                 "attempts": attempts,
                 "logs": all_logs,
             }
@@ -359,12 +355,7 @@ def _fire_block(
             return {
                 "success": False,
                 "message": msg,
-                "timing": {
-                    "pre_check_s": t_pre_check,
-                    "setup_s": t_setup,
-                    "fire_s": t_fire,
-                    "check_s": t_check,
-                },
+                "timing": _phase_timing(t_pre_check, t_setup, t_fire, t_check),
                 "attempts": attempts,
                 "logs": all_logs,
             }
@@ -399,26 +390,13 @@ def _fire_block(
         transient = err_result.get("transient", False)
 
         if transient and attempt < max_retries:
-            # Backoff: first retry is immediate, then base × 2^(attempt-1)
-            if retry_backoff is not None and attempt > 0:
-                delay = retry_backoff * (2 ** (attempt - 1)) if retry_escalate else retry_backoff
-                log.warning(
-                    "%s | Transient error (attempt %d/%d), retrying in %.1fs: %s",
-                    description,
-                    attempts,
-                    max_retries + 1,
-                    delay,
-                    error_msg,
-                )
-                time.sleep(delay)
-            else:
-                log.warning(
-                    "%s | Transient error (attempt %d/%d): %s",
-                    description,
-                    attempts,
-                    max_retries + 1,
-                    error_msg,
-                )
+            log.warning(
+                "%s | Transient error (attempt %d/%d): %s",
+                description,
+                attempts,
+                max_retries + 1,
+                error_msg,
+            )
             continue
 
         # Permanent error, or transient but out of retries
@@ -430,12 +408,7 @@ def _fire_block(
         return {
             "success": False,
             "message": f"{description} | API Error: {error_msg}",
-            "timing": {
-                "pre_check_s": t_pre_check,
-                "setup_s": t_setup,
-                "fire_s": t_fire,
-                "check_s": t_check,
-            },
+            "timing": _phase_timing(t_pre_check, t_setup, t_fire, t_check),
             "attempts": attempts,
             "logs": all_logs,
         }
@@ -444,12 +417,7 @@ def _fire_block(
     return {
         "success": True,
         "message": description,
-        "timing": {
-            "pre_check_s": t_pre_check,
-            "setup_s": t_setup,
-            "fire_s": t_fire,
-            "check_s": t_check,
-        },
+        "timing": _phase_timing(t_pre_check, t_setup, t_fire, t_check),
         "attempts": attempts,
         "logs": all_logs,
     }
@@ -472,8 +440,6 @@ def confirm_and_fire(
     max_retries=3,
     max_confirm_attempts=3,
     refire_on_unconfirmed=True,
-    retry_backoff=None,
-    retry_escalate=False,
     skip_echo=False,
     receipt_timeout=None,
     fire_async=False,
@@ -511,10 +477,6 @@ def confirm_and_fire(
         refire_on_unconfirmed: If True, a failed confirmation sends the
             command again before the next confirmation attempt. If False,
             the command is not fired again; only readback is retried.
-        retry_backoff: Base delay in seconds between transient error
-            retries. None for immediate retry. Passed to ``_fire_block``.
-        retry_escalate: If True, use exponential backoff (delay doubles
-            each retry). Passed to ``_fire_block``.
         success_on_unconfirmed: If True, return success=True when all
             confirmation attempts are exhausted (every profile currently
             sets True — deliberate, see ``CommandProfile``). This means
@@ -550,8 +512,6 @@ def confirm_and_fire(
         pre_check_fn=pre_check_fn,
         error_check_fn=error_check_fn,
         max_retries=max_retries,
-        retry_backoff=retry_backoff,
-        retry_escalate=retry_escalate,
         skip_echo=skip_echo,
         receipt_timeout=receipt_timeout,
         fire_async=fire_async,
@@ -688,8 +648,6 @@ def confirm_and_fire(
                 pre_check_fn=None,  # Already waited for idle above
                 error_check_fn=error_check_fn,
                 max_retries=max_retries,
-                retry_backoff=retry_backoff,
-                retry_escalate=retry_escalate,
                 skip_echo=skip_echo,
                 receipt_timeout=receipt_timeout,
                 fire_async=fire_async,
