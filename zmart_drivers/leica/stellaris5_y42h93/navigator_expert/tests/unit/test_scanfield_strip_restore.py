@@ -125,48 +125,6 @@ def test_strip_restore_round_trip_preserves_offline_workflow(
     assert not (templates_dir / STRIPPED_LRP).exists()
 
 
-def test_strip_template_in_place_has_no_sidecar_or_restore(
-    general_workflow_data,
-    monkeypatch,
-):
-    """The non-return strip keeps PythonInspect canonical and removes sidecars."""
-    templates_dir = general_workflow_data
-    _install_template_bundle(general_workflow_data, templates_dir)
-
-    monkeypatch.setattr(strip_restore, "find_scanning_templates_dir", lambda: templates_dir)
-    monkeypatch.setattr(
-        strip_restore,
-        "save_experiment",
-        lambda *_args, **_kwargs: {"success": True, "confirmed": True},
-    )
-    monkeypatch.setattr(
-        strip_restore,
-        "load_experiment",
-        lambda *_args, **_kwargs: {"success": True, "confirmed": True},
-    )
-
-    # Stale sidecars from a previous reversible strip must not define
-    # state after the in-place routine takes ownership of the canonical
-    # template.
-    for name in (STRIPPED_XML, STRIPPED_RGN, STRIPPED_LRP):
-        (templates_dir / name).write_text("stale", encoding="utf-8")
-
-    xml_path = templates_dir / TEMPLATE_XML
-    rgn_path = templates_dir / TEMPLATE_RGN
-    original_counts = strip_restore._count_objects(xml_path, rgn_path)
-    assert original_counts[1] > 0
-
-    result = strip_restore.strip_template_in_place(object(), save_timeout=1)
-
-    assert result is not None
-    assert result["success"] is True
-    assert strip_restore._count_objects(xml_path, rgn_path) == (0, 0, 0)
-    assert (templates_dir / TEMPLATE_LRP).is_file()
-    assert not (templates_dir / STRIPPED_XML).exists()
-    assert not (templates_dir / STRIPPED_RGN).exists()
-    assert not (templates_dir / STRIPPED_LRP).exists()
-
-
 # =============================================================================
 # _strip_xml
 # =============================================================================
@@ -242,51 +200,6 @@ def test_strip_template_warns_when_xml_strip_is_incomplete(bundle_dir, patch_las
     with caplog.at_level("WARNING", logger="navigator_expert.scanfields.strip_restore"):
         assert strip_restore.strip_template(object(), save_timeout=1) is None
     assert any("Strip incomplete" in m for m in caplog.messages)
-
-
-# =============================================================================
-# strip_template_in_place failure ladder
-# =============================================================================
-
-
-def test_strip_in_place_without_templates_dir_returns_none(monkeypatch):
-    monkeypatch.setattr(strip_restore, "find_scanning_templates_dir", lambda: None)
-    assert strip_restore.strip_template_in_place(object()) is None
-
-
-def test_strip_in_place_initial_save_failure_leaves_canonical_untouched(bundle_dir, patch_lasx):
-    original = (bundle_dir / TEMPLATE_XML).read_bytes()
-    patch_lasx(save_script=[None])
-    assert strip_restore.strip_template_in_place(object(), save_timeout=1) is None
-    assert (bundle_dir / TEMPLATE_XML).read_bytes() == original
-
-
-def test_strip_in_place_missing_lrp_returns_none(bundle_dir, patch_lasx):
-    (bundle_dir / TEMPLATE_LRP).unlink()
-    patch_lasx()
-    assert strip_restore.strip_template_in_place(object(), save_timeout=1) is None
-
-
-def test_strip_in_place_load_failure_returns_none(bundle_dir, patch_lasx):
-    patch_lasx(load_script=[None])
-    assert strip_restore.strip_template_in_place(object(), save_timeout=1) is None
-
-
-def test_strip_in_place_confirm_save_failure_returns_none(bundle_dir, patch_lasx):
-    save, _ = patch_lasx(save_script=[{"success": True}, None])
-    assert strip_restore.strip_template_in_place(object(), save_timeout=1) is None
-    assert save.calls == 2
-
-
-def test_strip_in_place_residual_objects_returns_none(bundle_dir, patch_lasx):
-    original_rgn = (bundle_dir / TEMPLATE_RGN).read_text(encoding="utf-8")
-
-    def lasx_rewrites_objects():
-        (bundle_dir / TEMPLATE_RGN).write_text(original_rgn, encoding="utf-8")
-        return {"success": True}
-
-    patch_lasx(save_script=[{"success": True}, lasx_rewrites_objects])
-    assert strip_restore.strip_template_in_place(object(), save_timeout=1) is None
 
 
 # =============================================================================

@@ -62,9 +62,10 @@ time someone uses them.
   via `navigator_expert/zmart_adapter/` (import to register) and the full
   controller round-trip — connect, origin/frame moves, capture+save — is
   validated against a live LAS X simulator by
-  `navigator_expert/tests/hardware/validate_zmart_adapter.py`. Workflows do not
-  yet run through it (they use the Leica driver directly), and the
-  vendor-neutral verb contract is not frozen. Drivers today: Leica
+  `navigator_expert/tests/hardware/validate_zmart_adapter.py`. The v4
+  target-acquisition workflow runs through the controller only (the old
+  driver-coupled generation has been removed), and the vendor-neutral verb
+  contract is not frozen. Drivers today: Leica
   (production-tested), mesoSPIM (demo-validated, near production), Zeiss
   (MVP, offline-green), Nikon + Evident (investigation / spike).
 - **The name is set; the code rename is under way.** The project is **ZMART

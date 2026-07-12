@@ -116,9 +116,10 @@ def move_record_images(record: dict, data_dir: Any) -> dict:
 
     Which files a driver saved is read through :func:`record_channel_paths` --
     the same driver-agnostic reader the rest of the workflow uses -- so this
-    step works for any driver's record shape (a plain ``images`` list, a
-    mesospim-style ``planes`` manifest, and so on) rather than only the ones
-    that happen to fill in ``images``.
+    step works for any driver's record shape (a plain ``images`` or
+    ``image_files`` list, a Leica-style ``planes`` manifest, or a
+    mesoSPIM-style plain plane count) rather than only the ones that happen
+    to fill in ``images``.
 
     Every source and destination is validated before the first move.  If a
     later move fails, already moved files are rolled back to their original
@@ -135,7 +136,10 @@ def move_record_images(record: dict, data_dir: Any) -> dict:
         values = record.get(key)
         if isinstance(values, list):
             sources.update(dict.fromkeys(Path(value) for value in values))
-    sources.update(dict.fromkeys(Path(plane["path"]) for plane in record.get("planes", [])))
+    planes = record.get("planes")
+    if isinstance(planes, (list, tuple)):
+        # Only a manifest carries paths; a plain plane count has none to remap.
+        sources.update(dict.fromkeys(Path(plane["path"]) for plane in planes))
     sources = list(sources)
 
     destination = Path(data_dir)
@@ -168,6 +172,7 @@ def move_record_images(record: dict, data_dir: Any) -> dict:
         values = record.get(key)
         if isinstance(values, list):
             record[key] = [mapped[str(Path(value))] for value in values]
-    for plane in record.get("planes", []):
-        plane["path"] = mapped[str(Path(plane["path"]))]
+    if isinstance(planes, (list, tuple)):
+        for plane in planes:
+            plane["path"] = mapped[str(Path(plane["path"]))]
     return record

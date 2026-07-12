@@ -159,11 +159,7 @@ def _make_region(
     source: str = "geometry_plan",
 ) -> dict[str, Any]:
     """Build one acquisition-position region."""
-    half = tile_size_um / 2.0
-
     positions = []
-    xs = []
-    ys = []
     for i, pt in enumerate(tile_positions):
         if isinstance(pt, dict):
             x_um = float(pt["x_um"])
@@ -182,18 +178,10 @@ def _make_region(
                 "scan_order_original": i + 1,
                 "rotation": 0.0,
                 "source": source,
-                "bounding_box": {
-                    "x_min_um": round(x_um - half, 4),
-                    "y_min_um": round(y_um - half, 4),
-                    "x_max_um": round(x_um + half, 4),
-                    "y_max_um": round(y_um + half, 4),
-                },
             }
         )
-        xs.append(x_um)
-        ys.append(y_um)
 
-    region = {
+    return {
         "section_x": None,
         "section_y": None,
         "region_row": 0,
@@ -208,14 +196,6 @@ def _make_region(
         "source": source,
         "positions": positions,
     }
-    if xs:
-        region["region_bounding_box"] = {
-            "x_min_um": round(min(xs) - half, 4),
-            "y_min_um": round(min(ys) - half, 4),
-            "x_max_um": round(max(xs) + half, 4),
-            "y_max_um": round(max(ys) + half, 4),
-        }
-    return region
 
 
 def _grid_count(dimension: float, tile_size: float, step: float, tol: float = 0.05) -> int:

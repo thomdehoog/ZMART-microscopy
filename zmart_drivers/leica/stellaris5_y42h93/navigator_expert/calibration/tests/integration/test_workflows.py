@@ -537,20 +537,6 @@ def test_common_reference_adoptions_infer_every_objective_pair(sessions_root, ma
         assert calibration_model.get_translation_um(config, slot) == translations[slot]
         assert config["objectives"][str(slot)]["session_id"] == f"measure_10x_to_{names[slot]}"
 
-    base = (100.0, 200.0, 500.0)
-    for from_slot in translations:
-        for to_slot in translations:
-            actual = calibration_model.translate_xyz_between_objectives(
-                *base,
-                config,
-                from_slot=from_slot,
-                to_slot=to_slot,
-            )
-            t_from = translations[from_slot]
-            t_to = translations[to_slot]
-            expected = tuple(base[axis] + t_to[axis] - t_from[axis] for axis in range(3))
-            assert actual == expected
-
 
 def test_adoption_refreshes_objective_names_from_the_live_system(
     sessions_root,
@@ -797,11 +783,7 @@ def _patch_objective_driver(
     monkeypatch.setattr(
         wf_obj.drv,
         "connect_limits_handshake",
-        lambda client, **k: SimpleNamespace(
-            ok=True,
-            error=None,
-            stage_cfg={"stage_um": {"x": [1000.0, 130000.0], "y": [1000.0, 100000.0]}},
-        ),
+        lambda client, **k: SimpleNamespace(ok=True, error=None),
     )
     monkeypatch.setattr(
         wf_obj.drv,

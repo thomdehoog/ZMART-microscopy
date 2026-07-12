@@ -21,7 +21,6 @@ from navigator_expert.scanfields.parsers import (
     parse_focus_points,
     parse_matrix_settings,
     parse_rgn_geometries,
-    parse_rgn_tile_colors,
     parse_scan_positions,
 )
 
@@ -182,19 +181,10 @@ class TestParseAcquisitionPositions:
         assert region["job_name"] == "AF Job"
         assert region["tile_size_um"] == 100.0
 
-    def test_bounding_box_present(self):
-        root = ET.fromstring(SAMPLE_XML)
-        regions = parse_acquisition_positions(root, {"AF Job": 100.0})
-        assert "region_bounding_box" in regions["0"]
-        for pos in regions["0"]["positions"]:
-            assert "bounding_box" in pos
-
     def test_no_tile_size(self):
         root = ET.fromstring(SAMPLE_XML)
         regions = parse_acquisition_positions(root, {})
         assert regions["0"]["tile_size_um"] is None
-        for pos in regions["0"]["positions"]:
-            assert "bounding_box" not in pos
 
 
 class TestParseTemplatePositionsFromRgnGrid:
@@ -298,7 +288,6 @@ class TestParseTemplatePositionsFromRgnGrid:
 
         region = parsed["acquisition_positions"]["0"]
         assert region["tile_size_um"] == 1200.0
-        assert "bounding_box" in region["positions"][0]
 
     def test_geometry_tile_count_wins_over_stale_matrix_grid(self, tmp_path):
         base = self._write_grid_template(tmp_path, tag="R1 (2)")
@@ -643,26 +632,6 @@ class TestParseRgnGeometries:
 
 
 # =============================================================================
-# Tile colors from RGN
-# =============================================================================
-
-
-class TestParseRgnTileColors:
-    def test_extracts_rgba(self, tmp_path):
-        rgn = tmp_path / "test.rgn"
-        rgn.write_text(SAMPLE_RGN_GEOM, encoding="utf-8")
-        colors = parse_rgn_tile_colors(rgn)
-        assert "Overview" in colors
-        r, g, b, a = colors["Overview"]
-        assert abs(r - 200 / 255.0) < 0.01
-        assert abs(g - 130 / 255.0) < 0.01
-        assert abs(a - 1.0) < 0.01
-
-    def test_missing_file(self, tmp_path):
-        assert parse_rgn_tile_colors(tmp_path / "nope.rgn") == {}
-
-
-# =============================================================================
 # Matrix settings from XML
 # =============================================================================
 
@@ -679,11 +648,6 @@ class TestParseMatrixSettings:
         ms = parse_matrix_settings(root)
         assert ms["distances"]["origin"]["x_um"] == 50000.0
         assert ms["distances"]["field"]["distanceX_um"] == 1600.0
-
-    def test_carrier(self):
-        root = ET.fromstring(SAMPLE_XML_MATRIX)
-        ms = parse_matrix_settings(root)
-        assert ms["carrier"]["type"] == "Slide"
 
     def test_autofocus(self):
         root = ET.fromstring(SAMPLE_XML_MATRIX)
@@ -747,7 +711,7 @@ class TestRealWorkflowFiles:
         tdir, base = template
         xml_root = ET.parse(tdir / (base + ".xml")).getroot()
         ms = parse_matrix_settings(xml_root)
-        assert "count" in ms or "carrier" in ms
+        assert "count" in ms
 
 
 @pytest.mark.skipif(

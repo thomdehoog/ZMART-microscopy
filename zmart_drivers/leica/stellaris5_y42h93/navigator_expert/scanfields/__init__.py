@@ -23,14 +23,12 @@ from .parsers import (
     parse_focus_points,
     parse_matrix_settings,
     parse_rgn_geometries,
-    parse_rgn_tile_colors,
     parse_scan_positions,
 )
 from .planning import plan_tiles_from_geometries
 from .strip_restore import (
     restore_template,
     strip_template,
-    strip_template_in_place,
 )
 from .transaction import apply_lrp_change, reorder_jobs
 
@@ -54,7 +52,6 @@ __all__ = [
     "parse_lrp",
     "parse_matrix_settings",
     "parse_rgn_geometries",
-    "parse_rgn_tile_colors",
     "parse_scan_positions",
     "plan_tiles_from_geometries",
     "reorder_jobs",
@@ -62,5 +59,4 @@ __all__ = [
     "save_and_read_lrp",
     "save_experiment",
     "strip_template",
-    "strip_template_in_place",
 ]
