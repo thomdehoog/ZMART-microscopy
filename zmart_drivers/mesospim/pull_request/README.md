@@ -126,8 +126,9 @@ Running the directory without `-m` collects all groups, but `live_valid` safely 
 both device-change gates and a token are supplied.
 
 The full visible demo sweep is a fourth, separately gated group. It calls every one of the
-54 allowlisted commands over live MCP: all 40 instrument-facing operations, 13 read/query
-commands, and the deliberately unimplemented `procedure` command (which must fail safely).
+54 allowlisted commands over the selected live transport (`mcp` by default, or `tcp`): all
+40 instrument-facing operations, 13 read/query commands, and the deliberately unimplemented
+`procedure` command (which must fail safely).
 It refuses to run unless the server reports `DemoStage`, uses a temporary acquisition
 directory, backs up and restores the ETL CSV, and restores position, settings, acquisition
 list, shutters, and idle state. On Windows it completes in about 50 seconds:
@@ -135,12 +136,16 @@ list, shutters, and idle state. On Windows it completes in about 50 seconds:
 ```bash
 MESOSPIM_ALLOW_DEVICE_CHANGE=1 MESOSPIM_OPERATOR_PRESENT=1 \
 MESOSPIM_CONFIRM_DEMO_MODE=1 MESOSPIM_RUN_ALL_COMMANDS=1 \
+MESOSPIM_LIVE_DEMO_TRANSPORT=mcp \
 MESOSPIM_LIVE_MCP_TOKEN=<token> \
 MESOSPIM_DEMO_PROCESS_ID=<pid-of-mesoSPIM-Control--D> \
 MESOSPIM_DEMO_ROOT=<path-to-mesoSPIM> \
 MESOSPIM_DEMO_ETL_CONFIG_PATH=<path-to-ETL-parameters.csv> \
 python -m pytest zmart_drivers/mesospim/pull_request -m live_demo_all -q -s
 ```
+
+For the identical framed-TCP sweep, use `MESOSPIM_LIVE_DEMO_TRANSPORT=tcp` and set
+`MESOSPIM_LIVE_TCP_PORT` plus `MESOSPIM_LIVE_TCP_TOKEN`; the MCP URL/token are not needed.
 
 Without every gate, `live_demo_all` safely skips. It must never be enabled against physical
 hardware; the remote `DemoStage` check is an additional fail-closed guard. The full sweep

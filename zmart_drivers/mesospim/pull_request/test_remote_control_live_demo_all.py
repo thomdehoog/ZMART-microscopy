@@ -52,8 +52,6 @@ def _live_config():
             or parsed.path != "/mcp" or parsed.port is None):
         raise ValueError("all-command demo sweep requires a loopback http:// MCP URL ending in /mcp")
     token = os.environ.get("MESOSPIM_LIVE_MCP_TOKEN")
-    if not token:
-        pytest.skip("set MESOSPIM_LIVE_MCP_TOKEN for the live MCP server")
 
     hold = float(os.environ.get("MESOSPIM_DEMO_COMMAND_HOLD_SECONDS", "0.25"))
     if not 0 <= hold <= 1:
@@ -83,6 +81,13 @@ def _raw_tool(host, port, token, request_timeout, name, arguments=None):
     except json.JSONDecodeError:
         payload = {"text": text}
     return not result.get("isError", False), payload
+
+
+def _raw_tcp_tool(client, name, arguments=None):
+    try:
+        return True, client.call(name, **(arguments or {}))
+    except RuntimeError as exc:
+        return False, {"error": str(exc)}
 
 
 def _must(tool, name, arguments=None):
@@ -171,6 +176,8 @@ def _demo_acquisition(folder, filename, state):
 def test_live_demo_busy_gate_acknowledges_and_serializes_mcp_tcp():
     """Prove accepted -> busy rejection -> completion -> accepted on the real demo Core."""
     host, port, token, _hold, request_timeout, _root, _etl, _pid = _live_config()
+    if not token:
+        pytest.skip("set MESOSPIM_LIVE_MCP_TOKEN for the live MCP server")
     tool = lambda name, arguments=None: _raw_tool(
         host, port, token, request_timeout, name, arguments)
     limits = _must(tool, "get_limits")
@@ -243,10 +250,27 @@ def test_live_demo_busy_gate_acknowledges_and_serializes_mcp_tcp():
         shutil.rmtree(temp_folder, ignore_errors=True)
 
 
-def test_live_demo_all_54_commands_are_functional_safe_and_restored():
+def test_live_demo_all_54_commands_are_functional_safe_and_restored(request):
     host, port, token, hold, request_timeout, demo_root, etl_path, process_id = _live_config()
-    tool = lambda name, arguments=None: _raw_tool(
-        host, port, token, request_timeout, name, arguments)
+    transport = os.environ.get("MESOSPIM_LIVE_DEMO_TRANSPORT", "mcp").lower()
+    if transport == "mcp":
+        if not token:
+            pytest.skip("set MESOSPIM_LIVE_MCP_TOKEN for the live MCP server")
+        tool = lambda name, arguments=None: _raw_tool(
+            host, port, token, request_timeout, name, arguments)
+    elif transport == "tcp":
+        tcp_host = os.environ.get("MESOSPIM_LIVE_TCP_HOST", "127.0.0.1")
+        tcp_port = os.environ.get("MESOSPIM_LIVE_TCP_PORT")
+        tcp_token = os.environ.get("MESOSPIM_LIVE_TCP_TOKEN")
+        if tcp_host not in {"127.0.0.1", "localhost"} or not tcp_port or not tcp_token:
+            pytest.skip("set loopback MESOSPIM_LIVE_TCP_PORT and MESOSPIM_LIVE_TCP_TOKEN")
+        tcp_client = RemoteControl(
+            tcp_host, int(tcp_port), tcp_token, timeout=request_timeout)
+        request.addfinalizer(tcp_client.close)
+        tool = lambda name, arguments=None: _raw_tcp_tool(
+            tcp_client, name, arguments)
+    else:
+        raise ValueError("MESOSPIM_LIVE_DEMO_TRANSPORT must be 'mcp' or 'tcp'")
 
     limits = _must(tool, "get_limits")
     stage_type = (limits.get("stage") or {}).get("stage_type")
