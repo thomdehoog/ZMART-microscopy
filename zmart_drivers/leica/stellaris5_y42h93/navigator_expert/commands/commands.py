@@ -74,6 +74,7 @@ from ..config.profiles import (
 from ..motion.limits import _check_xy_limits, _check_z_limits
 from ..utils import PAN_LIMIT, _hw_get, _make_log_entry, _make_timing, parse_format
 from . import gate as _gate
+from . import objective_shift as _objective_shift
 from .confirm_select_job import prepare_select_job, select_job_confirm_legs
 from .confirmations import (
     _confirm_detector_gain,
@@ -644,13 +645,32 @@ def set_objective(
     if refused:
         return refused
 
+    # Record the motoric XY and z-wide position BEFORE the objective change —
+    # while they still mean "where the current objective is looking" — so the
+    # calibrated translation can keep the sample point afterwards. Armed only
+    # for clients the driver connected; a failed pre-read refuses the change
+    # while nothing has happened yet.
+    try:
+        before = _objective_shift.record_before_change(client, job_name)
+    except Exception as exc:  # noqa: BLE001 -- fail closed before the change fires
+        return {
+            "success": False,
+            "confirmed": None,
+            "message": (
+                "refusing the objective change: could not record the "
+                f"pre-change position for objective compensation: {exc}"
+            ),
+            "timing": _make_timing(total_s=0.0, attempts=0),
+            "logs": [],
+        }
+
     api_obj = client.PyApiSetObjectiveSlotByJobName
 
     def setup(m):
         m.JobName = job_name
         m.ObjectiveSlotIndex = slot
 
-    return _dispatch(
+    result = _dispatch(
         client,
         api_obj,
         f"Objective -> {target_name} (slot {slot})",
@@ -662,6 +682,14 @@ def set_objective(
         max_retries=max_retries,
         pre_check_timeout=pre_check_timeout,
     )
+    if before is not None and result.get("success"):
+        result = _objective_shift.merge_into_result(
+            result,
+            _objective_shift.compensate_after_change(
+                client, job_name, before, new_slot=slot
+            ),
+        )
+    return result
 
 
 # =============================================================================
@@ -1605,6 +1633,28 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
         noop["timing"] = _make_timing(total_s=time.perf_counter() - t0, attempts=0)
         return noop
 
+    # A job change can carry an objective change with it. Record the motoric
+    # XY and z-wide position NOW — before the switch, while they still mean
+    # "where the current objective is looking" — so the compensation after
+    # the switch can keep the sample point. Armed only for clients the driver
+    # connected (per-connection config installed); a failed pre-read refuses
+    # the change while nothing has happened yet.
+    try:
+        before = _objective_shift.record_before_change(
+            client, context.get("api_baseline_name")
+        )
+    except Exception as exc:  # noqa: BLE001 -- fail closed before the change fires
+        return {
+            "success": False,
+            "confirmed": None,
+            "message": (
+                "refusing the job change: could not record the pre-change "
+                f"position for objective compensation: {exc}"
+            ),
+            "timing": _make_timing(total_s=time.perf_counter() - t0, attempts=0),
+            "logs": [],
+        }
+
     api_obj = client.PyApiSelectJobByName
 
     def setup(m):
@@ -1639,5 +1689,10 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
                 "but the log-participating confirmation still fired the "
                 "command",
             )
+        )
+    if before is not None and result.get("success"):
+        result = _objective_shift.merge_into_result(
+            result,
+            _objective_shift.compensate_after_change(client, job_name, before),
         )
     return result
