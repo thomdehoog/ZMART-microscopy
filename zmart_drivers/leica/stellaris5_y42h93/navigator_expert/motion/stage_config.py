@@ -1,11 +1,12 @@
 """Load and publish the Leica driver's flat ``limits.json``.
 
-The file is deliberately operator-readable: four top-level stage ranges and
-one top-level entry for each configurable setter. Every
-constraint explicitly says ``range`` or ``allowed``; an empty setter list means
-"reviewed; no limit is enforced". Objective turret slots are not limited here:
-which slots exist is hardware knowledge the driver checks live, so a slot
-allow-list only ever restated the turret and went stale when lenses moved. There are
+The file is deliberately operator-readable: four top-level stage ranges,
+``objective_slot``, and one top-level entry for each configurable setter.
+Every constraint explicitly says ``range`` or ``allowed``; an empty list means
+"reviewed; no limit is enforced". ``objective_slot`` defaults to ``[]``
+(unrestricted): which slots exist is hardware knowledge the wrapper checks
+live against the turret, so a written allow-list is only for deliberately
+fencing automation to specific slots (slots count from 0). There are
 no schema/source wrappers, named-constraint indirection, or nested ``functions``
 object. Runtime provenance is kept outside JSON in the snapshot's hidden
 ``.limits-machine`` marker.
@@ -78,7 +79,7 @@ SETTER_LIMIT_KEYS = (
     "set_filter_wheel_slot",
     "set_filter_wheel_spectrum",
 )
-_REQUIRED_FILE_KEYS = (*_AXIS_FILE_KEYS.values(), *SETTER_LIMIT_KEYS)
+_REQUIRED_FILE_KEYS = (*_AXIS_FILE_KEYS.values(), "objective_slot", *SETTER_LIMIT_KEYS)
 
 
 def _driver_root() -> Path:
@@ -186,11 +187,6 @@ def validate_payload(payload: Any, *, path: Path = Path("limits.json")) -> dict[
     """Validate and normalize the complete flat limits document."""
     if not isinstance(payload, dict):
         raise ValueError(f"{path} limits must be an object, got {payload!r}")
-    # Older published files carried an objective_slot allow-list; the limit
-    # was removed (the turret is hardware knowledge, checked live), but a
-    # rig's already-published limits.json must keep validating. Accept the
-    # key and ignore it.
-    payload = {k: v for k, v in payload.items() if k != "objective_slot"}
     missing = sorted(set(_REQUIRED_FILE_KEYS) - set(payload))
     unknown = sorted(set(payload) - set(_REQUIRED_FILE_KEYS))
     if missing:
@@ -204,6 +200,19 @@ def validate_payload(payload: Any, *, path: Path = Path("limits.json")) -> dict[
         )
         for file_key in _AXIS_FILE_KEYS.values()
     }
+    objective_entry = payload["objective_slot"]
+    if objective_entry == []:
+        objective: Any = []
+    else:
+        objective = _normalize_typed_limit(
+            "objective_slot", objective_entry, path=path, required_kind="allowed"
+        )
+        slots = objective["allowed"]
+        if any(isinstance(slot, bool) or not isinstance(slot, int) or slot < 0 for slot in slots):
+            raise ValueError(
+                f"{path} objective_slot.allowed must contain non-negative integers "
+                f"(turret slots count from 0), got {slots!r}"
+            )
     setters: dict[str, Any] = {}
     for name in SETTER_LIMIT_KEYS:
         entry = payload[name]
@@ -211,6 +220,7 @@ def validate_payload(payload: Any, *, path: Path = Path("limits.json")) -> dict[
 
     normalized = {
         **axes,
+        "objective_slot": objective,
         **setters,
     }
     return normalized
@@ -221,6 +231,7 @@ def build_limits_payload(stage_um: dict[str, Any]) -> dict[str, Any]:
     stage = _validate_limits(stage_um, path=Path("limits.json"))
     payload = {
         **{_AXIS_FILE_KEYS[axis]: {"range": bounds} for axis, bounds in stage.items()},
+        "objective_slot": [],
         **{name: [] for name in SETTER_LIMIT_KEYS},
     }
     return validate_payload(payload)

@@ -153,6 +153,14 @@ _DEFAULT_JOBS = {
 _DEFAULT_HARDWARE = {
     "Microscope": {
         "objectives": [
+            # Turret slots count from 0 on the real instrument; the mock
+            # carries an occupied slot 0 so tests exercise that honestly.
+            {
+                "name": "HC PL FLUOTAR 5x/0.15",
+                "magnification": 5,
+                "slotIndex": 0,
+                "objectiveNumber": 4,
+            },
             {
                 "name": "HC PL APO 10x/0.40 CS2",
                 "magnification": 10,

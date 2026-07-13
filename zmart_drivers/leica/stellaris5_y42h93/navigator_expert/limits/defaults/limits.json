@@ -3,6 +3,7 @@
   "y_um": {"range": [1000, 100000]},
   "z_galvo_um": {"range": [-200, 200]},
   "z_wide_um": {"range": [0, 25000]},
+  "objective_slot": [],
   "set_zoom": [],
   "set_scan_speed": [],
   "set_scan_resonant": [],

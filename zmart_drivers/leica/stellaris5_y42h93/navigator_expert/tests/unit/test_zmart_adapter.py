@@ -1604,6 +1604,7 @@ class TestFunctionLimits(unittest.TestCase):
         path = adapter._machine.MACHINE.bundled_default_path(adapter._machine.LIMITS_FILENAME)
         payload = stage_config.validate_payload(json.loads(path.read_text(encoding="utf-8")))
         self.assertEqual(set(payload), set(stage_config._REQUIRED_FILE_KEYS))
+        self.assertEqual(payload["objective_slot"], [])
 
     def test_set_xyz_refuses_beyond_function_limits_before_any_motion(self):
         _wide_limits()  # Phase A permissive, so the function-limits layer is what fires
