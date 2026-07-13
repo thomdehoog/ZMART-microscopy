@@ -78,7 +78,6 @@ EXPECTED_CORE_CALL = {
     "zero": "zero_axes",
     "unzero": "unzero_axes",
     "stop": "sig_stop_movement",
-    "stop_activity": "stop",
     "set_state": "state_request_handler",
     "set_filter": "set_filter",
     "set_zoom": "set_zoom",
@@ -95,13 +94,12 @@ EXPECTED_CORE_CALL = {
     "open_shutters": "open_shutters",
     "close_shutters": "close_shutters",
     "snap": "snap",
-    "set_mode": "stop",
     "start_live": "set_state",
     "start_visual_mode": "set_state",
     "start_lightsheet_alignment_mode": "set_state",
-    "load_sample": "sig_load_sample",
-    "unload_sample": "sig_unload_sample",
-    "center_sample": "sig_center_sample",
+    "load_sample": "move_absolute",
+    "unload_sample": "move_absolute",
+    "center_sample": "move_absolute",
     "execute_stage_program": "execute_galil_program",
     "save_etl_config": "sig_save_etl_config",
     "run_acquisition_list": "start",
@@ -118,7 +116,7 @@ EXPECTED_CORE_CALL = {
 READ_ONLY_WITHOUT_CORE_CALL = {
     "hello", "ping", "get_state", "get_position", "get_state_all", "get_config",
     "get_limits", "get_capabilities", "get_progress", "self_test",
-    "get_acquisition_list", "stat_files",
+    "get_acquisition_list", "stat_files", "stop_activity", "set_mode",
 }
 
 

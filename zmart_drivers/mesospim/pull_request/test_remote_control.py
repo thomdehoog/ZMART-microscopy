@@ -70,7 +70,9 @@ class _Cfg:
     laserdict = {"488 nm": 0, "561 nm": 1}
     shutteroptions = ["Left", "Right", "Both"]
     stage_parameters = {"x_min": -25000, "x_max": 25000, "y_min": -50000, "y_max": 50000,
-                        "z_min": -25000, "z_max": 25000, "f_min": 0, "f_max": 98000}
+                        "z_min": -25000, "z_max": 25000, "f_min": 0, "f_max": 98000,
+                        "y_load_position": 1000, "y_unload_position": -1000,
+                        "x_center_position": 0, "z_center_position": 0}
 
 
 class _Core:
