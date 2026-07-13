@@ -47,7 +47,7 @@ def repo_root() -> Path:
     """Locate the repo root robustly (no fragile parents[N] depth counting).
 
     Prefer git; otherwise walk up until we find the directory that holds the
-    shared/ package. Falls back to the machine dir's parent.
+    zmart_controller package. Falls back to the machine dir's parent.
     """
     try:
         result = subprocess.run(
@@ -63,7 +63,7 @@ def repo_root() -> Path:
         pass
     candidate = DRIVER_ROOT
     for _ in range(8):
-        if (candidate / "shared").is_dir():
+        if (candidate / "zmart_controller").is_dir():
             return candidate
         candidate = candidate.parent
     return MACHINE_ROOT.parent

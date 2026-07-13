@@ -312,10 +312,10 @@ def test_poisoned_move_z_targets_refuse(governed_client, z, z_mode):
 
 @pytest.mark.parametrize("px,py", [(float("nan"), 10), (10, float("nan"))])
 def test_poisoned_pixel_target_cannot_compose_a_nan_galvo_pan(governed_client, px, py):
-    """NaN compares False against the angular pan limit, and the default
-    machine file's ``move_galvo_to_pixel`` entry is ``null`` — so a NaN pixel
-    target must be refused by the composed-pan finiteness check, never
-    written into the LRP that LAS X executes."""
+    """NaN compares False against the angular pan limit, and the machine
+    file carries no pan constraint — so a NaN pixel target must be refused
+    by the composed-pan finiteness check, never written into the LRP that
+    LAS X executes."""
     from unittest.mock import patch
 
     from navigator_expert import readers

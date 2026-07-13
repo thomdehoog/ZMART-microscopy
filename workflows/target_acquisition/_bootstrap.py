@@ -14,7 +14,7 @@ _DRIVER_PARENT = _REPO_ROOT / "zmart_drivers" / "leica" / "stellaris5_y42h93"
 if str(_DRIVER_PARENT) not in sys.path:
     sys.path.insert(0, str(_DRIVER_PARENT))
 
-# shared/ and workflows/ live at the repo root
+# workflows/ lives at the repo root
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 

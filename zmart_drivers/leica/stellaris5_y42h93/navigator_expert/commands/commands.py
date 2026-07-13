@@ -532,15 +532,18 @@ def set_image_format(client, job_name, format_str, *, max_retries=None, pre_chec
     Args:
         format_str: Either a string like '512 x 512' or a tuple (w, h).
     """
-    refused = _limits_refusal(
-        client, "set_image_format", {"job_name": job_name, "value": format_str}
-    )
-    if refused:
-        return refused
     if isinstance(format_str, tuple):
         w, h = format_str
     else:
         w, h = parse_format(format_str)
+    # Gate the COMMANDED value, not the raw input spelling: '512x512',
+    # '512 x 512', and (512, 512) all command the same format, so they must
+    # all be checked as the same canonical 'W x H' string a limits file lists.
+    refused = _limits_refusal(
+        client, "set_image_format", {"job_name": job_name, "value": f"{w} x {h}"}
+    )
+    if refused:
+        return refused
 
     api_obj = client.PyApiSetImageSizeByJobName
 
@@ -1401,13 +1404,6 @@ def move_galvo_to_pixel(client, px, py, *, job_name=None, pixel_size_um=None, im
                 f"resulting pan ({new_pan[0]:+.5f}, {new_pan[1]:+.5f}) "
                 f"exceeds angular limit ±{_PAN_LIMIT}; stage-move closer first."
             )
-        # The machine file may constrain the absolute pan further; check the
-        # composed value before it is written into the LRP.
-        gate_message = _gate.check_refusal(
-            client, "move_galvo_to_pixel", {"pan_x": new_pan[0], "pan_y": new_pan[1]}
-        )
-        if gate_message is not None:
-            raise RuntimeError(gate_message)
         lrp_set_pan(p, new_pan[0], new_pan[1], job_name)
 
     try:

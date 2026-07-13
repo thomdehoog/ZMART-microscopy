@@ -68,10 +68,10 @@ can never be recycled onto a different client. A second ``connect_handshake``
 for the same client rebinds its state; the module-global stage envelope is
 rebound by whichever handshake ran last.
 
-Deviating from ``shared/limits/spec.py``'s "hang it off the driver handle"
-guidance is deliberate (plan amendment PR-04): command wrappers receive the
-``client``, not a handle, and the enforcement must live below anything a
-caller can skip.
+Deviating from the old shared limits spec's "hang it off the driver handle"
+guidance (the since-dissolved ``shared/`` package) is deliberate (plan
+amendment PR-04): command wrappers receive the ``client``, not a handle, and
+the enforcement must live below anything a caller can skip.
 """
 
 from __future__ import annotations
