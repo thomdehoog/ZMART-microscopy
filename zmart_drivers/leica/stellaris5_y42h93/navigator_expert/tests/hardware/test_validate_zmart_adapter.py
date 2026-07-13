@@ -13,9 +13,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 _HERE = Path(__file__).resolve().parent
 _HELPERS = _HERE.parent / "helpers"
@@ -113,6 +114,33 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     assert "set_xyz: XY move" in text
     assert "move: restore XY + focus (frame 0,0,0)" in text
     assert "set_state: restore" in text
+
+
+def test_state_phase_does_not_switch_away_from_autofocus_job():
+    captured = {
+        "changeable": {"job": "AF Job"},
+        "observed": {"autofocus_jobs": [{"Name": "AF Job"}]},
+    }
+    session = SimpleNamespace(
+        get_state=Mock(return_value=captured),
+        get_acquisition_options=Mock(return_value={"job": {"options": ["Overview", "HiRes"]}}),
+        set_state=Mock(side_effect=AssertionError("must not switch an autofocus job")),
+    )
+    validator = SimpleNamespace(
+        phase=Mock(return_value=nullcontext()),
+        callable=Mock(side_effect=lambda _name, run, **_kwargs: run()),
+        compare=Mock(),
+        skip=Mock(),
+    )
+
+    validate_zmart_adapter.phase_state(validator, session)
+
+    session.set_state.assert_not_called()
+    validator.compare.assert_not_called()
+    validator.skip.assert_called_once_with(
+        "state: switch",
+        "current job 'AF Job' is autofocus-only and cannot be restored via set_state",
+    )
 
 
 def test_connect_session_leaves_output_root_for_driver_discovery():

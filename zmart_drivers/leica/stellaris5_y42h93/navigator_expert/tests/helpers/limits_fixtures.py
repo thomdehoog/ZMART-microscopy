@@ -88,6 +88,9 @@ def hermetic_mock_machine_root() -> Path:
     """
     root = Path(tempfile.mkdtemp(prefix="zmart_microscopy_mock_root_"))
     os.environ["ZMART_MICROSCOPY_ROOT"] = str(root)
+    appdata = root / "AppData" / "Roaming"
+    appdata.mkdir(parents=True)
+    os.environ["APPDATA"] = str(appdata)
     provision_machine_limits(root)
     profiles.LOG_READER = profiles.LogReaderProfile(
         lcs_log_path=str(root / "no_such_lcsCommand.log"),
