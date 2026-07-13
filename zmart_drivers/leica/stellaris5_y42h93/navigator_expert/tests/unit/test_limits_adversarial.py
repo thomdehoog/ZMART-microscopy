@@ -178,8 +178,8 @@ _BAD_FUNCTION_LIMITS_TEXTS = {
     "objective_slot_not_integer": _with_payload(
         lambda p: {**p, "objective_slot": {"allowed": [1, "2"]}}
     ),
-    "objective_slot_not_positive": _with_payload(
-        lambda p: {**p, "objective_slot": {"allowed": [0, 1]}}
+    "objective_slot_negative": _with_payload(
+        lambda p: {**p, "objective_slot": {"allowed": [-1, 1]}}
     ),
     "objective_slot_duplicate": _with_payload(
         lambda p: {**p, "objective_slot": {"allowed": [1, 1]}}
@@ -870,7 +870,7 @@ def test_generated_machine_payload_matches_the_vocabulary():
     payload = stage_config.build_limits_payload(DEFAULT_STAGE_UM)
     assert set(payload) == set(stage_config._REQUIRED_FILE_KEYS)
     assert payload["x_um"] == {"range": DEFAULT_STAGE_UM["x"]}
-    assert payload["objective_slot"] == {"allowed": [1, 2, 3, 4, 5, 6]}
+    assert payload["objective_slot"] == {"allowed": [0, 1, 2, 3, 4, 5]}
 
 
 def test_every_dispatching_wrapper_declares_and_calls_the_gate():
@@ -1079,7 +1079,7 @@ def test_flat_limits_round_trip_adopt_handshake_gated_move(mock_client):
     merged = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
     assert set(merged) == set(stage_config._REQUIRED_FILE_KEYS)
     assert merged["x_um"] == {"range": [1000.0, 130000.0]}
-    assert merged["objective_slot"] == {"allowed": [1, 2, 3, 4, 5, 6]}
+    assert merged["objective_slot"] == {"allowed": [0, 1, 2, 3, 4, 5]}
 
     state = gate.connect_handshake(mock_client, machine=profile)
     assert state.ok, state.error

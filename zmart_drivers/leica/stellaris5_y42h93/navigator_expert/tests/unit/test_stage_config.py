@@ -36,7 +36,7 @@ def test_adopt_limits_publishes_only_to_the_limits_tree(tmp_path):
     lim = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
     assert set(lim) == set(stage_config._REQUIRED_FILE_KEYS)
     assert lim["x_um"] == {"range": [1200.0, 120000.0]}
-    assert lim["objective_slot"] == {"allowed": [1, 2, 3, 4, 5, 6]}
+    assert lim["objective_slot"] == {"allowed": [0, 1, 2, 3, 4, 5]}
     assert all(lim[name] == [] for name in stage_config.SETTER_LIMIT_KEYS)
     assert not (snap / "calibration.json").exists()
     assert json.loads((calibration / "calibration.json").read_text(encoding="utf-8")) == {
@@ -122,7 +122,7 @@ def test_load_reads_envelope_from_constraints(tmp_path):
         "z_galvo": [-5.0, 5.0],
         "z_wide": [0.0, 100.0],
     }
-    assert cfg["policy"]["objective_slot"] == {"allowed": [1, 2, 3, 4, 5, 6]}
+    assert cfg["policy"]["objective_slot"] == {"allowed": [0, 1, 2, 3, 4, 5]}
     assert all(cfg["policy"][name] == [] for name in stage_config.SETTER_LIMIT_KEYS)
 
 
