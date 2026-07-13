@@ -45,6 +45,38 @@ client ──▶  frame({"<method>": {args}})
   unknown method, a rejected value, or a handler error, the reply is the error text
   (no marker line), and the connection stays open.
 
+### Acceptance, busy state, and completion
+
+Every accepted mutating call includes an operation acknowledgement in its result:
+
+```json
+{
+  "accepted": true,
+  "accepted_command": "acquire_start",
+  "operation": {
+    "id": "op-000042",
+    "command": "acquire_start",
+    "status": "processing"
+  }
+}
+```
+
+`accepted` means the call passed authentication, allowlist/argument validation, and the
+shared operation gate. It is stronger than merely "received". Synchronous commands return
+with operation status `completed`; scheduled/long-running commands return immediately as
+`processing` and clear the gate only when the matching Core completion signal arrives.
+
+While an operation is `processing` or `stopping`, another mutating call is rejected before
+it touches Core, with the active command and operation ID in the error. Both MCP and TCP use
+the same in-process gate, so they cannot race each other. Read-only commands remain available,
+and `get_progress` includes the latest `operation` object for polling. Emergency commands
+(`stop`, `stop_activity`, `time_lapse_stop`, and `close_shutters`) remain available while
+busy; a stop acknowledgement reports `stopping` until real cleanup emits completion.
+
+The gate is fail-closed: it is never released merely because a handler returned or a timer
+expired. If a completion signal never arrives, status remains busy and the operator can
+inspect progress or issue an emergency stop.
+
 ### Input validation (`_validate`)
 
 Beyond "known method," the server checks each call's **args** before touching the
@@ -125,6 +157,6 @@ can never run code that is not in the allowlist. See `COMMANDS` in
   and closes the connection.
 - A bad payload / unknown method / rejected value / handler that raises → the error
   text is the reply; the connection stays open.
-- A second concurrent client → the NEW connection wins: the server drops the old
-  socket and serves the newcomer (which must still pass the token gate). One client
-  at a time, but a crashed client's half-open socket can never hold the server hostage.
+- Concurrent clients are authenticated independently. Read-only calls may run while
+  an operation is active; competing mutations receive the shared busy error without
+  disconnecting either client.

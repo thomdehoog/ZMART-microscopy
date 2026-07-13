@@ -125,6 +125,31 @@ python -m pytest zmart_drivers/mesospim/pull_request -m live_valid -q -s
 Running the directory without `-m` collects all groups, but `live_valid` safely skips unless
 both device-change gates and a token are supplied.
 
+The full visible demo sweep is a fourth, separately gated group. It calls every one of the
+54 allowlisted commands over live MCP: all 40 instrument-facing operations, 13 read/query
+commands, and the deliberately unimplemented `procedure` command (which must fail safely).
+It refuses to run unless the server reports `DemoStage`, uses a temporary acquisition
+directory, backs up and restores the ETL CSV, and restores position, settings, acquisition
+list, shutters, and idle state. On Windows it completes in about 50 seconds:
+
+```bash
+MESOSPIM_ALLOW_DEVICE_CHANGE=1 MESOSPIM_OPERATOR_PRESENT=1 \
+MESOSPIM_CONFIRM_DEMO_MODE=1 MESOSPIM_RUN_ALL_COMMANDS=1 \
+MESOSPIM_LIVE_MCP_TOKEN=<token> \
+MESOSPIM_DEMO_PROCESS_ID=<pid-of-mesoSPIM-Control--D> \
+MESOSPIM_DEMO_ROOT=<path-to-mesoSPIM> \
+MESOSPIM_DEMO_ETL_CONFIG_PATH=<path-to-ETL-parameters.csv> \
+python -m pytest zmart_drivers/mesospim/pull_request -m live_demo_all -q -s
+```
+
+Without every gate, `live_demo_all` safely skips. It must never be enabled against physical
+hardware; the remote `DemoStage` check is an additional fail-closed guard. The full sweep
+runs at most once per mesoSPIM process; restart the demo app before intentionally repeating
+it so Qt camera/writer resources begin from a clean state. The group also contains a live
+cross-transport operation-gate check: MCP starts a short demo acquisition, a simultaneous
+valid TCP mutation must receive the active command and operation ID as a busy error, status
+polling remains available, and the next TCP mutation is accepted after real completion.
+
 Boundary coverage is intentionally not described as exhaustive yet. The API currently
 exposes 54 commands, 15 explicitly ranged parameters, four config-driven enums, and 22
 type-only parameters. The adversarial group crosses every configured absolute stage bound
@@ -159,14 +184,17 @@ one representative, usable request for every one of the 54 allowlisted commands,
 both real loopback MCP/HTTP and framed TCP paths (108 transport cases), plus a completeness
 check that fails when the allowlist and test table drift apart. It also verifies the Core
 call, state change, or returned value expected from each command.
+`test_remote_control_live_demo_all.py` is the corresponding real-Core demo sweep. It logs
+each command, verifies observable readback where available, continues after a failure so one
+run identifies every broken command, and restores demo state in a `finally` block.
 The shipped `test_remote_control_validation.py` covers the same `_validate` gate against the
-real module. The complete offline suite is **169 passing tests in under 5 seconds** on the Windows test
-environment. It is deliberately bounded: no `sleep`, no unbounded fuzz or retries, at most
+real module. The complete offline suite is **177 passing tests in under 5 seconds** on the Windows test
+environment. The offline/adversarial tests are deliberately bounded: no `sleep`, no unbounded fuzz or retries, at most
 48 seeded mutations, and a 0.6-second deadline on every test socket.
 **Validated on the bench against mesoSPIM `-D` demo mode
-(2026-07-08):** the Remote Control tab starts and drives the demo Core end to end
+(2026-07-13):** the Remote Control tab starts and drives the demo Core end to end
 over **both lanes — framed TCP and MCP-over-HTTP — and it worked as-is** (the
-handlers matched the real Core, no changes needed). **Real-hardware** validation
+54 command contracts and all 40 operational calls passed with state restoration). **Real-hardware** validation
 is the only remaining step.
 
 ## How to apply

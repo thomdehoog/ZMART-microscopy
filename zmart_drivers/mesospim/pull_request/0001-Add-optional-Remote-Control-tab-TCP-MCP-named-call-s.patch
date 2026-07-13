@@ -1,60 +1,19 @@
-From 3f173b3c5b586af9acb04e647607dcc86768d531 Mon Sep 17 00:00:00 2001
+From d6f0a4f383b825f3908c934b9624a0194bf768f5 Mon Sep 17 00:00:00 2001
 From: Thom de Hoog <thom.dehoog@zmb.uzh.ch>
-Date: Wed, 8 Jul 2026 16:08:32 +0200
+Date: Mon, 13 Jul 2026 10:34:28 +0200
 Subject: [PATCH] Add optional Remote Control tab: TCP + MCP named-call server
- (validated)
 
-mesoSPIM-control has no external control interface -- everything runs in-process
-inside the Qt event loop. This adds an optional Remote Control tab that lets
-another process drive the microscope over a socket by NAMED CALLS, not code: the
-client sends one single-key JSON object {"<method>": {args}}, the server
-validates it, looks the method up in a fixed allowlist, and runs the matching
-Core call (the same methods the GUI's own buttons call). No client Python is ever
-executed.
+Add a validated named-call control surface shared by framed TCP and MCP-over-HTTP. Commands are allowlisted, strictly parsed, checked against live configuration limits, and protected by a shared operation gate that acknowledges accepted work, reports the active operation, rejects competing mutations, and waits for real Core completion events.
 
-- mesoSPIM_RemoteControl_ValidateAndRunCommands.py (new): the command vocabulary
-  (the COMMANDS allowlist) and _validate, which rejects a call whose args are the
-  wrong TYPE, name an option the live cfg does not allow (filter/zoom/laser/
-  shutterconfig), or fall out of RANGE -- for EVERY settable parameter, not just the
-  stage: axis moves against the loaded config's travel envelope (cfg.stage_parameters,
-  optionally tightened per axis by MESOSPIM_RS_LIMITS), intensity/percentages against
-  0..100. The error names the limit, so a script/LLM can correct itself, and get_limits
-  reports the exact rules (range null = check OFF). run() is the single choke point
-  both transports share, so TCP and MCP can never breach a limit -- an out-of-range
-  call comes back as an error, never reaching the Core. A PRE-FLIGHT SELF-TEST
-  (self_test) runs the whole validated dispatch against a SimCore that carries the
-  real cfg but mimics the hardware, proving the loaded limits are enforced before
-  the server goes live; it is also an on-demand command on both lanes.
-- mesoSPIM_RemoteControl_Servers.py (new): a framed-TCP server hosted by the Core
-  and a standalone MCP-over-HTTP server (a separate process) that forwards MCP
-  tool calls to the same TCP command path, so both protocols share one validated
-  dispatch. The TCP server runs the self-test on start and REFUSES to bind (fail-
-  closed) if the loaded limits are not enforced, so the instrument is never exposed
-  by a drifted config. Length-framed UTF-8; constant-time token; MCP adds a Bearer
-  token and an Origin guard (rejects any non-localhost web origin).
-- mesoSPIM_Core: start_remote_control(host, port, token) / stop_remote_control()
-  slots (queued, so the server lives on the Core's own thread), plus a
-  sig_remote_control_started(ok, message) signal so a bind failure is reported
-  rather than shown as a false "running".
-- mesoSPIM_MainWindow: a Remote Control tab (TCP / MCP mode, host / port / password)
-  that reflects the real start outcome and stops on app close.
-- test_remote_control_validation.py: Qt-free tests for the validation gate.
-
-OFF BY DEFAULT and secure-by-default: the server never runs until an operator
-starts it from the tab; it binds 127.0.0.1 and pre-fills a default password
-(smart_mesospim) the operator can change. A named
-call controls the instrument (moves the stage, runs acquisitions) but is not
-arbitrary code -- the server only ever does a dict lookup + a fixed call, so
-nothing outside the allowlist can run. Plain TCP: the token gates casual LAN
-access, it is not sniffer-proof (tunnel it for untrusted networks).
+The integration remains off by default. Core and MainWindow changes are limited to the annotated server lifecycle, signal wiring, tab setup, and shutdown hooks; the protocol, validation, busy gate, and transports remain isolated in the two new Remote Control modules.
 ---
- mesoSPIM/src/mesoSPIM_Core.py                 |  32 +
- mesoSPIM/src/mesoSPIM_MainWindow.py           | 201 ++++
- .../src/mesoSPIM_RemoteControl_Servers.py     | 394 ++++++++
- ...IM_RemoteControl_ValidateAndRunCommands.py | 895 ++++++++++++++++++
- .../src/test_remote_control_validation.py     | 184 ++++
- pyproject.toml                                |   1 +
- 6 files changed, 1707 insertions(+)
+ mesoSPIM/src/mesoSPIM_Core.py                 |   32 +
+ mesoSPIM/src/mesoSPIM_MainWindow.py           |  201 +++
+ .../src/mesoSPIM_RemoteControl_Servers.py     |  424 +++++++
+ ...IM_RemoteControl_ValidateAndRunCommands.py | 1074 +++++++++++++++++
+ .../src/test_remote_control_validation.py     |  184 +++
+ pyproject.toml                                |    1 +
+ 6 files changed, 1916 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
  create mode 100644 mesoSPIM/src/test_remote_control_validation.py
@@ -351,10 +310,10 @@ index 1c0242b..eedd5bc 100644
          if path:
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py b/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
 new file mode 100644
-index 0000000..d708e1c
+index 0000000..7a44fa7
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
-@@ -0,0 +1,394 @@
+@@ -0,0 +1,424 @@
 +"""Remote-control TCP and MCP servers for mesoSPIM.
 +
 +The TCP server runs inside mesoSPIM-control and executes validated JSON
@@ -377,11 +336,11 @@ index 0000000..d708e1c
 +if __package__ in (None, ""):
 +    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 +    from mesoSPIM.src.mesoSPIM_RemoteControl_ValidateAndRunCommands import (
-+        parse_call, run, self_test, strict_json_loads, tool_specs,
++        complete_operation, parse_call, run, self_test, strict_json_loads, tool_specs,
 +    )
 +else:
 +    from .mesoSPIM_RemoteControl_ValidateAndRunCommands import (
-+        parse_call, run, self_test, strict_json_loads, tool_specs,
++        complete_operation, parse_call, run, self_test, strict_json_loads, tool_specs,
 +    )
 +
 +logger = logging.getLogger(__name__)
@@ -506,9 +465,13 @@ index 0000000..d708e1c
 +        self._host = host
 +        self._port = int(self._server.serverPort())
 +        self._server.newConnection.connect(self._on_new_connection)
-+        self._conn = None
-+        self._decoder = FrameDecoder()
-+        self._auth = AuthGate(self._token)
++        self._clients = {}
++        if hasattr(core, "sig_finished"):
++            core.sig_finished.connect(self._on_core_finished)
++        if hasattr(core, "sig_time_lapse_finished"):
++            core.sig_time_lapse_finished.connect(self._on_time_lapse_finished)
++        if hasattr(core, "sig_time_lapse_cancelled"):
++            core.sig_time_lapse_cancelled.connect(self._on_time_lapse_finished)
 +        logger.info("Remote control TCP listening on %s:%d", self._host, self._port)
 +
 +    @property
@@ -516,26 +479,24 @@ index 0000000..d708e1c
 +        return self._port
 +
 +    def _on_new_connection(self):
-+        conn = self._server.nextPendingConnection()
-+        if self._conn is not None:
-+            self._drop_client(self._conn)
-+        self._conn = conn
-+        self._decoder = FrameDecoder()
-+        self._auth = AuthGate(self._token)
-+        conn.readyRead.connect(self._on_ready_read)
-+        conn.disconnected.connect(partial(self._on_disconnected, conn))
++        while self._server.hasPendingConnections():
++            conn = self._server.nextPendingConnection()
++            self._clients[conn] = {
++                "decoder": FrameDecoder(),
++                "auth": AuthGate(self._token),
++            }
++            conn.readyRead.connect(partial(self._on_ready_read, conn))
++            conn.disconnected.connect(partial(self._on_disconnected, conn))
 +
 +    def _on_disconnected(self, conn):
-+        if conn is self._conn:
-+            self._conn = None
++        self._clients.pop(conn, None)
 +        try:
 +            conn.deleteLater()
 +        except RuntimeError:
 +            pass
 +
 +    def _drop_client(self, conn):
-+        if conn is self._conn:
-+            self._conn = None
++        self._clients.pop(conn, None)
 +        try:
 +            conn.disconnected.disconnect()
 +        except (TypeError, RuntimeError):
@@ -546,42 +507,70 @@ index 0000000..d708e1c
 +        except RuntimeError:
 +            pass
 +
-+    def _on_ready_read(self):
-+        if self._conn is None:
++    def _on_ready_read(self, conn):
++        client = self._clients.get(conn)
++        if client is None:
 +            return
-+        self._decoder.feed(bytes(self._conn.readAll()))
++        client["decoder"].feed(bytes(conn.readAll()))
 +        try:
-+            for payload in self._decoder.frames():
-+                self._handle(payload.decode(ENCODING, "replace"))
-+                if self._conn is None:
++            for payload in client["decoder"].frames():
++                self._handle(conn, payload.decode(ENCODING, "replace"))
++                if conn not in self._clients:
 +                    return
 +        except FramingError as exc:
-+            self._send(f"framing error: {exc}")
-+            self._close()
++            self._send(conn, f"framing error: {exc}")
++            self._close(conn)
 +
-+    def _send(self, text):
-+        if self._conn is not None:
-+            self._conn.write(frame(text))
-+            self._conn.flush()
++    def _send(self, conn, text):
++        if conn in self._clients:
++            conn.write(frame(text))
++            conn.flush()
 +
-+    def _close(self):
-+        if self._conn is not None:
-+            self._conn.disconnectFromHost()
-+            self._conn = None
++    def _close(self, conn):
++        if conn in self._clients:
++            self._drop_client(conn)
 +
-+    def _handle(self, message):
-+        if not self._auth.passed:
-+            if self._auth.check(message):
-+                self._send("OK")
-+            else:
-+                self._send("AUTH-FAILED")
-+                self._close()
++    def _handle(self, conn, message):
++        client = self._clients.get(conn)
++        if client is None:
 +            return
-+        self._send(handle_tcp_message(self.core, message))
++        auth = client["auth"]
++        if not auth.passed:
++            if auth.check(message):
++                self._send(conn, "OK")
++            else:
++                self._send(conn, "AUTH-FAILED")
++                self._close(conn)
++            return
++        self._send(conn, handle_tcp_message(self.core, message))
++
++    def _on_core_finished(self):
++        complete_operation(self.core, "finished")
++
++    def _on_time_lapse_finished(self):
++        # Core's time-lapse scheduler can leave its public state at
++        # run_acquisition_list after the final time point. The remote adapter
++        # owns the remote completion contract, so normalize that stale readback
++        # here without changing mesoSPIM Core or MainWindow.
++        try:
++            self.core.state["state"] = "idle"
++        except (AttributeError, KeyError, TypeError):
++            pass
++        complete_operation(self.core, "time_lapse")
 +
 +    def stop(self):
-+        if self._conn is not None:
-+            self._drop_client(self._conn)
++        for conn in list(self._clients):
++            self._drop_client(conn)
++        for signal, slot in (
++            (getattr(self.core, "sig_finished", None), self._on_core_finished),
++            (getattr(self.core, "sig_time_lapse_finished", None), self._on_time_lapse_finished),
++            (getattr(self.core, "sig_time_lapse_cancelled", None), self._on_time_lapse_finished),
++        ):
++            if signal is not None:
++                try:
++                    signal.disconnect(slot)
++                except (TypeError, RuntimeError):
++                    pass
 +        self._server.close()
 +        logger.info("Remote control TCP stopped")
 +
@@ -751,10 +740,10 @@ index 0000000..d708e1c
 +    main()
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
 new file mode 100644
-index 0000000..1263a04
+index 0000000..0b7350d
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
-@@ -0,0 +1,895 @@
+@@ -0,0 +1,1074 @@
 +"""Remote-control command vocabulary and execution.
 +
 +Network transports hand this module a decoded command name plus arguments. This
@@ -807,6 +796,120 @@ index 0000000..1263a04
 +    "etl_r_delay_%", "etl_r_ramp_rising_%", "etl_r_ramp_falling_%",
 +    "etl_r_amplitude", "etl_r_offset",
 +)
++
++READ_ONLY_COMMANDS = frozenset({
++    "hello", "ping", "get_state", "get_position", "get_state_all",
++    "get_config", "get_limits", "get_capabilities", "get_progress",
++    "self_test", "get_acquisition_list", "stat_files",
++})
++EMERGENCY_COMMANDS = frozenset({
++    "stop", "stop_activity", "time_lapse_stop", "close_shutters",
++})
++FINISHED_SIGNAL_COMMANDS = frozenset({
++    "snap", "run_acquisition_list", "run_selected_acquisition",
++    "acquire_start", "start_live",
++    "start_visual_mode", "start_lightsheet_alignment_mode",
++})
++_ACTIVE_OPERATION_STATES = frozenset({"processing", "stopping"})
++
++
++class BusyError(RuntimeError):
++    """Raised when a mutating call arrives while another operation is active."""
++
++
++def operation_snapshot(core):
++    """Return the public status of the most recent remote operation."""
++    operation = getattr(core, "_mesospim_remote_operation", None)
++    if not isinstance(operation, dict):
++        return {"status": "idle"}
++    return {
++        key: operation[key]
++        for key in (
++            "id", "command", "status", "stop_requested", "error",
++        )
++        if key in operation
++    }
++
++
++def _active_operation(core):
++    operation = getattr(core, "_mesospim_remote_operation", None)
++    if isinstance(operation, dict) and operation.get("status") in _ACTIVE_OPERATION_STATES:
++        return operation
++    return None
++
++
++def _begin_operation(core, command, completion=None):
++    active = _active_operation(core)
++    if active is not None:
++        raise BusyError(
++            "system busy: currently processing "
++            f"{active['command']} (operation {active['id']})")
++    counter = int(getattr(core, "_mesospim_remote_operation_counter", 0)) + 1
++    core._mesospim_remote_operation_counter = counter
++    operation = {
++        "id": f"op-{counter:06d}",
++        "command": command,
++        "status": "processing",
++        "_completion": completion,
++    }
++    core._mesospim_remote_operation = operation
++    return operation
++
++
++def _finish_operation(core, status="completed", error=None):
++    operation = getattr(core, "_mesospim_remote_operation", None)
++    if not isinstance(operation, dict):
++        return False
++    operation["status"] = status
++    if error is not None:
++        operation["error"] = str(error)
++    return True
++
++
++def complete_operation(core, completion):
++    """Complete an operation only when its real completion milestone matches."""
++    operation = _active_operation(core)
++    if operation is None or operation.get("_completion") != completion:
++        return False
++    return _finish_operation(core)
++
++
++def fail_operation(core, completion, error):
++    """Fail an active operation when its matching deferred action raises."""
++    operation = _active_operation(core)
++    if operation is None or operation.get("_completion") != completion:
++        return False
++    return _finish_operation(core, "failed", error)
++
++
++def _completion_kind(core, call, args):
++    # Recording/unit-test Cores have no completion signals, so their calls remain
++    # synchronous.  The real Core advertises these signals and is gated until they fire.
++    if call == "preview_acquisition" and hasattr(core, "sig_finished"):
++        return "preview_returned_idle"
++    if call in FINISHED_SIGNAL_COMMANDS and hasattr(core, "sig_finished"):
++        return "finished"
++    if call == "set_mode" and args.get("mode") != "idle" and hasattr(core, "sig_finished"):
++        return "finished"
++    if call == "time_lapse_start" and hasattr(core, "sig_time_lapse_finished"):
++        return "time_lapse"
++    return None
++
++
++def _is_emergency(call, args):
++    return call in EMERGENCY_COMMANDS or (call == "set_mode" and args.get("mode") == "idle")
++
++
++def _accepted(result, command, core, operation=None):
++    output = dict(result) if isinstance(result, dict) else {"result": result}
++    output["accepted"] = True
++    output["accepted_command"] = command
++    output["operation"] = operation_snapshot(core) if operation is None else {
++        key: operation[key]
++        for key in ("id", "command", "status", "stop_requested", "error")
++        if key in operation
++    }
++    return output
 +
 +
 +def _unique_object(pairs):
@@ -895,6 +998,24 @@ index 0000000..1263a04
 +def _defer(func, *args, **kwargs):
 +    from PyQt5 import QtCore
 +    QtCore.QTimer.singleShot(0, lambda: func(*args, **kwargs))
++
++
++def _defer_until_returned_idle(core, completion, func, *args, **kwargs):
++    """Run a deferred blocking action and close its gate only after a verified idle return."""
++    def invoke():
++        try:
++            func(*args, **kwargs)
++            state = _state_get(core, "state")
++            if state != "idle":
++                raise RuntimeError(
++                    f"deferred command returned without reaching idle (state={state!r})")
++        except Exception as exc:
++            fail_operation(core, completion, exc)
++            logger.exception("remote deferred operation failed")
++        else:
++            complete_operation(core, completion)
++
++    _defer(invoke)
 +
 +
 +def _state_snapshot(core, keys=None):
@@ -1139,7 +1260,8 @@ index 0000000..1263a04
 +            "current_plane": _state_get(core, "current_framenumber"),
 +            "total_planes": _state_get(core, "snap_count"),
 +            "current_acquisition": _state_get(core, "current_acquisition"),
-+            "total_acquisitions": _state_get(core, "total_acquisitions")}
++            "total_acquisitions": _state_get(core, "total_acquisitions"),
++            "operation": operation_snapshot(core)}
 +
 +
 +def _acquire_start(core, a):
@@ -1156,9 +1278,9 @@ index 0000000..1263a04
 +    except (KeyError, TypeError):
 +        core._mesospim_prev_acq_list = (False, None)
 +    st["acq_list"] = AcquisitionList([obj])
-+    core.start(row=0)
++    _defer(core.start, row=0)
 +    fname = acq.get("filename") or ""
-+    return {"started": True,
++    return {"started": True, "scheduled": True,
 +            "files": [os.path.join(acq.get("folder") or "", fname)] if fname else [],
 +            "planes": int(acq.get("planes", 1) or 1),
 +            "pixels": list(_camera_pixels(getattr(core, "cfg", None)))}
@@ -1207,7 +1329,9 @@ index 0000000..1263a04
 +def _preview_acquisition(core, a):
 +    row = int(a.get("row", _state_get(core, "selected_row", 0)))
 +    core.state["selected_row"] = row
-+    _defer(core.preview_acquisition, z_update=bool(a.get("z_update", True)))
++    _defer_until_returned_idle(
++        core, "preview_returned_idle", core.preview_acquisition,
++        z_update=bool(a.get("z_update", True)))
 +    return {"scheduled": True, "row": row}
 +
 +
@@ -1265,7 +1389,10 @@ index 0000000..1263a04
 +
 +
 +def _stop_activity(core, a):
-+    core.stop()
++    # Re-broadcasting camera/writer abort while already idle can double-trigger
++    # native teardown. An idempotent stop must be a real no-op in that state.
++    if _state_get(core, "state") != "idle":
++        core.stop()
 +    return {"state": _state_get(core, "state")}
 +
 +
@@ -1280,7 +1407,8 @@ index 0000000..1263a04
 +    if mode not in _MODES:
 +        raise ValueError(f"unknown mode {mode!r}")
 +    if mode == "idle":
-+        core.stop()
++        if _state_get(core, "state") != "idle":
++            core.stop()
 +        return {"mode": mode}
 +    _defer(core.set_state, mode)
 +    return {"scheduled": True, "mode": mode}
@@ -1299,17 +1427,36 @@ index 0000000..1263a04
 +
 +
 +def _load_sample(core, a):
-+    core.sig_load_sample.emit()
++    params = _cfg_dict(getattr(core, "cfg", None), "stage_parameters")
++    if "y_load_position" not in params:
++        raise ValueError("stage configuration has no y_load_position")
++    core.move_absolute(
++        {"y_abs": float(params["y_load_position"])}, wait_until_done=True,
++        use_internal_position=False)
 +    return {}
 +
 +
 +def _unload_sample(core, a):
-+    core.sig_unload_sample.emit()
++    params = _cfg_dict(getattr(core, "cfg", None), "stage_parameters")
++    if "y_unload_position" not in params:
++        raise ValueError("stage configuration has no y_unload_position")
++    core.move_absolute(
++        {"y_abs": float(params["y_unload_position"])}, wait_until_done=True,
++        use_internal_position=False)
 +    return {}
 +
 +
 +def _center_sample(core, a):
-+    core.sig_center_sample.emit()
++    params = _cfg_dict(getattr(core, "cfg", None), "stage_parameters")
++    targets = {
++        axis + "_abs": float(params[key])
++        for axis, key in (("x", "x_center_position"), ("z", "z_center_position"))
++        if key in params
++    }
++    if not targets:
++        raise ValueError("stage configuration has no x_center_position or z_center_position")
++    core.move_absolute(
++        targets, wait_until_done=True, use_internal_position=False)
 +    return {}
 +
 +
@@ -1574,7 +1721,28 @@ index 0000000..1263a04
 +        raise KeyError(f"unknown command {call!r}; not in the allowlist")
 +    args = args or {}
 +    _validate(core, call, args, _effective_limits(core))
-+    return handler(core, args)
++    if call in READ_ONLY_COMMANDS:
++        return handler(core, args)
++
++    active = _active_operation(core)
++    if _is_emergency(call, args) and active is not None:
++        if call in {"stop", "stop_activity", "time_lapse_stop"} or (
++                call == "set_mode" and args.get("mode") == "idle"):
++            active["status"] = "stopping"
++            active["stop_requested"] = True
++        result = handler(core, args)
++        return _accepted(result, call, core, active)
++
++    completion = _completion_kind(core, call, args)
++    operation = _begin_operation(core, call, completion)
++    try:
++        result = handler(core, args)
++    except Exception as exc:
++        _finish_operation(core, "failed", exc)
++        raise
++    if completion is None:
++        _finish_operation(core)
++    return _accepted(result, call, core, operation)
 +
 +
 +class SimCore:

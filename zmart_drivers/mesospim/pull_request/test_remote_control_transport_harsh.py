@@ -27,6 +27,8 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+import pytest
+
 
 _SOURCE_ROOT = os.environ.get("MESOSPIM_RC_SOURCE_ROOT")
 if _SOURCE_ROOT:
@@ -45,6 +47,8 @@ if _SOURCE_ROOT:
             "z_min": -25000, "z_max": 25000,
             "f_min": 0, "f_max": 98000,
             "theta_min": -999, "theta_max": 999,
+            "y_load_position": 1000, "y_unload_position": -1000,
+            "x_center_position": 0, "z_center_position": 0,
         }
 else:
     from test_remote_control import _Cfg, srv, vrc
@@ -685,6 +689,130 @@ def test_tcp_invalid_utf8_and_pipelined_attacks_do_not_poison_next_call():
     finally:
         sock.close()
     assert _core.calls() == []
+
+
+def _operation_call(lane, name, arguments):
+    if lane == "mcp":
+        status, reply = _mcp_tool(name, arguments)
+        assert status == 200
+        result = reply["result"]
+        payload = json.loads(result["content"][0]["text"])
+        return not result["isError"], payload
+    reply = _tcp_call({name: arguments})
+    if reply.startswith(srv.OK_MARKER):
+        return True, json.loads(reply[len(srv.OK_MARKER):])
+    return False, {"error": reply}
+
+
+@pytest.mark.parametrize("lane", ["mcp", "tcp"])
+def test_preview_completes_on_blocking_return_at_idle(lane):
+    """Preview has no sig_finished, so its blocking return is the completion proof."""
+    _core.reset()
+    _core.sig_finished = object()
+    for attr in ("_mesospim_remote_operation", "_mesospim_remote_operation_counter"):
+        if hasattr(_core, attr):
+            delattr(_core, attr)
+    try:
+        ok, reply = _operation_call(
+            lane, "preview_acquisition", {"row": 0, "z_update": True})
+        assert ok, reply
+        assert reply["accepted"] is True
+        assert reply["operation"]["status"] == "completed"
+        preview = [call for call in _core.calls() if call[0] == "preview_acquisition"][-1]
+        assert preview[2]["z_update"] is True
+    finally:
+        delattr(_core, "sig_finished")
+        for attr in ("_mesospim_remote_operation", "_mesospim_remote_operation_counter"):
+            if hasattr(_core, attr):
+                delattr(_core, attr)
+
+
+@pytest.mark.parametrize("lane", ["mcp", "tcp"])
+def test_stopping_finished_time_lapse_does_not_leave_stuck_gate(lane):
+    """An idempotent stop has no future cancellation signal to wait for."""
+    _core.reset()
+    _core.state["state"] = "run_acquisition_list"
+    _core.timelapse_active = False
+    _core.sig_time_lapse_finished = object()
+    for attr in ("_mesospim_remote_operation", "_mesospim_remote_operation_counter"):
+        if hasattr(_core, attr):
+            delattr(_core, attr)
+    try:
+        ok, reply = _operation_call(lane, "time_lapse_stop", {})
+        assert ok, reply
+        assert reply["operation"]["status"] == "completed"
+    finally:
+        delattr(_core, "timelapse_active")
+        delattr(_core, "sig_time_lapse_finished")
+        _core.reset()
+        for attr in ("_mesospim_remote_operation", "_mesospim_remote_operation_counter"):
+            if hasattr(_core, attr):
+                delattr(_core, attr)
+
+
+@pytest.mark.parametrize("lane", ["mcp", "tcp"])
+def test_idle_stop_is_idempotent_and_does_not_reabort_workers(lane):
+    _core.reset()
+    ok, reply = _operation_call(lane, "stop_activity", {})
+    assert ok, reply
+    assert reply["operation"]["status"] == "completed"
+    assert reply["state"] == "idle"
+    assert _core.calls() == []
+
+
+@pytest.mark.parametrize("first_lane,second_lane", [("mcp", "tcp"), ("tcp", "mcp")])
+def test_busy_gate_acknowledges_rejects_reports_and_releases_across_lanes(
+        first_lane, second_lane):
+    """One active operation serializes MCP/TCP while reads and emergency stop remain live."""
+    _core.reset()
+    _core.sig_finished = object()  # makes start_live genuinely asynchronous to the gate
+    for attr in ("_mesospim_remote_operation", "_mesospim_remote_operation_counter"):
+        if hasattr(_core, attr):
+            delattr(_core, attr)
+    try:
+        ok, accepted = _operation_call(first_lane, "start_live", {})
+        assert ok
+        assert accepted["accepted"] is True
+        assert accepted["accepted_command"] == "start_live"
+        operation = accepted["operation"]
+        assert operation["status"] == "processing"
+        assert operation["command"] == "start_live"
+
+        before = _core.calls()
+        ok, rejected = _operation_call(second_lane, "set_intensity", {"intensity": 20})
+        assert not ok
+        assert "system busy" in rejected["error"]
+        assert "start_live" in rejected["error"]
+        assert operation["id"] in rejected["error"]
+        assert _core.calls() == before
+
+        ok, progress = _operation_call(second_lane, "get_progress", {})
+        assert ok
+        assert progress["operation"]["id"] == operation["id"]
+        assert progress["operation"]["status"] == "processing"
+
+        ok, stopping = _operation_call(second_lane, "stop_activity", {})
+        assert ok
+        assert stopping["accepted"] is True
+        assert stopping["accepted_command"] == "stop_activity"
+        assert stopping["operation"]["status"] == "stopping"
+
+        assert vrc.complete_operation(_core, "finished") is True
+        ok, completed = _operation_call(first_lane, "get_progress", {})
+        assert ok
+        assert completed["operation"]["status"] == "completed"
+
+        ok, next_call = _operation_call(second_lane, "set_intensity", {"intensity": 20})
+        assert ok
+        assert next_call["accepted"] is True
+        assert next_call["operation"]["status"] == "completed"
+        assert _core.state["intensity"] == 20
+    finally:
+        delattr(_core, "sig_finished")
+        for attr in ("_mesospim_remote_operation", "_mesospim_remote_operation_counter"):
+            if hasattr(_core, attr):
+                delattr(_core, attr)
+        _core.reset()
 
 
 def test_both_servers_remain_healthy_after_the_full_attack_corpus():

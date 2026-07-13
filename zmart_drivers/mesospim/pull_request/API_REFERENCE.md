@@ -13,6 +13,13 @@ Every input the server accepts over **TCP** or **MCP**. Generated to match
   `isError:true`). `Authorization: Bearer <token>`, `Origin` must be localhost.
 - Same command, same args, same validation, same result on both lanes.
 
+Every accepted mutating command also returns `accepted: true`, `accepted_command`, and an
+`operation` object containing `id`, `command`, and `status`. A synchronous call returns as
+`completed`; a scheduled call returns as `processing` and reaches `completed` only after
+its matching Core completion event. While one operation is `processing` or `stopping`, a
+second mutation is rejected with the active command and operation ID. Reads, progress
+polling, and emergency stop/shutter commands remain available over either transport.
+
 ## Conventions
 
 - **Axes**: `x y z f theta`. Positions/targets/deltas are **µm** (`x y z f`) / **degrees** (`theta`).
@@ -34,7 +41,7 @@ Every input the server accepts over **TCP** or **MCP**. Generated to match
 | `get_config` | — | `app, version, lasers[], filters[], zooms[], shutter_configs[], axes[], camera{pixels_x,pixels_y}` |
 | `get_limits` | — | `stage{}, camera{}, startup{}, enforced{axes{axis:[lo,hi]|null}, parameters{key:{type,options,range}}}` |
 | `get_capabilities` | — | `commands[], axes[], position_keys{}, settable_state_keys[], modes[], acquisition_fields[]` |
-| `get_progress` | — | `state, current_plane, total_planes, current_acquisition, total_acquisitions` |
+| `get_progress` | — | `state, current_plane, total_planes, current_acquisition, total_acquisitions, operation` |
 | `self_test` | — | `ok, report[]` — re-proves the loaded limits against a mock Core; never moves hardware |
 
 ## Motion
@@ -92,7 +99,7 @@ Every input the server accepts over **TCP** or **MCP**. Generated to match
 | `run_acquisition_list` | — | `scheduled` |
 | `run_selected_acquisition` | `row?: int` | `scheduled, row` |
 | `preview_acquisition` | `row?: int`, `z_update?: bool=true` | `scheduled, row` |
-| `acquire_start` | `acquisition: {…}` (see `acquisition_fields`) | `started, files[], planes, pixels[x,y]` |
+| `acquire_start` | `acquisition: {…}` (see `acquisition_fields`) | `started, scheduled, files[], planes, pixels[x,y]` |
 | `stat_files` | `files: [path]` | `missing[], sizes{path:bytes}` |
 | `acquire_finish` | — | `state` |
 | `get_disk_space` | `acquisitions?: [{…}]` (omit = current list) | `free_bytes, required_bytes` |
@@ -120,7 +127,7 @@ A value is refused (with a message that names the limit) if it fails any of:
 - **option** — `filter zoom laser shutterconfig` must be one the live config allows
   (checked in `set_*`, `set_state`, and inside an `acquisition`).
 - **range**
-  - axis targets (`move_absolute`) — the loaded config's envelope `cfg.stage_parameters`
+  - absolute targets and relative destinations (`move_absolute`, `move_relative`) — the loaded config's envelope `cfg.stage_parameters`
     (`{axis}_min`/`{axis}_max`); `MESOSPIM_RS_LIMITS` (`{"x":[lo,hi],…}` or a path) can
     tighten an axis; an axis with no limit is unchecked (see `get_limits.enforced.axes`).
   - `intensity` and every `%` parameter (`*_delay_% *_pulse_% *_ramp_*_% *_duty_cycle`) ∈ `0–100`.
