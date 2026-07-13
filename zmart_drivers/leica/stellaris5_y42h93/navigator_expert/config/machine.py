@@ -395,6 +395,18 @@ class MachineProfile:
         default_calibration = json.loads(
             self.bundled_default_path(CALIBRATION_FILENAME).read_text(encoding="utf-8")
         )
+        if calibration_name is not None:
+            # A fresh NAMED set starts with no objectives. An operator creates
+            # a named set precisely to establish their own reference
+            # objective; seeding it with the bundled placeholder numbers
+            # would lock the reference to the placeholder's arbitrary choice
+            # and make "start a new calibration_name" advice impossible to
+            # follow. The first measured pair anchors the origin instead.
+            default_calibration = {
+                "last_updated": default_calibration.get("last_updated"),
+                "objectives": {},
+                "schema_version": default_calibration["schema_version"],
+            }
         snapshot = self.publish_snapshot(
             self._next_auto_moment("calibration"),
             calibration=default_calibration,

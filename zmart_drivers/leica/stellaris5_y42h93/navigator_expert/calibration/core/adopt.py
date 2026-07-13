@@ -112,6 +112,17 @@ def _apply_staging_payload(
         to_slot = _objective_slot_for_label(config, data["to_objective"])
         if from_slot == to_slot:
             raise ValueError("reference and target objective slots must differ")
+    # A placeholder-only config has no origin worth protecting: none of its
+    # entries records a measuring session, so its numbers are the shipped
+    # seed, not this microscope's truth. Re-anchor it — drop the placeholder
+    # positions (keeping the objective names) so the measured reference below
+    # becomes the [0, 0, 0] origin, exactly like a fresh set.
+    if not any(
+        entry.get("session_id") for entry in (config.get("objectives") or {}).values()
+    ):
+        for entry in (config.get("objectives") or {}).values():
+            entry.pop("translation_um", None)
+
     from_entry = (config.get("objectives") or {}).get(str(from_slot), {})
     # Refuse the two merges that would corrupt this calibration's origin, and
     # say so now with a way out — rather than failing later at publish time

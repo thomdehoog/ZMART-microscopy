@@ -174,7 +174,20 @@ def start_session(
         if "no reference objective" not in str(exc):
             raise
         stored_reference_slot = None
-    if stored_reference_slot is not None and int(reference_slot) != stored_reference_slot:
+    # The stored reference is only worth protecting when it was measured on
+    # this microscope. A placeholder-only config (no entry records a
+    # measuring session) carries the shipped seed's arbitrary choice, and
+    # adoption re-anchors it to the operator's reference anyway.
+    measured_slots = {
+        int(slot)
+        for slot, entry in (existing_config.get("objectives") or {}).items()
+        if entry.get("session_id")
+    }
+    if (
+        stored_reference_slot is not None
+        and int(reference_slot) != stored_reference_slot
+        and measured_slots
+    ):
         raise ValueError(
             f"this calibration session already uses reference slot "
             f"{stored_reference_slot}, but the first cell configured "
@@ -182,6 +195,12 @@ def start_session(
             f"different calibration session for the new reference objective, "
             f"or change reference_slot in the first cell to "
             f"{stored_reference_slot}. Calibration file: {resolved_path}"
+        )
+    if stored_reference_slot is not None and int(reference_slot) != stored_reference_slot:
+        print(
+            f"Note: this calibration still carries only shipped placeholder "
+            f"values (reference slot {stored_reference_slot}); adopting your "
+            f"measurement will re-anchor it to slot {int(reference_slot)}."
         )
 
     client = drv.connect_python_client()

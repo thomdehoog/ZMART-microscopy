@@ -272,6 +272,24 @@ def test_publish_archives_evidence_directory_inside_atomic_snapshot(tmp_path):
     assert evidence.is_dir()
 
 
+def test_fresh_named_calibration_set_seeds_with_no_objectives(tmp_path):
+    """A brand-new named set must start empty, not with the bundled seed.
+
+    An operator creates a named set to establish their own reference
+    objective; seeding it with the shipped placeholder numbers would lock
+    the reference to the placeholder's arbitrary choice. The first measured
+    pair anchors the origin instead.
+    """
+    profile = _profile(tmp_path)
+    path = profile.calibration_path("fresh_lens_setup")
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    assert cfg["objectives"] == {}
+    assert "schema_version" in cfg
+    # The DEFAULT (unnamed) calibration keeps the bundled seed.
+    default_cfg = json.loads(profile.calibration_path().read_text(encoding="utf-8"))
+    assert default_cfg["objectives"]
+
+
 def test_named_calibration_sets_copy_forward_inside_calibration_only(tmp_path):
     profile = _profile(tmp_path)
     first = profile.publish_snapshot(
