@@ -175,9 +175,16 @@ def phase_readonly(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None
         state = v.callable("get_state", sess.get_state)
         opts = v.callable("get_acquisition_options", sess.get_acquisition_options)
         if state is not None and opts is not None:
+            selected_job = state["changeable"]["job"]
+            normal_jobs = (opts.get("job") or {}).get("options") or []
+            autofocus_jobs = {
+                job.get("Name")
+                for job in state["observed"].get("autofocus_jobs", [])
+                if job.get("Name")
+            }
             v.compare(
-                "get_state: changeable job is in the job list",
-                state["changeable"]["job"] in opts["job"]["options"],
+                "get_state: selected job is catalogued",
+                selected_job in normal_jobs or selected_job in autofocus_jobs,
                 True,
             )
             observed = state["observed"]
@@ -382,9 +389,26 @@ def phase_state(v: vh.Validator, sess: Any) -> None:
             return
         original = captured["changeable"]["job"]
         names = (sess.get_acquisition_options().get("job") or {}).get("options") or []
-        other = next((n for n in names if n != original), None)
+        autofocus_names = {
+            job.get("Name")
+            for job in captured["observed"].get("autofocus_jobs", [])
+            if job.get("Name")
+        }
+        if original in autofocus_names:
+            v.skip(
+                "state: switch",
+                f"current job {original!r} is autofocus-only and cannot be restored via set_state",
+            )
+            return
+        if not v.compare("state: current job is a normal job", original in names, True):
+            return
+
+        other = next(
+            (name for name in names if name != original and name not in autofocus_names),
+            None,
+        )
         if other is None:
-            v.skip("state: switch", "only one job on this instrument")
+            v.skip("state: switch", "no other normal acquisition job on this instrument")
             return
         v.callable(
             "set_state: switch job",

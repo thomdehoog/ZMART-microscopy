@@ -436,7 +436,7 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(root, Path(tmp) / "lasx" / "ZMART-microscopy")
         self.assertEqual(h.connection["output_root"], str(root))
 
-    def test_get_info_keeps_explicit_output_root(self):
+    def test_get_info_resolves_explicit_output_root_without_discovery(self):
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/chosen/zmart"})
         with (
             patch.object(adapter, "_selected_job_name", return_value="Overview"),
@@ -447,7 +447,10 @@ class TestAcquire(unittest.TestCase):
                 side_effect=AssertionError("explicit output must bypass discovery"),
             ),
         ):
-            self.assertEqual(adapter.get_info(h)["output_root"], "/chosen/zmart")
+            self.assertEqual(
+                Path(adapter.get_info(h)["output_root"]),
+                Path("/chosen/zmart").resolve(),
+            )
 
     def test_acquire_selects_job_captures_and_saves(self):
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
@@ -512,7 +515,7 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual([Path(p) for p in record["images"]], [Path("/tmp/out/img.ome.tif")])
         self.assertEqual(
             record["planes"],
-            [{"t": 0, "z": 0, "c": 0, "path": "/tmp/out/img.ome.tif"}],
+            [{"t": 0, "z": 0, "c": 0, "path": str(Path("/tmp/out/img.ome.tif"))}],
         )
 
     def test_acquire_applies_the_rigs_measured_orientation(self):
