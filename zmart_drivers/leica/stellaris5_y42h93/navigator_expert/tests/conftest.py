@@ -12,18 +12,9 @@ _DRIVER_PARENT = Path(__file__).resolve().parents[2]
 if str(_DRIVER_PARENT) not in sys.path:
     sys.path.insert(0, str(_DRIVER_PARENT))
 
-# Repo root: used below to locate the target_acquisition workflow tests.
-_REPO_ROOT = Path(__file__).resolve().parents[5]
-
 _HELPERS = Path(__file__).resolve().parent / "helpers"
 if str(_HELPERS) not in sys.path:
     sys.path.insert(0, str(_HELPERS))
-
-# Add target_acquisition dir so workflow tests imported from this suite
-# can resolve `from pipeline...`.
-_TARGET_ACQ = _REPO_ROOT / "workflows" / "target_acquisition"
-if str(_TARGET_ACQ) not in sys.path:
-    sys.path.insert(0, str(_TARGET_ACQ))
 
 TEST_DATA = Path(__file__).resolve().parent / "data"
 GENERAL_WORKFLOW_DATA = TEST_DATA / "general_workflow"

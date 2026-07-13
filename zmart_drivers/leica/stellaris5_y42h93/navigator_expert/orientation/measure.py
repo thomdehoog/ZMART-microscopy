@@ -25,6 +25,7 @@ License: MIT
 from __future__ import annotations
 
 import json
+import math
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -268,7 +269,14 @@ def write_orientation_diagnostic(
     canonical: np.ndarray,
 ) -> Path:
     """Render measured overlays and an eight-case D4 gallery to an archived PNG."""
-    import matplotlib.pyplot as plt
+    # Build the figure directly on the Agg (image-file) canvas instead of
+    # going through pyplot: pyplot auto-selects a GUI backend, which needs a
+    # working desktop toolkit this machine may not have. The figure is only
+    # ever saved to a PNG, never shown, so the file-only canvas is exactly
+    # right — and a broken GUI install can no longer take the diagnostic
+    # (and the whole measurement) down with it.
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
     from matplotlib.patches import Rectangle
 
     candidate = orientation_from_image_to_stage(canonical)
@@ -276,7 +284,8 @@ def write_orientation_diagnostic(
     selected_color = "#087F5B" if accepted else "#C56A00"
     selected_word = "DETECTED" if accepted else "NEAREST CANDIDATE - REJECTED"
 
-    fig = plt.figure(figsize=(16, 12.25), facecolor="white")
+    fig = Figure(figsize=(16, 12.25), facecolor="white")
+    FigureCanvasAgg(fig)
     grid = fig.add_gridspec(
         3,
         1,
@@ -409,7 +418,8 @@ def write_orientation_diagnostic(
         signs = orientation.axis_signs
         title = f"Rotation {orientation.rotate_deg} deg | {reflection_tag}"
         if not show_details:
-            title = f"Detected: {orientation.rotate_deg} deg CW | {reflection_tag}"
+            word = "Detected" if accepted else "Nearest (rejected)"
+            title = f"{word}: {orientation.rotate_deg} deg CW | {reflection_tag}"
         ax.set_title(
             title,
             color=selected_color if selected else "#252A30",
@@ -460,8 +470,21 @@ def write_orientation_diagnostic(
     )
     output = session.paths.reports_dir / DIAGNOSTIC_NAME
     fig.savefig(output, dpi=160)
-    plt.close(fig)
     return output
+
+
+def _finite_registration(vote: dict) -> dict:
+    """One vote's report entry, with non-finite shifts mapped to None."""
+
+    def _num(value):
+        return None if value is None or not math.isfinite(float(value)) else float(value)
+
+    return {
+        "dx_um": _num(vote.get("dx_um")),
+        "dy_um": _num(vote.get("dy_um")),
+        "confidence": vote.get("confidence"),
+        "agreeing": list(vote.get("agreeing") or []),
+    }
 
 
 def measure(session: OrientationSession) -> OrientationSession:
@@ -545,8 +568,28 @@ def measure(session: OrientationSession) -> OrientationSession:
     session.registrations["home_to_plus_y"] = vote_y
 
     if not vote_x.get("trusted") or not vote_y.get("trusted"):
-        # Weak vote: D4 is never evaluated. Leave d4_accepted=None.
+        # Weak vote: D4 is never evaluated. Leave d4_accepted=None, but still
+        # write the report JSON — a failed run should be as reviewable from
+        # disk as a rejected one, not vanish with the notebook output.
         session.failure_reason = "voting registration not trusted"
+        write_json_atomic(
+            session.paths.reports_dir / "orientation_report.json",
+            {
+                "schema_version": STAGING_SCHEMA_VERSION,
+                "kind": "orientation_report",
+                "created_at": now_iso(),
+                "reference_objective": session.reference_objective,
+                "stage_move_um": float(session.stage_move_um),
+                "accepted": False,
+                "failure_reason": session.failure_reason,
+                # An untrusted vote can carry NaN shifts, which strict JSON
+                # refuses; store None for anything non-finite.
+                "registrations": {
+                    "stage_plus_x": _finite_registration(vote_x),
+                    "stage_plus_y": _finite_registration(vote_y),
+                },
+            },
+        )
         return session
 
     stage_move = session.stage_move_um
