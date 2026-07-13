@@ -71,6 +71,20 @@ def test_subsystem_roots_are_directly_below_api_root(tmp_path):
         assert profile.subsystem_root(subsystem) == api_root / subsystem
 
 
+def test_work_root_is_outside_timestamp_only_subsystem_trees(tmp_path):
+    profile = _profile(tmp_path)
+
+    assert profile.work_root("orientation") == profile.snapshot_root() / ".work" / "orientation"
+
+
+def test_ensure_layout_creates_every_subsystem_directory(tmp_path):
+    profile = _profile(tmp_path / "new-root")
+
+    assert profile.ensure_layout() == profile.snapshot_root()
+    assert profile.ensure_layout() == profile.snapshot_root()
+    assert all(profile.subsystem_root(name).is_dir() for name in machine.SUBSYSTEMS)
+
+
 def test_unknown_subsystem_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="unknown machine-config subsystem"):
         _profile(tmp_path).subsystem_root("mixed")
@@ -237,6 +251,25 @@ def test_publish_archives_notebook_with_owning_subsystem(tmp_path):
         notebook_paths=[notebook],
     )
     assert (snapshot / notebook.name).read_text() == '{"cells": []}'
+
+
+def test_publish_archives_evidence_directory_inside_atomic_snapshot(tmp_path):
+    profile = _profile(tmp_path / "programdata")
+    evidence = tmp_path / "scope_orientation"
+    (evidence / "reports").mkdir(parents=True)
+    (evidence / "reports" / "orientation_report.json").write_text(
+        '{"rotate_deg": 90}', encoding="utf-8"
+    )
+
+    snapshot = profile.publish_snapshot(
+        _AT_1430,
+        orientation={"rotate_deg": 90},
+        archive_paths=[evidence],
+    )
+
+    archived = snapshot / evidence.name / "reports" / "orientation_report.json"
+    assert archived.read_text(encoding="utf-8") == '{"rotate_deg": 90}'
+    assert evidence.is_dir()
 
 
 def test_named_calibration_sets_copy_forward_inside_calibration_only(tmp_path):

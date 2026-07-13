@@ -15,6 +15,10 @@ microscope API root::
         orientation/<datetime>/
             orientation.json
             set_orientation.ipynb
+            <measurement-session>/
+                data/
+                driver-save/
+                reports/
         origin/<datetime>/
             origin.json
 
@@ -117,6 +121,18 @@ def _write_json(path: Path, payload: dict) -> None:
         fh.write("\n")
 
 
+def _io_path(path: Path) -> str | Path:
+    """Use an extended-length path for deep snapshot evidence on Windows."""
+    if os.name != "nt":
+        return path
+    absolute = str(path.absolute())
+    if absolute.startswith("\\\\?\\"):
+        return absolute
+    if absolute.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + absolute[2:]
+    return "\\\\?\\" + absolute
+
+
 def validate_calibration_name(name: str) -> str:
     """Validate a machine-local calibration-set name.
 
@@ -154,6 +170,13 @@ class MachineProfile:
 
     def snapshot_root(self) -> Path:
         return self.root() / self.vendor / self.microscope_id / self.api
+
+    def ensure_layout(self) -> Path:
+        """Create the API root and its subsystem directories if absent."""
+        root = self.snapshot_root()
+        for subsystem in SUBSYSTEMS:
+            (root / subsystem).mkdir(parents=True, exist_ok=True)
+        return root
 
     def legacy_snapshot_root(self) -> Path:
         """The pre-api-level snapshot root (vendor/microscope only).
@@ -203,6 +226,11 @@ class MachineProfile:
         if subsystem not in SUBSYSTEMS:
             raise ValueError(f"unknown machine-config subsystem {subsystem!r}")
         return self.snapshot_root() / subsystem
+
+    def work_root(self, subsystem: str) -> Path:
+        """Non-published workspace for an in-progress subsystem measurement."""
+        self.subsystem_root(subsystem)  # validate the subsystem name
+        return self.snapshot_root() / ".work" / subsystem
 
     def _flat_snapshots(self) -> list[Path]:
         """Old API-level snapshots, retained as migration input."""
@@ -275,6 +303,7 @@ class MachineProfile:
         calibration_name: str | None = None,
         limits: dict | None = None,
         orientation: dict | None = None,
+        archive_paths: Iterable[str | Path] = (),
         notebook_paths: Iterable[str | Path] = (),
     ) -> Path:
         """Publish exactly one subsystem delta into its timestamp tree."""
@@ -295,6 +324,7 @@ class MachineProfile:
             subsystem,
             payload=payload,
             calibration_name=calibration_name,
+            archive_paths=archive_paths,
             notebook_paths=notebook_paths,
         )
 
@@ -516,6 +546,7 @@ class MachineProfile:
         *,
         payload: dict | None,
         calibration_name: str | None = None,
+        archive_paths: Iterable[str | Path] = (),
         notebook_paths: Iterable[str | Path] = (),
     ) -> Path:
         """Publish one subsystem snapshot using copy-forward only within it."""
@@ -550,6 +581,17 @@ class MachineProfile:
                     marker.touch()
                 elif prior_marker is not None and prior_marker.exists():
                     shutil.copy2(prior_marker, marker)
+            for source in archive_paths:
+                source = Path(source)
+                destination = staging / source.name
+                if destination.exists():
+                    raise FileExistsError(
+                        f"snapshot archive destination already exists: {destination}"
+                    )
+                if source.is_dir():
+                    shutil.copytree(_io_path(source), _io_path(destination))
+                else:
+                    shutil.copy2(_io_path(source), _io_path(destination))
             for nb in notebook_paths:
                 nb = Path(nb)
                 shutil.copy2(nb, staging / nb.name)

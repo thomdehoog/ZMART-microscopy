@@ -19,7 +19,7 @@ from navigator_expert.commands import gate
 from navigator_expert.config.machine import MachineProfile
 from navigator_expert.connection import session as drv_session
 from navigator_expert.connection import session_state
-from navigator_expert.orientation import Orientation
+from navigator_expert.orientation import Orientation, orientation_config
 
 
 def _connect(**kwargs) -> MockLasxClient:
@@ -46,6 +46,22 @@ def test_connect_loads_limits_orientation_and_calibration_by_default():
     assert cfg.orientation_info["measured"] is False
     # limits are installed and govern this client
     assert gate.state_for(client).ok
+
+
+def test_connect_creates_programdata_layout_when_all_config_loading_is_skipped(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "fresh-programdata"
+    monkeypatch.setenv("ZMART_MICROSCOPY_ROOT", str(root))
+
+    _connect(load_limits=False, load_orientation=False, load_calibration=False)
+
+    profile = MachineProfile(programdata_root=root)
+    assert profile.snapshot_root().is_dir()
+    assert all(
+        profile.subsystem_root(name).is_dir()
+        for name in ("limits", "calibration", "orientation", "origin")
+    )
 
 
 def test_connect_records_adopted_calibration_slots_as_measured():
@@ -104,6 +120,30 @@ def test_connect_records_measured_orientation_as_positive_preflight_evidence():
     assert info["loaded"] is True
     assert info["measured"] is True
     assert info["rotate_deg"] == 0
+
+
+def test_connect_loads_mirror_signs_and_matrix_from_complete_orientation():
+    import json
+
+    profile = MachineProfile(programdata_root=Path(os.environ["ZMART_MICROSCOPY_ROOT"]))
+    snap = profile.ensure_snapshot("orientation")
+    expected = Orientation(rotate_deg=270, mirrored=True)
+    (snap / "orientation.json").write_text(
+        json.dumps(orientation_config(expected)),
+        encoding="utf-8",
+    )
+
+    client = _connect()
+
+    cfg = session_state.get(client)
+    assert cfg.orientation == expected
+    assert cfg.orientation_info["mirrored"] is True
+    assert cfg.orientation_info["axis_signs"] == {"stage_x": 1, "stage_y": 1}
+    assert cfg.orientation_info["axis_mapping"] == {
+        "stage_x_from_image": "+Y",
+        "stage_y_from_image": "+X",
+    }
+    assert cfg.orientation_info["image_to_stage"] == [[0, 1], [1, 0]]
 
 
 def test_orientation_and_readiness_evidence_come_from_one_validated_read():
