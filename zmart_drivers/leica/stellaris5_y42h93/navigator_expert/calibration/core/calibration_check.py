@@ -1,11 +1,18 @@
 """Single-position objective-pair calibration check (driver setup due-diligence).
 
-Image a spot with the reference objective, switch to the target objective, return
-to the same frame position -- a normal gated move, so the driver applies the
-calibrated translation -- image again, and register the pair. The leftover shift
-is how far the calibration is off there. A positive ``(dx_um, dy_um)`` is how far
-the target objective landed from the reference spot (the negation of the apparent
-image shift). Runs directly against the driver, never through the controller.
+Image a spot with the reference objective, switch to the target objective, and
+drive back to the same spot **using the adopted calibration's predicted offset**
+-- the same per-slot translation the driver applies during an experiment when
+the active objective differs from the origin's. Then image again and register
+the pair. The leftover shift is how far the calibration is off at this spot.
+A positive ``(dx_um, dy_um)`` is how far the target objective landed from the
+reference spot (the negation of the apparent image shift).
+
+The check reads the calibration at session start and refuses to run against a
+slot the calibration does not cover, and it verifies at each step which
+objective is actually in -- so it cannot silently bless a run where the
+operator forgot to switch objectives. Runs directly against the driver, never
+through the controller.
 
 Deliberately single-position; a ring-averaged version can be added later.
 
@@ -25,13 +32,16 @@ import numpy as np
 import navigator_expert as drv
 from navigator_expert.algorithms import register_voting
 
+from . import model as _model
 from .common import (
     SessionPaths,
     acquire_frame_to,
     make_session_paths,
     move_xy_and_verify,
+    move_zwide_and_verify,
     now_iso,
     plot_overlay,
+    read_active_objective,
     read_job_geometry,
     write_json_atomic,
 )
@@ -45,7 +55,15 @@ class CalibrationCheckSession:
     paths: SessionPaths
     job_name: str
     client: Any
+    # {slot: (x, y, z) um} from the adopted calibration under test.
+    translations: dict[int, tuple[float, float, float]]
     home_xy: tuple[float, float] | None = None
+    home_z: float | None = None
+    from_slot: int | None = None
+    from_objective: str | None = None
+    to_slot: int | None = None
+    to_objective: str | None = None
+    applied_translation_um: tuple[float, float, float] | None = None
     ref_image: np.ndarray | None = None
     ref_pixel_size_um: float | None = None
     target_image: np.ndarray | None = None
@@ -55,7 +73,27 @@ class CalibrationCheckSession:
     exported_files: dict[str, str] = field(default_factory=dict)
 
 
-def start_session(*, session_id: str, job_name: str, sessions_root: str | Path):
+def start_session(
+    *,
+    session_id: str,
+    job_name: str,
+    sessions_root: str | Path,
+    calibration_name: str | None = None,
+):
+    """Connect and load the adopted calibration this check will test.
+
+    Loading happens first so a missing or unreadable calibration surfaces
+    as one clear setup error before any hardware interaction. Pass the same
+    ``calibration_name`` the calibration session used, so the check tests
+    the set that was just adopted.
+    """
+    translations = _model.load_translations(calibration_name=calibration_name)
+    if len(translations) < 2:
+        raise RuntimeError(
+            f"the adopted calibration covers only {sorted(translations)} -- "
+            "a check needs at least two calibrated objective slots. Run the "
+            "calibration steps above and adopt before checking."
+        )
     paths = make_session_paths(session_id, KIND, sessions_root)
     client = drv.connect_python_client()
     limits_state = drv.connect_limits_handshake(client)
@@ -63,15 +101,36 @@ def start_session(*, session_id: str, job_name: str, sessions_root: str | Path):
         raise RuntimeError(limits_state.error)
     if drv.get_hardware_info(client, mode="api") is None:
         raise RuntimeError("get_hardware_info returned None; LAS X unreachable")
-    return CalibrationCheckSession(session_id=session_id, paths=paths, job_name=job_name, client=client)
+    return CalibrationCheckSession(
+        session_id=session_id,
+        paths=paths,
+        job_name=job_name,
+        client=client,
+        translations=translations,
+    )
+
+
+def _require_calibrated_slot(session: CalibrationCheckSession, slot: int, name: str) -> None:
+    if slot not in session.translations:
+        raise RuntimeError(
+            f"objective slot {slot} ({name}) is not covered by the adopted "
+            f"calibration (calibrated slots: {sorted(session.translations)}). "
+            "Calibrate this pair first, or switch to a calibrated objective."
+        )
 
 
 def measure_reference(session: CalibrationCheckSession) -> CalibrationCheckSession:
     """Record the spot and image it with the (focused) reference objective."""
+    slot, name = read_active_objective(session.client, session.job_name)
+    _require_calibrated_slot(session, slot, name)
+    session.from_slot, session.from_objective = slot, name
+    print(f"Reference objective: slot {slot} — {name}")
+
     xy = drv.get_xy(session.client, mode="api") or {}
     if "x_um" not in xy or "y_um" not in xy:
         raise RuntimeError(f"get_xy returned no readback: {xy}")
     session.home_xy = (float(xy["x_um"]), float(xy["y_um"]))
+    session.home_z = float(drv.read_zwide_um(session.client, session.job_name))
     session.ref_image = acquire_frame_to(session, "reference")
     session.ref_pixel_size_um = read_job_geometry(
         session.client, session.job_name, session.ref_image
@@ -80,10 +139,30 @@ def measure_reference(session: CalibrationCheckSession) -> CalibrationCheckSessi
 
 
 def measure_target_and_report(session: CalibrationCheckSession, *, show: bool = True) -> dict:
-    """Re-image the same spot with the switched-in target objective; report the offset."""
-    if session.home_xy is None or session.ref_image is None:
+    """Return to the spot via the calibrated offset, re-image, report the leftover."""
+    if session.home_xy is None or session.home_z is None or session.ref_image is None:
         raise RuntimeError("run measure_reference first")
-    move_xy_and_verify(session.client, *session.home_xy)
+
+    slot, name = read_active_objective(session.client, session.job_name)
+    if slot == session.from_slot:
+        raise RuntimeError(
+            f"the target objective is still the reference objective: slot {slot} "
+            f"({name}). Switch only the objective, keep the job selected, and rerun."
+        )
+    _require_calibrated_slot(session, slot, name)
+    session.to_slot, session.to_objective = slot, name
+    print(f"Target objective: slot {slot} — {name}")
+
+    # The correction under test: the difference between the two slots'
+    # adopted translations, exactly what the driver adds to a frame move
+    # when the active objective differs from the origin's objective.
+    ref_t = session.translations[session.from_slot]
+    tgt_t = session.translations[slot]
+    delta = (tgt_t[0] - ref_t[0], tgt_t[1] - ref_t[1], tgt_t[2] - ref_t[2])
+    session.applied_translation_um = delta
+
+    move_xy_and_verify(session.client, session.home_xy[0] + delta[0], session.home_xy[1] + delta[1])
+    move_zwide_and_verify(session.client, session.job_name, session.home_z + delta[2])
     session.target_image = acquire_frame_to(session, "target")
     session.target_pixel_size_um = read_job_geometry(
         session.client, session.job_name, session.target_image
@@ -96,7 +175,12 @@ def measure_target_and_report(session: CalibrationCheckSession, *, show: bool = 
     report = {
         "kind": KIND,
         "created_at": now_iso(),
+        "from_slot": session.from_slot,
+        "from_objective": session.from_objective,
+        "to_slot": session.to_slot,
+        "to_objective": session.to_objective,
         "position_frame_um": {"x": session.home_xy[0], "y": session.home_xy[1]},
+        "applied_translation_um": list(delta),
         "dx_um": dx,
         "dy_um": dy,
         "offset_um": None if dx is None or dy is None else math.hypot(dx, dy),

@@ -201,6 +201,41 @@ def move_zwide_and_verify(
         raise RuntimeError(f"z-wide readback outside tolerance: requested {z_um}, got {actual}")
 
 
+def read_active_objective(
+    client: Any,
+    job_name: str,
+    known_names: dict[int, str] | None = None,
+) -> tuple[int, str]:
+    """Read the selected job's objective slot and name, changing nothing.
+
+    Verifies the operator kept ``job_name`` selected (the calibration
+    notebooks ask for the objective to be the only thing that changes
+    between steps), then returns ``(slot, name)`` for the objective the
+    microscope reports as active. ``known_names`` supplies a fallback
+    name per slot for hardware records that omit one.
+    """
+    selected = drv.get_selected_job(client, mode="api") or {}
+    selected_name = selected.get("Name")
+    if selected_name != job_name:
+        raise RuntimeError(
+            f"Navigator Expert job changed: expected {job_name!r}, "
+            f"but {selected_name!r} is selected. Re-select {job_name!r}; "
+            "change only the objective between calibration steps."
+        )
+    settings = drv.get_job_settings(client, job_name, mode="api") or {}
+    objective = settings.get("objective") or {}
+    slot = objective.get("slotIndex")
+    if slot is None:
+        raise RuntimeError(f"could not read the active objective slot from job {job_name!r}")
+    slot = int(slot)
+    name = str(objective.get("name") or (known_names or {}).get(slot) or "").strip()
+    if not name:
+        raise RuntimeError(
+            f"could not read the active objective name for slot {slot} from job {job_name!r}"
+        )
+    return slot, name
+
+
 # -- Acquisition helper ------------------------------------------------
 
 
