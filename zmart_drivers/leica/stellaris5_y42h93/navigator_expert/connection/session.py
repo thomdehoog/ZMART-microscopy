@@ -154,7 +154,7 @@ def _load_rig_orientation(*, enabled: bool = True) -> tuple[Any, dict]:
     A single resolve/read supplies both the orientation used for images and the
     provenance used by preflight, so snapshot adoption cannot mix old geometry
     with new readiness evidence. Invalid or disabled configuration returns the
-    identity turn with an explicit not-ready record.
+    identity mapping with an explicit not-ready record.
     """
     from .. import orientation as _orientation
     from ..config.machine import MACHINE
@@ -167,6 +167,7 @@ def _load_rig_orientation(*, enabled: bool = True) -> tuple[Any, dict]:
             "measured": False,
             "path": None,
             "rotate_deg": int(identity.rotate_deg),
+            "mirrored": identity.mirrored,
         }
 
     path = None
@@ -176,10 +177,10 @@ def _load_rig_orientation(*, enabled: bool = True) -> tuple[Any, dict]:
         # Match orientation.load_orientation's validation without reading the
         # file a second time: readiness evidence and runtime geometry must come
         # from this same in-memory document.
-        orientation = _orientation.Orientation(rotate_deg=int(data.get("rotate_deg", 0)))
+        orientation = _orientation.orientation_from_config(data)
     except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
         _log.warning(
-            "orientation unavailable (%s); saved images will NOT be turned to the "
+            "orientation unavailable (%s); saved images will NOT be corrected to the "
             "stage axes this session. Re-publish orientation.json with "
             "orientation/notebooks/set_orientation.ipynb and reconnect.",
             exc,
@@ -190,6 +191,7 @@ def _load_rig_orientation(*, enabled: bool = True) -> tuple[Any, dict]:
             "measured": False,
             "path": None if path is None else str(path),
             "rotate_deg": int(identity.rotate_deg),
+            "mirrored": identity.mirrored,
             "error": str(exc),
         }
     return orientation, {
@@ -200,6 +202,10 @@ def _load_rig_orientation(*, enabled: bool = True) -> tuple[Any, dict]:
         "measured": data.get("measured") is True,
         "path": str(path),
         "rotate_deg": int(orientation.rotate_deg),
+        "mirrored": orientation.mirrored,
+        "axis_signs": orientation.axis_signs,
+        "axis_mapping": orientation.axis_mapping,
+        "image_to_stage": [list(row) for row in orientation.image_to_stage],
     }
 
 
@@ -213,6 +219,10 @@ def connect_microscope(
     calibration_name: str | None = None,
 ) -> Any:
     """Connect to the microscope and load its machine-local configuration.
+
+    Every connect attempt first creates the microscope's ProgramData API root
+    and four subsystem directories if they do not exist yet. This is independent
+    of the per-file load switches below.
 
     This is the driver's own front door for a normal session. It opens the CAM
     client (:func:`connect_python_client`) and then loads the three files this
@@ -229,7 +239,7 @@ def connect_microscope(
       limits rather than this machine's measured envelope. It is never left
       ungated, and the hardcoded physical backstop still bounds every move.
     - ``load_orientation=False`` — saved images are left exactly as the camera
-      produced them (no quarter-turn to stage axes).
+      produced them (no turn or mirror correction to stage axes).
     - ``load_calibration=False`` — no objective translations are loaded, so the
       driver refuses cross-objective moves rather than computing uncompensated
       ones.
@@ -245,8 +255,10 @@ def connect_microscope(
     registry (:mod:`.session_state`), where the acquire/save path reads them.
     """
     from ..commands import gate as _gate
+    from ..config.machine import MACHINE
     from . import session_state
 
+    MACHINE.ensure_layout()
     client = connect_python_client(client_name=client_name, api_delay_ms=api_delay_ms)
     _gate.connect_handshake(client, load=load_limits)
     orientation, orientation_info = _load_rig_orientation(enabled=load_orientation)

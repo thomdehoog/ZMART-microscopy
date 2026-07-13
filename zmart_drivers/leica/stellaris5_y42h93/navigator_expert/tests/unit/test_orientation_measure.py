@@ -1,16 +1,16 @@
 """Mock-driven tests for the ``set_orientation`` measurement.
 
-Ports the D4 measurement guards (weak-vote stop, reflection guard, residual
-guard, singular fit) from the retired ``image_to_stage`` calibration workflow
-to the new ``orientation.measure`` module, plus the success path (writes a
-staging ``orientation.json`` and an :class:`Orientation`) and adoption -- which
-publishes the measured turn into the microscope's ProgramData snapshot. The
-converter itself is covered by ``test_orientation.py``.
+Exercises the D4 measurement guards (weak-vote stop, residual guard, singular
+fit), all eight rotation/mirror mappings, the staging ``orientation.json``, and
+adoption into the microscope's ProgramData snapshot. The converter itself is
+covered by ``test_orientation.py``.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -42,7 +42,45 @@ def _saved_manifest(output_root, naming, image):
     )
 
 
-def _patch(monkeypatch, *, pixel_size_um=0.5, image_shape=(64, 64), home_xy=(1000.0, 2000.0)):
+def _synthetic_blob_image(shape, rng):
+    """Microscopy-like, non-periodic features with stable registration landmarks."""
+    yy, xx = np.indices(shape, dtype=float)
+    image = np.zeros(shape, dtype=float)
+    margin = min(shape) * 0.18
+    for _ in range(36):
+        cx = rng.uniform(margin, shape[1] - margin)
+        cy = rng.uniform(margin, shape[0] - margin)
+        sigma_x = rng.uniform(1.8, 7.0)
+        sigma_y = rng.uniform(1.8, 7.0)
+        amplitude = rng.uniform(0.25, 1.0)
+        image += amplitude * np.exp(
+            -0.5 * (((xx - cx) / sigma_x) ** 2 + ((yy - cy) / sigma_y) ** 2)
+        )
+    image += rng.normal(0.0, 0.008, shape)
+    image -= image.min()
+    image /= image.max()
+    return (image * np.iinfo(np.uint16).max).astype(np.uint16)
+
+
+def _translate_without_wrap(image, dx_px, dy_px):
+    """Translate features like a camera frame; do not wrap opposite edges."""
+    output = np.full_like(image, int(np.median(image)))
+    src_x = slice(max(0, -dx_px), min(image.shape[1], image.shape[1] - dx_px))
+    src_y = slice(max(0, -dy_px), min(image.shape[0], image.shape[0] - dy_px))
+    dst_x = slice(max(0, dx_px), min(image.shape[1], image.shape[1] + dx_px))
+    dst_y = slice(max(0, dy_px), min(image.shape[0], image.shape[0] + dy_px))
+    output[dst_y, dst_x] = image[src_y, src_x]
+    return output
+
+
+def _patch(
+    monkeypatch,
+    *,
+    pixel_size_um=0.5,
+    image_shape=(64, 64),
+    home_xy=(1000.0, 2000.0),
+    image_to_stage=None,
+):
     monkeypatch.setattr(wf.drv, "connect_python_client", lambda *a, **k: object())
     monkeypatch.setattr(
         wf.drv,
@@ -81,13 +119,24 @@ def _patch(monkeypatch, *, pixel_size_um=0.5, image_shape=(64, 64), home_xy=(100
     )
 
     rng = np.random.RandomState(42)
-    template = (rng.rand(*image_shape) * 255).astype(np.uint16)
+    if image_to_stage is None:
+        template = (rng.rand(*image_shape) * 255).astype(np.uint16)
+    else:
+        template = _synthetic_blob_image(image_shape, rng)
 
     def _acquire(client, job, **kw):
         return SimpleNamespace(job=job, command_result={"success": True})
 
     def _save(client, acq, output_root, naming, **kw):
-        return _saved_manifest(output_root, naming, template.copy())
+        image = template.copy()
+        if image_to_stage is not None:
+            stage_delta = np.array([pos["x"] - home_xy[0], pos["y"] - home_xy[1]])
+            stage_to_image = -np.linalg.inv(np.asarray(image_to_stage, dtype=float))
+            dx_um, dy_um = stage_to_image @ stage_delta
+            dx_px = int(round(dx_um / pixel_size_um))
+            dy_px = int(round(dy_um / pixel_size_um))
+            image = _translate_without_wrap(image, dx_px, dy_px)
+        return _saved_manifest(output_root, naming, image)
 
     monkeypatch.setattr(cm.drv, "acquire", _acquire)
     monkeypatch.setattr(cm.drv, "save", _save)
@@ -136,6 +185,7 @@ def test_measure_success_writes_staging_orientation(monkeypatch, sessions_root):
     assert session.d4_accepted is True
     assert session.d4_label == "-Y +X"
     assert session.residual_from_d4 == pytest.approx(0.0, abs=1e-9)
+    assert session.is_mirrored is False
     assert session.orientation == Orientation(rotate_deg=90)
     assert session.config_written is True
 
@@ -144,7 +194,71 @@ def test_measure_success_writes_staging_orientation(monkeypatch, sessions_root):
     payload = json.loads(staging.read_text(encoding="utf-8"))
     # "measured": True is the positive marker that separates a measured file
     # from the shipped placeholder (which carries "_notes" instead).
-    assert payload == {"schema_version": 1, "rotate_deg": 90, "measured": True}
+    assert payload == {
+        "schema_version": 2,
+        "measured": True,
+        "rotate_deg": 90,
+        "mirrored": False,
+        "axis_signs": {"stage_x": -1, "stage_y": 1},
+        "axis_mapping": {"stage_x_from_image": "-Y", "stage_y_from_image": "+X"},
+        "image_to_stage": [[0, -1], [1, 0]],
+    }
+    diagnostic = session.paths.reports_dir / wf.DIAGNOSTIC_NAME
+    assert diagnostic.is_file()
+    assert diagnostic.stat().st_size > 10_000
+
+    report = json.loads((session.paths.reports_dir / "orientation_report.json").read_text())
+    assert report["image_to_stage"] == [[0, -1], [1, 0]]
+    assert report["mirrored"] is False
+    assert report["determinant"] == 1
+    assert report["axis_signs"] == {"stage_x": -1, "stage_y": 1}
+    assert report["axis_mapping"] == {
+        "stage_x_from_image": "-Y",
+        "stage_y_from_image": "+X",
+    }
+    assert report["accepted"] is True
+    assert report["diagnostic"] == wf.DIAGNOSTIC_NAME
+
+
+@pytest.mark.parametrize(
+    "matrix,expected",
+    [
+        ([[1, 0], [0, 1]], Orientation(0, False)),
+        ([[0, -1], [1, 0]], Orientation(90, False)),
+        ([[-1, 0], [0, -1]], Orientation(180, False)),
+        ([[0, 1], [-1, 0]], Orientation(270, False)),
+        ([[-1, 0], [0, 1]], Orientation(0, True)),
+        ([[0, -1], [-1, 0]], Orientation(90, True)),
+        ([[1, 0], [0, -1]], Orientation(180, True)),
+        ([[0, 1], [1, 0]], Orientation(270, True)),
+    ],
+)
+def test_measure_recovers_all_d4_mappings_from_synthetic_images(
+    monkeypatch,
+    sessions_root,
+    matrix,
+    expected,
+):
+    _patch(
+        monkeypatch,
+        pixel_size_um=1.0,
+        image_shape=(192, 192),
+        image_to_stage=matrix,
+    )
+
+    session = wf.measure(
+        _start(
+            sessions_root,
+            session_id=f"synthetic-{expected.rotate_deg}-{int(expected.mirrored)}",
+            stage_move_um=20.0,
+        )
+    )
+
+    assert session.d4_accepted is True
+    assert session.orientation == expected
+    assert session.is_mirrored is expected.mirrored
+    payload = json.loads((session.paths.configs_dir / wf.STAGING_NAME).read_text())
+    assert payload == wf.orientation_config(expected)
 
 
 def test_measure_weak_vote_stops_without_config(monkeypatch, sessions_root):
@@ -160,7 +274,7 @@ def test_measure_weak_vote_stops_without_config(monkeypatch, sessions_root):
     assert not (session.paths.configs_dir / wf.STAGING_NAME).exists()
 
 
-def test_measure_rejects_reflection(monkeypatch, sessions_root):
+def test_measure_accepts_and_records_mirror(monkeypatch, sessions_root):
     _patch(monkeypatch)
     # Votes that snap to the reflection "-X +Y" (det < 0) at zero residual.
     _install_votes(monkeypatch, [_trusted(40.0, 0.0), _trusted(0.0, -40.0)])
@@ -168,10 +282,28 @@ def test_measure_rejects_reflection(monkeypatch, sessions_root):
     session = wf.measure(_start(sessions_root, session_id="refl", stage_move_um=40.0))
 
     assert session.d4_label == "-X +Y"
-    assert session.d4_accepted is False
-    assert "reflection-free" in session.failure_reason
-    assert session.orientation is None
-    assert not (session.paths.configs_dir / wf.STAGING_NAME).exists()
+    assert session.is_mirrored is True
+    assert session.d4_accepted is True
+    assert session.failure_reason is None
+    assert session.orientation == Orientation(rotate_deg=0, mirrored=True)
+    assert session.config_written is True
+    payload = json.loads((session.paths.configs_dir / wf.STAGING_NAME).read_text())
+    assert payload == {
+        "schema_version": 2,
+        "measured": True,
+        "rotate_deg": 0,
+        "mirrored": True,
+        "axis_signs": {"stage_x": -1, "stage_y": 1},
+        "axis_mapping": {"stage_x_from_image": "-X", "stage_y_from_image": "+Y"},
+        "image_to_stage": [[-1, 0], [0, 1]],
+    }
+    diagnostic = session.paths.reports_dir / wf.DIAGNOSTIC_NAME
+    assert diagnostic.is_file()
+    report = json.loads((session.paths.reports_dir / "orientation_report.json").read_text())
+    assert report["mirrored"] is True
+    assert report["determinant"] == -1
+    assert report["accepted"] is True
+    assert report["rotate_deg"] == 0
 
 
 def test_measure_rejects_high_residual(monkeypatch, sessions_root):
@@ -232,6 +364,7 @@ def test_adopt_publishes_orientation_snapshot(monkeypatch, sessions_root, tmp_pa
     machine = MachineProfile(programdata_root=tmp_path / "programdata")
 
     session = wf.measure(_start(sessions_root, session_id="adopt"))
+    working_session = session.paths.session_dir
     out = wf.adopt_orientation(
         session,
         machine=machine,
@@ -243,8 +376,21 @@ def test_adopt_publishes_orientation_snapshot(monkeypatch, sessions_root, tmp_pa
     written = Path(out["orientation_path"])
     assert written == machine.latest_snapshot("orientation") / "orientation.json"
     payload = json.loads(written.read_text(encoding="utf-8"))
-    assert payload == {"schema_version": 1, "rotate_deg": 90, "measured": True}
+    assert payload == {
+        "schema_version": 2,
+        "measured": True,
+        "rotate_deg": 90,
+        "mirrored": False,
+        "axis_signs": {"stage_x": -1, "stage_y": 1},
+        "axis_mapping": {"stage_x_from_image": "-Y", "stage_y_from_image": "+X"},
+        "image_to_stage": [[0, -1], [1, 0]],
+    }
     assert machine.orientation_path() == written
+    archived_session = Path(out["measurement_session"])
+    assert archived_session == written.parent / "adopt"
+    assert (archived_session / "reports" / wf.DIAGNOSTIC_NAME).is_file()
+    assert Path(out["source"]) == archived_session / "configs" / wf.STAGING_NAME
+    assert not working_session.exists()
 
 
 def test_adopt_missing_staging_raises(monkeypatch, sessions_root):
@@ -253,3 +399,31 @@ def test_adopt_missing_staging_raises(monkeypatch, sessions_root):
     session = wf.measure(_start(sessions_root, session_id="adopt_missing"))
     with pytest.raises(FileNotFoundError):
         wf.adopt_orientation(session)
+
+
+def test_notebook_archive_waits_for_a_new_saved_file_version(tmp_path, monkeypatch):
+    bootstrap_path = Path(wf.__file__).parent / "notebooks" / "_bootstrap.py"
+    spec = importlib.util.spec_from_file_location("orientation_notebook_bootstrap", bootstrap_path)
+    bootstrap = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bootstrap)
+    notebook = tmp_path / "set_orientation.ipynb"
+    notebook.write_text("before", encoding="utf-8")
+    previous_mtime_ns = notebook.stat().st_mtime_ns
+    monkeypatch.setattr(bootstrap, "NOTEBOOK_PATH", notebook)
+
+    os.utime(notebook, ns=(previous_mtime_ns + 1_000_000, previous_mtime_ns + 1_000_000))
+
+    assert bootstrap.wait_for_notebook_save(previous_mtime_ns, timeout_s=0.1) == notebook
+
+
+def test_orientation_notebook_displays_then_saves_before_adoption():
+    notebook_path = Path(wf.__file__).parent / "notebooks" / "set_orientation.ipynb"
+    notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+    code = "\n".join(
+        "".join(cell.get("source", [])) for cell in notebook["cells"] if cell["cell_type"] == "code"
+    )
+
+    assert 'sessions_root=MACHINE.work_root("orientation")' in code
+    assert "display(Image(filename=str(diagnostic)))" in code
+    assert code.index("request_notebook_save") < code.index("wait_for_notebook_save")
+    assert code.index("wait_for_notebook_save") < code.index("adopt_orientation")

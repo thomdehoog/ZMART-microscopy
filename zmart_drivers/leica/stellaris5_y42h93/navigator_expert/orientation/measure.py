@@ -1,24 +1,22 @@
-"""Measure how the camera is turned relative to the stage (the ``set_orientation`` step).
+"""Measure the camera's D4 mapping to the stage (the ``set_orientation`` step).
 
 The idea is simple: take three pictures -- one at the start, one after nudging
 the stage a little in X, and one after nudging it in Y -- and watch which way the
-picture shifts each time. If moving the stage right makes the picture shift down,
-the camera is turned a quarter-turn, and so on. From those two shifts we work out
-the turn and record it.
+picture shifts each time. From those shifts we determine the axis assignment,
+both axis signs, the quarter-turn, and whether the acquisition is mirrored.
 
 Under the hood this registers each pair of pictures to get the shift, builds a
-small 2x2 matrix from the two shifts, and matches it to the nearest whole
-quarter-turn (0, 90, 180, or 270 degrees). The result is written to a staging
+small 2x2 matrix from the two shifts, and matches it to the nearest lossless D4
+mapping (four quarter-turns, each mirrored or not). The result is written to a staging
 ``orientation.json`` that :func:`adopt_orientation` publishes into a new
 ``orientation/<datetime>/`` ProgramData snapshot, which is the value the driver
 reads at save time.
 
-The three pictures are taken **without** applying any turn, so re-running the
+The three pictures are taken **without** applying any correction, so re-running the
 measurement always looks at the real microscope rather than an image that has
-already been straightened. If the shifts do not line up with a clean
-quarter-turn -- or come out mirrored -- that means the camera is physically
-misaligned. We report that and stop, rather than blur the picture by rotating it
-onto a fraction of a pixel.
+already been straightened. A mirror may come from a legitimate acquisition
+setting and is recorded. If the shifts do not line up with any clean D4 mapping,
+we report that and stop rather than resample the image onto a fractional angle.
 
 Author: Thom de Hoog (ZMB, University of Zurich).
 License: MIT
@@ -27,6 +25,7 @@ License: MIT
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,11 +46,18 @@ from ..calibration.core.common import (
     read_job_geometry,
     write_json_atomic,
 )
-from . import Orientation, orientation_from_image_to_stage
+from . import (
+    SCHEMA_VERSION,
+    Orientation,
+    orientation_config,
+    orientation_from_config,
+    orientation_from_image_to_stage,
+)
 
 KIND = "orientation"
 STAGING_NAME = "orientation.json"
-STAGING_SCHEMA_VERSION = 1
+STAGING_SCHEMA_VERSION = SCHEMA_VERSION
+DIAGNOSTIC_NAME = "orientation_diagnostic.png"
 _PER_STEP_IMAGES = ("home", "plus_x", "plus_y")
 
 
@@ -74,6 +80,7 @@ class OrientationSession:
     orientation: Orientation | None = None
     d4_label: str | None = None
     residual_from_d4: float | None = None
+    is_mirrored: bool | None = None
     d4_accepted: bool | None = None
     config_written: bool = False
     failure_reason: str | None = None
@@ -149,14 +156,169 @@ def _acquire_raw_and_validate(
     return img
 
 
+def _normalise_for_display(image: np.ndarray) -> np.ndarray:
+    values = np.asarray(image, dtype=np.float64)
+    lo, hi = np.percentile(values, (1.0, 99.0))
+    if hi <= lo:
+        return np.zeros_like(values)
+    return np.clip((values - lo) / (hi - lo), 0.0, 1.0)
+
+
+def _registration_overlay(reference: np.ndarray, target: np.ndarray) -> np.ndarray:
+    ref = _normalise_for_display(reference)
+    tgt = _normalise_for_display(target)
+    rgb = np.zeros((*ref.shape, 3), dtype=np.float64)
+    rgb[..., 0] = ref
+    rgb[..., 2] = ref
+    rgb[..., 1] = tgt
+    return np.clip(rgb, 0.0, 1.0)
+
+
+def write_orientation_diagnostic(
+    session: OrientationSession,
+    vote_x: dict,
+    vote_y: dict,
+    canonical: np.ndarray,
+) -> Path:
+    """Render the measured shifts and inferred stage axes to an archived PNG."""
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(2, 2, figsize=(11, 9), constrained_layout=True)
+    for ax, target, vote, title in (
+        (axes[0, 0], session.images["plus_x"], vote_x, "Stage move +X"),
+        (axes[0, 1], session.images["plus_y"], vote_y, "Stage move +Y"),
+    ):
+        ax.imshow(_registration_overlay(session.images["home"], target), origin="upper")
+        ax.set_title(f"{title}\nfeature shift = ({vote['dx_um']:+.2f}, {vote['dy_um']:+.2f}) um")
+        ax.set_axis_off()
+    axes[0, 0].text(
+        0.02,
+        0.98,
+        "home: magenta\nmoved: green",
+        transform=axes[0, 0].transAxes,
+        va="top",
+        color="white",
+        bbox={"facecolor": "black", "alpha": 0.7, "pad": 4},
+    )
+
+    shifts = (
+        (vote_x, "stage +X", "#0072B2"),
+        (vote_y, "stage +Y", "#009E73"),
+    )
+    limit = max(
+        session.stage_move_um,
+        *(abs(float(vote[key])) for vote, _label, _color in shifts for key in ("dx_um", "dy_um")),
+    )
+    limit = max(limit * 1.25, 1.0)
+    shift_ax = axes[1, 0]
+    shift_ax.axhline(0, color="0.75", linewidth=1)
+    shift_ax.axvline(0, color="0.75", linewidth=1)
+    for vote, label, color in shifts:
+        shift_ax.arrow(
+            0,
+            0,
+            vote["dx_um"],
+            vote["dy_um"],
+            color=color,
+            width=limit * 0.012,
+            head_width=limit * 0.09,
+            length_includes_head=True,
+            label=label,
+        )
+    shift_ax.set(xlim=(-limit, limit), ylim=(limit, -limit))
+    shift_ax.set_aspect("equal")
+    shift_ax.set_xlabel("image shift X (um, right +)")
+    shift_ax.set_ylabel("image shift Y (um, down +)")
+    shift_ax.set_title("Measured feature motion")
+    shift_ax.legend(loc="best")
+    shift_ax.grid(alpha=0.2)
+
+    mapping_ax = axes[1, 1]
+    mapping_ax.axhline(0, color="0.75", linewidth=1)
+    mapping_ax.axvline(0, color="0.75", linewidth=1)
+    stage_to_image = np.linalg.inv(np.asarray(canonical, dtype=float))
+    for vector, label, color in (
+        (stage_to_image[:, 0], "stage +X", "#0072B2"),
+        (stage_to_image[:, 1], "stage +Y", "#009E73"),
+    ):
+        mapping_ax.arrow(
+            0,
+            0,
+            vector[0],
+            vector[1],
+            color=color,
+            width=0.025,
+            head_width=0.16,
+            length_includes_head=True,
+        )
+        mapping_ax.text(
+            vector[0] * 1.12,
+            vector[1] * 1.12,
+            label,
+            color=color,
+            ha="center",
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1},
+        )
+    mapping_ax.set(xlim=(-1.45, 1.45), ylim=(1.45, -1.45))
+    mapping_ax.set_aspect("equal")
+    mapping_ax.set_xlabel("raw image X (right +)")
+    mapping_ax.set_ylabel("raw image Y (down +)")
+    if session.orientation is None:
+        correction = "save correction: none (measurement rejected)"
+    else:
+        mirror_step = "mirror horizontally, then " if session.orientation.mirrored else ""
+        correction = (
+            f"save correction: {mirror_step}{session.orientation.rotate_deg} degrees clockwise"
+        )
+    mapping_ax.set_title(f"Stage axes in the raw image: {session.d4_label}\n{correction}")
+    mapping_ax.grid(alpha=0.2)
+    determinant = int(round(float(np.linalg.det(canonical))))
+    if session.is_mirrored:
+        mirrored_text = "YES"
+        mirror_correction = "ENABLED"
+        status_color = "#0072B2"
+    else:
+        mirrored_text = "NO"
+        mirror_correction = "not needed"
+        status_color = "#009E73"
+    mapping_ax.text(
+        0.02,
+        0.02,
+        f"image -> stage = {np.asarray(canonical, dtype=int).tolist()}\n"
+        f"mirrored image = {mirrored_text} (det = {determinant:+d})\n"
+        f"mirror correction = {mirror_correction}\n"
+        f"D4 residual = {session.residual_from_d4:.4f} (limit {D4_RESIDUAL_MAX})",
+        transform=mapping_ax.transAxes,
+        va="bottom",
+        family="monospace",
+        bbox={
+            "facecolor": "white",
+            "edgecolor": status_color,
+            "linewidth": 1.5,
+            "alpha": 0.9,
+            "pad": 4,
+        },
+    )
+
+    fig.suptitle(
+        f"Orientation measurement | {session.reference_objective} | "
+        f"stage step {session.stage_move_um:g} um",
+        fontsize=14,
+    )
+    output = session.paths.reports_dir / DIAGNOSTIC_NAME
+    fig.savefig(output, dpi=160)
+    plt.close(fig)
+    return output
+
+
 def measure(session: OrientationSession) -> OrientationSession:
     """Acquire raw home/+X/+Y, fit the D4, and stage the accepted orientation.
 
     Sets ``session.orientation`` + ``session.residual_from_d4`` and writes the
-    staging ``orientation.json`` only when both votes are trusted, the fit is a
-    proper rotation (not a reflection), and the D4 residual is within
-    ``D4_RESIDUAL_MAX``. Otherwise records ``session.failure_reason`` and leaves
-    no staging config.
+    staging ``orientation.json`` only when both votes are trusted and the D4
+    residual is within ``D4_RESIDUAL_MAX``. All eight lossless D4 transforms are
+    valid, including a mirror introduced by an acquisition setting. Otherwise
+    records ``session.failure_reason`` and leaves no staging config.
     """
     session.images.clear()
     session.raw_files.clear()
@@ -165,6 +327,7 @@ def measure(session: OrientationSession) -> OrientationSession:
     session.orientation = None
     session.d4_label = None
     session.residual_from_d4 = None
+    session.is_mirrored = None
     session.d4_accepted = None
     session.config_written = False
     session.failure_reason = None
@@ -256,39 +419,18 @@ def measure(session: OrientationSession) -> OrientationSession:
 
     canonical_arr = np.asarray(canonical, dtype=float)
     det = float(np.linalg.det(canonical_arr))
-    if det < 0.0:
-        session.d4_accepted = False
-        session.failure_reason = (
-            "reflection candidate selected; this workflow assumes a reflection-free optical path"
-        )
-        return session
+    session.is_mirrored = det < 0.0
     if residual > D4_RESIDUAL_MAX:
         session.d4_accepted = False
         session.failure_reason = (
             f"D4 residual {residual:.3f} > {D4_RESIDUAL_MAX}; "
             "drift, sparse texture, or too small a stage_move"
         )
-        return session
+    else:
+        session.d4_accepted = True
+        session.orientation = orientation_from_image_to_stage(canonical_arr)
 
-    session.d4_accepted = True
-    session.orientation = orientation_from_image_to_stage(canonical_arr)
-
-    out = session.paths.configs_dir / STAGING_NAME
-    write_json_atomic(
-        out,
-        {
-            "schema_version": STAGING_SCHEMA_VERSION,
-            "rotate_deg": int(session.orientation.rotate_deg),
-            # A positive "this value was measured" marker. The shipped
-            # placeholder does not carry it, which is how the calibration
-            # workflow can warn when orientation was never measured.
-            "measured": True,
-        },
-    )
-    session.config_written = True
-
-    # Compact provenance report (no PNG diagnostics -- the accept/reject is a
-    # single D4 residual; the operator reads it from the summary).
+    write_orientation_diagnostic(session, vote_x, vote_y, canonical_arr)
     write_json_atomic(
         session.paths.reports_dir / "orientation_report.json",
         {
@@ -299,9 +441,38 @@ def measure(session: OrientationSession) -> OrientationSession:
             "stage_move_um": float(session.stage_move_um),
             "d4_label": session.d4_label,
             "residual_from_d4": session.residual_from_d4,
-            "rotate_deg": int(session.orientation.rotate_deg),
+            "mirrored": session.is_mirrored,
+            "determinant": int(round(det)),
+            "axis_signs": (
+                session.orientation.axis_signs if session.orientation is not None else None
+            ),
+            "axis_mapping": (
+                session.orientation.axis_mapping if session.orientation is not None else None
+            ),
+            "accepted": session.d4_accepted,
+            "failure_reason": session.failure_reason,
+            "rotate_deg": (
+                int(session.orientation.rotate_deg) if session.orientation is not None else None
+            ),
+            "image_to_stage": canonical_arr.astype(int).tolist(),
+            "registrations": {
+                "stage_plus_x": {
+                    key: vote_x[key] for key in ("dx_um", "dy_um", "confidence", "agreeing")
+                },
+                "stage_plus_y": {
+                    key: vote_y[key] for key in ("dx_um", "dy_um", "confidence", "agreeing")
+                },
+            },
+            "diagnostic": DIAGNOSTIC_NAME,
         },
     )
+
+    if not session.d4_accepted:
+        return session
+
+    out = session.paths.configs_dir / STAGING_NAME
+    write_json_atomic(out, orientation_config(session.orientation, measured=True))
+    session.config_written = True
     return session
 
 
@@ -312,12 +483,14 @@ def adopt_orientation(
     moment: datetime | None = None,
     notebook_paths: Any = (),
 ) -> dict:
-    """Publish the measured turn into a new orientation timestamp snapshot.
+    """Publish the measured D4 mapping into a new orientation timestamp snapshot.
 
-    Reads the staged ``orientation.json`` and appends it under the machine's
-    independent ``orientation/<datetime>/`` tree. Limits, calibration, and
-    origin are not copied. The newest orientation snapshot is what the driver
-    reads when it connects and what calibration reads at capture time.
+    Reads the staged ``orientation.json`` and atomically appends it together
+    with the complete measurement session under the machine's independent
+    ``orientation/<datetime>/`` tree. Once publication succeeds, the redundant
+    working-session directory is removed. Limits, calibration, and origin are
+    not copied. The newest orientation snapshot is what the driver reads when
+    it connects and what calibration reads at capture time.
 
     Args:
         session: The orientation session holding the staged config.
@@ -325,7 +498,7 @@ def adopt_orientation(
             ``MACHINE``. Tests inject a hermetic profile here.
         moment: Snapshot timestamp; ``None`` uses ``datetime.now(timezone.utc)``.
             Must sort strictly after the latest orientation snapshot.
-        notebook_paths: Executed notebook(s) to archive in the snapshot.
+        notebook_paths: Saved notebook(s) to archive in the snapshot.
 
     Returns:
         ``{"source": str, "snapshot": str, "orientation_path": str}`` -- the new
@@ -338,7 +511,7 @@ def adopt_orientation(
     if not source.exists():
         raise FileNotFoundError(
             "No staging orientation to adopt. Review the summary: the "
-            "measurement may have failed (weak vote, reflection, or high "
+            "measurement may have failed (weak vote or high "
             "residual). Re-run set_orientation before adopting."
         )
     if machine is None:
@@ -349,20 +522,25 @@ def adopt_orientation(
         moment = datetime.now(timezone.utc)
 
     data = json.loads(source.read_text(encoding="utf-8"))
+    orientation = orientation_from_config(data)
     snapshot = machine.publish_snapshot(
         moment,
-        orientation={
-            "schema_version": STAGING_SCHEMA_VERSION,
-            "rotate_deg": int(data["rotate_deg"]),
-            # Positive "measured" marker: the shipped placeholder lacks it (and
-            # carries "_notes" instead), which is what lets the calibration
-            # workflow warn when set_orientation has never been run.
-            "measured": True,
-        },
+        orientation=orientation_config(orientation, measured=True),
+        archive_paths=[session.paths.session_dir],
         notebook_paths=notebook_paths,
     )
+    archived_session = snapshot / session.paths.session_dir.name
+    archived_source = archived_session / "configs" / STAGING_NAME
+    try:
+        shutil.rmtree(session.paths.session_dir)
+    except OSError as exc:
+        raise RuntimeError(
+            f"orientation was published to {snapshot}, but the redundant working "
+            f"session could not be removed: {session.paths.session_dir}"
+        ) from exc
     return {
-        "source": str(source),
+        "source": str(archived_source),
         "snapshot": str(snapshot),
+        "measurement_session": str(archived_session),
         "orientation_path": str(snapshot / STAGING_NAME),
     }

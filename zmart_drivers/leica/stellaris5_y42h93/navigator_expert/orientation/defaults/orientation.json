@@ -1,5 +1,19 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "measured": false,
   "rotate_deg": 0,
-  "_notes": "Placeholder, not this microscope's real value. How the camera is turned relative to the stage is measured once by orientation/notebooks/set_orientation.ipynb, which publishes the answer into this microscope's snapshot under the ProgramData folder, next to its calibration and limits; the driver reads that when it saves each image. Until the measurement has run, this placeholder means 'no turn', so an un-measured microscope is left as it is. rotate_deg is a clockwise quarter-turn: one of 0, 90, 180, or 270. This is a separate thing from pixel-size calibration and from the stage limits."
+  "mirrored": false,
+  "axis_signs": {
+    "stage_x": 1,
+    "stage_y": 1
+  },
+  "axis_mapping": {
+    "stage_x_from_image": "+X",
+    "stage_y_from_image": "+Y"
+  },
+  "image_to_stage": [
+    [1, 0],
+    [0, 1]
+  ],
+  "_notes": "Placeholder, not this microscope's real value. The orientation notebook measures rotation, both axis signs, and whether the acquisition is mirrored, then publishes a complete machine-specific D4 mapping under ProgramData. Until it runs, measured=false leaves images unchanged."
 }

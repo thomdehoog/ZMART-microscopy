@@ -1,13 +1,13 @@
-"""How the camera's turn relative to the stage is applied at save time.
+"""How the camera's D4 orientation relative to the stage is applied at save time.
 
-Checks the quarter-turn mechanics and config resolution, and the save-time
-integration: a turned rig reorients each plane losslessly and keeps the saved
-metadata consistent (the image width/height follow the rotated picture, and the
-physical pixel sizes swap with them for a 90/270 turn). No rig value is
-hard-coded here -- the turns are test inputs.
+Checks quarter-turn and mirror mechanics, config resolution, and the save-time
+integration. Every D4 transform is lossless; image dimensions and physical pixel
+sizes follow any axis swap. No rig value is hard-coded here.
 """
 
 from __future__ import annotations
+
+import json
 
 import numpy as np
 import pytest
@@ -37,12 +37,39 @@ def test_identity_and_swaps_axes():
     assert Orientation(rotate_deg=90).swaps_axes
     assert Orientation(rotate_deg=270).swaps_axes
     assert not Orientation(rotate_deg=180).swaps_axes
+    assert not Orientation(mirrored=True).is_identity
 
 
 def test_load_orientation(tmp_path):
     p = tmp_path / "orientation.json"
     p.write_text('{"schema_version": 1, "rotate_deg": 180}')
     assert orient.load_orientation(p) == Orientation(rotate_deg=180)
+
+
+def test_complete_schema_records_and_loads_mirror_signs_and_matrix(tmp_path):
+    orientation = Orientation(rotate_deg=270, mirrored=True)
+    payload = orient.orientation_config(orientation)
+    assert payload == {
+        "schema_version": 2,
+        "measured": True,
+        "rotate_deg": 270,
+        "mirrored": True,
+        "axis_signs": {"stage_x": 1, "stage_y": 1},
+        "axis_mapping": {"stage_x_from_image": "+Y", "stage_y_from_image": "+X"},
+        "image_to_stage": [[0, 1], [1, 0]],
+    }
+    p = tmp_path / "orientation.json"
+    p.write_text(json.dumps(payload), encoding="utf-8")
+    assert orient.load_orientation(p) == orientation
+
+
+def test_complete_schema_rejects_contradictory_signs(tmp_path):
+    payload = orient.orientation_config(Orientation(rotate_deg=90))
+    payload["axis_signs"]["stage_x"] = 1
+    p = tmp_path / "orientation.json"
+    p.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="contradicts image_to_stage"):
+        orient.load_orientation(p)
 
 
 def test_load_orientation_absent_key_is_no_turn(tmp_path):
@@ -114,6 +141,12 @@ def test_reorient_quarter_turns_are_inverse():
     assert np.array_equal(orient.reorient_array(once, Orientation(rotate_deg=270)), _A)
 
 
+def test_reorient_mirror_then_quarter_turn_is_lossless():
+    orientation = Orientation(rotate_deg=90, mirrored=True)
+    expected = np.rot90(np.fliplr(_A), k=-1)
+    assert np.array_equal(orient.reorient_array(_A, orientation), expected)
+
+
 # --- image_to_stage matrix -> Orientation converter -----------------------
 
 
@@ -130,34 +163,39 @@ def test_converter_anchor_known_90_rig():
         ([[0, -1], [1, 0]], Orientation(rotate_deg=90)),
         ([[-1, 0], [0, -1]], Orientation(rotate_deg=180)),
         ([[0, 1], [-1, 0]], Orientation(rotate_deg=270)),
+        ([[-1, 0], [0, 1]], Orientation(rotate_deg=0, mirrored=True)),
+        ([[0, -1], [-1, 0]], Orientation(rotate_deg=90, mirrored=True)),
+        ([[1, 0], [0, -1]], Orientation(rotate_deg=180, mirrored=True)),
+        ([[0, 1], [1, 0]], Orientation(rotate_deg=270, mirrored=True)),
     ],
 )
 def test_converter_maps_each_rotation(matrix, expected):
     assert orient.orientation_from_image_to_stage(matrix) == expected
 
 
-def test_reorient_matches_the_converters_rotation_matrices():
-    # Pin reorient_array's clockwise convention to the matrices the converter
-    # trusts: turning a marker pixel by rotate_deg must move it exactly the way
-    # _STAGE_FROM_ROTATION says. If reorient_array's convention ever drifted, the
-    # converter would silently mislabel a rig's turn -- this catches that.
-    for deg, expected in orient._STAGE_FROM_ROTATION.items():
+def test_reorient_matches_all_converter_d4_matrices():
+    # Pin the pixel operation order to all eight matrices trusted by the
+    # converter. A convention drift here would silently mislabel a rig.
+    for (deg, mirrored), expected in orient._STAGE_FROM_ORIENTATION.items():
 
-        def _where_it_lands(marker_row_col, deg=deg):
+        def _where_it_lands(marker_row_col, deg=deg, mirrored=mirrored):
             img = np.zeros((3, 3), int)
             img[marker_row_col] = 1
-            turned = orient.reorient_array(img, Orientation(rotate_deg=deg))
+            turned = orient.reorient_array(
+                img,
+                Orientation(rotate_deg=deg, mirrored=mirrored),
+            )
             r, c = np.argwhere(turned == 1)[0]
             return np.array([c - 1, r - 1])  # (column, row) offset from the centre
 
         # Where a step east (+1 column) and a step south (+1 row) end up.
         got = np.column_stack([_where_it_lands((1, 2)), _where_it_lands((2, 1))])
-        assert np.array_equal(got, np.asarray(expected)), deg
+        assert np.array_equal(got, np.asarray(expected)), (deg, mirrored)
 
 
-def test_converter_rejects_mirror():
-    with pytest.raises(ValueError, match="mirror"):
-        orient.orientation_from_image_to_stage([[1, 0], [0, -1]])  # a mirror (det = -1)
+def test_converter_rejects_non_d4_matrix():
+    with pytest.raises(ValueError, match="not a D4 orientation"):
+        orient.orientation_from_image_to_stage([[1, 1], [0, 1]])
 
 
 # --- materialize integration ----------------------------------------------
@@ -226,6 +264,26 @@ def test_save_quarter_turn_rotates_pixels_and_swaps_dims(tmp_path):
     # OME follows: SizeX/Y from the rotated shape, PhysicalSizeX/Y swapped
     assert 'SizeX="4"' in desc and 'SizeY="8"' in desc
     # physical sizes swap with the axes (0.5/2.0 -> 2/0.5); "2.0" prints as "2"
+    assert 'PhysicalSizeX="2"' in desc and 'PhysicalSizeY="0.5"' in desc
+
+
+def test_save_mirror_and_quarter_turn_transform_pixels_and_metadata(tmp_path):
+    src = _write_source(tmp_path)
+    original = tifffile.imread(src.path)
+    dest = tmp_path / "out.ome.tiff"
+
+    materialize.save_image_source_atomic(
+        src,
+        dest,
+        metadata=_metadata(px_x=0.5, px_y=2.0),
+        index=PlaneIndex(t=0, z=0, c=0),
+        orientation=Orientation(rotate_deg=90, mirrored=True),
+    )
+
+    arr, desc = _dest_pixels_and_desc(dest)
+    assert np.array_equal(arr, np.rot90(np.fliplr(original), k=-1))
+    assert arr.shape == (8, 4)
+    assert 'SizeX="4"' in desc and 'SizeY="8"' in desc
     assert 'PhysicalSizeX="2"' in desc and 'PhysicalSizeY="0.5"' in desc
 
 
