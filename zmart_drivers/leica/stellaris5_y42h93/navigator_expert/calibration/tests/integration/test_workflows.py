@@ -363,7 +363,10 @@ def test_adoption_objective_translation_updates_canonical_calibration(
     assert current["objectives"]["2"]["translation_um"] == [12.0, 17.0, 3.0]
     assert current["objectives"]["2"]["session_id"] == session.session_id
     assert (
-        machine.latest_snapshot() / "calibrations" / "water_lens_set" / "calibration.json"
+        machine.latest_snapshot("calibration")
+        / "calibrations"
+        / "water_lens_set"
+        / "calibration.json"
     ).exists()
 
 
@@ -608,7 +611,7 @@ def test_orientation_unmeasured_warning_signals(tmp_path, caplog, monkeypatch):
     from navigator_expert.config import machine as machine_mod
 
     profile = MachineProfile(programdata_root=tmp_path / "programdata")
-    snap = profile.ensure_snapshot()  # seeds the shipped placeholder
+    snap = profile.ensure_snapshot("orientation")  # seeds the shipped placeholder
     monkeypatch.setattr(machine_mod, "MACHINE", profile)
 
     def warns() -> bool:
@@ -694,7 +697,7 @@ def test_adoption_wrong_kind_rejected(sessions_root, machine):
 def test_adoption_seeds_from_bundled_default_when_no_snapshot(sessions_root, machine):
     # With a fresh machine (no snapshot) an objective-pair adopt reads the
     # bundled default, merges the delta, and publishes the first snapshot.
-    assert machine.latest_snapshot() is None
+    assert machine.latest_snapshot("calibration") is None
     payload = _valid_obj_payload()
     session, _ = _make_staging_session(
         sessions_root,
@@ -708,13 +711,16 @@ def test_adoption_seeds_from_bundled_default_when_no_snapshot(sessions_root, mac
         machine=machine,
         moment=_ADOPT_MOMENT,
     )
-    assert machine.latest_snapshot() is not None
-    assert len(machine.snapshots()) == 1
-    assert Path(out["snapshot"]) == machine.latest_snapshot()
+    assert machine.latest_snapshot("calibration") is not None
+    assert len(machine.snapshots("calibration")) == 1
+    assert Path(out["snapshot"]) == machine.latest_snapshot("calibration")
     # The bundled default's slot 1 is the "10x" reference ([0,0,0]); the
     # merged snapshot records the "20x" (slot 2) translation delta.
     assert Path(out["calibration_path"]) == (
-        machine.latest_snapshot() / "calibrations" / "lens_config_A" / "calibration.json"
+        machine.latest_snapshot("calibration")
+        / "calibrations"
+        / "lens_config_A"
+        / "calibration.json"
     )
     merged = json.loads(machine.calibration_path("lens_config_A").read_text(encoding="utf-8"))
     assert merged["objectives"]["2"]["translation_um"] == [12.0, 17.0, 3.0]

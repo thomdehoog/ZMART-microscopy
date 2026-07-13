@@ -36,8 +36,8 @@ class OldSchemaError(ValueError):
 def default_path(calibration_name: str | None = None) -> Path:
     """Path to the active calibration config.
 
-    Resolves through the machine profile: the newest ProgramData snapshot for
-    this microscope, seeding it from repo defaults when needed.
+    Resolves through the machine profile: the newest calibration timestamp for
+    this microscope, seeding the calibration tree from repo defaults when needed.
     ``calibration_name`` selects ``calibrations/<name>/calibration.json`` in the
     snapshot; omitting it uses ``ZMART_CALIBRATION_NAME`` when set, otherwise
     the legacy/default flat ``calibration.json``.

@@ -77,13 +77,12 @@ runtime where possible. Override via the profile, not at call sites.
 - **Log reader** — `LogReaderProfile`: the `lcsCommand.log` / `MatrixScreener.log` paths + freshness windows.
 - **Machine-local calibration & limits** — `config/machine.py` resolves the instrument's calibration
   (image↔stage matrix, per-objective translation), stage limits, orientation, and origin from a
-  **machine-local ProgramData snapshot** (out of the repo). The repo ships defaults only. If
-  ProgramData is empty, those defaults are copied into the first local snapshot so runtime reads still
-  use ProgramData paths. Each snapshot holds `limits.json`, `calibration.json` or
-  `calibrations/<name>/calibration.json`, and `orientation.json`. The **origin** is not snapshot
-  state: it is ephemeral operator state, so it lives in its own `origin/` folder next to the
-  snapshots and is **session-scoped** (see §5). The notebooks publish measured replacements by
-  copying the latest snapshot forward and changing only their part. The single `limits.json` is
+  machine-local ProgramData. Directly below `navigator_expert`, each subsystem owns an independent
+  timestamp tree: `limits/<datetime>/`, `calibration/<datetime>/`,
+  `orientation/<datetime>/`, and `origin/<datetime>/`. The newest timestamp in each tree wins.
+  Limits, calibration, and orientation seed their own repo defaults when empty. Origin remains
+  session-scoped and is not restored at connect. Setup notebooks append only to their owning tree,
+  so publishing one subsystem never duplicates another. The single `limits.json` is
   flat: four typed stage-axis `range` entries, `objective_slot` with `allowed` values,
   and either a typed constraint or explicit `[]` for each setter. Backlash remains a
   motion utility, not configuration.
@@ -184,8 +183,8 @@ physical backstop still holds); `load_orientation=False` saves images unrotated;
 refuses cross-objective moves rather than computing uncompensated ones.
 
 **The origin is session-scoped.** `set_origin` makes the current position the frame zero — from then
-until it is set again or the session ends. It is written to the machine-local `origin/` folder as a
-record, but the driver does **not** restore it at connect: a fresh connection is an absolute frame
+until it is set again or the session ends. It appends `origin/<datetime>/origin.json` as a record,
+but the driver does **not** restore it at connect: a fresh connection is an absolute frame
 until `set_origin` runs. (An earlier version restored the last origin across sessions; it no longer
 does.)
 

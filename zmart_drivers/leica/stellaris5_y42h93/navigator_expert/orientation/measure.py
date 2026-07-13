@@ -9,9 +9,9 @@ the turn and record it.
 Under the hood this registers each pair of pictures to get the shift, builds a
 small 2x2 matrix from the two shifts, and matches it to the nearest whole
 quarter-turn (0, 90, 180, or 270 degrees). The result is written to a staging
-``orientation.json`` that :func:`adopt_orientation` publishes into the
-microscope's newest ProgramData snapshot -- alongside its calibration and limits
--- which is the value the driver reads at save time.
+``orientation.json`` that :func:`adopt_orientation` publishes into a new
+``orientation/<datetime>/`` ProgramData snapshot, which is the value the driver
+reads at save time.
 
 The three pictures are taken **without** applying any turn, so re-running the
 measurement always looks at the real microscope rather than an image that has
@@ -312,22 +312,19 @@ def adopt_orientation(
     moment: datetime | None = None,
     notebook_paths: Any = (),
 ) -> dict:
-    """Publish the measured turn into the microscope's newest ProgramData snapshot.
+    """Publish the measured turn into a new orientation timestamp snapshot.
 
-    Reads the staged ``orientation.json`` and writes it into a fresh dated
-    snapshot -- carrying the microscope's calibration and limits forward -- so
-    the turn lives with the machine's other measured settings and survives a
-    driver reinstall. (The frame origin is session state in its own ``origin/``
-    folder; snapshots never carry it.) This snapshot is what the driver reads
-    once when it connects, and what the calibration workflow reads at capture
-    time.
+    Reads the staged ``orientation.json`` and appends it under the machine's
+    independent ``orientation/<datetime>/`` tree. Limits, calibration, and
+    origin are not copied. The newest orientation snapshot is what the driver
+    reads when it connects and what calibration reads at capture time.
 
     Args:
         session: The orientation session holding the staged config.
         machine: ``MachineProfile`` to publish into; ``None`` uses the global
             ``MACHINE``. Tests inject a hermetic profile here.
         moment: Snapshot timestamp; ``None`` uses ``datetime.now(timezone.utc)``.
-            Must sort strictly after the latest snapshot (monotonic guard).
+            Must sort strictly after the latest orientation snapshot.
         notebook_paths: Executed notebook(s) to archive in the snapshot.
 
     Returns:

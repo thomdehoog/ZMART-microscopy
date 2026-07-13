@@ -86,9 +86,9 @@ def _driver_root() -> Path:
 def defaults_path() -> Path:
     """Path to the active physical stage envelope in ProgramData.
 
-    Resolves through the machine profile to the newest ProgramData snapshot's
-    ``limits.json``. If ProgramData is empty, the repo defaults are seeded into
-    a local snapshot before this returns.
+    Resolves through the machine profile to the newest
+    ``limits/<datetime>/limits.json``. If the limits tree is empty, the repo
+    default is seeded into a local snapshot before this returns.
     """
     from ..config.machine import LIMITS_FILENAME, MACHINE
 

@@ -38,7 +38,7 @@ during an already-gated ``acquire``.
 State model
 -----------
 :func:`connect_handshake` performs the connect-time limits handshake — the
-single ``limits.json`` resolves to the newest ProgramData snapshot. If
+single ``limits.json`` resolves to the newest ``limits/<datetime>/`` snapshot. If
 ProgramData is empty, the repo defaults are copied there first. The flat file
 must have the exact documented keys, valid typed constraints, and explicit
 ``[]`` for every unrestricted setter. Its stage envelope

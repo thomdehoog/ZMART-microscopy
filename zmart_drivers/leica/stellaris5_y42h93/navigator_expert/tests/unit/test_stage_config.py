@@ -25,15 +25,11 @@ _SEED_MOMENT = datetime(2026, 1, 1, tzinfo=timezone.utc)
 _ADOPT_MOMENT = datetime(2026, 2, 1, tzinfo=timezone.utc)
 
 
-def test_adopt_limits_publishes_single_file_carrying_calibration(tmp_path):
+def test_adopt_limits_publishes_only_to_the_limits_tree(tmp_path):
     m = MachineProfile(programdata_root=tmp_path)
-    m.publish_snapshot(
-        _SEED_MOMENT,
-        calibration={"marker": "cal-A"},
-        limits=merged_limits_payload(_ENV_A),
-    )
+    calibration = m.publish_snapshot(_SEED_MOMENT, calibration={"marker": "cal-A"})
     out = stage_config.adopt_limits(_ENV_B, machine=m, moment=_ADOPT_MOMENT)
-    snap = m.latest_snapshot()
+    snap = m.latest_snapshot("limits")
     assert Path(out["snapshot"]) == snap
     assert "function_limits_path" not in out  # single file only
 
@@ -42,36 +38,37 @@ def test_adopt_limits_publishes_single_file_carrying_calibration(tmp_path):
     assert lim["x_um"] == {"range": [1200.0, 120000.0]}
     assert lim["objective_slot"] == {"allowed": [1, 2, 3, 4, 5, 6]}
     assert all(lim[name] == [] for name in stage_config.SETTER_LIMIT_KEYS)
-    # a REAL prior calibration carried forward untouched
-    assert json.loads((snap / "calibration.json").read_text(encoding="utf-8")) == {
+    assert not (snap / "calibration.json").exists()
+    assert json.loads((calibration / "calibration.json").read_text(encoding="utf-8")) == {
         "marker": "cal-A"
     }
     # no function_limits.json anywhere
     assert not (snap / "function_limits.json").exists()
 
 
-def test_adopt_limits_first_time_writes_complete_snapshot(tmp_path):
+def test_adopt_limits_first_time_writes_complete_limits_snapshot(tmp_path):
     m = MachineProfile(programdata_root=tmp_path)
-    assert m.latest_snapshot() is None
+    assert m.latest_snapshot("limits") is None
     stage_config.adopt_limits(_ENV_B, machine=m, moment=_ADOPT_MOMENT)
-    snap = m.latest_snapshot()
+    snap = m.latest_snapshot("limits")
     files = sorted(p.name for p in snap.iterdir())
-    assert files == [".limits-machine", "calibration.json", "limits.json", "orientation.json"]
+    assert files == [".limits-machine", "limits.json"]
     lim = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
     assert lim["z_wide_um"] == {"range": [0.0, 60.0]}
     # §2b: no backlash block is ever written
     assert "backlash" not in lim
 
 
-def test_limits_machine_marker_survives_later_snapshot_adoptions(tmp_path):
+def test_limits_snapshot_is_unchanged_by_later_calibration_adoption(tmp_path):
     m = MachineProfile(programdata_root=tmp_path)
     stage_config.adopt_limits(_ENV_B, machine=m, moment=_SEED_MOMENT)
-    first = m.latest_snapshot()
+    first = m.latest_snapshot("limits")
     assert (first / ".limits-machine").exists()
 
     later = m.publish_snapshot(_ADOPT_MOMENT, calibration={"marker": "new calibration"})
-    assert (later / ".limits-machine").exists()
-    assert json.loads((later / "limits.json").read_text(encoding="utf-8"))["x_um"] == {
+    assert not (later / ".limits-machine").exists()
+    assert m.latest_snapshot("limits") == first
+    assert json.loads((first / "limits.json").read_text(encoding="utf-8"))["x_um"] == {
         "range": [1200.0, 120000.0]
     }
 
@@ -88,7 +85,7 @@ def test_adopt_limits_rejects_coerced_legacy_bounds(tmp_path, bad_bounds):
     m = MachineProfile(programdata_root=tmp_path)
     with pytest.raises(ValueError, match="must contain numbers"):
         stage_config.adopt_limits(dict(_ENV_A, x=bad_bounds), machine=m, moment=_ADOPT_MOMENT)
-    assert m.latest_snapshot() is None
+    assert m.latest_snapshot("limits") is None
 
 
 @pytest.mark.parametrize("bad_value", [None, (1, 2)])
@@ -104,7 +101,7 @@ def test_adopt_limits_refuses_an_envelope_outside_the_backstop(tmp_path):
     wide = dict(_ENV_A, x=[500, 200000])  # wider than the physical travel
     with pytest.raises(RuntimeError, match="backstop"):
         stage_config.adopt_limits(wide, machine=m, moment=_ADOPT_MOMENT)
-    assert m.latest_snapshot() is None  # nothing published
+    assert m.latest_snapshot("limits") is None  # nothing published
 
 
 # --- load: flat envelope and policy ---
@@ -165,7 +162,7 @@ def test_defaults_path_returns_the_machine_local_snapshot_copy(tmp_path, monkeyp
     monkeypatch.setenv("ZMART_MICROSCOPY_ROOT", str(tmp_path))
     m = machine_mod.MachineProfile()
     m.publish_snapshot(_SEED_MOMENT, limits=merged_limits_payload(_ENV_A))
-    assert stage_config.defaults_path() == m.latest_snapshot() / "limits.json"
+    assert stage_config.defaults_path() == m.latest_snapshot("limits") / "limits.json"
 
 
 def test_load_defaults_to_defaults_path(tmp_path, monkeypatch):

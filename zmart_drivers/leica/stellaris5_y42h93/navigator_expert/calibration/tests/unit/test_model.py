@@ -272,7 +272,9 @@ def test_save_without_path_seeds_programdata_not_bundled_defaults(tmp_path, monk
 
     path = cal.save_calibration(_config(), calibration_name="lens_A")
 
-    assert path == profile.latest_snapshot() / "calibrations" / "lens_A" / "calibration.json"
+    assert path == (
+        profile.latest_snapshot("calibration") / "calibrations" / "lens_A" / "calibration.json"
+    )
     assert path.exists()
     assert bundled.read_text(encoding="utf-8") == before
 

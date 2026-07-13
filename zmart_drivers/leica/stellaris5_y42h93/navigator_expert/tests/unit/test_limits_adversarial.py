@@ -451,10 +451,9 @@ def test_rehandshake_after_fixing_the_file_replaces_the_fallback(mock_client):
     assert state.ok
     assert state.limits.describe()["is_fallback"] is True
 
-    # The operator fixes the file in the NEWEST snapshot (resolution seeded a
-    # complete snapshot during the first handshake, carrying the broken
-    # limits.json forward — the newest is what the next handshake reads)...
-    (profile.latest_snapshot() / "limits.json").write_text(
+    # The operator fixes the file in the newest limits snapshot, which is what
+    # the next handshake reads.
+    (profile.latest_snapshot("limits") / "limits.json").write_text(
         _valid_limits_text(dict(DEFAULT_STAGE_UM, x=[40000.0, 60000.0])), encoding="utf-8"
     )
     # ...and reconnects: the machine envelope governs again.
@@ -969,7 +968,7 @@ def test_resolution_seeds_programdata_and_returns_local_paths():
     profile = MachineProfile(programdata_root=_machine_root())
     path, is_fallback = profile.resolve("limits.json")
     assert is_fallback is False
-    assert path == profile.latest_snapshot() / "limits.json"
+    assert path == profile.latest_snapshot("limits") / "limits.json"
     assert path.exists()
     assert profile.require_machine_local("limits.json", "the physical stage envelope") == path
     assert stage_config.load()["stage_um"]["x"] == DEFAULT_STAGE_UM["x"]
@@ -979,7 +978,7 @@ def test_calibration_values_seed_programdata_from_repo_defaults():
     machine = MachineProfile(programdata_root=_machine_root())
     path, is_fallback = machine.resolve("calibration.json")
     assert is_fallback is False
-    assert path == machine.latest_snapshot() / "calibration.json"
+    assert path == machine.latest_snapshot("calibration") / "calibration.json"
     assert path.exists()
     assert machine.calibration_path() == path
 
@@ -994,7 +993,7 @@ def test_backlash_is_not_config_and_the_primitive_uses_its_default_params():
     from navigator_expert.motion import movement
 
     profile = provision_machine_limits(_machine_root())
-    limits_path = profile.latest_snapshot() / "limits.json"
+    limits_path = profile.latest_snapshot("limits") / "limits.json"
     on_disk = json.loads(limits_path.read_text(encoding="utf-8"))
     assert "backlash" not in on_disk
 
@@ -1010,32 +1009,32 @@ def test_backlash_is_not_config_and_the_primitive_uses_its_default_params():
     assert defaults["tolerance_um"].default is None
 
 
-def test_a_calibration_adopt_publishes_a_complete_machine_snapshot():
+def test_a_calibration_adopt_does_not_duplicate_other_machine_config():
     from datetime import datetime, timezone
 
     profile = MachineProfile(programdata_root=_machine_root())
     snap = profile.publish_snapshot(
         datetime(2026, 3, 1, tzinfo=timezone.utc), calibration={"marker": "cal"}
     )
-    assert (snap / "limits.json").exists()
-    assert (snap / "orientation.json").exists()
+    assert not (snap / "limits.json").exists()
+    assert not (snap / "orientation.json").exists()
     assert not (snap / "function_limits.json").exists()  # the file is gone entirely
     client = MockLasxClient(latency=0.0)
     state = gate.connect_handshake(client)
     assert state.ok
 
 
-def test_fresh_limits_adopt_writes_complete_snapshot():
+def test_fresh_limits_adopt_writes_complete_limits_snapshot():
     from datetime import datetime, timezone
 
     profile = MachineProfile(programdata_root=_machine_root())
-    assert profile.latest_snapshot() is None  # fresh machine
+    assert profile.latest_snapshot("limits") is None  # fresh machine
     stage_config.adopt_limits(
         DEFAULT_STAGE_UM, machine=profile, moment=datetime(2026, 4, 1, tzinfo=timezone.utc)
     )
-    snap = profile.latest_snapshot()
+    snap = profile.latest_snapshot("limits")
     files = sorted(p.name for p in snap.iterdir())
-    assert files == [".limits-machine", "calibration.json", "limits.json", "orientation.json"]
+    assert files == [".limits-machine", "limits.json"]
     assert not (snap / "function_limits.json").exists()
 
 
@@ -1056,7 +1055,9 @@ def test_adopted_limits_report_machine_source_to_the_notebook_preflight(mock_cli
     stage_config.adopt_limits(
         DEFAULT_STAGE_UM, machine=profile, moment=datetime(2026, 6, 1, tzinfo=timezone.utc)
     )
-    merged = json.loads((profile.latest_snapshot() / "limits.json").read_text(encoding="utf-8"))
+    merged = json.loads(
+        (profile.latest_snapshot("limits") / "limits.json").read_text(encoding="utf-8")
+    )
     assert "source" not in merged
 
     state = gate.connect_handshake(mock_client, machine=profile)
@@ -1074,7 +1075,7 @@ def test_flat_limits_round_trip_adopt_handshake_gated_move(mock_client):
     stage_config.adopt_limits(
         DEFAULT_STAGE_UM, machine=profile, moment=datetime(2026, 5, 1, tzinfo=timezone.utc)
     )
-    snap = profile.latest_snapshot()
+    snap = profile.latest_snapshot("limits")
     merged = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
     assert set(merged) == set(stage_config._REQUIRED_FILE_KEYS)
     assert merged["x_um"] == {"range": [1000.0, 130000.0]}
