@@ -201,9 +201,10 @@ def validate_payload(payload: Any, *, path: Path = Path("limits.json")) -> dict[
         "objective_slot", payload["objective_slot"], path=path, required_kind="allowed"
     )
     slots = objective["allowed"]
-    if any(isinstance(slot, bool) or not isinstance(slot, int) or slot <= 0 for slot in slots):
+    if any(isinstance(slot, bool) or not isinstance(slot, int) or slot < 0 for slot in slots):
         raise ValueError(
-            f"{path} objective_slot.allowed must contain positive integers, got {slots!r}"
+            f"{path} objective_slot.allowed must contain non-negative integers "
+            f"(turret slots count from 0), got {slots!r}"
         )
     setters: dict[str, Any] = {}
     for name in SETTER_LIMIT_KEYS:
@@ -221,7 +222,7 @@ def validate_payload(payload: Any, *, path: Path = Path("limits.json")) -> dict[
 def build_limits_payload(
     stage_um: dict[str, Any],
     *,
-    objective_slots: Any = (1, 2, 3, 4, 5, 6),
+    objective_slots: Any = (0, 1, 2, 3, 4, 5),
 ) -> dict[str, Any]:
     """Build the exact flat document written by the limits notebook."""
     stage = _validate_limits(stage_um, path=Path("limits.json"))
