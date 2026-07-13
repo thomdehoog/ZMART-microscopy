@@ -35,12 +35,12 @@ assert len(OPERATIONAL_COMMANDS) == 40
 assert len(VALID_CASES) == 54
 
 
-def _live_config():
+def _live_config(run_gate="MESOSPIM_RUN_ALL_COMMANDS"):
     required = {
         "MESOSPIM_ALLOW_DEVICE_CHANGE": "1",
         "MESOSPIM_OPERATOR_PRESENT": "1",
         "MESOSPIM_CONFIRM_DEMO_MODE": "1",
-        "MESOSPIM_RUN_ALL_COMMANDS": "1",
+        run_gate: "1",
     }
     for name, expected in required.items():
         if os.environ.get(name) != expected:

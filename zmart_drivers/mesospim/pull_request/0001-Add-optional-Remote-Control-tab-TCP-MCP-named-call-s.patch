@@ -1,19 +1,19 @@
-From d6f0a4f383b825f3908c934b9624a0194bf768f5 Mon Sep 17 00:00:00 2001
+From 767c967326f16b7e24ed45d48c013da81e4e2f01 Mon Sep 17 00:00:00 2001
 From: Thom de Hoog <thom.dehoog@zmb.uzh.ch>
-Date: Mon, 13 Jul 2026 10:34:28 +0200
+Date: Mon, 13 Jul 2026 11:16:32 +0200
 Subject: [PATCH] Add optional Remote Control tab: TCP + MCP named-call server
 
-Add a validated named-call control surface shared by framed TCP and MCP-over-HTTP. Commands are allowlisted, strictly parsed, checked against live configuration limits, and protected by a shared operation gate that acknowledges accepted work, reports the active operation, rejects competing mutations, and waits for real Core completion events.
+Add a validated named-call control surface shared by framed TCP and MCP-over-HTTP. Commands are allowlisted, strictly parsed, checked against live configuration limits and fixed state-machine modes, and protected by a shared operation gate that rejects competing mutations until real completion.
 
-The integration remains off by default. Core and MainWindow changes are limited to the annotated server lifecycle, signal wiring, tab setup, and shutdown hooks; the protocol, validation, busy gate, and transports remain isolated in the two new Remote Control modules.
+The integration remains off by default and Core/MainWindow hooks remain minimal. Protocol, validation, busy gating, and transports stay isolated in the two Remote Control modules.
 ---
  mesoSPIM/src/mesoSPIM_Core.py                 |   32 +
  mesoSPIM/src/mesoSPIM_MainWindow.py           |  201 +++
  .../src/mesoSPIM_RemoteControl_Servers.py     |  424 +++++++
- ...IM_RemoteControl_ValidateAndRunCommands.py | 1074 +++++++++++++++++
- .../src/test_remote_control_validation.py     |  184 +++
+ ...IM_RemoteControl_ValidateAndRunCommands.py | 1076 +++++++++++++++++
+ .../src/test_remote_control_validation.py     |  190 +++
  pyproject.toml                                |    1 +
- 6 files changed, 1916 insertions(+)
+ 6 files changed, 1924 insertions(+)
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_Servers.py
  create mode 100644 mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
  create mode 100644 mesoSPIM/src/test_remote_control_validation.py
@@ -740,10 +740,10 @@ index 0000000..7a44fa7
 +    main()
 diff --git a/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
 new file mode 100644
-index 0000000..0b7350d
+index 0000000..c3efde2
 --- /dev/null
 +++ b/mesoSPIM/src/mesoSPIM_RemoteControl_ValidateAndRunCommands.py
-@@ -0,0 +1,1074 @@
+@@ -0,0 +1,1076 @@
 +"""Remote-control command vocabulary and execution.
 +
 +Network transports hand this module a decoded command name plus arguments. This
@@ -1575,6 +1575,8 @@ index 0000000..0b7350d
 +    for k in _STATE_REQUEST_KEYS:
 +        if k in opts:
 +            spec[k] = {"type": "string", "options": opts[k], "range": None}
++        elif k == "state":
++            spec[k] = {"type": "string", "options": list(_MODES), "range": None}
 +        elif k in _PERCENT_KEYS:
 +            spec[k] = {"type": "number", "options": None, "range": [0, 100]}
 +        elif k in _STRING_KEYS:
@@ -1820,10 +1822,10 @@ index 0000000..0b7350d
 +    return ok, report
 diff --git a/mesoSPIM/src/test_remote_control_validation.py b/mesoSPIM/src/test_remote_control_validation.py
 new file mode 100644
-index 0000000..1cc919d
+index 0000000..02ac0a5
 --- /dev/null
 +++ b/mesoSPIM/src/test_remote_control_validation.py
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,190 @@
 +"""Validation tests for the Remote Control command module.
 +
 +Qt-free and no live Core: exercises ``_validate`` (the arg gate that runs at the
@@ -1914,6 +1916,11 @@ index 0000000..1cc919d
 +    assert _rejects("set_state", {"settings": {"zoom": "77x"}})
 +
 +
++def test_bad_set_state_mode_rejected():
++    assert _rejects(
++        "set_state", {"settings": {"state": "__invalid_remote_state__"}})
++
++
 +def test_limits_from_env_parses_json():
 +    os.environ["MESOSPIM_RS_LIMITS"] = '{"x": [-5, 5], "y": [-5, 5]}'
 +    try:
@@ -1998,6 +2005,7 @@ index 0000000..1cc919d
 +    assert enforced["parameters"]["intensity"]["range"] == [0, 100]
 +    assert enforced["parameters"]["etl_l_amplitude"]["range"] is None
 +    assert enforced["parameters"]["filter"]["options"] == ["Empty", "515LP"]
++    assert enforced["parameters"]["state"]["options"] == list(vrc._MODES)
 +
 +
 +if __name__ == "__main__":

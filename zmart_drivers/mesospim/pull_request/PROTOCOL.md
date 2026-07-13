@@ -88,7 +88,8 @@ instrument — for **every** settable parameter, not just the stage — and retu
   number`, `intensity must be a number`).
 - **allowed options** — `filter`/`zoom`/`laser`/`shutterconfig` are checked against
   the **live `cfg`** (`filter` ∈ `filterdict`, `zoom` ∈ `zoomdict`, `laser` ∈
-  `laserdict`, `shutterconfig` ∈ `shutteroptions`) — for `set_state` and acquisitions too.
+  `laserdict`, `shutterconfig` ∈ `shutteroptions`) — for `set_state` and acquisitions too;
+  `set_state.state` is restricted to the fixed mesoSPIM mode list.
 - **range** — `move_absolute` targets are checked against the per-axis travel envelope
   of the config the operator **loaded at startup** (`cfg.stage_parameters`), so range
   checking is on by default; `MESOSPIM_RS_LIMITS` (a JSON object `{"x": [lo, hi], …}` or
