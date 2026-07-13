@@ -1174,6 +1174,51 @@ class TestObjectiveCompensation(unittest.TestCase):
         self.assertEqual(record["hardware_targets"]["z_wide_um"], 40.0)
         self.assertEqual(record["hardware_targets"]["z_galvo_um"], 5.0)
 
+    def test_job_change_that_swaps_the_objective_is_compensated(self):
+        """A Navigator Expert job change can bring a different objective with it.
+
+        The frame math must not assume the objective only changes via the
+        turret under one job: every read and move re-reads the selected job
+        and takes the objective from that job's settings, so a job switch is
+        compensated exactly like a direct objective switch — and the z moves
+        address the newly selected job, not the one the origin was set under.
+        """
+        h = self._cross_handle()  # origin recorded under slot 1
+        moves = {"z": []}
+
+        def fake_xy(client, x_um, y_um, **kwargs):
+            moves["xy"] = (x_um, y_um)
+            return {"success": True, "confirmed": True}
+
+        def fake_z(client, job, z, unit="um", z_mode="galvo", **kwargs):
+            moves["z"].append((job, z, z_mode))
+            return {"success": True, "confirmed": True}
+
+        # The selected job is now "HiRes", whose settings carry objective
+        # slot 2 — the operator switched jobs, not the turret directly.
+        patches = _patch_position(
+            x_um=1110.0, y_um=2060.0, z_wide_um=45.0, z_galvo_um=0.0, job="HiRes", slot=2
+        )
+        with (
+            patch.object(adapter._motion, "move_xy_with_backlash", fake_xy),
+            patch.object(adapter._commands, "move_z", fake_z),
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
+            pos = adapter.get_xyz(h)
+            record = adapter.set_xyz(h, 10.0, 10.0, 5.0, with_actuators={"z": "z-galvo"})
+
+        # Read: compensated with ΔT taken from the NEW job's objective.
+        self.assertEqual(pos["x"]["value"], 10.0)  # 1110 − 1000 − 100
+        self.assertEqual(pos["y"]["value"], 10.0)  # 2060 − 2000 − 50
+        self.assertEqual(pos["z"]["value"], 5.0)  # 45 − 30 − 10
+        # Move: targets include ΔT, and z is driven on the selected job.
+        self.assertEqual(moves["xy"], (1110.0, 2060.0))
+        self.assertEqual(moves["z"], [("HiRes", 40.0, "zwide"), ("HiRes", 5.0, "galvo")])
+        self.assertEqual(record["objective_translation_um"], [100.0, 50.0, 10.0])
+
     def test_cross_objective_galvo_moves_do_not_accumulate_translation_on_zwide(self):
         h = self._cross_handle()
         moves = []
