@@ -241,7 +241,7 @@ def test_adopt_publishes_orientation_snapshot(monkeypatch, sessions_root, tmp_pa
     # The measured turn now lives in the microscope's newest snapshot, and the
     # machine profile reads it back as the active orientation.
     written = Path(out["orientation_path"])
-    assert written == machine.latest_snapshot() / "orientation.json"
+    assert written == machine.latest_snapshot("orientation") / "orientation.json"
     payload = json.loads(written.read_text(encoding="utf-8"))
     assert payload == {"schema_version": 1, "rotate_deg": 90, "measured": True}
     assert machine.orientation_path() == written

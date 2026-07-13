@@ -2,10 +2,10 @@
 
 Measure the optical state of the microscope: the translation between each
 objective pair the scope should support. Workflows consume only the adopted
-calibration in the newest machine snapshot. The notebooks and session artifacts
+calibration in the newest `calibration/<datetime>/` snapshot. The notebooks and session artifacts
 in this folder are not runtime dependencies - but `core/model.py` and the
 bundled `defaults/` are: the driver imports the model and loads the calibration
-(newest ProgramData snapshot, seeded from `defaults/` if needed) at every
+(newest calibration snapshot, seeded from `defaults/` if needed) at every
 connect.
 
 The rig's **image→stage orientation** is a separate concern owned by
@@ -31,23 +31,15 @@ scope should support.
 
 ## Snapshots
 
-When you adopt a calibration, the driver saves a dated **snapshot** folder on
-the machine, under
-`C:\ProgramData\zmart-microscopy\<vendor>\<microscope>\<api>\<datetime>\`. Each
-snapshot keeps everything the microscope needs together: `calibration.json`
-(the objective positions measured here), `limits.json` (how far the stage is
-allowed to move), `orientation.json` (how the camera is turned relative to the
-stage), and `origin.json` (the operator's zero point) — plus a copy of the
-notebook that produced it, so you can always see how the numbers were made.
-The driver simply reads the newest snapshot.
+When you adopt a calibration, the driver appends
+`C:\ProgramData\zmart-microscopy\<vendor>\<microscope>\<api>\calibration\<datetime>\`.
+It contains `calibration.json`, any named `calibrations/<name>/calibration.json`
+sets carried forward from the preceding calibration snapshot, and the notebook
+that produced the adoption. The driver reads the newest calibration timestamp.
 
-ProgramData is the source of truth. If no snapshot exists yet, the driver copies
-the repo defaults for calibration, limits, and orientation into a local
-ProgramData snapshot so CI and mock runs can connect. Each setup step stays in
-its own lane after that: running the stage-limits notebook replaces
-`limits.json`, setting orientation replaces `orientation.json`, and adopting a
-calibration writes either `calibration.json` or a named
-`calibrations/<name>/calibration.json` while carrying the rest forward.
+Limits, orientation, and origin have parallel independent trees. Publishing
+one subsystem never copies the others. ProgramData is the source of truth; an
+empty limits, calibration, or orientation tree seeds from its own repo default.
 
 The per-run *working* envelope (a boundary-marker sample area) is not machine
 state - it belongs to the acquisition workflow, not here.

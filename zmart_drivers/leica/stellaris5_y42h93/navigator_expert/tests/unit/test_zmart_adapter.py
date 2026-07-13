@@ -208,7 +208,7 @@ class TestFrame(unittest.TestCase):
         import json
         import tempfile
 
-        from navigator_expert.config.machine import MachineProfile
+        from navigator_expert.config.machine import MachineProfile, is_snapshot_name
 
         with tempfile.TemporaryDirectory() as tmp:
             profile = MachineProfile(programdata_root=Path(tmp))
@@ -222,9 +222,10 @@ class TestFrame(unittest.TestCase):
                 patches[3],
             ):
                 record = adapter.set_origin(h)
-            # Persists to the origin/ folder, independent of any snapshot.
+            # Persists to its own origin/<datetime>/ snapshot tree.
             self.assertEqual(record["origin_file"], str(profile.origin_path()))
-            self.assertEqual(profile.origin_path().parent.name, "origin")
+            self.assertEqual(profile.origin_path().parent.parent.name, "origin")
+            self.assertTrue(is_snapshot_name(profile.origin_path().parent.name))
             saved = json.loads(profile.origin_path().read_text(encoding="utf-8"))
             self.assertEqual(saved["origin"]["x_um"], 1000.0)
             self.assertEqual(saved["origin"]["z_wide_um"], 30.0)
@@ -1035,7 +1036,9 @@ class TestScanFieldInfo(unittest.TestCase):
         self.assertEqual(first["group"], {"region": "0", "row": 0, "col": 0})
         self.assertEqual(first["job"], "HiRes")
         self.assertEqual(first["tile_size"], {"x": 100.0, "y": 100.0})
-        self.assertEqual({k: first[k] for k in ("x", "y", "z")}, {"x": 100.0, "y": 200.0, "z": 10.0})
+        self.assertEqual(
+            {k: first[k] for k in ("x", "y", "z")}, {"x": 100.0, "y": 200.0, "z": 10.0}
+        )
         self.assertEqual(len(tiles), 2)
         focus = info["focus_positions"]
         self.assertEqual(focus[0]["id"], "F1")
@@ -1675,10 +1678,10 @@ class TestFunctionLimits(unittest.TestCase):
 
         profile = provision_machine_limits(os.environ["ZMART_MICROSCOPY_ROOT"])
         payload = json.loads(
-            (profile.latest_snapshot() / "limits.json").read_text(encoding="utf-8")
+            (profile.latest_snapshot("limits") / "limits.json").read_text(encoding="utf-8")
         )
         payload["theta_um"] = [0.0, 360.0]
-        (profile.latest_snapshot() / "limits.json").write_text(
+        (profile.latest_snapshot("limits") / "limits.json").write_text(
             json.dumps(payload), encoding="utf-8"
         )
         client = object()

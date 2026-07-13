@@ -1,9 +1,9 @@
-"""Adopt a session-staging calibration into a machine snapshot.
+"""Adopt a session-staging calibration into its machine-owned timestamp tree.
 
 Adoption is the explicit operator step that folds a trustworthy session staging
 config into the microscope's calibration. It reads the current ProgramData
 calibration, or the bundled default as seed material when ProgramData is empty,
-merges the one staged delta, and publishes a new cumulative snapshot via
+merges the one staged delta, and publishes a new calibration snapshot via
 :meth:`navigator_expert.config.machine.MachineProfile.publish_snapshot`.
 Save workflows never adopt; this is the path that writes calibration snapshots.
 """
@@ -212,11 +212,10 @@ def _load_staging(session: Any, staging_name: str) -> tuple[Path, dict[str, Any]
 
 
 def _base_calibration_path(machine: Any, calibration_name: str | None) -> Path:
-    latest = machine.latest_snapshot()
+    latest = machine.latest_snapshot("calibration")
     if latest is None:
         return machine.bundled_default_path("calibration.json")
-
-    snapshot = machine.ensure_snapshot()
+    snapshot = machine.ensure_snapshot("calibration")
     if calibration_name is not None:
         named = snapshot / machine.calibration_relpath(calibration_name)
         if named.exists():

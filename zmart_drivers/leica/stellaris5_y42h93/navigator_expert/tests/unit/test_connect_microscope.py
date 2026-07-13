@@ -53,7 +53,7 @@ def test_connect_records_adopted_calibration_slots_as_measured():
     import json
 
     profile = MachineProfile(programdata_root=Path(os.environ["ZMART_MICROSCOPY_ROOT"]))
-    snap = profile.ensure_snapshot()
+    snap = profile.ensure_snapshot("calibration")
     calibration = json.loads((snap / "calibration.json").read_text(encoding="utf-8"))
     # Simulate a real adoption of the slot 1 -> 2 pair; slot 0 stays a placeholder.
     for slot in ("1", "2"):
@@ -92,7 +92,7 @@ def test_connect_records_the_selected_calibration_name():
 
 def test_connect_records_measured_orientation_as_positive_preflight_evidence():
     profile = MachineProfile(programdata_root=Path(os.environ["ZMART_MICROSCOPY_ROOT"]))
-    snap = profile.ensure_snapshot()
+    snap = profile.ensure_snapshot("orientation")
     (snap / "orientation.json").write_text(
         '{"schema_version": 1, "rotate_deg": 0, "measured": true}',
         encoding="utf-8",
@@ -120,7 +120,7 @@ def test_orientation_and_readiness_evidence_come_from_one_validated_read():
 
 def test_invalid_orientation_cannot_claim_measured_preflight_evidence(caplog):
     profile = MachineProfile(programdata_root=Path(os.environ["ZMART_MICROSCOPY_ROOT"]))
-    snap = profile.ensure_snapshot()
+    snap = profile.ensure_snapshot("orientation")
     (snap / "orientation.json").write_text(
         '{"schema_version": 1, "rotate_deg": 45, "measured": true}',
         encoding="utf-8",
@@ -151,7 +151,7 @@ def test_connect_survives_a_bad_orientation_file(bad_text, caplog):
     and the calibration degrade.
     """
     profile = MachineProfile(programdata_root=Path(os.environ["ZMART_MICROSCOPY_ROOT"]))
-    snap = profile.ensure_snapshot()
+    snap = profile.ensure_snapshot("orientation")
     (snap / "orientation.json").write_text(bad_text, encoding="utf-8")
 
     with caplog.at_level(logging.WARNING):

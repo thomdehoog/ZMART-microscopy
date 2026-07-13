@@ -6,8 +6,8 @@ when they need a specific fixture envelope or gate policy. Command-mechanics
 unit tests can also install a permissive in-memory gate state for one client
 (``install_permissive_limits``).
 
-The snapshot holds one flat ``limits.json``: axis ranges, allowed objective
-slots, and explicit ``[]`` entries for unrestricted setters.
+Each fixture publishes one ``limits/<datetime>/limits.json``: axis ranges,
+allowed objective slots, and explicit ``[]`` entries for unrestricted setters.
 """
 
 from __future__ import annotations

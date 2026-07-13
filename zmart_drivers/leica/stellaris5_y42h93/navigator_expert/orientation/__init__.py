@@ -98,8 +98,8 @@ def rig_orientation() -> Orientation:
     """The microscope's measured turn, read from its ProgramData snapshot.
 
     The ``set_orientation`` notebook measures the turn and writes an
-    ``orientation.json`` into the microscope's newest snapshot, alongside its
-    calibration and limits. The machine profile resolves that file, falling back
+    ``orientation.json`` into ``orientation/<datetime>/``. The machine profile
+    resolves the newest orientation timestamp, falling back
     to the shipped ``defaults/orientation.json`` -- a placeholder that means "no
     turn" -- when no snapshot has one yet. The real value is measured, never
     hard-coded, and an un-measured microscope is left exactly as it is.
