@@ -364,6 +364,91 @@ def _selected_job_name(handle: ZmartHandle) -> str:
     return name
 
 
+def _select_job_keeping_position(handle: ZmartHandle, job: str) -> None:
+    """Select *job*; when the switch swaps the objective, keep the sample point.
+
+    A Navigator Expert job carries its own objective choice, so selecting a
+    job can be an objective change in disguise. The stage does not move by
+    itself, but the new objective looks at a different spot (parcentricity)
+    and a different focal plane (parfocality). The order here is the whole
+    point: measure motoric XY and z-wide BEFORE the switch — while they still
+    mean "where the old objective was looking" — select the job, and if the
+    objective changed add the adopted calibration's translation difference
+    to the measured values. The sample point then survives the switch, and a
+    later frame move to the same coordinates computes the identical absolute
+    target, so nothing is compensated twice.
+
+    Refuses (loudly, before any capture can happen) when the objective
+    changed but the calibration does not cover both slots: acquiring at an
+    uncompensated position would silently image the wrong spot.
+    """
+    before = _hardware_snapshot(handle)
+    if before["job"] == job:
+        return
+    select = _commands.select_job(handle.client, job)
+    if not select.get("success"):
+        raise RuntimeError(f"select_job('{job}') failed: {select}")
+
+    settings = _readers.get_job_settings(handle.client, job, mode="api")
+    if not settings:
+        raise RuntimeError(
+            f"selected job {job!r} but could not read its settings to check "
+            "for an objective change; the stage position is NOT objective-"
+            "compensated — re-check the job and position before acquiring"
+        )
+    old_slot = (before.get("objective") or {}).get("slotIndex")
+    new_slot = (settings.get("objective") or {}).get("slotIndex")
+    if old_slot == new_slot:
+        return
+    if old_slot is None or new_slot is None:
+        raise RuntimeError(
+            f"job change {before['job']!r} -> {job!r}: could not determine "
+            f"the objective on one side (slots {old_slot!r} -> {new_slot!r}), "
+            "so the position cannot be objective-compensated safely"
+        )
+    t = handle.translations
+    old_slot, new_slot = int(old_slot), int(new_slot)
+    if not t or old_slot not in t or new_slot not in t:
+        raise RuntimeError(
+            f"job change {before['job']!r} -> {job!r} swapped the objective "
+            f"(slot {old_slot} -> {new_slot}) but no calibration translation "
+            "covers both slots; acquiring here would image the wrong spot. "
+            "Adopt an objective-pair calibration, or use a job with the "
+            "same objective."
+        )
+    delta = (
+        t[new_slot][0] - t[old_slot][0],
+        t[new_slot][1] - t[old_slot][1],
+        t[new_slot][2] - t[old_slot][2],
+    )
+    if delta == (0.0, 0.0, 0.0):
+        return
+    target_x = before["x_um"] + delta[0]
+    target_y = before["y_um"] + delta[1]
+    target_z_wide = before["z_wide_um"] + delta[2]
+
+    # Pre-flight both legs before anything travels, same as set_xyz: a doomed
+    # z leg must never leave the stage at a new XY with the old focus.
+    _refuse_if_gated(handle, "move_xy", {"x_um": target_x, "y_um": target_y})
+    _limits._check_xy_limits(target_x, target_y)
+    _refuse_if_gated(handle, "move_z", {"z_wide_um": target_z_wide})
+    _limits._check_z_limits(target_z_wide, "zwide")
+
+    log.info(
+        "job change %r -> %r swapped the objective (slot %s -> %s); moving by "
+        "the calibrated translation (%+.2f, %+.2f, %+.2f) um to keep the "
+        "sample point",
+        before["job"], job, old_slot, new_slot, *delta,
+    )
+    _motion.move_xy_with_backlash(handle.client, target_x, target_y)
+    z_result = _commands.move_z(handle.client, job, target_z_wide, unit="um", z_mode="zwide")
+    if not z_result.get("success") or not z_result.get("confirmed"):
+        raise RuntimeError(
+            f"objective-compensating z-wide move after the job change failed "
+            f"or was unconfirmed: {z_result}"
+        )
+
+
 def _setup_readiness(
     handle: ZmartHandle,
     active_objective: dict | None,
@@ -852,10 +937,10 @@ def acquire(
     if resolved["strip_scan_fields"]:
         _ensure_scan_fields_stripped(handle)
 
-    if job != _selected_job_name(handle):
-        select = _commands.select_job(handle.client, job)
-        if not select.get("success"):
-            raise RuntimeError(f"select_job('{job}') failed: {select}")
+    # Selecting the capture job may swap the objective with it; the helper
+    # re-realizes the sample point (measured-before + calibrated ΔT) so the
+    # capture below images the same spot the caller positioned.
+    _select_job_keeping_position(handle, job)
 
     if resolved["backlash_correction"]:
         _motion.correct_backlash(handle.client)
@@ -1016,9 +1101,10 @@ def set_state(handle: ZmartHandle, state: dict) -> dict:
             raise ValueError(
                 f"job {job!r} no longer exists on this instrument (available: {names})"
             )
-        result = _commands.select_job(handle.client, job)
-        if not result.get("success"):
-            raise RuntimeError(f"select_job('{job}') failed: {result}")
+        # A job selection can carry an objective change; keep the sample
+        # point by applying the calibrated translation to the measured
+        # pre-switch position (measured before, compensated after).
+        _select_job_keeping_position(handle, job)
         applied["job"] = job
     return {"applied": applied}
 
@@ -1076,10 +1162,11 @@ def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
 
     _ensure_scan_fields_stripped(handle)
     original = _selected_job_name(handle)
-    if job != original:
-        selected = _commands.select_job(handle.client, job)
-        if not selected.get("success"):
-            raise RuntimeError(f"select_job('{job}') failed: {selected}")
+    # Both the switch to the autofocus job and the restore go through the
+    # position-keeping helper: if the autofocus job carries a different
+    # objective, the focus run happens at the same sample point, and the
+    # restore moves back by the opposite translation.
+    _select_job_keeping_position(handle, job)
     try:
         acq = _capture.acquire(handle.client, job)
         # Read the focus result BEFORE restoring the selection: restoring
@@ -1087,9 +1174,10 @@ def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
         snap = _hardware_snapshot(handle)
     finally:
         if job != original:
-            restored = _commands.select_job(handle.client, original)
-            if not restored.get("success"):
-                log.warning("could not restore job %r after autofocus: %s", original, restored)
+            try:
+                _select_job_keeping_position(handle, original)
+            except Exception as exc:  # noqa: BLE001 -- restore must not mask the run's result
+                log.warning("could not restore job %r after autofocus: %s", original, exc)
     focus = snap["z_wide_um"] + snap["z_galvo_um"]
     dt = _delta_or_warn(handle, snap)
     return {
