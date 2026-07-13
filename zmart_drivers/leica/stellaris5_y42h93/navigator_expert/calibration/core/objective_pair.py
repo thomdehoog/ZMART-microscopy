@@ -61,6 +61,7 @@ from .common import (
     now_iso,
     plot_brenner_curve,
     plot_overlay,
+    read_active_objective,
     read_job_geometry,
     read_stack_z_positions,
     write_json_atomic,
@@ -239,29 +240,9 @@ def start_session(
 
 def _read_active_objective(session: ObjectivePairSession) -> tuple[int, str]:
     """Read the selected job's objective identity without changing microscope state."""
-    selected = drv.get_selected_job(session.client, mode="api") or {}
-    selected_name = selected.get("Name")
-    if selected_name != session.job_name:
-        raise RuntimeError(
-            f"Navigator Expert job changed: expected {session.job_name!r}, "
-            f"but {selected_name!r} is selected. Re-select {session.job_name!r}; "
-            "change only the objective between calibration steps."
-        )
-    settings = drv.get_job_settings(session.client, session.job_name, mode="api") or {}
-    objective = settings.get("objective") or {}
-    slot = objective.get("slotIndex")
-    if slot is None:
-        raise RuntimeError(
-            f"could not read the active objective slot from job {session.job_name!r}"
-        )
-    slot = int(slot)
-    name = str(objective.get("name") or session.hardware_objectives.get(slot) or "").strip()
-    if not name:
-        raise RuntimeError(
-            f"could not read the active objective name for slot {slot} "
-            f"from job {session.job_name!r}"
-        )
-    return slot, name
+    return read_active_objective(
+        session.client, session.job_name, known_names=session.hardware_objectives
+    )
 
 
 def _observe_objective_for_step(session: ObjectivePairSession, role: str) -> tuple[int, str]:
