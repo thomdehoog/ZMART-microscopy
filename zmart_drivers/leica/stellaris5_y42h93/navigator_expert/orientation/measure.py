@@ -52,6 +52,7 @@ from . import (
     orientation_config,
     orientation_from_config,
     orientation_from_image_to_stage,
+    reorient_array,
 )
 
 KIND = "orientation"
@@ -174,131 +175,268 @@ def _registration_overlay(reference: np.ndarray, target: np.ndarray) -> np.ndarr
     return np.clip(rgb, 0.0, 1.0)
 
 
+def _gallery_orientations() -> tuple[Orientation, ...]:
+    """All valid D4 corrections, grouped by mirror state then rotation."""
+    return tuple(
+        Orientation(rotate_deg=degrees, mirrored=mirrored)
+        for mirrored in (False, True)
+        for degrees in (0, 90, 180, 270)
+    )
+
+
+def _candidate_alignment_overlay(
+    home: np.ndarray,
+    plus_x: np.ndarray,
+    plus_y: np.ndarray,
+    *,
+    stage_move_um: float,
+    pixel_size_um: float,
+    orientation: Orientation,
+) -> np.ndarray:
+    """Align both moved frames as one D4 candidate predicts, then overlay them."""
+    from scipy.ndimage import shift
+
+    stage_to_image = -np.linalg.inv(np.asarray(orientation.image_to_stage, dtype=float))
+    expected_x = stage_to_image[:, 0] * stage_move_um
+    expected_y = stage_to_image[:, 1] * stage_move_um
+
+    def _align(image: np.ndarray, expected_um: np.ndarray) -> np.ndarray:
+        background = float(np.median(image))
+        return shift(
+            np.asarray(image),
+            shift=(-expected_um[1] / pixel_size_um, -expected_um[0] / pixel_size_um),
+            order=1,
+            mode="constant",
+            cval=background,
+            prefilter=False,
+        )
+
+    aligned_x = _align(plus_x, expected_x)
+    aligned_y = _align(plus_y, expected_y)
+    aligned_moves = (aligned_x.astype(np.float64) + aligned_y.astype(np.float64)) / 2.0
+    overlay = _registration_overlay(home, aligned_moves)
+    return reorient_array(overlay, orientation)
+
+
+def _mapping_label(orientation: Orientation) -> str:
+    mapping = orientation.axis_mapping
+    return f"{mapping['stage_x_from_image']} {mapping['stage_y_from_image']}"
+
+
+def _correction_label(orientation: Orientation) -> str:
+    steps = []
+    if orientation.mirrored:
+        steps.append("flip left-right")
+    if orientation.rotate_deg:
+        steps.append(f"rotate {orientation.rotate_deg} deg CW")
+    return ", then ".join(steps) if steps else "no correction"
+
+
+def _sign_label(value: int) -> str:
+    return "+" if value > 0 else "-"
+
+
+def _reflection_label(orientation: Orientation) -> str:
+    return {
+        None: "none",
+        "vertical": "vertical axis (left-right flip)",
+        "horizontal": "horizontal axis (top-bottom flip)",
+        "main_diagonal": "main diagonal (\\)",
+        "anti_diagonal": "anti-diagonal (/)",
+    }[orientation.reflection_axis]
+
+
 def write_orientation_diagnostic(
     session: OrientationSession,
     vote_x: dict,
     vote_y: dict,
     canonical: np.ndarray,
 ) -> Path:
-    """Render the measured shifts and inferred stage axes to an archived PNG."""
+    """Render measured overlays and an eight-case D4 gallery to an archived PNG."""
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
 
-    fig, axes = plt.subplots(2, 2, figsize=(11, 9), constrained_layout=True)
-    for ax, target, vote, title in (
-        (axes[0, 0], session.images["plus_x"], vote_x, "Stage move +X"),
-        (axes[0, 1], session.images["plus_y"], vote_y, "Stage move +Y"),
-    ):
-        ax.imshow(_registration_overlay(session.images["home"], target), origin="upper")
-        ax.set_title(f"{title}\nfeature shift = ({vote['dx_um']:+.2f}, {vote['dy_um']:+.2f}) um")
-        ax.set_axis_off()
-    axes[0, 0].text(
-        0.02,
-        0.98,
-        "home: magenta\nmoved: green",
-        transform=axes[0, 0].transAxes,
+    candidate = orientation_from_image_to_stage(canonical)
+    accepted = session.orientation is not None
+    selected_color = "#087F5B" if accepted else "#C56A00"
+    selected_word = "DETECTED" if accepted else "NEAREST CANDIDATE - REJECTED"
+
+    fig = plt.figure(figsize=(16, 12.25), facecolor="white")
+    grid = fig.add_gridspec(
+        3,
+        1,
+        height_ratios=(1.0, 0.10, 1.85),
+        left=0.045,
+        right=0.975,
+        bottom=0.055,
+        top=0.93,
+        hspace=0.18,
+    )
+    summary_grid = grid[0].subgridspec(1, 12, wspace=0.30)
+    gallery_grid = grid[2].subgridspec(2, 4, hspace=0.62, wspace=0.34)
+
+    evidence_ax = fig.add_subplot(summary_grid[0, 4:12])
+    evidence_ax.set_axis_off()
+    evidence_ax.add_patch(
+        Rectangle(
+            (0, 0),
+            1,
+            1,
+            transform=evidence_ax.transAxes,
+            facecolor="#F2F8F5" if accepted else "#FFF7E8",
+            edgecolor=selected_color,
+            linewidth=2,
+            clip_on=False,
+        )
+    )
+    candidate_signs = candidate.axis_signs
+    evidence_ax.text(
+        0.045,
+        0.90,
+        f"CHOSEN ORIENTATION - {selected_word}",
+        transform=evidence_ax.transAxes,
+        ha="left",
         va="top",
-        color="white",
-        bbox={"facecolor": "black", "alpha": 0.7, "pad": 4},
+        fontsize=14,
+        fontweight="bold",
+        color=selected_color,
+    )
+    evidence_ax.plot(
+        [0.5, 0.5],
+        [0.10, 0.76],
+        transform=evidence_ax.transAxes,
+        color="#C8D8D1" if accepted else "#E1CDA6",
+        linewidth=1.2,
+    )
+    evidence_ax.text(
+        0.045,
+        0.73,
+        f"CORRECTION\n"
+        f"Rotation: {candidate.rotate_deg} deg clockwise\n"
+        f"Mirrored: {'Yes' if candidate.mirrored else 'No'}\n"
+        f"Net reflection: {_reflection_label(candidate)}\n"
+        f"Apply: {_correction_label(candidate)}\n\n"
+        f"DERIVED MAPPING\n"
+        f"Image to stage: {_mapping_label(candidate)}\n"
+        f"Axis signs: X {_sign_label(candidate_signs['stage_x'])}, "
+        f"Y {_sign_label(candidate_signs['stage_y'])}",
+        transform=evidence_ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=11.5,
+        linespacing=1.35,
+        color="#25302C",
+    )
+    evidence_ax.text(
+        0.545,
+        0.73,
+        f"MEASUREMENT EVIDENCE\n"
+        f"Stage +X: ({vote_x['dx_um']:+.2f}, {vote_x['dy_um']:+.2f}) um\n"
+        f"Stage +Y: ({vote_y['dx_um']:+.2f}, {vote_y['dy_um']:+.2f}) um\n"
+        f"D4 residual: {session.residual_from_d4:.4f}\n"
+        f"Acceptance limit: {D4_RESIDUAL_MAX}\n\n"
+        f"VISUAL CHECK\n"
+        f"White shows magenta/green alignment.\n"
+        f"The chosen option should have the\n"
+        f"strongest overlap.",
+        transform=evidence_ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=11.5,
+        linespacing=1.35,
+        color="#25302C",
     )
 
-    shifts = (
-        (vote_x, "stage +X", "#0072B2"),
-        (vote_y, "stage +Y", "#009E73"),
+    gallery_heading = fig.add_subplot(grid[1])
+    gallery_heading.set_axis_off()
+    gallery_heading.text(
+        0.5,
+        0.5,
+        "All eight candidates | magenta = home | green = aligned +X/+Y frames | "
+        "white = overlap | chosen option highlighted",
+        ha="center",
+        va="center",
+        fontsize=10.5,
+        fontweight="bold",
+        color="#30363D",
     )
-    limit = max(
-        session.stage_move_um,
-        *(abs(float(vote[key])) for vote, _label, _color in shifts for key in ("dx_um", "dy_um")),
-    )
-    limit = max(limit * 1.25, 1.0)
-    shift_ax = axes[1, 0]
-    shift_ax.axhline(0, color="0.75", linewidth=1)
-    shift_ax.axvline(0, color="0.75", linewidth=1)
-    for vote, label, color in shifts:
-        shift_ax.arrow(
-            0,
-            0,
-            vote["dx_um"],
-            vote["dy_um"],
-            color=color,
-            width=limit * 0.012,
-            head_width=limit * 0.09,
-            length_includes_head=True,
-            label=label,
-        )
-    shift_ax.set(xlim=(-limit, limit), ylim=(limit, -limit))
-    shift_ax.set_aspect("equal")
-    shift_ax.set_xlabel("image shift X (um, right +)")
-    shift_ax.set_ylabel("image shift Y (um, down +)")
-    shift_ax.set_title("Measured feature motion")
-    shift_ax.legend(loc="best")
-    shift_ax.grid(alpha=0.2)
 
-    mapping_ax = axes[1, 1]
-    mapping_ax.axhline(0, color="0.75", linewidth=1)
-    mapping_ax.axvline(0, color="0.75", linewidth=1)
-    stage_to_image = np.linalg.inv(np.asarray(canonical, dtype=float))
-    for vector, label, color in (
-        (stage_to_image[:, 0], "stage +X", "#0072B2"),
-        (stage_to_image[:, 1], "stage +Y", "#009E73"),
-    ):
-        mapping_ax.arrow(
-            0,
-            0,
-            vector[0],
-            vector[1],
-            color=color,
-            width=0.025,
-            head_width=0.16,
-            length_includes_head=True,
+    gallery_stride = max(1, int(np.ceil(max(session.images["home"].shape) / 384)))
+    gallery_home = session.images["home"][::gallery_stride, ::gallery_stride]
+    gallery_plus_x = session.images["plus_x"][::gallery_stride, ::gallery_stride]
+    gallery_plus_y = session.images["plus_y"][::gallery_stride, ::gallery_stride]
+    gallery_pixel_size_um = session.pixel_size_um * gallery_stride
+
+    def _draw_candidate(
+        ax,
+        orientation: Orientation,
+        *,
+        selected: bool,
+        show_details: bool = True,
+    ) -> None:
+        border_color = selected_color if selected else "#A8ADB3"
+        border_width = 5.0 if selected else 1.2
+        overlay = _candidate_alignment_overlay(
+            gallery_home,
+            gallery_plus_x,
+            gallery_plus_y,
+            stage_move_um=session.stage_move_um,
+            pixel_size_um=gallery_pixel_size_um,
+            orientation=orientation,
         )
-        mapping_ax.text(
-            vector[0] * 1.12,
-            vector[1] * 1.12,
-            label,
-            color=color,
-            ha="center",
-            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1},
+        ax.imshow(overlay, interpolation="nearest")
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_color(border_color)
+            spine.set_linewidth(border_width)
+        mirror_text = "Yes" if orientation.mirrored else "No"
+        signs = orientation.axis_signs
+        title = f"Rotation {orientation.rotate_deg} deg | Mirrored: {mirror_text}"
+        if not show_details:
+            title = f"Detected: {orientation.rotate_deg} deg CW | Mirrored: {mirror_text}"
+        ax.set_title(
+            title,
+            color=selected_color if selected else "#252A30",
+            fontweight="bold" if selected else "normal",
+            fontsize=11 if selected else 10,
+            pad=5,
         )
-    mapping_ax.set(xlim=(-1.45, 1.45), ylim=(1.45, -1.45))
-    mapping_ax.set_aspect("equal")
-    mapping_ax.set_xlabel("raw image X (right +)")
-    mapping_ax.set_ylabel("raw image Y (down +)")
-    if session.orientation is None:
-        correction = "save correction: none (measurement rejected)"
-    else:
-        mirror_step = "mirror horizontally, then " if session.orientation.mirrored else ""
-        correction = (
-            f"save correction: {mirror_step}{session.orientation.rotate_deg} degrees clockwise"
+        if show_details:
+            ax.set_xlabel(
+                f"Map {_mapping_label(orientation)} | "
+                f"X{_sign_label(signs['stage_x'])} / Y{_sign_label(signs['stage_y'])}\n"
+                f"Net reflection: {_reflection_label(orientation)}\n"
+                f"Apply: {_correction_label(orientation)}",
+                color=selected_color if selected else "#4A5057",
+                fontweight="bold" if selected else "normal",
+                fontsize=9.5 if selected else 9,
+                labelpad=6,
+            )
+        if selected:
+            ax.text(
+                0.5,
+                0.98,
+                "DETECTED - BEST OVERLAP" if accepted else "NEAREST - REJECTED",
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                color="white",
+                fontsize=9,
+                fontweight="bold",
+                bbox={"facecolor": selected_color, "edgecolor": "none", "pad": 4},
+            )
+
+    winner_ax = fig.add_subplot(summary_grid[0, 0:4])
+    _draw_candidate(winner_ax, candidate, selected=True, show_details=False)
+
+    gallery_slots = tuple((row, column) for row in range(2) for column in range(4))
+    for orientation, (row, column) in zip(_gallery_orientations(), gallery_slots, strict=True):
+        _draw_candidate(
+            fig.add_subplot(gallery_grid[row, column]),
+            orientation,
+            selected=orientation == candidate,
         )
-    mapping_ax.set_title(f"Stage axes in the raw image: {session.d4_label}\n{correction}")
-    mapping_ax.grid(alpha=0.2)
-    determinant = int(round(float(np.linalg.det(canonical))))
-    if session.is_mirrored:
-        mirrored_text = "YES"
-        mirror_correction = "ENABLED"
-        status_color = "#0072B2"
-    else:
-        mirrored_text = "NO"
-        mirror_correction = "not needed"
-        status_color = "#009E73"
-    mapping_ax.text(
-        0.02,
-        0.02,
-        f"image -> stage = {np.asarray(canonical, dtype=int).tolist()}\n"
-        f"mirrored image = {mirrored_text} (det = {determinant:+d})\n"
-        f"mirror correction = {mirror_correction}\n"
-        f"D4 residual = {session.residual_from_d4:.4f} (limit {D4_RESIDUAL_MAX})",
-        transform=mapping_ax.transAxes,
-        va="bottom",
-        family="monospace",
-        bbox={
-            "facecolor": "white",
-            "edgecolor": status_color,
-            "linewidth": 1.5,
-            "alpha": 0.9,
-            "pad": 4,
-        },
-    )
 
     fig.suptitle(
         f"Orientation measurement | {session.reference_objective} | "
@@ -442,6 +580,9 @@ def measure(session: OrientationSession) -> OrientationSession:
             "d4_label": session.d4_label,
             "residual_from_d4": session.residual_from_d4,
             "mirrored": session.is_mirrored,
+            "reflection_axis": (
+                session.orientation.reflection_axis if session.orientation is not None else None
+            ),
             "determinant": int(round(det)),
             "axis_signs": (
                 session.orientation.axis_signs if session.orientation is not None else None
