@@ -1,6 +1,7 @@
-"""Shared image-analysis helpers with no LAS X or hardware dependency.
+"""Navigator Expert image-analysis helpers with no LAS X or hardware dependency.
 
-Two concerns, two modules:
+Driver-local (this driver owns its own copy so it is self-contained and free to
+diverge from other microscopes' analysis). Two concerns, two modules:
 
 - ``registration``: image-to-image alignment, voting, and D4 sign-convention fitting.
 - ``focus``: Brenner gradient and sub-pixel peak finding for Z-stack focus measurement.

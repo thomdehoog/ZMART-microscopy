@@ -81,13 +81,20 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
-from shared import limits as _shared_limits
-
 from ..config import machine as _machine
 from ..motion import limits as _limits
 from ..motion import stage_config as _stage_config
 
 log = logging.getLogger(__name__)
+
+
+class LimitsError(ValueError):
+    """The limits file (or an override) is malformed or incomplete."""
+
+
+class LimitViolation(RuntimeError):
+    """A checked value is outside its configured limit."""
+
 
 NOTEBOOK_POINTER = "limits/notebooks/set_limits.ipynb"
 
@@ -192,18 +199,18 @@ class LeicaLimits:
         if kind == "range":
             low, high = configured
             if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise _shared_limits.LimitViolation(
+                raise LimitViolation(
                     f"{name}={value!r} is not numeric (range [{low}, {high}]; {self._origin()})"
                 )
             number = float(value)
             if not math.isfinite(number) or number < low or number > high:
-                raise _shared_limits.LimitViolation(
+                raise LimitViolation(
                     f"{name}={value!r} outside range [{low}, {high}] ({self._origin()})"
                 )
             return
         allowed = configured
         if not any(type(value) is type(candidate) and value == candidate for candidate in allowed):
-            raise _shared_limits.LimitViolation(
+            raise LimitViolation(
                 f"{name}={value!r} not allowed; expected one of {list(allowed)!r} "
                 f"({self._origin()})"
             )
@@ -229,7 +236,7 @@ class LeicaLimits:
         if candidates is None and "value" in values:
             candidates = [values["value"]]
         if not candidates:
-            raise _shared_limits.LimitsError(
+            raise LimitsError(
                 f"{function} has a configured limit but the wrapper supplied no value "
                 f"({self._origin()})"
             )
@@ -335,7 +342,7 @@ def check_refusal(client: Any, command: str, values: Mapping[str, Any]) -> str |
         return f"{command} refused: {state.error}"
     try:
         state.limits.check(key, values)
-    except (_shared_limits.LimitsError, _shared_limits.LimitViolation) as exc:
+    except (LimitsError, LimitViolation) as exc:
         return f"{command} refused: {exc}"
     return None
 

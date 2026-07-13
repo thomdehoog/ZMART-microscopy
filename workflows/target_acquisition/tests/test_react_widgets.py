@@ -77,7 +77,6 @@ def test_every_widget_ships_the_vendored_react_runtime():
         wreact.TargetExplorerReact,
         wreact.AcquisitionGalleryReact,
         wreact.RunStatusReact,
-        wreact.CalibrationReportReact,
     ):
         assert "react.production.min.js" in cls._esm  # the vendored build's header
         assert "react-dom.production.min.js" in cls._esm
@@ -1079,25 +1078,6 @@ def test_run_status_does_not_call_dead_or_unknown_objects_connected():
     unknown = {row["label"]: row for row in run_status_rows({"zmart_controller": object()})}
     assert unknown["Microscope"]["state"] == "warn"
     assert "unknown" in unknown["Microscope"]["detail"]
-
-
-def test_calibration_report_panel_wraps_the_check_report():
-    report = {
-        "n_sites": 4,
-        "n_trusted": 4,
-        "radius_um": 100.0,
-        "mean_dx_um": 3.0,
-        "mean_dy_um": -2.0,
-        "mean_offset_um": 3.6,
-        "stage_scatter_rms_um": 0.2,
-        "max_offset_um": 3.9,
-        "sites": [
-            {"x": 100.0, "y": 0.0, "dx_um": 3.0, "dy_um": -2.0, "trusted": True, "confidence": 4}
-        ],
-    }
-    panel = wreact.calibration_report(report, acceptable_um=2.0)
-    assert panel.report["mean_dx_um"] == 3.0
-    assert panel.acceptable_um == 2.0
 
 
 # --- UX wave 3: pick-to-acquire, cross-links, ETA, scale bars, palette -------

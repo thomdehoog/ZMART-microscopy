@@ -12,10 +12,8 @@ _DRIVER_PARENT = Path(__file__).resolve().parents[2]
 if str(_DRIVER_PARENT) not in sys.path:
     sys.path.insert(0, str(_DRIVER_PARENT))
 
-# Add the repo root so `from shared...` imports resolve.
+# Repo root: used below to locate the target_acquisition workflow tests.
 _REPO_ROOT = Path(__file__).resolve().parents[5]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
 _HELPERS = Path(__file__).resolve().parent / "helpers"
 if str(_HELPERS) not in sys.path:
