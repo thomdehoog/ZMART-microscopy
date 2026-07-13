@@ -50,9 +50,11 @@ OME-rewrite recipe:
    preserving the ``OriginalMetadata``/``SystemTypeName`` block the
    guard depends on.
 4. Re-read the temp file's tag 270 and assert byte-equality with the
-   original. (``check_ome_tiff`` alone only catches known schema
-   violations -- a silently-regenerated description would pass it.)
-   Then ``check_ome_tiff`` for the schema check.
+   original. Byte-equality is the whole check: the original description
+   is the driver's own OME-XML, written and schema-validated at save
+   time, so a byte-identical copy needs no re-validation -- and a
+   silently-regenerated description (which a schema check alone would
+   pass) cannot slip through.
 5. Atomically ``os.replace`` the target with the temp file.
 
 The recipe is validated for the workflow's normal single-plane saved
@@ -264,11 +266,6 @@ def _overwrite_preserving_ome(image_path: Path, naming, provider: Callable) -> N
             f"got {mock.shape}/{mock.dtype}, expected {saved.shape}/{saved.dtype}"
         )
 
-    # Driver's OME check, lazy-imported so importing this module (and the
-    # controller-only pipeline that re-exports the hijack) pulls in no driver
-    # code until a simulation hijack actually fires.
-    import navigator_expert.acquisition.ome as ome_tiff
-
     # Same-directory temp so os.replace is atomic (only atomic within one
     # filesystem).
     parent = image_path.parent
@@ -288,24 +285,18 @@ def _overwrite_preserving_ome(image_path: Path, naming, provider: Callable) -> N
             ome=False,  # preserve existing OME XML
             photometric="minisblack",
         )
-        # Tag-270 byte-equality is the load-bearing assertion: a silently-
-        # regenerated description would still pass check_ome_tiff's schema
-        # check but lose SystemTypeName.
+        # Tag-270 byte-equality is the load-bearing assertion: the original
+        # description is the driver's own OME-XML, already schema-validated
+        # when the driver saved the file, so byte-identity re-proves it.
+        # (A schema check alone would pass a silently-regenerated
+        # description that lost SystemTypeName; byte-equality cannot.)
+        # This also keeps the workflow off driver code: the layering rule
+        # is workflow -> controller only, and this was its one exception.
         with tifffile.TiffFile(tmp_path) as tif:
             new_desc = tif.pages[0].description
         if new_desc != desc:
             raise RuntimeError(
                 f"hijack would corrupt OME description on {image_path.name} -- aborting"
-            )
-        chk = ome_tiff.check_ome_tiff(str(tmp_path))
-        # check_ome_tiff returns {corrupted: bool, error: str|None, ...} -- the
-        # driver convention treats `error` (e.g. unreadable tag 270, encoding
-        # error) as a check failure distinct from a known schema violation.
-        # Honour both.
-        if chk.get("corrupted") or chk.get("error"):
-            raise RuntimeError(
-                f"hijacked OME-TIFF failed check on {image_path.name}: "
-                f"violations={chk.get('violations')} error={chk.get('error')}"
             )
 
         os.replace(tmp_path, image_path)
