@@ -123,7 +123,8 @@ def _load_objective_calibration(
         config = _cal_model.load_calibration(path)
         translations = {
             int(slot): _cal_model.get_translation_um(config, int(slot))
-            for slot in (config.get("objectives") or {})
+            for slot, entry in (config.get("objectives") or {}).items()
+            if entry.get("translation_um") is not None
         }
     except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
         _log.warning(

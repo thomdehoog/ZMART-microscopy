@@ -1166,6 +1166,112 @@ def test_configured_reference_must_match_existing_calibration_reference(tmp_path
     assert "change reference_slot in the first cell to 1" in message
 
 
+def _placeholder_calibration_payload():
+    """The shipped seed's shape: positions present, no measuring session."""
+    return {
+        "schema_version": 12,
+        "last_updated": "20260527_120000",
+        "objectives": {
+            "0": {"name": "40x", "translation_um": [-19.7, 33.0, 2.7], "session_id": None},
+            "1": {"name": "10x", "translation_um": [0.0, 0.0, 0.0], "session_id": None},
+            "2": {"name": "20x", "translation_um": [-6.5, 21.5, -3.7], "session_id": None},
+        },
+    }
+
+
+def test_configured_reference_may_differ_on_a_placeholder_only_calibration(
+    monkeypatch,
+    sessions_root,
+    machine,
+    tmp_path,
+):
+    """A placeholder-only calibration has no measured origin to protect.
+
+    The stored zero-reference is just the shipped seed's choice, so the
+    operator's configured reference slot is accepted; adoption re-anchors
+    the set to it.
+    """
+    calibration_path = tmp_path / "calibration.json"
+    calibration_path.write_text(
+        json.dumps(_placeholder_calibration_payload()), encoding="utf-8"
+    )
+    monkeypatch.setattr("navigator_expert.config.machine.MACHINE", machine)
+    _patch_objective_driver(monkeypatch)
+
+    session = wf_obj.start_session(
+        session_id="placeholder_reference_override",
+        job_name="Overview",
+        reference_slot=2,
+        sessions_root=sessions_root,
+        calibration_path=calibration_path,
+    )
+    assert session.from_slot == 2
+
+
+def test_adoption_reanchors_a_placeholder_only_calibration(sessions_root, machine):
+    """The first real measurement re-anchors a never-measured calibration.
+
+    The measured reference becomes the [0, 0, 0] origin, the untouched
+    placeholder positions are dropped (they were relative to the shipped
+    origin, which no longer exists), and the objective names survive.
+    """
+    from navigator_expert.calibration.core import model as calibration_model
+
+    machine.publish_snapshot(_SEED_MOMENT, calibration=_placeholder_calibration_payload())
+    payload = {
+        **_valid_obj_payload(),
+        "from_slot": 0,
+        "to_slot": 2,
+        "from_objective": "40x",
+        "to_objective": "20x",
+    }
+    session, _ = _make_staging_session(
+        sessions_root, payload, "objective_slot_0_to_2.json"
+    )
+
+    wf_adopt.adopt_calibration(
+        session,
+        "objective_slot_0_to_2.json",
+        machine=machine,
+        moment=_ADOPT_MOMENT,
+    )
+
+    current = json.loads(machine.calibration_path().read_text(encoding="utf-8"))
+    assert current["objectives"]["0"]["translation_um"] == [0.0, 0.0, 0.0]
+    assert current["objectives"]["0"]["session_id"] == session.session_id
+    assert current["objectives"]["2"]["translation_um"] == [12.0, 17.0, 3.0]
+    assert current["objectives"]["2"]["session_id"] == session.session_id
+    # The untouched placeholder lost its shipped position but kept its name.
+    assert "translation_um" not in current["objectives"]["1"]
+    assert current["objectives"]["1"]["name"] == "10x"
+    assert calibration_model.get_reference_slot(current) == 0
+
+
+def test_adoption_still_protects_a_measured_reference(sessions_root, machine):
+    """One measured slot is enough to lock the origin: the re-anchor path
+    must never fire on a calibration that carries real measurements."""
+    cal = _placeholder_calibration_payload()
+    cal["objectives"]["1"]["session_id"] = "2026-06-01_bench"  # measured
+    machine.publish_snapshot(_SEED_MOMENT, calibration=cal)
+    payload = {
+        **_valid_obj_payload(),
+        "from_slot": 0,
+        "to_slot": 1,  # the established zero-reference
+        "from_objective": "40x",
+        "to_objective": "10x",
+    }
+    session, _ = _make_staging_session(
+        sessions_root, payload, "objective_slot_0_to_1.json"
+    )
+    with pytest.raises(ValueError, match="established zero-reference"):
+        wf_adopt.adopt_calibration(
+            session,
+            "objective_slot_0_to_1.json",
+            machine=machine,
+            moment=_ADOPT_MOMENT,
+        )
+
+
 def test_start_session_reports_configured_reference_slot_and_hardware_name(
     monkeypatch, tmp_path, sessions_root, capsys
 ):

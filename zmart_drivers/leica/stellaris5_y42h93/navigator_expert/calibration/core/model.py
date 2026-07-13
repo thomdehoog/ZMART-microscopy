@@ -91,14 +91,23 @@ def _validate_schema_version(cfg: dict[str, Any], path: Path) -> None:
 
 
 def validate_calibration(config: dict[str, Any]) -> None:
-    """Validate the canonical calibration schema."""
-    get_reference_slot(config)
+    """Validate the canonical calibration schema.
 
+    A config with no objectives, and entries that carry only a name (no
+    ``translation_um``), are both legal: a fresh named set starts empty, and
+    re-anchoring a placeholder-only set keeps the objective names while
+    dropping the placeholder positions. The zero-reference rule applies as
+    soon as any entry has a translation.
+    """
     objectives = _require_block(config, "objectives")
+    if any(entry.get("translation_um") is not None for entry in objectives.values()):
+        get_reference_slot(config)
+
     for slot, entry in objectives.items():
         if not isinstance(entry, dict):
             raise ValueError(f"calibration objective {slot!r} must be an object")
-        get_translation_um(config, int(slot))
+        if entry.get("translation_um") is not None:
+            get_translation_um(config, int(slot))
         for key in ("name", "session_id"):
             if key not in entry:
                 raise ValueError(f"calibration objective {slot!r} missing field: {key!r}")
@@ -228,7 +237,8 @@ def load_translations(calibration_name: str | None = None) -> dict[int, tuple[fl
     config = load_calibration(calibration_name=calibration_name)
     return {
         int(slot): get_translation_um(config, int(slot))
-        for slot in (config.get("objectives") or {})
+        for slot, entry in (config.get("objectives") or {}).items()
+        if entry.get("translation_um") is not None
     }
 
 
