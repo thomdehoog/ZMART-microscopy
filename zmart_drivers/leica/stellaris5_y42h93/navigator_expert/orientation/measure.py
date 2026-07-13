@@ -34,7 +34,7 @@ from typing import Any
 import numpy as np
 
 import navigator_expert as drv
-from shared.algorithms import D4_RESIDUAL_MAX, classify_d4, register_voting
+from navigator_expert.algorithms import D4_RESIDUAL_MAX, classify_d4, register_voting
 
 from ..calibration.core.common import (
     SessionPaths,
@@ -246,6 +246,21 @@ def _reflection_label(orientation: Orientation) -> str:
     }[orientation.reflection_axis]
 
 
+def _reflection_tag(orientation: Orientation) -> str:
+    """Short glance-label naming the net reflection axis (or a pure rotation).
+
+    Leads with the physical axis so the panel is not read as "left-right only":
+    a mirror is a handedness flip whose axis is one of four.
+    """
+    return {
+        None: "no flip",
+        "vertical": "left-right flip",
+        "horizontal": "top-bottom flip",
+        "main_diagonal": "diagonal flip (\\)",
+        "anti_diagonal": "diagonal flip (/)",
+    }[orientation.reflection_axis]
+
+
 def write_orientation_diagnostic(
     session: OrientationSession,
     vote_x: dict,
@@ -313,8 +328,8 @@ def write_orientation_diagnostic(
         0.73,
         f"CORRECTION\n"
         f"Rotation: {candidate.rotate_deg} deg clockwise\n"
-        f"Mirrored: {'Yes' if candidate.mirrored else 'No'}\n"
-        f"Net reflection: {_reflection_label(candidate)}\n"
+        f"Reflection: {_reflection_label(candidate)}\n"
+        f"Handedness flipped: {'Yes' if candidate.mirrored else 'No'}\n"
         f"Apply: {_correction_label(candidate)}\n\n"
         f"DERIVED MAPPING\n"
         f"Image to stage: {_mapping_label(candidate)}\n"
@@ -390,11 +405,11 @@ def write_orientation_diagnostic(
         for spine in ax.spines.values():
             spine.set_color(border_color)
             spine.set_linewidth(border_width)
-        mirror_text = "Yes" if orientation.mirrored else "No"
+        reflection_tag = _reflection_tag(orientation)
         signs = orientation.axis_signs
-        title = f"Rotation {orientation.rotate_deg} deg | Mirrored: {mirror_text}"
+        title = f"Rotation {orientation.rotate_deg} deg | {reflection_tag}"
         if not show_details:
-            title = f"Detected: {orientation.rotate_deg} deg CW | Mirrored: {mirror_text}"
+            title = f"Detected: {orientation.rotate_deg} deg CW | {reflection_tag}"
         ax.set_title(
             title,
             color=selected_color if selected else "#252A30",
@@ -542,6 +557,15 @@ def measure(session: OrientationSession) -> OrientationSession:
         ]
     )
     try:
+        # Sign convention (bench-checkable; guarded by the sign-anchor test in
+        # tests/unit/test_orientation_measure.py and the register_voting sign
+        # guard in tests/unit/test_registration.py). M_stage_to_image
+        # is the measured feature-shift per stage move. A perfectly aligned rig
+        # moves features OPPOSITE the stage (+X stage -> -column), so M = -I and
+        # the image->stage correction is -inv(M) = I. Flipping this sign would
+        # rotate every result by a uniform 180 deg -- it can never introduce a
+        # mirror. Confirm once on the rig: on an aligned rig, +X moves features
+        # toward -column.
         fitted = -np.linalg.inv(M_stage_to_image)
     except np.linalg.LinAlgError as exc:
         # Singular / non-invertible fit: D4 classification cannot be

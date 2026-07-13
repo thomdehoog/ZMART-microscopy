@@ -361,6 +361,28 @@ def test_measure_accepts_and_records_mirror(monkeypatch, sessions_root):
     assert report["rotate_deg"] == 0
 
 
+def test_measure_sign_anchor_aligned_rig_maps_to_identity(monkeypatch, sessions_root):
+    # PHYSICAL SIGN ANCHOR -- the one fact the other synthetic tests otherwise
+    # assume through the shared `-inv` forward-model. A perfectly axis-aligned rig
+    # makes features move OPPOSITE the stage: a +X stage move shifts features
+    # toward -column, a +Y move toward -row. Fed here as explicit signed votes
+    # (NOT generated via -inv), that evidence must classify as the identity
+    # orientation. If measure.py's `-np.linalg.inv(...)` sign were flipped, the
+    # same evidence would come out as a 180-degree turn and this fails -- so it
+    # guards the convention non-circularly. Bench check: on an aligned rig, move
+    # the stage +X and confirm features move toward -column.
+    _patch(monkeypatch)
+    _install_votes(monkeypatch, [_trusted(-30.0, 0.0), _trusted(0.0, -30.0)])
+
+    session = wf.measure(_start(sessions_root, session_id="sign-anchor"))
+
+    assert session.d4_accepted is True
+    assert session.orientation == Orientation()  # rotate_deg=0, mirrored=False
+    assert session.is_mirrored is False
+    assert session.d4_label == "+X +Y"
+    assert session.residual_from_d4 == pytest.approx(0.0, abs=1e-9)
+
+
 def test_measure_rejects_high_residual(monkeypatch, sessions_root):
     _patch(monkeypatch)
     # Fitted matrix lands closest to a rotation but with residual ~0.59 > 0.3.

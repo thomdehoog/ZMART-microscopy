@@ -19,8 +19,7 @@ notebook works fully offline and fetches nothing from any CDN.
 Use :func:`view_overview`, :func:`pick_focus_points`,
 :func:`explore_targets`, and :func:`acquire_gallery` exactly like their
 ``workflow.*`` namesakes; :func:`run_status` is the run's one-glance
-checklist and :func:`calibration_report` renders the calibration check's
-result in plain language. The traits and messages each widget speaks are
+checklist. The traits and messages each widget speaks are
 documented in ``PROTOCOL.md`` next to this file — that protocol is the
 seam to build a future non-notebook front end (a website) against.
 """
@@ -31,7 +30,6 @@ from typing import Any
 
 from ._widgets import (
     AcquisitionGalleryReact,
-    CalibrationReportReact,
     FocusPickerReact,
     OverviewViewerReact,
     RunStatusReact,
@@ -44,13 +42,11 @@ __all__ = [
     "explore_targets",
     "acquire_gallery",
     "run_status",
-    "calibration_report",
     "OverviewViewerReact",
     "FocusPickerReact",
     "TargetExplorerReact",
     "AcquisitionGalleryReact",
     "RunStatusReact",
-    "CalibrationReportReact",
 ]
 
 
@@ -139,16 +135,3 @@ def run_status(ns: dict | None = None) -> RunStatusReact:
     if ns is not None:
         status.refresh(ns)
     return status
-
-
-def calibration_report(
-    report: dict | None = None, *, acceptable_um: float | None = None
-) -> CalibrationReportReact:
-    """The calibration check's report as a readable panel.
-
-    ``report`` is the dict from ``finish_calibration_check``. With
-    ``acceptable_um`` set, the panel states outright whether the measured
-    systematic error is within what this run can tolerate (a cell radius
-    is a good yardstick).
-    """
-    return CalibrationReportReact(report, acceptable_um=acceptable_um)

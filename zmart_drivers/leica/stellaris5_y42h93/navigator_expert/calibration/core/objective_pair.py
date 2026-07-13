@@ -48,7 +48,7 @@ from typing import Any
 import numpy as np
 
 import navigator_expert as drv
-from shared.algorithms import VOTING_METHODS, brenner, register_voting
+from navigator_expert.algorithms import VOTING_METHODS, brenner, register_voting
 
 from .common import (
     STAGING_SCHEMA_VERSION,

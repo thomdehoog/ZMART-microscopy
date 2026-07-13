@@ -177,13 +177,6 @@ Built by `refresh(globals())` from the notebook's own variables; it never
 touches hardware. (The matplotlib edition prints the same rows via
 `workflow.print_run_status(globals())`.)
 
-## CalibrationReportReact
-
-| Name | Kind | Direction | Meaning |
-|---|---|---|---|
-| `report` | trait (dict) | Python → browser | The dict `finish_calibration_check` returns (sites, means, scatter). |
-| `acceptable_um` | trait (float) | Python → browser | Optional tolerance; when set, the panel states outright whether the calibration is good enough (0 = no verdict). |
-
 ## Embedding outside Jupyter, later
 
 Three things to know when the time comes:

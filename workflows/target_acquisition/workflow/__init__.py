@@ -21,10 +21,6 @@ Re-exports:
   ``FocusSurface``, ``pick_focus_points``, ``FocusPicker`` (the interactive
   point-picking figure with the in-place focus-map heatmap);
 - target discovery (``workflow.discovery``): ``discover_targets``;
-- the XY-calibration validation run (``workflow._calibration_check``):
-  ``start_calibration_check`` / ``finish_calibration_check`` — image the
-  same ring of sites with both objectives and measure how far the
-  objective-pair calibration is off, averaged over many stage moves;
 - the interactive review widgets (each a matplotlib figure; see the module
   docstrings): ``view_overview`` / ``OverviewViewer`` (zoomable tile mosaic
   with per-channel colour, brightness and contrast), ``explore_targets`` /
@@ -59,11 +55,6 @@ Modules whose names start with ``_`` are internal.
 """
 
 from ._acquisition_widget import AcquisitionGallery, acquire_gallery
-from ._calibration_check import (
-    CalibrationCheck,
-    finish_calibration_check,
-    start_calibration_check,
-)
 from ._capture_run import RunCancelled, capture_positions
 from ._discovery_widget import TargetExplorer, explore_targets
 from ._focus_run import measure_focus
@@ -110,9 +101,6 @@ __all__ = [
     "FocusSurface",
     "pick_focus_points",
     "FocusPicker",
-    "start_calibration_check",
-    "finish_calibration_check",
-    "CalibrationCheck",
     "view_overview",
     "OverviewViewer",
     "explore_targets",

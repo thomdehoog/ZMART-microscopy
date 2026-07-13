@@ -14,11 +14,9 @@ def test_imports_with_minimal_syspath():
     here = Path(__file__).resolve()
     # parents: [0]=unit [1]=tests [2]=zenapi [3]=zeiss [4]=zmart_drivers [5]=repo root
     zeiss_dir = here.parents[3]  # .../zmart_drivers/zeiss  (so `import zenapi` resolves)
-    repo_root = here.parents[5]  # .../smart-microscopy  (so `import shared` resolves)
     code = (
         "import sys;"
         f"sys.path.insert(0, r'{zeiss_dir}');"
-        f"sys.path.insert(0, r'{repo_root}');"
         "import zenapi;"
         "assert hasattr(zenapi, 'connect');"
         "assert hasattr(zenapi, 'move_xy');"
