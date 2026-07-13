@@ -105,8 +105,12 @@ def measure_target_and_report(session: CalibrationCheckSession, *, show: bool = 
     }
     session.report = report
     write_json_atomic(session.paths.reports_dir / "calibration_check.json", report)
+    # dx/dy are the stage landing error, which is the registered feature
+    # shift with its sign flipped; flip it back for the aligned panel.
+    align = None if dx is None or dy is None else (-dx, -dy)
     fig = plot_overlay(session.ref_image, session.target_image, "calibration check",
-                       shift_um=(dx, dy), pixel_size_um=session.ref_pixel_size_um)
+                       shift_um=(dx, dy), pixel_size_um=session.ref_pixel_size_um,
+                       align_shift_um=align)
     fig.savefig(session.paths.reports_dir / "calibration_check.png", dpi=150)
     if not show:
         import matplotlib.pyplot as plt

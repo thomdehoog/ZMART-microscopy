@@ -222,8 +222,52 @@ def test_plot_overlay_smoke():
         pixel_size_um=1.0,
     )
     assert fig is not None
+    # Without an alignment shift the figure stays a single panel.
+    assert len(fig.axes) == 1
     plt = pytest.importorskip("matplotlib.pyplot")
 
+    plt.close(fig)
+
+
+def test_plot_overlay_aligned_panel_undoes_the_registered_shift():
+    # Build a target that is the reference moved by a known number of
+    # pixels: +5 rows (dy) and +3 columns (dx). Feeding that exact shift
+    # as align_shift_um must bring the two images back on top of each
+    # other, which shows as equal red (reference) and green (aligned
+    # target) channels in the second panel. A sign error in the aligned
+    # panel would double the offset instead and fail this test.
+    plt = pytest.importorskip("matplotlib.pyplot")
+    ref = (np.random.RandomState(0).rand(64, 64) * 255).astype(np.uint8)
+    tgt = np.roll(ref, shift=(5, 3), axis=(0, 1))
+    fig = cm.plot_overlay(
+        ref,
+        tgt,
+        "aligned",
+        shift_um=(3.0, 5.0),
+        pixel_size_um=1.0,
+        align_shift_um=(3.0, 5.0),
+    )
+    assert len(fig.axes) == 2
+    rgb = fig.axes[1].images[0].get_array()
+    # Compare away from the edges, where np.roll wraps but a stage image
+    # would simply move.
+    inner = (slice(10, 54), slice(10, 54))
+    red = np.asarray(rgb)[..., 0][inner]
+    green = np.asarray(rgb)[..., 1][inner]
+    assert float(np.abs(red - green).mean()) < 0.02
+    plt.close(fig)
+
+
+def test_plot_brenner_curve_shows_focus_image_when_given():
+    plt = pytest.importorskip("matplotlib.pyplot")
+    z = [0.0, 1.0, 2.0, 3.0, 4.0]
+    scores = [1.0, 2.0, 5.0, 2.0, 1.0]
+    fig = cm.plot_brenner_curve(z, scores, 2.0)
+    assert len(fig.axes) == 1
+    plt.close(fig)
+    focus_img = (np.random.RandomState(2).rand(16, 16) * 255).astype(np.uint8)
+    fig = cm.plot_brenner_curve(z, scores, 2.0, focus_image=focus_img)
+    assert len(fig.axes) == 2
     plt.close(fig)
 
 
