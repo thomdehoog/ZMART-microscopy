@@ -24,6 +24,7 @@ import time
 import types
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -58,6 +59,8 @@ TOKEN = "harsh-MCP+TCP-token-Ac"
 REQUEST_TIMEOUT = 0.6
 MAX_ACCEPTED_BODY = 1 << 20
 MAX_FUZZ_CASES = 48
+BUSY_STRESS_MUTATIONS = 16
+BUSY_STRESS_READS = 8
 
 
 class _RecordingCore:
@@ -813,6 +816,78 @@ def test_busy_gate_acknowledges_rejects_reports_and_releases_across_lanes(
             if hasattr(_core, attr):
                 delattr(_core, attr)
         _core.reset()
+
+
+def test_busy_gate_bounded_concurrent_burst_is_atomic_across_mcp_and_tcp():
+    """A mixed 24-call burst cannot leak a second mutation through the active gate."""
+    _core.reset()
+    _core.sig_finished = object()
+    for attr in ("_mesospim_remote_operation", "_mesospim_remote_operation_counter"):
+        if hasattr(_core, attr):
+            delattr(_core, attr)
+    try:
+        ok, accepted = _operation_call("mcp", "start_live", {})
+        assert ok, accepted
+        operation = accepted["operation"]
+        assert operation["status"] == "processing"
+        before = _core.calls()
+
+        attempts = []
+        for index in range(BUSY_STRESS_MUTATIONS):
+            attempts.append(("mutation", "mcp" if index % 2 == 0 else "tcp"))
+            if index < BUSY_STRESS_READS:
+                attempts.append(("read", "tcp" if index % 2 == 0 else "mcp"))
+        release = threading.Event()
+
+        def attempt(item):
+            release.wait()
+            kind, lane = item
+            if kind == "mutation":
+                return kind, lane, _operation_call(
+                    lane, "set_intensity", {"intensity": 20})
+            return kind, lane, _operation_call(lane, "get_progress", {})
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [executor.submit(attempt, item) for item in attempts]
+            release.set()
+            results = [future.result() for future in futures]
+
+        for kind, _lane, (call_ok, reply) in results:
+            if kind == "mutation":
+                assert not call_ok, reply
+                assert "system busy" in reply["error"]
+                assert operation["id"] in reply["error"]
+                assert operation["command"] in reply["error"]
+            else:
+                assert call_ok, reply
+                assert reply["operation"]["id"] == operation["id"]
+                assert reply["operation"]["status"] == "processing"
+        assert _core.calls() == before
+
+        assert vrc.complete_operation(_core, "finished") is True
+        for lane in ("mcp", "tcp"):
+            ok, next_call = _operation_call(
+                lane, "set_intensity", {"intensity": 20})
+            assert ok, next_call
+            assert next_call["operation"]["status"] == "completed"
+    finally:
+        delattr(_core, "sig_finished")
+        for attr in ("_mesospim_remote_operation", "_mesospim_remote_operation_counter"):
+            if hasattr(_core, attr):
+                delattr(_core, attr)
+        _core.reset()
+
+
+@pytest.mark.parametrize("lane", ["mcp", "tcp"])
+def test_set_state_cannot_smuggle_an_unknown_state_machine_mode(lane):
+    _core.reset()
+    before = _core.calls()
+    ok, reply = _operation_call(
+        lane, "set_state", {"settings": {"state": "__invalid_remote_state__"}})
+    assert not ok, reply
+    assert "not one of" in reply["error"]
+    assert _core.calls() == before
+    assert _core.state["state"] == "idle"
 
 
 def test_both_servers_remain_healthy_after_the_full_attack_corpus():

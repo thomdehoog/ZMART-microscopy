@@ -8,6 +8,7 @@ _ADVERSARIAL_MODULES = {
 }
 _LIVE_VALID_MODULES = {"test_remote_control_live_valid.py"}
 _LIVE_DEMO_ALL_MODULES = {"test_remote_control_live_demo_all.py"}
+_LIVE_ADVERSARIAL_MODULES = {"test_remote_control_live_adversarial.py"}
 
 
 def pytest_configure(config):
@@ -19,6 +20,8 @@ def pytest_configure(config):
         "markers", "live_valid: opt-in valid calls that change and restore a live device")
     config.addinivalue_line(
         "markers", "live_demo_all: opt-in demo-only sweep of every allowlisted command")
+    config.addinivalue_line(
+        "markers", "live_adversarial: opt-in bounded concurrency stress against DemoStage")
 
 
 def pytest_collection_modifyitems(items):
@@ -31,6 +34,8 @@ def pytest_collection_modifyitems(items):
             marker = "live_valid"
         elif module_name in _LIVE_DEMO_ALL_MODULES:
             marker = "live_demo_all"
+        elif module_name in _LIVE_ADVERSARIAL_MODULES:
+            marker = "live_adversarial"
         else:
             marker = "normal"
         item.add_marker(marker)

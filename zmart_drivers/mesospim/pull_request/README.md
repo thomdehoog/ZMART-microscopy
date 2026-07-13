@@ -155,8 +155,30 @@ cross-transport operation-gate check: MCP starts a short demo acquisition, a sim
 valid TCP mutation must receive the active command and operation ID as a busy error, status
 polling remains available, and the next TCP mutation is accepted after real completion.
 
+Live hostile-input and concurrency testing is a fifth, demo-only group. It first verifies
+the remote stage is exactly `DemoStage`, then sends hostile, malformed, out-of-range, and
+state-machine-smuggling attacks through the selected lane (`mcp`, `tcp`, or `both`). It
+proves state is unchanged and the selected lanes recover before running a simultaneous
+24-call busy-gate burst (16 mutations, 8 reads). This group is intentionally destructive
+in intent and must never run on hardware:
+
+```bash
+MESOSPIM_ALLOW_DEVICE_CHANGE=1 MESOSPIM_OPERATOR_PRESENT=1 \
+MESOSPIM_CONFIRM_DEMO_MODE=1 MESOSPIM_RUN_LIVE_ADVERSARIAL=1 \
+MESOSPIM_LIVE_ADVERSARIAL_TRANSPORT=both \
+MESOSPIM_LIVE_MCP_TOKEN=<token> \
+MESOSPIM_LIVE_TCP_PORT=<internal-port> MESOSPIM_LIVE_TCP_TOKEN=<internal-token> \
+MESOSPIM_DEMO_PROCESS_ID=<pid-of-mesoSPIM-Control--D> \
+MESOSPIM_DEMO_ROOT=<path-to-mesoSPIM> \
+MESOSPIM_DEMO_ETL_CONFIG_PATH=<path-to-ETL-parameters.csv> \
+python -m pytest zmart_drivers/mesospim/pull_request -m live_adversarial -q -s
+```
+
+For a single-lane run, select `tcp` or `mcp` and provide only that lane's connection
+settings. The combined run rejected 63 attacks; the TCP-only run rejected 32.
+
 Boundary coverage is intentionally not described as exhaustive yet. The API currently
-exposes 54 commands, 15 explicitly ranged parameters, four config-driven enums, and 22
+exposes 54 commands, 15 explicitly ranged parameters, four config-driven enums, and 21
 type-only parameters. The adversarial group crosses every configured absolute stage bound
 and selected setter/relative-move bounds, but it does not yet exercise both sides of every
 ranged parameter through every command that can carry it (notably acquisition lists,
@@ -192,14 +214,19 @@ call, state change, or returned value expected from each command.
 `test_remote_control_live_demo_all.py` is the corresponding real-Core demo sweep. It logs
 each command, verifies observable readback where available, continues after a failure so one
 run identifies every broken command, and restores demo state in a `finally` block.
+`test_remote_control_live_adversarial.py` is the fail-closed `DemoStage`-only attack suite:
+it sends the real hostile API corpus and mixed MCP/TCP concurrency burst, verifies no state
+leaks through rejected calls, records observed response latency, and checks recovery.
 The shipped `test_remote_control_validation.py` covers the same `_validate` gate against the
-real module. The complete offline suite is **177 passing tests in under 5 seconds** on the Windows test
+real module. The complete offline suite is **180 passing tests in under 5 seconds** on the Windows test
 environment. The offline/adversarial tests are deliberately bounded: no `sleep`, no unbounded fuzz or retries, at most
 48 seeded mutations, and a 0.6-second deadline on every test socket.
 **Validated on the bench against mesoSPIM `-D` demo mode
 (2026-07-13):** the Remote Control tab starts and drives the demo Core end to end
-over **both lanes — framed TCP and MCP-over-HTTP — and it worked as-is** (the
-54 command contracts and all 40 operational calls passed with state restoration). **Real-hardware** validation
+over **both lanes - framed TCP and MCP-over-HTTP - and it worked as-is** (the
+54 command contracts and all 40 operational calls passed with state restoration). The live
+adversarial group rejected all 63 attacks without state change, then rejected all 16 busy
+mutations while serving all 8 reads in a 3.249-second mixed burst. **Real-hardware** validation
 is the only remaining step.
 
 ## How to apply

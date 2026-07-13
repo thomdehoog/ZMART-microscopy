@@ -124,14 +124,16 @@ Fixed lists (structural). Value **options** for `filter`/`zoom`/`laser`/`shutter
 A value is refused (with a message that names the limit) if it fails any of:
 
 - **type** — `num` (JSON booleans are **not** numbers) or `str`, per parameter.
-- **option** — `filter zoom laser shutterconfig` must be one the live config allows
+- **option** - `filter zoom laser shutterconfig` must be one the live config allows
   (checked in `set_*`, `set_state`, and inside an `acquisition`).
+- **state mode** - `set_state.state` must be one of the fixed `modes`; arbitrary
+  state-machine strings are rejected before Core.
 - **range**
   - absolute targets and relative destinations (`move_absolute`, `move_relative`) — the loaded config's envelope `cfg.stage_parameters`
     (`{axis}_min`/`{axis}_max`); `MESOSPIM_RS_LIMITS` (`{"x":[lo,hi],…}` or a path) can
     tighten an axis; an axis with no limit is unchecked (see `get_limits.enforced.axes`).
   - `intensity` and every `%` parameter (`*_delay_% *_pulse_% *_ramp_*_% *_duty_cycle`) ∈ `0–100`.
-- **string, no options** (`state ETL_cfg_file camera_sensor_mode camera_binning`) — type only.
+- **string, no options** (`ETL_cfg_file camera_sensor_mode camera_binning`) - type only.
 - Any parameter not listed above with a limit is **type-checked only** (`range: null` in
   `get_limits.enforced.parameters`).
 
