@@ -31,6 +31,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ENV_FILE = HERE / "environment.yml"
 DEFAULT_NAME = "zmart-microscopy"
+WINDOWS_ACCESS_VIOLATION = 0xC0000005
 
 # Imports the env must satisfy after a successful build.
 VERIFY = {
@@ -105,6 +106,17 @@ def _env_python(prefix: Path) -> Path:
     return py
 
 
+def _env_process_env(prefix: Path) -> dict[str, str]:
+    """Return subprocess variables scoped to the target conda environment."""
+    env = os.environ.copy()
+    env["CONDA_PREFIX"] = str(prefix)
+    env["CONDA_DEFAULT_ENV"] = prefix.name
+    # User-profile executables are blocked on managed Windows machines. Keep
+    # Playwright's browser beside the approved conda executables instead.
+    env["PLAYWRIGHT_BROWSERS_PATH"] = str(prefix / "playwright-browsers")
+    return env
+
+
 def build(name: str, update: bool, recreate: bool, offline: bool) -> None:
     conda = _conda()
     if not ENV_FILE.exists():
@@ -123,16 +135,33 @@ def build(name: str, update: bool, recreate: bool, offline: bool) -> None:
                 sys.exit(f"could not remove existing env '{name}'.")
         action = ["env", "create"]
     cmd = [conda, *action, "-f", str(ENV_FILE), "-n", name]
+    conda_env = os.environ.copy()
     if offline:
-        cmd.append("--offline")
+        conda_env["CONDA_OFFLINE"] = "true"
     print("+", " ".join(cmd), flush=True)
-    rc = subprocess.call(cmd, cwd=str(HERE))
+    # conda.BAT is executed through cmd.exe, which cannot use a UNC working
+    # directory. The environment file is absolute, so a local cwd is enough.
+    rc = subprocess.call(cmd, cwd=str(Path.home()), env=conda_env)
+    if (
+        os.name == "nt"
+        and rc == WINDOWS_ACCESS_VIOLATION
+        and conda_env.get("CONDA_SOLVER", "").lower() != "classic"
+    ):
+        print(
+            "conda's default solver crashed with access violation 0xC0000005; "
+            "retrying with the classic solver.",
+            flush=True,
+        )
+        conda_env["CONDA_SOLVER"] = "classic"
+        rc = subprocess.call(cmd, cwd=str(Path.home()), env=conda_env)
     if rc != 0:
         sys.exit(f"conda {' '.join(action)} failed (exit {rc}).")
 
 
 def verify_imports(name: str) -> None:
-    py = _env_python(_env_prefix(_conda(), name))
+    prefix = _env_prefix(_conda(), name)
+    py = _env_python(prefix)
+    env = _env_process_env(prefix)
     print(f"\nVerifying imports in env '{name}':", flush=True)
     failures = []
     for pkg, stmt in VERIFY.items():
@@ -143,6 +172,8 @@ def verify_imports(name: str) -> None:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=90,
+                env=env,
+                cwd=str(prefix),
             )
         except subprocess.TimeoutExpired:
             rc = 124
@@ -171,7 +202,16 @@ def verify_node(name: str) -> None:
     prefix = _env_prefix(_conda(), name)
     node = prefix / ("node.exe" if os.name == "nt" else "bin/node")
     try:
-        rc = subprocess.call([str(node), "--version"], timeout=30) if node.exists() else 127
+        rc = (
+            subprocess.call(
+                [str(node), "--version"],
+                timeout=30,
+                env=_env_process_env(prefix),
+                cwd=str(prefix),
+            )
+            if node.exists()
+            else 127
+        )
     except subprocess.TimeoutExpired:
         rc = 124
     if rc != 0:
@@ -182,17 +222,22 @@ def verify_node(name: str) -> None:
 def install_and_verify_browser(name: str, offline: bool) -> None:
     """Install Chromium in Playwright's cache and prove it launches.
 
-    Playwright keeps browsers outside the conda prefix by design. In offline
-    mode the install command is skipped and an already-cached matching browser
-    is required; otherwise the normal idempotent installer is run first.
+    The browser cache lives inside the conda prefix so managed Windows machines
+    can execute it. In offline mode the install command is skipped and an
+    already-cached matching browser is required; otherwise the normal
+    idempotent installer is run first.
     """
     prefix = _env_prefix(_conda(), name)
     py = _env_python(prefix)
+    env = _env_process_env(prefix)
     if not offline:
         print("\nInstalling the Chromium build matched to Playwright:", flush=True)
         try:
             install_rc = subprocess.call(
-                [str(py), "-m", "playwright", "install", "chromium"], timeout=600
+                [str(py), "-m", "playwright", "install", "chromium"],
+                timeout=600,
+                env=env,
+                cwd=str(prefix),
             )
         except subprocess.TimeoutExpired:
             install_rc = 124
@@ -204,7 +249,9 @@ def install_and_verify_browser(name: str, offline: bool) -> None:
         "p=sync_playwright().start(); b=p.chromium.launch(); b.close(); p.stop()"
     )
     try:
-        launch_rc = subprocess.call([str(py), "-c", launch], timeout=120)
+        launch_rc = subprocess.call(
+            [str(py), "-c", launch], timeout=120, env=env, cwd=str(prefix)
+        )
     except subprocess.TimeoutExpired:
         launch_rc = 124
     if launch_rc != 0:
