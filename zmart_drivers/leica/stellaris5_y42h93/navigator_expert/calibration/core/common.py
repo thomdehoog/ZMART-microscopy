@@ -486,6 +486,22 @@ def now_iso() -> str:
 # -- Visualization helpers --------------------------------------------
 
 
+def _overlay_rgb(ref_norm: np.ndarray, tgt_norm: np.ndarray) -> np.ndarray:
+    """Combine two normalised images into one colour picture.
+
+    The reference is drawn in magenta and the target in green. Where the
+    two images carry the same structure the colours add up to white/grey,
+    so any misalignment stands out as coloured fringes.
+    """
+    h = max(ref_norm.shape[0], tgt_norm.shape[0])
+    w = max(ref_norm.shape[1], tgt_norm.shape[1])
+    rgb = np.zeros((h, w, 3), dtype=np.float64)
+    rgb[: ref_norm.shape[0], : ref_norm.shape[1], 0] = ref_norm  # magenta = R + B
+    rgb[: ref_norm.shape[0], : ref_norm.shape[1], 2] = ref_norm
+    rgb[: tgt_norm.shape[0], : tgt_norm.shape[1], 1] = tgt_norm  # green
+    return np.clip(rgb, 0.0, 1.0)
+
+
 def plot_overlay(
     ref: np.ndarray,
     tgt: np.ndarray,
@@ -493,8 +509,18 @@ def plot_overlay(
     *,
     shift_um: tuple[float, float] | None = None,
     pixel_size_um: float | None = None,
+    align_shift_um: tuple[float, float] | None = None,
 ):
-    """Magenta = reference, green = target. Returns the matplotlib Figure."""
+    """Magenta = reference, green = target. Returns the matplotlib Figure.
+
+    When *align_shift_um* is given (the registered feature shift, target
+    minus reference, in micrometres) together with *pixel_size_um*, a
+    second panel shows the target image moved back by exactly that shift.
+    This is the visual proof of the registration: if the measured shift is
+    right, the two images land on top of each other and the overlay turns
+    white/grey; leftover magenta/green fringes mean the number does not
+    describe the images.
+    """
     import matplotlib.pyplot as plt
 
     def _norm(img: np.ndarray) -> np.ndarray:
@@ -506,16 +532,20 @@ def plot_overlay(
 
     r = _norm(ref)
     t = _norm(tgt)
-    h = max(r.shape[0], t.shape[0])
-    w = max(r.shape[1], t.shape[1])
-    rgb = np.zeros((h, w, 3), dtype=np.float64)
-    rgb[: r.shape[0], : r.shape[1], 0] = r  # magenta = R + B
-    rgb[: r.shape[0], : r.shape[1], 2] = r
-    rgb[: t.shape[0], : t.shape[1], 1] = t  # green
-    rgb = np.clip(rgb, 0.0, 1.0)
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.imshow(rgb, origin="upper")
+    has_align = (
+        align_shift_um is not None
+        and align_shift_um[0] is not None
+        and align_shift_um[1] is not None
+        and pixel_size_um is not None
+    )
+
+    if has_align:
+        fig, (ax, ax_aligned) = plt.subplots(1, 2, figsize=(12, 6))
+    else:
+        fig, ax = plt.subplots(figsize=(6, 6))
+
+    ax.imshow(_overlay_rgb(r, t), origin="upper")
     subtitle = title
     # shift_um may be a 2-tuple of floats, or a 2-tuple containing
     # None when registration was untrusted; skip the annotation in
@@ -528,8 +558,28 @@ def plot_overlay(
         )
     elif has_shift:
         subtitle += f"\nimage shift: ({shift_um[0]:+.2f}, {shift_um[1]:+.2f}) um"
+    if has_align:
+        subtitle = f"as acquired\n{subtitle}"
     ax.set_title(subtitle)
     ax.set_axis_off()
+
+    if has_align:
+        from scipy.ndimage import shift as _nd_shift
+
+        # The registration reports where the target's features sit relative
+        # to the reference (target minus reference). Moving the target back
+        # by that amount should therefore make the two images coincide.
+        # dx is along columns and dy along rows, matching the registration.
+        rows = -float(align_shift_um[1]) / float(pixel_size_um)
+        cols = -float(align_shift_um[0]) / float(pixel_size_um)
+        t_aligned = _nd_shift(t, (rows, cols), order=1, mode="constant", cval=0.0)
+        ax_aligned.imshow(_overlay_rgb(r, t_aligned), origin="upper")
+        ax_aligned.set_title(
+            "after applying the measured shift\n"
+            "(good registration overlaps to white/grey)"
+        )
+        ax_aligned.set_axis_off()
+
     fig.tight_layout()
     return fig
 
@@ -538,16 +588,32 @@ def plot_brenner_curve(
     z_positions_um: list[float],
     scores: list[float],
     peak_z_um: float,
+    *,
+    focus_image: np.ndarray | None = None,
 ):
-    """Plot Brenner score vs. z and mark the peak. Returns the Figure."""
+    """Plot Brenner score vs. z and mark the peak. Returns the Figure.
+
+    When *focus_image* is given (the stack slice closest to the fitted
+    peak), it is shown next to the curve so the operator can see the
+    picture the microscope considered sharpest. That is a quick sanity
+    check: the slice should look like the sample in focus, not like an
+    empty field or an artifact.
+    """
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(6, 4))
+    if focus_image is None:
+        fig, ax = plt.subplots(figsize=(6, 4))
+    else:
+        fig, (ax, ax_img) = plt.subplots(1, 2, figsize=(11, 4))
     ax.plot(z_positions_um, scores, marker="o")
     ax.axvline(peak_z_um, color="red", linestyle="--", label=f"peak z = {peak_z_um:.3f} um")
     ax.set_xlabel("z-wide (um, absolute)")
     ax.set_ylabel("Brenner score")
     ax.set_title("Parfocality Brenner curve")
     ax.legend(loc="best")
+    if focus_image is not None:
+        ax_img.imshow(focus_image, cmap="gray", origin="upper")
+        ax_img.set_title(f"stack slice nearest the peak (z = {peak_z_um:.2f} um)")
+        ax_img.set_axis_off()
     fig.tight_layout()
     return fig

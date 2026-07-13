@@ -633,7 +633,12 @@ def measure_parfocality_reference(
     # The workflow notes the Brenner peak but does not move z-wide.
     # The operator manages z-wide manually.
 
-    fig = plot_brenner_curve(positions, scores, focus_z)
+    fig = plot_brenner_curve(
+        positions,
+        scores,
+        focus_z,
+        focus_image=stack[int(np.argmin(np.abs(z_arr - focus_z)))],
+    )
     if display is not None:
         display(fig)
     try:
@@ -723,7 +728,12 @@ def measure_parfocality_target(
     # The workflow notes the Brenner peak but does not move z-wide.
     # The operator manages z-wide manually.
 
-    fig = plot_brenner_curve(positions, scores, focus_z)
+    fig = plot_brenner_curve(
+        positions,
+        scores,
+        focus_z,
+        focus_image=stack[int(np.argmin(np.abs(z_arr - focus_z)))],
+    )
     if display is not None:
         display(fig)
     try:
@@ -920,6 +930,10 @@ def measure_parcentricity_target_and_save(
         f"objective {session.from_objective} -> {session.to_objective}: ref vs target XY",
         shift_um=overlay_shift,
         pixel_size_um=pixel_size_um,
+        # Second panel: the target moved back by the registered shift, so the
+        # operator can see the registration is right (white/grey overlap)
+        # instead of trusting a bare number.
+        align_shift_um=overlay_shift,
     )
     if display is not None:
         display(fig)
