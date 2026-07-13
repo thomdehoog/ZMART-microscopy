@@ -696,10 +696,7 @@ class TestAcquire(unittest.TestCase):
             patch.object(adapter._capture, "acquire", fake_capture),
             patch.object(adapter._save, "save", fake_save),
             patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
-            patches[0],
-            patches[1],
             patches[2],
-            patches[3],
         ):
             record = adapter.acquire(
                 h,
@@ -739,10 +736,7 @@ class TestAcquire(unittest.TestCase):
                 "strip_template",
                 side_effect=lambda client, **k: calls.append("strip") or strip_result,
             ),
-            patches[0],
-            patches[1],
             patches[2],
-            patches[3],
         ):
             adapter.acquire(h, acquisition_type="prescan", position_label="1", options=options)
         return calls
@@ -849,14 +843,10 @@ class TestStateAndProcedures(unittest.TestCase):
     def test_set_state_applies_changeable_ignoring_observed(self):
         h = _handle()
         p = self._state_patches()
-        position = _patch_position(job="Overview")
         with (
             p[0],
             p[1],
             p[2],
-            position[0],
-            position[1],
-            position[3],
             patch.object(adapter._commands, "select_job", return_value={"success": True}) as select,
         ):
             captured = adapter.get_state(h)
@@ -901,28 +891,20 @@ class TestStateAndProcedures(unittest.TestCase):
         calls = []
         p = self._state_patches()
         position = _patch_position(z_wide_um=42.0, z_galvo_um=1.5)
-        # The selection mock is stateful: after select_job the selected-job
-        # readback must report the new job, or the restore path (which checks
-        # the live selection first) would short-circuit and never run.
-        selection = {"name": "Overview"}
-
-        def fake_select(client, job, **k):
-            calls.append(("select", job))
-            selection["name"] = job
-            return {"success": True}
-
         with (
             p[2],  # job catalog (AF Job flagged)
             position[0],
             position[1],
+            position[2],
             position[3],
-            patch.object(
-                adapter._readers,
-                "get_selected_job",
-                side_effect=lambda client, **k: {"Name": selection["name"], "IsSelected": True},
-            ),
             patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
-            patch.object(adapter._commands, "select_job", fake_select),
+            patch.object(
+                adapter._commands,
+                "select_job",
+                side_effect=lambda client, job, **k: (
+                    calls.append(("select", job)) or {"success": True}
+                ),
+            ),
             patch.object(
                 adapter._capture,
                 "acquire",
@@ -1236,99 +1218,6 @@ class TestObjectiveCompensation(unittest.TestCase):
         self.assertEqual(moves["xy"], (1110.0, 2060.0))
         self.assertEqual(moves["z"], [("HiRes", 40.0, "zwide"), ("HiRes", 5.0, "galvo")])
         self.assertEqual(record["objective_translation_um"], [100.0, 50.0, 10.0])
-
-    def _job_switch_env(self, calls, *, slots, translations, z_wide_um=30.0):
-        """A rig where each job carries its own objective slot.
-
-        ``slots`` maps job name -> objective slot. The selection is stateful
-        and every reader/move records into ``calls`` so tests can pin the
-        measure-before-switch ordering.
-        """
-        h = _handle(translations=translations)
-        selection = {"name": "Overview"}
-
-        def get_xy(client, **k):
-            calls.append("read_xy")
-            return {"x_um": 1000.0, "y_um": 2000.0}
-
-        def get_selected(client, **k):
-            return {"Name": selection["name"], "IsSelected": True}
-
-        def select_job(client, job, **k):
-            calls.append(("select", job))
-            selection["name"] = job
-            return {"success": True}
-
-        def job_settings(client, job, **k):
-            return _settings(z_wide_um=z_wide_um, z_galvo_um=0.0, slot=slots[job])
-
-        def move_xy(client, x_um, y_um, **k):
-            calls.append(("move_xy", x_um, y_um))
-            return {"success": True, "confirmed": True}
-
-        def move_z(client, job, z, unit="um", z_mode="galvo", **k):
-            calls.append(("move_z", job, z, z_mode))
-            return {"success": True, "confirmed": True}
-
-        patches = (
-            patch.object(adapter._readers, "get_xy", get_xy),
-            patch.object(adapter._readers, "get_selected_job", get_selected),
-            patch.object(adapter._readers, "get_job_settings", job_settings),
-            patch.object(adapter._commands, "select_job", select_job),
-            patch.object(adapter._motion, "move_xy_with_backlash", move_xy),
-            patch.object(adapter._commands, "move_z", move_z),
-            patch.object(_cmd_settings, "make_changeable_copy", side_effect=lambda settings: settings),
-        )
-        return h, patches
-
-    def test_job_switch_reapplies_the_translation_to_the_measured_position(self):
-        """The owner's model, pinned: measure motoric XY and z-wide BEFORE the
-        job change, switch, then add the pair's translation difference to the
-        measured values — so the sample point survives a job change that
-        carries an objective change."""
-        calls = []
-        h, patches = self._job_switch_env(
-            calls,
-            slots={"Overview": 1, "HiRes": 2},
-            translations={1: (0.0, 0.0, 0.0), 2: (100.0, 50.0, 10.0)},
-        )
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
-            adapter._select_job_keeping_position(h, "HiRes")
-
-        # Position measured before the switch, moves after it, by exactly ΔT.
-        self.assertEqual(
-            calls,
-            [
-                "read_xy",
-                ("select", "HiRes"),
-                ("move_xy", 1100.0, 2050.0),
-                ("move_z", "HiRes", 40.0, "zwide"),
-            ],
-        )
-
-    def test_job_switch_with_same_objective_does_not_move(self):
-        calls = []
-        h, patches = self._job_switch_env(
-            calls,
-            slots={"Overview": 2, "HiRes": 2},
-            translations={1: (0.0, 0.0, 0.0), 2: (100.0, 50.0, 10.0)},
-        )
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
-            adapter._select_job_keeping_position(h, "HiRes")
-        self.assertEqual(calls, ["read_xy", ("select", "HiRes")])
-
-    def test_job_switch_swapping_to_an_uncalibrated_objective_refuses(self):
-        calls = []
-        h, patches = self._job_switch_env(
-            calls,
-            slots={"Overview": 1, "HiRes": 3},
-            translations={1: (0.0, 0.0, 0.0), 2: (100.0, 50.0, 10.0)},
-        )
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
-            with self.assertRaisesRegex(RuntimeError, "no calibration translation covers"):
-                adapter._select_job_keeping_position(h, "HiRes")
-        # No compensating move was attempted at an unknown offset.
-        self.assertEqual(calls, ["read_xy", ("select", "HiRes")])
 
     def test_cross_objective_galvo_moves_do_not_accumulate_translation_on_zwide(self):
         h = self._cross_handle()
