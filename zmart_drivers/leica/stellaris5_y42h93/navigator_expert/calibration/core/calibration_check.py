@@ -23,6 +23,7 @@ License: MIT
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -69,6 +70,7 @@ class CalibrationCheckSession:
     target_image: np.ndarray | None = None
     target_pixel_size_um: float | None = None
     report: dict | None = None
+    started_at_s: float | None = None
     raw_files: dict[str, str] = field(default_factory=dict)
     exported_files: dict[str, str] = field(default_factory=dict)
 
@@ -107,6 +109,7 @@ def start_session(
         job_name=job_name,
         client=client,
         translations=translations,
+        started_at_s=time.time(),
     )
 
 
@@ -186,6 +189,11 @@ def measure_target_and_report(session: CalibrationCheckSession, *, show: bool = 
         "offset_um": None if dx is None or dy is None else math.hypot(dx, dy),
         "trusted": trusted,
         "confidence": confidence,
+        "duration_s": (
+            None
+            if session.started_at_s is None
+            else round(time.time() - float(session.started_at_s), 3)
+        ),
     }
     session.report = report
     write_json_atomic(session.paths.reports_dir / "calibration_check.json", report)

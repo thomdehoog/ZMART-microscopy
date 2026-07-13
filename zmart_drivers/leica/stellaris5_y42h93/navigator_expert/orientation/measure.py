@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import math
 import shutil
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,6 +87,10 @@ class OrientationSession:
     d4_accepted: bool | None = None
     config_written: bool = False
     failure_reason: str | None = None
+    # Wall-clock second the session was opened; reports record how long the
+    # whole measurement took (a slow run often means a struggling stage or
+    # LAS X, so the number is diagnostic, not decoration).
+    started_at_s: float | None = None
 
 
 def start_session(
@@ -123,6 +128,7 @@ def start_session(
         reference_objective=reference_objective,
         stage_move_um=float(stage_move_um),
         settle_s=float(settle_s),
+        started_at_s=time.time(),
     )
 
 
@@ -473,6 +479,13 @@ def write_orientation_diagnostic(
     return output
 
 
+def _session_duration_s(session) -> float | None:
+    """Seconds since the session was opened, or None for hand-built sessions."""
+    if session.started_at_s is None:
+        return None
+    return round(time.time() - float(session.started_at_s), 3)
+
+
 def _finite_registration(vote: dict) -> dict:
     """One vote's report entry, with non-finite shifts mapped to None."""
 
@@ -582,6 +595,7 @@ def measure(session: OrientationSession) -> OrientationSession:
                 "stage_move_um": float(session.stage_move_um),
                 "accepted": False,
                 "failure_reason": session.failure_reason,
+                "duration_s": _session_duration_s(session),
                 # An untrusted vote can carry NaN shifts, which strict JSON
                 # refuses; store None for anything non-finite.
                 "registrations": {
@@ -659,6 +673,7 @@ def measure(session: OrientationSession) -> OrientationSession:
             ),
             "accepted": session.d4_accepted,
             "failure_reason": session.failure_reason,
+            "duration_s": _session_duration_s(session),
             "rotate_deg": (
                 int(session.orientation.rotate_deg) if session.orientation is not None else None
             ),

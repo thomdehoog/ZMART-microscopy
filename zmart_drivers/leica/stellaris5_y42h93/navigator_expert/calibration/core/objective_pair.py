@@ -41,6 +41,7 @@ import json
 import logging
 import math
 import shutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -122,6 +123,9 @@ class ObjectivePairSession:
     # the adopted calibration annotates each slot with the objective actually
     # fitted rather than inheriting stale names from the base config.
     hardware_objectives: dict[int, str] = field(default_factory=dict)
+    # Wall-clock second the session was opened; the report records how long
+    # the whole calibration took, from the first cell to the final save.
+    started_at_s: float | None = None
 
 
 # ---------------------------------------------------------------------
@@ -254,6 +258,7 @@ def start_session(
         kind=kind,
         from_slot=reference_slot,
         hardware_objectives=hardware_objectives,
+        started_at_s=time.time(),
     )
 
 
@@ -1024,6 +1029,11 @@ def measure_parcentricity_target_and_save(
         ),
         "translation_z_um": _f(session.translation_z_um),
         "registration": _registration_for_report(vote),
+        "duration_s": (
+            None
+            if session.started_at_s is None
+            else round(time.time() - float(session.started_at_s), 3)
+        ),
         "brenner_ref": {
             "peak_z_um": _f(session.focus_z_ref_um),
             "scores": [_f(s) for s in (session.ref_z_brenner or [])],
