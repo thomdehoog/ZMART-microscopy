@@ -173,6 +173,57 @@ def _start(sessions_root, **kw):
     )
 
 
+def test_gallery_covers_all_options_and_correct_candidate_has_best_overlap():
+    candidates = wf._gallery_orientations()
+    assert len(candidates) == 8
+    assert {(item.rotate_deg, item.mirrored) for item in candidates} == {
+        (degrees, mirrored) for mirrored in (False, True) for degrees in (0, 90, 180, 270)
+    }
+
+    expected = Orientation(rotate_deg=90, mirrored=True)
+    stage_move_um = 20.0
+    pixel_size_um = 1.0
+    home = _synthetic_blob_image((192, 192), np.random.RandomState(7))
+    stage_to_image = -np.linalg.inv(np.asarray(expected.image_to_stage, dtype=float))
+    shift_x = np.rint(stage_to_image[:, 0] * stage_move_um / pixel_size_um).astype(int)
+    shift_y = np.rint(stage_to_image[:, 1] * stage_move_um / pixel_size_um).astype(int)
+    plus_x = _translate_without_wrap(home, int(shift_x[0]), int(shift_x[1]))
+    plus_y = _translate_without_wrap(home, int(shift_y[0]), int(shift_y[1]))
+
+    disagreement = {}
+    for candidate in candidates:
+        overlay = wf._candidate_alignment_overlay(
+            home,
+            plus_x,
+            plus_y,
+            stage_move_um=stage_move_um,
+            pixel_size_um=pixel_size_um,
+            orientation=candidate,
+        )
+        disagreement[candidate] = float(np.mean(np.abs(overlay[..., 0] - overlay[..., 1])))
+
+    assert min(disagreement, key=disagreement.get) == expected
+
+
+@pytest.mark.parametrize("rotate_deg", [0, 90, 180, 270])
+def test_gallery_preview_applies_reflected_candidate_to_displayed_pixels(rotate_deg):
+    home = np.zeros((7, 9), dtype=np.uint16)
+    home[1:3, 1] = 1000
+    home[1, 1:4] = 1000
+
+    overlay = wf._candidate_alignment_overlay(
+        home,
+        home,
+        home,
+        stage_move_um=0.0,
+        pixel_size_um=1.0,
+        orientation=Orientation(rotate_deg=rotate_deg, mirrored=True),
+    )
+
+    expected_red = np.rot90(np.fliplr(wf._normalise_for_display(home)), k=-(rotate_deg // 90))
+    assert np.array_equal(overlay[..., 0], expected_red)
+
+
 def test_measure_success_writes_staging_orientation(monkeypatch, sessions_root):
     _patch(monkeypatch)
     # +X (30 um) -> image (0, +30) um; +Y (30 um) -> image (-30, 0) um: the
@@ -199,6 +250,7 @@ def test_measure_success_writes_staging_orientation(monkeypatch, sessions_root):
         "measured": True,
         "rotate_deg": 90,
         "mirrored": False,
+        "reflection_axis": None,
         "axis_signs": {"stage_x": -1, "stage_y": 1},
         "axis_mapping": {"stage_x_from_image": "-Y", "stage_y_from_image": "+X"},
         "image_to_stage": [[0, -1], [1, 0]],
@@ -210,6 +262,7 @@ def test_measure_success_writes_staging_orientation(monkeypatch, sessions_root):
     report = json.loads((session.paths.reports_dir / "orientation_report.json").read_text())
     assert report["image_to_stage"] == [[0, -1], [1, 0]]
     assert report["mirrored"] is False
+    assert report["reflection_axis"] is None
     assert report["determinant"] == 1
     assert report["axis_signs"] == {"stage_x": -1, "stage_y": 1}
     assert report["axis_mapping"] == {
@@ -293,6 +346,7 @@ def test_measure_accepts_and_records_mirror(monkeypatch, sessions_root):
         "measured": True,
         "rotate_deg": 0,
         "mirrored": True,
+        "reflection_axis": "vertical",
         "axis_signs": {"stage_x": -1, "stage_y": 1},
         "axis_mapping": {"stage_x_from_image": "-X", "stage_y_from_image": "+Y"},
         "image_to_stage": [[-1, 0], [0, 1]],
@@ -301,6 +355,7 @@ def test_measure_accepts_and_records_mirror(monkeypatch, sessions_root):
     assert diagnostic.is_file()
     report = json.loads((session.paths.reports_dir / "orientation_report.json").read_text())
     assert report["mirrored"] is True
+    assert report["reflection_axis"] == "vertical"
     assert report["determinant"] == -1
     assert report["accepted"] is True
     assert report["rotate_deg"] == 0
@@ -381,6 +436,7 @@ def test_adopt_publishes_orientation_snapshot(monkeypatch, sessions_root, tmp_pa
         "measured": True,
         "rotate_deg": 90,
         "mirrored": False,
+        "reflection_axis": None,
         "axis_signs": {"stage_x": -1, "stage_y": 1},
         "axis_mapping": {"stage_x_from_image": "-Y", "stage_y_from_image": "+X"},
         "image_to_stage": [[0, -1], [1, 0]],
@@ -407,7 +463,21 @@ def test_notebook_archive_waits_for_a_new_saved_file_version(tmp_path, monkeypat
     bootstrap = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(bootstrap)
     notebook = tmp_path / "set_orientation.ipynb"
-    notebook.write_text("before", encoding="utf-8")
+    notebook.write_text(
+        json.dumps(
+            {
+                "cells": [
+                    {
+                        "cell_type": "code",
+                        "source": ["session = wf.measure(session)"],
+                        "execution_count": 1,
+                        "outputs": [{"output_type": "display_data"}],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
     previous_mtime_ns = notebook.stat().st_mtime_ns
     monkeypatch.setattr(bootstrap, "NOTEBOOK_PATH", notebook)
 

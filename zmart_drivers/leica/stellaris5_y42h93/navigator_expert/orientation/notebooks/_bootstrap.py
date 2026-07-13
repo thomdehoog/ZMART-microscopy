@@ -1,5 +1,6 @@
 """Notebook imports, source path, and save-checkpoint synchronization."""
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -18,10 +19,21 @@ for _path in (_REPO_ROOT, _DRIVER_PARENT):
 
 
 def request_notebook_save() -> int:
-    """Ask the active Jupyter frontend to save and return the prior file version."""
-    from IPython.display import Javascript, display
+    """Request a browser checkpoint and return the prior on-disk version.
+
+    VS Code does not expose its editor save command to notebook output
+    JavaScript, so its user must press Ctrl+S before running the adopt cell.
+    """
+    from IPython.display import Javascript, Markdown, display
 
     previous_mtime_ns = NOTEBOOK_PATH.stat().st_mtime_ns
+    display(
+        Markdown(
+            "**Save this notebook now (`Ctrl+S`), then run the next cell.** "
+            "Browser-based Jupyter may save it automatically; VS Code requires "
+            "the manual save."
+        )
+    )
     display(
         Javascript(
             """
@@ -42,14 +54,28 @@ def request_notebook_save() -> int:
     return previous_mtime_ns
 
 
-def wait_for_notebook_save(previous_mtime_ns: int, timeout_s: float = 15.0) -> Path:
-    """Wait until the frontend checkpoint is on disk, or refuse adoption."""
+def _has_saved_measurement_output() -> bool:
+    try:
+        notebook = json.loads(NOTEBOOK_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return any(
+        cell.get("cell_type") == "code"
+        and "session = wf.measure(session)" in "".join(cell.get("source", []))
+        and cell.get("execution_count") is not None
+        and bool(cell.get("outputs"))
+        for cell in notebook.get("cells", [])
+    )
+
+
+def wait_for_notebook_save(previous_mtime_ns: int, timeout_s: float = 60.0) -> Path:
+    """Wait for a newer checkpoint containing the executed measurement."""
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        if NOTEBOOK_PATH.stat().st_mtime_ns > previous_mtime_ns:
+        if NOTEBOOK_PATH.stat().st_mtime_ns > previous_mtime_ns and _has_saved_measurement_output():
             return NOTEBOOK_PATH
         time.sleep(0.1)
     raise RuntimeError(
-        f"notebook was not saved within {timeout_s:g} seconds; save {NOTEBOOK_PATH} "
-        "and run the save/adopt cells again"
+        f"the executed measurement was not saved within {timeout_s:g} seconds; "
+        f"save {NOTEBOOK_PATH} with Ctrl+S and rerun only this save/adopt cell"
     )

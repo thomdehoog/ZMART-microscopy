@@ -54,6 +54,7 @@ def test_complete_schema_records_and_loads_mirror_signs_and_matrix(tmp_path):
         "measured": True,
         "rotate_deg": 270,
         "mirrored": True,
+        "reflection_axis": "main_diagonal",
         "axis_signs": {"stage_x": 1, "stage_y": 1},
         "axis_mapping": {"stage_x_from_image": "+Y", "stage_y_from_image": "+X"},
         "image_to_stage": [[0, 1], [1, 0]],
@@ -61,6 +62,32 @@ def test_complete_schema_records_and_loads_mirror_signs_and_matrix(tmp_path):
     p = tmp_path / "orientation.json"
     p.write_text(json.dumps(payload), encoding="utf-8")
     assert orient.load_orientation(p) == orientation
+
+
+def test_reflection_axis_names_all_mirrored_cases():
+    assert Orientation().reflection_axis is None
+    assert Orientation(0, mirrored=True).reflection_axis == "vertical"
+    assert Orientation(90, mirrored=True).reflection_axis == "anti_diagonal"
+    assert Orientation(180, mirrored=True).reflection_axis == "horizontal"
+    assert Orientation(270, mirrored=True).reflection_axis == "main_diagonal"
+
+
+def test_complete_schema_accepts_snapshot_without_reflection_axis(tmp_path):
+    orientation = Orientation(rotate_deg=180, mirrored=True)
+    payload = orient.orientation_config(orientation)
+    payload.pop("reflection_axis")
+    p = tmp_path / "orientation.json"
+    p.write_text(json.dumps(payload), encoding="utf-8")
+    assert orient.load_orientation(p) == orientation
+
+
+def test_complete_schema_rejects_contradictory_reflection_axis(tmp_path):
+    payload = orient.orientation_config(Orientation(rotate_deg=180, mirrored=True))
+    payload["reflection_axis"] = "vertical"
+    p = tmp_path / "orientation.json"
+    p.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="reflection_axis.*contradicts"):
+        orient.load_orientation(p)
 
 
 def test_complete_schema_rejects_contradictory_signs(tmp_path):

@@ -27,7 +27,8 @@ run, the shipped ``orientation/defaults/orientation.json`` is a placeholder that
 means "no turn," so an un-measured microscope is never turned by guesswork::
 
     {"schema_version": 2, "measured": false, "rotate_deg": 0,
-     "mirrored": false, "axis_signs": {...}, "image_to_stage": [...]}
+     "mirrored": false, "reflection_axis": null, "axis_signs": {...},
+     "image_to_stage": [...]}
 
 The ``_notes`` text in the placeholder is not decoration: its presence is how
 the calibration workflow can tell "never measured" from "measured as 0" and
@@ -124,6 +125,18 @@ class Orientation:
             "stage_y": _axis_sign(self.image_to_stage[1]),
         }
 
+    @property
+    def reflection_axis(self) -> str | None:
+        """Net reflection axis after applying the canonical correction."""
+        if not self.mirrored:
+            return None
+        return {
+            0: "vertical",
+            90: "anti_diagonal",
+            180: "horizontal",
+            270: "main_diagonal",
+        }[self.rotate_deg]
+
 
 def _axis_sign(row: tuple[int, int]) -> int:
     return next(value for value in row if value)
@@ -142,6 +155,7 @@ def orientation_config(orientation: Orientation, *, measured: bool = True) -> di
         "measured": bool(measured),
         "rotate_deg": int(orientation.rotate_deg),
         "mirrored": orientation.mirrored,
+        "reflection_axis": orientation.reflection_axis,
         "axis_signs": orientation.axis_signs,
         "axis_mapping": orientation.axis_mapping,
         "image_to_stage": [list(row) for row in orientation.image_to_stage],
@@ -170,6 +184,12 @@ def orientation_from_config(data: dict[str, Any]) -> Orientation:
                     f"orientation field {key!r} contradicts image_to_stage: "
                     f"got {data[key]!r}, expected {expected[key]!r}"
                 )
+        if "reflection_axis" in data and data["reflection_axis"] != expected["reflection_axis"]:
+            raise ValueError(
+                "orientation field 'reflection_axis' contradicts image_to_stage: "
+                f"got {data['reflection_axis']!r}, "
+                f"expected {expected['reflection_axis']!r}"
+            )
         return orientation
 
     return Orientation(

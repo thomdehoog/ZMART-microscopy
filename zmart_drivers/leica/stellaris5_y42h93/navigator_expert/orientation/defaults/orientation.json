@@ -3,6 +3,7 @@
   "measured": false,
   "rotate_deg": 0,
   "mirrored": false,
+  "reflection_axis": null,
   "axis_signs": {
     "stage_x": 1,
     "stage_y": 1
