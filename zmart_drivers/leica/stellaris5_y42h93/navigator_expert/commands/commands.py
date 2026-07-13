@@ -635,16 +635,6 @@ def set_objective(
             "logs": [],
         }
 
-    # The flat limits file constrains the resolved physical slot, regardless
-    # of whether the caller selected it by slot, name, or magnification.
-    refused = _limits_refusal(
-        client,
-        "set_objective",
-        {"job_name": job_name, "objective_slot": slot},
-    )
-    if refused:
-        return refused
-
     # Record the motoric XY and z-wide position BEFORE the objective change —
     # while they still mean "where the current objective is looking" — so the
     # calibrated translation can keep the sample point afterwards. Armed only
