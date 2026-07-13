@@ -15,8 +15,9 @@ those setters are unrestricted. The internal mapping below is
 only the command chokepoint vocabulary—it is not the JSON shape.
 
 - each configurable ``set_*`` wrapper           -> its same-named flat entry
-- ``set_objective``                             -> handshake/state gate only
-  (which slots exist is hardware knowledge; the wrapper checks the turret live)
+- ``set_objective``                             -> ``objective_slot``
+  (``[]`` — the default — is unrestricted: which slots exist is hardware
+  knowledge the wrapper checks live; a written allow-list fences automation)
 - ``select_job``                                -> handshake/state gate only
 - ``move_xy`` / ``move_z``                      -> ``set_xyz``
 - ``acquire``                                   -> ``acquire``
@@ -222,6 +223,12 @@ class LeicaLimits:
                 if param in values:
                     self._check_one(param, self._policy[param], values[param])
             return
+        if function == "set_objective":
+            if "objective_slot" in values:
+                self._check_one(
+                    "objective_slot", self._policy["objective_slot"], values["objective_slot"]
+                )
+            return
         if function not in _stage_config.SETTER_LIMIT_KEYS:
             return
         spec = self._policy[function]
@@ -411,7 +418,9 @@ def connect_handshake(
        governed by the bundled DEFAULT limits (see below). Otherwise the single
        ``limits.json`` resolves through ProgramData, seeding repo defaults there
        first when needed. It must contain exactly the flat keys shown by the
-       limits notebook and finite ranges with min <= max. ``stage_limits_path`` overrides the resolution
+       limits notebook and finite ranges with min <= max; ``objective_slot``
+       is ``[]`` (unrestricted) or a non-empty non-negative allow-list.
+       ``stage_limits_path`` overrides the resolution
        with an explicit operator-chosen file (still validated); it is only
        consulted when ``load`` is True — with ``load=False`` the explicit path
        is ignored and the defaults govern.

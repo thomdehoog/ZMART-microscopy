@@ -168,6 +168,18 @@ _BAD_FUNCTION_LIMITS_TEXTS = {
         lambda p: {**p, "set_zoom": {"range": [1, 10], "allowed": [1, 10]}}
     ),
     "setter_empty_allowed": _with_payload(lambda p: {**p, "set_zoom": {"allowed": []}}),
+    "objective_slots_empty_allowed": _with_payload(
+        lambda p: {**p, "objective_slot": {"allowed": []}}
+    ),
+    "objective_slot_not_integer": _with_payload(
+        lambda p: {**p, "objective_slot": {"allowed": [1, "2"]}}
+    ),
+    "objective_slot_negative": _with_payload(
+        lambda p: {**p, "objective_slot": {"allowed": [-1, 1]}}
+    ),
+    "objective_slot_duplicate": _with_payload(
+        lambda p: {**p, "objective_slot": {"allowed": [1, 1]}}
+    ),
     "setter_nonfinite_allowed": _with_payload(
         lambda p: {**p, "set_zoom": {"allowed": [float("nan")]}}
     ),
@@ -210,15 +222,7 @@ def governed_client(mock_client):
     return mock_client
 
 
-def test_legacy_objective_slot_entry_is_tolerated_and_not_enforced(mock_client):
-    """Objective slots are no longer limited by the machine file.
-
-    A previously published limits.json may still carry the removed
-    ``objective_slot`` allow-list; the file must keep validating, and the
-    entry must not constrain anything: switching to a slot OUTSIDE the
-    legacy list succeeds (which slots exist is checked live against the
-    turret, not against the file).
-    """
+def test_objective_allow_list_checks_the_resolved_slot(mock_client):
     payload = _valid_payload()
     payload["objective_slot"] = {"allowed": [1]}
     _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
@@ -232,8 +236,49 @@ def test_legacy_objective_slot_entry_is_tolerated_and_not_enforced(mock_client):
         }
     }
 
-    result = commands_mod.set_objective(mock_client, "HiRes", hw_info, name="20x")
+    refused = commands_mod.set_objective(mock_client, "HiRes", hw_info, name="20x")
+    assert refused["success"] is False
+    assert "objective_slot=2" in refused["message"]
+    assert "expected one of [1]" in refused["message"]
+
+
+def test_objective_allow_list_allows_a_listed_slot(mock_client):
+    payload = _valid_payload()
+    payload["objective_slot"] = {"allowed": [1]}
+    _raw_snapshot(_machine_root(), limits_text=json.dumps(payload))
+    assert gate.connect_handshake(mock_client).ok
+    hw_info = {
+        "Microscope": {
+            "objectives": [
+                {"slotIndex": 1, "name": "10x", "magnification": 10, "objectiveNumber": 1}
+            ]
+        }
+    }
+
+    result = commands_mod.set_objective(mock_client, "HiRes", hw_info, slot_index=1)
     assert result["success"] is True
+
+
+def test_default_objective_slot_is_unrestricted(mock_client):
+    """``objective_slot: []`` — the shipped default — fences nothing.
+
+    Which slots exist is hardware knowledge the wrapper checks live, so with
+    the default in place automation may switch to any slot the turret
+    actually has, slot 0 included (slots count from 0).
+    """
+    _raw_snapshot(_machine_root(), limits_text=json.dumps(_valid_payload()))
+    assert gate.connect_handshake(mock_client).ok
+    hw_info = {
+        "Microscope": {
+            "objectives": [
+                {"slotIndex": 0, "name": "5x", "magnification": 5, "objectiveNumber": 5},
+                {"slotIndex": 2, "name": "20x", "magnification": 20, "objectiveNumber": 2},
+            ]
+        }
+    }
+
+    assert commands_mod.set_objective(mock_client, "HiRes", hw_info, slot_index=0)["success"]
+    assert commands_mod.set_objective(mock_client, "HiRes", hw_info, name="20x")["success"]
 
 
 @pytest.mark.parametrize(
@@ -849,6 +894,7 @@ def test_generated_machine_payload_matches_the_vocabulary():
     payload = stage_config.build_limits_payload(DEFAULT_STAGE_UM)
     assert set(payload) == set(stage_config._REQUIRED_FILE_KEYS)
     assert payload["x_um"] == {"range": DEFAULT_STAGE_UM["x"]}
+    assert payload["objective_slot"] == []
 
 
 def test_every_dispatching_wrapper_declares_and_calls_the_gate():
@@ -1057,6 +1103,7 @@ def test_flat_limits_round_trip_adopt_handshake_gated_move(mock_client):
     merged = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
     assert set(merged) == set(stage_config._REQUIRED_FILE_KEYS)
     assert merged["x_um"] == {"range": [1000.0, 130000.0]}
+    assert merged["objective_slot"] == []
 
     state = gate.connect_handshake(mock_client, machine=profile)
     assert state.ok, state.error

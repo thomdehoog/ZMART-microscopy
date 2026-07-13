@@ -36,6 +36,7 @@ def test_adopt_limits_publishes_only_to_the_limits_tree(tmp_path):
     lim = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
     assert set(lim) == set(stage_config._REQUIRED_FILE_KEYS)
     assert lim["x_um"] == {"range": [1200.0, 120000.0]}
+    assert lim["objective_slot"] == []
     assert all(lim[name] == [] for name in stage_config.SETTER_LIMIT_KEYS)
     assert not (snap / "calibration.json").exists()
     assert json.loads((calibration / "calibration.json").read_text(encoding="utf-8")) == {
