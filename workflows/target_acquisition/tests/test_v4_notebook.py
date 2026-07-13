@@ -40,18 +40,22 @@ def test_all_code_cells_parse():
         ast.parse(src)  # SyntaxError fails the test with the cell content
 
 
-def test_setup_cell_runs_from_repo_root(monkeypatch):
+def test_setup_cell_runs_from_repo_root(monkeypatch, tmp_path):
     nb = _load()
     setup_cell = _code_sources(nb)[0]
-    root = Path("/tmp/zmart-run")
+    root = tmp_path / "zmart-run"
 
     class FakeController:
         def __init__(self):
             self.info_calls = 0
+            self.disconnect_calls = 0
 
         def get_info(self):
             self.info_calls += 1
             return {"output_root": str(root)}
+
+        def disconnect(self):
+            self.disconnect_calls += 1
 
     class FakeEngine:
         def __init__(self):
@@ -72,6 +76,11 @@ def test_setup_cell_runs_from_repo_root(monkeypatch):
     assert namespace["zmart_controller"] is fake
     assert namespace["engine"] is fake_engine
     assert fake.info_calls == 1
+    # The cell's failure path tears the session down; on a clean setup it must
+    # not run. Asserting this keeps a real error from hiding behind the
+    # AttributeError a fake without `disconnect` would raise during cleanup.
+    assert fake.disconnect_calls == 0
+    assert fake_engine.shutdown_calls == 0
     assert namespace["ROOT"].parent == root.resolve()
     assert namespace["ROOT"].name.startswith("target-acquisition_")
 
@@ -129,7 +138,7 @@ def test_notebook_is_thin_orchestration_and_teaches_the_session_lifecycle():
         "zmart_controller.set_origin()",
         "zmart_controller.get_state()",
         "zmart_controller.set_state(overview_state)",
-        'setup_info = zmart_controller.get_info()',
+        "setup_info = zmart_controller.get_info()",
         'positions = setup_info["tile_positions"]',
         "zmart_controller.disconnect()",
     ):
