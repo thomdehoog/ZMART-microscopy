@@ -8,6 +8,7 @@ payload that can disagree with the report.
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -141,8 +142,8 @@ def compile_session_calibration(
     allow_empty: bool = False,
     base_path: str | Path | None = None,
 ) -> Path | None:
-    """Rebuild ``<session_id>/calibration.json`` from acquisition reports."""
-    destination = Path(session.paths.session_root) / "calibration.json"
+    """Rebuild the objective pair's ``calibration.json`` from trusted reports."""
+    destination = Path(session.paths.session_dir) / "calibration.json"
     reports = _trusted_reports(session)
     if not reports:
         destination.unlink(missing_ok=True)
@@ -196,12 +197,17 @@ def adopt_calibration(
             base_path = named if named.exists() else latest / "calibration.json"
     source = compile_session_calibration(session, base_path=base_path)
     config = calibration_model.load_calibration(source)
+    notebook_paths = tuple(notebook_paths)
     snapshot = machine.publish_snapshot(
         moment,
         calibration=config,
         calibration_name=selected_name,
         notebook_paths=notebook_paths,
     )
+    for notebook_path in notebook_paths:
+        notebook_path = Path(notebook_path)
+        destination = Path(session.paths.session_dir) / "calibrate_objective_pair.ipynb"
+        shutil.copy2(notebook_path, destination)
     calibration_rel = (
         machine.calibration_relpath(selected_name)
         if selected_name is not None

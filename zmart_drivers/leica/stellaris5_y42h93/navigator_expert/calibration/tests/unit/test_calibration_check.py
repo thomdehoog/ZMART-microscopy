@@ -227,6 +227,27 @@ def test_start_session_defaults_to_machine_workspace_and_active_job(monkeypatch,
     assert session.job_name == JOB
 
 
+def test_parent_session_keeps_validation_evidence_separate(monkeypatch, tmp_path):
+    _patch(monkeypatch, [])
+    pair_dir = tmp_path / "calibration_1" / "10x-20x"
+    pair_dir.mkdir(parents=True)
+    parent = SimpleNamespace(
+        session_id="calibration_1",
+        acquisition_name="10x-20x",
+        paths=SimpleNamespace(session_root=pair_dir.parent, session_dir=pair_dir),
+    )
+
+    session = chk.start_session(parent_session=parent, job_name=JOB)
+
+    assert session.paths.session_dir == pair_dir / "validation"
+    assert session.paths.data_dir == pair_dir / "validation" / "data"
+    assert session.paths.reports_dir == pair_dir / "validation" / "reports"
+    assert session.paths.data_dir.is_dir()
+    assert session.paths.reports_dir.is_dir()
+    assert not (pair_dir / "configs").exists()
+    assert not any(path.name.startswith(".") for path in pair_dir.rglob("*"))
+
+
 def test_featureless_frames_are_untrusted(monkeypatch, tmp_path):
     flat = np.full((96, 96), 1000, np.uint16)
     rig = _patch(monkeypatch, [flat, flat])

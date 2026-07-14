@@ -79,11 +79,12 @@ class CalibrationCheckSession:
 
 def start_session(
     *,
-    session_id: str,
+    session_id: str | None = None,
     acquisition_name: str = "validation",
     job_name: str | None = None,
     sessions_root: str | Path | None = None,
     calibration_name: str | None = None,
+    parent_session: Any = None,
 ):
     """Connect and load the adopted calibration this check will test.
 
@@ -99,18 +100,36 @@ def start_session(
             "a check needs at least two calibrated objective slots. Run the "
             "calibration steps above and adopt before checking."
         )
-    if sessions_root is None:
-        from ...config.machine import MACHINE
+    if parent_session is not None:
+        if session_id is not None or sessions_root is not None:
+            raise ValueError("parent_session replaces session_id and sessions_root")
+        session_id = parent_session.session_id
+        acquisition_name = parent_session.acquisition_name
+        validation_dir = Path(parent_session.paths.session_dir) / "validation"
+        paths = SessionPaths(
+            session_root=Path(parent_session.paths.session_root),
+            session_dir=validation_dir,
+            configs_dir=validation_dir,
+            reports_dir=validation_dir / "reports",
+            data_dir=validation_dir / "data",
+        )
+        for directory in (paths.data_dir, paths.reports_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+    else:
+        if session_id is None:
+            raise ValueError("session_id is required when parent_session is not provided")
+        if sessions_root is None:
+            from ...config.machine import MACHINE
 
-        sessions_root = MACHINE.subsystem_root("calibration")
-    from ...config.machine import validate_calibration_name
+            sessions_root = MACHINE.subsystem_root("calibration")
+        from ...config.machine import validate_calibration_name
 
-    acquisition_name = validate_calibration_name(acquisition_name)
-    paths = make_session_paths(
-        session_id,
-        sessions_root,
-        acquisition_name=acquisition_name,
-    )
+        acquisition_name = validate_calibration_name(acquisition_name)
+        paths = make_session_paths(
+            session_id,
+            sessions_root,
+            acquisition_name=acquisition_name,
+        )
     client = drv.connect_python_client()
     limits_state = drv.connect_limits_handshake(client)
     if not limits_state.ok:
