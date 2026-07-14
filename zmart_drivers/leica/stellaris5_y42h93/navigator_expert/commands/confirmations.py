@@ -216,8 +216,8 @@ def race_confirmations(api_leg=None, log_leg=None, *, label="", budget_s=None):
 # =============================================================================
 
 
-def _readback(client, job_name, *, observed_after=None):
-    """Read job settings and return changeable copy, or None on failure."""
+def _readback(client, job_name, *, observed_after=None, mode=None):
+    """Read job settings, using the configured mode when *mode* is None."""
     # Reader budget is its own profile knob, distinct from the confirm poll
     # window: this is a genuine "how long may one job-settings read block"
     # value. Deferred import — profiles imports this module.
@@ -227,7 +227,7 @@ def _readback(client, job_name, *, observed_after=None):
         client,
         job_name,
         timeout=STATE_READERS.job_settings_timeout_s,
-        mode="api",
+        mode=mode,
         diagnostics=True,
     )
     if reading is None:
@@ -372,7 +372,15 @@ ZMODE_KEY = {"galvo": "z-galvo", "zwide": "z-wide"}
 
 
 def confirm_move_z(
-    client, *, job_name, z_mode, target_um, tolerance=1.0, poll_window=None, poll_interval=0.01
+    client,
+    *,
+    job_name,
+    z_mode,
+    target_um,
+    tolerance=1.0,
+    poll_window=None,
+    poll_interval=0.01,
+    observed_after=None,
 ):
     """Poll until Z drive position is within tolerance, or until timeout.
 
@@ -387,6 +395,9 @@ def confirm_move_z(
         tolerance: Acceptable deviation in micrometers.
         poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
         poll_interval: Seconds between position polls.
+        observed_after: Reject reader observations at or before this wall-clock
+            timestamp. Move commands bind their pre-command timestamp here so
+            a stale log entry cannot confirm the move.
 
     Returns:
         {"success": bool, "logs": [...]}
@@ -399,7 +410,11 @@ def confirm_move_z(
     deadline = t_start + poll_window
 
     while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
+        ch = _readback(
+            client,
+            job_name,
+            observed_after=observed_after,
+        )
         if ch is not None:
             try:
                 actual = ch["zPosition"][key]

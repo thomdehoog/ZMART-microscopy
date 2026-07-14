@@ -17,6 +17,7 @@ import pytest
 from mock_lasx_api import MockLasxClient
 from navigator_expert.commands import gate
 from navigator_expert.config.machine import MachineProfile
+from navigator_expert.config.profiles import IMAGE_SAVE
 from navigator_expert.connection import session as drv_session
 from navigator_expert.connection import session_state
 from navigator_expert.orientation import Orientation, orientation_config
@@ -30,16 +31,15 @@ def _connect(**kwargs) -> MockLasxClient:
 
 
 def test_connect_loads_limits_orientation_and_calibration_by_default():
+    assert IMAGE_SAVE.apply_orientation is True
     client = _connect()
     cfg = session_state.get(client)
     assert cfg is not None
     assert isinstance(cfg.orientation, Orientation)
-    # the seeded default calibration lists objectives, so translations load
-    assert cfg.translations is not None and cfg.translations
+    # Bundled defaults are deliberately uncalibrated.
+    assert cfg.translations == {}
     assert cfg.calibration_info["loaded"] is True
-    assert cfg.calibration_info["slots"]
-    # The seeded calibration is only the bundled placeholder: its entries carry
-    # no measuring session, so no slot may count as calibrated on this machine.
+    assert cfg.calibration_info["slots"] == []
     assert cfg.calibration_info["measured_slots"] == []
     # Seeded orientation is deliberately only a placeholder, never mistaken
     # for a measured 0-degree machine orientation.
@@ -54,7 +54,7 @@ def test_connect_creates_programdata_layout_when_all_config_loading_is_skipped(
     root = tmp_path / "fresh-programdata"
     monkeypatch.setenv("ZMART_MICROSCOPY_ROOT", str(root))
 
-    _connect(load_limits=False, load_orientation=False, load_calibration=False)
+    _connect(load_limits=False, load_calibration=False)
 
     profile = MachineProfile(programdata_root=root)
     assert profile.snapshot_root().is_dir()
@@ -65,15 +65,18 @@ def test_connect_creates_programdata_layout_when_all_config_loading_is_skipped(
 
 
 def test_connect_records_adopted_calibration_slots_as_measured():
-    """Entries stamped with a measuring session count as calibrated; the rest don't."""
+    """Every stored translation is a measured calibration value."""
     import json
 
     profile = MachineProfile(programdata_root=Path(os.environ["ZMART_MICROSCOPY_ROOT"]))
     snap = profile.ensure_snapshot("calibration")
-    calibration = json.loads((snap / "calibration.json").read_text(encoding="utf-8"))
-    # Simulate a real adoption of the slot 1 -> 2 pair; slot 0 stays a placeholder.
-    for slot in ("1", "2"):
-        calibration["objectives"][slot]["session_id"] = "2026-07-11_bench_pair"
+    calibration = {
+        "schema_version": 13,
+        "objectives": {
+            "1": {"name": "10x", "translation_um": [0.0, 0.0, 0.0]},
+            "2": {"name": "20x", "translation_um": [1.0, 2.0, 3.0]},
+        },
+    }
     (snap / "calibration.json").write_text(json.dumps(calibration), encoding="utf-8")
 
     client = _connect()
@@ -81,17 +84,12 @@ def test_connect_records_adopted_calibration_slots_as_measured():
     info = session_state.get(client).calibration_info
     assert info["loaded"] is True
     assert info["measured_slots"] == [1, 2]
-    assert 0 in info["slots"] and 0 not in info["measured_slots"]
+    assert info["slots"] == [1, 2]
 
 
 def test_connect_can_skip_calibration():
     client = _connect(load_calibration=False)
     assert session_state.get(client).translations is None
-
-
-def test_connect_skipping_orientation_is_the_identity_turn():
-    client = _connect(load_orientation=False)
-    assert session_state.get(client).orientation.is_identity
 
 
 def test_connect_skipping_limits_installs_the_default_fallback():
@@ -186,9 +184,8 @@ def test_connect_survives_a_bad_orientation_file(bad_text, caplog):
     """A corrupt orientation.json must not fail the connection.
 
     The session degrades to the identity turn — images saved exactly as the
-    camera produced them, the same defined meaning as load_orientation=False —
-    with a loud warning, matching the fail-soft posture of the limits fallback
-    and the calibration degrade.
+    camera produced them, with a loud warning matching the fail-soft posture of
+    the limits fallback and the calibration degrade.
     """
     profile = MachineProfile(programdata_root=Path(os.environ["ZMART_MICROSCOPY_ROOT"]))
     snap = profile.ensure_snapshot("orientation")

@@ -34,8 +34,8 @@ from mock_lasx_api import MockLasxClient
 from navigator_expert.commands import commands as commands_mod
 from navigator_expert.commands import gate
 from navigator_expert.config.machine import MachineProfile
+from navigator_expert.limits import config as limits_config
 from navigator_expert.motion import limits as motion_limits
-from navigator_expert.motion import stage_config
 from navigator_expert.scanfields import files as scanfield_files
 
 DRIVER_ROOT = Path(__file__).resolve().parents[2]
@@ -350,10 +350,10 @@ def test_poisoned_pixel_target_cannot_compose_a_nan_galvo_pan(governed_client, p
 
 def test_nan_never_slips_past_a_bounded_constraint():
     """NaN compares False against every bound; flat validation must refuse it."""
-    payload = stage_config.build_limits_payload(DEFAULT_STAGE_UM)
+    payload = limits_config.build_limits_payload(DEFAULT_STAGE_UM)
     payload["x_um"] = {"range": [float("nan"), 130000]}
     with pytest.raises(ValueError, match="finite"):
-        stage_config.validate_payload(payload)
+        limits_config.validate_payload(payload)
 
 
 def test_degenerate_envelope_min_equals_max_pins_the_stage(mock_client):
@@ -391,8 +391,8 @@ def test_manual_set_stage_limits_allows_silent_widening_but_backstop_holds(gover
         x_max=500000.0,  # far beyond the physical travel; accepted silently today
         y_min=0.0,
         y_max=500000.0,
-        z_galvo_min=-200.0,
-        z_galvo_max=200.0,
+        z_galvo_min=-250.0,
+        z_galvo_max=250.0,
         z_wide_min=0.0,
         z_wide_max=25000.0,
     )
@@ -632,13 +632,13 @@ _SETTER_ALLOWED_VALUES = {
 }
 
 
-@pytest.mark.parametrize("setter", stage_config.SETTER_LIMIT_KEYS)
+@pytest.mark.parametrize("setter", limits_config.SETTER_LIMIT_KEYS)
 def test_every_configurable_setter_enforces_before_touching_native_api(setter):
     """Every flat setter key is wired to its own lowest-level command wrapper."""
     client = _Untouchable()
     payload = _valid_payload()
     payload[setter] = {"allowed": ["__blocked_test_value__"]}
-    policy = stage_config.validate_payload(payload)
+    policy = limits_config.validate_payload(payload)
     gate._install(
         client,
         gate.GateState(
@@ -654,7 +654,7 @@ def test_every_configurable_setter_enforces_before_touching_native_api(setter):
     assert "not allowed" in result["message"]
 
 
-@pytest.mark.parametrize("setter", stage_config.SETTER_LIMIT_KEYS)
+@pytest.mark.parametrize("setter", limits_config.SETTER_LIMIT_KEYS)
 def test_every_configurable_setter_accepts_its_allowed_value(mock_client, setter):
     """The typed policy forwards the real setter value, not a metadata field."""
     payload = _valid_payload()
@@ -695,7 +695,7 @@ def test_z_stack_definition_checks_both_endpoints_before_native_api():
     client = _Untouchable()
     payload = _valid_payload()
     payload["set_z_stack_definition"] = {"range": [0.0, 10.0]}
-    policy = stage_config.validate_payload(payload)
+    policy = limits_config.validate_payload(payload)
     gate._install(
         client,
         gate.GateState(
@@ -714,7 +714,7 @@ def test_z_stack_definition_configured_limit_refuses_value_unknown_reset():
     client = _Untouchable()
     payload = _valid_payload()
     payload["set_z_stack_definition"] = {"range": [0.0, 10.0]}
-    policy = stage_config.validate_payload(payload)
+    policy = limits_config.validate_payload(payload)
     gate._install(
         client,
         gate.GateState(
@@ -733,7 +733,7 @@ def test_installed_policy_is_independent_of_input_payload_mutation():
     client = _Untouchable()
     payload = _valid_payload()
     payload["set_zoom"] = {"allowed": [1.0]}
-    policy = stage_config.validate_payload(payload)
+    policy = limits_config.validate_payload(payload)
     installed = gate.LeicaLimits(policy, source="test", path="limits.json", is_fallback=False)
     gate._install(
         client,
@@ -885,14 +885,14 @@ def test_bundled_template_declares_exactly_the_key_vocabulary():
     template = json.loads(
         (DRIVER_ROOT / "limits" / "defaults" / "limits.json").read_text(encoding="utf-8")
     )
-    assert set(template) == set(stage_config._REQUIRED_FILE_KEYS)
-    assert all(template[name] == [] for name in stage_config.SETTER_LIMIT_KEYS)
-    stage_config.validate_payload(template)
+    assert set(template) == set(limits_config._REQUIRED_FILE_KEYS)
+    assert all(template[name] == [] for name in limits_config.SETTER_LIMIT_KEYS)
+    limits_config.validate_payload(template)
 
 
 def test_generated_machine_payload_matches_the_vocabulary():
-    payload = stage_config.build_limits_payload(DEFAULT_STAGE_UM)
-    assert set(payload) == set(stage_config._REQUIRED_FILE_KEYS)
+    payload = limits_config.build_limits_payload(DEFAULT_STAGE_UM)
+    assert set(payload) == set(limits_config._REQUIRED_FILE_KEYS)
     assert payload["x_um"] == {"range": DEFAULT_STAGE_UM["x"]}
     assert payload["objective_slot"] == []
 
@@ -979,7 +979,7 @@ def test_containment_checker_accepts_the_template_and_narrower():
     motion_limits.check_envelope_within_backstop(dict(DEFAULT_STAGE_UM, x=[20000.0, 40000.0]))
     with pytest.raises(RuntimeError, match="backstop"):
         motion_limits.check_envelope_within_backstop(
-            dict(DEFAULT_STAGE_UM, z_galvo=[-201.0, 200.0])
+            dict(DEFAULT_STAGE_UM, z_galvo=[-251.0, 250.0])
         )
 
 
@@ -995,7 +995,7 @@ def test_resolution_seeds_programdata_and_returns_local_paths():
     assert path == profile.latest_snapshot("limits") / "limits.json"
     assert path.exists()
     assert profile.require_machine_local("limits.json", "the physical stage envelope") == path
-    assert stage_config.load()["stage_um"]["x"] == DEFAULT_STAGE_UM["x"]
+    assert limits_config.load()["stage_um"]["x"] == DEFAULT_STAGE_UM["x"]
 
 
 def test_calibration_values_seed_programdata_from_repo_defaults():
@@ -1009,7 +1009,7 @@ def test_calibration_values_seed_programdata_from_repo_defaults():
 
 def test_backlash_is_not_config_and_the_primitive_uses_its_default_params():
     """§2b (resolves MR-01/MR-02): backlash left limits.json entirely. The
-    published limits.json has NO backlash block, stage_config.load reads only
+    published limits.json has NO backlash block, limits_config.load reads only
     the envelope, and the motion primitive carries its own baked-in defaults —
     there is no config path (and so no NaN-backlash path) left in limits."""
     import inspect
@@ -1021,7 +1021,7 @@ def test_backlash_is_not_config_and_the_primitive_uses_its_default_params():
     on_disk = json.loads(limits_path.read_text(encoding="utf-8"))
     assert "backlash" not in on_disk
 
-    cfg = stage_config.load(limits_path=limits_path)
+    cfg = limits_config.load(limits_path=limits_path)
     assert set(cfg) == {"policy", "stage_um"}
     assert set(cfg["stage_um"]) == {"x", "y", "z_galvo", "z_wide"}
     assert cfg["stage_um"]["x"] == DEFAULT_STAGE_UM["x"]
@@ -1053,7 +1053,7 @@ def test_fresh_limits_adopt_writes_complete_limits_snapshot():
 
     profile = MachineProfile(programdata_root=_machine_root())
     assert profile.latest_snapshot("limits") is None  # fresh machine
-    stage_config.adopt_limits(
+    limits_config.adopt_limits(
         DEFAULT_STAGE_UM, machine=profile, moment=datetime(2026, 4, 1, tzinfo=timezone.utc)
     )
     snap = profile.latest_snapshot("limits")
@@ -1076,7 +1076,7 @@ def test_adopted_limits_report_machine_source_to_the_notebook_preflight(mock_cli
     from datetime import datetime, timezone
 
     profile = MachineProfile(programdata_root=_machine_root())
-    stage_config.adopt_limits(
+    limits_config.adopt_limits(
         DEFAULT_STAGE_UM, machine=profile, moment=datetime(2026, 6, 1, tzinfo=timezone.utc)
     )
     merged = json.loads(
@@ -1096,12 +1096,12 @@ def test_flat_limits_round_trip_adopt_handshake_gated_move(mock_client):
     from datetime import datetime, timezone
 
     profile = MachineProfile(programdata_root=_machine_root())
-    stage_config.adopt_limits(
+    limits_config.adopt_limits(
         DEFAULT_STAGE_UM, machine=profile, moment=datetime(2026, 5, 1, tzinfo=timezone.utc)
     )
     snap = profile.latest_snapshot("limits")
     merged = json.loads((snap / "limits.json").read_text(encoding="utf-8"))
-    assert set(merged) == set(stage_config._REQUIRED_FILE_KEYS)
+    assert set(merged) == set(limits_config._REQUIRED_FILE_KEYS)
     assert merged["x_um"] == {"range": [1000.0, 130000.0]}
     assert merged["objective_slot"] == []
 

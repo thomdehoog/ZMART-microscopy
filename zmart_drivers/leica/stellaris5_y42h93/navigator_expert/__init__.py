@@ -116,8 +116,6 @@ __all__ = [
     "connect_python_client",
     "connect_microscope",
     "disable_roi_scan",
-    "LIMITS_SOURCE_DEFAULTS",
-    "load_stage_config",
     # acquisition workflow
     "AcquisitionResult",
     "PlaneIndex",
@@ -213,10 +211,6 @@ from .motion.limits import (
     _check_z_limits,
 )
 from .motion.movement import move_xy_with_backlash
-from .motion.stage_config import (
-    LIMITS_SOURCE_DEFAULTS,
-    load as load_stage_config,
-)
 
 # -- scanfields/ - LAS X scan-field file operations and parsing
 from .scanfields.files import (

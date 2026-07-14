@@ -1,33 +1,4 @@
 {
-  "last_updated": "20260527_152752",
-  "objectives": {
-    "0": {
-      "name": "HC PL APO CS2    40x/1.10 WATER",
-      "session_id": null,
-      "translation_um": [
-        -19.69708,
-        32.9913604275696,
-        2.7458717986528427
-      ]
-    },
-    "1": {
-      "name": "HC PL APO CS2    10x/0.40 DRY",
-      "session_id": null,
-      "translation_um": [
-        0.0,
-        0.0,
-        0.0
-      ]
-    },
-    "2": {
-      "name": "HC PL APO CS2    20x/0.75 DRY",
-      "session_id": null,
-      "translation_um": [
-        -6.458369500000001,
-        21.53989335,
-        -3.7089337899269594
-      ]
-    }
-  },
-  "schema_version": 12
+  "objectives": {},
+  "schema_version": 13
 }

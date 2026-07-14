@@ -71,12 +71,6 @@ def test_subsystem_roots_are_directly_below_api_root(tmp_path):
         assert profile.subsystem_root(subsystem) == api_root / subsystem
 
 
-def test_work_root_is_outside_timestamp_only_subsystem_trees(tmp_path):
-    profile = _profile(tmp_path)
-
-    assert profile.work_root("orientation") == profile.snapshot_root() / ".work" / "orientation"
-
-
 def test_ensure_layout_creates_every_subsystem_directory(tmp_path):
     profile = _profile(tmp_path / "new-root")
 
@@ -285,9 +279,10 @@ def test_fresh_named_calibration_set_seeds_with_no_objectives(tmp_path):
     cfg = json.loads(path.read_text(encoding="utf-8"))
     assert cfg["objectives"] == {}
     assert "schema_version" in cfg
-    # The DEFAULT (unnamed) calibration keeps the bundled seed.
+    # The default set is equally safe: bundled defaults never pretend to be
+    # measurements from this microscope.
     default_cfg = json.loads(profile.calibration_path().read_text(encoding="utf-8"))
-    assert default_cfg["objectives"]
+    assert default_cfg["objectives"] == {}
 
 
 def test_named_calibration_sets_copy_forward_inside_calibration_only(tmp_path):
@@ -336,8 +331,7 @@ def test_bundled_and_published_calibration_are_loadable(tmp_path):
     calibration = model.load_calibration(profile.bundled_default_path("calibration.json"))
     snapshot = profile.publish_snapshot(_AT_1430, calibration=calibration)
     reloaded = model.load_calibration(snapshot / "calibration.json")
-    assert model.get_reference_slot(reloaded) == 1
-    assert model.get_translation_um(reloaded, 0) == model.get_translation_um(calibration, 0)
+    assert reloaded == {"schema_version": 13, "objectives": {}}
 
 
 def test_programdata_root_precedence(tmp_path, monkeypatch):

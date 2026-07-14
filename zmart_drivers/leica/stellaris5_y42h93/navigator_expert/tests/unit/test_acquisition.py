@@ -19,6 +19,12 @@ from navigator_expert.acquisition.product import (
     ExportedAcquisition,
     ExportedPosition,
 )
+from navigator_expert.orientation import Orientation, reorient_array
+
+
+@pytest.fixture(autouse=True)
+def _identity_rig_orientation(monkeypatch):
+    monkeypatch.setattr("navigator_expert.orientation.rig_orientation", Orientation)
 
 
 @pytest.fixture
@@ -349,6 +355,27 @@ class TestCanonicalPhysicalMetadataAuthority:
 
 
 class TestSave:
+    def test_save_applies_the_active_rig_orientation_by_default(
+        self,
+        patched_export,
+        successful_acq,
+        tmp_path,
+        naming,
+        monkeypatch,
+    ):
+        orientation = Orientation(rotate_deg=90, mirrored=True)
+        monkeypatch.setattr(
+            "navigator_expert.orientation.rig_orientation",
+            lambda: orientation,
+        )
+
+        saved = drv.save(None, successful_acq, tmp_path / "out", naming)
+
+        for index, source_path in patched_export["plane_paths"].items():
+            source = tifffile.imread(source_path)
+            written = tifffile.imread(saved.image_paths[index])
+            assert np.array_equal(written, reorient_array(source, orientation))
+
     def test_timepoints_have_distinct_six_digit_T_names(
         self, successful_acq, tmp_path, naming, monkeypatch
     ):

@@ -8,17 +8,24 @@ microscope API root::
             limits.json
             .limits-machine
             set_limits.ipynb
-        calibration/<datetime>/
-            calibration.json
-            calibrations/<name>/calibration.json
-            <executed>.ipynb
-        orientation/<datetime>/
-            orientation.json
-            set_orientation.ipynb
-            <measurement-session>/
+        calibration/
+            <datetime>/
+                calibration.json
+                calibrations/<name>/calibration.json
+                <executed>.ipynb
+            <session-id>/
+                calibration.json
+                <acquisition-name>/
+                    data/
+                    reports/
+        orientation/
+            <datetime>/
+                orientation.json
+                set_orientation.ipynb
+            <session-id>/
                 data/
-                driver-save/
                 reports/
+                configs/
         origin/<datetime>/
             origin.json
 
@@ -227,11 +234,6 @@ class MachineProfile:
             raise ValueError(f"unknown machine-config subsystem {subsystem!r}")
         return self.snapshot_root() / subsystem
 
-    def work_root(self, subsystem: str) -> Path:
-        """Non-published workspace for an in-progress subsystem measurement."""
-        self.subsystem_root(subsystem)  # validate the subsystem name
-        return self.snapshot_root() / ".work" / subsystem
-
     def _flat_snapshots(self) -> list[Path]:
         """Old API-level snapshots, retained as migration input."""
         root = self.snapshot_root()
@@ -403,7 +405,6 @@ class MachineProfile:
             # and make "start a new calibration_name" advice impossible to
             # follow. The first measured pair anchors the origin instead.
             default_calibration = {
-                "last_updated": default_calibration.get("last_updated"),
                 "objectives": {},
                 "schema_version": default_calibration["schema_version"],
             }

@@ -84,8 +84,8 @@ from types import MappingProxyType
 from typing import Any
 
 from ..config import machine as _machine
+from ..limits import config as _limits_config
 from ..motion import limits as _limits
-from ..motion import stage_config as _stage_config
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ NOTEBOOK_POINTER = "limits/notebooks/set_limits.ipynb"
 # commands-layer successor of the adapter's old _MUTATING_OPS guard.
 MUTATING_COMMANDS = {
     # each configurable setter maps directly to its flat JSON entry
-    **{name: name for name in _stage_config.SETTER_LIMIT_KEYS},
+    **{name: name for name in _limits_config.SETTER_LIMIT_KEYS},
     "set_objective": "set_objective",
     "select_job": "set_state",
     # stage / galvo motion
@@ -229,7 +229,7 @@ class LeicaLimits:
                     "objective_slot", self._policy["objective_slot"], values["objective_slot"]
                 )
             return
-        if function not in _stage_config.SETTER_LIMIT_KEYS:
+        if function not in _limits_config.SETTER_LIMIT_KEYS:
             return
         spec = self._policy[function]
         if spec is None:
@@ -361,8 +361,8 @@ def _build_gate_from_file(
     Shared by the normal machine-file path and the bundled-defaults fallback.
     Raises on any validation problem so the caller can decide how to fall back.
     """
-    # stage_config validates the complete flat file in one read.
-    stage_cfg = _stage_config.load(limits_path=limits_file)
+    # The limits config validates the complete flat file in one read.
+    stage_cfg = _limits_config.load(limits_path=limits_file)
     # The envelope must sit within the hardcoded physical backstop.
     _limits.check_envelope_within_backstop(stage_cfg["stage_um"])
     function_limits = LeicaLimits(
@@ -459,7 +459,7 @@ def connect_handshake(
             source = "machine"
         else:
             limits_file = machine.require_machine_local(
-                _machine.LIMITS_FILENAME, "the physical stage envelope"
+                _machine.LIMITS_FILENAME, "the machine limits"
             )
             marker = limits_file.parent / _machine.LIMITS_MACHINE_MARKER
             source = "machine" if marker.exists() else "defaults"

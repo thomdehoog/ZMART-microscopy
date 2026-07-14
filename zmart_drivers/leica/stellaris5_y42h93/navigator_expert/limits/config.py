@@ -1,4 +1,4 @@
-"""Load and publish the Leica driver's flat ``limits.json``.
+"""Load, validate, and publish the Leica driver's flat ``limits.json``.
 
 The file is deliberately operator-readable: four top-level stage ranges,
 ``objective_slot``, and one top-level entry for each configurable setter.
@@ -28,23 +28,6 @@ import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-LIMITS_SOURCE_DEFAULTS = "defaults"
-LIMITS_SOURCE_MACHINE = "machine"
-LIMITS_SOURCE_BOUNDARY_MARKERS = "boundary_markers"
-LIMITS_SOURCE_CFG_FALLBACK = "cfg_fallback"
-LIMITS_SOURCE_SCAN_FIELD = "scan_field"
-LIMITS_SOURCE_MIGRATION = "migration"
-LIMITS_SOURCES = frozenset(
-    {
-        LIMITS_SOURCE_DEFAULTS,
-        LIMITS_SOURCE_MACHINE,
-        LIMITS_SOURCE_BOUNDARY_MARKERS,
-        LIMITS_SOURCE_CFG_FALLBACK,
-        LIMITS_SOURCE_SCAN_FIELD,
-        LIMITS_SOURCE_MIGRATION,
-    }
-)
 
 _REQUIRED_AXES = ("x", "y", "z_galvo", "z_wide")
 _AXIS_FILE_KEYS = {
@@ -87,7 +70,7 @@ def _driver_root() -> Path:
 
 
 def defaults_path() -> Path:
-    """Path to the active physical stage envelope in ProgramData.
+    """Path to the active machine limits file in ProgramData.
 
     Resolves through the machine profile to the newest
     ``limits/<datetime>/limits.json``. If the limits tree is empty, the repo
@@ -134,17 +117,6 @@ def _validate_limits(limits: dict[str, Any], *, path: Path) -> dict[str, list[fl
             raise ValueError(f"{path} stage limits missing axis: {axis!r}")
         out[axis] = _normalize_range(limits[axis], path=path, name=f"stage limit {axis!r}")
     return out
-
-
-def _validate_source(source: Any, *, path: Path | None = None) -> str:
-    if not isinstance(source, str) or not source:
-        where = f"{path} " if path is not None else ""
-        raise ValueError(f"{where}source must be a non-empty string")
-    if source not in LIMITS_SOURCES:
-        where = f"{path} " if path is not None else ""
-        allowed = ", ".join(sorted(LIMITS_SOURCES))
-        raise ValueError(f"{where}source {source!r} is not one of: {allowed}")
-    return source
 
 
 def _normalize_typed_limit(
@@ -261,7 +233,6 @@ def load(limits_path: str | Path | None = None) -> dict[str, Any]:
 def adopt_limits(
     limits: dict[str, Any],
     *,
-    source: str = LIMITS_SOURCE_MACHINE,
     machine: Any = None,
     moment: datetime | None = None,
     notebook_paths: Any = (),
@@ -277,8 +248,6 @@ def adopt_limits(
     Args:
         limits: Complete flat limits document, or the legacy four-axis internal
             mapping accepted only as a Python API compatibility convenience.
-        source: Retained for caller compatibility and validation, but not stored
-            in JSON. A published snapshot is always reported as machine-owned.
         machine: ``MachineProfile`` to publish into; ``None`` uses the global one.
         moment: Snapshot timestamp; ``None`` uses ``datetime.now(timezone.utc)``.
         notebook_paths: Executed notebook(s) to archive in the snapshot.
@@ -286,15 +255,14 @@ def adopt_limits(
     Returns:
         ``{"snapshot": str, "limits_path": str}``.
     """
-    from . import limits as _limits
+    from ..motion import limits as _motion_limits
 
-    _validate_source(source)
     if set(limits) == set(_REQUIRED_AXES):
         payload = build_limits_payload(limits)
     else:
         payload = validate_payload(limits)
     stage_um = {axis: payload[file_key]["range"] for axis, file_key in _AXIS_FILE_KEYS.items()}
-    _limits.check_envelope_within_backstop(stage_um)
+    _motion_limits.check_envelope_within_backstop(stage_um)
     if machine is None:
         from ..config.machine import MACHINE
 

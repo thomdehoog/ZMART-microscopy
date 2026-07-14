@@ -25,10 +25,26 @@ pytest.importorskip("cv2")  # register_voting imports cv2/skimage
 from navigator_expert.acquisition.naming import build_image_name
 from navigator_expert.calibration.core import calibration_check as chk
 from navigator_expert.calibration.core import common as cm
+from navigator_expert.config.machine import MachineProfile
 from navigator_expert.orientation import Orientation
 
 PIXEL_UM = 0.5
 JOB = "Overview"
+
+
+def test_zwide_move_uses_command_confirmation(monkeypatch):
+    monkeypatch.setattr(
+        cm.drv,
+        "move_z",
+        lambda *args, **kwargs: {"success": True, "confirmed": True},
+    )
+    monkeypatch.setattr(
+        cm.drv,
+        "read_zwide_um",
+        lambda *args, **kwargs: pytest.fail("redundant one-shot readback called"),
+    )
+
+    cm.move_zwide_and_verify(object(), JOB, 123.0)
 
 
 def _blob(shape=(96, 96), seed=3):
@@ -101,7 +117,7 @@ def _patch(
     def move_z(c, job, z, unit="um", **k):
         rig["z"] = z
         rig["z_moves"].append(z)
-        return {"success": True}
+        return {"success": True, "confirmed": True}
 
     job_settings = lambda c, job, **k: {"objective": {"slotIndex": rig["slot"], "name": f"obj-{rig['slot']}"}}  # noqa: E731
 
@@ -197,6 +213,18 @@ def test_start_session_requires_two_calibrated_slots(monkeypatch, tmp_path):
     _patch(monkeypatch, [], translations={1: (0.0, 0.0, 0.0)})
     with pytest.raises(RuntimeError, match="at least two calibrated objective slots"):
         chk.start_session(session_id="chk", job_name=JOB, sessions_root=tmp_path / "s")
+
+
+def test_start_session_defaults_to_machine_workspace_and_active_job(monkeypatch, tmp_path):
+    machine = MachineProfile(programdata_root=tmp_path / "programdata")
+    monkeypatch.setattr("navigator_expert.config.machine.MACHINE", machine)
+    _patch(monkeypatch, [])
+
+    session = chk.start_session(session_id="check_defaults")
+
+    assert session.paths.session_root == machine.subsystem_root("calibration") / "check_defaults"
+    assert session.paths.session_dir == session.paths.session_root / "validation"
+    assert session.job_name == JOB
 
 
 def test_featureless_frames_are_untrusted(monkeypatch, tmp_path):
