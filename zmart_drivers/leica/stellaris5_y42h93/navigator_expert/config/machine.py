@@ -249,8 +249,15 @@ class MachineProfile:
         root = self.subsystem_root(subsystem)
         if not root.is_dir():
             return []
+        required = _SUBSYSTEM_FILENAME[subsystem]
         return sorted(
-            (path for path in root.iterdir() if path.is_dir() and is_snapshot_name(path.name)),
+            (
+                path
+                for path in root.iterdir()
+                if path.is_dir()
+                and is_snapshot_name(path.name)
+                and (subsystem != "orientation" or (path / required).is_file())
+            ),
             key=lambda path: path.name,
         )
 
