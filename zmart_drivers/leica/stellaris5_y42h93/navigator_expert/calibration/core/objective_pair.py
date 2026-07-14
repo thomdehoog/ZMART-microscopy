@@ -481,7 +481,7 @@ def _print_step5_summary(session, summary: dict) -> None:
 
 def _invalidate_compiled_calibration(session: ObjectivePairSession) -> None:
     (session.paths.reports_dir / f"{session.kind}_report.json").unlink(missing_ok=True)
-    (session.paths.session_root / "calibration.json").unlink(missing_ok=True)
+    (session.paths.session_dir / "calibration.json").unlink(missing_ok=True)
     session.config_written = False
 
 

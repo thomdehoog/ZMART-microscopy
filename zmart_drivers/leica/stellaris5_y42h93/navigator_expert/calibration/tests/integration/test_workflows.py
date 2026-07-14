@@ -448,6 +448,25 @@ def test_adoption_objective_translation_updates_canonical_calibration(
     ).exists()
 
 
+def test_adoption_archives_notebook_beside_objective_pair(sessions_root, machine, tmp_path):
+    _seed_snapshot(machine)
+    session, _ = _make_report_session(sessions_root, _valid_obj_payload())
+    notebook = tmp_path / "working.ipynb"
+    notebook.write_text('{"cells": []}', encoding="utf-8")
+
+    wf_adopt.adopt_calibration(
+        session,
+        machine=machine,
+        moment=_ADOPT_MOMENT,
+        notebook_paths=[notebook],
+    )
+
+    archived = session.paths.session_dir / "calibrate_objective_pair.ipynb"
+    assert archived.is_file()
+    assert archived.read_text(encoding="utf-8") == '{"cells": []}'
+    assert (session.paths.session_dir / "calibration.json").is_file()
+
+
 def test_adoption_keeps_canonical_objectives_minimal(
     sessions_root,
     machine,
@@ -1191,7 +1210,8 @@ def test_objective_pair_notebook_only_configures_session_and_reference_slot():
     assert "reference_slot=1" in code
     assert "job_name=" not in code
     assert "sessions_root=" not in code
-    assert "calibration_name=" not in code
+    assert "parent_session=session" in code
+    assert "calibration_name=session.calibration_name" in code
     assert "MACHINE" not in code
     assert code.count("objective_pair.measure(session)") == 4
     assert code.count("_ = objective_pair.measure(session)") == 0
@@ -1697,7 +1717,7 @@ def test_objective_pair_xy_translation_arithmetic_identity(
     assert session.correction_xy_um == pytest.approx((2.0, -3.0))
     assert session.translation_xy_um == pytest.approx((12.0, 17.0))
 
-    cfg_path = session.paths.session_root / "calibration.json"
+    cfg_path = session.paths.session_dir / "calibration.json"
     assert cfg_path.is_file()
     payload = json.loads(cfg_path.read_text(encoding="utf-8"))
     assert payload == {
@@ -1769,7 +1789,7 @@ def test_objective_pair_weak_xy_vote_blocks_config(monkeypatch, sessions_root, m
     assert summary["config_written"] is False
     assert "WEAK VOTE" in summary["status"]
     assert session.translation_xy_um is None
-    assert not (session.paths.session_root / "calibration.json").exists()
+    assert not (session.paths.session_dir / "calibration.json").exists()
 
     report = json.loads(
         (session.paths.reports_dir / f"{session.kind}_report.json").read_text(encoding="utf-8")
@@ -1951,7 +1971,7 @@ def test_objective_pair_failed_rerun_removes_stale_config(monkeypatch, sessions_
     state["x"], state["y"] = xy_post
     summary1 = wf_obj.measure_parcentricity_target_and_save(session)
     assert summary1["config_written"] is True
-    cfg = session.paths.session_root / "calibration.json"
+    cfg = session.paths.session_dir / "calibration.json"
     assert cfg.is_file()
 
     # Operator reruns just the parcentricity target cell with new data.
@@ -2025,7 +2045,7 @@ def _full_objective_run(
     state["x"], state["y"] = xy_post
     summary = wf_obj.measure_parcentricity_target_and_save(session)
     assert summary["config_written"] is True
-    cfg = session.paths.session_root / "calibration.json"
+    cfg = session.paths.session_dir / "calibration.json"
     assert cfg.is_file()
     return session, state, cfg
 
@@ -2273,7 +2293,7 @@ def test_objective_pair_rerun_3b_acquire_failure_removes_stale_config(
     state["x"], state["y"] = xy_post
     summary1 = wf_obj.measure_parcentricity_target_and_save(session)
     assert summary1["config_written"] is True
-    cfg = session.paths.session_root / "calibration.json"
+    cfg = session.paths.session_dir / "calibration.json"
     assert cfg.is_file()
 
     # Rerun 3b. The next acquire (target_xy) raises.

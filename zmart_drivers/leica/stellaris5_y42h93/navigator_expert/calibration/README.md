@@ -49,16 +49,21 @@ root:
 
 ```text
 <session-id>/
-  calibration.json
   <acquisition-name>/
+    calibration.json
     data/
     reports/
+    validation/
+      data/
+      reports/
+    calibrate_objective_pair.ipynb
 ```
 
 The report is the comprehensive measurement record and compiler input. The
-session-level `calibration.json` is the minimal runtime result compiled from
-trusted acquisition reports. No duplicate staging config or driver-save copy
-is kept.
+objective-pair `calibration.json` is the minimal result compiled from trusted
+acquisition reports. Adoption publishes that result into the active timestamp
+snapshot. Validation images and reports stay under `validation/` so they never
+mix with the measurement evidence.
 
 ## Package Layout
 
