@@ -1,5 +1,5 @@
 {
-  "total_seconds": 120.73,
+  "total_seconds": 433.08,
   "passed": true,
   "fatal_failures": [],
   "warnings": [
@@ -11,7 +11,7 @@
       "ok": true,
       "fatal": true,
       "returncode": 0,
-      "seconds": 24.96,
+      "seconds": 29.74,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
@@ -26,7 +26,7 @@
       "ok": true,
       "fatal": true,
       "returncode": 0,
-      "seconds": 3.67,
+      "seconds": 2.37,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
@@ -39,7 +39,7 @@
       "ok": false,
       "fatal": false,
       "returncode": 1,
-      "seconds": 8.51,
+      "seconds": 10.65,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
@@ -53,7 +53,7 @@
       "ok": true,
       "fatal": true,
       "returncode": 0,
-      "seconds": 24.6,
+      "seconds": 26.04,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
@@ -71,7 +71,7 @@
       "ok": true,
       "fatal": false,
       "returncode": 0,
-      "seconds": 20.87,
+      "seconds": 25.58,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
@@ -91,7 +91,7 @@
       "ok": true,
       "fatal": false,
       "returncode": 0,
-      "seconds": 17.44,
+      "seconds": 296.6,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",
@@ -111,7 +111,7 @@
       "ok": true,
       "fatal": true,
       "returncode": 0,
-      "seconds": 17.62,
+      "seconds": 40.86,
       "error": null,
       "command": [
         "C:\\ProgramData\\MinicondaZMB\\envs\\zmart-microscopy\\python.exe",

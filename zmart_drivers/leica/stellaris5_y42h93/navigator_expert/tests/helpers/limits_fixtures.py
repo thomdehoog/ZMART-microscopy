@@ -72,8 +72,8 @@ def hermetic_mock_machine_root() -> Path:
     For the ``--mock`` validators: creates a fresh temp ProgramData root,
     points ``ZMART_MICROSCOPY_ROOT`` at it (so the global ``MACHINE`` resolves
     there and a developer machine's real ProgramData is never read), and
-    publishes a fixture snapshot — the connect-time limits handshake then
-    runs for REAL against machine-local files.
+    publishes fixture limits and a named two-objective calibration. The
+    connect-time configuration handshake then runs against machine-local files.
 
     Also redirects ``profiles.LOG_READER`` to nonexistent paths under the
     same throwaway root. The mock CAM client has no log stream (by design —
@@ -91,7 +91,24 @@ def hermetic_mock_machine_root() -> Path:
     appdata = root / "AppData" / "Roaming"
     appdata.mkdir(parents=True)
     os.environ["APPDATA"] = str(appdata)
-    provision_machine_limits(root)
+    profile = provision_machine_limits(root)
+    profile.publish_snapshot(
+        _SEED_MOMENT,
+        calibration_name="water_lens_setup",
+        calibration={
+            "schema_version": 13,
+            "objectives": {
+                "1": {
+                    "name": "HC PL APO 10x/0.40 CS2",
+                    "translation_um": [0.0, 0.0, 0.0],
+                },
+                "3": {
+                    "name": "HC PL APO 63x/1.40 OIL CS2",
+                    "translation_um": [10.0, -6.0, -3.0],
+                },
+            },
+        },
+    )
     profiles.LOG_READER = profiles.LogReaderProfile(
         lcs_log_path=str(root / "no_such_lcsCommand.log"),
         msgbox_log_path=str(root / "no_such_MatrixScreener.log"),
