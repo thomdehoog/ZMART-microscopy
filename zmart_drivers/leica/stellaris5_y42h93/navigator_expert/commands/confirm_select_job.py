@@ -181,7 +181,7 @@ def select_job_confirm_legs(
       CAM cap (CF-01) serialises reads.
 
     The dispatcher runs this leg-set once per confirm attempt
-    (``max_confirm_attempts``), re-firing between: the uniform 3x3 posture
+    (``max_confirm_attempts``), re-firing between: the uniform 4x3 posture
     (``CONFIRM_POLL_S`` per attempt, N attempts) shared with every command.
 
     Returns ``(api_confirm_fn, log_leg, budget_s)`` where ``api_confirm_fn``

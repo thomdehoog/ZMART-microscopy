@@ -34,8 +34,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import tifffile
 
 import navigator_expert as drv
+from navigator_expert.acquisition.naming import Naming, run_hash
 from navigator_expert.algorithms import D4_RESIDUAL_MAX, classify_d4, register_voting
 
 from ..calibration.core.common import (
@@ -55,6 +57,7 @@ from . import (
     orientation_from_config,
     orientation_from_image_to_stage,
     reorient_array,
+    rig_orientation,
 )
 
 KIND = "orientation"
@@ -107,7 +110,7 @@ def start_session(
 
     # Create the session directory tree BEFORE any driver call so an
     # invalid sessions_root fails before the rig is touched.
-    paths = make_session_paths(session_id, KIND, sessions_root)
+    paths = make_session_paths(session_id, sessions_root)
 
     client = drv.connect_python_client()
     # Connect-time limits handshake: the measurement moves the stage through
@@ -767,3 +770,47 @@ def adopt_orientation(
         "measurement_session": str(archived_session),
         "orientation_path": str(snapshot / STAGING_NAME),
     }
+
+
+def acquire_validation_image(
+    session: OrientationSession,
+    *,
+    output_root: str | Path,
+) -> tuple[np.ndarray, Path]:
+    """Acquire, save, and reload one image with the adopted orientation.
+
+    The returned pixels come from the saved OME-TIFF, so displaying them checks
+    the same rotation and reflection that later acquisitions will receive.
+    """
+    if session.orientation is None:
+        raise RuntimeError("Measure and adopt the orientation before running validation.")
+
+    active_orientation = rig_orientation()
+    if active_orientation != session.orientation:
+        raise RuntimeError(
+            "The active machine orientation does not match this measurement. "
+            "Adopt this measurement before running validation."
+        )
+
+    acquisition = drv.acquire(session.client, session.job_name)
+    saved = drv.save(
+        session.client,
+        acquisition,
+        output_root,
+        Naming(
+            acquisition_type="orientation-validation",
+            hash6=run_hash(),
+            position_label="validation",
+        ),
+        orientation=active_orientation,
+    )
+    if len(saved.image_paths) != 1:
+        raise ValueError(f"Validation expected one saved image; got {len(saved.image_paths)}.")
+
+    image_path = Path(next(iter(saved.image_paths.values())))
+    image = np.asarray(tifffile.imread(image_path))
+    if image.ndim == 3 and image.shape[0] == 1:
+        image = image[0]
+    if image.ndim != 2:
+        raise ValueError(f"Validation expected a 2-D image; got shape {image.shape!r}.")
+    return image, image_path

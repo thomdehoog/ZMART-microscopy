@@ -88,8 +88,8 @@ def _wide_limits():
         x_max=1_000_000.0,
         y_min=0.0,
         y_max=1_000_000.0,
-        z_galvo_min=-200.0,
-        z_galvo_max=200.0,
+        z_galvo_min=-250.0,
+        z_galvo_max=250.0,
         z_wide_min=-100_000.0,
         z_wide_max=100_000.0,
     )
@@ -119,18 +119,15 @@ class TestCalibrationSelection(unittest.TestCase):
         from navigator_expert.connection import session as drv_session
 
         cfg = {
-            "schema_version": 12,
-            "last_updated": "20260101_000000",
+            "schema_version": 13,
             "objectives": {
                 "1": {
                     "name": "10x",
                     "translation_um": [0.0, 0.0, 0.0],
-                    "session_id": "ref",
                 },
                 "2": {
                     "name": "20x",
                     "translation_um": [12.0, 17.0, 3.0],
-                    "session_id": "target",
                 },
             },
         }
@@ -152,18 +149,17 @@ class TestCalibrationSelection(unittest.TestCase):
         from navigator_expert.connection import session as drv_session
 
         old = {
-            "schema_version": 12,
-            "last_updated": "20260101_000000",
+            "schema_version": 13,
             "objectives": {
-                "1": {"name": "10x", "translation_um": [0, 0, 0], "session_id": None},
-                "2": {"name": "20x", "translation_um": [1, 2, 3], "session_id": None},
+                "1": {"name": "10x", "translation_um": [0, 0, 0]},
+                "2": {"name": "20x", "translation_um": [1, 2, 3]},
             },
         }
         newly_adopted = {
             **old,
             "objectives": {
-                "1": {"name": "10x", "translation_um": [0, 0, 0], "session_id": "new"},
-                "2": {"name": "20x", "translation_um": [9, 8, 7], "session_id": "new"},
+                "1": {"name": "10x", "translation_um": [0, 0, 0]},
+                "2": {"name": "20x", "translation_um": [9, 8, 7]},
             },
         }
         path = Path("/tmp/lens_A/calibration.json")
@@ -179,7 +175,7 @@ class TestCalibrationSelection(unittest.TestCase):
 
         self.assertEqual(load.call_count, 1)
         self.assertEqual(translations[2], (1.0, 2.0, 3.0))
-        self.assertEqual(info["measured_slots"], [])
+        self.assertEqual(info["measured_slots"], [1, 2])
 
 
 class TestFrame(unittest.TestCase):
@@ -1255,7 +1251,7 @@ class TestObjectiveCompensation(unittest.TestCase):
         install_permissive_limits(
             h.client,
             z_wide_um={"min": 0.0, "max": 35.0},
-            z_galvo_um={"min": -200.0, "max": 200.0},
+            z_galvo_um={"min": -250.0, "max": 250.0},
         )
         patches = _patch_position(z_wide_um=40.0, z_galvo_um=0.0, slot=2)
         with (
@@ -1599,11 +1595,11 @@ class TestFunctionLimits(unittest.TestCase):
 
     def test_bundled_template_covers_every_declared_key(self):
         """THE completeness guard on the template: a new key cannot ship absent."""
-        from navigator_expert.motion import stage_config
+        from navigator_expert.limits import config as limits_config
 
         path = adapter._machine.MACHINE.bundled_default_path(adapter._machine.LIMITS_FILENAME)
-        payload = stage_config.validate_payload(json.loads(path.read_text(encoding="utf-8")))
-        self.assertEqual(set(payload), set(stage_config._REQUIRED_FILE_KEYS))
+        payload = limits_config.validate_payload(json.loads(path.read_text(encoding="utf-8")))
+        self.assertEqual(set(payload), set(limits_config._REQUIRED_FILE_KEYS))
         self.assertEqual(payload["objective_slot"], [])
 
     def test_set_xyz_refuses_beyond_function_limits_before_any_motion(self):
@@ -1628,7 +1624,7 @@ class TestFunctionLimits(unittest.TestCase):
         _wide_limits()
         self.addCleanup(_clear_limits)
         h = _handle(
-            gate_constraints={"z_galvo_um": {"min": -200, "max": 200}},
+            gate_constraints={"z_galvo_um": {"min": -250, "max": 250}},
             origin=_origin(x_um=10000.0, y_um=10000.0),
         )
         patches = _patch_position(z_wide_um=0.0, z_galvo_um=0.0)

@@ -44,6 +44,7 @@ from .common import (
     plot_overlay,
     read_active_objective,
     read_job_geometry,
+    read_selected_job_name,
     write_json_atomic,
 )
 
@@ -53,6 +54,7 @@ KIND = "calibration_check"
 @dataclass
 class CalibrationCheckSession:
     session_id: str
+    acquisition_name: str
     paths: SessionPaths
     job_name: str
     client: Any
@@ -78,8 +80,9 @@ class CalibrationCheckSession:
 def start_session(
     *,
     session_id: str,
-    job_name: str,
-    sessions_root: str | Path,
+    acquisition_name: str = "validation",
+    job_name: str | None = None,
+    sessions_root: str | Path | None = None,
     calibration_name: str | None = None,
 ):
     """Connect and load the adopted calibration this check will test.
@@ -96,15 +99,30 @@ def start_session(
             "a check needs at least two calibrated objective slots. Run the "
             "calibration steps above and adopt before checking."
         )
-    paths = make_session_paths(session_id, KIND, sessions_root)
+    if sessions_root is None:
+        from ...config.machine import MACHINE
+
+        sessions_root = MACHINE.subsystem_root("calibration")
+    from ...config.machine import validate_calibration_name
+
+    acquisition_name = validate_calibration_name(acquisition_name)
+    paths = make_session_paths(
+        session_id,
+        sessions_root,
+        acquisition_name=acquisition_name,
+    )
     client = drv.connect_python_client()
     limits_state = drv.connect_limits_handshake(client)
     if not limits_state.ok:
         raise RuntimeError(limits_state.error)
     if drv.get_hardware_info(client, mode="api") is None:
         raise RuntimeError("get_hardware_info returned None; LAS X unreachable")
+    if job_name is None:
+        job_name = read_selected_job_name(client)
+        print(f"Using active Navigator Expert job: {job_name}")
     return CalibrationCheckSession(
         session_id=session_id,
+        acquisition_name=acquisition_name,
         paths=paths,
         job_name=job_name,
         client=client,
@@ -197,12 +215,19 @@ def measure_target_and_report(session: CalibrationCheckSession, *, show: bool = 
     }
     session.report = report
     write_json_atomic(session.paths.reports_dir / "calibration_check.json", report)
-    # dx/dy are the stage landing error, which is the registered feature
-    # shift with its sign flipped; flip it back for the aligned panel.
-    align = None if dx is None or dy is None else (-dx, -dy)
-    fig = plot_overlay(session.ref_image, session.target_image, "calibration check",
-                       shift_um=(dx, dy), pixel_size_um=session.ref_pixel_size_um,
-                       align_shift_um=align)
+    # This target was acquired only after the calibrated stage move above.
+    # Show it as acquired; do not digitally align it for presentation.
+    residual = (
+        "XY residual unavailable"
+        if dx is None or dy is None
+        else f"Measured XY residual: ({dx:+.2f}, {dy:+.2f}) µm"
+    )
+    fig = plot_overlay(
+        session.ref_image,
+        session.target_image,
+        "Acquisition after stage correction",
+        subtitle=residual,
+    )
     fig.savefig(session.paths.reports_dir / "calibration_check.png", dpi=150)
     if not show:
         import matplotlib.pyplot as plt

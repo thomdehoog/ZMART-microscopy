@@ -74,14 +74,12 @@ class LogReaderProfile:
 class StateReaderProfile:
     """Profile-controlled backend selection for passive state reads.
 
-    These modes are defaults for cold/status reads. Reads that decide command
-    control flow - prechecks, early exits, command-parameterizing reads,
-    confirmations, and post-write readbacks - must use the gated confirmation
-    path, or explicitly pin API. Reads that produce persisted or foundational
-    correctness artifacts, such as calibration geometry or canonical OME
-    physical metadata, must also pin API. A fresh-by-age log value must never
-    decide whether a command fires, how it is parameterized, whether it
-    confirms, or what metadata/calibration is persisted.
+    These modes govern routed state reads, including command confirmation.
+    Freshness limits reject old log state; transition-sensitive confirmations
+    additionally reject observations from before the command. Reads that
+    produce persisted or foundational correctness artifacts, such as
+    calibration geometry or canonical OME physical metadata, may explicitly
+    pin API when only that source is authoritative.
     """
 
     hybrid_log_grace_s: float = 0.25
@@ -111,8 +109,8 @@ class StateReaderProfile:
     # cannot witness a transition to a target it already read pre-command)
     # against the log leg (post-command CurrentBlock event). The race runs for
     # one confirm window (the shared CONFIRM_POLL_S), so the whole confirmation
-    # is the uniform 3x3: CONFIRM_POLL_S per attempt, max_confirm_attempts
-    # attempts, re-fire between — same as every other command.
+    # is the uniform 4x3: the initial window plus three retries and
+    # CONFIRM_POLL_S per attempt.
     # Default hybrid: the api confirm is measured-wrong on the real scope
     # (stale 15 s+, wrong job) and log-only is insufficient on the
     # simulator; hybrid fits both without environment detection.
@@ -151,6 +149,20 @@ class LasxApiProfile:
 
 
 LASX_API = LasxApiProfile()
+
+
+@dataclass(frozen=True)
+class ImageSaveProfile:
+    """Default image persistence policy.
+
+    Normal saves apply the active camera-to-stage orientation. The orientation
+    measurement is the only workflow that explicitly requests raw pixels.
+    """
+
+    apply_orientation: bool = True
+
+
+IMAGE_SAVE = ImageSaveProfile()
 
 
 @dataclass(frozen=True)
@@ -218,7 +230,7 @@ class CommandProfile:
     error_check_fn: Callable[..., dict] | None = _default_error_check
     confirm_fn: Callable[..., dict] | None = None
     max_retries: int = 3
-    max_confirm_attempts: int = 3
+    max_confirm_attempts: int = 4
     refire_on_unconfirmed: bool = True
     confirm_poll_s: float = CONFIRM_POLL_S  # Per-attempt readback poll window (s).
     confirm_tolerance: float | None = None
@@ -244,10 +256,14 @@ class CommandProfile:
             raise ValueError("max_confirm_attempts==1 requires refire_on_unconfirmed=False")
 
 
+COMMAND_DEFAULT = CommandProfile()
+
+
 def _leica_setting_profile(confirm_fn, **overrides):
     """Profile for Leica setting updates with occasionally stale readback.
 
-    Setting commands get three 3-second readback poll windows. If a window does
+    Setting commands get four 3-second readback poll windows: the initial
+    attempt plus three retries. If a window does
     not confirm the requested state, the command is re-fired before the next
     window. If LAS X still reports another state after all windows, the result
     is ``success=True, confirmed=False`` so the larger acquisition workflow
@@ -439,11 +455,11 @@ SELECT_JOB = CommandProfile(
     # select_job's confirmation legs are built per call by
     # confirm_select_job.select_job_confirm_legs (api / log / hybrid policy from
     # StateReaderProfile.selected_job_confirm_source), not by this profile.
-    # Same 3x3 posture as every other command: max_confirm_attempts confirm
+    # Same 4x3 posture as every other command: max_confirm_attempts confirm
     # windows of confirm_poll_s seconds each (the shared CONFIRM_POLL_S), re-fire
     # between, unconfirmed-not-fail. No bespoke poll_timeout — the window comes
     # from the profile like every setting command.
     confirm_fn=None,
-    max_confirm_attempts=3,
+    max_confirm_attempts=4,
     poll_interval=0.01,
 )

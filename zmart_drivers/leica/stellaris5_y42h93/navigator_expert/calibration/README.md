@@ -44,9 +44,21 @@ empty limits, calibration, or orientation tree seeds from its own repo default.
 The per-run *working* envelope (a boundary-marker sample area) is not machine
 state - it belongs to the acquisition workflow, not here.
 
-Notebook sessions write data, reports, and staging configs under an
-operator-selected sessions root. Those session artifacts are runtime data;
-they are not source files and should not be committed.
+Calibration sessions use one compact tree under the machine's calibration
+root:
+
+```text
+<session-id>/
+  calibration.json
+  <acquisition-name>/
+    data/
+    reports/
+```
+
+The report is the comprehensive measurement record and compiler input. The
+session-level `calibration.json` is the minimal runtime result compiled from
+trusted acquisition reports. No duplicate staging config or driver-save copy
+is kept.
 
 ## Package Layout
 

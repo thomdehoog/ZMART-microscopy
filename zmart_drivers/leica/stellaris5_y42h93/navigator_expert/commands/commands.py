@@ -41,6 +41,7 @@ the gate, readers, and confirmations. The ``prechecks`` import is used in
 import logging
 import math
 import time
+from dataclasses import replace
 from functools import partial
 
 from ..commands.errors import _check_api_error, _is_transient_error
@@ -250,25 +251,26 @@ def _dispatch(
         budget_s=confirm_race_budget_s,
     )
 
+    overrides = {}
+    if max_retries is not None:
+        overrides["max_retries"] = max_retries
+    if max_confirm_attempts is not None:
+        overrides["max_confirm_attempts"] = max_confirm_attempts
+    if retry_backoff is not None:
+        overrides["retry_backoff"] = retry_backoff
+    if retry_escalate is not None:
+        overrides["retry_escalate"] = retry_escalate
+    effective_profile = replace(profile, **overrides) if overrides else profile
+
     return confirm_and_fire(
         client,
         api_obj,
         description,
+        profile=effective_profile,
         setup_fn=setup_fn,
         pre_check_fn=pre_check_fn,
         error_check_fn=(lambda: effective_error_check(client)) if effective_error_check else None,
         confirm_fn=final_confirm_fn,
-        max_retries=max_retries if max_retries is not None else profile.max_retries,
-        max_confirm_attempts=max_confirm_attempts
-        if max_confirm_attempts is not None
-        else profile.max_confirm_attempts,
-        refire_on_unconfirmed=profile.refire_on_unconfirmed,
-        retry_backoff=retry_backoff if retry_backoff is not None else profile.retry_backoff,
-        retry_escalate=retry_escalate if retry_escalate is not None else profile.retry_escalate,
-        skip_echo=profile.skip_echo,
-        receipt_timeout=profile.receipt_timeout,
-        fire_async=profile.fire_async,
-        success_on_unconfirmed=profile.success_on_unconfirmed,
     )
 
 
@@ -1521,6 +1523,7 @@ def move_z(
         m.ZUseMode = z_use_val
         m.Units = unit_val
 
+    command_started_at = time.time()
     return _dispatch(
         client,
         api_obj,
@@ -1533,6 +1536,7 @@ def move_z(
             z_mode=z_mode,
             target_um=z_um,
             tolerance=_profile_value(MOVE_Z, "confirm_tolerance", tolerance),
+            observed_after=command_started_at,
         ),
         max_retries=max_retries,
         pre_check_timeout=pre_check_timeout,
@@ -1664,7 +1668,7 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
         command_started_at=command_started_at,
         api_baseline_name=context["api_baseline_name"],
         # The per-attempt confirm window is the shared profile knob
-        # (confirm_poll_s = CONFIRM_POLL_S), same 3x3 as every other command;
+        # (confirm_poll_s = CONFIRM_POLL_S), same 4x3 as every other command;
         # an explicit poll_timeout arg still overrides for a one-off call.
         timeout=poll_timeout if poll_timeout is not None else SELECT_JOB.confirm_poll_s,
         poll_interval=_profile_value(SELECT_JOB, "poll_interval", poll_interval),

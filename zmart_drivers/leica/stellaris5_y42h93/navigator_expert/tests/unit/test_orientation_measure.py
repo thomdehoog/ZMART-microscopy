@@ -515,7 +515,40 @@ def test_orientation_notebook_displays_then_saves_before_adoption():
         "".join(cell.get("source", [])) for cell in notebook["cells"] if cell["cell_type"] == "code"
     )
 
-    assert 'sessions_root=MACHINE.work_root("orientation")' in code
+    assert 'sessions_root=MACHINE.subsystem_root("orientation")' in code
     assert "display(Image(filename=str(diagnostic)))" in code
     assert code.index("request_notebook_save") < code.index("wait_for_notebook_save")
     assert code.index("wait_for_notebook_save") < code.index("adopt_orientation")
+    assert code.index("adopt_orientation") < code.index("acquire_validation_image")
+    assert 'output_root=MACHINE.subsystem_root("orientation") / "validation"' in code
+    assert "plt.imshow(validation_image" in code
+
+
+def test_validation_uses_active_orientation_and_reloads_saved_image(tmp_path, monkeypatch):
+    expected_orientation = Orientation(rotate_deg=90, mirrored=True)
+    session = SimpleNamespace(
+        orientation=expected_orientation,
+        client=object(),
+        job_name="Overview",
+    )
+    acquired = object()
+    expected_image = np.arange(12, dtype=np.uint16).reshape(3, 4)
+
+    monkeypatch.setattr(wf, "rig_orientation", lambda: expected_orientation)
+    monkeypatch.setattr(wf.drv, "acquire", lambda client, job: acquired)
+
+    def _save(client, acquisition, output_root, naming, *, orientation):
+        assert client is session.client
+        assert acquisition is acquired
+        assert orientation == expected_orientation
+        image_path = Path(output_root) / build_image_name(naming)
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        tifffile.imwrite(image_path, expected_image)
+        return SimpleNamespace(image_paths={object(): image_path})
+
+    monkeypatch.setattr(wf.drv, "save", _save)
+
+    image, image_path = wf.acquire_validation_image(session, output_root=tmp_path)
+
+    assert np.array_equal(image, expected_image)
+    assert image_path.is_file()

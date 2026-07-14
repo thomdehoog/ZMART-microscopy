@@ -20,15 +20,15 @@ from pathlib import Path
 from navigator_expert.commands import gate as _gate
 from navigator_expert.config import profiles
 from navigator_expert.config.machine import MachineProfile
+from navigator_expert.limits import config as _limits_config
 from navigator_expert.motion import limits as _motion_limits
-from navigator_expert.motion import stage_config as _stage_config
 
 # The historical machine envelope (== the bundled template and the hardcoded
 # backstop in motion/limits.py) — the widest envelope a fixture may use.
 DEFAULT_STAGE_UM = {
     "x": [1000.0, 130000.0],
     "y": [1000.0, 100000.0],
-    "z_galvo": [-200.0, 200.0],
+    "z_galvo": [-250.0, 250.0],
     "z_wide": [0.0, 25000.0],
 }
 
@@ -37,7 +37,7 @@ _SEED_MOMENT = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 def merged_limits_payload(stage_um: dict, *, functions: dict | None = None) -> dict:
     """The single flat limits.json payload."""
-    payload = _stage_config.build_limits_payload(stage_um)
+    payload = _limits_config.build_limits_payload(stage_um)
     if functions is not None:
         payload.update(functions)
     return payload
@@ -105,7 +105,7 @@ def permissive_function_limits(**set_xyz_constraints) -> object:
     Pass ``set_xyz`` parameter constraints (e.g. ``x_um={"min": 0, "max": 1}``)
     to bound the move keys.
     """
-    payload = _stage_config.build_limits_payload(
+    payload = _limits_config.build_limits_payload(
         {
             "x": [-1e12, 1e12],
             "y": [-1e12, 1e12],
@@ -141,8 +141,8 @@ def install_permissive_limits(client, *, wide_stage=False, **set_xyz_constraints
             x_max=1_000_000.0,
             y_min=0.0,
             y_max=1_000_000.0,
-            z_galvo_min=-200.0,
-            z_galvo_max=200.0,
+            z_galvo_min=-250.0,
+            z_galvo_max=250.0,
             z_wide_min=-100_000.0,
             z_wide_max=100_000.0,
         )

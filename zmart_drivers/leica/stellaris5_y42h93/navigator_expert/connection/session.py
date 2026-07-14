@@ -143,13 +143,13 @@ def _load_objective_calibration(
         "measured_slots": sorted(
             int(slot)
             for slot, entry in (config.get("objectives") or {}).items()
-            if entry.get("session_id")
+            if entry.get("translation_um") is not None
         ),
     }
     return translations, info
 
 
-def _load_rig_orientation(*, enabled: bool = True) -> tuple[Any, dict]:
+def _load_rig_orientation() -> tuple[Any, dict]:
     """Load orientation and readiness evidence from one exact document.
 
     A single resolve/read supplies both the orientation used for images and the
@@ -159,9 +159,10 @@ def _load_rig_orientation(*, enabled: bool = True) -> tuple[Any, dict]:
     """
     from .. import orientation as _orientation
     from ..config.machine import MACHINE
+    from ..config.profiles import IMAGE_SAVE
 
     identity = _orientation.Orientation()
-    if not enabled:
+    if not IMAGE_SAVE.apply_orientation:
         return identity, {
             "enabled": False,
             "loaded": False,
@@ -215,7 +216,6 @@ def connect_microscope(
     client_name: str = "PythonClient",
     api_delay_ms: int | None = None,
     load_limits: bool = True,
-    load_orientation: bool = True,
     load_calibration: bool = True,
     calibration_name: str | None = None,
 ) -> Any:
@@ -232,15 +232,14 @@ def connect_microscope(
     calibration** — so the rest of the driver works from one consistent picture
     of the instrument for the whole session.
 
-    Each config can be skipped independently, which is what the
-    ``load_limits`` / ``load_orientation`` / ``load_calibration`` switches are
-    for. Skipping one is a deliberate choice with a defined, safe meaning:
+    Image orientation defaults to ``IMAGE_SAVE.apply_orientation`` in
+    ``config/profiles.py``. The orientation-measurement workflow explicitly
+    requests raw identity pixels without changing that normal-session policy.
+    Limits and calibration can be skipped independently:
 
     - ``load_limits=False`` — the session is governed by the bundled **default**
       limits rather than this machine's measured envelope. It is never left
       ungated, and the hardcoded physical backstop still bounds every move.
-    - ``load_orientation=False`` — saved images are left exactly as the camera
-      produced them (no turn or mirror correction to stage axes).
     - ``load_calibration=False`` — no objective translations are loaded, so the
       driver refuses cross-objective moves rather than computing uncompensated
       ones.
@@ -262,7 +261,7 @@ def connect_microscope(
     MACHINE.ensure_layout()
     client = connect_python_client(client_name=client_name, api_delay_ms=api_delay_ms)
     _gate.connect_handshake(client, load=load_limits)
-    orientation, orientation_info = _load_rig_orientation(enabled=load_orientation)
+    orientation, orientation_info = _load_rig_orientation()
     translations, calibration_info = _load_objective_calibration(
         calibration_name,
         enabled=load_calibration,

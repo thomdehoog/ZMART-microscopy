@@ -106,12 +106,10 @@ CONNECTION = {
     # Microscope-specific active objective calibration. Workflows do not select
     # or apply calibration; this driver profile owns that decision.
     "calibration_name": "water_lens_setup",
-    # Which machine-local configs to load at connect (all default True). Turn
-    # one off only deliberately: load_limits=False falls back to the bundled
-    # default envelope (never ungated); load_orientation=False saves images
-    # unrotated; load_calibration=False refuses cross-objective moves.
+    # Limits and calibration connection choices. Image orientation is enabled
+    # by IMAGE_SAVE in config/profiles.py; only the orientation measurement
+    # explicitly saves raw pixels.
     "load_limits": True,
-    "load_orientation": True,
     "load_calibration": True,
 }
 
@@ -216,10 +214,9 @@ def connect(connection: dict) -> ZmartHandle:
     three machine-local configs and installs each so the whole session works
     from one consistent picture: the **stage limits** (into the commands gate),
     the **camera-to-stage orientation**, and the **per-objective calibration**
-    (both into the per-connection session registry). The connection dict may
-    switch any of these off with ``load_limits`` / ``load_orientation`` /
-    ``load_calibration`` (all default True) and pick a named calibration set
-    with ``calibration_name``.
+    (both into the per-connection session registry). Image orientation follows
+    ``IMAGE_SAVE`` in ``config/profiles.py``. The connection dict may override
+    limits/calibration loading and pick a named calibration set.
 
     The stage-limits load is fail-soft: an invalid or opted-out ``limits.json``
     falls back to the bundled default envelope (loudly warned) rather than
@@ -236,7 +233,6 @@ def connect(connection: dict) -> ZmartHandle:
         client_name=connection.get("client", "PythonClient"),
         api_delay_ms=connection.get("api_delay_ms"),
         load_limits=connection.get("load_limits", True),
-        load_orientation=connection.get("load_orientation", True),
         load_calibration=connection.get("load_calibration", True),
         calibration_name=connection.get("calibration_name"),
     )
@@ -259,7 +255,7 @@ def _loaded_orientation(handle: ZmartHandle):
     # No per-connection state for this handle (built without connect_microscope,
     # or its registry entry was uninstalled). Fall back to reading the file
     # fresh — loudly, because this re-read can differ from what the connection
-    # loaded and does not honour a load_orientation=False choice.
+    # loaded and can differ from what the connection loaded.
     log.warning(
         "no per-connection orientation is installed for this handle; reading "
         "orientation.json fresh for this save"

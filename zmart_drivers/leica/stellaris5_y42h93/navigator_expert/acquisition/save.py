@@ -77,10 +77,16 @@ def save(
     ``ExportedAcquisition``. This function persists that product into the
     flat ZMART OME-TIFF layout (one 2-D plane per file, no sidecar XML).
     When *state* is provided, the machine/software state at export time is
-    embedded in each plane's OME-XML. When *orientation* is a non-identity rig
-    D4, each plane is reoriented losslessly to stage-aligned axes as it is
-    written (default: no reorientation).
+    embedded in each plane's OME-XML. By default, every plane is reoriented
+    losslessly with this microscope's active orientation as it is written.
+    Pass ``Orientation()`` explicitly only when raw camera pixels are required,
+    as in the orientation measurement itself.
     """
+    if orientation is None:
+        from ..config.profiles import IMAGE_SAVE
+        from ..orientation import rig_orientation
+
+        orientation = rig_orientation() if IMAGE_SAVE.apply_orientation else Orientation()
     exported = collect_lasx_native_autosave(
         client,
         acq,

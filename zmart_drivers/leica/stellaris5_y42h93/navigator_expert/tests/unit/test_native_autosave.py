@@ -16,6 +16,12 @@ from navigator_expert.acquisition import capture, materialize
 from navigator_expert.acquisition import lasx_native_autosave as native
 from navigator_expert.acquisition import save as acquisition
 from navigator_expert.acquisition.naming import Naming
+from navigator_expert.orientation import Orientation
+
+
+@pytest.fixture(autouse=True)
+def _identity_rig_orientation(monkeypatch):
+    monkeypatch.setattr("navigator_expert.orientation.rig_orientation", Orientation)
 
 
 @pytest.fixture

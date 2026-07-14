@@ -182,20 +182,33 @@ def _await_echo_result(client, timeout=None, poll_interval=0.01):
 # =============================================================================
 
 
+def _resolve_profile(profile=None, **overrides):
+    """Resolve all command tuning from profiles, then apply explicit overrides."""
+    from dataclasses import replace
+
+    if profile is None:
+        from ..config.profiles import COMMAND_DEFAULT
+
+        profile = COMMAND_DEFAULT
+    changes = {name: value for name, value in overrides.items() if value is not None}
+    return replace(profile, **changes) if changes else profile
+
+
 def _fire_block(
     client,
     api_obj,
     description,
     *,
+    profile=None,
     setup_fn=None,
     pre_check_fn=None,
     error_check_fn=None,
-    max_retries=3,
+    max_retries=None,
     retry_backoff=None,
-    retry_escalate=False,
-    skip_echo=False,
+    retry_escalate=None,
+    skip_echo=None,
     receipt_timeout=None,
-    fire_async=False,
+    fire_async=None,
 ):
     """Execute the four-step fire pipeline with transient retry.
 
@@ -230,9 +243,8 @@ def _fire_block(
             If False, use a fixed delay. Ignored when retry_backoff is None.
         skip_echo: If True, skip the echo error check step entirely (the
             confirm_fn is then the authoritative completion signal).
-        receipt_timeout: Seconds for the UpdateAwaitReceipt transport ACK.
-            None uses the module-level RECEIPT_TIMEOUT default. Ignored when
-            fire_async is True.
+        receipt_timeout: Optional override for the profile's transport ACK
+            deadline. Ignored when fire_async is True.
         fire_async: If True, fire via UpdateAsync (blanking the echo) instead
             of UpdateAwaitReceipt.
 
@@ -245,6 +257,15 @@ def _fire_block(
             "logs": [...],
         }
     """
+    profile = _resolve_profile(
+        profile,
+        max_retries=max_retries,
+        retry_backoff=retry_backoff,
+        retry_escalate=retry_escalate,
+        skip_echo=skip_echo,
+        receipt_timeout=receipt_timeout,
+        fire_async=fire_async,
+    )
     t_pre_check = 0.0
     t_setup = 0.0
     t_fire = 0.0
@@ -252,7 +273,7 @@ def _fire_block(
     attempts = 0
     all_logs = []
 
-    for attempt in range(max_retries + 1):
+    for attempt in range(profile.max_retries + 1):
         attempts = attempt + 1
 
         # --- Step 1: Pre-check ---
@@ -316,12 +337,15 @@ def _fire_block(
                 client.PyApiCommandEcho.Model.Result = 0  # NotDefined
             except Exception:
                 pass  # Some API versions may not allow Result assignment
-            if fire_async:
+            if profile.fire_async:
                 api_obj.UpdateAsync()
                 delivered = True
             else:
-                delivered = _fire_with_receipt(api_obj, receipt_timeout=receipt_timeout)
-            if delivered and not skip_echo and not fire_async:
+                delivered = _fire_with_receipt(
+                    api_obj,
+                    receipt_timeout=profile.receipt_timeout,
+                )
+            if delivered and not profile.skip_echo and not profile.fire_async:
                 if not _await_echo_result(client):
                     # The echo never settled: a LAS X rejection arriving
                     # after this window is invisible to the error check
@@ -398,15 +422,19 @@ def _fire_block(
         error_msg = err_result.get("error", "")
         transient = err_result.get("transient", False)
 
-        if transient and attempt < max_retries:
+        if transient and attempt < profile.max_retries:
             # Backoff: first retry is immediate, then base × 2^(attempt-1)
-            if retry_backoff is not None and attempt > 0:
-                delay = retry_backoff * (2 ** (attempt - 1)) if retry_escalate else retry_backoff
+            if profile.retry_backoff is not None and attempt > 0:
+                delay = (
+                    profile.retry_backoff * (2 ** (attempt - 1))
+                    if profile.retry_escalate
+                    else profile.retry_backoff
+                )
                 log.warning(
                     "%s | Transient error (attempt %d/%d), retrying in %.1fs: %s",
                     description,
                     attempts,
-                    max_retries + 1,
+                    profile.max_retries + 1,
                     delay,
                     error_msg,
                 )
@@ -416,7 +444,7 @@ def _fire_block(
                     "%s | Transient error (attempt %d/%d): %s",
                     description,
                     attempts,
-                    max_retries + 1,
+                    profile.max_retries + 1,
                     error_msg,
                 )
             continue
@@ -465,19 +493,20 @@ def confirm_and_fire(
     api_obj,
     description,
     *,
+    profile=None,
     setup_fn=None,
     pre_check_fn=None,
     error_check_fn=None,
     confirm_fn=None,
-    max_retries=3,
-    max_confirm_attempts=3,
-    refire_on_unconfirmed=True,
+    max_retries=None,
+    max_confirm_attempts=None,
+    refire_on_unconfirmed=None,
     retry_backoff=None,
-    retry_escalate=False,
-    skip_echo=False,
+    retry_escalate=None,
+    skip_echo=None,
     receipt_timeout=None,
-    fire_async=False,
-    success_on_unconfirmed=False,
+    fire_async=None,
+    success_on_unconfirmed=None,
 ):
     """Fire a command and optionally confirm the result, with correction.
 
@@ -534,6 +563,18 @@ def confirm_and_fire(
         failed, None if confirm_fn was not provided or the command
         failed before reaching confirmation.
     """
+    profile = _resolve_profile(
+        profile,
+        max_retries=max_retries,
+        max_confirm_attempts=max_confirm_attempts,
+        refire_on_unconfirmed=refire_on_unconfirmed,
+        retry_backoff=retry_backoff,
+        retry_escalate=retry_escalate,
+        skip_echo=skip_echo,
+        receipt_timeout=receipt_timeout,
+        fire_async=fire_async,
+        success_on_unconfirmed=success_on_unconfirmed,
+    )
     command_started_at = time.time()
     t_wall_start = time.perf_counter()
     t_confirm_total = 0.0
@@ -546,15 +587,10 @@ def confirm_and_fire(
         client,
         api_obj,
         description,
+        profile=profile,
         setup_fn=setup_fn,
         pre_check_fn=pre_check_fn,
         error_check_fn=error_check_fn,
-        max_retries=max_retries,
-        retry_backoff=retry_backoff,
-        retry_escalate=retry_escalate,
-        skip_echo=skip_echo,
-        receipt_timeout=receipt_timeout,
-        fire_async=fire_async,
     )
     all_logs.extend(fb["logs"])
     total_attempts += fb["attempts"]
@@ -612,7 +648,7 @@ def confirm_and_fire(
     acc_check = fb_timing["check_s"]
     last_confirm_result = None
 
-    for ca in range(max_confirm_attempts):
+    for ca in range(profile.max_confirm_attempts):
         confirm_attempts = ca + 1
 
         # Run confirm_fn
@@ -655,12 +691,12 @@ def confirm_and_fire(
             }
 
         # Confirmation failed - attempt correction if not last attempt
-        if ca < max_confirm_attempts - 1:
-            if not refire_on_unconfirmed:
+        if ca < profile.max_confirm_attempts - 1:
+            if not profile.refire_on_unconfirmed:
                 msg = (
                     f"{description} | Readback unconfirmed; retrying "
                     f"readback only "
-                    f"(attempt {confirm_attempts + 1}/{max_confirm_attempts})"
+                    f"(attempt {confirm_attempts + 1}/{profile.max_confirm_attempts})"
                 )
                 log.info(msg)
                 all_logs.append(_make_log_entry("info", msg))
@@ -678,21 +714,16 @@ def confirm_and_fire(
                 "%s | Confirm failed, re-firing (attempt %d/%d)",
                 description,
                 confirm_attempts + 1,
-                max_confirm_attempts,
+                profile.max_confirm_attempts,
             )
             fb = _fire_block(
                 client,
                 api_obj,
                 description,
+                profile=profile,
                 setup_fn=setup_fn,
                 pre_check_fn=None,  # Already waited for idle above
                 error_check_fn=error_check_fn,
-                max_retries=max_retries,
-                retry_backoff=retry_backoff,
-                retry_escalate=retry_escalate,
-                skip_echo=skip_echo,
-                receipt_timeout=receipt_timeout,
-                fire_async=fire_async,
             )
             all_logs.extend(fb["logs"])
             total_attempts += fb["attempts"]
@@ -734,7 +765,7 @@ def confirm_and_fire(
     log.warning("%s%s (%.3fs)", msg, dialog_detail, time.perf_counter() - t_wall_start)
     all_logs.append(_make_log_entry("warning", msg))
     return {
-        "success": success_on_unconfirmed,
+        "success": profile.success_on_unconfirmed,
         "confirmed": False,
         "message": f"{description} (readback unconfirmed){dialog_detail}",
         "timing": _make_timing(

@@ -22,11 +22,11 @@ from __future__ import annotations
 import json
 import os
 from copy import deepcopy
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
+_LEGACY_SCHEMA_VERSION = 12
 
 
 class OldSchemaError(ValueError):
@@ -45,10 +45,6 @@ def default_path(calibration_name: str | None = None) -> Path:
     from ...config.machine import MACHINE
 
     return MACHINE.calibration_path(calibration_name)
-
-
-def now_timestamp() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 def _atomic_write_json(path: str | Path, obj: dict[str, Any]) -> None:
@@ -78,10 +74,23 @@ def _require_block(cfg: dict[str, Any], key: str) -> dict[str, Any]:
     return value
 
 
-def _validate_schema_version(cfg: dict[str, Any], path: Path) -> None:
+def _upgrade_schema(cfg: dict[str, Any], path: Path) -> dict[str, Any]:
+    """Return the current minimal schema, upgrading metadata-only v12 files."""
+    cfg = deepcopy(cfg)
     version = cfg.get("schema_version")
     if version == SCHEMA_VERSION:
-        return
+        return cfg
+    if version == _LEGACY_SCHEMA_VERSION:
+        objectives = cfg.get("objectives") or {}
+        measured = any(entry.get("session_id") for entry in objectives.values())
+        for entry in objectives.values():
+            entry.pop("session_id", None)
+            if not measured:
+                entry.pop("translation_um", None)
+        cfg.pop("last_updated", None)
+        cfg.pop("backlash", None)
+        cfg["schema_version"] = SCHEMA_VERSION
+        return cfg
     if isinstance(version, int) and version < SCHEMA_VERSION:
         raise OldSchemaError(_old_schema_message(version))
     raise ValueError(
@@ -94,11 +103,12 @@ def validate_calibration(config: dict[str, Any]) -> None:
     """Validate the canonical calibration schema.
 
     A config with no objectives, and entries that carry only a name (no
-    ``translation_um``), are both legal: a fresh named set starts empty, and
-    re-anchoring a placeholder-only set keeps the objective names while
-    dropping the placeholder positions. The zero-reference rule applies as
+    ``translation_um``), are both legal. The zero-reference rule applies as
     soon as any entry has a translation.
     """
+    extra_top_level = set(config) - {"schema_version", "objectives"}
+    if extra_top_level:
+        raise ValueError(f"calibration config has unsupported fields: {sorted(extra_top_level)}")
     objectives = _require_block(config, "objectives")
     if any(entry.get("translation_um") is not None for entry in objectives.values()):
         get_reference_slot(config)
@@ -108,9 +118,13 @@ def validate_calibration(config: dict[str, Any]) -> None:
             raise ValueError(f"calibration objective {slot!r} must be an object")
         if entry.get("translation_um") is not None:
             get_translation_um(config, int(slot))
-        for key in ("name", "session_id"):
-            if key not in entry:
-                raise ValueError(f"calibration objective {slot!r} missing field: {key!r}")
+        if "name" not in entry:
+            raise ValueError(f"calibration objective {slot!r} missing field: 'name'")
+        extra = set(entry) - {"name", "translation_um"}
+        if extra:
+            raise ValueError(
+                f"calibration objective {slot!r} has unsupported fields: {sorted(extra)}"
+            )
 
     # No backlash block: backlash is a motion utility with baked-in defaults
     # (decision §2b), not calibration state. A stray ``backlash`` key in an
@@ -133,8 +147,8 @@ def load_calibration(
     if not current.exists():
         raise FileNotFoundError(f"calibration config not found: {current}")
     with current.open(encoding="utf-8") as fh:
-        cfg = json.load(fh)
-    _validate_schema_version(cfg, current)
+        raw = json.load(fh)
+    cfg = _upgrade_schema(raw, current)
     validate_calibration(cfg)
     return cfg
 
@@ -144,16 +158,14 @@ def prepared_calibration(
     *,
     path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Return a validated, write-ready copy of *config* (bumps ``last_updated``).
+    """Return a validated, write-ready copy of *config*.
 
     Shared by :func:`save_calibration` and the snapshot writer so a calibration
     is validated identically no matter where it is persisted. *path* is only
     used to label validation errors.
     """
-    cfg = deepcopy(config)
-    cfg["last_updated"] = now_timestamp()
     label = Path(path) if path is not None else Path("calibration.json")
-    _validate_schema_version(cfg, label)
+    cfg = _upgrade_schema(config, label)
     validate_calibration(cfg)
     return cfg
 
@@ -164,7 +176,7 @@ def save_calibration(
     path: str | Path | None = None,
     calibration_name: str | None = None,
 ) -> Path:
-    """Write the current calibration config atomically and bump timestamp."""
+    """Write the current calibration config atomically."""
     if path is not None and calibration_name is not None:
         raise ValueError("pass either path or calibration_name, not both")
     current = Path(path) if path is not None else default_path(calibration_name)
@@ -179,7 +191,6 @@ def update_objective(
     *,
     name: str | None = None,
     translation_um: tuple[float, float, float] | list[float] | None = None,
-    session_id: str | None = None,
 ) -> None:
     """Incrementally update an objective entry."""
     objectives = config.setdefault("objectives", {})
@@ -200,8 +211,6 @@ def update_objective(
             float(translation_um[1]),
             float(translation_um[2]),
         ]
-    if session_id is not None:
-        entry["session_id"] = session_id
 
 
 def _entry(config: dict[str, Any], slot: int) -> dict[str, Any]:

@@ -90,8 +90,9 @@ runtime where possible. Override via the profile, not at call sites.
   is the driver's own front door. It opens the CAM client and then loads this microscope's three
   machine-local configs — the **stage limits**, the **orientation**, and the **calibration** — so the
   whole session works from one consistent picture. The zmart adapter's `connect()` simply delegates to
-  it. Each config can be skipped with `load_limits` / `load_orientation` / `load_calibration` (all
-  default `True`; see §5 for what skipping one means). This is a deliberate ladder: the limits notebook
+  it. Normal image orientation is enabled by `IMAGE_SAVE` in `config/profiles.py`; only the
+  orientation measurement explicitly requests raw pixels. Limits and calibration can still be skipped.
+  This is a deliberate ladder: the limits notebook
   is bounded only by the physical backstop, `set_orientation` is bounded by limits, and
   `calibrate_objective_pair` is bounded by limits and expects a measured orientation.
 - **Limits handshake** — `connect_limits_handshake(client)` (run by `connect_microscope`;
@@ -176,11 +177,12 @@ only opens and pings the client (the setup notebooks use it, since they load jus
 need). Every command/reader takes the returned `client` as its first argument. The CAM client has no
 disconnect counterpart — it lives for the process; there is nothing to close when a session ends.
 
-**Which configs to load.** `connect_microscope(load_limits=…, load_orientation=…, load_calibration=…)`
-(all default `True`) chooses what a connection loads. Skipping one has a defined, safe meaning:
-`load_limits=False` governs the session with the bundled **default** envelope (never ungated; the
-physical backstop still holds); `load_orientation=False` saves images unrotated; `load_calibration=False`
-refuses cross-objective moves rather than computing uncompensated ones.
+**Which configs to load.** `connect_microscope(load_limits=…, load_calibration=…)` chooses whether
+limits and calibration are loaded. `load_limits=False` governs the session with the bundled **default**
+envelope (never ungated; the physical backstop still holds); `load_calibration=False` refuses
+cross-objective moves rather than computing uncompensated ones. Normal image saves always use the
+`IMAGE_SAVE.apply_orientation=True` profile default. Only orientation measurement passes an explicit
+identity orientation to obtain raw camera pixels.
 
 **The origin is session-scoped.** `set_origin` makes the current position the frame zero — from then
 until it is set again or the session ends. It appends `origin/<datetime>/origin.json` as a record,
@@ -375,11 +377,11 @@ zmart_drivers/leica/stellaris5_y42h93/navigator_expert/
 │                 settings.py · objectives.py · commands.py (set_*/move_*/acquire/select_job)
 ├── readers/      router.py (api/log/hybrid) · api_reader.py · log_reader.py · capabilities.py · derived.py
 ├── config/       profiles.py (CommandProfile + per-command instances, LasxApi/LogReader profiles) · machine.py
-├── motion/       limits.py (µm safety envelope) · movement.py (backlash) · stage_config.py
+├── motion/       limits.py (µm safety envelope) · movement.py (backlash)
 ├── acquisition/  product.py (neutral types) · capture.py (acquire) · save.py (persistence) · ome.py
 ├── scanfields/   .lrp/.rgn/.xml parsing + templates    experimental/lrp_edits/  offline template editors
 ├── calibration/  objective-pair calibration (data machine-local; defaults/ + notebooks/ inside)
-├── limits/       stage/function limits defaults + setup notebook; runtime truth is ProgramData
+├── limits/       config.py · defaults/ · setup notebook; runtime truth is ProgramData
 ├── orientation/  camera↔stage quarter-turn, applied at save; measured by set_orientation, stored in the machine snapshot next to calibration + limits
 ├── zmart_adapter/  ops table plugging this driver into zmart_controller (import to register)
 ├── tests/        unit/ (offline) + hardware/ (validate_*.py live scripts + mock-backed test_* gates)
@@ -414,7 +416,7 @@ callables + retry/confirm tuning). Tuning a command = editing its profile; nothi
 @dataclass(frozen=True)
 class CommandProfile:
     pre_check_fn=None ; error_check_fn=_default_error_check ; confirm_fn=None
-    max_retries=3 ; max_confirm_attempts=3 ; refire_on_unconfirmed=True
+    max_retries=3 ; max_confirm_attempts=4 ; refire_on_unconfirmed=True
     confirm_poll_s=CONFIRM_POLL_S ; confirm_tolerance=None
     success_on_unconfirmed=True                # exhausted readback -> unconfirmed, never hard-fail
     # + poll/heartbeat/backoff/receipt/async knobs
