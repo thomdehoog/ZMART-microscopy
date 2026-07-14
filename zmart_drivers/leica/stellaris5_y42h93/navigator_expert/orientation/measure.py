@@ -7,10 +7,10 @@ both axis signs, the quarter-turn, and whether the acquisition is mirrored.
 
 Under the hood this registers each pair of pictures to get the shift, builds a
 small 2x2 matrix from the two shifts, and matches it to the nearest lossless D4
-mapping (four quarter-turns, each mirrored or not). The result is written to a staging
-``orientation.json`` that :func:`adopt_orientation` publishes into a new
-``orientation/<datetime>/`` ProgramData snapshot, which is the value the driver
-reads at save time.
+mapping (four quarter-turns, each mirrored or not). Each notebook run owns one
+``orientation/<datetime>/`` directory. A successful fit writes its final
+``orientation.json`` there directly; incomplete runs are retained as evidence
+but are ignored by the driver.
 
 The three pictures are taken **without** applying any correction, so re-running the
 measurement always looks at the real microscope rather than an image that has
@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import json
 import math
-import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -44,7 +43,6 @@ from ..calibration.core.common import (
     SessionPaths,
     acquire_frame_to,
     assert_geometry_matches,
-    make_session_paths,
     move_xy_and_verify,
     now_iso,
     read_job_geometry,
@@ -57,12 +55,11 @@ from . import (
     orientation_from_config,
     orientation_from_image_to_stage,
     reorient_array,
-    rig_orientation,
 )
 
 KIND = "orientation"
-STAGING_NAME = "orientation.json"
-STAGING_SCHEMA_VERSION = SCHEMA_VERSION
+ORIENTATION_NAME = "orientation.json"
+REPORT_SCHEMA_VERSION = SCHEMA_VERSION
 DIAGNOSTIC_NAME = "orientation_diagnostic.png"
 _PER_STEP_IMAGES = ("home", "plus_x", "plus_y")
 
@@ -98,19 +95,35 @@ class OrientationSession:
 
 def start_session(
     *,
-    session_id: str,
     job_name: str,
     reference_objective: str,
-    sessions_root: str | Path,
     stage_move_um: float = 30.0,
     settle_s: float = 1.0,
+    machine: Any = None,
+    moment: datetime | None = None,
 ) -> OrientationSession:
     if stage_move_um <= 0:
         raise ValueError(f"stage_move_um must be > 0, got {stage_move_um}")
 
-    # Create the session directory tree BEFORE any driver call so an
-    # invalid sessions_root fails before the rig is touched.
-    paths = make_session_paths(session_id, sessions_root)
+    if machine is None:
+        from ..config.machine import MACHINE
+
+        machine = MACHINE
+    if moment is None:
+        moment = datetime.now(timezone.utc)
+
+    # The run directory is final from the moment the notebook starts. There
+    # is no temporary session and no later adoption step.
+    run_dir = machine.new_snapshot_dir(moment, "orientation")
+    paths = SessionPaths(
+        session_root=run_dir,
+        session_dir=run_dir,
+        configs_dir=run_dir,  # compatibility field; no configs/ is created
+        reports_dir=run_dir / "reports",
+        data_dir=run_dir / "data",
+    )
+    for directory in (paths.data_dir, paths.reports_dir, run_dir / "validation"):
+        directory.mkdir(parents=True, exist_ok=False)
 
     client = drv.connect_python_client()
     # Connect-time limits handshake: the measurement moves the stage through
@@ -124,7 +137,7 @@ def start_session(
         raise RuntimeError("get_hardware_info returned None; LAS X unreachable")
 
     return OrientationSession(
-        session_id=session_id,
+        session_id=run_dir.name,
         paths=paths,
         job_name=job_name,
         client=client,
@@ -135,8 +148,8 @@ def start_session(
     )
 
 
-def _invalidate_staging_config(session: OrientationSession) -> None:
-    out = session.paths.configs_dir / STAGING_NAME
+def _invalidate_orientation_config(session: OrientationSession) -> None:
+    out = session.paths.session_dir / ORIENTATION_NAME
     if out.exists():
         out.unlink()
     session.config_written = False
@@ -504,13 +517,13 @@ def _finite_registration(vote: dict) -> dict:
 
 
 def measure(session: OrientationSession) -> OrientationSession:
-    """Acquire raw home/+X/+Y, fit the D4, and stage the accepted orientation.
+    """Acquire raw home/+X/+Y and write the accepted orientation directly.
 
     Sets ``session.orientation`` + ``session.residual_from_d4`` and writes the
-    staging ``orientation.json`` only when both votes are trusted and the D4
+    final ``orientation.json`` only when both votes are trusted and the D4
     residual is within ``D4_RESIDUAL_MAX``. All eight lossless D4 transforms are
     valid, including a mirror introduced by an acquisition setting. Otherwise
-    records ``session.failure_reason`` and leaves no staging config.
+    records ``session.failure_reason`` and leaves no active config.
     """
     session.images.clear()
     session.raw_files.clear()
@@ -527,9 +540,9 @@ def measure(session: OrientationSession) -> OrientationSession:
     session.pixel_size_um = None
     session.home_xy = None
 
-    # Unlink stale staging config and per-step TIFFs BEFORE any driver call so
-    # a mid-measure failure cannot leave the previous run's adoptable artifact.
-    _invalidate_staging_config(session)
+    # Unlink stale config and per-step TIFFs BEFORE any driver call so a
+    # mid-measure failure cannot leave this run looking valid.
+    _invalidate_orientation_config(session)
     for name in _PER_STEP_IMAGES:
         (session.paths.data_dir / f"{name}.tif").unlink(missing_ok=True)
 
@@ -591,7 +604,7 @@ def measure(session: OrientationSession) -> OrientationSession:
         write_json_atomic(
             session.paths.reports_dir / "orientation_report.json",
             {
-                "schema_version": STAGING_SCHEMA_VERSION,
+                "schema_version": REPORT_SCHEMA_VERSION,
                 "kind": "orientation_report",
                 "created_at": now_iso(),
                 "reference_objective": session.reference_objective,
@@ -656,7 +669,7 @@ def measure(session: OrientationSession) -> OrientationSession:
     write_json_atomic(
         session.paths.reports_dir / "orientation_report.json",
         {
-            "schema_version": STAGING_SCHEMA_VERSION,
+            "schema_version": REPORT_SCHEMA_VERSION,
             "kind": "orientation_report",
             "created_at": now_iso(),
             "reference_objective": session.reference_objective,
@@ -696,102 +709,35 @@ def measure(session: OrientationSession) -> OrientationSession:
     if not session.d4_accepted:
         return session
 
-    out = session.paths.configs_dir / STAGING_NAME
+    out = session.paths.session_dir / ORIENTATION_NAME
     write_json_atomic(out, orientation_config(session.orientation, measured=True))
     session.config_written = True
     return session
 
 
-def adopt_orientation(
-    session: OrientationSession,
-    *,
-    machine: Any = None,
-    moment: datetime | None = None,
-    notebook_paths: Any = (),
-) -> dict:
-    """Publish the measured D4 mapping into a new orientation timestamp snapshot.
-
-    Reads the staged ``orientation.json`` and atomically appends it together
-    with the complete measurement session under the machine's independent
-    ``orientation/<datetime>/`` tree. Once publication succeeds, the redundant
-    working-session directory is removed. Limits, calibration, and origin are
-    not copied. The newest orientation snapshot is what the driver reads when
-    it connects and what calibration reads at capture time.
-
-    Args:
-        session: The orientation session holding the staged config.
-        machine: ``MachineProfile`` to publish into; ``None`` uses the global
-            ``MACHINE``. Tests inject a hermetic profile here.
-        moment: Snapshot timestamp; ``None`` uses ``datetime.now(timezone.utc)``.
-            Must sort strictly after the latest orientation snapshot.
-        notebook_paths: Saved notebook(s) to archive in the snapshot.
-
-    Returns:
-        ``{"source": str, "snapshot": str, "orientation_path": str}`` -- the new
-        snapshot folder and its ``orientation.json``.
-
-    Raises:
-        FileNotFoundError: if no accepted staging config exists.
-    """
-    source = session.paths.configs_dir / STAGING_NAME
-    if not source.exists():
-        raise FileNotFoundError(
-            "No staging orientation to adopt. Review the summary: the "
-            "measurement may have failed (weak vote or high "
-            "residual). Re-run set_orientation before adopting."
-        )
-    if machine is None:
-        from ..config.machine import MACHINE
-
-        machine = MACHINE
-    if moment is None:
-        moment = datetime.now(timezone.utc)
-
-    data = json.loads(source.read_text(encoding="utf-8"))
-    orientation = orientation_from_config(data)
-    snapshot = machine.publish_snapshot(
-        moment,
-        orientation=orientation_config(orientation, measured=True),
-        archive_paths=[session.paths.session_dir],
-        notebook_paths=notebook_paths,
-    )
-    archived_session = snapshot / session.paths.session_dir.name
-    archived_source = archived_session / "configs" / STAGING_NAME
-    try:
-        shutil.rmtree(session.paths.session_dir)
-    except OSError as exc:
-        raise RuntimeError(
-            f"orientation was published to {snapshot}, but the redundant working "
-            f"session could not be removed: {session.paths.session_dir}"
-        ) from exc
-    return {
-        "source": str(archived_source),
-        "snapshot": str(snapshot),
-        "measurement_session": str(archived_session),
-        "orientation_path": str(snapshot / STAGING_NAME),
-    }
-
-
 def acquire_validation_image(
     session: OrientationSession,
-    *,
-    output_root: str | Path,
 ) -> tuple[np.ndarray, Path]:
-    """Acquire, save, and reload one image with the adopted orientation.
+    """Acquire, save, and reload one image with this run's orientation.
 
     The returned pixels come from the saved OME-TIFF, so displaying them checks
     the same rotation and reflection that later acquisitions will receive.
     """
     if session.orientation is None:
-        raise RuntimeError("Measure and adopt the orientation before running validation.")
+        raise RuntimeError("Measure the orientation successfully before running validation.")
 
-    active_orientation = rig_orientation()
-    if active_orientation != session.orientation:
+    orientation_path = session.paths.session_dir / ORIENTATION_NAME
+    if not orientation_path.is_file():
+        raise RuntimeError("This run has no valid orientation.json; validation is unavailable.")
+    saved_orientation = orientation_from_config(
+        json.loads(orientation_path.read_text(encoding="utf-8"))
+    )
+    if saved_orientation != session.orientation:
         raise RuntimeError(
-            "The active machine orientation does not match this measurement. "
-            "Adopt this measurement before running validation."
+            "This run's orientation.json does not match the measured orientation."
         )
 
+    output_root = session.paths.session_dir / "validation"
     acquisition = drv.acquire(session.client, session.job_name)
     saved = drv.save(
         session.client,
@@ -802,7 +748,7 @@ def acquire_validation_image(
             hash6=run_hash(),
             position_label="validation",
         ),
-        orientation=active_orientation,
+        orientation=saved_orientation,
     )
     if len(saved.image_paths) != 1:
         raise ValueError(f"Validation expected one saved image; got {len(saved.image_paths)}.")
@@ -814,3 +760,13 @@ def acquire_validation_image(
     if image.ndim != 2:
         raise ValueError(f"Validation expected a 2-D image; got shape {image.shape!r}.")
     return image, image_path
+
+
+def archive_notebook(session: OrientationSession, notebook_path: str | Path) -> Path:
+    """Copy the saved operator notebook into this run's final directory."""
+    import shutil
+
+    source = Path(notebook_path)
+    destination = session.paths.session_dir / "set_orientation.ipynb"
+    shutil.copy2(source, destination)
+    return destination
