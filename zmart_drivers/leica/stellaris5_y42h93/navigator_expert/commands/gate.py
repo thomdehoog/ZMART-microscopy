@@ -395,8 +395,8 @@ def _install_default_limits(client: Any, machine: Any, reason: str) -> GateState
     )
     log.warning(
         "limits fallback: %s — the session is governed by the bundled DEFAULT "
-        "limits (%s), NOT this machine's measured envelope. The defaults span "
-        "the full physical travel, so they may be WIDER than the envelope this "
+        "limits (%s), NOT this machine's measured envelope. The conservative "
+        "defaults may be WIDER than the envelope this "
         "machine's own limits.json intended: do not rely on your published "
         "limits until the file validates again. The hardcoded physical backstop "
         "still bounds every move. Publish measured limits with %s.",

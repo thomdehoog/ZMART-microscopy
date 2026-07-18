@@ -396,7 +396,7 @@ _ENVELOPE = {
     "z_galvo_min": -250.0,
     "z_galvo_max": 250.0,
     "z_wide_min": 0.0,
-    "z_wide_max": 25000.0,
+    "z_wide_max": 8000.0,
 }
 
 
