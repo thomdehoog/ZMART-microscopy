@@ -7,7 +7,9 @@ microscope API root::
         limits/<datetime>/
             limits.json
             .limits-machine
-            set_limits.ipynb
+            data/
+                notebook/set_limits_<datetime>.ipynb
+                template/<saved experiment>.{xml,rgn,lrp}
         calibration/
             <datetime>/
                 calibration.json

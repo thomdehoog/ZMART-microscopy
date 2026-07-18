@@ -394,7 +394,7 @@ def test_manual_set_stage_limits_allows_silent_widening_but_backstop_holds(gover
         z_galvo_min=-250.0,
         z_galvo_max=250.0,
         z_wide_min=0.0,
-        z_wide_max=25000.0,
+        z_wide_max=8000.0,
     )
     assert motion_limits.get_stage_limits()["x_max"] == 500000.0  # the pin
     # a target beyond the physical travel, inside the widened in-memory
@@ -959,17 +959,24 @@ def test_scanfield_file_mutators_call_the_gate():
 
 
 # =============================================================================
-# 8. Backstop constants — pinned to the historical machine envelope
+# 8. Backstop constants — absolute coordinate space around safe defaults
 # =============================================================================
 
 
-def test_backstop_matches_the_historical_machine_envelope():
-    """VERIFY-ON-RIG values: the backstop must equal the bundled template's
-    envelope until measured rig data says otherwise (never wider)."""
+def test_backstop_allows_measured_xy_below_the_default_margin():
     template = json.loads(
         (DRIVER_ROOT / "limits" / "defaults" / "limits.json").read_text(encoding="utf-8")
     )
-    for axis, (lo, hi) in motion_limits.STAGE_BACKSTOP_UM.items():
+
+    for axis in ("x", "y"):
+        lo, hi = motion_limits.STAGE_BACKSTOP_UM[axis]
+        default_lo, default_hi = template[f"{axis}_um"]["range"]
+        assert lo == 0.0 < default_lo
+        assert hi == default_hi
+        assert math.isfinite(lo) and math.isfinite(hi)
+
+    for axis in ("z_galvo", "z_wide"):
+        lo, hi = motion_limits.STAGE_BACKSTOP_UM[axis]
         assert template[f"{axis}_um"] == {"range": [lo, hi]}
         assert math.isfinite(lo) and math.isfinite(hi)
 
@@ -977,6 +984,9 @@ def test_backstop_matches_the_historical_machine_envelope():
 def test_containment_checker_accepts_the_template_and_narrower():
     motion_limits.check_envelope_within_backstop(DEFAULT_STAGE_UM)
     motion_limits.check_envelope_within_backstop(dict(DEFAULT_STAGE_UM, x=[20000.0, 40000.0]))
+    motion_limits.check_envelope_within_backstop(dict(DEFAULT_STAGE_UM, y=[964.8553, 90000.0]))
+    with pytest.raises(RuntimeError, match="backstop"):
+        motion_limits.check_envelope_within_backstop(dict(DEFAULT_STAGE_UM, y=[-1.0, 90000.0]))
     with pytest.raises(RuntimeError, match="backstop"):
         motion_limits.check_envelope_within_backstop(
             dict(DEFAULT_STAGE_UM, z_galvo=[-251.0, 250.0])

@@ -46,6 +46,17 @@ def test_adopt_limits_publishes_only_to_the_limits_tree(tmp_path):
     assert not (snap / "function_limits.json").exists()
 
 
+def test_adopt_limits_publishes_measured_xy_below_the_default_margin(tmp_path):
+    m = MachineProfile(programdata_root=tmp_path)
+    measured = dict(_ENV_A, y=[964.8553, 90000])
+
+    limits_config.adopt_limits(measured, machine=m, moment=_ADOPT_MOMENT)
+
+    snapshot = m.latest_snapshot("limits")
+    payload = json.loads((snapshot / "limits.json").read_text(encoding="utf-8"))
+    assert payload["y_um"] == {"range": [964.8553, 90000.0]}
+
+
 def test_adopt_limits_first_time_writes_complete_limits_snapshot(tmp_path):
     m = MachineProfile(programdata_root=tmp_path)
     assert m.latest_snapshot("limits") is None
@@ -57,6 +68,43 @@ def test_adopt_limits_first_time_writes_complete_limits_snapshot(tmp_path):
     assert lim["z_wide_um"] == {"range": [0.0, 60.0]}
     # §2b: no backlash block is ever written
     assert "backlash" not in lim
+
+
+def test_adopt_limits_archives_the_saved_notebook_with_the_snapshot_timestamp(tmp_path):
+    from navigator_expert.config.machine import format_snapshot_name
+
+    m = MachineProfile(programdata_root=tmp_path / "programdata")
+    notebook = tmp_path / "set_limits.ipynb"
+    notebook.write_text('{"cells": [{"saved": true}]}', encoding="utf-8")
+    templates = []
+    for suffix in (".xml", ".rgn", ".lrp"):
+        template = tmp_path / f"{{ScanningTemplate}}_PythonInspect{suffix}"
+        template.write_text(f"saved {suffix}", encoding="utf-8")
+        templates.append(template)
+
+    out = limits_config.adopt_limits(
+        _ENV_B,
+        machine=m,
+        moment=_ADOPT_MOMENT,
+        notebook_paths=[notebook],
+        template_paths=templates,
+    )
+
+    snapshot = m.latest_snapshot("limits")
+    archived = (
+        snapshot
+        / "data"
+        / "notebook"
+        / f"set_limits_{format_snapshot_name(_ADOPT_MOMENT)}.ipynb"
+    )
+    assert archived.read_text(encoding="utf-8") == '{"cells": [{"saved": true}]}'
+    assert out["notebook_paths"] == [str(archived)]
+    assert not (snapshot / notebook.name).exists()
+    archived_templates = sorted((snapshot / "data" / "template").iterdir())
+    assert [path.suffix for path in archived_templates] == [".lrp", ".rgn", ".xml"]
+    assert out["template_paths"] == [
+        str(snapshot / "data" / "template" / path.name) for path in templates
+    ]
 
 
 def test_limits_snapshot_is_unchanged_by_later_calibration_adoption(tmp_path):
@@ -219,4 +267,13 @@ def test_limits_notebook_publishes_the_exact_flat_template():
     )
     assert notebook_limits == bundled
     assert "from navigator_expert.limits.config import adopt_limits" in source
-    assert "adopt_limits(LIMITS" in source
+    assert "published = adopt_limits(" in source
+    assert "    LIMITS," in source
+    assert "import navigator_expert as drv" in source
+    assert "drv.connect_microscope(load_calibration=False)" in source
+    assert "capture_adaptive_xy_limits(client, remove_markers=True)" in source
+    assert 'LIMITS.update(captured_xy["limits"])' in source
+    assert 'template_paths=captured_xy["template_paths"]' in source
+    assert "plot_adaptive_xy_limits" not in source
+    assert "zmart_controller" not in source
+    assert "input(" not in source

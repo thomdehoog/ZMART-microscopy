@@ -43,20 +43,20 @@ from typing import Any
 # =============================================================================
 
 # !! VERIFY ON RIG !! -------------------------------------------------------
-# Absolute physical travel backstop for the motoric stage and both z drives
-# (micrometers, [min, max] per axis). These values are the HISTORICAL machine
-# envelope of the ZMB STELLARIS 5 (serial y42h93) — the numbers that shipped
-# in limits/defaults/limits.json and that the offline suite has always pinned
-# (x/y minima of 1000 um are safety margins, not physical zero). There is no
-# wider vendor-spec source in this repo, so these are the only defensible
-# backstop values until someone verifies the true travel on the rig.
+# Absolute coordinate backstop for the motoric stage and both z drives
+# (micrometers, [min, max] per axis). The bundled X/Y defaults deliberately
+# start at 1000 um as a conservative safety margin; that margin is not the
+# physical coordinate floor. Operator-measured limits may therefore extend
+# below the default margin, down to coordinate zero. The upper bounds and Z
+# bounds remain pinned to the historical ZMB STELLARIS 5 (serial y42h93)
+# envelope until someone verifies different travel on the rig.
 # NEVER widen these without measured rig data; narrowing is always safe.
 # ---------------------------------------------------------------------------
 STAGE_BACKSTOP_UM = {
-    "x": (1000.0, 130000.0),
-    "y": (1000.0, 100000.0),
+    "x": (0.0, 130000.0),
+    "y": (0.0, 100000.0),
     "z_galvo": (-250.0, 250.0),
-    "z_wide": (0.0, 25000.0),
+    "z_wide": (0.0, 8000.0),
 }
 
 
