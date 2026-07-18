@@ -23,13 +23,13 @@ from navigator_expert.config.machine import MachineProfile
 from navigator_expert.limits import config as _limits_config
 from navigator_expert.motion import limits as _motion_limits
 
-# The historical machine envelope (== the bundled template and the hardcoded
-# backstop in motion/limits.py) — the widest envelope a fixture may use.
+# The bundled conservative default envelope. The absolute X/Y backstop extends
+# down to coordinate zero so measured limits may sit below the 1000 um margin.
 DEFAULT_STAGE_UM = {
     "x": [1000.0, 130000.0],
     "y": [1000.0, 100000.0],
     "z_galvo": [-250.0, 250.0],
-    "z_wide": [0.0, 25000.0],
+    "z_wide": [0.0, 8000.0],
 }
 
 _SEED_MOMENT = datetime(2026, 1, 1, tzinfo=timezone.utc)

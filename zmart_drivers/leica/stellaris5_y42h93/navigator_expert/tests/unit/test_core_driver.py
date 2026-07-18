@@ -2005,7 +2005,7 @@ class TestStageLimits(unittest.TestCase):
             z_galvo_min=-250,
             z_galvo_max=250,
             z_wide_min=0,
-            z_wide_max=25000,
+            z_wide_max=8000,
         )
 
     def test_valid_xy(self):
@@ -2040,7 +2040,7 @@ class TestStageLimits(unittest.TestCase):
 
     def test_z_wide_above(self):
         with self.assertRaises(RuntimeError):
-            drv._check_z_limits(25001, "zwide")
+            drv._check_z_limits(8001, "zwide")
 
     def test_z_unknown_mode_raises(self):
         with self.assertRaises(ValueError):
@@ -2234,7 +2234,7 @@ class TestMoveXYConsistency(unittest.TestCase):
             z_galvo_min=-250,
             z_galvo_max=250,
             z_wide_min=0,
-            z_wide_max=25000,
+            z_wide_max=8000,
         )
         with (
             patch.object(readers, "get_scan_status", return_value="eScanIdle"),
