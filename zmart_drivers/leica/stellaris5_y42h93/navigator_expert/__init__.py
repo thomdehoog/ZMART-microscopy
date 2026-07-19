@@ -87,7 +87,6 @@ __all__ = [
     "get_template_state",
     "strip_template_in_place",
     "apply_lrp_change",
-    "move_xy_with_backlash",
     "reorder_jobs",
     "save_and_read_lrp",
     # position parsers/planning
@@ -201,16 +200,15 @@ from .commands.gate import (
     connect_handshake as connect_limits_handshake,
 )
 
-# -- motion/ - stage safety + movement
+# -- limits/checks.py - stage safety
 from .limits.checks import (
     _stage_limits,
     set_stage_limits,
     get_stage_limits,
     apply_stage_limits_from_config,
-    _check_xy_limits,
-    _check_z_limits,
+    check_xy,
+    check_z,
 )
-from .commands.routines import move_xy_with_backlash
 
 # -- scanfields/ - LAS X scan-field file operations and parsing
 from .scanfields.files import (

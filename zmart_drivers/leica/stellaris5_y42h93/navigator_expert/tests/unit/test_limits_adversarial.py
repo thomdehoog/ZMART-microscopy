@@ -1010,7 +1010,7 @@ def test_calibration_values_seed_programdata_from_repo_defaults():
 def test_backlash_is_not_config_and_the_primitive_uses_its_default_params():
     """§2b (resolves MR-01/MR-02): backlash left limits.json entirely. The
     published limits.json has NO backlash block, limits_config.load reads only
-    the envelope, and the motion primitive carries its own baked-in defaults —
+    the envelope, and the backlash routine carries its own baked-in defaults —
     there is no config path (and so no NaN-backlash path) left in limits."""
     import inspect
 
@@ -1026,11 +1026,13 @@ def test_backlash_is_not_config_and_the_primitive_uses_its_default_params():
     assert set(cfg["stage_um"]) == {"x", "y", "z_galvo", "z_wide"}
     assert cfg["stage_um"]["x"] == DEFAULT_STAGE_UM["x"]
 
-    # the primitive's params are baked into its signature, not read from config
-    defaults = inspect.signature(movement.move_xy_with_backlash).parameters
+    # the routine's params are baked into the module, not read from config
+    assert movement.BACKLASH_OVERSHOOT_UM == 50.0
+    assert movement.BACKLASH_SETTLE_MS == 100
+    defaults = inspect.signature(movement.correct_backlash).parameters
     assert defaults["overshoot_um"].default == 50.0
     assert defaults["settle_ms"].default == 100
-    assert defaults["tolerance_um"].default is None
+    assert defaults["tolerance_um"].default == 20.0
 
 
 def test_a_calibration_adopt_does_not_duplicate_other_machine_config():
