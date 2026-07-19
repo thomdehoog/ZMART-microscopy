@@ -615,9 +615,10 @@ def set_objective(
     ``False`` asks for a bare swap. See
     :func:`objective_shift.record_before_change`.
     """
-    refused = _limits_refusal(client, "set_objective", {"job_name": job_name})
-    if refused:
-        return refused
+    # The limits gate is consulted once, below, after the selector resolves
+    # to a physical slot — that one check covers both the fail-closed
+    # session state and the objective allow-list. (Malformed selectors get
+    # a usage error first; they fire nothing, so nothing needs gating.)
     selectors = [v for v in (slot_index, name, magnification) if v is not None]
     if len(selectors) != 1:
         return {
