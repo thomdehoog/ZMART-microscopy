@@ -449,7 +449,7 @@ class TestNativeSave:
         tiff = _write_native_ome_tiff(tmp_path / "native.ome.tif", _native_data())
         monkeypatch.setattr(
             materialize._ome,
-            "_read_tiff_tag_270",
+            "read_tiff_tag_270",
             lambda _data: (None, None, None, None, "Not a standard TIFF (magic=43)"),
         )
 
