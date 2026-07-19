@@ -1773,8 +1773,8 @@ class TestSetFunctionWiring(unittest.TestCase):
     # â”€â”€ move_z wiring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _run_move_z(self, *args, **kwargs):
-        """Like _run_set but also mocks _check_z_limits."""
-        with patch.object(commands, "_check_z_limits"):
+        """Like _run_set but also mocks check_z."""
+        with patch.object(commands, "check_z"):
             return self._run_set(drv.move_z, *args, **kwargs)
 
     def test_move_z_galvo_model(self):
@@ -1809,7 +1809,7 @@ class TestSetFunctionWiring(unittest.TestCase):
         self.assertIsNotNone(info["kwargs"].get("confirm_fn"))
 
     def test_move_z_limit_check_failure(self):
-        """When _check_z_limits raises, move_z returns failure without dispatch."""
+        """When check_z raises, move_z returns failure without dispatch."""
         r = drv.move_z(make_client(), "J", 99999.0, z_mode="galvo")
         self.assertFalse(r["success"])
 
@@ -2009,49 +2009,49 @@ class TestStageLimits(unittest.TestCase):
         )
 
     def test_valid_xy(self):
-        drv._check_xy_limits(50000, 50000)
+        drv.check_xy(50000, 50000)
 
     def test_x_below_min(self):
         with self.assertRaises(RuntimeError):
-            drv._check_xy_limits(-1, 50000)
+            drv.check_xy(-1, 50000)
 
     def test_x_above_max(self):
         with self.assertRaises(RuntimeError):
-            drv._check_xy_limits(130001, 50000)
+            drv.check_xy(130001, 50000)
 
     def test_y_below_min(self):
         with self.assertRaises(RuntimeError):
-            drv._check_xy_limits(50000, -1)
+            drv.check_xy(50000, -1)
 
     def test_y_above_max(self):
         with self.assertRaises(RuntimeError):
-            drv._check_xy_limits(50000, 100001)
+            drv.check_xy(50000, 100001)
 
     def test_z_galvo_valid(self):
-        drv._check_z_limits(0, "galvo")
+        drv.check_z(0, "galvo")
 
     def test_z_galvo_below(self):
         with self.assertRaises(RuntimeError):
-            drv._check_z_limits(-251, "galvo")
+            drv.check_z(-251, "galvo")
 
     def test_z_galvo_above(self):
         with self.assertRaises(RuntimeError):
-            drv._check_z_limits(251, "galvo")
+            drv.check_z(251, "galvo")
 
     def test_z_wide_above(self):
         with self.assertRaises(RuntimeError):
-            drv._check_z_limits(25001, "zwide")
+            drv.check_z(25001, "zwide")
 
     def test_z_unknown_mode_raises(self):
         with self.assertRaises(ValueError):
-            drv._check_z_limits(100, "unknown")
+            drv.check_z(100, "unknown")
 
     def test_unconfigured_raises(self):
         old = dict(drv._stage_limits)
         drv._stage_limits["x_min"] = None
         try:
             with self.assertRaises(RuntimeError):
-                drv._check_xy_limits(0, 0)
+                drv.check_xy(0, 0)
         finally:
             drv._stage_limits.update(old)
 

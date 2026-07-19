@@ -21,6 +21,7 @@ from limits_fixtures import (
 )
 from navigator_expert.commands import gate as _gate
 from navigator_expert.commands import settings as _cmd_settings
+from navigator_expert.limits import checks as limits_checks
 from navigator_expert.zmart_adapter import zmart_adapter as adapter
 
 
@@ -83,7 +84,7 @@ def _patch_position(x_um=100.0, y_um=200.0, z_wide_um=50.0, z_galvo_um=0.0, job=
 
 def _wide_limits():
     """Configure a permissive stage envelope for tests that exercise set_xyz."""
-    adapter._limits.set_stage_limits(
+    limits_checks.set_stage_limits(
         x_min=0.0,
         x_max=1_000_000.0,
         y_min=0.0,
@@ -96,7 +97,7 @@ def _wide_limits():
 
 
 def _clear_limits():
-    adapter._limits._stage_limits.update(dict.fromkeys(adapter._limits._stage_limits, None))
+    limits_checks._stage_limits.update(dict.fromkeys(limits_checks._stage_limits, None))
 
 
 class TestRegistration(unittest.TestCase):
@@ -282,7 +283,7 @@ class TestFrame(unittest.TestCase):
         # current hardware: z-wide at 32, z-galvo at 3
         patches = _patch_position(z_wide_um=32.0, z_galvo_um=3.0)
         with (
-            patch.object(adapter._motion, "move_xy_with_backlash", fake_move_xy_with_backlash),
+            patch.object(adapter._motion, "arrive_xy", fake_move_xy_with_backlash),
             patch.object(adapter._commands, "move_z", fake_move_z),
             patches[0],
             patches[1],
@@ -312,7 +313,7 @@ class TestFrame(unittest.TestCase):
         with (
             patch.object(
                 adapter._motion,
-                "move_xy_with_backlash",
+                "arrive_xy",
                 return_value={"success": True, "confirmed": True},
             ),
             patch.object(adapter._commands, "move_z", fake_move_z),
@@ -331,7 +332,7 @@ class TestFrame(unittest.TestCase):
         with (
             patch.object(
                 adapter._motion,
-                "move_xy_with_backlash",
+                "arrive_xy",
                 return_value={"success": True, "confirmed": True},
             ),
             patch.object(
@@ -1154,7 +1155,7 @@ class TestObjectiveCompensation(unittest.TestCase):
 
         patches = _patch_position(z_wide_um=40.0, z_galvo_um=0.0, slot=2)
         with (
-            patch.object(adapter._motion, "move_xy_with_backlash", fake_xy),
+            patch.object(adapter._motion, "arrive_xy", fake_xy),
             patch.object(adapter._commands, "move_z", fake_z),
             patches[0],
             patches[1],
@@ -1196,7 +1197,7 @@ class TestObjectiveCompensation(unittest.TestCase):
             x_um=1110.0, y_um=2060.0, z_wide_um=45.0, z_galvo_um=0.0, job="HiRes", slot=2
         )
         with (
-            patch.object(adapter._motion, "move_xy_with_backlash", fake_xy),
+            patch.object(adapter._motion, "arrive_xy", fake_xy),
             patch.object(adapter._commands, "move_z", fake_z),
             patches[0],
             patches[1],
@@ -1227,7 +1228,7 @@ class TestObjectiveCompensation(unittest.TestCase):
         with (
             patch.object(
                 adapter._motion,
-                "move_xy_with_backlash",
+                "arrive_xy",
                 return_value={"success": True, "confirmed": True},
             ),
             patch.object(adapter._commands, "move_z", fake_z),
@@ -1246,7 +1247,10 @@ class TestObjectiveCompensation(unittest.TestCase):
             (4.0, "galvo"),
         ]
 
-    def test_cross_objective_zwide_translation_is_preflighted_before_any_motion(self):
+    def test_cross_objective_zwide_translation_refuses_with_the_offset_hint(self):
+        """The doomed z-wide leg is refused inside the real move_z (the
+        commands layer owns all checking); the adapter's job is only the
+        actionable message on top."""
         h = self._cross_handle()
         install_permissive_limits(
             h.client,
@@ -1255,8 +1259,7 @@ class TestObjectiveCompensation(unittest.TestCase):
         )
         patches = _patch_position(z_wide_um=40.0, z_galvo_um=0.0, slot=2)
         with (
-            patch.object(adapter._motion, "move_xy_with_backlash") as xy,
-            patch.object(adapter._commands, "move_z") as move_z,
+            patch.object(adapter._motion, "arrive_xy") as xy,
             patches[0],
             patches[1],
             patches[2],
@@ -1264,8 +1267,7 @@ class TestObjectiveCompensation(unittest.TestCase):
             self.assertRaisesRegex(RuntimeError, "z_wide_um") as ctx,
         ):
             adapter.set_xyz(h, 0.0, 0.0, 4.0, with_actuators={"z": "z-galvo"})
-        xy.assert_not_called()
-        move_z.assert_not_called()
+        xy.assert_called_once()  # XY arrived (checked); the z leg then refused
         # The failing leg is the calibrated objective offset, which only
         # z-wide can realize — suggesting the other actuator would send the
         # operator in a circle, so the message must not do that.
@@ -1287,7 +1289,7 @@ class TestObjectiveCompensation(unittest.TestCase):
             return {"success": True, "confirmed": True}
 
         with (
-            patch.object(adapter._motion, "move_xy_with_backlash", fake_xy),
+            patch.object(adapter._motion, "arrive_xy", fake_xy),
             patch.object(adapter._commands, "move_z", fake_z),
             patch.object(
                 adapter._readers,
@@ -1318,7 +1320,7 @@ class TestObjectiveCompensation(unittest.TestCase):
         h = _handle(origin=_origin(objective={"name": "10x", "slotIndex": 1}))
         patches = _patch_position(slot=2)
         with (
-            patch.object(adapter._motion, "move_xy_with_backlash") as xy,
+            patch.object(adapter._motion, "arrive_xy") as xy,
             patches[0],
             patches[1],
             patches[2],
@@ -1348,14 +1350,15 @@ class TestObjectiveCompensation(unittest.TestCase):
             pos = adapter.get_xyz(h)
         self.assertEqual(pos["x"]["value"], 10.0)  # ΔT = 0, translations unused
 
-    def test_preflight_refuses_out_of_range_galvo_before_any_motion(self):
+    def test_out_of_range_galvo_refuses_with_the_actuator_hint(self):
+        """An out-of-range galvo target is refused inside the real move_z;
+        the adapter adds the try-the-other-actuator hint."""
         h = _handle(
             origin=_origin(x_um=10000.0, y_um=10000.0, objective={"name": "63x", "slotIndex": 3})
         )
         patches = _patch_position(z_wide_um=0.0, z_galvo_um=0.0, slot=3)
         with (
-            patch.object(adapter._motion, "move_xy_with_backlash") as xy,
-            patch.object(adapter._commands, "move_z") as mz,
+            patch.object(adapter._motion, "arrive_xy") as xy,
             patches[0],
             patches[1],
             patches[2],
@@ -1363,8 +1366,7 @@ class TestObjectiveCompensation(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "z-wide"):
                 adapter.set_xyz(h, 10.0, 10.0, 300.0, with_actuators={"z": "z-galvo"})
-        xy.assert_not_called()
-        mz.assert_not_called()
+        xy.assert_called_once()
 
 
 class TestDriverSetupReadiness(unittest.TestCase):
@@ -1526,7 +1528,7 @@ class TestLifecycle(unittest.TestCase):
             h = adapter.connect(dict(adapter.CONNECTION))
         self.assertIsInstance(h, adapter.ZmartHandle)
         # the stage envelope was applied from the ProgramData snapshot...
-        self.assertEqual(adapter._limits.get_stage_limits()["x_max"], 130000.0)
+        self.assertEqual(limits_checks.get_stage_limits()["x_max"], 130000.0)
         # ...and the commands-layer gate governs this client (with provenance)
         described = _gate.describe(h.client)
         self.assertEqual(described["source"], "machine")
@@ -1562,7 +1564,7 @@ class TestLifecycle(unittest.TestCase):
             patches[3],
             patch.object(
                 adapter._motion,
-                "move_xy_with_backlash",
+                "arrive_xy",
                 return_value={"success": True, "confirmed": True},
             ),
             patch.object(
@@ -1589,8 +1591,8 @@ class TestFunctionLimits(unittest.TestCase):
 
     The gate itself lives in ``commands/gate.py`` (and is exhaustively
     attacked in test_limits_adversarial.py); these tests pin the adapter's
-    contract on top of it: whole-move pre-flight, fail-closed refusals with
-    actionable RuntimeErrors, and provenance reporting.
+    contract on top of it: the adapter does no checking of its own, refusals
+    surface as actionable RuntimeErrors, and provenance is reported.
     """
 
     def test_bundled_template_covers_every_declared_key(self):
@@ -1602,13 +1604,15 @@ class TestFunctionLimits(unittest.TestCase):
         self.assertEqual(set(payload), set(limits_config._REQUIRED_FILE_KEYS))
         self.assertEqual(payload["objective_slot"], [])
 
-    def test_set_xyz_refuses_beyond_function_limits_before_any_motion(self):
+    def test_set_xyz_refuses_beyond_function_limits_at_the_commands_layer(self):
+        """The function-keyed gate fires inside the real move_xy (through
+        arrive_xy) — no adapter check involved, and no motion happens
+        because the very first leg is the one refused."""
         _wide_limits()  # Phase A permissive, so the function-limits layer is what fires
         self.addCleanup(_clear_limits)
         h = _handle(gate_constraints={"x_um": {"min": 0, "max": 500}})
         patches = _patch_position(x_um=0.0, y_um=0.0)
         with (
-            patch.object(adapter._motion, "move_xy_with_backlash") as xy,
             patch.object(adapter._commands, "move_z") as mz,
             patches[0],
             patches[1],
@@ -1616,8 +1620,9 @@ class TestFunctionLimits(unittest.TestCase):
             patches[3],
         ):
             with self.assertRaisesRegex(RuntimeError, r"x_um=.*outside range"):
-                adapter.set_xyz(h, 1000.0, 10.0, 0.0)
-        xy.assert_not_called()
+                # (1000, 10000) is inside envelope and backstop, so the
+                # function-keyed gate is the only layer that can refuse it.
+                adapter.set_xyz(h, 1000.0, 10000.0, 0.0)
         mz.assert_not_called()
 
     def test_z_leg_function_limit_violation_keeps_the_actuator_hint(self):
@@ -1629,8 +1634,7 @@ class TestFunctionLimits(unittest.TestCase):
         )
         patches = _patch_position(z_wide_um=0.0, z_galvo_um=0.0)
         with (
-            patch.object(adapter._motion, "move_xy_with_backlash") as xy,
-            patch.object(adapter._commands, "move_z") as mz,
+            patch.object(adapter._motion, "arrive_xy") as xy,
             patches[0],
             patches[1],
             patches[2],
@@ -1638,8 +1642,7 @@ class TestFunctionLimits(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, r"with_actuators=\{'z': 'z-wide'\}"):
                 adapter.set_xyz(h, 10.0, 10.0, 300.0, with_actuators={"z": "z-galvo"})
-        xy.assert_not_called()
-        mz.assert_not_called()
+        xy.assert_called_once()
 
     def test_mutating_ops_refuse_without_a_limits_handshake(self):
         """Fail-closed below the adapter: no gate state means no mutations.

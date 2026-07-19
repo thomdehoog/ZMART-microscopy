@@ -88,7 +88,6 @@ from ..commands import routines as _motion
 from ..config import machine as _machine
 from ..connection import session as _session
 from ..connection import session_state as _session_state
-from ..limits import checks as _limits
 from ..readers.derived import z_um_from_settings as _z_um_from_settings
 from ..utils import parse_tile_geometry as _parse_tile_geometry
 from . import info as _info
@@ -122,14 +121,12 @@ _DEFAULT_ACTUATORS = {"x": "motoric", "y": "motoric", "z": "z-wide"}
 # controller actuator name -> driver move_z z_mode
 _Z_MODES = {"z-wide": "zwide", "z-galvo": "galvo"}
 
-# Function-keyed limits are enforced BELOW this adapter, in the command
-# wrappers themselves (commands/gate.py; maintainer decision §7) — the
-# adapter no longer carries its own gate. connect() runs the limits
+# Limits are enforced BELOW this adapter, in the command wrappers
+# themselves (commands/gate.py + limits/checks.py; maintainer decision §7).
+# The adapter does NO limit checking of its own — it composes commands and
+# translates failures into actionable errors. connect() runs the limits
 # handshake; a failed handshake leaves the session read-only and every
-# mutating command underneath refuses with the recorded reason. What the
-# adapter keeps is the whole-move XY+Z pre-flight in set_xyz (both legs
-# checked before any motion), deliberate defense in depth the per-command
-# checks cannot replicate.
+# mutating command underneath refuses with the recorded reason.
 
 
 @dataclass
@@ -185,19 +182,6 @@ def _require_open(handle: ZmartHandle) -> None:
 # =============================================================================
 # Lifecycle
 # =============================================================================
-
-
-def _refuse_if_gated(handle: ZmartHandle, command: str, values: dict) -> None:
-    """Pre-flight one command leg against the commands-layer limits gate.
-
-    The gate itself lives below the adapter (``commands/gate.py``) and would
-    refuse anyway when the command fires; calling it here lets :func:`set_xyz`
-    pre-flight the WHOLE move (both legs) before any motion, and raise the
-    ops-contract RuntimeError with the gate's own actionable message.
-    """
-    refusal = _gate.check_refusal(handle.client, command, values)
-    if refusal is not None:
-        raise RuntimeError(refusal)
 
 
 def connect(connection: dict) -> ZmartHandle:
@@ -579,9 +563,10 @@ def set_xyz(
 
     ΔT compensates an objective change relative to the origin's objective
     (from the calibration's translation totals); a cross-objective move with
-    no translations available REFUSES. All targets are pre-flighted against
-    the stage envelope before anything moves — an out-of-range galvo target
-    refuses the whole move with the actionable alternative.
+    no translations available REFUSES. The adapter does no limit checking of
+    its own: every leg is checked inside the command that fires it, in the
+    commands layer. A refused leg raises with an actionable alternative;
+    legs that already ran stay where they arrived (each was checked too).
     """
     _require_open(handle)
     chosen = _resolve_actuators(with_actuators)
@@ -605,41 +590,10 @@ def set_xyz(
         z_target = target_focus - snap["z_wide_um"]
         z_targets = [("galvo", z_target)]
 
-    # Pre-flight the WHOLE move (XY and Z legs) before anything travels, so a
-    # doomed z leg can never leave the stage at a new XY with the old focus.
-    # Two layers on purpose: the commands-layer function gate carries
-    # provenance (which file, which constraint) and would refuse each leg at
-    # fire time anyway; checking both legs here first preserves whole-move
-    # atomicity, with the driver's own Phase A checks as the net underneath.
-    _refuse_if_gated(handle, "move_xy", {"x_um": abs_x, "y_um": abs_y})
-    _limits._check_xy_limits(abs_x, abs_y)
-    for z_mode, target in z_targets:
-        z_param = "z_galvo_um" if z_mode == "galvo" else "z_wide_um"
-        # With z-galvo selected across objectives, the extra z-wide leg is the
-        # calibrated objective offset — it can only ever be realized by
-        # z-wide, so suggesting the other actuator would send the operator in
-        # a circle. The hint is only useful for the leg that carries the
-        # requested frame-Z motion.
-        translation_leg = len(z_targets) == 2 and z_mode == "zwide"
-        try:
-            _refuse_if_gated(handle, "move_z", {z_param: target})
-            _limits._check_z_limits(target, z_mode)
-        except RuntimeError as exc:
-            if translation_leg:
-                raise RuntimeError(
-                    f"refusing the whole move before any motion: {exc} "
-                    f"(this z-wide target is the calibrated objective offset, which "
-                    f"cannot be moved to the other z drive — re-set the origin under "
-                    f"the current objective, or re-adopt the objective calibration)"
-                ) from exc
-            alternative = "z-wide" if chosen["z"] == "z-galvo" else "z-galvo"
-            raise RuntimeError(
-                f"refusing the whole move before any motion: {exc} "
-                f"(try with_actuators={{'z': '{alternative}'}})"
-            ) from exc
-
-    # Backlash-compensated transit raises unless the readback confirms.
-    _motion.move_xy_with_backlash(handle.client, abs_x, abs_y)
+    # Every leg below is limit-checked inside the command it fires — the
+    # adapter carries no checks of its own. A refused leg raises here with
+    # an actionable message; legs that already ran stay where they arrived.
+    _motion.arrive_xy(handle.client, abs_x, abs_y)
 
     for z_mode, target in z_targets:
         z_result = _commands.move_z(
@@ -650,7 +604,23 @@ def set_xyz(
             z_mode=z_mode,
         )
         if not z_result.get("success") or not z_result.get("confirmed"):
-            raise RuntimeError(f"move_z ({z_mode}) failed or was unconfirmed: {z_result}")
+            # With z-galvo selected across objectives, the extra z-wide leg
+            # is the calibrated objective offset — it can only ever be
+            # realized by z-wide, so suggesting the other actuator would
+            # send the operator in a circle. The hint is only useful for
+            # the leg that carries the requested frame-Z motion.
+            if len(z_targets) == 2 and z_mode == "zwide":
+                raise RuntimeError(
+                    f"move_z ({z_mode}) failed or was unconfirmed: {z_result} "
+                    f"(this z-wide target is the calibrated objective offset, which "
+                    f"cannot be moved to the other z drive — re-set the origin under "
+                    f"the current objective, or re-adopt the objective calibration)"
+                )
+            alternative = "z-wide" if chosen["z"] == "z-galvo" else "z-galvo"
+            raise RuntimeError(
+                f"move_z ({z_mode}) failed or was unconfirmed: {z_result} "
+                f"(try with_actuators={{'z': '{alternative}'}})"
+            )
 
     return {
         "position": {"x": x, "y": y, "z": z},

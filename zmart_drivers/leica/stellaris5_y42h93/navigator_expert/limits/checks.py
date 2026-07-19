@@ -60,7 +60,7 @@ def check_envelope_within_backstop(stage_um):
     :data:`STAGE_BACKSTOP_UM` — a file wider than the physical travel is a
     hand-edited (or wrong-machine) file and must not be trusted. Called by
     the connect-time limits handshake; the per-move backstop check in
-    ``_check_xy_limits`` / ``_check_z_limits`` stays independent of it.
+    ``check_xy`` / ``check_z`` stays independent of it.
     """
     for axis, (backstop_lo, backstop_hi) in STAGE_BACKSTOP_UM.items():
         lo, hi = float(stage_um[axis][0]), float(stage_um[axis][1])
@@ -152,7 +152,7 @@ def _require_finite(value, label):
     return number
 
 
-def _check_xy_limits(x, y):
+def check_xy(x, y):
     """Validate XY position against the envelope, then the physical backstop.
 
     Raises RuntimeError on any violation (unconfigured envelope, non-finite
@@ -182,7 +182,7 @@ def _check_xy_limits(x, y):
             )
 
 
-def _check_z_limits(z, z_mode):
+def check_z(z, z_mode):
     """Validate Z position against the envelope, then the physical backstop.
 
     Raises:

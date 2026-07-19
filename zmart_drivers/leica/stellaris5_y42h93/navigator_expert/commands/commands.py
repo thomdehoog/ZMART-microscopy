@@ -72,7 +72,7 @@ from ..config.profiles import (
     Z_STACK_STEP_SIZE,
     ZOOM,
 )
-from ..limits.checks import _check_xy_limits, _check_z_limits
+from ..limits.checks import check_xy, check_z
 from ..utils import PAN_LIMIT, _hw_get, _make_log_entry, _make_timing, parse_format
 from . import gate as _gate
 from . import objective_shift as _objective_shift
@@ -1242,7 +1242,7 @@ def move_xy(client, x, y, unit="um", *, max_retries=None, pre_check_timeout=None
         refused = _limits_refusal(client, "move_xy", {"x_um": x_um, "y_um": y_um}, position=None)
         if refused:
             return refused
-        _check_xy_limits(x_um, y_um)
+        check_xy(x_um, y_um)
     except (RuntimeError, TypeError) as e:
         return {
             "success": False,
@@ -1492,7 +1492,7 @@ def move_z(
         )
         if refused:
             return refused
-        _check_z_limits(z_um, z_mode)
+        check_z(z_um, z_mode)
     except (RuntimeError, ValueError, TypeError) as e:
         return {
             "success": False,
