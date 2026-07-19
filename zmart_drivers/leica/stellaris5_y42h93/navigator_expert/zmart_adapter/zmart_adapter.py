@@ -121,6 +121,11 @@ _DEFAULT_ACTUATORS = {"x": "motoric", "y": "motoric", "z": "z-wide"}
 # controller actuator name -> driver move_z z_mode
 _Z_MODES = {"z-wide": "zwide", "z-galvo": "galvo"}
 
+# How long get_info waits (seconds) for LAS X to flush the live experiment
+# to disk before parsing its scan fields. A read that needs a save first is
+# quirky but unavoidable: the on-disk template is the only complete source.
+EXPERIMENT_FLUSH_TIMEOUT_S = 60
+
 # Limits are enforced BELOW this adapter, in the command wrappers
 # themselves (commands/gate.py + limits/checks.py; maintainer decision §7).
 # The adapter does NO limit checking of its own — it composes commands and
@@ -1101,7 +1106,7 @@ def _scan_field(handle: ZmartHandle) -> dict | None:
         handle.client,
         _scanfields.TEMPLATE_XML,
         templates_dir,
-        timeout=60,
+        timeout=EXPERIMENT_FLUSH_TIMEOUT_S,
         confirm_path=Path(templates_dir) / _scanfields.TEMPLATE_RGN,
     )
     if not saved:

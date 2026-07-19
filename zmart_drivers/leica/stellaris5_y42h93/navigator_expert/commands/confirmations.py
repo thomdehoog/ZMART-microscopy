@@ -49,6 +49,13 @@ from .settings import make_changeable_copy
 
 log = logging.getLogger(__name__)
 
+# How many consecutive idle scan-status reads prove an acquisition has
+# really finished (a single idle read can be a sampling artifact between
+# frames). Sibling acquire knobs (start_timeout, heartbeat_interval,
+# poll_interval) live in config/profiles.py; this one is a correctness
+# rule rather than tuning, so it stays here, named.
+ACQUIRE_IDLE_STREAK_REQUIRED = 2
+
 
 # =============================================================================
 # Confirmation race - the one mechanism every command confirms through
@@ -1094,7 +1101,6 @@ def confirm_acquire(
     last_heartbeat = t_start
     saw_scanning = False
     consecutive_idle = 0
-    idle_streak_required = 2
 
     start_deadline = t_start + start_timeout
     deadline = t_start + (timeout if timeout is not None else 1e9)
@@ -1153,7 +1159,7 @@ def confirm_acquire(
             last_heartbeat = now
 
         # Phase 2: completion — consecutive idle reads after saw scanning
-        if consecutive_idle >= idle_streak_required and saw_scanning:
+        if consecutive_idle >= ACQUIRE_IDLE_STREAK_REQUIRED and saw_scanning:
             return {"success": True, "logs": logs}
 
         time.sleep(poll_interval)
