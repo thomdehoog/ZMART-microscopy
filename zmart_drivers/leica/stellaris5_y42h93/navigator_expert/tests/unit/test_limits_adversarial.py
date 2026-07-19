@@ -34,8 +34,8 @@ from mock_lasx_api import MockLasxClient
 from navigator_expert.commands import commands as commands_mod
 from navigator_expert.commands import gate
 from navigator_expert.config.machine import MachineProfile
+from navigator_expert.limits import checks as motion_limits
 from navigator_expert.limits import config as limits_config
-from navigator_expert.motion import limits as motion_limits
 from navigator_expert.scanfields import files as scanfield_files
 
 DRIVER_ROOT = Path(__file__).resolve().parents[2]
@@ -1014,7 +1014,7 @@ def test_backlash_is_not_config_and_the_primitive_uses_its_default_params():
     there is no config path (and so no NaN-backlash path) left in limits."""
     import inspect
 
-    from navigator_expert.motion import movement
+    from navigator_expert.commands import routines as movement
 
     profile = provision_machine_limits(_machine_root())
     limits_path = profile.latest_snapshot("limits") / "limits.json"

@@ -45,7 +45,7 @@ ProgramData is empty, the repo defaults are copied there first. The flat file
 must have the exact documented keys, valid typed constraints, and explicit
 ``[]`` for every unrestricted setter. Its stage envelope
 must sit within the hardcoded physical backstop
-(``motion.limits.STAGE_BACKSTOP_UM``). On success it applies the stage envelope
+(``limits.checks.STAGE_BACKSTOP_UM``). On success it applies the stage envelope
 and installs the validated ``LeicaLimits`` in a module-level registry keyed
 by client identity.
 
@@ -61,7 +61,7 @@ reason (which names the notebook that creates the files:
 all (no ``connect_handshake`` ran) still refuses fail-closed.
 
 Single-writer invariant: like command dispatch (``dispatch.py``) and the
-stage-envelope module global (``motion/limits.py``), this registry assumes
+stage-envelope module global (``limits/checks.py``), this registry assumes
 ONE instrument per process. The registry is keyed by ``id(client)`` and holds
 a strong reference to the client (CAM clients are process-lifetime), so an id
 can never be recycled onto a different client. A second ``connect_handshake``
@@ -84,8 +84,8 @@ from types import MappingProxyType
 from typing import Any
 
 from ..config import machine as _machine
+from ..limits import checks as _limits
 from ..limits import config as _limits_config
-from ..motion import limits as _limits
 
 log = logging.getLogger(__name__)
 
@@ -425,7 +425,7 @@ def connect_handshake(
        consulted when ``load`` is True — with ``load=False`` the explicit path
        is ignored and the defaults govern.
     2. The envelope must sit WITHIN the hardcoded physical backstop
-       (``motion.limits.STAGE_BACKSTOP_UM``).
+       (``limits.checks.STAGE_BACKSTOP_UM``).
     3. The validated flat policy is installed directly in the commands-layer
        gate; no second limits schema is created. Unknown, missing, or legacy
        metadata/nesting is rejected rather than silently ignored.

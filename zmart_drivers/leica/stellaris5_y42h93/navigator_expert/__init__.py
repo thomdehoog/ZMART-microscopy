@@ -202,7 +202,7 @@ from .commands.gate import (
 )
 
 # -- motion/ - stage safety + movement
-from .motion.limits import (
+from .limits.checks import (
     _stage_limits,
     set_stage_limits,
     get_stage_limits,
@@ -210,7 +210,7 @@ from .motion.limits import (
     _check_xy_limits,
     _check_z_limits,
 )
-from .motion.movement import move_xy_with_backlash
+from .commands.routines import move_xy_with_backlash
 
 # -- scanfields/ - LAS X scan-field file operations and parsing
 from .scanfields.files import (

@@ -29,6 +29,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import checks
+
 _REQUIRED_AXES = ("x", "y", "z_galvo", "z_wide")
 _AXIS_FILE_KEYS = {
     "x": "x_um",
@@ -216,7 +218,7 @@ def load(limits_path: str | Path | None = None) -> dict[str, Any]:
     ``defaults_path()`` - the active ProgramData limits snapshot. An explicit
     ``limits_path`` is the caller's deliberate choice and is read as given.
 
-    Returns the internal shapes consumed by motion and the command gate. The
+    Returns the internal shapes consumed by the limit checks and the command gate. The
     file itself stays flat and contains no provenance metadata.
     """
     selected = Path(limits_path) if limits_path is not None else defaults_path()
@@ -255,14 +257,12 @@ def adopt_limits(
     Returns:
         ``{"snapshot": str, "limits_path": str}``.
     """
-    from ..motion import limits as _motion_limits
-
     if set(limits) == set(_REQUIRED_AXES):
         payload = build_limits_payload(limits)
     else:
         payload = validate_payload(limits)
     stage_um = {axis: payload[file_key]["range"] for axis, file_key in _AXIS_FILE_KEYS.items()}
-    _motion_limits.check_envelope_within_backstop(stage_um)
+    checks.check_envelope_within_backstop(stage_um)
     if machine is None:
         from ..config.machine import MACHINE
 

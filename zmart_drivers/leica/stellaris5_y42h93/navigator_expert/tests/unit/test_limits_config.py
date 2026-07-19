@@ -18,7 +18,7 @@ def _write_json(path, payload):
 # --- adopt_limits: publish a merged-limits snapshot ---
 
 # Envelopes must sit WITHIN the hardcoded physical backstop
-# (motion.limits.STAGE_BACKSTOP_UM) or adopt_limits refuses them.
+# (limits.checks.STAGE_BACKSTOP_UM) or adopt_limits refuses them.
 _ENV_A = {"x": [1100, 100000], "y": [1100, 90000], "z_galvo": [-5, 5], "z_wide": [0, 50]}
 _ENV_B = {"x": [1200, 120000], "y": [1200, 95000], "z_galvo": [-10, 10], "z_wide": [0, 60]}
 _SEED_MOMENT = datetime(2026, 1, 1, tzinfo=timezone.utc)

@@ -84,11 +84,11 @@ from ..acquisition import save as _save
 from ..acquisition.naming import Naming, run_hash
 from ..commands import commands as _commands
 from ..commands import gate as _gate
+from ..commands import routines as _motion
 from ..config import machine as _machine
 from ..connection import session as _session
 from ..connection import session_state as _session_state
-from ..motion import limits as _limits
-from ..motion import movement as _motion
+from ..limits import checks as _limits
 from ..readers.derived import z_um_from_settings as _z_um_from_settings
 from ..utils import parse_tile_geometry as _parse_tile_geometry
 from . import info as _info

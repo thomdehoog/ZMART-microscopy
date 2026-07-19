@@ -72,7 +72,7 @@ from ..config.profiles import (
     Z_STACK_STEP_SIZE,
     ZOOM,
 )
-from ..motion.limits import _check_xy_limits, _check_z_limits
+from ..limits.checks import _check_xy_limits, _check_z_limits
 from ..utils import PAN_LIMIT, _hw_get, _make_log_entry, _make_timing, parse_format
 from . import gate as _gate
 from . import objective_shift as _objective_shift

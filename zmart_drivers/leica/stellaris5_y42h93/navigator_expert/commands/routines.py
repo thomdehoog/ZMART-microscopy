@@ -1,4 +1,8 @@
-"""Stage motion helpers.
+"""Composed stage routines.
+
+Routines in this module move the stage by composing the checked command
+primitives in ``commands.py`` — every leg passes through ``move_xy``'s
+limit checks, so nothing here can escape the configured envelope.
 
 Backlash discipline: when the stage reverses direction, leadscrew slack
 introduces a position offset that depends on which side the nut last
@@ -36,7 +40,7 @@ import logging
 import time
 
 from .. import readers as _readers
-from ..commands import commands as _commands
+from . import commands as _commands
 
 log = logging.getLogger(__name__)
 
