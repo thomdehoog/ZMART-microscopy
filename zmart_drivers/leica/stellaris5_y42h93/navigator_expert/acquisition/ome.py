@@ -15,9 +15,15 @@ Fix strategy:
     re-serialisation which would alter whitespace, attribute order,
     namespace prefixes, etc.).
 
+This module owns TIFF tag-270 access for the whole driver:
+:func:`read_tiff_tag_270` is the one parser, used here for patching and
+by ``ome_canonical`` for reading embedded OME back out. Generation of
+new OME lives in ``ome_canonical``, never here.
+
 Dependency direction:
     - Imports: stdlib only (re, struct, logging).
-    - Imported by: ``acquisition.materialize`` (in-place repair at save)
+    - Imported by: ``acquisition.materialize`` (in-place repair at save),
+      ``acquisition.ome_canonical`` (tag-270 access)
       and ``acquisition.ome_canonical`` (tag-270 read helper).
 """
 
@@ -79,7 +85,7 @@ def extract_wavelength_from_id(lightsource_id):
 # ===================================================================
 
 
-def _read_tiff_tag_270(data):
+def read_tiff_tag_270(data):
     """Locate ImageDescription (tag 270) in the first IFD of a TIFF.
 
     Args:
@@ -188,7 +194,7 @@ def check_ome_tiff(path):
     except OSError as e:
         return {"path": path, "corrupted": False, "violations": [], "error": str(e)}
 
-    xml_raw, _, _, _, endian_or_err = _read_tiff_tag_270(data)
+    xml_raw, _, _, _, endian_or_err = read_tiff_tag_270(data)
     if xml_raw is None:
         return {"path": path, "corrupted": False, "violations": [], "error": endian_or_err}
 
@@ -322,7 +328,7 @@ def fix_ome_tiff(input_path, output_path=None):
             "error": str(e),
         }
 
-    xml_raw, desc_offset, desc_count, desc_entry_pos, endian_or_err = _read_tiff_tag_270(data)
+    xml_raw, desc_offset, desc_count, desc_entry_pos, endian_or_err = read_tiff_tag_270(data)
 
     if xml_raw is None:
         # No tag 270 — nothing to fix, not an error

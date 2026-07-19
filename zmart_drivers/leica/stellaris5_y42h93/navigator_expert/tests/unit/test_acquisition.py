@@ -20,6 +20,7 @@ from navigator_expert.acquisition.product import (
     ExportedPosition,
 )
 from navigator_expert.orientation import Orientation, reorient_array
+from navigator_expert.readers import router as readers_router
 
 
 @pytest.fixture(autouse=True)
@@ -263,7 +264,7 @@ class TestCanonicalPhysicalMetadataAuthority:
         )
 
         with patch.object(
-            ome_canonical._readers,
+            readers_router,
             "get_job_settings",
             return_value=settings,
         ) as read_settings:
@@ -286,7 +287,7 @@ class TestCanonicalPhysicalMetadataAuthority:
 
         with (
             patch.object(
-                ome_canonical._readers,
+                readers_router,
                 "get_job_settings",
                 return_value=settings,
             ),
@@ -311,7 +312,7 @@ class TestCanonicalPhysicalMetadataAuthority:
         )
 
         with patch.object(
-            ome_canonical._readers,
+            readers_router,
             "get_job_settings",
             return_value=settings,
         ):
@@ -338,7 +339,7 @@ class TestCanonicalPhysicalMetadataAuthority:
             )
 
         with patch.object(
-            ome_canonical._readers,
+            readers_router,
             "get_job_settings",
             side_effect=_slow_settings,
         ):

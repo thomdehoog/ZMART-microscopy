@@ -266,9 +266,9 @@ value, independent of any reorganization.
    LRP retry ladder, the .rgn stability window, the acquire idle-streak
    rule, and `get_info`'s flush wait are now named module constants with
    their reasons attached (values unchanged); `_file_utils.py` itself was
-   absorbed into `acquisition/files.py`. Still open: the OME read
-   timeouts plus the spawned thread inside metadata generation
-   (`acquisition/ome_canonical.py`).
+   absorbed into `acquisition/files.py`. The bounded-read mechanism now lives in
+   `readers.get_job_settings_bounded`; generation keeps only its policy
+   constants.py`).
 
 ### 5.2 Duplicated checks (drift generators)
 
@@ -281,10 +281,12 @@ value, independent of any reorganization.
 9. ~~`set_objective` invokes the limits gate **twice** per call.~~
    **Resolved** — one check, after the selector resolves to a physical
    slot; it covers the fail-closed state and the allow-list together.
-10. **OME handling overlaps itself**: TIFF tag-270 parsing is owned by both
-    `ome.py` and `ome_canonical.py` (the latter reaching into the former's
-    privates); `extract_embedded_ome_xml` exists in two files; z-stack
-    parameters are re-derived two ways. (`acquisition/`)
+10. **OME handling overlaps itself** — *partly resolved*: tag-270 access
+    is now one public function (`ome.read_tiff_tag_270`) with the
+    generate/patch contract stated at the top of both modules, and the
+    "duplicate" `extract_embedded_ome_xml` turned out to be a one-line
+    delegate. Still open: z-stack parameters re-derived two ways in
+    `ome_canonical` (entangled with the readers↔commands cycle, §5.3.12).
 
 ### 5.3 Tangled layers and lying names
 
