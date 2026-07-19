@@ -11,7 +11,7 @@ limits the receipt is never fired and the call returns ``None`` (the
 functions' existing failure contract) after logging the refusal.
 
 Dependency direction:
-    - Imports: ``..utils``, ``..commands.gate``, ``.lrp``, ``_file_utils``,
+    - Imports: ``..commands.gate``, ``.lrp``, ``..acquisition.files``,
       stdlib.
     - Imported by: ``strip_restore``, ``transaction``, ``__init__`` (re-export).
 """
@@ -22,7 +22,7 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from .._file_utils import _wait_file_stable
+from ..acquisition.files import _wait_file_stable
 from ..commands import gate as _gate
 from ..commands.envelope import _make_timing
 from ..config.timing import RECEIPT_TIMEOUT

@@ -5,7 +5,7 @@ responsive during LRP editing.  Restoring reloads the original
 template (with all objects) and copies the modified LRP back.
 
 Dependency direction:
-    - Imports: ``.files``, ``_file_utils``, stdlib.
+    - Imports: ``.files``, ``..acquisition.files``, stdlib.
     - Imported by: ``__init__`` (re-export).
 """
 
@@ -14,7 +14,7 @@ import shutil
 import time
 import xml.etree.ElementTree as ET
 
-from .._file_utils import _wait_file_stable
+from ..acquisition.files import _wait_file_stable
 from .files import (
     STRIPPED_LRP,
     STRIPPED_RGN,
