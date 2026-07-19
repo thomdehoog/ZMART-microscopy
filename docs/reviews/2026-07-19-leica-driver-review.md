@@ -30,12 +30,12 @@ code turned up.
 | `scanfields/` | Parsing and planning LAS X scan-field templates (LRP files) | Fine |
 | `algorithms/` | Pure image math: focus scoring, registration | Clean — no findings |
 | `experimental/` | LRP-editing primitives | **Untouched by decision** — observations only |
-| `tests/` | Unit, hardware, and helper tests | Contains 137 committed generated report files that should go |
+| `tests/` | Unit, hardware, and helper tests | Clean — the 137 committed report files are gone |
 
 The conceptual split is good: tell (`commands`), ask (`readers`), capture
 (`acquisition`), policy (`limits`), setup (`calibration`, `orientation`),
 plumbing (`connection`, `config`). The problems are at the edges: one unsorted pile (`commands`), stray
-grab-bag files at the root (`utils.py`, `_file_utils.py`), two competing
+grab-bag files at the root (since dissolved/absorbed), two competing
 test conventions (root `tests/` vs. per-folder tests), and committed run
 output (`tests/_report/`). (The `motion/` folder was on this list too —
 it has since been dissolved; see §3.)
@@ -262,14 +262,13 @@ value, independent of any reorganization.
    `confirmed`. A workflow-continuation policy is wired into every
    primitive's return contract. (`config/profiles.py:222`,
    `commands/dispatch.py:767`)
-6. **Baked policy constants inside mechanisms**: retry cadence
-   `(2, 4, 8, 16)` in the LRP transaction backbone
-   (`scanfields/transaction.py`); save timeouts `(120, 120, 180, 240)` in
-   template restore (`scanfields/strip_restore.py`);
-   `idle_streak_required = 2` inside acquire confirmation
-   (`commands/confirmations.py:1097`); file-stability polling defaults in
-   `_file_utils.py`; OME read timeouts plus a spawned thread inside
-   metadata generation (`acquisition/ome_canonical.py`).
+6. **Baked policy constants inside mechanisms** — *mostly resolved*: the
+   LRP retry ladder, the .rgn stability window, the acquire idle-streak
+   rule, and `get_info`'s flush wait are now named module constants with
+   their reasons attached (values unchanged); `_file_utils.py` itself was
+   absorbed into `acquisition/files.py`. Still open: the OME read
+   timeouts plus the spawned thread inside metadata generation
+   (`acquisition/ome_canonical.py`).
 
 ### 5.2 Duplicated checks (drift generators)
 
@@ -279,9 +278,9 @@ value, independent of any reorganization.
 8. `move_xy`/`move_z` run **two overlapping limit mechanisms** with two
    different failure styles: the gate refusal returns a result dict, the
    envelope check raises an exception. (`commands/commands.py:1242`, `1490`)
-9. `set_objective` invokes the limits gate **twice** per call with
-   different payloads (slot not yet resolved on the first pass).
-   (`commands/commands.py:609`, `647`)
+9. ~~`set_objective` invokes the limits gate **twice** per call.~~
+   **Resolved** — one check, after the selector resolves to a physical
+   slot; it covers the fail-closed state and the allow-list together.
 10. **OME handling overlaps itself**: TIFF tag-270 parsing is owned by both
     `ome.py` and `ome_canonical.py` (the latter reaching into the former's
     privates); `extract_embedded_ome_xml` exists in two files; z-stack
@@ -341,9 +340,9 @@ should converge on.
 
 1. **Correctness first, no reorganization needed:** move the galvo
    constants (§5.0) into per-machine config.
-2. **Trivial hygiene:** delete the 137 committed files in `tests/_report/`
-   (already gitignored; the scripts regenerate them and create the
-   directory themselves).
+2. ~~**Trivial hygiene:** delete the 137 committed files in
+   `tests/_report/`~~ **Done** — along with archiving the finished review
+   docs and removing the retired workflow package.
 3. ~~**The motion/limits plan (§3).**~~ **Done** — one rulebook, one
    enforcement layer, guard tests in place.
 4. ~~**Kill the double-implemented objective compensation (§5.1.2)**~~
