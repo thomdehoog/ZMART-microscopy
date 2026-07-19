@@ -48,9 +48,6 @@ positive ``SystemTypeName == "SIMULATOR"`` allowlist); the driver's OME check
 it uses is lazy-imported, so ``import workflow`` stays driver-free and the
 operator step functions never learn about simulation.
 
-The pre-controller driver-coupled flow is preserved under
-``workflow.retired`` (see that package's docstring).
-
 Modules whose names start with ``_`` are internal.
 """
 
