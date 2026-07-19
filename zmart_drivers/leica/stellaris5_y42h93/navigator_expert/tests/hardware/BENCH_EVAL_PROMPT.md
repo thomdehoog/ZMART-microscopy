@@ -170,7 +170,7 @@ report rows/log lines):
    finding maps to a known open item (stale-response correlation for
    `get_xy`/`get_jobs`/`get_hardware_info`, the abandoned-race-leg residue
    CF-05, or a maintainer-decision-needed item), name it — the open list
-   lives in `docs/reviews/PROGRESS_2026-07-05.md` §6 and
+   lives in `docs/reviews/archive/PROGRESS_2026-07-05.md` §6 and
    `docs/reviews/MAINTAINER_DECISIONS.md`.
 3. Commit and push that file too, then give the operator a ≤10-line spoken
    summary: overall verdict, whether the backlash option behaved correctly,
