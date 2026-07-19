@@ -89,7 +89,7 @@ from ..config import machine as _machine
 from ..connection import session as _session
 from ..connection import session_state as _session_state
 from ..readers.derived import z_um_from_settings as _z_um_from_settings
-from ..utils import parse_tile_geometry as _parse_tile_geometry
+from ..readers.parsing import parse_tile_geometry as _parse_tile_geometry
 from . import info as _info
 
 log = logging.getLogger(__name__)

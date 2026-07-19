@@ -335,7 +335,7 @@ def test_poisoned_pixel_target_cannot_compose_a_nan_galvo_pan(governed_client, p
         patch.object(readers, "get_job_settings", return_value={"settings": "raw"}),
         patch.object(readers, "get_base_fov", return_value=(0.000512, 0.000512)),
         patch(
-            "navigator_expert.utils.parse_tile_geometry",
+            "navigator_expert.readers.parsing.parse_tile_geometry",
             return_value={"pixel_w_um": 1.0, "pixels_x": 512},
         ),
         patch.object(lrp_scan, "lrp_get_pan", return_value=(0.0, 0.0)),

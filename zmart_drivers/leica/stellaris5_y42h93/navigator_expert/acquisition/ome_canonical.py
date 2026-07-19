@@ -16,8 +16,8 @@ from threading import Event, Thread
 from typing import Any
 
 from .. import readers as _readers
-from .. import utils as _core_utils
 from ..commands import settings as _core_settings
+from ..readers import parsing as _parsing
 from . import ome as _ome
 from .product import AcquisitionMetadata, ChannelMetadata, PlaneIndex
 
@@ -498,7 +498,7 @@ def _xy_pixel_sizes_from_job_settings(
     settings: dict,
 ) -> tuple[float | object, float | object]:
     try:
-        geom = _core_utils.parse_tile_geometry(settings)
+        geom = _parsing.parse_tile_geometry(settings)
     except Exception:
         return _UNKNOWN, _UNKNOWN
     x_um = _positive_float_or_unknown(geom.get("pixel_w_um"))

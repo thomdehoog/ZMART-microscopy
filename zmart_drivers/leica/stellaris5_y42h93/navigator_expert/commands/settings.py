@@ -18,18 +18,30 @@ The output dict is what every ``_confirm_*`` function in ``confirmations.py``
 reads via ``_readback()``.
 
 Dependency direction:
-    - Imports: ``utils`` (``_safe_float``).
+    - Imports: ``readers.parsing`` (``_safe_float``, via a lazy shim).
     - Imported by: ``confirmations`` (``_readback`` calls ``make_changeable_copy``),
       ``__init__`` (re-export).
 """
 
-from ..utils import _safe_float
 
 # =============================================================================
 # make_changeable_copy
 # =============================================================================
 
 _REQUIRED_SETTINGS_KEYS = ["zoom", "scanSpeed", "activeSettings"]
+
+
+def _safe_float(val, default=None):
+    """Lazy shim over :func:`readers.parsing._safe_float`.
+
+    The import happens at call time on purpose: a module-level
+    ``from ..readers`` here would close an import cycle, because
+    ``readers.derived`` imports this module while the readers package is
+    still initializing.
+    """
+    from ..readers.parsing import _safe_float as _impl
+
+    return _impl(val, default)
 
 
 def make_changeable_copy(settings):

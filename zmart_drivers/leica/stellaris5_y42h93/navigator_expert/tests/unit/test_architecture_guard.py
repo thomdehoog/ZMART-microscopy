@@ -76,3 +76,15 @@ def test_the_decision_engine_lives_in_limits():
     gate_text = (DRIVER_ROOT / "commands" / "gate.py").read_text(encoding="utf-8")
     assert "class LeicaLimits" in checks_text
     assert "class LeicaLimits" not in gate_text
+
+
+def test_the_utils_grab_bag_stays_dissolved():
+    """utils.py was dissolved on 2026-07-19 (each function moved to its
+    natural owner: readers/parsing.py, commands/envelope.py,
+    config/timing.py, config/galvo.py). A folder called "utils" promises
+    nothing and therefore accumulates everything — this test keeps the
+    grab-bag from quietly coming back."""
+    assert not (DRIVER_ROOT / "utils.py").exists(), (
+        "utils.py has reappeared — give each function a truthful home "
+        "instead (see the 2026-07-19 driver review, §5.3.13)"
+    )

@@ -45,6 +45,7 @@ from dataclasses import replace
 from functools import partial
 
 from ..commands.errors import _check_api_error, _is_transient_error
+from ..config.galvo import PAN_LIMIT
 from ..config.profiles import (
     ACQUIRE,
     DETECTOR_GAIN,
@@ -73,7 +74,7 @@ from ..config.profiles import (
     ZOOM,
 )
 from ..limits.checks import check_xy, check_z
-from ..utils import PAN_LIMIT, _hw_get, _make_log_entry, _make_timing, parse_format
+from ..readers.parsing import _hw_get, parse_format
 from . import gate as _gate
 from . import objective_shift as _objective_shift
 from .confirm_select_job import prepare_select_job, select_job_confirm_legs
@@ -105,6 +106,7 @@ from .confirmations import (
     race_confirmations,
 )
 from .dispatch import confirm_and_fire
+from .envelope import _make_log_entry, _make_timing
 from .objectives import objective_by_slot
 from .prechecks import check_idle
 
@@ -1309,8 +1311,8 @@ def move_xy(client, x, y, unit="um", *, max_retries=None, pre_check_timeout=None
 
 
 # ── Galvo pan limits ────────────────────────────────────────────────
-# Single source: utils.PAN_LIMIT (max pan value in either axis, objective-
-# independent; see the galvo pan calibration header in utils.py).
+# Single source: config.galvo.PAN_LIMIT (max pan value in either axis,
+# objective-independent; see the galvo pan calibration header there).
 _PAN_LIMIT = PAN_LIMIT
 
 
@@ -1337,12 +1339,13 @@ def move_galvo_to_pixel(client, px, py, *, job_name=None, pixel_size_um=None, im
     exceed the angular limit (``_PAN_LIMIT``); the caller should stage-move
     closer first.
     """
+    from ..config.galvo import pan_scale_um_from_base_fov
     from ..experimental.lrp_edits.roi import galvo_pan_for_pixel
     from ..experimental.lrp_edits.scan import lrp_get_pan, lrp_set_pan
     from ..readers import get_base_fov, get_job_settings, get_selected_job
+    from ..readers.parsing import parse_tile_geometry
     from ..scanfields.files import TEMPLATE_XML
     from ..scanfields.transaction import apply_lrp_change
-    from ..utils import pan_scale_um_from_base_fov, parse_tile_geometry
 
     # Function-keyed gate (fail-closed state check up front; the composed
     # absolute pan is checked again against the file inside the transaction,

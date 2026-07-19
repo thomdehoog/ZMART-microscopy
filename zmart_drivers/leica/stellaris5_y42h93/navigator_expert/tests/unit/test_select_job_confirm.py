@@ -281,7 +281,7 @@ class TestLegsBuilder(SelectJobCase):
         )
         # Read the live module constant the code reads (a conftest patches it
         # down for suite speed), not the import-time value.
-        expected = confirm_select_job._utils.CONFIRM_POLL_S
+        expected = confirm_select_job._timing.CONFIRM_POLL_S
         self.assertEqual(budget, expected)
         self.assertEqual(api_leg.keywords["timeout"], expected)
 
