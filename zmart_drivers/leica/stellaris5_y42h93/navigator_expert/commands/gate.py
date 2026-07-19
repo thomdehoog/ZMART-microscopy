@@ -3,9 +3,11 @@
 Maintainer decision (MAINTAINER_DECISIONS.md §7): limits are enforced as low
 as possible — at the command wrapper that populates the native CAM function's
 model — so nothing built on top (adapter, controller, workflows, notebooks)
-can interfere with or bypass them. This module is that chokepoint's state and
-policy; the wrappers in ``commands.py`` (and the two experiment-file mutators
-in ``scanfields/files.py``) call :func:`check_refusal` before anything fires.
+can interfere with or bypass them. The rules themselves (what is allowed:
+``LeicaLimits`` and the stage checks) live in ``limits/checks.py``; this
+module owns the *moment* of enforcement — per-connection state and refusal.
+The wrappers in ``commands.py`` (and the two experiment-file mutators in
+``scanfields/files.py``) call :func:`check_refusal` before anything fires.
 
 Wrapper -> key mapping
 ----------------------
@@ -77,7 +79,6 @@ the enforcement must live below anything a caller can skip.
 from __future__ import annotations
 
 import logging
-import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -86,16 +87,14 @@ from typing import Any
 from ..config import machine as _machine
 from ..limits import checks as _limits
 from ..limits import config as _limits_config
+from ..limits.checks import (  # noqa: F401  (re-exported: gate.<name> stays valid)
+    LeicaLimits,
+    LimitsError,
+    LimitsStatus,
+    LimitViolation,
+)
 
 log = logging.getLogger(__name__)
-
-
-class LimitsError(ValueError):
-    """The limits file (or an override) is malformed or incomplete."""
-
-
-class LimitViolation(RuntimeError):
-    """A checked value is outside its configured limit."""
 
 
 NOTEBOOK_POINTER = "limits/notebooks/set_limits.ipynb"
@@ -141,22 +140,6 @@ class GateState:
 
 
 @dataclass(frozen=True, slots=True)
-class LimitsStatus:
-    """Detached public provenance for the installed limits."""
-
-    source: str
-    path: str | None
-    is_fallback: bool
-
-    def describe(self) -> dict:
-        return {
-            "source": self.source,
-            "path": self.path,
-            "is_fallback": self.is_fallback,
-        }
-
-
-@dataclass(frozen=True, slots=True)
 class GateStatus:
     """Detached result returned by the handshake and :func:`state_for`."""
 
@@ -167,93 +150,6 @@ class GateStatus:
     @property
     def ok(self) -> bool:
         return self.error is None
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class LeicaLimits:
-    """Immutable runtime checker compiled from the flat Leica limits document."""
-
-    _policy: Mapping[str, tuple[str, tuple[Any, ...]] | None]
-    source: str
-    path: Any
-    is_fallback: bool
-
-    def __init__(self, payload: Mapping[str, Any], *, source: str, path: Any, is_fallback: bool):
-        compiled = {}
-        for name, entry in payload.items():
-            if entry == []:
-                compiled[name] = None
-                continue
-            kind, values = next(iter(entry.items()))
-            compiled[name] = (kind, tuple(values))
-        object.__setattr__(self, "_policy", MappingProxyType(compiled))
-        object.__setattr__(self, "source", source)
-        object.__setattr__(self, "path", path)
-        object.__setattr__(self, "is_fallback", is_fallback)
-
-    def _origin(self) -> str:
-        return f"limits: {self.path}, source={self.source}"
-
-    def _check_one(self, name: str, spec: Any, value: Any) -> None:
-        if spec is None:
-            return
-        kind, configured = spec
-        if kind == "range":
-            low, high = configured
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise LimitViolation(
-                    f"{name}={value!r} is not numeric (range [{low}, {high}]; {self._origin()})"
-                )
-            number = float(value)
-            if not math.isfinite(number) or number < low or number > high:
-                raise LimitViolation(
-                    f"{name}={value!r} outside range [{low}, {high}] ({self._origin()})"
-                )
-            return
-        allowed = configured
-        if not any(type(value) is type(candidate) and value == candidate for candidate in allowed):
-            raise LimitViolation(
-                f"{name}={value!r} not allowed; expected one of {list(allowed)!r} "
-                f"({self._origin()})"
-            )
-
-    def check(self, function: str, values: Mapping[str, Any]) -> None:
-        if function == "set_xyz":
-            for param in ("x_um", "y_um", "z_galvo_um", "z_wide_um"):
-                if param in values:
-                    self._check_one(param, self._policy[param], values[param])
-            return
-        if function == "set_objective":
-            if "objective_slot" in values:
-                self._check_one(
-                    "objective_slot", self._policy["objective_slot"], values["objective_slot"]
-                )
-            return
-        if function not in _limits_config.SETTER_LIMIT_KEYS:
-            return
-        spec = self._policy[function]
-        if spec is None:
-            return
-        candidates = values.get("values")
-        if candidates is None and "value" in values:
-            candidates = [values["value"]]
-        if not candidates:
-            raise LimitsError(
-                f"{function} has a configured limit but the wrapper supplied no value "
-                f"({self._origin()})"
-            )
-        for value in candidates:
-            self._check_one(function, spec, value)
-
-    def status(self) -> LimitsStatus:
-        return LimitsStatus(
-            source=self.source,
-            path=str(self.path) if self.path is not None else None,
-            is_fallback=self.is_fallback,
-        )
-
-    def describe(self) -> dict:
-        return self.status().describe()
 
 
 # id(client) -> (client, GateState). The client reference is deliberately

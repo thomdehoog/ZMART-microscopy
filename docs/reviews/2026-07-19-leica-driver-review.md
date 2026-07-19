@@ -85,14 +85,15 @@ Concretely:
   whistle, and drift becomes structurally impossible rather than merely
   discouraged.
 
-One refinement, discovered during verification: the adapter's `set_xyz`
-carries a deliberate "whole-move pre-flight" — it checks the XY *and* Z
-legs before any motion starts, so a move can never be left half-done (XY
-moved, Z refused). That protection is worth keeping, but as a **question
-the adapter asks `limits/`** (one exposed "would this whole move be
-allowed?" function), not as the current re-implementation through private
-`_check_*` internals. Asking the rulebook from anywhere is fine; there is
-still only one copy of the rules.
+One decision sharpened during implementation: the adapter does **no
+limit checking at all** — not even a pre-flight. Its old "whole-move
+pre-flight" (checking XY and Z before any motion) was a second copy of
+the rules living above the commands layer, exactly the drift structure
+this design forbids. The accepted tradeoff: a move whose Z leg is
+refused will already have moved XY — every leg that runs is still fully
+checked at its own door, and the error says exactly what happened and
+what to try. Enforcement lives low; the adapter composes commands and
+translates refusals into actionable messages, nothing more.
 
 ---
 
@@ -110,19 +111,23 @@ imports from `commands/` — a lower-sounding layer reaching upward.
    physical backstop constant, and the currently-applied envelope move into
    `limits/`. Everything named "limits" then lives in one folder.
 3. **`move_xy_with_backlash` → deleted.** It fused acquisition policy
-   (overshoot-then-approach choreography with baked-in 50 µm / 100 ms
-   constants) into the driver. The choreography is three lines of plain
-   `move_xy` calls; the adapter's acquisition routine composes it itself.
-   Every leg still passes through the checked `move_xy` door, so nothing
-   composed above can escape the limits.
+   into a primitive callers could not take apart. Its successor,
+   `arrive_xy` in `commands/routines.py`, is a composed routine: refuse
+   an illegal destination up front, overshoot leg, settle, final +X +Y
+   leg — every leg through the checked `move_xy` door. It lives in the
+   commands layer (not the adapter) because its edge-clamping needs
+   envelope knowledge, and only the commands layer may have that.
 4. **`correct_backlash` → `commands/routines.py`.** This is the one block
    that legitimately encodes stage physics (this STELLARIS has 3–5 µm of
    leadscrew slack; 50 µm overshoot is 10× margin). It stays in the driver
    — but in `commands/`, because it moves the stage, and folders must tell
    the truth. Explicitly **not** in utils: a function with physical
    side effects must not live in a folder that promises harmlessness.
-5. **The adapter's duplicate limit checks are removed**, replaced by the
-   single whole-move pre-flight question exposed by `limits/` (see §2).
+5. **The adapter's duplicate limit checks are removed entirely** — no
+   replacement (see §2). The check functions became public
+   (`limits.checks.check_xy` / `check_z`) so the commands layer calls
+   them through a front door instead of underscore-private internals,
+   and a guard test pins that nothing above commands/ calls them.
 6. **Backlash takeup is ordered from above** — by the acquisition routine
    in the adapter or by the calibration notebook — never spontaneously by
    the driver. The driver is building blocks; composition is the caller's
@@ -157,14 +162,15 @@ which the existing adversarial limit tests should catch.
 
 ### Open questions attached to this plan
 
-- `correct_backlash`: add an optional `at=(x, y)` argument so callers that
-  just commanded a move can skip the position read in the hot path?
+- ~~`correct_backlash`: add an optional `at=(x, y)` argument?~~ Done —
+  callers that know their position skip the read.
 - The 3-pass default of `correct_backlash` (6 stage moves): worth a bench
   measurement; one pass may give the same guarantee after a fresh arrival.
-- Near the envelope's lower edge, an overshoot waypoint (target − 50 µm)
-  can be out of bounds even when the target is legal. Policy choice: clamp
-  the takeup near the edge (recommended), or accept a ~50 µm strip of the
-  legal area that cannot be reached with compensation.
+- ~~Near the envelope's lower edge, an overshoot waypoint can be out of
+  bounds even when the target is legal.~~ Resolved: `arrive_xy` clamps
+  the waypoint into the envelope (after refusing illegal destinations
+  outright), so legal targets near the boundary stay reachable with a
+  shortened takeup.
 
 ---
 
