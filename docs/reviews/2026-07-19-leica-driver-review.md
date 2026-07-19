@@ -345,10 +345,9 @@ should converge on.
    directory themselves).
 3. ~~**The motion/limits plan (§3).**~~ **Done** — one rulebook, one
    enforcement layer, guard tests in place.
-4. **Kill the double-implemented objective compensation (§5.1.2)** — pick
-   one layer (the driver's `objective_shift` is the natural owner since the
-   setters already invoke it), make the adapter defer to it, and write the
-   same style of guard as for limits.
+4. ~~**Kill the double-implemented objective compensation (§5.1.2)**~~
+   **Done** — decision §8: explicit `compensate` parameter, session-scoped
+   default, single-sourced delta math, property test.
 5. **Dissolve `utils.py`** (§5.3.13) — each function to its natural owner.
 6. **Then, opportunistically:** the `commands/` internal grouping, the
    confirm-module split, OME deduplication, and the constants-in-mechanism

@@ -234,6 +234,33 @@ def get_translation_um(config: dict[str, Any], slot: int) -> tuple[float, float,
     return float(value[0]), float(value[1]), float(value[2])
 
 
+def translation_delta_um(
+    translations: dict | None, from_slot: int, to_slot: int
+) -> tuple[float, float, float]:
+    """The stage delta (x, y, z in µm) that keeps the sample point when the
+    objective changes from ``from_slot`` to ``to_slot``.
+
+    This is THE one place the sign convention lives:
+    ``delta = T[to_slot] − T[from_slot]``. Both consumers — the driver's
+    swap-time compensation (``commands/objective_shift.py``) and the
+    adapter's per-move frame mapping (``zmart_adapter._objective_delta_um``)
+    — call this function, so the two can never drift apart in sign or in
+    missing-slot policy.
+
+    Raises ``RuntimeError`` when either slot is not covered by the adopted
+    calibration — an uncovered pair must never be silently treated as zero.
+    """
+    table = translations or {}
+    if from_slot not in table or to_slot not in table:
+        raise RuntimeError(
+            f"no calibration translation covers objective slots "
+            f"{from_slot!r} -> {to_slot!r}; adopt an objective-pair "
+            f"calibration (calibration/notebooks/calibrate_objective_pair.ipynb)"
+        )
+    a, b = table[from_slot], table[to_slot]
+    return (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+
+
 def load_translations(calibration_name: str | None = None) -> dict[int, tuple[float, float, float]]:
     """Per-slot objective translations (micrometres) from the active calibration.
 

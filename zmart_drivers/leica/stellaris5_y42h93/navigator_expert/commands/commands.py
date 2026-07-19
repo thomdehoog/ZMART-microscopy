@@ -598,6 +598,7 @@ def set_objective(
     name=None,
     magnification=None,
     *,
+    compensate=None,
     max_retries=None,
     pre_check_timeout=None,
 ):
@@ -605,6 +606,12 @@ def set_objective(
 
     Resolves the input to a slot index, then fires the command.
     Exactly one of slot_index, name, or magnification must be provided.
+
+    ``compensate`` controls whether the calibrated stage move that keeps
+    the sample point runs after the swap: ``None`` (default) follows the
+    session's connect-time calibration policy, ``True`` requires it, and
+    ``False`` asks for a bare swap. See
+    :func:`objective_shift.record_before_change`.
     """
     refused = _limits_refusal(client, "set_objective", {"job_name": job_name})
     if refused:
@@ -658,7 +665,9 @@ def set_objective(
     # for clients the driver connected; a failed pre-read refuses the change
     # while nothing has happened yet.
     try:
-        before = _objective_shift.record_before_change(client, job_name)
+        before = _objective_shift.record_before_change(
+            client, job_name, compensate=compensate
+        )
     except Exception as exc:  # noqa: BLE001 -- fail closed before the change fires
         return {
             "success": False,
@@ -1608,7 +1617,7 @@ def acquire(
 # =============================================================================
 
 
-def select_job(client, job_name, poll_timeout=None, poll_interval=None):
+def select_job(client, job_name, poll_timeout=None, poll_interval=None, *, compensate=None):
     """Select a job by name.
 
     Routes through the backbone. The SELECT_JOB profile pre-checks scanner
@@ -1624,6 +1633,12 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
         job_name: Name of job to select.
         poll_timeout: Max seconds to wait for job switch confirmation.
         poll_interval: Seconds between get_jobs polls.
+        compensate: A job change can swap the objective with it; this
+            controls the calibrated stage move that keeps the sample point
+            afterwards. ``None`` (default) follows the session's
+            connect-time calibration policy, ``True`` requires it,
+            ``False`` asks for a bare change. See
+            :func:`objective_shift.record_before_change`.
     """
     refused = _limits_refusal(client, "select_job", {"job_name": job_name})
     if refused:
@@ -1643,7 +1658,7 @@ def select_job(client, job_name, poll_timeout=None, poll_interval=None):
     # the change while nothing has happened yet.
     try:
         before = _objective_shift.record_before_change(
-            client, context.get("api_baseline_name")
+            client, context.get("api_baseline_name"), compensate=compensate
         )
     except Exception as exc:  # noqa: BLE001 -- fail closed before the change fires
         return {
