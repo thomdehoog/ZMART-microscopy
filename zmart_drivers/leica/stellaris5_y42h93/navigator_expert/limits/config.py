@@ -42,28 +42,8 @@ _AXIS_FILE_KEYS = {
 # These are visible in the file even while unrestricted. Each entry is either
 # ``[]`` or one typed constraint, and the command wrapper with the same name
 # enforces a typed constraint immediately before its native CAM call.
-SETTER_LIMIT_KEYS = (
-    "set_zoom",
-    "set_scan_speed",
-    "set_scan_resonant",
-    "set_scan_mode",
-    "set_sequential_mode",
-    "set_scan_field_rotation",
-    "set_image_format",
-    "set_z_stack_definition",
-    "set_z_stack_step_size",
-    "set_z_stack_size",
-    "set_frame_accumulation",
-    "set_frame_average",
-    "set_line_accumulation",
-    "set_line_average",
-    "set_pinhole_airy",
-    "set_detector_gain",
-    "set_laser_intensity",
-    "set_laser_shutter",
-    "set_filter_wheel_slot",
-    "set_filter_wheel_spectrum",
-)
+from .checks import SETTER_LIMIT_KEYS  # noqa: E402  (rulebook vocabulary lives with the checks)
+
 _REQUIRED_FILE_KEYS = (*_AXIS_FILE_KEYS.values(), "objective_slot", *SETTER_LIMIT_KEYS)
 
 
