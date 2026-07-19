@@ -22,10 +22,16 @@ relative to the origin's objective — so nothing is ever compensated twice.
 
 This lives in the command layer, below the controller adapter, so EVERY
 driver-performed job or objective change is covered no matter who asked for
-it. It arms itself from the per-connection config the driver loads at connect
-(:mod:`navigator_expert.connection.session_state`): a client the driver never
-connected through (bare command-level use, tests, the setup notebooks) is
-left completely untouched.
+it — but the behaviour is explicit, not hidden: ``set_objective`` and
+``select_job`` take a ``compensate`` parameter (decision §8). The default
+follows the session's connect-time policy from the per-connection config
+(:mod:`navigator_expert.connection.session_state`): compensation runs when
+calibration was loaded, and stays off for a client the driver never
+connected through (bare command-level use, tests, the setup notebooks) or a
+session that declined calibration (``load_calibration=False``). The delta
+math itself is single-sourced in
+:func:`navigator_expert.calibration.core.model.translation_delta_um`,
+shared with the adapter's per-move frame mapping.
 
 Author: Thom de Hoog (ZMB, University of Zurich).
 License: MIT
@@ -42,31 +48,54 @@ log = logging.getLogger(__name__)
 def _translations_for(client: Any) -> dict | None:
     """The per-slot translation table loaded for *client* at connect.
 
-    ``None`` means the driver never loaded per-connection config for this
-    client — the compensation stays unarmed and the command wrappers change
-    nothing about their behaviour. An empty dict means the connection chose
-    not to load calibration; an objective swap then fails the command's
-    result rather than silently leaving the stage at the old lens's spot.
+    ``None`` means compensation is off for this client: either the driver
+    never loaded per-connection config for it (bare command-level use,
+    tests, the setup notebooks), or the connection explicitly declined
+    calibration (``connect_microscope(load_calibration=False)``) — the
+    session declared itself uncalibrated, so lens swaps proceed bare.
+    An empty dict means the connection *wanted* calibration but none is
+    usable (unreadable file, or no pairs measured); an objective swap then
+    fails the command's result rather than silently leaving the stage at
+    the old lens's spot.
     """
     from ..connection import session_state
 
     config = session_state.get(client)
     if config is None:
         return None
-    return config.translations if config.translations is not None else {}
+    return config.translations
 
 
-def record_before_change(client: Any, job_name: str | None = None) -> dict | None:
+def record_before_change(
+    client: Any, job_name: str | None = None, *, compensate: bool | None = None
+) -> dict | None:
     """Record motoric XY, z-wide, and the active objective BEFORE a change.
 
-    Returns ``None`` when the client is unarmed (no per-connection config was
-    installed at connect), in which case the caller proceeds exactly as it
-    always has. Raises when the client is armed but the pre-change position
-    cannot be read: a change whose starting point is unknown could never be
-    compensated afterwards, so it must not be fired at all.
+    ``compensate`` makes the behaviour explicit at the call site:
+
+    - ``None`` (default) — follow the session's connect-time policy:
+      compensate when calibration was loaded, stay bare when the session is
+      unarmed or declined calibration (``load_calibration=False``).
+    - ``False`` — bare change, no recording, no compensation.
+    - ``True`` — require compensation: raises when the session carries no
+      calibration to compensate with, instead of proceeding bare.
+
+    Returns ``None`` when compensation is off, in which case the caller
+    proceeds exactly as it always has. Raises when compensation is on but
+    the pre-change position cannot be read: a change whose starting point
+    is unknown could never be compensated afterwards, so it must not be
+    fired at all.
     """
+    if compensate is False:
+        return None
     translations = _translations_for(client)
     if translations is None:
+        if compensate:
+            raise RuntimeError(
+                "compensate=True was requested but this session has no "
+                "calibration loaded (connect with load_calibration=True, or "
+                "adopt a calibration first)"
+            )
         return None
 
     from .. import readers as _readers
@@ -144,21 +173,21 @@ def compensate_after_change(
                 "position before acquiring",
                 changed=None,
             )
-        t = before["translations"]
-        if old_slot not in t or new_slot not in t:
-            return _failed(
-                f"the change swapped the objective (slot {old_slot} -> "
-                f"{new_slot}) but no calibration translation covers both "
-                "slots; the stage was NOT moved and still points at the old "
-                "lens's spot. Adopt an objective-pair calibration "
-                "(calibration/notebooks/calibrate_objective_pair.ipynb) or "
-                "reposition manually."
+        # The delta math and the missing-pair policy live in ONE place —
+        # calibration/core/model.py — shared with the adapter's per-move
+        # frame mapping, so the two layers can never drift apart.
+        from ..calibration.core import model as _cal_model
+
+        try:
+            delta = _cal_model.translation_delta_um(
+                before["translations"], old_slot, new_slot
             )
-        delta = (
-            t[new_slot][0] - t[old_slot][0],
-            t[new_slot][1] - t[old_slot][1],
-            t[new_slot][2] - t[old_slot][2],
-        )
+        except RuntimeError as exc:
+            return _failed(
+                f"the change swapped the objective but {exc}; the stage was "
+                f"NOT moved and still points at the old lens's spot — "
+                f"compensate afterwards or reposition manually."
+            )
         if delta != (0.0, 0.0, 0.0):
             log.info(
                 "the change to %r swapped the objective (slot %s -> %s); "

@@ -259,16 +259,25 @@ def _objective_delta_um(handle: ZmartHandle, current_objective: dict | None) -> 
     current_slot = (current_objective or {}).get("slotIndex")
     if origin_slot is None or current_slot == origin_slot:
         return (0.0, 0.0, 0.0)
-    t = handle.translations
-    if current_slot is None or not t or current_slot not in t or origin_slot not in t:
+    if current_slot is None:
         raise RuntimeError(
             f"objective changed since set_origin (slot {origin_slot} -> "
-            f"{current_slot}) but no calibration translation covers both slots; "
-            "re-set the origin under the current objective, or adopt an "
-            "objective-pair calibration"
+            f"unidentified) so the frame cannot be mapped; re-set the origin "
+            f"under the current objective"
         )
-    a, b = t[origin_slot], t[current_slot]
-    return (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+    # The delta math and the missing-pair policy live in ONE place —
+    # calibration/core/model.py — shared with the driver's swap-time
+    # compensation, so the two layers can never drift apart. Imported
+    # lazily, matching the connection layer's calibration imports.
+    from ..calibration.core import model as _cal_model
+
+    try:
+        return _cal_model.translation_delta_um(handle.translations, origin_slot, current_slot)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"objective changed since set_origin but {exc} — or re-set the "
+            f"origin under the current objective"
+        ) from exc
 
 
 def disconnect(handle: ZmartHandle) -> None:

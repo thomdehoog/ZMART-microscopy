@@ -267,3 +267,92 @@ def test_set_objective_records_before_and_compensates_with_the_commanded_slot(
     ]
     assert result["success"]
     assert result["objective_compensation"]["applied_translation_um"] == [10.0, -6.0, 3.0]
+
+
+class TestCompensateParameter:
+    """Decision §8: compensation is explicit and session-scoped.
+
+    ``compensate=None`` follows the connect-time policy, ``False`` asks
+    for a bare change, ``True`` requires calibration or refuses up front.
+    """
+
+    def test_declined_session_swaps_bare(self, client, monkeypatch):
+        """load_calibration=False installs translations=None: the session
+        declared itself uncalibrated, so a lens swap records nothing,
+        compensates nothing, and refuses nothing."""
+        _arm(client, translations=None)
+        assert shift.record_before_change(client) is None
+
+    def test_wanted_but_unusable_calibration_still_refuses(self, client, monkeypatch):
+        """An empty table means the session WANTED calibration but none is
+        usable — a swap must fail loudly, not proceed bare."""
+        _arm(client, translations={})
+        _rig(monkeypatch, slot={"value": 1})
+        moves = _moves(monkeypatch)
+        before = shift.record_before_change(client)
+        assert before is not None  # armed: the pre-change position is recorded
+        report = shift.compensate_after_change(client, "Overview", before, new_slot=2)
+        assert not report["ok"]
+        assert "no calibration translation covers" in report["message"]
+        assert moves == []
+
+    def test_compensate_false_is_a_bare_change_even_when_calibrated(self, client):
+        _arm(client)  # full table loaded
+        assert shift.record_before_change(client, compensate=False) is None
+
+    def test_compensate_true_refuses_up_front_without_calibration(self, client):
+        _arm(client, translations=None)
+        with pytest.raises(RuntimeError, match="compensate=True"):
+            shift.record_before_change(client, compensate=True)
+
+    def test_compensate_true_on_unarmed_client_refuses_up_front(self, client):
+        with pytest.raises(RuntimeError, match="compensate=True"):
+            shift.record_before_change(client, compensate=True)
+
+
+class TestSingleSourcedDelta:
+    """The translation math lives in ONE place (calibration/core/model.py),
+    shared by the driver's swap-time compensation and the adapter's
+    per-move frame mapping — so sign or policy drift between the two
+    layers is structurally impossible."""
+
+    def test_sign_convention_is_to_minus_from(self):
+        from navigator_expert.calibration.core import model
+
+        assert model.translation_delta_um(TRANSLATIONS, 1, 2) == (10.0, -6.0, 3.0)
+        assert model.translation_delta_um(TRANSLATIONS, 2, 1) == (-10.0, 6.0, -3.0)
+
+    def test_uncovered_pair_raises_the_one_shared_message(self):
+        from navigator_expert.calibration.core import model
+
+        with pytest.raises(RuntimeError, match="no calibration translation covers"):
+            model.translation_delta_um(TRANSLATIONS, 1, 5)
+        with pytest.raises(RuntimeError, match="no calibration translation covers"):
+            model.translation_delta_um(None, 1, 2)
+
+    def test_swap_compensation_and_frame_math_agree(self, client, monkeypatch):
+        """The property the whole two-moment design rests on: the driver's
+        swap-time stage move equals the adapter's per-move frame offset for
+        the same lens pair. Swap-then-move-to-F therefore lands exactly
+        where move-to-F-alone would."""
+        from navigator_expert.zmart_adapter import zmart_adapter as adapter
+
+        _arm(client)
+        slot = {"value": 1}
+        _rig(monkeypatch, slot=slot)
+        moves = _moves(monkeypatch)
+        before = shift.record_before_change(client)
+        slot["value"] = 2
+        report = shift.compensate_after_change(client, "Overview", before)
+        assert report["ok"]
+        driver_delta = tuple(report["applied_translation_um"])
+
+        handle = SimpleNamespace(
+            origin={"objective": {"slotIndex": 1}},
+            translations=TRANSLATIONS,
+        )
+        adapter_delta = adapter._objective_delta_um(handle, {"slotIndex": 2})
+        assert adapter_delta == driver_delta
+        # and the physical move the driver fired is exactly that delta
+        assert moves[0] == ("xy", 1000.0 + driver_delta[0], 2000.0 + driver_delta[1])
+        assert moves[1] == ("z", "Overview", 30.0 + driver_delta[2], "zwide")

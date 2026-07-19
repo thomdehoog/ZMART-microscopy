@@ -128,11 +128,15 @@ def _load_objective_calibration(
         }
     except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
         _log.warning(
-            "objective translations unavailable (%s); cross-objective moves will be refused",
+            "objective translations unavailable (%s); objective changes and "
+            "cross-objective moves will be refused",
             exc,
         )
         empty_info["path"] = None if path is None else str(path)
-        return None, empty_info
+        # {} (not None): this session WANTED calibration but none is usable,
+        # so lens swaps refuse fail-closed. None is reserved for the explicit
+        # opt-out (enabled=False), where swaps proceed bare instead.
+        return {}, empty_info
 
     info = {
         "enabled": True,
@@ -240,15 +244,19 @@ def connect_microscope(
     - ``load_limits=False`` — the session is governed by the bundled **default**
       limits rather than this machine's measured envelope. It is never left
       ungated, and the hardcoded physical backstop still bounds every move.
-    - ``load_calibration=False`` — no objective translations are loaded, so the
-      driver refuses cross-objective moves rather than computing uncompensated
-      ones.
+    - ``load_calibration=False`` — the session declares itself uncalibrated:
+      lens swaps proceed **bare** (no keep-the-sample-point move, no refusal),
+      while cross-objective *frame moves* still refuse — that math genuinely
+      cannot be done without translations. Individual calls can override with
+      ``compensate=True/False`` on ``set_objective`` / ``select_job``.
 
     A file that fails to load degrades the same way, loudly, instead of failing
     the connection: an invalid ``limits.json`` falls back to the bundled default
     envelope, an unreadable ``orientation.json`` falls back to the identity turn,
-    and an unreadable ``calibration.json`` leaves translations unloaded. Only an
-    unreachable LAS X (or a failed ping) raises.
+    and an unreadable ``calibration.json`` fails closed: objective changes and
+    cross-objective moves refuse rather than running uncompensated (unlike the
+    deliberate ``load_calibration=False`` opt-out, where swaps go bare). Only
+    an unreachable LAS X (or a failed ping) raises.
 
     Returns the CAM client. The loaded limits live in the commands gate; the
     loaded orientation and calibration live in the per-connection session
