@@ -35,7 +35,7 @@ import navigator_expert as drv
 
 from ... import orientation as _orientation
 from ...acquisition.naming import Naming, run_hash
-from ...motion import movement as _movement
+from ...commands import routines as _movement
 
 # matplotlib is imported lazily inside the plot helpers so test imports
 # (and headless environments) do not pull in a display backend on import.

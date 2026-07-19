@@ -20,11 +20,11 @@ from pathlib import Path
 from navigator_expert.commands import gate as _gate
 from navigator_expert.config import profiles
 from navigator_expert.config.machine import MachineProfile
+from navigator_expert.limits import checks as _motion_limits
 from navigator_expert.limits import config as _limits_config
-from navigator_expert.motion import limits as _motion_limits
 
 # The historical machine envelope (== the bundled template and the hardcoded
-# backstop in motion/limits.py) — the widest envelope a fixture may use.
+# backstop in limits/checks.py) — the widest envelope a fixture may use.
 DEFAULT_STAGE_UM = {
     "x": [1000.0, 130000.0],
     "y": [1000.0, 100000.0],

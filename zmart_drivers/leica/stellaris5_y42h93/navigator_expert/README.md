@@ -85,7 +85,7 @@ runtime where possible. Override via the profile, not at call sites.
   so publishing one subsystem never duplicates another. The single `limits.json` is
   flat: four typed stage-axis `range` entries, `objective_slot` with `allowed` values,
   and either a typed constraint or explicit `[]` for each setter. Backlash remains a
-  motion utility, not configuration.
+  command routine, not configuration.
 - **The driver loads the configs at connect** — `connect_microscope(...)` (`connection/session.py`)
   is the driver's own front door. It opens the CAM client and then loads this microscope's three
   machine-local configs — the **stage limits**, the **orientation**, and the **calibration** — so the
@@ -99,7 +99,7 @@ runtime where possible. Override via the profile, not at call sites.
   workflows/validators/notebooks call it directly). It resolves the ProgramData `limits.json` (seeding
   defaults there first when needed), validates its exact flat keys, finite ranges, allowed
   objective slots, and envelope **within the hardcoded physical backstop**
-  `motion.limits.STAGE_BACKSTOP_UM`), applies the stage envelope, and installs the command safety gate
+  `limits.checks.STAGE_BACKSTOP_UM`), applies the stage envelope, and installs the command safety gate
   for that client. **If the machine file is invalid (or loading is switched off), the session does not
   go dead — it falls back to the bundled default envelope** (loudly warned, marked a fallback). The
   defaults sit within the physical backstop, and the backstop bounds every move regardless, so an
@@ -374,14 +374,13 @@ code is **load-bearing** (used by `move_galvo_to_pixel`, `disable_roi_scan`, `re
 zmart_drivers/leica/stellaris5_y42h93/navigator_expert/
 ├── connection/   lasx_runtime.py (load .NET CAM assemblies) · session.py (connect_python_client / connect_microscope) · session_state.py (per-connection orientation + calibration)
 ├── commands/     dispatch.py (the backbone) · errors.py · prechecks.py · confirmations.py ·
-│                 settings.py · objectives.py · commands.py (set_*/move_*/acquire/select_job)
+│                 settings.py · objectives.py · commands.py (set_*/move_*/acquire/select_job) · routines.py (backlash)
 ├── readers/      router.py (api/log/hybrid) · api_reader.py · log_reader.py · capabilities.py · derived.py
 ├── config/       profiles.py (CommandProfile + per-command instances, LasxApi/LogReader profiles) · machine.py
-├── motion/       limits.py (µm safety envelope) · movement.py (backlash)
 ├── acquisition/  product.py (neutral types) · capture.py (acquire) · save.py (persistence) · ome.py
 ├── scanfields/   .lrp/.rgn/.xml parsing + templates    experimental/lrp_edits/  offline template editors
 ├── calibration/  objective-pair calibration (data machine-local; defaults/ + notebooks/ inside)
-├── limits/       config.py · defaults/ · setup notebook; runtime truth is ProgramData
+├── limits/       config.py · checks.py (µm safety envelope) · defaults/ · setup notebook; runtime truth is ProgramData
 ├── orientation/  camera↔stage quarter-turn, applied at save; measured by set_orientation, stored in the machine snapshot next to calibration + limits
 ├── zmart_adapter/  ops table plugging this driver into zmart_controller (import to register)
 ├── tests/        unit/ (offline) + hardware/ (validate_*.py live scripts + mock-backed test_* gates)
@@ -401,7 +400,7 @@ nothing about zoom/objectives/stages. Commands supply small zero-arg callables (
 with `functools.partial`).
 
 **Dependency direction:** `utils` (stdlib) → `commands.errors/settings/prechecks/confirmations` →
-`commands.dispatch` → `config.profiles` → `commands.commands`; `readers.*`, `motion.*`, `scanfields.*`,
+`commands.dispatch` → `config.profiles` → `commands.commands`; `readers.*`, `limits.checks`, `scanfields.*`,
 `acquisition.*` sit above the CAM readback. No circular imports. One deliberate exception:
 `connection/session.py` is the connect-time composition point — `connect_microscope` reaches into
 `commands.gate`, `orientation`, and `calibration` (via function-local imports, which is what keeps

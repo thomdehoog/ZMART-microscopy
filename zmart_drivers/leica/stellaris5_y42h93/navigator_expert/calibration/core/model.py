@@ -11,7 +11,7 @@ sub-deltas from calibration sessions stay in the session reports instead of the
 canonical JSON.
 
 Backlash is a plain motion utility with baked-in default params (decision §2b,
-:mod:`navigator_expert.motion.movement`), not calibration state. It is no
+:mod:`navigator_expert.commands.routines`), not calibration state. It is no
 longer part of the schema. A ``backlash`` block left over in an older
 machine-local ``calibration.json`` is tolerated (ignored), not rejected, so an
 existing file keeps loading without a re-adopt.

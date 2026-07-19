@@ -25,7 +25,7 @@ Dependency direction:
     - Imports: stdlib only (no driver imports).
     - Imported by: ``commands`` (for Phase A limit checks),
       ``commands.gate`` (backstop containment at the connect handshake),
-      ``__init__`` (re-export).
+      ``limits.config`` (envelope validation), ``__init__`` (re-export).
 """
 
 import math
@@ -68,7 +68,7 @@ def check_envelope_within_backstop(stage_um):
             raise RuntimeError(
                 f"stage limits for axis {axis!r} = [{lo}, {hi}] reach outside the "
                 f"physical backstop [{backstop_lo}, {backstop_hi}] "
-                f"(motion/limits.py STAGE_BACKSTOP_UM); refusing the envelope — "
+                f"(limits/checks.py STAGE_BACKSTOP_UM); refusing the envelope — "
                 f"a file wider than the machine's physical travel cannot be trusted"
             )
 
@@ -177,7 +177,7 @@ def _check_xy_limits(x, y):
         if value < lo or value > hi:
             raise RuntimeError(
                 f"{axis.upper()}={value} outside the physical backstop [{lo}, {hi}] "
-                f"(motion/limits.py STAGE_BACKSTOP_UM) — refused regardless of the "
+                f"(limits/checks.py STAGE_BACKSTOP_UM) — refused regardless of the "
                 f"configured envelope"
             )
 
@@ -207,6 +207,6 @@ def _check_z_limits(z, z_mode):
     if z < backstop_lo or z > backstop_hi:
         raise RuntimeError(
             f"Z={z} ({z_mode}) outside the physical backstop [{backstop_lo}, {backstop_hi}] "
-            f"(motion/limits.py STAGE_BACKSTOP_UM) — refused regardless of the "
+            f"(limits/checks.py STAGE_BACKSTOP_UM) — refused regardless of the "
             f"configured envelope"
         )
