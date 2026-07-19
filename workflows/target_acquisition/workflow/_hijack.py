@@ -7,8 +7,10 @@ code path on realistic-looking data. Two entry points share one recipe:
 - :func:`hijack_records` -- the controller-only flow's entry: takes the records
   ``run_overview`` / ``acquire_targets`` return (each with ``"images"`` paths)
   and derives everything from the paths. This is what the v4 notebook calls.
-- :func:`hijack_frame` -- the retired driver-coupled entry (``result`` +
-  ``layout`` + ``kind``), kept for ``pipeline.retired``.
+- :func:`hijack_frame` -- the lower-level entry (``result`` + ``layout`` +
+  ``kind``) that carries the indivisible check-and-overwrite recipe. It dates
+  from the old driver-coupled flow (since removed) and remains the single
+  place the overwrite can happen.
 
 The flat, no-sidecar layout dropped the companion ``.ome.xml``; the overwrite
 is gated by a per-frame allowlist on the copied native AutoSave vendor
@@ -316,12 +318,12 @@ def hijack_frame(
     layout,
     provider: Callable,
 ) -> None:
-    """Simulator allowlist + OME-preserving overwrite, indivisible (retired path).
+    """Simulator allowlist + OME-preserving overwrite, indivisible.
 
-    Retired driver-coupled entry point (``pipeline.retired.overview`` /
-    ``target``): takes a workflow-selected single-plane ``result`` (with
-    ``image_path`` / ``naming``) and the run ``layout``, locating the vendor
-    metadata under ``layout.acquisition_dir(kind)/vendor/lasx_native_autosave``.
+    Lower-level entry point: takes a workflow-selected single-plane
+    ``result`` (with ``image_path`` / ``naming``) and the run ``layout``,
+    locating the vendor metadata under
+    ``layout.acquisition_dir(kind)/vendor/lasx_native_autosave``.
     The controller-only flow uses :func:`hijack_records` instead.
 
     Raises ``NonSimulatorFrameError`` (allowlist failure -- run-fatal) or
