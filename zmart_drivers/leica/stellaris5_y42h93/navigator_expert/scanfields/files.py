@@ -24,7 +24,8 @@ from pathlib import Path
 
 from .._file_utils import _wait_file_stable
 from ..commands import gate as _gate
-from ..utils import RECEIPT_TIMEOUT, _make_timing
+from ..commands.envelope import _make_timing
+from ..config.timing import RECEIPT_TIMEOUT
 from .lrp import parse_lrp
 
 log = logging.getLogger(__name__)

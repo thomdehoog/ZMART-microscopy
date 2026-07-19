@@ -231,9 +231,10 @@ them says the committed value **was measured on the ZMB STELLARIS 8, while
 this driver targets the STELLARIS 5**. Unlike orientation and limits —
 which are measured per machine and stored in that machine's config tree —
 this scope-specific constant lives as a source literal, correctable only by
-editing code. This is a correctness item, not tidiness: it belongs next to
-`orientation.json` and `limits.json` as a measured, per-instrument value,
-independent of any reorganization.
+editing code (since the utils dissolution: in `config/galvo.py`, with the
+warning kept loud). This is a correctness item, not tidiness: it belongs
+next to `orientation.json` and `limits.json` as a measured, per-instrument
+value, independent of any reorganization.
 
 ### 5.1 Policy fused into mechanism (the backlash family)
 
@@ -348,7 +349,8 @@ should converge on.
 4. ~~**Kill the double-implemented objective compensation (§5.1.2)**~~
    **Done** — decision §8: explicit `compensate` parameter, session-scoped
    default, single-sourced delta math, property test.
-5. **Dissolve `utils.py`** (§5.3.13) — each function to its natural owner.
+5. ~~**Dissolve `utils.py`** (§5.3.13)~~ **Done** — four truthful leaf
+   modules replace the grab-bag; guard test added.
 6. **Then, opportunistically:** the `commands/` internal grouping, the
    confirm-module split, OME deduplication, and the constants-in-mechanism
    list — each is small and local once the architecture above is in place.

@@ -18,11 +18,11 @@ import time
 from functools import partial
 
 from .. import readers as _readers
-from .. import utils as _utils
+from ..config import timing as _timing
 from ..readers import log_wait
 from ..readers import router as _router
-from ..utils import _make_log_entry
 from .confirmations import _reading_value_after
+from .envelope import _make_log_entry
 
 log = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ def confirm_select_job(
         {"success": bool, "logs": [...]}
     """
     if timeout is None:
-        timeout = _utils.CONFIRM_POLL_S
+        timeout = _timing.CONFIRM_POLL_S
     logs = []
     if require_transition_witness and inadmissible_baseline is None:
         msg = (
@@ -195,7 +195,7 @@ def select_job_confirm_legs(
         raise ValueError(
             f"unknown selected-job confirmation source {source!r}; expected api, log, or hybrid"
         )
-    window_s = _utils.CONFIRM_POLL_S if timeout is None else timeout
+    window_s = _timing.CONFIRM_POLL_S if timeout is None else timeout
     api_confirm = None
     log_leg = None
     budget_s = window_s if source == "hybrid" else None

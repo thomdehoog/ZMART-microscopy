@@ -57,7 +57,7 @@ from ..commands.confirmations import (
 )
 from ..commands.errors import _default_error_check
 from ..commands.prechecks import check_idle
-from ..utils import CONFIRM_POLL_S, RECEIPT_TIMEOUT
+from .timing import CONFIRM_POLL_S, RECEIPT_TIMEOUT
 
 
 @dataclass(frozen=True)

@@ -2739,7 +2739,7 @@ class TestCommandReaderSafety(unittest.TestCase):
             patch.object(readers, "get_job_settings", side_effect=fake_get_job_settings),
             patch.object(readers, "get_base_fov", side_effect=fake_get_base_fov),
             patch(
-                "navigator_expert.utils.parse_tile_geometry",
+                "navigator_expert.readers.parsing.parse_tile_geometry",
                 return_value={"pixel_w_um": 1.0, "pixels_x": 512},
             ),
             patch(

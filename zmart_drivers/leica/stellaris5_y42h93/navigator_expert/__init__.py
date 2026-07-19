@@ -136,13 +136,13 @@ if _repo_root not in _sys.path:
     _sys.path.insert(0, _repo_root)
 del _sys, _Path, _here, _repo_root
 
-# -- shared utilities + commands/ - helpers and command mechanics
-from .utils import (
+# -- parsing + command mechanics
+from .readers.parsing import (
     _safe_float,
     parse_format,
-    _make_log_entry,
     parse_tile_geometry,
 )
+from .commands.envelope import _make_log_entry
 from .commands.errors import (
     _is_transient_error,
     _check_api_error,

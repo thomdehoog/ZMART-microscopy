@@ -47,15 +47,15 @@ and stdlib. Nothing from command wrappers, profiles, prechecks, or confirmations
 import logging
 import time
 
-from .. import utils as _utils
+from ..config import timing as _timing
 from ..readers import log_reader as _log_reader
-from ..utils import _make_log_entry, _make_timing
+from .envelope import _make_log_entry, _make_timing
 
 log = logging.getLogger(__name__)
 
 # Echo settle window (seconds): how long ``_await_echo_result`` polls the echo
 # model after transport delivery before giving up. Read at call time (like
-# ``utils.RECEIPT_TIMEOUT``/``CONFIRM_POLL_S``) so tests can shrink it.
+# ``timing.RECEIPT_TIMEOUT``/``CONFIRM_POLL_S``) so tests can shrink it.
 ECHO_SETTLE_TIMEOUT_S = 1.0
 
 
@@ -115,7 +115,7 @@ def _fire_with_receipt(api_obj, receipt_timeout=None, max_attempts=3, retry_dela
         True if delivered, False if transport failed after all attempts.
     """
     if receipt_timeout is None:
-        receipt_timeout = _utils.RECEIPT_TIMEOUT
+        receipt_timeout = _timing.RECEIPT_TIMEOUT
     for attempt in range(max_attempts):
         receipt = api_obj.UpdateAwaitReceipt(receipt_timeout)
         if receipt:

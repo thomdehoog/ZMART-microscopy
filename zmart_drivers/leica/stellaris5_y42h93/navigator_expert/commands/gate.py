@@ -24,7 +24,7 @@ only the command chokepoint vocabulary—it is not the JSON shape.
 - ``move_xy`` / ``move_z``                      -> ``set_xyz``
 - ``acquire``                                   -> ``acquire``
 - ``move_galvo_to_pixel``                       -> ``move_galvo_to_pixel``
-  (LRP pan write; its hardcoded ``utils.PAN_LIMIT`` stays the sanctioned
+  (LRP pan write; its hardcoded ``config.galvo.PAN_LIMIT`` stays the sanctioned
   numeric check; the gate adds the fail-closed handshake state)
 - ``save_experiment`` / ``load_experiment``     -> their own keys (direct
   ``PyApi{Save,Load}Experiment`` fires; loading a template changes what

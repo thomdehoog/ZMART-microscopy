@@ -39,7 +39,7 @@ import os
 import time
 import xml.etree.ElementTree as ET
 
-from ..utils import RECEIPT_TIMEOUT
+from ..config.timing import RECEIPT_TIMEOUT
 from . import derived
 
 log = logging.getLogger(__name__)
