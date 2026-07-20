@@ -454,16 +454,19 @@ def test_adoption_archives_notebook_beside_objective_pair(sessions_root, machine
     notebook = tmp_path / "working.ipynb"
     notebook.write_text('{"cells": []}', encoding="utf-8")
 
-    wf_adopt.adopt_calibration(
+    result = wf_adopt.adopt_calibration(
         session,
         machine=machine,
         moment=_ADOPT_MOMENT,
         notebook_paths=[notebook],
     )
 
-    archived = session.paths.session_dir / "calibrate_objective_pair.ipynb"
+    archived = session.paths.session_dir / "data" / "notebook" / notebook.name
     assert archived.is_file()
     assert archived.read_text(encoding="utf-8") == '{"cells": []}'
+    snapshot_archived = Path(result["snapshot"]) / "data" / "notebook" / notebook.name
+    assert snapshot_archived.read_text(encoding="utf-8") == '{"cells": []}'
+    assert result["notebook_paths"] == [str(archived), str(snapshot_archived)]
     assert (session.paths.session_dir / "calibration.json").is_file()
 
 
@@ -729,7 +732,7 @@ def test_adoption_refreshes_objective_names_from_the_live_system(
 def test_orientation_unmeasured_warning_signals(tmp_path, caplog, monkeypatch):
     """The 'orientation not measured yet' warning keys on two markers.
 
-    The shipped placeholder carries ``_notes`` (warned); a measured/adopted
+    The shipped placeholder carries ``"measured": false`` (warned); a measured/adopted
     file carries ``"measured": true`` (never warned); and a file with neither
     — adopted before the marker existed — is trusted as measured, so a driver
     upgrade never starts warning on a rig that was already set up.
@@ -749,7 +752,7 @@ def test_orientation_unmeasured_warning_signals(tmp_path, caplog, monkeypatch):
             op._warn_if_orientation_unmeasured()
         return any("has not been measured" in r.message for r in caplog.records)
 
-    # Freshly seeded ProgramData carries the placeholder (_notes) -> warn.
+    # Freshly seeded ProgramData carries measured=false -> warn.
     assert warns() is True
     # A measured/adopted file (positive marker) -> quiet.
     (snap / "orientation.json").write_text(
@@ -757,7 +760,7 @@ def test_orientation_unmeasured_warning_signals(tmp_path, caplog, monkeypatch):
         encoding="utf-8",
     )
     assert warns() is False
-    # A pre-marker measured file (no _notes, no measured) -> quiet.
+    # A pre-marker measured file (no measured field) -> quiet.
     (snap / "orientation.json").write_text(
         json.dumps({"schema_version": 1, "rotate_deg": 90}), encoding="utf-8"
     )
@@ -1213,11 +1216,14 @@ def test_objective_pair_notebook_only_configures_session_and_reference_slot():
     assert "job_name=" not in code
     assert "sessions_root=" not in code
     assert "parent_session=session" in code
-    assert "calibration_name=session.calibration_name" in code
+    assert "calibration_name=session.calibration_name" not in code
     assert "MACHINE" not in code
     assert code.count("objective_pair.measure(session)") == 4
     assert code.count("_ = objective_pair.measure(session)") == 0
     assert code.count("summary = objective_pair.measure(session)") == 1
+    assert code.index("measure_target_and_report(check_session)") < code.index("save_and_adopt")
+    assert code.index("save_and_adopt") < code.index("adopt_calibration")
+    assert "# Save and Adopt" in code
     stored_notebook = json.dumps(notebook)
     assert "ObjectivePairSession(" not in stored_notebook
     assert "CalibrationCheckSession(" not in stored_notebook

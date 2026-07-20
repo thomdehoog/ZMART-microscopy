@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -235,16 +234,20 @@ def adopt_calibration(
     source = compile_session_calibration(session, base_path=base_path)
     config = calibration_model.load_calibration(source)
     notebook_paths = tuple(notebook_paths)
+    from ...notebook_support import archive_notebook as archive_operator_notebook
+
+    session_notebooks = [
+        archive_operator_notebook(path, session.paths.session_dir) for path in notebook_paths
+    ]
     snapshot = machine.publish_snapshot(
         moment,
         calibration=config,
         calibration_name=selected_name,
         notebook_paths=notebook_paths,
     )
-    for notebook_path in notebook_paths:
-        notebook_path = Path(notebook_path)
-        destination = Path(session.paths.session_dir) / "calibrate_objective_pair.ipynb"
-        shutil.copy2(notebook_path, destination)
+    snapshot_notebooks = [
+        snapshot / "data" / "notebook" / Path(path).name for path in notebook_paths
+    ]
     calibration_rel = (
         machine.calibration_relpath(selected_name)
         if selected_name is not None
@@ -255,4 +258,17 @@ def adopt_calibration(
         "snapshot": str(snapshot),
         "calibration_name": selected_name,
         "calibration_path": str(snapshot / calibration_rel),
+        "notebook_paths": [str(path) for path in (*session_notebooks, *snapshot_notebooks)],
     }
+
+
+def archive_notebook(
+    session: Any,
+    snapshot: str | Path,
+    notebook_path: str | Path,
+) -> list[Path]:
+    """Archive a completed notebook with both session and adopted snapshot data."""
+    from ...notebook_support import archive_notebook as archive_operator_notebook
+
+    roots = (Path(session.paths.session_dir), Path(snapshot))
+    return [archive_operator_notebook(notebook_path, root) for root in roots]

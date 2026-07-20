@@ -86,14 +86,27 @@ def start_session(
     calibration_name: str | None = None,
     parent_session: Any = None,
 ):
-    """Connect and load the adopted calibration this check will test.
+    """Connect and load the calibration this check will test.
 
-    Loading happens first so a missing or unreadable calibration surfaces
-    as one clear setup error before any hardware interaction. Pass the same
-    ``calibration_name`` the calibration session used, so the check tests
-    the set that was just adopted.
+    With ``parent_session``, compile and validate that session's candidate
+    calibration without adopting it. Otherwise load the active machine
+    calibration. Loading happens before hardware interaction so a missing or
+    unreadable calibration surfaces as one clear setup error.
     """
-    translations = _model.load_translations(calibration_name=calibration_name)
+    if parent_session is not None:
+        if calibration_name is not None:
+            raise ValueError("parent_session selects its candidate calibration")
+        from .adopt import compile_session_calibration
+
+        candidate_path = compile_session_calibration(parent_session)
+        candidate = _model.load_calibration(candidate_path)
+        translations = {
+            int(slot): _model.get_translation_um(candidate, int(slot))
+            for slot, entry in (candidate.get("objectives") or {}).items()
+            if entry.get("translation_um") is not None
+        }
+    else:
+        translations = _model.load_translations(calibration_name=calibration_name)
     if len(translations) < 2:
         raise RuntimeError(
             f"the adopted calibration covers only {sorted(translations)} -- "

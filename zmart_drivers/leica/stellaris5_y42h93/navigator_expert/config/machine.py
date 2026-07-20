@@ -6,8 +6,8 @@ microscope API root::
     <programdata_root>/<vendor>/<microscope_id>/<api>/
         limits/<datetime>/
             limits.json
+            notebook/set_limits_<datetime>.ipynb
             data/
-                notebook/set_limits_<datetime>.ipynb
                 template/<saved experiment>.{xml,rgn,lrp}
         calibration/
             <datetime>/
@@ -22,7 +22,7 @@ microscope API root::
         orientation/
             <datetime>/
                 orientation.json
-                set_orientation.ipynb
+                data/notebook/set_orientation.ipynb
             <session-id>/
                 data/
                 reports/
@@ -127,7 +127,9 @@ def is_snapshot_name(name: str) -> bool:
 def _write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2, sort_keys=True)
+        # Payload builders define an operator-readable order. In particular,
+        # limits.json starts with X/Y/Z ranges before optional setter limits.
+        json.dump(payload, fh, indent=2, sort_keys=False)
         fh.write("\n")
 
 
@@ -296,7 +298,15 @@ class MachineProfile:
                     shutil.copytree(named, staging / CALIBRATIONS_DIRNAME)
             for notebook in source.glob("*.ipynb"):
                 if self._notebook_matches(subsystem, notebook):
-                    shutil.copy2(notebook, staging / notebook.name)
+                    from ..notebook_support import archive_notebook
+
+                    archive_notebook(
+                        notebook,
+                        staging,
+                        directory="notebook"
+                        if subsystem == "limits"
+                        else Path("data") / "notebook",
+                    )
             os.replace(staging, target)
         except BaseException:
             shutil.rmtree(staging, ignore_errors=True)
@@ -614,8 +624,14 @@ class MachineProfile:
                 else:
                     shutil.copy2(_io_path(source), _io_path(destination))
             for nb in notebook_paths:
+                from ..notebook_support import archive_notebook
+
                 nb = Path(nb)
-                shutil.copy2(nb, staging / nb.name)
+                archive_notebook(
+                    nb,
+                    staging,
+                    directory="notebook" if subsystem == "limits" else Path("data") / "notebook",
+                )
             os.replace(staging, target)
         except BaseException:
             shutil.rmtree(staging, ignore_errors=True)

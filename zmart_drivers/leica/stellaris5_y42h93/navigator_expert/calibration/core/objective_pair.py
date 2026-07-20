@@ -309,9 +309,8 @@ def _observe_objective_for_step(session: ObjectivePairSession, role: str) -> tup
 def _warn_if_orientation_unmeasured() -> None:
     """Warn when this microscope still carries the shipped orientation placeholder.
 
-    Two signals, so the check survives hand edits and schema growth: a file
-    that set_orientation adopted carries ``"measured": true`` (never warned),
-    and the shipped placeholder carries a ``_notes`` marker instead (warned).
+    The current minimal schema carries ``"measured": false`` only for the
+    shipped placeholder and ``"measured": true`` for an adopted measurement.
     A file with neither — e.g. one adopted before the ``measured`` marker
     existed — is trusted as measured, so upgrading the driver never starts
     warning on a rig that was already set up.
@@ -322,7 +321,7 @@ def _warn_if_orientation_unmeasured() -> None:
         raw = json.loads(MACHINE.orientation_path().read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001 -- missing/unreadable orientation is handled elsewhere
         return
-    if "_notes" in raw and not raw.get("measured"):
+    if raw.get("measured") is False:
         _log.warning(
             "orientation has not been measured on this microscope yet (still the "
             "shipped placeholder). Calibration assumes saved frames are already "

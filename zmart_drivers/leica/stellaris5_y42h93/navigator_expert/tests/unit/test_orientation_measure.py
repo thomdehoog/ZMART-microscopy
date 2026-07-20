@@ -1,8 +1,8 @@
 """Mock-driven tests for the ``set_orientation`` measurement.
 
 Exercises the D4 measurement guards (weak-vote stop, residual guard, singular
-fit), all eight rotation/mirror mappings, and the direct timestamped ProgramData
-run containing ``orientation.json``. The converter itself is covered by
+fit), all eight rotation/reflection mappings, and the direct timestamped
+ProgramData session lifecycle. The converter itself is covered by
 ``test_orientation.py``.
 """
 
@@ -22,6 +22,7 @@ pytest.importorskip("cv2")  # calibration.core.common (reused by measure) import
 
 from navigator_expert.acquisition.naming import build_image_name
 from navigator_expert.calibration.core import common as cm
+from navigator_expert.notebook_support import NotebookCheckpoint
 from navigator_expert.orientation import Orientation
 from navigator_expert.orientation import measure as wf
 
@@ -92,6 +93,7 @@ def _patch(
         ),
     )
     monkeypatch.setattr(wf.drv, "get_hardware_info", lambda client, **kw: {"ok": True})
+    monkeypatch.setattr(wf.drv, "get_selected_job", lambda client, **kw: {"Name": "Overview"})
 
     pos = {"x": home_xy[0], "y": home_xy[1]}
 
@@ -106,7 +108,11 @@ def _patch(
     monkeypatch.setattr(wf.drv, "get_xy", _get_xy)
     monkeypatch.setattr(cm.drv, "get_xy", _get_xy)
     monkeypatch.setattr(cm.drv, "move_xy", _move_xy)
-    monkeypatch.setattr(cm.drv, "get_job_settings", lambda *a, **k: {"some": "settings"})
+    monkeypatch.setattr(
+        cm.drv,
+        "get_job_settings",
+        lambda *a, **k: {"objective": {"slotIndex": 1, "name": "10x"}},
+    )
     monkeypatch.setattr(
         cm.drv,
         "parse_tile_geometry",
@@ -170,7 +176,6 @@ def _start(sessions_root, **kw):
     kw.pop("session_id", None)  # legacy test label; run names are automatic
     return wf.start_session(
         job_name="Overview",
-        reference_objective="10x",
         stage_move_um=kw.pop("stage_move_um", 30.0),
         settle_s=0.0,
         machine=MachineProfile(programdata_root=sessions_root),
@@ -229,7 +234,7 @@ def test_gallery_preview_applies_reflected_candidate_to_displayed_pixels(rotate_
     assert np.array_equal(overlay[..., 0], expected_red)
 
 
-def test_measure_success_writes_orientation_directly(monkeypatch, sessions_root):
+def test_measure_success_keeps_orientation_as_candidate(monkeypatch, sessions_root):
     _patch(monkeypatch)
     # +X (30 um) -> image (0, +30) um; +Y (30 um) -> image (-30, 0) um: the
     # "-Y +X" canonical [[0,-1],[1,0]], a 90-degree clockwise reorientation.
@@ -243,22 +248,19 @@ def test_measure_success_writes_orientation_directly(monkeypatch, sessions_root)
     assert session.residual_from_d4 == pytest.approx(0.0, abs=1e-9)
     assert session.is_mirrored is False
     assert session.orientation == Orientation(rotate_deg=90)
-    assert session.config_written is True
+    assert session.config_written is False
 
     orientation_path = session.paths.session_dir / wf.ORIENTATION_NAME
-    assert orientation_path.is_file()
-    payload = json.loads(orientation_path.read_text(encoding="utf-8"))
-    # "measured": True is the positive marker that separates a measured file
-    # from the shipped placeholder (which carries "_notes" instead).
-    assert payload == {
-        "schema_version": 2,
+    assert not orientation_path.exists()
+    assert wf.orientation_config(session.orientation) == {
+        "schema_version": 3,
         "measured": True,
-        "rotate_deg": 90,
-        "mirrored": False,
-        "reflection_axis": None,
-        "axis_signs": {"stage_x": -1, "stage_y": 1},
-        "axis_mapping": {"stage_x_from_image": "-Y", "stage_y_from_image": "+X"},
-        "image_to_stage": [[0, -1], [1, 0]],
+        "rotation_deg": 90,
+        "reflection": False,
+        "sign_convention": {
+            "stage_x_from_image": "-Y",
+            "stage_y_from_image": "+X",
+        },
     }
     diagnostic = session.paths.reports_dir / wf.DIAGNOSTIC_NAME
     assert diagnostic.is_file()
@@ -315,8 +317,8 @@ def test_measure_recovers_all_d4_mappings_from_synthetic_images(
     assert session.d4_accepted is True
     assert session.orientation == expected
     assert session.is_mirrored is expected.mirrored
-    payload = json.loads((session.paths.session_dir / wf.ORIENTATION_NAME).read_text())
-    assert payload == wf.orientation_config(expected)
+    assert not (session.paths.session_dir / wf.ORIENTATION_NAME).exists()
+    assert wf.orientation_config(session.orientation) == wf.orientation_config(expected)
 
 
 def test_measure_weak_vote_stops_without_config(monkeypatch, sessions_root):
@@ -344,17 +346,17 @@ def test_measure_accepts_and_records_mirror(monkeypatch, sessions_root):
     assert session.d4_accepted is True
     assert session.failure_reason is None
     assert session.orientation == Orientation(rotate_deg=0, mirrored=True)
-    assert session.config_written is True
-    payload = json.loads((session.paths.session_dir / wf.ORIENTATION_NAME).read_text())
-    assert payload == {
-        "schema_version": 2,
+    assert session.config_written is False
+    assert not (session.paths.session_dir / wf.ORIENTATION_NAME).exists()
+    assert wf.orientation_config(session.orientation) == {
+        "schema_version": 3,
         "measured": True,
-        "rotate_deg": 0,
-        "mirrored": True,
-        "reflection_axis": "vertical",
-        "axis_signs": {"stage_x": -1, "stage_y": 1},
-        "axis_mapping": {"stage_x_from_image": "-X", "stage_y_from_image": "+Y"},
-        "image_to_stage": [[-1, 0], [0, 1]],
+        "rotation_deg": 0,
+        "reflection": True,
+        "sign_convention": {
+            "stage_x_from_image": "-X",
+            "stage_y_from_image": "+Y",
+        },
     }
     diagnostic = session.paths.reports_dir / wf.DIAGNOSTIC_NAME
     assert diagnostic.is_file()
@@ -436,31 +438,99 @@ def test_measure_acquire_failure_returns_home(monkeypatch, sessions_root):
     assert pos["y"] == home_xy[1]
 
 
-def test_successful_run_is_the_active_orientation_snapshot(monkeypatch, sessions_root):
+def test_measure_rerun_replaces_this_sessions_outputs(monkeypatch, sessions_root):
+    _patch(monkeypatch)
+    votes = [_trusted(0.0, 30.0), _trusted(-30.0, 0.0)]
+    _install_votes(monkeypatch, votes + votes)
+    session = wf.measure(_start(sessions_root))
+
+    stale_paths = [
+        session.paths.data_dir / "stale-data.txt",
+        session.paths.reports_dir / "stale-report.txt",
+        session.paths.session_dir / "validation" / "stale-validation.txt",
+    ]
+    for path in stale_paths:
+        path.write_text("obsolete", encoding="utf-8")
+
+    rerun = wf.measure(session)
+
+    assert rerun is session
+    assert rerun.orientation == Orientation(rotate_deg=90)
+    assert all(not path.exists() for path in stale_paths)
+    assert not any((session.paths.session_dir / "validation").iterdir())
+    assert (session.paths.reports_dir / "orientation_report.json").is_file()
+    assert not (session.paths.session_dir / wf.ORIENTATION_NAME).exists()
+
+
+def test_start_session_creates_a_new_session_after_kernel_restart(monkeypatch, sessions_root):
+    from datetime import datetime, timezone
+
+    from navigator_expert.config.machine import MachineProfile
+
+    _patch(monkeypatch)
+    machine = MachineProfile(programdata_root=sessions_root)
+    first = wf.start_session(
+        job_name="Overview",
+        settle_s=0.0,
+        machine=machine,
+        moment=datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
+    )
+    restarted = wf.start_session(
+        job_name="Overview",
+        settle_s=0.0,
+        machine=machine,
+        moment=datetime(2026, 7, 1, 12, 1, tzinfo=timezone.utc),
+    )
+
+    assert restarted.paths.session_dir != first.paths.session_dir
+    assert not restarted.paths.session_dir.name.startswith(".")
+    assert sorted(path.name for path in restarted.paths.session_dir.parent.iterdir()) == [
+        "2026-07-01T12-00-00-000000Z",
+        "2026-07-01T12-01-00-000000Z",
+    ]
+
+
+def test_successful_run_becomes_active_only_after_validation_and_adoption(
+    monkeypatch, sessions_root, tmp_path
+):
     _patch(monkeypatch)
     _install_votes(monkeypatch, [_trusted(0.0, 30.0), _trusted(-30.0, 0.0)])
     session = wf.measure(_start(sessions_root))
     assert session.session_id == "2026-07-01T12-00-00-000000Z"
+    assert session.machine.latest_snapshot("orientation") is None
     written = session.paths.session_dir / wf.ORIENTATION_NAME
-    payload = json.loads(written.read_text(encoding="utf-8"))
-    assert payload == {
-        "schema_version": 2,
-        "measured": True,
-        "rotate_deg": 90,
-        "mirrored": False,
-        "reflection_axis": None,
-        "axis_signs": {"stage_x": -1, "stage_y": 1},
-        "axis_mapping": {"stage_x_from_image": "-Y", "stage_y_from_image": "+X"},
-        "image_to_stage": [[0, -1], [1, 0]],
-    }
+    assert not written.exists()
     assert {path.name for path in session.paths.session_dir.iterdir()} == {
         "data",
         "reports",
         "validation",
-        "orientation.json",
     }
     assert not any(path.name.startswith(".") for path in session.paths.session_dir.iterdir())
     assert not (session.paths.session_dir / "configs").exists()
+
+    validation = session.paths.session_dir / "validation" / "check.ome.tiff"
+    tifffile.imwrite(validation, np.zeros((4, 4), dtype=np.uint16))
+    notebook = tmp_path / "set_orientation.ipynb"
+    notebook.write_text('{"cells": []}', encoding="utf-8")
+    adopted = wf.adopt_orientation(session, notebook)
+
+    assert Path(adopted["snapshot"]) == session.paths.session_dir
+    assert written.is_file()
+    assert json.loads(written.read_text(encoding="utf-8")) == wf.orientation_config(
+        session.orientation
+    )
+    assert session.config_written is True
+    assert session.machine.latest_snapshot("orientation") == session.paths.session_dir
+    assert Path(adopted["notebook_path"]) == (
+        session.paths.session_dir / "data" / "notebook" / "set_orientation.ipynb"
+    )
+
+    notebook.write_text('{"cells": [{"rerun": true}]}', encoding="utf-8")
+    adopted_again = wf.adopt_orientation(session, notebook)
+    assert adopted_again == adopted
+    assert Path(adopted_again["notebook_path"]).read_text(encoding="utf-8") == (
+        '{"cells": [{"rerun": true}]}'
+    )
 
 
 def test_archive_notebook_places_one_canonical_copy_in_run(tmp_path):
@@ -472,8 +542,10 @@ def test_archive_notebook_places_one_canonical_copy_in_run(tmp_path):
 
     archived = wf.archive_notebook(session, source)
 
-    assert archived == run_dir / "set_orientation.ipynb"
+    assert archived == run_dir / "data" / "notebook" / "working-copy.ipynb"
     assert archived.read_text(encoding="utf-8") == '{"cells": []}'
+    assert not any(path.name.startswith(".") for path in archived.parent.iterdir())
+    assert not (archived.parent / "working-copy.ipynb.saving").exists()
 
 
 def test_failed_run_keeps_evidence_but_is_not_active(monkeypatch, sessions_root):
@@ -501,21 +573,37 @@ def test_notebook_archive_waits_for_a_new_saved_file_version(tmp_path, monkeypat
                 "cells": [
                     {
                         "cell_type": "code",
-                        "source": ["session = wf.measure(session)"],
+                        "source": ["session = wf.run_notebook_measurement()"],
                         "execution_count": 1,
                         "outputs": [{"output_type": "display_data"}],
-                    }
+                    },
+                    {
+                        "cell_type": "code",
+                        "source": ["validation_path = wf.validate(session)"],
+                        "execution_count": 2,
+                        "outputs": [{"output_type": "display_data"}],
+                    },
                 ]
             }
         ),
         encoding="utf-8",
     )
     previous_mtime_ns = notebook.stat().st_mtime_ns
-    monkeypatch.setattr(bootstrap, "NOTEBOOK_PATH", notebook)
+    monkeypatch.setattr(
+        bootstrap,
+        "NOTEBOOK",
+        NotebookCheckpoint(
+            notebook,
+            required_code=(
+                "session = wf.run_notebook_measurement()",
+                "validation_path = wf.validate(session)",
+            ),
+        ),
+    )
 
     os.utime(notebook, ns=(previous_mtime_ns + 1_000_000, previous_mtime_ns + 1_000_000))
 
-    assert bootstrap.wait_for_notebook_save(previous_mtime_ns, timeout_s=0.1) == notebook
+    assert bootstrap.NOTEBOOK.wait_for_save(previous_mtime_ns, timeout_s=0.1) == notebook
 
 
 def test_orientation_notebook_uses_one_automatic_run_directory():
@@ -526,25 +614,28 @@ def test_orientation_notebook_uses_one_automatic_run_directory():
     )
 
     assert "session_id=" not in code
-    assert "machine=MACHINE" in code
-    assert "display(Image(filename=str(diagnostic)))" in code
-    assert code.index("request_notebook_save") < code.index("wait_for_notebook_save")
-    assert code.index("wait_for_notebook_save") < code.index("archive_notebook")
-    assert code.index("archive_notebook") < code.index("acquire_validation_image")
-    assert "adopt_orientation" not in code
+    assert "machine=MACHINE" not in code
+    assert "reference_objective=" not in code
+    assert "job_name=" not in code
+    assert "session = wf.run_notebook_measurement()" in code
+    assert "wf.start_session(" not in code
+    assert "session = wf.measure(" not in code
+    assert "wf.show_measurement_result(session)" in code
+    assert code.index("wf.validate(session)") < code.index("save_and_adopt")
+    assert code.index("save_and_adopt") < code.index("adopt_orientation")
     assert "output_root=" not in code
-    assert "plt.imshow(validation_image" in code
+    assert "plt." not in code
+    assert "# Save and Adopt" in code
 
 
 def test_validation_stays_in_run_and_reloads_saved_image(tmp_path, monkeypatch):
     expected_orientation = Orientation(rotate_deg=90, mirrored=True)
     (tmp_path / "validation").mkdir()
-    (tmp_path / wf.ORIENTATION_NAME).write_text(
-        json.dumps(wf.orientation_config(expected_orientation, measured=True)),
-        encoding="utf-8",
-    )
+    stale = tmp_path / "validation" / "stale.txt"
+    stale.write_text("old validation", encoding="utf-8")
     session = SimpleNamespace(
         orientation=expected_orientation,
+        d4_accepted=True,
         client=object(),
         job_name="Overview",
         paths=SimpleNamespace(session_dir=tmp_path),
@@ -570,3 +661,5 @@ def test_validation_stays_in_run_and_reloads_saved_image(tmp_path, monkeypatch):
     assert np.array_equal(image, expected_image)
     assert image_path.is_file()
     assert tmp_path / "validation" in image_path.parents
+    assert not stale.exists()
+    assert not (tmp_path / wf.ORIENTATION_NAME).exists()

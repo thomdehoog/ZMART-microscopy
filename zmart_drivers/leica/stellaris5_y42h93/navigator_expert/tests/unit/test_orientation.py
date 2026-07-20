@@ -46,22 +46,32 @@ def test_load_orientation(tmp_path):
     assert orient.load_orientation(p) == Orientation(rotate_deg=180)
 
 
-def test_complete_schema_records_and_loads_mirror_signs_and_matrix(tmp_path):
+def test_current_schema_stores_only_authoritative_values(tmp_path):
     orientation = Orientation(rotate_deg=270, mirrored=True)
     payload = orient.orientation_config(orientation)
     assert payload == {
-        "schema_version": 2,
+        "schema_version": 3,
         "measured": True,
-        "rotate_deg": 270,
-        "mirrored": True,
-        "reflection_axis": "main_diagonal",
-        "axis_signs": {"stage_x": 1, "stage_y": 1},
-        "axis_mapping": {"stage_x_from_image": "+Y", "stage_y_from_image": "+X"},
-        "image_to_stage": [[0, 1], [1, 0]],
+        "rotation_deg": 270,
+        "reflection": True,
+        "sign_convention": {
+            "stage_x_from_image": "+Y",
+            "stage_y_from_image": "+X",
+        },
     }
     p = tmp_path / "orientation.json"
     p.write_text(json.dumps(payload), encoding="utf-8")
     assert orient.load_orientation(p) == orientation
+
+
+def test_current_schema_rejects_contradictory_sign_convention(tmp_path):
+    payload = orient.orientation_config(Orientation(rotate_deg=90))
+    payload["sign_convention"]["stage_x_from_image"] = "+Y"
+    p = tmp_path / "orientation.json"
+    p.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="sign_convention.*contradicts"):
+        orient.load_orientation(p)
 
 
 def test_reflection_axis_names_all_mirrored_cases():
@@ -72,17 +82,30 @@ def test_reflection_axis_names_all_mirrored_cases():
     assert Orientation(270, mirrored=True).reflection_axis == "main_diagonal"
 
 
-def test_complete_schema_accepts_snapshot_without_reflection_axis(tmp_path):
+def _legacy_v2_config(orientation: Orientation) -> dict:
+    return {
+        "schema_version": 2,
+        "measured": True,
+        "rotate_deg": orientation.rotate_deg,
+        "mirrored": orientation.mirrored,
+        "reflection_axis": orientation.reflection_axis,
+        "axis_signs": orientation.axis_signs,
+        "axis_mapping": orientation.axis_mapping,
+        "image_to_stage": [list(row) for row in orientation.image_to_stage],
+    }
+
+
+def test_legacy_complete_schema_accepts_snapshot_without_reflection_axis(tmp_path):
     orientation = Orientation(rotate_deg=180, mirrored=True)
-    payload = orient.orientation_config(orientation)
+    payload = _legacy_v2_config(orientation)
     payload.pop("reflection_axis")
     p = tmp_path / "orientation.json"
     p.write_text(json.dumps(payload), encoding="utf-8")
     assert orient.load_orientation(p) == orientation
 
 
-def test_complete_schema_rejects_contradictory_reflection_axis(tmp_path):
-    payload = orient.orientation_config(Orientation(rotate_deg=180, mirrored=True))
+def test_legacy_complete_schema_rejects_contradictory_reflection_axis(tmp_path):
+    payload = _legacy_v2_config(Orientation(rotate_deg=180, mirrored=True))
     payload["reflection_axis"] = "vertical"
     p = tmp_path / "orientation.json"
     p.write_text(json.dumps(payload), encoding="utf-8")
@@ -90,8 +113,8 @@ def test_complete_schema_rejects_contradictory_reflection_axis(tmp_path):
         orient.load_orientation(p)
 
 
-def test_complete_schema_rejects_contradictory_signs(tmp_path):
-    payload = orient.orientation_config(Orientation(rotate_deg=90))
+def test_legacy_complete_schema_rejects_contradictory_signs(tmp_path):
+    payload = _legacy_v2_config(Orientation(rotate_deg=90))
     payload["axis_signs"]["stage_x"] = 1
     p = tmp_path / "orientation.json"
     p.write_text(json.dumps(payload), encoding="utf-8")

@@ -26,14 +26,16 @@ there means a driver reinstall or update never loses it. Until the notebook has
 run, the shipped ``orientation/defaults/orientation.json`` is a placeholder that
 means "no turn," so an un-measured microscope is never turned by guesswork::
 
-    {"schema_version": 2, "measured": false, "rotate_deg": 0,
-     "mirrored": false, "reflection_axis": null, "axis_signs": {...},
-     "image_to_stage": [...]}
+    {"schema_version": 3, "measured": false,
+     "rotation_deg": 0, "reflection": false,
+     "sign_convention": {"stage_x_from_image": "+X",
+                         "stage_y_from_image": "+Y"}}
 
-The ``_notes`` text in the placeholder is not decoration: its presence is how
-the calibration workflow can tell "never measured" from "measured as 0" and
-warn the operator. A file the notebook adopts carries ``"measured": true``
-instead (and no ``_notes``).
+The ``measured`` value is essential because a correctly measured identity
+orientation (0 degrees, no reflection) is otherwise indistinguishable from the
+unmeasured placeholder. Rotation and reflection remain the authoritative
+geometry. The readable sign convention is derived from them when writing and
+strictly checked when loading, so contradictory state is never accepted.
 
 Author: Thom de Hoog (ZMB, University of Zurich).
 License: MIT
@@ -46,7 +48,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 _VALID_ROTATIONS = (0, 90, 180, 270)
 
 # How a clockwise turn of ``rotate_deg`` moves an image displacement (column,
@@ -149,16 +151,13 @@ def _signed_axis(row: tuple[int, int]) -> str:
 
 
 def orientation_config(orientation: Orientation, *, measured: bool = True) -> dict[str, Any]:
-    """Build the complete, internally consistent orientation document."""
+    """Build the minimal authoritative orientation document."""
     return {
         "schema_version": SCHEMA_VERSION,
         "measured": bool(measured),
-        "rotate_deg": int(orientation.rotate_deg),
-        "mirrored": orientation.mirrored,
-        "reflection_axis": orientation.reflection_axis,
-        "axis_signs": orientation.axis_signs,
-        "axis_mapping": orientation.axis_mapping,
-        "image_to_stage": [list(row) for row in orientation.image_to_stage],
+        "rotation_deg": int(orientation.rotate_deg),
+        "reflection": orientation.mirrored,
+        "sign_convention": orientation.axis_mapping,
     }
 
 
@@ -166,6 +165,28 @@ def orientation_from_config(data: dict[str, Any]) -> Orientation:
     """Validate and decode either a current or legacy orientation document."""
     schema_version = int(data.get("schema_version", 1))
     if schema_version >= SCHEMA_VERSION:
+        required = {"measured", "rotation_deg", "reflection", "sign_convention"}
+        missing = sorted(required.difference(data))
+        if missing:
+            raise ValueError(f"orientation schema {schema_version} missing fields: {missing}")
+        if not isinstance(data["measured"], bool):
+            raise TypeError("orientation field 'measured' must be boolean")
+        if not isinstance(data["rotation_deg"], int) or isinstance(data["rotation_deg"], bool):
+            raise TypeError("orientation field 'rotation_deg' must be an integer")
+        if not isinstance(data["reflection"], bool):
+            raise TypeError("orientation field 'reflection' must be boolean")
+        orientation = Orientation(
+            rotate_deg=data["rotation_deg"],
+            mirrored=data["reflection"],
+        )
+        if data["sign_convention"] != orientation.axis_mapping:
+            raise ValueError(
+                "orientation field 'sign_convention' contradicts rotation/reflection: "
+                f"got {data['sign_convention']!r}, expected {orientation.axis_mapping!r}"
+            )
+        return orientation
+
+    if schema_version == 2:
         required = {
             "rotate_deg",
             "mirrored",
@@ -177,7 +198,14 @@ def orientation_from_config(data: dict[str, Any]) -> Orientation:
         if missing:
             raise ValueError(f"orientation schema {schema_version} missing fields: {missing}")
         orientation = orientation_from_image_to_stage(data["image_to_stage"])
-        expected = orientation_config(orientation, measured=data.get("measured") is True)
+        expected = {
+            "rotate_deg": int(orientation.rotate_deg),
+            "mirrored": orientation.mirrored,
+            "axis_signs": orientation.axis_signs,
+            "axis_mapping": orientation.axis_mapping,
+            "image_to_stage": [list(row) for row in orientation.image_to_stage],
+            "reflection_axis": orientation.reflection_axis,
+        }
         for key in required:
             if data[key] != expected[key]:
                 raise ValueError(
