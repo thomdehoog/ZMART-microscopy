@@ -77,8 +77,7 @@ def arrive_xy(client, x_um, y_um):
     r = _commands.move_xy(client, x_um, y_um, unit="um")
     if not r or not r.get("success") or not r.get("confirmed"):
         raise RuntimeError(
-            f"backlash final approach to ({x_um:.2f}, {y_um:.2f}) "
-            f"failed or was unconfirmed: {r}"
+            f"backlash final approach to ({x_um:.2f}, {y_um:.2f}) failed or was unconfirmed: {r}"
         )
 
 
@@ -141,7 +140,10 @@ def correct_backlash(
         x, y = float(at[0]), float(at[1])
     log.debug(
         "backlash takeup at (%.2f, %.2f) um, overshoot %.1f um, %d passes",
-        x, y, overshoot_um, passes,
+        x,
+        y,
+        overshoot_um,
+        passes,
     )
     for index in range(int(passes)):
         if index > 0:

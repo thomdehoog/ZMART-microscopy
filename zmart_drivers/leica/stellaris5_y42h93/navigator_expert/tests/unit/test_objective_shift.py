@@ -96,9 +96,7 @@ def test_record_before_change_reads_position_and_objective(client, monkeypatch):
     }
 
 
-def test_compensation_adds_the_translation_difference_to_the_recorded_values(
-    client, monkeypatch
-):
+def test_compensation_adds_the_translation_difference_to_the_recorded_values(client, monkeypatch):
     _arm(client)
     slot = {"value": 1}
     _rig(monkeypatch, slot=slot)
@@ -219,9 +217,7 @@ def test_select_job_on_an_unarmed_client_behaves_as_before(client, monkeypatch):
     assert "objective_compensation" not in result
 
 
-def test_set_objective_records_before_and_compensates_with_the_commanded_slot(
-    client, monkeypatch
-):
+def test_set_objective_records_before_and_compensates_with_the_commanded_slot(client, monkeypatch):
     install_permissive_limits(client)
     _arm(client)
     order = []

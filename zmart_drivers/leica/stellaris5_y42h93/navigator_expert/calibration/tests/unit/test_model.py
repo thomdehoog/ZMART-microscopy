@@ -192,6 +192,8 @@ def test_update_objective_writes_only_passed_fields():
         "name": "tgt",
         "translation_um": [9.5, -8.5, 1.25],
     }
+
+
 def test_update_objective_requires_name_for_new_slot():
     cal = _load_calibration_module()
     with pytest.raises(ValueError, match="without a name"):

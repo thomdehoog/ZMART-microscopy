@@ -209,8 +209,10 @@ def measure_target_and_report(session: CalibrationCheckSession, *, show: bool = 
     ).pixel_size_um
 
     dx, dy, trusted, confidence = _pair_offset_um(
-        session.ref_image, session.ref_pixel_size_um,
-        session.target_image, session.target_pixel_size_um,
+        session.ref_image,
+        session.ref_pixel_size_um,
+        session.target_image,
+        session.target_pixel_size_um,
     )
     report = {
         "kind": KIND,
@@ -250,6 +252,7 @@ def measure_target_and_report(session: CalibrationCheckSession, *, show: bool = 
     fig.savefig(session.paths.reports_dir / "calibration_check.png", dpi=150)
     if not show:
         import matplotlib.pyplot as plt
+
         plt.close(fig)
     return report
 
@@ -283,4 +286,9 @@ def _pair_offset_um(ref, ref_ps, tgt, tgt_ps):
     def neg(v):
         return None if v is None or not math.isfinite(float(v)) else -float(v)
 
-    return neg(vote.get("dx_um")), neg(vote.get("dy_um")), bool(vote.get("trusted")), vote.get("confidence")
+    return (
+        neg(vote.get("dx_um")),
+        neg(vote.get("dy_um")),
+        bool(vote.get("trusted")),
+        vote.get("confidence"),
+    )

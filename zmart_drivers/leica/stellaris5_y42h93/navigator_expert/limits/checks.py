@@ -362,5 +362,3 @@ class LeicaLimits:
 
     def describe(self) -> dict:
         return self.status().describe()
-
-

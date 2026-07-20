@@ -63,17 +63,13 @@ def boundary_points_from_template(
     """
     geometries = parsed.get("geometries", {})
     non_points = [
-        str(name)
-        for name, geometry in geometries.items()
-        if geometry.get("type") != "Point"
+        str(name) for name, geometry in geometries.items() if geometry.get("type") != "Point"
     ]
     tile_count = sum(
         len(region.get("positions", ()))
         for region in parsed.get("acquisition_positions", {}).values()
     )
-    focus_count = len(parsed.get("focus_points", ())) + len(
-        parsed.get("autofocus_points", ())
-    )
+    focus_count = len(parsed.get("focus_points", ())) + len(parsed.get("autofocus_points", ()))
     if non_points or tile_count or focus_count:
         raise RuntimeError(
             "Adaptive XY capture requires a clean template containing only "
@@ -87,11 +83,7 @@ def boundary_points_from_template(
         if geometry.get("type") != "Point":
             continue
         center = geometry.get("center_um")
-        if (
-            not isinstance(center, Mapping)
-            or "x_um" not in center
-            or "y_um" not in center
-        ):
+        if not isinstance(center, Mapping) or "x_um" not in center or "y_um" not in center:
             raise RuntimeError(f"Point marker {name!r} has no readable XY center")
         try:
             x_um = float(center["x_um"])

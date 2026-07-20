@@ -733,9 +733,7 @@ def acquire_validation_image(
         json.loads(orientation_path.read_text(encoding="utf-8"))
     )
     if saved_orientation != session.orientation:
-        raise RuntimeError(
-            "This run's orientation.json does not match the measured orientation."
-        )
+        raise RuntimeError("This run's orientation.json does not match the measured orientation.")
 
     output_root = session.paths.session_dir / "validation"
     acquisition = drv.acquire(session.client, session.job_name)

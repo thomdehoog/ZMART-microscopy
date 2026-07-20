@@ -251,6 +251,7 @@ def test_swap_compensation_keeps_the_viewed_point():
         session_state.SessionConfig(orientation=Orientation(), translations=dict(TRUE_T)),
     )
     try:
+
         def fake_move_xy(c, x, y, unit="um", **_k):
             sim.x, sim.y = float(x), float(y)
             return {"success": True, "confirmed": True}
@@ -263,7 +264,9 @@ def test_swap_compensation_keeps_the_viewed_point():
             return {"success": True, "confirmed": True}
 
         with (
-            patch.object(readers, "get_xy", side_effect=lambda c, **k: {"x_um": sim.x, "y_um": sim.y}),
+            patch.object(
+                readers, "get_xy", side_effect=lambda c, **k: {"x_um": sim.x, "y_um": sim.y}
+            ),
             patch.object(
                 readers,
                 "get_selected_job",

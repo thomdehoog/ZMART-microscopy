@@ -265,9 +265,7 @@ def adopt_limits(
             raise FileNotFoundError(f"template archive files do not exist: {missing}")
         suffixes = [path.suffix.lower() for path in template_paths]
         if len(template_paths) != 3 or set(suffixes) != {".xml", ".rgn", ".lrp"}:
-            raise ValueError(
-                "template_paths must contain exactly one .xml, .rgn, and .lrp file"
-            )
+            raise ValueError("template_paths must contain exactly one .xml, .rgn, and .lrp file")
         if len({path.stem for path in template_paths}) != 1:
             raise ValueError("template archive files must share one experiment filename stem")
 
@@ -306,10 +304,6 @@ def adopt_limits(
     return {
         "snapshot": str(snapshot),
         "limits_path": str(snapshot / "limits.json"),
-        "notebook_paths": [
-            str(snapshot / relative) for relative in archived_notebook_relpaths
-        ],
-        "template_paths": [
-            str(snapshot / relative) for relative in archived_template_relpaths
-        ],
+        "notebook_paths": [str(snapshot / relative) for relative in archived_notebook_relpaths],
+        "template_paths": [str(snapshot / relative) for relative in archived_template_relpaths],
     }

@@ -1143,7 +1143,9 @@ def test_objective_pair_defaults_to_machine_workspace_calibration_and_active_job
     _seed_snapshot(machine)
     monkeypatch.setattr("navigator_expert.config.machine.MACHINE", machine)
     _patch_objective_driver(monkeypatch)
-    monkeypatch.setattr(wf_obj.drv, "get_selected_job", lambda client, **kwargs: {"Name": "Overview"})
+    monkeypatch.setattr(
+        wf_obj.drv, "get_selected_job", lambda client, **kwargs: {"Name": "Overview"}
+    )
 
     session = wf_obj.start_session(
         session_id="obj_defaults",
@@ -1197,12 +1199,12 @@ def test_objective_pair_measure_runs_the_next_unfinished_step(monkeypatch):
 
 
 def test_objective_pair_notebook_only_configures_session_and_reference_slot():
-    notebook_path = Path(wf_obj.__file__).parents[1] / "notebooks" / "calibrate_objective_pair.ipynb"
+    notebook_path = (
+        Path(wf_obj.__file__).parents[1] / "notebooks" / "calibrate_objective_pair.ipynb"
+    )
     notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
     code = "\n".join(
-        "".join(cell.get("source", []))
-        for cell in notebook["cells"]
-        if cell["cell_type"] == "code"
+        "".join(cell.get("source", [])) for cell in notebook["cells"] if cell["cell_type"] == "code"
     )
 
     assert 'session_id="' in code
@@ -1308,9 +1310,7 @@ def test_configured_reference_may_differ_on_a_placeholder_only_calibration(
     the set to it.
     """
     calibration_path = tmp_path / "calibration.json"
-    calibration_path.write_text(
-        json.dumps(_placeholder_calibration_payload()), encoding="utf-8"
-    )
+    calibration_path.write_text(json.dumps(_placeholder_calibration_payload()), encoding="utf-8")
     monkeypatch.setattr("navigator_expert.config.machine.MACHINE", machine)
     _patch_objective_driver(monkeypatch)
 
@@ -2253,9 +2253,9 @@ def test_objective_pair_rerun_3b_acquire_failure_removes_stale_config(
     home_xy = (1000.0, 2000.0)
     xy_post = (1010.0, 2020.0)
     boom = RuntimeError("acquire_frame failed")
-        # Full run uses acquire_stack for the z-stacks; ref_xy, target_xy,
-        # and the stage-corrected target are frame indices 0..2. The rerun's
-        # target_xy is index 3.
+    # Full run uses acquire_stack for the z-stacks; ref_xy, target_xy,
+    # and the stage-corrected target are frame indices 0..2. The rerun's
+    # target_xy is index 3.
     state = _patch_objective_driver(
         monkeypatch,
         home_xy=home_xy,

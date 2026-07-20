@@ -179,9 +179,7 @@ def compensate_after_change(
         from ..calibration.core import model as _cal_model
 
         try:
-            delta = _cal_model.translation_delta_um(
-                before["translations"], old_slot, new_slot
-            )
+            delta = _cal_model.translation_delta_um(before["translations"], old_slot, new_slot)
         except RuntimeError as exc:
             return _failed(
                 f"the change swapped the objective but {exc}; the stage was "
@@ -193,7 +191,10 @@ def compensate_after_change(
                 "the change to %r swapped the objective (slot %s -> %s); "
                 "moving by the calibrated translation (%+.2f, %+.2f, %+.2f) um "
                 "to keep the sample point",
-                job_name, old_slot, new_slot, *delta,
+                job_name,
+                old_slot,
+                new_slot,
+                *delta,
             )
             # The moves go through the ordinary gated wrappers, so the
             # compensated targets are checked against the machine limits
