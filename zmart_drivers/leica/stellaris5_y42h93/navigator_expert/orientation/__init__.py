@@ -162,7 +162,13 @@ def orientation_config(orientation: Orientation, *, measured: bool = True) -> di
 
 
 def orientation_from_config(data: dict[str, Any]) -> Orientation:
-    """Validate and decode either a current or legacy orientation document."""
+    """Validate and decode either a current or legacy orientation document.
+
+    Migration policy: files written by older drivers (schema 1 or 2) keep
+    loading as the measured state they are — upgrading the driver never asks a
+    working rig to re-measure. An old file is rewritten in the current minimal
+    schema only when the operator next runs the ``set_orientation`` notebook.
+    """
     schema_version = int(data.get("schema_version", 1))
     if schema_version >= SCHEMA_VERSION:
         required = {"measured", "rotation_deg", "reflection", "sign_convention"}
