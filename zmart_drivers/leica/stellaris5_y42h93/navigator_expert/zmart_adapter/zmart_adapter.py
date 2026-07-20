@@ -202,13 +202,13 @@ def connect(connection: dict) -> ZmartHandle:
     Delegates to the driver's own connection entry point
     (:func:`navigator_expert.connect_microscope`), which loads this microscope's
     three machine-local configs and installs each so the whole session works
-    from one consistent picture: the **stage limits** (into the commands gate),
+    from one consistent picture: the **instrument limits** (into the commands gate),
     the **camera-to-stage orientation**, and the **per-objective calibration**
     (both into the per-connection session registry). Image orientation follows
     ``IMAGE_SAVE`` in ``config/profiles.py``. The connection dict may override
     limits/calibration loading and pick a named calibration set.
 
-    The stage-limits load is fail-soft: an invalid or opted-out ``limits.json``
+    The limits load is fail-soft: an invalid or opted-out ``limits.json``
     falls back to the bundled default envelope (loudly warned) rather than
     leaving the session unable to move; the hardcoded physical backstop bounds
     every move regardless.
@@ -386,7 +386,7 @@ def _setup_readiness(
     issues = []
     if not limits or limits.get("is_fallback") or limits.get("source") != "machine":
         issues.append(
-            f"machine-specific stage limits are not active (got {limits}); publish this "
+            f"machine-specific limits are not active (got {limits}); publish this "
             "machine's measured envelope with limits/notebooks/set_limits.ipynb first"
         )
     if not orientation.get("measured"):

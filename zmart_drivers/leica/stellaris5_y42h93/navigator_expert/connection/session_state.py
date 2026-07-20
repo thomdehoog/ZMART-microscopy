@@ -1,7 +1,7 @@
 """Per-connection driver configuration: the orientation and calibration loaded
 when the driver connects to the microscope.
 
-The stage-limits gate keeps its own client-keyed registry
+The limits gate keeps its own client-keyed registry
 (:mod:`navigator_expert.commands.gate`). This module is its sibling for the
 other two machine-local configs the driver loads at connect time: how the
 camera is turned relative to the stage (``orientation``) and the per-objective

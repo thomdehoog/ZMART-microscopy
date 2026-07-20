@@ -76,7 +76,7 @@ runtime where possible. Override via the profile, not at call sites.
   `delay_ms` (Leica's client-side pacing knob `DelayInMilliseconds`, default 250 ms).
 - **Log reader** — `LogReaderProfile`: the `lcsCommand.log` / `MatrixScreener.log` paths + freshness windows.
 - **Machine-local calibration & limits** — `config/machine.py` resolves the instrument's calibration
-  (image↔stage matrix, per-objective translation), stage limits, orientation, and origin from a
+  (image↔stage matrix, per-objective translation), limits, orientation, and origin from a
   machine-local ProgramData. Directly below `navigator_expert`, each subsystem owns an independent
   timestamp tree: `limits/<datetime>/`, `calibration/<datetime>/`,
   `orientation/<datetime>/`, and `origin/<datetime>/`. The newest timestamp in each tree wins.
@@ -88,7 +88,7 @@ runtime where possible. Override via the profile, not at call sites.
   command routine, not configuration.
 - **The driver loads the configs at connect** — `connect_microscope(...)` (`connection/session.py`)
   is the driver's own front door. It opens the CAM client and then loads this microscope's three
-  machine-local configs — the **stage limits**, the **orientation**, and the **calibration** — so the
+  machine-local configs — the **instrument limits**, the **orientation**, and the **calibration** — so the
   whole session works from one consistent picture. The zmart adapter's `connect()` simply delegates to
   it. Normal image orientation is enabled by `IMAGE_SAVE` in `config/profiles.py`; only the
   orientation measurement explicitly requests raw pixels. Limits and calibration can still be skipped.
@@ -380,7 +380,7 @@ zmart_drivers/leica/stellaris5_y42h93/navigator_expert/
 ├── acquisition/  product.py (neutral types) · capture.py (acquire) · save.py (persistence) · ome.py
 ├── scanfields/   .lrp/.rgn/.xml parsing + templates    experimental/lrp_edits/  offline template editors
 ├── calibration/  objective-pair calibration (data machine-local; defaults/ + notebooks/ inside)
-├── limits/       config.py · checks.py (µm safety envelope) · defaults/ · setup notebook; runtime truth is ProgramData
+├── limits/       config.py · checks.py (envelope + backstop + objective/setter allow-lists) · defaults/ · setup notebook; runtime truth is ProgramData
 ├── orientation/  camera↔stage quarter-turn, applied at save; measured by set_orientation, stored in the machine snapshot next to calibration + limits
 ├── zmart_adapter/  ops table plugging this driver into zmart_controller (import to register)
 ├── tests/        unit/ (offline) + hardware/ (validate_*.py live scripts + mock-backed test_* gates)

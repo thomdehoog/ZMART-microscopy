@@ -10,10 +10,10 @@ Package layout::
     - readers/      API/log/hybrid state readers
     - scanfields/   LAS X scan-field files, parsing, planning, strip/restore
     - acquisition/  acquire-only capture, LAS X file export, OME fixes, save
-    - motion/       stage limits, backlash motion utilities, stage config
     - calibration/  image-stage + objective-pair calibration (model + defaults consumed at connect)
-    - limits/       stage/function limits TEMPLATES + the operator notebook that
-                    creates the machine-local (enforceable) files
+    - limits/       the instrument's whole rulebook — stage envelope, objective
+                    allow-list, setter allow-lists (config + checks), templates,
+                    and the operator notebook that creates the machine-local files
     - zmart_adapter/ ops table plugging this driver into zmart_controller
     - experimental/ LRP mutation helpers without live-state readback
     - tests/        offline unit suite + hardware validators
@@ -24,7 +24,7 @@ __version__ = "6.0.0"
 __all__ = [
     # logging
     "log",
-    # utils
+    # parsing
     "parse_tile_geometry",
     # limits
     "set_stage_limits",
@@ -200,7 +200,7 @@ from .commands.gate import (
     connect_handshake as connect_limits_handshake,
 )
 
-# -- limits/checks.py - stage safety
+# -- limits/checks.py - the rulebook: stage checks + the compiled limits document
 from .limits.checks import (
     _stage_limits,
     set_stage_limits,
