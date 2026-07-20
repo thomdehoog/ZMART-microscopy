@@ -20,7 +20,7 @@ from navigator_expert.notebook_support import NotebookCheckpoint  # noqa: E402
 NOTEBOOK = NotebookCheckpoint(
     NOTEBOOK_PATH,
     required_code=(
-        "summary = objective_pair.measure(session)",
+        "summary = objective_pair.measure_parcentricity_target_and_save(session)",
         "calibration_check.measure_target_and_report(check_session)",
     ),
 )
