@@ -12,20 +12,9 @@ _DRIVER_PARENT = Path(__file__).resolve().parents[2]
 if str(_DRIVER_PARENT) not in sys.path:
     sys.path.insert(0, str(_DRIVER_PARENT))
 
-# Add the repo root so `from shared...` imports resolve.
-_REPO_ROOT = Path(__file__).resolve().parents[5]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
 _HELPERS = Path(__file__).resolve().parent / "helpers"
 if str(_HELPERS) not in sys.path:
     sys.path.insert(0, str(_HELPERS))
-
-# Add target_acquisition dir so workflow tests imported from this suite
-# can resolve `from pipeline...`.
-_TARGET_ACQ = _REPO_ROOT / "workflows" / "target_acquisition"
-if str(_TARGET_ACQ) not in sys.path:
-    sys.path.insert(0, str(_TARGET_ACQ))
 
 TEST_DATA = Path(__file__).resolve().parent / "data"
 GENERAL_WORKFLOW_DATA = TEST_DATA / "general_workflow"
@@ -68,17 +57,17 @@ def _clean_limits_gate():
 def fast_timing_windows(monkeypatch):
     """Shrink the real-time confirm/echo poll windows for the offline suite.
 
-    The shipped defaults (``utils.CONFIRM_POLL_S = 3`` s per confirm attempt,
+    The shipped defaults (``timing.CONFIRM_POLL_S = 3`` s per confirm attempt,
     ``dispatch.ECHO_SETTLE_TIMEOUT_S = 1`` s per fire) are real hardware
     windows; against mocks they are pure sleep (~35 s of the suite, LT-03).
     The consumers read both values at call time, so patching here reaches
     every poll loop. Shipped values are unchanged; a test that needs a
     specific window passes an explicit ``poll_window=``/``timeout=``.
     """
-    from navigator_expert import utils
     from navigator_expert.commands import dispatch
+    from navigator_expert.config import timing
 
-    monkeypatch.setattr(utils, "CONFIRM_POLL_S", 0.05)
+    monkeypatch.setattr(timing, "CONFIRM_POLL_S", 0.05)
     monkeypatch.setattr(dispatch, "ECHO_SETTLE_TIMEOUT_S", 0.05)
 
 

@@ -14,16 +14,18 @@ import pytest
 import tifffile
 from navigator_expert.acquisition import capture, materialize, ome_canonical
 from navigator_expert.acquisition import save as acquisition
+from navigator_expert.acquisition.naming import Naming, build_image_name, parse_image_name
 from navigator_expert.acquisition.product import (
     ExportedAcquisition,
     ExportedPosition,
 )
+from navigator_expert.orientation import Orientation, reorient_array
+from navigator_expert.readers import router as readers_router
 
-from shared.output_layout import (
-    Naming,
-    build_image_name,
-    parse_image_name,
-)
+
+@pytest.fixture(autouse=True)
+def _identity_rig_orientation(monkeypatch):
+    monkeypatch.setattr("navigator_expert.orientation.rig_orientation", Orientation)
 
 
 @pytest.fixture
@@ -33,6 +35,30 @@ def naming() -> Naming:
         hash6="000001",
         position_label="000003",
     )
+
+
+def test_leica_private_naming_round_trips_time_channel_and_z():
+    naming = Naming(
+        acquisition_type="overview",
+        hash6="abc123",
+        position_label="K00_M000000_G000000_P000000_V00",
+        t=12,
+        c=2,
+        z=34,
+    )
+    assert build_image_name(naming).endswith("_T000012_C02_Z00034.ome.tiff")
+    assert parse_image_name(build_image_name(naming)) == naming
+
+
+@pytest.mark.parametrize(("field", "value"), [("t", 1_000_000), ("c", 100), ("z", -1)])
+def test_leica_private_naming_rejects_unrepresentable_plane_indices(field, value):
+    with pytest.raises(ValueError, match=field):
+        Naming(
+            acquisition_type="overview",
+            hash6="abc123",
+            position_label="P0",
+            **{field: value},
+        )
 
 
 def _metadata() -> drv.AcquisitionMetadata:
@@ -238,7 +264,7 @@ class TestCanonicalPhysicalMetadataAuthority:
         )
 
         with patch.object(
-            ome_canonical._readers,
+            readers_router,
             "get_job_settings",
             return_value=settings,
         ) as read_settings:
@@ -253,23 +279,18 @@ class TestCanonicalPhysicalMetadataAuthority:
         assert out.physical_size_y_um == pytest.approx(2.28)
         assert out.physical_size_z_um == pytest.approx(2.41)
 
-    def test_z_spacing_uses_raw_stack_when_normalized_stack_is_partial(self):
+    def test_z_spacing_survives_schema_degraded_settings(self):
+        """The stack parser is independent of the full-schema parse: a
+        settings dict missing the required top-level keys (which would
+        fail make_changeable_copy's schema guard) still yields z spacing
+        as long as its stack section is usable."""
         metadata = replace(_metadata(), physical_size_z_um=1.0)
-        settings = _job_settings(
-            stack={"begin": 95.0, "end": 105.0, "sections": 3},
-        )
+        degraded = {"stack": {"begin": 95.0, "end": 105.0, "sections": 3}}
 
-        with (
-            patch.object(
-                ome_canonical._readers,
-                "get_job_settings",
-                return_value=settings,
-            ),
-            patch.object(
-                ome_canonical._core_settings,
-                "make_changeable_copy",
-                return_value={"stack": {"begin": 95.0, "end": None, "sections": None}},
-            ),
+        with patch.object(
+            readers_router,
+            "get_job_settings",
+            return_value=degraded,
         ):
             out = ome_canonical.metadata_with_job_physical_sizes(
                 metadata,
@@ -286,7 +307,7 @@ class TestCanonicalPhysicalMetadataAuthority:
         )
 
         with patch.object(
-            ome_canonical._readers,
+            readers_router,
             "get_job_settings",
             return_value=settings,
         ):
@@ -313,7 +334,7 @@ class TestCanonicalPhysicalMetadataAuthority:
             )
 
         with patch.object(
-            ome_canonical._readers,
+            readers_router,
             "get_job_settings",
             side_effect=_slow_settings,
         ):
@@ -330,6 +351,62 @@ class TestCanonicalPhysicalMetadataAuthority:
 
 
 class TestSave:
+    def test_save_applies_the_active_rig_orientation_by_default(
+        self,
+        patched_export,
+        successful_acq,
+        tmp_path,
+        naming,
+        monkeypatch,
+    ):
+        orientation = Orientation(rotate_deg=90, mirrored=True)
+        monkeypatch.setattr(
+            "navigator_expert.orientation.rig_orientation",
+            lambda: orientation,
+        )
+
+        saved = drv.save(None, successful_acq, tmp_path / "out", naming)
+
+        for index, source_path in patched_export["plane_paths"].items():
+            source = tifffile.imread(source_path)
+            written = tifffile.imread(saved.image_paths[index])
+            assert np.array_equal(written, reorient_array(source, orientation))
+
+    def test_timepoints_have_distinct_six_digit_T_names(
+        self, successful_acq, tmp_path, naming, monkeypatch
+    ):
+        source_root = tmp_path / "source"
+        source_root.mkdir()
+        planes = {}
+        positions = []
+        for t in (0, 1):
+            index = drv.PlaneIndex(t=t, z=0, c=0)
+            source = source_root / f"time-{t}.tiff"
+            tifffile.imwrite(source, np.full((16, 16), t, dtype=np.uint8))
+            plane = drv.PlaneSource(path=source)
+            planes[index] = plane
+            positions.append(ExportedPosition(t=t, planes={index: plane}))
+        metadata = replace(_metadata(), size_t=2)
+        exported = ExportedAcquisition(
+            source_root=source_root,
+            source_dir=source_root,
+            positions=positions,
+            metadata=metadata,
+            method="test",
+        )
+        monkeypatch.setattr(acquisition, "collect_lasx_native_autosave", lambda *a, **k: exported)
+
+        saved = drv.save(None, successful_acq, tmp_path / "out", naming)
+
+        assert len(saved.image_paths) == 2
+        assert saved.image_paths[drv.PlaneIndex(t=0, z=0, c=0)].name.endswith(
+            "_T000000_C00_Z00000.ome.tiff"
+        )
+        assert saved.image_paths[drv.PlaneIndex(t=1, z=0, c=0)].name.endswith(
+            "_T000001_C00_Z00000.ome.tiff"
+        )
+        assert len({path.name for path in saved.image_paths.values()}) == 2
+
     def test_save_persists_image_and_summary_flat(
         self,
         patched_export,

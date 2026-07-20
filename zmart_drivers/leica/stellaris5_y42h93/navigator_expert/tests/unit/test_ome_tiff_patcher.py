@@ -15,7 +15,6 @@ import numpy as np
 import pytest
 import tifffile
 from navigator_expert.acquisition.ome import (
-    _read_tiff_tag_270,
     check_ome_tiff,
     check_ome_xml_bytes,
     check_ome_xml_file,
@@ -23,6 +22,7 @@ from navigator_expert.acquisition.ome import (
     fix_ome_tiff,
     fix_ome_xml_bytes,
     fix_ome_xml_file,
+    read_tiff_tag_270,
 )
 
 # The Leica STELLARIS schema violation this module detects and repairs:
@@ -58,7 +58,7 @@ def _write_tiff(path, description, byteorder="<"):
 
 
 def _embedded_xml(path):
-    xml, _, _, _, _ = _read_tiff_tag_270(Path(path).read_bytes())
+    xml, _, _, _, _ = read_tiff_tag_270(Path(path).read_bytes())
     return xml
 
 
@@ -76,7 +76,7 @@ class TestReadTiffTag270:
     def test_reads_description_from_real_tiff(self, tmp_path):
         p = _write_tiff(tmp_path / "a.ome.tif", BAD_OME_XML)
         data = p.read_bytes()
-        xml, offset, count, entry_pos, endian = _read_tiff_tag_270(data)
+        xml, offset, count, entry_pos, endian = read_tiff_tag_270(data)
         assert xml.decode() == BAD_OME_XML
         assert endian == "<"
         # Offset/count point at the actual description bytes in the file.
@@ -86,24 +86,24 @@ class TestReadTiffTag270:
         p = _write_tiff(tmp_path / "be.ome.tif", BAD_OME_XML, byteorder=">")
         data = p.read_bytes()
         assert data[:2] == b"MM"
-        xml, _, _, _, endian = _read_tiff_tag_270(data)
+        xml, _, _, _, endian = read_tiff_tag_270(data)
         assert xml.decode() == BAD_OME_XML
         assert endian == ">"
 
     def test_error_strings_on_garbage(self, tmp_path):
-        assert _read_tiff_tag_270(b"II")[4] == "File too small to be a TIFF"
-        assert _read_tiff_tag_270(b"NOTATIFF" * 4)[4] == "Not a valid TIFF file"
+        assert read_tiff_tag_270(b"II")[4] == "File too small to be a TIFF"
+        assert read_tiff_tag_270(b"NOTATIFF" * 4)[4] == "Not a valid TIFF file"
         # Right byte order mark, wrong magic.
         bad_magic = b"II" + struct.pack("<H", 43) + struct.pack("<I", 8) + b"\x00" * 8
-        assert _read_tiff_tag_270(bad_magic)[4].startswith("Not a standard TIFF")
+        assert read_tiff_tag_270(bad_magic)[4].startswith("Not a standard TIFF")
         # Valid header, IFD offset pointing past EOF.
         bad_ifd = b"II" + struct.pack("<H", 42) + struct.pack("<I", 9999)
-        assert _read_tiff_tag_270(bad_ifd)[4] == "IFD offset beyond file end"
+        assert read_tiff_tag_270(bad_ifd)[4] == "IFD offset beyond file end"
 
     def test_no_description_tag(self, tmp_path):
         p = tmp_path / "nodesc.tif"
         tifffile.imwrite(p, IMG, metadata=None)
-        assert _read_tiff_tag_270(p.read_bytes())[4] == "No ImageDescription tag found"
+        assert read_tiff_tag_270(p.read_bytes())[4] == "No ImageDescription tag found"
 
 
 class TestCheckOmeXml:
@@ -201,14 +201,14 @@ class TestFixOmeTiff:
         # the pixel data, so the fixer must take the relocate-to-EOF branch.
         p = _write_tiff(tmp_path / "grow.ome.tif", BAD_OME_XML)
         data_before = p.read_bytes()
-        _, old_offset, old_count, _, _ = _read_tiff_tag_270(data_before)
+        _, old_offset, old_count, _, _ = read_tiff_tag_270(data_before)
         assert old_offset + old_count < len(data_before)  # mid-file: precondition
 
         result = fix_ome_tiff(str(p))
         assert result["success"] is True
 
         data_after = p.read_bytes()
-        xml, new_offset, new_count, _, _ = _read_tiff_tag_270(data_after)
+        xml, new_offset, new_count, _, _ = read_tiff_tag_270(data_after)
         # Relocated: appended at previous EOF, IFD entry updated, old slot zeroed.
         assert new_offset == len(data_before)
         assert len(data_after) == len(data_before) + new_count
@@ -221,13 +221,13 @@ class TestFixOmeTiff:
         # with NULs; file size and description offset are unchanged.
         p = _write_tiff(tmp_path / "shrink.ome.tif", BAD_OME_XML_NO_HINT)
         size_before = p.stat().st_size
-        _, offset_before, count_before, _, _ = _read_tiff_tag_270(p.read_bytes())
+        _, offset_before, count_before, _, _ = read_tiff_tag_270(p.read_bytes())
 
         result = fix_ome_tiff(str(p))
         assert result["success"] is True and "removed" in result["changes"][0]
 
         data_after = p.read_bytes()
-        xml, offset_after, count_after, _, _ = _read_tiff_tag_270(data_after)
+        xml, offset_after, count_after, _, _ = read_tiff_tag_270(data_after)
         assert p.stat().st_size == size_before
         assert (offset_after, count_after) == (offset_before, count_before)
         assert b'Wavelength="0"' not in xml
@@ -250,7 +250,7 @@ class TestFixOmeTiff:
         result = fix_ome_tiff(str(p))
         assert result["success"] is True
 
-        xml, offset, count, _, _ = _read_tiff_tag_270(p.read_bytes())
+        xml, offset, count, _, _ = read_tiff_tag_270(p.read_bytes())
         assert offset == 26  # extended in place, not relocated
         assert b'Wavelength="405"' in xml
         assert p.stat().st_size == 26 + count

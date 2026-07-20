@@ -10,10 +10,10 @@ Package layout::
     - readers/      API/log/hybrid state readers
     - scanfields/   LAS X scan-field files, parsing, planning, strip/restore
     - acquisition/  acquire-only capture, LAS X file export, OME fixes, save
-    - motion/       stage limits, backlash motion utilities, stage config
     - calibration/  image-stage + objective-pair calibration (model + defaults consumed at connect)
-    - limits/       stage/function limits TEMPLATES + the operator notebook that
-                    creates the machine-local (enforceable) files
+    - limits/       the instrument's whole rulebook — stage envelope, objective
+                    allow-list, setter allow-lists (config + checks), templates,
+                    and the operator notebook that creates the machine-local files
     - zmart_adapter/ ops table plugging this driver into zmart_controller
     - experimental/ LRP mutation helpers without live-state readback
     - tests/        offline unit suite + hardware validators
@@ -24,13 +24,13 @@ __version__ = "6.0.0"
 __all__ = [
     # logging
     "log",
-    # utils
+    # parsing
     "parse_tile_geometry",
     # limits
     "set_stage_limits",
     "get_stage_limits",
     "apply_stage_limits_from_config",
-    # function-keyed limits gate (commands layer)
+    # limits handshake and command safety gate
     "connect_limits_handshake",
     # readers
     "Reading",
@@ -87,7 +87,6 @@ __all__ = [
     "get_template_state",
     "strip_template_in_place",
     "apply_lrp_change",
-    "move_xy_with_backlash",
     "reorder_jobs",
     "save_and_read_lrp",
     # position parsers/planning
@@ -114,14 +113,8 @@ __all__ = [
     "mask_contour_to_roi",
     # session helpers
     "connect_python_client",
+    "connect_microscope",
     "disable_roi_scan",
-    "LIMITS_SOURCE_DEFAULTS",
-    "LIMITS_SOURCE_BOUNDARY_MARKERS",
-    "LIMITS_SOURCE_CFG_FALLBACK",
-    "LIMITS_SOURCE_SCAN_FIELD",
-    "current_stage_limits_path",
-    "load_stage_config",
-    "write_stage_limits_config",
     # acquisition workflow
     "AcquisitionResult",
     "PlaneIndex",
@@ -131,29 +124,26 @@ __all__ = [
     "save",
 ]
 
-# -- package self-bootstrap
-# navigator_expert depends on shared.output_layout at the repo root.
-# Callers usually put zmart_drivers/leica/stellaris5_y42h93/ on sys.path; adding
-# both roots here keeps subprocesses and scripts resilient when they import the
-# driver first.
+# The low-level command gate uses the repository-wide limits specification.
+# Keep direct driver imports working when callers put only this machine folder
+# on sys.path; output naming itself is private to this driver.
 import sys as _sys
 from pathlib import Path as _Path
 
 _here = _Path(__file__).resolve()
-_machine_root = str(_here.parents[1])  # .../leica/stellaris5_y42h93
 _repo_root = str(_here.parents[4])
-for _path in (_repo_root, _machine_root):
-    if _path not in _sys.path:
-        _sys.path.insert(0, _path)
-del _sys, _Path, _here, _machine_root, _repo_root, _path
+if _repo_root not in _sys.path:
+    _sys.path.insert(0, _repo_root)
+del _sys, _Path, _here, _repo_root
 
-# -- shared utilities + commands/ - helpers and command mechanics
-from .utils import (
+# -- parsing + command mechanics
+from .readers.parsing import (
     _safe_float,
+    make_changeable_copy,
     parse_format,
-    _make_log_entry,
     parse_tile_geometry,
 )
+from .commands.envelope import _make_log_entry
 from .commands.errors import (
     _is_transient_error,
     _check_api_error,
@@ -175,7 +165,6 @@ from .readers import (
     get_lasx_settings,
     get_pending_dialog,
 )
-from .commands.settings import make_changeable_copy
 from .commands.confirmations import _readback
 from .commands.commands import (
     set_zoom,
@@ -204,31 +193,21 @@ from .commands.commands import (
     move_z,
     select_job,
 )
-from .connection.session import connect_python_client
+from .connection.session import connect_python_client, connect_microscope
 
-# -- commands/gate - function-keyed limits gate + connect handshake
+# -- commands/gate - command safety gate + connect handshake
 from .commands.gate import (
     connect_handshake as connect_limits_handshake,
 )
 
-# -- motion/ - stage safety + movement
-from .motion.limits import (
+# -- limits/checks.py - the rulebook: stage checks + the compiled limits document
+from .limits.checks import (
     _stage_limits,
     set_stage_limits,
     get_stage_limits,
     apply_stage_limits_from_config,
-    _check_xy_limits,
-    _check_z_limits,
-)
-from .motion.movement import move_xy_with_backlash
-from .motion.stage_config import (
-    LIMITS_SOURCE_DEFAULTS,
-    LIMITS_SOURCE_BOUNDARY_MARKERS,
-    LIMITS_SOURCE_CFG_FALLBACK,
-    LIMITS_SOURCE_SCAN_FIELD,
-    current_path as current_stage_limits_path,
-    load as load_stage_config,
-    write_limits as write_stage_limits_config,
+    check_xy,
+    check_z,
 )
 
 # -- scanfields/ - LAS X scan-field file operations and parsing

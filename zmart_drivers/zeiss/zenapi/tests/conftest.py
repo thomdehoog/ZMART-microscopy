@@ -11,11 +11,6 @@ _ZEISS_DIR = Path(__file__).resolve().parents[2]
 if str(_ZEISS_DIR) not in sys.path:
     sys.path.insert(0, str(_ZEISS_DIR))
 
-# Add the repo root so `from shared...` imports resolve. parents[4]=repo root.
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
 # Add the helpers dir so `import mock_zen_api` works.
 _HELPERS = Path(__file__).resolve().parent / "helpers"
 if str(_HELPERS) not in sys.path:

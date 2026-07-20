@@ -1,12 +1,8 @@
-"""Subprocess test for the driver's shared-package self-bootstrap.
-
-The driver imports shared.output_layout, which lives at the repository
-root. The driver package inserts the repository root on sys.path so the
-import resolves even for callers that only know about leica/.
+"""Subprocess test for the driver's standalone package imports.
 
 This test MUST run in a subprocess: the in-process pytest session
 already has the repository root on sys.path (via conftest.py), so an
-in-process import would succeed even if the bootstrap were broken
+in-process import would succeed even if a hidden shared dependency existed
 and silently mask the real failure mode.
 """
 
@@ -33,12 +29,8 @@ print("bootstrap-ok")
 """
 
 
-def test_driver_self_bootstrap_with_only_leica_on_path(tmp_path):
-    """Spawn a fresh Python process with only the Leica vendor path.
-
-    The driver's self-bootstrap must add the microscopes root so
-    `import shared.output_layout` resolves
-    transitively when acquisition.py loads."""
+def test_driver_imports_with_only_leica_on_path(tmp_path):
+    """The Leica package must not depend on a repository-level naming package."""
     repo_root = Path(__file__).resolve().parents[6]
     driver_parent = repo_root / "zmart_drivers" / "leica" / "stellaris5_y42h93"
     assert driver_parent.is_dir(), f"missing {driver_parent}"

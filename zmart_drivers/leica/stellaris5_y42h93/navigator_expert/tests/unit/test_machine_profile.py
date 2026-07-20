@@ -1,4 +1,4 @@
-"""Tests for the MachineProfile calibration/limits resolver."""
+"""Tests for the subsystem-owned ProgramData resolver."""
 
 from __future__ import annotations
 
@@ -8,450 +8,335 @@ from pathlib import Path
 
 import pytest
 from navigator_expert.config import machine
-from navigator_expert.config.machine import (
-    MachineProfile,
-    format_snapshot_name,
-    is_snapshot_name,
-)
+from navigator_expert.config.machine import MachineProfile, format_snapshot_name, is_snapshot_name
 
-
-def _mk_snapshot(root: Path, name: str, *, calibration=True, limits=True, orientation=True) -> Path:
-    d = root / "leica" / "stellaris5_y42h93" / "navigator_expert" / name
-    d.mkdir(parents=True)
-    if calibration:
-        (d / "calibration.json").write_text("{}", encoding="utf-8")
-    if limits:
-        (d / "limits.json").write_text("{}", encoding="utf-8")
-    if orientation:
-        (d / "orientation.json").write_text(
-            '{"schema_version": 1, "rotate_deg": 0}', encoding="utf-8"
-        )
-    return d
+_AT_1400 = datetime(2026, 7, 1, 14, 0, tzinfo=timezone.utc)
+_AT_1430 = datetime(2026, 7, 1, 14, 30, tzinfo=timezone.utc)
+_AT_1500 = datetime(2026, 7, 1, 15, 0, tzinfo=timezone.utc)
+_FILENAMES = {
+    "limits": "limits.json",
+    "calibration": "calibration.json",
+    "orientation": "orientation.json",
+    "origin": "origin.json",
+}
 
 
 def _profile(tmp_path: Path) -> MachineProfile:
     return MachineProfile(programdata_root=tmp_path)
 
 
-# --- datetime format ---
+def _mk_snapshot(
+    profile: MachineProfile,
+    subsystem: str,
+    name: str,
+    payload: dict | None = None,
+) -> Path:
+    snapshot = profile.subsystem_root(subsystem) / name
+    snapshot.mkdir(parents=True)
+    (snapshot / _FILENAMES[subsystem]).write_text(json.dumps(payload or {}), encoding="utf-8")
+    return snapshot
 
 
-def test_format_snapshot_name_is_utc_windows_safe_sortable():
-    m = datetime(2026, 7, 1, 14, 30, 0, 123456, tzinfo=timezone.utc)
-    name = format_snapshot_name(m)
+def _mk_flat_snapshot(profile: MachineProfile, name: str) -> Path:
+    snapshot = profile.snapshot_root() / name
+    snapshot.mkdir(parents=True)
+    (snapshot / "limits.json").write_text('{"limits": "old"}', encoding="utf-8")
+    (snapshot / ".limits-machine").touch()
+    (snapshot / "calibration.json").write_text('{"calibration": "old"}', encoding="utf-8")
+    (snapshot / "orientation.json").write_text('{"rotate_deg": 90}', encoding="utf-8")
+    named = snapshot / "calibrations" / "water"
+    named.mkdir(parents=True)
+    (named / "calibration.json").write_text('{"calibration": "water"}', encoding="utf-8")
+    (snapshot / "set_limits.ipynb").write_text("limits", encoding="utf-8")
+    (snapshot / "set_orientation.ipynb").write_text("orientation", encoding="utf-8")
+    (snapshot / "calibrate_objective_pair.ipynb").write_text("calibration", encoding="utf-8")
+    return snapshot
+
+
+def test_snapshot_name_is_utc_windows_safe_and_sortable():
+    local = timezone(timedelta(hours=2))
+    moment = datetime(2026, 7, 1, 16, 30, 0, 123456, tzinfo=local)
+    name = format_snapshot_name(moment)
     assert name == "2026-07-01T14-30-00-123456Z"
-    assert ":" not in name  # legal Windows path segment
+    assert ":" not in name
     assert is_snapshot_name(name)
+    assert not is_snapshot_name("2026-07-01T14-30-00Z")
 
 
-def test_format_converts_to_utc():
-    tz = timezone(timedelta(hours=2))  # 16:30 +02:00 == 14:30 UTC
-    m = datetime(2026, 7, 1, 16, 30, 0, 123456, tzinfo=tz)
-    assert format_snapshot_name(m) == "2026-07-01T14-30-00-123456Z"
-
-
-def test_lexical_order_is_chronological():
-    a = format_snapshot_name(datetime(2026, 6, 15, 9, 12, 0, 0, tzinfo=timezone.utc))
-    b = format_snapshot_name(datetime(2026, 7, 1, 14, 30, 0, 123456, tzinfo=timezone.utc))
-    assert a < b
-
-
-def test_is_snapshot_name_rejects_malformed():
-    assert not is_snapshot_name("current")
-    assert not is_snapshot_name("2026-07-01")
-    assert not is_snapshot_name("2026-07-01T14-30-00Z")  # no microseconds
-
-
-# --- latest_snapshot selection ---
-
-
-def test_latest_snapshot_none_when_root_absent(tmp_path):
-    assert _profile(tmp_path).latest_snapshot() is None
-
-
-def test_latest_snapshot_none_when_empty(tmp_path):
-    (tmp_path / "leica" / "stellaris5_y42h93" / "navigator_expert").mkdir(parents=True)
-    assert _profile(tmp_path).latest_snapshot() is None
-
-
-def test_latest_snapshot_picks_newest(tmp_path):
-    _mk_snapshot(tmp_path, "2026-06-15T09-12-00-000000Z")
-    newest = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
-    _mk_snapshot(tmp_path, "2026-06-30T23-59-59-999999Z")
-    assert _profile(tmp_path).latest_snapshot() == newest
-
-
-def test_latest_snapshot_ignores_malformed_dirs_and_files(tmp_path):
-    valid = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
+def test_subsystem_roots_are_directly_below_api_root(tmp_path):
+    profile = _profile(tmp_path)
     api_root = tmp_path / "leica" / "stellaris5_y42h93" / "navigator_expert"
-    (api_root / "current").mkdir()  # not a snapshot
-    (api_root / "notes.txt").write_text("x")
-    assert _profile(tmp_path).latest_snapshot() == valid
+    assert profile.snapshot_root() == api_root
+    for subsystem in _FILENAMES:
+        assert profile.subsystem_root(subsystem) == api_root / subsystem
 
 
-# --- resolve / ProgramData seeding ---
+def test_ensure_layout_creates_every_subsystem_directory(tmp_path):
+    profile = _profile(tmp_path / "new-root")
+
+    assert profile.ensure_layout() == profile.snapshot_root()
+    assert profile.ensure_layout() == profile.snapshot_root()
+    assert all(profile.subsystem_root(name).is_dir() for name in machine.SUBSYSTEMS)
 
 
-def test_resolve_uses_latest_snapshot(tmp_path):
-    _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
-    p = _profile(tmp_path)
-    cal, fb = p.resolve("calibration.json")
-    assert fb is False
-    assert cal == p.latest_snapshot() / "calibration.json"
+def test_unknown_subsystem_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="unknown machine-config subsystem"):
+        _profile(tmp_path).subsystem_root("mixed")
 
 
-def test_resolve_seeds_programdata_from_defaults_when_no_snapshot(tmp_path):
-    p = _profile(tmp_path)
-    cal, fb = p.resolve("calibration.json")
-    assert fb is False
-    assert cal == p.latest_snapshot() / "calibration.json"
-    assert cal.exists()
-    assert (p.latest_snapshot() / "limits.json").exists()
-    assert (p.latest_snapshot() / "orientation.json").exists()
-    assert p.bundled_default_path("calibration.json").exists()
+def test_latest_snapshot_is_independent_per_subsystem(tmp_path):
+    profile = _profile(tmp_path)
+    older = _mk_snapshot(profile, "limits", "2026-07-01T14-00-00-000000Z")
+    newest = _mk_snapshot(profile, "limits", "2026-07-01T15-00-00-000000Z")
+    orientation = _mk_snapshot(profile, "orientation", "2026-07-01T14-30-00-000000Z")
+    assert profile.snapshots("limits") == [older, newest]
+    assert profile.latest_snapshot("limits") == newest
+    assert profile.latest_snapshot("orientation") == orientation
+    assert profile.latest_snapshot("calibration") is None
 
 
-def test_resolve_repairs_incomplete_snapshot_by_publishing_complete_one(tmp_path):
-    incomplete = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z", limits=False)
-    p = _profile(tmp_path)
-    _, cal_fb = p.resolve("calibration.json")
-    lim, lim_fb = p.resolve("limits.json")
-    assert cal_fb is False
-    assert lim_fb is False
-    assert p.latest_snapshot() != incomplete
-    assert lim == p.latest_snapshot() / "limits.json"
-    assert lim.exists()
-    assert json.loads((p.latest_snapshot() / "calibration.json").read_text()) == {}
+def test_snapshot_listing_ignores_malformed_entries(tmp_path):
+    profile = _profile(tmp_path)
+    valid = _mk_snapshot(profile, "limits", "2026-07-01T14-30-00-000000Z")
+    (profile.subsystem_root("limits") / "current").mkdir()
+    (profile.subsystem_root("limits") / "notes.txt").write_text("x", encoding="utf-8")
+    assert profile.snapshots("limits") == [valid]
 
 
-def test_bundled_defaults_are_real_last_known_good(tmp_path):
-    """The shipped defaults must be valid config, never identity/zero."""
-    from navigator_expert.calibration.core import model
+def test_limits_do_not_seed_while_other_resolvers_seed_their_own_tree(tmp_path):
+    profile = _profile(tmp_path)
+    calibration = profile.calibration_path()
+    assert calibration.parent.parent == profile.subsystem_root("calibration")
+    assert profile.latest_snapshot("limits") is None
+    assert profile.latest_snapshot("orientation") is None
 
-    p = _profile(tmp_path)
-    cal = model.load_calibration(p.bundled_default_path("calibration.json"))
-    assert model.get_reference_slot(cal) == 1
-    assert model.get_translation_um(cal, 0) != (0.0, 0.0, 0.0)
-
-
-# --- api level + legacy migration ---
-
-
-def test_snapshot_root_includes_api_level(tmp_path):
-    p = _profile(tmp_path)
-    assert p.snapshot_root() == tmp_path / "leica" / "stellaris5_y42h93" / "navigator_expert"
-    assert p.legacy_snapshot_root() == tmp_path / "leica" / "stellaris5_y42h93"
+    with pytest.raises(FileNotFoundError, match="operator-published"):
+        profile.limits_path()
+    orientation = profile.orientation_path()
+    assert profile.latest_snapshot("limits") is None
+    assert orientation.parent.parent == profile.subsystem_root("orientation")
+    assert not (orientation.parent / "limits.json").exists()
 
 
-def test_migrate_legacy_snapshots_moves_pre_api_snapshots(tmp_path):
-    # Snapshots at the old vendor/microscope level move under the api level.
-    legacy = tmp_path / "leica" / "stellaris5_y42h93" / "2026-06-15T09-12-00-000000Z"
+def test_incomplete_limits_snapshot_does_not_seed_or_masquerade_as_machine_limits(tmp_path):
+    profile = _profile(tmp_path)
+    incomplete = profile.subsystem_root("limits") / "2026-07-01T14-30-00-000000Z"
+    incomplete.mkdir(parents=True)
+    with pytest.raises(FileNotFoundError, match="operator-published"):
+        profile.limits_path()
+    assert profile.latest_snapshot("limits") == incomplete
+
+
+def test_flat_layout_migrates_copy_only_into_all_subsystems(tmp_path):
+    profile = _profile(tmp_path)
+    flat = _mk_flat_snapshot(profile, "2026-07-01T14-30-00-000000Z")
+    old_origin = profile.origin_dir() / "origin.json"
+    old_origin.parent.mkdir(parents=True, exist_ok=True)
+    old_origin.write_text('{"origin": {"x_um": 5}}', encoding="utf-8")
+
+    migrated = profile.migrate_flat_snapshots()
+
+    assert set(migrated) == {"limits", "calibration", "orientation", "origin"}
+    assert flat.exists()
+    assert old_origin.exists()
+    assert (migrated["limits"] / "limits.json").exists()
+    assert not (migrated["limits"] / ".limits-machine").exists()
+    assert (migrated["limits"] / "notebook" / "set_limits.ipynb").exists()
+    assert not (migrated["limits"] / "data" / "notebook" / "set_orientation.ipynb").exists()
+    assert (migrated["calibration"] / "calibrations" / "water" / "calibration.json").exists()
+    assert (
+        migrated["calibration"] / "data" / "notebook" / "calibrate_objective_pair.ipynb"
+    ).exists()
+    assert (migrated["orientation"] / "data" / "notebook" / "set_orientation.ipynb").exists()
+    assert profile.read_origin()["origin"] == {"x_um": 5}
+    assert profile.migrate_flat_snapshots() == {}
+
+
+def test_pre_api_flat_snapshot_copies_then_migrates(tmp_path):
+    profile = _profile(tmp_path)
+    legacy = profile.legacy_snapshot_root() / "2026-06-15T09-12-00-000000Z"
     legacy.mkdir(parents=True)
-    (legacy / "calibration.json").write_text("{}", encoding="utf-8")
-    p = _profile(tmp_path)
-    assert p.latest_snapshot() is None  # not visible pre-migration
+    for filename in ("limits.json", "calibration.json", "orientation.json"):
+        (legacy / filename).write_text("{}", encoding="utf-8")
+    (legacy / ".limits-machine").touch()  # legacy proof that limits were operator-published
 
-    moved = p.migrate_legacy_snapshots()
+    migrated = profile.migrate_flat_snapshots()
 
-    assert moved == [p.snapshot_root() / "2026-06-15T09-12-00-000000Z"]
-    assert not legacy.exists()
-    assert p.latest_snapshot() == moved[0]
-    assert (moved[0] / "calibration.json").exists()
-    assert p.migrate_legacy_snapshots() == []  # idempotent
-
-
-# --- origin: machine-local frame zero point ---
+    moved = profile.snapshot_root() / legacy.name
+    assert legacy.exists()
+    assert moved.exists()
+    assert set(migrated) == {"limits", "calibration", "orientation"}
 
 
-def test_origin_round_trips_into_latest_snapshot(tmp_path):
-    _mk_snapshot(tmp_path, "2026-06-15T09-12-00-000000Z")
-    newest = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
-    p = _profile(tmp_path)
-    payload = {"origin": {"x_um": 1.0, "y_um": 2.0}, "captured_at": 123.0}
+def test_newer_flat_snapshot_is_migrated_during_a_rolling_upgrade(tmp_path):
+    profile = _profile(tmp_path)
+    _mk_flat_snapshot(profile, "2026-07-01T14-30-00-000000Z")
+    profile.migrate_flat_snapshots()
+    newer = _mk_flat_snapshot(profile, "2026-07-01T15-00-00-000000Z")
+    (newer / "limits.json").write_text('{"limits": "new"}', encoding="utf-8")
 
-    path = p.write_origin(payload)
+    migrated = profile.migrate_flat_snapshots()
 
-    assert path == newest / "origin.json"
-    assert p.read_origin() == payload
-
-    # A second set_origin overwrites in place (same newest snapshot).
-    p.write_origin({"origin": {"x_um": 9.0}, "captured_at": 456.0})
-    assert p.read_origin()["origin"] == {"x_um": 9.0}
+    assert migrated["limits"].name == newer.name
+    assert json.loads((profile.limits_path()).read_text()) == {"limits": "new"}
 
 
-def test_origin_without_snapshot_seeds_and_persists(tmp_path):
-    p = _profile(tmp_path)
-    path = p.write_origin({"origin": {}})
-    assert path == p.latest_snapshot() / "origin.json"
-    assert p.read_origin() == {"origin": {}}
+def test_origin_writes_append_timestamp_history(tmp_path):
+    profile = _profile(tmp_path)
+    first = profile.write_origin({"origin": {"x_um": 1}}, moment=_AT_1430)
+    second = profile.write_origin({"origin": {"x_um": 9}}, moment=_AT_1500)
+    assert first == profile.origin_dir() / format_snapshot_name(_AT_1430) / "origin.json"
+    assert second == profile.origin_dir() / format_snapshot_name(_AT_1500) / "origin.json"
+    assert first.exists() and second.exists()
+    assert profile.origin_path() == second
+    assert profile.read_origin()["origin"] == {"x_um": 9}
 
 
-def test_publish_snapshot_carries_origin_forward(tmp_path):
-    newest = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
-    p = _profile(tmp_path)
-    p.write_origin({"origin": {"x_um": 5.0}})
-    assert (newest / "origin.json").exists()
-
-    snap = p.publish_snapshot(datetime(2026, 7, 2, 10, 0, 0, 0, tzinfo=timezone.utc))
-
-    # The origin survives an adopt: it rides into the new snapshot.
-    assert json.loads((snap / "origin.json").read_text(encoding="utf-8"))["origin"] == {"x_um": 5.0}
-    assert p.read_origin()["origin"] == {"x_um": 5.0}
+def test_origin_has_no_seed_default(tmp_path):
+    profile = _profile(tmp_path)
+    assert profile.read_origin() is None
+    assert profile.latest_snapshot("origin") is None
 
 
-def test_publish_snapshot_without_prior_origin_has_none(tmp_path):
-    _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
-    p = _profile(tmp_path)
-    snap = p.publish_snapshot(datetime(2026, 7, 2, 10, 0, 0, 0, tzinfo=timezone.utc))
-    assert not (snap / "origin.json").exists()
-    assert p.read_origin() is None
-
-
-# --- monotonic new snapshot ---
-
-
-def test_new_snapshot_dir_first_is_allowed(tmp_path):
-    p = _profile(tmp_path)
-    m = datetime(2026, 7, 1, 14, 30, 0, 123456, tzinfo=timezone.utc)
-    assert p.new_snapshot_dir(m).name == "2026-07-01T14-30-00-123456Z"
-
-
-def test_new_snapshot_dir_rejects_backward_clock(tmp_path):
-    _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
-    p = _profile(tmp_path)
-    earlier = datetime(2026, 7, 1, 14, 29, 0, 0, tzinfo=timezone.utc)
-    with pytest.raises(ValueError):
-        p.new_snapshot_dir(earlier)
-
-
-def test_new_snapshot_dir_rejects_same_stamp(tmp_path):
-    _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
-    p = _profile(tmp_path)
-    same = datetime(2026, 7, 1, 14, 30, 0, 123456, tzinfo=timezone.utc)
-    with pytest.raises(ValueError):
-        p.new_snapshot_dir(same)
-
-
-def test_new_snapshot_dir_accepts_later(tmp_path):
-    _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
-    p = _profile(tmp_path)
-    later = datetime(2026, 7, 1, 14, 30, 0, 123457, tzinfo=timezone.utc)
-    d = p.new_snapshot_dir(later)
-    assert d.name == "2026-07-01T14-30-00-123457Z"
-    assert d.parent == p.snapshot_root()
-
-
-# --- root resolution ---
-
-
-def test_env_var_override(tmp_path, monkeypatch):
-    monkeypatch.setenv(machine.PROGRAMDATA_ROOT_ENV, str(tmp_path))
-    p = MachineProfile()  # no explicit root
-    assert p.root() == tmp_path
-    assert p.snapshot_root() == tmp_path / "leica" / "stellaris5_y42h93" / "navigator_expert"
-
-
-def test_explicit_root_beats_env(tmp_path, monkeypatch):
-    monkeypatch.setenv(machine.PROGRAMDATA_ROOT_ENV, str(tmp_path / "env"))
-    p = MachineProfile(programdata_root=tmp_path / "explicit")
-    assert p.root() == tmp_path / "explicit"
-
-
-# --- publish_snapshot (copy-forward writer) ---
-
-_AT_1430 = datetime(2026, 7, 1, 14, 30, 0, 0, tzinfo=timezone.utc)
-_AT_1500 = datetime(2026, 7, 1, 15, 0, 0, 0, tzinfo=timezone.utc)
-
-
-def _write(path: Path, obj) -> None:
-    path.write_text(json.dumps(obj), encoding="utf-8")
-
-
-def test_publish_first_snapshot_seeds_complete_baseline(tmp_path):
-    p = _profile(tmp_path)
-    new_limits = {"schema_version": 1, "source": "defaults", "constraints": {}}
-    snap = p.publish_snapshot(_AT_1430, limits=new_limits)
-    assert (snap / "calibration.json").exists()
-    assert (snap / "orientation.json").exists()
-    assert json.loads((snap / "limits.json").read_text()) == new_limits
-    assert p.latest_snapshot() == snap
-
-
-def test_publish_carries_untouched_file_forward(tmp_path):
-    p = _profile(tmp_path)
-    first = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-000000Z")
-    _write(first / "calibration.json", {"marker": "cal-A"})
-    _write(first / "limits.json", {"marker": "lim-A"})
-    snap = p.publish_snapshot(_AT_1500, limits={"marker": "lim-B"})
-    # limits overridden, calibration carried forward unchanged
-    assert json.loads((snap / "calibration.json").read_text()) == {"marker": "cal-A"}
-    assert json.loads((snap / "limits.json").read_text()) == {"marker": "lim-B"}
-
-
-def test_publish_overrides_calibration_carries_limits(tmp_path):
-    p = _profile(tmp_path)
-    first = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-000000Z")
-    _write(first / "calibration.json", {"marker": "cal-A"})
-    _write(first / "limits.json", {"marker": "lim-A"})
-    snap = p.publish_snapshot(_AT_1500, calibration={"marker": "cal-B"})
-    assert json.loads((snap / "calibration.json").read_text()) == {"marker": "cal-B"}
-    assert json.loads((snap / "limits.json").read_text()) == {"marker": "lim-A"}
-
-
-def test_publish_archives_notebook(tmp_path):
-    p = _profile(tmp_path)
-    nb = tmp_path / "calibrate_objective_pair.ipynb"
-    nb.write_text('{"cells": []}', encoding="utf-8")
-    snap = p.publish_snapshot(_AT_1430, calibration={"marker": "x"}, notebook_paths=[nb])
-    assert (snap / "calibrate_objective_pair.ipynb").read_text() == '{"cells": []}'
-
-
-# --- orientation: a machine-specific file, alongside calibration and limits ---
-
-
-def test_orientation_path_seeds_programdata_no_turn_default(tmp_path):
-    p = _profile(tmp_path)
-    resolved = p.orientation_path()
-    assert resolved == p.latest_snapshot() / "orientation.json"
-    assert json.loads(resolved.read_text())["rotate_deg"] == 0
-
-
-def test_publish_overrides_orientation_carries_calibration_and_limits(tmp_path):
-    p = _profile(tmp_path)
-    first = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-000000Z")
-    _write(first / "calibration.json", {"marker": "cal-A"})
-    _write(first / "limits.json", {"marker": "lim-A"})
-    snap = p.publish_snapshot(_AT_1500, orientation={"schema_version": 1, "rotate_deg": 90})
-    # orientation adopted; the other two machine-specific files ride forward.
-    assert json.loads((snap / "orientation.json").read_text())["rotate_deg"] == 90
-    assert json.loads((snap / "calibration.json").read_text()) == {"marker": "cal-A"}
-    assert json.loads((snap / "limits.json").read_text()) == {"marker": "lim-A"}
-    assert p.orientation_path() == snap / "orientation.json"
-
-
-def test_publish_carries_measured_orientation_forward(tmp_path):
-    # A later limits adopt (orientation not re-measured) must not lose the turn.
-    p = _profile(tmp_path)
-    first = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-000000Z")
-    _write(first / "orientation.json", {"schema_version": 1, "rotate_deg": 270})
-    snap = p.publish_snapshot(_AT_1500, limits={"marker": "lim-B"})
-    assert json.loads((snap / "orientation.json").read_text())["rotate_deg"] == 270
-
-
-def test_publish_first_snapshot_seeds_bundled_orientation(tmp_path):
-    p = _profile(tmp_path)
-    snap = p.publish_snapshot(_AT_1430, limits={"schema_version": 1, "constraints": {}})
-    assert (snap / "orientation.json").exists()
-
-
-def test_publish_setup_sequence_ends_with_all_three(tmp_path):
-    # The documented promise, and the real path a biologist walks bringing a new
-    # microscope online: set up limits, then orientation, then calibration --
-    # each step measures only one, yet the final snapshot holds all three,
-    # because every adopt carries the others forward.
-    p = _profile(tmp_path)
-    p.publish_snapshot(_AT_1430, limits={"marker": "lim"})
-    p.publish_snapshot(_AT_1500, orientation={"schema_version": 1, "rotate_deg": 90})
-    snap = p.publish_snapshot(
-        datetime(2026, 7, 1, 15, 30, 0, 0, tzinfo=timezone.utc),
-        calibration={"marker": "cal"},
+def test_new_snapshot_monotonicity_is_per_subsystem(tmp_path):
+    profile = _profile(tmp_path)
+    _mk_snapshot(profile, "limits", format_snapshot_name(_AT_1430))
+    with pytest.raises(ValueError, match="new limits snapshot"):
+        profile.new_snapshot_dir(_AT_1400, "limits")
+    assert profile.new_snapshot_dir(_AT_1400, "calibration").parent == profile.subsystem_root(
+        "calibration"
     )
-    assert json.loads((snap / "limits.json").read_text()) == {"marker": "lim"}
-    assert json.loads((snap / "orientation.json").read_text())["rotate_deg"] == 90
-    assert json.loads((snap / "calibration.json").read_text()) == {"marker": "cal"}
+    assert profile.new_snapshot_dir(_AT_1500, "limits").name == format_snapshot_name(_AT_1500)
 
 
-def test_named_calibration_publishes_under_named_programdata_path(tmp_path):
-    p = _profile(tmp_path)
+def test_publish_requires_exactly_one_subsystem(tmp_path):
+    profile = _profile(tmp_path)
+    with pytest.raises(ValueError, match="exactly one"):
+        profile.publish_snapshot(_AT_1430)
+    with pytest.raises(ValueError, match="exactly one"):
+        profile.publish_snapshot(_AT_1430, limits={}, calibration={})
 
-    snap = p.publish_snapshot(
+
+def test_publish_does_not_duplicate_other_subsystems(tmp_path):
+    profile = _profile(tmp_path)
+    snapshot = profile.publish_snapshot(_AT_1430, limits={"marker": "limits"})
+    assert snapshot.parent == profile.subsystem_root("limits")
+    assert json.loads((snapshot / "limits.json").read_text()) == {"marker": "limits"}
+    assert not (snapshot / ".limits-machine").exists()
+    assert list(snapshot.glob("calibration*")) == []
+    assert profile.latest_snapshot("calibration") is None
+    assert profile.latest_snapshot("orientation") is None
+
+
+def test_publish_carries_forward_only_within_subsystem(tmp_path):
+    profile = _profile(tmp_path)
+    first = profile.publish_snapshot(_AT_1430, limits={"marker": "A"})
+    second = profile.publish_snapshot(_AT_1500, limits={"marker": "B"})
+    assert json.loads((first / "limits.json").read_text()) == {"marker": "A"}
+    assert json.loads((second / "limits.json").read_text()) == {"marker": "B"}
+    assert sorted(path.name for path in second.iterdir()) == ["limits.json"]
+
+
+def test_publish_archives_notebook_with_owning_subsystem(tmp_path):
+    profile = _profile(tmp_path)
+    notebook = tmp_path / "set_limits.ipynb"
+    notebook.write_text('{"cells": []}', encoding="utf-8")
+    snapshot = profile.publish_snapshot(
         _AT_1430,
-        calibration={"marker": "lens-A"},
-        calibration_name="10x_20x_water",
+        limits={"marker": "limits"},
+        notebook_paths=[notebook],
+    )
+    assert (snapshot / "notebook" / notebook.name).read_text() == '{"cells": []}'
+
+
+def test_publish_archives_evidence_directory_inside_atomic_snapshot(tmp_path):
+    profile = _profile(tmp_path / "programdata")
+    evidence = tmp_path / "scope_orientation"
+    (evidence / "reports").mkdir(parents=True)
+    (evidence / "reports" / "orientation_report.json").write_text(
+        '{"rotate_deg": 90}', encoding="utf-8"
     )
 
-    path = snap / "calibrations" / "10x_20x_water" / "calibration.json"
-    assert json.loads(path.read_text()) == {"marker": "lens-A"}
-    assert p.calibration_path("10x_20x_water") == path
-    assert (snap / "calibration.json").exists()
+    snapshot = profile.publish_snapshot(
+        _AT_1430,
+        orientation={"rotate_deg": 90},
+        archive_paths=[evidence],
+    )
+
+    archived = snapshot / evidence.name / "reports" / "orientation_report.json"
+    assert archived.read_text(encoding="utf-8") == '{"rotate_deg": 90}'
+    assert evidence.is_dir()
 
 
-def test_named_calibration_empty_root_seeds_one_complete_snapshot(tmp_path):
-    p = _profile(tmp_path)
+def test_fresh_named_calibration_set_seeds_with_no_objectives(tmp_path):
+    """A brand-new named set must start empty, not with the bundled seed.
 
-    path = p.calibration_path("lens_A")
+    An operator creates a named set to establish their own reference
+    objective; seeding it with the shipped placeholder numbers would lock
+    the reference to the placeholder's arbitrary choice. The first measured
+    pair anchors the origin instead.
+    """
+    profile = _profile(tmp_path)
+    path = profile.calibration_path("fresh_lens_setup")
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    assert cfg["objectives"] == {}
+    assert "schema_version" in cfg
+    # The default set is equally safe: bundled defaults never pretend to be
+    # measurements from this microscope.
+    default_cfg = json.loads(profile.calibration_path().read_text(encoding="utf-8"))
+    assert default_cfg["objectives"] == {}
 
-    assert len(p.snapshots()) == 1
-    snap = p.latest_snapshot()
-    assert path == snap / "calibrations" / "lens_A" / "calibration.json"
-    assert (snap / "calibration.json").exists()
-    assert (snap / "limits.json").exists()
-    assert (snap / "orientation.json").exists()
 
-
-def test_named_calibration_sets_are_carried_forward(tmp_path):
-    p = _profile(tmp_path)
-    first = p.publish_snapshot(
+def test_named_calibration_sets_copy_forward_inside_calibration_only(tmp_path):
+    profile = _profile(tmp_path)
+    first = profile.publish_snapshot(
         _AT_1430,
         calibration={"marker": "lens-A"},
         calibration_name="lens_A",
     )
-    snap = p.publish_snapshot(_AT_1500, limits={"marker": "lim-B"})
-
-    path = snap / "calibrations" / "lens_A" / "calibration.json"
-    assert json.loads(path.read_text()) == {"marker": "lens-A"}
-    assert p.calibration_path("lens_A") == path
+    second = profile.publish_snapshot(_AT_1500, calibration={"marker": "default-B"})
+    named = second / "calibrations" / "lens_A" / "calibration.json"
+    assert json.loads(named.read_text()) == {"marker": "lens-A"}
+    assert profile.calibration_path("lens_A") == named
     assert (first / "calibrations" / "lens_A" / "calibration.json").exists()
+    assert profile.latest_snapshot("limits") is None
 
 
-def test_named_calibration_can_be_selected_by_env(tmp_path, monkeypatch):
-    p = _profile(tmp_path)
-    snap = p.publish_snapshot(
+def test_named_calibration_can_be_selected_by_environment(tmp_path, monkeypatch):
+    profile = _profile(tmp_path)
+    snapshot = profile.publish_snapshot(
         _AT_1430,
         calibration={"marker": "lens-A"},
         calibration_name="lens_A",
     )
     monkeypatch.setenv(machine.CALIBRATION_NAME_ENV, "lens_A")
-
-    assert p.calibration_path() == snap / "calibrations" / "lens_A" / "calibration.json"
+    assert profile.calibration_path() == snapshot / "calibrations" / "lens_A" / "calibration.json"
 
 
 def test_named_calibration_rejects_path_segments(tmp_path):
-    p = _profile(tmp_path)
     with pytest.raises(ValueError, match="calibration_name"):
-        p.calibration_path("../escape")
+        _profile(tmp_path).calibration_path("../escape")
 
 
-def test_publish_makes_new_snapshot_the_latest(tmp_path):
-    p = _profile(tmp_path)
-    _mk_snapshot(tmp_path, "2026-07-01T14-30-00-000000Z")
-    snap = p.publish_snapshot(_AT_1500, calibration={"marker": "x"})
-    assert p.latest_snapshot() == snap
-    assert snap.name == "2026-07-01T15-00-00-000000Z"
-
-
-def test_publish_rejects_non_monotonic_and_leaves_no_partial(tmp_path):
-    p = _profile(tmp_path)
-    valid = _mk_snapshot(tmp_path, "2026-07-01T14-30-00-123456Z")
-    earlier = datetime(2026, 7, 1, 14, 0, 0, 0, tzinfo=timezone.utc)
+def test_publish_rejects_non_monotonic_time_without_partial(tmp_path):
+    profile = _profile(tmp_path)
+    profile.publish_snapshot(_AT_1430, calibration={"marker": "A"})
     with pytest.raises(ValueError):
-        p.publish_snapshot(earlier, calibration={"marker": "x"})
-    children = sorted(x.name for x in p.snapshot_root().iterdir())
-    assert children == [valid.name]  # no ".partial" leftover, no bad snapshot
+        profile.publish_snapshot(_AT_1400, calibration={"marker": "B"})
+    assert not list(profile.subsystem_root("calibration").glob(".*.partial"))
 
 
-def test_publish_leaves_no_partial_after_success(tmp_path):
-    p = _profile(tmp_path)
-    p.publish_snapshot(_AT_1430, calibration={"marker": "x"})
-    assert [x.name for x in p.snapshot_root().iterdir() if ".partial" in x.name] == []
-
-
-def test_published_calibration_is_loadable(tmp_path):
+def test_bundled_and_published_calibration_are_loadable(tmp_path):
     from navigator_expert.calibration.core import model
 
-    p = _profile(tmp_path)
-    cal = model.load_calibration(p.bundled_default_path("calibration.json"))
-    snap = p.publish_snapshot(_AT_1430, calibration=cal)
-    reloaded = model.load_calibration(snap / "calibration.json")
-    assert model.get_reference_slot(reloaded) == 1
-    assert model.get_translation_um(reloaded, 0) == model.get_translation_um(cal, 0)
+    profile = _profile(tmp_path)
+    calibration = model.load_calibration(profile.bundled_default_path("calibration.json"))
+    snapshot = profile.publish_snapshot(_AT_1430, calibration=calibration)
+    reloaded = model.load_calibration(snapshot / "calibration.json")
+    assert reloaded == {"schema_version": 13, "objectives": {}}
+
+
+def test_programdata_root_precedence(tmp_path, monkeypatch):
+    monkeypatch.setenv(machine.PROGRAMDATA_ROOT_ENV, str(tmp_path / "environment"))
+    assert MachineProfile().root() == tmp_path / "environment"
+    assert MachineProfile(programdata_root=tmp_path / "explicit").root() == tmp_path / "explicit"

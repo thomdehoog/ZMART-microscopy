@@ -14,7 +14,7 @@ _DRIVER_PARENT = _REPO_ROOT / "zmart_drivers" / "leica" / "stellaris5_y42h93"
 if str(_DRIVER_PARENT) not in sys.path:
     sys.path.insert(0, str(_DRIVER_PARENT))
 
-# shared/ and workflows/ live at the repo root
+# workflows/ lives at the repo root
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
@@ -27,9 +27,4 @@ if str(_HERE) not in sys.path:
 
 import workflow  # noqa: E402
 
-# v3 notebook entry: ``Config`` belongs to the retired driver-coupled flow
-# (the active controller-only workflow no longer defines it). See
-# workflow/retired/.
-from workflow.retired.context import Config  # noqa: E402
-
-__all__ = ["Config", "Path", "TARGET_ACQ", "workflow"]
+__all__ = ["Path", "TARGET_ACQ", "workflow"]

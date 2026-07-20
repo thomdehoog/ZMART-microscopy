@@ -41,13 +41,20 @@ import threading
 import time
 
 from .. import readers as _readers
-from .. import utils as _utils
 from ..commands.errors import _check_api_error, _is_transient_error
-from ..utils import _make_log_entry
+from ..config import timing as _timing
+from ..readers.parsing import make_changeable_copy
 from .confirm_specs import CONFIRM_SPECS
-from .settings import make_changeable_copy
+from .envelope import _make_log_entry
 
 log = logging.getLogger(__name__)
+
+# How many consecutive idle scan-status reads prove an acquisition has
+# really finished (a single idle read can be a sampling artifact between
+# frames). Sibling acquire knobs (start_timeout, heartbeat_interval,
+# poll_interval) live in config/profiles.py; this one is a correctness
+# rule rather than tuning, so it stays here, named.
+ACQUIRE_IDLE_STREAK_REQUIRED = 2
 
 
 # =============================================================================
@@ -216,8 +223,8 @@ def race_confirmations(api_leg=None, log_leg=None, *, label="", budget_s=None):
 # =============================================================================
 
 
-def _readback(client, job_name, *, observed_after=None):
-    """Read job settings and return changeable copy, or None on failure."""
+def _readback(client, job_name, *, observed_after=None, mode=None):
+    """Read job settings, using the configured mode when *mode* is None."""
     # Reader budget is its own profile knob, distinct from the confirm poll
     # window: this is a genuine "how long may one job-settings read block"
     # value. Deferred import — profiles imports this module.
@@ -227,7 +234,7 @@ def _readback(client, job_name, *, observed_after=None):
         client,
         job_name,
         timeout=STATE_READERS.job_settings_timeout_s,
-        mode="api",
+        mode=mode,
         diagnostics=True,
     )
     if reading is None:
@@ -310,7 +317,7 @@ def _confirm_readback(
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = _utils.CONFIRM_POLL_S
+        poll_window = _timing.CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + poll_window
@@ -372,7 +379,15 @@ ZMODE_KEY = {"galvo": "z-galvo", "zwide": "z-wide"}
 
 
 def confirm_move_z(
-    client, *, job_name, z_mode, target_um, tolerance=1.0, poll_window=None, poll_interval=0.01
+    client,
+    *,
+    job_name,
+    z_mode,
+    target_um,
+    tolerance=1.0,
+    poll_window=None,
+    poll_interval=0.01,
+    observed_after=None,
 ):
     """Poll until Z drive position is within tolerance, or until timeout.
 
@@ -387,19 +402,26 @@ def confirm_move_z(
         tolerance: Acceptable deviation in micrometers.
         poll_window: Hard ceiling in seconds. None uses CONFIRM_POLL_S.
         poll_interval: Seconds between position polls.
+        observed_after: Reject reader observations at or before this wall-clock
+            timestamp. Move commands bind their pre-command timestamp here so
+            a stale log entry cannot confirm the move.
 
     Returns:
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = _utils.CONFIRM_POLL_S
+        poll_window = _timing.CONFIRM_POLL_S
     logs = []
     key = ZMODE_KEY[z_mode]
     t_start = time.perf_counter()
     deadline = t_start + poll_window
 
     while time.perf_counter() < deadline:
-        ch = _readback(client, job_name)
+        ch = _readback(
+            client,
+            job_name,
+            observed_after=observed_after,
+        )
         if ch is not None:
             try:
                 actual = ch["zPosition"][key]
@@ -440,7 +462,7 @@ def _confirm_zoom(client, job_name, target, tolerance=0.1, poll_window=None, pol
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = _utils.CONFIRM_POLL_S
+        poll_window = _timing.CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + poll_window
@@ -530,7 +552,7 @@ def _confirm_z_stack_definition(
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = _utils.CONFIRM_POLL_S
+        poll_window = _timing.CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + poll_window
@@ -625,7 +647,7 @@ def _confirm_z_stack_size(
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = _utils.CONFIRM_POLL_S
+        poll_window = _timing.CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + poll_window
@@ -811,7 +833,7 @@ def _confirm_image_format(client, job_name, w, h, poll_window=None, poll_interva
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = _utils.CONFIRM_POLL_S
+        poll_window = _timing.CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + poll_window
@@ -855,7 +877,7 @@ def confirm_objective(
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = _utils.CONFIRM_POLL_S
+        poll_window = _timing.CONFIRM_POLL_S
     logs = []
     t_start = time.perf_counter()
     deadline = t_start + poll_window
@@ -995,7 +1017,7 @@ def confirm_move_xy(
         {"success": bool, "logs": [...]}
     """
     if poll_window is None:
-        poll_window = _utils.CONFIRM_POLL_S
+        poll_window = _timing.CONFIRM_POLL_S
     logs = []
     observed_after = time.time()
     t_start = time.perf_counter()
@@ -1079,7 +1101,6 @@ def confirm_acquire(
     last_heartbeat = t_start
     saw_scanning = False
     consecutive_idle = 0
-    idle_streak_required = 2
 
     start_deadline = t_start + start_timeout
     deadline = t_start + (timeout if timeout is not None else 1e9)
@@ -1138,7 +1159,7 @@ def confirm_acquire(
             last_heartbeat = now
 
         # Phase 2: completion — consecutive idle reads after saw scanning
-        if consecutive_idle >= idle_streak_required and saw_scanning:
+        if consecutive_idle >= ACQUIRE_IDLE_STREAK_REQUIRED and saw_scanning:
             return {"success": True, "logs": logs}
 
         time.sleep(poll_interval)

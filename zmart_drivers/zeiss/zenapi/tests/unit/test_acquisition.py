@@ -3,8 +3,7 @@
 import pytest
 import zenapi as drv
 from mock_zen_api import FakeGRPCError, idle_status, running_status
-
-from shared.output_layout.naming import Naming, run_hash
+from zenapi.acquisition.naming import Naming, run_hash
 
 
 def test_acquire_success(fake_client):

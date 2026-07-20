@@ -30,8 +30,8 @@ def save_image_source_atomic(
     embedded in the plane's OME-XML (no sidecar). When *orientation* is a
     non-identity rig D4, the plane pixels are reoriented losslessly to
     stage-aligned axes before the OME is generated, so the written file is
-    self-consistent (a 90/270 swaps SizeX/SizeY via the rotated shape and
-    swaps PhysicalSizeX/Y via the metadata below).
+    self-consistent. A mirror preserves dimensions; a 90/270 turn swaps
+    SizeX/SizeY via the transformed shape and PhysicalSizeX/Y below.
     """
     image_tmp = _with_tmp_suffix(image_dest)
     try:

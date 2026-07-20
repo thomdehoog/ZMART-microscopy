@@ -19,26 +19,21 @@ def _load_calibration_module():
 
 def _config():
     return {
-        "schema_version": 12,
-        "last_updated": "20260527_120000",
+        "schema_version": 13,
         "objectives": {
             "1": {
                 "name": "ref",
                 "translation_um": [0.0, 0.0, 0.0],
-                "session_id": None,
             },
             "2": {
                 "name": "tgt",
                 "translation_um": [-6.0, 13.0, -123.0],
-                "session_id": "sess_target",
             },
         },
     }
 
 
 def _semantically_equal(a: dict, b: dict) -> bool:
-    a = {k: v for k, v in a.items() if k != "last_updated"}
-    b = {k: v for k, v in b.items() if k != "last_updated"}
     return a == b
 
 
@@ -132,12 +127,11 @@ def test_translate_between_two_non_reference_objectives():
     # measurements against a common objective (here slot 1 is the origin).
     cal = _load_calibration_module()
     cfg = {
-        "schema_version": 12,
-        "last_updated": "20260527_120000",
+        "schema_version": 13,
         "objectives": {
-            "1": {"name": "a", "translation_um": [0.0, 0.0, 0.0], "session_id": None},
-            "2": {"name": "b", "translation_um": [10.0, 20.0, 1.0], "session_id": None},
-            "3": {"name": "c", "translation_um": [30.0, 5.0, -2.0], "session_id": None},
+            "1": {"name": "a", "translation_um": [0.0, 0.0, 0.0]},
+            "2": {"name": "b", "translation_um": [10.0, 20.0, 1.0]},
+            "3": {"name": "c", "translation_um": [30.0, 5.0, -2.0]},
         },
     }
     # 2 -> 3 uses (t3 - t2) even though neither is the reference.
@@ -152,19 +146,21 @@ def test_adopt_seeds_first_used_objective_at_origin():
     from navigator_expert.calibration.core import adopt
 
     config = {
-        "schema_version": 12,
+        "schema_version": 13,
         "objectives": {
-            "1": {"name": "first", "session_id": None},  # no translation_um yet
-            "2": {"name": "second", "session_id": None},
+            "1": {"name": "first"},  # no translation_um yet
+            "2": {"name": "second"},
         },
     }
     payload = {
         "from_objective": "first",
         "to_objective": "second",
+        "from_slot": 1,
+        "to_slot": 2,
         "translation_xy_um": [4.0, -3.0],
         "translation_z_um": 2.0,
     }
-    adopt._apply_staging_payload(config, payload, session_id="s0")
+    adopt._apply_objective_pair(config, payload)
     assert config["objectives"]["1"]["translation_um"] == [0.0, 0.0, 0.0]
     assert config["objectives"]["2"]["translation_um"] == [4.0, -3.0, 2.0]
 
@@ -196,15 +192,12 @@ def test_update_objective_writes_only_passed_fields():
         "name": "tgt",
         "translation_um": [9.5, -8.5, 1.25],
     }
-    cal.update_objective(cfg, 2, session_id="sess")
-    assert cfg["objectives"]["2"]["session_id"] == "sess"
-    assert cfg["objectives"]["2"]["name"] == "tgt"
 
 
 def test_update_objective_requires_name_for_new_slot():
     cal = _load_calibration_module()
     with pytest.raises(ValueError, match="without a name"):
-        cal.update_objective({"objectives": {}}, 2, session_id="sess")
+        cal.update_objective({"objectives": {}}, 2, translation_um=(1, 2, 3))
 
 
 def test_old_schema_raises_pointing_at_recalibration(tmp_path):
@@ -235,19 +228,27 @@ def test_calibration_has_no_backlash_field(tmp_path):
     cal.validate_calibration(_config())  # a config without backlash validates
 
 
-def test_stray_backlash_block_is_tolerated(tmp_path):
-    """Backward compat (§2b): an older machine-local calibration.json may still
-    carry a backlash block. The model IGNORES it — it neither requires nor
-    validates it — so the file keeps loading without a re-adopt."""
+def test_v12_metadata_is_removed_during_upgrade(tmp_path):
     cal = _load_calibration_module()
-    cfg = _config()
-    # A stray block, deliberately malformed — must NOT be validated.
+    cfg = {
+        "schema_version": 12,
+        "last_updated": "20260527_120000",
+        "objectives": {
+            "1": {
+                "name": "ref",
+                "translation_um": [0.0, 0.0, 0.0],
+                "session_id": "measured-session",
+            }
+        },
+    }
     cfg["backlash"] = {"overshoot_um": "not-a-number", "junk": True}
-    cal.validate_calibration(cfg)  # tolerated, no raise
     path = tmp_path / "calibration.json"
     path.write_text(json.dumps(cfg), encoding="utf-8")
     loaded = cal.load_calibration(path)
-    assert loaded["objectives"]["1"]["translation_um"] == [0.0, 0.0, 0.0]
+    assert loaded == {
+        "schema_version": 13,
+        "objectives": {"1": {"name": "ref", "translation_um": [0.0, 0.0, 0.0]}},
+    }
 
 
 def test_save_load_semantic_round_trip(tmp_path):
@@ -272,7 +273,9 @@ def test_save_without_path_seeds_programdata_not_bundled_defaults(tmp_path, monk
 
     path = cal.save_calibration(_config(), calibration_name="lens_A")
 
-    assert path == profile.latest_snapshot() / "calibrations" / "lens_A" / "calibration.json"
+    assert path == (
+        profile.latest_snapshot("calibration") / "calibrations" / "lens_A" / "calibration.json"
+    )
     assert path.exists()
     assert bundled.read_text(encoding="utf-8") == before
 
@@ -292,4 +295,4 @@ def test_save_named_calibration_writes_existing_machine_local_path(tmp_path, mon
     path = cal.save_calibration(_config(), calibration_name="lens_A")
 
     assert path == snap / "calibrations" / "lens_A" / "calibration.json"
-    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == 12
+    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == 13

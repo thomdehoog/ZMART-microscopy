@@ -17,13 +17,23 @@ from workflow._log_capture import (
     capture_console_deferred,
 )
 
-from shared.output_layout import build_layout
+
+class _StubLayout:
+    """The minimal layout shape ``_log_path_for`` relies on: a
+    ``logs_dir(kind)`` method returning a real directory path."""
+
+    def __init__(self, root: Path):
+        self._root = root
+
+    def logs_dir(self, kind: str) -> Path:
+        d = self._root / kind / "logs"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
 
 
 def _ctx_with_layout(tmp_path):
-    """A minimal ctx whose run.layout is a real LayoutPlan under tmp_path."""
-    layout = build_layout(tmp_path, "logtest")
-    return SimpleNamespace(run=SimpleNamespace(layout=layout))
+    """A minimal ctx whose run.layout can hand out real log directories."""
+    return SimpleNamespace(run=SimpleNamespace(layout=_StubLayout(tmp_path)))
 
 
 class TestCaptureConsole:

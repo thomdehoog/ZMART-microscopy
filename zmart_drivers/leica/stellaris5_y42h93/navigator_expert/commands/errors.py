@@ -19,7 +19,7 @@ profiles, prechecks, or confirmations.
 
 import logging
 
-from ..utils import _make_log_entry
+from .envelope import _make_log_entry
 
 log = logging.getLogger(__name__)
 

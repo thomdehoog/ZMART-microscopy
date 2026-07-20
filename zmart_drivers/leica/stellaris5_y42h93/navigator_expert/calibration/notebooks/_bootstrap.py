@@ -1,4 +1,5 @@
-"""Import bootstrap only. Must never choose runtime write paths."""
+"""Import bootstrap and shared notebook checkpoint configuration."""
+
 import sys
 from pathlib import Path
 
@@ -13,3 +14,13 @@ NOTEBOOK_PATH = NOTEBOOKS_DIR / "calibrate_objective_pair.ipynb"
 for _path in (_REPO_ROOT, _DRIVER_PARENT):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
+
+from navigator_expert.notebook_support import NotebookCheckpoint  # noqa: E402
+
+NOTEBOOK = NotebookCheckpoint(
+    NOTEBOOK_PATH,
+    required_code=(
+        "summary = objective_pair.measure_parcentricity_target_and_save(session)",
+        "calibration_check.measure_target_and_report(check_session)",
+    ),
+)

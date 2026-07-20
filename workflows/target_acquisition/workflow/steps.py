@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ._capture_run import capture_positions
+from ._records import record_channel_paths
 
 
 def connect(vendor: str, *, output_root: Any = None, **extras: Any):
@@ -39,6 +40,22 @@ def connect(vendor: str, *, output_root: Any = None, **extras: Any):
     return zmart_controller.set_instrument(instrument)
 
 
+def require_driver_ready(state: dict) -> dict | None:
+    """Refuse when a driver reports its machine setup is not ready.
+
+    Limits, calibration, and orientation meanings remain entirely driver-owned. This
+    workflow consumes only the driver's opaque ``ready`` verdict and displays
+    its actionable issues. Drivers without such a verdict remain compatible.
+    """
+    setup = (state.get("observed") or {}).get("setup")
+    if setup is None:
+        return None
+    if not setup.get("ready"):
+        issues = setup.get("issues") or ["driver reported an unknown setup problem"]
+        raise RuntimeError("driver preflight failed: " + "; ".join(map(str, issues)))
+    return setup
+
+
 def load_positions(path: Any) -> list[dict]:
     """Load frame positions from a JSON list of ``{"x", "y"[, "z"]}`` (micrometres)."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -56,22 +73,78 @@ def _normalize_positions(data: Any) -> list[dict]:
 
 
 def load_analysis_engine(analysis_repo: Any):
-    """Load the smart-analysis Engine from *analysis_repo* and instantiate it."""
-    repo = Path(analysis_repo)
+    """Load smart-analysis v4 and register its target-acquisition pipeline."""
+    repo = Path(analysis_repo).expanduser().resolve()
+    if not repo.is_dir():
+        raise FileNotFoundError(f"smart-analysis repository not found: {repo}")
+    pipeline = repo / "workflows" / "target_acquisition" / "pipelines" / "overview.yaml"
+    if not pipeline.is_file():
+        raise FileNotFoundError(
+            f"smart-analysis target-acquisition pipeline not found: {pipeline}; "
+            "checkout the v4-engine branch"
+        )
     if str(repo) not in sys.path:
         sys.path.insert(0, str(repo))
-    return importlib.import_module("engine").Engine()
+    engine_module = importlib.import_module("engine")
+    module_path = Path(engine_module.__file__).resolve()
+    try:
+        module_path.relative_to(repo)
+    except ValueError as exc:
+        raise ImportError(
+            f"Python imported smart-analysis engine from {module_path}, not {repo}; "
+            "restart the notebook kernel after changing ANALYSIS_REPO"
+        ) from exc
+    engine = engine_module.Engine()
+    try:
+        engine.register("overview", pipeline)
+    except Exception:
+        engine.shutdown()
+        raise
+    return engine
+
+
+def preflight_analysis_engine(engine: Any) -> None:
+    """Run one tiny blank tile through the registered analysis worker.
+
+    Registration alone does not start smart-analysis' declared Cellpose conda
+    environment. This warm-up therefore happens before the microscope connects:
+    a missing environment/model/GPU fails before any hardware work, and a valid
+    worker stays warm for the overview run.
+    """
+    import tempfile
+
+    import numpy as np
+    import tifffile
+
+    from .discovery import discover_targets
+
+    with tempfile.TemporaryDirectory(prefix="zmart-analysis-preflight-") as tmp:
+        image_path = Path(tmp) / "blank.tiff"
+        tifffile.imwrite(image_path, np.zeros((64, 64), dtype=np.uint16))
+        discover_targets(
+            engine,
+            [
+                {
+                    "image_path": image_path,
+                    "center_frame_um": (0.0, 0.0),
+                    "pixel_size_um": 1.0,
+                    "image_size_px": (64, 64),
+                    "label": "preflight",
+                }
+            ],
+            n_picks=1,
+        )
 
 
 def with_focus_z(positions: list[dict], focus: Any = None) -> list[dict]:
-    """Attach z to each ``{x, y}`` position: from the focus surface, else its own z, else 0."""
+    """Attach z while preserving vendor location fields used in output labels."""
     placed = []
     for pos in positions:
         if focus is not None:
             z = float(focus.z_at(pos["x"], pos["y"]))
         else:
             z = float(pos.get("z", 0.0))
-        placed.append({"x": pos["x"], "y": pos["y"], "z": z})
+        placed.append({**pos, "x": pos["x"], "y": pos["y"], "z": z})
     return placed
 
 
@@ -82,10 +155,29 @@ def run_overview(
     state: dict | None = None,
     focus: Any = None,
     options: dict | None = None,
+    on_record: Any = None,
+    cancel: Any = None,
+    output_root: Any = None,
 ) -> list[dict]:
-    """Step 5: acquire an overview at each frame position (z from the focus surface)."""
+    """Step 5: acquire an overview at each frame position (z from the focus surface).
+
+    ``on_record(index, position, record)`` fires after each tile is saved —
+    pass a viewer's ``add_acquisition`` here and the overview map grows on
+    screen while the microscope is still scanning. ``cancel`` (a function
+    answering True to stop) ends the run cleanly between two tiles; see
+    :func:`~._capture_run.capture_positions`.
+    """
     placed = with_focus_z(positions, focus)
-    return capture_positions(session, placed, "overview", state=state, options=options)
+    return capture_positions(
+        session,
+        placed,
+        "overview",
+        state=state,
+        options=options,
+        on_record=on_record,
+        cancel=cancel,
+        output_root=output_root,
+    )
 
 
 def overview_inputs_from_records(
@@ -98,12 +190,23 @@ def overview_inputs_from_records(
     """Build target-discovery inputs from overview positions and acquire records."""
     from .discovery import build_overview_inputs
 
+    if len(positions) != len(records):
+        raise ValueError(
+            f"overview positions/records length mismatch: {len(positions)} != {len(records)}"
+        )
     placed = with_focus_z(positions, focus)
-    return build_overview_inputs(
+    channel_paths = [
+        record_channel_paths(record, context=f"overview record {index}")
+        for index, record in enumerate(records)
+    ]
+    inputs = build_overview_inputs(
         placed,
-        [_first_image(record, index) for index, record in enumerate(records)],
+        [paths[0] for paths in channel_paths],
         **geometry,
     )
+    for overview, paths in zip(inputs, channel_paths, strict=True):
+        overview["channel_paths"] = paths
+    return inputs
 
 
 def acquire_targets(
@@ -113,10 +216,28 @@ def acquire_targets(
     state: dict | None = None,
     focus: Any = None,
     options: dict | None = None,
+    on_record: Any = None,
+    cancel: Any = None,
+    output_root: Any = None,
 ) -> list[dict]:
-    """Step 7: acquire a target at each discovered frame position (z from the focus surface)."""
+    """Step 7: acquire a target at each discovered frame position (z from the focus surface).
+
+    ``on_record(index, position, record)`` fires after each target is saved —
+    the acquisition gallery uses it to show every pair the moment it exists.
+    ``cancel`` (a function answering True to stop) ends the run cleanly
+    between two targets; see :func:`~._capture_run.capture_positions`.
+    """
     placed = with_focus_z(targets, focus)
-    return capture_positions(session, placed, "target", state=state, options=options)
+    return capture_positions(
+        session,
+        placed,
+        "target",
+        state=state,
+        options=options,
+        on_record=on_record,
+        cancel=cancel,
+        output_root=output_root,
+    )
 
 
 def hijack_if_simulating(
@@ -163,10 +284,3 @@ def write_run_report(
         show=show,
     )
     return summary
-
-
-def _first_image(record: dict, index: int) -> Any:
-    images = record.get("images") or ()
-    if not images:
-        raise ValueError(f"overview record {index} has no saved image path")
-    return images[0]

@@ -21,6 +21,13 @@ from .files import find_scanning_templates_dir, load_experiment, save_experiment
 
 log = logging.getLogger(__name__)
 
+# Per-attempt save timeouts (seconds) for the read-modify-write confirm
+# loop. The ladder escalates because a busy LAS X occasionally needs
+# longer on a later attempt; the length of the tuple is the number of
+# attempts. Policy for every caller of apply_lrp_change -- change it
+# here, not at call sites.
+SAVE_CONFIRM_TIMEOUTS_S = (2, 4, 8, 16)
+
 
 # =============================================================================
 # Job reordering
@@ -102,7 +109,7 @@ def apply_lrp_change(
     lrp_edit_fn,
     *args,
     verify_fn=None,
-    confirm_delays=(2, 4, 8, 16),
+    confirm_delays=SAVE_CONFIRM_TIMEOUTS_S,
     **kwargs,
 ):
     """Apply an LRP edit with save -> edit -> reorder -> load -> save -> verify.

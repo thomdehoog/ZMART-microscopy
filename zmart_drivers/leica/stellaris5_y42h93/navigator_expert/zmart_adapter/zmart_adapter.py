@@ -21,25 +21,28 @@ displacement — the sum of the two physical drives (z-wide + z-galvo)
 relative to the origin's focus sum — so it reads the same regardless of
 which drive realized a move. An objective change is compensated with the
 calibration's per-objective translation totals (ΔT relative to the
-origin's objective): x/y apply to the motoric stage, z in focus space — a
-driver-side assumption; the calibration schema is unchanged (operator
-decision, 2026-07-02). Cross-objective moves REFUSE when translations are
+origin's objective): x/y apply to the motoric stage and translation-z is
+realized through z-wide. Ordinary requested z motion remains independently
+actuator-selectable. The calibration schema is unchanged (operator decision,
+2026-07-02). Cross-objective moves REFUSE when translations are
 unavailable; reads warn and return uncompensated. The driver package
 itself is untouched. Full design: ``docs/design/objective-aware-frame.md``.
 
 Scope of v1 (grow as needed):
     - ``set_origin`` captures stage XY, both z drives, and the current
-      objective as the zero point, persisted machine-locally to
-      ``origin.json`` in the newest machine snapshot (next to
-      ``calibration.json`` / ``limits.json``) and restored by ``connect`` -
-      the origin stays the frame truth across sessions until set again.
+      objective as the zero point. The origin is SESSION-scoped: it applies
+      until set again or the session ends, and it is written to the
+      machine-local ``origin/`` folder (next to the dated snapshots) only
+      as a record of the last origin captured. ``connect`` does NOT restore
+      it — a fresh connection is an absolute frame until ``set_origin`` runs.
     - ``get_xyz`` returns both frames: controller-relative values plus
       the raw hardware readings under ``"hardware"``.
     - ``get_state``/``set_state`` round-trip the selected job (the job
       is LAS X's unit of configuration, so reapplying the selection
       restores the whole setup).
-    - ``get_procedures`` offers backlash takeup and autofocus (with
-      job discovery); ``run_procedure`` runs them.
+    - ``get_procedures`` offers backlash takeup, zero-z-galvo (park the
+      galvo at 0 with the focus kept), and autofocus (with job
+      discovery); ``run_procedure`` runs them.
     - ``acquire`` selects the job, captures, and saves in one step;
       ``acquisition_type``/``position_label`` map onto the driver's
       Naming slots and travel verbatim in the save lineage.
@@ -53,22 +56,20 @@ pass (park the galvo at a known offset, move z-wide, check the focus sum)
 before trusting large z moves.
 
 Dependency direction:
-    - Imports: driver internals, ``zmart_controller.registry``,
-      ``shared.output_layout``.
+    - Imports: driver internals and ``zmart_controller.registry``.
     - Imported by: nothing in the driver — workflows opt in explicitly.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from shared.output_layout import Naming
-from shared.output_layout.naming import run_hash
 from zmart_controller import registry as _registry
 
 try:  # driver version for embedded export state; never fail acquire over it
@@ -81,15 +82,16 @@ from .. import readers as _readers
 from .. import scanfields as _scanfields
 from ..acquisition import capture as _capture
 from ..acquisition import save as _save
-from ..calibration.core import model as _cal_model
+from ..acquisition.naming import Naming, run_hash
 from ..commands import commands as _commands
 from ..commands import gate as _gate
+from ..commands import routines as _motion
 from ..config import machine as _machine
 from ..connection import session as _session
-from ..motion import limits as _limits
-from ..motion import movement as _motion
+from ..connection import session_state as _session_state
 from ..readers.derived import z_um_from_settings as _z_um_from_settings
-from . import procedures as _procedures
+from ..readers.parsing import parse_tile_geometry as _parse_tile_geometry
+from . import info as _info
 
 log = logging.getLogger(__name__)
 
@@ -101,7 +103,14 @@ CONNECTION = {
     "client": "PythonClient",
     "api_delay_ms": None,
     "output_root": None,  # optional override; otherwise discovered from native AutoSave
-    "calibration_name": None,  # optional ProgramData calibrations/<name>/calibration.json
+    # Microscope-specific active objective calibration. Workflows do not select
+    # or apply calibration; this driver profile owns that decision.
+    "calibration_name": "water_lens_setup",
+    # Limits and calibration connection choices. Image orientation is enabled
+    # by IMAGE_SAVE in config/profiles.py; only the orientation measurement
+    # explicitly saves raw pixels.
+    "load_limits": True,
+    "load_calibration": True,
 }
 
 _ACTUATORS = {"x": ("motoric",), "y": ("motoric",), "z": ("z-wide", "z-galvo")}
@@ -113,14 +122,17 @@ _DEFAULT_ACTUATORS = {"x": "motoric", "y": "motoric", "z": "z-wide"}
 # controller actuator name -> driver move_z z_mode
 _Z_MODES = {"z-wide": "zwide", "z-galvo": "galvo"}
 
-# Function-keyed limits are enforced BELOW this adapter, in the command
-# wrappers themselves (commands/gate.py; maintainer decision §7) — the
-# adapter no longer carries its own gate. connect() runs the limits
+# How long get_info waits (seconds) for LAS X to flush the live experiment
+# to disk before parsing its scan fields. A read that needs a save first is
+# quirky but unavoidable: the on-disk template is the only complete source.
+EXPERIMENT_FLUSH_TIMEOUT_S = 60
+
+# Limits are enforced BELOW this adapter, in the command wrappers
+# themselves (commands/gate.py + limits/checks.py; maintainer decision §7).
+# The adapter does NO limit checking of its own — it composes commands and
+# translates failures into actionable errors. connect() runs the limits
 # handshake; a failed handshake leaves the session read-only and every
-# mutating command underneath refuses with the recorded reason. What the
-# adapter keeps is the whole-move XY+Z pre-flight in set_xyz (both legs
-# checked before any motion), deliberate defense in depth the per-command
-# checks cannot replicate.
+# mutating command underneath refuses with the recorded reason.
 
 
 @dataclass
@@ -133,7 +145,7 @@ class ZmartHandle:
             (carries ``output_root`` and the connect params).
         hash6: SESSION hash, minted at connect. Travels in lineage /
             ``session_hash6`` provenance only — each :func:`acquire` mints
-            its OWN per-acquisition hash for the output Naming.
+            its own acquired-position hash for the output Naming.
         origin: The frame zero point captured by :func:`set_origin` —
             stage XY, both z drives, their focus sum, and the objective
             it was captured under. Defaults to all-zero (frame ==
@@ -162,6 +174,7 @@ class ZmartHandle:
         }
     )
     position_counter: int = 0
+    acquisition_hashes: set[str] = field(default_factory=set)
     translations: dict[int, tuple[float, float, float]] | None = None
     closed: bool = False
 
@@ -177,19 +190,6 @@ def _require_open(handle: ZmartHandle) -> None:
 # =============================================================================
 
 
-def _refuse_if_gated(handle: ZmartHandle, command: str, values: dict) -> None:
-    """Pre-flight one command leg against the commands-layer limits gate.
-
-    The gate itself lives below the adapter (``commands/gate.py``) and would
-    refuse anyway when the command fires; calling it here lets :func:`set_xyz`
-    pre-flight the WHOLE move (both legs) before any motion, and raise the
-    ops-contract RuntimeError with the gate's own actionable message.
-    """
-    refusal = _gate.check_refusal(handle.client, command, values)
-    if refusal is not None:
-        raise RuntimeError(refusal)
-
-
 def connect(connection: dict) -> ZmartHandle:
     """Open the CAM client and return the controller handle.
 
@@ -199,53 +199,58 @@ def connect(connection: dict) -> ZmartHandle:
             ``output_root`` (edited in by the caller) is where
             :func:`acquire` saves and :func:`set_origin` persists.
 
-    Runs the connect-time limits handshake (``commands.gate``): the single
-    machine-local ``limits.json`` must exist in the newest machine snapshot,
-    validate (its ``constraints``/``functions`` and stage envelope), and sit
-    within the hardcoded physical backstop. On success the stage envelope is applied so
-    :func:`set_xyz` can move; on failure the session still connects for
-    read-only use and every mutating command refuses with an error naming
-    the file tried and the notebook that creates it
-    (``limits/notebooks/set_stage_limits.ipynb``). Also restores the
-    machine-local frame origin persisted by :func:`set_origin` (the origin
-    stays the frame truth across sessions until set again; with none
-    persisted, the frame is absolute stage coordinates).
+    Delegates to the driver's own connection entry point
+    (:func:`navigator_expert.connect_microscope`), which loads this microscope's
+    three machine-local configs and installs each so the whole session works
+    from one consistent picture: the **instrument limits** (into the commands gate),
+    the **camera-to-stage orientation**, and the **per-objective calibration**
+    (both into the per-connection session registry). Image orientation follows
+    ``IMAGE_SAVE`` in ``config/profiles.py``. The connection dict may override
+    limits/calibration loading and pick a named calibration set.
 
-    Raises whatever :func:`connect_python_client` raises when LAS X is
+    The limits load is fail-soft: an invalid or opted-out ``limits.json``
+    falls back to the bundled default envelope (loudly warned) rather than
+    leaving the session unable to move; the hardcoded physical backstop bounds
+    every move regardless.
+
+    The frame origin is NOT restored here — it is session-scoped. A fresh
+    connection is an absolute frame until :func:`set_origin` runs.
+
+    Raises whatever :func:`connect_microscope` raises when LAS X is
     unreachable — the controller surfaces that to the caller unchanged.
     """
-    client = _session.connect_python_client(
+    client = _session.connect_microscope(
         client_name=connection.get("client", "PythonClient"),
         api_delay_ms=connection.get("api_delay_ms"),
+        load_limits=connection.get("load_limits", True),
+        load_calibration=connection.get("load_calibration", True),
+        calibration_name=connection.get("calibration_name"),
     )
-    _gate.connect_handshake(client)
     handle = ZmartHandle(client=client, connection=dict(connection), hash6=run_hash())
-    handle.translations = _load_objective_translations(connection.get("calibration_name"))
-    _restore_persisted_origin(handle)
+    loaded = _session_state.get(client)
+    handle.translations = loaded.translations if loaded is not None else None
     return handle
 
 
-def _load_objective_translations(calibration_name: str | None = None) -> dict | None:
-    """Per-slot objective translations (µm) from the active calibration.
+def _loaded_orientation(handle: ZmartHandle):
+    """The camera-to-stage turn loaded for this connection (identity if none).
 
-    The driver ASSUMES (operator decision, 2026-07-02 — calibration.json is
-    NOT extended for this): translation x/y apply to the motoric stage and z
-    applies in focus space. Returns None when the calibration cannot be
-    loaded; the frame math then refuses cross-objective moves and warns on
-    cross-objective reads instead of silently computing uncompensated values.
+    Read from the per-connection session registry the driver populated at
+    connect, so every saved image in a session uses the same orientation the
+    connection loaded — rather than each save re-reading the file.
     """
-    try:
-        config = _cal_model.load_calibration(_machine.MACHINE.calibration_path(calibration_name))
-        return {
-            int(slot): _cal_model.get_translation_um(config, int(slot))
-            for slot in (config.get("objectives") or {})
-        }
-    except Exception as exc:  # noqa: BLE001 -- config IO / schema; degrade, don't crash connect
-        log.warning(
-            "objective translations unavailable (%s); cross-objective moves will be refused",
-            exc,
-        )
-        return None
+    loaded = _session_state.get(handle.client)
+    if loaded is not None:
+        return loaded.orientation
+    # No per-connection state for this handle (built without connect_microscope,
+    # or its registry entry was uninstalled). Fall back to reading the file
+    # fresh — loudly, because this re-read can differ from what the connection
+    # loaded and can differ from what the connection loaded.
+    log.warning(
+        "no per-connection orientation is installed for this handle; reading "
+        "orientation.json fresh for this save"
+    )
+    return _orientation.rig_orientation()
 
 
 def _objective_delta_um(handle: ZmartHandle, current_objective: dict | None) -> tuple:
@@ -260,53 +265,29 @@ def _objective_delta_um(handle: ZmartHandle, current_objective: dict | None) -> 
     current_slot = (current_objective or {}).get("slotIndex")
     if origin_slot is None or current_slot == origin_slot:
         return (0.0, 0.0, 0.0)
-    t = handle.translations
-    if current_slot is None or not t or current_slot not in t or origin_slot not in t:
+    if current_slot is None:
         raise RuntimeError(
             f"objective changed since set_origin (slot {origin_slot} -> "
-            f"{current_slot}) but no calibration translation covers both slots; "
-            "re-set the origin under the current objective, or adopt an "
-            "objective-pair calibration"
+            f"unidentified) so the frame cannot be mapped; re-set the origin "
+            f"under the current objective"
         )
-    a, b = t[origin_slot], t[current_slot]
-    return (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+    # The delta math and the missing-pair policy live in ONE place —
+    # calibration/core/model.py — shared with the driver's swap-time
+    # compensation, so the two layers can never drift apart. Imported
+    # lazily, matching the connection layer's calibration imports.
+    from ..calibration.core import model as _cal_model
 
-
-_ORIGIN_KEYS = ("x_um", "y_um", "z_wide_um", "z_galvo_um", "z_focus_um")
-
-
-def _restore_persisted_origin(handle: ZmartHandle) -> None:
-    """Adopt the machine-local origin as this session's frame zero point.
-
-    Best-effort: an unreadable or malformed origin file is logged and the
-    frame stays absolute (all-zero origin) — the safe interpretation, since
-    an absolute frame applies no hidden offset.
-    """
     try:
-        stored = _machine.MACHINE.read_origin()
-    except Exception as exc:  # noqa: BLE001 -- config IO / JSON; degrade, don't crash connect
-        log.warning("could not read the persisted origin (%s); frame stays absolute", exc)
-        return
-    if stored is None:
-        return
-    origin = stored.get("origin") or {}
-    if not all(key in origin for key in _ORIGIN_KEYS):
-        log.warning(
-            "persisted origin at %s is missing keys %s; frame stays absolute",
-            _machine.MACHINE.latest_snapshot(),
-            [key for key in _ORIGIN_KEYS if key not in origin],
-        )
-        return
-    handle.origin = dict(origin)
-    log.info(
-        "restored persisted origin (captured_at=%s, objective=%s)",
-        stored.get("captured_at"),
-        (origin.get("objective") or {}).get("name"),
-    )
+        return _cal_model.translation_delta_um(handle.translations, origin_slot, current_slot)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"objective changed since set_origin but {exc} — or re-set the "
+            f"origin under the current objective"
+        ) from exc
 
 
 def disconnect(handle: ZmartHandle) -> None:
-    """Mark the handle closed and drop its commands-layer gate state.
+    """Mark the handle closed and drop this connection's loaded driver state.
 
     The CAM client itself has no teardown, and none exists to call: verified
     by reflection that ``LasxApiClientPyModel`` (the client `connect_python_client`
@@ -323,6 +304,7 @@ def disconnect(handle: ZmartHandle) -> None:
     disconnect is real teardown debt, not just cosmetic.
     """
     _gate.uninstall(handle.client)
+    _session_state.uninstall(handle.client)
     handle.closed = True
 
 
@@ -377,6 +359,82 @@ def _selected_job_name(handle: ZmartHandle) -> str:
     return name
 
 
+def _setup_readiness(
+    handle: ZmartHandle,
+    active_objective: dict | None,
+    limits: dict | None,
+) -> dict:
+    """Driver-owned verdict for limits, calibration, and orientation readiness.
+
+    Workflows consume only ``ready`` and ``issues``. The Leica driver owns the
+    meaning of the evidence and all machine-configuration application.
+    """
+    loaded = _session_state.get(handle.client)
+    orientation = dict((loaded.orientation_info if loaded else None) or {})
+    calibration = dict((loaded.calibration_info if loaded else None) or {})
+    slot = (active_objective or {}).get("slotIndex")
+    slot = None if slot is None else int(slot)
+    origin_slot = (handle.origin.get("objective") or {}).get("slotIndex")
+    origin_slot = None if origin_slot is None else int(origin_slot)
+    # A slot only counts as calibrated when its entry records the session that
+    # measured it. A missing calibration file is seeded from the repository's
+    # bundled placeholder, which has no such provenance — reporting those
+    # values as "ready" would let a never-calibrated microscope compensate
+    # objective changes with numbers nobody measured on it.
+    known_slots = calibration.get("slots", [])
+    measured_slots = calibration.get("measured_slots", [])
+    issues = []
+    if not limits or limits.get("is_fallback") or limits.get("source") != "machine":
+        issues.append(
+            f"machine-specific limits are not active (got {limits}); publish this "
+            "machine's measured envelope with limits/notebooks/set_limits.ipynb first"
+        )
+    if not orientation.get("measured"):
+        issues.append(
+            "camera-to-stage orientation is not a measured machine value; "
+            "run and adopt set_orientation"
+        )
+    if not calibration.get("loaded"):
+        issues.append("objective calibration is not loaded")
+    elif slot is None:
+        issues.append("active objective slot is unreadable")
+    elif slot not in known_slots:
+        issues.append(
+            f"active objective slot {slot} is absent from the loaded objective calibration"
+        )
+    elif slot not in measured_slots:
+        issues.append(
+            f"active objective slot {slot} carries only shipped placeholder values, not a "
+            "calibration measured on this microscope; run and adopt the "
+            "calibrate_objective_pair notebook"
+        )
+    if calibration.get("loaded"):
+        if origin_slot is None:
+            issues.append(
+                "the run origin has no recorded objective; run set_origin under "
+                "the current objective"
+            )
+        elif origin_slot not in known_slots:
+            issues.append(
+                f"run-origin objective slot {origin_slot} is absent from the loaded "
+                "objective calibration"
+            )
+        elif origin_slot not in measured_slots:
+            issues.append(
+                f"run-origin objective slot {origin_slot} carries only shipped placeholder "
+                "values, not a calibration measured on this microscope; run and adopt the "
+                "calibrate_objective_pair notebook"
+            )
+    return {
+        "ready": not issues,
+        "issues": issues,
+        "active_objective_slot": slot,
+        "origin_objective_slot": origin_slot,
+        "orientation": orientation,
+        "calibration": calibration,
+    }
+
+
 def _job_catalog(handle: ZmartHandle) -> tuple[list[dict], list[dict]]:
     """The live job catalog split into (normal, autofocus) jobs.
 
@@ -393,18 +451,22 @@ def set_origin(handle: ZmartHandle) -> dict:
     """The current position becomes (0, 0, 0) of the controller frame.
 
     Captures stage XY, both z drives, their focus sum, and the current
-    objective as the zero point, and persists that reference machine-locally
-    as ``origin.json`` in the newest machine snapshot (next to
-    ``calibration.json`` / ``limits.json``). The persisted origin is restored
-    by :func:`connect`, so it stays the frame truth until set again. On a
-    machine with no snapshot yet (never calibrated) the origin is kept in
-    memory only, with a warning.
+    objective as the zero point, and sets this session's frame to it. The
+    origin is **session-scoped**: it applies from now until it is set again or
+    the session ends. It is also written to the machine-local ``origin/``
+    folder (next to the snapshots) as a record of the last origin captured, but
+    the driver does NOT restore it at connect — a fresh connection starts as an
+    absolute frame until ``set_origin`` runs again.
+
+    If writing that on-disk record fails, this op raises — but the session's
+    frame HAS already been set to the captured zero (only the record is
+    missing). Re-run ``set_origin`` after fixing the cause to refresh it.
 
     Not limits-gated: this op fires no native command — it reads the current
-    position and persists a machine-local reference file. (The commands-layer
-    gate governs everything that commands hardware; ``set_origin`` stays in
-    the ``limits.json`` ``functions`` vocabulary so machine files remain
-    explicit about it.)
+    position and writes a small reference file. (The commands-layer gate
+    governs everything that commands hardware; ``set_origin`` stays in the
+    ``limits.json`` ``functions`` vocabulary so machine files remain explicit
+    about it.)
     """
     _require_open(handle)
     snap = _hardware_snapshot(handle)
@@ -426,19 +488,17 @@ def set_origin(handle: ZmartHandle) -> dict:
         path = _machine.MACHINE.write_origin(payload)
     except OSError as exc:
         # The in-memory origin is already set; failing to persist the
-        # reference must be loud (re-running set_origin after fixing the
+        # record must be loud (re-running set_origin after fixing the
         # cause is cheap), not a silent divergence discovered later.
-        raise RuntimeError(f"could not persist origin reference: {exc}") from exc
-    if path is None:
-        log.warning(
-            "set_origin: no machine snapshot under %s; origin kept in memory only "
-            "(adopt a calibration to make it persistent)",
-            _machine.MACHINE.snapshot_root(),
-        )
+        raise RuntimeError(
+            f"could not persist the origin record: {exc} — the session frame WAS "
+            f"set to the captured zero; only the on-disk record failed. Re-run "
+            f"set_origin after fixing the cause to refresh it."
+        ) from exc
     return {
         "origin": {"x": 0.0, "y": 0.0, "z": 0.0},
         "reference": dict(handle.origin),
-        "origin_file": None if path is None else str(path),
+        "origin_file": str(path),
     }
 
 
@@ -506,17 +566,22 @@ def set_xyz(
 ) -> dict:
     """Move to (x, y, z) in the frame; confirmed or this raises.
 
-    Destination = origin + F + ΔT, commanded absolutely. One decomposition
-    rule: the chosen z actuator absorbs the whole change, the other drive
-    holds where it is::
+    Destination = origin + F + ΔT, commanded absolutely. Ordinary frame-Z
+    movement uses the selected actuator, but objective-calibration ΔT.z always
+    belongs to z-wide. With z-wide selected, its one target contains both the
+    requested frame Z and ΔT.z while the galvo stays parked. With z-galvo
+    selected across objectives, z-wide first receives the absolute calibrated
+    objective offset and z-galvo then realizes only the requested frame Z::
 
-        chosen_drive = origin_focus + z + ΔT.z − other_drive_current
+        zwide_for_objective = origin_zwide + ΔT.z
+        zgalvo_for_frame = origin_zgalvo + z
 
     ΔT compensates an objective change relative to the origin's objective
     (from the calibration's translation totals); a cross-objective move with
-    no translations available REFUSES. All targets are pre-flighted against
-    the stage envelope before anything moves — an out-of-range galvo target
-    refuses the whole move with the actionable alternative.
+    no translations available REFUSES. The adapter does no limit checking of
+    its own: every leg is checked inside the command that fires it, in the
+    commands layer. A refused leg raises with an actionable alternative;
+    legs that already ran stay where they arrived (each was checked too).
     """
     _require_open(handle)
     chosen = _resolve_actuators(with_actuators)
@@ -525,37 +590,52 @@ def set_xyz(
     abs_x = handle.origin["x_um"] + x + dt[0]
     abs_y = handle.origin["y_um"] + y + dt[1]
     target_focus = handle.origin["z_focus_um"] + z + dt[2]
+    z_targets: list[tuple[str, float]]
     if chosen["z"] == "z-wide":
         z_target = target_focus - snap["z_galvo_um"]
+        z_targets = [("zwide", z_target)]
+    elif dt[2] != 0.0:
+        # Translation is an objective property, not a general focus move. Pin
+        # its absolute contribution on z-wide so repeated set_xyz calls cannot
+        # accumulate it, then let z-galvo realize only the requested frame Z.
+        zwide_target = handle.origin["z_wide_um"] + dt[2]
+        z_target = handle.origin["z_galvo_um"] + z
+        z_targets = [("zwide", zwide_target), ("galvo", z_target)]
     else:
         z_target = target_focus - snap["z_wide_um"]
-    z_mode = _Z_MODES[chosen["z"]]
+        z_targets = [("galvo", z_target)]
 
-    # Pre-flight the WHOLE move (XY and Z legs) before anything travels, so a
-    # doomed z leg can never leave the stage at a new XY with the old focus.
-    # Two layers on purpose: the commands-layer function gate carries
-    # provenance (which file, which constraint) and would refuse each leg at
-    # fire time anyway; checking both legs here first preserves whole-move
-    # atomicity, with the driver's own Phase A checks as the net underneath.
-    z_param = "z_galvo_um" if chosen["z"] == "z-galvo" else "z_wide_um"
-    _refuse_if_gated(handle, "move_xy", {"x_um": abs_x, "y_um": abs_y})
-    _limits._check_xy_limits(abs_x, abs_y)
-    try:
-        _refuse_if_gated(handle, "move_z", {z_param: z_target})
-        _limits._check_z_limits(z_target, z_mode)
-    except RuntimeError as exc:
-        alternative = "z-wide" if chosen["z"] == "z-galvo" else "z-galvo"
-        raise RuntimeError(
-            f"refusing the whole move before any motion: {exc} "
-            f"(try with_actuators={{'z': '{alternative}'}})"
-        ) from exc
+    # Every leg below is limit-checked inside the command it fires — the
+    # adapter carries no checks of its own. A refused leg raises here with
+    # an actionable message; legs that already ran stay where they arrived.
+    _motion.arrive_xy(handle.client, abs_x, abs_y)
 
-    # Backlash-compensated transit raises unless the readback confirms.
-    _motion.move_xy_with_backlash(handle.client, abs_x, abs_y)
-
-    z_result = _commands.move_z(handle.client, snap["job"], z_target, unit="um", z_mode=z_mode)
-    if not z_result.get("success") or not z_result.get("confirmed"):
-        raise RuntimeError(f"move_z ({chosen['z']}) failed or was unconfirmed: {z_result}")
+    for z_mode, target in z_targets:
+        z_result = _commands.move_z(
+            handle.client,
+            snap["job"],
+            target,
+            unit="um",
+            z_mode=z_mode,
+        )
+        if not z_result.get("success") or not z_result.get("confirmed"):
+            # With z-galvo selected across objectives, the extra z-wide leg
+            # is the calibrated objective offset — it can only ever be
+            # realized by z-wide, so suggesting the other actuator would
+            # send the operator in a circle. The hint is only useful for
+            # the leg that carries the requested frame-Z motion.
+            if len(z_targets) == 2 and z_mode == "zwide":
+                raise RuntimeError(
+                    f"move_z ({z_mode}) failed or was unconfirmed: {z_result} "
+                    f"(this z-wide target is the calibrated objective offset, which "
+                    f"cannot be moved to the other z drive — re-set the origin under "
+                    f"the current objective, or re-adopt the objective calibration)"
+                )
+            alternative = "z-wide" if chosen["z"] == "z-galvo" else "z-galvo"
+            raise RuntimeError(
+                f"move_z ({z_mode}) failed or was unconfirmed: {z_result} "
+                f"(try with_actuators={{'z': '{alternative}'}})"
+            )
 
     return {
         "position": {"x": x, "y": y, "z": z},
@@ -564,7 +644,10 @@ def set_xyz(
         "hardware_targets": {
             "x_um": abs_x,
             "y_um": abs_y,
-            f"{chosen['z'].replace('-', '_')}_um": z_target,
+            **{
+                ("z_galvo_um" if mode == "galvo" else "z_wide_um"): target
+                for mode, target in z_targets
+            },
         },
     }
 
@@ -616,6 +699,18 @@ def _with_defaults(handle: ZmartHandle, options: dict | None) -> dict:
             )
         resolved[name] = value
     return resolved
+
+
+def _next_acquisition_hash(handle: ZmartHandle) -> str:
+    """Mint a unique driver-owned hash for one acquired position."""
+
+    now = time.time()
+    for offset in range(100):
+        value = run_hash(now + offset)
+        if value not in handle.acquisition_hashes:
+            handle.acquisition_hashes.add(value)
+            return value
+    raise RuntimeError("could not mint a unique acquisition-position hash")
 
 
 def _ensure_scan_fields_stripped(handle: ZmartHandle) -> None:
@@ -716,9 +811,9 @@ def acquire(
         options: Values from :func:`get_acquisition_options`; omitted
             options use the active defaults, unknown keys/values raise.
 
-    A fresh per-acquisition hash is minted here (``run_hash()``) and used as
-    ``Naming.hash6``; the session hash (``handle.hash6``) rides along only in
-    lineage/provenance. The machine/software state at export time is captured
+    The driver's helper mints a fresh acquisition-position hash for this
+    capture. The acquisition type itself has no folder hash. The session hash
+    (``handle.hash6``) rides along only in lineage/provenance. The machine/software state is captured
     and embedded in each saved plane's OME-XML (no sidecar).
 
     Returns a record with the resolved job/options and the saved image paths.
@@ -726,7 +821,8 @@ def acquire(
     detection, or persistence.
     """
     _require_open(handle)
-    output_root = _procedures.output_root(handle, _save.save_source_root)
+    workflow_root = _info.output_root(handle, _save.save_source_root)
+    output_root = workflow_root / ".staging" / handle.hash6
     resolved = _with_defaults(handle, options)
     job = resolved["job"]
     if not job:
@@ -748,7 +844,7 @@ def acquire(
     acq = _capture.acquire(handle.client, job)
 
     label = position_label if position_label is not None else _next_position_label(handle)
-    acquisition_hash = run_hash()
+    acquisition_hash = _next_acquisition_hash(handle)
     naming = Naming(
         acquisition_type=acquisition_type,
         hash6=acquisition_hash,
@@ -775,20 +871,34 @@ def acquire(
         },
         state=state,
         # Rig image->stage orientation, applied to the saved planes behind the
-        # scenes so the workflow only ever sees stage-aligned images. Measured
-        # once by the set_orientation setup notebook; a separate concern from
-        # pixel-scale calibration and limits.
-        orientation=_orientation.rig_orientation(),
+        # scenes so the workflow only ever sees stage-aligned images. Loaded once
+        # at connect (from the set_orientation setup notebook's file); a separate
+        # concern from pixel-scale calibration and limits.
+        orientation=_loaded_orientation(handle),
         cleanup_source=resolved["cleanup_source"],
     )
 
+    planes = [
+        {
+            "t": int(getattr(index, "t", 0)),
+            "z": int(getattr(index, "z", 0)),
+            "c": int(getattr(index, "c", ordinal)),
+            "path": str(path),
+        }
+        for ordinal, (index, path) in enumerate(sorted(saved.image_paths.items()))
+    ]
     return {
         "acquisition_type": acquisition_type,
         "position_label": label,
         "job": job,
         "format": resolved["format"],
+        "acquisition_hash": acquisition_hash,
         "settle": "backlash-corrected" if resolved["backlash_correction"] else "direct",
-        "images": sorted(str(path) for path in saved.image_paths.values()),
+        # ``images`` stays as the simple compatibility list. ``planes`` is the
+        # lossless manifest workflows need to distinguish channels from z/t.
+        "images": [plane["path"] for plane in planes],
+        "planes": planes,
+        "vendor_metadata": [str(path) for path in getattr(saved, "vendor_metadata_paths", ())],
     }
 
 
@@ -806,9 +916,9 @@ def get_state(handle: ZmartHandle) -> dict:
     setup. ``observed`` is a read-only report of identity and condition — the
     connection identity, the hardware-reported serial number and system type
     (simulator vs. real), the stand, the turret configuration (slot →
-    objectiveNumber), the full selected-job record, the job catalog, and the
-    provenance of the function limits governing this session. All LAS
-    X-derived values are fresh reads.
+    objectiveNumber), the full selected-job record, its current XY pixel size,
+    the job catalog, and the provenance of the function limits governing this
+    session. All LAS X-derived values are fresh reads.
     """
     _require_open(handle)
     hw = _readers.get_hardware_info(handle.client) or {}
@@ -816,7 +926,23 @@ def get_state(handle: ZmartHandle) -> dict:
     selected = _readers.get_selected_job(handle.client) or {}
     if not selected.get("Name"):
         raise RuntimeError("could not determine the selected LAS X job")
+    settings = _readers.get_job_settings(handle.client, selected["Name"], mode="api") or {}
+    try:
+        geometry = _parse_tile_geometry(settings)
+        pixel_x = float(geometry["pixel_w_um"])
+        pixel_y = float(geometry["pixel_h_um"])
+        if not all(math.isfinite(value) and value > 0 for value in (pixel_x, pixel_y)):
+            raise ValueError("pixel size must be finite and positive")
+        pixel_size = {
+            "x": pixel_x,
+            "y": pixel_y,
+            "unit": "um",
+        }
+    except (KeyError, TypeError, ValueError):
+        pixel_size = None
+    active_objective = settings.get("objective")
     normal, autofocus = _job_catalog(handle)
+    limits = _gate.describe(handle.client)
     return {
         "changeable": {"job": selected["Name"]},
         "observed": {
@@ -830,13 +956,16 @@ def get_state(handle: ZmartHandle) -> dict:
                 for o in (microscope.get("objectives") or [])
             ],
             "job": dict(selected),
+            "active_objective": dict(active_objective or {}),
+            "pixel_size": pixel_size,
             "jobs": normal,
             "autofocus_jobs": autofocus,
             # Which function-limits file governs this session (evidence, not
             # an instruction): path, source tag, is_fallback — reported by
             # the commands-layer gate. None when the limits handshake failed
             # (every mutating command underneath is then refusing).
-            "limits": _gate.describe(handle.client),
+            "limits": limits,
+            "setup": _setup_readiness(handle, active_objective, limits),
         },
     }
 
@@ -881,14 +1010,17 @@ def get_procedures(handle: ZmartHandle) -> dict:
         "backlash_takeup": {
             "description": "pin the XY leadscrew slack at the current position (+X +Y approach)"
         },
+        "zero_z_galvo": {
+            "description": "park the z-galvo at 0 without changing the focus "
+            "(its offset is transferred onto z-wide), freeing the galvo's "
+            "full travel for a following z-stack"
+        },
         "autofocus": {
             "description": "run a LAS X autofocus job (capture only, nothing saved); "
             "restores the previously selected job and returns the focus readback",
             "args": ["job"],
             "jobs": [j["Name"] for j in autofocus if j.get("Name")],
         },
-        "get_root": {"description": "return the ZMART run output root"},
-        "get_positions": {"description": "return LAS X scan-field positions in frame um"},
     }
 
 
@@ -896,24 +1028,37 @@ def run_procedure(handle: ZmartHandle, procedure: dict) -> dict:
     """Run a procedure from :func:`get_procedures`; report what ran."""
     _require_open(handle)
     name = procedure.get("name")
-    if name == "get_root":
-        root = _procedures.output_root(handle, _save.save_source_root)
-        return {
-            "ran": dict(procedure),
-            "root": str(root),
-            "output_root": str(root),
-        }
-    if name == "get_positions":
-        return {
-            "ran": dict(procedure),
-            "positions": _procedures.positions(_scan_field(handle)),
-        }
     if name == "backlash_takeup":
         _motion.correct_backlash(handle.client)
         return {"ran": dict(procedure)}
+    if name == "zero_z_galvo":
+        return {"ran": dict(procedure), **_zero_z_galvo(handle)}
     if name == "autofocus":
         return _run_autofocus(handle, procedure)
     raise ValueError(f"unknown procedure {name!r}")
+
+
+def _zero_z_galvo(handle: ZmartHandle) -> dict:
+    """Park the z-galvo at 0 while keeping the focus.
+
+    A pure re-split of the focus sum between the two drives: z-wide
+    absorbs the galvo's current offset FIRST — so a refused z-wide leg
+    (limits) aborts with nothing moved — and only then does the galvo
+    drive to 0. The frame z is unchanged by construction, and the galvo's
+    full travel becomes available for whatever comes next. Both legs go
+    through the checked ``move_z`` door; raises unless each confirms.
+    """
+    snap = _hardware_snapshot(handle)
+    offset = snap["z_galvo_um"]
+    if offset == 0.0:
+        return {"transferred_um": 0.0}
+    for z_mode, target in (("zwide", snap["z_wide_um"] + offset), ("galvo", 0.0)):
+        result = _commands.move_z(handle.client, snap["job"], target, unit="um", z_mode=z_mode)
+        if not result.get("success") or not result.get("confirmed"):
+            raise RuntimeError(
+                f"zero_z_galvo: move_z ({z_mode}) failed or was unconfirmed: {result}"
+            )
+    return {"transferred_um": offset}
 
 
 def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
@@ -966,7 +1111,7 @@ def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
 
 
 # =============================================================================
-# Context and registration
+# Live setup information and registration
 # =============================================================================
 
 
@@ -990,7 +1135,7 @@ def _scan_field(handle: ZmartHandle) -> dict | None:
         handle.client,
         _scanfields.TEMPLATE_XML,
         templates_dir,
-        timeout=60,
+        timeout=EXPERIMENT_FLUSH_TIMEOUT_S,
         confirm_path=Path(templates_dir) / _scanfields.TEMPLATE_RGN,
     )
     if not saved:
@@ -1024,6 +1169,10 @@ def _scan_field(handle: ZmartHandle) -> dict | None:
                     tile.get("z_um"),
                     group={"region": region_key, "row": tile.get("row"), "col": tile.get("col")},
                     job=region.get("job_name"),
+                    tile_size={
+                        "x": region.get("tile_size_um"),
+                        "y": region.get("tile_size_um"),
+                    },
                 )
             )
     for kind, points in (
@@ -1057,30 +1206,25 @@ def _scan_field(handle: ZmartHandle) -> dict | None:
     }
 
 
-def get_context(handle: ZmartHandle) -> dict:
-    """Extra read-only context for the controller.
+def get_info(handle: ZmartHandle) -> dict:
+    """Read the operator-authored setup and resolved output root live.
 
-    Purely informational, so it degrades instead of raising: an
-    unreadable job selection or scan field reports ``None`` rather than
-    failing a caller that only wanted the output root. Note ``scan_field``
-    flushes the live experiment to disk before parsing it (a save, not a
-    state change).
+    ``tile_positions`` are the tiles currently placed in the LAS X scanning
+    template, not the microscope's physical position (read that with
+    :func:`get_xyz`). Reading the template flushes the live experiment to
+    disk before parsing it, so this truthful snapshot can block briefly and
+    raises when a configured template cannot be read safely.
     """
     _require_open(handle)
-    try:
-        selected = _selected_job_name(handle)
-    except RuntimeError:
-        selected = None
-    try:
-        scan_field = _scan_field(handle)
-    except Exception as exc:  # noqa: BLE001 -- informational surface; degrade, don't raise
-        log.warning("scan field unavailable: %s", exc)
-        scan_field = None
+    selected = _selected_job_name(handle)
+    scan_field = _scan_field(handle)
+    root = _info.output_root(handle, _save.save_source_root)
     return {
         "selected_job": selected,
-        "scan_field": scan_field,
+        "tile_positions": _info.tile_positions(scan_field),
+        "focus_positions": _info.focus_positions(scan_field),
         "client": handle.connection.get("client"),
-        "output_root": handle.connection.get("output_root"),
+        "output_root": str(root),
         "session_hash6": handle.hash6,
     }
 
@@ -1102,7 +1246,7 @@ def register() -> None:
             "set_state": set_state,
             "get_procedures": get_procedures,
             "run_procedure": run_procedure,
-            "get_context": get_context,
+            "get_info": get_info,
         },
     )
 

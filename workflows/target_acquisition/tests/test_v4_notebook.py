@@ -40,28 +40,49 @@ def test_all_code_cells_parse():
         ast.parse(src)  # SyntaxError fails the test with the cell content
 
 
-def test_setup_cell_runs_from_repo_root(monkeypatch):
+def test_setup_cell_runs_from_repo_root(monkeypatch, tmp_path):
     nb = _load()
     setup_cell = _code_sources(nb)[0]
-    root = Path("/tmp/zmart-run")
+    root = tmp_path / "zmart-run"
 
     class FakeController:
         def __init__(self):
-            self.procedures = []
+            self.info_calls = 0
+            self.disconnect_calls = 0
 
-        def run_procedure(self, procedure):
-            self.procedures.append(procedure)
-            return {"root": str(root)}
+        def get_info(self):
+            self.info_calls += 1
+            return {"output_root": str(root)}
+
+        def disconnect(self):
+            self.disconnect_calls += 1
+
+    class FakeEngine:
+        def __init__(self):
+            self.shutdown_calls = 0
+
+        def shutdown(self):
+            self.shutdown_calls += 1
 
     fake = FakeController()
+    fake_engine = FakeEngine()
     monkeypatch.setattr(workflow, "connect", lambda vendor: fake)
+    monkeypatch.setattr(workflow, "load_analysis_engine", lambda repo: fake_engine)
+    monkeypatch.setattr(workflow, "preflight_analysis_engine", lambda engine: None)
 
     namespace = {}
     monkeypatch.chdir(_NB_PATH.parents[2])
     exec(compile(setup_cell, str(_NB_PATH), "exec"), namespace)
     assert namespace["zmart_controller"] is fake
-    assert fake.procedures == [{"name": "get_root"}]
-    assert namespace["ROOT"] == root
+    assert namespace["engine"] is fake_engine
+    assert fake.info_calls == 1
+    # The cell's failure path tears the session down; on a clean setup it must
+    # not run. Asserting this keeps a real error from hiding behind the
+    # AttributeError a fake without `disconnect` would raise during cleanup.
+    assert fake.disconnect_calls == 0
+    assert fake_engine.shutdown_calls == 0
+    assert namespace["ROOT"].parent == root.resolve()
+    assert namespace["ROOT"].name.startswith("target-acquisition_")
 
 
 def test_workflow_attributes_used_are_exported():
@@ -82,8 +103,9 @@ def test_workflow_attributes_used_are_exported():
     exported = set(workflow.__all__)
     missing = used - exported
     assert not missing, f"notebook calls workflow.{sorted(missing)} not in workflow.__all__"
-    # sanity: the notebook actually drives the workflow
-    assert {"connect", "run_overview", "discover_targets", "acquire_targets"} <= used
+    # sanity: the notebook actually drives the workflow (acquisition goes
+    # through the gallery widget, which wraps acquire_targets)
+    assert {"connect", "run_overview", "discover_targets", "acquire_gallery"} <= used
 
 
 def test_notebook_stays_controller_only():
@@ -96,3 +118,48 @@ def test_notebook_stays_controller_only():
     # no direct driver acquisition/motion calls
     for forbidden in ("drv.acquire", "drv.save", "drv.move_", "navigator_expert.acquire"):
         assert forbidden not in joined, f"notebook uses driver call {forbidden!r}"
+
+
+def test_notebook_is_thin_orchestration_and_teaches_the_session_lifecycle():
+    """Keep implementation in workflow modules while showing controller use."""
+    trees = [ast.parse(src) for src in _code_sources(_load())]
+    implementation_nodes = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    assert not any(
+        isinstance(node, implementation_nodes) for tree in trees for node in ast.walk(tree)
+    ), "operator notebooks must call tested modules, not define new implementation logic"
+    lambdas = [node for tree in trees for node in ast.walk(tree) if isinstance(node, ast.Lambda)]
+    assert [ast.unparse(node) for node in lambdas] == [
+        "lambda records: workflow.hijack_if_simulating(records, simulate=SIMULATE_IMAGES)"
+    ], "only the documented one-line simulation forwarding lambda belongs in the notebook"
+
+    joined = "\n".join(_code_sources(_load()))
+    for call in (
+        'workflow.connect("leica")',
+        "zmart_controller.set_origin()",
+        "zmart_controller.get_state()",
+        "zmart_controller.set_state(overview_state)",
+        "setup_info = zmart_controller.get_info()",
+        'positions = setup_info["tile_positions"]',
+        "zmart_controller.disconnect()",
+    ):
+        assert call in joined, f"notebook no longer demonstrates {call}"
+
+
+def test_capture_cells_enforce_the_driver_preflight_verdict():
+    """Both job-capture cells must keep their driver-readiness guard.
+
+    The guard is the operator's protection against acquiring with an
+    unmeasured orientation or an uncalibrated objective; the attribute-export
+    check above would not notice if a later edit simply deleted the call.
+    """
+    sources = _code_sources(_load())
+    for state_name in ("overview_state", "target_state"):
+        cells = [s for s in sources if f"{state_name} = zmart_controller.get_state()" in s]
+        assert len(cells) == 1, f"expected exactly one cell capturing {state_name}"
+        assert f"workflow.require_driver_ready({state_name})" in cells[0], (
+            f"the {state_name} capture cell no longer checks the driver's "
+            "readiness verdict before continuing"
+        )
+    assert "machine-specific stage limits are not active" not in "\n".join(sources), (
+        "the notebook must not duplicate Leica limits policy owned by the driver verdict"
+    )

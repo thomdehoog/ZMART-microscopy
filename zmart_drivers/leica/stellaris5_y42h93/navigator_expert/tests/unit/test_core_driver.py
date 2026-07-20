@@ -736,8 +736,8 @@ class TestRetryBackoff(unittest.TestCase):
 
         mock_caf.assert_called_once()
         _, kwargs = mock_caf.call_args
-        self.assertEqual(kwargs["retry_backoff"], 2.0)
-        self.assertTrue(kwargs["retry_escalate"])
+        self.assertEqual(kwargs["profile"].retry_backoff, 2.0)
+        self.assertTrue(kwargs["profile"].retry_escalate)
 
     def test_profile_confirmation_policy_passed_through_dispatch(self):
         """_dispatch passes the profile's readback retry policy."""
@@ -764,7 +764,7 @@ class TestRetryBackoff(unittest.TestCase):
             commands._dispatch(client, api_obj, "Test", profile, setup_fn=lambda m: None)
 
         _, kwargs = mock_caf.call_args
-        self.assertFalse(kwargs["refire_on_unconfirmed"])
+        self.assertFalse(kwargs["profile"].refire_on_unconfirmed)
 
     def test_dispatch_injects_profile_confirm_poll_when_unbound(self):
         """Simple setting confirmations get their poll window from the profile."""
@@ -839,19 +839,20 @@ class TestRetryBackoff(unittest.TestCase):
 
     def test_default_setting_and_acquire_profiles_encode_retry_policy(self):
         """Uniform posture; acquisition is the one command that never re-sends."""
-        # Settings inherit the uniform posture: 3 poll windows, re-fire,
+        # Settings inherit the uniform posture: initial poll window plus three
+        # retries, re-fire,
         # unconfirmed-not-fail, the shared poll window.
-        self.assertEqual(profiles.ZOOM.max_confirm_attempts, 3)
+        self.assertEqual(profiles.ZOOM.max_confirm_attempts, 4)
         self.assertEqual(profiles.ZOOM.confirm_poll_s, profiles.CONFIRM_POLL_S)
         self.assertTrue(profiles.ZOOM.refire_on_unconfirmed)
         self.assertTrue(profiles.ZOOM.success_on_unconfirmed)
 
         # OBJECTIVE and MOVE_Z used to deviate (single attempt / hard-fail);
         # they now match the uniform posture.
-        self.assertEqual(profiles.OBJECTIVE.max_confirm_attempts, 3)
+        self.assertEqual(profiles.OBJECTIVE.max_confirm_attempts, 4)
         self.assertEqual(profiles.OBJECTIVE.confirm_poll_s, profiles.CONFIRM_POLL_S)
         self.assertTrue(profiles.OBJECTIVE.success_on_unconfirmed)
-        self.assertEqual(profiles.MOVE_Z.max_confirm_attempts, 3)
+        self.assertEqual(profiles.MOVE_Z.max_confirm_attempts, 4)
         self.assertTrue(profiles.MOVE_Z.success_on_unconfirmed)
         self.assertTrue(profiles.MOVE_XY.refire_on_unconfirmed)
 
@@ -877,12 +878,12 @@ class TestRetryBackoff(unittest.TestCase):
             profiles.ACQUIRE.poll_interval,
         )
 
-        # select_job is the uniform 3x3, not an outlier: no bespoke poll_timeout;
+        # select_job is the uniform 4x3, not an outlier: no bespoke poll_timeout;
         # the per-attempt window is the shared confirm_poll_s (CONFIRM_POLL_S),
         # over max_confirm_attempts attempts, re-fire between.
         self.assertIsNone(profiles.SELECT_JOB.poll_timeout)
         self.assertEqual(profiles.SELECT_JOB.confirm_poll_s, profiles.CONFIRM_POLL_S)
-        self.assertEqual(profiles.SELECT_JOB.max_confirm_attempts, 3)
+        self.assertEqual(profiles.SELECT_JOB.max_confirm_attempts, 4)
 
 
 class TestCommandProfileGuard(unittest.TestCase):
@@ -976,6 +977,8 @@ class TestConfirmation(unittest.TestCase):
                 confirm_fn=confirm_fn,
                 max_retries=0,
                 max_confirm_attempts=1,
+                refire_on_unconfirmed=False,
+                success_on_unconfirmed=False,
                 pre_check_fn=_idle_pre_check,
             )
         self.assertFalse(r["success"])
@@ -1002,6 +1005,7 @@ class TestConfirmation(unittest.TestCase):
                 confirm_fn=confirm_fn,
                 max_retries=0,
                 max_confirm_attempts=1,
+                refire_on_unconfirmed=False,
                 pre_check_fn=_idle_pre_check,
             )
 
@@ -1029,6 +1033,7 @@ class TestConfirmation(unittest.TestCase):
                 confirm_fn=confirm_fn,
                 max_retries=0,
                 max_confirm_attempts=1,
+                refire_on_unconfirmed=False,
                 pre_check_fn=_idle_pre_check,
             )
 
@@ -1281,7 +1286,7 @@ class TestConfirmFunctions(unittest.TestCase):
             self.assertTrue(confirmations._confirm_scan_resonant(None, "J", True)["success"])
             self.assertFalse(confirmations._confirm_scan_resonant(None, "J", False)["success"])
 
-    def test_setting_confirm_pins_api_even_when_profile_is_both(self):
+    def test_setting_confirm_defers_reader_mode_to_profile(self):
         prior = profiles.STATE_READERS
         profiles.STATE_READERS = profiles.StateReaderProfile(job_settings_mode="hybrid")
         calls = []
@@ -1312,7 +1317,7 @@ class TestConfirmFunctions(unittest.TestCase):
             profiles.STATE_READERS = prior
 
         self.assertTrue(result["success"])
-        self.assertEqual(calls[0]["mode"], "api")
+        self.assertIsNone(calls[0]["mode"])
         self.assertTrue(calls[0]["diagnostics"])
 
     def test_confirm_scan_mode(self):
@@ -1768,8 +1773,8 @@ class TestSetFunctionWiring(unittest.TestCase):
     # â”€â”€ move_z wiring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _run_move_z(self, *args, **kwargs):
-        """Like _run_set but also mocks _check_z_limits."""
-        with patch.object(commands, "_check_z_limits"):
+        """Like _run_set but also mocks check_z."""
+        with patch.object(commands, "check_z"):
             return self._run_set(drv.move_z, *args, **kwargs)
 
     def test_move_z_galvo_model(self):
@@ -1804,7 +1809,7 @@ class TestSetFunctionWiring(unittest.TestCase):
         self.assertIsNotNone(info["kwargs"].get("confirm_fn"))
 
     def test_move_z_limit_check_failure(self):
-        """When _check_z_limits raises, move_z returns failure without dispatch."""
+        """When check_z raises, move_z returns failure without dispatch."""
         r = drv.move_z(make_client(), "J", 99999.0, z_mode="galvo")
         self.assertFalse(r["success"])
 
@@ -1889,12 +1894,12 @@ class TestSetFunctionDefaults(unittest.TestCase):
 
     def test_zoom_defaults(self):
         d = self._get_kwargs(lambda c, j: drv.set_zoom(c, j, 5.0))
-        self.assertEqual(d["max_retries"], 3)
+        self.assertEqual(d["profile"].max_retries, profiles.ZOOM.max_retries)
         self.assertIsNotNone(d["confirm_fn"])
 
     def test_scan_speed_defaults(self):
         d = self._get_kwargs(lambda c, j: drv.set_scan_speed(c, j, 600))
-        self.assertEqual(d["max_retries"], 3)
+        self.assertEqual(d["profile"].max_retries, profiles.SCAN_SPEED.max_retries)
         self.assertIsNotNone(d["confirm_fn"])
 
 
@@ -1997,56 +2002,56 @@ class TestStageLimits(unittest.TestCase):
             x_max=130000,
             y_min=0,
             y_max=100000,
-            z_galvo_min=-200,
-            z_galvo_max=200,
+            z_galvo_min=-250,
+            z_galvo_max=250,
             z_wide_min=0,
-            z_wide_max=25000,
+            z_wide_max=8000,
         )
 
     def test_valid_xy(self):
-        drv._check_xy_limits(50000, 50000)
+        drv.check_xy(50000, 50000)
 
     def test_x_below_min(self):
         with self.assertRaises(RuntimeError):
-            drv._check_xy_limits(-1, 50000)
+            drv.check_xy(-1, 50000)
 
     def test_x_above_max(self):
         with self.assertRaises(RuntimeError):
-            drv._check_xy_limits(130001, 50000)
+            drv.check_xy(130001, 50000)
 
     def test_y_below_min(self):
         with self.assertRaises(RuntimeError):
-            drv._check_xy_limits(50000, -1)
+            drv.check_xy(50000, -1)
 
     def test_y_above_max(self):
         with self.assertRaises(RuntimeError):
-            drv._check_xy_limits(50000, 100001)
+            drv.check_xy(50000, 100001)
 
     def test_z_galvo_valid(self):
-        drv._check_z_limits(0, "galvo")
+        drv.check_z(0, "galvo")
 
     def test_z_galvo_below(self):
         with self.assertRaises(RuntimeError):
-            drv._check_z_limits(-201, "galvo")
+            drv.check_z(-251, "galvo")
 
     def test_z_galvo_above(self):
         with self.assertRaises(RuntimeError):
-            drv._check_z_limits(201, "galvo")
+            drv.check_z(251, "galvo")
 
     def test_z_wide_above(self):
         with self.assertRaises(RuntimeError):
-            drv._check_z_limits(25001, "zwide")
+            drv.check_z(8001, "zwide")
 
     def test_z_unknown_mode_raises(self):
         with self.assertRaises(ValueError):
-            drv._check_z_limits(100, "unknown")
+            drv.check_z(100, "unknown")
 
     def test_unconfigured_raises(self):
         old = dict(drv._stage_limits)
         drv._stage_limits["x_min"] = None
         try:
             with self.assertRaises(RuntimeError):
-                drv._check_xy_limits(0, 0)
+                drv.check_xy(0, 0)
         finally:
             drv._stage_limits.update(old)
 
@@ -2118,6 +2123,37 @@ class TestReadback(unittest.TestCase):
     def test_failure(self):
         with patch.object(readers, "get_job_settings", return_value=None):
             self.assertIsNone(drv._readback(None, "HiRes"))
+
+    def test_rejects_reading_from_before_command(self):
+        reading = readers.Reading(
+            value={
+                "zPosition": {"z-wide": {"position": 100.0}},
+                "zoom": {"current": 1.0},
+                "scanSpeed": {"value": 400, "isResonant": False},
+                "activeSettings": [],
+            },
+            source="log",
+            observed_at=10.0,
+            age_s=0.0,
+        )
+        with patch.object(readers, "get_job_settings", return_value=reading):
+            self.assertIsNone(drv._readback(None, "HiRes", observed_after=10.0))
+
+    def test_accepts_reading_from_after_command(self):
+        reading = readers.Reading(
+            value={
+                "zPosition": {"z-wide": {"position": 100.0}},
+                "zoom": {"current": 1.0},
+                "scanSpeed": {"value": 400, "isResonant": False},
+                "activeSettings": [],
+            },
+            source="log",
+            observed_at=10.1,
+            age_s=0.0,
+        )
+        with patch.object(readers, "get_job_settings", return_value=reading):
+            result = drv._readback(None, "HiRes", observed_after=10.0)
+        self.assertEqual(result["zPosition"]["z-wide"], 100.0)
 
 
 # =============================================================================
@@ -2195,10 +2231,10 @@ class TestMoveXYConsistency(unittest.TestCase):
             x_max=130000,
             y_min=0,
             y_max=100000,
-            z_galvo_min=-200,
-            z_galvo_max=200,
+            z_galvo_min=-250,
+            z_galvo_max=250,
             z_wide_min=0,
-            z_wide_max=25000,
+            z_wide_max=8000,
         )
         with (
             patch.object(readers, "get_scan_status", return_value="eScanIdle"),
@@ -2335,11 +2371,14 @@ class TestDispatchCheckExceptions(unittest.TestCase):
             fake_client,
             api_obj,
             "TestCmd",
+            profile=profiles.CommandProfile(
+                error_check_fn=None,
+                fire_async=True,
+                max_retries=0,
+            ),
             setup_fn=None,
             pre_check_fn=None,
             error_check_fn=lambda: (_ for _ in ()).throw(RuntimeError("echo read fault")),
-            fire_async=True,
-            max_retries=0,
         )
         self.assertFalse(result["success"])
         self.assertTrue(any("Error check raised" in e["msg"] for e in result["logs"]))
@@ -2700,7 +2739,7 @@ class TestCommandReaderSafety(unittest.TestCase):
             patch.object(readers, "get_job_settings", side_effect=fake_get_job_settings),
             patch.object(readers, "get_base_fov", side_effect=fake_get_base_fov),
             patch(
-                "navigator_expert.utils.parse_tile_geometry",
+                "navigator_expert.readers.parsing.parse_tile_geometry",
                 return_value={"pixel_w_um": 1.0, "pixels_x": 512},
             ),
             patch(

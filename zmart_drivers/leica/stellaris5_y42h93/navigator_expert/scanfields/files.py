@@ -5,13 +5,13 @@ detect template state, and define the canonical filename constants.
 
 ``save_experiment`` / ``load_experiment`` fire ``PyApi{Save,Load}Experiment``
 directly on the client — mutations outside the ``commands.commands`` wrappers
-— so they carry their own function-keyed limits gate (``commands.gate``,
+— so they carry their own command safety gate (``commands.gate``,
 keys ``save_experiment`` / ``load_experiment``): with no valid machine-local
 limits the receipt is never fired and the call returns ``None`` (the
 functions' existing failure contract) after logging the refusal.
 
 Dependency direction:
-    - Imports: ``..utils``, ``..commands.gate``, ``.lrp``, ``_file_utils``,
+    - Imports: ``..commands.gate``, ``.lrp``, ``..acquisition.files``,
       stdlib.
     - Imported by: ``strip_restore``, ``transaction``, ``__init__`` (re-export).
 """
@@ -22,9 +22,10 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from .._file_utils import _wait_file_stable
+from ..acquisition.files import _wait_file_stable
 from ..commands import gate as _gate
-from ..utils import RECEIPT_TIMEOUT, _make_timing
+from ..commands.envelope import _make_timing
+from ..config.timing import RECEIPT_TIMEOUT
 from .lrp import parse_lrp
 
 log = logging.getLogger(__name__)

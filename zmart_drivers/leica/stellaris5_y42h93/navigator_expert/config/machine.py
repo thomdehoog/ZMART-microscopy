@@ -1,41 +1,56 @@
 """Machine-local resolution of this microscope's coordinate-system config.
 
-Runtime coordinate config - the optical calibration, the physical stage
-envelope, how the camera is turned relative to the stage, and the operator-set
-frame origin - lives in dated snapshots under a machine-wide ProgramData root,
-newest wins. The repo ships defaults only; the first driver run copies those
-defaults into ProgramData so every runtime read is machine-local. Each snapshot
-dir holds up to four files (plus named calibration sets and executed
-notebooks)::
+Each subsystem owns an independent, append-only timestamp tree under the
+microscope API root::
 
-    <programdata_root>/<vendor>/<microscope_id>/<api>/<datetime>/
-        calibration.json    # legacy/default optical calibration
-        calibrations/<name>/calibration.json
-                            # named optical calibration sets (per lens setup)
-        limits.json         # physical envelope + function gate (schema v1)
-        orientation.json    # camera turn relative to the stage (0/90/180/270)
-        origin.json         # frame zero point (set_origin; updated in place)
-        <executed>.ipynb    # the notebook that produced this adopt
+    <programdata_root>/<vendor>/<microscope_id>/<api>/
+        limits/<datetime>/
+            limits.json
+            notebook/set_limits_<datetime>.ipynb
+            data/
+                template/<saved experiment>.{xml,rgn,lrp}
+        calibration/
+            <datetime>/
+                calibration.json
+                calibrations/<name>/calibration.json
+                <executed>.ipynb
+            <session-id>/
+                calibration.json
+                <acquisition-name>/
+                    data/
+                    reports/
+        orientation/
+            <datetime>/
+                orientation.json
+                data/notebook/set_orientation.ipynb
+            <session-id>/
+                data/
+                reports/
+                configs/
+        origin/<datetime>/
+            origin.json
 
-All runtime values live in ProgramData, not inside the installed code. The
-defaults under the driver tree are seed material only; after seeding, reads
-return paths under ProgramData.
+The newest timestamp in each subsystem wins independently. Publishing limits
+does not duplicate calibration or orientation, and every origin change keeps
+its own immutable record. The frame origin remains session-scoped: the driver
+does not restore it at connect.
 
-``limits.json`` is the single function-keyed limits file (decision §7b):
-``constraints`` (the ``stage.*`` physical envelope) + ``functions`` (the
-per-command gate policy). Both readers - the motion check
-(``motion/stage_config``) and the commands gate (``commands/gate``) - read this
-one file; there is no separate ``function_limits.json``. Backlash appears in
-none of these files: it is a plain motion utility with baked-in defaults
-(decision §2b), not machine state.
+Operator-published runtime values live in ProgramData. Bundled defaults stay
+inside the installed code and are used directly only when no machine limits
+snapshot exists or a published file cannot be loaded.
 
-Each snapshot is a complete, cumulative machine-state record; workflows write
-one per adopt by copying the latest snapshot forward and merging their delta.
-If ProgramData is empty, or if the newest snapshot predates this complete-file
-layout, a new snapshot is created from repo defaults plus any prior machine
-values. ``origin.json`` is the one exception to snapshot immutability: it is
-ephemeral operator state (the current frame zero point), written into the
-*newest* snapshot in place by ``set_origin`` and carried forward on adopt.
+``limits.json`` is deliberately flat: ``x_um``, ``y_um``, both Z ranges, the
+objective slot policy, and one entry per configurable setter. Each constraint
+explicitly says ``range`` or ``allowed``; ``[]`` means unrestricted.
+There is no metadata wrapper, hidden marker, or separate
+``function_limits.json``. A ProgramData ``limits.json`` exists only after an
+operator publishes it, so its location is the provenance. Backlash is a motion
+utility with baked-in defaults, not machine state.
+
+Flat timestamp folders from older releases are migration input. They remain
+untouched while their newest values are copied into the corresponding
+subsystem trees. Calibration and orientation can seed ProgramData from bundled
+defaults; limits cannot, because mere presence now means operator-published.
 
 ``<datetime>`` is UTC with microsecond precision, formatted so it is both a
 legal Windows path segment (no colons) and lexicographically == chronologically
@@ -43,10 +58,9 @@ sortable::
 
     2026-07-01T14-30-00-123456Z
 
-The active snapshot is the lexical max; a new snapshot must stamp strictly later
-than the current latest (:meth:`MachineProfile.new_snapshot_dir`), so a backward
-system clock or a same-microsecond re-run can never make a fresh calibration
-look stale.
+The active snapshot for a subsystem is its lexical max. A new snapshot must
+stamp strictly later than the latest snapshot in that same subsystem, so a
+backward system clock or same-microsecond re-run cannot make fresh config stale.
 """
 
 from __future__ import annotations
@@ -73,9 +87,13 @@ _SNAPSHOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}Z$")
 CALIBRATION_FILENAME = "calibration.json"
 CALIBRATIONS_DIRNAME = "calibrations"
 LIMITS_FILENAME = "limits.json"
+# Read only while migrating snapshots written by releases that used a hidden
+# approval sentinel. New subsystem snapshots never create or copy this file.
+LEGACY_LIMITS_MACHINE_MARKER = ".limits-machine"
 ORIENTATION_FILENAME = "orientation.json"
 ORIGIN_FILENAME = "origin.json"
 CALIBRATION_NAME_ENV = "ZMART_CALIBRATION_NAME"
+SUBSYSTEMS = ("limits", "calibration", "orientation", "origin")
 
 # Driver-bundled last-known-good defaults, each owned by its subsystem.
 # The origin has no bundled default: with none set, the frame is absolute
@@ -85,7 +103,8 @@ _BUNDLED_SUBSYSTEM = {
     LIMITS_FILENAME: "limits",
     ORIENTATION_FILENAME: "orientation",
 }
-_BASELINE_FILES = (CALIBRATION_FILENAME, LIMITS_FILENAME, ORIENTATION_FILENAME)
+_SUBSYSTEM_FILENAME = {subsystem: filename for filename, subsystem in _BUNDLED_SUBSYSTEM.items()}
+_SUBSYSTEM_FILENAME["origin"] = ORIGIN_FILENAME
 _SEED_SNAPSHOT_MOMENT = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 _CALIBRATION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
@@ -108,8 +127,22 @@ def is_snapshot_name(name: str) -> bool:
 def _write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2, sort_keys=True)
+        # Payload builders define an operator-readable order. In particular,
+        # limits.json starts with X/Y/Z ranges before optional setter limits.
+        json.dump(payload, fh, indent=2, sort_keys=False)
         fh.write("\n")
+
+
+def _io_path(path: Path) -> str | Path:
+    """Use an extended-length path for deep snapshot evidence on Windows."""
+    if os.name != "nt":
+        return path
+    absolute = str(path.absolute())
+    if absolute.startswith("\\\\?\\"):
+        return absolute
+    if absolute.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + absolute[2:]
+    return "\\\\?\\" + absolute
 
 
 def validate_calibration_name(name: str) -> str:
@@ -150,6 +183,13 @@ class MachineProfile:
     def snapshot_root(self) -> Path:
         return self.root() / self.vendor / self.microscope_id / self.api
 
+    def ensure_layout(self) -> Path:
+        """Create the API root and its subsystem directories if absent."""
+        root = self.snapshot_root()
+        for subsystem in SUBSYSTEMS:
+            (root / subsystem).mkdir(parents=True, exist_ok=True)
+        return root
+
     def legacy_snapshot_root(self) -> Path:
         """The pre-api-level snapshot root (vendor/microscope only).
 
@@ -168,9 +208,9 @@ class MachineProfile:
         )
 
     def migrate_legacy_snapshots(self) -> list[Path]:
-        """One-time move of pre-api-level snapshots under the api level.
+        """Copy pre-api-level snapshots under the api level for migration.
 
-        Returns the moved snapshot paths (empty when there is nothing to do).
+        Returns the copied snapshot paths (empty when there is nothing to do).
         A snapshot whose name already exists under the new root is left in
         place with a warning rather than overwritten.
         """
@@ -181,7 +221,7 @@ class MachineProfile:
                 log.warning("legacy snapshot %s also exists at %s; not moving", src, target)
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(src), str(target))
+            shutil.copytree(src, target)
             moved.append(target)
         return moved
 
@@ -193,37 +233,167 @@ class MachineProfile:
         """
         return _driver_root() / _BUNDLED_SUBSYSTEM[filename] / "defaults" / filename
 
-    def snapshots(self) -> list[Path]:
-        """All well-formed snapshot folders under ``snapshot_root``, oldest first.
+    def subsystem_root(self, subsystem: str) -> Path:
+        """Root containing timestamp folders for one config subsystem."""
+        if subsystem not in SUBSYSTEMS:
+            raise ValueError(f"unknown machine-config subsystem {subsystem!r}")
+        return self.snapshot_root() / subsystem
 
-        Folders whose name is not a valid snapshot stamp (and any files) are
-        ignored - they are not snapshots.
-        """
+    def _flat_snapshots(self) -> list[Path]:
+        """Old API-level snapshots, retained as migration input."""
         root = self.snapshot_root()
         if not root.is_dir():
             return []
-        snaps = [p for p in root.iterdir() if p.is_dir() and is_snapshot_name(p.name)]
-        return sorted(snaps, key=lambda p: p.name)
+        return sorted(
+            (path for path in root.iterdir() if path.is_dir() and is_snapshot_name(path.name)),
+            key=lambda path: path.name,
+        )
 
-    def latest_snapshot(self) -> Path | None:
-        snaps = self.snapshots()
+    def snapshots(self, subsystem: str) -> list[Path]:
+        """Timestamp folders for *subsystem*, oldest first."""
+        root = self.subsystem_root(subsystem)
+        if not root.is_dir():
+            return []
+        required = _SUBSYSTEM_FILENAME[subsystem]
+        return sorted(
+            (
+                path
+                for path in root.iterdir()
+                if path.is_dir()
+                and is_snapshot_name(path.name)
+                and (subsystem != "orientation" or (path / required).is_file())
+            ),
+            key=lambda path: path.name,
+        )
+
+    def latest_snapshot(self, subsystem: str) -> Path | None:
+        snaps = self.snapshots(subsystem)
         return snaps[-1] if snaps else None
 
-    def resolve(self, filename: str) -> tuple[Path, bool]:
-        """Resolve *filename* to a ProgramData path.
+    @staticmethod
+    def _notebook_matches(subsystem: str, path: Path) -> bool:
+        name = path.stem.lower()
+        if subsystem == "limits":
+            return "limit" in name
+        if subsystem == "orientation":
+            return "orientation" in name
+        if subsystem == "calibration":
+            return "limit" not in name and "orientation" not in name
+        return False
 
-        The boolean is kept for older callers; it is always ``False`` because
-        repo defaults are copied into ProgramData before any runtime path is
-        returned.
-        """
-        snapshot = self.ensure_snapshot()
-        path = snapshot / filename
-        if not path.exists():
-            if filename not in _BUNDLED_SUBSYSTEM:
-                raise FileNotFoundError(f"ProgramData file not found: {path}")
-            snapshot = self.publish_snapshot(self._next_auto_moment())
-            path = snapshot / filename
-        return path, False
+    def _migrate_flat_subsystem(self, subsystem: str, source: Path) -> Path:
+        """Copy one old flat snapshot into a subsystem timestamp folder."""
+        target = self.subsystem_root(subsystem) / source.name
+        staging = target.parent / f".{target.name}.partial"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if staging.exists():
+            shutil.rmtree(staging)
+        staging.mkdir()
+        try:
+            filename = _SUBSYSTEM_FILENAME[subsystem]
+            shutil.copy2(source / filename, staging / filename)
+            if subsystem == "calibration":
+                named = source / CALIBRATIONS_DIRNAME
+                if named.is_dir():
+                    shutil.copytree(named, staging / CALIBRATIONS_DIRNAME)
+            for notebook in source.glob("*.ipynb"):
+                if self._notebook_matches(subsystem, notebook):
+                    from ..notebook_support import archive_notebook
+
+                    archive_notebook(
+                        notebook,
+                        staging,
+                        directory="notebook"
+                        if subsystem == "limits"
+                        else Path("data") / "notebook",
+                    )
+            os.replace(staging, target)
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        return target
+
+    def publish_snapshot(
+        self,
+        moment: datetime,
+        *,
+        calibration: dict | None = None,
+        calibration_name: str | None = None,
+        limits: dict | None = None,
+        orientation: dict | None = None,
+        archive_paths: Iterable[str | Path] = (),
+        notebook_paths: Iterable[str | Path] = (),
+    ) -> Path:
+        """Publish exactly one subsystem delta into its timestamp tree."""
+        updates = (
+            ("calibration", calibration),
+            ("limits", limits),
+            ("orientation", orientation),
+        )
+        selected = [(subsystem, payload) for subsystem, payload in updates if payload is not None]
+        if len(selected) != 1:
+            raise ValueError("publish_snapshot requires exactly one subsystem payload")
+        self.migrate_flat_snapshots()
+        subsystem, payload = selected[0]
+        if calibration_name is not None and subsystem != "calibration":
+            raise ValueError("calibration_name requires a calibration payload")
+        return self._publish_subsystem_snapshot(
+            moment,
+            subsystem,
+            payload=payload,
+            calibration_name=calibration_name,
+            archive_paths=archive_paths,
+            notebook_paths=notebook_paths,
+        )
+
+    def migrate_flat_snapshots(self) -> dict[str, Path]:
+        """Copy newest old-layout values into independent subsystem trees."""
+        self.migrate_legacy_snapshots()
+        flat = self._flat_snapshots()
+        migrated: dict[str, Path] = {}
+        for subsystem in ("limits", "calibration", "orientation"):
+            filename = _SUBSYSTEM_FILENAME[subsystem]
+            source = next(
+                (
+                    path
+                    for path in reversed(flat)
+                    if (path / filename).is_file()
+                    and (subsystem != "limits" or (path / LEGACY_LIMITS_MACHINE_MARKER).is_file())
+                ),
+                None,
+            )
+            latest = self.latest_snapshot(subsystem)
+            if source is not None and (latest is None or source.name > latest.name):
+                migrated[subsystem] = self._migrate_flat_subsystem(subsystem, source)
+
+        origin_root = self.subsystem_root("origin")
+        old_origin = origin_root / ORIGIN_FILENAME
+        if old_origin.is_file():
+            moment = datetime.fromtimestamp(old_origin.stat().st_mtime, tz=timezone.utc)
+            latest = self.latest_snapshot("origin")
+            if latest is None or format_snapshot_name(moment) > latest.name:
+                target = self.new_snapshot_dir(moment, "origin")
+                staging = target.parent / f".{target.name}.partial"
+                if staging.exists():
+                    shutil.rmtree(staging)
+                staging.mkdir(parents=True)
+                try:
+                    shutil.copy2(old_origin, staging / ORIGIN_FILENAME)
+                    os.replace(staging, target)
+                except BaseException:
+                    shutil.rmtree(staging, ignore_errors=True)
+                    raise
+                migrated["origin"] = target
+        return migrated
+
+    def resolve(self, filename: str) -> tuple[Path, bool]:
+        """Resolve a baseline filename to its newest subsystem snapshot."""
+        try:
+            subsystem = _BUNDLED_SUBSYSTEM[filename]
+        except KeyError as exc:
+            raise FileNotFoundError(f"unknown ProgramData config file: {filename}") from exc
+        snapshot = self.ensure_snapshot(subsystem)
+        return snapshot / filename, False
 
     def calibration_relpath(self, calibration_name: str) -> Path:
         """Path inside a snapshot for a named calibration set."""
@@ -241,18 +411,29 @@ class MachineProfile:
                 return self.resolve_calibration(env_name)
             return self.resolve(CALIBRATION_FILENAME)
 
+        self.migrate_flat_snapshots()
         rel = self.calibration_relpath(calibration_name)
-        snapshot = self.latest_snapshot()
+        snapshot = self.latest_snapshot("calibration")
         if snapshot is not None:
-            snapshot = self.ensure_snapshot()
             candidate = snapshot / rel
             if candidate.exists():
                 return candidate, False
         default_calibration = json.loads(
             self.bundled_default_path(CALIBRATION_FILENAME).read_text(encoding="utf-8")
         )
+        if calibration_name is not None:
+            # A fresh NAMED set starts with no objectives. An operator creates
+            # a named set precisely to establish their own reference
+            # objective; seeding it with the bundled placeholder numbers
+            # would lock the reference to the placeholder's arbitrary choice
+            # and make "start a new calibration_name" advice impossible to
+            # follow. The first measured pair anchors the origin instead.
+            default_calibration = {
+                "objectives": {},
+                "schema_version": default_calibration["schema_version"],
+            }
         snapshot = self.publish_snapshot(
-            self._next_auto_moment(),
+            self._next_auto_moment("calibration"),
             calibration=default_calibration,
             calibration_name=calibration_name,
         )
@@ -285,52 +466,65 @@ class MachineProfile:
         return path
 
     # --- origin: the operator-set frame zero point -----------------------
+    #
+    # Origin records have their own timestamp tree but remain session-scoped:
+    # connect never reapplies the newest record automatically.
+
+    def origin_dir(self) -> Path:
+        """Root containing this microscope's frame-origin history."""
+        return self.subsystem_root("origin")
+
+    def origin_path(self) -> Path:
+        """Newest persisted frame origin, or a non-existent placeholder path."""
+        self.migrate_flat_snapshots()
+        latest = self.latest_snapshot("origin")
+        return (latest / ORIGIN_FILENAME) if latest else (self.origin_dir() / ORIGIN_FILENAME)
 
     def read_origin(self) -> dict | None:
-        """The persisted frame origin, or None when never set."""
-        latest = self.ensure_snapshot()
-        path = latest / ORIGIN_FILENAME
+        """The last persisted frame origin, or None when never set.
+
+        Not called at connect (the frame is session-scoped and starts
+        absolute); provided for tools and explicit ``get``-style callers.
+        """
+        path = self.origin_path()
         if not path.exists():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
 
-    def write_origin(self, payload: dict) -> Path:
-        """Persist the frame origin into the newest snapshot (atomic replace).
+    def write_origin(self, payload: dict, *, moment: datetime | None = None) -> Path:
+        """Append one timestamped frame-origin record and return its JSON path."""
+        self.migrate_flat_snapshots()
+        if moment is None:
+            moment = datetime.now(timezone.utc)
+            latest = self.latest_snapshot("origin")
+            if latest is not None and format_snapshot_name(moment) <= latest.name:
+                moment = self._next_auto_moment("origin")
+        target = self.new_snapshot_dir(moment, "origin")
+        staging = target.parent / f".{target.name}.partial"
+        staging.mkdir(parents=True, exist_ok=False)
+        try:
+            _write_json(staging / ORIGIN_FILENAME, payload)
+            os.replace(staging, target)
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        return target / ORIGIN_FILENAME
 
-        Returns the written path. A seed snapshot is created first when needed.
-        """
-        latest = self.ensure_snapshot()
-        path = latest / ORIGIN_FILENAME
-        tmp = path.with_suffix(".json.tmp")
-        _write_json(tmp, payload)
-        os.replace(tmp, path)
-        return path
-
-    def new_snapshot_dir(self, moment: datetime) -> Path:
-        """Path for a NEW snapshot stamped from *moment*.
-
-        Raises ``ValueError`` when *moment* would not sort strictly after the
-        current latest snapshot (backward clock / same-microsecond collision),
-        so "newest wins" can never select a stale calibration.
-        """
+    def new_snapshot_dir(self, moment: datetime, subsystem: str) -> Path:
+        """Path for a new snapshot, monotonic within one subsystem."""
         name = format_snapshot_name(moment)
-        latest = self.latest_snapshot()
+        latest = self.latest_snapshot(subsystem)
         if latest is not None and name <= latest.name:
             raise ValueError(
-                f"new snapshot {name!r} does not sort after latest "
+                f"new {subsystem} snapshot {name!r} does not sort after latest "
                 f"{latest.name!r}; the system clock moved backward or a "
                 "same-microsecond collision occurred"
             )
-        return self.snapshot_root() / name
+        return self.subsystem_root(subsystem) / name
 
-    def _next_auto_moment(self) -> datetime:
-        """Timestamp for internal seed/repair snapshots.
-
-        Synthetic defaults should not outrank a later notebook adopt that uses
-        an explicit timestamp, so the first seed is deterministic and old.
-        Repairs sort one microsecond after the current latest snapshot.
-        """
-        latest = self.latest_snapshot()
+    def _next_auto_moment(self, subsystem: str) -> datetime:
+        """Timestamp for a subsystem seed or repair snapshot."""
+        latest = self.latest_snapshot(subsystem)
         if latest is None:
             return _SEED_SNAPSHOT_MOMENT
         latest_moment = datetime.strptime(latest.name, _SNAPSHOT_FORMAT).replace(
@@ -338,15 +532,27 @@ class MachineProfile:
         )
         return latest_moment + timedelta(microseconds=1)
 
-    def _baseline_missing(self, snapshot: Path) -> list[str]:
-        return [filename for filename in _BASELINE_FILES if not (snapshot / filename).exists()]
-
-    def ensure_snapshot(self) -> Path:
-        """Return a complete ProgramData snapshot, seeding defaults if needed."""
-        latest = self.latest_snapshot()
-        if latest is not None and not self._baseline_missing(latest):
+    def ensure_snapshot(self, subsystem: str) -> Path:
+        """Return a complete subsystem snapshot, migrating or seeding as needed."""
+        if subsystem == "origin":
+            raise ValueError("origin has no default snapshot")
+        self.migrate_flat_snapshots()
+        latest = self.latest_snapshot(subsystem)
+        filename = _SUBSYSTEM_FILENAME[subsystem]
+        if latest is not None and (latest / filename).is_file():
             return latest
-        return self.publish_snapshot(self._next_auto_moment())
+        if subsystem == "limits":
+            raise FileNotFoundError(
+                "no operator-published ProgramData limits.json exists; publish one "
+                "with limits/notebooks/set_limits.ipynb"
+            )
+        return self._publish_subsystem_snapshot(
+            self._next_auto_moment(subsystem),
+            subsystem,
+            payload=None,
+            calibration_name=None,
+            notebook_paths=(),
+        )
 
     def _seed_file(
         self,
@@ -375,57 +581,58 @@ class MachineProfile:
         if src.is_dir():
             shutil.copytree(src, staging / CALIBRATIONS_DIRNAME, dirs_exist_ok=True)
 
-    def publish_snapshot(
+    def _publish_subsystem_snapshot(
         self,
         moment: datetime,
+        subsystem: str,
         *,
-        calibration: dict | None = None,
+        payload: dict | None,
         calibration_name: str | None = None,
-        limits: dict | None = None,
-        orientation: dict | None = None,
+        archive_paths: Iterable[str | Path] = (),
         notebook_paths: Iterable[str | Path] = (),
     ) -> Path:
-        """Publish a new cumulative machine-state snapshot (copy-forward + atomic).
-
-        Seeds the new dated folder by carrying the latest ProgramData snapshot's
-        baseline files forward, or copying the repo defaults into ProgramData
-        when no prior file exists. Overrides whichever of *calibration* /
-        *limits* / *orientation* is provided, carries a persisted ``origin.json``
-        forward when one exists, copies the given executed notebook(s) in, then
-        atomically renames the folder into place. The live snapshot is never
-        mutated, so a crash mid-publish cannot corrupt the config the driver is
-        currently reading.
-
-        *moment* must stamp strictly after the latest snapshot
-        (see :meth:`new_snapshot_dir`).
-        Domain validation of the payloads is the caller's job.
-        """
-        prior = self.latest_snapshot()
-        target = self.new_snapshot_dir(moment)  # monotonic guard
-        root = self.snapshot_root()
+        """Publish one subsystem snapshot using copy-forward only within it."""
+        prior = self.latest_snapshot(subsystem)
+        target = self.new_snapshot_dir(moment, subsystem)
+        root = self.subsystem_root(subsystem)
         root.mkdir(parents=True, exist_ok=True)
         staging = root / f".{target.name}.partial"
         if staging.exists():
             shutil.rmtree(staging)
         staging.mkdir()
         try:
+            filename = _SUBSYSTEM_FILENAME[subsystem]
             self._seed_file(
                 staging,
-                CALIBRATION_FILENAME,
-                calibration if calibration_name is None else None,
+                filename,
+                payload if calibration_name is None else None,
                 prior=prior,
             )
-            self._seed_calibrations_dir(staging, prior=prior)
-            if calibration is not None and calibration_name is not None:
-                _write_json(staging / self.calibration_relpath(calibration_name), calibration)
-            self._seed_file(staging, LIMITS_FILENAME, limits, prior=prior)
-            self._seed_file(staging, ORIENTATION_FILENAME, orientation, prior=prior)
-            if prior is not None and (prior / ORIGIN_FILENAME).exists():
-                shutil.copy2(prior / ORIGIN_FILENAME, staging / ORIGIN_FILENAME)
+            if subsystem == "calibration":
+                self._seed_calibrations_dir(staging, prior=prior)
+                if payload is not None and calibration_name is not None:
+                    _write_json(staging / self.calibration_relpath(calibration_name), payload)
+            for source in archive_paths:
+                source = Path(source)
+                destination = staging / source.name
+                if destination.exists():
+                    raise FileExistsError(
+                        f"snapshot archive destination already exists: {destination}"
+                    )
+                if source.is_dir():
+                    shutil.copytree(_io_path(source), _io_path(destination))
+                else:
+                    shutil.copy2(_io_path(source), _io_path(destination))
             for nb in notebook_paths:
+                from ..notebook_support import archive_notebook
+
                 nb = Path(nb)
-                shutil.copy2(nb, staging / nb.name)
-            os.replace(staging, target)  # atomic within snapshot_root
+                archive_notebook(
+                    nb,
+                    staging,
+                    directory="notebook" if subsystem == "limits" else Path("data") / "notebook",
+                )
+            os.replace(staging, target)
         except BaseException:
             shutil.rmtree(staging, ignore_errors=True)
             raise

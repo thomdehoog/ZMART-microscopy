@@ -2,6 +2,13 @@
 
 Vendor OME is parsed as input/provenance. The files written by ``save``
 use this module as the output metadata contract.
+
+Contract with ``ome.py``: that module owns TIFF tag-270 access
+(:func:`ome.read_tiff_tag_270`) and the validate/patch side; this module
+GENERATES metadata and only ever reads existing OME through that public
+function. How long generation waits for a live settings read is policy
+owned here (``JOB_SETTINGS_READ_TIMEOUT_S``); the bounded-read mechanism
+itself lives in ``readers.get_job_settings_bounded``.
 """
 
 from __future__ import annotations
@@ -12,12 +19,10 @@ import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import replace
 from pathlib import Path
-from threading import Event, Thread
 from typing import Any
 
 from .. import readers as _readers
-from .. import utils as _core_utils
-from ..commands import settings as _core_settings
+from ..readers import parsing as _parsing
 from . import ome as _ome
 from .product import AcquisitionMetadata, ChannelMetadata, PlaneIndex
 
@@ -127,7 +132,9 @@ def metadata_with_job_physical_sizes(
     instead of the OME inter-plane spacing. The job settings are the
     authoritative source for physical sampling when they can be read quickly.
     """
-    settings = _read_job_settings_bounded(client, job_name, timeout_s=read_timeout_s)
+    settings = _readers.get_job_settings_bounded(
+        client, job_name, deadline_s=read_timeout_s, api_timeout=JOB_SETTINGS_API_TIMEOUT_S
+    )
     if not isinstance(settings, dict):
         # A transient slow read silently keeps the vendor values — including
         # the known-wrong native-AutoSave PhysicalSizeZ. Say so out loud.
@@ -217,7 +224,7 @@ def extract_embedded_ome_xml(tiff_src: Path) -> bytes:
     except OSError as e:
         raise RuntimeError(f"Could not read embedded OME source {tiff_src}: {e}") from e
 
-    xml_raw, _offset, _count, _entry_pos, endian_or_err = _ome._read_tiff_tag_270(data)
+    xml_raw, _offset, _count, _entry_pos, endian_or_err = _ome.read_tiff_tag_270(data)
     if xml_raw is not None:
         return xml_raw
 
@@ -460,45 +467,11 @@ def _ensure_channels(metadata: AcquisitionMetadata) -> AcquisitionMetadata:
 _UNKNOWN = object()
 
 
-def _read_job_settings_bounded(
-    client: Any,
-    job_name: str,
-    *,
-    timeout_s: float,
-) -> dict | None:
-    if client is None or not job_name:
-        return None
-
-    done = Event()
-    result: dict[str, Any] = {}
-
-    def _worker() -> None:
-        try:
-            result["settings"] = _readers.get_job_settings(
-                client,
-                job_name,
-                mode="api",
-                timeout=JOB_SETTINGS_API_TIMEOUT_S,
-                poll_interval=0.01,
-                max_retries=1,
-            )
-        except Exception as e:  # pragma: no cover - defensive boundary
-            result["error"] = e
-        finally:
-            done.set()
-
-    Thread(target=_worker, daemon=True).start()
-    if not done.wait(max(0.0, float(timeout_s))):
-        return None
-    settings = result.get("settings")
-    return settings if isinstance(settings, dict) else None
-
-
 def _xy_pixel_sizes_from_job_settings(
     settings: dict,
 ) -> tuple[float | object, float | object]:
     try:
-        geom = _core_utils.parse_tile_geometry(settings)
+        geom = _parsing.parse_tile_geometry(settings)
     except Exception:
         return _UNKNOWN, _UNKNOWN
     x_um = _positive_float_or_unknown(geom.get("pixel_w_um"))
@@ -507,7 +480,7 @@ def _xy_pixel_sizes_from_job_settings(
 
 
 def _z_spacing_from_job_settings(settings: dict) -> float | None | object:
-    stack = _stack_from_job_settings(settings)
+    stack = _parsing.stack_from_settings(settings)
     if not stack:
         return _UNKNOWN
 
@@ -519,27 +492,6 @@ def _z_spacing_from_job_settings(settings: dict) -> float | None | object:
     if sections <= 1:
         return None
     return abs(end - begin) / float(sections - 1)
-
-
-def _stack_from_job_settings(settings: dict) -> dict | None:
-    stack = None
-    try:
-        normalized = _core_settings.make_changeable_copy(settings)
-    except Exception:
-        normalized = None
-    if isinstance(normalized, dict) and isinstance(normalized.get("stack"), dict):
-        stack = normalized["stack"]
-
-    required = ("begin", "end", "sections")
-    if not stack or any(stack.get(k) is None for k in required):
-        raw_stack = settings.get("stack") if isinstance(settings, dict) else None
-        if isinstance(raw_stack, dict):
-            stack = {
-                "begin": raw_stack.get("begin"),
-                "end": raw_stack.get("end"),
-                "sections": raw_stack.get("sections"),
-            }
-    return stack
 
 
 def _add_physical(attrs: dict[str, str], axis: str, value_um: float | None) -> None:

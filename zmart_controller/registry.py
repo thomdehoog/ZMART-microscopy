@@ -48,7 +48,7 @@ OPS: tuple[str, ...] = (
     "set_state",
     "get_procedures",
     "run_procedure",
-    "get_context",
+    "get_info",
 )
 
 # The keys the registry indexes on. Everything else in a connection dict is
