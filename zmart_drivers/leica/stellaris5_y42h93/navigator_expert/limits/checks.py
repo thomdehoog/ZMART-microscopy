@@ -42,14 +42,16 @@ from typing import Any
 # Hardcoded physical backstop
 # =============================================================================
 
-# !! VERIFY ON RIG !! -------------------------------------------------------
+# !! PARTIALLY VERIFIED ON RIG !! -------------------------------------------
 # Absolute coordinate backstop for the motoric stage and both z drives
 # (micrometers, [min, max] per axis). The bundled X/Y defaults deliberately
 # start at 1000 um as a conservative safety margin; that margin is not the
-# physical coordinate floor. Operator-measured limits may therefore extend
-# below the default margin, down to coordinate zero. The upper bounds and Z
-# bounds remain pinned to the historical ZMB STELLARIS 5 (serial y42h93)
-# envelope until someone verifies different travel on the rig.
+# physical coordinate floor, so operator-measured limits may extend below
+# it, down to coordinate zero. The z-wide maximum of 8000 um is the
+# MEASURED travel of this stage (operator-confirmed at the rig,
+# 2026-07-19). The X/Y upper bounds and the z-galvo range remain the
+# historical ZMB STELLARIS 5 (serial y42h93) envelope until someone
+# verifies different travel on the rig.
 # NEVER widen these without measured rig data; narrowing is always safe.
 # ---------------------------------------------------------------------------
 STAGE_BACKSTOP_UM = {
